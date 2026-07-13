@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Portafolios · MT5 Autotester Manager</title><link rel="stylesheet" href="/styles.css"></head>
+<body class="portfolio-page">
+  <header><div><p class="eyebrow" id="portfolio-eyebrow">PORTAFOLIO UBS</p><h1 id="portfolio-title">Cargando…</h1><p id="portfolio-subtitle" class="subtitle">Portafolios guardados</p></div><div class="header-actions"><a class="button secondary" href="/">Volver al manager</a><button id="portfolio-refresh" class="secondary">Actualizar</button></div></header>
+  <main>
+    <section id="portfolio-summary" class="summary"></section>
+    <section class="portfolio-layout">
+      <aside class="portfolio-list-panel"><div class="panel-title"><h2 id="portfolio-list-title">Guardados</h2><span id="portfolio-count"></span></div><div id="portfolio-list" class="portfolio-list">Cargando…</div></aside>
+      <section class="portfolio-detail-panel"><div id="portfolio-empty" class="portfolio-empty">Selecciona un portafolio.</div><div id="portfolio-detail" hidden>
+        <div class="portfolio-detail-head"><div><p class="eyebrow">DETALLE</p><h2 id="detail-title"></h2><p id="detail-meta" class="subtitle"></p></div><span id="detail-type" class="badge completed"></span></div>
+        <div id="detail-metrics" class="detail-metrics"></div><p id="detail-note" class="portfolio-note"></p>
+        <div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th>Variante</th><th>Set</th><th>Símbolo</th><th>TF</th><th>Unidades</th><th>Lote</th><th>Net</th><th>DD valle</th><th>DD puntual</th><th>Margen</th></tr></thead><tbody id="portfolio-members"></tbody></table></div>
+      </div></section>
+    </section>
+  </main><div id="toast" role="status"></div><script src="/portfolios.js"></script>
+</body></html>

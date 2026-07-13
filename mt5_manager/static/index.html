@@ -41,10 +41,14 @@
       </div>
       <label class="check"><input id="execute" type="checkbox" checked> Ejecutar backtests MT5</label>
       <div class="pipeline-options">
-        <p>Pruebas posteriores</p>
+        <p>Después de Resultado</p>
         <label class="check"><input id="run-robustness" type="checkbox"> Robustez OOS</label>
         <label class="check"><input id="run-final-tick" type="checkbox"> Final Tick</label>
         <label class="check"><input id="run-final-tick-6m" type="checkbox"> Final Tick 6M</label>
+      </div>
+      <div class="auto-repair-options">
+        <label class="check"><input id="repair-after-generation" type="checkbox"> Reparar después de completar el run</label>
+        <label>Reintentos por run<input id="generation-repair-attempts" type="number" min="1" max="20" value="1" required></label>
       </div>
       <p id="capability-note" class="capability-note" hidden></p>
       <label class="check"><input id="dry-run" type="checkbox"> Simulación (dry-run)</label>
@@ -62,7 +66,13 @@
       <button class="icon-button" onclick="this.closest('dialog').close()">×</button>
     </div>
     <input type="hidden" id="repair-node-id">
-    <p class="repair-help">Ejecutará pendientes de Robustez OOS → Final Tick → Final Tick 6M usando un solo terminal MT5.</p>
+    <p class="repair-help">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Ejecutará las pruebas pendientes usando un solo terminal MT5.</p>
+    <div class="repair-options">
+      <label>Número de reintentos
+        <input id="repair-attempts" type="number" min="1" max="20" value="1" oninput="setRepairAttempts(Number(this.value))">
+      </label>
+      <label class="check repair-quality"><input id="repair-low-quality" type="checkbox" checked> Reprobar calidad baja en Corto y 6M</label>
+    </div>
     <div id="repair-runs" class="repair-runs">Cargando runs…</div>
     <div class="dialog-actions">
       <button class="secondary" onclick="this.closest('dialog').close()">Cancelar</button>

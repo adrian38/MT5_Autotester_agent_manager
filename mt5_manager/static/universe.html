@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Universo · MT5 Autotester Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="universe-page">
+  <header>
+    <div><p class="eyebrow">UNIVERSO DE ACTIVOS</p><h1 id="universe-title">Cargando…</h1><p id="universe-subtitle" class="subtitle">Política de generación y seeds</p></div>
+    <div class="header-actions"><a class="button secondary" href="/">Volver al manager</a><button id="universe-refresh" class="secondary">Actualizar</button></div>
+  </header>
+  <main>
+    <section id="universe-summary" class="summary"></section>
+    <section class="universe-panel">
+      <div class="universe-toolbar">
+        <label>Buscar símbolo, grupo o alias<input id="universe-search" type="search" placeholder="Ej. EURUSD, Forex…"></label>
+        <label>Mostrar<select id="universe-filter"><option value="all">Todos</option><option value="enabled">Generación activa</option><option value="disabled">Generación desactivada</option><option value="seed-only">Solo seed</option><option value="blocked">Bloqueados</option></select></label>
+      </div>
+      <p class="universe-help">Generar activo permite también usar el símbolo como seed. Si desactivas Generar, puedes mantener “Usar como seed” activo o bloquearlo por completo.</p>
+      <div class="universe-table-wrap"><table class="universe-table">
+        <thead><tr><th>Símbolo</th><th>Grupo</th><th>Aliases</th><th>Generar</th><th>Usar como seed</th></tr></thead>
+        <tbody id="universe-rows"><tr><td colspan="5">Cargando universo…</td></tr></tbody>
+      </table></div>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/universe.js"></script>
+</body>
+</html>

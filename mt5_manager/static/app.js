@@ -20,6 +20,18 @@ function toast(message, error = false) {
   setTimeout(() => { element.className = ''; }, 3500);
 }
 
+async function readJsonResponse(response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch (_error) {
+    const detail = response.ok
+      ? 'El servidor devolvió una respuesta no válida.'
+      : `El servidor respondió HTTP ${response.status}.`;
+    throw new Error(`${detail} Actualiza o reinicia el manager e inténtalo de nuevo.`);
+  }
+}
+
 function total(counts) {
   return Object.values(counts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
 }
@@ -36,13 +48,87 @@ function statusOf(node) {
   return node.job?.status || 'idle';
 }
 
+function pipelineStepLabel(job) {
+  const cycle = job.current_cycle;
+  const stage = job.current_stage || 'generation';
+  return job.current_attempt != null
+    ? `cycle_${cycle}_attempt_${job.current_attempt}_${stage}`
+    : `cycle_${cycle}_${stage}`;
+}
+
+function liveExecution(node, state) {
+  if (state !== 'running') return '';
+  const job = node.job || {};
+  const request = job.request || {};
+  const progress = node.live_progress || {};
+  const labels = {
+    generation: 'Generación del run',
+    result: 'Resultado · Continuar run',
+    robustness: 'Robustez OOS',
+    final_tick: 'Final Tick',
+    final_tick_quality: 'Reintento de calidad · Final Tick',
+    final_tick_6m: 'Final Tick 6M',
+    final_tick_6m_quality: 'Reintento de calidad · Final Tick 6M',
+  };
+  const cycleText = job.current_cycle
+    ? `Ciclo ${job.current_cycle}/${Number(request.cycles || 1)}`
+    : 'Ejecución activa';
+  const attemptText = job.current_attempt != null
+    ? ` · reparación ${job.current_attempt}/${Number(request.repair_attempts || 1)}`
+    : '';
+  const pending = Number((job.stage_pending_counts || {})[pipelineStepLabel(job)] || 0);
+  const completed = Number(progress.jobs_completed || 0);
+  const active = Number(progress.active_jobs || 0);
+  const remaining = progress.remaining_queue == null ? null : Number(progress.remaining_queue);
+  const observedTotal = completed + active + Number(remaining || 0);
+  const totalJobs = Math.max(pending, observedTotal);
+  const hasJobEvents = Number(progress.jobs_started || 0) > 0;
+  const percent = totalJobs > 0 ? Math.min(100, Math.round(completed * 100 / totalJobs)) : 0;
+  const details = [];
+  if (hasJobEvents && totalJobs > 0) details.push(`${completed}/${totalJobs} completadas`);
+  else if (pending > 0) details.push(`${pending} candidatos preparados · MT5 ejecutándose`);
+  if (active > 0) details.push(`${active} activa${active === 1 ? '' : 's'}`);
+  if (remaining != null) details.push(`${remaining} en cola`);
+  if (progress.last_job != null) details.push(`job #${progress.last_job}`);
+  if (Number(progress.waiting_seconds || 0) >= 30) details.push(`esperando ${progress.waiting_seconds}s`);
+  return `<div class="live-execution">
+    <div class="live-execution-head"><strong>${esc(cycleText + attemptText)}</strong><span>${esc(labels[job.current_stage] || job.current_stage || 'Procesando')}</span></div>
+    ${totalJobs > 0 ? `<div class="progress-track ${hasJobEvents ? '' : 'indeterminate'}"><span style="width:${hasJobEvents ? percent : 35}%"></span></div>` : ''}
+    <div class="live-execution-detail">${esc(details.join(' · ') || 'Preparando etapa…')}</div>
+  </div>`;
+}
+
+function stageBlock(node, state, title, data, stageIndex, stageKey) {
+  const saved = total(data);
+  const job = node.job || {};
+  const currentMap = {generation:0,result:0,robustness:1,final_tick:2,final_tick_quality:2,final_tick_6m:3,final_tick_6m_quality:3};
+  const currentIndex = currentMap[job.current_stage];
+  const running = state === 'running' && currentIndex === stageIndex;
+  const waiting = state === 'running' && currentIndex != null && stageIndex > currentIndex;
+  const pending = running ? Number((job.stage_pending_counts || {})[pipelineStepLabel(job)] || 0) : 0;
+  let counter = String(saved);
+  let body = chips(data);
+  if (running && pending > 0) {
+    counter = saved > 0 ? `${saved} guardados · ${pending} en proceso` : `${pending} en proceso`;
+    const processing = `<span class="chip running">procesando · ${pending}</span>`;
+    body = saved > 0 ? body + processing : processing;
+  } else if (waiting) {
+    const waitLabels = ['Resultado','Robustez OOS','Final Tick','Final Tick 6M'];
+    counter = saved > 0 ? `${saved} guardados` : 'Pendiente';
+    if (!saved) body = `<span class="chip waiting">Esperando ${esc(waitLabels[currentIndex] || 'fase anterior')}</span>`;
+  }
+  return `<div class="stage"><div class="stage-title"><span>${title}</span><span>${counter}</span></div><div class="chips">${body}</div></div>`;
+}
+
 function settingsFor(node, id) {
   if (!cardSettings[id]) {
-    const defaults = node.launch_defaults || {};
+    const defaults = {...(node.launch_defaults || {}), ...(node.launch_preferences || {})};
     cardSettings[id] = {
       cycles: Number(defaults.cycles || 1),
       generation_mode: defaults.generation_mode || 'production',
       max_workers: Number(defaults.max_workers || 1),
+      repair_attempts: Number(defaults.repair_attempts || 1),
+      repair_after_generation: Boolean(defaults.repair_after_generation),
       run_robustness: Boolean(defaults.run_robustness),
       run_final_tick: Boolean(defaults.run_final_tick),
       run_final_tick_6m: Boolean(defaults.run_final_tick_6m),
@@ -63,7 +149,7 @@ function launchControls(node, id) {
       <div class="launch-config-title">Configuración de la próxima ejecución</div>
       <label>Ciclos
         <input id="card-cycles-${key}" type="number" min="1" max="100" value="${values.cycles}"
-          onchange="setCardValue('${esc(id)}','cycles',Number(this.value))">
+          oninput="setCardValue('${esc(id)}','cycles',Number(this.value))">
       </label>
       <label>Modo
         <select id="card-mode-${key}" onchange="setCardValue('${esc(id)}','generation_mode',this.value)">
@@ -73,7 +159,7 @@ function launchControls(node, id) {
       </label>
       <label>Terminales MT5
         <input id="card-workers-${key}" type="number" min="1" max="64" value="${values.max_workers}"
-          onchange="setCardValue('${esc(id)}','max_workers',Number(this.value))">
+          oninput="setCardValue('${esc(id)}','max_workers',Number(this.value))">
       </label>
       <div class="card-pipeline">
         <label class="check"><input id="card-robust-${key}" type="checkbox" ${values.run_robustness ? 'checked' : ''}
@@ -83,12 +169,44 @@ function launchControls(node, id) {
         <label class="check"><input id="card-6m-${key}" type="checkbox" ${values.run_final_tick_6m ? 'checked' : ''}
           onchange="syncCardPipeline('${esc(id)}','final_tick_6m',this.checked)"> Final Tick 6M</label>
       </div>
+      <div class="card-auto-repair">
+        <label class="check"><input type="checkbox" ${values.repair_after_generation ? 'checked' : ''}
+          onchange="syncAutoRepair('${esc(id)}',this.checked)"> Reparar después de completar el run</label>
+        <label>Reintentos por run
+          <input type="number" min="1" max="20" value="${values.repair_attempts}"
+            ${values.repair_after_generation ? '' : 'disabled'}
+            oninput="setCardValue('${esc(id)}','repair_attempts',Number(this.value))">
+        </label>
+      </div>
     </div>`;
 }
 
 function setCardValue(id, key, value) {
   const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
   settingsFor(node, id)[key] = value;
+  persistCardSettings(id, {[key]: value});
+}
+
+async function persistCardSettings(id, changes) {
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/preferences`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(changes),
+      keepalive: true,
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+  } catch (error) {
+    toast(`No se pudo guardar la configuración: ${error.message}`, true);
+  }
+}
+
+function syncAutoRepair(id, checked) {
+  const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
+  settingsFor(node, id).repair_after_generation = checked;
+  persistCardSettings(id, {repair_after_generation: checked});
+  render();
 }
 
 function syncCardPipeline(id, stage, checked) {
@@ -111,6 +229,11 @@ function syncCardPipeline(id, stage, checked) {
       values.run_final_tick = true;
     }
   }
+  persistCardSettings(id, {
+    run_robustness: values.run_robustness,
+    run_final_tick: values.run_final_tick,
+    run_final_tick_6m: values.run_final_tick_6m,
+  });
   render();
 }
 
@@ -134,16 +257,22 @@ function render() {
     const run = node.database?.latest_run;
     const stages = node.database?.stages || {};
     const stageHtml = [
-      ['Generación', stages.generation], ['Robustez OOS', stages.robustness],
-      ['Final Tick', stages.final_tick], ['Final Tick 6M', stages.final_tick_6m],
-    ].map(([title, data]) => `<div class="stage"><div class="stage-title"><span>${title}</span><span>${total(data)}</span></div><div class="chips">${chips(data)}</div></div>`).join('');
+      ['Resultado', stages.generation, 0, 'generation'], ['Robustez OOS', stages.robustness, 1, 'robustness'],
+      ['Final Tick', stages.final_tick, 2, 'final_tick'], ['Final Tick 6M', stages.final_tick_6m, 3, 'final_tick_6m'],
+    ].map(([title, data, index, key]) => stageBlock(node, state, title, data, index, key)).join('');
     const runText = run
       ? `Run <strong>#${run.id}</strong> · ${esc(run.created_at)} · generación ${node.database?.max_generation || 0}/${run.generations || '?'}`
       : 'Todavía no hay runs en la memoria SQLite.';
-    const repairButton = node.capabilities?.pipeline_controls
+    const repairButton = node.capabilities?.repair_runs
       ? `<button class="secondary" onclick="openRepair('${esc(id)}','${esc(name)}')" ${state === 'running' ? 'disabled' : ''}>Reparar</button>`
       : '';
-    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' ? 'disabled' : ''}>Iniciar</button>${repairButton}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
+    const universeButton = node.capabilities?.universe_management
+      ? `<a class="button secondary" href="/universe.html?node=${encodeURIComponent(id)}">Universo</a>`
+      : '';
+    const portfolioButtons = node.capabilities?.portfolio_views
+      ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}&scope=full_history">Portafolio UBS</a><a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}&scope=monthly">Portafolio mensual</a>`
+      : '';
+    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' ? 'disabled' : ''}>Iniciar</button>${repairButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
   }).join('');
 }
 
@@ -153,7 +282,7 @@ async function refresh() {
   refreshState.textContent = 'Actualizando…';
   try {
     const response = await fetch('/api/nodes', {cache: 'no-store'});
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     nodeData = data.nodes;
     render();
@@ -185,6 +314,10 @@ function openStart(id, name) {
   document.querySelector('#run-robustness').checked = advanced && selected.run_robustness;
   document.querySelector('#run-final-tick').checked = advanced && selected.run_final_tick;
   document.querySelector('#run-final-tick-6m').checked = advanced && selected.run_final_tick_6m;
+  document.querySelector('#repair-after-generation').checked = advanced && selected.repair_after_generation;
+  document.querySelector('#generation-repair-attempts').value = selected.repair_attempts;
+  document.querySelector('#repair-after-generation').disabled = !advanced;
+  document.querySelector('#generation-repair-attempts').disabled = !advanced || !selected.repair_after_generation || !document.querySelector('#execute').checked;
   document.querySelectorAll('#run-robustness,#run-final-tick,#run-final-tick-6m').forEach(element => { element.disabled = !advanced; });
   const note = document.querySelector('#capability-note');
   note.hidden = advanced && workers;
@@ -207,13 +340,22 @@ document.querySelector('#start-form').addEventListener('submit', async event => 
     run_robustness: document.querySelector('#run-robustness').checked,
     run_final_tick: document.querySelector('#run-final-tick').checked,
     run_final_tick_6m: document.querySelector('#run-final-tick-6m').checked,
+    repair_after_generation: document.querySelector('#repair-after-generation').checked,
+    repair_attempts: Number(document.querySelector('#generation-repair-attempts').value),
     dry_run: document.querySelector('#dry-run').checked,
   };
+  const saved = settingsFor(nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {}, id);
+  saved.repair_after_generation = payload.repair_after_generation;
+  saved.repair_attempts = payload.repair_attempts;
+  persistCardSettings(id, {
+    repair_after_generation: payload.repair_after_generation,
+    repair_attempts: payload.repair_attempts,
+  });
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/start`, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
     });
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     startDialog.close();
     toast(`Pipeline iniciado en ${id}`);
@@ -226,12 +368,14 @@ document.querySelector('#start-form').addEventListener('submit', async event => 
 async function openRepair(id, name) {
   document.querySelector('#repair-node-id').value = id;
   document.querySelector('#repair-title').textContent = `Reparar · ${name}`;
+  const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
+  document.querySelector('#repair-attempts').value = settingsFor(node, id).repair_attempts;
   const container = document.querySelector('#repair-runs');
   container.textContent = 'Cargando runs terminados…';
   repairDialog.showModal();
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/runs?limit=100`, {cache: 'no-store'});
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     const runs = (data.runs || []).filter(run => run.completed);
     if (!runs.length) {
@@ -250,6 +394,12 @@ async function openRepair(id, name) {
   }
 }
 
+function setRepairAttempts(value) {
+  const id = document.querySelector('#repair-node-id').value;
+  if (!id) return;
+  setCardValue(id, 'repair_attempts', Math.max(1, Math.min(20, Number(value) || 1)));
+}
+
 async function submitRepair() {
   const id = document.querySelector('#repair-node-id').value;
   const runIds = [...document.querySelectorAll('input[name="repair-run"]:checked')].map(element => Number(element.value));
@@ -261,12 +411,16 @@ async function submitRepair() {
   button.disabled = true;
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/repair`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({run_ids: runIds}),
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+        run_ids: runIds,
+        repair_attempts: Number(document.querySelector('#repair-attempts').value),
+        retry_low_quality: document.querySelector('#repair-low-quality').checked,
+      }),
     });
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     repairDialog.close();
-    toast(`Reparación iniciada para ${runIds.length} run(s).`);
+    toast(`Reparación iniciada para ${runIds.length} run(s), ${document.querySelector('#repair-attempts').value} intento(s).`);
     await refresh();
   } catch (error) {
     toast(error.message, true);
@@ -279,7 +433,7 @@ async function stopNode(id) {
   if (!confirm(`¿Detener el proceso activo en ${id}?`)) return;
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/stop`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     toast(`Detención solicitada en ${id}`);
     setTimeout(refresh, 1000);
@@ -292,7 +446,7 @@ async function showLogs(id, name) {
   logDialog.showModal();
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/logs?lines=400`);
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     document.querySelector('#log-content').textContent = (data.lines || []).join('\n') || 'Sin salida todavía.';
   } catch (error) { document.querySelector('#log-content').textContent = error.message; }
@@ -320,13 +474,22 @@ document.querySelector('#execute').addEventListener('change', event => {
     element.disabled = !event.target.checked || !supported;
     if (!event.target.checked) element.checked = false;
   });
+  const autoRepair = document.querySelector('#repair-after-generation');
+  autoRepair.disabled = !event.target.checked || !supported;
+  if (!event.target.checked) autoRepair.checked = false;
+  document.querySelector('#generation-repair-attempts').disabled = !autoRepair.checked || autoRepair.disabled;
+});
+document.querySelector('#repair-after-generation').addEventListener('change', event => {
+  document.querySelector('#generation-repair-attempts').disabled = !event.target.checked;
 });
 document.querySelector('#refresh').addEventListener('click', refresh);
 window.openStart = openStart;
 window.openRepair = openRepair;
 window.submitRepair = submitRepair;
+window.setRepairAttempts = setRepairAttempts;
 window.setCardValue = setCardValue;
 window.syncCardPipeline = syncCardPipeline;
+window.syncAutoRepair = syncAutoRepair;
 window.stopNode = stopNode;
 window.showLogs = showLogs;
 window.refresh = refresh;
