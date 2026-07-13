@@ -1,0 +1,19 @@
+{
+  "node_id": "ictrading-standard-pc1",
+  "display_name": "ICTrading Standard",
+  "broker": "ICTRADING",
+  "account_type": "STANDARD",
+  "project_dir": "C:\\Users\\USUARIO\\ruta\\MT5_Autotester_agent",
+  "settings_file": "ui_settings.ini",
+  "python_executable": "python",
+  "host": "0.0.0.0",
+  "port": 8761,
+  "token": "CAMBIAR-POR-UN-SECRETO-LARGO",
+  "defaults": {
+    "generations": 2,
+    "variants_per_seed": 10,
+    "max_seeds": 30,
+    "generation_mode": "production",
+    "execute_backtests": true
+  }
+}

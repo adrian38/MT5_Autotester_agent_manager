@@ -1,0 +1,24 @@
+{
+  "host": "127.0.0.1",
+  "port": 8750,
+  "nodes": [
+    {
+      "id": "roboforex-ecn-pc2",
+      "name": "RoboForex ECN",
+      "url": "http://192.168.1.20:8761",
+      "token": "MISMO-SECRETO-QUE-EN-SU-NODE-JSON"
+    },
+    {
+      "id": "ictrading-standard-pc1",
+      "name": "ICTrading Standard",
+      "url": "http://192.168.1.10:8761",
+      "token": "MISMO-SECRETO-QUE-EN-SU-NODE-JSON"
+    },
+    {
+      "id": "axi-standard-pc2",
+      "name": "AXI Standard",
+      "url": "http://192.168.1.20:8762",
+      "token": "MISMO-SECRETO-QUE-EN-SU-NODE-JSON"
+    }
+  ]
+}

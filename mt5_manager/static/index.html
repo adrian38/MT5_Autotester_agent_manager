@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MT5 Autotester Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">CONTROL DISTRIBUIDO</p>
+      <h1>MT5 Autotester Manager</h1>
+      <p class="subtitle">Generaciones y estado de brokers en la red local</p>
+    </div>
+    <div class="header-actions">
+      <span id="refresh-state">Actualizando…</span>
+      <button id="refresh" class="secondary">Actualizar</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="summary" class="summary"></section>
+    <section id="nodes" class="nodes" aria-live="polite"></section>
+  </main>
+
+  <dialog id="start-dialog">
+    <form method="dialog" id="start-form">
+      <div class="dialog-head">
+        <div><p class="eyebrow">NUEVA EJECUCIÓN</p><h2 id="dialog-title">Iniciar generación</h2></div>
+        <button value="cancel" class="icon-button" aria-label="Cerrar">×</button>
+      </div>
+      <input type="hidden" id="node-id">
+      <div class="form-grid">
+        <label>Ciclos completos<input id="cycles" type="number" min="1" max="100" value="1" required></label>
+        <label>Generaciones<input id="generations" type="number" min="1" max="1000" value="2" required></label>
+        <label>Variantes por seed<input id="variants" type="number" min="1" max="10000" value="10" required></label>
+        <label>Máx. seeds/generación<input id="max-seeds" type="number" min="0" max="100000" value="30" required></label>
+        <label>Modo<select id="mode"><option value="production">Producción</option><option value="discovery">Descubrimiento</option></select></label>
+        <label>Terminales MT5<input id="max-workers" type="number" min="1" max="64" value="1" required></label>
+      </div>
+      <label class="check"><input id="execute" type="checkbox" checked> Ejecutar backtests MT5</label>
+      <div class="pipeline-options">
+        <p>Pruebas posteriores</p>
+        <label class="check"><input id="run-robustness" type="checkbox"> Robustez OOS</label>
+        <label class="check"><input id="run-final-tick" type="checkbox"> Final Tick</label>
+        <label class="check"><input id="run-final-tick-6m" type="checkbox"> Final Tick 6M</label>
+      </div>
+      <p id="capability-note" class="capability-note" hidden></p>
+      <label class="check"><input id="dry-run" type="checkbox"> Simulación (dry-run)</label>
+      <div class="dialog-actions"><button value="cancel" class="secondary">Cancelar</button><button id="submit-start" value="default">Iniciar generación</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="log-dialog" class="log-dialog">
+    <div class="dialog-head"><div><p class="eyebrow">SALIDA DEL PROCESO</p><h2 id="log-title">Log</h2></div><button class="icon-button" onclick="this.closest('dialog').close()">×</button></div>
+    <pre id="log-content">Cargando…</pre>
+  </dialog>
+  <dialog id="repair-dialog" class="repair-dialog">
+    <div class="dialog-head">
+      <div><p class="eyebrow">REPARAR PIPELINE</p><h2 id="repair-title">Seleccionar runs</h2></div>
+      <button class="icon-button" onclick="this.closest('dialog').close()">×</button>
+    </div>
+    <input type="hidden" id="repair-node-id">
+    <p class="repair-help">Ejecutará pendientes de Robustez OOS → Final Tick → Final Tick 6M usando un solo terminal MT5.</p>
+    <div id="repair-runs" class="repair-runs">Cargando runs…</div>
+    <div class="dialog-actions">
+      <button class="secondary" onclick="this.closest('dialog').close()">Cancelar</button>
+      <button id="repair-submit" onclick="submitRepair()">Reparar seleccionados</button>
+    </div>
+  </dialog>
+  <div id="toast" role="status"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
