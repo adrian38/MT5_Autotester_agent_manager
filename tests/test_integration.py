@@ -14,6 +14,8 @@ from pathlib import Path
 
 from mt5_manager.manager import ManagerServer
 from mt5_manager.node import JobController, NodeServer
+from mt5_manager.portfolio_service import normalize_settings
+from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
 
 
 class LocalIntegrationTests(unittest.TestCase):
@@ -203,6 +205,68 @@ enabled=0
         self.assertEqual(monthly["portfolios"][0]["target_month"], 7)
         with urllib.request.urlopen(self.base + "/portfolios.html?node=test-node&scope=monthly", timeout=3) as response:
             self.assertIn("Portafolios guardados", response.read().decode("utf-8"))
+
+    def test_manager_saves_portfolio_exclusively_through_node_api(self) -> None:
+        portfolio_memory = self.root / "portfolio-save.sqlite"
+        portfolio_memory.touch()
+        self.controller.config["memory_path"] = str(portfolio_memory)
+        settings = normalize_settings(
+            "full_history", {"capital": 5000, "valley_dd_pct": 6}, "TEST"
+        )
+
+        def proposal(key: str, label: str, units: int) -> dict[str, object]:
+            inputs = {
+                **settings,
+                "portfolio_type": key,
+                "composition_portfolio_type": "balanced",
+            }
+            allocation = StrategyAllocation(
+                "same.set", "TEST/DEMO:1", "EURUSD", units, units * 0.01,
+                units * 100, units * 20, units * 10, "H1", "same.set",
+                "is.html", "oos.html", 0.01,
+            )
+            result = PortfolioResult(
+                [allocation], [0, units * 100], units * 100, units * 20, units * 10,
+                300, 300, 10, 5, units * 0.01, units, 1, "ok", [], [],
+            )
+            return {
+                "key": key, "label": label, "reserve_pct": 10,
+                "inputs": inputs, "result": result,
+            }
+
+        coordinator = self.manager.portfolios
+        state_key = coordinator._key("test-node", "full_history")
+        coordinator.proposals[state_key] = [
+            proposal("aggressive", "Agresivo", 3),
+            proposal("balanced", "Moderado", 2),
+            proposal("conservative", "Conservador", 1),
+        ]
+        coordinator.jobs[state_key] = {
+            "id": "integration-save", "status": "completed", "operation": "generate"
+        }
+
+        status, saved = self.request(
+            "/api/nodes/test-node/portfolio-manager/save",
+            {"scope": "full_history", "proposal_key": "balanced"},
+        )
+
+        self.assertEqual(status, 201)
+        self.assertGreater(saved["portfolio_id"], 0)
+        with closing(sqlite3.connect(portfolio_memory)) as conn:
+            row = conn.execute(
+                "select id,portfolio_type,capital from portfolios where id=?",
+                (saved["portfolio_id"],),
+            ).fetchone()
+            variants = conn.execute(
+                "select distinct variant_key from portfolio_allocations where portfolio_id=?",
+                (saved["portfolio_id"],),
+            ).fetchall()
+        self.assertEqual(row, (saved["portfolio_id"], "bundle", 5000.0))
+        self.assertEqual({value[0] for value in variants}, {
+            "aggressive", "balanced", "conservative",
+        })
+        self.assertNotIn(state_key, coordinator.proposals)
+        self.assertEqual(coordinator.jobs[state_key]["last_saved_id"], saved["portfolio_id"])
 
     def test_controller_runs_selected_pipeline_in_order(self) -> None:
         memory = self.root / "pipeline.sqlite"

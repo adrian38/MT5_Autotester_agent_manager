@@ -15,6 +15,8 @@ let selectedProposal = null;
 let pollTimer = null;
 let proposalMembers = [];
 let detailMembers = [];
+let settingsSaveTimer = null;
+let settingsSaveQueue = Promise.resolve();
 
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[c]));
 const number = (value, digits = 0) => value == null || Number.isNaN(Number(value)) ? '—' : Number(value).toLocaleString('es-ES', {minimumFractionDigits: digits, maximumFractionDigits: digits});
@@ -171,14 +173,59 @@ async function postManager(action, payload) {
   return data;
 }
 
+function persistSettings(notify = false) {
+  const payload = formPayload();
+  settingsSaveQueue = settingsSaveQueue.catch(() => {}).then(() => postManager('settings', payload));
+  return settingsSaveQueue.then(data => {
+    if (notify) toast('Configuración guardada.');
+    return data;
+  });
+}
+
+function scheduleSettingsSave() {
+  if (settingsSaveTimer) clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = setTimeout(() => {
+    settingsSaveTimer = null;
+    if (!form.checkValidity()) return;
+    persistSettings().catch(error => toast(`No se pudo guardar la configuración: ${error.message}`, true));
+  }, 500);
+}
+
+async function withSaveOverlay(title, detail, operation) {
+  const overlay = document.querySelector('#save-overlay');
+  document.querySelector('#save-overlay-title').textContent = title;
+  document.querySelector('#save-overlay-detail').textContent = detail;
+  overlay.hidden = false;
+  document.body.setAttribute('aria-busy', 'true');
+  try {
+    return await operation();
+  } finally {
+    overlay.hidden = true;
+    document.body.removeAttribute('aria-busy');
+  }
+}
+
+form.addEventListener('change', scheduleSettingsSave);
+
 form.addEventListener('submit', async event => {
   event.preventDefault();
+  if (settingsSaveTimer) { clearTimeout(settingsSaveTimer); settingsSaveTimer = null; }
   try { await postManager('generate', formPayload()); selectedProposal = null; await loadManagerState(); toast('Cálculo iniciado en el manager.'); }
   catch (error) { toast(error.message, true); }
 });
 
 document.querySelector('#save-settings').addEventListener('click', async () => {
-  try { await postManager('settings', formPayload()); await loadManagerState(); toast('Configuración guardada.'); }
+  if (settingsSaveTimer) { clearTimeout(settingsSaveTimer); settingsSaveTimer = null; }
+  if (!form.reportValidity()) return;
+  try {
+    await withSaveOverlay(
+      'Guardando configuración',
+      'Persistiendo los ajustes de este nodo y tipo de portafolio…',
+      () => persistSettings(),
+    );
+    toast('Configuración guardada.');
+    loadManagerState().catch(error => toast(`Configuración guardada, pero no se pudo actualizar la vista: ${error.message}`, true));
+  }
   catch (error) { toast(error.message, true); }
 });
 
@@ -198,11 +245,16 @@ document.querySelector('#reset-settings').addEventListener('click', () => {
 
 document.querySelector('#save-proposal').addEventListener('click', async () => {
   if (!selectedProposal) return;
+  const operation = managerState.job?.operation || 'generate';
+  const title = operation === 'reoptimize' ? 'Aplicando reoptimización' : operation === 'complete' ? 'Aplicando sustitución' : 'Guardando portafolio';
+  const detail = operation === 'generate' ? 'Guardando la propuesta seleccionada y sus estrategias…' : `Actualizando el portafolio #${managerState.job?.portfolio_id || selectedId}…`;
   try {
-    const data = await postManager('save', {scope, proposal_key: selectedProposal});
+    const data = await withSaveOverlay(title, detail, () => postManager('save', {scope, proposal_key: selectedProposal}));
     selectedProposal = null;
     toast(`Portafolio #${data.portfolio_id} guardado.`);
-    await Promise.all([loadManagerState(), loadPortfolios(data.portfolio_id)]);
+    Promise.all([loadManagerState(), loadPortfolios(data.portfolio_id)]).catch(error => {
+      toast(`Portafolio #${data.portfolio_id} guardado, pero no se pudo actualizar la vista: ${error.message}`, true);
+    });
   } catch (error) { toast(error.message, true); }
 });
 

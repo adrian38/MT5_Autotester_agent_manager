@@ -7,11 +7,93 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.portfolio_service import PortfolioCoordinator, PortfolioSource, generate_proposals, normalize_settings, replace_saved_proposal
+from mt5_manager.portfolio_service import PortfolioCoordinator, PortfolioSource, generate_proposals, normalize_settings, save_portfolio_payload
 from portfolio_manager.ubs_portfolio import PortfolioAvailability, PortfolioResult, PortfolioType, StrategyAllocation
 
 
 class PortfolioServiceTests(unittest.TestCase):
+    def test_save_selected_bundle_commits_and_is_readable_afterward(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            node = {
+                "id": "ic",
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], project / "settings.json")
+            base_inputs = normalize_settings(
+                "full_history", {"capital": 5000, "valley_dd_pct": 6}, "ICTRADING"
+            )
+
+            def proposal(key: str, label: str, units: int) -> dict[str, object]:
+                inputs = {
+                    **base_inputs,
+                    "portfolio_type": key,
+                    "composition_portfolio_type": "balanced",
+                }
+                allocation = StrategyAllocation(
+                    "same.set", "ICTRADING/STANDARD:1", "EURUSD", units, units * 0.01,
+                    100 * units, 20 * units, 10 * units, "H1", "same.set", "is.html", "oos.html", 0.01,
+                )
+                result = PortfolioResult(
+                    [allocation], [0, 100 * units], 100 * units, 20 * units, 10 * units,
+                    300, 300, 10, 5, units * 0.01, units, 1, "ok", [], [],
+                )
+                return {"key": key, "label": label, "reserve_pct": 10, "inputs": inputs, "result": result}
+
+            key = coordinator._key("ic", "full_history")
+            coordinator.proposals[key] = [
+                proposal("aggressive", "Agresivo", 3),
+                proposal("balanced", "Moderado", 2),
+                proposal("conservative", "Conservador", 1),
+            ]
+            coordinator.jobs[key] = {"status": "completed", "operation": "generate"}
+
+            payload = coordinator.prepare_save("ic", "full_history", "balanced")
+            confirmation = save_portfolio_payload(PortfolioSource(node), payload)
+            portfolio_id = int(confirmation["portfolio_id"])
+            retry = save_portfolio_payload(PortfolioSource(node), payload)
+            self.assertEqual(retry["portfolio_id"], portfolio_id)
+            self.assertTrue(retry["deduplicated"])
+            coordinator.confirm_save(
+                "ic", "full_history", str(confirmation["request_id"]), portfolio_id
+            )
+            saved = PortfolioSource(node).saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+
+            self.assertEqual(saved["id"], portfolio_id)
+            self.assertEqual(saved["capital"], 5000)
+            self.assertEqual(saved["portfolio_type"], "bundle")
+            self.assertEqual(len(saved["members"]), 3)
+            self.assertEqual({row["variant_key"] for row in saved["members"]}, {
+                "aggressive", "balanced", "conservative",
+            })
+            self.assertNotIn(key, coordinator.proposals)
+            self.assertEqual(coordinator.jobs[key]["last_saved_id"], portfolio_id)
+
+    def test_portfolio_form_settings_survive_manager_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "portfolio_settings.json"
+            nodes = [{"id": "test-node", "portfolio_broker": "ICTRADING"}]
+            coordinator = PortfolioCoordinator(nodes, settings_path)
+
+            saved = coordinator.update_settings(
+                "test-node",
+                "full_history",
+                {"capital": 5000, "exclude_used_sets": False},
+            )
+            reloaded = PortfolioCoordinator(nodes, settings_path).settings_for(
+                "test-node", "full_history"
+            )
+
+            self.assertEqual(saved["capital"], 5000)
+            self.assertFalse(saved["exclude_used_sets"])
+            self.assertEqual(reloaded["capital"], 5000)
+            self.assertFalse(reloaded["exclude_used_sets"])
+
     def test_normalize_monthly_settings_keeps_month_specific_controls(self) -> None:
         settings = normalize_settings(
             "monthly",
@@ -298,7 +380,11 @@ class PortfolioServiceTests(unittest.TestCase):
             (project / "assets").mkdir()
             memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
             memory.touch()
-            source = PortfolioSource({"portfolio_project_dir": str(project), "portfolio_broker": "ICTRADING", "portfolio_account_type": "STANDARD"})
+            node = {
+                "id": "ic", "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING", "portfolio_account_type": "STANDARD",
+            }
+            source = PortfolioSource(node)
             with source.connect(write=True) as conn:
                 portfolio_id = int(conn.execute(
                     """insert into portfolios(created_at,name,type,portfolio_type,portfolio_scope,target_month,capital,account_capital,
@@ -311,7 +397,17 @@ class PortfolioServiceTests(unittest.TestCase):
             result = PortfolioResult([allocation], [0, 250], 250, 40, 20, 900, 900, 4.44, 2.22, .02, 2, 1, "ok", [], [])
             inputs = normalize_settings("monthly", {"target_month": 1, "allowed_asset_groups": ["Forex"]}, "ICTRADING")
             proposal = {"key": "profit", "label": "Máximo beneficio", "reserve_pct": 10, "inputs": inputs, "result": result}
-            replace_saved_proposal(source, [proposal], "profit", "monthly", portfolio_id, "before reoptimize")
+            coordinator = PortfolioCoordinator([node], project / "settings.json")
+            state_key = coordinator._key("ic", "monthly")
+            coordinator.proposals[state_key] = [proposal]
+            coordinator.jobs[state_key] = {
+                "status": "completed", "operation": "reoptimize", "portfolio_id": portfolio_id,
+            }
+            payload = coordinator.prepare_save("ic", "monthly", "profit")
+            confirmation = save_portfolio_payload(source, payload)
+            coordinator.confirm_save(
+                "ic", "monthly", str(confirmation["request_id"]), int(confirmation["portfolio_id"])
+            )
             updated = source.saved_portfolio_detail(portfolio_id, "monthly")["portfolio"]
             self.assertEqual(updated["total_net_profit"], 250)
             self.assertEqual(updated["members"][0]["candidate_id"], "ICTRADING/STANDARD:2")

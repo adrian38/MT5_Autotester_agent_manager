@@ -6,8 +6,9 @@ varios usuarios Windows y dos PC dentro de la misma red local.
 
 Cada copia del autotester conserva sus rutas, MT5, multiterminales y memoria
 SQLite. El manager coordina las ejecuciones y contiene la interfaz y el motor
-de Portafolio UBS y Portafolio UBS mensual. En nodos locales accede directamente
-a la memoria y los reportes del broker; una generación en curso no se reinicia.
+de Portafolio UBS y Portafolio UBS mensual. El guardado de portafolios pasa
+siempre por la API autenticada del nodo propietario, incluso si hoy comparte
+equipo con el manager; una generación en curso no se reinicia.
 
 ## Arquitectura
 
@@ -141,6 +142,11 @@ solo lee SQLite y los reportes hasta que el usuario confirma **Guardar** o
 transacciones cortas compatibles con la app original. Antes de aplicar una
 recomposición se guarda una versión recuperable.
 
+Al guardar una propuesta, el manager envía el paquete completo al nodo y solo
+lo da por guardado cuando el nodo confirma el ID escrito en su SQLite local.
+No existe una ruta alternativa de escritura directa para proyectos que estén
+en el mismo equipo; por eso manager y nodo deben ejecutar una versión compatible.
+
 El constructor combina automáticamente las memorias del broker que existan en
 `outputs`: RoboForex `ECN/PRO`, AXI `STANDARD/PREMIUM` e ICTrading `STANDARD`.
 Si las memorias están en ubicaciones no estándar, se puede añadir al nodo
@@ -170,6 +176,7 @@ Todas las rutas requieren `Authorization: Bearer <token>`.
 | `GET` | `/api/v1/logs?lines=200` | Cola del log |
 | `POST` | `/api/v1/jobs/generation` | Iniciar generación |
 | `POST` | `/api/v1/jobs/stop` | Detener generación |
+| `POST` | `/api/v1/portfolios/save` | Guardar una propuesta en la SQLite local del nodo |
 
 ## Pruebas
 

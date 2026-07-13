@@ -4,6 +4,7 @@ import argparse
 import json
 import mimetypes
 import re
+import sqlite3
 import sys
 import threading
 import urllib.error
@@ -51,7 +52,10 @@ def live_log_progress(lines: list[Any], current_stage: object) -> dict[str, Any]
     }
 
 
-def node_request(node: dict[str, Any], method: str, path: str, payload: dict[str, Any] | None = None) -> tuple[int, Any]:
+def node_request(
+    node: dict[str, Any], method: str, path: str, payload: dict[str, Any] | None = None,
+    *, timeout: float | None = None,
+) -> tuple[int, Any]:
     base_url = str(node.get("url") or "").rstrip("/")
     if not base_url.startswith(("http://", "https://")):
         raise ValueError(f"URL invalida para {node.get('id')}: {base_url}")
@@ -63,7 +67,8 @@ def node_request(node: dict[str, Any], method: str, path: str, payload: dict[str
         headers={"Authorization": f"Bearer {node.get('token', '')}", "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=float(node.get("timeout", 5))) as response:
+        request_timeout = float(timeout if timeout is not None else node.get("timeout", 5))
+        with urllib.request.urlopen(request, timeout=request_timeout) as response:
             raw = response.read()
             return response.status, json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
@@ -190,7 +195,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-manager":
             try:
                 node_id = urllib.parse.unquote(parts[2])
-                self._node(node_id)
+                node = self._node(node_id)
                 query = urllib.parse.parse_qs(parsed.query)
                 scope = "monthly" if query.get("scope", ["full_history"])[0] == "monthly" else "full_history"
                 self._send_json(200, self.server.portfolios.state(node_id, scope))
@@ -230,13 +235,13 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 self._node(node_id)
                 saved = self.server.update_preferences(node_id, self._body())
                 self._send_json(200, {"preferences": saved})
-            except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+            except (KeyError, ValueError, OSError, sqlite3.Error, json.JSONDecodeError) as exc:
                 self._send_json(400, {"error": str(exc)})
             return
         if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-manager":
             try:
                 node_id = urllib.parse.unquote(parts[2])
-                self._node(node_id)
+                node = self._node(node_id)
                 body = self._body()
                 scope = "monthly" if str(body.pop("scope", "full_history")) == "monthly" else "full_history"
                 action = parts[4]
@@ -245,7 +250,25 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 elif action == "generate":
                     self._send_json(202, {"job": self.server.portfolios.start(node_id, scope, body)})
                 elif action == "save":
-                    portfolio_id = self.server.portfolios.save(node_id, scope, str(body.get("proposal_key") or ""))
+                    save_payload = self.server.portfolios.prepare_save(
+                        node_id, scope, str(body.get("proposal_key") or "")
+                    )
+                    status, value = node_request(
+                        node, "POST", "/api/v1/portfolios/save", save_payload, timeout=120
+                    )
+                    if status == 404:
+                        raise ValueError(
+                            "El nodo todavía no admite guardado local de portafolios; "
+                            "actualiza su código y reinícialo."
+                        )
+                    if status >= 400 or not isinstance(value, dict):
+                        error = value.get("error") if isinstance(value, dict) else value
+                        raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+                    portfolio_id = safe_int(value.get("portfolio_id"), 0)
+                    request_id = str(value.get("request_id") or "")
+                    if portfolio_id <= 0 or request_id != str(save_payload["request_id"]):
+                        raise ValueError("El nodo no confirmó correctamente el guardado")
+                    self.server.portfolios.confirm_save(node_id, scope, request_id, portfolio_id)
                     self._send_json(201, {"portfolio_id": portfolio_id})
                 elif action in {"reoptimize", "complete"}:
                     portfolio_id = safe_int(body.pop("portfolio_id", 0), 0, minimum=1)
@@ -282,7 +305,10 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     ))
                 else:
                     self._send_json(404, {"error": "Acción de portafolio desconocida"})
-            except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+            except (
+                KeyError, ValueError, OSError, sqlite3.Error, json.JSONDecodeError,
+                urllib.error.URLError, TimeoutError,
+            ) as exc:
                 self._send_json(400, {"error": str(exc)})
             return
         if len(parts) != 4 or parts[:2] != ["api", "nodes"] or parts[3] not in {"start", "stop", "repair", "universe"}:

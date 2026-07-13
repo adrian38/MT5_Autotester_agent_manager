@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
+from .portfolio_service import PortfolioSource, save_portfolio_payload
 
 
 SCORE_OPTIONS = {
@@ -994,6 +995,24 @@ class JobController:
             })
         return self.universe()
 
+    def _portfolio_source(self) -> PortfolioSource:
+        project = Path(str(self.config["project_dir"])).expanduser().resolve()
+        settings_path = Path(str(self.config.get("settings_file") or "ui_settings.ini"))
+        if not settings_path.is_absolute():
+            settings_path = project / settings_path
+        db_path = memory_path(self.config, read_settings(settings_path))
+        return PortfolioSource({
+            "id": self.config.get("node_id"),
+            "name": self.config.get("display_name") or self.config.get("node_id"),
+            "portfolio_project_dir": str(project),
+            "portfolio_broker": self.config.get("broker"),
+            "portfolio_account_type": self.config.get("account_type"),
+            "portfolio_memory_path": str(db_path),
+        })
+
+    def save_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return save_portfolio_payload(self._portfolio_source(), payload)
+
     def portfolios(self, scope: str = "full_history") -> dict[str, Any]:
         portfolio_scope = "monthly" if str(scope).strip().lower() == "monthly" else "full_history"
         project = Path(str(self.config["project_dir"])).expanduser().resolve()
@@ -1108,8 +1127,8 @@ class NodeHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _body(self) -> dict[str, Any]:
-        length = safe_int(self.headers.get("Content-Length"), 0, minimum=0, maximum=1_000_000)
+    def _body(self, maximum: int = 1_000_000) -> dict[str, Any]:
+        length = safe_int(self.headers.get("Content-Length"), 0, minimum=0, maximum=maximum)
         if length == 0:
             return {}
         value = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -1157,6 +1176,8 @@ class NodeHandler(BaseHTTPRequestHandler):
                 self._send(202, self.server.controller.stop())
             elif self.path == "/api/v1/universe/symbols":
                 self._send(200, self.server.controller.update_universe(self._body()))
+            elif self.path == "/api/v1/portfolios/save":
+                self._send(201, self.server.controller.save_portfolio(self._body(50_000_000)))
             else:
                 self._send(404, {"error": "Ruta no encontrada"})
         except (ValueError, RuntimeError, json.JSONDecodeError) as exc:

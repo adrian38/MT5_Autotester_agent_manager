@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
 import zlib
 from dataclasses import asdict
 from datetime import datetime
@@ -19,8 +20,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
+    BootstrapDrawdownAnalysis,
+    OptimizationDecision,
     PortfolioResult,
     PortfolioType,
+    StrategyAllocation,
+    UnusedSetInfo,
     bootstrap_valley_drawdown,
     evaluate_portfolio,
     filter_rows_by_recent_positive_months,
@@ -43,6 +48,7 @@ from .common import load_json, safe_float, safe_int, save_json, utc_now
 
 ASSET_GROUPS = ("Forex", "Metals", "Indices", "Energies", "Crypto", "Stocks", "Bonds", "Softs")
 BROKER_ACCOUNT_TYPES = {"ROBOFOREX": ("ECN", "PRO"), "ICTRADING": ("STANDARD",), "AXI": ("STANDARD", "PREMIUM")}
+REMOTE_SNAPSHOT_LOCK = threading.RLock()
 PORTFOLIO_TYPES = {
     "aggressive": PortfolioType.AGGRESSIVE,
     "balanced": PortfolioType.BALANCED,
@@ -315,12 +321,14 @@ def _resolve_source_path(value: Any, project: Path) -> str:
     for root in ("outputs", "sets", "reports", "configs", "assets"):
         if root in lowered:
             candidate = project.joinpath(*parts[lowered.index(root):])
-            if candidate.exists():
-                return str(candidate.resolve())
+            # A DB produced on another PC stores that PC's drive letter. Once
+            # a known project root is found, relocate it deterministically;
+            # checking hundreds of individual paths over SMB makes inventory
+            # refreshes needlessly slow and does not improve the mapping.
+            return str(candidate.absolute())
     if not path.is_absolute():
         candidate = project / path
-        if candidate.exists():
-            return str(candidate.resolve())
+        return str(candidate.absolute())
     return str(path)
 
 
@@ -330,13 +338,16 @@ class PortfolioSource:
         project_value = str(node.get("portfolio_project_dir") or "").strip()
         if not project_value:
             raise ValueError("El nodo no tiene portfolio_project_dir configurado en manager.json")
-        self.project = Path(project_value).expanduser().resolve()
+        # Preserve mapped drive letters on Windows. Resolving X:/Y: to UNC
+        # breaks SQLite's read-only URI handling and can also make SMB locking
+        # unnecessarily expensive while a remote agent is writing the DB.
+        self.project = Path(project_value).expanduser().absolute()
         if not self.project.is_dir():
             raise ValueError(f"No existe el proyecto de portafolio: {self.project}")
         self.broker = str(node.get("portfolio_broker") or "ICTRADING").strip().upper()
         self.account = str(node.get("portfolio_account_type") or "STANDARD").strip().upper()
         memory_value = str(node.get("portfolio_memory_path") or "").strip()
-        self.memory = Path(memory_value).expanduser().resolve() if memory_value else (
+        self.memory = Path(memory_value).expanduser().absolute() if memory_value else (
             self.project / "outputs" / f"ubs_memory_{self.broker}_{self.account}.sqlite"
         )
         configured_memories = self.node.get("portfolio_memory_paths")
@@ -347,14 +358,14 @@ class PortfolioSource:
                     account = str(item.get("account_type") or "").strip().upper()
                     path_value = str(item.get("path") or "").strip()
                     if account and path_value:
-                        path = Path(path_value).expanduser().resolve()
+                        path = Path(path_value).expanduser().absolute()
                         if path.is_file():
                             memory_sources.append((f"{self.broker}/{account}", path))
         if not memory_sources:
             for account in BROKER_ACCOUNT_TYPES.get(self.broker, (self.account,)):
                 path = self.project / "outputs" / f"ubs_memory_{self.broker}_{account}.sqlite"
                 if path.is_file():
-                    memory_sources.append((f"{self.broker}/{account}", path.resolve()))
+                    memory_sources.append((f"{self.broker}/{account}", path.absolute()))
         active_label = f"{self.broker}/{self.account}"
         memory_sources = [(label, path) for label, path in memory_sources if path != self.memory]
         self.memory_sources = [(active_label, self.memory)] + memory_sources
@@ -367,19 +378,120 @@ class PortfolioSource:
         with self.connect_memory(self.memory, write=write) as conn:
             yield conn
 
+    @staticmethod
+    def _is_remote_memory(memory: Path) -> bool:
+        if os.name != "nt":
+            return False
+        if not memory.drive:
+            return str(memory).startswith("\\\\")
+        try:
+            import ctypes
+
+            return ctypes.windll.kernel32.GetDriveTypeW(f"{memory.drive}\\") == 4  # DRIVE_REMOTE
+        except (AttributeError, OSError):
+            return False
+
+    def _snapshot_path(self, memory: Path) -> Path:
+        node_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(self.node.get("id") or self.broker))
+        root = Path(__file__).resolve().parents[1] / "runtime" / "portfolio_snapshots" / node_id
+        root.mkdir(parents=True, exist_ok=True)
+        return root / memory.name
+
+    def _remote_read_snapshot(self, memory: Path) -> Path:
+        target = self._snapshot_path(memory)
+        metadata_path = target.with_name(target.name + ".snapshot.json")
+        source_wal = Path(str(memory) + "-wal")
+        target_wal = Path(str(target) + "-wal")
+        target_shm = Path(str(target) + "-shm")
+
+        source_stat = memory.stat()
+        wal_stat = source_wal.stat() if source_wal.is_file() else None
+        signature = {
+            "source_size": source_stat.st_size,
+            "source_mtime_ns": source_stat.st_mtime_ns,
+            "wal_size": wal_stat.st_size if wal_stat else 0,
+            "wal_mtime_ns": wal_stat.st_mtime_ns if wal_stat else 0,
+        }
+        metadata: dict[str, Any] = {}
+        if metadata_path.is_file():
+            try:
+                loaded = load_json(metadata_path)
+                metadata = loaded if isinstance(loaded, dict) else {}
+            except (OSError, ValueError, json.JSONDecodeError):
+                metadata = {}
+        copied_at = safe_float(metadata.get("copied_at"), 0.0)
+        if target.is_file() and (
+            all(metadata.get(key) == value for key, value in signature.items())
+            or time.time() - copied_at < 30.0
+        ):
+            return target
+
+        suffix = f".tmp-{os.getpid()}-{threading.get_ident()}"
+        temp = target.with_name(target.name + suffix)
+        temp_wal = Path(str(temp) + "-wal")
+        try:
+            shutil.copy2(memory, temp)
+            if source_wal.is_file():
+                last_error: OSError | None = None
+                for _attempt in range(3):
+                    try:
+                        shutil.copy2(source_wal, temp_wal)
+                        last_error = None
+                        break
+                    except OSError as exc:
+                        last_error = exc
+                        time.sleep(0.1)
+                if last_error is not None:
+                    raise last_error
+            target_shm.unlink(missing_ok=True)
+            target_wal.unlink(missing_ok=True)
+            os.replace(temp, target)
+            if temp_wal.is_file():
+                os.replace(temp_wal, target_wal)
+            save_json(metadata_path, {**signature, "copied_at": time.time(), "source": str(memory)})
+        finally:
+            temp.unlink(missing_ok=True)
+            temp_wal.unlink(missing_ok=True)
+        return target
+
+    def _invalidate_remote_snapshot(self, memory: Path) -> None:
+        metadata_path = self._snapshot_path(memory).with_name(memory.name + ".snapshot.json")
+        metadata_path.unlink(missing_ok=True)
+
     @contextlib.contextmanager
     def connect_memory(self, memory: Path, *, write: bool = False):
-        if write:
-            conn = sqlite3.connect(memory, timeout=30)
-        else:
-            conn = sqlite3.connect(memory.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
-        conn.row_factory = sqlite3.Row
+        remote = self._is_remote_memory(memory)
+        source_memory = memory
+        remote_lock = False
+        conn: sqlite3.Connection | None = None
         try:
             if write:
-                ensure_portfolio_schema(conn)
+                try:
+                    conn = sqlite3.connect(memory, timeout=10 if remote else 30)
+                    ensure_portfolio_schema(conn)
+                except sqlite3.OperationalError as exc:
+                    if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                        raise ValueError(
+                            f"No se pudo guardar: {memory.name} está bloqueada por otro proceso "
+                            "(por ejemplo, una generación activa). La propuesta sigue disponible; "
+                            "inténtalo de nuevo cuando termine."
+                        ) from exc
+                    raise
+            else:
+                if remote:
+                    REMOTE_SNAPSHOT_LOCK.acquire()
+                    remote_lock = True
+                    memory = self._remote_read_snapshot(memory)
+                conn = sqlite3.connect(memory.as_uri() + "?mode=ro", uri=True, timeout=5)
+            conn.row_factory = sqlite3.Row
             yield conn
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
+            if write and remote and conn is not None:
+                self._invalidate_remote_snapshot(source_memory)
+            if remote_lock:
+                REMOTE_SNAPSHOT_LOCK.release()
 
     def candidate_rows(self, *, include_quarantined: bool) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -494,7 +606,7 @@ class PortfolioSource:
         if not matches:
             raise ValueError("El set no pertenece a los candidatos Final Tick 6M accepted")
         row = matches[0]
-        source_memory = Path(str(row.get("source_memory_path") or self.memory)).resolve()
+        source_memory = Path(str(row.get("source_memory_path") or self.memory)).absolute()
         account_label = str(row.get("account_type") or f"{self.broker}/{self.account}")
         with self.connect_memory(source_memory, write=True) as conn:
             conn.execute(
@@ -1595,6 +1707,126 @@ def _result_metrics(inputs: dict[str, Any], result: PortfolioResult) -> dict[str
     }
 
 
+def serialize_portfolio_proposals(
+    proposals: list[dict[str, Any]], request_id: str
+) -> list[dict[str, Any]]:
+    """Convert in-memory optimizer results into an authenticated node payload."""
+    if not request_id:
+        raise ValueError("Falta el identificador de la solicitud de guardado")
+    payload: list[dict[str, Any]] = []
+    for proposal in proposals:
+        result = proposal.get("result")
+        inputs = proposal.get("inputs")
+        if not isinstance(result, PortfolioResult) or not isinstance(inputs, dict):
+            raise ValueError("La propuesta calculada no tiene un formato guardable")
+        payload.append({
+            "key": str(proposal.get("key") or ""),
+            "label": str(proposal.get("label") or ""),
+            "reserve_pct": float(proposal.get("reserve_pct") or 0),
+            "inputs": {**inputs, "_manager_save_request_id": request_id},
+            "result": asdict(result),
+        })
+    return payload
+
+
+def deserialize_portfolio_proposals(
+    payload: object, scope: str, broker: str
+) -> list[dict[str, Any]]:
+    """Validate and rebuild optimizer dataclasses inside the node process."""
+    if not isinstance(payload, list) or not payload:
+        raise ValueError("No se recibieron propuestas para guardar")
+    proposals: list[dict[str, Any]] = []
+    for raw_proposal in payload:
+        if not isinstance(raw_proposal, dict):
+            raise ValueError("Propuesta remota inválida")
+        raw_result = raw_proposal.get("result")
+        raw_inputs = raw_proposal.get("inputs")
+        if not isinstance(raw_result, dict) or not isinstance(raw_inputs, dict):
+            raise ValueError("La propuesta remota no contiene inputs y resultado")
+        result_values = dict(raw_result)
+        result_values["allocations"] = [
+            StrategyAllocation(**item) for item in result_values.get("allocations") or []
+            if isinstance(item, dict)
+        ]
+        result_values["decision_log"] = [
+            OptimizationDecision(**item) for item in result_values.get("decision_log") or []
+            if isinstance(item, dict)
+        ]
+        result_values["unused_sets"] = [
+            UnusedSetInfo(**item) for item in result_values.get("unused_sets") or []
+            if isinstance(item, dict)
+        ]
+        stress = result_values.get("stress_bootstrap")
+        result_values["stress_bootstrap"] = (
+            BootstrapDrawdownAnalysis(**stress) if isinstance(stress, dict) else None
+        )
+        try:
+            result = PortfolioResult(**result_values)
+        except TypeError as exc:
+            raise ValueError(f"Resultado de propuesta incompatible: {exc}") from exc
+        proposals.append({
+            "key": str(raw_proposal.get("key") or ""),
+            "label": str(raw_proposal.get("label") or ""),
+            "reserve_pct": float(raw_proposal.get("reserve_pct") or 0),
+            "inputs": normalize_settings(scope, raw_inputs, broker),
+            "result": result,
+        })
+    return proposals
+
+
+def _saved_request_portfolio_id(source: PortfolioSource, request_id: str, scope: str) -> int | None:
+    portfolio_scope = "monthly" if scope == "monthly" else "full_history"
+    with source.connect() as conn:
+        if not _table_exists(conn, "portfolios"):
+            return None
+        rows = conn.execute(
+            "select id,metrics_json from portfolios "
+            "where coalesce(nullif(portfolio_scope,''),'full_history')=? order by id desc",
+            (portfolio_scope,),
+        ).fetchall()
+    for row in rows:
+        try:
+            metrics = json.loads(row["metrics_json"] or "{}")
+        except json.JSONDecodeError:
+            continue
+        inputs = metrics.get("inputs") if isinstance(metrics, dict) else None
+        if isinstance(inputs, dict) and inputs.get("_manager_save_request_id") == request_id:
+            return int(row["id"])
+    return None
+
+
+def save_portfolio_payload(source: PortfolioSource, payload: dict[str, Any]) -> dict[str, Any]:
+    """Persist a manager proposal locally on its owning node, with retry deduplication."""
+    scope = "monthly" if str(payload.get("scope")) == "monthly" else "full_history"
+    request_id = str(payload.get("request_id") or "").strip()
+    selected_key = str(payload.get("selected_key") or "").strip()
+    operation = str(payload.get("operation") or "generate")
+    if not request_id or not selected_key:
+        raise ValueError("Solicitud de guardado incompleta")
+    if operation not in {"generate", "reoptimize", "complete"}:
+        raise ValueError("Operación de guardado desconocida")
+    existing_id = _saved_request_portfolio_id(source, request_id, scope)
+    if existing_id is not None:
+        return {"portfolio_id": existing_id, "request_id": request_id, "deduplicated": True}
+    proposals = deserialize_portfolio_proposals(payload.get("proposals"), scope, source.broker)
+    if operation in {"reoptimize", "complete"}:
+        portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
+        saved_id = replace_saved_proposal(
+            source, proposals, selected_key, scope, portfolio_id,
+            "Antes de reoptimizar" if operation == "reoptimize" else "Antes de completar portafolio",
+        )
+    else:
+        saved_id = save_proposal(source, proposals, selected_key, scope)
+    detail = source.saved_portfolio_detail(saved_id, scope)["portfolio"]
+    if not detail.get("members"):
+        raise ValueError(f"El portafolio #{saved_id} se escribió sin estrategias")
+    source.notify(
+        f"Portfolio Builder guardado: #{saved_id}, net {float(detail.get('total_net_profit') or 0):,.2f}, "
+        f"lote {float(detail.get('total_lot') or 0):.2f}, {int(detail.get('active_strategies') or 0)} estrategias"
+    )
+    return {"portfolio_id": saved_id, "request_id": request_id, "deduplicated": False}
+
+
 def _insert_allocation(
     conn: sqlite3.Connection,
     portfolio_id: int,
@@ -2041,34 +2273,46 @@ class PortfolioCoordinator:
             "proposals": proposal_payloads,
         }
 
-    def save(self, node_id: str, scope: str, selected_key: str) -> int:
+    def prepare_save(self, node_id: str, scope: str, selected_key: str) -> dict[str, Any]:
+        self._node(node_id)
         key = self._key(node_id, scope)
         with self.lock:
             proposals = list(self.proposals.get(key) or [])
             job = dict(self.jobs.get(key) or {})
         if not proposals:
             raise ValueError("Genera una propuesta antes de guardar")
-        source = PortfolioSource(self._node(node_id))
+        if not any(str(proposal.get("key") or "") == selected_key for proposal in proposals):
+            raise ValueError("La propuesta seleccionada ya no está disponible")
         operation = str(job.get("operation") or "generate")
         target_id = safe_int(job.get("portfolio_id"), 0)
-        if operation in {"reoptimize", "complete"} and target_id > 0:
-            portfolio_id = replace_saved_proposal(
-                source, proposals, selected_key, scope, target_id,
-                "Antes de reoptimizar" if operation == "reoptimize" else "Antes de completar portafolio",
-            )
-        else:
-            portfolio_id = save_proposal(source, proposals, selected_key, scope)
-        selected = next((proposal for proposal in proposals if str(proposal["key"]) == selected_key), proposals[0])
-        result: PortfolioResult = selected["result"]
+        if operation in {"reoptimize", "complete"} and target_id <= 0:
+            raise ValueError("Falta el portafolio que se quiere actualizar")
+        request_id = str(job.get("save_request_id") or "")
+        if not request_id or str(job.get("save_selected_key") or "") != selected_key:
+            request_id = str(uuid.uuid4())
         with self.lock:
+            if key not in self.jobs:
+                self.jobs[key] = job
+            self.jobs[key]["save_request_id"] = request_id
+            self.jobs[key]["save_selected_key"] = selected_key
+        return {
+            "scope": scope,
+            "selected_key": selected_key,
+            "operation": operation,
+            "portfolio_id": target_id or None,
+            "request_id": request_id,
+            "proposals": serialize_portfolio_proposals(proposals, request_id),
+        }
+
+    def confirm_save(self, node_id: str, scope: str, request_id: str, portfolio_id: int) -> None:
+        key = self._key(node_id, scope)
+        with self.lock:
+            job = dict(self.jobs.get(key) or {})
+            if str(job.get("save_request_id") or "") != str(request_id):
+                raise ValueError("La confirmación no corresponde a la propuesta pendiente")
             self.proposals.pop(key, None)
             self.jobs[key] = {"status": "idle", "operation": "generate", "last_saved_id": portfolio_id,
                               "last_log_path": job.get("log_path") or job.get("last_log_path")}
-        source.notify(
-            f"Portfolio Builder guardado: #{portfolio_id}, net {result.total_net_profit:,.2f}, "
-            f"lote {result.total_lot:.2f}, {result.active_strategies} estrategias"
-        )
-        return portfolio_id
 
     def saved(self, node_id: str, scope: str, portfolio_id: int | None = None) -> dict[str, Any]:
         source = PortfolioSource(self._node(node_id))
