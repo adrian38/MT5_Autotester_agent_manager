@@ -12,7 +12,10 @@
       "id": "ictrading-standard-pc1",
       "name": "ICTrading Standard",
       "url": "http://192.168.1.10:8761",
-      "token": "MISMO-SECRETO-QUE-EN-SU-NODE-JSON"
+      "token": "MISMO-SECRETO-QUE-EN-SU-NODE-JSON",
+      "portfolio_project_dir": "C:\\ruta\\MT5_Autotester_agent_IC\\MT5_Autotester_agent",
+      "portfolio_broker": "ICTRADING",
+      "portfolio_account_type": "STANDARD"
     },
     {
       "id": "axi-standard-pc2",

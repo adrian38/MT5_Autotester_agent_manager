@@ -4,9 +4,10 @@ MVP distribuido para iniciar generaciones UBS y observar su estado desde un
 único panel. Está pensado para el caso real de este entorno: tres brokers,
 varios usuarios Windows y dos PC dentro de la misma red local.
 
-El proyecto no sustituye a las ramas de `MT5_Autotester_agent`. Cada copia del
-autotester conserva sus rutas, MT5, multiterminales y memoria SQLite. Este
-manager solamente las coordina.
+Cada copia del autotester conserva sus rutas, MT5, multiterminales y memoria
+SQLite. El manager coordina las ejecuciones y contiene la interfaz y el motor
+de Portafolio UBS y Portafolio UBS mensual. En nodos locales accede directamente
+a la memoria y los reportes del broker; una generación en curso no se reinicia.
 
 ## Arquitectura
 
@@ -129,7 +130,23 @@ que es también cuando MT5 puede ejecutarse en esa sesión interactiva.
 2. Reservar IP fijas en el router o usar nombres DNS locales para las dos PC.
 3. Configurar en cada entrada de `nodes` la URL y el mismo token de su
    `node.json`.
-4. Ejecutar `run_manager.bat`.
+4. Para habilitar los portafolios centrales de un nodo local, configurar
+   `portfolio_project_dir`, `portfolio_broker` y `portfolio_account_type`.
+5. Ejecutar `run_manager.bat`.
+
+Las configuraciones de ambos constructores se guardan por nodo y tipo en
+`runtime/portfolio_settings.json`. Generar, completar o reoptimizar una propuesta
+solo lee SQLite y los reportes hasta que el usuario confirma **Guardar** o
+**Aplicar**. Guardar, poner en cuarentena, deshacer, borrar y reintegrar usan
+transacciones cortas compatibles con la app original. Antes de aplicar una
+recomposición se guarda una versión recuperable.
+
+El constructor combina automáticamente las memorias del broker que existan en
+`outputs`: RoboForex `ECN/PRO`, AXI `STANDARD/PREMIUM` e ICTrading `STANDARD`.
+Si las memorias están en ubicaciones no estándar, se puede añadir al nodo
+`portfolio_memory_paths`, con objetos `{"account_type": "...", "path": "..."}`.
+Los cálculos dejan trazas en `portfolio_logs`, y reutilizan la configuración
+Telegram del proyecto del broker para avisar al terminar, fallar o guardar.
 
 El navegador abre `http://127.0.0.1:8750`. Por defecto el panel solo escucha en
 el equipo central. Para abrir el panel desde otros equipos, cambiar su `host` a

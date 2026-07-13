@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
+from .portfolio_service import PortfolioCoordinator
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -129,6 +130,10 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     if isinstance(value, dict):
                         value["manager_node"] = {"id": node_id, "name": node.get("name") or node_id, "url": node.get("url")}
                         value["launch_preferences"] = self.server.preferences_for(node_id)
+                        value["manager_portfolio"] = {
+                            "available": bool(str(node.get("portfolio_project_dir") or "").strip()),
+                            "engine": "central",
+                        }
                         if str((value.get("job") or {}).get("status")) == "running":
                             try:
                                 log_status, log_value = node_request(node, "GET", "/api/v1/logs?lines=500")
@@ -182,14 +187,28 @@ class ManagerHandler(BaseHTTPRequestHandler):
             except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self._send_json(502, {"error": str(exc)})
             return
+        if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-manager":
+            try:
+                node_id = urllib.parse.unquote(parts[2])
+                self._node(node_id)
+                query = urllib.parse.parse_qs(parsed.query)
+                scope = "monthly" if query.get("scope", ["full_history"])[0] == "monthly" else "full_history"
+                self._send_json(200, self.server.portfolios.state(node_id, scope))
+            except (KeyError, ValueError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if len(parts) in {4, 5} and parts[:2] == ["api", "nodes"] and parts[3] == "portfolios":
             try:
                 node = self._node(urllib.parse.unquote(parts[2]))
                 query = urllib.parse.parse_qs(parsed.query)
                 scope = "monthly" if query.get("scope", ["full_history"])[0] == "monthly" else "full_history"
-                suffix = f"/{safe_int(parts[4], 0, minimum=1)}" if len(parts) == 5 else ""
-                status, value = node_request(node, "GET", f"/api/v1/portfolios{suffix}?scope={scope}")
-                self._send_json(status, value)
+                portfolio_id = safe_int(parts[4], 0, minimum=1) if len(parts) == 5 else None
+                if str(node.get("portfolio_project_dir") or "").strip():
+                    self._send_json(200, self.server.portfolios.saved(str(node["id"]), scope, portfolio_id))
+                else:
+                    suffix = f"/{portfolio_id}" if portfolio_id is not None else ""
+                    status, value = node_request(node, "GET", f"/api/v1/portfolios{suffix}?scope={scope}")
+                    self._send_json(status, value)
             except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self._send_json(502, {"error": str(exc)})
             return
@@ -211,7 +230,59 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 self._node(node_id)
                 saved = self.server.update_preferences(node_id, self._body())
                 self._send_json(200, {"preferences": saved})
-            except (KeyError, ValueError, json.JSONDecodeError) as exc:
+            except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
+        if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-manager":
+            try:
+                node_id = urllib.parse.unquote(parts[2])
+                self._node(node_id)
+                body = self._body()
+                scope = "monthly" if str(body.pop("scope", "full_history")) == "monthly" else "full_history"
+                action = parts[4]
+                if action == "settings":
+                    self._send_json(200, {"settings": self.server.portfolios.update_settings(node_id, scope, body)})
+                elif action == "generate":
+                    self._send_json(202, {"job": self.server.portfolios.start(node_id, scope, body)})
+                elif action == "save":
+                    portfolio_id = self.server.portfolios.save(node_id, scope, str(body.get("proposal_key") or ""))
+                    self._send_json(201, {"portfolio_id": portfolio_id})
+                elif action in {"reoptimize", "complete"}:
+                    portfolio_id = safe_int(body.pop("portfolio_id", 0), 0, minimum=1)
+                    self._send_json(202, {"job": self.server.portfolios.start_saved_operation(
+                        node_id, scope, portfolio_id, action, body or None
+                    )})
+                elif action == "exclude":
+                    quarantine_id = self.server.portfolios.exclude(node_id, scope, body)
+                    self._send_json(201, {"quarantine_id": quarantine_id})
+                elif action == "release":
+                    self.server.portfolios.release(node_id, str(body.get("quarantine_id") or ""))
+                    self._send_json(200, {"released": True})
+                elif action == "undo":
+                    version = self.server.portfolios.undo(node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1))
+                    self._send_json(200, {"restored_version": version})
+                elif action == "delete":
+                    self.server.portfolios.delete(node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1))
+                    self._send_json(200, {"deleted": True})
+                elif action == "export":
+                    result = self.server.portfolios.export(
+                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
+                        str(body.get("destination") or "").strip() or None,
+                    )
+                    self._send_json(200, result)
+                elif action == "open-report":
+                    report = self.server.portfolios.open_report(
+                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
+                        str(body.get("set_path") or ""),
+                    )
+                    self._send_json(200, {"report": report})
+                elif action == "log":
+                    self._send_json(200, self.server.portfolios.log(
+                        node_id, scope, safe_int(body.get("lines"), 500, minimum=1, maximum=5000)
+                    ))
+                else:
+                    self._send_json(404, {"error": "Acción de portafolio desconocida"})
+            except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
                 self._send_json(400, {"error": str(exc)})
             return
         if len(parts) != 4 or parts[:2] != ["api", "nodes"] or parts[3] not in {"start", "stop", "repair", "universe"}:
@@ -254,6 +325,13 @@ class ManagerServer(ThreadingHTTPServer):
                 }
             except ValueError:
                 self.preferences = {}
+        portfolio_settings_file = str(config.get("portfolio_settings_file") or "").strip()
+        portfolio_settings_path = (
+            Path(portfolio_settings_file).expanduser().resolve()
+            if portfolio_settings_file
+            else Path.cwd() / "runtime" / "portfolio_settings.json"
+        )
+        self.portfolios = PortfolioCoordinator(nodes, portfolio_settings_path)
         super().__init__(address, ManagerHandler)
 
     def preferences_for(self, node_id: str) -> dict[str, Any]:
@@ -303,6 +381,10 @@ def main(argv: list[str] | None = None) -> int:
     config.setdefault(
         "preferences_file",
         str(Path(args.config).expanduser().resolve().parent / "runtime" / "launch_preferences.json"),
+    )
+    config.setdefault(
+        "portfolio_settings_file",
+        str(Path(args.config).expanduser().resolve().parent / "runtime" / "portfolio_settings.json"),
     )
     host = str(config.get("host") or "127.0.0.1")
     port = safe_int(config.get("port"), 8750, minimum=1, maximum=65535)

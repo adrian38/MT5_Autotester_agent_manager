@@ -7,7 +7,7 @@ name = "mt5-autotester-agent-manager"
 version = "0.1.0"
 description = "Panel distribuido para iniciar y observar generaciones MT5 Autotester"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["lxml>=5"]
 
 [project.scripts]
 mt5-manager = "mt5_manager.manager:main"
