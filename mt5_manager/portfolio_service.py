@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import zlib
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -219,6 +219,7 @@ def ensure_portfolio_schema(conn: sqlite3.Connection) -> None:
             target_valley_dd_pct real not null default 0, target_point_dd_pct real not null default 0,
             target_valley_dd real not null default 0, target_point_dd real not null default 0,
             actual_valley_dd real not null default 0, actual_point_dd real not null default 0,
+            actual_closed_valley_dd real not null default 0, floating_dd_buffer real not null default 0,
             valley_usage_pct real not null default 0, point_usage_pct real not null default 0,
             total_net_profit real not null default 0, total_lot real not null default 0,
             total_units integer not null default 0, active_strategies integer not null default 0,
@@ -235,6 +236,7 @@ def ensure_portfolio_schema(conn: sqlite3.Connection) -> None:
         ("target_valley_dd_pct", "real not null default 0"), ("target_point_dd_pct", "real not null default 0"),
         ("target_valley_dd", "real not null default 0"), ("target_point_dd", "real not null default 0"),
         ("actual_valley_dd", "real not null default 0"), ("actual_point_dd", "real not null default 0"),
+        ("actual_closed_valley_dd", "real not null default 0"), ("floating_dd_buffer", "real not null default 0"),
         ("valley_usage_pct", "real not null default 0"), ("point_usage_pct", "real not null default 0"),
         ("total_net_profit", "real not null default 0"), ("total_lot", "real not null default 0"),
         ("total_units", "integer not null default 0"), ("active_strategies", "integer not null default 0"),
@@ -257,6 +259,13 @@ def ensure_portfolio_schema(conn: sqlite3.Connection) -> None:
             margin_required real not null default 0, margin_pct real not null default 0,
             margin_leverage real not null default 0, margin_contract_size real not null default 0,
             margin_price real not null default 0, is_report_path text, oos_report_path text
+            , max_balance_dd_001 real not null default 0
+            , max_equity_dd_001 real not null default 0
+            , floating_dd_source text not null default ''
+            , standalone_floating_dd real not null default 0
+            , recent_net_profit_001 real not null default 0
+            , recent_equity_dd_001 real not null default 0
+            , has_recent_performance integer not null default 0
         )
         """
     )
@@ -265,6 +274,13 @@ def ensure_portfolio_schema(conn: sqlite3.Connection) -> None:
         ("margin_required", "real not null default 0"), ("margin_pct", "real not null default 0"),
         ("margin_leverage", "real not null default 0"), ("margin_contract_size", "real not null default 0"),
         ("margin_price", "real not null default 0"),
+        ("max_balance_dd_001", "real not null default 0"),
+        ("max_equity_dd_001", "real not null default 0"),
+        ("floating_dd_source", "text not null default ''"),
+        ("standalone_floating_dd", "real not null default 0"),
+        ("recent_net_profit_001", "real not null default 0"),
+        ("recent_equity_dd_001", "real not null default 0"),
+        ("has_recent_performance", "integer not null default 0"),
     ):
         _ensure_column(conn, "portfolio_allocations", column, definition)
     conn.execute(
@@ -764,6 +780,8 @@ class PortfolioSource:
             "capital": float(value(row, "capital", value(row, "account_capital", 0)) or 0),
             "total_net_profit": float(value(row, "total_net_profit", 0) or 0),
             "actual_valley_dd": float(value(row, "actual_valley_dd", 0) or 0),
+            "actual_closed_valley_dd": float(value(row, "actual_closed_valley_dd", 0) or 0),
+            "floating_dd_buffer": float(value(row, "floating_dd_buffer", 0) or 0),
             "target_valley_dd": float(value(row, "target_valley_dd", 0) or 0),
             "target_valley_dd_pct": float(value(row, "target_valley_dd_pct", 0) or 0),
             "valley_usage_pct": float(value(row, "valley_usage_pct", 0) or 0),
@@ -815,6 +833,13 @@ class PortfolioSource:
             "units": int(raw.get("units") or 0), "lot": float(raw.get("lot") or 0), "lot_size_step": float(raw.get("lot_size_step") or 0),
             "net_profit_contribution": float(raw.get("net_profit_contribution") or 0), "standalone_valley_dd": float(raw.get("standalone_valley_dd") or 0),
             "standalone_point_dd": float(raw.get("standalone_point_dd") or 0), "margin_required": float(raw.get("margin_required") or 0), "margin_pct": float(raw.get("margin_pct") or 0),
+            "max_balance_dd_001": float(raw.get("max_balance_dd_001") or 0),
+            "max_equity_dd_001": float(raw.get("max_equity_dd_001") or 0),
+            "floating_dd_source": str(raw.get("floating_dd_source") or ""),
+            "standalone_floating_dd": float(raw.get("standalone_floating_dd") or 0),
+            "recent_net_profit_001": float(raw.get("recent_net_profit_001") or 0),
+            "recent_equity_dd_001": float(raw.get("recent_equity_dd_001") or 0),
+            "has_recent_performance": bool(raw.get("has_recent_performance") or False),
             "margin_leverage": float(raw.get("margin_leverage") or 0),
             "margin_contract_size": float(raw.get("margin_contract_size") or 0),
             "margin_price": float(raw.get("margin_price") or 0),
@@ -1018,7 +1043,7 @@ class PortfolioSource:
                 effective_valley_dd_limit=float(portfolio["target_valley_dd"] or 0),
             ))
             conn.execute(
-                "update portfolios set num_symbols=0,actual_valley_dd=0,actual_point_dd=0,valley_usage_pct=0,point_usage_pct=0,total_net_profit=0,total_lot=0,total_units=0,active_strategies=0,metrics_json=? where id=?",
+                "update portfolios set num_symbols=0,actual_valley_dd=0,actual_point_dd=0,actual_closed_valley_dd=0,floating_dd_buffer=0,valley_usage_pct=0,point_usage_pct=0,total_net_profit=0,total_lot=0,total_units=0,active_strategies=0,metrics_json=? where id=?",
                 (json.dumps(metrics, ensure_ascii=True), portfolio_id),
             )
             return
@@ -1026,6 +1051,12 @@ class PortfolioSource:
             "candidate_id": row.get("candidate_id"), "set_path": row.get("set_path") or row.get("set_id"),
             "symbol": row.get("symbol"), "target_symbol": row.get("symbol"), "period": row.get("timeframe"),
             "family": "", "is_report_path": row.get("is_report_path"), "oos_report_path": row.get("oos_report_path"),
+            "max_balance_dd_001": row.get("max_balance_dd_001"),
+            "max_equity_dd_001": row.get("max_equity_dd_001"),
+            "floating_dd_source": row.get("floating_dd_source"),
+            "recent_net_profit_001": row.get("recent_net_profit_001"),
+            "recent_equity_dd_001": row.get("recent_equity_dd_001"),
+            "has_recent_performance": row.get("has_recent_performance"),
         } for row in rows]
         strategies, warnings = load_robust_sets_from_rows(source_rows, [], parse=cached_report)
         if len(strategies) != len(rows):
@@ -1046,6 +1077,8 @@ class PortfolioSource:
         metrics.update({
             "equity_curve_2020_2026": evaluation.equity_curve_2020_2026,
             "group_summary": portfolio_group_summary(strategies, units),
+            "actual_closed_valley_dd": evaluation.closed_valley_dd,
+            "floating_dd_buffer": evaluation.floating_dd_buffer,
             "seasonal_coverage": {
                 strategy.set_id: {"target_month": strategy.target_month, "years": list(strategy.month_years),
                     "positive_years": list(strategy.positive_month_years), "year_count": len(strategy.month_years),
@@ -1067,10 +1100,11 @@ class PortfolioSource:
         if warnings:
             metrics.setdefault("warnings", []).extend(warnings)
         conn.execute(
-            """update portfolios set num_symbols=?,actual_valley_dd=?,actual_point_dd=?,valley_usage_pct=?,point_usage_pct=?,
+            """update portfolios set num_symbols=?,actual_valley_dd=?,actual_point_dd=?,actual_closed_valley_dd=?,floating_dd_buffer=?,valley_usage_pct=?,point_usage_pct=?,
                total_net_profit=?,total_lot=?,total_units=?,active_strategies=?,metrics_json=? where id=?""",
             (len({portfolio_symbol_key(item.symbol) for item in strategies if units.get(item.set_id, 0) > 0}),
-             evaluation.valley_dd, evaluation.point_dd, evaluation.valley_usage_pct, evaluation.point_usage_pct,
+             evaluation.valley_dd, evaluation.point_dd, evaluation.closed_valley_dd, evaluation.floating_dd_buffer,
+             evaluation.valley_usage_pct, evaluation.point_usage_pct,
              evaluation.total_net_profit, evaluation.total_lot, evaluation.total_units, evaluation.active_strategies,
              json.dumps(metrics, ensure_ascii=True), portfolio_id),
         )
@@ -1080,14 +1114,22 @@ class PortfolioSource:
         if portfolio_id < 1:
             return self.exclude_strategy(payload)
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
-        if scope == "full_history" and (
+        is_bundle = scope == "full_history" and (
             str(detail.get("portfolio_type") or "").lower() == "bundle" or detail.get("metrics", {}).get("portfolio_bundle")
-        ):
-            raise ValueError("Este portafolio es A/M/C. Para retirar un set, reoptimiza las tres variantes juntas")
+        )
         requested = self._path_key(_resolve_source_path(payload.get("set_path") or payload.get("set_id"), self.project))
         member = next((item for item in detail.get("members") or [] if self._path_key(item.get("set_path")) == requested), None)
         if member is None:
             raise ValueError("No se encontró la estrategia dentro del portafolio")
+        if is_bundle:
+            quarantine_id = self.exclude_strategy({
+                **payload,
+                "set_path": member.get("set_path") or member.get("set_id"),
+                "portfolio_id": portfolio_id,
+                "reason": payload.get("reason") or "Excluida manualmente de un portafolio A/M/C eliminado",
+            })
+            self.delete_portfolio(portfolio_id, scope)
+            return quarantine_id
         candidate_text = str(member.get("candidate_id") or "")
         candidate_id = safe_int(candidate_text.rsplit(":", 1)[-1], 0) or None
         account_label = candidate_text.rsplit(":", 1)[0] if ":" in candidate_text else f"{self.broker}/{self.account}"
@@ -1411,6 +1453,8 @@ def result_payload(result: PortfolioResult) -> dict[str, Any]:
     return {
         "total_net_profit": result.total_net_profit,
         "actual_valley_dd": result.actual_valley_dd,
+        "actual_closed_valley_dd": result.actual_closed_valley_dd,
+        "floating_dd_buffer": result.floating_dd_buffer,
         "actual_point_dd": result.actual_point_dd,
         "target_valley_dd": result.target_valley_dd,
         "target_point_dd": result.target_point_dd,
@@ -1611,6 +1655,12 @@ def generate_completion_proposal(
         "candidate_id": item.get("candidate_id"), "set_path": item.get("set_path") or item.get("set_id"),
         "symbol": item.get("symbol"), "target_symbol": item.get("symbol"), "period": item.get("timeframe"),
         "family": "", "is_report_path": item.get("is_report_path"), "oos_report_path": item.get("oos_report_path"),
+        "max_balance_dd_001": item.get("max_balance_dd_001"),
+        "max_equity_dd_001": item.get("max_equity_dd_001"),
+        "floating_dd_source": item.get("floating_dd_source"),
+        "recent_net_profit_001": item.get("recent_net_profit_001"),
+        "recent_equity_dd_001": item.get("recent_equity_dd_001"),
+        "has_recent_performance": item.get("has_recent_performance"),
     } for item in members]
     required_sets, required_warnings = load_robust_sets_from_rows(required_rows, [], parse=cached_report)
     if len(required_sets) != len(required_rows):
@@ -1704,6 +1754,8 @@ def _result_metrics(inputs: dict[str, Any], result: PortfolioResult) -> dict[str
         "target_daily_dd": result.target_daily_dd,
         "daily_dd_full_history": result.daily_dd_full_history,
         "enforce_point_dd": result.enforce_point_dd,
+        "actual_closed_valley_dd": result.actual_closed_valley_dd,
+        "floating_dd_buffer": result.floating_dd_buffer,
     }
 
 
@@ -1729,6 +1781,55 @@ def serialize_portfolio_proposals(
     return payload
 
 
+LEGACY_ALLOCATION_RISK_FIELDS = {
+    "max_balance_dd_001",
+    "max_equity_dd_001",
+    "floating_dd_source",
+    "standalone_floating_dd",
+    "recent_net_profit_001",
+    "recent_equity_dd_001",
+    "has_recent_performance",
+}
+LEGACY_RESULT_RISK_FIELDS = {"actual_closed_valley_dd", "floating_dd_buffer"}
+
+
+def legacy_compatible_portfolio_save_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Downgrade only the wire shape for nodes from before equity-risk fields.
+
+    Core safety values remain in ``actual_valley_dd`` and
+    ``standalone_valley_dd``; only the new audit breakdown is omitted.
+    """
+    compatible = dict(payload)
+    compatible_proposals: list[dict[str, Any]] = []
+    for raw_proposal in payload.get("proposals") or []:
+        if not isinstance(raw_proposal, dict):
+            continue
+        proposal = dict(raw_proposal)
+        raw_result = proposal.get("result")
+        if isinstance(raw_result, dict):
+            result = {
+                key: value for key, value in raw_result.items()
+                if key not in LEGACY_RESULT_RISK_FIELDS
+            }
+            result["allocations"] = [
+                {
+                    key: value for key, value in allocation.items()
+                    if key not in LEGACY_ALLOCATION_RISK_FIELDS
+                }
+                for allocation in raw_result.get("allocations") or []
+                if isinstance(allocation, dict)
+            ]
+            proposal["result"] = result
+        compatible_proposals.append(proposal)
+    compatible["proposals"] = compatible_proposals
+    return compatible
+
+
+def _supported_dataclass_values(dataclass_type: type, raw: dict[str, Any]) -> dict[str, Any]:
+    supported = {item.name for item in fields(dataclass_type)}
+    return {key: value for key, value in raw.items() if key in supported}
+
+
 def deserialize_portfolio_proposals(
     payload: object, scope: str, broker: str
 ) -> list[dict[str, Any]]:
@@ -1745,23 +1846,27 @@ def deserialize_portfolio_proposals(
             raise ValueError("La propuesta remota no contiene inputs y resultado")
         result_values = dict(raw_result)
         result_values["allocations"] = [
-            StrategyAllocation(**item) for item in result_values.get("allocations") or []
+            StrategyAllocation(**_supported_dataclass_values(StrategyAllocation, item))
+            for item in result_values.get("allocations") or []
             if isinstance(item, dict)
         ]
         result_values["decision_log"] = [
-            OptimizationDecision(**item) for item in result_values.get("decision_log") or []
+            OptimizationDecision(**_supported_dataclass_values(OptimizationDecision, item))
+            for item in result_values.get("decision_log") or []
             if isinstance(item, dict)
         ]
         result_values["unused_sets"] = [
-            UnusedSetInfo(**item) for item in result_values.get("unused_sets") or []
+            UnusedSetInfo(**_supported_dataclass_values(UnusedSetInfo, item))
+            for item in result_values.get("unused_sets") or []
             if isinstance(item, dict)
         ]
         stress = result_values.get("stress_bootstrap")
         result_values["stress_bootstrap"] = (
-            BootstrapDrawdownAnalysis(**stress) if isinstance(stress, dict) else None
+            BootstrapDrawdownAnalysis(**_supported_dataclass_values(BootstrapDrawdownAnalysis, stress))
+            if isinstance(stress, dict) else None
         )
         try:
-            result = PortfolioResult(**result_values)
+            result = PortfolioResult(**_supported_dataclass_values(PortfolioResult, result_values))
         except TypeError as exc:
             raise ValueError(f"Resultado de propuesta incompatible: {exc}") from exc
         proposals.append({
@@ -1840,8 +1945,10 @@ def _insert_allocation(
             portfolio_id,variant_key,variant_label,set_id,candidate_id,symbol,units,lot,
             net_profit_contribution,standalone_valley_dd,standalone_point_dd,set_path,timeframe,
             lot_size_step,margin_required,margin_pct,margin_leverage,margin_contract_size,
-            margin_price,is_report_path,oos_report_path
-        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            margin_price,is_report_path,oos_report_path,max_balance_dd_001,max_equity_dd_001,
+            floating_dd_source,standalone_floating_dd,recent_net_profit_001,recent_equity_dd_001,
+            has_recent_performance
+        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             portfolio_id, variant_key, variant_label, allocation.set_id, allocation.candidate_id,
@@ -1851,6 +1958,10 @@ def _insert_allocation(
             allocation.margin_required, allocation.margin_pct, allocation.margin_leverage,
             allocation.margin_contract_size, allocation.margin_price,
             allocation.is_report_path, allocation.oos_report_path,
+            allocation.max_balance_dd_001, allocation.max_equity_dd_001,
+            allocation.floating_dd_source, allocation.standalone_floating_dd,
+            allocation.recent_net_profit_001, allocation.recent_equity_dd_001,
+            int(allocation.has_recent_performance),
         ),
     )
     candidate_text = str(allocation.candidate_id)
@@ -1954,9 +2065,10 @@ def save_proposal(
                     created_at,name,type,portfolio_type,num_symbols,account_capital,capital,
                     target_valley_dd_pct,target_point_dd_pct,target_valley_dd,target_point_dd,
                     actual_valley_dd,actual_point_dd,valley_usage_pct,point_usage_pct,total_net_profit,
+                    actual_closed_valley_dd,floating_dd_buffer,
                     total_lot,total_units,active_strategies,target_strategies,stop_reason,binding_constraint,
                     portfolio_scope,target_month,metrics_json
-                ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     created_at, name, row_type, row_type, active_symbols, float(selected_inputs["capital"]),
@@ -1965,6 +2077,7 @@ def save_proposal(
                     selected_result.target_point_dd, selected_result.actual_valley_dd,
                     selected_result.actual_point_dd, selected_result.valley_usage_pct,
                     selected_result.point_usage_pct, selected_result.total_net_profit,
+                    selected_result.actual_closed_valley_dd, selected_result.floating_dd_buffer,
                     selected_result.total_lot, selected_result.total_units, selected_result.active_strategies,
                     selected_result.active_strategies, selected_result.stop_reason,
                     "valley", scope, target_month, json.dumps(metrics, ensure_ascii=True),
@@ -2043,12 +2156,14 @@ def replace_saved_proposal(
                 """update portfolios set name=?,type=?,portfolio_type=?,num_symbols=?,account_capital=?,capital=?,
                    target_valley_dd_pct=?,target_point_dd_pct=?,target_valley_dd=?,target_point_dd=?,actual_valley_dd=?,
                    actual_point_dd=?,valley_usage_pct=?,point_usage_pct=?,total_net_profit=?,total_lot=?,total_units=?,
+                   actual_closed_valley_dd=?,floating_dd_buffer=?,
                    active_strategies=?,target_strategies=?,stop_reason=?,binding_constraint=?,portfolio_scope=?,target_month=?,metrics_json=?
                    where id=?""",
                 (name, row_type, row_type, active_symbols, float(inputs["capital"]), float(inputs["capital"]),
                  float(inputs["valley_dd_pct"]), float(inputs["point_dd_pct"]), result.target_valley_dd,
                  result.target_point_dd, result.actual_valley_dd, result.actual_point_dd, result.valley_usage_pct,
                  result.point_usage_pct, result.total_net_profit, result.total_lot, result.total_units,
+                 result.actual_closed_valley_dd, result.floating_dd_buffer,
                  result.active_strategies, target_strategies, result.stop_reason, "valley", scope, target_month,
                  json.dumps(metrics, ensure_ascii=True), portfolio_id),
             )

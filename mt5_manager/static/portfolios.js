@@ -124,7 +124,7 @@ function renderProposals() {
     return `<button type="button" class="proposal-card ${proposal.key === selectedProposal ? 'selected' : ''} ${stress.alert ? 'stress-alert' : ''}" onclick="selectProposal('${esc(proposal.key)}')">
       <span>${esc(proposal.label)}</span><strong>${number(result.total_net_profit)}</strong>
       <small>${number(result.active_strategies)} estrategias · ${number(result.total_units)} uds. · ${largestGroup(result.group_summary)}</small>
-      <small>DD valle ${number(result.actual_valley_dd, 2)} / ${number(result.target_valley_dd, 2)} (${number(result.valley_usage_pct, 1)}%)</small>
+      <small>DD equity ajust. ${number(result.actual_valley_dd, 2)} / ${number(result.target_valley_dd, 2)} (${number(result.valley_usage_pct, 1)}%) · cerrado ${number(result.actual_closed_valley_dd, 2)} + flotante ${number(result.floating_dd_buffer, 2)}</small>
       <small>Margen DD nominal ${number(result.nominal_valley_margin, 2)} / ${number(result.nominal_valley_dd, 2)} (${number(result.nominal_valley_margin_pct, 1)}%)</small>
       <small>DD puntual ${number(result.actual_point_dd, 2)}${result.enforce_point_dd ? ` / ${number(result.target_point_dd, 2)}` : ' informativo'}${scope === 'monthly' ? ` · diario ${number(result.max_daily_dd, 2)} / ${number(result.target_daily_dd, 2)}` : ''}</small>
       <small>Stress P50 ${number(stress.valley_dd_p50, 2)} · P95 ${number(stress.valley_dd_p95, 2)}${stress.alert ? ' · ALERTA' : ''}</small>
@@ -144,7 +144,7 @@ function renderSelectedProposal() {
   if (!proposal) return;
   const result = proposal.result || {};
   proposalMembers = result.allocations || [];
-  document.querySelector('#proposal-members').innerHTML = proposalMembers.length ? proposalMembers.map((member, index) => `<tr><td title="${esc(member.set_id)}">${esc((member.set_path || member.set_id || '').split(/[\\/]/).pop())}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe || '')}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td>${number(member.standalone_point_dd, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${scope === 'monthly' ? '—' : `<button type="button" class="danger table-action" onclick="excludeStrategy('proposal',${index})">Excluir</button>`}</td></tr>`).join('') : '<tr><td colspan="10">Sin asignaciones.</td></tr>';
+  document.querySelector('#proposal-members').innerHTML = proposalMembers.length ? proposalMembers.map((member, index) => `<tr><td title="${esc(member.set_id)}">${esc((member.set_path || member.set_id || '').split(/[\\/]/).pop())}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe || '')}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${number((member.recent_net_profit_001 || 0) * member.units, 2)}</td><td>${number(member.standalone_point_dd, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${scope === 'monthly' ? '—' : `<button type="button" class="danger table-action" onclick="excludeStrategy('proposal',${index})">Excluir</button>`}</td></tr>`).join('') : '<tr><td colspan="12">Sin asignaciones.</td></tr>';
   const diff = proposal.diff || [];
   document.querySelector('#proposal-diff-section').hidden = !diff.length;
   document.querySelector('#proposal-diff').innerHTML = diff.map(row => `<tr><td><span class="change-state ${row.state.toLowerCase().replace(' ', '-')}">${esc(row.state)}</span></td><td title="${esc(row.set_path)}">${esc(row.set_name)}</td><td>${esc(row.symbol)}</td><td>${number(row.old_units)}</td><td>${number(row.new_units)}</td><td>${number(row.delta_units)}</td><td>${number(row.old_lot, 2)}</td><td>${number(row.new_lot, 2)}</td></tr>`).join('');
@@ -263,12 +263,17 @@ async function excludeStrategy(source, index) {
   if (!member) return;
   const setName = member.set_name || (member.set_path || member.set_id || '').split(/[\\/]/).pop();
   const saved = source === 'detail';
-  const message = saved ? `${setName} se pondrá en cuarentena, se quitará del portafolio #${selectedId} y se recalcularán sus métricas. Después podrás completarlo. ¿Continuar?` : `${setName} dejará de participar en futuras generaciones completas. ¿Continuar?`;
+  const bundle = saved && (currentDetail?.portfolio_type === 'bundle' || currentDetail?.metrics?.portfolio_bundle);
+  const message = bundle
+    ? `${setName} se pondrá en cuarentena y se borrará por completo el portafolio A/M/C #${selectedId}, sin recalcularlo. ¿Continuar?`
+    : saved ? `${setName} se pondrá en cuarentena, se quitará del portafolio #${selectedId} y se recalcularán sus métricas. Después podrás completarlo. ¿Continuar?`
+      : `${setName} dejará de participar en futuras generaciones completas. ¿Continuar?`;
   if (!confirm(message)) return;
   try {
     await postManager('exclude', {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? selectedId : null});
-    toast(`${setName} puesta en cuarentena${saved ? ' y retirada del portafolio' : ''}.`);
+    toast(bundle ? `${setName} puesta en cuarentena y portafolio #${selectedId} borrado.` : `${setName} puesta en cuarentena${saved ? ' y retirada del portafolio' : ''}.`);
     selectedProposal = null;
+    if (bundle) selectedId = null;
     await Promise.all([loadManagerState(), loadPortfolios(saved ? selectedId : null)]);
   } catch (error) { toast(error.message, true); }
 }
@@ -324,7 +329,7 @@ async function loadDetail(id) {
     document.querySelector('#detail-title').textContent = `Portafolio #${portfolio.id}`;
     document.querySelector('#detail-meta').textContent = `${portfolio.created_at}${portfolio.target_month ? ` · ${monthNames[portfolio.target_month]}` : ''}`;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
-    document.querySelector('#detail-metrics').innerHTML = [metric(number(portfolio.capital), 'Capital'), metric(number(portfolio.total_net_profit), 'Net total'), metric(number(portfolio.actual_valley_dd, 2), 'DD valle', `límite ${number(portfolio.target_valley_dd, 2)} · ${number(portfolio.valley_usage_pct, 1)}%`), metric(number(portfolio.actual_point_dd, 2), 'DD puntual', portfolio.metrics?.enforce_point_dd ? `límite ${number(portfolio.target_point_dd, 2)}` : 'informativo'), metric(number(portfolio.total_lot, 2), 'Lote total'), metric(number(portfolio.total_units), 'Unidades'), metric(`${number(portfolio.active_strategies)}/${number(portfolio.target_strategies || portfolio.active_strategies)}`, 'Estrategias'), metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert)].join('');
+    document.querySelector('#detail-metrics').innerHTML = [metric(number(portfolio.capital), 'Capital'), metric(number(portfolio.total_net_profit), 'Net total'), metric(number(portfolio.actual_valley_dd, 2), 'DD equity ajust.', `cerrado ${number(portfolio.actual_closed_valley_dd, 2)} + flotante ${number(portfolio.floating_dd_buffer, 2)} · límite ${number(portfolio.target_valley_dd, 2)} · ${number(portfolio.valley_usage_pct, 1)}%`), metric(number(portfolio.actual_point_dd, 2), 'DD puntual', portfolio.metrics?.enforce_point_dd ? `límite ${number(portfolio.target_point_dd, 2)}` : 'informativo'), metric(number(portfolio.total_lot, 2), 'Lote total'), metric(number(portfolio.total_units), 'Unidades'), metric(`${number(portfolio.active_strategies)}/${number(portfolio.target_strategies || portfolio.active_strategies)}`, 'Estrategias'), metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert)].join('');
     document.querySelector('#detail-note').textContent = [portfolio.stop_reason, portfolio.binding_constraint].filter(Boolean).join(' · ');
     document.querySelector('#detail-complete').disabled = isBundle || Number(portfolio.active_strategies) >= Number(portfolio.target_strategies || portfolio.active_strategies);
     document.querySelector('#detail-undo').disabled = !(portfolio.versions || []).length;
@@ -333,8 +338,8 @@ async function loadDetail(id) {
       const seasonal = member.seasonal || {};
       const seasonalText = seasonal.year_count != null ? `${seasonal.positive_year_count}/${seasonal.year_count} años · ${seasonal.trades || 0} trades` : '—';
       const candidate = member.candidate_id || '—';
-      return `<tr><td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button>${isBundle ? '' : `<button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Cuarentena</button>`}</div></td></tr>`;
-    }).join('') : '<tr><td colspan="13">Este portafolio no tiene estrategias guardadas.</td></tr>';
+      return `<tr><td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${number((member.recent_net_profit_001 || 0) * member.units, 2)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button></div></td></tr>`;
+    }).join('') : '<tr><td colspan="15">Este portafolio no tiene estrategias guardadas.</td></tr>';
     renderAudit(portfolio);
   } catch (error) { toast(error.message, true); }
 }

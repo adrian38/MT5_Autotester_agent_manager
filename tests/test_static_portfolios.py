@@ -30,6 +30,15 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("if (!form.checkValidity()) return", script)
         self.assertIn("if (!form.reportValidity()) return", script)
 
+    def test_saved_bundle_members_can_be_excluded(self) -> None:
+        script = (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("se borrará por completo el portafolio A/M/C", script)
+        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        self.assertNotIn("${isBundle ? '' : `<button type=\"button\" class=\"danger table-action\"", script)
+
     def test_explicit_save_actions_show_a_blocking_progress_overlay(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = html.fromstring((static_dir / "portfolios.html").read_text(encoding="utf-8"))

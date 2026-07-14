@@ -12,6 +12,58 @@ from portfolio_manager.ubs_portfolio import PortfolioAvailability, PortfolioResu
 
 
 class PortfolioServiceTests(unittest.TestCase):
+    def test_excluding_a_bundle_member_quarantines_it_and_deletes_the_portfolio(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+            memory.touch()
+            source = PortfolioSource({
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            })
+            set_path = str(project / "strategy.set")
+            with source.connect(write=True) as conn:
+                portfolio_id = int(conn.execute(
+                    "insert into portfolios(created_at,name,type,portfolio_type,portfolio_scope,metrics_json) values(?,?,?,?,?,?)",
+                    ("2026-07-15", "A/M/C", "bundle", "bundle", "full_history", json.dumps({"portfolio_bundle": True})),
+                ).lastrowid)
+                conn.execute(
+                    """insert into portfolio_allocations(
+                       portfolio_id,variant_key,variant_label,set_id,candidate_id,symbol,units,lot,
+                       net_profit_contribution,standalone_valley_dd,standalone_point_dd,set_path,timeframe
+                       ) values(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (portfolio_id, "conservative", "Conservador", set_path, "ICTRADING/STANDARD:7",
+                     "EURUSD", 1, .01, 100, 20, 10, set_path, "H1"),
+                )
+                conn.commit()
+            candidate = {
+                "set_path": set_path,
+                "source_memory_path": str(memory),
+                "account_type": "ICTRADING/STANDARD",
+                "source_candidate_id": 7,
+                "target_symbol": "EURUSD",
+                "period": "H1",
+            }
+
+            with patch.object(source, "candidate_rows", return_value=[candidate]), patch.object(
+                source, "_recalculate_saved", side_effect=AssertionError("no debe recalcular")
+            ):
+                quarantine_id = source.remove_member_to_quarantine(
+                    {"portfolio_id": portfolio_id, "set_path": set_path}, "full_history"
+                )
+
+            self.assertGreater(quarantine_id, 0)
+            with source.connect() as conn:
+                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+                quarantine = conn.execute(
+                    "select set_path,source_portfolio_id from portfolio_quarantine where id=?", (quarantine_id,)
+                ).fetchone()
+            self.assertEqual(quarantine["set_path"], set_path)
+            self.assertEqual(quarantine["source_portfolio_id"], portfolio_id)
+
     def test_save_selected_bundle_commits_and_is_readable_afterward(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

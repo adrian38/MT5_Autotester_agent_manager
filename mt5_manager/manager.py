@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
-from .portfolio_service import PortfolioCoordinator
+from .portfolio_service import PortfolioCoordinator, legacy_compatible_portfolio_save_payload
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -256,6 +256,15 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     status, value = node_request(
                         node, "POST", "/api/v1/portfolios/save", save_payload, timeout=120
                     )
+                    error_text = str(value.get("error") if isinstance(value, dict) else value or "")
+                    if status >= 400 and "unexpected keyword argument" in error_text:
+                        status, value = node_request(
+                            node,
+                            "POST",
+                            "/api/v1/portfolios/save",
+                            legacy_compatible_portfolio_save_payload(save_payload),
+                            timeout=120,
+                        )
                     if status == 404:
                         raise ValueError(
                             "El nodo todavía no admite guardado local de portafolios; "

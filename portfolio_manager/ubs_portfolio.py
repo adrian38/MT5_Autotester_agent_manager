@@ -31,6 +31,7 @@ ProgressCallback = Callable[[str], None]
 DEFAULT_BOOTSTRAP_SIMULATIONS = 1_000
 DEFAULT_BOOTSTRAP_SEED = 20260624
 BOOTSTRAP_METHOD = "circular_moving_block"
+MIN_RECENT_EQUITY_RECOVERY = 1.0
 
 
 PORTFOLIO_SYMBOL_ALIASES = {
@@ -204,6 +205,8 @@ class PeriodReport:
     source_path: str = ""
     start_date: str = ""
     end_date: str = ""
+    balance_dd_metric_001: float = 0.0
+    equity_dd_metric_001: float = 0.0
 
 
 @dataclass
@@ -231,6 +234,13 @@ class RobustStrategySet:
     target_month: int | None = None
     month_years: tuple[int, ...] = ()
     positive_month_years: tuple[int, ...] = ()
+    max_balance_dd_001: float = 0.0
+    max_equity_dd_001: float = 0.0
+    max_floating_dd_001: float = 0.0
+    floating_dd_source: str = ""
+    recent_net_profit_001: float = 0.0
+    recent_equity_dd_001: float = 0.0
+    has_recent_performance: bool = False
 
 
 @dataclass
@@ -252,6 +262,8 @@ class PortfolioEvaluation:
     daily_usage_pct: float = 0.0
     daily_dd_full_history: bool = False
     enforce_point_dd: bool = True
+    closed_valley_dd: float = 0.0
+    floating_dd_buffer: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -290,6 +302,13 @@ class StrategyAllocation:
     margin_leverage: float = 0.0
     margin_contract_size: float = 0.0
     margin_price: float = 0.0
+    max_balance_dd_001: float = 0.0
+    max_equity_dd_001: float = 0.0
+    floating_dd_source: str = ""
+    standalone_floating_dd: float = 0.0
+    recent_net_profit_001: float = 0.0
+    recent_equity_dd_001: float = 0.0
+    has_recent_performance: bool = False
 
 
 @dataclass
@@ -358,6 +377,8 @@ class PortfolioResult:
     daily_dd_summary: dict[str, object] = field(default_factory=dict)
     daily_dd_full_history: bool = False
     enforce_point_dd: bool = True
+    actual_closed_valley_dd: float = 0.0
+    floating_dd_buffer: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -758,6 +779,7 @@ def period_report_from_strategy_report(report: StrategyReport, period_name: str)
         profit_factor = gross_profit / abs(gross_loss) if gross_loss else (float("inf") if gross_profit else 0.0)
 
     start_year, end_year = _period_years(report, period_name)
+    balance_dd_metric, equity_dd_metric = maximal_drawdowns_from_report(report)
     return PeriodReport(
         period_name=period_name,
         start_year=start_year,
@@ -778,6 +800,8 @@ def period_report_from_strategy_report(report: StrategyReport, period_name: str)
         source_path=str(report.path),
         start_date=report.period_start,
         end_date=report.period_end,
+        balance_dd_metric_001=balance_dd_metric,
+        equity_dd_metric_001=equity_dd_metric,
     )
 
 
@@ -813,6 +837,12 @@ def build_robust_strategy_set(
     set_path: str = "",
     is_report_path: str = "",
     oos_report_path: str = "",
+    final_tick_balance_dd_001: float = 0.0,
+    final_tick_equity_dd_001: float = 0.0,
+    final_tick_net_profit_001: float = 0.0,
+    recent_equity_dd_001: float | None = None,
+    has_final_tick_performance: bool = False,
+    final_tick_source: str = "Final Tick 6M",
 ) -> RobustStrategySet:
     if _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(report_2025_2026.symbol):
         raise ValueError("Cannot merge reports with different symbols")
@@ -832,6 +862,19 @@ def build_robust_strategy_set(
     return_dd_2020_2026 = net_profit_2020_2026_001 / max(valley_dd_2020_2026_001, 1.0)
     trades_2020_2026 = report_2020_2024.trades + report_2025_2026.trades
     profit_factor_2020_2026 = calc_combined_profit_factor(report_2020_2024, report_2025_2026)
+    drawdown_observations = [
+        ("2020-2024", report_2020_2024.balance_dd_metric_001, report_2020_2024.equity_dd_metric_001),
+        ("2025-2026", report_2025_2026.balance_dd_metric_001, report_2025_2026.equity_dd_metric_001),
+    ]
+    if final_tick_balance_dd_001 > 0 or final_tick_equity_dd_001 > 0:
+        drawdown_observations.append(
+            (final_tick_source, float(final_tick_balance_dd_001), float(final_tick_equity_dd_001))
+        )
+    floating_source, max_balance_dd, max_equity_dd = max(
+        drawdown_observations,
+        key=lambda item: max(float(item[2]) - float(item[1]), 0.0),
+    )
+    max_floating_dd = max(float(max_equity_dd) - float(max_balance_dd), 0.0)
 
     return RobustStrategySet(
         set_id=str(set_id),
@@ -854,6 +897,15 @@ def build_robust_strategy_set(
         is_report_path=is_report_path,
         oos_report_path=oos_report_path,
         curve_points_2020_2026_001=curve_points,
+        max_balance_dd_001=max(float(max_balance_dd), 0.0),
+        max_equity_dd_001=max(float(max_equity_dd), 0.0),
+        max_floating_dd_001=max_floating_dd,
+        floating_dd_source=floating_source,
+        recent_net_profit_001=float(final_tick_net_profit_001),
+        recent_equity_dd_001=max(float(
+            final_tick_equity_dd_001 if recent_equity_dd_001 is None else recent_equity_dd_001
+        ), 0.0),
+        has_recent_performance=bool(has_final_tick_performance),
     )
 
 
@@ -932,6 +984,13 @@ def slice_strategy_set_to_month(
         target_month=int(target_month),
         month_years=years,
         positive_month_years=positive_years,
+        max_balance_dd_001=strategy.max_balance_dd_001,
+        max_equity_dd_001=strategy.max_equity_dd_001,
+        max_floating_dd_001=strategy.max_floating_dd_001,
+        floating_dd_source=strategy.floating_dd_source,
+        recent_net_profit_001=strategy.recent_net_profit_001,
+        recent_equity_dd_001=strategy.recent_equity_dd_001,
+        has_recent_performance=strategy.has_recent_performance,
     )
 
 
@@ -1271,6 +1330,30 @@ def load_robust_sets_from_rows(
         try:
             is_period = period_report_from_strategy_report(parse(is_path), "2020_2024")
             oos_period = period_report_from_strategy_report(parse(oos_path), "2025_2026")
+            final_tick_balance_dd = float(_row_value(row, "max_balance_dd_001", default=0.0) or 0.0)
+            final_tick_equity_dd = float(_row_value(row, "max_equity_dd_001", default=0.0) or 0.0)
+            final_tick_source = str(_row_value(row, "floating_dd_source", default="guardado") or "guardado")
+            final_tick_net_profit = float(_row_value(row, "recent_net_profit_001", default=0.0) or 0.0)
+            recent_equity_dd = float(_row_value(row, "recent_equity_dd_001", default=0.0) or 0.0)
+            has_final_tick_performance = bool(
+                _row_value(row, "has_recent_performance", default=False)
+            )
+            recent_report_text = str(
+                _row_value(row, "final_tick_report_path", "real_tick_report_path", default="") or ""
+            ).strip()
+            if recent_report_text:
+                recent_report_path = resolve_workspace_path(recent_report_text)
+                if not recent_report_path.is_file():
+                    raise FileNotFoundError(f"Final Tick 6M report not found: {recent_report_path}")
+                recent_report = parse(recent_report_path)
+                final_tick_balance_dd, final_tick_equity_dd = maximal_drawdowns_from_report(recent_report)
+                metric_net_profit = _metric_amount(recent_report, "Total Net Profit", "Beneficio Neto")
+                if metric_net_profit is None:
+                    raise ValueError("Final Tick 6M report has no total net profit metric")
+                final_tick_net_profit = float(metric_net_profit)
+                recent_equity_dd = final_tick_equity_dd
+                has_final_tick_performance = True
+                final_tick_source = "Final Tick 6M"
             target_symbol = str(_row_value(row, "target_symbol", "symbol", default=is_period.symbol))
             loaded.append(
                 build_robust_strategy_set(
@@ -1286,6 +1369,12 @@ def load_robust_sets_from_rows(
                     set_path=set_path,
                     is_report_path=str(is_path),
                     oos_report_path=str(oos_path),
+                    final_tick_balance_dd_001=final_tick_balance_dd,
+                    final_tick_equity_dd_001=final_tick_equity_dd,
+                    final_tick_net_profit_001=final_tick_net_profit,
+                    recent_equity_dd_001=recent_equity_dd,
+                    has_final_tick_performance=has_final_tick_performance,
+                    final_tick_source=final_tick_source,
                 )
             )
         except Exception as exc:
@@ -1322,6 +1411,10 @@ def filter_eligible_sets(
             continue
         if strategy.net_profit_2020_2026_001 <= 0:
             continue
+        if strategy.has_recent_performance:
+            recent_recovery = strategy.recent_net_profit_001 / max(strategy.recent_equity_dd_001, 1.0)
+            if recent_recovery < MIN_RECENT_EQUITY_RECOVERY:
+                continue
         eligible.append(strategy)
     return eligible
 
@@ -1406,8 +1499,15 @@ def score_set_for_portfolio(
     pf_score = min(max(strategy.profit_factor_2020_2026, 1.0), 3.0)
     return_dd_score = max(strategy.return_dd_2020_2026, 0.1)
     trades_confidence = min(1.0, strategy.trades_2020_2026 / max(min_trades_2020_2026, 1))
-    dd_penalty = max(strategy.valley_dd_2020_2026_001, 1.0)
-    return float((profit_score * pf_score * return_dd_score * trades_confidence) / dd_penalty)
+    floating_buffer = strategy.max_floating_dd_001
+    dd_penalty = max(strategy.valley_dd_2020_2026_001 + floating_buffer, 1.0)
+    recent_factor = 1.0
+    if strategy.has_recent_performance:
+        recent_factor = min(
+            max(strategy.recent_net_profit_001 / max(strategy.recent_equity_dd_001, 1.0), 0.1),
+            3.0,
+        )
+    return float((profit_score * pf_score * return_dd_score * trades_confidence * recent_factor) / dd_penalty)
 
 
 def select_top_k_per_symbol(
@@ -1516,6 +1616,8 @@ def evaluate_portfolio(
             daily_usage_pct=0.0,
             daily_dd_full_history=bool(daily_dd_full_history),
             enforce_point_dd=bool(enforce_point_dd),
+            closed_valley_dd=0.0,
+            floating_dd_buffer=0.0,
         )
 
     if all(strategy.curve_points_2020_2026_001 for strategy in active_sets):
@@ -1532,7 +1634,12 @@ def evaluate_portfolio(
                 portfolio_curve[index] += value * units
 
     total_net_profit = portfolio_curve[-1]
-    valley_dd = calc_valley_dd(portfolio_curve)
+    closed_valley_dd = calc_valley_dd(portfolio_curve)
+    floating_dd_buffer = sum(
+        strategy.max_floating_dd_001 * allocations[strategy.set_id]
+        for strategy in active_sets
+    )
+    valley_dd = closed_valley_dd + floating_dd_buffer
     point_dd = calc_point_dd(portfolio_curve)
     daily_dd = 0.0
     if target_daily_dd is not None:
@@ -1559,6 +1666,8 @@ def evaluate_portfolio(
         daily_usage_pct=daily_dd / target_daily_dd * 100 if target_daily_dd and target_daily_dd > 0 else 0.0,
         daily_dd_full_history=bool(daily_dd_full_history),
         enforce_point_dd=bool(enforce_point_dd),
+        closed_valley_dd=closed_valley_dd,
+        floating_dd_buffer=floating_dd_buffer,
     )
 
 
@@ -4535,7 +4644,10 @@ def optimize_portfolio(
                 units=units,
                 lot=round(units * 0.01, 2),
                 net_profit_contribution=strategy.net_profit_2020_2026_001 * units,
-                standalone_valley_dd=strategy.valley_dd_2020_2026_001 * units,
+                standalone_valley_dd=(
+                    strategy.valley_dd_2020_2026_001
+                    + strategy.max_floating_dd_001
+                ) * units,
                 standalone_point_dd=strategy.point_dd_2020_2026_001 * units,
                 timeframe=strategy.timeframe,
                 set_path=strategy.set_path,
@@ -4551,6 +4663,15 @@ def optimize_portfolio(
                 margin_leverage=float(margin_row.get("leverage", 0.0) or 0.0) if isinstance(margin_row, dict) else 0.0,
                 margin_contract_size=float(margin_row.get("contract_size", 0.0) or 0.0) if isinstance(margin_row, dict) else 0.0,
                 margin_price=float(margin_row.get("price", 0.0) or 0.0) if isinstance(margin_row, dict) else 0.0,
+                max_balance_dd_001=strategy.max_balance_dd_001,
+                max_equity_dd_001=strategy.max_equity_dd_001,
+                floating_dd_source=strategy.floating_dd_source,
+                standalone_floating_dd=(
+                    strategy.max_floating_dd_001 * units
+                ),
+                recent_net_profit_001=strategy.recent_net_profit_001,
+                recent_equity_dd_001=strategy.recent_equity_dd_001,
+                has_recent_performance=strategy.has_recent_performance,
             )
         )
     result_allocations.sort(key=lambda item: (item.units, item.net_profit_contribution), reverse=True)
@@ -4581,6 +4702,24 @@ def optimize_portfolio(
     if dd_reserve_pct > 0:
         warnings.append(
             f"DD reserve {float(dd_reserve_pct):.1f}% applied; optimizer used reduced effective DD targets."
+        )
+    if current.floating_dd_buffer > 0:
+        warnings.append(
+            "DD equity historico aplicado (2020-hoy + Final Tick 6M): DD cerrado "
+            f"{current.closed_valley_dd:.2f} + buffer flotante conservador "
+            f"{current.floating_dd_buffer:.2f} = {current.valley_dd:.2f}."
+        )
+    recent_recovery_rejections = sum(
+        1
+        for strategy in raw_sets
+        if strategy.has_recent_performance
+        and strategy.recent_net_profit_001 / max(strategy.recent_equity_dd_001, 1.0)
+        < MIN_RECENT_EQUITY_RECOVERY
+    )
+    if recent_recovery_rejections:
+        warnings.append(
+            f"{recent_recovery_rejections} estrategia(s) excluida(s): recuperacion 6M "
+            f"sobre DD de equity < {MIN_RECENT_EQUITY_RECOVERY:.1f}."
         )
     if search_restarts > 0:
         warnings.append(
@@ -4709,6 +4848,8 @@ def optimize_portfolio(
         daily_dd_summary=daily_dd_summary,
         daily_dd_full_history=bool(daily_dd_full_history),
         enforce_point_dd=bool(enforce_point_dd),
+        actual_closed_valley_dd=current.closed_valley_dd,
+        floating_dd_buffer=current.floating_dd_buffer,
     )
 
 
@@ -4793,6 +4934,28 @@ def _metric_amount(report: StrategyReport, *keys: str) -> float | None:
     if value == "":
         return None
     return _to_float(value)
+
+
+def maximal_drawdowns_from_report(report: StrategyReport) -> tuple[float, float]:
+    """Return maximal balance/equity DD amounts from an MT5 report.
+
+    The closed-trade curve only observes balance changes.  The maximal equity
+    drawdown is therefore required explicitly to account for adverse floating
+    P/L that recovered before the position was closed.
+    """
+    balance_dd = _metric_amount(
+        report,
+        "Balance Drawdown Maximal",
+        "Reduccion maxima del balance",
+    )
+    equity_dd = _metric_amount(
+        report,
+        "Equity Drawdown Maximal",
+        "Reduccion maxima de la equidad",
+    )
+    if equity_dd is None:
+        raise ValueError("Final Tick 6M report has no maximal equity drawdown metric")
+    return max(float(balance_dd or 0.0), 0.0), max(float(equity_dd), 0.0)
 
 
 def _first_metric(report: StrategyReport, *keys: str) -> str:
@@ -5040,6 +5203,11 @@ def _build_unused_sets(
             reason = "below_min_trades"
         elif strategy.net_profit_2020_2026_001 <= 0:
             reason = "non_positive_net_profit"
+        elif strategy.has_recent_performance and (
+            strategy.recent_net_profit_001 / max(strategy.recent_equity_dd_001, 1.0)
+            < MIN_RECENT_EQUITY_RECOVERY
+        ):
+            reason = "recent_equity_recovery_below_1"
         elif strategy.set_id not in eligible_ids:
             reason = "not_eligible"
         elif strategy.set_id not in selected_ids:
