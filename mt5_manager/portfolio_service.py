@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 import uuid
 import zlib
@@ -2494,15 +2495,13 @@ class PortfolioCoordinator:
                 pass
 
     def state(self, node_id: str, scope: str) -> dict[str, Any]:
+        status = self.task_state(node_id, scope)
         key = self._key(node_id, scope)
+        job = status["job"]
+        active_task = status["task"]
+        tasks = status["tasks"]
         with self.lock:
-            job = dict(self.jobs.get(key) or {"status": "idle"})
             proposals = list(self.proposals.get(key) or [])
-            tasks = [dict(task) for task in self.tasks.get(key, [])]
-            active_task = next(
-                (task for task in tasks if task.get("status") in {"pending", "running"}),
-                tasks[-1] if tasks else {"status": "idle"},
-            )
         previous_members = list(job.get("previous_members") or [])
         settings = self.settings_for(node_id, scope)
         proposal_payloads: list[dict[str, Any]] = []
@@ -2536,6 +2535,18 @@ class PortfolioCoordinator:
             "inventory": PortfolioSource(self._node(node_id)).inventory(scope, settings),
             "proposals": proposal_payloads,
         }
+
+    def task_state(self, node_id: str, scope: str) -> dict[str, Any]:
+        self._node(node_id)
+        key = self._key(node_id, scope)
+        with self.lock:
+            job = dict(self.jobs.get(key) or {"status": "idle"})
+            tasks = [dict(task) for task in self.tasks.get(key, [])]
+        active_task = next(
+            (task for task in tasks if task.get("status") in {"pending", "running"}),
+            tasks[-1] if tasks else {"status": "idle"},
+        )
+        return {"job": job, "task": active_task, "tasks": tasks[-10:]}
 
     def prepare_save(self, node_id: str, scope: str, selected_key: str) -> dict[str, Any]:
         self._node(node_id)
@@ -2648,7 +2659,7 @@ class PortfolioCoordinator:
                 time.sleep(0.25)
                 continue
             try:
-                PortfolioSource(self._node(node_id)).delete_portfolio(int(task["portfolio_id"]), scope)
+                self._delete_on_node(node_id, scope, int(task["portfolio_id"]))
                 with self.lock:
                     task.update({
                         "status": "completed",
@@ -2663,6 +2674,43 @@ class PortfolioCoordinator:
                         "progress": "Error al borrar el portafolio",
                         "error": str(exc),
                     })
+
+    def _delete_on_node(self, node_id: str, scope: str, portfolio_id: int) -> None:
+        node = self._node(node_id)
+        base_url = str(node.get("url") or "").rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            PortfolioSource(node).delete_portfolio(portfolio_id, scope)
+            return
+        request = urllib.request.Request(
+            base_url + "/api/v1/portfolios/delete",
+            data=json.dumps({"scope": scope, "portfolio_id": portfolio_id}).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {node.get('token', '')}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                raw = response.read()
+                payload = json.loads(raw) if raw else {}
+                status = response.status
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            try:
+                payload = json.loads(raw) if raw else {"error": str(exc)}
+            except json.JSONDecodeError:
+                payload = {"error": raw.decode("utf-8", errors="replace") or str(exc)}
+            status = exc.code
+        if status == 404:
+            raise ValueError("El nodo todavía no admite borrado local; actualiza y reinicia el nodo")
+        if status >= 400 or not isinstance(payload, dict):
+            error = payload.get("error") if isinstance(payload, dict) else payload
+            raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+        if not payload.get("deleted") or int(payload.get("portfolio_id") or 0) != portfolio_id:
+            raise ValueError("El nodo no confirmó el borrado del portafolio")
+        source = PortfolioSource(node)
+        source._invalidate_remote_snapshot(source.memory)
 
     def export(self, node_id: str, scope: str, portfolio_id: int, destination: str | None) -> dict[str, Any]:
         return PortfolioSource(self._node(node_id)).export_portfolio(portfolio_id, scope, destination)

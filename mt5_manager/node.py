@@ -1146,6 +1146,15 @@ class JobController:
     def save_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:
         return save_portfolio_payload(self._portfolio_source(), payload)
 
+    def delete_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:
+        portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
+        scope = "monthly" if str(payload.get("scope") or "").strip().lower() == "monthly" else "full_history"
+        source = self._portfolio_source()
+        source.delete_portfolio(portfolio_id, scope)
+        if any(int(row["id"]) == portfolio_id for row in source.saved_portfolios(scope)["portfolios"]):
+            raise RuntimeError(f"El portafolio #{portfolio_id} sigue presente después del borrado")
+        return {"deleted": True, "portfolio_id": portfolio_id, "scope": scope}
+
     def portfolios(self, scope: str = "full_history") -> dict[str, Any]:
         portfolio_scope = "monthly" if str(scope).strip().lower() == "monthly" else "full_history"
         project = Path(str(self.config["project_dir"])).expanduser().resolve()
@@ -1338,6 +1347,8 @@ class NodeHandler(BaseHTTPRequestHandler):
                 self._send(200, self.server.controller.update_universe(self._body()))
             elif self.path == "/api/v1/portfolios/save":
                 self._send(201, self.server.controller.save_portfolio(self._body(50_000_000)))
+            elif self.path == "/api/v1/portfolios/delete":
+                self._send(200, self.server.controller.delete_portfolio(self._body()))
             else:
                 self._send(404, {"error": "Ruta no encontrada"})
         except (ValueError, RuntimeError, json.JSONDecodeError) as exc:

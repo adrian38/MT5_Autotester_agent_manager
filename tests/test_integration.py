@@ -176,6 +176,21 @@ enabled=0
         self.assertEqual(payload["task"], task)
         delete.assert_called_once_with("test-node", "full_history", 37)
 
+    def test_portfolio_task_status_endpoint_is_lightweight(self) -> None:
+        task_state = {
+            "job": {"status": "idle"},
+            "task": {"id": "delete-39", "status": "completed", "operation": "delete", "portfolio_id": 39},
+            "tasks": [],
+        }
+        with mock.patch.object(self.manager.portfolios, "task_state", return_value=task_state) as status_call:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/task?scope=full_history"
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, task_state)
+        status_call.assert_called_once_with("test-node", "full_history")
+
     def test_controller_runs_each_node_queue_in_order_and_persists_it(self) -> None:
         (self.root / "ubs_agent.py").write_text(
             "import time\ntime.sleep(.2)\n",

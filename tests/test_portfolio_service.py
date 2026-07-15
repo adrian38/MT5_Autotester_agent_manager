@@ -266,6 +266,21 @@ class PortfolioServiceTests(unittest.TestCase):
                     time.sleep(0.01)
                 self.assertEqual(status, "completed")
 
+    def test_task_state_does_not_read_the_remote_inventory(self) -> None:
+        coordinator = PortfolioCoordinator(
+            [{"id": "ic", "portfolio_broker": "ICTRADING"}], Path("unused-settings.json")
+        )
+        key = coordinator._key("ic", "full_history")
+        coordinator.tasks[key] = [{
+            "id": "delete-39", "status": "completed", "operation": "delete", "portfolio_id": 39,
+        }]
+
+        with patch.object(PortfolioSource, "inventory", side_effect=AssertionError("no debe consultar inventario")):
+            status = coordinator.task_state("ic", "full_history")
+
+        self.assertEqual(status["task"]["id"], "delete-39")
+        self.assertEqual(status["task"]["status"], "completed")
+
     def test_normalize_monthly_settings_keeps_month_specific_controls(self) -> None:
         settings = normalize_settings(
             "monthly",

@@ -202,6 +202,16 @@ class ManagerHandler(BaseHTTPRequestHandler):
             except (KeyError, ValueError) as exc:
                 self._send_json(400, {"error": str(exc)})
             return
+        if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3:] == ["portfolio-manager", "task"]:
+            try:
+                node_id = urllib.parse.unquote(parts[2])
+                self._node(node_id)
+                query = urllib.parse.parse_qs(parsed.query)
+                scope = "monthly" if query.get("scope", ["full_history"])[0] == "monthly" else "full_history"
+                self._send_json(200, self.server.portfolios.task_state(node_id, scope))
+            except (KeyError, ValueError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if len(parts) in {4, 5} and parts[:2] == ["api", "nodes"] and parts[3] == "portfolios":
             try:
                 node = self._node(urllib.parse.unquote(parts[2]))

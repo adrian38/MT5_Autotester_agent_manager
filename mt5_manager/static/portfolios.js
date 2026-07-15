@@ -94,8 +94,25 @@ function jobBadge(job, task = {}) {
   const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : '';
   document.querySelector('#proposal-operation').textContent = opText;
   document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : 'Guardar seleccionada';
-  if (active && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadManagerState(); }, 1800);
+  if (active && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadTaskState(); }, 1800);
   if (!active && pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+}
+
+async function loadTaskState() {
+  if (!nodeId) return;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/task?scope=${scope}`, {cache: 'no-store'});
+    const data = await jsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    managerState.job = data.job || {};
+    managerState.task = data.task || {};
+    jobBadge(managerState.job, managerState.task);
+    handleTaskTransition(managerState.task);
+    if (managerState.job?.status === 'failed') toast(managerState.job.error || 'Falló el cálculo', true);
+  } catch (error) {
+    if (!pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadTaskState(); }, 2500);
+    toast(`No se pudo actualizar la tarea: ${error.message}`, true);
+  }
 }
 
 function handleTaskTransition(task = {}) {
