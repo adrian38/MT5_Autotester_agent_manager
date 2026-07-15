@@ -162,6 +162,20 @@ enabled=0
         with urllib.request.urlopen(self.base + "/universe.html?node=test-node", timeout=3) as response:
             self.assertIn("UNIVERSO DE ACTIVOS", response.read().decode("utf-8"))
 
+    def test_portfolio_delete_endpoint_accepts_a_background_task(self) -> None:
+        task = {
+            "id": "delete-37", "status": "pending", "operation": "delete", "portfolio_id": 37,
+        }
+        with mock.patch.object(self.manager.portfolios, "delete", return_value=task) as delete:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/delete",
+                {"scope": "full_history", "portfolio_id": 37},
+            )
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["task"], task)
+        delete.assert_called_once_with("test-node", "full_history", 37)
+
     def test_controller_runs_each_node_queue_in_order_and_persists_it(self) -> None:
         (self.root / "ubs_agent.py").write_text(
             "import time\ntime.sleep(.2)\n",

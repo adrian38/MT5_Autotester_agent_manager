@@ -30,6 +30,23 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("if (!form.checkValidity()) return", script)
         self.assertIn("if (!form.reportValidity()) return", script)
 
+    def test_portfolio_risk_is_presented_as_maximum_not_addition(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertIn("DD riesgo máx.", page)
+        self.assertIn("máx(cerrado", script)
+        self.assertNotIn("cerrado ${number(result.actual_closed_valley_dd, 2)} + flotante", script)
+
+    def test_daily_drawdown_is_labeled_as_visual_only(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertIn("DD diario visual (no limita)", page)
+        self.assertIn("diario visual", script)
+
     def test_saved_bundle_members_can_be_excluded(self) -> None:
         script = (
             Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.js"
@@ -51,9 +68,29 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("async function withSaveOverlay", script)
         self.assertIn("'Guardando configuración'", script)
         self.assertIn("'Guardando portafolio'", script)
+        self.assertIn("'Enviando borrado'", script)
+        self.assertIn("añadido a tareas pendientes", script)
+        self.assertIn("handleTaskTransition(data.task || {})", script)
+        self.assertIn("'Borrando portafolio A/M/C'", script)
+        self.assertIn("'Excluyendo estrategia'", script)
+        self.assertIn("'Restaurando portafolio'", script)
         self.assertIn("guardado, pero no se pudo actualizar la vista", script)
         self.assertIn(".save-overlay{", styles)
         self.assertIn(".save-spinner{", styles)
+
+    def test_delete_overlay_only_waits_for_background_task_submission(self) -> None:
+        script = (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.js"
+        ).read_text(encoding="utf-8")
+        delete_handler = script.split("document.querySelector('#detail-delete')", 1)[1].split(
+            "document.querySelector('#detail-export')", 1
+        )[0]
+
+        self.assertIn("postManager('delete'", delete_handler)
+        self.assertIn("managerState.task = data.task", delete_handler)
+        self.assertNotIn("await loadManagerState()", delete_handler)
+        self.assertNotIn("await loadPortfolios", delete_handler)
+        self.assertNotIn("await Promise.all", delete_handler)
 
     def test_every_html_number_input_accepts_representative_backend_values(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"

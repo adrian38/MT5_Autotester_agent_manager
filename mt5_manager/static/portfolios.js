@@ -17,6 +17,8 @@ let proposalMembers = [];
 let detailMembers = [];
 let settingsSaveTimer = null;
 let settingsSaveQueue = Promise.resolve();
+let taskStateObserved = false;
+let lastTaskMarker = '';
 
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[c]));
 const number = (value, digits = 0) => value == null || Number.isNaN(Number(value)) ? '—' : Number(value).toLocaleString('es-ES', {minimumFractionDigits: digits, maximumFractionDigits: digits});
@@ -73,24 +75,47 @@ function formPayload() {
   return payload;
 }
 
-function jobBadge(job) {
-  const status = job?.status || 'idle';
+function jobBadge(job, task = {}) {
+  const calculationRunning = job?.status === 'running';
+  const taskActive = ['pending', 'running'].includes(task?.status);
+  const displayed = taskActive || (!calculationRunning && task?.status && task.status !== 'idle') ? task : job;
+  const status = displayed?.status || 'idle';
   const operation = job?.operation || 'generate';
   const el = document.querySelector('#builder-status');
   el.textContent = status.toUpperCase();
   el.className = `badge ${status}`;
-  const running = status === 'running';
-  document.querySelector('#builder-progress').hidden = !running;
-  document.querySelector('#builder-progress-text').textContent = job?.progress || 'Calculando…';
-  document.querySelector('#generate-proposals').disabled = running;
-  document.querySelector('#save-settings').disabled = running;
-  document.querySelector('#reset-settings').disabled = running;
+  const active = calculationRunning || taskActive;
+  document.querySelector('#builder-progress').hidden = !active;
+  document.querySelector('#builder-progress-text').textContent = displayed?.progress || 'Calculando…';
+  document.querySelector('#generate-proposals').disabled = active;
+  document.querySelector('#save-settings').disabled = calculationRunning;
+  document.querySelector('#reset-settings').disabled = calculationRunning;
   document.querySelector('#portfolio-log').disabled = !(job?.log_path || job?.last_log_path);
-  const opText = operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : '';
+  const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : '';
   document.querySelector('#proposal-operation').textContent = opText;
   document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : 'Guardar seleccionada';
-  if (running && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadManagerState(); }, 1800);
-  if (!running && pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+  if (active && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadManagerState(); }, 1800);
+  if (!active && pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+}
+
+function handleTaskTransition(task = {}) {
+  if (!task.id) return;
+  const marker = `${task.id}:${task.status}`;
+  if (!taskStateObserved) {
+    taskStateObserved = true;
+    lastTaskMarker = marker;
+    return;
+  }
+  if (marker === lastTaskMarker) return;
+  lastTaskMarker = marker;
+  if (task.status === 'completed' && task.operation === 'delete') {
+    const portfolioId = Number(task.portfolio_id);
+    if (selectedId === portfolioId) selectedId = null;
+    loadPortfolios(selectedId).catch(error => toast(`El portafolio se borró, pero no se pudo actualizar la lista: ${error.message}`, true));
+    toast(`Portafolio #${portfolioId} borrado.`);
+  } else if (task.status === 'failed') {
+    toast(task.error || 'Falló la tarea pendiente.', true);
+  }
 }
 
 function renderInventory() {
@@ -126,9 +151,9 @@ function renderProposals() {
     return `<button type="button" class="proposal-card ${proposal.key === selectedProposal ? 'selected' : ''} ${stress.alert ? 'stress-alert' : ''}" onclick="selectProposal('${esc(proposal.key)}')">
       <span>${esc(proposal.label)}</span><strong>${number(result.total_net_profit)}</strong>
       <small>${number(result.active_strategies)} estrategias · ${number(result.total_units)} uds. · ${largestGroup(result.group_summary)}</small>
-      <small>DD equity ajust. ${number(result.actual_valley_dd, 2)} / ${number(result.target_valley_dd, 2)} (${number(result.valley_usage_pct, 1)}%) · cerrado ${number(result.actual_closed_valley_dd, 2)} + flotante ${number(result.floating_dd_buffer, 2)}</small>
+      <small>DD riesgo máx. ${number(result.actual_valley_dd, 2)} / ${number(result.target_valley_dd, 2)} (${number(result.valley_usage_pct, 1)}%) · máx(cerrado ${number(result.actual_closed_valley_dd, 2)}, flotante ${number(result.floating_dd_buffer, 2)})</small>
       <small>Margen DD nominal ${number(result.nominal_valley_margin, 2)} / ${number(result.nominal_valley_dd, 2)} (${number(result.nominal_valley_margin_pct, 1)}%)</small>
-      <small>DD puntual ${number(result.actual_point_dd, 2)}${result.enforce_point_dd ? ` / ${number(result.target_point_dd, 2)}` : ' informativo'}${scope === 'monthly' ? ` · diario ${number(result.max_daily_dd, 2)} / ${number(result.target_daily_dd, 2)}` : ''}</small>
+      <small>DD puntual ${number(result.actual_point_dd, 2)}${result.enforce_point_dd ? ` / ${number(result.target_point_dd, 2)}` : ' informativo'}${scope === 'monthly' ? ` · diario visual ${number(result.max_daily_dd, 2)} / ${number(result.target_daily_dd, 2)} (no limita)` : ''}</small>
       <small>Stress P50 ${number(stress.valley_dd_p50, 2)} · P95 ${number(stress.valley_dd_p95, 2)}${stress.alert ? ' · ALERTA' : ''}</small>
       <small>P&gt;nominal ${number(stress.probability_exceed_nominal_pct, 1)}% · P&gt;efectivo ${number(stress.probability_exceed_effective_pct, 1)}%</small>
       <small>Margen ${number(margin.total, 2)} / ${number(margin.limit, 2)} (${number(margin.usage_pct, 1)}%) · reserva ${number(proposal.reserve_pct, 1)}%</small>
@@ -162,9 +187,10 @@ async function loadManagerState() {
     if (!response.ok) throw new Error(data.error || response.statusText);
     managerState = data;
     hydrate(data.settings || {});
-    jobBadge(data.job || {});
+    jobBadge(data.job || {}, data.task || {});
     renderInventory();
     renderProposals();
+    handleTaskTransition(data.task || {});
     if (data.job?.status === 'failed') toast(data.job.error || 'Falló el cálculo', true);
   } catch (error) { jobBadge({status: 'failed'}); toast(error.message, true); }
 }
@@ -273,11 +299,20 @@ async function excludeStrategy(source, index) {
       : `${setName} dejará de participar en futuras generaciones completas. ¿Continuar?`;
   if (!confirm(message)) return;
   try {
-    await postManager('exclude', {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? selectedId : null});
-    toast(bundle ? `${setName} puesta en cuarentena y portafolio #${selectedId} borrado.` : `${setName} puesta en cuarentena${saved ? ' y retirada del portafolio' : ''}.`);
-    selectedProposal = null;
-    if (bundle) selectedId = null;
-    await Promise.all([loadManagerState(), loadPortfolios(saved ? selectedId : null)]);
+    const affectedPortfolioId = selectedId;
+    await withSaveOverlay(
+      bundle ? 'Borrando portafolio A/M/C' : 'Excluyendo estrategia',
+      bundle
+        ? `Poniendo ${setName} en cuarentena y eliminando el portafolio #${affectedPortfolioId}…`
+        : `Poniendo ${setName} en cuarentena${saved ? ` y recalculando el portafolio #${affectedPortfolioId}` : ''}…`,
+      async () => {
+        await postManager('exclude', {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null});
+        selectedProposal = null;
+        if (bundle) selectedId = null;
+        await Promise.all([loadManagerState(), loadPortfolios(saved ? selectedId : null)]);
+      },
+    );
+    toast(bundle ? `${setName} puesta en cuarentena y portafolio #${affectedPortfolioId} borrado.` : `${setName} puesta en cuarentena${saved ? ' y retirada del portafolio' : ''}.`);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -332,7 +367,7 @@ async function loadDetail(id) {
     document.querySelector('#detail-title').textContent = `Portafolio #${portfolio.id}`;
     document.querySelector('#detail-meta').textContent = `${portfolio.created_at}${portfolio.target_month ? ` · ${monthNames[portfolio.target_month]}` : ''}`;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
-    document.querySelector('#detail-metrics').innerHTML = [metric(number(portfolio.capital), 'Capital'), metric(number(portfolio.total_net_profit), 'Net total'), metric(number(portfolio.actual_valley_dd, 2), 'DD equity ajust.', `cerrado ${number(portfolio.actual_closed_valley_dd, 2)} + flotante ${number(portfolio.floating_dd_buffer, 2)} · límite ${number(portfolio.target_valley_dd, 2)} · ${number(portfolio.valley_usage_pct, 1)}%`), metric(number(portfolio.actual_point_dd, 2), 'DD puntual', portfolio.metrics?.enforce_point_dd ? `límite ${number(portfolio.target_point_dd, 2)}` : 'informativo'), metric(number(portfolio.total_lot, 2), 'Lote total'), metric(number(portfolio.total_units), 'Unidades'), metric(`${number(portfolio.active_strategies)}/${number(portfolio.target_strategies || portfolio.active_strategies)}`, 'Estrategias'), metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert)].join('');
+    document.querySelector('#detail-metrics').innerHTML = [metric(number(portfolio.capital), 'Capital'), metric(number(portfolio.total_net_profit), 'Net total'), metric(number(portfolio.actual_valley_dd, 2), 'DD riesgo máx.', `máx(cerrado ${number(portfolio.actual_closed_valley_dd, 2)}, flotante ${number(portfolio.floating_dd_buffer, 2)}) · límite ${number(portfolio.target_valley_dd, 2)} · ${number(portfolio.valley_usage_pct, 1)}%`), metric(number(portfolio.actual_point_dd, 2), 'DD puntual', portfolio.metrics?.enforce_point_dd ? `límite ${number(portfolio.target_point_dd, 2)}` : 'informativo'), metric(number(portfolio.total_lot, 2), 'Lote total'), metric(number(portfolio.total_units), 'Unidades'), metric(`${number(portfolio.active_strategies)}/${number(portfolio.target_strategies || portfolio.active_strategies)}`, 'Estrategias'), metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert)].join('');
     document.querySelector('#detail-note').textContent = [portfolio.stop_reason, portfolio.binding_constraint].filter(Boolean).join(' · ');
     document.querySelector('#detail-complete').disabled = isBundle || Number(portfolio.active_strategies) >= Number(portfolio.target_strategies || portfolio.active_strategies);
     document.querySelector('#detail-undo').disabled = !(portfolio.versions || []).length;
@@ -396,12 +431,36 @@ document.querySelector('#detail-complete').addEventListener('click', () => start
 document.querySelector('#detail-reoptimize').addEventListener('click', () => startSavedOperation('reoptimize'));
 document.querySelector('#detail-undo').addEventListener('click', async () => {
   if (!selectedId || !confirm(`Se restaurará la última versión del portafolio #${selectedId}. ¿Continuar?`)) return;
-  try { const data = await postManager('undo', {scope, portfolio_id: selectedId}); toast(`Versión ${data.restored_version} restaurada.`); await Promise.all([loadManagerState(), loadPortfolios(selectedId)]); }
+  try {
+    const portfolioId = selectedId;
+    const data = await withSaveOverlay(
+      'Restaurando portafolio',
+      `Recuperando la última versión del portafolio #${portfolioId} y recalculando sus métricas…`,
+      async () => {
+        const restored = await postManager('undo', {scope, portfolio_id: portfolioId});
+        await Promise.all([loadManagerState(), loadPortfolios(portfolioId)]);
+        return restored;
+      },
+    );
+    toast(`Versión ${data.restored_version} restaurada.`);
+  }
   catch (error) { toast(error.message, true); }
 });
 document.querySelector('#detail-delete').addEventListener('click', async () => {
   if (!selectedId || !confirm(`Se borrará el portafolio #${selectedId}; sus sets volverán a estar disponibles. ¿Continuar?`)) return;
-  try { await postManager('delete', {scope, portfolio_id: selectedId}); toast(`Portafolio #${selectedId} borrado.`); selectedId = null; await Promise.all([loadManagerState(), loadPortfolios()]); }
+  try {
+    const portfolioId = selectedId;
+    const data = await withSaveOverlay(
+      'Enviando borrado',
+      `Registrando el portafolio #${portfolioId} como tarea pendiente…`,
+      () => postManager('delete', {scope, portfolio_id: portfolioId}),
+    );
+    managerState.task = data.task || {};
+    taskStateObserved = true;
+    lastTaskMarker = `${managerState.task.id}:${managerState.task.status}`;
+    jobBadge(managerState.job || {}, managerState.task);
+    toast(`Borrado del portafolio #${portfolioId} añadido a tareas pendientes.`);
+  }
   catch (error) { toast(error.message, true); }
 });
 document.querySelector('#detail-export').addEventListener('click', async () => {

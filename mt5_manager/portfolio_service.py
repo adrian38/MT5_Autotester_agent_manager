@@ -264,7 +264,8 @@ def ensure_portfolio_schema(conn: sqlite3.Connection) -> None:
             set_path text, timeframe text, lot_size_step real,
             margin_required real not null default 0, margin_pct real not null default 0,
             margin_leverage real not null default 0, margin_contract_size real not null default 0,
-            margin_price real not null default 0, is_report_path text, oos_report_path text
+            margin_price real not null default 0, is_report_path text, oos_report_path text,
+            final_tick_report_path text, full_history_report_path text
             , max_balance_dd_001 real not null default 0
             , max_equity_dd_001 real not null default 0
             , floating_dd_source text not null default ''
@@ -280,6 +281,8 @@ def ensure_portfolio_schema(conn: sqlite3.Connection) -> None:
         ("margin_required", "real not null default 0"), ("margin_pct", "real not null default 0"),
         ("margin_leverage", "real not null default 0"), ("margin_contract_size", "real not null default 0"),
         ("margin_price", "real not null default 0"),
+        ("final_tick_report_path", "text"),
+        ("full_history_report_path", "text"),
         ("max_balance_dd_001", "real not null default 0"),
         ("max_equity_dd_001", "real not null default 0"),
         ("floating_dd_source", "text not null default ''"),
@@ -543,7 +546,10 @@ class PortfolioSource:
                 item["source_memory_path"] = str(memory)
                 result.append(item)
         for row in result:
-            for key in ("set_path", "is_report_path", "oos_report_path", "final_ohlc_report_path", "final_tick_report_path"):
+            for key in (
+                "set_path", "is_report_path", "oos_report_path", "full_history_report_path",
+                "final_ohlc_report_path", "final_tick_report_path",
+            ):
                 row[key] = _resolve_source_path(row.get(key), self.project)
         return result
 
@@ -851,6 +857,8 @@ class PortfolioSource:
             "margin_price": float(raw.get("margin_price") or 0),
             "is_report_path": str(raw.get("is_report_path") or ""),
             "oos_report_path": str(raw.get("oos_report_path") or ""),
+            "final_tick_report_path": str(raw.get("final_tick_report_path") or ""),
+            "full_history_report_path": str(raw.get("full_history_report_path") or ""),
             "seasonal": (metrics.get("seasonal_coverage") or {}).get(str(raw.get("set_id") or ""), {}),
         } for raw in members]
         with self.connect() as conn:
@@ -1064,6 +1072,8 @@ class PortfolioSource:
             "recent_net_profit_001": row.get("recent_net_profit_001"),
             "recent_equity_dd_001": row.get("recent_equity_dd_001"),
             "has_recent_performance": row.get("has_recent_performance"),
+            "final_tick_report_path": row.get("final_tick_report_path"),
+            "full_history_report_path": row.get("full_history_report_path"),
         } for row in rows]
         strategies, warnings = load_robust_sets_from_rows(source_rows, [], parse=cached_report)
         if len(strategies) != len(rows):
@@ -1354,41 +1364,61 @@ def _optimize_without_recent_fillers(
     minimum_pct: float,
     optimize: Callable[[list[Any]], PortfolioResult],
 ) -> tuple[PortfolioResult, set[str]]:
-    """Re-optimize after removing allocations that remain immaterial at their final lot."""
+    """Remove strategies whose leave-one-out frontier contribution is immaterial."""
     pool = list(raw_sets)
     removed: set[str] = set()
     while True:
         result = optimize(pool)
-        underrepresented = _underrepresented_recent_allocation_ids(result, minimum_pct)
-        underrepresented -= removed
-        if not underrepresented:
+        active_ids = {allocation.set_id for allocation in result.allocations if allocation.units > 0}
+        threshold = max(float(minimum_pct), 0.0)
+        if threshold <= 0 or len(active_ids) <= 1:
             if removed:
                 result.warnings.insert(
                     0,
-                    "Regla antirrelleno 6M: aporte minimo "
-                    f"{float(minimum_pct):.1f}% por estrategia; "
-                    f"{len(removed)} estrategia(s) eliminada(s) y lotes recalculados.",
+                    "Prueba antirrelleno marginal: "
+                    f"{len(removed)} estrategia(s) eliminada(s) y portafolio reoptimizado.",
                 )
             return result, removed
-        active_ids = {allocation.set_id for allocation in result.allocations if allocation.units > 0}
-        if active_ids and active_ids <= underrepresented:
-            contribution_by_id = {
-                allocation.set_id: (
-                    max(float(allocation.recent_net_profit_001), 0.0) * int(allocation.units)
-                    if allocation.has_recent_performance
-                    else 0.0
+
+        base_net = float(result.total_net_profit)
+        denominator = max(abs(base_net), 1.0)
+        underrepresented_recent = _underrepresented_recent_allocation_ids(result, threshold)
+        removal_candidates: list[
+            tuple[float, int, float, float, str, list[Any]]
+        ] = []
+        for set_id in sorted(active_ids):
+            trial_pool = [strategy for strategy in pool if strategy.set_id != set_id]
+            if not trial_pool:
+                continue
+            trial = optimize(trial_pool)
+            marginal_gain = base_net - float(trial.total_net_profit)
+            marginal_pct = max(marginal_gain, 0.0) / denominator * 100.0
+            protects_valley = (
+                float(result.actual_valley_dd) + 1e-9
+                < float(trial.actual_valley_dd)
+            )
+            if marginal_pct + 1e-9 >= threshold or protects_valley:
+                continue
+            removal_candidates.append((
+                marginal_pct,
+                0 if set_id in underrepresented_recent else 1,
+                -float(trial.total_net_profit),
+                float(trial.actual_valley_dd),
+                set_id,
+                trial_pool,
+            ))
+
+        if not removal_candidates:
+            if removed:
+                result.warnings.insert(
+                    0,
+                    "Prueba antirrelleno marginal: "
+                    f"{len(removed)} estrategia(s) eliminada(s) y portafolio reoptimizado.",
                 )
-                for allocation in result.allocations
-                if allocation.units > 0
-            }
-            keep_id = max(contribution_by_id, key=contribution_by_id.get)
-            underrepresented.discard(keep_id)
-            if not underrepresented:
-                return result, removed
-        removed.update(underrepresented)
-        pool = [strategy for strategy in pool if strategy.set_id not in removed]
-        if not pool:
             return result, removed
+
+        _pct, _recent_rank, _trial_net, _trial_dd, remove_id, pool = min(removal_candidates)
+        removed.add(remove_id)
 
 
 def _normal_proposals(
@@ -1535,47 +1565,19 @@ def _locked_full_proposals(
         if len(proposals) != 3:
             raise ValueError("No se pudieron calcular las tres variantes bloqueadas. " + " | ".join(errors))
 
-        variant_fillers = set().union(*(
-            _underrepresented_recent_allocation_ids(proposal["result"], minimum_recent_pct)
-            for proposal in proposals
-        ))
-        if not variant_fillers:
-            for proposal in proposals:
-                result = proposal["result"]
-                result.warnings.insert(
-                    0,
-                    f"Composicion comun A/M/C: {locked_count} sets; reserva base {base_reserve:.1f}%",
-                )
-                if removed_ids:
-                    result.warnings.insert(
-                        1,
-                        "Regla antirrelleno 6M: aporte minimo "
-                        f"{minimum_recent_pct:.1f}% en cada variante; "
-                        f"{len(removed_ids)} estrategia(s) eliminada(s) y lotes recalculados.",
-                    )
-            return proposals
-
-        if len(locked_sets) <= 1:
-            return proposals
-        if variant_fillers >= set(locked_ids):
-            aggregate = {
-                set_id: sum(
-                    max(float(allocation.recent_net_profit_001), 0.0) * int(allocation.units)
-                    for proposal in proposals
-                    for allocation in proposal["result"].allocations
-                    if allocation.set_id == set_id and allocation.has_recent_performance
-                )
-                for set_id in locked_ids
-            }
-            keep_id = max(aggregate, key=aggregate.get)
-            variant_fillers.discard(keep_id)
-        removed_ids.update(variant_fillers)
-        locked_sets = [strategy for strategy in locked_sets if strategy.set_id not in variant_fillers]
-        locked_ids = [strategy.set_id for strategy in locked_sets]
-        if progress:
-            progress(
-                f"Recalculando A/M/C sin {len(removed_ids)} estrategia(s) de aporte 6M insuficiente"
+        for proposal in proposals:
+            result = proposal["result"]
+            result.warnings.insert(
+                0,
+                f"Composicion comun A/M/C: {locked_count} sets; reserva base {base_reserve:.1f}%",
             )
+            if removed_ids:
+                result.warnings.insert(
+                    1,
+                    "Prueba antirrelleno marginal: "
+                    f"{len(removed_ids)} estrategia(s) eliminada(s) antes de fijar la composicion A/M/C.",
+                )
+        return proposals
 
 
 def result_payload(result: PortfolioResult) -> dict[str, Any]:
@@ -1784,6 +1786,8 @@ def generate_completion_proposal(
         "candidate_id": item.get("candidate_id"), "set_path": item.get("set_path") or item.get("set_id"),
         "symbol": item.get("symbol"), "target_symbol": item.get("symbol"), "period": item.get("timeframe"),
         "family": "", "is_report_path": item.get("is_report_path"), "oos_report_path": item.get("oos_report_path"),
+        "final_tick_report_path": item.get("final_tick_report_path"),
+        "full_history_report_path": item.get("full_history_report_path"),
         "max_balance_dd_001": item.get("max_balance_dd_001"),
         "max_equity_dd_001": item.get("max_equity_dd_001"),
         "floating_dd_source": item.get("floating_dd_source"),
@@ -1918,6 +1922,8 @@ LEGACY_ALLOCATION_RISK_FIELDS = {
     "recent_net_profit_001",
     "recent_equity_dd_001",
     "has_recent_performance",
+    "final_tick_report_path",
+    "full_history_report_path",
 }
 LEGACY_RESULT_RISK_FIELDS = {"actual_closed_valley_dd", "floating_dd_buffer"}
 
@@ -2074,10 +2080,11 @@ def _insert_allocation(
             portfolio_id,variant_key,variant_label,set_id,candidate_id,symbol,units,lot,
             net_profit_contribution,standalone_valley_dd,standalone_point_dd,set_path,timeframe,
             lot_size_step,margin_required,margin_pct,margin_leverage,margin_contract_size,
-            margin_price,is_report_path,oos_report_path,max_balance_dd_001,max_equity_dd_001,
+            margin_price,is_report_path,oos_report_path,final_tick_report_path,full_history_report_path,
+            max_balance_dd_001,max_equity_dd_001,
             floating_dd_source,standalone_floating_dd,recent_net_profit_001,recent_equity_dd_001,
             has_recent_performance
-        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             portfolio_id, variant_key, variant_label, allocation.set_id, allocation.candidate_id,
@@ -2087,6 +2094,8 @@ def _insert_allocation(
             allocation.margin_required, allocation.margin_pct, allocation.margin_leverage,
             allocation.margin_contract_size, allocation.margin_price,
             allocation.is_report_path, allocation.oos_report_path,
+            allocation.final_tick_report_path,
+            allocation.full_history_report_path,
             allocation.max_balance_dd_001, allocation.max_equity_dd_001,
             allocation.floating_dd_source, allocation.standalone_floating_dd,
             allocation.recent_net_profit_001, allocation.recent_equity_dd_001,
@@ -2341,6 +2350,8 @@ class PortfolioCoordinator:
         self.settings: dict[str, dict[str, dict[str, Any]]] = {}
         self.jobs: dict[str, dict[str, Any]] = {}
         self.proposals: dict[str, list[dict[str, Any]]] = {}
+        self.tasks: dict[str, list[dict[str, Any]]] = {}
+        self.task_workers: set[str] = set()
         if settings_path.is_file():
             try:
                 loaded = load_json(settings_path)
@@ -2394,6 +2405,8 @@ class PortfolioCoordinator:
         with self.lock:
             if (self.jobs.get(key) or {}).get("status") == "running":
                 raise ValueError("Ya hay un cálculo de portafolio en curso")
+            if any(task.get("status") in {"pending", "running"} for task in self.tasks.get(key, [])):
+                raise ValueError("Hay una tarea de portafolio pendiente o en ejecución")
             job = {
                 "id": time.strftime("%Y%m%d_%H%M%S"), "status": "running",
                 "started_at": utc_now(), "finished_at": None, "progress": "Preparando cálculo",
@@ -2485,6 +2498,11 @@ class PortfolioCoordinator:
         with self.lock:
             job = dict(self.jobs.get(key) or {"status": "idle"})
             proposals = list(self.proposals.get(key) or [])
+            tasks = [dict(task) for task in self.tasks.get(key, [])]
+            active_task = next(
+                (task for task in tasks if task.get("status") in {"pending", "running"}),
+                tasks[-1] if tasks else {"status": "idle"},
+            )
         previous_members = list(job.get("previous_members") or [])
         settings = self.settings_for(node_id, scope)
         proposal_payloads: list[dict[str, Any]] = []
@@ -2513,6 +2531,8 @@ class PortfolioCoordinator:
         return {
             "settings": settings,
             "job": job,
+            "task": active_task,
+            "tasks": tasks[-10:],
             "inventory": PortfolioSource(self._node(node_id)).inventory(scope, settings),
             "proposals": proposal_payloads,
         }
@@ -2577,8 +2597,72 @@ class PortfolioCoordinator:
     def undo(self, node_id: str, scope: str, portfolio_id: int) -> int:
         return PortfolioSource(self._node(node_id)).undo_latest(portfolio_id, scope)
 
-    def delete(self, node_id: str, scope: str, portfolio_id: int) -> None:
-        PortfolioSource(self._node(node_id)).delete_portfolio(portfolio_id, scope)
+    def delete(self, node_id: str, scope: str, portfolio_id: int) -> dict[str, Any]:
+        self._node(node_id)
+        key = self._key(node_id, scope)
+        task = {
+            "id": str(uuid.uuid4()),
+            "status": "pending",
+            "operation": "delete",
+            "portfolio_id": portfolio_id,
+            "created_at": utc_now(),
+            "started_at": None,
+            "finished_at": None,
+            "progress": f"Borrado del portafolio #{portfolio_id} pendiente",
+            "error": None,
+        }
+        with self.lock:
+            queue = self.tasks.setdefault(key, [])
+            queue.append(task)
+            if len(queue) > 20:
+                del queue[:-20]
+            start_worker = key not in self.task_workers
+            if start_worker:
+                self.task_workers.add(key)
+        if start_worker:
+            threading.Thread(target=self._task_worker, args=(node_id, scope), daemon=True).start()
+        return dict(task)
+
+    def _task_worker(self, node_id: str, scope: str) -> None:
+        key = self._key(node_id, scope)
+        while True:
+            with self.lock:
+                task = next(
+                    (item for item in self.tasks.get(key, []) if item.get("status") == "pending"),
+                    None,
+                )
+                if task is None:
+                    self.task_workers.discard(key)
+                    return
+                if (self.jobs.get(key) or {}).get("status") == "running":
+                    task["progress"] = "En cola hasta que termine el cálculo actual"
+                    wait_for_calculation = True
+                else:
+                    task.update({
+                        "status": "running",
+                        "started_at": utc_now(),
+                        "progress": f"Borrando portafolio #{task['portfolio_id']}",
+                    })
+                    wait_for_calculation = False
+            if wait_for_calculation:
+                time.sleep(0.25)
+                continue
+            try:
+                PortfolioSource(self._node(node_id)).delete_portfolio(int(task["portfolio_id"]), scope)
+                with self.lock:
+                    task.update({
+                        "status": "completed",
+                        "finished_at": utc_now(),
+                        "progress": f"Portafolio #{task['portfolio_id']} borrado",
+                    })
+            except Exception as exc:
+                with self.lock:
+                    task.update({
+                        "status": "failed",
+                        "finished_at": utc_now(),
+                        "progress": "Error al borrar el portafolio",
+                        "error": str(exc),
+                    })
 
     def export(self, node_id: str, scope: str, portfolio_id: int, destination: str | None) -> dict[str, Any]:
         return PortfolioSource(self._node(node_id)).export_portfolio(portfolio_id, scope, destination)

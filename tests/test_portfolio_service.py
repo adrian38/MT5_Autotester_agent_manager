@@ -2,6 +2,8 @@ import contextlib
 import json
 import sqlite3
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,10 +49,12 @@ class PortfolioServiceTests(unittest.TestCase):
 
         def optimize(pool: list[SimpleNamespace]) -> PortfolioResult:
             seen_pools.append([item.set_id for item in pool])
-            allocations = [StrategyAllocation(
-                "core.set", "1", "EURUSD", 2, .02, 200, 20, 10,
-                recent_net_profit_001=100, has_recent_performance=True,
-            )]
+            allocations = []
+            if any(item.set_id == "core.set" for item in pool):
+                allocations.append(StrategyAllocation(
+                    "core.set", "1", "EURUSD", 2, .02, 200, 20, 10,
+                    recent_net_profit_001=100, has_recent_performance=True,
+                ))
             if any(item.set_id == "filler.set" for item in pool):
                 allocations.append(StrategyAllocation(
                     "filler.set", "2", "USDJPY", 1, .01, 10, 2, 1,
@@ -61,9 +65,12 @@ class PortfolioServiceTests(unittest.TestCase):
         result, removed = _optimize_without_recent_fillers([core, filler], 5.0, optimize)
 
         self.assertEqual(removed, {"filler.set"})
-        self.assertEqual(seen_pools, [["core.set", "filler.set"], ["core.set"]])
+        self.assertEqual(
+            seen_pools,
+            [["core.set", "filler.set"], ["filler.set"], ["core.set"], ["core.set"]],
+        )
         self.assertEqual([item.set_id for item in result.allocations], ["core.set"])
-        self.assertIn("Regla antirrelleno 6M", result.warnings[0])
+        self.assertIn("Prueba antirrelleno marginal", result.warnings[0])
 
     def test_recent_contribution_is_measured_after_final_lot(self) -> None:
         result = self._recent_result([
@@ -217,6 +224,48 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(reloaded["capital"], 5000)
             self.assertFalse(reloaded["exclude_used_sets"])
 
+    def test_delete_is_queued_and_returns_before_the_database_work_finishes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            node = {
+                "id": "ic",
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], project / "settings.json")
+            started = threading.Event()
+            release = threading.Event()
+
+            def slow_delete(_source: PortfolioSource, _portfolio_id: int, _scope: str) -> None:
+                started.set()
+                release.wait(2)
+
+            with patch.object(PortfolioSource, "delete_portfolio", slow_delete):
+                before = time.monotonic()
+                task = coordinator.delete("ic", "full_history", 37)
+                elapsed = time.monotonic() - before
+
+                self.assertLess(elapsed, 0.2)
+                self.assertIn(task["status"], {"pending", "running"})
+                self.assertTrue(started.wait(1))
+                key = coordinator._key("ic", "full_history")
+                with coordinator.lock:
+                    self.assertEqual(coordinator.tasks[key][0]["status"], "running")
+
+                release.set()
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    with coordinator.lock:
+                        status = coordinator.tasks[key][0]["status"]
+                    if status == "completed":
+                        break
+                    time.sleep(0.01)
+                self.assertEqual(status, "completed")
+
     def test_normalize_monthly_settings_keeps_month_specific_controls(self) -> None:
         settings = normalize_settings(
             "monthly",
@@ -245,11 +294,14 @@ class PortfolioServiceTests(unittest.TestCase):
                     """
                     create table candidates(id integer primary key,set_path text,symbol text,target_symbol text,period text,family text,report_path text,status text);
                     create table candidate_robustness(candidate_id integer,report_path text,status text);
+                    create table candidate_final_tick(candidate_id integer,real_tick_report_path text,from_date text,to_date text,status text);
                     create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text);
                     insert into candidates values(1,'sets/a.set','EURUSD','EURUSD','H1','f','reports/a.html','accepted');
                     insert into candidates values(2,'sets/b.set','GBPUSD','GBPUSD','H1','f','reports/b.html','accepted');
                     insert into candidate_robustness values(1,'reports/a_oos.html','accepted');
                     insert into candidate_robustness values(2,'reports/b_oos.html','rejected');
+                    insert into candidate_final_tick values(1,'reports/a_full.html','2020.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick values(2,'reports/b_full.html','2020.01.01','2026.06.30','accepted');
                     insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted');
                     insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted');
                     """
@@ -452,12 +504,14 @@ class PortfolioServiceTests(unittest.TestCase):
                         """
                         create table candidates(id integer primary key,set_path text,symbol text,target_symbol text,period text,family text,report_path text,status text);
                         create table candidate_robustness(candidate_id integer,report_path text,status text);
+                        create table candidate_final_tick(candidate_id integer,real_tick_report_path text,from_date text,to_date text,status text);
                         create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text);
                         """
                     )
                     conn.execute("insert into candidates values(1,?,?,?,?,?,?,?)", (f"sets/{account}.set", "EURUSD", "EURUSD", "H1", "f", "report.html", "accepted"))
                     conn.execute("insert into candidate_robustness values(1,'oos.html','accepted')")
-                    conn.execute("insert into candidate_final_tick_6m values(1,'','','','','accepted')")
+                    conn.execute("insert into candidate_final_tick values(1,'full.html','2020.01.01','2026.06.30','accepted')")
+                    conn.execute("insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted')")
                     conn.commit()
             source = PortfolioSource({"portfolio_project_dir": str(project), "portfolio_broker": "AXI", "portfolio_account_type": "STANDARD"})
             rows = source.candidate_rows(include_quarantined=False)

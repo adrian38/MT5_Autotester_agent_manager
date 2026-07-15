@@ -241,6 +241,10 @@ class RobustStrategySet:
     recent_net_profit_001: float = 0.0
     recent_equity_dd_001: float = 0.0
     has_recent_performance: bool = False
+    final_tick_report_path: str = ""
+    full_history_report_path: str = ""
+    closed_trades_2020_2026: list[ClosedTrade] = field(default_factory=list)
+    final_tick_tail_trades: int = 0
 
 
 @dataclass
@@ -309,6 +313,8 @@ class StrategyAllocation:
     recent_net_profit_001: float = 0.0
     recent_equity_dd_001: float = 0.0
     has_recent_performance: bool = False
+    final_tick_report_path: str = ""
+    full_history_report_path: str = ""
 
 
 @dataclass
@@ -456,24 +462,27 @@ def strategy_daily_closed_floating_dd(
     month = 0 if full_history else int(strategy.target_month or 0)
     closed_by_day: dict[str, list[ClosedTrade]] = {}
     floating_by_day: dict[str, float] = {}
-    for report in (strategy.report_2020_2024, strategy.report_2025_2026):
-        for trade in report.closed_trades:
-            close_time = trade.close_time
-            if not month or close_time.month == month:
-                closed_by_day.setdefault(close_time.date().isoformat(), []).append(trade)
+    history = strategy.closed_trades_2020_2026 or (
+        list(strategy.report_2020_2024.closed_trades)
+        + list(strategy.report_2025_2026.closed_trades)
+    )
+    for trade in history:
+        close_time = trade.close_time
+        if not month or close_time.month == month:
+            closed_by_day.setdefault(close_time.date().isoformat(), []).append(trade)
 
-            floating_risk = max(-float(trade.net_profit), 0.0)
-            if floating_risk <= 0:
-                continue
-            open_time = trade.open_time or trade.close_time
-            start_day = min(open_time.date(), trade.close_time.date())
-            end_day = max(open_time.date(), trade.close_time.date())
-            day = start_day
-            while day <= end_day:
-                if not month or day.month == month:
-                    day_key = day.isoformat()
-                    floating_by_day[day_key] = floating_by_day.get(day_key, 0.0) + floating_risk
-                day += timedelta(days=1)
+        floating_risk = max(-float(trade.net_profit), 0.0)
+        if floating_risk <= 0:
+            continue
+        open_time = trade.open_time or trade.close_time
+        start_day = min(open_time.date(), trade.close_time.date())
+        end_day = max(open_time.date(), trade.close_time.date())
+        day = start_day
+        while day <= end_day:
+            if not month or day.month == month:
+                day_key = day.isoformat()
+                floating_by_day[day_key] = floating_by_day.get(day_key, 0.0) + floating_risk
+            day += timedelta(days=1)
 
     closed_dd_by_day: dict[str, float] = {}
     for day_key, trades in closed_by_day.items():
@@ -823,6 +832,32 @@ def calc_combined_profit_factor(
     return min(report_2020_2024.profit_factor, report_2025_2026.profit_factor)
 
 
+def _chronological_closed_trade_history(
+    report_2020_2024: PeriodReport,
+    report_2025_2026: PeriodReport,
+    final_tick_report: PeriodReport | None = None,
+    full_history_report: PeriodReport | None = None,
+) -> tuple[list[ClosedTrade], int]:
+    """Use a continuous history when available, otherwise append a non-overlapping tail."""
+    if full_history_report is not None and full_history_report.closed_trades:
+        return sorted(full_history_report.closed_trades, key=lambda trade: trade.close_time), 0
+
+    primary = sorted(
+        list(report_2020_2024.closed_trades) + list(report_2025_2026.closed_trades),
+        key=lambda trade: trade.close_time,
+    )
+    if not primary or final_tick_report is None or not final_tick_report.closed_trades:
+        return primary, 0
+
+    cutoff = primary[-1].close_time
+    tail = [
+        trade
+        for trade in final_tick_report.closed_trades
+        if trade.close_time > cutoff
+    ]
+    return sorted(primary + tail, key=lambda trade: trade.close_time), len(tail)
+
+
 def build_robust_strategy_set(
     set_id: str,
     candidate_id: str,
@@ -843,38 +878,83 @@ def build_robust_strategy_set(
     recent_equity_dd_001: float | None = None,
     has_final_tick_performance: bool = False,
     final_tick_source: str = "Final Tick 6M",
+    final_tick_report: PeriodReport | None = None,
+    final_tick_report_path: str = "",
+    full_history_report: PeriodReport | None = None,
+    full_history_report_path: str = "",
 ) -> RobustStrategySet:
     if _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(report_2025_2026.symbol):
         raise ValueError("Cannot merge reports with different symbols")
     _validate_period_order(report_2020_2024, report_2025_2026)
 
-    curve_2020_2026_001 = merge_accumulated_curves(
-        report_2020_2024.pnl_curve_001,
-        report_2025_2026.pnl_curve_001,
+    if final_tick_report is not None and (
+        _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(final_tick_report.symbol)
+    ):
+        raise ValueError("Cannot merge Final Tick report with a different symbol")
+    if full_history_report is not None and (
+        _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(full_history_report.symbol)
+    ):
+        raise ValueError("Cannot use a continuous Final Tick report with a different symbol")
+
+    closed_history, final_tick_tail_trades = _chronological_closed_trade_history(
+        report_2020_2024,
+        report_2025_2026,
+        final_tick_report,
+        full_history_report,
     )
-    curve_points = _merge_curve_points(report_2020_2024, report_2025_2026)
-    if curve_points:
+    if closed_history:
+        curve_points = _curve_points_from_closed_trades(closed_history)
         curve_2020_2026_001 = [0.0] + [value for _time, value in curve_points]
+    else:
+        curve_2020_2026_001 = merge_accumulated_curves(
+            report_2020_2024.pnl_curve_001,
+            report_2025_2026.pnl_curve_001,
+        )
+        curve_points = _merge_curve_points(report_2020_2024, report_2025_2026)
+        if curve_points:
+            curve_2020_2026_001 = [0.0] + [value for _time, value in curve_points]
 
     net_profit_2020_2026_001 = curve_2020_2026_001[-1]
     valley_dd_2020_2026_001 = calc_valley_dd(curve_2020_2026_001)
     point_dd_2020_2026_001 = calc_point_dd(curve_2020_2026_001)
     return_dd_2020_2026 = net_profit_2020_2026_001 / max(valley_dd_2020_2026_001, 1.0)
-    trades_2020_2026 = report_2020_2024.trades + report_2025_2026.trades
-    profit_factor_2020_2026 = calc_combined_profit_factor(report_2020_2024, report_2025_2026)
-    drawdown_observations = [
-        ("2020-2024", report_2020_2024.balance_dd_metric_001, report_2020_2024.equity_dd_metric_001),
-        ("2025-2026", report_2025_2026.balance_dd_metric_001, report_2025_2026.equity_dd_metric_001),
-    ]
-    if final_tick_balance_dd_001 > 0 or final_tick_equity_dd_001 > 0:
-        drawdown_observations.append(
-            (final_tick_source, float(final_tick_balance_dd_001), float(final_tick_equity_dd_001))
+    trades_2020_2026 = (
+        len(closed_history)
+        if closed_history
+        else report_2020_2024.trades + report_2025_2026.trades
+    )
+    if closed_history:
+        gross_profit = sum(trade.net_profit for trade in closed_history if trade.net_profit > 0)
+        gross_loss = sum(trade.net_profit for trade in closed_history if trade.net_profit < 0)
+        profit_factor_2020_2026 = (
+            gross_profit / abs(gross_loss)
+            if gross_loss
+            else (float("inf") if gross_profit else 0.0)
         )
+    else:
+        profit_factor_2020_2026 = calc_combined_profit_factor(report_2020_2024, report_2025_2026)
+    if full_history_report is not None:
+        drawdown_observations = [(
+            "Final Tick continuo 2020-hoy",
+            full_history_report.balance_dd_metric_001,
+            full_history_report.equity_dd_metric_001,
+        )]
+    else:
+        drawdown_observations = [
+            ("2020-2024", report_2020_2024.balance_dd_metric_001, report_2020_2024.equity_dd_metric_001),
+            ("2025-2026", report_2025_2026.balance_dd_metric_001, report_2025_2026.equity_dd_metric_001),
+        ]
+        if final_tick_balance_dd_001 > 0 or final_tick_equity_dd_001 > 0:
+            drawdown_observations.append(
+                (final_tick_source, float(final_tick_balance_dd_001), float(final_tick_equity_dd_001))
+            )
     floating_source, max_balance_dd, max_equity_dd = max(
         drawdown_observations,
-        key=lambda item: max(float(item[2]) - float(item[1]), 0.0),
+        key=lambda item: max(float(item[2]), 0.0),
     )
-    max_floating_dd = max(float(max_equity_dd) - float(max_balance_dd), 0.0)
+    # MT5's maximum equity drawdown already represents the worst equity episode.
+    # Subtracting a maximum balance DD measured at another timestamp understates risk.
+    max_floating_dd = max(float(max_equity_dd), 0.0)
 
     return RobustStrategySet(
         set_id=str(set_id),
@@ -906,6 +986,10 @@ def build_robust_strategy_set(
             final_tick_equity_dd_001 if recent_equity_dd_001 is None else recent_equity_dd_001
         ), 0.0),
         has_recent_performance=bool(has_final_tick_performance),
+        final_tick_report_path=str(final_tick_report_path),
+        full_history_report_path=str(full_history_report_path),
+        closed_trades_2020_2026=closed_history,
+        final_tick_tail_trades=final_tick_tail_trades,
     )
 
 
@@ -991,6 +1075,14 @@ def slice_strategy_set_to_month(
         recent_net_profit_001=strategy.recent_net_profit_001,
         recent_equity_dd_001=strategy.recent_equity_dd_001,
         has_recent_performance=strategy.has_recent_performance,
+        final_tick_report_path=strategy.final_tick_report_path,
+        full_history_report_path=strategy.full_history_report_path,
+        closed_trades_2020_2026=[
+            trade
+            for trade in strategy.closed_trades_2020_2026
+            if trade.close_time.month == int(target_month)
+        ],
+        final_tick_tail_trades=strategy.final_tick_tail_trades,
     )
 
 
@@ -1338,6 +1430,52 @@ def load_robust_sets_from_rows(
             has_final_tick_performance = bool(
                 _row_value(row, "has_recent_performance", default=False)
             )
+            full_history_period: PeriodReport | None = None
+            full_history_report_path = ""
+            full_history_text = str(
+                _row_value(row, "full_history_report_path", default="") or ""
+            ).strip()
+            require_full_history = bool(
+                _row_value(row, "require_full_history", default=False)
+            )
+            if full_history_text:
+                continuous_path = resolve_workspace_path(full_history_text)
+                if not continuous_path.is_file():
+                    raise FileNotFoundError(
+                        f"Final Tick continuo 2020-hoy report not found: {continuous_path}"
+                    )
+                continuous_report = parse(continuous_path)
+                full_history_period = period_report_from_strategy_report(
+                    continuous_report,
+                    "final_tick_continuous_2020_today",
+                )
+                full_history_report_path = str(continuous_path)
+                required_from = str(
+                    _row_value(row, "required_full_history_from_date", default="2020.01.01")
+                    or "2020.01.01"
+                )
+                required_to = str(
+                    _row_value(row, "final_tick_to_date", default="") or ""
+                )
+                if (
+                    not full_history_period.start_date
+                    or full_history_period.start_date > required_from
+                ):
+                    raise ValueError(
+                        "Final Tick continuo no comienza en 2020.01.01 o antes"
+                    )
+                if required_to and (
+                    not full_history_period.end_date
+                    or full_history_period.end_date < required_to
+                ):
+                    raise ValueError(
+                        f"Final Tick continuo termina antes del corte reciente {required_to}"
+                    )
+            elif require_full_history:
+                raise ValueError("Falta el reporte Final Tick continuo 2020-hoy")
+
+            final_tick_period: PeriodReport | None = None
+            final_tick_report_path = ""
             recent_report_text = str(
                 _row_value(row, "final_tick_report_path", "real_tick_report_path", default="") or ""
             ).strip()
@@ -1346,6 +1484,11 @@ def load_robust_sets_from_rows(
                 if not recent_report_path.is_file():
                     raise FileNotFoundError(f"Final Tick 6M report not found: {recent_report_path}")
                 recent_report = parse(recent_report_path)
+                final_tick_period = period_report_from_strategy_report(
+                    recent_report,
+                    "final_tick_6m",
+                )
+                final_tick_report_path = str(recent_report_path)
                 final_tick_balance_dd, final_tick_equity_dd = maximal_drawdowns_from_report(recent_report)
                 metric_net_profit = _metric_amount(recent_report, "Total Net Profit", "Beneficio Neto")
                 if metric_net_profit is None:
@@ -1375,6 +1518,10 @@ def load_robust_sets_from_rows(
                     recent_equity_dd_001=recent_equity_dd,
                     has_final_tick_performance=has_final_tick_performance,
                     final_tick_source=final_tick_source,
+                    final_tick_report=final_tick_period,
+                    final_tick_report_path=final_tick_report_path,
+                    full_history_report=full_history_period,
+                    full_history_report_path=full_history_report_path,
                 )
             )
         except Exception as exc:
@@ -1635,11 +1782,19 @@ def evaluate_portfolio(
 
     total_net_profit = portfolio_curve[-1]
     closed_valley_dd = calc_valley_dd(portfolio_curve)
-    floating_dd_buffer = sum(
-        strategy.max_floating_dd_001 * allocations[strategy.set_id]
-        for strategy in active_sets
+    # Historical floating episodes are alternatives in time, not additive
+    # reserves.  Keep the worst observed standalone episode at its assigned
+    # lot and compare it with the closed portfolio valley.  A synchronized
+    # equity time series can replace this proxy later and would only add
+    # floating losses that actually overlap at the same timestamp.
+    floating_dd_buffer = max(
+        (
+            strategy.max_floating_dd_001 * allocations[strategy.set_id]
+            for strategy in active_sets
+        ),
+        default=0.0,
     )
-    valley_dd = closed_valley_dd + floating_dd_buffer
+    valley_dd = max(closed_valley_dd, floating_dd_buffer)
     point_dd = calc_point_dd(portfolio_curve)
     daily_dd = 0.0
     if target_daily_dd is not None:
@@ -1697,11 +1852,6 @@ def _evaluation_violates_dd_limits(evaluation: PortfolioEvaluation) -> bool:
         return True
     if evaluation.enforce_point_dd and evaluation.point_dd > evaluation.target_point_dd + 1e-9:
         return True
-    if (
-        evaluation.target_daily_dd is not None
-        and evaluation.daily_dd > float(evaluation.target_daily_dd) + 1e-9
-    ):
-        return True
     return False
 
 
@@ -1711,8 +1861,6 @@ def _evaluation_violation_ratio(evaluation: PortfolioEvaluation) -> float:
     ]
     if evaluation.enforce_point_dd:
         ratios.append(evaluation.point_dd / max(evaluation.target_point_dd, 1e-9))
-    if evaluation.target_daily_dd is not None:
-        ratios.append(evaluation.daily_dd / max(float(evaluation.target_daily_dd), 1e-9))
     return max(ratios)
 
 
@@ -4601,9 +4749,6 @@ def optimize_portfolio(
         raise ValueError("Final portfolio violates valley DD")
     if enforce_point_dd and current.point_dd > target_point_dd:
         raise ValueError("Final portfolio violates point DD")
-    if max_daily_dd is not None and current.daily_dd > float(max_daily_dd) + 1e-9:
-        raise ValueError("Final portfolio violates daily DD")
-
     margin_summary = (
         portfolio_margin_summary(
             selected,
@@ -4644,9 +4789,9 @@ def optimize_portfolio(
                 units=units,
                 lot=round(units * 0.01, 2),
                 net_profit_contribution=strategy.net_profit_2020_2026_001 * units,
-                standalone_valley_dd=(
-                    strategy.valley_dd_2020_2026_001
-                    + strategy.max_floating_dd_001
+                standalone_valley_dd=max(
+                    strategy.valley_dd_2020_2026_001,
+                    strategy.max_floating_dd_001,
                 ) * units,
                 standalone_point_dd=strategy.point_dd_2020_2026_001 * units,
                 timeframe=strategy.timeframe,
@@ -4672,6 +4817,8 @@ def optimize_portfolio(
                 recent_net_profit_001=strategy.recent_net_profit_001,
                 recent_equity_dd_001=strategy.recent_equity_dd_001,
                 has_recent_performance=strategy.has_recent_performance,
+                final_tick_report_path=strategy.final_tick_report_path,
+                full_history_report_path=strategy.full_history_report_path,
             )
         )
     result_allocations.sort(key=lambda item: (item.units, item.net_profit_contribution), reverse=True)
@@ -4705,9 +4852,9 @@ def optimize_portfolio(
         )
     if current.floating_dd_buffer > 0:
         warnings.append(
-            "DD equity historico aplicado (2020-hoy + Final Tick 6M): DD cerrado "
-            f"{current.closed_valley_dd:.2f} + buffer flotante conservador "
-            f"{current.floating_dd_buffer:.2f} = {current.valley_dd:.2f}."
+            "DD historico aplicado (2020-hoy + Final Tick 6M): max(DD cerrado "
+            f"{current.closed_valley_dd:.2f}, flotante maximo individual "
+            f"{current.floating_dd_buffer:.2f}) = {current.valley_dd:.2f}."
         )
     recent_recovery_rejections = sum(
         1
@@ -4802,7 +4949,7 @@ def optimize_portfolio(
     if max_daily_dd is not None:
         worst_day = str(daily_dd_summary.get("worst_day") or "-")
         warnings.append(
-            "DD diario max aplicado: cerrado + flotante estimado "
+            "DD diario visual (no limita lotes): cerrado + flotante estimado "
             f"({'historico completo' if daily_dd_full_history else 'mes objetivo'}) "
             f"{current.daily_dd:.2f}/{float(max_daily_dd):.2f}"
             + (f" en {worst_day}." if worst_day != "-" else ".")

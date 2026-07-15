@@ -304,8 +304,10 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     version = self.server.portfolios.undo(node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1))
                     self._send_json(200, {"restored_version": version})
                 elif action == "delete":
-                    self.server.portfolios.delete(node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1))
-                    self._send_json(200, {"deleted": True})
+                    task = self.server.portfolios.delete(
+                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)
+                    )
+                    self._send_json(202, {"task": task})
                 elif action == "export":
                     result = self.server.portfolios.export(
                         node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
@@ -420,6 +422,7 @@ class ManagerServer(ThreadingHTTPServer):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Panel central de MT5 Autotester")
     parser.add_argument("--config", default="manager.json")
+    parser.add_argument("--port", type=int, help="Sobrescribe temporalmente el puerto del archivo de configuración")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args(argv)
     config = load_json(args.config)
@@ -432,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
         str(Path(args.config).expanduser().resolve().parent / "runtime" / "portfolio_settings.json"),
     )
     host = str(config.get("host") or "127.0.0.1")
-    port = safe_int(config.get("port"), 8750, minimum=1, maximum=65535)
+    port = safe_int(args.port if args.port is not None else config.get("port"), 8750, minimum=1, maximum=65535)
     server = ManagerServer((host, port), config)
     display_host = "127.0.0.1" if host == "0.0.0.0" else host
     url = f"http://{display_host}:{port}"

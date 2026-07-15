@@ -1216,7 +1216,32 @@ class JobController:
                     raw = dict(item)
                     members.append({"variant_key":raw.get("variant_key") or "","variant_label":raw.get("variant_label") or "","set_id":raw.get("set_path") or "","candidate_id":raw.get("candidate_id") or "","symbol":raw.get("symbol") or "","timeframe":raw.get("period") or "","units":int(round(float(raw.get("lot") or 0)/0.01)),"lot":float(raw.get("lot") or 0),"lot_size_step":float(raw.get("lot_size_step") or .01),"net_profit_contribution":float(raw.get("combined_net_profit") or 0),"standalone_valley_dd":float(raw.get("standalone_dd") or 0),"standalone_point_dd":0.0,"set_path":raw.get("set_path") or "","margin_required":0.0,"margin_pct":0.0})
         selected["metrics"] = {"inputs": metrics.get("inputs") if isinstance(metrics.get("inputs"),dict) else {}, "stress_bootstrap": metrics.get("stress_bootstrap") if isinstance(metrics.get("stress_bootstrap"),dict) else {}, "common_set_ids": metrics.get("common_set_ids") if isinstance(metrics.get("common_set_ids"),list) else [], "variant_order": metrics.get("variant_order") if isinstance(metrics.get("variant_order"),list) else []}
-        selected["members"] = [{"variant_key":str(raw.get("variant_key") or ""),"variant_label":str(raw.get("variant_label") or ""),"set_id":str(raw.get("set_id") or ""),"set_name":Path(str(raw.get("set_path") or raw.get("set_id") or "")).name,"candidate_id":str(raw.get("candidate_id") or ""),"symbol":str(raw.get("symbol") or ""),"timeframe":str(raw.get("timeframe") or ""),"units":int(raw.get("units") or 0),"lot":float(raw.get("lot") or 0),"lot_size_step":float(raw.get("lot_size_step") or 0),"net_profit_contribution":float(raw.get("net_profit_contribution") or 0),"standalone_valley_dd":float(raw.get("standalone_valley_dd") or 0),"standalone_point_dd":float(raw.get("standalone_point_dd") or 0),"margin_required":float(raw.get("margin_required") or 0),"margin_pct":float(raw.get("margin_pct") or 0)} for raw in members]
+        selected["members"] = [{
+            "variant_key": str(raw.get("variant_key") or ""), "variant_label": str(raw.get("variant_label") or ""),
+            "set_id": str(raw.get("set_id") or ""), "set_name": Path(str(raw.get("set_path") or raw.get("set_id") or "")).name,
+            "set_path": str(raw.get("set_path") or raw.get("set_id") or ""),
+            "candidate_id": str(raw.get("candidate_id") or ""), "symbol": str(raw.get("symbol") or ""),
+            "timeframe": str(raw.get("timeframe") or ""), "units": int(raw.get("units") or 0),
+            "lot": float(raw.get("lot") or 0), "lot_size_step": float(raw.get("lot_size_step") or 0),
+            "net_profit_contribution": float(raw.get("net_profit_contribution") or 0),
+            "standalone_valley_dd": float(raw.get("standalone_valley_dd") or 0),
+            "standalone_point_dd": float(raw.get("standalone_point_dd") or 0),
+            "margin_required": float(raw.get("margin_required") or 0), "margin_pct": float(raw.get("margin_pct") or 0),
+            "max_balance_dd_001": float(raw.get("max_balance_dd_001") or 0),
+            "max_equity_dd_001": float(raw.get("max_equity_dd_001") or 0),
+            "floating_dd_source": str(raw.get("floating_dd_source") or ""),
+            "standalone_floating_dd": float(raw.get("standalone_floating_dd") or 0),
+            "recent_net_profit_001": float(raw.get("recent_net_profit_001") or 0),
+            "recent_equity_dd_001": float(raw.get("recent_equity_dd_001") or 0),
+            "has_recent_performance": bool(raw.get("has_recent_performance") or False),
+            "margin_leverage": float(raw.get("margin_leverage") or 0),
+            "margin_contract_size": float(raw.get("margin_contract_size") or 0),
+            "margin_price": float(raw.get("margin_price") or 0),
+            "is_report_path": str(raw.get("is_report_path") or ""),
+            "oos_report_path": str(raw.get("oos_report_path") or ""),
+            "final_tick_report_path": str(raw.get("final_tick_report_path") or ""),
+            "full_history_report_path": str(raw.get("full_history_report_path") or ""),
+        } for raw in members]
         return {"node": listing["node"], "scope": listing["scope"], "portfolio": selected, "observed_at": utc_now()}
 
     def runs(self, limit: int = 100) -> dict[str, Any]:
