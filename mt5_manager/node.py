@@ -603,9 +603,11 @@ class JobController:
         self.runtime_dir = config_path.parent / "runtime" / str(config.get("node_id") or "node")
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.state_path = self.runtime_dir / "state.json"
+        self.queue_path = self.runtime_dir / "queue.json"
         self.lock = threading.RLock()
         self.process: subprocess.Popen[str] | None = None
         self.log_handle: Any = None
+        self.queue: list[dict[str, Any]] = []
         self.state: dict[str, Any] = {
             "job_id": None, "status": "idle", "pid": None, "started_at": None,
             "finished_at": None, "return_code": None, "request": None, "command": None,
@@ -620,127 +622,253 @@ class JobController:
                     self.state["status"] = "unknown_after_restart"
             except ValueError:
                 pass
+        if self.queue_path.is_file():
+            try:
+                stored_queue = load_json(self.queue_path)
+                if isinstance(stored_queue, list):
+                    self.queue = [dict(item) for item in stored_queue if isinstance(item, dict)]
+            except ValueError:
+                pass
+        if self.queue:
+            self._schedule_queue_drain()
 
     def _persist(self) -> None:
         save_json(self.state_path, self.state)
 
+    def _persist_queue(self) -> None:
+        save_json(self.queue_path, self.queue)
+
+    def _queue_snapshot(self) -> dict[str, Any]:
+        return {
+            "count": len(self.queue),
+            "items": [
+                {
+                    "id": str(item.get("id") or ""),
+                    "type": str(item.get("type") or "generation"),
+                    "created_at": item.get("created_at"),
+                    "summary": str(item.get("summary") or ""),
+                    "position": index,
+                }
+                for index, item in enumerate(self.queue, 1)
+            ],
+        }
+
+    def _busy(self) -> bool:
+        # Keep the node reserved until the watcher has recorded the process exit.
+        return self.process is not None
+
+    def _enqueue(self, task_type: str, payload: dict[str, Any], summary: str) -> dict[str, Any]:
+        if len(self.queue) >= 100:
+            raise RuntimeError("La cola de este nodo alcanzo el limite de 100 tareas")
+        task_id = f"{int(time.time() * 1000)}_{time.time_ns() % 1_000_000:06d}"
+        item = {
+            "id": task_id,
+            "type": task_type,
+            "payload": payload,
+            "created_at": utc_now(),
+            "summary": summary,
+        }
+        self.queue.append(item)
+        self._persist_queue()
+        return {
+            **dict(self.state),
+            "queued": True,
+            "queue_item": {**self._queue_snapshot()["items"][-1]},
+            "task_queue": self._queue_snapshot(),
+        }
+
+    def _schedule_queue_drain(self) -> None:
+        timer = threading.Timer(0.05, self._drain_queue)
+        timer.daemon = True
+        timer.start()
+
+    def _drain_queue(self) -> None:
+        with self.lock:
+            if self._busy() or not self.queue:
+                return
+            item = self.queue.pop(0)
+            self._persist_queue()
+            try:
+                payload = dict(item.get("payload") or {})
+                if item.get("type") == "repair":
+                    self._start_repair(payload)
+                else:
+                    self._start_generation(payload)
+            except Exception as exc:
+                self.state = {
+                    "job_id": item.get("id"), "job_type": item.get("type"),
+                    "status": "failed", "pid": None, "started_at": utc_now(),
+                    "finished_at": utc_now(), "return_code": 1, "request": item.get("payload"),
+                    "command": None, "log_path": None, "error": str(exc), "pipeline": [],
+                    "current_stage": None, "completed_stages": [], "stage_return_codes": {},
+                }
+                self._persist()
+                if self.queue:
+                    self._schedule_queue_drain()
+
+    def cancel_queued(self, task_id: str) -> dict[str, Any]:
+        with self.lock:
+            task_id = str(task_id or "").strip()
+            if not task_id:
+                raise ValueError("Falta el id de la tarea")
+            before = len(self.queue)
+            self.queue = [item for item in self.queue if str(item.get("id")) != task_id]
+            if len(self.queue) == before:
+                raise ValueError("La tarea ya no esta en la cola")
+            self._persist_queue()
+            return {"cancelled": task_id, "task_queue": self._queue_snapshot()}
+
     def start(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
-            if self.process is not None and self.process.poll() is None:
-                raise RuntimeError("Este nodo ya tiene una generacion en curso")
-            payload = dict(payload)
-            cycles = safe_int(payload.get("cycles"), 1, minimum=1, maximum=100)
-            payload["cycles"] = cycles
-            run_robustness = bool(payload.get("run_robustness", False))
-            run_final_tick = bool(payload.get("run_final_tick", False))
-            run_final_tick_6m = bool(payload.get("run_final_tick_6m", False))
-            if run_final_tick_6m:
-                run_final_tick = True
-                run_robustness = True
-            elif run_final_tick:
-                run_robustness = True
-            payload["run_robustness"] = run_robustness
-            payload["run_final_tick"] = run_final_tick
-            payload["run_final_tick_6m"] = run_final_tick_6m
-            repair_after_generation = bool(payload.get("repair_after_generation", False))
-            repair_attempts = safe_int(payload.get("repair_attempts"), 1, minimum=1, maximum=20)
-            payload["repair_after_generation"] = repair_after_generation
-            payload["repair_attempts"] = repair_attempts
-            pipeline: list[dict[str, Any]] = []
-            for cycle in range(1, cycles + 1):
-                pipeline.append({"action": "generation", "cycle": cycle, "run_id": None})
-                if repair_after_generation:
-                    repair_actions = ["result"]
-                    if run_robustness:
-                        repair_actions.append("robustness")
-                    if run_final_tick:
-                        repair_actions.extend(["final_tick", "final_tick_quality"])
-                    if run_final_tick_6m:
-                        repair_actions.extend(["final_tick_6m", "final_tick_6m_quality"])
-                    pipeline.extend(
-                        {
-                            "action": action, "cycle": cycle, "run_id": None,
-                            "attempt": attempt, "max_workers": 1,
-                        }
-                        for attempt in range(1, repair_attempts + 1)
-                        for action in repair_actions
-                    )
-                else:
-                    if run_robustness:
-                        pipeline.append({"action": "robustness", "cycle": cycle, "run_id": None})
-                    if run_final_tick:
-                        pipeline.append({"action": "final_tick", "cycle": cycle, "run_id": None})
-                    if run_final_tick_6m:
-                        pipeline.append({"action": "final_tick_6m", "cycle": cycle, "run_id": None})
-            command, cwd = build_generation_command(self.config, payload)
-            job_id = time.strftime("%Y%m%d_%H%M%S")
-            log_path = self.runtime_dir / f"generation_{job_id}.log"
-            self.state = {
-                "job_id": job_id, "status": "running", "pid": None,
-                "started_at": utc_now(), "finished_at": None, "return_code": None,
-                "request": payload, "command": command, "log_path": str(log_path), "error": None,
-                "job_type": "generation", "pipeline": pipeline, "current_stage": "generation",
-                "current_cycle": 1, "current_run_id": None, "completed_stages": [],
-                "stage_return_codes": {}, "commands": {"cycle_1_generation": command},
-                "cycle_run_ids": {}, "skipped_stages": [], "stage_pending_counts": {},
-            }
-            self._launch_step(0, command, cwd, log_path, first=True)
-            return dict(self.state)
+            normalized = self._normalize_generation(payload)
+            # Validate paths and options before accepting a queued task.
+            build_generation_command(self.config, normalized)
+            if self._busy() or self.queue:
+                cycles = normalized["cycles"]
+                mode = normalized.get("generation_mode", "production")
+                return self._enqueue("generation", normalized, f"{cycles} ciclo(s) · {mode}")
+            return self._start_generation(normalized)
+
+    def _normalize_generation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(payload)
+        cycles = safe_int(payload.get("cycles"), 1, minimum=1, maximum=100)
+        payload["cycles"] = cycles
+        run_robustness = bool(payload.get("run_robustness", False))
+        run_final_tick = bool(payload.get("run_final_tick", False))
+        run_final_tick_6m = bool(payload.get("run_final_tick_6m", False))
+        if run_final_tick_6m:
+            run_final_tick = True
+            run_robustness = True
+        elif run_final_tick:
+            run_robustness = True
+        payload["run_robustness"] = run_robustness
+        payload["run_final_tick"] = run_final_tick
+        payload["run_final_tick_6m"] = run_final_tick_6m
+        repair_after_generation = bool(payload.get("repair_after_generation", False))
+        repair_attempts = safe_int(payload.get("repair_attempts"), 1, minimum=1, maximum=20)
+        payload["repair_after_generation"] = repair_after_generation
+        payload["repair_attempts"] = repair_attempts
+        return payload
+
+    def _start_generation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_generation(payload)
+        cycles = payload["cycles"]
+        run_robustness = payload["run_robustness"]
+        run_final_tick = payload["run_final_tick"]
+        run_final_tick_6m = payload["run_final_tick_6m"]
+        repair_after_generation = payload["repair_after_generation"]
+        repair_attempts = payload["repair_attempts"]
+        pipeline: list[dict[str, Any]] = []
+        for cycle in range(1, cycles + 1):
+            pipeline.append({"action": "generation", "cycle": cycle, "run_id": None})
+            if repair_after_generation:
+                repair_actions = ["result"]
+                if run_robustness:
+                    repair_actions.append("robustness")
+                if run_final_tick:
+                    repair_actions.extend(["final_tick", "final_tick_quality"])
+                if run_final_tick_6m:
+                    repair_actions.extend(["final_tick_6m", "final_tick_6m_quality"])
+                pipeline.extend(
+                    {
+                        "action": action, "cycle": cycle, "run_id": None,
+                        "attempt": attempt, "max_workers": 1,
+                    }
+                    for attempt in range(1, repair_attempts + 1)
+                    for action in repair_actions
+                )
+            else:
+                if run_robustness:
+                    pipeline.append({"action": "robustness", "cycle": cycle, "run_id": None})
+                if run_final_tick:
+                    pipeline.append({"action": "final_tick", "cycle": cycle, "run_id": None})
+                if run_final_tick_6m:
+                    pipeline.append({"action": "final_tick_6m", "cycle": cycle, "run_id": None})
+        command, cwd = build_generation_command(self.config, payload)
+        job_id = time.strftime("%Y%m%d_%H%M%S") + f"_{time.time_ns() % 1_000_000:06d}"
+        log_path = self.runtime_dir / f"generation_{job_id}.log"
+        self.state = {
+            "job_id": job_id, "status": "running", "pid": None,
+            "started_at": utc_now(), "finished_at": None, "return_code": None,
+            "request": payload, "command": command, "log_path": str(log_path), "error": None,
+            "job_type": "generation", "pipeline": pipeline, "current_stage": "generation",
+            "current_cycle": 1, "current_run_id": None, "completed_stages": [],
+            "stage_return_codes": {}, "commands": {"cycle_1_generation": command},
+            "cycle_run_ids": {}, "skipped_stages": [], "stage_pending_counts": {},
+        }
+        self._launch_step(0, command, cwd, log_path, first=True)
+        return {**dict(self.state), "queued": False, "task_queue": self._queue_snapshot()}
 
     def start_repair(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
-            if self.process is not None and self.process.poll() is None:
-                raise RuntimeError("Este nodo ya tiene un trabajo en curso")
-            requested = payload.get("run_ids")
-            if not isinstance(requested, list):
-                raise ValueError("run_ids debe ser una lista")
-            run_ids = list(dict.fromkeys(safe_int(value, 0, minimum=0) for value in requested))
-            run_ids = [value for value in run_ids if value > 0]
-            if not run_ids:
-                raise ValueError("Selecciona al menos un run terminado")
-            payload = dict(payload)
-            payload["run_ids"] = run_ids
-            payload["max_workers"] = 1
-            payload["execute_backtests"] = True
-            repair_attempts = safe_int(payload.get("repair_attempts"), 1, minimum=1, maximum=20)
-            payload["repair_attempts"] = repair_attempts
-            retry_low_quality = bool(payload.get("retry_low_quality", True))
-            payload["retry_low_quality"] = retry_low_quality
-            actions = ["result", "robustness", "final_tick"]
-            if retry_low_quality:
-                actions.append("final_tick_quality")
-            actions.append("final_tick_6m")
-            if retry_low_quality:
-                actions.append("final_tick_6m_quality")
-            pipeline = [
-                {"action": action, "cycle": None, "run_id": run_id, "attempt": attempt}
-                for run_id in run_ids
-                for attempt in range(1, repair_attempts + 1)
-                for action in actions
-            ]
-            job_id = "repair_" + time.strftime("%Y%m%d_%H%M%S")
-            log_path = self.runtime_dir / f"{job_id}.log"
-            self.state = {
-                "job_id": job_id, "job_type": "repair", "status": "running", "pid": None,
-                "started_at": utc_now(), "finished_at": None, "return_code": None,
-                "request": payload, "command": None, "log_path": str(log_path), "error": None,
-                "pipeline": pipeline, "current_stage": None, "current_cycle": None,
-                "current_run_id": None, "current_attempt": None,
-                "completed_stages": [], "skipped_stages": [],
-                "stage_return_codes": {}, "stage_pending_counts": {}, "commands": {}, "cycle_run_ids": {},
-            }
-            try:
-                launched = self._launch_next_runnable(0, log_path, first=True)
-            except Exception as exc:
-                self.state["error"] = str(exc)
-                self.state["return_code"] = 1
-                self.state["finished_at"] = utc_now()
-                self.state["status"] = "failed"
-                self._persist()
-                raise
-            if not launched:
-                self._complete(0)
-            return dict(self.state)
+            normalized = self._normalize_repair(payload)
+            if self._busy() or self.queue:
+                run_ids = normalized["run_ids"]
+                attempts = normalized["repair_attempts"]
+                return self._enqueue(
+                    "repair", normalized,
+                    f"Run(s) {', '.join(str(value) for value in run_ids)} · {attempts} intento(s)",
+                )
+            return self._start_repair(normalized)
+
+    def _normalize_repair(self, payload: dict[str, Any]) -> dict[str, Any]:
+        requested = payload.get("run_ids")
+        if not isinstance(requested, list):
+            raise ValueError("run_ids debe ser una lista")
+        run_ids = list(dict.fromkeys(safe_int(value, 0, minimum=0) for value in requested))
+        run_ids = [value for value in run_ids if value > 0]
+        if not run_ids:
+            raise ValueError("Selecciona al menos un run terminado")
+        payload = dict(payload)
+        payload["run_ids"] = run_ids
+        payload["max_workers"] = 1
+        payload["execute_backtests"] = True
+        repair_attempts = safe_int(payload.get("repair_attempts"), 1, minimum=1, maximum=20)
+        payload["repair_attempts"] = repair_attempts
+        retry_low_quality = bool(payload.get("retry_low_quality", True))
+        payload["retry_low_quality"] = retry_low_quality
+        return payload
+
+    def _start_repair(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_repair(payload)
+        run_ids = payload["run_ids"]
+        repair_attempts = payload["repair_attempts"]
+        retry_low_quality = payload["retry_low_quality"]
+        actions = ["result", "robustness", "final_tick"]
+        if retry_low_quality:
+            actions.append("final_tick_quality")
+        actions.append("final_tick_6m")
+        if retry_low_quality:
+            actions.append("final_tick_6m_quality")
+        pipeline = [
+            {"action": action, "cycle": None, "run_id": run_id, "attempt": attempt}
+            for run_id in run_ids
+            for attempt in range(1, repair_attempts + 1)
+            for action in actions
+        ]
+        job_id = "repair_" + time.strftime("%Y%m%d_%H%M%S") + f"_{time.time_ns() % 1_000_000:06d}"
+        log_path = self.runtime_dir / f"{job_id}.log"
+        self.state = {
+            "job_id": job_id, "job_type": "repair", "status": "running", "pid": None,
+            "started_at": utc_now(), "finished_at": None, "return_code": None,
+            "request": payload, "command": None, "log_path": str(log_path), "error": None,
+            "pipeline": pipeline, "current_stage": None, "current_cycle": None,
+            "current_run_id": None, "current_attempt": None,
+            "completed_stages": [], "skipped_stages": [],
+            "stage_return_codes": {}, "stage_pending_counts": {}, "commands": {}, "cycle_run_ids": {},
+        }
+        try:
+            launched = self._launch_next_runnable(0, log_path, first=True)
+        except Exception as exc:
+            self.state["error"] = str(exc)
+            self.state["return_code"] = 1
+            self.state["finished_at"] = utc_now()
+            self.state["status"] = "failed"
+            self._persist()
+            raise
+        if not launched:
+            self._complete(0)
+        return {**dict(self.state), "queued": False, "task_queue": self._queue_snapshot()}
 
     @staticmethod
     def _step_label(step: dict[str, Any]) -> str:
@@ -796,6 +924,8 @@ class JobController:
         self.state["pid"] = None
         self.process = None
         self._persist()
+        if self.queue:
+            self._schedule_queue_drain()
 
     def _launch_step(self, step_index: int, command: list[str], cwd: Path, log_path: Path, *, first: bool = False) -> None:
         step = list(self.state.get("pipeline") or [])[step_index]
@@ -889,6 +1019,7 @@ class JobController:
     def status(self) -> dict[str, Any]:
         with self.lock:
             result = dict(self.state)
+            task_queue = self._queue_snapshot()
         settings_path = Path(str(self.config.get("settings_file") or "ui_settings.ini"))
         project = Path(str(self.config["project_dir"])).expanduser().resolve()
         if not settings_path.is_absolute():
@@ -922,6 +1053,7 @@ class JobController:
                 "project_dir": str(project),
             },
             "job": result,
+            "task_queue": task_queue,
             "database": db,
             "launch_defaults": launch_defaults,
             "capabilities": {
@@ -931,6 +1063,7 @@ class JobController:
                 "repair_runs": True,
                 "universe_management": True,
                 "portfolio_views": True,
+                "task_queue": True,
             },
             "observed_at": utc_now(),
         }
@@ -1174,6 +1307,8 @@ class NodeHandler(BaseHTTPRequestHandler):
                 self._send(202, self.server.controller.start_repair(self._body()))
             elif self.path == "/api/v1/jobs/stop":
                 self._send(202, self.server.controller.stop())
+            elif self.path == "/api/v1/jobs/queue/cancel":
+                self._send(200, self.server.controller.cancel_queued(str(self._body().get("task_id") or "")))
             elif self.path == "/api/v1/universe/symbols":
                 self._send(200, self.server.controller.update_universe(self._body()))
             elif self.path == "/api/v1/portfolios/save":

@@ -7,11 +7,82 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.portfolio_service import PortfolioCoordinator, PortfolioSource, generate_proposals, normalize_settings, save_portfolio_payload
+from mt5_manager.portfolio_service import (
+    PortfolioCoordinator,
+    PortfolioSource,
+    _optimize_without_recent_fillers,
+    _underrepresented_recent_allocation_ids,
+    generate_proposals,
+    normalize_settings,
+    save_portfolio_payload,
+)
 from portfolio_manager.ubs_portfolio import PortfolioAvailability, PortfolioResult, PortfolioType, StrategyAllocation
 
 
 class PortfolioServiceTests(unittest.TestCase):
+    @staticmethod
+    def _recent_result(allocations: list[StrategyAllocation]) -> PortfolioResult:
+        return PortfolioResult(
+            allocations=allocations,
+            equity_curve_2020_2026=[0.0, 1.0],
+            total_net_profit=1.0,
+            actual_valley_dd=1.0,
+            actual_point_dd=1.0,
+            target_valley_dd=100.0,
+            target_point_dd=100.0,
+            valley_usage_pct=1.0,
+            point_usage_pct=1.0,
+            total_lot=sum(item.lot for item in allocations),
+            total_units=sum(item.units for item in allocations),
+            active_strategies=len(allocations),
+            stop_reason="ok",
+            warnings=[],
+            decision_log=[],
+        )
+
+    def test_recent_contribution_rule_reoptimizes_without_filler(self) -> None:
+        core = SimpleNamespace(set_id="core.set")
+        filler = SimpleNamespace(set_id="filler.set")
+        seen_pools: list[list[str]] = []
+
+        def optimize(pool: list[SimpleNamespace]) -> PortfolioResult:
+            seen_pools.append([item.set_id for item in pool])
+            allocations = [StrategyAllocation(
+                "core.set", "1", "EURUSD", 2, .02, 200, 20, 10,
+                recent_net_profit_001=100, has_recent_performance=True,
+            )]
+            if any(item.set_id == "filler.set" for item in pool):
+                allocations.append(StrategyAllocation(
+                    "filler.set", "2", "USDJPY", 1, .01, 10, 2, 1,
+                    recent_net_profit_001=4, has_recent_performance=True,
+                ))
+            return self._recent_result(allocations)
+
+        result, removed = _optimize_without_recent_fillers([core, filler], 5.0, optimize)
+
+        self.assertEqual(removed, {"filler.set"})
+        self.assertEqual(seen_pools, [["core.set", "filler.set"], ["core.set"]])
+        self.assertEqual([item.set_id for item in result.allocations], ["core.set"])
+        self.assertIn("Regla antirrelleno 6M", result.warnings[0])
+
+    def test_recent_contribution_is_measured_after_final_lot(self) -> None:
+        result = self._recent_result([
+            StrategyAllocation(
+                "large.set", "1", "EURUSD", 10, .10, 1000, 100, 50,
+                recent_net_profit_001=10, has_recent_performance=True,
+            ),
+            StrategyAllocation(
+                "small.set", "2", "USDJPY", 1, .01, 100, 10, 5,
+                recent_net_profit_001=4, has_recent_performance=True,
+            ),
+        ])
+
+        self.assertEqual(_underrepresented_recent_allocation_ids(result, 5.0), {"small.set"})
+
+    def test_recent_contribution_default_is_five_percent(self) -> None:
+        settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]})
+        self.assertEqual(settings["min_strategy_recent_contribution_pct"], 5.0)
+
     def test_excluding_a_bundle_member_quarantines_it_and_deletes_the_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

@@ -162,6 +162,59 @@ enabled=0
         with urllib.request.urlopen(self.base + "/universe.html?node=test-node", timeout=3) as response:
             self.assertIn("UNIVERSO DE ACTIVOS", response.read().decode("utf-8"))
 
+    def test_controller_runs_each_node_queue_in_order_and_persists_it(self) -> None:
+        (self.root / "ubs_agent.py").write_text(
+            "import time\ntime.sleep(.2)\n",
+            encoding="utf-8",
+        )
+        base = {
+            "cycles": 1, "generations": 1, "max_seeds": 1,
+            "execute_backtests": False, "dry_run": True,
+        }
+        first = self.controller.start({**base, "variants_per_seed": 1})
+        second = self.controller.start({**base, "variants_per_seed": 2})
+        third = self.controller.start({**base, "variants_per_seed": 3})
+
+        self.assertFalse(first["queued"])
+        self.assertTrue(second["queued"])
+        self.assertEqual(second["queue_item"]["position"], 1)
+        self.assertEqual(third["queue_item"]["position"], 2)
+        stored = json.loads(self.controller.queue_path.read_text(encoding="utf-8"))
+        self.assertEqual([item["payload"]["variants_per_seed"] for item in stored], [2, 3])
+
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            status = self.controller.status()
+            if status["job"]["status"] != "running" and status["task_queue"]["count"] == 0:
+                break
+            time.sleep(.03)
+        status = self.controller.status()
+        self.assertEqual(status["job"]["status"], "completed")
+        self.assertEqual(status["job"]["request"]["variants_per_seed"], 3)
+        self.assertEqual(status["task_queue"]["count"], 0)
+        self.assertEqual(json.loads(self.controller.queue_path.read_text(encoding="utf-8")), [])
+
+    def test_controller_can_cancel_a_pending_node_task(self) -> None:
+        (self.root / "ubs_agent.py").write_text(
+            "import time\ntime.sleep(.25)\n",
+            encoding="utf-8",
+        )
+        payload = {
+            "cycles": 1, "generations": 1, "variants_per_seed": 1,
+            "max_seeds": 1, "execute_backtests": False, "dry_run": True,
+        }
+        self.controller.start(payload)
+        queued = self.controller.start({**payload, "variants_per_seed": 2})
+        response_status, result = self.request(
+            "/api/nodes/test-node/queue/cancel",
+            {"task_id": queued["queue_item"]["id"]},
+        )
+
+        self.assertEqual(response_status, 200)
+        self.assertEqual(result["task_queue"]["count"], 0)
+        self.assertEqual(json.loads(self.controller.queue_path.read_text(encoding="utf-8")), [])
+
+    def test_manager_reads_node_portfolios(self) -> None:
         portfolio_memory = self.root / "portfolio.sqlite"
         with closing(sqlite3.connect(portfolio_memory)) as conn:
             conn.executescript("""

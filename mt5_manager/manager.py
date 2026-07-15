@@ -229,6 +229,16 @@ class ManagerHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
+        if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3:] == ["queue", "cancel"]:
+            try:
+                node = self._node(urllib.parse.unquote(parts[2]))
+                status, value = node_request(node, "POST", "/api/v1/jobs/queue/cancel", self._body())
+                self._send_json(status, value)
+            except (KeyError, ValueError, json.JSONDecodeError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            except (urllib.error.URLError, TimeoutError) as exc:
+                self._send_json(502, {"error": str(exc)})
+            return
         if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "preferences":
             try:
                 node_id = urllib.parse.unquote(parts[2])

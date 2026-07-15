@@ -237,6 +237,22 @@ function syncCardPipeline(id, stage, checked) {
   render();
 }
 
+function taskQueueBlock(node, id) {
+  if (!node.capabilities?.task_queue) return '';
+  const queue = node.task_queue || {};
+  const items = queue.items || [];
+  if (!items.length) return '';
+  const rows = items.map(item => {
+    const label = item.type === 'repair' ? 'Reparación' : 'Ejecución';
+    return `<div class="task-queue-item">
+      <span class="task-position">${Number(item.position || 0)}</span>
+      <span><strong>${esc(label)}</strong><small>${esc(item.summary || item.created_at || '')}</small></span>
+      <button class="task-cancel" title="Quitar de la cola" onclick="cancelQueuedTask('${esc(id)}','${esc(item.id)}')">Quitar</button>
+    </div>`;
+  }).join('');
+  return `<div class="task-queue"><div class="task-queue-head"><span>Cola de tareas</span><strong>${items.length} pendiente${items.length === 1 ? '' : 's'}</strong></div>${rows}</div>`;
+}
+
 function render() {
   const online = nodeData.filter(node => !node.offline).length;
   const running = nodeData.filter(node => statusOf(node) === 'running').length;
@@ -263,8 +279,10 @@ function render() {
     const runText = run
       ? `Run <strong>#${run.id}</strong> · ${esc(run.created_at)} · generación ${node.database?.max_generation || 0}/${run.generations || '?'}`
       : 'Todavía no hay runs en la memoria SQLite.';
+    const supportsQueue = Boolean(node.capabilities?.task_queue);
+    const queuedCount = Number(node.task_queue?.count || 0);
     const repairButton = node.capabilities?.repair_runs
-      ? `<button class="secondary" onclick="openRepair('${esc(id)}','${esc(name)}')" ${state === 'running' ? 'disabled' : ''}>Reparar</button>`
+      ? `<button class="secondary" onclick="openRepair('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${supportsQueue && (state === 'running' || queuedCount) ? 'Agregar reparación' : 'Reparar'}</button>`
       : '';
     const universeButton = node.capabilities?.universe_management
       ? `<a class="button secondary" href="/universe.html?node=${encodeURIComponent(id)}">Universo</a>`
@@ -272,7 +290,8 @@ function render() {
     const portfolioButtons = node.manager_portfolio?.available || node.capabilities?.portfolio_views
       ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}&scope=full_history">Portafolio UBS</a><a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}&scope=monthly">Portafolio mensual</a>`
       : '';
-    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' ? 'disabled' : ''}>Iniciar</button>${repairButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
+    const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
+    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
   }).join('');
 }
 
@@ -358,7 +377,9 @@ document.querySelector('#start-form').addEventListener('submit', async event => 
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     startDialog.close();
-    toast(`Pipeline iniciado en ${id}`);
+    toast(data.queued
+      ? `Ejecución agregada a la cola de ${id} · posición ${data.queue_item?.position || data.task_queue?.count}`
+      : `Pipeline iniciado en ${id}`);
     await refresh();
   } catch (error) {
     toast(error.message, true);
@@ -420,12 +441,29 @@ async function submitRepair() {
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     repairDialog.close();
-    toast(`Reparación iniciada para ${runIds.length} run(s), ${document.querySelector('#repair-attempts').value} intento(s).`);
+    toast(data.queued
+      ? `Reparación agregada a la cola · posición ${data.queue_item?.position || data.task_queue?.count}`
+      : `Reparación iniciada para ${runIds.length} run(s), ${document.querySelector('#repair-attempts').value} intento(s).`);
     await refresh();
   } catch (error) {
     toast(error.message, true);
   } finally {
     button.disabled = false;
+  }
+}
+
+async function cancelQueuedTask(id, taskId) {
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/queue/cancel`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({task_id: taskId}),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    toast('Tarea quitada de la cola');
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
   }
 }
 
@@ -490,6 +528,7 @@ window.setRepairAttempts = setRepairAttempts;
 window.setCardValue = setCardValue;
 window.syncCardPipeline = syncCardPipeline;
 window.syncAutoRepair = syncAutoRepair;
+window.cancelQueuedTask = cancelQueuedTask;
 window.stopNode = stopNode;
 window.showLogs = showLogs;
 window.refresh = refresh;

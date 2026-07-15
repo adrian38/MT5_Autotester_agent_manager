@@ -79,6 +79,7 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "require_3_positive_months_6m": False,
     "grid_off": False,
     "exclude_used_sets": True,
+    "min_strategy_recent_contribution_pct": 5.0,
     "dd_reserve_pct": 10.0,
     "search_restarts": 4,
     "max_pair_corr": 0.35,
@@ -166,6 +167,11 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
     values["dd_reserve_pct"] = safe_float(values.get("dd_reserve_pct"), -1)
     if not 0 <= values["dd_reserve_pct"] < 100:
         raise ValueError("dd_reserve_pct debe estar entre 0 y menos de 100")
+    values["min_strategy_recent_contribution_pct"] = safe_float(
+        values.get("min_strategy_recent_contribution_pct"), -1
+    )
+    if not 0 <= values["min_strategy_recent_contribution_pct"] <= 100:
+        raise ValueError("min_strategy_recent_contribution_pct debe estar entre 0 y 100")
     values["max_margin_pct"] = safe_float(values.get("max_margin_pct"), 0)
     if values["max_margin_pct"] <= 0:
         raise ValueError("max_margin_pct debe ser mayor que 0")
@@ -900,6 +906,7 @@ class PortfolioSource:
             "require_3_positive_months_6m": False,
             "grid_off": False,
             "exclude_used_sets": True,
+            "min_strategy_recent_contribution_pct": COMMON_DEFAULTS["min_strategy_recent_contribution_pct"],
             "exclude_monthly_used": False,
             "corr_with_monthly_portfolios": False,
             "strict_yearly_month_validation": False,
@@ -1315,6 +1322,75 @@ def _seasonal_coverage(result: PortfolioResult, strategies: list[Any]) -> None:
     }
 
 
+def _underrepresented_recent_allocation_ids(
+    result: PortfolioResult,
+    minimum_pct: float,
+) -> set[str]:
+    """Return active sets whose final lot does not contribute enough recent profit."""
+    threshold = max(float(minimum_pct), 0.0) / 100.0
+    if threshold <= 0 or not result.allocations:
+        return set()
+    contributions = {
+        allocation.set_id: (
+            max(float(allocation.recent_net_profit_001), 0.0) * int(allocation.units)
+            if allocation.has_recent_performance
+            else 0.0
+        )
+        for allocation in result.allocations
+        if allocation.units > 0
+    }
+    total = sum(contributions.values())
+    if total <= 0:
+        return set()
+    return {
+        set_id
+        for set_id, contribution in contributions.items()
+        if contribution + 1e-9 < total * threshold
+    }
+
+
+def _optimize_without_recent_fillers(
+    raw_sets: list[Any],
+    minimum_pct: float,
+    optimize: Callable[[list[Any]], PortfolioResult],
+) -> tuple[PortfolioResult, set[str]]:
+    """Re-optimize after removing allocations that remain immaterial at their final lot."""
+    pool = list(raw_sets)
+    removed: set[str] = set()
+    while True:
+        result = optimize(pool)
+        underrepresented = _underrepresented_recent_allocation_ids(result, minimum_pct)
+        underrepresented -= removed
+        if not underrepresented:
+            if removed:
+                result.warnings.insert(
+                    0,
+                    "Regla antirrelleno 6M: aporte minimo "
+                    f"{float(minimum_pct):.1f}% por estrategia; "
+                    f"{len(removed)} estrategia(s) eliminada(s) y lotes recalculados.",
+                )
+            return result, removed
+        active_ids = {allocation.set_id for allocation in result.allocations if allocation.units > 0}
+        if active_ids and active_ids <= underrepresented:
+            contribution_by_id = {
+                allocation.set_id: (
+                    max(float(allocation.recent_net_profit_001), 0.0) * int(allocation.units)
+                    if allocation.has_recent_performance
+                    else 0.0
+                )
+                for allocation in result.allocations
+                if allocation.units > 0
+            }
+            keep_id = max(contribution_by_id, key=contribution_by_id.get)
+            underrepresented.discard(keep_id)
+            if not underrepresented:
+                return result, removed
+        removed.update(underrepresented)
+        pool = [strategy for strategy in pool if strategy.set_id not in removed]
+        if not pool:
+            return result, removed
+
+
 def _normal_proposals(
     raw_sets: list[Any],
     inputs: dict[str, Any],
@@ -1345,20 +1421,26 @@ def _normal_proposals(
         })
         kwargs = _optimizer_kwargs(inputs, objective_type, existing_curves, reserve)
         try:
-            if inputs.get("portfolio_scope") == "monthly" and inputs.get("strict_yearly_month_validation"):
-                result = optimize_strict_monthly_portfolio(
-                    monthly_sets=raw_sets,
-                    full_sets=full_sets or [],
-                    target_month=int(inputs["target_month"]),
+            def optimize(candidate_sets: list[Any]) -> PortfolioResult:
+                if inputs.get("portfolio_scope") == "monthly" and inputs.get("strict_yearly_month_validation"):
+                    return optimize_strict_monthly_portfolio(
+                        monthly_sets=candidate_sets,
+                        full_sets=full_sets or [],
+                        target_month=int(inputs["target_month"]),
+                        use_deep_refinement=bool(inputs.get("deep_optimization")),
+                        **kwargs,
+                    )
+                return optimize_portfolio(
+                    raw_sets=candidate_sets,
                     use_deep_refinement=bool(inputs.get("deep_optimization")),
                     **kwargs,
                 )
-            else:
-                result = optimize_portfolio(
-                    raw_sets=raw_sets,
-                    use_deep_refinement=bool(inputs.get("deep_optimization")),
-                    **kwargs,
-                )
+
+            result, _removed = _optimize_without_recent_fillers(
+                raw_sets,
+                float(inputs.get("min_strategy_recent_contribution_pct") or 0.0),
+                optimize,
+            )
         except Exception as exc:
             errors.append(f"{label}: {exc}")
             continue
@@ -1380,16 +1462,22 @@ def _locked_full_proposals(
     base_reserve = max(_reserve_pct(configured, portfolio_type) for _key, _label, portfolio_type in LOCKED_VARIANTS)
     base_inputs = dict(inputs)
     base_inputs["dd_reserve_pct"] = base_reserve
+    minimum_recent_pct = float(inputs.get("min_strategy_recent_contribution_pct") or 0.0)
     if progress:
         progress(f"Seleccionando composicion base {TYPE_LABELS[base_type.value]}")
-    base = optimize_portfolio(
-        raw_sets=raw_sets,
-        use_deep_refinement=bool(base_inputs.get("deep_optimization")),
-        **_optimizer_kwargs(
-            base_inputs,
-            base_type,
-            existing_by_type.get(base_type, []),
-            base_reserve,
+    base_kwargs = _optimizer_kwargs(
+        base_inputs,
+        base_type,
+        existing_by_type.get(base_type, []),
+        base_reserve,
+    )
+    base, removed_ids = _optimize_without_recent_fillers(
+        raw_sets,
+        minimum_recent_pct,
+        lambda candidate_sets: optimize_portfolio(
+            raw_sets=candidate_sets,
+            use_deep_refinement=bool(base_inputs.get("deep_optimization")),
+            **base_kwargs,
         ),
     )
     locked_ids = [allocation.set_id for allocation in base.allocations if allocation.units > 0]
@@ -1400,53 +1488,94 @@ def _locked_full_proposals(
     if missing:
         raise ValueError("Faltan sets de la composicion base: " + ", ".join(Path(value).name for value in missing))
     locked_sets = [raw_by_id[set_id] for set_id in locked_ids]
-    locked_count = len(locked_sets)
-    if inputs.get("max_total_units") is not None and int(inputs["max_total_units"]) < locked_count:
-        raise ValueError("Max unidades es menor que la composicion comun")
-    proposals: list[dict[str, Any]] = []
-    errors: list[str] = []
-    for index, (key, label, portfolio_type) in enumerate(LOCKED_VARIANTS, 1):
+    while True:
+        locked_count = len(locked_sets)
+        if inputs.get("max_total_units") is not None and int(inputs["max_total_units"]) < locked_count:
+            raise ValueError("Max unidades es menor que la composicion comun")
+        proposals: list[dict[str, Any]] = []
+        errors: list[str] = []
+        for index, (key, label, portfolio_type) in enumerate(LOCKED_VARIANTS, 1):
+            if progress:
+                progress(f"Calculando variante {index}/3: {label}")
+            reserve = _reserve_pct(configured, portfolio_type)
+            proposal_inputs = dict(inputs)
+            proposal_inputs.update({
+                "optimization_profile": key,
+                "optimization_profile_label": label,
+                "portfolio_type": portfolio_type.value,
+                "portfolio_type_label": TYPE_LABELS[portfolio_type.value],
+                "composition_portfolio_type": base_type.value,
+                "composition_portfolio_type_label": TYPE_LABELS[base_type.value],
+                "dd_reserve_pct": reserve,
+            })
+            kwargs = _optimizer_kwargs(inputs, portfolio_type, existing_by_type.get(portfolio_type, []), reserve)
+            kwargs.update({
+                "top_k_per_symbol": max(int(inputs["top_k_per_symbol"]), locked_count),
+                "max_total_candidates": None,
+                "max_sets_per_group": locked_count,
+                "group_unit_cap_bootstrap": max(locked_count, 1),
+                "minimum_active_strategies": locked_count,
+                "maximum_active_strategies": locked_count,
+                "search_restarts": 0,
+            })
+            try:
+                result = optimize_portfolio(
+                    raw_sets=locked_sets,
+                    use_deep_refinement=bool(inputs.get("deep_optimization")),
+                    **kwargs,
+                )
+            except Exception as exc:
+                errors.append(f"{label}: {exc}")
+                continue
+            if {allocation.set_id for allocation in result.allocations if allocation.units > 0} != set(locked_ids):
+                errors.append(f"{label}: no mantuvo todos los sets comunes")
+                continue
+            _seasonal_coverage(result, locked_sets)
+            proposals.append({"key": key, "label": label, "reserve_pct": reserve, "inputs": proposal_inputs, "result": result})
+        if len(proposals) != 3:
+            raise ValueError("No se pudieron calcular las tres variantes bloqueadas. " + " | ".join(errors))
+
+        variant_fillers = set().union(*(
+            _underrepresented_recent_allocation_ids(proposal["result"], minimum_recent_pct)
+            for proposal in proposals
+        ))
+        if not variant_fillers:
+            for proposal in proposals:
+                result = proposal["result"]
+                result.warnings.insert(
+                    0,
+                    f"Composicion comun A/M/C: {locked_count} sets; reserva base {base_reserve:.1f}%",
+                )
+                if removed_ids:
+                    result.warnings.insert(
+                        1,
+                        "Regla antirrelleno 6M: aporte minimo "
+                        f"{minimum_recent_pct:.1f}% en cada variante; "
+                        f"{len(removed_ids)} estrategia(s) eliminada(s) y lotes recalculados.",
+                    )
+            return proposals
+
+        if len(locked_sets) <= 1:
+            return proposals
+        if variant_fillers >= set(locked_ids):
+            aggregate = {
+                set_id: sum(
+                    max(float(allocation.recent_net_profit_001), 0.0) * int(allocation.units)
+                    for proposal in proposals
+                    for allocation in proposal["result"].allocations
+                    if allocation.set_id == set_id and allocation.has_recent_performance
+                )
+                for set_id in locked_ids
+            }
+            keep_id = max(aggregate, key=aggregate.get)
+            variant_fillers.discard(keep_id)
+        removed_ids.update(variant_fillers)
+        locked_sets = [strategy for strategy in locked_sets if strategy.set_id not in variant_fillers]
+        locked_ids = [strategy.set_id for strategy in locked_sets]
         if progress:
-            progress(f"Calculando variante {index}/3: {label}")
-        reserve = _reserve_pct(configured, portfolio_type)
-        proposal_inputs = dict(inputs)
-        proposal_inputs.update({
-            "optimization_profile": key,
-            "optimization_profile_label": label,
-            "portfolio_type": portfolio_type.value,
-            "portfolio_type_label": TYPE_LABELS[portfolio_type.value],
-            "composition_portfolio_type": base_type.value,
-            "composition_portfolio_type_label": TYPE_LABELS[base_type.value],
-            "dd_reserve_pct": reserve,
-        })
-        kwargs = _optimizer_kwargs(inputs, portfolio_type, existing_by_type.get(portfolio_type, []), reserve)
-        kwargs.update({
-            "top_k_per_symbol": max(int(inputs["top_k_per_symbol"]), locked_count),
-            "max_total_candidates": None,
-            "max_sets_per_group": locked_count,
-            "group_unit_cap_bootstrap": max(locked_count, 1),
-            "minimum_active_strategies": locked_count,
-            "maximum_active_strategies": locked_count,
-            "search_restarts": 0,
-        })
-        try:
-            result = optimize_portfolio(
-                raw_sets=locked_sets,
-                use_deep_refinement=bool(inputs.get("deep_optimization")),
-                **kwargs,
+            progress(
+                f"Recalculando A/M/C sin {len(removed_ids)} estrategia(s) de aporte 6M insuficiente"
             )
-        except Exception as exc:
-            errors.append(f"{label}: {exc}")
-            continue
-        if {allocation.set_id for allocation in result.allocations if allocation.units > 0} != set(locked_ids):
-            errors.append(f"{label}: no mantuvo todos los sets comunes")
-            continue
-        _seasonal_coverage(result, locked_sets)
-        result.warnings.insert(0, f"Composicion comun A/M/C: {locked_count} sets; reserva base {base_reserve:.1f}%")
-        proposals.append({"key": key, "label": label, "reserve_pct": reserve, "inputs": proposal_inputs, "result": result})
-    if len(proposals) != 3:
-        raise ValueError("No se pudieron calcular las tres variantes bloqueadas. " + " | ".join(errors))
-    return proposals
 
 
 def result_payload(result: PortfolioResult) -> dict[str, Any]:

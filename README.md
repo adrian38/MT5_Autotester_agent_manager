@@ -34,7 +34,9 @@ forma fiable los terminales gráficos del usuario.
   fechas, ejecución real o `dry-run`.
 - Selección por nodo de modo `production`/`discovery`, límite de terminales
   MT5 y pipeline opcional Robustez OOS -> Final Tick -> Final Tick 6M.
-- Exclusión mutua: un nodo rechaza otra generación mientras hay una activa.
+- Cola FIFO independiente por nodo para generaciones y reparaciones. Las tareas
+  pendientes se conservan en `runtime/<node_id>/queue.json`, arrancan
+  automáticamente y pueden quitarse desde la tarjeta antes de comenzar.
 - Estado de conexión, PC/usuario, PID, resultado y timestamps.
 - Último run SQLite y conteos por estado de generación, robustez, Final Tick y
   Final Tick 6M.

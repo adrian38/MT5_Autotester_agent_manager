@@ -80,6 +80,7 @@ class PortfolioFormTests(unittest.TestCase):
             "top_k_per_symbol": (1, 3, 20),
             "max_total_candidates": (1, 30, 100),
             "min_trades_2020_2026": (0, 15, 100),
+            "min_strategy_recent_contribution_pct": (0, 5, 100),
             "max_units_per_set": (1, 30),
             "max_total_units": (1, 30),
             "max_units_per_symbol": (1, 30),
