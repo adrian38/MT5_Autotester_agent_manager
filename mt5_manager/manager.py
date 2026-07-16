@@ -425,7 +425,9 @@ class ManagerHandler(BaseHTTPRequestHandler):
             ) as exc:
                 self._send_json(400, {"error": str(exc)})
             return
-        if len(parts) != 4 or parts[:2] != ["api", "nodes"] or parts[3] not in {"start", "stop", "repair", "universe"}:
+        if len(parts) != 4 or parts[:2] != ["api", "nodes"] or parts[3] not in {
+            "start", "stop", "repair", "regression", "universe",
+        }:
             self._send_json(404, {"error": "Ruta no encontrada"})
             return
         try:
@@ -434,6 +436,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 "start": "/api/v1/jobs/generation",
                 "stop": "/api/v1/jobs/stop",
                 "repair": "/api/v1/jobs/repair",
+                "regression": "/api/v1/jobs/regression",
                 "universe": "/api/v1/universe/symbols",
             }
             target = targets[parts[3]]

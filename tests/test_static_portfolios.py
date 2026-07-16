@@ -161,6 +161,18 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("portfolio-manager/export-download", script)
         self.assertIn("link.download", script)
 
+    def test_regression_button_is_scoped_to_ictrading_and_uses_its_own_job(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "app.js").read_text(encoding="utf-8")
+        page = (static_dir / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn("broker === 'ICTRADING'", script)
+        self.assertIn("openRegression", script)
+        self.assertIn("/regression`,", script)
+        self.assertIn("JSON.stringify({run_ids: runIds})", script)
+        self.assertIn('id="regression-dialog"', page)
+        self.assertIn("Ejecutar prueba regresiva", page)
+
     def test_every_html_number_input_accepts_representative_backend_values(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         fields = {}

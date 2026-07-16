@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_manager_node_regression.py tests/test_manager_node_queue.py -q)",
+      "Bash(python -m unittest tests.test_manager_node_regression tests.test_manager_node_queue -v)",
+      "Bash(python -m unittest tests.test_manager_node_regression tests.test_manager_node_queue tests.test_manager_node_lifecycle tests.test_manager_node_notifications)"
+    ]
+  }
+}

@@ -79,6 +79,19 @@
       <button id="repair-submit" onclick="submitRepair()">Reparar seleccionados</button>
     </div>
   </dialog>
+  <dialog id="regression-dialog" class="repair-dialog">
+    <div class="dialog-head">
+      <div><p class="eyebrow">PRUEBA REGRESIVA</p><h2 id="regression-title">Seleccionar runs</h2></div>
+      <button class="icon-button" onclick="this.closest('dialog').close()">×</button>
+    </div>
+    <input type="hidden" id="regression-node-id">
+    <p class="repair-help">Ejecutará únicamente la prueba regresiva para los runs terminados seleccionados.</p>
+    <div id="regression-runs" class="repair-runs">Cargando runs…</div>
+    <div class="dialog-actions">
+      <button class="secondary" onclick="this.closest('dialog').close()">Cancelar</button>
+      <button id="regression-submit" onclick="submitRegression()">Ejecutar prueba regresiva</button>
+    </div>
+  </dialog>
   <div id="toast" role="status"></div>
   <script src="/app.js"></script>
 </body>

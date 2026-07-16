@@ -4,6 +4,7 @@ const refreshState = document.querySelector('#refresh-state');
 const startDialog = document.querySelector('#start-dialog');
 const logDialog = document.querySelector('#log-dialog');
 const repairDialog = document.querySelector('#repair-dialog');
+const regressionDialog = document.querySelector('#regression-dialog');
 const cardSettings = {};
 let nodeData = [];
 let refreshing = false;
@@ -243,7 +244,9 @@ function taskQueueBlock(node, id) {
   const items = queue.items || [];
   if (!items.length) return '';
   const rows = items.map(item => {
-    const label = item.type === 'repair' ? 'Reparación' : 'Ejecución';
+    const label = item.type === 'repair'
+      ? 'Reparación'
+      : item.type === 'regression' ? 'Prueba regresiva' : 'Ejecución';
     return `<div class="task-queue-item">
       <span class="task-position">${Number(item.position || 0)}</span>
       <span><strong>${esc(label)}</strong><small>${esc(item.summary || item.created_at || '')}</small></span>
@@ -284,6 +287,10 @@ function render() {
     const repairButton = node.capabilities?.repair_runs
       ? `<button class="secondary" onclick="openRepair('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${supportsQueue && (state === 'running' || queuedCount) ? 'Agregar reparación' : 'Reparar'}</button>`
       : '';
+    const broker = String(node.node?.broker || '').trim().toUpperCase();
+    const regressionButton = broker === 'ICTRADING'
+      ? `<button class="secondary" onclick="openRegression('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${supportsQueue && (state === 'running' || queuedCount) ? 'Agregar regresiva' : 'Prueba regresiva'}</button>`
+      : '';
     const universeButton = node.capabilities?.universe_management
       ? `<a class="button secondary" href="/universe.html?node=${encodeURIComponent(id)}">Universo</a>`
       : '';
@@ -291,7 +298,7 @@ function render() {
       ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><a class="button secondary" href="/portfolios_monthly.html?node=${encodeURIComponent(id)}">Portafolio mensual</a>`
       : '';
     const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
-    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
+    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
   }).join('');
 }
 
@@ -452,6 +459,58 @@ async function submitRepair() {
   }
 }
 
+async function openRegression(id, name) {
+  document.querySelector('#regression-node-id').value = id;
+  document.querySelector('#regression-title').textContent = `Prueba regresiva · ${name}`;
+  const container = document.querySelector('#regression-runs');
+  container.textContent = 'Cargando runs terminados…';
+  regressionDialog.showModal();
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/runs?limit=100`, {cache: 'no-store'});
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    const runs = (data.runs || []).filter(run => run.completed);
+    if (!runs.length) {
+      container.innerHTML = '<div class="repair-empty">No hay runs terminados disponibles.</div>';
+      return;
+    }
+    container.innerHTML = runs.map(run => {
+      const base = total(run.candidate_counts);
+      return `<label class="repair-run"><input type="checkbox" name="regression-run" value="${run.id}"><span><strong>Run #${run.id}</strong><small>${esc(run.created_at)} · candidatos ${base}</small></span></label>`;
+    }).join('');
+  } catch (error) {
+    container.innerHTML = `<div class="repair-empty error">${esc(error.message)}</div>`;
+  }
+}
+
+async function submitRegression() {
+  const id = document.querySelector('#regression-node-id').value;
+  const runIds = [...document.querySelectorAll('input[name="regression-run"]:checked')]
+    .map(element => Number(element.value));
+  if (!runIds.length) {
+    toast('Selecciona al menos un run terminado.', true);
+    return;
+  }
+  const button = document.querySelector('#regression-submit');
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/regression`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({run_ids: runIds}),
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    regressionDialog.close();
+    toast(data.queued
+      ? `Prueba regresiva agregada a la cola · posición ${data.queue_item?.position || data.task_queue?.count}`
+      : `Prueba regresiva iniciada para ${runIds.length} run(s).`);
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function cancelQueuedTask(id, taskId) {
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/queue/cancel`, {
@@ -524,6 +583,8 @@ document.querySelector('#refresh').addEventListener('click', refresh);
 window.openStart = openStart;
 window.openRepair = openRepair;
 window.submitRepair = submitRepair;
+window.openRegression = openRegression;
+window.submitRegression = submitRegression;
 window.setRepairAttempts = setRepairAttempts;
 window.setCardValue = setCardValue;
 window.syncCardPipeline = syncCardPipeline;

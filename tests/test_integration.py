@@ -162,6 +162,23 @@ enabled=0
         with urllib.request.urlopen(self.base + "/universe.html?node=test-node", timeout=3) as response:
             self.assertIn("UNIVERSO DE ACTIVOS", response.read().decode("utf-8"))
 
+    def test_manager_proxies_regression_jobs_to_the_node(self) -> None:
+        with mock.patch(
+            "mt5_manager.manager.node_request",
+            return_value=(202, {"job_type": "regression", "status": "running"}),
+        ) as request_node:
+            status, payload = self.request(
+                "/api/nodes/test-node/regression", {"run_ids": [7, 9]}
+            )
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["job_type"], "regression")
+        node, method, path, body = request_node.call_args.args
+        self.assertEqual(node["id"], "test-node")
+        self.assertEqual(method, "POST")
+        self.assertEqual(path, "/api/v1/jobs/regression")
+        self.assertEqual(body, {"run_ids": [7, 9]})
+
     def test_portfolio_delete_endpoint_accepts_a_background_task(self) -> None:
         task = {
             "id": "delete-37", "status": "pending", "operation": "delete", "portfolio_id": 37,
