@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
+    MIN_RECENT_EQUITY_RECOVERY,
     PortfolioResult,
     PortfolioType,
+    filter_eligible_sets,
     optimize_portfolio,
     optimize_strict_monthly_portfolio,
     slice_strategy_sets_to_month,
@@ -32,6 +34,38 @@ from .portfolio_service import (
 
 
 Progress = Callable[[str], None]
+
+
+def monthly_eligibility_counts(
+    monthly_sets: list[Any], minimum_trades: int
+) -> dict[str, int]:
+    """Explain the common UBS eligibility funnel after the seasonal slice."""
+    with_trades = [item for item in monthly_sets if int(item.trades_2020_2026) > 0]
+    enough_trades = [
+        item for item in with_trades
+        if int(item.trades_2020_2026) >= int(minimum_trades)
+    ]
+    positive = [
+        item for item in enough_trades
+        if float(item.net_profit_2020_2026_001) > 0
+    ]
+    recent_recovery = [
+        item for item in positive
+        if not item.has_recent_performance
+        or (
+            float(item.recent_net_profit_001)
+            / max(float(item.recent_equity_dd_001), 1.0)
+        ) >= MIN_RECENT_EQUITY_RECOVERY
+    ]
+    eligible = filter_eligible_sets(monthly_sets, int(minimum_trades))
+    return {
+        "total": len(monthly_sets),
+        "with_trades": len(with_trades),
+        "enough_trades": len(enough_trades),
+        "positive": len(positive),
+        "recent_recovery": len(recent_recovery),
+        "eligible": len(eligible),
+    }
 
 
 def prepare_monthly_log(source: PortfolioSource, operation: str, job_id: str) -> Path:
@@ -143,7 +177,7 @@ def generate_monthly_proposals(
         raise ValueError("La lógica mensual sólo admite portfolio_scope=monthly")
     if progress:
         progress("1/6 · Leyendo candidatos Final Tick aceptados")
-    rows = source.candidate_rows(include_quarantined=True)
+    rows = source.candidate_rows(include_quarantined=False)
     if not rows:
         raise ValueError("No hay candidatos con Final Tick continuo y 6M aceptados")
     warnings: list[str] = []
@@ -196,6 +230,22 @@ def generate_monthly_proposals(
     warnings.extend(slice_warnings)
     if not monthly_sets:
         raise ValueError("Ningún candidato tiene trades para el mes objetivo")
+    minimum_trades = int(inputs["min_trades_2020_2026"])
+    eligibility = monthly_eligibility_counts(monthly_sets, minimum_trades)
+    eligibility_message = (
+        f"4/6 · Mes {int(inputs['target_month']):02d}: "
+        f"{eligibility['with_trades']}/{eligibility['total']} con operaciones; "
+        f"{eligibility['enough_trades']} con >= {minimum_trades} trades; "
+        f"{eligibility['positive']} con neto positivo; "
+        f"{eligibility['eligible']} elegibles"
+    )
+    if progress:
+        progress(eligibility_message)
+    if not eligibility["eligible"]:
+        raise ValueError(
+            eligibility_message.removeprefix("4/6 · ")
+            + ". Revise la cobertura temporal de IS/OOS y los filtros comunes UBS."
+        )
     existing = (
         source.saved_curves(monthly=True, exclude_portfolio_id=exclude_portfolio_id)
         if inputs.get("corr_with_monthly_portfolios") else []
@@ -302,7 +352,7 @@ def generate_monthly_completion_proposal(
         raise ValueError("No se pudieron reconstruir todas las estrategias que deben conservarse")
     if progress:
         progress("2/6 · Aplicando filtros mensuales")
-    rows = source.candidate_rows(include_quarantined=True)
+    rows = source.candidate_rows(include_quarantined=False)
     warnings = list(required_warnings)
     if inputs.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(

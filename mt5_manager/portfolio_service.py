@@ -635,7 +635,7 @@ class PortfolioSource:
                 counts["quarantined"] += 1
             if is_used:
                 counts["used"] += 1
-            if (monthly or not is_quarantined) and not is_used:
+            if not is_quarantined and not is_used:
                 counts["available"] += 1
         symbol_rows = [{"symbol": symbol, **counts} for symbol, counts in sorted(by_symbol.items())]
         return {
@@ -647,7 +647,7 @@ class PortfolioSource:
             "symbols": len(symbol_rows),
             "by_symbol": symbol_rows,
             "quarantine": quarantine,
-            "quarantine_excludes": not monthly,
+            "quarantine_excludes": True,
             "warnings": warnings,
         }
 
@@ -2405,6 +2405,7 @@ class PortfolioCoordinator:
                 "started_at": utc_now(), "finished_at": None, "progress": "Preparando cálculo",
                 "error": None, "availability": None, "operation": operation,
                 "portfolio_id": portfolio_id, "previous_members": previous_members,
+                "stage": 0,
             }
             self.jobs[key] = job
             self.proposals.pop(key, None)
@@ -2451,6 +2452,13 @@ class PortfolioCoordinator:
             with self.lock:
                 if key in self.jobs:
                     self.jobs[key]["progress"] = str(message)
+                    if scope == "monthly":
+                        match = re.match(r"^\s*([0-6])/6\b", str(message))
+                        if match:
+                            self.jobs[key]["stage"] = max(
+                                int(self.jobs[key].get("stage") or 0),
+                                int(match.group(1)),
+                            )
 
         try:
             source = PortfolioSource(self._node(node_id))
@@ -2500,6 +2508,7 @@ class PortfolioCoordinator:
                 self.jobs[key].update({
                     "status": "completed", "finished_at": utc_now(), "progress": "Propuestas listas",
                     "availability": availability, "proposal_count": len(proposals),
+                    "stage": 6 if scope == "monthly" else self.jobs[key].get("stage", 0),
                 })
             source.notify(
                 f"Portfolio Builder {operation} listo en {source.broker}/{source.account}: "
@@ -2630,6 +2639,7 @@ class PortfolioCoordinator:
         quarantine_id = source.remove_member_to_quarantine(payload, scope) if safe_int(payload.get("portfolio_id"), 0) else source.exclude_strategy(payload)
         with self.lock:
             self.proposals.pop(self._key(node_id, "full_history"), None)
+            self.proposals.pop(self._key(node_id, "monthly"), None)
         return quarantine_id
 
     def invalidate_after_exclusion(self, node_id: str) -> None:
@@ -2638,11 +2648,13 @@ class PortfolioCoordinator:
             source._invalidate_remote_snapshot(memory)
         with self.lock:
             self.proposals.pop(self._key(node_id, "full_history"), None)
+            self.proposals.pop(self._key(node_id, "monthly"), None)
 
     def release(self, node_id: str, quarantine_id: str | int) -> None:
         PortfolioSource(self._node(node_id)).release_strategy(quarantine_id)
         with self.lock:
             self.proposals.pop(self._key(node_id, "full_history"), None)
+            self.proposals.pop(self._key(node_id, "monthly"), None)
 
     def undo(self, node_id: str, scope: str, portfolio_id: int) -> int:
         return PortfolioSource(self._node(node_id)).undo_latest(portfolio_id, scope)

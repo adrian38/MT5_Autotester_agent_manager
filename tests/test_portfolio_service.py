@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -22,13 +23,19 @@ from mt5_manager.portfolio_service import (
     normalize_settings,
     save_portfolio_payload,
 )
-from mt5_manager.portfolio_monthly_service import generate_monthly_proposals
+from mt5_manager.portfolio_monthly_service import (
+    generate_monthly_proposals,
+    monthly_eligibility_counts,
+)
 from portfolio_manager.ubs_portfolio import (
+    ClosedTrade,
+    PeriodReport,
     PortfolioAvailability,
     PortfolioResult,
     PortfolioType,
     StrategyAllocation,
     filter_rows_grid_off,
+    load_robust_sets_from_rows,
 )
 
 
@@ -59,6 +66,60 @@ class PortfolioServiceTests(unittest.TestCase):
 
             self.assertEqual(filtered, [rows[1]])
             self.assertEqual(len(warnings), 1)
+
+    def test_loader_rejects_short_final_tick_as_continuous_history(self) -> None:
+        def report(
+            name: str, start: str, end: str, trade: ClosedTrade
+        ) -> PeriodReport:
+            return PeriodReport(
+                period_name=name, start_year=trade.close_time.year,
+                end_year=trade.close_time.year, symbol="EURUSD", timeframe="H1",
+                pnl_curve_001=[0.0, trade.net_profit],
+                net_profit_001=trade.net_profit, valley_dd_001=0.0,
+                point_dd_001=0.0, profit_factor=2.0,
+                return_dd_ratio=trade.net_profit, trades=1,
+                closed_trades=[trade], start_date=start, end_date=end,
+            )
+
+        base_trade = ClosedTrade(
+            datetime(2024, 7, 1), datetime(2024, 7, 2), "EURUSD", 0.01, 30.0
+        )
+        oos_trade = ClosedTrade(
+            datetime(2025, 7, 1), datetime(2025, 7, 2), "EURUSD", 0.01, 40.0
+        )
+        short_trade = ClosedTrade(
+            datetime(2026, 5, 1), datetime(2026, 5, 2), "EURUSD", 0.01, 5.0
+        )
+        periods = {
+            "is.html": report("is", "06.01.2020", "30.12.2024", base_trade),
+            "oos.html": report("oos", "06.01.2025", "29.05.2026", oos_trade),
+            "short.html": report("short", "06.05.2026", "29.05.2026", short_trade),
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for name in periods:
+                (root / name).touch()
+            row = {
+                "set_path": str(root / "strategy.set"), "candidate_id": 1,
+                "target_symbol": "EURUSD", "period": "H1",
+                "is_report_path": str(root / "is.html"),
+                "oos_report_path": str(root / "oos.html"),
+                "full_history_report_path": str(root / "short.html"),
+                "final_tick_to_date": "2026.06.30",
+            }
+
+            with patch(
+                "portfolio_manager.ubs_portfolio.period_report_from_strategy_report",
+                side_effect=lambda parsed, _name: periods[str(parsed)],
+            ):
+                loaded, warnings = load_robust_sets_from_rows(
+                    [row], [], parse=lambda path: path.name
+                )
+
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(loaded[0].closed_trades_2020_2026, [base_trade, oos_trade])
+        self.assertEqual(loaded[0].full_history_report_path, "")
+        self.assertTrue(any("no eran continuos" in warning for warning in warnings))
 
     def test_windows_source_paths_are_relocated_for_a_container_project(self) -> None:
         project = Path("/data/roboforex/TRADING/MT5_Autotester_agent")
@@ -473,8 +534,8 @@ class PortfolioServiceTests(unittest.TestCase):
             excluded = source.inventory("full_history", settings)
             monthly = source.inventory("monthly", normalize_settings("monthly", {"allowed_asset_groups": ["Forex"]}, "ICTRADING"))
             self.assertEqual(excluded["by_symbol"], [{"symbol": "EURUSD", "total": 1, "quarantined": 1, "used": 0, "available": 0}])
-            self.assertEqual(monthly["available"], 1)
-            self.assertFalse(monthly["quarantine_excludes"])
+            self.assertEqual(monthly["available"], 0)
+            self.assertTrue(monthly["quarantine_excludes"])
             source.release_strategy(quarantine_id)
             self.assertEqual(source.inventory("full_history", settings)["available"], 1)
 
@@ -677,7 +738,13 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual({row["candidate_id"] for row in rows}, {"AXI/STANDARD:1", "AXI/PREMIUM:1"})
 
     def test_monthly_strict_validation_retries_when_first_proposals_fail_post_validation(self) -> None:
-        strategy = SimpleNamespace(set_id="a.set", symbol="EURUSD")
+        strategy = SimpleNamespace(
+            set_id="a.set", symbol="EURUSD", robustness_status="accepted",
+            already_used=False, curve_2020_2026_001=[0.0, 100.0],
+            trades_2020_2026=20, net_profit_2020_2026_001=100.0,
+            has_recent_performance=False, recent_net_profit_001=0.0,
+            recent_equity_dd_001=0.0,
+        )
         allocation = SimpleNamespace(set_id="a.set", units=1)
         first = SimpleNamespace(allocations=[allocation], target_valley_dd=100, target_point_dd=100,
                                 seasonal_validation={}, warnings=[])
@@ -686,7 +753,10 @@ class PortfolioServiceTests(unittest.TestCase):
 
         class Source:
             universe = Path("assets.ini")
-            def candidate_rows(self, **_kwargs): return [{"set_path": "a.set", "symbol": "EURUSD", "target_symbol": "EURUSD"}]
+            def candidate_rows(self, *, include_quarantined):
+                if include_quarantined:
+                    raise AssertionError("mensual no debe cargar estrategias en cuarentena")
+                return [{"set_path": "a.set", "symbol": "EURUSD", "target_symbol": "EURUSD"}]
             def used_set_paths(self, *_args, **_kwargs): return []
             def saved_curves(self, **_kwargs): return []
 
@@ -708,6 +778,58 @@ class PortfolioServiceTests(unittest.TestCase):
         self.assertEqual(optimizer.call_count, 2)
         self.assertIs(proposals[0]["result"], second)
         self.assertTrue(second.seasonal_validation["passed"])
+
+    def test_monthly_eligibility_counts_explain_each_filter_stage(self) -> None:
+        base = dict(
+            robustness_status="accepted", already_used=False,
+            curve_2020_2026_001=[0.0, 1.0], has_recent_performance=False,
+            recent_net_profit_001=0.0, recent_equity_dd_001=0.0,
+        )
+        strategies = [
+            SimpleNamespace(**base, trades_2020_2026=0, net_profit_2020_2026_001=0.0),
+            SimpleNamespace(**base, trades_2020_2026=10, net_profit_2020_2026_001=50.0),
+            SimpleNamespace(**base, trades_2020_2026=20, net_profit_2020_2026_001=-5.0),
+            SimpleNamespace(**base, trades_2020_2026=20, net_profit_2020_2026_001=80.0),
+        ]
+
+        counts = monthly_eligibility_counts(strategies, 15)
+
+        self.assertEqual(counts, {
+            "total": 4, "with_trades": 3, "enough_trades": 2,
+            "positive": 1, "recent_recovery": 1, "eligible": 1,
+        })
+
+    def test_failed_monthly_job_keeps_the_last_reached_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            log_path = project / "monthly.log"
+            log_path.touch()
+            node = {
+                "id": "ic", "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING", "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], project / "settings.json")
+            key = coordinator._key("ic", "monthly")
+            coordinator.jobs[key] = {
+                "id": "job", "status": "running", "stage": 0,
+                "log_path": str(log_path),
+            }
+
+            def fail_after_optimization(_source, _operation, _portfolio_id, _settings, progress):
+                progress("5/6 · Optimizando propuesta 1/3")
+                raise ValueError("sin propuesta")
+
+            with patch(
+                "mt5_manager.portfolio_monthly_service.run_monthly_operation",
+                side_effect=fail_after_optimization,
+            ):
+                coordinator._worker("ic", "monthly", {}, "generate", None)
+
+            self.assertEqual(coordinator.jobs[key]["status"], "failed")
+            self.assertEqual(coordinator.jobs[key]["stage"], 5)
 
     def test_apply_reoptimization_replaces_saved_rows_and_keeps_undo_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

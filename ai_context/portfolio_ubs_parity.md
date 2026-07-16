@@ -19,10 +19,18 @@ La separación no debe duplicar las primitivas de datos y riesgo:
 4. La persistencia, serialización y auditoría siguen en `portfolio_service.py`.
 5. El recorte, la optimización estacional, la validación estricta y la orquestación pertenecen a `portfolio_monthly_service.py`.
 
+La cuarentena excluye candidatos en ambos scopes. El inventario puede seguir mostrándolos para
+permitir su reintegración, pero ni la generación ni el completado mensual deben cargarlos.
+
 ## Correcciones UBS que deben mantenerse en mensual
 
 - Curva cerrada cronológica sin duplicar operaciones entre OOS y Final Tick 6M.
-- Informe Final Tick continuo 2020-hoy como fuente autoritativa cuando existe.
+- Informe Final Tick continuo 2020-hoy como fuente autoritativa solamente cuando su periodo
+  declarado cubre realmente todo IS + OOS y el corte reciente.
+- Las fechas de los reportes se convierten a `datetime`; nunca se comparan como texto porque
+  MT5 usa `DD.MM.YYYY` y la base puede usar `YYYY.MM.DD`.
+- Un Final Tick corto que no sea continuo no sustituye la curva IS + OOS. En ese caso se
+  conserva el historial segmentado y Final Tick 6M sólo amplía la cola y el riesgo reciente.
 - Riesgo efectivo como `max(DD cerrado, peor DD flotante individual escalado)`, no suma de episodios separados.
 - DD diario informativo; no limita lotes.
 - Filtro de recuperación reciente y regla antirrelleno por contribución reciente.
@@ -38,7 +46,9 @@ Un candidato solo entra si están aceptadas las cuatro etapas:
 - `candidate_final_tick.status = accepted`
 - `candidate_final_tick_6m.status = accepted`
 
-`candidate_rows()` debe seleccionar `candidate_final_tick.real_tick_report_path` como `full_history_report_path`. Si esa columna vuelve a quedar vacía por un error de consulta, tanto UBS como UBS mensual pierden la corrección de curva continua y DD de equity.
+`candidate_rows()` selecciona `candidate_final_tick.real_tick_report_path` como candidato a
+`full_history_report_path`, pero el cargador debe verificar su cobertura antes de tratarlo como
+continuo. El estado aceptado de la etapa no demuestra por sí solo que ese HTML abarque 2020-hoy.
 
 ## Pruebas de regresión
 
@@ -50,5 +60,8 @@ Un candidato solo entra si están aceptadas las cuatro etapas:
 - `test_monthly_builder_has_independent_assets_and_live_calculation_aids`
 - `test_worst_floating_gap_is_searched_across_full_history_and_recent_report`
 - `test_continuous_report_replaces_segmented_curve_and_is_authoritative_for_equity_dd`
+- `test_short_final_tick_report_cannot_replace_segmented_history`
+- `test_loader_rejects_short_final_tick_as_continuous_history`
+- `test_monthly_eligibility_counts_explain_each_filter_stage`
 
 Al corregir UBS completo, añadir o actualizar una aserción mensual cuando el comportamiento dependa del scope o del recorte estacional.

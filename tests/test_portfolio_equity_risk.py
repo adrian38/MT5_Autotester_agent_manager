@@ -146,6 +146,51 @@ class PortfolioEquityRiskTests(unittest.TestCase):
         self.assertEqual(strategy.floating_dd_source, "Final Tick continuo 2020-hoy")
         self.assertEqual(strategy.full_history_report_path, "continuous.htm")
 
+    def test_short_final_tick_report_cannot_replace_segmented_history(self) -> None:
+        base_trade = ClosedTrade(
+            datetime(2024, 7, 2), datetime(2024, 7, 3), "XAGUSD", 0.01, 40.0
+        )
+        oos_trade = ClosedTrade(
+            datetime(2025, 7, 2), datetime(2025, 7, 3), "XAGUSD", 0.01, 60.0
+        )
+        short_trade = ClosedTrade(
+            datetime(2026, 5, 8), datetime(2026, 5, 9), "XAGUSD", 0.01, 5.0
+        )
+        base = replace(
+            period("2020_2024", 2020, 2024, balance_dd=10.0, equity_dd=12.0),
+            closed_trades=[base_trade], start_date="06.01.2020", end_date="30.12.2024",
+        )
+        oos = replace(
+            period("2025_2026", 2025, 2026, balance_dd=20.0, equity_dd=25.0),
+            closed_trades=[oos_trade], start_date="06.01.2025", end_date="29.05.2026",
+        )
+        short_final_tick = replace(
+            period("final_tick", 2026, 2026, balance_dd=2.0, equity_dd=3.0),
+            closed_trades=[short_trade], start_date="06.05.2026", end_date="29.05.2026",
+        )
+
+        strategy = build_robust_strategy_set(
+            set_id="short-final-tick.set",
+            candidate_id="short-final-tick",
+            symbol="XAGUSD",
+            timeframe="H4",
+            strategy_family="test",
+            robustness_status="accepted",
+            already_used=False,
+            report_2020_2024=base,
+            report_2025_2026=oos,
+            full_history_report=short_final_tick,
+            full_history_report_path="final_tick_may_2026.htm",
+        )
+
+        self.assertEqual(strategy.closed_trades_2020_2026, [base_trade, oos_trade])
+        self.assertEqual(strategy.net_profit_2020_2026_001, 100.0)
+        self.assertEqual(strategy.full_history_report_path, "")
+        self.assertNotEqual(strategy.floating_dd_source, "Final Tick continuo 2020-hoy")
+        july = slice_strategy_set_to_month(strategy, 7)
+        self.assertEqual(july.trades_2020_2026, 2)
+        self.assertEqual(july.net_profit_2020_2026_001, 100.0)
+
     def test_monthly_slice_preserves_shared_ubs_risk_and_report_fixes(self) -> None:
         january_trade = ClosedTrade(
             datetime(2026, 1, 2), datetime(2026, 1, 3), "XAGUSD", 0.01, 40.0

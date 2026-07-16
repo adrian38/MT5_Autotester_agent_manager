@@ -833,6 +833,34 @@ def calc_combined_profit_factor(
     return min(report_2020_2024.profit_factor, report_2025_2026.profit_factor)
 
 
+def _report_period_bounds(report: PeriodReport) -> tuple[datetime, datetime] | None:
+    start = _parse_report_date(report.start_date)
+    end = _parse_report_date(report.end_date)
+    if start is None and report.start_year:
+        start = datetime(int(report.start_year), 1, 1)
+    if end is None and report.end_year:
+        end = datetime(int(report.end_year), 12, 31, 23, 59, 59)
+    if start is None or end is None:
+        return None
+    return start, end
+
+
+def _full_history_report_covers_segmented_history(
+    report_2020_2024: PeriodReport,
+    report_2025_2026: PeriodReport,
+    full_history_report: PeriodReport | None,
+) -> bool:
+    """Only trust a continuous report when its declared period covers IS + OOS."""
+    if full_history_report is None or not full_history_report.closed_trades:
+        return False
+    primary_start = _report_period_bounds(report_2020_2024)
+    primary_end = _report_period_bounds(report_2025_2026)
+    continuous = _report_period_bounds(full_history_report)
+    if primary_start is None or primary_end is None or continuous is None:
+        return False
+    return continuous[0] <= primary_start[0] and continuous[1] >= primary_end[1]
+
+
 def _chronological_closed_trade_history(
     report_2020_2024: PeriodReport,
     report_2025_2026: PeriodReport,
@@ -840,7 +868,9 @@ def _chronological_closed_trade_history(
     full_history_report: PeriodReport | None = None,
 ) -> tuple[list[ClosedTrade], int]:
     """Use a continuous history when available, otherwise append a non-overlapping tail."""
-    if full_history_report is not None and full_history_report.closed_trades:
+    if _full_history_report_covers_segmented_history(
+        report_2020_2024, report_2025_2026, full_history_report
+    ):
         return sorted(full_history_report.closed_trades, key=lambda trade: trade.close_time), 0
 
     primary = sorted(
@@ -897,11 +927,18 @@ def build_robust_strategy_set(
     ):
         raise ValueError("Cannot use a continuous Final Tick report with a different symbol")
 
+    continuous_history = (
+        full_history_report
+        if _full_history_report_covers_segmented_history(
+            report_2020_2024, report_2025_2026, full_history_report
+        )
+        else None
+    )
     closed_history, final_tick_tail_trades = _chronological_closed_trade_history(
         report_2020_2024,
         report_2025_2026,
         final_tick_report,
-        full_history_report,
+        continuous_history,
     )
     if closed_history:
         curve_points = _curve_points_from_closed_trades(closed_history)
@@ -934,11 +971,11 @@ def build_robust_strategy_set(
         )
     else:
         profit_factor_2020_2026 = calc_combined_profit_factor(report_2020_2024, report_2025_2026)
-    if full_history_report is not None:
+    if continuous_history is not None:
         drawdown_observations = [(
             "Final Tick continuo 2020-hoy",
-            full_history_report.balance_dd_metric_001,
-            full_history_report.equity_dd_metric_001,
+            continuous_history.balance_dd_metric_001,
+            continuous_history.equity_dd_metric_001,
         )]
     else:
         drawdown_observations = [
@@ -988,7 +1025,7 @@ def build_robust_strategy_set(
         ), 0.0),
         has_recent_performance=bool(has_final_tick_performance),
         final_tick_report_path=str(final_tick_report_path),
-        full_history_report_path=str(full_history_report_path),
+        full_history_report_path=str(full_history_report_path if continuous_history is not None else ""),
         closed_trades_2020_2026=closed_history,
         final_tick_tail_trades=final_tick_tail_trades,
     )
@@ -1408,8 +1445,10 @@ def load_robust_sets_from_rows(
     loaded: list[RobustStrategySet] = []
     skipped_missing = 0
     skipped_parse = 0
+    continuous_fallbacks = 0
     missing_examples: list[str] = []
     parse_examples: list[str] = []
+    continuous_fallback_examples: list[str] = []
     candidates = list(latest_by_stem.values())
     for index, row in enumerate(candidates, start=1):
         set_path = str(_row_value(row, "set_path", default=""))
@@ -1462,27 +1501,31 @@ def load_robust_sets_from_rows(
                     "final_tick_continuous_2020_today",
                 )
                 full_history_report_path = str(continuous_path)
-                required_from = str(
-                    _row_value(row, "required_full_history_from_date", default="2020.01.01")
-                    or "2020.01.01"
-                )
                 required_to = str(
                     _row_value(row, "final_tick_to_date", default="") or ""
                 )
-                if (
-                    not full_history_period.start_date
-                    or full_history_period.start_date > required_from
-                ):
-                    raise ValueError(
-                        "Final Tick continuo no comienza en 2020.01.01 o antes"
-                    )
-                if required_to and (
-                    not full_history_period.end_date
-                    or full_history_period.end_date < required_to
-                ):
-                    raise ValueError(
-                        f"Final Tick continuo termina antes del corte reciente {required_to}"
-                    )
+                continuous_bounds = _report_period_bounds(full_history_period)
+                required_end = _parse_report_date(required_to)
+                covers_history = _full_history_report_covers_segmented_history(
+                    is_period, oos_period, full_history_period
+                )
+                covers_recent_cutoff = (
+                    required_end is None
+                    or (continuous_bounds is not None and continuous_bounds[1] >= required_end)
+                )
+                if not covers_history or not covers_recent_cutoff:
+                    if require_full_history:
+                        raise ValueError(
+                            "El supuesto Final Tick continuo no cubre todo IS + OOS + corte reciente"
+                        )
+                    continuous_fallbacks += 1
+                    if len(continuous_fallback_examples) < 5:
+                        continuous_fallback_examples.append(
+                            f"{Path(set_path).name}: {full_history_period.start_date or '?'} -> "
+                            f"{full_history_period.end_date or '?'}"
+                        )
+                    full_history_period = None
+                    full_history_report_path = ""
             elif require_full_history:
                 raise ValueError("Falta el reporte Final Tick continuo 2020-hoy")
 
@@ -1551,6 +1594,14 @@ def load_robust_sets_from_rows(
     if skipped_parse:
         warnings.append(f"{skipped_parse} candidato(s) omitido(s): reporte ilegible o curva invalida.")
         warnings.append("Ejemplos de errores de carga: " + " | ".join(parse_examples))
+    if continuous_fallbacks:
+        warnings.append(
+            f"{continuous_fallbacks} reporte(s) Final Tick no eran continuos; "
+            "se conservó la curva IS + OOS y Final Tick 6M sólo extendió la cola/riesgo."
+        )
+        warnings.append(
+            "Ejemplos de coberturas no continuas: " + " | ".join(continuous_fallback_examples)
+        )
     return loaded, warnings
 
 

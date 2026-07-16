@@ -82,6 +82,7 @@ function stageFromProgress(job = {}) {
     visualJobId = job.id;
     visualStage = 0;
   }
+  visualStage = Math.max(visualStage, Number(job.stage || 0));
   const message = String(job.progress || '');
   const explicit = message.match(/^([0-6])\/6\s*[·-]/);
   if (explicit) visualStage = Math.max(visualStage, Number(explicit[1]));
@@ -209,8 +210,8 @@ function renderInventory() {
   const quarantine = inventory.quarantine || [];
   document.querySelector('#inventory-summary').textContent = `${number(inventory.available)} disponibles de ${number(inventory.total)} sets · ${number(inventory.symbols)} símbolos`;
   document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.symbol)}</strong></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td></tr>`).join('') : '<tr><td colspan="5">No hay sets para los filtros actuales.</td></tr>';
-  document.querySelector('#quarantine-title').textContent = scope === 'monthly' ? 'Cuarentena informativa' : 'Estrategias excluidas';
-  document.querySelector('#quarantine-note').textContent = scope === 'monthly' ? 'En mensual se muestran, pero no se excluyen del cálculo.' : 'No participan en futuras generaciones de Portafolio UBS.';
+  document.querySelector('#quarantine-title').textContent = 'Estrategias excluidas';
+  document.querySelector('#quarantine-note').textContent = 'No participan en futuras generaciones de Portafolio UBS mensual hasta reintegrarlas.';
   document.querySelector('#quarantine-rows').innerHTML = quarantine.length ? quarantine.map(row => `<tr><td title="${esc(row.set_path)}">${esc(row.set_name)}</td><td><strong>${esc(row.symbol || '')}</strong><small>${esc(row.source_account || '')}</small></td><td>${esc(row.timeframe || '')}</td><td>${esc(row.quarantined_at || '')}</td><td><button type="button" class="secondary table-action" onclick="releaseStrategy('${esc(row.quarantine_key || row.id)}')">Reintegrar</button></td></tr>`).join('') : '<tr><td colspan="5">No hay estrategias en cuarentena.</td></tr>';
 }
 
