@@ -22,6 +22,7 @@ from mt5_manager.portfolio_service import (
     normalize_settings,
     save_portfolio_payload,
 )
+from mt5_manager.portfolio_monthly_service import generate_monthly_proposals
 from portfolio_manager.ubs_portfolio import (
     PortfolioAvailability,
     PortfolioResult,
@@ -301,6 +302,53 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(reloaded["capital"], 5000)
             self.assertFalse(reloaded["exclude_used_sets"])
 
+    def test_monthly_job_exposes_its_log_before_the_worker_starts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            node = {
+                "id": "ic",
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], project / "settings.json")
+
+            with patch("threading.Thread.start"):
+                job = coordinator.start("ic", "monthly", {"target_month": 7})
+
+            self.assertEqual(job["status"], "running")
+            self.assertTrue(Path(job["log_path"]).is_file())
+            log = coordinator.log("ic", "monthly")
+            self.assertIn("Preparando cálculo mensual", "\n".join(log["lines"]))
+
+    def test_monthly_worker_dispatches_to_the_independent_service(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            node = {
+                "id": "ic",
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], project / "settings.json")
+            settings = normalize_settings("monthly", {"target_month": 7}, "ICTRADING")
+            with patch("threading.Thread.start"):
+                coordinator.start("ic", "monthly", settings)
+            with patch(
+                "mt5_manager.portfolio_monthly_service.run_monthly_operation",
+                return_value=({"loaded_sets": 0}, []),
+            ) as monthly_run, patch.object(PortfolioSource, "notify"):
+                coordinator._worker("ic", "monthly", settings)
+
+            monthly_run.assert_called_once()
+            self.assertEqual(coordinator.jobs["ic:monthly"]["status"], "completed")
+
     def test_delete_is_queued_and_returns_before_the_database_work_finishes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
@@ -390,15 +438,22 @@ class PortfolioServiceTests(unittest.TestCase):
                     create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text);
                     insert into candidates values(1,'sets/a.set','EURUSD','EURUSD','H1','f','reports/a.html','accepted');
                     insert into candidates values(2,'sets/b.set','GBPUSD','GBPUSD','H1','f','reports/b.html','accepted');
+                    insert into candidates values(3,'sets/c.set','USDJPY','USDJPY','H1','f','reports/c.html','accepted');
                     insert into candidate_robustness values(1,'reports/a_oos.html','accepted');
                     insert into candidate_robustness values(2,'reports/b_oos.html','rejected');
+                    insert into candidate_robustness values(3,'reports/c_oos.html','accepted');
                     insert into candidate_final_tick values(1,'reports/a_full.html','2020.01.01','2026.06.30','accepted');
                     insert into candidate_final_tick values(2,'reports/b_full.html','2020.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick values(3,'reports/c_full.html','2020.01.01','2026.06.30','rejected');
                     insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted');
                     insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick_6m values(3,'','','2026.01.01','2026.06.30','accepted');
                     """
                 )
                 conn.commit()
+            (project / "reports").mkdir()
+            full_history_report = project / "reports" / "a_full.html"
+            full_history_report.touch()
             source = PortfolioSource(
                 {
                     "portfolio_project_dir": str(project),
@@ -411,7 +466,7 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(rows[0]["candidate_id"], "ICTRADING/STANDARD:1")
             self.assertEqual(rows[0]["final_ohlc_report_path"], "")
             self.assertEqual(rows[0]["final_tick_report_path"], "")
-            self.assertEqual(rows[0]["full_history_report_path"], "")
+            self.assertEqual(rows[0]["full_history_report_path"], str(full_history_report))
             settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]}, "ICTRADING")
             self.assertEqual(source.inventory("full_history", settings)["available"], 1)
             quarantine_id = source.exclude_strategy({"set_path": rows[0]["set_path"]})
@@ -643,13 +698,13 @@ class PortfolioServiceTests(unittest.TestCase):
         proposal_two = [{"key": "profit", "label": "Segunda", "reserve_pct": 10, "inputs": inputs, "result": second}]
         failed = {"passed": False, "reasons": ["primer pool no válido"]}
         passed = {"passed": True, "reasons": []}
-        with patch("mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_service.slice_strategy_sets_to_month", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_service.summarize_robust_rows", return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_service._normal_proposals", side_effect=[proposal_one, proposal_two]) as optimizer, \
-             patch("mt5_manager.portfolio_service._strict_monthly_candidate_pool", return_value=([strategy], ["retry"])), \
-             patch("mt5_manager.portfolio_service.validate_strict_monthly_portfolio", side_effect=[failed, passed]):
-            _availability, proposals = generate_proposals(Source(), inputs)
+        with patch("mt5_manager.portfolio_monthly_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio_monthly_service.slice_strategy_sets_to_month", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio_monthly_service.summarize_robust_rows", return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
+             patch("mt5_manager.portfolio_monthly_service._monthly_proposals", side_effect=[proposal_one, proposal_two]) as optimizer, \
+             patch("mt5_manager.portfolio_monthly_service._strict_monthly_candidate_pool", return_value=([strategy], ["retry"])), \
+             patch("mt5_manager.portfolio_monthly_service.validate_strict_monthly_portfolio", side_effect=[failed, passed]):
+            _availability, proposals = generate_monthly_proposals(Source(), inputs)
         self.assertEqual(optimizer.call_count, 2)
         self.assertIs(proposals[0]["result"], second)
         self.assertTrue(second.seasonal_validation["passed"])

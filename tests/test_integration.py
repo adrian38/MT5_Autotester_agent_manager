@@ -359,7 +359,7 @@ enabled=0
         status, monthly = self.request("/api/nodes/test-node/portfolios?scope=monthly")
         self.assertEqual(status, 200)
         self.assertEqual(monthly["portfolios"][0]["target_month"], 7)
-        with urllib.request.urlopen(self.base + "/portfolios.html?node=test-node&scope=monthly", timeout=3) as response:
+        with urllib.request.urlopen(self.base + "/portfolios_monthly.html?node=test-node", timeout=3) as response:
             self.assertIn("Portafolios guardados", response.read().decode("utf-8"))
 
     def test_manager_saves_portfolio_exclusively_through_node_api(self) -> None:

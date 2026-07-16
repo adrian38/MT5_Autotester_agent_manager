@@ -1,6 +1,6 @@
 const queryParams = new URLSearchParams(location.search);
 const nodeId = queryParams.get('node') || '';
-const scope = 'full_history';
+const scope = 'monthly';
 const monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const groups = ['Forex', 'Metals', 'Indices', 'Energies', 'Crypto', 'Stocks', 'Bonds', 'Softs'];
 const form = document.querySelector('#portfolio-form');
@@ -13,6 +13,9 @@ let currentDetail = null;
 let managerState = {proposals: []};
 let selectedProposal = null;
 let pollTimer = null;
+let logRequestInFlight = false;
+let visualStage = 0;
+let visualJobId = '';
 let proposalMembers = [];
 let detailMembers = [];
 let selectedDetailMembers = new Set();
@@ -39,11 +42,12 @@ function toast(message, error = false) {
   setTimeout(() => el.className = '', 5500);
 }
 
-function scopeLabel() { return 'UBS Portafolio'; }
+function scopeLabel() { return 'UBS Portafolio Mensual'; }
 
 function setupScope() {
   document.querySelector('#portfolio-eyebrow').textContent = scopeLabel().toUpperCase();
-  document.querySelector('#builder-title').textContent = 'Configuración A/M/C central';
+  document.querySelector('#builder-title').textContent = 'Configuración mensual central';
+  form.elements.target_month.innerHTML = monthNames.slice(1).map((name, index) => `<option value="${index + 1}">${String(index + 1).padStart(2, '0')} · ${name}</option>`).join('');
   document.querySelector('#asset-groups').innerHTML = groups.map(group => `<label><input type="checkbox" name="group_${group}" value="${group}"> ${group}</label>`).join('');
 }
 
@@ -59,8 +63,8 @@ function hydrate(settings) {
   groups.forEach(group => setField(`group_${group}`, allowed.has(group)));
 }
 
-const numericFields = ['capital', 'valley_dd_pct', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];
-const booleanFields = ['run_local_search', 'deep_optimization', 'use_correlation', 'require_3_positive_months_6m', 'grid_off', 'exclude_used_sets'];
+const numericFields = ['capital', 'valley_dd_pct', 'target_month', 'max_daily_dd', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];
+const booleanFields = ['run_local_search', 'deep_optimization', 'use_correlation', 'require_3_positive_months_6m', 'grid_off', 'exclude_monthly_used', 'corr_with_monthly_portfolios', 'strict_yearly_month_validation', 'daily_dd_full_history'];
 
 function formPayload() {
   const payload = {scope, portfolio_type: form.elements.portfolio_type.value, margin_profile: form.elements.margin_profile.value, allowed_asset_groups: groups.filter(group => form.elements[`group_${group}`].checked)};
@@ -71,6 +75,65 @@ function formPayload() {
   });
   booleanFields.forEach(key => { const field = form.elements[key]; if (field) payload[key] = field.checked; });
   return payload;
+}
+
+function stageFromProgress(job = {}) {
+  if (job.id && job.id !== visualJobId) {
+    visualJobId = job.id;
+    visualStage = 0;
+  }
+  const message = String(job.progress || '');
+  const explicit = message.match(/^([0-6])\/6\s*[·-]/);
+  if (explicit) visualStage = Math.max(visualStage, Number(explicit[1]));
+  else if (/propuesta|optimiz/i.test(message)) visualStage = Math.max(visualStage, 5);
+  else if (/recort|mes objetivo|pool mensual/i.test(message)) visualStage = Math.max(visualStage, 4);
+  else if (/report/i.test(message)) visualStage = Math.max(visualStage, 3);
+  else if (/filtr|grupo/i.test(message)) visualStage = Math.max(visualStage, 2);
+  else if (/candidat|leyendo/i.test(message)) visualStage = Math.max(visualStage, 1);
+  if (job.status === 'completed') visualStage = 6;
+  return visualStage;
+}
+
+function renderMonthlyMonitor(job = {}) {
+  const monitor = document.querySelector('#monthly-calculation-monitor');
+  const hasCalculation = Boolean(job.id || job.log_path || job.last_log_path);
+  monitor.hidden = !hasCalculation;
+  if (!hasCalculation) return;
+  const stage = stageFromProgress(job);
+  document.querySelector('#monthly-monitor-title').textContent = job.progress || 'Preparando cálculo mensual';
+  document.querySelector('#monthly-stage-count').textContent = `${stage} / 6`;
+  document.querySelectorAll('#monthly-stage-list [data-stage]').forEach(item => {
+    const value = Number(item.dataset.stage);
+    item.classList.toggle('completed', value < stage || job.status === 'completed');
+    item.classList.toggle('current', value === stage && job.status !== 'completed');
+    item.classList.toggle('failed', value === stage && job.status === 'failed');
+  });
+  const progressBar = document.querySelector('#builder-progress .progress-track span');
+  if (progressBar) progressBar.style.width = `${Math.max(stage, 0) / 6 * 100}%`;
+}
+
+async function refreshMonthlyLog(silent = true) {
+  const job = managerState.job || {};
+  if (logRequestInFlight || !(job.id || job.log_path || job.last_log_path)) return;
+  logRequestInFlight = true;
+  try {
+    const data = await postManager('log', {scope, lines: 1000});
+    const content = (data.lines || []).join('\n') || 'El cálculo todavía no ha escrito mensajes.';
+    const live = document.querySelector('#monthly-live-log');
+    live.textContent = content;
+    live.scrollTop = live.scrollHeight;
+    const dialog = document.querySelector('#portfolio-log-dialog');
+    if (dialog.open) {
+      document.querySelector('#portfolio-log-title').textContent = data.path || 'Salida del cálculo mensual';
+      const dialogContent = document.querySelector('#portfolio-log-content');
+      dialogContent.textContent = content;
+      dialogContent.scrollTop = dialogContent.scrollHeight;
+    }
+  } catch (error) {
+    if (!silent) toast(error.message, true);
+  } finally {
+    logRequestInFlight = false;
+  }
 }
 
 function jobBadge(job, task = {}) {
@@ -88,7 +151,9 @@ function jobBadge(job, task = {}) {
   document.querySelector('#generate-proposals').disabled = active;
   document.querySelector('#save-settings').disabled = calculationRunning;
   document.querySelector('#reset-settings').disabled = calculationRunning;
-  document.querySelector('#portfolio-log').disabled = !(job?.log_path || job?.last_log_path);
+  document.querySelector('#portfolio-log').disabled = !(job?.id || job?.log_path || job?.last_log_path);
+  renderMonthlyMonitor(job || {});
+  if (job?.id || job?.log_path || job?.last_log_path) refreshMonthlyLog(true);
   const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : '';
   document.querySelector('#proposal-operation').textContent = opText;
   document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : 'Guardar seleccionada';
@@ -144,8 +209,8 @@ function renderInventory() {
   const quarantine = inventory.quarantine || [];
   document.querySelector('#inventory-summary').textContent = `${number(inventory.available)} disponibles de ${number(inventory.total)} sets · ${number(inventory.symbols)} símbolos`;
   document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.symbol)}</strong></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td></tr>`).join('') : '<tr><td colspan="5">No hay sets para los filtros actuales.</td></tr>';
-  document.querySelector('#quarantine-title').textContent = 'Estrategias excluidas';
-  document.querySelector('#quarantine-note').textContent = 'No participan en futuras generaciones de Portafolio UBS.';
+  document.querySelector('#quarantine-title').textContent = scope === 'monthly' ? 'Cuarentena informativa' : 'Estrategias excluidas';
+  document.querySelector('#quarantine-note').textContent = scope === 'monthly' ? 'En mensual se muestran, pero no se excluyen del cálculo.' : 'No participan en futuras generaciones de Portafolio UBS.';
   document.querySelector('#quarantine-rows').innerHTML = quarantine.length ? quarantine.map(row => `<tr><td title="${esc(row.set_path)}">${esc(row.set_name)}</td><td><strong>${esc(row.symbol || '')}</strong><small>${esc(row.source_account || '')}</small></td><td>${esc(row.timeframe || '')}</td><td>${esc(row.quarantined_at || '')}</td><td><button type="button" class="secondary table-action" onclick="releaseStrategy('${esc(row.quarantine_key || row.id)}')">Reintegrar</button></td></tr>`).join('') : '<tr><td colspan="5">No hay estrategias en cuarentena.</td></tr>';
 }
 
@@ -166,16 +231,18 @@ function renderProposals() {
     const result = proposal.result || {};
     const stress = result.stress_bootstrap || {};
     const margin = result.margin_summary || {};
+    const strict = result.seasonal_validation || {};
     const changed = result.changed_allocations ?? (proposal.diff || []).filter(row => row.state !== 'SIN CAMBIO').length;
     return `<button type="button" class="proposal-card ${proposal.key === selectedProposal ? 'selected' : ''} ${stress.alert ? 'stress-alert' : ''}" onclick="selectProposal('${esc(proposal.key)}')">
       <span>${esc(proposal.label)}</span><strong>${number(result.total_net_profit)}</strong>
       <small>${number(result.active_strategies)} estrategias · ${number(result.total_units)} uds. · ${largestGroup(result.group_summary)}</small>
       <small>DD riesgo máx. ${number(result.actual_valley_dd, 2)} / ${number(result.target_valley_dd, 2)} (${number(result.valley_usage_pct, 1)}%) · máx(cerrado ${number(result.actual_closed_valley_dd, 2)}, flotante ${number(result.floating_dd_buffer, 2)})</small>
       <small>Margen DD nominal ${number(result.nominal_valley_margin, 2)} / ${number(result.nominal_valley_dd, 2)} (${number(result.nominal_valley_margin_pct, 1)}%)</small>
-      <small>DD puntual ${number(result.actual_point_dd, 2)}${result.enforce_point_dd ? ` / ${number(result.target_point_dd, 2)}` : ' informativo'}</small>
+      <small>DD puntual ${number(result.actual_point_dd, 2)}${result.enforce_point_dd ? ` / ${number(result.target_point_dd, 2)}` : ' informativo'}${scope === 'monthly' ? ` · diario visual ${number(result.max_daily_dd, 2)} / ${number(result.target_daily_dd, 2)} (no limita)` : ''}</small>
       <small>Stress P50 ${number(stress.valley_dd_p50, 2)} · P95 ${number(stress.valley_dd_p95, 2)}${stress.alert ? ' · ALERTA' : ''}</small>
       <small>P&gt;nominal ${number(stress.probability_exceed_nominal_pct, 1)}% · P&gt;efectivo ${number(stress.probability_exceed_effective_pct, 1)}%</small>
       <small>Margen ${number(margin.total, 2)} / ${number(margin.limit, 2)} (${number(margin.usage_pct, 1)}%) · reserva ${number(proposal.reserve_pct, 1)}%</small>
+      ${scope === 'monthly' && Object.keys(strict).length ? `<small>Validación estricta ${strict.passed ? 'OK' : 'FAIL'} · mejor mes ${strict.best_month ? String(strict.best_month).padStart(2, '0') : '—'}</small>` : ''}
       <small>${changed} asignaciones modificadas</small>
     </button>`;
   }).join('');
@@ -190,7 +257,7 @@ function renderSelectedProposal() {
   const result = proposal.result || {};
   proposalMembers = result.allocations || [];
   const proposalRecentTotal = proposalMembers.reduce((total, member) => total + recentContribution(member), 0);
-  document.querySelector('#proposal-members').innerHTML = proposalMembers.length ? proposalMembers.map((member, index) => `<tr><td title="${esc(member.set_id)}">${esc((member.set_path || member.set_id || '').split(/[\\/]/).pop())}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe || '')}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, proposalRecentTotal)}</td><td>${number(member.standalone_point_dd, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td><button type="button" class="danger table-action" onclick="excludeStrategy('proposal',${index})">Excluir</button></td></tr>`).join('') : '<tr><td colspan="12">Sin asignaciones.</td></tr>';
+  document.querySelector('#proposal-members').innerHTML = proposalMembers.length ? proposalMembers.map((member, index) => `<tr><td title="${esc(member.set_id)}">${esc((member.set_path || member.set_id || '').split(/[\\/]/).pop())}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe || '')}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, proposalRecentTotal)}</td><td>${number(member.standalone_point_dd, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${scope === 'monthly' ? '—' : `<button type="button" class="danger table-action" onclick="excludeStrategy('proposal',${index})">Excluir</button>`}</td></tr>`).join('') : '<tr><td colspan="12">Sin asignaciones.</td></tr>';
   const diff = proposal.diff || [];
   document.querySelector('#proposal-diff-section').hidden = !diff.length;
   document.querySelector('#proposal-diff').innerHTML = diff.map(row => `<tr><td><span class="change-state ${row.state.toLowerCase().replace(' ', '-')}">${esc(row.state)}</span></td><td title="${esc(row.set_path)}">${esc(row.set_name)}</td><td>${esc(row.symbol)}</td><td>${number(row.old_units)}</td><td>${number(row.new_units)}</td><td>${number(row.delta_units)}</td><td>${number(row.old_lot, 2)}</td><td>${number(row.new_lot, 2)}</td></tr>`).join('');
@@ -306,17 +373,18 @@ document.querySelector('#save-settings').addEventListener('click', async () => {
 });
 
 document.querySelector('#portfolio-log').addEventListener('click', async () => {
-  try {
-    const data = await postManager('log', {scope, lines: 1000});
-    document.querySelector('#portfolio-log-title').textContent = data.path || 'Salida del cálculo';
-    document.querySelector('#portfolio-log-content').textContent = (data.lines || []).join('\n');
-    document.querySelector('#portfolio-log-dialog').showModal();
-  } catch (error) { toast(error.message, true); }
+  const dialog = document.querySelector('#portfolio-log-dialog');
+  if (!dialog.open) dialog.showModal();
+  await refreshMonthlyLog(false);
+});
+
+document.querySelector('#portfolio-log-close').addEventListener('click', () => {
+  document.querySelector('#portfolio-log-dialog').close();
 });
 
 document.querySelector('#reset-settings').addEventListener('click', () => {
-  hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 100, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: true, use_correlation: true, exclude_used_sets: true, allowed_asset_groups: groups});
-  toast('Valores restablecidos; pulsa Guardar configuración para persistirlos.');
+  hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', target_month: 1, max_daily_dd: 150, top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 15, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: false, use_correlation: true, exclude_monthly_used: false, corr_with_monthly_portfolios: false, strict_yearly_month_validation: false, daily_dd_full_history: false, allowed_asset_groups: groups});
+  toast('Valores mensuales restablecidos; pulsa Guardar configuración para persistirlos.');
 });
 
 document.querySelector('#save-proposal').addEventListener('click', async () => {
@@ -421,7 +489,7 @@ function renderList() {
   const rows = portfolioData.portfolios || [];
   document.querySelector('#portfolio-count').textContent = `${rows.length} portafolios`;
   listEl.innerHTML = rows.length ? rows.map(row => {
-    const month = '';
+    const month = scope === 'monthly' && row.target_month ? ` · ${monthNames[row.target_month]}` : '';
     return `<button class="portfolio-list-item ${row.id === selectedId ? 'selected' : ''}" onclick="loadDetail(${row.id})"><span><strong>#${row.id}${month}</strong><small>${esc(row.created_at)} · ${esc(row.portfolio_type || 'Sin tipo')}</small></span><span><strong>${number(row.total_net_profit)}</strong><small>${row.active_strategies}/${row.target_strategies || row.active_strategies} estrategias</small></span></button>`;
   }).join('') : '<div class="portfolio-empty">No hay portafolios guardados en esta sección.</div>';
 }
@@ -438,6 +506,7 @@ function renderAudit(portfolio) {
     metric(`${number(stress.probability_exceed_effective_pct, 1)}%`, 'P exceder DD efectivo'),
     metric(number(margin.total, 2), 'Margen nominal', `${number(margin.usage_pct, 1)}% de ${number(margin.limit, 2)}`),
     metric(largestGroup(metrics.group_summary), 'Mayor grupo'),
+    metric(portfolio.target_month ? `${String(portfolio.target_month).padStart(2, '0')} · ${monthNames[portfolio.target_month]}` : '—', 'Mes objetivo'),
     metric(Object.keys(strict).length ? (strict.passed ? 'OK' : 'FAIL') : '—', 'Validación estricta', strict.best_month ? `mejor mes ${String(strict.best_month).padStart(2, '0')}` : ''),
   ].join('');
   const decisions = portfolio.decisions || [];
@@ -462,7 +531,7 @@ async function loadDetail(id) {
     document.querySelector('#detail-select-column').hidden = !isBundle;
     document.querySelector('#detail-exclude-selected').hidden = !isBundle;
     document.querySelector('#detail-title').textContent = `Portafolio #${portfolio.id}`;
-    document.querySelector('#detail-meta').textContent = portfolio.created_at;
+    document.querySelector('#detail-meta').textContent = `${portfolio.created_at}${portfolio.target_month ? ` · ${monthNames[portfolio.target_month]}` : ''}`;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
     document.querySelector('#detail-metrics').innerHTML = [metric(number(portfolio.capital), 'Capital'), metric(number(portfolio.total_net_profit), 'Net total'), metric(number(portfolio.actual_valley_dd, 2), 'DD riesgo máx.', `máx(cerrado ${number(portfolio.actual_closed_valley_dd, 2)}, flotante ${number(portfolio.floating_dd_buffer, 2)}) · límite ${number(portfolio.target_valley_dd, 2)} · ${number(portfolio.valley_usage_pct, 1)}%`), metric(number(portfolio.actual_point_dd, 2), 'DD puntual', portfolio.metrics?.enforce_point_dd ? `límite ${number(portfolio.target_point_dd, 2)}` : 'informativo'), metric(number(portfolio.total_lot, 2), 'Lote total'), metric(number(portfolio.total_units), 'Unidades'), metric(`${number(portfolio.active_strategies)}/${number(portfolio.target_strategies || portfolio.active_strategies)}`, 'Estrategias'), metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert)].join('');
     document.querySelector('#detail-note').textContent = [portfolio.stop_reason, portfolio.binding_constraint].filter(Boolean).join(' · ');
@@ -499,7 +568,7 @@ async function loadPortfolios(preferredId = null) {
     document.querySelector('#portfolio-subtitle').textContent = `${data.node?.broker || ''} · ${data.node?.account_type || ''} · motor central`;
     document.querySelector('#portfolio-list-title').textContent = scopeLabel();
     const summary = data.summary || {};
-    document.querySelector('#portfolio-summary').innerHTML = [[summary.total || 0, 'Portafolios guardados'], [summary.strategies || 0, 'Estrategias acumuladas'], [summary.latest_id ? `#${summary.latest_id}` : '—', 'Último portafolio'], ['A/M/C', 'Ámbito']].map(([value, label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('');
+    document.querySelector('#portfolio-summary').innerHTML = [[summary.total || 0, 'Portafolios guardados'], [summary.strategies || 0, 'Estrategias acumuladas'], [summary.latest_id ? `#${summary.latest_id}` : '—', 'Último portafolio'], [scope === 'monthly' ? 'Mensual' : 'A/M/C', 'Ámbito']].map(([value, label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('');
     const rows = data.portfolios || [];
     selectedId = preferredId && rows.some(row => row.id === preferredId) ? preferredId : selectedId && rows.some(row => row.id === selectedId) ? selectedId : rows[0]?.id || null;
     renderList();

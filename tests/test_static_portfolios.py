@@ -52,11 +52,29 @@ class PortfolioFormTests(unittest.TestCase):
 
     def test_daily_drawdown_is_labeled_as_visual_only(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        page = (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
 
         self.assertIn("DD diario visual (no limita)", page)
         self.assertIn("diario visual", script)
+
+    def test_monthly_builder_has_independent_assets_and_live_calculation_aids(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        full_page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        monthly_page = (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
+        full_script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        monthly_script = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+
+        self.assertIn('src="/portfolios_monthly.js"', monthly_page)
+        self.assertIn("const scope = 'monthly'", monthly_script)
+        self.assertIn("const scope = 'full_history'", full_script)
+        self.assertIn('id="monthly-calculation-monitor"', monthly_page)
+        self.assertIn('id="monthly-live-log"', monthly_page)
+        self.assertIn("function stageFromProgress", monthly_script)
+        self.assertIn("async function refreshMonthlyLog", monthly_script)
+        self.assertIn("refreshMonthlyLog(true)", monthly_script)
+        self.assertNotIn('name="target_month"', full_page)
+        self.assertNotIn('name="max_daily_dd"', full_page)
 
     def test_saved_bundle_members_can_be_excluded(self) -> None:
         script = (
@@ -147,8 +165,7 @@ class PortfolioFormTests(unittest.TestCase):
             for field in page.xpath('//input[@type="number"]'):
                 key = field.get("name") or field.get("id")
                 self.assertIsNotNone(key, f"Input numérico sin name/id en {path.name}")
-                self.assertNotIn(key, fields, f"Input numérico duplicado: {key}")
-                fields[key] = field
+                fields.setdefault(key, []).append((path.name, field))
 
         valid_values = {
             "cycles": (1, 100),
@@ -180,11 +197,12 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertEqual(set(fields), set(valid_values), "Actualiza la auditoría para los inputs numéricos")
 
         for key, values in valid_values.items():
-            for value in values:
-                self.assertTrue(
-                    self._html_number_accepts(fields[key], value),
-                    f"{key} no acepta el valor válido {value}",
-                )
+            for path_name, field in fields[key]:
+                for value in values:
+                    self.assertTrue(
+                        self._html_number_accepts(field, value),
+                        f"{key} no acepta el valor válido {value} en {path_name}",
+                    )
 
     @staticmethod
     def _html_number_accepts(field, value: float) -> bool:

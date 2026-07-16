@@ -276,7 +276,11 @@ class ManagerHandler(BaseHTTPRequestHandler):
             self._send_file(STATIC_DIR / "index.html")
             return
         relative = parsed.path.lstrip("/")
-        if relative in {"app.js", "styles.css", "universe.html", "universe.js", "portfolios.html", "portfolios.js"}:
+        if relative in {
+            "app.js", "styles.css", "universe.html", "universe.js",
+            "portfolios.html", "portfolios.js",
+            "portfolios_monthly.html", "portfolios_monthly.js",
+        }:
             self._send_file(STATIC_DIR / relative)
             return
         self.send_error(404)

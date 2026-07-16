@@ -8,6 +8,7 @@ from portfolio_manager.ubs_portfolio import (
     build_robust_strategy_set,
     evaluate_portfolio,
     filter_eligible_sets,
+    slice_strategy_set_to_month,
     _evaluation_violates_dd_limits,
 )
 
@@ -144,6 +145,55 @@ class PortfolioEquityRiskTests(unittest.TestCase):
         self.assertAlmostEqual(strategy.max_floating_dd_001, 986.53)
         self.assertEqual(strategy.floating_dd_source, "Final Tick continuo 2020-hoy")
         self.assertEqual(strategy.full_history_report_path, "continuous.htm")
+
+    def test_monthly_slice_preserves_shared_ubs_risk_and_report_fixes(self) -> None:
+        january_trade = ClosedTrade(
+            datetime(2026, 1, 2), datetime(2026, 1, 3), "XAGUSD", 0.01, 40.0
+        )
+        february_trade = ClosedTrade(
+            datetime(2026, 2, 2), datetime(2026, 2, 3), "XAGUSD", 0.01, -10.0
+        )
+        continuous = replace(
+            period("continuous", 2020, 2026, balance_dd=25.0, equity_dd=80.0),
+            closed_trades=[january_trade, february_trade],
+        )
+        strategy = build_robust_strategy_set(
+            set_id="monthly-parity.set",
+            candidate_id="monthly-parity",
+            symbol="XAGUSD",
+            timeframe="H4",
+            strategy_family="test",
+            robustness_status="accepted",
+            already_used=False,
+            report_2020_2024=period("2020_2024", 2020, 2024, balance_dd=1.0, equity_dd=2.0),
+            report_2025_2026=period("2025_2026", 2025, 2026, balance_dd=2.0, equity_dd=3.0),
+            full_history_report=continuous,
+            full_history_report_path="continuous.htm",
+            final_tick_report_path="recent.htm",
+            final_tick_net_profit_001=30.0,
+            recent_equity_dd_001=20.0,
+            has_final_tick_performance=True,
+        )
+
+        monthly = slice_strategy_set_to_month(strategy, 1)
+
+        self.assertEqual([trade.close_time.month for trade in monthly.closed_trades_2020_2026], [1])
+        self.assertEqual(monthly.net_profit_2020_2026_001, 40.0)
+        self.assertEqual(monthly.max_balance_dd_001, 25.0)
+        self.assertEqual(monthly.max_equity_dd_001, 80.0)
+        self.assertEqual(monthly.max_floating_dd_001, 80.0)
+        self.assertEqual(monthly.floating_dd_source, "Final Tick continuo 2020-hoy")
+        self.assertEqual(monthly.recent_net_profit_001, 30.0)
+        self.assertEqual(monthly.recent_equity_dd_001, 20.0)
+        self.assertTrue(monthly.has_recent_performance)
+        self.assertEqual(monthly.final_tick_report_path, "recent.htm")
+        self.assertEqual(monthly.full_history_report_path, "continuous.htm")
+        evaluation = evaluate_portfolio(
+            [monthly], {monthly.set_id: 1}, 100.0, 100.0, enforce_point_dd=False
+        )
+        self.assertEqual(evaluation.closed_valley_dd, 0.0)
+        self.assertEqual(evaluation.floating_dd_buffer, 80.0)
+        self.assertEqual(evaluation.valley_dd, 80.0)
 
     def test_separate_floating_episodes_use_the_worst_one_instead_of_the_sum(self) -> None:
         strategy = build_robust_strategy_set(

@@ -36,7 +36,6 @@ from portfolio_manager.ubs_portfolio import (
     filter_rows_grid_off,
     load_robust_sets_from_rows,
     optimize_portfolio,
-    optimize_strict_monthly_portfolio,
     portfolio_display_symbol,
     portfolio_group_key,
     portfolio_group_summary,
@@ -561,12 +560,15 @@ class PortfolioSource:
                            c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
                            c.period, c.family, c.report_path as is_report_path,
                            cr.report_path as oos_report_path,
+                           ft.real_tick_report_path as full_history_report_path,
                            ft6.ohlc_report_path as final_ohlc_report_path,
                            ft6.real_tick_report_path as final_tick_report_path,
                            ft6.from_date as final_tick_from_date, ft6.to_date as final_tick_to_date
                     from candidates c join candidate_robustness cr on cr.candidate_id=c.id
+                    join candidate_final_tick ft on ft.candidate_id=c.id
                     join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id
-                    where c.status='accepted' and cr.status='accepted' and ft6.status='accepted'
+                    where c.status='accepted' and cr.status='accepted'
+                    and ft.status='accepted' and ft6.status='accepted'
                     {exclusion} order by c.id
                     """, (account_label, account_label),
                 ).fetchall()
@@ -1479,7 +1481,6 @@ def _normal_proposals(
     inputs: dict[str, Any],
     existing_curves: list[list[float]],
     *,
-    full_sets: list[Any] | None = None,
     progress: Callable[[str], None] | None = None,
 ) -> list[dict[str, Any]]:
     base_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
@@ -1505,14 +1506,6 @@ def _normal_proposals(
         kwargs = _optimizer_kwargs(inputs, objective_type, existing_curves, reserve)
         try:
             def optimize(candidate_sets: list[Any]) -> PortfolioResult:
-                if inputs.get("portfolio_scope") == "monthly" and inputs.get("strict_yearly_month_validation"):
-                    return optimize_strict_monthly_portfolio(
-                        monthly_sets=candidate_sets,
-                        full_sets=full_sets or [],
-                        target_month=int(inputs["target_month"]),
-                        use_deep_refinement=bool(inputs.get("deep_optimization")),
-                        **kwargs,
-                    )
                 return optimize_portfolio(
                     raw_sets=candidate_sets,
                     use_deep_refinement=bool(inputs.get("deep_optimization")),
@@ -1666,33 +1659,6 @@ def result_payload(result: PortfolioResult) -> dict[str, Any]:
     }
 
 
-def _strict_monthly_candidate_pool(
-    raw_sets: list[Any],
-    inputs: dict[str, Any],
-) -> tuple[list[Any], list[str]]:
-    """Match the desktop monthly fallback: keep sets whose best 5Y month is the target."""
-    target_month = int(inputs["target_month"])
-    selected: list[Any] = []
-    for strategy in raw_sets:
-        validation = validate_strict_monthly_portfolio(
-            [strategy],
-            {strategy.set_id: 1},
-            target_month=target_month,
-            target_valley_dd=1_000_000_000.0,
-            target_point_dd=1_000_000_000.0,
-            lookback_years=5,
-        )
-        if (
-            int(validation.get("best_month") or 0) == target_month
-            and float(validation.get("target_month_net") or 0.0) > 0
-        ):
-            selected.append(strategy)
-    return selected, [
-        "Validacion estricta: reintento con "
-        f"{len(selected)}/{len(raw_sets)} candidato(s) cuyo mejor mes individual 5A es el objetivo."
-    ]
-
-
 def generate_proposals(
     source: PortfolioSource,
     inputs: dict[str, Any],
@@ -1701,12 +1667,14 @@ def generate_proposals(
     exclude_portfolio_id: int | None = None,
     lock_portfolio_type: PortfolioType | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    monthly = inputs["portfolio_scope"] == "monthly"
+    """Generate only the full-history UBS A/M/C bundle."""
+    if inputs.get("portfolio_scope") == "monthly":
+        raise ValueError("El cálculo mensual debe usar portfolio_monthly_service")
     if progress:
-        progress("Leyendo candidatos Final Tick 6M accepted")
-    rows = source.candidate_rows(include_quarantined=monthly)
+        progress("Leyendo candidatos Final Tick aceptados")
+    rows = source.candidate_rows(include_quarantined=False)
     if not rows:
-        raise ValueError("No hay candidatos con Final Tick 6M accepted")
+        raise ValueError("No hay candidatos con Final Tick continuo y 6M aceptados")
     warnings: list[str] = []
     if inputs.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(
@@ -1720,101 +1688,54 @@ def generate_proposals(
     group_counts: dict[str, int] = {}
     filtered: list[dict[str, Any]] = []
     for row in rows:
-        group = portfolio_group_key(str(row.get("target_symbol") or row.get("symbol") or ""), universe_files=[source.universe])
+        group = portfolio_group_key(
+            str(row.get("target_symbol") or row.get("symbol") or ""),
+            universe_files=[source.universe],
+        )
         group_counts[group] = group_counts.get(group, 0) + 1
         if group in allowed:
             filtered.append(row)
     rows = filtered
     if not rows:
         raise ValueError("No quedan candidatos tras aplicar los grupos permitidos")
-    used: list[str] = []
-    if monthly and inputs.get("exclude_monthly_used"):
-        used = source.used_set_paths("monthly", exclude_portfolio_id=exclude_portfolio_id)
-    elif not monthly and inputs.get("exclude_used_sets", True):
-        used = source.used_set_paths(
+    used = (
+        source.used_set_paths(
             "full_history",
             exclude_portfolio_id=exclude_portfolio_id,
             portfolio_type=lock_portfolio_type,
         )
+        if inputs.get("exclude_used_sets", True) else []
+    )
     availability = asdict(summarize_robust_rows(rows, used))
     if progress:
         progress(f"Cargando reportes de {len(rows)} candidatos")
-    raw_sets, load_warnings = load_robust_sets_from_rows(rows, used, parse=cached_report, progress=progress)
+    raw_sets, load_warnings = load_robust_sets_from_rows(
+        rows, used, parse=cached_report, progress=progress,
+    )
     warnings.extend(load_warnings)
-    raw_sets = [strategy for strategy in raw_sets if portfolio_group_key(strategy.symbol, universe_files=[source.universe]) in allowed]
+    raw_sets = [
+        strategy for strategy in raw_sets
+        if portfolio_group_key(strategy.symbol, universe_files=[source.universe]) in allowed
+    ]
     if not raw_sets:
         raise ValueError("No quedan sets cargados después de los filtros")
-    if monthly:
-        monthly_sets, slice_warnings = slice_strategy_sets_to_month(raw_sets, int(inputs["target_month"]))
-        warnings.extend(slice_warnings)
-        if not monthly_sets:
-            raise ValueError("Ningun candidato tiene trades para el mes objetivo")
-        existing = source.saved_curves(monthly=True, exclude_portfolio_id=exclude_portfolio_id) if inputs.get("corr_with_monthly_portfolios") else []
-        strict_retry_warnings: list[str] = []
-
-        def validate_strict(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            if not inputs.get("strict_yearly_month_validation"):
-                return items
-            valid: list[dict[str, Any]] = []
-            rejected: list[str] = []
-            full_by_id = {strategy.set_id: strategy for strategy in raw_sets}
-            for proposal in items:
-                result = proposal["result"]
-                units = {allocation.set_id: allocation.units for allocation in result.allocations if allocation.units > 0}
-                validation = validate_strict_monthly_portfolio(
-                    [full_by_id[set_id] for set_id in units if set_id in full_by_id], units,
-                    target_month=int(inputs["target_month"]),
-                    target_valley_dd=result.target_valley_dd,
-                    target_point_dd=result.target_point_dd,
-                    enforce_point_dd=False,
-                    lookback_years=5,
-                )
-                result.seasonal_validation = validation
-                if validation.get("passed"):
-                    valid.append(proposal)
-                else:
-                    rejected.append(f"{proposal['label']}: {'; '.join(str(x) for x in (validation.get('reasons') or [])[:3])}")
-            if not valid:
-                raise ValueError("Ninguna propuesta pasó la validación mensual estricta. " + " | ".join(rejected))
-            return valid
-
-        try:
-            proposals = _normal_proposals(monthly_sets, inputs, existing, full_sets=raw_sets, progress=progress)
-            proposals = validate_strict(proposals)
-        except ValueError:
-            if not inputs.get("strict_yearly_month_validation"):
-                raise
-            if progress:
-                progress("Reintentando con el pool mensual estricto")
-            strict_raw_sets, strict_retry_warnings = _strict_monthly_candidate_pool(raw_sets, inputs)
-            if not strict_raw_sets:
-                raise
-            strict_monthly_sets, strict_slice_warnings = slice_strategy_sets_to_month(
-                strict_raw_sets, int(inputs["target_month"])
-            )
-            warnings.extend(strict_retry_warnings)
-            warnings.extend(strict_slice_warnings)
-            if not strict_monthly_sets:
-                raise
-            proposals = _normal_proposals(
-                strict_monthly_sets,
-                inputs,
-                existing,
-                full_sets=raw_sets,
-                progress=progress,
-            )
-            proposals = validate_strict(proposals)
-    else:
-        existing_by_type = {
-            kind: source.saved_curves(monthly=False, portfolio_type=kind, exclude_portfolio_id=exclude_portfolio_id)
-            for kind in PORTFOLIO_TYPES.values()
-        }
-        proposals = _locked_full_proposals(raw_sets, inputs, existing_by_type, progress)
+    existing_by_type = {
+        kind: source.saved_curves(
+            monthly=False,
+            portfolio_type=kind,
+            exclude_portfolio_id=exclude_portfolio_id,
+        )
+        for kind in PORTFOLIO_TYPES.values()
+    }
+    proposals = _locked_full_proposals(raw_sets, inputs, existing_by_type, progress)
     for proposal in proposals:
         proposal["result"].warnings[:0] = warnings
-    availability.update({"loaded_sets": len(raw_sets), "group_counts": group_counts, "warnings": warnings})
+    availability.update({
+        "loaded_sets": len(raw_sets),
+        "group_counts": group_counts,
+        "warnings": warnings,
+    })
     return availability, proposals
-
 
 def generate_completion_proposal(
     source: PortfolioSource,
@@ -1823,22 +1744,30 @@ def generate_completion_proposal(
     inputs: dict[str, Any],
     progress: Callable[[str], None] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    detail = source.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
-    if scope == "full_history" and (
-        str(detail.get("portfolio_type") or "").lower() == "bundle" or detail.get("metrics", {}).get("portfolio_bundle")
+    """Complete only a full-history UBS portfolio."""
+    if scope != "full_history":
+        raise ValueError("El portafolio mensual debe usar portfolio_monthly_service")
+    detail = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+    if (
+        str(detail.get("portfolio_type") or "").lower() == "bundle"
+        or detail.get("metrics", {}).get("portfolio_bundle")
     ):
         raise ValueError("El portafolio A/M/C debe reoptimizarse completo; no admite completar una sola variante")
     members = list(detail.get("members") or [])
     target = max(int(detail.get("target_strategies") or 0), int(detail.get("active_strategies") or 0))
     if target <= len(members):
         raise ValueError("El portafolio ya tiene todas sus estrategias")
-    monthly = scope == "monthly"
     if progress:
         progress(f"Reconstruyendo {len(members)} estrategias que deben conservarse")
     required_rows = [{
-        "candidate_id": item.get("candidate_id"), "set_path": item.get("set_path") or item.get("set_id"),
-        "symbol": item.get("symbol"), "target_symbol": item.get("symbol"), "period": item.get("timeframe"),
-        "family": "", "is_report_path": item.get("is_report_path"), "oos_report_path": item.get("oos_report_path"),
+        "candidate_id": item.get("candidate_id"),
+        "set_path": item.get("set_path") or item.get("set_id"),
+        "symbol": item.get("symbol"),
+        "target_symbol": item.get("symbol"),
+        "period": item.get("timeframe"),
+        "family": "",
+        "is_report_path": item.get("is_report_path"),
+        "oos_report_path": item.get("oos_report_path"),
         "final_tick_report_path": item.get("final_tick_report_path"),
         "full_history_report_path": item.get("full_history_report_path"),
         "max_balance_dd_001": item.get("max_balance_dd_001"),
@@ -1848,48 +1777,57 @@ def generate_completion_proposal(
         "recent_equity_dd_001": item.get("recent_equity_dd_001"),
         "has_recent_performance": item.get("has_recent_performance"),
     } for item in members]
-    required_sets, required_warnings = load_robust_sets_from_rows(required_rows, [], parse=cached_report)
+    required_sets, required_warnings = load_robust_sets_from_rows(
+        required_rows, [], parse=cached_report,
+    )
     if len(required_sets) != len(required_rows):
         raise ValueError("No se pudieron reconstruir todas las estrategias que deben conservarse")
-    rows = source.candidate_rows(include_quarantined=monthly)
+    rows = source.candidate_rows(include_quarantined=False)
     warnings = list(required_warnings)
     if inputs.get("require_3_positive_months_6m"):
-        rows, found = filter_rows_by_recent_positive_months(rows, min_positive_months=3, window_months=6, parse=cached_report)
+        rows, found = filter_rows_by_recent_positive_months(
+            rows, min_positive_months=3, window_months=6, parse=cached_report,
+        )
         warnings.extend(found)
     if inputs.get("grid_off"):
         rows, found = filter_rows_grid_off(rows)
         warnings.extend(found)
     allowed = set(inputs.get("allowed_asset_groups") or ASSET_GROUPS)
-    rows = [row for row in rows if portfolio_group_key(
-        str(row.get("target_symbol") or row.get("symbol") or ""), universe_files=[source.universe]
-    ) in allowed]
-    used = [] if monthly else (
+    rows = [
+        row for row in rows
+        if portfolio_group_key(
+            str(row.get("target_symbol") or row.get("symbol") or ""),
+            universe_files=[source.universe],
+        ) in allowed
+    ]
+    portfolio_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
+    used = (
         source.used_set_paths(
-            scope,
+            "full_history",
             exclude_portfolio_id=portfolio_id,
-            portfolio_type=PORTFOLIO_TYPES[str(inputs["portfolio_type"])],
+            portfolio_type=portfolio_type,
         )
         if inputs.get("exclude_used_sets", True) else []
     )
-    candidate_sets, load_warnings = load_robust_sets_from_rows(rows, used, parse=cached_report, progress=progress)
+    candidate_sets, load_warnings = load_robust_sets_from_rows(
+        rows, used, parse=cached_report, progress=progress,
+    )
     warnings.extend(load_warnings)
-    full_sets = list(required_sets) + list(candidate_sets)
-    if monthly:
-        required_sets, found = slice_strategy_sets_to_month(required_sets, int(inputs["target_month"]))
-        warnings.extend(found)
-        candidate_sets, found = slice_strategy_sets_to_month(candidate_sets, int(inputs["target_month"]))
-        warnings.extend(found)
     by_id = {strategy.set_id: strategy for strategy in candidate_sets}
     by_id.update({strategy.set_id: strategy for strategy in required_sets})
     raw_sets = list(by_id.values())
     required_ids = [strategy.set_id for strategy in required_sets]
-    saved_units = {str(item.get("set_path") or item.get("set_id") or ""): int(item.get("units") or 0) for item in members}
+    saved_units = {
+        str(item.get("set_path") or item.get("set_id") or ""): int(item.get("units") or 0)
+        for item in members
+    }
     initial = {strategy.set_id: saved_units.get(strategy.set_id, 0) for strategy in required_sets}
-    portfolio_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
     reserve = float(inputs.get("dd_reserve_pct") or 0)
     existing = source.saved_curves(
-        monthly=monthly, portfolio_type=None if monthly else portfolio_type, exclude_portfolio_id=portfolio_id
-    ) if (not monthly or inputs.get("corr_with_monthly_portfolios")) else []
+        monthly=False,
+        portfolio_type=portfolio_type,
+        exclude_portfolio_id=portfolio_id,
+    )
     kwargs = _optimizer_kwargs(inputs, portfolio_type, existing, reserve)
     kwargs.update({
         "required_set_ids": required_ids,
@@ -1900,29 +1838,31 @@ def generate_completion_proposal(
     })
     if progress:
         progress(f"Buscando sustituta para completar {len(members)}/{target}")
-    result = optimize_portfolio(raw_sets=raw_sets, use_deep_refinement=bool(inputs.get("deep_optimization")), **kwargs)
+    result = optimize_portfolio(
+        raw_sets=raw_sets,
+        use_deep_refinement=bool(inputs.get("deep_optimization")),
+        **kwargs,
+    )
     _seasonal_coverage(result, raw_sets)
-    if inputs.get("strict_yearly_month_validation"):
-        full_by_id = {strategy.set_id: strategy for strategy in full_sets}
-        units = {item.set_id: item.units for item in result.allocations if item.units > 0}
-        validation = validate_strict_monthly_portfolio(
-            [full_by_id[set_id] for set_id in units if set_id in full_by_id], units,
-            target_month=int(inputs["target_month"]), target_valley_dd=result.target_valley_dd,
-            target_point_dd=result.target_point_dd, enforce_point_dd=False, lookback_years=5,
-        )
-        result.seasonal_validation = validation
-        if not validation.get("passed"):
-            raise ValueError("La sustitución no pasó la validación mensual estricta: " + "; ".join(str(x) for x in (validation.get("reasons") or [])[:3]))
     result.warnings[:0] = warnings
     if result.active_strategies < target:
-        raise ValueError(f"No existe una sustituta compatible: quedaron {result.active_strategies}/{target} estrategias")
+        raise ValueError(
+            f"No existe una sustituta compatible: quedaron {result.active_strategies}/{target} estrategias"
+        )
     proposal_inputs = dict(inputs)
-    proposal_inputs.update({"optimization_profile": "complete", "optimization_profile_label": "Completar portafolio"})
+    proposal_inputs.update({
+        "optimization_profile": "complete",
+        "optimization_profile_label": "Completar portafolio",
+    })
     availability = asdict(summarize_robust_rows(rows, used))
     availability.update({"loaded_sets": len(raw_sets), "warnings": warnings})
-    return availability, [{"key": "complete", "label": "Completar portafolio", "reserve_pct": reserve,
-                           "inputs": proposal_inputs, "result": result}]
-
+    return availability, [{
+        "key": "complete",
+        "label": "Completar portafolio",
+        "reserve_pct": reserve,
+        "inputs": proposal_inputs,
+        "result": result,
+    }]
 
 def _result_metrics(inputs: dict[str, Any], result: PortfolioResult) -> dict[str, Any]:
     return {
@@ -2468,6 +2408,24 @@ class PortfolioCoordinator:
             }
             self.jobs[key] = job
             self.proposals.pop(key, None)
+        if scope == "monthly":
+            from .portfolio_monthly_service import prepare_monthly_log
+
+            try:
+                source = PortfolioSource(self._node(node_id))
+                log_path = prepare_monthly_log(source, operation, str(job["id"]))
+                with self.lock:
+                    self.jobs[key]["log_path"] = str(log_path)
+                    job["log_path"] = str(log_path)
+            except Exception as exc:
+                with self.lock:
+                    self.jobs[key].update({
+                        "status": "failed",
+                        "finished_at": utc_now(),
+                        "progress": "Error preparando el log mensual",
+                        "error": str(exc),
+                    })
+                raise
         threading.Thread(target=self._worker, args=(node_id, scope, settings, operation, portfolio_id), daemon=True).start()
         return dict(job)
 
@@ -2496,18 +2454,29 @@ class PortfolioCoordinator:
 
         try:
             source = PortfolioSource(self._node(node_id))
-            log_dir = source.project / "portfolio_logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_path = log_dir / f"manager_{scope}_{operation}_{time.strftime('%Y%m%d_%H%M%S')}.log"
             with self.lock:
-                self.jobs[key]["log_path"] = str(log_path)
+                prepared_log_path = str(self.jobs[key].get("log_path") or "")
+            if prepared_log_path:
+                log_path = Path(prepared_log_path)
+            else:
+                log_dir = source.project / "portfolio_logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_path = log_dir / f"manager_{scope}_{operation}_{time.strftime('%Y%m%d_%H%M%S')}.log"
+                with self.lock:
+                    self.jobs[key]["log_path"] = str(log_path)
 
             def logged_progress(message: str) -> None:
                 progress(message)
                 with log_path.open("a", encoding="utf-8") as handle:
                     handle.write(f"{datetime.now().isoformat(timespec='seconds')} | {message}\n")
 
-            if operation == "complete":
+            if scope == "monthly":
+                from .portfolio_monthly_service import run_monthly_operation
+
+                availability, proposals = run_monthly_operation(
+                    source, operation, portfolio_id, settings, logged_progress,
+                )
+            elif operation == "complete":
                 if portfolio_id is None:
                     raise ValueError("Falta el portafolio que se quiere completar")
                 availability, proposals = generate_completion_proposal(source, portfolio_id, scope, settings, logged_progress)
@@ -2539,6 +2508,15 @@ class PortfolioCoordinator:
         except Exception as exc:
             with self.lock:
                 self.jobs[key].update({"status": "failed", "finished_at": utc_now(), "error": str(exc), "progress": "Error"})
+                failed_log_path = str(self.jobs[key].get("log_path") or "")
+            if scope == "monthly" and failed_log_path:
+                try:
+                    with Path(failed_log_path).open("a", encoding="utf-8") as handle:
+                        handle.write(
+                            f"{datetime.now().isoformat(timespec='seconds')} | ERROR · {exc}\n"
+                        )
+                except OSError:
+                    pass
             try:
                 PortfolioSource(self._node(node_id)).notify(
                     f"Portfolio Builder {operation} fallido" + (f" para #{portfolio_id}" if portfolio_id else "") + f": {exc}"

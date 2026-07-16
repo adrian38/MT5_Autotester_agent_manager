@@ -288,7 +288,7 @@ function render() {
       ? `<a class="button secondary" href="/universe.html?node=${encodeURIComponent(id)}">Universo</a>`
       : '';
     const portfolioButtons = node.manager_portfolio?.available || node.capabilities?.portfolio_views
-      ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}&scope=full_history">Portafolio UBS</a><a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}&scope=monthly">Portafolio mensual</a>`
+      ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><a class="button secondary" href="/portfolios_monthly.html?node=${encodeURIComponent(id)}">Portafolio mensual</a>`
       : '';
     const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
     return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
