@@ -30,6 +30,17 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("if (!form.checkValidity()) return", script)
         self.assertIn("if (!form.reportValidity()) return", script)
 
+    def test_completed_calculation_reloads_and_reveals_proposals(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertLess(page.index('id="proposal-area"'), page.index('class="portfolio-inventory"'))
+        self.assertIn("managerState.job?.status === 'running' && data.job?.status !== 'running'", script)
+        self.assertIn("await loadManagerState(data.job?.status === 'completed')", script)
+        self.assertIn("loadManagerState(true)", script)
+        self.assertIn("scrollIntoView({behavior: 'smooth', block: 'start'})", script)
+
     def test_portfolio_risk_is_presented_as_maximum_not_addition(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
@@ -55,6 +66,17 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("se borrará por completo el portafolio A/M/C", script)
         self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
         self.assertNotIn("${isBundle ? '' : `<button type=\"button\" class=\"danger table-action\"", script)
+
+    def test_saved_bundle_members_support_batch_selection(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="detail-select-all"', page)
+        self.assertIn('id="detail-exclude-selected"', page)
+        self.assertIn("set_paths: members.map", script)
+        self.assertIn("selectedDetailMembers = new Set", script)
+        self.assertIn("await waitForPortfolioRemoval(affectedPortfolioId)", script)
 
     def test_explicit_save_actions_show_a_blocking_progress_overlay(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"

@@ -305,8 +305,30 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         node_id, scope, portfolio_id, action, body or None
                     )})
                 elif action == "exclude":
-                    quarantine_id = self.server.portfolios.exclude(node_id, scope, body)
-                    self._send_json(201, {"quarantine_id": quarantine_id})
+                    if body.get("set_paths") is not None:
+                        status, value = node_request(
+                            node,
+                            "POST",
+                            "/api/v1/portfolios/exclude",
+                            {**body, "scope": scope},
+                            timeout=120,
+                        )
+                        if status == 404:
+                            raise ValueError(
+                                "El nodo todavía no admite exclusión múltiple local; "
+                                "actualiza su código y reinícialo."
+                            )
+                        if status >= 400 or not isinstance(value, dict):
+                            error = value.get("error") if isinstance(value, dict) else value
+                            raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+                        portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=1)
+                        if not value.get("deleted") or safe_int(value.get("portfolio_id"), 0) != portfolio_id:
+                            raise ValueError("El nodo no confirmó correctamente la exclusión múltiple")
+                        self.server.portfolios.invalidate_after_exclusion(node_id)
+                        self._send_json(201, value)
+                    else:
+                        quarantine_result = self.server.portfolios.exclude(node_id, scope, body)
+                        self._send_json(201, {"quarantine_id": quarantine_result})
                 elif action == "release":
                     self.server.portfolios.release(node_id, str(body.get("quarantine_id") or ""))
                     self._send_json(200, {"released": True})

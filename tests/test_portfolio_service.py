@@ -67,10 +67,10 @@ class PortfolioServiceTests(unittest.TestCase):
         self.assertEqual(removed, {"filler.set"})
         self.assertEqual(
             seen_pools,
-            [["core.set", "filler.set"], ["filler.set"], ["core.set"], ["core.set"]],
+            [["core.set", "filler.set"], ["core.set"]],
         )
         self.assertEqual([item.set_id for item in result.allocations], ["core.set"])
-        self.assertIn("Prueba antirrelleno marginal", result.warnings[0])
+        self.assertIn("Regla antirrelleno 6M", result.warnings[0])
 
     def test_recent_contribution_is_measured_after_final_lot(self) -> None:
         result = self._recent_result([
@@ -141,6 +141,35 @@ class PortfolioServiceTests(unittest.TestCase):
                 ).fetchone()
             self.assertEqual(quarantine["set_path"], set_path)
             self.assertEqual(quarantine["source_portfolio_id"], portfolio_id)
+
+    def test_excluding_multiple_bundle_members_quarantines_all_before_deleting(self) -> None:
+        source = object.__new__(PortfolioSource)
+        source.project = Path(".")
+        events: list[str] = []
+        first_path = str(Path("first.set").absolute())
+        second_path = str(Path("second.set").absolute())
+        detail = {"portfolio": {
+            "portfolio_type": "bundle",
+            "metrics": {"portfolio_bundle": True},
+            "members": [
+                {"set_path": first_path, "set_id": first_path},
+                {"set_path": second_path, "set_id": second_path},
+            ],
+        }}
+
+        def exclude(payload: dict[str, object]) -> int:
+            events.append(f"exclude:{payload['set_path']}")
+            return len(events)
+
+        with patch.object(source, "saved_portfolio_detail", return_value=detail), patch.object(
+            source, "exclude_strategy", side_effect=exclude
+        ), patch.object(source, "delete_portfolio", side_effect=lambda *_: events.append("delete")):
+            quarantine_ids = source.remove_members_to_quarantine(
+                {"portfolio_id": 40, "set_paths": ["first.set", "second.set"]}, "full_history"
+            )
+
+        self.assertEqual(quarantine_ids, [1, 2])
+        self.assertEqual(events, [f"exclude:{first_path}", f"exclude:{second_path}", "delete"])
 
     def test_save_selected_bundle_commits_and_is_readable_afterward(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -332,6 +361,9 @@ class PortfolioServiceTests(unittest.TestCase):
             rows = source.candidate_rows(include_quarantined=False)
             self.assertEqual([row["source_candidate_id"] for row in rows], [1])
             self.assertEqual(rows[0]["candidate_id"], "ICTRADING/STANDARD:1")
+            self.assertEqual(rows[0]["final_ohlc_report_path"], "")
+            self.assertEqual(rows[0]["final_tick_report_path"], "")
+            self.assertEqual(rows[0]["full_history_report_path"], "")
             settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]}, "ICTRADING")
             self.assertEqual(source.inventory("full_history", settings)["available"], 1)
             quarantine_id = source.exclude_strategy({"set_path": rows[0]["set_path"]})

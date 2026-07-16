@@ -1146,6 +1146,17 @@ class JobController:
     def save_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:
         return save_portfolio_payload(self._portfolio_source(), payload)
 
+    def exclude_portfolio_members(self, payload: dict[str, Any]) -> dict[str, Any]:
+        portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
+        scope = "monthly" if str(payload.get("scope") or "").strip().lower() == "monthly" else "full_history"
+        quarantine_ids = self._portfolio_source().remove_members_to_quarantine(payload, scope)
+        return {
+            "quarantine_ids": quarantine_ids,
+            "deleted": True,
+            "portfolio_id": portfolio_id,
+            "scope": scope,
+        }
+
     def delete_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
         scope = "monthly" if str(payload.get("scope") or "").strip().lower() == "monthly" else "full_history"
@@ -1347,6 +1358,8 @@ class NodeHandler(BaseHTTPRequestHandler):
                 self._send(200, self.server.controller.update_universe(self._body()))
             elif self.path == "/api/v1/portfolios/save":
                 self._send(201, self.server.controller.save_portfolio(self._body(50_000_000)))
+            elif self.path == "/api/v1/portfolios/exclude":
+                self._send(200, self.server.controller.exclude_portfolio_members(self._body()))
             elif self.path == "/api/v1/portfolios/delete":
                 self._send(200, self.server.controller.delete_portfolio(self._body()))
             else:

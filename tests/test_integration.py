@@ -176,6 +176,40 @@ enabled=0
         self.assertEqual(payload["task"], task)
         delete.assert_called_once_with("test-node", "full_history", 37)
 
+    def test_batch_exclusion_is_forwarded_to_the_node_api(self) -> None:
+        node_result = {
+            "quarantine_ids": [4, 7],
+            "deleted": True,
+            "portfolio_id": 40,
+            "scope": "full_history",
+        }
+        with (
+            mock.patch.object(
+                self.controller, "exclude_portfolio_members", return_value=node_result
+            ) as node_exclude,
+            mock.patch.object(
+                self.manager.portfolios, "exclude", side_effect=AssertionError("no debe escribir directamente")
+            ),
+            mock.patch.object(self.manager.portfolios, "invalidate_after_exclusion") as invalidate,
+        ):
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/exclude",
+                {
+                    "scope": "full_history",
+                    "portfolio_id": 40,
+                    "set_paths": ["one.set", "two.set"],
+                },
+            )
+
+        self.assertEqual(status, 201)
+        self.assertEqual(payload, node_result)
+        node_exclude.assert_called_once_with({
+            "portfolio_id": 40,
+            "set_paths": ["one.set", "two.set"],
+            "scope": "full_history",
+        })
+        invalidate.assert_called_once_with("test-node")
+
     def test_portfolio_task_status_endpoint_is_lightweight(self) -> None:
         task_state = {
             "job": {"status": "idle"},

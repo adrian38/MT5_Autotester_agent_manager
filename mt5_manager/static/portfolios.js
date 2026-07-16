@@ -15,6 +15,7 @@ let selectedProposal = null;
 let pollTimer = null;
 let proposalMembers = [];
 let detailMembers = [];
+let selectedDetailMembers = new Set();
 let settingsSaveTimer = null;
 let settingsSaveQueue = Promise.resolve();
 let taskStateObserved = false;
@@ -104,8 +105,13 @@ async function loadTaskState() {
     const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/task?scope=${scope}`, {cache: 'no-store'});
     const data = await jsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
+    const calculationFinished = managerState.job?.status === 'running' && data.job?.status !== 'running';
     managerState.job = data.job || {};
     managerState.task = data.task || {};
+    if (calculationFinished) {
+      await loadManagerState(data.job?.status === 'completed');
+      return;
+    }
     jobBadge(managerState.job, managerState.task);
     handleTaskTransition(managerState.task);
     if (managerState.job?.status === 'failed') toast(managerState.job.error || 'Falló el cálculo', true);
@@ -196,7 +202,7 @@ function renderSelectedProposal() {
   document.querySelector('#proposal-warnings').textContent = (result.warnings || []).join(' · ');
 }
 
-async function loadManagerState() {
+async function loadManagerState(focusProposals = false) {
   if (!nodeId) return;
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager?scope=${scope}`, {cache: 'no-store'});
@@ -207,6 +213,9 @@ async function loadManagerState() {
     jobBadge(data.job || {}, data.task || {});
     renderInventory();
     renderProposals();
+    if (focusProposals && data.proposals?.length) {
+      requestAnimationFrame(() => document.querySelector('#proposal-area').scrollIntoView({behavior: 'smooth', block: 'start'}));
+    }
     handleTaskTransition(data.task || {});
     if (data.job?.status === 'failed') toast(data.job.error || 'Falló el cálculo', true);
   } catch (error) { jobBadge({status: 'failed'}); toast(error.message, true); }
@@ -339,6 +348,54 @@ async function releaseStrategy(quarantineId) {
   catch (error) { toast(error.message, true); }
 }
 
+function updateDetailSelection() {
+  const button = document.querySelector('#detail-exclude-selected');
+  const selectAll = document.querySelector('#detail-select-all');
+  const count = selectedDetailMembers.size;
+  button.textContent = `Excluir seleccionadas (${count})`;
+  button.disabled = count === 0;
+  selectAll.checked = detailMembers.length > 0 && count === detailMembers.length;
+  selectAll.indeterminate = count > 0 && count < detailMembers.length;
+}
+
+function toggleDetailSelection(index, checked) {
+  if (checked) selectedDetailMembers.add(index); else selectedDetailMembers.delete(index);
+  updateDetailSelection();
+}
+
+async function waitForPortfolioRemoval(portfolioId) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await loadPortfolios();
+    if (!(portfolioData.portfolios || []).some(row => row.id === portfolioId)) return;
+    await new Promise(resolve => setTimeout(resolve, 400));
+  }
+  throw new Error(`El nodo confirmó el borrado, pero el portafolio #${portfolioId} sigue visible.`);
+}
+
+async function excludeSelectedStrategies() {
+  if (!selectedId || !selectedDetailMembers.size) return;
+  const members = [...selectedDetailMembers].sort((a, b) => a - b).map(index => detailMembers[index]).filter(Boolean);
+  if (!members.length) return;
+  const count = members.length;
+  if (!confirm(`Se pondrán ${count} estrategia${count === 1 ? '' : 's'} en cuarentena y después se borrará por completo el portafolio A/M/C #${selectedId}, sin recalcularlo. ¿Continuar?`)) return;
+  try {
+    const affectedPortfolioId = selectedId;
+    await withSaveOverlay(
+      'Excluyendo estrategias y borrando portafolio A/M/C',
+      `Poniendo ${count} estrategia${count === 1 ? '' : 's'} en cuarentena antes de eliminar el portafolio #${affectedPortfolioId}…`,
+      async () => {
+        await postManager('exclude', {scope, portfolio_id: affectedPortfolioId, set_paths: members.map(member => member.set_path || member.set_id)});
+        selectedProposal = null;
+        selectedDetailMembers.clear();
+        selectedId = null;
+        await waitForPortfolioRemoval(affectedPortfolioId);
+        await loadManagerState();
+      },
+    );
+    toast(`${count} estrategia${count === 1 ? '' : 's'} puesta${count === 1 ? '' : 's'} en cuarentena y portafolio #${affectedPortfolioId} borrado.`);
+  } catch (error) { toast(error.message, true); }
+}
+
 function renderList() {
   const rows = portfolioData.portfolios || [];
   document.querySelector('#portfolio-count').textContent = `${rows.length} portafolios`;
@@ -369,10 +426,11 @@ function renderAudit(portfolio) {
 
 async function loadDetail(id) {
   selectedId = id;
+  selectedDetailMembers.clear();
   renderList();
   emptyEl.hidden = true;
   detailEl.hidden = false;
-  document.querySelector('#portfolio-members').innerHTML = '<tr><td colspan="13">Cargando detalle…</td></tr>';
+  document.querySelector('#portfolio-members').innerHTML = '<tr><td colspan="16">Cargando detalle…</td></tr>';
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolios/${id}?scope=${scope}`, {cache: 'no-store'});
     const data = await jsonResponse(response);
@@ -381,6 +439,8 @@ async function loadDetail(id) {
     currentDetail = portfolio;
     const stress = portfolio.metrics?.stress_bootstrap || {};
     const isBundle = portfolio.portfolio_type === 'bundle' || portfolio.metrics?.portfolio_bundle;
+    document.querySelector('#detail-select-column').hidden = !isBundle;
+    document.querySelector('#detail-exclude-selected').hidden = !isBundle;
     document.querySelector('#detail-title').textContent = `Portafolio #${portfolio.id}`;
     document.querySelector('#detail-meta').textContent = `${portfolio.created_at}${portfolio.target_month ? ` · ${monthNames[portfolio.target_month]}` : ''}`;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
@@ -399,8 +459,11 @@ async function loadDetail(id) {
       const seasonalText = seasonal.year_count != null ? `${seasonal.positive_year_count}/${seasonal.year_count} años · ${seasonal.trades || 0} trades` : '—';
       const candidate = member.candidate_id || '—';
       const variant = member.variant_key || member.variant_label || 'default';
-      return `<tr><td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, detailRecentTotals[variant] || 0)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button></div></td></tr>`;
-    }).join('') : '<tr><td colspan="15">Este portafolio no tiene estrategias guardadas.</td></tr>';
+      const selector = isBundle ? `<td><input type="checkbox" aria-label="Seleccionar ${esc(member.set_name || member.set_id)}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
+      const excludeAction = isBundle ? '' : `<button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button>`;
+      return `<tr>${selector}<td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, detailRecentTotals[variant] || 0)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button>${excludeAction}</div></td></tr>`;
+    }).join('') : '<tr><td colspan="16">Este portafolio no tiene estrategias guardadas.</td></tr>';
+    updateDetailSelection();
     renderAudit(portfolio);
   } catch (error) { toast(error.message, true); }
 }
@@ -445,6 +508,12 @@ async function openReport(index) {
 }
 
 document.querySelector('#detail-complete').addEventListener('click', () => startSavedOperation('complete'));
+document.querySelector('#detail-exclude-selected').addEventListener('click', excludeSelectedStrategies);
+document.querySelector('#detail-select-all').addEventListener('change', event => {
+  selectedDetailMembers = event.target.checked ? new Set(detailMembers.map((_, index) => index)) : new Set();
+  document.querySelectorAll('#portfolio-members input[type="checkbox"]').forEach(input => { input.checked = event.target.checked; });
+  updateDetailSelection();
+});
 document.querySelector('#detail-reoptimize').addEventListener('click', () => startSavedOperation('reoptimize'));
 document.querySelector('#detail-undo').addEventListener('click', async () => {
   if (!selectedId || !confirm(`Se restaurará la última versión del portafolio #${selectedId}. ¿Continuar?`)) return;
@@ -490,4 +559,4 @@ document.querySelector('#detail-export').addEventListener('click', async () => {
 
 document.querySelector('#portfolio-refresh').addEventListener('click', async () => { await Promise.all([loadManagerState(), loadPortfolios(selectedId)]); });
 setupScope();
-Promise.all([loadManagerState(), loadPortfolios()]);
+Promise.all([loadManagerState(true), loadPortfolios()]);

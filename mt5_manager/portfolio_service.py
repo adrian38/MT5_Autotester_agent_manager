@@ -339,7 +339,10 @@ def ensure_portfolio_schema(conn: sqlite3.Connection) -> None:
 
 
 def _resolve_source_path(value: Any, project: Path) -> str:
-    path = Path(str(value or "")).expanduser()
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    path = Path(text).expanduser()
     if path.exists():
         return str(path.resolve())
     parts = path.parts
@@ -1183,6 +1186,45 @@ class PortfolioSource:
             conn.commit()
         return quarantine_id
 
+    def remove_members_to_quarantine(self, payload: dict[str, Any], scope: str) -> list[int]:
+        portfolio_id = safe_int(payload.get("portfolio_id"), 0)
+        if portfolio_id < 1:
+            raise ValueError("Falta el portafolio que contiene las estrategias")
+        requested_paths = payload.get("set_paths")
+        if not isinstance(requested_paths, list) or not requested_paths:
+            raise ValueError("Selecciona al menos una estrategia")
+        detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
+        is_bundle = scope == "full_history" and (
+            str(detail.get("portfolio_type") or "").lower() == "bundle"
+            or detail.get("metrics", {}).get("portfolio_bundle")
+        )
+        if not is_bundle:
+            raise ValueError("La exclusión múltiple solo está disponible para portafolios A/M/C")
+        members_by_path = {
+            self._path_key(item.get("set_path")): item for item in detail.get("members") or []
+        }
+        members: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for value in requested_paths:
+            key = self._path_key(_resolve_source_path(value, self.project))
+            if key in seen:
+                continue
+            member = members_by_path.get(key)
+            if member is None:
+                raise ValueError("Una de las estrategias seleccionadas ya no pertenece al portafolio")
+            seen.add(key)
+            members.append(member)
+        quarantine_ids = [
+            self.exclude_strategy({
+                **payload,
+                "set_path": member.get("set_path") or member.get("set_id"),
+                "reason": payload.get("reason") or "Excluida manualmente de un portafolio A/M/C eliminado",
+            })
+            for member in members
+        ]
+        self.delete_portfolio(portfolio_id, scope)
+        return quarantine_ids
+
     def open_member_report(self, portfolio_id: int, scope: str, set_path: str) -> str:
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
         requested = self._path_key(set_path)
@@ -1365,61 +1407,46 @@ def _optimize_without_recent_fillers(
     minimum_pct: float,
     optimize: Callable[[list[Any]], PortfolioResult],
 ) -> tuple[PortfolioResult, set[str]]:
-    """Remove strategies whose leave-one-out frontier contribution is immaterial."""
+    """Re-optimize after removing allocations with immaterial recent contribution.
+
+    Remove all fillers found in one result as a batch.  Running a complete deep
+    optimization once per active strategy made a single proposal grow from a
+    handful of optimizer runs to potentially dozens.
+    """
     pool = list(raw_sets)
     removed: set[str] = set()
     while True:
         result = optimize(pool)
+        underrepresented = _underrepresented_recent_allocation_ids(result, minimum_pct)
+        underrepresented -= removed
+        if not underrepresented:
+            if removed:
+                result.warnings.insert(
+                    0,
+                    "Regla antirrelleno 6M: aporte minimo "
+                    f"{float(minimum_pct):.1f}% por estrategia; "
+                    f"{len(removed)} estrategia(s) eliminada(s) y portafolio reoptimizado.",
+                )
+            return result, removed
         active_ids = {allocation.set_id for allocation in result.allocations if allocation.units > 0}
-        threshold = max(float(minimum_pct), 0.0)
-        if threshold <= 0 or len(active_ids) <= 1:
-            if removed:
-                result.warnings.insert(
-                    0,
-                    "Prueba antirrelleno marginal: "
-                    f"{len(removed)} estrategia(s) eliminada(s) y portafolio reoptimizado.",
+        if active_ids and active_ids <= underrepresented:
+            contribution_by_id = {
+                allocation.set_id: (
+                    max(float(allocation.recent_net_profit_001), 0.0) * int(allocation.units)
+                    if allocation.has_recent_performance
+                    else 0.0
                 )
+                for allocation in result.allocations
+                if allocation.units > 0
+            }
+            keep_id = max(contribution_by_id, key=contribution_by_id.get)
+            underrepresented.discard(keep_id)
+            if not underrepresented:
+                return result, removed
+        removed.update(underrepresented)
+        pool = [strategy for strategy in pool if strategy.set_id not in removed]
+        if not pool:
             return result, removed
-
-        base_net = float(result.total_net_profit)
-        denominator = max(abs(base_net), 1.0)
-        underrepresented_recent = _underrepresented_recent_allocation_ids(result, threshold)
-        removal_candidates: list[
-            tuple[float, int, float, float, str, list[Any]]
-        ] = []
-        for set_id in sorted(active_ids):
-            trial_pool = [strategy for strategy in pool if strategy.set_id != set_id]
-            if not trial_pool:
-                continue
-            trial = optimize(trial_pool)
-            marginal_gain = base_net - float(trial.total_net_profit)
-            marginal_pct = max(marginal_gain, 0.0) / denominator * 100.0
-            protects_valley = (
-                float(result.actual_valley_dd) + 1e-9
-                < float(trial.actual_valley_dd)
-            )
-            if marginal_pct + 1e-9 >= threshold or protects_valley:
-                continue
-            removal_candidates.append((
-                marginal_pct,
-                0 if set_id in underrepresented_recent else 1,
-                -float(trial.total_net_profit),
-                float(trial.actual_valley_dd),
-                set_id,
-                trial_pool,
-            ))
-
-        if not removal_candidates:
-            if removed:
-                result.warnings.insert(
-                    0,
-                    "Prueba antirrelleno marginal: "
-                    f"{len(removed)} estrategia(s) eliminada(s) y portafolio reoptimizado.",
-                )
-            return result, removed
-
-        _pct, _recent_rank, _trial_net, _trial_dd, remove_id, pool = min(removal_candidates)
-        removed.add(remove_id)
 
 
 def _normal_proposals(
@@ -1575,7 +1602,7 @@ def _locked_full_proposals(
             if removed_ids:
                 result.warnings.insert(
                     1,
-                    "Prueba antirrelleno marginal: "
+                    "Regla antirrelleno 6M: "
                     f"{len(removed_ids)} estrategia(s) eliminada(s) antes de fijar la composicion A/M/C.",
                 )
         return proposals
@@ -2595,10 +2622,19 @@ class PortfolioCoordinator:
 
     def exclude(self, node_id: str, scope: str, payload: dict[str, Any]) -> int:
         source = PortfolioSource(self._node(node_id))
+        if payload.get("set_paths") is not None:
+            raise ValueError("La exclusión múltiple debe ejecutarse mediante la API del nodo")
         quarantine_id = source.remove_member_to_quarantine(payload, scope) if safe_int(payload.get("portfolio_id"), 0) else source.exclude_strategy(payload)
         with self.lock:
             self.proposals.pop(self._key(node_id, "full_history"), None)
         return quarantine_id
+
+    def invalidate_after_exclusion(self, node_id: str) -> None:
+        source = PortfolioSource(self._node(node_id))
+        for _account, memory in source.memory_sources:
+            source._invalidate_remote_snapshot(memory)
+        with self.lock:
+            self.proposals.pop(self._key(node_id, "full_history"), None)
 
     def release(self, node_id: str, quarantine_id: str | int) -> None:
         PortfolioSource(self._node(node_id)).release_strategy(quarantine_id)
