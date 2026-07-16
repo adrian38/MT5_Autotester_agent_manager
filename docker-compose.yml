@@ -1,0 +1,43 @@
+services:
+  manager:
+    build:
+      context: .
+    container_name: mt5-autotester-manager
+    restart: unless-stopped
+    ports:
+      - "8750:8750"
+    environment:
+      MT5_MANAGER_EXPORT_MODE: download
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: bind
+        source: ./manager.json
+        target: /app/config/manager.json
+        read_only: true
+      - type: bind
+        source: ./runtime
+        target: /app/runtime
+      - type: bind
+        source: ${IC_PROJECT_DIR}
+        target: /data/ic
+      - type: volume
+        source: axi-project
+        target: /data/axi
+      - type: volume
+        source: roboforex-project
+        target: /data/roboforex
+
+volumes:
+  axi-project:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: //${SMB_SERVER}/F
+      o: username=${SMB_USERNAME},password=${SMB_PASSWORD},domain=${SMB_DOMAIN},vers=3.0
+  roboforex-project:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: //${SMB_SERVER}/G
+      o: username=${SMB_USERNAME},password=${SMB_PASSWORD},domain=${SMB_DOMAIN},vers=3.0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import os
 import re
@@ -9,12 +10,14 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import urllib.parse
 import urllib.error
 import urllib.request
 import uuid
 import zlib
+import zipfile
 from dataclasses import asdict, fields
 from datetime import datetime
 from pathlib import Path
@@ -342,7 +345,10 @@ def _resolve_source_path(value: Any, project: Path) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    path = Path(text).expanduser()
+    # SQLite rows are produced by Windows nodes. Convert their separators so
+    # a Linux manager container can identify known project-relative roots
+    # (outputs/sets/reports/...) instead of appending a literal C:\\... name.
+    path = Path(text.replace("\\", "/")).expanduser()
     if path.exists():
         return str(path.resolve())
     parts = path.parts
@@ -359,6 +365,22 @@ def _resolve_source_path(value: Any, project: Path) -> str:
         candidate = project / path
         return str(candidate.absolute())
     return str(path)
+
+
+def _linux_path_is_remote(path: Path, mounts_text: str) -> bool:
+    target = str(path).replace("\\", "/")
+    matched: tuple[int, str] | None = None
+    for line in mounts_text.splitlines():
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        mountpoint = fields[1].replace("\\040", " ").replace("\\134", "\\")
+        prefix = mountpoint.rstrip("/") + "/"
+        if target == mountpoint or target.startswith(prefix):
+            candidate = (len(mountpoint), fields[2].lower())
+            if matched is None or candidate[0] > matched[0]:
+                matched = candidate
+    return bool(matched and matched[1] in {"cifs", "smb3", "nfs", "nfs4"})
 
 
 class PortfolioSource:
@@ -410,7 +432,10 @@ class PortfolioSource:
     @staticmethod
     def _is_remote_memory(memory: Path) -> bool:
         if os.name != "nt":
-            return False
+            try:
+                return _linux_path_is_remote(memory, Path("/proc/mounts").read_text(encoding="utf-8"))
+            except OSError:
+                return False
         if not memory.drive:
             return str(memory).startswith("\\\\")
         try:
@@ -2750,6 +2775,23 @@ class PortfolioCoordinator:
 
     def export(self, node_id: str, scope: str, portfolio_id: int, destination: str | None) -> dict[str, Any]:
         return PortfolioSource(self._node(node_id)).export_portfolio(portfolio_id, scope, destination)
+
+    def export_archive(self, node_id: str, scope: str, portfolio_id: int) -> dict[str, Any]:
+        source = PortfolioSource(self._node(node_id))
+        with tempfile.TemporaryDirectory(prefix="mt5-portfolio-export-") as temp_dir:
+            result = source.export_portfolio(portfolio_id, scope, temp_dir)
+            output = Path(str(result["folder"]))
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for path in sorted(output.rglob("*")):
+                    if path.is_file():
+                        archive.write(path, Path(output.name) / path.relative_to(output))
+            return {
+                "filename": f"{output.name}.zip",
+                "content": buffer.getvalue(),
+                "exported": int(result.get("exported") or 0),
+                "missing": list(result.get("missing") or []),
+            }
 
     def open_report(self, node_id: str, scope: str, portfolio_id: int, set_path: str) -> str:
         return PortfolioSource(self._node(node_id)).open_member_report(portfolio_id, scope, set_path)

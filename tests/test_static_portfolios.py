@@ -117,6 +117,28 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("await loadPortfolios", delete_handler)
         self.assertNotIn("await Promise.all", delete_handler)
 
+    def test_export_uses_the_native_folder_picker(self) -> None:
+        script = (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.js"
+        ).read_text(encoding="utf-8")
+        export_handler = script.split("document.querySelector('#detail-export')", 1)[1].split(
+            "document.querySelector('#portfolio-refresh')", 1
+        )[0]
+
+        self.assertIn("postManager('choose-export-folder'", export_handler)
+        self.assertIn("destination: selection.folder", export_handler)
+        self.assertNotIn("prompt(", export_handler)
+
+    def test_remote_export_downloads_a_zip_from_the_manager(self) -> None:
+        script = (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("async function downloadPortfolioExport", script)
+        self.assertIn("managerState.capabilities?.export_mode === 'download'", script)
+        self.assertIn("portfolio-manager/export-download", script)
+        self.assertIn("link.download", script)
+
     def test_every_html_number_input_accepts_representative_backend_values(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         fields = {}

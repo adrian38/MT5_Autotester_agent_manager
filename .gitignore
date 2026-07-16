@@ -7,3 +7,4 @@ manager.json
 *.deploy.json
 runtime/
 *.log
+.env

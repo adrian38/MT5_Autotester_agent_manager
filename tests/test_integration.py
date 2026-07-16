@@ -176,6 +176,46 @@ enabled=0
         self.assertEqual(payload["task"], task)
         delete.assert_called_once_with("test-node", "full_history", 37)
 
+    def test_export_folder_endpoint_opens_the_manager_picker(self) -> None:
+        with mock.patch(
+            "mt5_manager.manager.choose_directory", return_value=r"D:\exports"
+        ) as picker:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/choose-export-folder",
+                {"scope": "full_history"},
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, {"folder": r"D:\exports", "cancelled": False})
+        picker.assert_called_once_with(None)
+
+    def test_export_download_returns_a_zip_attachment(self) -> None:
+        archive = {
+            "filename": "PORTAFOLIO_9_A_M_C.zip",
+            "content": b"PK\x03\x04test",
+            "exported": 2,
+            "missing": ["missing.set"],
+        }
+        with mock.patch.object(
+            self.manager.portfolios, "export_archive", return_value=archive
+        ) as export_archive:
+            request = urllib.request.Request(
+                self.base + "/api/nodes/test-node/portfolio-manager/export-download",
+                data=json.dumps({"scope": "full_history", "portfolio_id": 9}).encode(),
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=3) as response:
+                body = response.read()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers.get_content_type(), "application/zip")
+                self.assertIn("PORTAFOLIO_9_A_M_C.zip", response.headers["Content-Disposition"])
+                self.assertEqual(response.headers["X-Exported-Sets"], "2")
+                self.assertEqual(response.headers["X-Missing-Sets"], "1")
+
+        self.assertEqual(body, archive["content"])
+        export_archive.assert_called_once_with("test-node", "full_history", 9)
+
     def test_batch_exclusion_is_forwarded_to_the_node_api(self) -> None:
         node_result = {
             "quarantine_ids": [4, 7],

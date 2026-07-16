@@ -228,6 +228,32 @@ async function postManager(action, payload) {
   return data;
 }
 
+async function downloadPortfolioExport(portfolioId) {
+  const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/export-download`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({scope, portfolio_id: portfolioId}),
+  });
+  if (!response.ok) {
+    const data = await jsonResponse(response);
+    throw new Error(data.error || response.statusText);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = match?.[1] || `PORTAFOLIO_${portfolioId}.zip`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(link.href);
+  return {
+    exported: Number(response.headers.get('X-Exported-Sets') || 0),
+    missing: Number(response.headers.get('X-Missing-Sets') || 0),
+  };
+}
+
 function persistSettings(notify = false) {
   const payload = formPayload();
   settingsSaveQueue = settingsSaveQueue.catch(() => {}).then(() => postManager('settings', payload));
@@ -551,10 +577,21 @@ document.querySelector('#detail-delete').addEventListener('click', async () => {
 });
 document.querySelector('#detail-export').addEventListener('click', async () => {
   if (!selectedId) return;
-  const destination = prompt('Carpeta destino. Déjala vacía para usar la carpeta exports del proyecto:', '') ?? null;
-  if (destination === null) return;
-  try { const data = await postManager('export', {scope, portfolio_id: selectedId, destination}); toast(`Exportados ${data.exported} set(s) a ${data.folder}${data.missing?.length ? `; ${data.missing.length} omitidos` : ''}.`); }
+  const button = document.querySelector('#detail-export');
+  button.disabled = true;
+  try {
+    if (managerState.capabilities?.export_mode === 'download') {
+      const data = await downloadPortfolioExport(selectedId);
+      toast(`Descargado ZIP con ${data.exported} set(s)${data.missing ? `; ${data.missing} omitidos` : ''}.`);
+      return;
+    }
+    const selection = await postManager('choose-export-folder', {scope});
+    if (selection.cancelled || !selection.folder) return;
+    const data = await postManager('export', {scope, portfolio_id: selectedId, destination: selection.folder});
+    toast(`Exportados ${data.exported} set(s) a ${data.folder}${data.missing?.length ? `; ${data.missing.length} omitidos` : ''}.`);
+  }
   catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
 });
 
 document.querySelector('#portfolio-refresh').addEventListener('click', async () => { await Promise.all([loadManagerState(), loadPortfolios(selectedId)]); });

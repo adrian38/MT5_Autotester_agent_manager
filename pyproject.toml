@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -15,6 +15,11 @@ mt5-node = "mt5_manager.node:main"
 
 [tool.setuptools.package-data]
 mt5_manager = ["static/*.html", "static/*.css", "static/*.js"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mt5_manager*", "portfolio_manager*", "ubs*"]
+exclude = ["tests*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

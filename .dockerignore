@@ -1,0 +1,12 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.py[cod]
+*.log
+.pytest_cache
+.env
+manager.json
+node.json
+runtime
+tests

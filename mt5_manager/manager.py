@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import os
 import re
 import sqlite3
 import sys
@@ -20,6 +21,35 @@ from .portfolio_service import PortfolioCoordinator, legacy_compatible_portfolio
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+FOLDER_PICKER_LOCK = threading.Lock()
+
+
+def choose_directory(initial_directory: str | None = None) -> str | None:
+    """Open the native desktop folder picker on the manager machine."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError as exc:
+        raise ValueError("El selector de carpetas no está disponible en este equipo") from exc
+
+    initial = Path(initial_directory).expanduser() if initial_directory else Path.home()
+    if not initial.is_dir():
+        initial = Path.home()
+    with FOLDER_PICKER_LOCK:
+        root = tk.Tk()
+        try:
+            root.withdraw()
+            root.attributes("-topmost", True)
+            root.update()
+            selected = filedialog.askdirectory(
+                parent=root,
+                title="Selecciona la carpeta para exportar los sets",
+                initialdir=str(initial),
+                mustexist=True,
+            )
+        finally:
+            root.destroy()
+    return str(Path(selected).resolve()) if selected else None
 
 
 def live_log_progress(lines: list[Any], current_stage: object) -> dict[str, Any]:
@@ -92,6 +122,19 @@ class ManagerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_download(self, value: dict[str, Any]) -> None:
+        body = bytes(value.get("content") or b"")
+        filename = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value.get("filename") or "portafolio.zip"))
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Exported-Sets", str(safe_int(value.get("exported"), 0, minimum=0)))
+        self.send_header("X-Missing-Sets", str(len(value.get("missing") or [])))
         self.end_headers()
         self.wfile.write(body)
 
@@ -198,7 +241,9 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 node = self._node(node_id)
                 query = urllib.parse.parse_qs(parsed.query)
                 scope = "monthly" if query.get("scope", ["full_history"])[0] == "monthly" else "full_history"
-                self._send_json(200, self.server.portfolios.state(node_id, scope))
+                state = self.server.portfolios.state(node_id, scope)
+                state["capabilities"] = {"export_mode": self.server.export_mode}
+                self._send_json(200, state)
             except (KeyError, ValueError) as exc:
                 self._send_json(400, {"error": str(exc)})
             return
@@ -340,6 +385,18 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)
                     )
                     self._send_json(202, {"task": task})
+                elif action == "choose-export-folder":
+                    if self.server.export_mode != "folder":
+                        raise ValueError("El selector local de carpetas no está disponible en modo Docker")
+                    folder = choose_directory(
+                        str(body.get("initial_directory") or "").strip() or None
+                    )
+                    self._send_json(200, {"folder": folder, "cancelled": folder is None})
+                elif action == "export-download":
+                    result = self.server.portfolios.export_archive(
+                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)
+                    )
+                    self._send_download(result)
                 elif action == "export":
                     result = self.server.portfolios.export(
                         node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
@@ -392,6 +449,12 @@ class ManagerServer(ThreadingHTTPServer):
         if not isinstance(nodes, list) or not nodes:
             raise ValueError("manager.json debe contener una lista nodes no vacia")
         self.nodes = nodes
+        export_mode = str(
+            os.environ.get("MT5_MANAGER_EXPORT_MODE") or config.get("export_mode") or "folder"
+        ).strip().lower()
+        if export_mode not in {"folder", "download"}:
+            raise ValueError("export_mode debe ser folder o download")
+        self.export_mode = export_mode
         preferences_file = str(config.get("preferences_file") or "").strip()
         self.preferences_path = Path(preferences_file).expanduser().resolve() if preferences_file else None
         self.preferences_lock = threading.RLock()

@@ -167,6 +167,59 @@ python -m mt5_manager.node --config node.json
 python -m mt5_manager.manager --config manager.json
 ```
 
+## Manager central con Docker
+
+Dockeriza únicamente el manager central. Los nodos y MT5 continúan ejecutándose
+en la sesión Windows interactiva de cada broker; no deben entrar en el
+contenedor.
+
+1. Mantener el `manager.json` local ya configurado con las IP y tokens reales.
+   Compose lo monta como solo lectura; nunca se copia dentro de la imagen.
+2. Crear el archivo de rutas para Docker:
+
+   ```powershell
+   Copy-Item .env.docker.example .env
+   ```
+
+3. Editar `.env` con la carpeta IC local y las credenciales SMB del PC que
+   comparte `F` y `G`. Docker Desktop no hereda las unidades de usuario
+   `X:`/`Y:`; Compose monta directamente ambos recursos mediante CIFS. El
+   archivo `.env` está ignorado por Git y no entra en la imagen.
+4. Construir y arrancar:
+
+   ```powershell
+   docker-compose up -d --build
+   docker-compose ps
+   ```
+
+5. Abrir desde otro equipo de la LAN:
+
+   ```text
+   http://IP-DEL-PC-CENTRAL:8750
+   ```
+
+El arranque genera en `runtime/manager.docker.json` una copia adaptada: escucha
+en `0.0.0.0`, traduce las carpetas a `/data/*` y convierte automáticamente las
+URLs locales `127.0.0.1`/`localhost` a `host.docker.internal`. El volumen
+`./runtime` conserva preferencias, configuraciones y colas entre reinicios.
+Los tres proyectos se montan para que el motor central pueda leer memorias y
+reportes y mantener las operaciones existentes. No se incluyen `manager.json`,
+tokens ni datos de ejecución dentro de la imagen.
+
+En Docker, **Exportar sets** genera un ZIP y lo descarga en el navegador del
+equipo que está usando el panel. En ejecución Windows local se mantiene el
+selector nativo de carpetas.
+
+Para limitar el panel a la red privada, crear una regla de firewall solo para
+la subred local. No se debe publicar el puerto 8750 en Internet: el panel del
+manager no tiene autenticación de usuario y permite iniciar o detener tareas.
+
+```powershell
+New-NetFirewallRule -DisplayName "MT5 Manager web 8750" `
+  -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8750 `
+  -Profile Private -RemoteAddress LocalSubnet
+```
+
 ## API del nodo
 
 Todas las rutas requieren `Authorization: Bearer <token>`.

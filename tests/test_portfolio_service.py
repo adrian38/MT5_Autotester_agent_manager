@@ -1,10 +1,12 @@
 import contextlib
+import io
 import json
 import sqlite3
 import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,16 +14,62 @@ from unittest.mock import patch
 from mt5_manager.portfolio_service import (
     PortfolioCoordinator,
     PortfolioSource,
+    _linux_path_is_remote,
     _optimize_without_recent_fillers,
+    _resolve_source_path,
     _underrepresented_recent_allocation_ids,
     generate_proposals,
     normalize_settings,
     save_portfolio_payload,
 )
-from portfolio_manager.ubs_portfolio import PortfolioAvailability, PortfolioResult, PortfolioType, StrategyAllocation
+from portfolio_manager.ubs_portfolio import (
+    PortfolioAvailability,
+    PortfolioResult,
+    PortfolioType,
+    StrategyAllocation,
+    filter_rows_grid_off,
+)
 
 
 class PortfolioServiceTests(unittest.TestCase):
+    def test_linux_cifs_memories_are_treated_as_remote_snapshots(self) -> None:
+        mounts = (
+            "//192.168.1.152/G /data/roboforex cifs rw,relatime 0 0\n"
+            "C:\\040drive /data/ic 9p rw,relatime 0 0\n"
+        )
+
+        self.assertTrue(
+            _linux_path_is_remote(
+                Path("/data/roboforex/TRADING/project/outputs/memory.sqlite"), mounts
+            )
+        )
+        self.assertFalse(_linux_path_is_remote(Path("/data/ic/outputs/memory.sqlite"), mounts))
+
+    def test_grid_filter_reads_set_files_in_parallel_without_changing_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            enabled = root / "enabled.set"
+            disabled = root / "disabled.set"
+            enabled.write_text("EnableGrid=true\n", encoding="utf-8")
+            disabled.write_text("EnableGrid=false\n", encoding="utf-8")
+            rows = [{"set_path": str(enabled)}, {"set_path": str(disabled)}]
+
+            filtered, warnings = filter_rows_grid_off(rows)
+
+            self.assertEqual(filtered, [rows[1]])
+            self.assertEqual(len(warnings), 1)
+
+    def test_windows_source_paths_are_relocated_for_a_container_project(self) -> None:
+        project = Path("/data/roboforex/TRADING/MT5_Autotester_agent")
+        resolved = _resolve_source_path(
+            r"C:\Users\Adrian\project\outputs\ubs_agent\run\strategy.set", project
+        )
+
+        self.assertEqual(
+            Path(resolved),
+            (project / "outputs" / "ubs_agent" / "run" / "strategy.set").absolute(),
+        )
+
     @staticmethod
     def _recent_result(allocations: list[StrategyAllocation]) -> PortfolioResult:
         return PortfolioResult(
@@ -512,7 +560,8 @@ class PortfolioServiceTests(unittest.TestCase):
             set_file.write_text("Risk=1\n", encoding="utf-8")
             memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
             memory.touch()
-            source = PortfolioSource({"portfolio_project_dir": str(project), "portfolio_broker": "ICTRADING", "portfolio_account_type": "STANDARD"})
+            node = {"id": "ic", "portfolio_project_dir": str(project), "portfolio_broker": "ICTRADING", "portfolio_account_type": "STANDARD"}
+            source = PortfolioSource(node)
             with source.connect(write=True) as conn:
                 portfolio_id = int(conn.execute(
                     """insert into portfolios(created_at,name,type,portfolio_type,portfolio_scope,capital,account_capital,
@@ -536,6 +585,14 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(exported["exported"], 1)
             self.assertTrue(Path(exported["summary"]).is_file())
             self.assertEqual((Path(exported["folder"]) / set_file.name).read_text(encoding="utf-8"), "Risk=1\n")
+            archive = PortfolioCoordinator([node], project / "settings.json").export_archive(
+                "ic", "full_history", portfolio_id
+            )
+            self.assertEqual(archive["exported"], 1)
+            with zipfile.ZipFile(io.BytesIO(archive["content"])) as zipped:
+                names = zipped.namelist()
+                self.assertTrue(any(name.endswith("/sample.set") for name in names))
+                self.assertTrue(any(name.endswith(f"/PORTAFOLIO_{portfolio_id}_resumen.txt") for name in names))
             source.delete_portfolio(portfolio_id, "full_history")
             self.assertEqual(source.saved_portfolios("full_history")["summary"]["total"], 0)
 

@@ -9,6 +9,7 @@ can be accepted.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -1108,6 +1109,11 @@ def slice_strategy_sets_to_month(
 
 def set_file_has_enabled_grid(set_path: str | Path) -> bool:
     """Return True only when a .set file explicitly has EnableGrid=true."""
+    return _set_file_has_enabled_grid_cached(str(set_path))
+
+
+@lru_cache(maxsize=32_768)
+def _set_file_has_enabled_grid_cached(set_path: str) -> bool:
     path = resolve_workspace_path(set_path)
     if not path.is_file():
         return False
@@ -1137,11 +1143,17 @@ def set_file_has_enabled_grid(set_path: str | Path) -> bool:
 
 def filter_rows_grid_off(rows: Sequence[object]) -> tuple[list[object], list[str]]:
     """Remove candidate rows whose .set explicitly enables grid trading."""
+    paths = [str(_row_value(row, "set_path", default="")) for row in rows]
+    unique_paths = list(dict.fromkeys(path for path in paths if path))
+    grid_by_path: dict[str, bool] = {}
+    if unique_paths:
+        workers = min(16, len(unique_paths))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="grid-set") as executor:
+            grid_by_path = dict(zip(unique_paths, executor.map(set_file_has_enabled_grid, unique_paths)))
     filtered: list[object] = []
     skipped_grid = 0
-    for row in rows:
-        set_path = str(_row_value(row, "set_path", default=""))
-        if set_path and set_file_has_enabled_grid(set_path):
+    for row, set_path in zip(rows, paths):
+        if set_path and grid_by_path.get(set_path, False):
             skipped_grid += 1
             continue
         filtered.append(row)
