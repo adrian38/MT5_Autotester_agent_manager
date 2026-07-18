@@ -45,6 +45,7 @@
         <label class="check"><input id="run-robustness" type="checkbox"> Robustez OOS</label>
         <label class="check"><input id="run-final-tick" type="checkbox"> Final Tick</label>
         <label class="check"><input id="run-final-tick-6m" type="checkbox"> Final Tick 6M</label>
+        <label class="check" id="run-regression-option" hidden><input id="run-regression" type="checkbox"> Prueba regresiva</label>
       </div>
       <div class="auto-repair-options">
         <label class="check"><input id="repair-after-generation" type="checkbox"> Reparar después de completar el run</label>
@@ -66,7 +67,7 @@
       <button class="icon-button" onclick="this.closest('dialog').close()">×</button>
     </div>
     <input type="hidden" id="repair-node-id">
-    <p class="repair-help">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Ejecutará las pruebas pendientes usando un solo terminal MT5.</p>
+    <p class="repair-help" id="repair-help-text">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Ejecutará las pruebas pendientes usando un solo terminal MT5.</p>
     <div class="repair-options">
       <label>Número de reintentos
         <input id="repair-attempts" type="number" min="1" max="20" value="1" oninput="setRepairAttempts(Number(this.value))">

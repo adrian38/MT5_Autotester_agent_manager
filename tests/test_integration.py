@@ -123,11 +123,13 @@ enabled=0
             "run_robustness": True,
             "run_final_tick": True,
             "run_final_tick_6m": False,
+            "run_regression": True,
         })
         self.assertEqual(status, 200)
         self.assertEqual(saved["preferences"]["cycles"], 3)
         self.assertEqual(saved["preferences"]["repair_attempts"], 3)
         self.assertTrue(saved["preferences"]["repair_after_generation"])
+        self.assertTrue(saved["preferences"]["run_regression"])
         self.assertEqual(json.loads(self.preferences_path.read_text(encoding="utf-8"))["test-node"]["max_workers"], 4)
 
         status, payload = self.request("/api/nodes")

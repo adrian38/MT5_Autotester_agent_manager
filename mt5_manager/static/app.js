@@ -49,6 +49,10 @@ function statusOf(node) {
   return node.job?.status || 'idle';
 }
 
+function brokerOf(node) {
+  return String(node.node?.broker || '').trim().toUpperCase();
+}
+
 function pipelineStepLabel(job) {
   const cycle = job.current_cycle;
   const stage = job.current_stage || 'generation';
@@ -70,6 +74,7 @@ function liveExecution(node, state) {
     final_tick_quality: 'Reintento de calidad · Final Tick',
     final_tick_6m: 'Final Tick 6M',
     final_tick_6m_quality: 'Reintento de calidad · Final Tick 6M',
+    regression: 'Prueba regresiva',
   };
   const cycleText = job.current_cycle
     ? `Ciclo ${job.current_cycle}/${Number(request.cycles || 1)}`
@@ -133,6 +138,7 @@ function settingsFor(node, id) {
       run_robustness: Boolean(defaults.run_robustness),
       run_final_tick: Boolean(defaults.run_final_tick),
       run_final_tick_6m: Boolean(defaults.run_final_tick_6m),
+      run_regression: Boolean(defaults.run_regression),
     };
   }
   return cardSettings[id];
@@ -169,6 +175,8 @@ function launchControls(node, id) {
           onchange="syncCardPipeline('${esc(id)}','final_tick',this.checked)"> Final Tick</label>
         <label class="check"><input id="card-6m-${key}" type="checkbox" ${values.run_final_tick_6m ? 'checked' : ''}
           onchange="syncCardPipeline('${esc(id)}','final_tick_6m',this.checked)"> Final Tick 6M</label>
+        ${brokerOf(node) === 'ICTRADING' ? `<label class="check"><input id="card-regression-${key}" type="checkbox" ${values.run_regression ? 'checked' : ''}
+          onchange="syncCardPipeline('${esc(id)}','regression',this.checked)"> Prueba regresiva</label>` : ''}
       </div>
       <div class="card-auto-repair">
         <label class="check"><input type="checkbox" ${values.repair_after_generation ? 'checked' : ''}
@@ -218,22 +226,36 @@ function syncCardPipeline(id, stage, checked) {
     if (!checked) {
       values.run_final_tick = false;
       values.run_final_tick_6m = false;
+      values.run_regression = false;
     }
   } else if (stage === 'final_tick') {
     values.run_final_tick = checked;
     if (checked) values.run_robustness = true;
-    else values.run_final_tick_6m = false;
-  } else {
+    else {
+      values.run_final_tick_6m = false;
+      values.run_regression = false;
+    }
+  } else if (stage === 'final_tick_6m') {
     values.run_final_tick_6m = checked;
     if (checked) {
       values.run_robustness = true;
       values.run_final_tick = true;
+    } else {
+      values.run_regression = false;
+    }
+  } else {
+    values.run_regression = checked;
+    if (checked) {
+      values.run_robustness = true;
+      values.run_final_tick = true;
+      values.run_final_tick_6m = true;
     }
   }
   persistCardSettings(id, {
     run_robustness: values.run_robustness,
     run_final_tick: values.run_final_tick,
     run_final_tick_6m: values.run_final_tick_6m,
+    run_regression: values.run_regression,
   });
   render();
 }
@@ -337,14 +359,17 @@ function openStart(id, name) {
   document.querySelector('#mode').value = selected.generation_mode;
   document.querySelector('#max-workers').value = selected.max_workers;
   document.querySelector('#max-workers').disabled = !workers;
+  const supportsRegression = brokerOf(node) === 'ICTRADING';
   document.querySelector('#run-robustness').checked = advanced && selected.run_robustness;
   document.querySelector('#run-final-tick').checked = advanced && selected.run_final_tick;
   document.querySelector('#run-final-tick-6m').checked = advanced && selected.run_final_tick_6m;
+  document.querySelector('#run-regression-option').hidden = !supportsRegression;
+  document.querySelector('#run-regression').checked = advanced && supportsRegression && selected.run_regression;
   document.querySelector('#repair-after-generation').checked = advanced && selected.repair_after_generation;
   document.querySelector('#generation-repair-attempts').value = selected.repair_attempts;
   document.querySelector('#repair-after-generation').disabled = !advanced;
   document.querySelector('#generation-repair-attempts').disabled = !advanced || !selected.repair_after_generation || !document.querySelector('#execute').checked;
-  document.querySelectorAll('#run-robustness,#run-final-tick,#run-final-tick-6m').forEach(element => { element.disabled = !advanced; });
+  document.querySelectorAll('#run-robustness,#run-final-tick,#run-final-tick-6m,#run-regression').forEach(element => { element.disabled = !advanced; });
   const note = document.querySelector('#capability-note');
   note.hidden = advanced && workers;
   note.textContent = note.hidden ? '' : 'Terminales y pipeline pendientes de merge en este nodo.';
@@ -366,6 +391,8 @@ document.querySelector('#start-form').addEventListener('submit', async event => 
     run_robustness: document.querySelector('#run-robustness').checked,
     run_final_tick: document.querySelector('#run-final-tick').checked,
     run_final_tick_6m: document.querySelector('#run-final-tick-6m').checked,
+    run_regression: !document.querySelector('#run-regression-option').hidden
+      && document.querySelector('#run-regression').checked,
     repair_after_generation: document.querySelector('#repair-after-generation').checked,
     repair_attempts: Number(document.querySelector('#generation-repair-attempts').value),
     dry_run: document.querySelector('#dry-run').checked,
@@ -397,6 +424,9 @@ async function openRepair(id, name) {
   document.querySelector('#repair-node-id').value = id;
   document.querySelector('#repair-title').textContent = `Reparar · ${name}`;
   const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
+  const regressionStep = brokerOf(node) === 'ICTRADING' ? ' → Prueba regresiva' : '';
+  document.querySelector('#repair-help-text').textContent =
+    `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. Ejecutará las pruebas pendientes usando un solo terminal MT5.`;
   document.querySelector('#repair-attempts').value = settingsFor(node, id).repair_attempts;
   const container = document.querySelector('#repair-runs');
   container.textContent = 'Cargando runs terminados…';
@@ -551,23 +581,36 @@ async function showLogs(id, name) {
 
 document.querySelector('#run-final-tick').addEventListener('change', event => {
   if (event.target.checked) document.querySelector('#run-robustness').checked = true;
-  else document.querySelector('#run-final-tick-6m').checked = false;
+  else {
+    document.querySelector('#run-final-tick-6m').checked = false;
+    document.querySelector('#run-regression').checked = false;
+  }
 });
 document.querySelector('#run-final-tick-6m').addEventListener('change', event => {
   if (event.target.checked) {
     document.querySelector('#run-final-tick').checked = true;
     document.querySelector('#run-robustness').checked = true;
+  } else {
+    document.querySelector('#run-regression').checked = false;
+  }
+});
+document.querySelector('#run-regression').addEventListener('change', event => {
+  if (event.target.checked) {
+    document.querySelector('#run-robustness').checked = true;
+    document.querySelector('#run-final-tick').checked = true;
+    document.querySelector('#run-final-tick-6m').checked = true;
   }
 });
 document.querySelector('#run-robustness').addEventListener('change', event => {
   if (!event.target.checked) {
     document.querySelector('#run-final-tick').checked = false;
     document.querySelector('#run-final-tick-6m').checked = false;
+    document.querySelector('#run-regression').checked = false;
   }
 });
 document.querySelector('#execute').addEventListener('change', event => {
   const supported = startDialog.dataset.pipeline === '1';
-  document.querySelectorAll('#run-robustness,#run-final-tick,#run-final-tick-6m').forEach(element => {
+  document.querySelectorAll('#run-robustness,#run-final-tick,#run-final-tick-6m,#run-regression').forEach(element => {
     element.disabled = !event.target.checked || !supported;
     if (!event.target.checked) element.checked = false;
   });

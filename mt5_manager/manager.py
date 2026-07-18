@@ -490,7 +490,7 @@ class ManagerServer(ThreadingHTTPServer):
     def update_preferences(self, node_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         allowed = {
             "cycles", "generation_mode", "max_workers", "repair_attempts", "repair_after_generation",
-            "run_robustness", "run_final_tick", "run_final_tick_6m",
+            "run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression",
         }
         unknown = set(changes) - allowed
         if unknown:
@@ -507,7 +507,7 @@ class ManagerServer(ThreadingHTTPServer):
             normalized["max_workers"] = safe_int(changes["max_workers"], 1, minimum=1, maximum=64)
         if "repair_attempts" in changes:
             normalized["repair_attempts"] = safe_int(changes["repair_attempts"], 1, minimum=1, maximum=20)
-        for key in ("run_robustness", "run_final_tick", "run_final_tick_6m", "repair_after_generation"):
+        for key in ("run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression", "repair_after_generation"):
             if key in changes:
                 if not isinstance(changes[key], bool):
                     raise ValueError(f"{key} debe ser booleano")
