@@ -73,6 +73,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("function stageFromProgress", monthly_script)
         self.assertIn("Number(job.stage || 0)", monthly_script)
         self.assertIn("No participan en futuras generaciones de Portafolio UBS mensual", monthly_script)
+        self.assertIn("se borrará por completo el Portafolio UBS mensual", monthly_script)
+        self.assertNotIn("se recalcularán sus métricas", monthly_script)
         self.assertNotIn("Cuarentena informativa", monthly_script)
         self.assertNotIn("no se excluyen del cálculo", monthly_script)
         self.assertIn("async function refreshMonthlyLog", monthly_script)

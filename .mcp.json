@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": ["/c", "codebase-memory-mcp"],
+      "env": {
+        "CBM_ALLOWED_ROOT": "C:\\Users\\Adrian\\Adrian\\TRADING\\MT5_Autotester_agent_manager"
+      }
+    }
+  }
+}

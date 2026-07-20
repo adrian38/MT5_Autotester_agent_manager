@@ -340,6 +340,18 @@ def ensure_portfolio_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _is_bundle_portfolio(detail: dict[str, Any]) -> bool:
+    # A bundle (A/M/C) is deleted whole when a member is excluded, unlike a
+    # single-objective portfolio which is recalculated. Detection must not
+    # depend on the scope: monthly bundles exist too and the frontend already
+    # renders the bundle controls for them regardless of scope, so gating this
+    # on scope=='full_history' left monthly bundles unable to be deleted.
+    return (
+        str(detail.get("portfolio_type") or "").lower() == "bundle"
+        or bool((detail.get("metrics") or {}).get("portfolio_bundle"))
+    )
+
+
 def _resolve_source_path(value: Any, project: Path) -> str:
     text = str(value or "").strip()
     if not text:
@@ -550,12 +562,8 @@ class PortfolioSource:
         result: list[dict[str, Any]] = []
         for account_label, memory in self.memory_sources:
             with self.connect_memory(memory) as conn:
-                quarantine = _table_exists(conn, "portfolio_quarantine")
-                exclusion = "" if include_quarantined or not quarantine else (
-                    "and not exists (select 1 from portfolio_quarantine pq where pq.set_path=c.set_path)"
-                )
                 rows = conn.execute(
-                    f"""
+                    """
                     select ? as account_type, ? || ':' || c.id as candidate_id,
                            c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
                            c.period, c.family, c.report_path as is_report_path,
@@ -569,7 +577,7 @@ class PortfolioSource:
                     join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id
                     where c.status='accepted' and cr.status='accepted'
                     and ft.status='accepted' and ft6.status='accepted'
-                    {exclusion} order by c.id
+                    order by c.id
                     """, (account_label, account_label),
                 ).fetchall()
             for db_row in rows:
@@ -582,6 +590,16 @@ class PortfolioSource:
                 "final_ohlc_report_path", "final_tick_report_path",
             ):
                 row[key] = _resolve_source_path(row.get(key), self.project)
+        if not include_quarantined:
+            # The quarantine table stores the *resolved* set_path, while
+            # candidates.set_path is the raw value produced on the originating
+            # Windows node (its drive letter, its separators). Comparing them in
+            # SQL never matched, so excluded strategies silently reappeared in
+            # every new generation. Filter in Python with the same key
+            # normalisation that inventory() uses so exclusions actually hold.
+            quarantined = {self._path_key(row.get("set_path")) for row in self.quarantine_rows()}
+            if quarantined:
+                result = [row for row in result if self._path_key(row.get("set_path")) not in quarantined]
         return result
 
     @staticmethod
@@ -1162,19 +1180,24 @@ class PortfolioSource:
         if portfolio_id < 1:
             return self.exclude_strategy(payload)
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
-        is_bundle = scope == "full_history" and (
-            str(detail.get("portfolio_type") or "").lower() == "bundle" or detail.get("metrics", {}).get("portfolio_bundle")
-        )
+        is_bundle = _is_bundle_portfolio(detail)
         requested = self._path_key(_resolve_source_path(payload.get("set_path") or payload.get("set_id"), self.project))
         member = next((item for item in detail.get("members") or [] if self._path_key(item.get("set_path")) == requested), None)
         if member is None:
             raise ValueError("No se encontró la estrategia dentro del portafolio")
-        if is_bundle:
+        # A/M/C bundles are always deleted whole. Monthly portfolios behave the
+        # same way as the UBS (full_history) bundles do in practice: excluding a
+        # member invalidates the saved month, so quarantine the set and delete
+        # the whole portfolio instead of recalculating a partial month.
+        if is_bundle or scope == "monthly":
             quarantine_id = self.exclude_strategy({
                 **payload,
                 "set_path": member.get("set_path") or member.get("set_id"),
                 "portfolio_id": portfolio_id,
-                "reason": payload.get("reason") or "Excluida manualmente de un portafolio A/M/C eliminado",
+                "reason": payload.get("reason") or (
+                    "Excluida manualmente de un portafolio A/M/C eliminado" if is_bundle
+                    else "Excluida manualmente de un Portafolio UBS mensual eliminado"
+                ),
             })
             self.delete_portfolio(portfolio_id, scope)
             return quarantine_id
@@ -1221,10 +1244,7 @@ class PortfolioSource:
         if not isinstance(requested_paths, list) or not requested_paths:
             raise ValueError("Selecciona al menos una estrategia")
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
-        is_bundle = scope == "full_history" and (
-            str(detail.get("portfolio_type") or "").lower() == "bundle"
-            or detail.get("metrics", {}).get("portfolio_bundle")
-        )
+        is_bundle = _is_bundle_portfolio(detail)
         if not is_bundle:
             raise ValueError("La exclusión múltiple solo está disponible para portafolios A/M/C")
         members_by_path = {
@@ -1748,10 +1768,7 @@ def generate_completion_proposal(
     if scope != "full_history":
         raise ValueError("El portafolio mensual debe usar portfolio_monthly_service")
     detail = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
-    if (
-        str(detail.get("portfolio_type") or "").lower() == "bundle"
-        or detail.get("metrics", {}).get("portfolio_bundle")
-    ):
+    if _is_bundle_portfolio(detail):
         raise ValueError("El portafolio A/M/C debe reoptimizarse completo; no admite completar una sola variante")
     members = list(detail.get("members") or [])
     target = max(int(detail.get("target_strategies") or 0), int(detail.get("active_strategies") or 0))
@@ -2492,10 +2509,7 @@ class PortfolioCoordinator:
                 lock_portfolio_type: PortfolioType | None = None
                 if operation == "reoptimize" and portfolio_id is not None:
                     saved = source.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
-                    is_bundle = (
-                        str(saved.get("portfolio_type") or "").lower() == "bundle"
-                        or bool((saved.get("metrics") or {}).get("portfolio_bundle"))
-                    )
+                    is_bundle = _is_bundle_portfolio(saved)
                     if not is_bundle:
                         lock_portfolio_type = PORTFOLIO_TYPES[str(settings["portfolio_type"])]
                 availability, proposals = generate_proposals(

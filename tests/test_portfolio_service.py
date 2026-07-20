@@ -252,6 +252,58 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(quarantine["set_path"], set_path)
             self.assertEqual(quarantine["source_portfolio_id"], portfolio_id)
 
+    def test_excluding_a_monthly_member_quarantines_it_and_deletes_the_portfolio(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+            memory.touch()
+            source = PortfolioSource({
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            })
+            set_path = str(project / "strategy.set")
+            with source.connect(write=True) as conn:
+                portfolio_id = int(conn.execute(
+                    "insert into portfolios(created_at,name,type,portfolio_type,portfolio_scope,metrics_json) values(?,?,?,?,?,?)",
+                    ("2026-07-20", "UBS Mensual", "balanced", "balanced", "monthly", json.dumps({})),
+                ).lastrowid)
+                conn.execute(
+                    """insert into portfolio_allocations(
+                       portfolio_id,variant_key,variant_label,set_id,candidate_id,symbol,units,lot,
+                       net_profit_contribution,standalone_valley_dd,standalone_point_dd,set_path,timeframe
+                       ) values(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (portfolio_id, "default", "Equilibrada", set_path, "ICTRADING/STANDARD:7",
+                     "USDJPY", 13, .13, 742, 252, 0, set_path, "H1"),
+                )
+                conn.commit()
+            candidate = {
+                "set_path": set_path,
+                "source_memory_path": str(memory),
+                "account_type": "ICTRADING/STANDARD",
+                "source_candidate_id": 7,
+                "target_symbol": "USDJPY",
+                "period": "H1",
+            }
+
+            with patch.object(source, "candidate_rows", return_value=[candidate]), patch.object(
+                source, "_recalculate_saved", side_effect=AssertionError("no debe recalcular")
+            ):
+                quarantine_id = source.remove_member_to_quarantine(
+                    {"portfolio_id": portfolio_id, "set_path": set_path}, "monthly"
+                )
+
+            self.assertGreater(quarantine_id, 0)
+            with source.connect() as conn:
+                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+                quarantine = conn.execute(
+                    "select set_path,source_portfolio_id from portfolio_quarantine where id=?", (quarantine_id,)
+                ).fetchone()
+            self.assertEqual(quarantine["set_path"], set_path)
+            self.assertEqual(quarantine["source_portfolio_id"], portfolio_id)
+
     def test_excluding_multiple_bundle_members_quarantines_all_before_deleting(self) -> None:
         source = object.__new__(PortfolioSource)
         source.project = Path(".")
@@ -531,6 +583,10 @@ class PortfolioServiceTests(unittest.TestCase):
             settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]}, "ICTRADING")
             self.assertEqual(source.inventory("full_history", settings)["available"], 1)
             quarantine_id = source.exclude_strategy({"set_path": rows[0]["set_path"]})
+            self.assertEqual(source.candidate_rows(include_quarantined=False), [])
+            self.assertEqual(
+                [row["source_candidate_id"] for row in source.candidate_rows(include_quarantined=True)], [1]
+            )
             excluded = source.inventory("full_history", settings)
             monthly = source.inventory("monthly", normalize_settings("monthly", {"allowed_asset_groups": ["Forex"]}, "ICTRADING"))
             self.assertEqual(excluded["by_symbol"], [{"symbol": "EURUSD", "total": 1, "quarantined": 1, "used": 0, "available": 0}])

@@ -408,27 +408,25 @@ async function excludeStrategy(source, index) {
   if (!member) return;
   const setName = member.set_name || (member.set_path || member.set_id || '').split(/[\\/]/).pop();
   const saved = source === 'detail';
-  const bundle = saved && (currentDetail?.portfolio_type === 'bundle' || currentDetail?.metrics?.portfolio_bundle);
-  const message = bundle
-    ? `${setName} se pondrá en cuarentena y se borrará por completo el portafolio A/M/C #${selectedId}, sin recalcularlo. ¿Continuar?`
-    : saved ? `${setName} se pondrá en cuarentena, se quitará del portafolio #${selectedId} y se recalcularán sus métricas. Después podrás completarlo. ¿Continuar?`
-      : `${setName} dejará de participar en futuras generaciones completas. ¿Continuar?`;
+  const message = saved
+    ? `${setName} se pondrá en cuarentena y se borrará por completo el Portafolio UBS mensual #${selectedId}. ¿Continuar?`
+    : `${setName} dejará de participar en futuras generaciones mensuales. ¿Continuar?`;
   if (!confirm(message)) return;
   try {
     const affectedPortfolioId = selectedId;
     await withSaveOverlay(
-      bundle ? 'Borrando portafolio A/M/C' : 'Excluyendo estrategia',
-      bundle
+      saved ? 'Borrando portafolio mensual' : 'Excluyendo estrategia',
+      saved
         ? `Poniendo ${setName} en cuarentena y eliminando el portafolio #${affectedPortfolioId}…`
-        : `Poniendo ${setName} en cuarentena${saved ? ` y recalculando el portafolio #${affectedPortfolioId}` : ''}…`,
+        : `Poniendo ${setName} en cuarentena…`,
       async () => {
         await postManager('exclude', {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null});
         selectedProposal = null;
-        if (bundle) selectedId = null;
-        await Promise.all([loadManagerState(), loadPortfolios(saved ? selectedId : null)]);
+        if (saved) selectedId = null;
+        await Promise.all([loadManagerState(), loadPortfolios(null)]);
       },
     );
-    toast(bundle ? `${setName} puesta en cuarentena y portafolio #${affectedPortfolioId} borrado.` : `${setName} puesta en cuarentena${saved ? ' y retirada del portafolio' : ''}.`);
+    toast(saved ? `${setName} puesta en cuarentena y portafolio #${affectedPortfolioId} borrado.` : `${setName} puesta en cuarentena.`);
   } catch (error) { toast(error.message, true); }
 }
 
