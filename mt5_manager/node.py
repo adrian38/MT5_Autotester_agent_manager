@@ -1147,13 +1147,30 @@ class JobController:
         return save_portfolio_payload(self._portfolio_source(), payload)
 
     def exclude_portfolio_members(self, payload: dict[str, Any]) -> dict[str, Any]:
-        portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
         scope = "monthly" if str(payload.get("scope") or "").strip().lower() == "monthly" else "full_history"
-        quarantine_ids = self._portfolio_source().remove_members_to_quarantine(payload, scope)
+        source = self._portfolio_source()
+        if payload.get("set_paths") is not None:
+            portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
+            quarantine_ids = source.remove_members_to_quarantine(payload, scope)
+            return {
+                "quarantine_ids": quarantine_ids,
+                "deleted": True,
+                "portfolio_id": portfolio_id,
+                "scope": scope,
+            }
+        # Single exclusion (from a saved portfolio, or straight from the inventory
+        # when no portfolio_id is sent). This MUST run on the node: the manager
+        # only reads the node's memory through a read-only snapshot, and writing
+        # to it directly over CIFS is unreliable because SQLite's WAL is not
+        # coherent across a network share, so a manager-side quarantine/delete
+        # silently failed to appear (the portfolio kept showing up after a
+        # "successful" exclusion). remove_member_to_quarantine already falls back
+        # to exclude_strategy when there is no portfolio_id.
+        portfolio_id = safe_int(payload.get("portfolio_id"), 0)
+        quarantine_id = source.remove_member_to_quarantine(payload, scope)
         return {
-            "quarantine_ids": quarantine_ids,
-            "deleted": True,
-            "portfolio_id": portfolio_id,
+            "quarantine_id": quarantine_id,
+            "portfolio_id": portfolio_id or None,
             "scope": scope,
         }
 

@@ -360,18 +360,27 @@ def _resolve_source_path(value: Any, project: Path) -> str:
     # a Linux manager container can identify known project-relative roots
     # (outputs/sets/reports/...) instead of appending a literal C:\\... name.
     path = Path(text.replace("\\", "/")).expanduser()
-    if path.exists():
-        return str(path.resolve())
     parts = path.parts
     lowered = [part.lower() for part in parts]
     for root in ("outputs", "sets", "reports", "configs", "assets"):
         if root in lowered:
             candidate = project.joinpath(*parts[lowered.index(root):])
             # A DB produced on another PC stores that PC's drive letter. Once
-            # a known project root is found, relocate it deterministically;
-            # checking hundreds of individual paths over SMB makes inventory
-            # refreshes needlessly slow and does not improve the mapping.
+            # a known project root is found, relocate it deterministically to
+            # the manager's project. This MUST run before resolving an existing
+            # path: on a mapped network drive (X:\) Path.resolve() rewrites the
+            # drive letter to its UNC target (\\host\share\...), so the same set
+            # resolved once as a raw node path (relocated, keeps X:\) and again
+            # as its already-relocated path (exists -> resolve -> UNC) produced
+            # two different strings. That non-idempotence broke quarantine
+            # matching: excluded strategies reappeared on every generation
+            # because the UNC-form quarantine path never equalled the
+            # drive-letter candidate path. Relocating first keeps the mapping
+            # idempotent and also avoids per-path SMB checks that make inventory
+            # refreshes needlessly slow.
             return str(candidate.absolute())
+    if path.exists():
+        return str(path.resolve())
     if not path.is_absolute():
         candidate = project / path
         return str(candidate.absolute())
@@ -605,6 +614,20 @@ class PortfolioSource:
     @staticmethod
     def _path_key(value: Any) -> str:
         return str(Path(str(value or "")).expanduser()).replace("/", "\\").casefold()
+
+    def _match_key(self, value: Any) -> str:
+        """Normalise a stored path to the current project before comparing.
+
+        Saved portfolios can hold set paths rooted at a *previous* deployment:
+        a Docker container's ``/data/...``, another PC's ``C:\\Users\\...`` or a
+        mapped drive ``X:\\...``. Comparing a freshly resolved request against a
+        raw stored member/allocation path then never matched, so lookups raised
+        "no se encontró la estrategia" and the exclusion/delete aborted while the
+        portfolio stayed on screen. Resolving BOTH sides through
+        ``_resolve_source_path`` collapses every historical root onto the
+        manager's current project so the keys line up again.
+        """
+        return self._path_key(_resolve_source_path(value, self.project))
 
     def quarantine_rows(self) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -1181,8 +1204,8 @@ class PortfolioSource:
             return self.exclude_strategy(payload)
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
         is_bundle = _is_bundle_portfolio(detail)
-        requested = self._path_key(_resolve_source_path(payload.get("set_path") or payload.get("set_id"), self.project))
-        member = next((item for item in detail.get("members") or [] if self._path_key(item.get("set_path")) == requested), None)
+        requested = self._match_key(payload.get("set_path") or payload.get("set_id"))
+        member = next((item for item in detail.get("members") or [] if self._match_key(item.get("set_path")) == requested), None)
         if member is None:
             raise ValueError("No se encontró la estrategia dentro del portafolio")
         # A/M/C bundles are always deleted whole. Monthly portfolios behave the
@@ -1225,12 +1248,12 @@ class PortfolioSource:
             target = max(int(row[0] or 0), int(row[1] or 0))
             conn.execute("update portfolios set target_strategies=? where id=?", (target, portfolio_id))
             allocations = conn.execute("select id,set_path from portfolio_allocations where portfolio_id=?", (portfolio_id,)).fetchall()
-            ids = [int(row["id"]) for row in allocations if self._path_key(row["set_path"]) == requested]
+            ids = [int(row["id"]) for row in allocations if self._match_key(row["set_path"]) == requested]
             if not ids:
                 raise ValueError("No se encontró la asignación dentro del portafolio")
             conn.executemany("delete from portfolio_allocations where id=?", [(value,) for value in ids])
             members = conn.execute("select id,set_path from portfolio_members where portfolio_id=?", (portfolio_id,)).fetchall()
-            member_ids = [int(row["id"]) for row in members if self._path_key(row["set_path"]) == requested]
+            member_ids = [int(row["id"]) for row in members if self._match_key(row["set_path"]) == requested]
             conn.executemany("delete from portfolio_members where id=?", [(value,) for value in member_ids])
             self._recalculate_saved(conn, portfolio_id)
             conn.commit()
@@ -1248,12 +1271,12 @@ class PortfolioSource:
         if not is_bundle:
             raise ValueError("La exclusión múltiple solo está disponible para portafolios A/M/C")
         members_by_path = {
-            self._path_key(item.get("set_path")): item for item in detail.get("members") or []
+            self._match_key(item.get("set_path")): item for item in detail.get("members") or []
         }
         members: list[dict[str, Any]] = []
         seen: set[str] = set()
         for value in requested_paths:
-            key = self._path_key(_resolve_source_path(value, self.project))
+            key = self._match_key(value)
             if key in seen:
                 continue
             member = members_by_path.get(key)
@@ -1274,8 +1297,8 @@ class PortfolioSource:
 
     def open_member_report(self, portfolio_id: int, scope: str, set_path: str) -> str:
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
-        requested = self._path_key(set_path)
-        member = next((item for item in detail["members"] if self._path_key(item.get("set_path")) == requested), None)
+        requested = self._match_key(set_path)
+        member = next((item for item in detail["members"] if self._match_key(item.get("set_path")) == requested), None)
         if member is None:
             raise ValueError("La estrategia no pertenece al portafolio")
         report = str(member.get("oos_report_path") or member.get("is_report_path") or "")
@@ -2647,10 +2670,34 @@ class PortfolioCoordinator:
         return source.saved_portfolio_detail(portfolio_id, scope) if portfolio_id is not None else source.saved_portfolios(scope)
 
     def exclude(self, node_id: str, scope: str, payload: dict[str, Any]) -> int:
-        source = PortfolioSource(self._node(node_id))
         if payload.get("set_paths") is not None:
             raise ValueError("La exclusión múltiple debe ejecutarse mediante la API del nodo")
-        quarantine_id = source.remove_member_to_quarantine(payload, scope) if safe_int(payload.get("portfolio_id"), 0) else source.exclude_strategy(payload)
+        node = self._node(node_id)
+        base_url = str(node.get("url") or "").rstrip("/")
+        if base_url.startswith(("http://", "https://")):
+            # Run the write on the node, which owns the DB, then refresh the
+            # manager snapshot -- exactly like _delete_on_node. The manager only
+            # reads the remote memory through a read-only snapshot; writing to it
+            # directly over CIFS is unreliable (SQLite WAL is not coherent across
+            # a network share), so a manager-side quarantine/delete silently
+            # failed to appear and the excluded portfolio kept showing up.
+            status, value = self._post_to_node(node, "/api/v1/portfolios/exclude", {**payload, "scope": scope})
+            if status == 404:
+                raise ValueError("El nodo todavía no admite exclusión individual local; actualiza su código y reinícialo.")
+            if status >= 400 or not isinstance(value, dict):
+                error = value.get("error") if isinstance(value, dict) else value
+                raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+            quarantine_id = safe_int(value.get("quarantine_id"), 0)
+            # Only when this manager reads the node's memory locally (via a
+            # snapshot) is there a cache to refresh; without portfolio_project_dir
+            # it proxies reads to the node too, so there is nothing to invalidate.
+            if str(node.get("portfolio_project_dir") or "").strip():
+                source = PortfolioSource(node)
+                for _account, memory in source.memory_sources:
+                    source._invalidate_remote_snapshot(memory)
+        else:
+            source = PortfolioSource(node)
+            quarantine_id = source.remove_member_to_quarantine(payload, scope) if safe_int(payload.get("portfolio_id"), 0) else source.exclude_strategy(payload)
         with self.lock:
             self.proposals.pop(self._key(node_id, "full_history"), None)
             self.proposals.pop(self._key(node_id, "monthly"), None)
@@ -2740,15 +2787,12 @@ class PortfolioCoordinator:
                         "error": str(exc),
                     })
 
-    def _delete_on_node(self, node_id: str, scope: str, portfolio_id: int) -> None:
-        node = self._node(node_id)
+    def _post_to_node(self, node: dict[str, Any], path: str, payload: dict[str, Any], timeout: int = 60) -> tuple[int, Any]:
+        """POST to a node's HTTP API and return (status, parsed_body)."""
         base_url = str(node.get("url") or "").rstrip("/")
-        if not base_url.startswith(("http://", "https://")):
-            PortfolioSource(node).delete_portfolio(portfolio_id, scope)
-            return
         request = urllib.request.Request(
-            base_url + "/api/v1/portfolios/delete",
-            data=json.dumps({"scope": scope, "portfolio_id": portfolio_id}).encode("utf-8"),
+            base_url + path,
+            data=json.dumps(payload).encode("utf-8"),
             method="POST",
             headers={
                 "Authorization": f"Bearer {node.get('token', '')}",
@@ -2756,17 +2800,25 @@ class PortfolioCoordinator:
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 raw = response.read()
-                payload = json.loads(raw) if raw else {}
-                status = response.status
+                return response.status, (json.loads(raw) if raw else {})
         except urllib.error.HTTPError as exc:
             raw = exc.read()
             try:
-                payload = json.loads(raw) if raw else {"error": str(exc)}
+                return exc.code, (json.loads(raw) if raw else {"error": str(exc)})
             except json.JSONDecodeError:
-                payload = {"error": raw.decode("utf-8", errors="replace") or str(exc)}
-            status = exc.code
+                return exc.code, {"error": raw.decode("utf-8", errors="replace") or str(exc)}
+
+    def _delete_on_node(self, node_id: str, scope: str, portfolio_id: int) -> None:
+        node = self._node(node_id)
+        base_url = str(node.get("url") or "").rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            PortfolioSource(node).delete_portfolio(portfolio_id, scope)
+            return
+        status, payload = self._post_to_node(
+            node, "/api/v1/portfolios/delete", {"scope": scope, "portfolio_id": portfolio_id}
+        )
         if status == 404:
             raise ValueError("El nodo todavía no admite borrado local; actualiza y reinicia el nodo")
         if status >= 400 or not isinstance(payload, dict):

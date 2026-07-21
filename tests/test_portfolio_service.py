@@ -132,6 +132,33 @@ class PortfolioServiceTests(unittest.TestCase):
             (project / "outputs" / "ubs_agent" / "run" / "strategy.set").absolute(),
         )
 
+    def test_source_path_relocation_is_idempotent_even_when_the_target_exists(self) -> None:
+        # Regression: on a mapped network drive (X:\ -> \\host\share) Path.resolve()
+        # rewrites the drive letter to its UNC target, so resolving a set once as a
+        # raw node path (relocated, keeps the drive letter) and again as its already
+        # relocated path (exists -> resolve -> UNC) produced two different strings.
+        # Quarantine matching compares candidate paths (resolved once) against stored
+        # quarantine paths (resolved again), so the mismatch let excluded strategies
+        # reappear on every generation while the portfolio delete (keyed by id) still
+        # worked -- exactly "portfolio deleted but strategy not excluded". Relocation
+        # under a known project root must win over the existence check so the mapping
+        # is idempotent no matter how many times it runs.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            set_file = project / "outputs" / "sets" / "strategy.set"
+            set_file.parent.mkdir(parents=True)
+            set_file.touch()  # the relocated target now exists locally
+            node_raw = r"C:\Users\node\other_project\outputs\sets\strategy.set"
+
+            once = _resolve_source_path(node_raw, project)
+            twice = _resolve_source_path(once, project)
+
+            self.assertEqual(Path(once), set_file.absolute())
+            self.assertEqual(once, twice)
+            self.assertEqual(
+                PortfolioSource._path_key(once), PortfolioSource._path_key(twice)
+            )
+
     @staticmethod
     def _recent_result(allocations: list[StrategyAllocation]) -> PortfolioResult:
         return PortfolioResult(
@@ -303,6 +330,62 @@ class PortfolioServiceTests(unittest.TestCase):
                 ).fetchone()
             self.assertEqual(quarantine["set_path"], set_path)
             self.assertEqual(quarantine["source_portfolio_id"], portfolio_id)
+
+    def test_excluding_a_member_saved_under_a_foreign_project_root_still_deletes(self) -> None:
+        # Regression: portfolio 49 was saved while the manager ran in Docker, so
+        # its members were stored under /data/roboforex/.../outputs/... . The
+        # manager now runs on Windows (project on a mapped drive). The member
+        # lookup compared a freshly resolved request against the raw stored path,
+        # so it never matched, raised "no se encontró la estrategia", and the
+        # monthly portfolio was never deleted (it kept reappearing). Both sides
+        # must be resolved to the current project first.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+            memory.touch()
+            source = PortfolioSource({
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            })
+            # Stored under a Docker root that no longer exists on this manager.
+            foreign_path = "/data/roboforex/TRADING/proj/outputs/sets/USDJPY_M15_strategy.set"
+            resolved = _resolve_source_path(foreign_path, project)  # what candidate_rows yields now
+            with source.connect(write=True) as conn:
+                portfolio_id = int(conn.execute(
+                    "insert into portfolios(created_at,name,type,portfolio_type,portfolio_scope,metrics_json) values(?,?,?,?,?,?)",
+                    ("2026-07-20", "UBS Mensual", "balanced", "balanced", "monthly", json.dumps({})),
+                ).lastrowid)
+                conn.execute(
+                    """insert into portfolio_allocations(
+                       portfolio_id,variant_key,variant_label,set_id,candidate_id,symbol,units,lot,
+                       net_profit_contribution,standalone_valley_dd,standalone_point_dd,set_path,timeframe
+                       ) values(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (portfolio_id, "default", "Equilibrada", foreign_path, "ICTRADING/STANDARD:7",
+                     "USDJPY", 13, .13, 742, 252, 0, foreign_path, "H1"),
+                )
+                conn.commit()
+            candidate = {
+                "set_path": resolved,
+                "source_memory_path": str(memory),
+                "account_type": "ICTRADING/STANDARD",
+                "source_candidate_id": 7,
+                "target_symbol": "USDJPY",
+                "period": "H1",
+            }
+
+            with patch.object(source, "candidate_rows", return_value=[candidate]), patch.object(
+                source, "_recalculate_saved", side_effect=AssertionError("no debe recalcular")
+            ):
+                quarantine_id = source.remove_member_to_quarantine(
+                    {"portfolio_id": portfolio_id, "set_path": foreign_path}, "monthly"
+                )
+
+            self.assertGreater(quarantine_id, 0)
+            with source.connect() as conn:
+                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
 
     def test_excluding_multiple_bundle_members_quarantines_all_before_deleting(self) -> None:
         source = object.__new__(PortfolioSource)

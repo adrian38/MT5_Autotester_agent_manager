@@ -269,6 +269,32 @@ enabled=0
         })
         invalidate.assert_called_once_with("test-node")
 
+    def test_single_exclusion_is_forwarded_to_the_node_api(self) -> None:
+        # A single exclusion must also run on the node (the DB owner), not be
+        # written by the manager over CIFS. Otherwise the quarantine/delete lands
+        # in a WAL that is not coherent across the share and the portfolio keeps
+        # reappearing after a "successful" (201) exclusion.
+        node_result = {"quarantine_id": 5, "portfolio_id": 49, "scope": "monthly"}
+        with mock.patch.object(
+            self.controller, "exclude_portfolio_members", return_value=node_result
+        ) as node_exclude:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/exclude",
+                {
+                    "scope": "monthly",
+                    "portfolio_id": 49,
+                    "set_path": "/data/roboforex/proj/outputs/sets/USDJPY_M15.set",
+                },
+            )
+
+        self.assertEqual(status, 201)
+        self.assertEqual(payload, {"quarantine_id": 5})
+        node_exclude.assert_called_once_with({
+            "portfolio_id": 49,
+            "set_path": "/data/roboforex/proj/outputs/sets/USDJPY_M15.set",
+            "scope": "monthly",
+        })
+
     def test_portfolio_task_status_endpoint_is_lightweight(self) -> None:
         task_state = {
             "job": {"status": "idle"},
