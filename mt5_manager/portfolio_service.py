@@ -551,12 +551,19 @@ class PortfolioSource:
                             "inténtalo de nuevo cuando termine."
                         ) from exc
                     raise
-            else:
-                if remote:
-                    REMOTE_SNAPSHOT_LOCK.acquire()
-                    remote_lock = True
-                    memory = self._remote_read_snapshot(memory)
+            elif remote:
+                REMOTE_SNAPSHOT_LOCK.acquire()
+                remote_lock = True
+                memory = self._remote_read_snapshot(memory)
                 conn = sqlite3.connect(memory.as_uri() + "?mode=ro", uri=True, timeout=5)
+            else:
+                # Local project dirs reach the manager through a container bind mount
+                # (Docker Desktop gRPC-FUSE), which cannot back the WAL shared-memory
+                # index. A plain ?mode=ro open of a WAL database then fails with
+                # "disk I/O error". immutable=1 skips the -wal/-shm and reads the main
+                # file directly; reads here are point-in-time and read-only, so a
+                # bounded lag behind an uncheckpointed WAL is acceptable for the viewer.
+                conn = sqlite3.connect(memory.as_uri() + "?immutable=1", uri=True, timeout=5)
             conn.row_factory = sqlite3.Row
             yield conn
         finally:
