@@ -181,6 +181,58 @@ enabled=0
         self.assertEqual(path, "/api/v1/jobs/regression")
         self.assertEqual(body, {"run_ids": [7, 9]})
 
+    def test_manager_reads_runs_with_extended_timeout(self) -> None:
+        with mock.patch(
+            "mt5_manager.manager.node_request",
+            return_value=(200, {"runs": [{"id": 7}]}),
+        ) as request_node:
+            status, payload = self.request("/api/nodes/test-node/runs?limit=100")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["runs"], [{"id": 7}])
+        node, method, path = request_node.call_args.args
+        self.assertEqual(node["id"], "test-node")
+        self.assertEqual(method, "GET")
+        self.assertEqual(path, "/api/v1/runs?limit=100")
+        self.assertEqual(request_node.call_args.kwargs, {"timeout": 120})
+
+    def test_manager_submits_repair_without_waiting_for_the_node_response(self) -> None:
+        request_started = threading.Event()
+        release_request = threading.Event()
+        request_finished = threading.Event()
+
+        def slow_request(*_args: object, **_kwargs: object) -> tuple[int, dict]:
+            request_started.set()
+            release_request.wait(3)
+            request_finished.set()
+            return 202, {"job_type": "repair", "status": "running"}
+
+        try:
+            with mock.patch(
+                "mt5_manager.manager.node_request", side_effect=slow_request
+            ) as request_node:
+                status, payload = self.request(
+                    "/api/nodes/test-node/repair",
+                    {"run_ids": [7], "repair_attempts": 4, "retry_low_quality": True},
+                )
+                self.assertEqual(status, 202)
+                self.assertEqual(payload["status"], "submitting")
+                self.assertFalse(payload["queued"])
+                self.assertTrue(request_started.wait(1))
+                self.assertFalse(request_finished.is_set())
+                node, method, path, body = request_node.call_args.args
+                self.assertEqual(node["id"], "test-node")
+                self.assertEqual(method, "POST")
+                self.assertEqual(path, "/api/v1/jobs/repair")
+                self.assertEqual(
+                    body,
+                    {"run_ids": [7], "repair_attempts": 4, "retry_low_quality": True},
+                )
+                self.assertEqual(request_node.call_args.kwargs, {"timeout": 3600})
+        finally:
+            release_request.set()
+        self.assertTrue(request_finished.wait(1))
+
     def test_portfolio_delete_endpoint_accepts_a_background_task(self) -> None:
         task = {
             "id": "delete-37", "status": "pending", "operation": "delete", "portfolio_id": 37,

@@ -110,6 +110,21 @@ def node_request(
         return exc.code, value
 
 
+def submit_repair_request(node: dict[str, Any], payload: dict[str, Any]) -> None:
+    try:
+        status, value = node_request(
+            node, "POST", "/api/v1/jobs/repair", payload, timeout=3600
+        )
+        if status >= 400:
+            sys.stderr.write(
+                f"[manager-repair] El nodo {node.get('id')} devolvio HTTP {status}: {value}\n"
+            )
+    except (OSError, urllib.error.URLError, TimeoutError, ValueError) as exc:
+        sys.stderr.write(
+            f"[manager-repair] No se pudo enviar la reparacion a {node.get('id')}: {exc}\n"
+        )
+
+
 class ManagerHandler(BaseHTTPRequestHandler):
     server: "ManagerServer"
 
@@ -222,7 +237,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 node = self._node(urllib.parse.unquote(parts[2]))
                 query = urllib.parse.parse_qs(parsed.query)
                 limit = safe_int(query.get("limit", [100])[0], 100, minimum=1, maximum=500)
-                status, value = node_request(node, "GET", f"/api/v1/runs?limit={limit}")
+                status, value = node_request(node, "GET", f"/api/v1/runs?limit={limit}", timeout=120)
                 self._send_json(status, value)
             except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self._send_json(502, {"error": str(exc)})
@@ -440,7 +455,23 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 "universe": "/api/v1/universe/symbols",
             }
             target = targets[parts[3]]
-            status, value = node_request(node, "POST", target, self._body())
+            body = self._body()
+            if parts[3] == "repair":
+                worker = threading.Thread(
+                    target=submit_repair_request,
+                    args=(node, body),
+                    daemon=True,
+                    name=f"repair-submit-{node.get('id')}",
+                )
+                worker.start()
+                self._send_json(202, {
+                    "job_type": "repair",
+                    "status": "submitting",
+                    "queued": False,
+                    "request": body,
+                })
+                return
+            status, value = node_request(node, "POST", target, body)
             self._send_json(status, value)
         except (KeyError, ValueError, json.JSONDecodeError) as exc:
             self._send_json(400, {"error": str(exc)})
