@@ -429,6 +429,8 @@ async function openRepair(id, name) {
     `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. Ejecutará las pruebas pendientes usando un solo terminal MT5.`;
   document.querySelector('#repair-attempts').value = settingsFor(node, id).repair_attempts;
   const container = document.querySelector('#repair-runs');
+  document.querySelector('#repair-select-row').hidden = true;
+  updateRepairSelectionState();
   container.textContent = 'Cargando runs terminados…';
   repairDialog.showModal();
   try {
@@ -447,9 +449,36 @@ async function openRepair(id, name) {
       const sixMonth = total(run.stages?.final_tick_6m);
       return `<label class="repair-run"><input type="checkbox" name="repair-run" value="${run.id}"><span><strong>Run #${run.id}</strong><small>${esc(run.created_at)} · candidatos ${base} · OOS ${robust} · FT ${finalTick} · 6M ${sixMonth}</small></span></label>`;
     }).join('');
+    updateRepairSelectionState();
   } catch (error) {
     container.innerHTML = `<div class="repair-empty error">${esc(error.message)}</div>`;
+    updateRepairSelectionState();
   }
+}
+
+function repairRunInputs() {
+  return [...document.querySelectorAll('input[name="repair-run"]')];
+}
+
+function updateRepairSelectionState() {
+  const inputs = repairRunInputs();
+  const selected = inputs.filter(input => input.checked).length;
+  const selectAll = document.querySelector('#repair-select-all');
+  const row = document.querySelector('#repair-select-row');
+  const count = document.querySelector('#repair-selected-count');
+  row.hidden = !inputs.length;
+  selectAll.checked = inputs.length > 0 && selected === inputs.length;
+  selectAll.indeterminate = selected > 0 && selected < inputs.length;
+  count.textContent = inputs.length
+    ? `${selected}/${inputs.length} seleccionados`
+    : '0 seleccionados';
+}
+
+function toggleRepairRuns(checked) {
+  repairRunInputs().forEach(input => {
+    input.checked = checked;
+  });
+  updateRepairSelectionState();
 }
 
 function setRepairAttempts(value) {
@@ -622,10 +651,14 @@ document.querySelector('#execute').addEventListener('change', event => {
 document.querySelector('#repair-after-generation').addEventListener('change', event => {
   document.querySelector('#generation-repair-attempts').disabled = !event.target.checked;
 });
+document.querySelector('#repair-runs').addEventListener('change', event => {
+  if (event.target.matches('input[name="repair-run"]')) updateRepairSelectionState();
+});
 document.querySelector('#refresh').addEventListener('click', refresh);
 window.openStart = openStart;
 window.openRepair = openRepair;
 window.submitRepair = submitRepair;
+window.toggleRepairRuns = toggleRepairRuns;
 window.openRegression = openRegression;
 window.submitRegression = submitRegression;
 window.setRepairAttempts = setRepairAttempts;

@@ -74,6 +74,10 @@
       </label>
       <label class="check repair-quality"><input id="repair-low-quality" type="checkbox" checked> Reprobar calidad baja en Corto y 6M</label>
     </div>
+    <div id="repair-select-row" class="repair-select-row" hidden>
+      <label class="check"><input id="repair-select-all" type="checkbox" onchange="toggleRepairRuns(this.checked)"> Seleccionar todos</label>
+      <span id="repair-selected-count">0 seleccionados</span>
+    </div>
     <div id="repair-runs" class="repair-runs">Cargando runs…</div>
     <div class="dialog-actions">
       <button class="secondary" onclick="this.closest('dialog').close()">Cancelar</button>

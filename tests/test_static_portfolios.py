@@ -175,6 +175,20 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="regression-dialog"', page)
         self.assertIn("Ejecutar prueba regresiva", page)
 
+    def test_repair_dialog_can_select_all_runs(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "app.js").read_text(encoding="utf-8")
+        page = (static_dir / "index.html").read_text(encoding="utf-8")
+        styles = (static_dir / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="repair-select-all"', page)
+        self.assertIn("Seleccionar todos", page)
+        self.assertIn("function toggleRepairRuns", script)
+        self.assertIn("function updateRepairSelectionState", script)
+        self.assertIn("selectAll.indeterminate", script)
+        self.assertIn("window.toggleRepairRuns = toggleRepairRuns", script)
+        self.assertIn(".repair-select-row", styles)
+
     def test_every_html_number_input_accepts_representative_backend_values(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         fields = {}

@@ -8,3 +8,5 @@
 - El modal de reparacion carga primero `GET /api/nodes/{id}/runs?limit=100`.
   Esa llamada es de solo lectura pero puede tardar mas que el timeout generico
   en nodos remotos, asi que el manager la proxya con timeout de 120 segundos.
+- La lista de runs del modal de reparacion incluye un control "Seleccionar
+  todos" con contador para operar sobre todos los runs cargados.
