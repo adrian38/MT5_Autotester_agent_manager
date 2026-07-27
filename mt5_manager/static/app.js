@@ -437,9 +437,15 @@ async function openRepair(id, name) {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/runs?limit=100`, {cache: 'no-store'});
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
-    const runs = (data.runs || []).filter(run => run.completed);
+    // Reparable = tiene candidatos y ninguno en vuelo (generated/pending/running),
+    // aunque no haya llegado a la ultima generacion. Se calcula aqui para no depender
+    // de campos nuevos del backend del nodo.
+    const isActive = run => ['generated', 'pending', 'running']
+      .some(status => (run.candidate_counts?.[status] || 0) > 0);
+    const isRepairable = run => total(run.candidate_counts) > 0 && !isActive(run);
+    const runs = (data.runs || []).filter(isRepairable);
     if (!runs.length) {
-      container.innerHTML = '<div class="repair-empty">No hay runs terminados disponibles.</div>';
+      container.innerHTML = '<div class="repair-empty">No hay runs reparables disponibles.</div>';
       return;
     }
     container.innerHTML = runs.map(run => {
@@ -447,7 +453,11 @@ async function openRepair(id, name) {
       const robust = total(run.stages?.robustness);
       const finalTick = total(run.stages?.final_tick);
       const sixMonth = total(run.stages?.final_tick_6m);
-      return `<label class="repair-run"><input type="checkbox" name="repair-run" value="${run.id}"><span><strong>Run #${run.id}</strong><small>${esc(run.created_at)} · candidatos ${base} · OOS ${robust} · FT ${finalTick} · 6M ${sixMonth}</small></span></label>`;
+      const incomplete = !run.completed && (run.max_generation || 0) < (run.generations || 0);
+      const badge = incomplete
+        ? ` <span class="repair-run-badge">incompleto · gen ${run.max_generation || 0}/${run.generations || 0}</span>`
+        : '';
+      return `<label class="repair-run"><input type="checkbox" name="repair-run" value="${run.id}"><span><strong>Run #${run.id}</strong>${badge}<small>${esc(run.created_at)} · candidatos ${base} · OOS ${robust} · FT ${finalTick} · 6M ${sixMonth}</small></span></label>`;
     }).join('');
     updateRepairSelectionState();
   } catch (error) {
@@ -491,7 +501,7 @@ async function submitRepair() {
   const id = document.querySelector('#repair-node-id').value;
   const runIds = [...document.querySelectorAll('input[name="repair-run"]:checked')].map(element => Number(element.value));
   if (!runIds.length) {
-    toast('Selecciona al menos un run terminado.', true);
+    toast('Selecciona al menos un run reparable.', true);
     return;
   }
   const button = document.querySelector('#repair-submit');
