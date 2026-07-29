@@ -426,7 +426,8 @@ async function openRepair(id, name) {
   const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
   const regressionStep = brokerOf(node) === 'ICTRADING' ? ' → Prueba regresiva' : '';
   document.querySelector('#repair-help-text').textContent =
-    `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. Ejecutará las pruebas pendientes usando un solo terminal MT5.`;
+    `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. Ejecutará las pruebas pendientes con el límite de terminales indicado.`;
+  document.querySelector('#repair-workers').value = settingsFor(node, id).max_workers;
   document.querySelector('#repair-attempts').value = settingsFor(node, id).repair_attempts;
   const container = document.querySelector('#repair-runs');
   document.querySelector('#repair-select-row').hidden = true;
@@ -497,6 +498,12 @@ function setRepairAttempts(value) {
   setCardValue(id, 'repair_attempts', Math.max(1, Math.min(20, Number(value) || 1)));
 }
 
+function setStageWorkers(dialogName, value) {
+  const id = document.querySelector(`#${dialogName}-node-id`).value;
+  if (!id) return;
+  setCardValue(id, 'max_workers', Math.max(1, Math.min(64, Number(value) || 1)));
+}
+
 async function submitRepair() {
   const id = document.querySelector('#repair-node-id').value;
   const runIds = [...document.querySelectorAll('input[name="repair-run"]:checked')].map(element => Number(element.value));
@@ -510,6 +517,7 @@ async function submitRepair() {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/repair`, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
         run_ids: runIds,
+        max_workers: Number(document.querySelector('#repair-workers').value),
         repair_attempts: Number(document.querySelector('#repair-attempts').value),
         retry_low_quality: document.querySelector('#repair-low-quality').checked,
       }),
@@ -519,7 +527,7 @@ async function submitRepair() {
     repairDialog.close();
     toast(data.queued
       ? `Reparación agregada a la cola · posición ${data.queue_item?.position || data.task_queue?.count}`
-      : `Reparación iniciada para ${runIds.length} run(s), ${document.querySelector('#repair-attempts').value} intento(s).`);
+      : `Reparación iniciada para ${runIds.length} run(s), ${document.querySelector('#repair-attempts').value} intento(s), hasta ${document.querySelector('#repair-workers').value} terminal(es).`);
     await refresh();
   } catch (error) {
     toast(error.message, true);
@@ -531,7 +539,11 @@ async function submitRepair() {
 async function openRegression(id, name) {
   document.querySelector('#regression-node-id').value = id;
   document.querySelector('#regression-title').textContent = `Prueba regresiva · ${name}`;
+  const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
+  document.querySelector('#regression-workers').value = settingsFor(node, id).max_workers;
   const container = document.querySelector('#regression-runs');
+  document.querySelector('#regression-select-row').hidden = true;
+  updateRegressionSelectionState();
   container.textContent = 'Cargando runs terminados…';
   regressionDialog.showModal();
   try {
@@ -547,9 +559,36 @@ async function openRegression(id, name) {
       const base = total(run.candidate_counts);
       return `<label class="repair-run"><input type="checkbox" name="regression-run" value="${run.id}"><span><strong>Run #${run.id}</strong><small>${esc(run.created_at)} · candidatos ${base}</small></span></label>`;
     }).join('');
+    updateRegressionSelectionState();
   } catch (error) {
     container.innerHTML = `<div class="repair-empty error">${esc(error.message)}</div>`;
+    updateRegressionSelectionState();
   }
+}
+
+function regressionRunInputs() {
+  return [...document.querySelectorAll('input[name="regression-run"]')];
+}
+
+function updateRegressionSelectionState() {
+  const inputs = regressionRunInputs();
+  const selected = inputs.filter(input => input.checked).length;
+  const selectAll = document.querySelector('#regression-select-all');
+  const row = document.querySelector('#regression-select-row');
+  const count = document.querySelector('#regression-selected-count');
+  row.hidden = !inputs.length;
+  selectAll.checked = inputs.length > 0 && selected === inputs.length;
+  selectAll.indeterminate = selected > 0 && selected < inputs.length;
+  count.textContent = inputs.length
+    ? `${selected}/${inputs.length} seleccionados`
+    : '0 seleccionados';
+}
+
+function toggleRegressionRuns(checked) {
+  regressionRunInputs().forEach(input => {
+    input.checked = checked;
+  });
+  updateRegressionSelectionState();
 }
 
 async function submitRegression() {
@@ -564,14 +603,17 @@ async function submitRegression() {
   button.disabled = true;
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/regression`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({run_ids: runIds}),
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+        run_ids: runIds,
+        max_workers: Number(document.querySelector('#regression-workers').value),
+      }),
     });
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     regressionDialog.close();
     toast(data.queued
       ? `Prueba regresiva agregada a la cola · posición ${data.queue_item?.position || data.task_queue?.count}`
-      : `Prueba regresiva iniciada para ${runIds.length} run(s).`);
+      : `Prueba regresiva iniciada para ${runIds.length} run(s), hasta ${document.querySelector('#regression-workers').value} terminal(es).`);
     await refresh();
   } catch (error) {
     toast(error.message, true);
@@ -664,6 +706,9 @@ document.querySelector('#repair-after-generation').addEventListener('change', ev
 document.querySelector('#repair-runs').addEventListener('change', event => {
   if (event.target.matches('input[name="repair-run"]')) updateRepairSelectionState();
 });
+document.querySelector('#regression-runs').addEventListener('change', event => {
+  if (event.target.matches('input[name="regression-run"]')) updateRegressionSelectionState();
+});
 document.querySelector('#refresh').addEventListener('click', refresh);
 window.openStart = openStart;
 window.openRepair = openRepair;
@@ -671,7 +716,9 @@ window.submitRepair = submitRepair;
 window.toggleRepairRuns = toggleRepairRuns;
 window.openRegression = openRegression;
 window.submitRegression = submitRegression;
+window.toggleRegressionRuns = toggleRegressionRuns;
 window.setRepairAttempts = setRepairAttempts;
+window.setStageWorkers = setStageWorkers;
 window.setCardValue = setCardValue;
 window.syncCardPipeline = syncCardPipeline;
 window.syncAutoRepair = syncAutoRepair;

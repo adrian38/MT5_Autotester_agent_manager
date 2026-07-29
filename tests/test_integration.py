@@ -170,7 +170,7 @@ enabled=0
             return_value=(202, {"job_type": "regression", "status": "running"}),
         ) as request_node:
             status, payload = self.request(
-                "/api/nodes/test-node/regression", {"run_ids": [7, 9]}
+                "/api/nodes/test-node/regression", {"run_ids": [7, 9], "max_workers": 5}
             )
 
         self.assertEqual(status, 202)
@@ -179,7 +179,7 @@ enabled=0
         self.assertEqual(node["id"], "test-node")
         self.assertEqual(method, "POST")
         self.assertEqual(path, "/api/v1/jobs/regression")
-        self.assertEqual(body, {"run_ids": [7, 9]})
+        self.assertEqual(body, {"run_ids": [7, 9], "max_workers": 5})
 
     def test_manager_reads_runs_with_extended_timeout(self) -> None:
         with mock.patch(
@@ -213,7 +213,10 @@ enabled=0
             ) as request_node:
                 status, payload = self.request(
                     "/api/nodes/test-node/repair",
-                    {"run_ids": [7], "repair_attempts": 4, "retry_low_quality": True},
+                    {
+                        "run_ids": [7], "max_workers": 6,
+                        "repair_attempts": 4, "retry_low_quality": True,
+                    },
                 )
                 self.assertEqual(status, 202)
                 self.assertEqual(payload["status"], "submitting")
@@ -226,7 +229,10 @@ enabled=0
                 self.assertEqual(path, "/api/v1/jobs/repair")
                 self.assertEqual(
                     body,
-                    {"run_ids": [7], "repair_attempts": 4, "retry_low_quality": True},
+                    {
+                        "run_ids": [7], "max_workers": 6,
+                        "repair_attempts": 4, "retry_low_quality": True,
+                    },
                 )
                 self.assertEqual(request_node.call_args.kwargs, {"timeout": 3600})
         finally:
@@ -534,7 +540,10 @@ enabled=0
         fake_command = [sys.executable, str(self.root / "ubs_agent.py")]
         with (
             mock.patch("mt5_manager.node.build_generation_command", return_value=(fake_command, self.root)),
-            mock.patch("mt5_manager.node.build_pipeline_stage_command", return_value=(fake_command, self.root)),
+            mock.patch(
+                "mt5_manager.node.build_pipeline_stage_command",
+                return_value=(fake_command, self.root),
+            ) as build_auto_repair_stage,
             mock.patch("mt5_manager.node.pipeline_stage_pending_count", return_value=1),
         ):
             state = self.controller.start({
@@ -545,6 +554,7 @@ enabled=0
                 "run_final_tick_6m": True,
                 "repair_after_generation": True,
                 "repair_attempts": 2,
+                "max_workers": 4,
             })
             repair_actions = [
                 "result", "robustness", "final_tick", "final_tick_quality",
@@ -557,15 +567,16 @@ enabled=0
             self.assertEqual([step["action"] for step in state["pipeline"]], expected_actions)
             self.assertTrue(state["request"]["repair_after_generation"])
             self.assertEqual(state["request"]["repair_attempts"], 2)
-            self.assertTrue(all(
-                step.get("max_workers") == 1
-                for step in state["pipeline"] if step["action"] != "generation"
-            ))
             deadline = time.time() + 5
             while time.time() < deadline and self.controller.status()["job"]["status"] == "running":
                 time.sleep(.03)
         result = self.controller.status()["job"]
         self.assertEqual(result["status"], "completed")
+        self.assertTrue(build_auto_repair_stage.call_args_list)
+        self.assertTrue(all(
+            call.args[1]["max_workers"] == 4
+            for call in build_auto_repair_stage.call_args_list
+        ))
         expected_stages = []
         for cycle in (1, 2):
             expected_stages.append(f"cycle_{cycle}_generation")
@@ -576,16 +587,20 @@ enabled=0
             )
         self.assertEqual(result["completed_stages"], expected_stages)
 
-    def test_repair_runs_all_tests_per_selected_run_with_one_worker(self) -> None:
+    def test_repair_runs_all_tests_per_selected_run_with_requested_workers(self) -> None:
         fake_command = [sys.executable, str(self.root / "ubs_agent.py")]
         with (
-            mock.patch("mt5_manager.node.build_pipeline_stage_command", return_value=(fake_command, self.root)),
+            mock.patch(
+                "mt5_manager.node.build_pipeline_stage_command",
+                return_value=(fake_command, self.root),
+            ) as build_stage,
             mock.patch("mt5_manager.node.pipeline_stage_pending_count", return_value=1),
         ):
             state = self.controller.start_repair({
-                "run_ids": [7, 9], "repair_attempts": 2, "retry_low_quality": True,
+                "run_ids": [7, 9], "max_workers": 3,
+                "repair_attempts": 2, "retry_low_quality": True,
             })
-            self.assertEqual(state["request"]["max_workers"], 1)
+            self.assertEqual(state["request"]["max_workers"], 3)
             self.assertEqual(state["request"]["repair_attempts"], 2)
             self.assertEqual(len(state["pipeline"]), 24)
             deadline = time.time() + 5
@@ -593,6 +608,11 @@ enabled=0
                 time.sleep(.03)
         result = self.controller.status()["job"]
         self.assertEqual(result["status"], "completed")
+        self.assertTrue(build_stage.call_args_list)
+        self.assertTrue(all(
+            call.args[1]["max_workers"] == 3
+            for call in build_stage.call_args_list
+        ))
         actions = ["result", "robustness", "final_tick", "final_tick_quality", "final_tick_6m", "final_tick_6m_quality"]
         expected = [
             f"run_{run_id}_attempt_{attempt}_{action}"

@@ -67,8 +67,11 @@
       <button class="icon-button" onclick="this.closest('dialog').close()">×</button>
     </div>
     <input type="hidden" id="repair-node-id">
-    <p class="repair-help" id="repair-help-text">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Ejecutará las pruebas pendientes usando un solo terminal MT5.</p>
+    <p class="repair-help" id="repair-help-text">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Ejecutará las pruebas pendientes con el límite de terminales indicado.</p>
     <div class="repair-options">
+      <label>Terminales MT5
+        <input id="repair-workers" type="number" min="1" max="64" value="1" oninput="setStageWorkers('repair', Number(this.value))">
+      </label>
       <label>Número de reintentos
         <input id="repair-attempts" type="number" min="1" max="20" value="1" oninput="setRepairAttempts(Number(this.value))">
       </label>
@@ -91,6 +94,15 @@
     </div>
     <input type="hidden" id="regression-node-id">
     <p class="repair-help">Ejecutará únicamente la prueba regresiva para los runs terminados seleccionados.</p>
+    <div class="repair-options">
+      <label>Terminales MT5
+        <input id="regression-workers" type="number" min="1" max="64" value="1" oninput="setStageWorkers('regression', Number(this.value))">
+      </label>
+    </div>
+    <div id="regression-select-row" class="repair-select-row" hidden>
+      <label class="check"><input id="regression-select-all" type="checkbox" onchange="toggleRegressionRuns(this.checked)"> Seleccionar todos</label>
+      <span id="regression-selected-count">0 seleccionados</span>
+    </div>
     <div id="regression-runs" class="repair-runs">Cargando runs…</div>
     <div class="dialog-actions">
       <button class="secondary" onclick="this.closest('dialog').close()">Cancelar</button>

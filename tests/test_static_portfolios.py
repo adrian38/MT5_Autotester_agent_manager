@@ -171,8 +171,10 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("broker === 'ICTRADING'", script)
         self.assertIn("openRegression", script)
         self.assertIn("/regression`,", script)
-        self.assertIn("JSON.stringify({run_ids: runIds})", script)
+        self.assertIn("regression-workers", script)
+        self.assertIn("max_workers: Number(document.querySelector('#regression-workers').value)", script)
         self.assertIn('id="regression-dialog"', page)
+        self.assertIn('id="regression-workers"', page)
         self.assertIn("Ejecutar prueba regresiva", page)
 
     def test_repair_dialog_can_select_all_runs(self) -> None:
@@ -187,7 +189,21 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("function updateRepairSelectionState", script)
         self.assertIn("selectAll.indeterminate", script)
         self.assertIn("window.toggleRepairRuns = toggleRepairRuns", script)
+        self.assertIn('id="repair-workers"', page)
+        self.assertIn("max_workers: Number(document.querySelector('#repair-workers').value)", script)
         self.assertIn(".repair-select-row", styles)
+
+    def test_regression_dialog_can_select_all_runs(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "app.js").read_text(encoding="utf-8")
+        page = (static_dir / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="regression-select-all"', page)
+        self.assertIn("toggleRegressionRuns(this.checked)", page)
+        self.assertIn('id="regression-selected-count"', page)
+        self.assertIn("function toggleRegressionRuns", script)
+        self.assertIn("function updateRegressionSelectionState", script)
+        self.assertIn("window.toggleRegressionRuns = toggleRegressionRuns", script)
 
     def test_every_html_number_input_accepts_representative_backend_values(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -205,6 +221,8 @@ class PortfolioFormTests(unittest.TestCase):
             "variants": (1, 10, 10000),
             "max-seeds": (0, 30, 100000),
             "max-workers": (1, 64),
+            "repair-workers": (1, 64),
+            "regression-workers": (1, 64),
             "generation-repair-attempts": (1, 20),
             "repair-attempts": (1, 20),
             "capital": (0.5, 5000, 10000.25),
