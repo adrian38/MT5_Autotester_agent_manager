@@ -31,6 +31,7 @@ from .portfolio_service import (
     portfolio_group_key,
     summarize_robust_rows,
 )
+from .portfolio_monthly_experimental import optimize_experimental_monthly_portfolio
 
 
 Progress = Callable[[str], None]
@@ -110,6 +111,18 @@ def _monthly_proposals(
         kwargs = _optimizer_kwargs(inputs, objective_type, existing_curves, reserve)
 
         def optimize(candidate_sets: list[Any]) -> PortfolioResult:
+            if inputs.get("experimental_monthly_search"):
+                return optimize_experimental_monthly_portfolio(
+                    monthly_sets=candidate_sets,
+                    full_sets=full_sets,
+                    target_month=int(inputs["target_month"]),
+                    strict_yearly_month_validation=bool(
+                        inputs.get("strict_yearly_month_validation")
+                    ),
+                    use_deep_refinement=bool(inputs.get("deep_optimization")),
+                    progress=progress,
+                    **kwargs,
+                )
             if inputs.get("strict_yearly_month_validation"):
                 return optimize_strict_monthly_portfolio(
                     monthly_sets=candidate_sets,

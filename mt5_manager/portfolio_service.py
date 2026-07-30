@@ -107,6 +107,7 @@ MONTHLY_DEFAULTS: dict[str, Any] = {
     "exclude_monthly_used": False,
     "corr_with_monthly_portfolios": False,
     "strict_yearly_month_validation": False,
+    "experimental_monthly_search": False,
 }
 
 _REPORT_CACHE: dict[str, tuple[int, int, StrategyReport]] = {}
@@ -186,6 +187,7 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
         "require_3_positive_months_6m", "grid_off", "exclude_used_sets",
         "validate_margin", "daily_dd_full_history", "exclude_monthly_used",
         "corr_with_monthly_portfolios", "strict_yearly_month_validation",
+        "experimental_monthly_search",
     )
     for key in boolean_keys:
         values[key] = bool(values.get(key))
@@ -997,6 +999,7 @@ class PortfolioSource:
             "exclude_monthly_used": False,
             "corr_with_monthly_portfolios": False,
             "strict_yearly_month_validation": False,
+            "experimental_monthly_search": False,
             "daily_dd_full_history": False,
             "dd_reserve_pct": 0.0,
             "search_restarts": 0,

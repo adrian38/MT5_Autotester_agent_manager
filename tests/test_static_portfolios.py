@@ -79,6 +79,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("no se excluyen del cálculo", monthly_script)
         self.assertIn("async function refreshMonthlyLog", monthly_script)
         self.assertIn("refreshMonthlyLog(true)", monthly_script)
+        self.assertIn('name="experimental_monthly_search"', monthly_page)
+        self.assertIn("'experimental_monthly_search'", monthly_script)
+        self.assertNotIn('name="experimental_monthly_search"', full_page)
         self.assertNotIn('name="target_month"', full_page)
         self.assertNotIn('name="max_daily_dd"', full_page)
 

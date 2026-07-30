@@ -938,6 +938,24 @@ class PortfolioServiceTests(unittest.TestCase):
             "positive": 1, "recent_recovery": 1, "eligible": 1,
         })
 
+    def test_experimental_monthly_search_is_opt_in_and_persisted(self) -> None:
+        defaults = normalize_settings(
+            "monthly",
+            {"allowed_asset_groups": ["Forex"]},
+            "ICTRADING",
+        )
+        enabled = normalize_settings(
+            "monthly",
+            {
+                "allowed_asset_groups": ["Forex"],
+                "experimental_monthly_search": True,
+            },
+            "ICTRADING",
+        )
+
+        self.assertFalse(defaults["experimental_monthly_search"])
+        self.assertTrue(enabled["experimental_monthly_search"])
+
     def test_failed_monthly_job_keeps_the_last_reached_stage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

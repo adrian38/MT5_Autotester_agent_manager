@@ -64,7 +64,7 @@ function hydrate(settings) {
 }
 
 const numericFields = ['capital', 'valley_dd_pct', 'target_month', 'max_daily_dd', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];
-const booleanFields = ['run_local_search', 'deep_optimization', 'use_correlation', 'require_3_positive_months_6m', 'grid_off', 'exclude_monthly_used', 'corr_with_monthly_portfolios', 'strict_yearly_month_validation', 'daily_dd_full_history'];
+const booleanFields = ['run_local_search', 'deep_optimization', 'experimental_monthly_search', 'use_correlation', 'require_3_positive_months_6m', 'grid_off', 'exclude_monthly_used', 'corr_with_monthly_portfolios', 'strict_yearly_month_validation', 'daily_dd_full_history'];
 
 function formPayload() {
   const payload = {scope, portfolio_type: form.elements.portfolio_type.value, margin_profile: form.elements.margin_profile.value, allowed_asset_groups: groups.filter(group => form.elements[`group_${group}`].checked)};
@@ -384,7 +384,7 @@ document.querySelector('#portfolio-log-close').addEventListener('click', () => {
 });
 
 document.querySelector('#reset-settings').addEventListener('click', () => {
-  hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', target_month: 1, max_daily_dd: 150, top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 15, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: false, use_correlation: true, exclude_monthly_used: false, corr_with_monthly_portfolios: false, strict_yearly_month_validation: false, daily_dd_full_history: false, allowed_asset_groups: groups});
+  hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', target_month: 1, max_daily_dd: 150, top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 15, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: false, experimental_monthly_search: false, use_correlation: true, exclude_monthly_used: false, corr_with_monthly_portfolios: false, strict_yearly_month_validation: false, daily_dd_full_history: false, allowed_asset_groups: groups});
   toast('Valores mensuales restablecidos; pulsa Guardar configuración para persistirlos.');
 });
 
