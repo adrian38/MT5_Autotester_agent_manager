@@ -13,3 +13,8 @@
 - El límite de terminales del modal se persiste como `repair_max_workers`.
   No reutiliza ni modifica `max_workers`, que pertenece a una nueva ejecución,
   ni `regression_max_workers`, que pertenece a la regresiva manual.
+- La reparación automática posterior a cada run usa el mismo
+  `repair_max_workers` independiente. El campo "Terminales para reparación"
+  aparece tanto en la tarjeta como en el modal de nueva ejecución; sus etapas
+  solo heredan `max_workers` como compatibilidad para clientes antiguos que
+  omitan el nuevo campo.

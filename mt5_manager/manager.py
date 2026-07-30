@@ -441,7 +441,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": str(exc)})
             return
         if len(parts) != 4 or parts[:2] != ["api", "nodes"] or parts[3] not in {
-            "start", "stop", "repair", "regression", "universe",
+            "start", "stop", "repair", "regression", "cleanup", "universe",
         }:
             self._send_json(404, {"error": "Ruta no encontrada"})
             return
@@ -452,6 +452,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 "stop": "/api/v1/jobs/stop",
                 "repair": "/api/v1/jobs/repair",
                 "regression": "/api/v1/jobs/regression",
+                "cleanup": "/api/v1/jobs/cleanup",
                 "universe": "/api/v1/universe/symbols",
             }
             target = targets[parts[3]]
@@ -523,6 +524,7 @@ class ManagerServer(ThreadingHTTPServer):
             "cycles", "generation_mode", "max_workers", "repair_max_workers",
             "regression_max_workers", "repair_attempts", "repair_after_generation",
             "run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression",
+            "cleanup_after_run",
         }
         unknown = set(changes) - allowed
         if unknown:
@@ -540,7 +542,10 @@ class ManagerServer(ThreadingHTTPServer):
                 normalized[key] = safe_int(changes[key], 1, minimum=1, maximum=64)
         if "repair_attempts" in changes:
             normalized["repair_attempts"] = safe_int(changes["repair_attempts"], 1, minimum=1, maximum=20)
-        for key in ("run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression", "repair_after_generation"):
+        for key in (
+            "run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression",
+            "repair_after_generation", "cleanup_after_run",
+        ):
             if key in changes:
                 if not isinstance(changes[key], bool):
                     raise ValueError(f"{key} debe ser booleano")

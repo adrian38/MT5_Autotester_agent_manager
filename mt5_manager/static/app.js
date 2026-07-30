@@ -49,8 +49,20 @@ function statusOf(node) {
   return node.job?.status || 'idle';
 }
 
-function brokerOf(node) {
-  return String(node.node?.broker || '').trim().toUpperCase();
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object || {}, key);
+}
+
+function supportsRegression(node) {
+  return Boolean(
+    node.capabilities?.regression_runs
+    || hasOwn(node.launch_defaults, 'run_regression')
+    || hasOwn(node.database?.stages, 'regression')
+  );
+}
+
+function supportsCleanup(node) {
+  return Boolean(node.capabilities?.historical_cleanup);
 }
 
 function pipelineStepLabel(job) {
@@ -75,6 +87,9 @@ function liveExecution(node, state) {
     final_tick_6m: 'Final Tick 6M',
     final_tick_6m_quality: 'Reintento de calidad · Final Tick 6M',
     regression: 'Prueba regresiva',
+    cleanup_tester: 'Limpieza histórica · Tester',
+    cleanup_data: 'Limpieza histórica · Bases e historial',
+    cleanup_verify: 'Limpieza histórica · Verificación',
   };
   const cycleText = job.current_cycle
     ? `Ciclo ${job.current_cycle}/${Number(request.cycles || 1)}`
@@ -107,7 +122,12 @@ function liveExecution(node, state) {
 function stageBlock(node, state, title, data, stageIndex, stageKey) {
   const saved = total(data);
   const job = node.job || {};
-  const currentMap = {generation:0,result:0,robustness:1,final_tick:2,final_tick_quality:2,final_tick_6m:3,final_tick_6m_quality:3};
+  const currentMap = {
+    generation: 0, result: 0, robustness: 1,
+    final_tick: 2, final_tick_quality: 2,
+    final_tick_6m: 3, final_tick_6m_quality: 3,
+    regression: 4,
+  };
   const currentIndex = currentMap[job.current_stage];
   const running = state === 'running' && currentIndex === stageIndex;
   const waiting = state === 'running' && currentIndex != null && stageIndex > currentIndex;
@@ -119,7 +139,7 @@ function stageBlock(node, state, title, data, stageIndex, stageKey) {
     const processing = `<span class="chip running">procesando · ${pending}</span>`;
     body = saved > 0 ? body + processing : processing;
   } else if (waiting) {
-    const waitLabels = ['Resultado','Robustez OOS','Final Tick','Final Tick 6M'];
+    const waitLabels = ['Resultado','Robustez OOS','Final Tick','Final Tick 6M','Prueba regresiva'];
     counter = saved > 0 ? `${saved} guardados` : 'Pendiente';
     if (!saved) body = `<span class="chip waiting">Esperando ${esc(waitLabels[currentIndex] || 'fase anterior')}</span>`;
   }
@@ -141,6 +161,7 @@ function settingsFor(node, id) {
       run_final_tick: Boolean(defaults.run_final_tick),
       run_final_tick_6m: Boolean(defaults.run_final_tick_6m),
       run_regression: Boolean(defaults.run_regression),
+      cleanup_after_run: supportsCleanup(node) && defaults.cleanup_after_run !== false,
     };
   }
   return cardSettings[id];
@@ -177,18 +198,29 @@ function launchControls(node, id) {
           onchange="syncCardPipeline('${esc(id)}','final_tick',this.checked)"> Final Tick</label>
         <label class="check"><input id="card-6m-${key}" type="checkbox" ${values.run_final_tick_6m ? 'checked' : ''}
           onchange="syncCardPipeline('${esc(id)}','final_tick_6m',this.checked)"> Final Tick 6M</label>
-        ${brokerOf(node) === 'ICTRADING' ? `<label class="check"><input id="card-regression-${key}" type="checkbox" ${values.run_regression ? 'checked' : ''}
+        ${supportsRegression(node) ? `<label class="check"><input id="card-regression-${key}" type="checkbox" ${values.run_regression ? 'checked' : ''}
           onchange="syncCardPipeline('${esc(id)}','regression',this.checked)"> Prueba regresiva</label>` : ''}
       </div>
       <div class="card-auto-repair">
         <label class="check"><input type="checkbox" ${values.repair_after_generation ? 'checked' : ''}
           onchange="syncAutoRepair('${esc(id)}',this.checked)"> Reparar después de completar el run</label>
+        <label>Terminales para reparación
+          <input type="number" min="1" max="64" value="${values.repair_max_workers}"
+            ${values.repair_after_generation ? '' : 'disabled'}
+            oninput="setCardValue('${esc(id)}','repair_max_workers',Number(this.value))">
+        </label>
         <label>Reintentos por run
           <input type="number" min="1" max="20" value="${values.repair_attempts}"
             ${values.repair_after_generation ? '' : 'disabled'}
             oninput="setCardValue('${esc(id)}','repair_attempts',Number(this.value))">
         </label>
       </div>
+      ${supportsCleanup(node) ? `<div class="card-cleanup-policy">
+        <label class="check"><input type="checkbox" ${values.cleanup_after_run ? 'checked' : ''}
+          onchange="syncCleanupAfterRun('${esc(id)}',this.checked)">
+          Limpiar datos históricos al completar cada run</label>
+        <small>Cierra MT5 y elimina tester, bases, history y reportes de terminal.</small>
+      </div>` : ''}
     </div>`;
 }
 
@@ -217,6 +249,13 @@ function syncAutoRepair(id, checked) {
   const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
   settingsFor(node, id).repair_after_generation = checked;
   persistCardSettings(id, {repair_after_generation: checked});
+  render();
+}
+
+function syncCleanupAfterRun(id, checked) {
+  const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
+  settingsFor(node, id).cleanup_after_run = checked;
+  persistCardSettings(id, {cleanup_after_run: checked});
   render();
 }
 
@@ -270,7 +309,9 @@ function taskQueueBlock(node, id) {
   const rows = items.map(item => {
     const label = item.type === 'repair'
       ? 'Reparación'
-      : item.type === 'regression' ? 'Prueba regresiva' : 'Ejecución';
+      : item.type === 'regression'
+        ? 'Prueba regresiva'
+        : item.type === 'cleanup' ? 'Limpieza histórica' : 'Ejecución';
     return `<div class="task-queue-item">
       <span class="task-position">${Number(item.position || 0)}</span>
       <span><strong>${esc(label)}</strong><small>${esc(item.summary || item.created_at || '')}</small></span>
@@ -299,10 +340,16 @@ function render() {
     }
     const run = node.database?.latest_run;
     const stages = node.database?.stages || {};
-    const stageHtml = [
+    const stageDefinitions = [
       ['Resultado', stages.generation, 0, 'generation'], ['Robustez OOS', stages.robustness, 1, 'robustness'],
       ['Final Tick', stages.final_tick, 2, 'final_tick'], ['Final Tick 6M', stages.final_tick_6m, 3, 'final_tick_6m'],
-    ].map(([title, data, index, key]) => stageBlock(node, state, title, data, index, key)).join('');
+    ];
+    if (supportsRegression(node)) {
+      stageDefinitions.push(['Prueba regresiva', stages.regression, 4, 'regression']);
+    }
+    const stageHtml = stageDefinitions
+      .map(([title, data, index, key]) => stageBlock(node, state, title, data, index, key))
+      .join('');
     const runText = run
       ? `Run <strong>#${run.id}</strong> · ${esc(run.created_at)} · generación ${node.database?.max_generation || 0}/${run.generations || '?'}`
       : 'Todavía no hay runs en la memoria SQLite.';
@@ -311,9 +358,11 @@ function render() {
     const repairButton = node.capabilities?.repair_runs
       ? `<button class="secondary" onclick="openRepair('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${supportsQueue && (state === 'running' || queuedCount) ? 'Agregar reparación' : 'Reparar'}</button>`
       : '';
-    const broker = String(node.node?.broker || '').trim().toUpperCase();
-    const regressionButton = broker === 'ICTRADING'
+    const regressionButton = supportsRegression(node)
       ? `<button class="secondary" onclick="openRegression('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${supportsQueue && (state === 'running' || queuedCount) ? 'Agregar regresiva' : 'Prueba regresiva'}</button>`
+      : '';
+    const cleanupButton = supportsCleanup(node)
+      ? `<button class="danger" onclick="cleanupNode('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${supportsQueue && (state === 'running' || queuedCount) ? 'Agregar limpieza' : 'Eliminar históricos'}</button>`
       : '';
     const universeButton = node.capabilities?.universe_management
       ? `<a class="button secondary" href="/universe.html?node=${encodeURIComponent(id)}">Universo</a>`
@@ -322,7 +371,7 @@ function render() {
       ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><a class="button secondary" href="/portfolios_monthly.html?node=${encodeURIComponent(id)}">Portafolio mensual</a>`
       : '';
     const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
-    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
+    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${cleanupButton}${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
   }).join('');
 }
 
@@ -361,15 +410,20 @@ function openStart(id, name) {
   document.querySelector('#mode').value = selected.generation_mode;
   document.querySelector('#max-workers').value = selected.max_workers;
   document.querySelector('#max-workers').disabled = !workers;
-  const supportsRegression = brokerOf(node) === 'ICTRADING';
+  const regressionAvailable = supportsRegression(node);
   document.querySelector('#run-robustness').checked = advanced && selected.run_robustness;
   document.querySelector('#run-final-tick').checked = advanced && selected.run_final_tick;
   document.querySelector('#run-final-tick-6m').checked = advanced && selected.run_final_tick_6m;
-  document.querySelector('#run-regression-option').hidden = !supportsRegression;
-  document.querySelector('#run-regression').checked = advanced && supportsRegression && selected.run_regression;
+  document.querySelector('#run-regression-option').hidden = !regressionAvailable;
+  document.querySelector('#run-regression').checked = advanced && regressionAvailable && selected.run_regression;
   document.querySelector('#repair-after-generation').checked = advanced && selected.repair_after_generation;
+  const cleanupOption = document.querySelector('#cleanup-after-run-option');
+  cleanupOption.hidden = !supportsCleanup(node);
+  document.querySelector('#cleanup-after-run').checked = supportsCleanup(node) && selected.cleanup_after_run;
+  document.querySelector('#generation-repair-workers').value = selected.repair_max_workers;
   document.querySelector('#generation-repair-attempts').value = selected.repair_attempts;
   document.querySelector('#repair-after-generation').disabled = !advanced;
+  document.querySelector('#generation-repair-workers').disabled = !advanced || !selected.repair_after_generation || !document.querySelector('#execute').checked;
   document.querySelector('#generation-repair-attempts').disabled = !advanced || !selected.repair_after_generation || !document.querySelector('#execute').checked;
   document.querySelectorAll('#run-robustness,#run-final-tick,#run-final-tick-6m,#run-regression').forEach(element => { element.disabled = !advanced; });
   const note = document.querySelector('#capability-note');
@@ -396,15 +450,22 @@ document.querySelector('#start-form').addEventListener('submit', async event => 
     run_regression: !document.querySelector('#run-regression-option').hidden
       && document.querySelector('#run-regression').checked,
     repair_after_generation: document.querySelector('#repair-after-generation').checked,
+    repair_max_workers: Number(document.querySelector('#generation-repair-workers').value),
     repair_attempts: Number(document.querySelector('#generation-repair-attempts').value),
+    cleanup_after_run: !document.querySelector('#cleanup-after-run-option').hidden
+      && document.querySelector('#cleanup-after-run').checked,
     dry_run: document.querySelector('#dry-run').checked,
   };
   const saved = settingsFor(nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {}, id);
   saved.repair_after_generation = payload.repair_after_generation;
+  saved.repair_max_workers = payload.repair_max_workers;
   saved.repair_attempts = payload.repair_attempts;
+  saved.cleanup_after_run = payload.cleanup_after_run;
   persistCardSettings(id, {
     repair_after_generation: payload.repair_after_generation,
+    repair_max_workers: payload.repair_max_workers,
     repair_attempts: payload.repair_attempts,
+    cleanup_after_run: payload.cleanup_after_run,
   });
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/start`, {
@@ -426,7 +487,7 @@ async function openRepair(id, name) {
   document.querySelector('#repair-node-id').value = id;
   document.querySelector('#repair-title').textContent = `Reparar · ${name}`;
   const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
-  const regressionStep = brokerOf(node) === 'ICTRADING' ? ' → Prueba regresiva' : '';
+  const regressionStep = supportsRegression(node) ? ' → Prueba regresiva' : '';
   document.querySelector('#repair-help-text').textContent =
     `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. Ejecutará las pruebas pendientes con el límite de terminales indicado.`;
   document.querySelector('#repair-workers').value = settingsFor(node, id).repair_max_workers;
@@ -522,6 +583,7 @@ async function submitRepair() {
         max_workers: Number(document.querySelector('#repair-workers').value),
         repair_attempts: Number(document.querySelector('#repair-attempts').value),
         retry_low_quality: document.querySelector('#repair-low-quality').checked,
+        cleanup_after_run: true,
       }),
     });
     const data = await readJsonResponse(response);
@@ -608,6 +670,7 @@ async function submitRegression() {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
         run_ids: runIds,
         max_workers: Number(document.querySelector('#regression-workers').value),
+        cleanup_after_run: true,
       }),
     });
     const data = await readJsonResponse(response);
@@ -633,6 +696,27 @@ async function cancelQueuedTask(id, taskId) {
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     toast('Tarea quitada de la cola');
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function cleanupNode(id, name) {
+  const warning = `¿Eliminar los datos históricos de ${name}?\n\n`
+    + 'Se cerrarán MetaTrader y los agentes Tester y se borrarán tester, bases, history '
+    + 'y reportes de las carpetas de datos de TODAS las terminales.\n\n'
+    + 'Los reportes locales del proyecto usados por UBS se conservarán.';
+  if (!confirm(warning)) return;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/cleanup`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    toast(data.queued
+      ? `Limpieza histórica agregada a la cola · posición ${data.queue_item?.position || data.task_queue?.count}`
+      : `Limpieza histórica iniciada en ${name}`);
     await refresh();
   } catch (error) {
     toast(error.message, true);
@@ -700,9 +784,11 @@ document.querySelector('#execute').addEventListener('change', event => {
   const autoRepair = document.querySelector('#repair-after-generation');
   autoRepair.disabled = !event.target.checked || !supported;
   if (!event.target.checked) autoRepair.checked = false;
+  document.querySelector('#generation-repair-workers').disabled = !autoRepair.checked || autoRepair.disabled;
   document.querySelector('#generation-repair-attempts').disabled = !autoRepair.checked || autoRepair.disabled;
 });
 document.querySelector('#repair-after-generation').addEventListener('change', event => {
+  document.querySelector('#generation-repair-workers').disabled = !event.target.checked;
   document.querySelector('#generation-repair-attempts').disabled = !event.target.checked;
 });
 document.querySelector('#repair-runs').addEventListener('change', event => {
@@ -724,7 +810,9 @@ window.setStageWorkers = setStageWorkers;
 window.setCardValue = setCardValue;
 window.syncCardPipeline = syncCardPipeline;
 window.syncAutoRepair = syncAutoRepair;
+window.syncCleanupAfterRun = syncCleanupAfterRun;
 window.cancelQueuedTask = cancelQueuedTask;
+window.cleanupNode = cleanupNode;
 window.stopNode = stopNode;
 window.showLogs = showLogs;
 window.refresh = refresh;

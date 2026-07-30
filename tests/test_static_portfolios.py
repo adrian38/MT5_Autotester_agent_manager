@@ -166,12 +166,17 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("portfolio-manager/export-download", script)
         self.assertIn("link.download", script)
 
-    def test_regression_button_is_scoped_to_ictrading_and_uses_its_own_job(self) -> None:
+    def test_regression_card_features_follow_node_capabilities_and_use_their_own_job(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")
         page = (static_dir / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn("broker === 'ICTRADING'", script)
+        self.assertIn("function supportsRegression(node)", script)
+        self.assertIn("node.capabilities?.regression_runs", script)
+        self.assertIn("hasOwn(node.launch_defaults, 'run_regression')", script)
+        self.assertIn("hasOwn(node.database?.stages, 'regression')", script)
+        self.assertIn("stageDefinitions.push(['Prueba regresiva', stages.regression, 4, 'regression'])", script)
+        self.assertNotIn("broker === 'ICTRADING'", script)
         self.assertIn("openRegression", script)
         self.assertIn("/regression`,", script)
         self.assertIn("regression-workers", script)
@@ -180,6 +185,24 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="regression-dialog"', page)
         self.assertIn('id="regression-workers"', page)
         self.assertIn("Ejecutar prueba regresiva", page)
+
+    def test_cards_expose_manual_and_automatic_historical_cleanup(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "app.js").read_text(encoding="utf-8")
+        page = (static_dir / "index.html").read_text(encoding="utf-8")
+        styles = (static_dir / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn("node.capabilities?.historical_cleanup", script)
+        self.assertIn("cleanupNode", script)
+        self.assertIn("/cleanup`,", script)
+        self.assertIn("Eliminar históricos", script)
+        self.assertIn("TODAS las terminales", script)
+        self.assertIn("syncCleanupAfterRun", script)
+        self.assertEqual(script.count("cleanup_after_run: true"), 2)
+        self.assertIn('id="cleanup-after-run"', page)
+        self.assertIn("Limpiar datos históricos al completar cada run", page)
+        self.assertGreaterEqual(page.count("después de cada run seleccionado"), 2)
+        self.assertIn(".card-cleanup-policy", styles)
 
     def test_repair_dialog_can_select_all_runs(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -196,6 +219,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="repair-workers"', page)
         self.assertIn("max_workers: Number(document.querySelector('#repair-workers').value)", script)
         self.assertIn("settingsFor(node, id).repair_max_workers", script)
+        self.assertIn('id="generation-repair-workers"', page)
+        self.assertIn("repair_max_workers: Number(document.querySelector('#generation-repair-workers').value)", script)
+        self.assertIn("Terminales para reparación", page)
         self.assertIn("`${dialogName}_max_workers`", script)
         self.assertIn(".repair-select-row", styles)
 
@@ -229,6 +255,7 @@ class PortfolioFormTests(unittest.TestCase):
             "max-workers": (1, 64),
             "repair-workers": (1, 64),
             "regression-workers": (1, 64),
+            "generation-repair-workers": (1, 64),
             "generation-repair-attempts": (1, 20),
             "repair-attempts": (1, 20),
             "capital": (0.5, 5000, 10000.25),

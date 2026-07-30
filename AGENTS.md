@@ -3,7 +3,8 @@
 ## Alcance obligatorio
 
 - Este repositorio es `MT5_Autotester_agent_manager`.
-- No trabajar ni aplicar cambios en `MT5_Autotester_agent` desde este workspace.
+- Se permite trabajar exclusivamente en `C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent`.
+- No modificar las copias de AXI, RoboForex ni `MT5_Autotester_agent`.
 - Preservar cambios ajenos y limitar cada modificación al objetivo solicitado.
 
 ## Memoria de código obligatoria

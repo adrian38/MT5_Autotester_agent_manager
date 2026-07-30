@@ -2,15 +2,21 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest import mock
 
 from mt5_manager.node import (
+    CLEANUP_STAGES,
+    JobController,
+    build_historical_cleanup_command,
     build_generation_command,
     build_pipeline_stage_command,
     database_snapshot,
+    historical_cleanup_scripts,
     pipeline_stage_pending_count,
 )
 
@@ -115,6 +121,140 @@ enabled=0
         six_month_quality, _ = build_pipeline_stage_command(self.config, {}, "final_tick_6m_quality", 17)
         self.assertEqual(six_month_quality[six_month_quality.index("--final-tick-stage") + 1], "six_month")
         self.assertIn("--final-tick-retry-pending-quality", six_month_quality)
+
+    def test_historical_cleanup_uses_the_same_two_agent_scripts(self) -> None:
+        scripts_dir = self.root / "scripts"
+        scripts_dir.mkdir()
+        for filename in ("cleanOldTest.ps1", "cleanOlddata.ps1"):
+            (scripts_dir / filename).write_text("Write-Host clean\n", encoding="utf-8")
+
+        scripts = historical_cleanup_scripts(self.config)
+        tester_command, cwd = build_historical_cleanup_command(self.config, "cleanup_tester")
+        verify_command, _ = build_historical_cleanup_command(self.config, "cleanup_verify")
+
+        self.assertEqual(cwd, self.root)
+        self.assertEqual(scripts["cleanup_tester"], scripts_dir / "cleanOldTest.ps1")
+        self.assertEqual(scripts["cleanup_data"], scripts_dir / "cleanOlddata.ps1")
+        self.assertEqual(tester_command[-1], str(scripts_dir / "cleanOldTest.ps1"))
+        self.assertEqual(verify_command[:2], [sys.executable, "-c"])
+
+    def test_each_completed_generation_cycle_ends_with_historical_cleanup(self) -> None:
+        scripts_dir = self.root / "scripts"
+        scripts_dir.mkdir()
+        for filename in ("cleanOldTest.ps1", "cleanOlddata.ps1"):
+            (scripts_dir / filename).write_text("Write-Host clean\n", encoding="utf-8")
+        config_path = self.root / "node.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        controller = JobController(self.config, config_path)
+
+        with mock.patch.object(controller, "_launch_step"):
+            state = controller.start({
+                "cycles": 2,
+                "execute_backtests": False,
+                "run_robustness": False,
+                "run_final_tick": False,
+                "run_final_tick_6m": False,
+            })
+
+        self.assertTrue(state["request"]["cleanup_after_run"])
+        self.assertEqual(
+            [step["action"] for step in state["pipeline"]],
+            ["generation", *CLEANUP_STAGES, "generation", *CLEANUP_STAGES],
+        )
+
+    def test_auto_repair_uses_an_independent_worker_limit(self) -> None:
+        config_path = self.root / "node.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        controller = JobController(self.config, config_path)
+
+        with mock.patch.object(controller, "_launch_step"):
+            state = controller.start({
+                "cycles": 1,
+                "max_workers": 7,
+                "repair_max_workers": 3,
+                "repair_after_generation": True,
+                "repair_attempts": 1,
+                "run_robustness": True,
+                "cleanup_after_run": False,
+            })
+
+        self.assertEqual(state["request"]["max_workers"], 7)
+        self.assertEqual(state["request"]["repair_max_workers"], 3)
+        repair_steps = [
+            step for step in state["pipeline"]
+            if step["action"] != "generation"
+        ]
+        self.assertTrue(repair_steps)
+        self.assertTrue(all(step["max_workers"] == 3 for step in repair_steps))
+
+    def test_manual_historical_cleanup_is_a_queueable_job(self) -> None:
+        scripts_dir = self.root / "scripts"
+        scripts_dir.mkdir()
+        for filename in ("cleanOldTest.ps1", "cleanOlddata.ps1"):
+            (scripts_dir / filename).write_text("Write-Host clean\n", encoding="utf-8")
+        config_path = self.root / "node.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        controller = JobController(self.config, config_path)
+
+        with mock.patch.object(controller, "_launch_next_runnable"):
+            state = controller.start_cleanup()
+
+        self.assertEqual(state["job_type"], "cleanup")
+        self.assertEqual([step["action"] for step in state["pipeline"]], list(CLEANUP_STAGES))
+
+    def test_manual_repair_cleans_after_each_selected_run(self) -> None:
+        scripts_dir = self.root / "scripts"
+        scripts_dir.mkdir()
+        for filename in ("cleanOldTest.ps1", "cleanOlddata.ps1"):
+            (scripts_dir / filename).write_text("Write-Host clean\n", encoding="utf-8")
+        config_path = self.root / "node.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        controller = JobController(self.config, config_path)
+
+        with mock.patch.object(controller, "_launch_next_runnable", return_value=True):
+            state = controller.start_repair({
+                "run_ids": [7, 9], "repair_attempts": 1, "cleanup_after_run": True,
+            })
+
+        actions = ["result", "robustness", "final_tick", "final_tick_quality",
+                   "final_tick_6m", "final_tick_6m_quality"]
+        expected = [
+            *((run_id, action) for run_id in (7, 9) for action in (*actions, *CLEANUP_STAGES)),
+        ]
+        self.assertTrue(state["request"]["cleanup_after_run"])
+        self.assertEqual(
+            [(step["run_id"], step["action"]) for step in state["pipeline"]],
+            expected,
+        )
+        self.assertEqual(
+            controller._step_label({"action": "cleanup_tester", "cycle": None, "run_id": 7}),
+            "run_7_cleanup_tester",
+        )
+
+    def test_manual_regression_cleans_after_each_selected_run(self) -> None:
+        scripts_dir = self.root / "scripts"
+        scripts_dir.mkdir()
+        for filename in ("cleanOldTest.ps1", "cleanOlddata.ps1"):
+            (scripts_dir / filename).write_text("Write-Host clean\n", encoding="utf-8")
+        config_path = self.root / "node.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        controller = JobController(self.config, config_path)
+
+        with mock.patch.object(controller, "_launch_next_runnable", return_value=True):
+            state = controller.start_regression({
+                "run_ids": [11, 12], "max_workers": 4, "cleanup_after_run": True,
+            })
+
+        self.assertTrue(state["request"]["cleanup_after_run"])
+        self.assertEqual(
+            [(step["run_id"], step["action"]) for step in state["pipeline"]],
+            [
+                (11, "regression"),
+                *((11, action) for action in CLEANUP_STAGES),
+                (12, "regression"),
+                *((12, action) for action in CLEANUP_STAGES),
+            ],
+        )
 
     def test_result_repair_uses_the_selected_run_original_dates(self) -> None:
         memory = self.root / "result_repair.sqlite"

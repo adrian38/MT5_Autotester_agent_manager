@@ -49,7 +49,12 @@
       </div>
       <div class="auto-repair-options">
         <label class="check"><input id="repair-after-generation" type="checkbox"> Reparar después de completar el run</label>
+        <label>Terminales para reparación<input id="generation-repair-workers" type="number" min="1" max="64" value="1" required></label>
         <label>Reintentos por run<input id="generation-repair-attempts" type="number" min="1" max="20" value="1" required></label>
+      </div>
+      <div class="cleanup-options" id="cleanup-after-run-option" hidden>
+        <label class="check"><input id="cleanup-after-run" type="checkbox" checked> Limpiar datos históricos al completar cada run</label>
+        <small>Cierra MT5 y elimina tester, bases, history y reportes de terminal; conserva los reportes locales del proyecto.</small>
       </div>
       <p id="capability-note" class="capability-note" hidden></p>
       <label class="check"><input id="dry-run" type="checkbox"> Simulación (dry-run)</label>
@@ -67,7 +72,7 @@
       <button class="icon-button" onclick="this.closest('dialog').close()">×</button>
     </div>
     <input type="hidden" id="repair-node-id">
-    <p class="repair-help" id="repair-help-text">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Ejecutará las pruebas pendientes con el límite de terminales indicado.</p>
+    <p class="repair-help" id="repair-help-text">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Ejecutará las pruebas pendientes y limpiará los históricos después de cada run seleccionado.</p>
     <div class="repair-options">
       <label>Terminales MT5
         <input id="repair-workers" type="number" min="1" max="64" value="1" oninput="setStageWorkers('repair', Number(this.value))">
@@ -93,7 +98,7 @@
       <button class="icon-button" onclick="this.closest('dialog').close()">×</button>
     </div>
     <input type="hidden" id="regression-node-id">
-    <p class="repair-help">Ejecutará únicamente la prueba regresiva para los runs terminados seleccionados.</p>
+    <p class="repair-help">Ejecutará únicamente la prueba regresiva y limpiará los históricos después de cada run seleccionado.</p>
     <div class="repair-options">
       <label>Terminales MT5
         <input id="regression-workers" type="number" min="1" max="64" value="1" oninput="setStageWorkers('regression', Number(this.value))">

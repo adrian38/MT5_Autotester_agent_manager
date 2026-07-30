@@ -126,6 +126,7 @@ enabled=0
             "run_final_tick": True,
             "run_final_tick_6m": False,
             "run_regression": True,
+            "cleanup_after_run": True,
         })
         self.assertEqual(status, 200)
         self.assertEqual(saved["preferences"]["cycles"], 3)
@@ -135,6 +136,7 @@ enabled=0
         self.assertEqual(saved["preferences"]["repair_attempts"], 3)
         self.assertTrue(saved["preferences"]["repair_after_generation"])
         self.assertTrue(saved["preferences"]["run_regression"])
+        self.assertTrue(saved["preferences"]["cleanup_after_run"])
         persisted = json.loads(self.preferences_path.read_text(encoding="utf-8"))["test-node"]
         self.assertEqual(persisted["max_workers"], 4)
         self.assertEqual(persisted["repair_max_workers"], 2)
@@ -178,7 +180,8 @@ enabled=0
             return_value=(202, {"job_type": "regression", "status": "running"}),
         ) as request_node:
             status, payload = self.request(
-                "/api/nodes/test-node/regression", {"run_ids": [7, 9], "max_workers": 5}
+                "/api/nodes/test-node/regression",
+                {"run_ids": [7, 9], "max_workers": 5, "cleanup_after_run": True},
             )
 
         self.assertEqual(status, 202)
@@ -187,7 +190,25 @@ enabled=0
         self.assertEqual(node["id"], "test-node")
         self.assertEqual(method, "POST")
         self.assertEqual(path, "/api/v1/jobs/regression")
-        self.assertEqual(body, {"run_ids": [7, 9], "max_workers": 5})
+        self.assertEqual(
+            body,
+            {"run_ids": [7, 9], "max_workers": 5, "cleanup_after_run": True},
+        )
+
+    def test_manager_proxies_historical_cleanup_to_the_node(self) -> None:
+        with mock.patch(
+            "mt5_manager.manager.node_request",
+            return_value=(202, {"job_type": "cleanup", "status": "running"}),
+        ) as request_node:
+            status, payload = self.request("/api/nodes/test-node/cleanup", {})
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["job_type"], "cleanup")
+        node, method, path, body = request_node.call_args.args
+        self.assertEqual(node["id"], "test-node")
+        self.assertEqual(method, "POST")
+        self.assertEqual(path, "/api/v1/jobs/cleanup")
+        self.assertEqual(body, {})
 
     def test_manager_reads_runs_with_extended_timeout(self) -> None:
         with mock.patch(
