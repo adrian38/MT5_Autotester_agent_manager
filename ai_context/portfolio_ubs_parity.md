@@ -6,6 +6,9 @@ Las dos aplicaciones tienen entradas independientes:
 
 - UBS A/M/C: `static/portfolios.html`, `static/portfolios.js` y `generate_proposals()` en `portfolio_service.py`.
 - UBS mensual: `static/portfolios_monthly.html`, `static/portfolios_monthly.js` y `portfolio_monthly_service.py`.
+- Los experimentales también están separados: `portfolio_full_experimental.py`
+  selecciona la base A/M/C y `portfolio_monthly_experimental.py` gestiona el
+  torneo estacional mensual.
 - `PortfolioCoordinator._worker()` sólo despacha por scope; no contiene el algoritmo mensual.
 - El mensual crea el log antes de arrancar el worker y muestra seis etapas más una consola en vivo.
 

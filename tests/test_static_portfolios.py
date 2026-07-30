@@ -82,6 +82,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('name="experimental_monthly_search"', monthly_page)
         self.assertIn("'experimental_monthly_search'", monthly_script)
         self.assertNotIn('name="experimental_monthly_search"', full_page)
+        self.assertIn('name="experimental_full_search"', full_page)
+        self.assertIn("'experimental_full_search'", full_script)
+        self.assertNotIn('name="experimental_full_search"', monthly_page)
         self.assertNotIn('name="target_month"', full_page)
         self.assertNotIn('name="max_daily_dd"', full_page)
 

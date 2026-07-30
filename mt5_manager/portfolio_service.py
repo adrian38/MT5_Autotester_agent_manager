@@ -47,6 +47,7 @@ from portfolio_manager.ubs_portfolio import (
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
 from .common import load_json, safe_float, safe_int, save_json, utc_now
+from .portfolio_full_experimental import optimize_experimental_full_portfolio
 
 
 ASSET_GROUPS = ("Forex", "Metals", "Indices", "Energies", "Crypto", "Stocks", "Bonds", "Softs")
@@ -82,6 +83,7 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "require_3_positive_months_6m": False,
     "grid_off": False,
     "exclude_used_sets": True,
+    "experimental_full_search": False,
     "min_strategy_recent_contribution_pct": 5.0,
     "dd_reserve_pct": 10.0,
     "search_restarts": 4,
@@ -185,12 +187,17 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
     boolean_keys = (
         "run_local_search", "deep_optimization", "use_correlation",
         "require_3_positive_months_6m", "grid_off", "exclude_used_sets",
+        "experimental_full_search",
         "validate_margin", "daily_dd_full_history", "exclude_monthly_used",
         "corr_with_monthly_portfolios", "strict_yearly_month_validation",
         "experimental_monthly_search",
     )
     for key in boolean_keys:
         values[key] = bool(values.get(key))
+    if monthly:
+        values["experimental_full_search"] = False
+    else:
+        values["experimental_monthly_search"] = False
     if not values["use_correlation"]:
         for key in ("max_pair_corr", "max_downside_corr", "max_dd_overlap", "max_portfolio_corr"):
             values[key] = None
@@ -995,6 +1002,7 @@ class PortfolioSource:
             "require_3_positive_months_6m": False,
             "grid_off": False,
             "exclude_used_sets": True,
+            "experimental_full_search": False,
             "min_strategy_recent_contribution_pct": COMMON_DEFAULTS["min_strategy_recent_contribution_pct"],
             "exclude_monthly_used": False,
             "corr_with_monthly_portfolios": False,
@@ -1600,14 +1608,29 @@ def _locked_full_proposals(
         existing_by_type.get(base_type, []),
         base_reserve,
     )
+
+    def optimize_base(candidate_sets: list[Any]) -> PortfolioResult:
+        if base_inputs.get("experimental_full_search"):
+            return optimize_experimental_full_portfolio(
+                raw_sets=candidate_sets,
+                use_deep_refinement=bool(
+                    base_inputs.get("deep_optimization")
+                ),
+                progress=progress,
+                **base_kwargs,
+            )
+        return optimize_portfolio(
+            raw_sets=candidate_sets,
+            use_deep_refinement=bool(
+                base_inputs.get("deep_optimization")
+            ),
+            **base_kwargs,
+        )
+
     base, removed_ids = _optimize_without_recent_fillers(
         raw_sets,
         minimum_recent_pct,
-        lambda candidate_sets: optimize_portfolio(
-            raw_sets=candidate_sets,
-            use_deep_refinement=bool(base_inputs.get("deep_optimization")),
-            **base_kwargs,
-        ),
+        optimize_base,
     )
     locked_ids = [allocation.set_id for allocation in base.allocations if allocation.units > 0]
     if not locked_ids:
@@ -1617,6 +1640,22 @@ def _locked_full_proposals(
     if missing:
         raise ValueError("Faltan sets de la composicion base: " + ", ".join(Path(value).name for value in missing))
     locked_sets = [raw_by_id[set_id] for set_id in locked_ids]
+    experimental_audit = (
+        base.seasonal_validation.get(
+            "experimental_full_history_stability"
+        )
+        if base_inputs.get("experimental_full_search")
+        else None
+    )
+    experimental_warnings = [
+        warning
+        for warning in base.warnings
+        if warning.startswith("Búsqueda UBS experimental:")
+        or warning.startswith(
+            "Estabilidad UBS experimental IS/OOS/6M:"
+        )
+        or warning.startswith("Advertencia experimental UBS:")
+    ]
     while True:
         locked_count = len(locked_sets)
         if inputs.get("max_total_units") is not None and int(inputs["max_total_units"]) < locked_count:
@@ -1660,6 +1699,14 @@ def _locked_full_proposals(
                 errors.append(f"{label}: no mantuvo todos los sets comunes")
                 continue
             _seasonal_coverage(result, locked_sets)
+            if experimental_audit is not None:
+                result.seasonal_validation = dict(
+                    result.seasonal_validation or {}
+                )
+                result.seasonal_validation[
+                    "experimental_full_history_stability"
+                ] = experimental_audit
+                result.warnings[:0] = experimental_warnings
             proposals.append({"key": key, "label": label, "reserve_pct": reserve, "inputs": proposal_inputs, "result": result})
         if len(proposals) != 3:
             raise ValueError("No se pudieron calcular las tres variantes bloqueadas. " + " | ".join(errors))
