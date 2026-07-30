@@ -133,6 +133,8 @@ function settingsFor(node, id) {
       cycles: Number(defaults.cycles || 1),
       generation_mode: defaults.generation_mode || 'production',
       max_workers: Number(defaults.max_workers || 1),
+      repair_max_workers: Number(defaults.repair_max_workers || 1),
+      regression_max_workers: Number(defaults.regression_max_workers || 1),
       repair_attempts: Number(defaults.repair_attempts || 1),
       repair_after_generation: Boolean(defaults.repair_after_generation),
       run_robustness: Boolean(defaults.run_robustness),
@@ -427,7 +429,7 @@ async function openRepair(id, name) {
   const regressionStep = brokerOf(node) === 'ICTRADING' ? ' → Prueba regresiva' : '';
   document.querySelector('#repair-help-text').textContent =
     `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. Ejecutará las pruebas pendientes con el límite de terminales indicado.`;
-  document.querySelector('#repair-workers').value = settingsFor(node, id).max_workers;
+  document.querySelector('#repair-workers').value = settingsFor(node, id).repair_max_workers;
   document.querySelector('#repair-attempts').value = settingsFor(node, id).repair_attempts;
   const container = document.querySelector('#repair-runs');
   document.querySelector('#repair-select-row').hidden = true;
@@ -501,7 +503,7 @@ function setRepairAttempts(value) {
 function setStageWorkers(dialogName, value) {
   const id = document.querySelector(`#${dialogName}-node-id`).value;
   if (!id) return;
-  setCardValue(id, 'max_workers', Math.max(1, Math.min(64, Number(value) || 1)));
+  setCardValue(id, `${dialogName}_max_workers`, Math.max(1, Math.min(64, Number(value) || 1)));
 }
 
 async function submitRepair() {
@@ -540,7 +542,7 @@ async function openRegression(id, name) {
   document.querySelector('#regression-node-id').value = id;
   document.querySelector('#regression-title').textContent = `Prueba regresiva · ${name}`;
   const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
-  document.querySelector('#regression-workers').value = settingsFor(node, id).max_workers;
+  document.querySelector('#regression-workers').value = settingsFor(node, id).regression_max_workers;
   const container = document.querySelector('#regression-runs');
   document.querySelector('#regression-select-row').hidden = true;
   updateRegressionSelectionState();

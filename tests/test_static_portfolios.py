@@ -173,6 +173,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("/regression`,", script)
         self.assertIn("regression-workers", script)
         self.assertIn("max_workers: Number(document.querySelector('#regression-workers').value)", script)
+        self.assertIn("settingsFor(node, id).regression_max_workers", script)
         self.assertIn('id="regression-dialog"', page)
         self.assertIn('id="regression-workers"', page)
         self.assertIn("Ejecutar prueba regresiva", page)
@@ -191,6 +192,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("window.toggleRepairRuns = toggleRepairRuns", script)
         self.assertIn('id="repair-workers"', page)
         self.assertIn("max_workers: Number(document.querySelector('#repair-workers').value)", script)
+        self.assertIn("settingsFor(node, id).repair_max_workers", script)
+        self.assertIn("`${dialogName}_max_workers`", script)
         self.assertIn(".repair-select-row", styles)
 
     def test_regression_dialog_can_select_all_runs(self) -> None:

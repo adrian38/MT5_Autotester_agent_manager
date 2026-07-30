@@ -520,7 +520,8 @@ class ManagerServer(ThreadingHTTPServer):
 
     def update_preferences(self, node_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         allowed = {
-            "cycles", "generation_mode", "max_workers", "repair_attempts", "repair_after_generation",
+            "cycles", "generation_mode", "max_workers", "repair_max_workers",
+            "regression_max_workers", "repair_attempts", "repair_after_generation",
             "run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression",
         }
         unknown = set(changes) - allowed
@@ -534,8 +535,9 @@ class ManagerServer(ThreadingHTTPServer):
             if mode not in {"production", "discovery"}:
                 raise ValueError("generation_mode debe ser production o discovery")
             normalized["generation_mode"] = mode
-        if "max_workers" in changes:
-            normalized["max_workers"] = safe_int(changes["max_workers"], 1, minimum=1, maximum=64)
+        for key in ("max_workers", "repair_max_workers", "regression_max_workers"):
+            if key in changes:
+                normalized[key] = safe_int(changes[key], 1, minimum=1, maximum=64)
         if "repair_attempts" in changes:
             normalized["repair_attempts"] = safe_int(changes["repair_attempts"], 1, minimum=1, maximum=20)
         for key in ("run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression", "repair_after_generation"):

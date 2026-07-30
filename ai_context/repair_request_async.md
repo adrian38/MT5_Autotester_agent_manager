@@ -10,3 +10,6 @@
   en nodos remotos, asi que el manager la proxya con timeout de 120 segundos.
 - La lista de runs del modal de reparacion incluye un control "Seleccionar
   todos" con contador para operar sobre todos los runs cargados.
+- El límite de terminales del modal se persiste como `repair_max_workers`.
+  No reutiliza ni modifica `max_workers`, que pertenece a una nueva ejecución,
+  ni `regression_max_workers`, que pertenece a la regresiva manual.

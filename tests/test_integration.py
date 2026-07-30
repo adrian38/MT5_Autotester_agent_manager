@@ -118,6 +118,8 @@ enabled=0
             "cycles": 3,
             "generation_mode": "discovery",
             "max_workers": 4,
+            "repair_max_workers": 2,
+            "regression_max_workers": 3,
             "repair_attempts": 3,
             "repair_after_generation": True,
             "run_robustness": True,
@@ -127,10 +129,16 @@ enabled=0
         })
         self.assertEqual(status, 200)
         self.assertEqual(saved["preferences"]["cycles"], 3)
+        self.assertEqual(saved["preferences"]["max_workers"], 4)
+        self.assertEqual(saved["preferences"]["repair_max_workers"], 2)
+        self.assertEqual(saved["preferences"]["regression_max_workers"], 3)
         self.assertEqual(saved["preferences"]["repair_attempts"], 3)
         self.assertTrue(saved["preferences"]["repair_after_generation"])
         self.assertTrue(saved["preferences"]["run_regression"])
-        self.assertEqual(json.loads(self.preferences_path.read_text(encoding="utf-8"))["test-node"]["max_workers"], 4)
+        persisted = json.loads(self.preferences_path.read_text(encoding="utf-8"))["test-node"]
+        self.assertEqual(persisted["max_workers"], 4)
+        self.assertEqual(persisted["repair_max_workers"], 2)
+        self.assertEqual(persisted["regression_max_workers"], 3)
 
         status, payload = self.request("/api/nodes")
         self.assertEqual(status, 200)
