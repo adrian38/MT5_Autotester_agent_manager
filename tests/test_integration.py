@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.request
 from contextlib import closing
 from unittest import mock
@@ -173,6 +174,59 @@ enabled=0
 
         with urllib.request.urlopen(self.base + "/universe.html?node=test-node", timeout=3) as response:
             self.assertIn("UNIVERSO DE ACTIVOS", response.read().decode("utf-8"))
+
+    def test_manager_remembers_every_generation_field_that_was_launched(self) -> None:
+        launch = {
+            "cycles": 2, "generations": 3, "variants_per_seed": 7, "max_seeds": 11,
+            "generation_mode": "discovery", "max_workers": 10, "execute_backtests": True,
+            "run_robustness": True, "run_final_tick": True, "run_final_tick_6m": True,
+            "run_regression": True, "repair_after_generation": True,
+            "repair_max_workers": 6, "repair_attempts": 4, "cleanup_after_run": False,
+            "dry_run": True,
+        }
+        with mock.patch(
+            "mt5_manager.manager.node_request",
+            return_value=(202, {"job_type": "generation", "status": "running"}),
+        ):
+            status, _job = self.request("/api/nodes/test-node/start", dict(launch))
+        self.assertEqual(status, 202)
+
+        stored = self.manager.preferences_for("test-node")
+        for key, value in launch.items():
+            self.assertEqual(stored[key], value, key)
+        persisted = json.loads(self.preferences_path.read_text(encoding="utf-8"))["test-node"]
+        self.assertEqual(persisted["max_workers"], 10)
+        self.assertTrue(persisted["run_regression"])
+
+        status, payload = self.request("/api/nodes")
+        self.assertEqual(status, 200)
+        node = payload["nodes"][0]
+        self.assertEqual(node["launch_preferences"]["max_workers"], 10)
+        self.assertTrue(node["launch_preferences"]["run_regression"])
+        # El diálogo relee estos tres desde launch_defaults, no desde launch_preferences.
+        self.assertEqual(node["launch_defaults"]["generations"], 3)
+        self.assertEqual(node["launch_defaults"]["variants_per_seed"], 7)
+        self.assertEqual(node["launch_defaults"]["max_seeds"], 11)
+
+    def test_stage_terminals_never_overwrite_the_generation_workers(self) -> None:
+        status, _saved = self.request("/api/nodes/test-node/preferences", {"max_workers": 10})
+        self.assertEqual(status, 200)
+        for action in ("repair", "regression"):
+            with mock.patch(
+                "mt5_manager.manager.node_request",
+                return_value=(202, {"job_type": action, "status": "running"}),
+            ):
+                self.request(f"/api/nodes/test-node/{action}", {"run_ids": [7], "max_workers": 2})
+            self.assertEqual(self.manager.preferences_for("test-node")["max_workers"], 10, action)
+
+    def test_a_rejected_launch_is_not_remembered(self) -> None:
+        with mock.patch(
+            "mt5_manager.manager.node_request",
+            return_value=(400, {"error": "La tarea ya no esta en la cola"}),
+        ):
+            with self.assertRaises(urllib.error.HTTPError):
+                self.request("/api/nodes/test-node/start", {"max_workers": 10})
+        self.assertEqual(self.manager.preferences_for("test-node"), {})
 
     def test_manager_proxies_regression_jobs_to_the_node(self) -> None:
         with mock.patch(

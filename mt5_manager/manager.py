@@ -22,6 +22,19 @@ from .portfolio_service import PortfolioCoordinator, legacy_compatible_portfolio
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 FOLDER_PICKER_LOCK = threading.Lock()
+BOOL_PREFERENCE_KEYS = (
+    "run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression",
+    "repair_after_generation", "execute_backtests", "cleanup_after_run", "dry_run",
+)
+# Cada campo del diálogo de generación se recuerda por nodo a partir del propio
+# lanzamiento, sin depender de que el navegador lo reenvíe a /preferences.
+LAUNCH_PREFERENCE_KEYS = (
+    "cycles", "generations", "variants_per_seed", "max_seeds", "generation_mode",
+    "max_workers", "repair_max_workers", "regression_max_workers", "repair_attempts",
+    *BOOL_PREFERENCE_KEYS,
+)
+# Preferencias que el diálogo relee desde launch_defaults en lugar de launch_preferences.
+LAUNCH_DEFAULT_OVERRIDE_KEYS = ("generations", "variants_per_seed", "max_seeds")
 
 
 def choose_directory(initial_directory: str | None = None) -> str | None:
@@ -192,7 +205,15 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         raise RuntimeError(str(value.get("error") if isinstance(value, dict) else value))
                     if isinstance(value, dict):
                         value["manager_node"] = {"id": node_id, "name": node.get("name") or node_id, "url": node.get("url")}
-                        value["launch_preferences"] = self.server.preferences_for(node_id)
+                        preferences = self.server.preferences_for(node_id)
+                        value["launch_preferences"] = preferences
+                        defaults = value.get("launch_defaults")
+                        if isinstance(defaults, dict):
+                            value["launch_defaults"] = {**defaults, **{
+                                key: preferences[key]
+                                for key in LAUNCH_DEFAULT_OVERRIDE_KEYS
+                                if key in preferences
+                            }}
                         value["manager_portfolio"] = {
                             "available": bool(str(node.get("portfolio_project_dir") or "").strip()),
                             "engine": "central",
@@ -446,7 +467,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Ruta no encontrada"})
             return
         try:
-            node = self._node(urllib.parse.unquote(parts[2]))
+            node_id = urllib.parse.unquote(parts[2])
+            node = self._node(node_id)
             targets = {
                 "start": "/api/v1/jobs/generation",
                 "stop": "/api/v1/jobs/stop",
@@ -473,6 +495,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 })
                 return
             status, value = node_request(node, "POST", target, body)
+            if parts[3] == "start" and status < 400:
+                self.server.remember_launch_request(node_id, body)
             self._send_json(status, value)
         except (KeyError, ValueError, json.JSONDecodeError) as exc:
             self._send_json(400, {"error": str(exc)})
@@ -520,18 +544,20 @@ class ManagerServer(ThreadingHTTPServer):
             return dict(self.preferences.get(node_id) or {})
 
     def update_preferences(self, node_id: str, changes: dict[str, Any]) -> dict[str, Any]:
-        allowed = {
-            "cycles", "generation_mode", "max_workers", "repair_max_workers",
-            "regression_max_workers", "repair_attempts", "repair_after_generation",
-            "run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression",
-            "cleanup_after_run",
-        }
-        unknown = set(changes) - allowed
+        unknown = set(changes) - set(LAUNCH_PREFERENCE_KEYS)
         if unknown:
             raise ValueError(f"Preferencias desconocidas: {', '.join(sorted(unknown))}")
         normalized: dict[str, Any] = {}
         if "cycles" in changes:
             normalized["cycles"] = safe_int(changes["cycles"], 1, minimum=1, maximum=100)
+        if "generations" in changes:
+            normalized["generations"] = safe_int(changes["generations"], 1, minimum=1, maximum=1000)
+        if "variants_per_seed" in changes:
+            normalized["variants_per_seed"] = safe_int(
+                changes["variants_per_seed"], 10, minimum=1, maximum=10000
+            )
+        if "max_seeds" in changes:
+            normalized["max_seeds"] = safe_int(changes["max_seeds"], 30, minimum=0, maximum=100000)
         if "generation_mode" in changes:
             mode = str(changes["generation_mode"] or "").strip().lower()
             if mode not in {"production", "discovery"}:
@@ -542,10 +568,7 @@ class ManagerServer(ThreadingHTTPServer):
                 normalized[key] = safe_int(changes[key], 1, minimum=1, maximum=64)
         if "repair_attempts" in changes:
             normalized["repair_attempts"] = safe_int(changes["repair_attempts"], 1, minimum=1, maximum=20)
-        for key in (
-            "run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression",
-            "repair_after_generation", "cleanup_after_run",
-        ):
+        for key in BOOL_PREFERENCE_KEYS:
             if key in changes:
                 if not isinstance(changes[key], bool):
                     raise ValueError(f"{key} debe ser booleano")
@@ -557,6 +580,25 @@ class ManagerServer(ThreadingHTTPServer):
             if self.preferences_path:
                 save_json(self.preferences_path, self.preferences)
             return dict(current)
+
+    def remember_launch_request(self, node_id: str, payload: dict[str, Any]) -> None:
+        """Guarda como preferencia cada campo con el que se lanzó una generación.
+
+        Solo aplica al arranque de generación: en reparación y prueba regresiva
+        ``max_workers`` significa las terminales de esa etapa, no las de generación.
+        """
+        changes = {
+            key: bool(payload[key]) if key in BOOL_PREFERENCE_KEYS else payload[key]
+            for key in LAUNCH_PREFERENCE_KEYS
+            if key in payload
+        }
+        if not changes:
+            return
+        try:
+            self.update_preferences(node_id, changes)
+        except (ValueError, OSError) as exc:
+            # Nunca hacer fallar un lanzamiento aceptado por no poder recordarlo.
+            print(f"[manager] No se pudo recordar la configuración de {node_id}: {exc}", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
