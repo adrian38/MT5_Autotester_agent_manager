@@ -21,23 +21,9 @@ services:
       - type: bind
         source: ${IC_PROJECT_DIR}
         target: /data/ic
-      - type: volume
-        source: axi-project
+      - type: bind
+        source: ${AXI_PROJECT_DIR}
         target: /data/axi
-      - type: volume
-        source: roboforex-project
+      - type: bind
+        source: ${ROBOFOREX_PROJECT_DIR}
         target: /data/roboforex
-
-volumes:
-  axi-project:
-    driver: local
-    driver_opts:
-      type: cifs
-      device: //${SMB_SERVER}/F
-      o: username=${SMB_USERNAME},password=${SMB_PASSWORD},domain=${SMB_DOMAIN},vers=3.0
-  roboforex-project:
-    driver: local
-    driver_opts:
-      type: cifs
-      device: //${SMB_SERVER}/G
-      o: username=${SMB_USERNAME},password=${SMB_PASSWORD},domain=${SMB_DOMAIN},vers=3.0

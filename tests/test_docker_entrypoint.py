@@ -25,7 +25,7 @@ class DockerEntrypointTests(unittest.TestCase):
                     "id": "robo",
                     "url": "http://192.168.1.152:8761",
                     "token": "remote-secret",
-                    "portfolio_project_dir": r"X:\TRADING\robo",
+                    "portfolio_project_dir": r"G:\TRADING\MT5_Autotester_agent",
                     "portfolio_broker": "ROBOFOREX",
                 },
             ],
@@ -44,10 +44,7 @@ class DockerEntrypointTests(unittest.TestCase):
             "/data/ic/outputs/other.sqlite",
         )
         self.assertEqual(result["nodes"][1]["url"], "http://192.168.1.152:8761")
-        self.assertEqual(
-            result["nodes"][1]["portfolio_project_dir"],
-            "/data/roboforex/TRADING/MT5_Autotester_agent",
-        )
+        self.assertEqual(result["nodes"][1]["portfolio_project_dir"], "/data/roboforex")
         self.assertEqual(source["host"], "127.0.0.1", "La configuración original no debe mutar")
 
 

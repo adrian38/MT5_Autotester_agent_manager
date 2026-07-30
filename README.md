@@ -1,8 +1,9 @@
 # MT5 Autotester Agent Manager
 
 MVP distribuido para iniciar generaciones UBS y observar su estado desde un
-único panel. Está pensado para el caso real de este entorno: tres brokers,
-varios usuarios Windows y dos PC dentro de la misma red local.
+único panel. Está pensado para el caso real de este entorno: tres brokers en
+tres usuarios Windows del mismo equipo, con soporte para nodos en otras PC de
+la misma red local.
 
 Cada copia del autotester conserva sus rutas, MT5, multiterminales y memoria
 SQLite. El manager coordina las ejecuciones y contiene la interfaz y el motor
@@ -15,9 +16,9 @@ equipo con el manager; una generación en curso no se reinicia.
 ```text
 Panel central (puerto 8750)
           |
-          +-- HTTP + token --> Usuario/PC RoboForex : nodo 8761 -> ubs_agent.py
-          +-- HTTP + token --> Usuario/PC ICTrading : nodo 8761 -> ubs_agent.py
-          +-- HTTP + token --> Usuario/PC AXI       : nodo 8762 -> ubs_agent.py
+          +-- HTTP + token --> Usuario robo  (G:) RoboForex : nodo 8761 -> ubs_agent.py
+          +-- HTTP + token --> Usuario ic    (I:) ICTrading : nodo 8763 -> ubs_agent.py
+          +-- HTTP + token --> Usuario actual (F:) AXI      : nodo 8762 -> ubs_agent.py
                                                         |
                                                         +-> ui_settings.ini
                                                         +-> MT5 de ese usuario
@@ -109,8 +110,9 @@ cualquier ruta con `memory_path` en `node.json`.
 
 ### Firewall de Windows
 
-En cada PC hay que permitir únicamente los puertos de sus nodos en el perfil
-de red privada. Ejemplo desde PowerShell como administrador:
+Con los tres nodos en el mismo equipo el panel los alcanza por `127.0.0.1` y no
+hace falta abrir puertos. Solo si un nodo vive en otra PC hay que permitir su
+puerto en el perfil de red privada. Ejemplo desde PowerShell como administrador:
 
 ```powershell
 New-NetFirewallRule -DisplayName "MT5 Manager nodo 8761" `
@@ -130,7 +132,8 @@ que es también cuando MT5 puede ejecutarse en esa sesión interactiva.
 ## Configuración del panel central
 
 1. Copiar `config/manager.example.json` a `manager.json`.
-2. Reservar IP fijas en el router o usar nombres DNS locales para las dos PC.
+2. Con los tres nodos locales basta `http://127.0.0.1:<puerto>`. Para nodos en
+   otra PC, reservar IP fija en el router o usar un nombre DNS local.
 3. Configurar en cada entrada de `nodes` la URL y el mismo token de su
    `node.json`.
 4. Para habilitar los portafolios centrales de un nodo local, configurar
@@ -173,7 +176,7 @@ Dockeriza únicamente el manager central. Los nodos y MT5 continúan ejecutándo
 en la sesión Windows interactiva de cada broker; no deben entrar en el
 contenedor.
 
-1. Mantener el `manager.json` local ya configurado con las IP y tokens reales.
+1. Mantener el `manager.json` local ya configurado con las URL y tokens reales.
    Compose lo monta como solo lectura; nunca se copia dentro de la imagen.
 2. Crear el archivo de rutas para Docker:
 
@@ -181,10 +184,11 @@ contenedor.
    Copy-Item .env.docker.example .env
    ```
 
-3. Editar `.env` con la carpeta IC local y las credenciales SMB del PC que
-   comparte `F` y `G`. Docker Desktop no hereda las unidades de usuario
-   `X:`/`Y:`; Compose monta directamente ambos recursos mediante CIFS. El
-   archivo `.env` está ignorado por Git y no entra en la imagen.
+3. Editar `.env` con las tres carpetas de proyecto (`IC_PROJECT_DIR`,
+   `AXI_PROJECT_DIR`, `ROBOFOREX_PROJECT_DIR`). Como los tres viven en unidades
+   locales de este equipo, Compose las monta con bind directo y no hacen falta
+   credenciales SMB. El archivo `.env` está ignorado por Git y no entra en la
+   imagen.
 4. Construir y arrancar:
 
    ```powershell
