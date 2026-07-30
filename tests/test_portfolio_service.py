@@ -16,6 +16,7 @@ from mt5_manager.portfolio_service import (
     PortfolioCoordinator,
     PortfolioSource,
     _linux_path_is_remote,
+    _optimizer_kwargs,
     _optimize_without_recent_fillers,
     _resolve_source_path,
     _underrepresented_recent_allocation_ids,
@@ -955,6 +956,58 @@ class PortfolioServiceTests(unittest.TestCase):
 
         self.assertFalse(defaults["experimental_monthly_search"])
         self.assertTrue(enabled["experimental_monthly_search"])
+
+    def test_disabling_correlation_preserves_limits_but_optimizer_ignores_them(self) -> None:
+        configured = {
+            "max_pair_corr": 0.31,
+            "max_downside_corr": 0.21,
+            "max_dd_overlap": 0.41,
+            "max_portfolio_corr": 0.51,
+        }
+        settings = normalize_settings(
+            "monthly",
+            {
+                "allowed_asset_groups": ["Forex"],
+                "use_correlation": False,
+                **configured,
+            },
+            "ICTRADING",
+        )
+
+        for key, value in configured.items():
+            self.assertEqual(settings[key], value)
+        optimizer = _optimizer_kwargs(
+            settings,
+            PortfolioType.BALANCED,
+            [],
+            15.0,
+        )
+        for key in configured:
+            self.assertIsNone(optimizer[key])
+
+    def test_reenabling_legacy_empty_correlation_limits_restores_defaults(self) -> None:
+        empty_limits = {
+            "max_pair_corr": None,
+            "max_downside_corr": None,
+            "max_dd_overlap": None,
+            "max_portfolio_corr": None,
+        }
+
+        for scope in ("full_history", "monthly"):
+            with self.subTest(scope=scope):
+                settings = normalize_settings(
+                    scope,
+                    {
+                        "allowed_asset_groups": ["Forex"],
+                        "use_correlation": True,
+                        **empty_limits,
+                    },
+                    "ICTRADING",
+                )
+                self.assertEqual(settings["max_pair_corr"], 0.35)
+                self.assertEqual(settings["max_downside_corr"], 0.25)
+                self.assertEqual(settings["max_dd_overlap"], 0.35)
+                self.assertEqual(settings["max_portfolio_corr"], 0.50)
 
     def test_failed_monthly_job_keeps_the_last_reached_stage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

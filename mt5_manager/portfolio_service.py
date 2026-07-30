@@ -182,7 +182,13 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
     if values["max_margin_pct"] <= 0:
         raise ValueError("max_margin_pct debe ser mayor que 0")
     values["margin_profile"] = str(values.get("margin_profile") or broker).strip().lower()
-    for key in ("max_pair_corr", "max_downside_corr", "max_dd_overlap", "max_portfolio_corr"):
+    correlation_keys = (
+        "max_pair_corr",
+        "max_downside_corr",
+        "max_dd_overlap",
+        "max_portfolio_corr",
+    )
+    for key in correlation_keys:
         values[key] = _optional_corr(values.get(key), key)
     boolean_keys = (
         "run_local_search", "deep_optimization", "use_correlation",
@@ -198,9 +204,15 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
         values["experimental_full_search"] = False
     else:
         values["experimental_monthly_search"] = False
-    if not values["use_correlation"]:
-        for key in ("max_pair_corr", "max_downside_corr", "max_dd_overlap", "max_portfolio_corr"):
-            values[key] = None
+    # Disabling correlation must not erase the configured thresholds. The
+    # optimizer already ignores them while use_correlation is false. Older
+    # persisted settings may have lost all four values, so restore defaults
+    # when correlation is enabled again.
+    if values["use_correlation"] and all(
+        values[key] is None for key in correlation_keys
+    ):
+        for key in correlation_keys:
+            values[key] = COMMON_DEFAULTS[key]
     groups = [str(value) for value in values.get("allowed_asset_groups") or [] if str(value) in ASSET_GROUPS]
     if not groups:
         raise ValueError("Selecciona al menos un grupo de activos")

@@ -39,6 +39,10 @@ permitir su reintegración, pero ni la generación ni el completado mensual debe
 - Filtro de recuperación reciente y regla antirrelleno por contribución reciente.
 - Propagación de rutas de informes, DD de balance/equity y métricas recientes a cada asignación.
 - Persistencia y compatibilidad de los nuevos campos de auditoría.
+- Desactivar `use_correlation` conserva los cuatro umbrales configurados; sólo
+  `_optimizer_kwargs()` los convierte temporalmente en `None`. Si una
+  configuración antigua reactiva correlaciones con los cuatro valores vacíos,
+  `normalize_settings()` recupera los defaults.
 
 ## Contrato del pool de candidatos
 
