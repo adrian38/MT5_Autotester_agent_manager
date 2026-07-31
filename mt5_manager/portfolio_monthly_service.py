@@ -29,6 +29,7 @@ from .portfolio_service import (
     filter_rows_grid_off,
     load_robust_sets_from_rows,
     portfolio_group_key,
+    settings_inputs,
     summarize_robust_rows,
 )
 from .portfolio_monthly_experimental import optimize_experimental_monthly_portfolio
@@ -100,7 +101,7 @@ def _monthly_proposals(
     for index, (key, label, objective_type, reserve) in enumerate(specs, 1):
         if progress:
             progress(f"5/6 · Optimizando propuesta {index}/3: {label}")
-        proposal_inputs = dict(inputs)
+        proposal_inputs = settings_inputs(inputs)
         proposal_inputs.update({
             "optimization_profile": key,
             "optimization_profile_label": label,
@@ -452,7 +453,7 @@ def generate_monthly_completion_proposal(
         raise ValueError(
             f"No existe una sustituta compatible: quedaron {result.active_strategies}/{target} estrategias"
         )
-    proposal_inputs = dict(inputs)
+    proposal_inputs = settings_inputs(inputs)
     proposal_inputs.update({
         "optimization_profile": "complete",
         "optimization_profile_label": "Completar portafolio",

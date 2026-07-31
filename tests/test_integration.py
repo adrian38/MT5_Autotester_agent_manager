@@ -337,6 +337,11 @@ enabled=0
         delete.assert_called_once_with("test-node", "full_history", 37)
 
     def test_export_folder_endpoint_opens_the_manager_picker(self) -> None:
+        # El modo se fija aqui a proposito. Antes se heredaba del entorno y
+        # MT5_MANAGER_EXPORT_MODE=download (lo que pone docker-compose) hacia que
+        # el test fallara con 400 al ejecutarlo dentro del contenedor, aunque
+        # pasara en la maquina anfitriona. Un test no debe depender del runner.
+        self.manager.export_mode = "folder"
         with mock.patch(
             "mt5_manager.manager.choose_directory", return_value=r"D:\exports"
         ) as picker:
@@ -348,6 +353,38 @@ enabled=0
         self.assertEqual(status, 200)
         self.assertEqual(payload, {"folder": r"D:\exports", "cancelled": False})
         picker.assert_called_once_with(None)
+
+    def test_download_mode_refuses_the_local_folder_picker(self) -> None:
+        # Este es el modo que corre de verdad en produccion (docker-compose lo
+        # fija a download) y no habia ninguna prueba que lo cubriera.
+        self.manager.export_mode = "download"
+        with mock.patch("mt5_manager.manager.choose_directory") as picker:
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.request(
+                    "/api/nodes/test-node/portfolio-manager/choose-export-folder",
+                    {"scope": "full_history"},
+                )
+
+        self.assertEqual(caught.exception.code, 400)
+        picker.assert_not_called()
+
+    def test_the_environment_overrides_the_configured_export_mode(self) -> None:
+        # Precedencia intencionada: el contenedor impone el modo por entorno
+        # aunque manager.json diga otra cosa.
+        nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
+        with mock.patch.dict("os.environ", {"MT5_MANAGER_EXPORT_MODE": "download"}):
+            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes, "export_mode": "folder"})
+        try:
+            self.assertEqual(server.export_mode, "download")
+        finally:
+            server.server_close()
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes})
+        try:
+            self.assertEqual(server.export_mode, "folder")
+        finally:
+            server.server_close()
 
     def test_export_download_returns_a_zip_attachment(self) -> None:
         archive = {

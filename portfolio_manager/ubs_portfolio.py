@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from functools import lru_cache
+import json
 import math
 from pathlib import Path
 import random
@@ -1937,7 +1938,399 @@ def roboforex_contract_size(symbol: str) -> float:
     return 100.0 if portfolio_group_key(symbol) == "Stocks" else 1.0
 
 
-def normalize_margin_profile(profile: str | None) -> str:
+#: Tope por grupo para los simbolos que no tienen tope propio publicado.
+#: Conservador a proposito. El apalancamiento efectivo de un simbolo es siempre
+#: ``min(apalancamiento de cuenta, tope del producto)``: la cuenta manda salvo
+#: que el instrumento la limite por debajo.
+#:
+#: Una version anterior restringia el efecto de la cuenta a forex y bullion,
+#: leyendo del Product Schedule que "the Margin Requirements for Other CFDs are
+#: not influenced by your Account leverage". La medicion lo desmiente: BTCUSD
+#: publica 0.5% de margen minimo (1:200) y el terminal lo dio a 1:100, que es
+#: exactamente el apalancamiento que tenia la cuenta. La cuenta si recorta.
+AXI_FALLBACK_GROUP_LEVERAGE: dict[str, float] = {
+    "Forex": 500.0,
+    "Metals": 500.0,
+    "Indices": 100.0,
+    "Energies": 100.0,
+    "Commodities": 100.0,
+    "Softs": 100.0,
+    "Bonds": 100.0,
+    "Crypto": 50.0,
+    "Stocks": 10.0,
+}
+
+#: Apalancamientos de cuenta que ofrece el formulario.
+ACCOUNT_LEVERAGE_CHOICES: tuple[float, ...] = (1000.0, 500.0, 100.0)
+DEFAULT_ACCOUNT_LEVERAGE = 1000.0
+
+
+@dataclass(frozen=True)
+class MarginModel:
+    """Reglas de margen de un perfil concreto.
+
+    Existe para que cada broker pueda tener su propio modelo sin que el resto se
+    entere. Antes el margen eran cuatro escalares globales
+    (``stock_leverage``/``default_leverage``/``*_contract_size``) que ignoraban el
+    perfil: ``margin_leverage_for_profile`` solo ramificaba para TTP y el tamano
+    de contrato era 100 para acciones y 1 para todo lo demas, con lo que un lote
+    de forex se valoraba en ``0.01 x 1 x precio`` en vez de en su nocional real.
+
+    Hay tres fuentes, de mejor a peor:
+
+    1. ``symbol_margin``: el margen que el propio terminal calcula para UNA
+       posicion al lote minimo (``order_calc_margin``). Ya lleva dentro el tramo
+       de margen del producto, el tamano de contrato y el apalancamiento que
+       tenia la cuenta al medir, asi que no hay nada que estimar.
+    2. ``symbol_notional``: el nocional de esa misma posicion, deducido del
+       fichero de normalizacion. Requiere dividir por un apalancamiento.
+    3. ``lote x contrato x precio`` con el precio maximo de los reportes, que es
+       lo unico que existia antes y lo que dejaba el margen de forex tres ordenes
+       de magnitud por debajo del real.
+    """
+
+    profile: str = "roboforex"
+    account_leverage: float | None = None
+    reference_account_leverage: float | None = None
+    max_product_leverage: dict[str, float] = field(default_factory=dict)
+    group_leverage: dict[str, float] = field(default_factory=dict)
+    stock_leverage: float = 20.0
+    default_leverage: float = 500.0
+    stock_contract_size: float = 100.0
+    default_contract_size: float = 1.0
+    symbol_margin: dict[str, float] = field(default_factory=dict)
+    symbol_min_lot: dict[str, float] = field(default_factory=dict)
+    symbol_contract_size: dict[str, float] = field(default_factory=dict)
+    symbol_notional: dict[str, float] = field(default_factory=dict)
+    group_notional: dict[str, float] = field(default_factory=dict)
+    margin_source: str = ""
+    notional_source: str = ""
+
+    def min_lot_for(self, symbol: str) -> float:
+        """Lote de UNA unidad del portafolio. 0.01 mientras no se haya medido."""
+        value = self.symbol_min_lot.get(portfolio_symbol_key(symbol))
+        return float(value) if value and value > 0 else 0.01
+
+    def lot_increments_for(self, symbol: str) -> int:
+        """Cuantos escalones de 0.01 lotes ocupa una unidad.
+
+        El EA dimensiona en pasos de 0.01 (``LotPerBalance_step``), asi que para
+        colocar N unidades de un simbolo con minimo 1.0 hay que pedirle 100xN
+        escalones. Sin esto el EA pide 0.01xN, MT5 lo sube al minimo y las N
+        unidades se ejecutan como una sola.
+        """
+        return max(1, int(round(self.min_lot_for(symbol) / 0.01)))
+
+    def lot_size_for(self, symbol: str, units: int) -> float:
+        return round(max(int(units), 0) * self.min_lot_for(symbol), 2)
+
+    def product_cap_for(self, symbol: str) -> float | None:
+        """Tope de apalancamiento del instrumento, sin contar la cuenta."""
+        cap = self.max_product_leverage.get(portfolio_symbol_key(symbol))
+        if cap is None:
+            cap = self.group_leverage.get(portfolio_group_key(symbol))
+        return float(cap) if cap and cap > 0 else None
+
+    def effective_leverage_for(self, symbol: str, account_leverage: float | None) -> float | None:
+        """``min(cuenta, tope del producto)``. La cuenta manda salvo que el
+        instrumento la limite por debajo."""
+        if not account_leverage or account_leverage <= 0:
+            return None
+        cap = self.product_cap_for(symbol)
+        return min(float(account_leverage), cap) if cap else float(account_leverage)
+
+    def account_leverage_scale(self, symbol: str) -> float:
+        """Factor sobre el margen medido al pasar a otro apalancamiento de cuenta.
+
+        La medida se tomo con la cuenta en ``reference_account_leverage``, asi que
+        ya incorpora el tope del producto si este era el que ataba. Lo que cambia
+        al elegir otro apalancamiento es solo la relacion entre los dos efectivos:
+
+            escala = min(referencia, tope) / min(elegido, tope)
+
+        Airbus+ (tope 1:25) sale 1.0 tanto a 1:100 como a 1:1000, porque el
+        producto ataba en ambos casos. BTCUSD (tope 1:200, medido con la cuenta a
+        1:100) sale 0.5 al pasar a 1:1000: la cuenta deja de ser el limite y el
+        producto permite el doble.
+        """
+        effective_now = self.effective_leverage_for(symbol, self.account_leverage)
+        effective_measured = self.effective_leverage_for(symbol, self.reference_account_leverage)
+        if not effective_now or not effective_measured:
+            return 1.0
+        return effective_measured / effective_now
+
+    def leverage_for(self, symbol: str) -> float:
+        # Con margen medido, el apalancamiento honesto es el efectivo. Derivarlo
+        # de ``nocional / margen`` mezclaba dos mediciones de fechas distintas
+        # (el nocional viene del fichero de normalizacion) y salian cifras como
+        # 1:1013 u 1:205, imposibles: nunca se supera el tope del producto.
+        if self.symbol_margin.get(portfolio_symbol_key(symbol)):
+            effective = self.effective_leverage_for(symbol, self.account_leverage)
+            if effective:
+                return effective
+        group = portfolio_group_key(symbol)
+        if self.group_leverage:
+            leverage = self.group_leverage.get(
+                group, self.stock_leverage if group == "Stocks" else self.default_leverage
+            )
+        else:
+            leverage = self.stock_leverage if group == "Stocks" else self.default_leverage
+        capped = self.effective_leverage_for(symbol, self.account_leverage)
+        if capped:
+            leverage = min(leverage, capped)
+        return float(leverage)
+
+    def contract_size_for(self, symbol: str) -> float:
+        # El medido manda. La aproximacion por grupo (acciones 100, resto 1) era
+        # falsa de raiz: forex son 100.000, el oro 100, NAS100 20 y BRENT 1.000.
+        measured = self.symbol_contract_size.get(portfolio_symbol_key(symbol))
+        if measured and measured > 0:
+            return float(measured)
+        return (
+            self.stock_contract_size
+            if portfolio_group_key(symbol) == "Stocks"
+            else self.default_contract_size
+        )
+
+    def margin_for_one(self, symbol: str) -> float | None:
+        """Margen medido de una posicion al lote minimo, ya escalado, o None."""
+        if not self.symbol_margin:
+            return None
+        value = self.symbol_margin.get(portfolio_symbol_key(symbol))
+        if not value or value <= 0:
+            return None
+        return float(value) * self.account_leverage_scale(symbol)
+
+    def notional_for(self, symbol: str) -> float | None:
+        """Nocional medido de una posicion al lote minimo, o None si no se midio."""
+        if not self.symbol_notional and not self.group_notional:
+            return None
+        key = portfolio_symbol_key(symbol)
+        value = self.symbol_notional.get(key)
+        if value is None:
+            value = self.group_notional.get(portfolio_group_key(symbol))
+        return float(value) if value and value > 0 else None
+
+
+def margin_model_for_profile(
+    profile: str | None,
+    *,
+    account_leverage: float | None = None,
+    reference_account_leverage: float | None = None,
+    stock_leverage: float = 20.0,
+    default_leverage: float = 500.0,
+    stock_contract_size: float = 100.0,
+    default_contract_size: float = 1.0,
+    symbol_margin: dict[str, float] | None = None,
+    symbol_min_lot: dict[str, float] | None = None,
+    symbol_contract_size: dict[str, float] | None = None,
+    max_product_leverage: dict[str, float] | None = None,
+    symbol_notional: dict[str, float] | None = None,
+    group_notional: dict[str, float] | None = None,
+    margin_source: str = "",
+    notional_source: str = "",
+) -> MarginModel:
+    """Construye el modelo de margen del perfil indicado.
+
+    Solo AXI estrena margen medido y apalancamiento de cuenta. ICTrading,
+    RoboForex y TTP conservan exactamente el comportamiento anterior para no
+    mover portafolios ya guardados.
+    """
+    normalized = normalize_margin_profile(profile)
+    if normalized != "axi":
+        return MarginModel(
+            profile=normalized,
+            stock_leverage=stock_leverage,
+            default_leverage=default_leverage,
+            stock_contract_size=stock_contract_size,
+            default_contract_size=default_contract_size,
+        )
+    return MarginModel(
+        profile=normalized,
+        account_leverage=float(account_leverage) if account_leverage else None,
+        reference_account_leverage=float(reference_account_leverage) if reference_account_leverage else None,
+        max_product_leverage=dict(max_product_leverage or {}),
+        group_leverage=dict(AXI_FALLBACK_GROUP_LEVERAGE),
+        stock_leverage=stock_leverage,
+        default_leverage=default_leverage,
+        stock_contract_size=stock_contract_size,
+        default_contract_size=default_contract_size,
+        symbol_margin=dict(symbol_margin or {}),
+        symbol_min_lot=dict(symbol_min_lot or {}),
+        symbol_contract_size=dict(symbol_contract_size or {}),
+        symbol_notional=dict(symbol_notional or {}),
+        group_notional=dict(group_notional or {}),
+        margin_source=margin_source,
+        notional_source=notional_source,
+    )
+
+
+def resolve_margin_model(
+    margin_profile: str | MarginModel | None,
+    *,
+    stock_leverage: float = 20.0,
+    default_leverage: float = 500.0,
+    stock_contract_size: float = 100.0,
+    default_contract_size: float = 1.0,
+) -> MarginModel:
+    """Devuelve el modelo de margen efectivo de un ``margin_profile``.
+
+    ``margin_profile`` viaja ya por todas las firmas del optimizador, asi que
+    admitir ahi un ``MarginModel`` completo evita anadir un parametro paralelo a
+    medio centenar de llamadas. Un string sigue significando lo de siempre: el
+    perfil por nombre con los escalares heredados.
+    """
+    if isinstance(margin_profile, MarginModel):
+        return margin_profile
+    return MarginModel(
+        profile=normalize_margin_profile(margin_profile),
+        stock_leverage=stock_leverage,
+        default_leverage=default_leverage,
+        stock_contract_size=stock_contract_size,
+        default_contract_size=default_contract_size,
+    )
+
+
+def _load_json_dict(path: str | Path) -> tuple[dict, str]:
+    file_path = Path(path)
+    if not file_path.is_file():
+        return {}, ""
+    try:
+        data = json.loads(file_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}, ""
+    return (data, str(file_path)) if isinstance(data, dict) else ({}, "")
+
+
+def load_symbol_specs(
+    path: str | Path,
+) -> tuple[dict[str, float], dict[str, float], dict[str, float], float | None, str]:
+    """Lee del volcado del terminal el margen y el lote minimo por simbolo.
+
+    ``margin_min_lot`` es lo que MT5 exige por UNA posicion al ``volume_min`` del
+    simbolo, con el apalancamiento que tenia la cuenta al medir
+    (``account_leverage``). Incluye ya el tramo de margen del producto y el
+    tamano de contrato, asi que no hay nada que deducir.
+
+    ``volume_min`` es la otra mitad del problema: el backtest se lanza pidiendo
+    0.01 lotes y MT5 lo sube al minimo del simbolo, asi que la curva ``_001`` de
+    un simbolo con minimo 1.0 es en realidad la de 1.0 lotes. Una unidad del
+    portafolio es una posicion al minimo, no 0.01 lotes.
+
+    Devuelve (margen, lote_minimo, tamano_contrato, apalancamiento_ref, origen),
+    todo indexado por la clave de simbolo del portafolio.
+    """
+    data, source = _load_json_dict(path)
+    symbols = data.get("symbols")
+    if not isinstance(symbols, dict):
+        return {}, {}, {}, None, ""
+    reference = data.get("account_leverage")
+    try:
+        reference_leverage = float(reference) if reference else None
+    except (TypeError, ValueError):
+        reference_leverage = None
+    margins: dict[str, float] = {}
+    min_lots: dict[str, float] = {}
+    contract_sizes: dict[str, float] = {}
+
+    def number(spec: dict, field_name: str) -> float:
+        try:
+            return float(spec.get(field_name) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    for name, spec in symbols.items():
+        if not isinstance(spec, dict):
+            continue
+        key = portfolio_symbol_key(name)
+        margin = number(spec, "margin_min_lot")
+        if margin > 0:
+            # Nombres MT5 distintos pueden colapsar en la misma clave del
+            # portafolio; el mayor, porque pasarse de margen es el lado seguro.
+            margins[key] = max(margins.get(key, 0.0), margin)
+        volume_min = number(spec, "volume_min")
+        if volume_min > 0:
+            min_lots[key] = max(min_lots.get(key, 0.0), volume_min)
+        contract_size = number(spec, "contract_size")
+        if contract_size > 0:
+            contract_sizes[key] = max(contract_sizes.get(key, 0.0), contract_size)
+    return margins, min_lots, contract_sizes, reference_leverage, source
+
+
+def load_max_product_leverage(path: str | Path) -> dict[str, float]:
+    """Tope de apalancamiento por simbolo publicado por el broker."""
+    data, _ = _load_json_dict(path)
+    raw = data.get("max_product_leverage")
+    if not isinstance(raw, dict):
+        return {}
+    result: dict[str, float] = {}
+    for name, value in raw.items():
+        try:
+            leverage = float(value)
+        except (TypeError, ValueError):
+            continue
+        if leverage <= 0:
+            continue
+        key = portfolio_symbol_key(name)
+        # Ante dos nombres que colapsan, el tope mas bajo: margen mas alto.
+        result[key] = min(result.get(key, leverage), leverage)
+    return result
+
+
+def load_symbol_notional(path: str | Path) -> tuple[dict[str, float], dict[str, float], str]:
+    """Lee el nocional real por simbolo del fichero de normalizacion del broker.
+
+    El agente UBS mide en MT5 ``volume_min``, ``volume_step``, ``contract_size``,
+    ``tick_value``, ``tick_size`` y ``price``, y los colapsa en un factor
+    ``reference_notional / max(nocional_real, min_notional)``. Invertirlo devuelve
+    el nocional de una posicion al lote que MT5 ejecuta de verdad, que es justo lo
+    que necesita el margen.
+
+    Los simbolos cuyo nocional real quedo por debajo de ``min_notional`` estan
+    topados en el factor, asi que aqui salen como ``min_notional``: se sobreestima
+    el margen, que es el lado seguro. Devuelve (por_simbolo, por_grupo, origen).
+    """
+    file_path = Path(path)
+    if not file_path.is_file():
+        return {}, {}, ""
+    try:
+        data = json.loads(file_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}, {}, ""
+    if not isinstance(data, dict):
+        return {}, {}, ""
+    reference = float(data.get("reference_notional") or 0.0)
+    if reference <= 0:
+        return {}, {}, ""
+
+    def notionals(raw: object) -> dict[str, float]:
+        result: dict[str, float] = {}
+        if not isinstance(raw, dict):
+            return result
+        for name, factor in raw.items():
+            try:
+                value = float(factor)
+            except (TypeError, ValueError):
+                continue
+            if value <= 0:
+                continue
+            result[str(name)] = reference / value
+        return result
+
+    by_symbol: dict[str, float] = {}
+    for name, notional in notionals(data.get("symbol_net_profit_factors")).items():
+        key = portfolio_symbol_key(name)
+        # Varios nombres MT5 pueden colapsar en la misma clave del portafolio
+        # (USDJPY.sa y USDJPY). Nos quedamos con el mayor: sobreestimar margen es
+        # el error aceptable.
+        by_symbol[key] = max(by_symbol.get(key, 0.0), notional)
+    by_group = notionals(data.get("group_net_profit_factors"))
+    return by_symbol, by_group, str(file_path)
+
+
+def normalize_margin_profile(profile: str | MarginModel | None) -> str:
+    if isinstance(profile, MarginModel):
+        return profile.profile
     value = str(profile or "roboforex").strip().lower()
     if value in {"ttp", "thetradingpit", "tradingpit", "the_trading_pit"}:
         return "ttp"
@@ -1948,7 +2341,7 @@ def normalize_margin_profile(profile: str | None) -> str:
     return "roboforex"
 
 
-def margin_profile_label(profile: str | None) -> str:
+def margin_profile_label(profile: str | MarginModel | None) -> str:
     return {
         "ttp": "TTP",
         "axi": "AXI",
@@ -1960,10 +2353,12 @@ def margin_profile_label(profile: str | None) -> str:
 def margin_leverage_for_profile(
     symbol: str,
     *,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
 ) -> float:
+    if isinstance(margin_profile, MarginModel):
+        return margin_profile.leverage_for(symbol)
     profile = normalize_margin_profile(margin_profile)
     if profile == "ttp":
         group = portfolio_group_key(symbol)
@@ -1983,12 +2378,15 @@ def margin_leverage_for_profile(
 def margin_contract_size_for_profile(
     symbol: str,
     *,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_contract_size: float = 100.0,
     default_contract_size: float = 1.0,
 ) -> float:
-    # Contract size is kept explicit and broker-independent for now: stocks use
-    # 100 and every other group uses 1, matching the portfolio margin model.
+    # Sigue siendo una aproximacion por grupo (acciones 100, resto 1). Solo se usa
+    # cuando el perfil no aporta nocional medido; con ``symbol_notional`` presente
+    # el margen no pasa por aqui.
+    if isinstance(margin_profile, MarginModel):
+        return margin_profile.contract_size_for(symbol)
     return stock_contract_size if portfolio_group_key(symbol) == "Stocks" else default_contract_size
 
 
@@ -2005,11 +2403,32 @@ def strategy_reference_price(strategy: RobustStrategySet) -> float:
     return 1.0
 
 
+def allocation_notional(
+    strategy: RobustStrategySet,
+    units: int,
+    model: MarginModel,
+) -> float:
+    """Exposicion en divisa de cuenta de ``units`` unidades de una estrategia.
+
+    Una unidad es una posicion al lote minimo ejecutable. Con nocional medido se
+    multiplica directamente; si no, se recae en la estimacion antigua
+    ``lote x contrato x precio`` con el precio maximo visto en los reportes.
+    """
+    measured = model.notional_for(strategy.symbol)
+    if measured is not None:
+        return units * measured
+    return (
+        model.lot_size_for(strategy.symbol, units)
+        * model.contract_size_for(strategy.symbol)
+        * strategy_reference_price(strategy)
+    )
+
+
 def allocation_margin_required(
     strategy: RobustStrategySet,
     units: int,
     *,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
@@ -2018,22 +2437,20 @@ def allocation_margin_required(
     units = max(int(units), 0)
     if units <= 0:
         return 0.0
-    lot = units * 0.01
-    leverage = margin_leverage_for_profile(
-        strategy.symbol,
-        margin_profile=margin_profile,
+    model = resolve_margin_model(
+        margin_profile,
         stock_leverage=stock_leverage,
         default_leverage=default_leverage,
-    )
-    contract_size = margin_contract_size_for_profile(
-        strategy.symbol,
-        margin_profile=margin_profile,
         stock_contract_size=stock_contract_size,
         default_contract_size=default_contract_size,
     )
+    measured = model.margin_for_one(strategy.symbol)
+    if measured is not None:
+        return units * measured
+    leverage = model.leverage_for(strategy.symbol)
     if leverage <= 0:
         return float("inf")
-    return lot * contract_size * strategy_reference_price(strategy) / leverage
+    return allocation_notional(strategy, units, model) / leverage
 
 
 def portfolio_margin_summary(
@@ -2042,49 +2459,47 @@ def portfolio_margin_summary(
     *,
     balance: float,
     max_margin_pct: float,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
     default_contract_size: float = 1.0,
 ) -> dict[str, object]:
+    model = resolve_margin_model(
+        margin_profile,
+        stock_leverage=stock_leverage,
+        default_leverage=default_leverage,
+        stock_contract_size=stock_contract_size,
+        default_contract_size=default_contract_size,
+    )
     by_set: dict[str, dict[str, float | str | int]] = {}
     total = 0.0
+    total_notional = 0.0
+    unmeasured: list[str] = []
     for strategy in sets:
         units = max(int(allocations.get(strategy.set_id, 0)), 0)
         if units <= 0:
             continue
-        leverage = margin_leverage_for_profile(
-            strategy.symbol,
-            margin_profile=margin_profile,
-            stock_leverage=stock_leverage,
-            default_leverage=default_leverage,
-        )
-        contract_size = margin_contract_size_for_profile(
-            strategy.symbol,
-            margin_profile=margin_profile,
-            stock_contract_size=stock_contract_size,
-            default_contract_size=default_contract_size,
-        )
-        price = strategy_reference_price(strategy)
-        margin = allocation_margin_required(
-            strategy,
-            units,
-            margin_profile=margin_profile,
-            stock_leverage=stock_leverage,
-            default_leverage=default_leverage,
-            stock_contract_size=stock_contract_size,
-            default_contract_size=default_contract_size,
-        )
+        leverage = model.leverage_for(strategy.symbol)
+        measured = model.margin_for_one(strategy.symbol)
+        notional = allocation_notional(strategy, units, model)
+        margin = allocation_margin_required(strategy, units, margin_profile=model)
+        if measured is None and strategy.symbol not in unmeasured:
+            unmeasured.append(strategy.symbol)
         total += margin
+        total_notional += notional
         by_set[strategy.set_id] = {
             "symbol": strategy.symbol,
             "group": portfolio_group_key(strategy.symbol),
             "units": units,
-            "lot": units * 0.01,
+            "lot": model.lot_size_for(strategy.symbol, units),
+            "min_lot": model.min_lot_for(strategy.symbol),
             "leverage": leverage,
-            "contract_size": contract_size,
-            "price": price,
+            "contract_size": model.contract_size_for(strategy.symbol),
+            "price": strategy_reference_price(strategy),
+            "notional": notional,
+            "margin_measured": measured is not None,
+            "notional_measured": model.notional_for(strategy.symbol) is not None,
             "margin": margin,
         }
     limit = float(balance) * float(max_margin_pct) / 100.0 if balance > 0 else 0.0
@@ -2094,13 +2509,19 @@ def portfolio_margin_summary(
         "max_margin_pct": float(max_margin_pct),
         "limit": limit,
         "total": total,
+        "notional": total_notional,
         "usage_pct": total / limit * 100.0 if limit > 0 else 0.0,
-        "profile": normalize_margin_profile(margin_profile),
-        "profile_label": margin_profile_label(margin_profile),
-        "stock_leverage": float(stock_leverage),
-        "default_leverage": float(default_leverage),
-        "stock_contract_size": float(stock_contract_size),
-        "default_contract_size": float(default_contract_size),
+        "profile": model.profile,
+        "profile_label": margin_profile_label(model.profile),
+        "account_leverage": float(model.account_leverage or 0.0),
+        "reference_account_leverage": float(model.reference_account_leverage or 0.0),
+        "margin_source": model.margin_source,
+        "notional_source": model.notional_source,
+        "unmeasured_symbols": unmeasured,
+        "stock_leverage": float(model.stock_leverage),
+        "default_leverage": float(model.default_leverage),
+        "stock_contract_size": float(model.stock_contract_size),
+        "default_contract_size": float(model.default_contract_size),
         "by_set": by_set,
     }
 
@@ -2111,7 +2532,7 @@ def allocations_respect_margin_limit(
     *,
     balance: float | None,
     max_margin_pct: float | None,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
@@ -2195,7 +2616,7 @@ def can_add_unit(
     group_unit_cap_bootstrap: int = 10,
     margin_balance: float | None = None,
     max_margin_pct: float | None = None,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
@@ -2294,7 +2715,7 @@ def _allocations_respect_constraints(
     max_sets_per_group: int | None = None,
     margin_balance: float | None = None,
     max_margin_pct: float | None = None,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
@@ -2419,7 +2840,7 @@ def build_portfolio_greedy(
     allow_fixed_reductions_for_repair: bool = False,
     margin_balance: float | None = None,
     max_margin_pct: float | None = None,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
@@ -2716,7 +3137,7 @@ def improve_with_local_search(
     minimum_active_strategies: int | None = None,
     margin_balance: float | None = None,
     max_margin_pct: float | None = None,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
@@ -2868,7 +3289,7 @@ def improve_with_multi_start_search(
     group_unit_cap_bootstrap: int = 10,
     margin_balance: float | None = None,
     max_margin_pct: float | None = None,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
@@ -3042,7 +3463,7 @@ def _deep_refine_allocations(
     max_portfolio_corr: float | None,
     margin_balance: float | None,
     max_margin_pct: float | None,
-    margin_profile: str | None,
+    margin_profile: str | MarginModel | None,
     stock_leverage: float,
     default_leverage: float,
     stock_contract_size: float,
@@ -3661,7 +4082,7 @@ def _strict_monthly_safe_refill_allocations(
     max_portfolio_corr: float | None,
     margin_balance: float | None,
     max_margin_pct: float | None,
-    margin_profile: str | None,
+    margin_profile: str | MarginModel | None,
     stock_leverage: float,
     default_leverage: float,
     stock_contract_size: float,
@@ -3807,7 +4228,7 @@ def _strict_monthly_deep_refine_allocations(
     max_portfolio_corr: float | None,
     margin_balance: float | None,
     max_margin_pct: float | None,
-    margin_profile: str | None,
+    margin_profile: str | MarginModel | None,
     stock_leverage: float,
     default_leverage: float,
     stock_contract_size: float,
@@ -4041,7 +4462,7 @@ def optimize_strict_monthly_portfolio(
     search_restarts: int = 0,
     margin_balance: float | None = None,
     max_margin_pct: float | None = None,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
@@ -4476,7 +4897,7 @@ def optimize_portfolio(
     bootstrap_seed: int = DEFAULT_BOOTSTRAP_SEED,
     margin_balance: float | None = None,
     max_margin_pct: float | None = None,
-    margin_profile: str | None = "roboforex",
+    margin_profile: str | MarginModel | None = "roboforex",
     stock_leverage: float = 20.0,
     default_leverage: float = 500.0,
     stock_contract_size: float = 100.0,
@@ -4790,7 +5211,9 @@ def optimize_portfolio(
             current = refined_current
             stop_reason += "; deep optimization refined the solution"
 
-    executable_allocations, executable_steps = _execution_plan_allocations(selected, allocations, capital)
+    executable_allocations, executable_steps = _execution_plan_allocations(
+        selected, allocations, capital, resolve_margin_model(margin_profile),
+    )
     execution_adjustments = {
         set_id: executable_allocations[set_id]
         for set_id, units in allocations.items()
@@ -4850,7 +5273,7 @@ def optimize_portfolio(
                 candidate_id=strategy.candidate_id,
                 symbol=strategy.symbol,
                 units=units,
-                lot=round(units * 0.01, 2),
+                lot=resolve_margin_model(margin_profile).lot_size_for(strategy.symbol, units),
                 net_profit_contribution=strategy.net_profit_2020_2026_001 * units,
                 standalone_valley_dd=max(
                     strategy.valley_dd_2020_2026_001,
@@ -4996,11 +5419,28 @@ def optimize_portfolio(
         )
     if margin_summary:
         profile_label = str(margin_summary.get("profile_label") or margin_profile_label(margin_profile))
-        if normalize_margin_profile(str(margin_summary.get("profile") or margin_profile)) == "ttp":
+        summary_profile = normalize_margin_profile(margin_summary.get("profile") or margin_profile)
+        if summary_profile == "ttp":
             rule_text = (
                 "Forex 1:50; indices 1:15; commodities/metales/energias 1:10; "
                 "stocks/crypto 1:2; contract_size stocks 100/resto 1."
             )
+        elif summary_profile == "axi" and margin_summary.get("margin_source"):
+            account = float(margin_summary.get("account_leverage") or 0.0)
+            reference = float(margin_summary.get("reference_account_leverage") or 0.0)
+            rule_text = (
+                f"margen medido en el terminal con la cuenta en 1:{reference:.0f} y "
+                f"reescalado a 1:{account:.0f}, con el tope de cada producto como techo "
+                "(cada simbolo usa min(cuenta, tope)). Lote de una unidad = lote minimo "
+                "real del simbolo."
+            )
+            pending = list(margin_summary.get("unmeasured_symbols") or [])
+            if pending:
+                rule_text += (
+                    f" Sin medir ({len(pending)}): {', '.join(pending[:5])}"
+                    + ("..." if len(pending) > 5 else "")
+                    + "; usan la estimacion por precio."
+                )
         else:
             rule_text = "Stocks 1:20 contract_size 100; resto 1:500 contract_size 1."
         warnings.append(
@@ -5042,7 +5482,10 @@ def optimize_portfolio(
         target_point_dd=target_point_dd,
         valley_usage_pct=current.valley_usage_pct,
         point_usage_pct=current.point_usage_pct,
-        total_lot=current.total_lot,
+        # ``evaluate_portfolio`` no conoce el perfil, asi que su ``total_lot`` es
+        # el viejo ``unidades x 0.01``. Aqui si hay modelo: se suma el lote real
+        # de cada simbolo. Sin el da lo mismo que antes.
+        total_lot=round(sum(allocation.lot for allocation in result_allocations), 2),
         total_units=current.total_units,
         active_strategies=current.active_strategies,
         stop_reason=stop_reason,
@@ -5373,7 +5816,17 @@ def _execution_plan_allocations(
     sets: list[RobustStrategySet],
     allocations: dict[str, int],
     capital: float,
+    model: MarginModel | None = None,
 ) -> tuple[dict[str, int], dict[str, int]]:
+    """Traduce unidades a un ``LotPerBalance_step`` que el EA pueda ejecutar.
+
+    El EA dimensiona en escalones de 0.01 lotes. Una unidad son
+    ``lot_increments_for`` escalones, que es 1 en cualquier simbolo con minimo
+    0.01 y 100 en uno con minimo 1.0. Sin ese factor el step exportado pedia
+    0.01xN lotes, MT5 lo subia al minimo del simbolo y las N unidades acababan
+    ejecutandose como una sola: el portafolio contaba con N veces la curva y
+    recibia una.
+    """
     executable = allocations.copy()
     steps: dict[str, int] = {}
     for strategy in sets:
@@ -5381,8 +5834,11 @@ def _execution_plan_allocations(
         if units <= 0:
             executable[strategy.set_id] = 0
             continue
-        step = _step_for_max_units(capital, units)
-        executable[strategy.set_id] = execution_units_from_step(capital, step)
+        increments = model.lot_increments_for(strategy.symbol) if model else 1
+        step = _step_for_max_units(capital, units * increments)
+        # Se baja a unidades enteras: media posicion minima no existe, MT5 la
+        # redondearia al step del simbolo y la curva dejaria de cuadrar.
+        executable[strategy.set_id] = execution_units_from_step(capital, step) // increments
         steps[strategy.set_id] = step
     return executable, steps
 

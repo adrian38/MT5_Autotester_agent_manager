@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
+    ACCOUNT_LEVERAGE_CHOICES,
+    DEFAULT_ACCOUNT_LEVERAGE,
     BootstrapDrawdownAnalysis,
     OptimizationDecision,
     PortfolioResult,
@@ -31,6 +33,11 @@ from portfolio_manager.ubs_portfolio import (
     StrategyAllocation,
     UnusedSetInfo,
     bootstrap_valley_drawdown,
+    load_max_product_leverage,
+    load_symbol_notional,
+    load_symbol_specs,
+    margin_model_for_profile,
+    normalize_margin_profile,
     evaluate_portfolio,
     filter_rows_by_recent_positive_months,
     filter_rows_grid_off,
@@ -93,6 +100,7 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "max_portfolio_corr": 0.50,
     "allowed_asset_groups": list(ASSET_GROUPS),
     "margin_profile": "ictrading",
+    "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
     "max_margin_pct": 100.0,
     "validate_margin": True,
     "enforce_point_dd": False,
@@ -182,6 +190,13 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
     if values["max_margin_pct"] <= 0:
         raise ValueError("max_margin_pct debe ser mayor que 0")
     values["margin_profile"] = str(values.get("margin_profile") or broker).strip().lower()
+    # Apalancamiento de cuenta: hoy solo lo consume el perfil AXI y solo en el
+    # portafolio UBS (full history). Se guarda igualmente para cualquier perfil
+    # para que la preferencia sobreviva a un cambio de broker en el formulario.
+    leverage = safe_float(values.get("account_leverage"), 0)
+    if leverage not in ACCOUNT_LEVERAGE_CHOICES:
+        leverage = DEFAULT_ACCOUNT_LEVERAGE
+    values["account_leverage"] = leverage
     correlation_keys = (
         "max_pair_corr",
         "max_downside_corr",
@@ -408,7 +423,25 @@ def _resolve_source_path(value: Any, project: Path) -> str:
     return str(path)
 
 
-def _linux_path_is_remote(path: Path, mounts_text: str) -> bool:
+#: Sistemas de ficheros que no pueden respaldar el indice en memoria compartida
+#: (``-shm``) que SQLite necesita para leer una base en modo WAL. Incluye tanto
+#: recursos de red como los bind mounts de Docker Desktop (9p, virtiofs,
+#: gRPC-FUSE): en todos ellos un ``?mode=ro`` sobre una base con WAL falla con
+#: "disk I/O error", asi que hay que copiarla a un disco que si lo soporte.
+WAL_UNSUPPORTED_FILESYSTEMS = frozenset(
+    {"cifs", "smb3", "nfs", "nfs4", "9p", "virtiofs", "fuse", "fuse.grpcfuse", "fuseblk"}
+)
+
+
+def _linux_path_needs_snapshot(path: Path, mounts_text: str) -> bool:
+    """True si hay que copiar la base a otro disco antes de leerla.
+
+    El criterio no es "esta en red", es "este sistema de ficheros no soporta el
+    ``-shm`` del modo WAL". Confundir ambas cosas costo caro: los bind mounts de
+    Docker (9p) se daban por locales, se leian con ``immutable=1`` y eso ignora
+    el ``-wal`` entero, con lo que el manager seguia viendo filas que el nodo ya
+    habia borrado.
+    """
     target = str(path).replace("\\", "/")
     matched: tuple[int, str] | None = None
     for line in mounts_text.splitlines():
@@ -421,7 +454,10 @@ def _linux_path_is_remote(path: Path, mounts_text: str) -> bool:
             candidate = (len(mountpoint), fields[2].lower())
             if matched is None or candidate[0] > matched[0]:
                 matched = candidate
-    return bool(matched and matched[1] in {"cifs", "smb3", "nfs", "nfs4"})
+    if not matched:
+        return False
+    fstype = matched[1]
+    return fstype in WAL_UNSUPPORTED_FILESYSTEMS or fstype.startswith("fuse.")
 
 
 class PortfolioSource:
@@ -462,6 +498,17 @@ class PortfolioSource:
         memory_sources = [(label, path) for label, path in memory_sources if path != self.memory]
         self.memory_sources = [(active_label, self.memory)] + memory_sources
         self.universe = self.project / "assets" / f"{self.broker.lower()}_assets.ini"
+        # Especificaciones medidas en MT5 (lote minimo, contrato, tick value)
+        # colapsadas en un factor por simbolo. El margen las invierte para conocer
+        # el nocional real de una posicion. Puede no existir: el modelo cae
+        # entonces en la estimacion por precio de reporte.
+        self.normalization = self.project / "assets" / f"{self.broker.lower()}_normalization.json"
+        # Volcado directo del terminal: margen por posicion minima, lote minimo y
+        # tamano de contrato reales. Es la fuente buena del margen.
+        self.symbol_specs = self.project / "assets" / f"{self.broker.lower()}_symbol_specs.json"
+        # Topes de apalancamiento publicados por el broker, para simular una
+        # cuenta con otro apalancamiento sin pasarse del maximo del producto.
+        self.product_leverage = self.project / "assets" / f"{self.broker.lower()}_max_product_leverage.json"
         if not self.memory.is_file():
             raise ValueError(f"No existe la memoria UBS: {self.memory}")
 
@@ -471,10 +518,11 @@ class PortfolioSource:
             yield conn
 
     @staticmethod
-    def _is_remote_memory(memory: Path) -> bool:
+    def _needs_snapshot_read(memory: Path) -> bool:
+        """True si leer esta base exige copiarla antes a un disco con WAL."""
         if os.name != "nt":
             try:
-                return _linux_path_is_remote(memory, Path("/proc/mounts").read_text(encoding="utf-8"))
+                return _linux_path_needs_snapshot(memory, Path("/proc/mounts").read_text(encoding="utf-8"))
             except OSError:
                 return False
         if not memory.drive:
@@ -486,9 +534,24 @@ class PortfolioSource:
         except (AttributeError, OSError):
             return False
 
+    @classmethod
+    def _snapshot_root(cls) -> Path:
+        """Directorio donde dejar las copias, en un disco que soporte WAL.
+
+        ``runtime/`` es lo preferible porque persiste entre reinicios y se ve
+        desde fuera, pero en el contenedor es otro bind mount 9p: copiar ahi
+        reproduciria el mismo fallo que se intenta evitar. Cuando pasa eso se cae
+        al temporal del contenedor, que vive en el overlay y si soporta el
+        ``-shm``.
+        """
+        runtime = Path(__file__).resolve().parents[1] / "runtime" / "portfolio_snapshots"
+        if not cls._needs_snapshot_read(runtime):
+            return runtime
+        return Path(tempfile.gettempdir()) / "mt5_manager_portfolio_snapshots"
+
     def _snapshot_path(self, memory: Path) -> Path:
         node_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(self.node.get("id") or self.broker))
-        root = Path(__file__).resolve().parents[1] / "runtime" / "portfolio_snapshots" / node_id
+        root = self._snapshot_root() / node_id
         root.mkdir(parents=True, exist_ok=True)
         return root / memory.name
 
@@ -555,14 +618,14 @@ class PortfolioSource:
 
     @contextlib.contextmanager
     def connect_memory(self, memory: Path, *, write: bool = False):
-        remote = self._is_remote_memory(memory)
+        snapshot = self._needs_snapshot_read(memory)
         source_memory = memory
         remote_lock = False
         conn: sqlite3.Connection | None = None
         try:
             if write:
                 try:
-                    conn = sqlite3.connect(memory, timeout=10 if remote else 30)
+                    conn = sqlite3.connect(memory, timeout=10 if snapshot else 30)
                     ensure_portfolio_schema(conn)
                 except sqlite3.OperationalError as exc:
                     if "locked" in str(exc).lower() or "busy" in str(exc).lower():
@@ -572,25 +635,25 @@ class PortfolioSource:
                             "inténtalo de nuevo cuando termine."
                         ) from exc
                     raise
-            elif remote:
+            elif snapshot:
+                # Copiar base y WAL a un disco que soporte el ``-shm`` y leer alli.
+                # Es el unico modo de ver lo que el nodo acaba de escribir: un
+                # ``immutable=1`` sobre el original ignora el ``-wal`` entero, y con
+                # el se perdian borrados y altas que aun no habian pasado a
+                # checkpoint. Un portafolio borrado en el nodo seguia apareciendo en
+                # la pantalla y cada reintento fallaba con "no existe".
                 REMOTE_SNAPSHOT_LOCK.acquire()
                 remote_lock = True
                 memory = self._remote_read_snapshot(memory)
                 conn = sqlite3.connect(memory.as_uri() + "?mode=ro", uri=True, timeout=5)
             else:
-                # Local project dirs reach the manager through a container bind mount
-                # (Docker Desktop gRPC-FUSE), which cannot back the WAL shared-memory
-                # index. A plain ?mode=ro open of a WAL database then fails with
-                # "disk I/O error". immutable=1 skips the -wal/-shm and reads the main
-                # file directly; reads here are point-in-time and read-only, so a
-                # bounded lag behind an uncheckpointed WAL is acceptable for the viewer.
-                conn = sqlite3.connect(memory.as_uri() + "?immutable=1", uri=True, timeout=5)
+                conn = sqlite3.connect(memory.as_uri() + "?mode=ro", uri=True, timeout=5)
             conn.row_factory = sqlite3.Row
             yield conn
         finally:
             if conn is not None:
                 conn.close()
-            if write and remote and conn is not None:
+            if write and snapshot and conn is not None:
                 self._invalidate_remote_snapshot(source_memory)
             if remote_lock:
                 REMOTE_SNAPSHOT_LOCK.release()
@@ -1458,7 +1521,10 @@ def _optimizer_kwargs(
         "search_restarts": int(inputs.get("search_restarts") or 0),
         "margin_balance": float(inputs["capital"]) if validate_margin else None,
         "max_margin_pct": float(inputs.get("max_margin_pct") or 100.0) if validate_margin else None,
-        "margin_profile": str(inputs.get("margin_profile") or "ictrading"),
+        # Un MarginModel completo sustituye al nombre del perfil cuando el
+        # llamante lo construyo (hoy solo el portafolio UBS full history). El
+        # mensual no lo pone, asi que conserva el modelo heredado.
+        "margin_profile": inputs.get("margin_model") or str(inputs.get("margin_profile") or "ictrading"),
         "stock_leverage": 20.0,
         "default_leverage": 500.0,
         "stock_contract_size": 100.0,
@@ -1578,7 +1644,7 @@ def _normal_proposals(
     for index, (key, label, objective_type, reserve) in enumerate(specs, 1):
         if progress:
             progress(f"Calculando propuesta {index}/3: {label}")
-        proposal_inputs = dict(inputs)
+        proposal_inputs = settings_inputs(inputs)
         proposal_inputs.update({
             "optimization_profile": key,
             "optimization_profile_label": label,
@@ -1688,7 +1754,7 @@ def _locked_full_proposals(
             if progress:
                 progress(f"Calculando variante {index}/3: {label}")
             reserve = _reserve_pct(configured, portfolio_type)
-            proposal_inputs = dict(inputs)
+            proposal_inputs = settings_inputs(inputs)
             proposal_inputs.update({
                 "optimization_profile": key,
                 "optimization_profile_label": label,
@@ -1781,6 +1847,34 @@ def result_payload(result: PortfolioResult) -> dict[str, Any]:
     }
 
 
+def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
+    """Modelo de margen del perfil configurado, con el nocional medido si lo hay.
+
+    Solo AXI estrena tramos por grupo, apalancamiento de cuenta y nocional real;
+    para el resto de perfiles devuelve el modelo heredado, de forma que ningún
+    portafolio ya guardado cambia de números.
+    """
+    if normalize_margin_profile(inputs.get("margin_profile")) != "axi":
+        return margin_model_for_profile(inputs.get("margin_profile"))
+    (
+        symbol_margin, symbol_min_lot, symbol_contract_size, reference_leverage, margin_source,
+    ) = load_symbol_specs(source.symbol_specs)
+    symbol_notional, group_notional, notional_source = load_symbol_notional(source.normalization)
+    return margin_model_for_profile(
+        inputs.get("margin_profile"),
+        account_leverage=safe_float(inputs.get("account_leverage"), 0) or None,
+        reference_account_leverage=reference_leverage,
+        symbol_margin=symbol_margin,
+        symbol_min_lot=symbol_min_lot,
+        symbol_contract_size=symbol_contract_size,
+        max_product_leverage=load_max_product_leverage(source.product_leverage),
+        symbol_notional=symbol_notional,
+        group_notional=group_notional,
+        margin_source=margin_source,
+        notional_source=notional_source,
+    )
+
+
 def generate_proposals(
     source: PortfolioSource,
     inputs: dict[str, Any],
@@ -1792,6 +1886,7 @@ def generate_proposals(
     """Generate only the full-history UBS A/M/C bundle."""
     if inputs.get("portfolio_scope") == "monthly":
         raise ValueError("El cálculo mensual debe usar portfolio_monthly_service")
+    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
     if progress:
         progress("Leyendo candidatos Final Tick aceptados")
     rows = source.candidate_rows(include_quarantined=False)
@@ -1869,6 +1964,7 @@ def generate_completion_proposal(
     """Complete only a full-history UBS portfolio."""
     if scope != "full_history":
         raise ValueError("El portafolio mensual debe usar portfolio_monthly_service")
+    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
     detail = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
     if _is_bundle_portfolio(detail):
         raise ValueError("El portafolio A/M/C debe reoptimizarse completo; no admite completar una sola variante")
@@ -1968,7 +2064,7 @@ def generate_completion_proposal(
         raise ValueError(
             f"No existe una sustituta compatible: quedaron {result.active_strategies}/{target} estrategias"
         )
-    proposal_inputs = dict(inputs)
+    proposal_inputs = settings_inputs(inputs)
     proposal_inputs.update({
         "optimization_profile": "complete",
         "optimization_profile_label": "Completar portafolio",
@@ -1983,9 +2079,23 @@ def generate_completion_proposal(
         "result": result,
     }]
 
+#: Claves de ``inputs`` que son objetos vivos del calculo, no ajustes del
+#: formulario. Nunca deben viajar al nodo ni persistirse: el payload de guardado
+#: se serializa a JSON y un ``MarginModel`` ahi dentro reventaba el POST con
+#: "Object of type MarginModel is not JSON serializable", que en la pantalla
+#: aparecia como un escueto "failed to fetch".
+RUNTIME_ONLY_INPUT_KEYS = frozenset({"margin_model"})
+
+
+def settings_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Copia de ``inputs`` con solo lo que es un ajuste serializable."""
+    return {key: value for key, value in inputs.items() if key not in RUNTIME_ONLY_INPUT_KEYS}
+
+
 def _result_metrics(inputs: dict[str, Any], result: PortfolioResult) -> dict[str, Any]:
     return {
-        "inputs": inputs,
+        # Igual que en el limite HTTP: esto acaba como JSON en la memoria UBS.
+        "inputs": settings_inputs(inputs),
         "warnings": result.warnings,
         "group_summary": result.group_summary,
         "equity_curve_2020_2026": result.equity_curve_2020_2026,
@@ -2020,7 +2130,10 @@ def serialize_portfolio_proposals(
             "key": str(proposal.get("key") or ""),
             "label": str(proposal.get("label") or ""),
             "reserve_pct": float(proposal.get("reserve_pct") or 0),
-            "inputs": {**inputs, "_manager_save_request_id": request_id},
+            # Segunda red en el limite HTTP: lo que salga de aqui se serializa a
+            # JSON, asi que aqui no puede quedar ningun objeto vivo aunque el
+            # llamante se haya olvidado de filtrarlo.
+            "inputs": {**settings_inputs(inputs), "_manager_save_request_id": request_id},
             "result": asdict(result),
         })
     return payload

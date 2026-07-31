@@ -59,7 +59,7 @@ function hydrate(settings) {
   groups.forEach(group => setField(`group_${group}`, allowed.has(group)));
 }
 
-const numericFields = ['capital', 'valley_dd_pct', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];
+const numericFields = ['capital', 'valley_dd_pct', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'account_leverage', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];
 const booleanFields = ['run_local_search', 'deep_optimization', 'experimental_full_search', 'use_correlation', 'require_3_positive_months_6m', 'grid_off', 'exclude_used_sets'];
 
 function formPayload() {
@@ -315,7 +315,7 @@ document.querySelector('#portfolio-log').addEventListener('click', async () => {
 });
 
 document.querySelector('#reset-settings').addEventListener('click', () => {
-  hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 100, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: true, experimental_full_search: false, use_correlation: true, exclude_used_sets: true, allowed_asset_groups: groups});
+  hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 100, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', account_leverage: 1000, max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: true, experimental_full_search: false, use_correlation: true, exclude_used_sets: true, allowed_asset_groups: groups});
   toast('Valores restablecidos; pulsa Guardar configuración para persistirlos.');
 });
 

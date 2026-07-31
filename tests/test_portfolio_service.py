@@ -15,7 +15,7 @@ from unittest.mock import patch
 from mt5_manager.portfolio_service import (
     PortfolioCoordinator,
     PortfolioSource,
-    _linux_path_is_remote,
+    _linux_path_needs_snapshot,
     _optimizer_kwargs,
     _optimize_without_recent_fillers,
     _resolve_source_path,
@@ -41,18 +41,29 @@ from portfolio_manager.ubs_portfolio import (
 
 
 class PortfolioServiceTests(unittest.TestCase):
-    def test_linux_cifs_memories_are_treated_as_remote_snapshots(self) -> None:
+    def test_bind_mounts_and_shares_both_need_a_snapshot_to_see_the_wal(self) -> None:
+        # El criterio no es "esta en red" sino "este sistema de ficheros no puede
+        # respaldar el -shm del modo WAL". Dar 9p por local hacia que se leyera
+        # con immutable=1, que ignora el -wal: un portafolio borrado por el nodo
+        # seguia apareciendo en la pantalla del manager.
         mounts = (
             "//192.168.1.152/G /data/roboforex cifs rw,relatime 0 0\n"
             "C:\\040drive /data/ic 9p rw,relatime 0 0\n"
+            "host /data/axi virtiofs rw,relatime 0 0\n"
+            "grpcfuse /data/legacy fuse.grpcfuse rw,relatime 0 0\n"
+            "overlay / overlay rw,relatime 0 0\n"
         )
 
-        self.assertTrue(
-            _linux_path_is_remote(
-                Path("/data/roboforex/TRADING/project/outputs/memory.sqlite"), mounts
-            )
-        )
-        self.assertFalse(_linux_path_is_remote(Path("/data/ic/outputs/memory.sqlite"), mounts))
+        for path in (
+            "/data/roboforex/TRADING/project/outputs/memory.sqlite",
+            "/data/ic/outputs/memory.sqlite",
+            "/data/axi/outputs/memory.sqlite",
+            "/data/legacy/outputs/memory.sqlite",
+        ):
+            self.assertTrue(_linux_path_needs_snapshot(Path(path), mounts), path)
+
+        # El disco propio del contenedor sí soporta WAL: se lee en el sitio.
+        self.assertFalse(_linux_path_needs_snapshot(Path("/tmp/memory.sqlite"), mounts))
 
     def test_grid_filter_reads_set_files_in_parallel_without_changing_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
