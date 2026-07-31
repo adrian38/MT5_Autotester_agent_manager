@@ -679,6 +679,50 @@ class PortfolioServiceTests(unittest.TestCase):
             source.release_strategy(quarantine_id)
             self.assertEqual(source.inventory("full_history", settings)["available"], 1)
 
+    def test_portfolio_source_accepts_pending_ohlc_trades_on_the_short_final_tick(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+            with contextlib.closing(sqlite3.connect(memory)) as conn:
+                conn.executescript(
+                    """
+                    create table candidates(id integer primary key,set_path text,symbol text,target_symbol text,period text,family text,report_path text,status text);
+                    create table candidate_robustness(candidate_id integer,report_path text,status text);
+                    create table candidate_final_tick(candidate_id integer,real_tick_report_path text,from_date text,to_date text,status text);
+                    create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text);
+                    insert into candidates values(1,'sets/a.set','EURUSD','EURUSD','H1','f','reports/a.html','accepted');
+                    insert into candidates values(2,'sets/b.set','GBPUSD','GBPUSD','H1','f','reports/b.html','accepted');
+                    insert into candidates values(3,'sets/c.set','USDJPY','USDJPY','H1','f','reports/c.html','accepted');
+                    insert into candidate_robustness values(1,'reports/a_oos.html','accepted');
+                    insert into candidate_robustness values(2,'reports/b_oos.html','accepted');
+                    insert into candidate_robustness values(3,'reports/c_oos.html','accepted');
+                    insert into candidate_final_tick values(1,'','2026.05.01','2026.05.31','pending_ohlc_trades');
+                    insert into candidate_final_tick values(2,'','2026.05.01','2026.05.31','rejected');
+                    insert into candidate_final_tick values(3,'','2026.05.01','2026.05.31','pending_ohlc_trades');
+                    insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick_6m values(3,'','','2026.01.01','2026.06.30','rejected');
+                    """
+                )
+                conn.commit()
+            source = PortfolioSource(
+                {
+                    "portfolio_project_dir": str(project),
+                    "portfolio_broker": "ICTRADING",
+                    "portfolio_account_type": "STANDARD",
+                }
+            )
+            rows = source.candidate_rows(include_quarantined=False)
+            # 1 pasa: 6M accepted aunque el tick corto quedara en pending_ohlc_trades.
+            # 2 no (tick corto rechazado), 3 tampoco (6M rechazado).
+            self.assertEqual([row["source_candidate_id"] for row in rows], [1])
+            # Sin reporte de tick corto la fila entra sin tramo continuo 2020-hoy.
+            self.assertEqual(rows[0]["full_history_report_path"], "")
+            settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]}, "ICTRADING")
+            self.assertEqual(source.inventory("full_history", settings)["available"], 1)
+
     def test_saved_portfolios_are_read_directly_from_the_broker_memory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

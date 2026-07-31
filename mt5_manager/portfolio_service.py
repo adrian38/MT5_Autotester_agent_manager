@@ -596,6 +596,15 @@ class PortfolioSource:
                 REMOTE_SNAPSHOT_LOCK.release()
 
     def candidate_rows(self, *, include_quarantined: bool) -> list[dict[str, Any]]:
+        # Elegibilidad = haber superado el Final Tick 6M. El estado del final tick
+        # corto se acepta tambien como 'pending_ohlc_trades': es terminal para esa
+        # etapa (la probe OHLC de 1 mes no genero operaciones, no es un rechazo de
+        # la estrategia) y el propio pipeline lo trata como paso valido hacia 6M
+        # (node.py: probe_ft.status in ('accepted','pending_ohlc_trades')). Exigir
+        # 'accepted' aqui dejaba fuera candidatos ya aceptados en 6M junto con sus
+        # simbolos completos. Esas filas llegan sin full_history_report_path, que
+        # es opcional en ubs_portfolio (require_full_history nunca se activa desde
+        # el manager): entran apoyadas en IS + OOS + 6M, sin el tramo continuo.
         result: list[dict[str, Any]] = []
         for account_label, memory in self.memory_sources:
             with self.connect_memory(memory) as conn:
@@ -613,7 +622,8 @@ class PortfolioSource:
                     join candidate_final_tick ft on ft.candidate_id=c.id
                     join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id
                     where c.status='accepted' and cr.status='accepted'
-                    and ft.status='accepted' and ft6.status='accepted'
+                    and ft.status in ('accepted','pending_ohlc_trades')
+                    and ft6.status='accepted'
                     order by c.id
                     """, (account_label, account_label),
                 ).fetchall()
