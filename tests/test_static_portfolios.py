@@ -7,6 +7,35 @@ from pathlib import Path
 from lxml import html
 
 
+class NodeCardControlsTests(unittest.TestCase):
+    def script(self) -> str:
+        return (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / "app.js"
+        ).read_text(encoding="utf-8")
+
+    def test_pause_and_resume_buttons_follow_the_job_state(self) -> None:
+        script = self.script()
+        # Pausar solo con algo en marcha; Reanudar solo desde un estado retomable.
+        self.assertIn("onclick=\"pauseNode(", script)
+        self.assertIn("onclick=\"resumeNode(", script)
+        self.assertIn("RESUMABLE_STATES = ['paused', 'interrupted']", script)
+        self.assertIn("isResumable(state) ? `<button onclick=\"resumeNode(", script)
+        # Detener sigue disponible sobre un pipeline pausado, para descartarlo.
+        self.assertIn("state === 'running' || isResumable(state)", script)
+
+    def test_pause_and_resume_call_their_own_manager_endpoints(self) -> None:
+        script = self.script()
+        self.assertIn("/pause`", script)
+        self.assertIn("/resume`", script)
+        for name in ("pauseNode", "resumeNode"):
+            self.assertIn(f"window.{name} = {name};", script)
+
+    def test_pause_warns_that_the_current_stage_is_cut(self) -> None:
+        # El usuario tiene que saber que se pierde el trabajo en vuelo de la etapa.
+        script = self.script()
+        self.assertIn("Se corta la etapa en curso", script)
+
+
 class PortfolioFormTests(unittest.TestCase):
     def test_capital_accepts_any_numeric_value_like_the_original_ubs_form(self) -> None:
         page = html.fromstring(

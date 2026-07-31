@@ -336,6 +336,31 @@ enabled=0
         self.assertEqual(payload["task"], task)
         delete.assert_called_once_with("test-node", "full_history", 37)
 
+    def test_pause_and_resume_reach_the_node_through_the_manager(self) -> None:
+        with mock.patch.object(
+            self.controller, "pause", return_value={"status": "pausing"}
+        ) as pause:
+            status, payload = self.request("/api/nodes/test-node/pause", {})
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["status"], "pausing")
+        pause.assert_called_once_with()
+
+        with mock.patch.object(
+            self.controller, "resume", return_value={"status": "running", "current_stage": "robustness"}
+        ) as resume:
+            status, payload = self.request("/api/nodes/test-node/resume", {})
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["current_stage"], "robustness")
+        resume.assert_called_once_with()
+
+    def test_pausing_with_nothing_running_surfaces_the_node_error(self) -> None:
+        # El nodo responde 409 a los conflictos de estado y el manager lo propaga
+        # tal cual, para que la interfaz muestre el motivo real.
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.request("/api/nodes/test-node/pause", {})
+        self.assertEqual(caught.exception.code, 409)
+        self.assertIn("pausar", json.loads(caught.exception.read())["error"])
+
     def test_export_folder_endpoint_opens_the_manager_picker(self) -> None:
         # El modo se fija aqui a proposito. Antes se heredaba del entorno y
         # MT5_MANAGER_EXPORT_MODE=download (lo que pone docker-compose) hacia que

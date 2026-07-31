@@ -735,6 +735,13 @@ def pipeline_stage_pending_count(
         return sum(1 for row in rows if pending(row))
 
 
+#: Estados desde los que un pipeline puede continuar donde lo dejo. ``paused`` es
+#: una pausa pedida por el usuario; ``interrupted`` es lo que queda cuando el
+#: agente se cerro con un trabajo en marcha. Los dos conservan ``pipeline`` y
+#: ``current_step_index``, que es cuanto hace falta para retomarlo.
+RESUMABLE_STATUSES = frozenset({"paused", "interrupted"})
+
+
 class JobController:
     def __init__(self, config: dict[str, Any], config_path: Path) -> None:
         self.config = config
@@ -751,14 +758,23 @@ class JobController:
             "job_id": None, "status": "idle", "pid": None, "started_at": None,
             "finished_at": None, "return_code": None, "request": None, "command": None,
             "log_path": None, "error": None, "pipeline": [], "current_stage": None,
-            "completed_stages": [], "stage_return_codes": {},
+            "completed_stages": [], "stage_return_codes": {}, "current_step_index": None,
         }
+        self.pause_requested = False
         if self.state_path.is_file():
             try:
                 old = load_json(self.state_path)
                 self.state.update(old)
-                if self.state.get("status") == "running":
-                    self.state["status"] = "unknown_after_restart"
+                if self.state.get("status") in {"running", "stopping"}:
+                    # El proceso murio con el agente. Si sabemos en que paso iba,
+                    # queda como interrumpido y se puede reanudar; si no, no hay
+                    # nada que retomar y se deja como antes.
+                    resumable = (
+                        self.state.get("current_step_index") is not None
+                        and bool(self.state.get("pipeline"))
+                    )
+                    self.state["status"] = "interrupted" if resumable else "unknown_after_restart"
+                    self.state["pid"] = None
             except ValueError:
                 pass
         if self.queue_path.is_file():
@@ -794,7 +810,16 @@ class JobController:
 
     def _busy(self) -> bool:
         # Keep the node reserved until the watcher has recorded the process exit.
-        return self.process is not None
+        # Un pipeline en pausa tambien reserva el nodo: si no, la cola arrancaria
+        # el siguiente trabajo encima del que el usuario dejo a medias y ya no
+        # habria forma de reanudarlo.
+        return self.process is not None or self._is_resumable()
+
+    def _is_resumable(self) -> bool:
+        return (
+            str(self.state.get("status") or "") in RESUMABLE_STATUSES
+            and bool(self.state.get("pipeline"))
+        )
 
     def _enqueue(self, task_type: str, payload: dict[str, Any], summary: str) -> dict[str, Any]:
         if len(self.queue) >= 100:
@@ -1209,6 +1234,11 @@ class JobController:
         )
         self.process = process
         self.state["pid"] = process.pid
+        # Sin esto la posicion del pipeline solo vivia en los argumentos del hilo
+        # vigilante, asi que un cierre del agente la perdia y no habia por donde
+        # retomar.
+        self.state["current_step_index"] = step_index
+        self.state["status"] = "running"
         self.state["current_stage"] = stage
         self.state["current_cycle"] = step.get("cycle")
         self.state["current_run_id"] = step.get("run_id")
@@ -1225,6 +1255,18 @@ class JobController:
             if self.log_handle:
                 self.log_handle.close()
                 self.log_handle = None
+            if self.pause_requested:
+                # La etapa se corto a peticion del usuario, no fallo. Se conserva
+                # ``current_step_index`` para relanzar esta misma etapa: al volver,
+                # ``pipeline_stage_pending_count`` recalcula lo que quede pendiente.
+                self.pause_requested = False
+                self.state["status"] = "paused"
+                self.state["pid"] = None
+                self.state["return_code"] = None
+                self.state["paused_at"] = utc_now()
+                self.process = None
+                self._persist()
+                return
             pipeline = list(self.state.get("pipeline") or [])
             step = pipeline[step_index]
             stage = str(step["action"])
@@ -1279,20 +1321,80 @@ class JobController:
                 return_code = 1
             self._complete(return_code)
 
+    def _terminate_current(self, process: subprocess.Popen[str]) -> None:
+        try:
+            if os.name == "nt":
+                process.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                process.send_signal(signal.SIGTERM)
+            process.wait(timeout=8)
+        except (OSError, subprocess.TimeoutExpired):
+            process.terminate()
+
     def stop(self) -> dict[str, Any]:
         with self.lock:
             process = self.process
             if process is None or process.poll() is not None:
+                # Un pipeline en pausa o interrumpido no tiene proceso vivo, pero
+                # si reserva el nodo: pararlo es descartarlo para liberar la cola.
+                if self._is_resumable():
+                    self.state["status"] = "stopped"
+                    self.state["current_step_index"] = None
+                    self.state["finished_at"] = utc_now()
+                    self._persist()
+                    if self.queue:
+                        self._schedule_queue_drain()
+                    return dict(self.state)
                 raise RuntimeError("No hay ninguna generacion activa")
-            try:
-                if os.name == "nt":
-                    process.send_signal(signal.CTRL_BREAK_EVENT)
-                else:
-                    process.send_signal(signal.SIGTERM)
-                process.wait(timeout=8)
-            except (OSError, subprocess.TimeoutExpired):
-                process.terminate()
+            self.pause_requested = False
+            self._terminate_current(process)
             self.state["status"] = "stopping"
+            self._persist()
+            return dict(self.state)
+
+    def pause(self) -> dict[str, Any]:
+        """Corta la etapa en curso conservando la posicion del pipeline."""
+        with self.lock:
+            process = self.process
+            if process is None or process.poll() is not None:
+                if self._is_resumable():
+                    raise RuntimeError("El pipeline ya esta pausado")
+                raise RuntimeError("No hay ninguna generacion activa que pausar")
+            if self.state.get("current_step_index") is None:
+                raise RuntimeError("Este trabajo no registra su posicion; no se puede pausar")
+            self.pause_requested = True
+            self.state["status"] = "pausing"
+            self._persist()
+            self._terminate_current(process)
+            return dict(self.state)
+
+    def resume(self) -> dict[str, Any]:
+        """Relanza el pipeline desde la etapa en la que se quedo."""
+        with self.lock:
+            if self.process is not None and self.process.poll() is None:
+                raise RuntimeError("Ya hay una etapa en marcha")
+            if not self._is_resumable():
+                raise RuntimeError("No hay ningun pipeline pausado o interrumpido")
+            step_index = safe_int(self.state.get("current_step_index"), -1)
+            pipeline = list(self.state.get("pipeline") or [])
+            if not 0 <= step_index < len(pipeline):
+                raise RuntimeError("La posicion guardada del pipeline no es valida")
+            log_path = Path(str(self.state.get("log_path") or ""))
+            if not str(log_path):
+                raise RuntimeError("No se conserva el log del trabajo; no se puede reanudar")
+            self.state.pop("paused_at", None)
+            self.state["resumed_at"] = utc_now()
+            self.state["error"] = None
+            try:
+                # ``first=False`` para no truncar el log de lo ya ejecutado.
+                if not self._launch_next_runnable(step_index, log_path):
+                    # Nada pendiente desde aqui: el pipeline estaba de hecho acabado.
+                    self._complete(0)
+            except Exception as exc:
+                self.state["error"] = str(exc)
+                self.state["status"] = "failed"
+                self._persist()
+                raise
             self._persist()
             return dict(self.state)
 
@@ -1655,6 +1757,10 @@ class NodeHandler(BaseHTTPRequestHandler):
                 self._send(202, self.server.controller.start_cleanup())
             elif self.path == "/api/v1/jobs/stop":
                 self._send(202, self.server.controller.stop())
+            elif self.path == "/api/v1/jobs/pause":
+                self._send(202, self.server.controller.pause())
+            elif self.path == "/api/v1/jobs/resume":
+                self._send(202, self.server.controller.resume())
             elif self.path == "/api/v1/jobs/queue/cancel":
                 self._send(200, self.server.controller.cancel_queued(str(self._body().get("task_id") or "")))
             elif self.path == "/api/v1/universe/symbols":

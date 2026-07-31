@@ -14,6 +14,11 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({
 }[char]));
 const domId = value => String(value).replace(/[^a-zA-Z0-9_-]/g, '_');
 
+// Estados de los que se puede continuar: 'paused' es una pausa pedida, y
+// 'interrupted' lo que queda cuando el agente se cerro con un trabajo en marcha.
+const RESUMABLE_STATES = ['paused', 'interrupted'];
+const isResumable = state => RESUMABLE_STATES.includes(String(state || ''));
+
 function toast(message, error = false) {
   const element = document.querySelector('#toast');
   element.textContent = message;
@@ -371,7 +376,7 @@ function render() {
       ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><a class="button secondary" href="/portfolios_monthly.html?node=${encodeURIComponent(id)}">Portafolio mensual</a>`
       : '';
     const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
-    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${cleanupButton}${state === 'running' ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
+    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${isResumable(state) ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || isResumable(state) ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
   }).join('');
 }
 
@@ -734,6 +739,27 @@ async function stopNode(id) {
   } catch (error) { toast(error.message, true); }
 }
 
+async function pauseNode(id) {
+  if (!confirm(`¿Pausar el proceso activo en ${id}?\n\nSe corta la etapa en curso. Al reanudar se relanza esa misma etapa y recalcula lo que quede pendiente; las etapas ya completadas no se repiten.`)) return;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/pause`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    toast(`Pausa solicitada en ${id}`);
+    setTimeout(refresh, 1000);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function resumeNode(id) {
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/resume`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    toast(`Reanudado en ${id}: ${data.current_stage || 'siguiente etapa'}`);
+    setTimeout(refresh, 1000);
+  } catch (error) { toast(error.message, true); }
+}
+
 async function showLogs(id, name) {
   document.querySelector('#log-title').textContent = `Log · ${name}`;
   document.querySelector('#log-content').textContent = 'Cargando…';
@@ -814,6 +840,8 @@ window.syncCleanupAfterRun = syncCleanupAfterRun;
 window.cancelQueuedTask = cancelQueuedTask;
 window.cleanupNode = cleanupNode;
 window.stopNode = stopNode;
+window.pauseNode = pauseNode;
+window.resumeNode = resumeNode;
 window.showLogs = showLogs;
 window.refresh = refresh;
 refresh();
