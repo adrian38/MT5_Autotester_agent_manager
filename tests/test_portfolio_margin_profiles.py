@@ -18,6 +18,7 @@ from portfolio_manager.ubs_portfolio import (
     load_max_product_leverage,
     load_symbol_specs,
     load_symbol_notional,
+    load_unmeasured_symbols,
     margin_model_for_profile,
     portfolio_margin_summary,
     resolve_margin_model,
@@ -437,6 +438,36 @@ class SymbolNotionalLoaderTests(unittest.TestCase):
         self.assertNotIn("ROTO", by_symbol)
         self.assertNotIn("CERO", by_symbol)
         self.assertAlmostEqual(by_group["Metals"], 1000.0 / 0.2453, places=2)
+
+    def test_symbols_the_agent_could_not_measure_get_no_notional(self) -> None:
+        # MT5 no convierte el tick value de las acciones en peniques, asi que el
+        # agente las publica en skipped_symbols. Sin este guardarrail caian al
+        # factor del grupo (10.0 -> 100 USD) cuando su posicion minima son miles
+        # de dolares, y el margen salia hasta 95 veces por debajo.
+        payload = {**self.payload(), "skipped_symbols": ["3iGroup+", "GBXUSD.sa"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "axi_normalization.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            unmeasured = load_unmeasured_symbols(path)
+            by_symbol, by_group, _source = load_symbol_notional(path)
+
+        self.assertIn("3IGROUP+", unmeasured)
+        model = margin_model_for_profile(
+            "axi",
+            symbol_notional=by_symbol,
+            group_notional=by_group,
+            unmeasured_symbols=unmeasured,
+        )
+        self.assertIsNone(model.notional_for("3iGroup+"))
+        # Un simbolo simplemente ausente si conserva el respaldo del grupo.
+        self.assertAlmostEqual(model.notional_for("XAGUSD"), 1000.0 / 0.2453, places=2)
+
+    def test_no_skipped_list_keeps_the_previous_behaviour(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "axi_normalization.json"
+            path.write_text(json.dumps(self.payload()), encoding="utf-8")
+            self.assertEqual(load_unmeasured_symbols(path), frozenset())
+            self.assertEqual(load_unmeasured_symbols(Path(temp_dir) / "no-existe.json"), frozenset())
 
     def test_missing_or_broken_file_degrades_to_the_legacy_model(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

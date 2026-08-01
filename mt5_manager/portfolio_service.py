@@ -36,6 +36,7 @@ from portfolio_manager.ubs_portfolio import (
     load_max_product_leverage,
     load_symbol_notional,
     load_symbol_specs,
+    load_unmeasured_symbols,
     margin_model_for_profile,
     normalize_margin_profile,
     evaluate_portfolio,
@@ -1860,6 +1861,7 @@ def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
         symbol_margin, symbol_min_lot, symbol_contract_size, reference_leverage, margin_source,
     ) = load_symbol_specs(source.symbol_specs)
     symbol_notional, group_notional, notional_source = load_symbol_notional(source.normalization)
+    unmeasured_symbols = load_unmeasured_symbols(source.normalization)
     return margin_model_for_profile(
         inputs.get("margin_profile"),
         account_leverage=safe_float(inputs.get("account_leverage"), 0) or None,
@@ -1870,6 +1872,7 @@ def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
         max_product_leverage=load_max_product_leverage(source.product_leverage),
         symbol_notional=symbol_notional,
         group_notional=group_notional,
+        unmeasured_symbols=unmeasured_symbols,
         margin_source=margin_source,
         notional_source=notional_source,
     )

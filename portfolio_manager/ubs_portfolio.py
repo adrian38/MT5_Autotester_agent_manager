@@ -2003,6 +2003,7 @@ class MarginModel:
     symbol_contract_size: dict[str, float] = field(default_factory=dict)
     symbol_notional: dict[str, float] = field(default_factory=dict)
     group_notional: dict[str, float] = field(default_factory=dict)
+    unmeasured_symbols: frozenset[str] = frozenset()
     margin_source: str = ""
     notional_source: str = ""
 
@@ -2102,10 +2103,19 @@ class MarginModel:
         return float(value) * self.account_leverage_scale(symbol)
 
     def notional_for(self, symbol: str) -> float | None:
-        """Nocional medido de una posicion al lote minimo, o None si no se midio."""
+        """Nocional medido de una posicion al lote minimo, o None si no se midio.
+
+        Los simbolos que el agente declara sin medir no caen al nocional del
+        grupo: MT5 no devuelve tick value para las acciones cotizadas en peniques
+        y el numero del grupo les daba 100 USD cuando su posicion minima son
+        varios miles, es decir margen hasta 95 veces por debajo del real. Sin
+        medida no hay nocional, y el margen usa la fuente siguiente.
+        """
         if not self.symbol_notional and not self.group_notional:
             return None
         key = portfolio_symbol_key(symbol)
+        if key in self.unmeasured_symbols:
+            return None
         value = self.symbol_notional.get(key)
         if value is None:
             value = self.group_notional.get(portfolio_group_key(symbol))
@@ -2127,6 +2137,7 @@ def margin_model_for_profile(
     max_product_leverage: dict[str, float] | None = None,
     symbol_notional: dict[str, float] | None = None,
     group_notional: dict[str, float] | None = None,
+    unmeasured_symbols: Iterable[str] | None = None,
     margin_source: str = "",
     notional_source: str = "",
 ) -> MarginModel:
@@ -2160,6 +2171,9 @@ def margin_model_for_profile(
         symbol_contract_size=dict(symbol_contract_size or {}),
         symbol_notional=dict(symbol_notional or {}),
         group_notional=dict(group_notional or {}),
+        unmeasured_symbols=frozenset(
+            portfolio_symbol_key(name) for name in (unmeasured_symbols or ())
+        ),
         margin_source=margin_source,
         notional_source=notional_source,
     )
@@ -2326,6 +2340,20 @@ def load_symbol_notional(path: str | Path) -> tuple[dict[str, float], dict[str, 
         by_symbol[key] = max(by_symbol.get(key, 0.0), notional)
     by_group = notionals(data.get("group_net_profit_factors"))
     return by_symbol, by_group, str(file_path)
+
+
+def load_unmeasured_symbols(path: str | Path) -> frozenset[str]:
+    """Simbolos que el agente no pudo medir en MT5 (``skipped_symbols``).
+
+    El agente los publica precisamente para que nadie invente su nocional. Sin
+    esta lista, un simbolo sin medida caia al factor del grupo y volvia a salir
+    con un margen que nadie habia medido.
+    """
+    data, _ = _load_json_dict(path)
+    raw = data.get("skipped_symbols")
+    if not isinstance(raw, (list, tuple, set)):
+        return frozenset()
+    return frozenset(portfolio_symbol_key(str(name)) for name in raw if str(name).strip())
 
 
 def normalize_margin_profile(profile: str | MarginModel | None) -> str:
