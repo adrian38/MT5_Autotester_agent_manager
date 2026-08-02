@@ -490,6 +490,58 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertNotIn(key, coordinator.proposals)
             self.assertEqual(coordinator.jobs[key]["last_saved_id"], portfolio_id)
 
+    def test_confirming_a_save_forces_the_next_read_to_recopy_the_node_memory(self) -> None:
+        # El nodo escribe la fila en su memoria y el manager solo la ve a traves
+        # de una copia que se reutiliza mientras tamano y mtime del original
+        # parezcan iguales. Sobre un bind mount esos atributos van por detras del
+        # contenido, asi que la lista se repintaba justo despues del guardado con
+        # la copia anterior y el portafolio recien confirmado no aparecia.
+        for scope in ("full_history", "monthly"):
+            with self.subTest(scope=scope), tempfile.TemporaryDirectory() as temp_dir:
+                project = Path(temp_dir) / "project"
+                (project / "outputs").mkdir(parents=True)
+                (project / "assets").mkdir()
+                memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+                memory.touch()
+                node = {
+                    "id": "ic",
+                    "portfolio_project_dir": str(project),
+                    "portfolio_broker": "ICTRADING",
+                    "portfolio_account_type": "STANDARD",
+                }
+                coordinator = PortfolioCoordinator([node], project / "settings.json")
+                key = coordinator._key("ic", scope)
+                coordinator.jobs[key] = {
+                    "status": "completed",
+                    "operation": "generate",
+                    "save_request_id": "req-1",
+                    "save_selected_key": "balanced",
+                }
+                snapshots = Path(temp_dir) / "snapshots"
+                signature = snapshots / "ic" / f"{memory.name}.snapshot.json"
+                signature.parent.mkdir(parents=True)
+                signature.write_text("{}", encoding="utf-8")
+
+                with patch.object(
+                    PortfolioSource, "_snapshot_root", classmethod(lambda cls: snapshots)
+                ):
+                    coordinator.confirm_save("ic", scope, "req-1", 11)
+
+                self.assertFalse(signature.exists())
+                self.assertEqual(coordinator.jobs[key]["last_saved_id"], 11)
+
+    def test_confirming_a_save_survives_a_node_without_a_local_memory(self) -> None:
+        # Sin portfolio_project_dir el manager proxifica las lecturas al nodo: no
+        # hay copia que invalidar y el guardado ya esta confirmado, de modo que
+        # esto no puede convertirse en un error.
+        coordinator = PortfolioCoordinator([{"id": "remote"}], Path("settings.json"))
+        key = coordinator._key("remote", "full_history")
+        coordinator.jobs[key] = {"status": "completed", "save_request_id": "req-1"}
+
+        coordinator.confirm_save("remote", "full_history", "req-1", 11)
+
+        self.assertEqual(coordinator.jobs[key]["last_saved_id"], 11)
+
     def test_portfolio_form_settings_survive_manager_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "portfolio_settings.json"

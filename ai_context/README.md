@@ -10,6 +10,12 @@ Contexto persistente para agentes que trabajan en `MT5_Autotester_agent_manager`
 - `axi_margin_files_from_the_agent.md`: qué ficheros del proyecto del agente lee
   el margen AXI, qué campo está en divisa de cuenta y por qué `skipped_symbols`
   bloquea el respaldo por grupo.
+- `manager_snapshot_after_node_writes.md`: por qué el manager lee la memoria del
+  nodo por copia y por qué toda escritura confirmada por el nodo tiene que
+  invalidarla, o la pantalla sigue enseñando el estado anterior.
+- `node_runtime_is_forked_per_agent.md`: por qué `mt5_manager/node.py` y
+  `manager_node_runtime/node.py` de cada agente han divergido y cómo portar un
+  endpoint nuevo sin romper ninguna de las dos copias.
 - `AGENTS.md` en la raíz contiene el flujo obligatorio de trabajo y verificación.
 
 Actualizar estos documentos cuando cambien invariantes, contratos de datos o decisiones arquitectónicas. No guardar secretos, tokens ni datos de producción.

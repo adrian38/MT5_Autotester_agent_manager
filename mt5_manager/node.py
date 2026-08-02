@@ -1379,9 +1379,10 @@ class JobController:
             pipeline = list(self.state.get("pipeline") or [])
             if not 0 <= step_index < len(pipeline):
                 raise RuntimeError("La posicion guardada del pipeline no es valida")
-            log_path = Path(str(self.state.get("log_path") or ""))
-            if not str(log_path):
+            stored_log = str(self.state.get("log_path") or "").strip()
+            if not stored_log:
                 raise RuntimeError("No se conserva el log del trabajo; no se puede reanudar")
+            log_path = Path(stored_log)
             self.state.pop("paused_at", None)
             self.state["resumed_at"] = utc_now()
             self.state["error"] = None

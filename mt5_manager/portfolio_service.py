@@ -2859,6 +2859,11 @@ class PortfolioCoordinator:
             self.proposals.pop(key, None)
             self.jobs[key] = {"status": "idle", "operation": "generate", "last_saved_id": portfolio_id,
                               "last_log_path": job.get("log_path") or job.get("last_log_path")}
+        # El nodo acaba de escribir la fila en su memoria; la copia que lee el
+        # manager sigue siendo la anterior y la lista se repinta justo despues
+        # del guardado, asi que sin esto el portafolio recien confirmado no
+        # aparece. Igual que en _delete_on_node y en exclude.
+        self._invalidate_node_snapshots(node_id)
 
     def saved(self, node_id: str, scope: str, portfolio_id: int | None = None) -> dict[str, Any]:
         source = PortfolioSource(self._node(node_id))
@@ -2897,6 +2902,29 @@ class PortfolioCoordinator:
             self.proposals.pop(self._key(node_id, "full_history"), None)
             self.proposals.pop(self._key(node_id, "monthly"), None)
         return quarantine_id
+
+    def _invalidate_node_snapshots(self, node_id: str) -> None:
+        """Obliga a recopiar la memoria del nodo en la proxima lectura.
+
+        La copia se reutiliza mientras el tamano y la mtime del original parezcan
+        iguales, y sobre un bind mount esos atributos van por detras del contenido
+        real. Tras una escritura hecha por el nodo hay que borrar la firma a mano o
+        el manager sigue sirviendo la copia vieja.
+
+        No propaga errores: se llama despues de que la escritura del nodo ya se ha
+        confirmado, y fallar aqui convertiria una operacion correcta en un error.
+        """
+        node = self._node(node_id)
+        # Sin portfolio_project_dir el manager no lee la memoria, la proxifica al
+        # nodo: no hay copia que invalidar.
+        if not str(node.get("portfolio_project_dir") or "").strip():
+            return
+        try:
+            source = PortfolioSource(node)
+            for _account, memory in source.memory_sources:
+                source._invalidate_remote_snapshot(memory)
+        except (ValueError, OSError):
+            return
 
     def invalidate_after_exclusion(self, node_id: str) -> None:
         source = PortfolioSource(self._node(node_id))

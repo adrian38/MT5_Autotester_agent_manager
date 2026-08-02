@@ -3,8 +3,8 @@
 ## Alcance obligatorio
 
 - Este repositorio es `MT5_Autotester_agent_manager`.
-- Se permite trabajar exclusivamente en `I:\TRADING\MT5_Autotester_agent_IC` y en MT5_Autotester_agent_manager.
-- No modificar las copias de AXI, RoboForex ni `MT5_Autotester_agent`.
+- Se permite trabajar exclusivamente en `F:\TRADING\MT5_Autotester_agent_AXI` y en MT5_Autotester_agent_manager.
+- No modificar las copias de IC, RoboForex ni `MT5_Autotester_agent`.
 - Preservar cambios ajenos y limitar cada modificación al objetivo solicitado.
 
 ## Memoria de código obligatoria
