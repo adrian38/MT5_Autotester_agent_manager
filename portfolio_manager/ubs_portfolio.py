@@ -9,7 +9,6 @@ can be accepted.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -23,6 +22,10 @@ import unicodedata
 from typing import Callable, Iterable, Sequence
 
 from .mt5_report import StrategyReport, parse_report
+from .grid_set import (
+    filter_rows_grid_off as _filter_rows_grid_off,
+    set_file_has_enabled_grid as _set_file_has_enabled_grid,
+)
 from ubs.path_utils import resolve_workspace_path
 from ubs.universe import load_asset_universe
 
@@ -1146,59 +1149,13 @@ def slice_strategy_sets_to_month(
 
 
 def set_file_has_enabled_grid(set_path: str | Path) -> bool:
-    """Return True only when a .set file explicitly has EnableGrid=true."""
-    return _set_file_has_enabled_grid_cached(str(set_path))
-
-
-@lru_cache(maxsize=32_768)
-def _set_file_has_enabled_grid_cached(set_path: str) -> bool:
-    path = resolve_workspace_path(set_path)
-    if not path.is_file():
-        return False
-    raw = path.read_bytes()
-    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
-        text = raw.decode("utf-16", errors="replace")
-    else:
-        text = ""
-        for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
-            try:
-                text = raw.decode(encoding)
-                break
-            except UnicodeDecodeError:
-                continue
-        if not text:
-            text = raw.decode("utf-8", errors="replace")
-    for line in text.splitlines():
-        if "=" not in line or line.lstrip().startswith(";"):
-            continue
-        key, value = line.split("=", 1)
-        if key.strip().lower() != "enablegrid":
-            continue
-        first_value = value.split("||", 1)[0].strip().lower()
-        return first_value in {"true", "1", "yes", "y", "si", "sí"}
-    return False
+    """Compatibility export; grid parsing lives in ``grid_set``."""
+    return _set_file_has_enabled_grid(set_path)
 
 
 def filter_rows_grid_off(rows: Sequence[object]) -> tuple[list[object], list[str]]:
-    """Remove candidate rows whose .set explicitly enables grid trading."""
-    paths = [str(_row_value(row, "set_path", default="")) for row in rows]
-    unique_paths = list(dict.fromkeys(path for path in paths if path))
-    grid_by_path: dict[str, bool] = {}
-    if unique_paths:
-        workers = min(16, len(unique_paths))
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="grid-set") as executor:
-            grid_by_path = dict(zip(unique_paths, executor.map(set_file_has_enabled_grid, unique_paths)))
-    filtered: list[object] = []
-    skipped_grid = 0
-    for row, set_path in zip(rows, paths):
-        if set_path and grid_by_path.get(set_path, False):
-            skipped_grid += 1
-            continue
-        filtered.append(row)
-    warnings = []
-    if skipped_grid:
-        warnings.append(f"Grid OFF: {skipped_grid} candidato(s) omitido(s) por EnableGrid=true.")
-    return filtered, warnings
+    """Compatibility export; grid filtering lives in ``grid_set``."""
+    return _filter_rows_grid_off(rows)
 
 
 def validate_strict_monthly_portfolio(

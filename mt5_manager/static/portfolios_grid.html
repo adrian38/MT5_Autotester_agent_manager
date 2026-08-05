@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Portafolio Grid UBS · MT5 Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="portfolio-page grid-portfolio-page">
+  <header>
+    <div><p class="eyebrow">PORTAFOLIO GRID UBS</p><h1 id="portfolio-title">Cargando…</h1><p id="portfolio-subtitle" class="subtitle">Constructor independiente para estrategias Grid</p></div>
+    <div class="header-actions"><a class="button secondary" href="/">Volver al manager</a><button id="portfolio-refresh" class="secondary">Actualizar</button></div>
+  </header>
+  <main>
+    <section id="portfolio-summary" class="summary"></section>
+
+    <section class="portfolio-builder panel-card">
+      <div class="panel-title"><div><p class="eyebrow">NUEVA PROPUESTA</p><h2>Riesgo y selección Grid</h2><p class="subtitle">Sólo sets aceptados en las cuatro etapas con EnableGrid=true. Riesgo = máx(DD flotante, DD cerrado combinado).</p></div><span id="builder-status" class="badge idle">IDLE</span></div>
+      <form id="portfolio-form">
+        <div class="portfolio-form-grid">
+          <label>Capital<input name="capital" type="number" min="0.01" step="any" required></label>
+          <label>DD valle objetivo %<input name="valley_dd_pct" type="number" min="0.01" max="100" step="0.01" required></label>
+          <label>Reserva DD %<input name="dd_reserve_pct" type="number" min="0" max="99.9" step="0.1"></label>
+          <label>Top K por símbolo<input name="top_k_per_symbol" type="number" min="1" step="1"></label>
+          <label>Máx. candidatos<input name="max_total_candidates" type="number" min="1" step="1"></label>
+          <label>Máx. sets por símbolo<input name="max_sets_per_symbol" type="number" min="1" step="1"></label>
+          <label>Mín. trades<input name="min_trades_2020_2026" type="number" min="0" step="1"></label>
+          <label>Máx. margen %<input name="max_margin_pct" type="number" min="0.01" step="0.01"></label>
+        </div>
+        <fieldset><legend>Procesamiento y filtros</legend><div class="portfolio-checks">
+          <label><input name="exclude_used_sets" type="checkbox"> Excluir sets Grid usados</label>
+          <label><input name="use_correlation" type="checkbox"> Aplicar correlaciones</label>
+          <label><input name="require_3_positive_months_6m" type="checkbox"> Exigir 3 meses positivos</label>
+          <label><input name="validate_margin" type="checkbox"> Validar margen</label>
+        </div></fieldset>
+        <div class="builder-actions"><button id="portfolio-log" type="button" class="secondary" disabled>Ver log del cálculo</button><button id="save-settings" type="button" class="secondary">Guardar configuración</button><button id="generate-proposals" type="submit">Generar propuestas Grid</button></div>
+      </form>
+      <div id="builder-progress" class="builder-progress" hidden><div class="progress-track"><span id="builder-progress-bar"></span></div><p id="builder-progress-text">Preparando cálculo…</p></div>
+
+      <div id="proposal-area" hidden>
+        <div class="panel-title"><div><p class="eyebrow">RESULTADOS</p><h2>Propuestas calculadas</h2><p id="proposal-operation" class="subtitle">Se guardarán las tres variantes en un solo paquete; la seleccionada quedará abierta.</p></div><div class="header-actions"><button id="save-proposal" type="button" class="secondary">Guardar las 3 variantes</button><button id="save-export-proposal" type="button">Guardar las 3 y exportar paquete</button></div></div>
+        <div id="proposal-cards" class="proposal-cards"></div>
+        <div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th>Set</th><th>Cuenta / candidato</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Net histórico</th><th>DD riesgo máx.</th><th>DD flotante</th><th>DD balance</th><th>DD equity</th><th>Margen</th></tr></thead><tbody id="proposal-members"></tbody></table></div>
+        <div id="proposal-warnings" class="portfolio-note"></div>
+      </div>
+
+      <section class="inventory-panel"><div class="panel-title"><div><h2>Sets Grid disponibles por símbolo</h2><p id="inventory-summary" class="subtitle">Cargando disponibilidad…</p></div></div><div class="universe-table-wrap inventory-table-wrap"><table class="universe-table"><thead><tr><th>Símbolo</th><th>Total</th><th>Cuarentena</th><th>Usados</th><th>Disponibles</th></tr></thead><tbody id="inventory-symbols"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></section>
+    </section>
+
+    <section class="portfolio-layout">
+      <aside class="portfolio-list-panel"><div class="panel-title"><h2>Portafolios Grid guardados</h2><span id="portfolio-count"></span></div><div id="portfolio-list" class="portfolio-list">Cargando…</div></aside>
+      <section class="portfolio-detail-panel"><div id="portfolio-empty" class="portfolio-empty">Selecciona un portafolio Grid para ver sus sets y acciones.</div><div id="portfolio-detail" hidden>
+        <div class="portfolio-detail-head"><div><p class="eyebrow">DETALLE GUARDADO</p><h2 id="detail-title"></h2><p id="detail-meta" class="subtitle"></p></div><span id="detail-type" class="badge completed">GRID</span></div>
+        <div class="detail-actions"><button id="detail-reoptimize" type="button">Reoptimizar las 3</button><button id="detail-undo" type="button" class="secondary">Deshacer recomposición</button><button id="detail-export" type="button" class="secondary">Exportar paquete A/M/C (.zip)</button><button id="detail-delete" type="button" class="danger">Borrar</button></div>
+        <div id="detail-variants" class="proposal-cards" hidden></div>
+        <div id="detail-metrics" class="detail-metrics"></div><p id="detail-note" class="portfolio-note"></p>
+        <div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th>Set</th><th>Cuenta / candidato</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Net histórico</th><th>DD riesgo máx.</th><th>DD flotante</th><th>DD balance</th><th>DD equity</th><th>Margen</th><th>Acciones</th></tr></thead><tbody id="portfolio-members"></tbody></table></div>
+        <section class="audit-section"><h3>Auditoría del cálculo</h3><div id="detail-audit" class="detail-metrics audit-metrics"></div><details><summary>Decisiones del optimizador</summary><div class="universe-table-wrap audit-table-wrap"><table class="universe-table"><thead><tr><th>Paso</th><th>Acción</th><th>Set</th><th>Ganancia</th><th>Coste valle</th><th>Score</th><th>Razón</th></tr></thead><tbody id="detail-decisions"></tbody></table></div></details></section>
+      </div></section>
+    </section>
+  </main>
+  <dialog id="portfolio-log-dialog" class="log-dialog"><div class="dialog-head"><div><p class="eyebrow">LOG DEL CONSTRUCTOR GRID</p><h2 id="portfolio-log-title">Salida del cálculo</h2></div><button type="button" class="icon-button" onclick="document.querySelector('#portfolio-log-dialog').close()">×</button></div><pre id="portfolio-log-content"></pre></dialog>
+  <div id="save-overlay" class="save-overlay" role="dialog" aria-modal="true" aria-labelledby="save-overlay-title" hidden><div class="save-overlay-card"><span class="save-spinner" aria-hidden="true"></span><div aria-live="polite"><strong id="save-overlay-title">Procesando…</strong><p id="save-overlay-detail">Espera mientras se completa la operación.</p></div></div></div>
+  <div id="toast" role="status"></div>
+  <script src="/portfolios_grid.js?v=20260804-7"></script>
+</body>
+</html>

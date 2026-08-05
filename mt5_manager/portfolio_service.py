@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -41,7 +42,6 @@ from portfolio_manager.ubs_portfolio import (
     normalize_margin_profile,
     evaluate_portfolio,
     filter_rows_by_recent_positive_months,
-    filter_rows_grid_off,
     load_robust_sets_from_rows,
     optimize_portfolio,
     portfolio_display_symbol,
@@ -52,9 +52,11 @@ from portfolio_manager.ubs_portfolio import (
     summarize_robust_rows,
     validate_strict_monthly_portfolio,
 )
+from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
 from .common import load_json, safe_float, safe_int, save_json, utc_now
+from .portfolio_scope import normalize_portfolio_scope
 from .portfolio_full_experimental import optimize_experimental_full_portfolio
 
 
@@ -158,6 +160,11 @@ def _optional_corr(value: Any, label: str) -> float | None:
 
 
 def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING") -> dict[str, Any]:
+    scope = normalize_portfolio_scope(scope)
+    if scope == "grid":
+        from .portfolio_grid_service import normalize_grid_settings
+
+        return normalize_grid_settings(raw, broker)
     monthly = scope == "monthly"
     values = dict(MONTHLY_DEFAULTS if monthly else COMMON_DEFAULTS)
     values["margin_profile"] = str(broker or "ICTRADING").strip().lower()
@@ -672,6 +679,15 @@ class PortfolioSource:
         result: list[dict[str, Any]] = []
         for account_label, memory in self.memory_sources:
             with self.connect_memory(memory) as conn:
+                candidate_tables = {
+                    "candidates", "candidate_robustness",
+                    "candidate_final_tick", "candidate_final_tick_6m",
+                }
+                if not all(_table_exists(conn, table) for table in candidate_tables):
+                    # A manager-owned Grid memory stores portfolios only. It is
+                    # intentionally part of memory_sources for used-set and
+                    # correlation lookups, never as a candidate source.
+                    continue
                 rows = conn.execute(
                     """
                     select ? as account_type, ? || ':' || c.id as candidate_id,
@@ -895,8 +911,13 @@ class PortfolioSource:
                         f"and (? is null or p.id<>?){type_filter}"
                     )
                 params: list[Any] = []
+                exclusion_memories = {self.memory}
+                scope_memory = getattr(self, "scope_memory", None)
+                if scope_memory is not None:
+                    exclusion_memories.add(scope_memory)
                 for _ in selects:
-                    params.extend((scope, exclude_portfolio_id if memory == self.memory else None, exclude_portfolio_id if memory == self.memory else None))
+                    excluded = exclude_portfolio_id if memory in exclusion_memories else None
+                    params.extend((scope, excluded, excluded))
                 if selects:
                     paths.update(_resolve_source_path(row[0], self.project) for row in conn.execute(" union ".join(selects), params) if row[0])
         return sorted(paths)
@@ -905,25 +926,29 @@ class PortfolioSource:
         self,
         *,
         monthly: bool,
+        scope: str | None = None,
         portfolio_type: PortfolioType | None = None,
         exclude_portfolio_id: int | None = None,
     ) -> list[list[float]]:
+        portfolio_scope = normalize_portfolio_scope(scope) if scope is not None else ("monthly" if monthly else "full_history")
         curves: list[list[float]] = []
         rows: list[sqlite3.Row] = []
         for _account_label, memory in self.memory_sources:
             with self.connect_memory(memory) as conn:
                 if not _table_exists(conn, "portfolios"):
                     continue
-                excluded = exclude_portfolio_id if memory == self.memory else None
+                excluded = exclude_portfolio_id if memory in {
+                    self.memory, getattr(self, "scope_memory", None)
+                } else None
                 rows.extend(conn.execute(
                     "select id,portfolio_type,type,metrics_json from portfolios where metrics_json is not null "
                     "and metrics_json<>'' and coalesce(nullif(portfolio_scope,''),'full_history')=? and (? is null or id<>?)",
-                    ("monthly" if monthly else "full_history", excluded, excluded),
+                    (portfolio_scope, excluded, excluded),
                 ).fetchall())
         for row in rows:
             type_key = str(row["portfolio_type"] or row["type"] or "").lower()
             if not monthly and portfolio_type is not None:
-                if portfolio_type == PortfolioType.AGGRESSIVE and type_key not in {"aggressive", "bundle"}:
+                if portfolio_type == PortfolioType.AGGRESSIVE and type_key not in {"aggressive", "bundle", "grid_bundle"}:
                     continue
                 if portfolio_type != PortfolioType.AGGRESSIVE and type_key == "aggressive":
                     continue
@@ -949,7 +974,7 @@ class PortfolioSource:
         return row[key] if key in row.keys() else default
 
     def saved_portfolios(self, scope: str) -> dict[str, Any]:
-        portfolio_scope = "monthly" if scope == "monthly" else "full_history"
+        portfolio_scope = normalize_portfolio_scope(scope)
         with self.connect() as conn:
             rows = conn.execute(
                 "select * from portfolios where coalesce(nullif(portfolio_scope,''),'full_history')=? order by id desc",
@@ -1063,7 +1088,7 @@ class PortfolioSource:
         point_pct = float(detail.get("target_point_dd_pct") or 0) or valley_pct
         saved_row_type = str(detail.get("portfolio_type") or detail.get("type") or "balanced").lower()
         portfolio_type = saved_row_type
-        if saved_row_type == "bundle":
+        if saved_row_type in {"bundle", "grid_bundle"}:
             portfolio_type = str(
                 stored.get("composition_portfolio_type")
                 or metrics.get("composition_portfolio_type")
@@ -1117,7 +1142,7 @@ class PortfolioSource:
         values["valley_dd_pct"] = values.get("valley_dd_pct") or valley_pct
         values["point_dd_pct"] = values.get("point_dd_pct") or point_pct
         values["portfolio_scope"] = scope
-        if saved_row_type == "bundle":
+        if saved_row_type in {"bundle", "grid_bundle"}:
             values["portfolio_type"] = portfolio_type
         if scope == "monthly":
             values["target_month"] = values.get("target_month") or detail.get("target_month")
@@ -1420,7 +1445,13 @@ class PortfolioSource:
             raise ValueError("El portafolio no tiene estrategias para exportar")
         root = Path(destination).expanduser() if destination else self.project / "exports"
         created = str(detail.get("created_at") or "").replace("T", "_").replace(":", "").replace("-", "")
-        label = "A_M_C" if str(detail.get("portfolio_type") or "").lower() == "bundle" else str(detail.get("portfolio_type") or "Portfolio")
+        label = (
+            "GRID_A_M_C"
+            if str(detail.get("portfolio_type") or "").lower() == "grid_bundle"
+            else "A_M_C"
+            if str(detail.get("portfolio_type") or "").lower() == "bundle"
+            else str(detail.get("portfolio_type") or "Portfolio")
+        )
         folder_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"PORTAFOLIO_{portfolio_id}_{label}_{created[:15]}").strip("._")
         output = root.resolve() / (folder_name or f"PORTAFOLIO_{portfolio_id}")
         output.mkdir(parents=True, exist_ok=True)
@@ -2129,15 +2160,42 @@ def serialize_portfolio_proposals(
         inputs = proposal.get("inputs")
         if not isinstance(result, PortfolioResult) or not isinstance(inputs, dict):
             raise ValueError("La propuesta calculada no tiene un formato guardable")
+        result_payload = asdict(result)
+        # Broker nodes anteriores insertan el log de decisiones en columnas
+        # NOT NULL. JSON convierte +/-Infinity en null, por lo que hay que
+        # estabilizar esos valores antes de cruzar la red, no solo al escribir
+        # desde una version nueva del nodo.
+        decision_number_fields = (
+            "gain", "valley_cost", "point_cost", "score",
+            "portfolio_net_profit_after", "portfolio_valley_dd_after",
+            "portfolio_point_dd_after",
+        )
+        for decision in result_payload.get("decision_log") or []:
+            if not isinstance(decision, dict):
+                continue
+            for field_name in decision_number_fields:
+                parsed = safe_float(decision.get(field_name), 0.0)
+                decision[field_name] = parsed if math.isfinite(parsed) else 0.0
         payload.append({
             "key": str(proposal.get("key") or ""),
             "label": str(proposal.get("label") or ""),
             "reserve_pct": float(proposal.get("reserve_pct") or 0),
+            "auto_adjusted_valley": bool(proposal.get("auto_adjusted_valley", False)),
+            "requested_valley_dd_pct": float(
+                proposal.get("requested_valley_dd_pct")
+                or inputs.get("valley_dd_pct")
+                or 0
+            ),
+            "adjusted_valley_dd_pct": float(
+                proposal.get("adjusted_valley_dd_pct")
+                or inputs.get("valley_dd_pct")
+                or 0
+            ),
             # Segunda red en el limite HTTP: lo que salga de aqui se serializa a
             # JSON, asi que aqui no puede quedar ningun objeto vivo aunque el
             # llamante se haya olvidado de filtrarlo.
             "inputs": {**settings_inputs(inputs), "_manager_save_request_id": request_id},
-            "result": asdict(result),
+            "result": result_payload,
         })
     return payload
 
@@ -2236,6 +2294,17 @@ def deserialize_portfolio_proposals(
             "key": str(raw_proposal.get("key") or ""),
             "label": str(raw_proposal.get("label") or ""),
             "reserve_pct": float(raw_proposal.get("reserve_pct") or 0),
+            "auto_adjusted_valley": bool(raw_proposal.get("auto_adjusted_valley", False)),
+            "requested_valley_dd_pct": float(
+                raw_proposal.get("requested_valley_dd_pct")
+                or raw_inputs.get("valley_dd_pct")
+                or 0
+            ),
+            "adjusted_valley_dd_pct": float(
+                raw_proposal.get("adjusted_valley_dd_pct")
+                or raw_inputs.get("valley_dd_pct")
+                or 0
+            ),
             "inputs": normalize_settings(scope, raw_inputs, broker),
             "result": result,
         })
@@ -2243,7 +2312,7 @@ def deserialize_portfolio_proposals(
 
 
 def _saved_request_portfolio_id(source: PortfolioSource, request_id: str, scope: str) -> int | None:
-    portfolio_scope = "monthly" if scope == "monthly" else "full_history"
+    portfolio_scope = normalize_portfolio_scope(scope)
     with source.connect() as conn:
         if not _table_exists(conn, "portfolios"):
             return None
@@ -2265,7 +2334,7 @@ def _saved_request_portfolio_id(source: PortfolioSource, request_id: str, scope:
 
 def save_portfolio_payload(source: PortfolioSource, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist a manager proposal locally on its owning node, with retry deduplication."""
-    scope = "monthly" if str(payload.get("scope")) == "monthly" else "full_history"
+    scope = normalize_portfolio_scope(payload.get("scope"))
     request_id = str(payload.get("request_id") or "").strip()
     selected_key = str(payload.get("selected_key") or "").strip()
     operation = str(payload.get("operation") or "generate")
@@ -2356,6 +2425,10 @@ def _insert_decisions(
     result: PortfolioResult,
     prefix: str = "",
 ) -> None:
+    def finite(value: Any) -> float:
+        parsed = safe_float(value, 0.0)
+        return parsed if math.isfinite(parsed) else 0.0
+
     for decision in result.decision_log:
         reason = f"{prefix}: {decision.reason}" if prefix else decision.reason
         conn.execute(
@@ -2367,9 +2440,11 @@ def _insert_decisions(
             """,
             (
                 portfolio_id, decision.step, decision.action, decision.set_id,
-                decision.from_set_id, decision.to_set_id, decision.gain, decision.valley_cost,
-                decision.point_cost, decision.score, decision.portfolio_net_profit_after,
-                decision.portfolio_valley_dd_after, decision.portfolio_point_dd_after, reason,
+                decision.from_set_id, decision.to_set_id, finite(decision.gain),
+                finite(decision.valley_cost), finite(decision.point_cost), finite(decision.score),
+                finite(decision.portfolio_net_profit_after),
+                finite(decision.portfolio_valley_dd_after),
+                finite(decision.portfolio_point_dd_after), reason,
             ),
         )
 
@@ -2380,6 +2455,7 @@ def save_proposal(
     selected_key: str,
     scope: str,
 ) -> int:
+    scope = normalize_portfolio_scope(scope)
     selected = next((proposal for proposal in proposals if str(proposal["key"]) == selected_key), None)
     if selected is None:
         raise ValueError("La propuesta seleccionada ya no está disponible")
@@ -2391,11 +2467,11 @@ def save_proposal(
         raise ValueError("La propuesta mensual no pasó la validación estricta")
     created_at = datetime.now().isoformat(timespec="seconds")
     target_month = int(selected_inputs.get("target_month") or 0) or None
-    bundle = scope == "full_history"
+    bundle = scope in {"full_history", "grid"}
     if bundle:
         common = [allocation.set_id for allocation in selected_result.allocations if allocation.units > 0]
         common_set = set(common)
-        if any({allocation.set_id for allocation in proposal["result"].allocations if allocation.units > 0} != common_set for proposal in proposals):
+        if scope == "full_history" and any({allocation.set_id for allocation in proposal["result"].allocations if allocation.units > 0} != common_set for proposal in proposals):
             raise ValueError("Las variantes A/M/C no comparten la misma composición")
         variants: dict[str, Any] = {}
         for proposal in proposals:
@@ -2410,18 +2486,38 @@ def save_proposal(
         metrics = _result_metrics(selected_inputs, selected_result)
         metrics.update({
             "portfolio_bundle": True,
-            "bundle_display": "A/M/C",
+            "bundle_display": "Grid A/M/C" if scope == "grid" else "A/M/C",
             "selected_variant": selected_key,
             "variant_order": [str(proposal["key"]) for proposal in proposals],
             "variants": variants,
-            "common_set_ids": common,
+            "common_set_ids": common if scope == "full_history" else [],
+            "variant_set_ids": {
+                str(proposal["key"]): [
+                    allocation.set_id for allocation in proposal["result"].allocations
+                    if allocation.units > 0
+                ]
+                for proposal in proposals
+            },
         })
-        row_type = "bundle"
-        name = f"A/M/C | Base {TYPE_LABELS.get(str(selected_inputs.get('composition_portfolio_type')), 'Moderado')} | {len(common)} sets | {datetime.now():%d.%m.%Y %H:%M}"
-    else:
+        if scope == "grid":
+            metrics["grid_portfolio"] = True
+            row_type = "grid_bundle"
+            name = f"Grid A/M/C | {datetime.now():%d.%m.%Y %H:%M}"
+        else:
+            row_type = "bundle"
+            name = f"A/M/C | Base {TYPE_LABELS.get(str(selected_inputs.get('composition_portfolio_type')), 'Moderado')} | {len(common)} sets | {datetime.now():%d.%m.%Y %H:%M}"
+    elif scope == "monthly":
         metrics = _result_metrics(selected_inputs, selected_result)
         row_type = str(selected_inputs["portfolio_type"])
         name = f"{TYPE_LABELS.get(row_type, row_type)} | Mes {target_month:02d} | {selected_result.active_strategies} estrategias | {datetime.now():%d.%m.%Y %H:%M}"
+    else:
+        metrics = _result_metrics(selected_inputs, selected_result)
+        metrics["grid_portfolio"] = True
+        row_type = str(selected_inputs["portfolio_type"])
+        name = (
+            f"Grid {TYPE_LABELS.get(row_type, row_type)} | "
+            f"{selected_result.active_strategies} estrategias | {datetime.now():%d.%m.%Y %H:%M}"
+        )
     active_symbols = len({portfolio_symbol_key(allocation.symbol) for allocation in selected_result.allocations if allocation.units > 0})
     with source.connect(write=True) as conn:
         try:
@@ -2470,10 +2566,10 @@ def _proposal_metrics(
 ) -> tuple[dict[str, Any], str, str]:
     result: PortfolioResult = selected["result"]
     inputs: dict[str, Any] = selected["inputs"]
-    if scope == "full_history":
+    if scope in {"full_history", "grid"}:
         common = [allocation.set_id for allocation in result.allocations if allocation.units > 0]
         common_set = set(common)
-        if any({allocation.set_id for allocation in item["result"].allocations if allocation.units > 0} != common_set for item in proposals):
+        if scope == "full_history" and any({allocation.set_id for allocation in item["result"].allocations if allocation.units > 0} != common_set for item in proposals):
             raise ValueError("Las variantes A/M/C no comparten la misma composición")
         variants: dict[str, Any] = {}
         for item in proposals:
@@ -2482,10 +2578,17 @@ def _proposal_metrics(
             payload.update({"label": item["label"], "summary": result_payload(variant_result), "allocations": [asdict(value) for value in variant_result.allocations]})
             variants[str(item["key"])] = payload
         metrics = _result_metrics(inputs, result)
-        metrics.update({"portfolio_bundle": True, "bundle_display": "A/M/C", "selected_variant": selected_key,
-                        "variant_order": [str(item["key"]) for item in proposals], "variants": variants, "common_set_ids": common})
-        row_type = "bundle"
-        name = f"A/M/C | Base {TYPE_LABELS.get(str(inputs.get('composition_portfolio_type')), 'Moderado')} | {len(common)} sets | {datetime.now():%d.%m.%Y %H:%M}"
+        metrics.update({"portfolio_bundle": True, "bundle_display": "Grid A/M/C" if scope == "grid" else "A/M/C", "selected_variant": selected_key,
+                        "variant_order": [str(item["key"]) for item in proposals], "variants": variants,
+                        "common_set_ids": common if scope == "full_history" else [],
+                        "variant_set_ids": {str(item["key"]): [allocation.set_id for allocation in item["result"].allocations if allocation.units > 0] for item in proposals}})
+        if scope == "grid":
+            metrics["grid_portfolio"] = True
+            row_type = "grid_bundle"
+            name = f"Grid A/M/C | {datetime.now():%d.%m.%Y %H:%M}"
+        else:
+            row_type = "bundle"
+            name = f"A/M/C | Base {TYPE_LABELS.get(str(inputs.get('composition_portfolio_type')), 'Moderado')} | {len(common)} sets | {datetime.now():%d.%m.%Y %H:%M}"
     else:
         metrics = _result_metrics(inputs, result)
         row_type = str(inputs["portfolio_type"])
@@ -2535,11 +2638,11 @@ def replace_saved_proposal(
             )
             for table in ("portfolio_decision_log", "portfolio_allocations", "portfolio_members"):
                 conn.execute(f"delete from {table} where portfolio_id=?", (portfolio_id,))
-            rows_to_save = proposals if scope == "full_history" else [selected]
+            rows_to_save = proposals if scope in {"full_history", "grid"} else [selected]
             for proposal in rows_to_save:
                 variant_result: PortfolioResult = proposal["result"]
-                variant_key = str(proposal["key"]) if scope == "full_history" else ""
-                variant_label = str(proposal["label"]) if scope == "full_history" else ""
+                variant_key = str(proposal["key"]) if scope in {"full_history", "grid"} else ""
+                variant_label = str(proposal["label"]) if scope in {"full_history", "grid"} else ""
                 for allocation in variant_result.allocations:
                     _insert_allocation(conn, portfolio_id, allocation, variant_key, variant_label)
                 _insert_decisions(conn, portfolio_id, variant_result, variant_label)
@@ -2599,6 +2702,52 @@ class PortfolioCoordinator:
             return self.nodes[node_id]
         except KeyError as exc:
             raise ValueError(f"Nodo desconocido: {node_id}") from exc
+
+    def _persistence_source(self, node_id: str, scope: str) -> PortfolioSource:
+        """Use a manager-owned database for Grid packages.
+
+        Broker nodes deployed before Grid normalize the new scope to
+        ``full_history``. Keeping Grid in its own manager database prevents
+        those writes from contaminating UBS while preserving the broker files
+        as the read-only source for calculation and export.
+        """
+        source = PortfolioSource(self._node(node_id))
+        if normalize_portfolio_scope(scope) != "grid":
+            return source
+        root = self.settings_path.parent / "grid_portfolios"
+        root.mkdir(parents=True, exist_ok=True)
+        filename = re.sub(r"[^A-Za-z0-9_.-]+", "_", node_id) + ".sqlite"
+        memory = root / filename
+        with contextlib.closing(sqlite3.connect(memory)) as conn:
+            ensure_portfolio_schema(conn)
+            conn.commit()
+        source.memory = memory
+        source.memory_sources = [(f"{source.broker}/{source.account}/GRID", memory)]
+        return source
+
+    def _calculation_source(self, node_id: str, scope: str) -> PortfolioSource:
+        """Read candidates from the broker and saved Grid packages from manager storage."""
+        source = PortfolioSource(self._node(node_id))
+        if normalize_portfolio_scope(scope) != "grid":
+            return source
+        grid_source = self._persistence_source(node_id, "grid")
+        source.scope_memory = grid_source.memory
+        source.memory_sources.append(
+            (f"{source.broker}/{source.account}/GRID", grid_source.memory)
+        )
+        return source
+
+    def save_grid_package(self, node_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if normalize_portfolio_scope(payload.get("scope")) != "grid":
+            raise ValueError("El paquete no pertenece al ámbito Grid")
+        keys = {
+            str(proposal.get("key") or "")
+            for proposal in payload.get("proposals") or []
+            if isinstance(proposal, dict)
+        }
+        if keys != {"aggressive", "balanced", "conservative"}:
+            raise ValueError("El paquete Grid debe contener las tres variantes A/M/C")
+        return save_portfolio_payload(self._persistence_source(node_id, "grid"), payload)
 
     def settings_for(self, node_id: str, scope: str) -> dict[str, Any]:
         node = self._node(node_id)
@@ -2670,7 +2819,7 @@ class PortfolioCoordinator:
     ) -> dict[str, Any]:
         if operation not in {"reoptimize", "complete"}:
             raise ValueError("Operación guardada desconocida")
-        source = PortfolioSource(self._node(node_id))
+        source = self._persistence_source(node_id, scope)
         detail = source.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
         settings = source.saved_inputs(portfolio_id, scope)
         if changes:
@@ -2696,7 +2845,7 @@ class PortfolioCoordinator:
                             )
 
         try:
-            source = PortfolioSource(self._node(node_id))
+            source = self._calculation_source(node_id, scope)
             with self.lock:
                 prepared_log_path = str(self.jobs[key].get("log_path") or "")
             if prepared_log_path:
@@ -2717,6 +2866,12 @@ class PortfolioCoordinator:
                 from .portfolio_monthly_service import run_monthly_operation
 
                 availability, proposals = run_monthly_operation(
+                    source, operation, portfolio_id, settings, logged_progress,
+                )
+            elif scope == "grid":
+                from .portfolio_grid_service import run_grid_operation
+
+                availability, proposals = run_grid_operation(
                     source, operation, portfolio_id, settings, logged_progress,
                 )
             elif operation == "complete":
@@ -2750,7 +2905,7 @@ class PortfolioCoordinator:
             with self.lock:
                 self.jobs[key].update({"status": "failed", "finished_at": utc_now(), "error": str(exc), "progress": "Error"})
                 failed_log_path = str(self.jobs[key].get("log_path") or "")
-            if scope == "monthly" and failed_log_path:
+            if failed_log_path:
                 try:
                     with Path(failed_log_path).open("a", encoding="utf-8") as handle:
                         handle.write(
@@ -2796,14 +2951,32 @@ class PortfolioCoordinator:
             })
             proposal_payloads.append({
                 "key": proposal["key"], "label": proposal["label"], "reserve_pct": proposal["reserve_pct"],
+                "auto_adjusted_valley": bool(proposal.get("auto_adjusted_valley", False)),
+                "requested_valley_dd_pct": float(
+                    proposal.get("requested_valley_dd_pct")
+                    or settings.get("valley_dd_pct")
+                    or 0
+                ),
+                "adjusted_valley_dd_pct": float(
+                    proposal.get("adjusted_valley_dd_pct")
+                    or proposal_inputs.get("valley_dd_pct")
+                    or 0
+                ),
                 "result": result_data, "diff": diff,
             })
+        source = self._calculation_source(node_id, scope)
+        if scope == "grid":
+            from .portfolio_grid_service import grid_inventory
+
+            inventory = grid_inventory(source, settings)
+        else:
+            inventory = source.inventory(scope, settings)
         return {
             "settings": settings,
             "job": job,
             "task": active_task,
             "tasks": tasks[-10:],
-            "inventory": PortfolioSource(self._node(node_id)).inventory(scope, settings),
+            "inventory": inventory,
             "proposals": proposal_payloads,
         }
 
@@ -2866,7 +3039,7 @@ class PortfolioCoordinator:
         self._invalidate_node_snapshots(node_id)
 
     def saved(self, node_id: str, scope: str, portfolio_id: int | None = None) -> dict[str, Any]:
-        source = PortfolioSource(self._node(node_id))
+        source = self._persistence_source(node_id, scope)
         return source.saved_portfolio_detail(portfolio_id, scope) if portfolio_id is not None else source.saved_portfolios(scope)
 
     def exclude(self, node_id: str, scope: str, payload: dict[str, Any]) -> int:
@@ -2941,7 +3114,7 @@ class PortfolioCoordinator:
             self.proposals.pop(self._key(node_id, "monthly"), None)
 
     def undo(self, node_id: str, scope: str, portfolio_id: int) -> int:
-        return PortfolioSource(self._node(node_id)).undo_latest(portfolio_id, scope)
+        return self._persistence_source(node_id, scope).undo_latest(portfolio_id, scope)
 
     def delete(self, node_id: str, scope: str, portfolio_id: int) -> dict[str, Any]:
         self._node(node_id)
@@ -3034,6 +3207,9 @@ class PortfolioCoordinator:
                 return exc.code, {"error": raw.decode("utf-8", errors="replace") or str(exc)}
 
     def _delete_on_node(self, node_id: str, scope: str, portfolio_id: int) -> None:
+        if normalize_portfolio_scope(scope) == "grid":
+            self._persistence_source(node_id, scope).delete_portfolio(portfolio_id, scope)
+            return
         node = self._node(node_id)
         base_url = str(node.get("url") or "").rstrip("/")
         if not base_url.startswith(("http://", "https://")):
@@ -3053,10 +3229,10 @@ class PortfolioCoordinator:
         source._invalidate_remote_snapshot(source.memory)
 
     def export(self, node_id: str, scope: str, portfolio_id: int, destination: str | None) -> dict[str, Any]:
-        return PortfolioSource(self._node(node_id)).export_portfolio(portfolio_id, scope, destination)
+        return self._persistence_source(node_id, scope).export_portfolio(portfolio_id, scope, destination)
 
     def export_archive(self, node_id: str, scope: str, portfolio_id: int) -> dict[str, Any]:
-        source = PortfolioSource(self._node(node_id))
+        source = self._persistence_source(node_id, scope)
         with tempfile.TemporaryDirectory(prefix="mt5-portfolio-export-") as temp_dir:
             result = source.export_portfolio(portfolio_id, scope, temp_dir)
             output = Path(str(result["folder"]))
@@ -3073,7 +3249,7 @@ class PortfolioCoordinator:
             }
 
     def open_report(self, node_id: str, scope: str, portfolio_id: int, set_path: str) -> str:
-        return PortfolioSource(self._node(node_id)).open_member_report(portfolio_id, scope, set_path)
+        return self._persistence_source(node_id, scope).open_member_report(portfolio_id, scope, set_path)
 
     def log(self, node_id: str, scope: str, lines: int = 500) -> dict[str, Any]:
         key = self._key(node_id, scope)

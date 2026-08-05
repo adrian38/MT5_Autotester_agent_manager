@@ -16,11 +16,13 @@ from mt5_manager.portfolio_service import (
     PortfolioCoordinator,
     PortfolioSource,
     _linux_path_needs_snapshot,
+    _insert_decisions,
     _optimizer_kwargs,
     _optimize_without_recent_fillers,
     _resolve_source_path,
     _underrepresented_recent_allocation_ids,
     generate_proposals,
+    ensure_portfolio_schema,
     normalize_settings,
     save_portfolio_payload,
 )
@@ -41,6 +43,23 @@ from portfolio_manager.ubs_portfolio import (
 
 
 class PortfolioServiceTests(unittest.TestCase):
+    def test_decision_audit_converts_non_finite_scores_before_sqlite(self) -> None:
+        with sqlite3.connect(":memory:") as conn:
+            ensure_portfolio_schema(conn)
+            result = SimpleNamespace(decision_log=[SimpleNamespace(
+                step=1, action="reject", set_id="a.set", from_set_id=None, to_set_id=None,
+                gain=0.0, valley_cost=0.0, point_cost=0.0, score=None,
+                portfolio_net_profit_after=100.0,
+                portfolio_valley_dd_after=50.0,
+                portfolio_point_dd_after=20.0,
+                reason="descartada",
+            )])
+
+            _insert_decisions(conn, 1, result)
+
+            score = conn.execute("select score from portfolio_decision_log").fetchone()[0]
+            self.assertEqual(score, 0.0)
+
     def test_bind_mounts_and_shares_both_need_a_snapshot_to_see_the_wal(self) -> None:
         # El criterio no es "esta en red" sino "este sistema de ficheros no puede
         # respaldar el -shm del modo WAL". Dar 9p por local hacia que se leyera
@@ -1208,7 +1227,9 @@ class PortfolioServiceTests(unittest.TestCase):
 
             key = coordinator._key("ic", "full_history")
             coordinator.proposals[key] = [
-                {"key": "aggressive", "label": "Agresivo", "reserve_pct": 10, "inputs": settings, "result": result(2)},
+                {"key": "aggressive", "label": "Agresivo", "reserve_pct": 10,
+                 "auto_adjusted_valley": True, "requested_valley_dd_pct": 3.0,
+                 "adjusted_valley_dd_pct": 3.4533334, "inputs": settings, "result": result(2)},
                 {"key": "balanced", "label": "Moderado", "reserve_pct": 15, "inputs": settings, "result": result(5)},
             ]
             coordinator.jobs[key] = {"status": "completed", "previous_members": [
@@ -1218,6 +1239,9 @@ class PortfolioServiceTests(unittest.TestCase):
             with patch.object(PortfolioSource, "inventory", return_value={}):
                 state = coordinator.state("ic", "full_history")
             self.assertEqual(state["proposals"][0]["diff"][0]["old_units"], 1)
+            self.assertTrue(state["proposals"][0]["auto_adjusted_valley"])
+            self.assertEqual(state["proposals"][0]["requested_valley_dd_pct"], 3.0)
+            self.assertAlmostEqual(state["proposals"][0]["adjusted_valley_dd_pct"], 3.4533334)
             self.assertEqual(state["proposals"][1]["diff"][0]["old_units"], 3)
             self.assertEqual(state["proposals"][1]["result"]["changed_allocations"], 1)
             self.assertEqual(state["proposals"][1]["result"]["nominal_valley_margin"], 980)

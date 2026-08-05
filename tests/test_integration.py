@@ -672,6 +672,88 @@ enabled=0
         self.assertNotIn(state_key, coordinator.proposals)
         self.assertEqual(coordinator.jobs[state_key]["last_saved_id"], saved["portfolio_id"])
 
+    def test_manager_saves_all_grid_variants_with_different_compositions(self) -> None:
+        portfolio_memory = self.root / "portfolio-grid-save.sqlite"
+        portfolio_memory.touch()
+        self.controller.config["memory_path"] = str(portfolio_memory)
+        self.manager.nodes[0].update({
+            "portfolio_project_dir": str(self.root),
+            "portfolio_memory_path": str(portfolio_memory),
+            "portfolio_broker": "TEST",
+            "portfolio_account_type": "DEMO",
+        })
+        self.manager.portfolios.settings_path = self.root / "portfolio_settings.json"
+        settings = normalize_settings(
+            "grid", {"capital": 1000, "valley_dd_pct": 30, "min_trades_2020_2026": 1}, "TEST"
+        )
+
+        def proposal(key: str, label: str, symbol: str, units: int) -> dict[str, object]:
+            inputs = {**settings, "portfolio_type": key}
+            allocation = StrategyAllocation(
+                f"{key}.set", f"TEST/DEMO:{units}", symbol, units, units * 0.01,
+                units * 100, units * 20, units * 10, "H1", f"{key}.set",
+                "is.html", "oos.html", 0.01,
+            )
+            result = PortfolioResult(
+                [allocation], [0, units * 100], units * 100, units * 20, units * 10,
+                300, 300, 10, 5, units * 0.01, units, 1, "ok", [], [],
+            )
+            return {"key": key, "label": label, "reserve_pct": 10, "inputs": inputs, "result": result}
+
+        coordinator = self.manager.portfolios
+        state_key = coordinator._key("test-node", "grid")
+        coordinator.proposals[state_key] = [
+            proposal("aggressive", "Agresivo Grid", "EURUSD", 3),
+            proposal("balanced", "Moderado Grid", "GBPUSD", 2),
+            proposal("conservative", "Conservador Grid", "USDJPY", 1),
+        ]
+        coordinator.jobs[state_key] = {
+            "id": "integration-grid-save", "status": "completed", "operation": "generate"
+        }
+
+        status, saved = self.request(
+            "/api/nodes/test-node/portfolio-manager/save",
+            {"scope": "grid", "proposal_key": "balanced"},
+        )
+
+        self.assertEqual(status, 201)
+        self.assertEqual(set(saved["portfolio_ids"]), {
+            "aggressive", "balanced", "conservative",
+        })
+        self.assertEqual(saved["portfolio_id"], saved["portfolio_ids"]["balanced"])
+        self.assertEqual(len(set(saved["portfolio_ids"].values())), 1)
+        grid_memory = self.root / "grid_portfolios" / "test-node.sqlite"
+        with closing(sqlite3.connect(grid_memory)) as conn:
+            rows = conn.execute(
+                "select id,portfolio_type,portfolio_scope from portfolios order by id"
+            ).fetchall()
+            members = conn.execute(
+                "select variant_key,set_id,units from portfolio_allocations order by variant_key"
+            ).fetchall()
+        self.assertEqual(rows, [(saved["portfolio_id"], "grid_bundle", "grid")])
+        self.assertEqual(set(members), {
+            ("aggressive", "aggressive.set", 3),
+            ("balanced", "balanced.set", 2),
+            ("conservative", "conservative.set", 1),
+        })
+        status, detail = self.request(
+            f"/api/nodes/test-node/portfolios/{saved['portfolio_id']}?scope=grid"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(detail["portfolio"]["metrics"]["variant_order"], [
+            "aggressive", "balanced", "conservative",
+        ])
+        self.assertEqual(
+            {member["variant_key"] for member in detail["portfolio"]["members"]},
+            {"aggressive", "balanced", "conservative"},
+        )
+        status, state = self.request(
+            "/api/nodes/test-node/portfolio-manager?scope=grid"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(state["inventory"]["scope"], "grid")
+        self.assertNotIn(state_key, coordinator.proposals)
+
     def test_controller_runs_selected_pipeline_in_order(self) -> None:
         memory = self.root / "pipeline.sqlite"
         with closing(sqlite3.connect(memory)) as conn:

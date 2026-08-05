@@ -1,8 +1,10 @@
+import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
 
-from mt5_manager.common import load_json, save_json
+from mt5_manager.common import json_bytes, load_json, save_json
 from mt5_manager.manager import live_log_progress
 
 
@@ -12,6 +14,13 @@ class CommonTests(unittest.TestCase):
             path = Path(temp) / "state.json"
             save_json(path, {"broker": "ICTrading", "ok": True})
             self.assertEqual(load_json(path), {"broker": "ICTrading", "ok": True})
+
+    def test_json_bytes_replaces_non_finite_numbers_for_browsers(self) -> None:
+        body = json_bytes({"scores": [1.5, -math.inf, math.inf, math.nan]})
+
+        self.assertNotIn(b"Infinity", body)
+        self.assertNotIn(b"NaN", body)
+        self.assertEqual(json.loads(body), {"scores": [1.5, None, None, None]})
 
     def test_live_log_progress_uses_only_current_stage(self) -> None:
         progress = live_log_progress([

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,21 @@ def save_json(path: str | Path, value: dict[str, Any]) -> None:
 
 
 def json_bytes(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    def browser_safe(item: Any) -> Any:
+        if isinstance(item, float) and not math.isfinite(item):
+            return None
+        if isinstance(item, dict):
+            return {key: browser_safe(child) for key, child in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [browser_safe(child) for child in item]
+        return item
+
+    return json.dumps(
+        browser_safe(value),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 def safe_int(value: Any, default: int = 0, *, minimum: int | None = None, maximum: int | None = None) -> int:

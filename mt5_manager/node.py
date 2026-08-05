@@ -22,6 +22,7 @@ from typing import Any
 
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
 from .portfolio_service import PortfolioSource, save_portfolio_payload
+from .portfolio_scope import normalize_portfolio_scope
 
 
 SCORE_OPTIONS = {
@@ -1532,7 +1533,7 @@ class JobController:
         return save_portfolio_payload(self._portfolio_source(), payload)
 
     def exclude_portfolio_members(self, payload: dict[str, Any]) -> dict[str, Any]:
-        scope = "monthly" if str(payload.get("scope") or "").strip().lower() == "monthly" else "full_history"
+        scope = normalize_portfolio_scope(payload.get("scope"))
         source = self._portfolio_source()
         if payload.get("set_paths") is not None:
             portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
@@ -1561,7 +1562,7 @@ class JobController:
 
     def delete_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
-        scope = "monthly" if str(payload.get("scope") or "").strip().lower() == "monthly" else "full_history"
+        scope = normalize_portfolio_scope(payload.get("scope"))
         source = self._portfolio_source()
         source.delete_portfolio(portfolio_id, scope)
         if any(int(row["id"]) == portfolio_id for row in source.saved_portfolios(scope)["portfolios"]):
@@ -1569,7 +1570,7 @@ class JobController:
         return {"deleted": True, "portfolio_id": portfolio_id, "scope": scope}
 
     def portfolios(self, scope: str = "full_history") -> dict[str, Any]:
-        portfolio_scope = "monthly" if str(scope).strip().lower() == "monthly" else "full_history"
+        portfolio_scope = normalize_portfolio_scope(scope)
         project = Path(str(self.config["project_dir"])).expanduser().resolve()
         settings_path = Path(str(self.config.get("settings_file") or "ui_settings.ini"))
         if not settings_path.is_absolute():

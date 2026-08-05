@@ -5,7 +5,11 @@ from mt5_manager.portfolio_service import (
     legacy_compatible_portfolio_save_payload,
     serialize_portfolio_proposals,
 )
-from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
+from portfolio_manager.ubs_portfolio import (
+    OptimizationDecision,
+    PortfolioResult,
+    StrategyAllocation,
+)
 
 
 def proposal_result() -> PortfolioResult:
@@ -48,6 +52,25 @@ def proposal_result() -> PortfolioResult:
 
 
 class PortfolioWireCompatibilityTests(unittest.TestCase):
+    def test_wire_payload_replaces_non_finite_decision_scores_for_old_nodes(self) -> None:
+        result = proposal_result()
+        result.decision_log = [OptimizationDecision(
+            step=1, action="reject", set_id="a.set", from_set_id=None, to_set_id=None,
+            gain=0.0, valley_cost=0.0, point_cost=0.0, score=float("-inf"),
+            portfolio_net_profit_after=100.0,
+            portfolio_valley_dd_after=80.0,
+            portfolio_point_dd_after=20.0,
+            reason="sin mejora",
+        )]
+
+        proposals = serialize_portfolio_proposals(
+            [{"key": "aggressive", "label": "Agresivo Grid", "reserve_pct": 10,
+              "inputs": {"capital": 1000, "valley_dd_pct": 30}, "result": result}],
+            "finite-wire",
+        )
+
+        self.assertEqual(proposals[0]["result"]["decision_log"][0]["score"], 0.0)
+
     def test_legacy_payload_keeps_enforced_risk_and_drops_only_new_audit_fields(self) -> None:
         proposals = serialize_portfolio_proposals(
             [{"key": "balanced", "label": "Moderado", "reserve_pct": 15,
@@ -78,6 +101,26 @@ class PortfolioWireCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(restored[0]["result"].actual_valley_dd, 80.0)
         self.assertEqual(restored[0]["result"].allocations[0].max_equity_dd_001, 25.0)
+
+    def test_grid_minimum_executable_valley_survives_the_wire_round_trip(self) -> None:
+        proposals = serialize_portfolio_proposals(
+            [{
+                "key": "aggressive", "label": "Agresivo Grid", "reserve_pct": 10,
+                "auto_adjusted_valley": True,
+                "requested_valley_dd_pct": 3.0,
+                "adjusted_valley_dd_pct": 3.4533334,
+                "inputs": {"capital": 1000, "valley_dd_pct": 3.4533334},
+                "result": proposal_result(),
+            }],
+            "request-grid",
+        )
+
+        restored = deserialize_portfolio_proposals(proposals, "grid", "ROBOFOREX")
+
+        self.assertTrue(restored[0]["auto_adjusted_valley"])
+        self.assertEqual(restored[0]["requested_valley_dd_pct"], 3.0)
+        self.assertAlmostEqual(restored[0]["adjusted_valley_dd_pct"], 3.4533334)
+        self.assertAlmostEqual(restored[0]["inputs"]["valley_dd_pct"], 3.4533334)
 
 
 if __name__ == "__main__":

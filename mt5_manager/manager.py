@@ -17,7 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
-from .portfolio_service import PortfolioCoordinator, legacy_compatible_portfolio_save_payload
+from .portfolio_service import (
+    PortfolioCoordinator,
+    legacy_compatible_portfolio_save_payload,
+)
+from .portfolio_scope import normalize_portfolio_scope
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -276,7 +280,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 node_id = urllib.parse.unquote(parts[2])
                 node = self._node(node_id)
                 query = urllib.parse.parse_qs(parsed.query)
-                scope = "monthly" if query.get("scope", ["full_history"])[0] == "monthly" else "full_history"
+                scope = normalize_portfolio_scope(query.get("scope", ["full_history"])[0])
                 state = self.server.portfolios.state(node_id, scope)
                 state["capabilities"] = {"export_mode": self.server.export_mode}
                 self._send_json(200, state)
@@ -288,7 +292,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 node_id = urllib.parse.unquote(parts[2])
                 self._node(node_id)
                 query = urllib.parse.parse_qs(parsed.query)
-                scope = "monthly" if query.get("scope", ["full_history"])[0] == "monthly" else "full_history"
+                scope = normalize_portfolio_scope(query.get("scope", ["full_history"])[0])
                 self._send_json(200, self.server.portfolios.task_state(node_id, scope))
             except (KeyError, ValueError) as exc:
                 self._send_json(400, {"error": str(exc)})
@@ -297,7 +301,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
             try:
                 node = self._node(urllib.parse.unquote(parts[2]))
                 query = urllib.parse.parse_qs(parsed.query)
-                scope = "monthly" if query.get("scope", ["full_history"])[0] == "monthly" else "full_history"
+                scope = normalize_portfolio_scope(query.get("scope", ["full_history"])[0])
                 portfolio_id = safe_int(parts[4], 0, minimum=1) if len(parts) == 5 else None
                 if str(node.get("portfolio_project_dir") or "").strip():
                     self._send_json(200, self.server.portfolios.saved(str(node["id"]), scope, portfolio_id))
@@ -316,6 +320,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
             "app.js", "styles.css", "universe.html", "universe.js",
             "portfolios.html", "portfolios.js",
             "portfolios_monthly.html", "portfolios_monthly.js",
+            "portfolios_grid.html", "portfolios_grid.js",
         }:
             self._send_file(STATIC_DIR / relative)
             return
@@ -348,7 +353,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 node_id = urllib.parse.unquote(parts[2])
                 node = self._node(node_id)
                 body = self._body()
-                scope = "monthly" if str(body.pop("scope", "full_history")) == "monthly" else "full_history"
+                scope = normalize_portfolio_scope(body.pop("scope", "full_history"))
                 action = parts[4]
                 if action == "settings":
                     self._send_json(200, {"settings": self.server.portfolios.update_settings(node_id, scope, body)})
@@ -358,32 +363,63 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     save_payload = self.server.portfolios.prepare_save(
                         node_id, scope, str(body.get("proposal_key") or "")
                     )
-                    status, value = node_request(
-                        node, "POST", "/api/v1/portfolios/save", save_payload, timeout=120
-                    )
-                    error_text = str(value.get("error") if isinstance(value, dict) else value or "")
-                    if status >= 400 and "unexpected keyword argument" in error_text:
+                    if scope == "grid":
+                        value = self.server.portfolios.save_grid_package(node_id, save_payload)
+                        portfolio_id = safe_int(value.get("portfolio_id"), 0)
+                        request_id = str(value.get("request_id") or "")
+                        if portfolio_id <= 0 or request_id != str(save_payload["request_id"]):
+                            raise ValueError("El manager no confirmó correctamente el paquete Grid")
+                        self.server.portfolios.confirm_save(
+                            node_id, scope, request_id, portfolio_id
+                        )
+                        variant_ids = {
+                            str(proposal.get("key") or ""): portfolio_id
+                            for proposal in save_payload.get("proposals") or []
+                            if isinstance(proposal, dict) and proposal.get("key")
+                        }
+                        self._send_json(201, {
+                            "portfolio_id": portfolio_id,
+                            "portfolio_ids": variant_ids,
+                        })
+                        return
+                    portfolio_ids: dict[str, int] = {}
+                    for variant_payload in (save_payload,):
                         status, value = node_request(
-                            node,
-                            "POST",
-                            "/api/v1/portfolios/save",
-                            legacy_compatible_portfolio_save_payload(save_payload),
-                            timeout=120,
+                            node, "POST", "/api/v1/portfolios/save", variant_payload, timeout=120
                         )
-                    if status == 404:
-                        raise ValueError(
-                            "El nodo todavía no admite guardado local de portafolios; "
-                            "actualiza su código y reinícialo."
-                        )
-                    if status >= 400 or not isinstance(value, dict):
-                        error = value.get("error") if isinstance(value, dict) else value
-                        raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
-                    portfolio_id = safe_int(value.get("portfolio_id"), 0)
-                    request_id = str(value.get("request_id") or "")
-                    if portfolio_id <= 0 or request_id != str(save_payload["request_id"]):
-                        raise ValueError("El nodo no confirmó correctamente el guardado")
-                    self.server.portfolios.confirm_save(node_id, scope, request_id, portfolio_id)
-                    self._send_json(201, {"portfolio_id": portfolio_id})
+                        error_text = str(value.get("error") if isinstance(value, dict) else value or "")
+                        if status >= 400 and "unexpected keyword argument" in error_text:
+                            status, value = node_request(
+                                node,
+                                "POST",
+                                "/api/v1/portfolios/save",
+                                legacy_compatible_portfolio_save_payload(variant_payload),
+                                timeout=120,
+                            )
+                        if status == 404:
+                            raise ValueError(
+                                "El nodo todavía no admite guardado local de portafolios; "
+                                "actualiza su código y reinícialo."
+                            )
+                        if status >= 400 or not isinstance(value, dict):
+                            error = value.get("error") if isinstance(value, dict) else value
+                            raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+                        portfolio_id = safe_int(value.get("portfolio_id"), 0)
+                        request_id = str(value.get("request_id") or "")
+                        if portfolio_id <= 0 or request_id != str(variant_payload["request_id"]):
+                            raise ValueError("El nodo no confirmó correctamente el guardado")
+                        portfolio_ids[str(variant_payload["selected_key"])] = portfolio_id
+                    selected_key = str(save_payload["selected_key"])
+                    selected_id = portfolio_ids.get(selected_key, 0)
+                    if selected_id <= 0:
+                        raise ValueError("No se guardó la variante Grid seleccionada")
+                    self.server.portfolios.confirm_save(
+                        node_id, scope, str(save_payload["request_id"]), selected_id
+                    )
+                    self._send_json(201, {
+                        "portfolio_id": selected_id,
+                        "portfolio_ids": portfolio_ids,
+                    })
                 elif action in {"reoptimize", "complete"}:
                     portfolio_id = safe_int(body.pop("portfolio_id", 0), 0, minimum=1)
                     self._send_json(202, {"job": self.server.portfolios.start_saved_operation(
