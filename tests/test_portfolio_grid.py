@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from mt5_manager.portfolio_grid_service import _adjusted_grid_valley_pcts, normalize_grid_settings
 from mt5_manager.portfolio_scope import normalize_portfolio_scope
+from mt5_manager.portfolio_service import _optimizer_kwargs, normalize_settings
 from portfolio_manager.grid_portfolio import _grid_evaluation, _prune_to_grid_valley
 from portfolio_manager.grid_risk import (
     GridExposureModel,
@@ -18,7 +19,7 @@ from portfolio_manager.grid_risk import (
     strategy_grid_exposure,
 )
 from portfolio_manager.grid_set import filter_rows_grid_on, set_file_grid_enabled_value
-from portfolio_manager.ubs_portfolio import ClosedTrade
+from portfolio_manager.ubs_portfolio import ClosedTrade, PortfolioType
 
 
 def strategy(set_id: str, profit: float, floating_dd: float) -> SimpleNamespace:
@@ -285,6 +286,40 @@ class GridOverlapTests(unittest.TestCase):
 
         self.assertEqual(len(kept), 2)
         self.assertEqual(warnings, [])
+
+    def test_grid_replaces_the_closed_curve_correlation_thresholds(self) -> None:
+        # En un grid la curva cerrada es suave y positiva por construccion, asi
+        # que todos se parecen en ella y se rechazan entre si sin que eso
+        # describa riesgo. La diversificacion Grid la decide el solape de dias
+        # con posiciones abiertas.
+        values = normalize_grid_settings({
+            "capital": 1000,
+            "valley_dd_pct": 30,
+            "allowed_asset_groups": ["Indices", "Stocks"],
+            "max_pair_corr": 0.35,
+            "max_downside_corr": 0.25,
+            "max_dd_overlap": 0.35,
+            "max_portfolio_corr": 0.5,
+        }, "ROBOFOREX")
+        kwargs = _optimizer_kwargs(values, PortfolioType.BALANCED, [], 15.0)
+
+        for key in ("max_pair_corr", "max_downside_corr", "max_dd_overlap", "max_portfolio_corr"):
+            self.assertIsNone(values[key], key)
+            self.assertIsNone(kwargs[key], key)
+        self.assertEqual(values["max_open_overlap"], 0.6)
+
+    def test_ubs_keeps_its_own_correlation_thresholds(self) -> None:
+        # El cambio es de Grid: el ambito compartido no puede quedarse sin sus
+        # filtros por arrastre.
+        values = normalize_settings("full_history", {
+            "capital": 1000,
+            "valley_dd_pct": 6,
+            "allowed_asset_groups": ["Forex"],
+        }, "ROBOFOREX")
+
+        for key in ("max_pair_corr", "max_downside_corr", "max_dd_overlap", "max_portfolio_corr"):
+            self.assertIsNotNone(values[key], key)
+        self.assertNotIn("max_open_overlap", values)
 
 
 class GridScopeTests(unittest.TestCase):

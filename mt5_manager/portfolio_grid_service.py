@@ -78,6 +78,20 @@ def normalize_grid_settings(raw: dict[str, Any], broker: str = "ICTRADING") -> d
         # Solapamiento máximo admitido entre los días con posiciones abiertas de
         # dos grids. Sólo existe en este ámbito.
         "max_open_overlap": overlap,
+        # Los umbrales de correlación compartidos se miden sobre el P/L cerrado
+        # diario. Un grid cierra ganadoras y deja abiertas las perdedoras, así
+        # que su curva cerrada es suave y positiva por construcción: todos los
+        # grids se parecen en ella y se rechazan entre sí por "correlacionados"
+        # sin que eso describa riesgo alguno. Medido sobre el pool de RoboForex,
+        # esos filtros dejaban el Moderado en 2 estrategias con el valle al 73%
+        # de su límite -- vetando combinaciones que cabían de sobra.
+        # En Grid la diversificación la decide `max_open_overlap`, que mide si
+        # dos estrategias están hundidas los mismos días. UBS y mensual siguen
+        # usando sus umbrales sin cambios.
+        "max_pair_corr": None,
+        "max_downside_corr": None,
+        "max_dd_overlap": None,
+        "max_portfolio_corr": None,
         # Grid is dimensioned only by the portfolio valley. Historical saved
         # settings may still contain the former hidden one-unit cap, so clear
         # every unit ceiling explicitly instead of inheriting it from ``raw``.

@@ -30,7 +30,9 @@
         </div>
         <fieldset><legend>Procesamiento y filtros</legend><div class="portfolio-checks">
           <label><input name="exclude_used_sets" type="checkbox"> Excluir sets Grid usados</label>
-          <label><input name="use_correlation" type="checkbox"> Aplicar correlaciones</label>
+          <label title="Descarta del pool el grid menos eficiente de cada par que comparte sus días con posiciones abiertas. Sustituye a las correlaciones sobre curva cerrada, que en un grid no describen riesgo.">
+            <input name="use_correlation" type="checkbox"> Evitar grids hundidos los mismos días
+          </label>
           <label><input name="require_3_positive_months_6m" type="checkbox"> Exigir 3 meses positivos</label>
           <label><input name="validate_margin" type="checkbox"> Validar margen</label>
         </div></fieldset>
