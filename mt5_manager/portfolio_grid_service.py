@@ -6,6 +6,11 @@ from dataclasses import asdict
 from typing import Any, Callable
 
 from portfolio_manager.grid_portfolio import grid_floating_dd_001, optimize_grid_portfolio
+from portfolio_manager.grid_risk import (
+    DEFAULT_MAX_OPEN_OVERLAP,
+    GridExposureModel,
+    prune_overlapping_sets,
+)
 from portfolio_manager.grid_set import filter_rows_grid_on
 from portfolio_manager.ubs_portfolio import (
     PortfolioType,
@@ -61,11 +66,18 @@ def _adjusted_grid_valley_pcts(
 
 def normalize_grid_settings(raw: dict[str, Any], broker: str = "ICTRADING") -> dict[str, Any]:
     """Normalize Grid without introducing internal EA risk limits."""
+    from .common import safe_float
     from .portfolio_service import normalize_settings
 
     values = normalize_settings("full_history", raw, broker)
+    overlap = safe_float(values.get("max_open_overlap"), DEFAULT_MAX_OPEN_OVERLAP)
+    if not 0 < overlap <= 1:
+        raise ValueError("max_open_overlap debe estar entre 0 y 1")
     values.update({
         "portfolio_scope": "grid",
+        # Solapamiento máximo admitido entre los días con posiciones abiertas de
+        # dos grids. Sólo existe en este ámbito.
+        "max_open_overlap": overlap,
         # Grid is dimensioned only by the portfolio valley. Historical saved
         # settings may still contain the former hidden one-unit cap, so clear
         # every unit ceiling explicitly instead of inheriting it from ``raw``.
@@ -189,6 +201,27 @@ def generate_grid_proposals(
     ]
     if not raw_sets:
         raise ValueError("No quedan estrategias grid cargadas después de los filtros")
+    # Los filtros de correlación compartidos miran el P/L cerrado diario, que en
+    # un grid es positivo casi siempre porque cierra ganadoras y deja abiertas
+    # las perdedoras. El solapamiento que importa aquí es el de los días con
+    # posiciones abiertas: dos grids que se hunden a la vez no diversifican.
+    exposure_model = GridExposureModel(raw_sets)
+    if settings.get("use_correlation", True):
+        raw_sets, overlap_warnings = prune_overlapping_sets(
+            raw_sets,
+            max_open_overlap=float(settings.get("max_open_overlap") or DEFAULT_MAX_OPEN_OVERLAP),
+            model=exposure_model,
+        )
+        if overlap_warnings:
+            warnings.append(
+                f"Grid: {len(overlap_warnings)} estrategia(s) descartada(s) por solapar "
+                "sus días con exposición abierta con otra ya elegida."
+            )
+            warnings.extend(overlap_warnings[:10])
+        if not raw_sets:
+            raise ValueError(
+                "Todas las estrategias grid comparten sus días de exposición abierta"
+            )
     proposals: list[dict[str, Any]] = []
     variant_failures: list[str] = []
     configured_reserve = float(settings.get("dd_reserve_pct") or 0.0)

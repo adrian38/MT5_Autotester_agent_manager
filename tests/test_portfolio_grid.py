@@ -9,7 +9,16 @@ from types import SimpleNamespace
 from mt5_manager.portfolio_grid_service import _adjusted_grid_valley_pcts, normalize_grid_settings
 from mt5_manager.portfolio_scope import normalize_portfolio_scope
 from portfolio_manager.grid_portfolio import _grid_evaluation, _prune_to_grid_valley
+from portfolio_manager.grid_risk import (
+    GridExposureModel,
+    open_exposure_overlap,
+    peak_margin_summary,
+    portfolio_peak_lots,
+    prune_overlapping_sets,
+    strategy_grid_exposure,
+)
 from portfolio_manager.grid_set import filter_rows_grid_on, set_file_grid_enabled_value
+from portfolio_manager.ubs_portfolio import ClosedTrade
 
 
 def strategy(set_id: str, profit: float, floating_dd: float) -> SimpleNamespace:
@@ -23,6 +32,23 @@ def strategy(set_id: str, profit: float, floating_dd: float) -> SimpleNamespace:
         max_equity_dd_001=10.0 + floating_dd,
         max_floating_dd_001=10.0 + floating_dd,
     )
+
+
+def losing_trade(day: int, loss: float, volume: float = 0.01, days_open: int = 1) -> ClosedTrade:
+    return ClosedTrade(
+        open_time=datetime(2025, 1, day),
+        close_time=datetime(2025, 1, day + days_open - 1, 23),
+        symbol="EURUSD",
+        volume=volume,
+        profit=-abs(loss),
+    )
+
+
+def grid_strategy(set_id: str, trades: list[ClosedTrade], *, profit: float = 100.0,
+                  declared_floating: float = 0.0) -> SimpleNamespace:
+    item = strategy(set_id, profit, declared_floating)
+    item.closed_trades_2020_2026 = trades
+    return item
 
 
 class GridSetTests(unittest.TestCase):
@@ -101,6 +127,164 @@ class GridRiskTests(unittest.TestCase):
 
         self.assertEqual(len(adjusted), 1)
         self.assertAlmostEqual(adjusted[0], 31.08 / 1000.0 * 100.0 / 0.9, places=5)
+
+
+class GridOpenExposureTests(unittest.TestCase):
+    def test_portfolio_floating_adds_up_the_strategies_underwater_the_same_day(self) -> None:
+        # El max() entre estrategias da por hecho que solo una esta bajo el agua.
+        # Cuando coinciden, el flotante de la cartera es la suma de ese dia.
+        first = grid_strategy("a", [losing_trade(10, 60.0)], declared_floating=60.0)
+        second = grid_strategy("b", [losing_trade(10, 40.0)], declared_floating=40.0)
+        model = GridExposureModel([first, second])
+
+        self.assertEqual(model.declared_floating({"a": 1, "b": 1}), 60.0)
+        self.assertEqual(model.floating({"a": 1, "b": 1}), 100.0)
+        audit = model.audit({"a": 1, "b": 1})
+        self.assertEqual(audit["worst_day"], "2025-01-10")
+        self.assertEqual(audit["coincident_sets"], 2)
+
+    def test_strategies_underwater_on_different_days_keep_the_previous_valley(self) -> None:
+        # Sin coincidencia no hay nada que sumar: el resultado no puede empeorar
+        # respecto al max() de siempre.
+        first = grid_strategy("a", [losing_trade(10, 60.0)], declared_floating=60.0)
+        second = grid_strategy("b", [losing_trade(20, 40.0)], declared_floating=40.0)
+        model = GridExposureModel([first, second])
+
+        self.assertEqual(model.floating({"a": 1, "b": 1}), 60.0)
+
+    def test_declared_floating_is_the_floor_when_the_trades_are_missing(self) -> None:
+        # Un set sin operaciones legibles mide cero; conservar el declarado evita
+        # que la medida nueva rebaje el riesgo que ya se reconocia.
+        model = GridExposureModel([strategy("a", 10.0, 30.0)])
+
+        self.assertEqual(model.floating({"a": 1}), 30.0)
+        self.assertEqual(model.audit({"a": 1})["measured_open_exposure"], 0.0)
+
+    def test_units_scale_the_open_exposure(self) -> None:
+        model = GridExposureModel([grid_strategy("a", [losing_trade(10, 25.0)])])
+
+        self.assertEqual(model.floating({"a": 3}), 75.0)
+
+    def test_removing_one_unit_matches_a_full_recalculation(self) -> None:
+        # La poda usa el atajo incremental; tiene que dar lo mismo que rehacerlo.
+        first = grid_strategy("a", [losing_trade(10, 60.0), losing_trade(12, 20.0)])
+        second = grid_strategy("b", [losing_trade(10, 40.0)])
+        model = GridExposureModel([first, second])
+        allocations = {"a": 2, "b": 1}
+        total = model.total_vector(allocations)
+
+        self.assertEqual(
+            model.floating_without_one_unit(total, allocations, "a"),
+            model.floating({"a": 1, "b": 1}),
+        )
+        self.assertEqual(
+            model.floating_without_one_unit(total, allocations, "b"),
+            model.floating({"a": 2}),
+        )
+
+    def test_valley_still_takes_the_maximum_against_the_closed_drawdown(self) -> None:
+        # La regla de dominio no cambia: max(flotante, cerrado).
+        first = grid_strategy("a", [losing_trade(10, 5.0)], declared_floating=5.0)
+        strategies = [first]
+        _evaluation, floating, valley = _grid_evaluation(strategies, {"a": 1}, 100.0, 100.0)
+
+        self.assertEqual(floating, 5.0)
+        self.assertEqual(valley, max(floating, 0.0))
+
+
+class GridLadderMarginTests(unittest.TestCase):
+    def test_peak_concurrency_measures_the_internal_ladder(self) -> None:
+        # Un grid escalona el lote: la pierna base es 0.01 pero llegan a estar
+        # abiertas tres a la vez por 0.07 lotes.
+        trades = [
+            losing_trade(10, 5.0, volume=0.01, days_open=3),
+            losing_trade(10, 5.0, volume=0.02, days_open=3),
+            losing_trade(11, 5.0, volume=0.04, days_open=2),
+        ]
+        exposure = strategy_grid_exposure(grid_strategy("a", trades))
+
+        self.assertEqual(exposure.peak_legs, 3)
+        self.assertAlmostEqual(exposure.peak_lots, 0.07)
+        self.assertAlmostEqual(exposure.base_leg_lot, 0.01)
+        self.assertAlmostEqual(exposure.peak_exposure_ratio, 7.0)
+
+    def test_peak_margin_scales_the_nominal_margin_by_the_ladder(self) -> None:
+        trades = [
+            losing_trade(10, 5.0, volume=0.01, days_open=2),
+            losing_trade(10, 5.0, volume=0.04, days_open=2),
+        ]
+        model = GridExposureModel([grid_strategy("a", trades)])
+        nominal = {"by_set": {"a": {"symbol": "EURUSD", "units": 2, "margin": 10.0}}}
+
+        summary = peak_margin_summary(nominal, model, balance=1000.0, max_margin_pct=100.0)
+
+        self.assertEqual(summary["by_set"]["a"]["peak_exposure_ratio"], 5.0)
+        self.assertEqual(summary["total"], 50.0)
+        self.assertEqual(summary["usage_pct"], 5.0)
+        self.assertFalse(summary["exceeds_limit"])
+        self.assertAlmostEqual(portfolio_peak_lots(model, {"a": 2}), 0.1)
+
+    def test_peak_margin_over_the_limit_is_flagged(self) -> None:
+        trades = [losing_trade(10, 5.0, volume=0.01), losing_trade(10, 5.0, volume=0.99)]
+        model = GridExposureModel([grid_strategy("a", trades)])
+        nominal = {"by_set": {"a": {"symbol": "EURUSD", "units": 1, "margin": 10.0}}}
+
+        summary = peak_margin_summary(nominal, model, balance=100.0, max_margin_pct=100.0)
+
+        self.assertTrue(summary["exceeds_limit"])
+
+    def test_pruning_reduces_units_until_the_peak_margin_fits(self) -> None:
+        # El valle ya cabe; lo que aprieta es el margen de la escalera abierta.
+        item = grid_strategy("a", [losing_trade(10, 1.0, volume=0.01)], profit=10.0)
+        margins: list[dict[str, int]] = []
+
+        def peak_margin_for(allocations: dict[str, int]) -> float:
+            margins.append(dict(allocations))
+            return 40.0 * sum(allocations.values())
+
+        allocations, _evaluation, _floating, decisions, _removed = _prune_to_grid_valley(
+            [item], {"a": 3}, 1000.0, 1000.0,
+            peak_margin_for=peak_margin_for, peak_margin_limit=100.0,
+        )
+
+        self.assertEqual(allocations, {"a": 2})
+        self.assertTrue(margins)
+        self.assertIn("margen de pico", decisions[-1].reason)
+
+
+class GridOverlapTests(unittest.TestCase):
+    def test_overlap_counts_shared_days_with_open_positions(self) -> None:
+        first = strategy_grid_exposure(grid_strategy("a", [losing_trade(10, 5.0, days_open=4)]))
+        second = strategy_grid_exposure(grid_strategy("b", [losing_trade(12, 5.0, days_open=4)]))
+
+        # dias a: 10-13, dias b: 12-15 -> interseccion 2, union 6
+        self.assertAlmostEqual(open_exposure_overlap(first, second), 2 / 6)
+
+    def test_pool_drops_the_less_efficient_of_two_overlapping_grids(self) -> None:
+        efficient = grid_strategy("efficient", [losing_trade(10, 10.0, days_open=5)], profit=500.0)
+        redundant = grid_strategy("redundant", [losing_trade(10, 10.0, days_open=5)], profit=100.0)
+
+        kept, warnings = prune_overlapping_sets([efficient, redundant], max_open_overlap=0.6)
+
+        self.assertEqual([item.set_id for item in kept], ["efficient"])
+        self.assertTrue(any("solapar" in warning for warning in warnings))
+
+    def test_pool_keeps_grids_that_suffer_on_different_days(self) -> None:
+        first = grid_strategy("a", [losing_trade(2, 10.0, days_open=3)], profit=500.0)
+        second = grid_strategy("b", [losing_trade(20, 10.0, days_open=3)], profit=100.0)
+
+        kept, warnings = prune_overlapping_sets([first, second], max_open_overlap=0.6)
+
+        self.assertEqual({item.set_id for item in kept}, {"a", "b"})
+        self.assertEqual(warnings, [])
+
+    def test_sets_without_readable_trades_are_never_dropped(self) -> None:
+        kept, warnings = prune_overlapping_sets(
+            [strategy("a", 10.0, 30.0), strategy("b", 20.0, 40.0)], max_open_overlap=0.1,
+        )
+
+        self.assertEqual(len(kept), 2)
+        self.assertEqual(warnings, [])
 
 
 class GridScopeTests(unittest.TestCase):

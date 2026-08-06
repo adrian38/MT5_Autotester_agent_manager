@@ -26,6 +26,7 @@
           <label>Máx. sets por símbolo<input name="max_sets_per_symbol" type="number" min="1" step="1"></label>
           <label>Mín. trades<input name="min_trades_2020_2026" type="number" min="0" step="1"></label>
           <label>Máx. margen %<input name="max_margin_pct" type="number" min="0.01" step="0.01"></label>
+          <label title="Fracción máxima de días con posiciones abiertas que dos grids pueden compartir antes de considerar que no diversifican.">Máx. solape de exposición<input name="max_open_overlap" type="number" min="0.05" max="1" step="0.05"></label>
         </div>
         <fieldset><legend>Procesamiento y filtros</legend><div class="portfolio-checks">
           <label><input name="exclude_used_sets" type="checkbox"> Excluir sets Grid usados</label>
@@ -40,7 +41,8 @@
       <div id="proposal-area" hidden>
         <div class="panel-title"><div><p class="eyebrow">RESULTADOS</p><h2>Propuestas calculadas</h2><p id="proposal-operation" class="subtitle">Se guardarán las tres variantes en un solo paquete; la seleccionada quedará abierta.</p></div><div class="header-actions"><button id="save-proposal" type="button" class="secondary">Guardar las 3 variantes</button><button id="save-export-proposal" type="button">Guardar las 3 y exportar paquete</button></div></div>
         <div id="proposal-cards" class="proposal-cards"></div>
-        <div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th>Set</th><th>Cuenta / candidato</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Net histórico</th><th>DD riesgo máx.</th><th>DD flotante</th><th>DD balance</th><th>DD equity</th><th>Margen</th><th>Acciones</th></tr></thead><tbody id="proposal-members"></tbody></table></div>
+        <div id="proposal-risk" class="detail-metrics audit-metrics"></div>
+        <div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th>Set</th><th>Cuenta / candidato</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Net histórico</th><th>DD riesgo máx.</th><th>DD flotante</th><th>DD balance</th><th>DD equity</th><th>Margen</th><th>Escalera abierta</th><th>Acciones</th></tr></thead><tbody id="proposal-members"></tbody></table></div>
         <div id="proposal-warnings" class="portfolio-note"></div>
       </div>
 
@@ -56,7 +58,7 @@
         <div class="detail-actions"><button id="detail-reoptimize" type="button">Reoptimizar las 3</button><button id="detail-undo" type="button" class="secondary">Deshacer recomposición</button><button id="detail-export" type="button" class="secondary">Exportar paquete A/M/C (.zip)</button><button id="detail-exclude-selected" type="button" class="danger" hidden disabled>Excluir seleccionadas (0)</button><button id="detail-delete" type="button" class="danger">Borrar</button></div>
         <div id="detail-variants" class="proposal-cards" hidden></div>
         <div id="detail-metrics" class="detail-metrics"></div><p id="detail-note" class="portfolio-note"></p>
-        <div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th id="detail-select-column" hidden><input id="detail-select-all" type="checkbox" aria-label="Seleccionar todas las estrategias"></th><th>Set</th><th>Cuenta / candidato</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Net histórico</th><th>DD riesgo máx.</th><th>DD flotante</th><th>DD balance</th><th>DD equity</th><th>Margen</th><th>Acciones</th></tr></thead><tbody id="portfolio-members"></tbody></table></div>
+        <div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th id="detail-select-column" hidden><input id="detail-select-all" type="checkbox" aria-label="Seleccionar todas las estrategias"></th><th>Set</th><th>Cuenta / candidato</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Net histórico</th><th>DD riesgo máx.</th><th>DD flotante</th><th>DD balance</th><th>DD equity</th><th>Margen</th><th>Escalera abierta</th><th>Acciones</th></tr></thead><tbody id="portfolio-members"></tbody></table></div>
         <section class="audit-section"><h3>Auditoría del cálculo</h3><div id="detail-audit" class="detail-metrics audit-metrics"></div><details><summary>Decisiones del optimizador</summary><div class="universe-table-wrap audit-table-wrap"><table class="universe-table"><thead><tr><th>Paso</th><th>Acción</th><th>Set</th><th>Ganancia</th><th>Coste valle</th><th>Score</th><th>Razón</th></tr></thead><tbody id="detail-decisions"></tbody></table></div></details></section>
       </div></section>
     </section>
@@ -64,6 +66,6 @@
   <dialog id="portfolio-log-dialog" class="log-dialog"><div class="dialog-head"><div><p class="eyebrow">LOG DEL CONSTRUCTOR GRID</p><h2 id="portfolio-log-title">Salida del cálculo</h2></div><button type="button" class="icon-button" onclick="document.querySelector('#portfolio-log-dialog').close()">×</button></div><pre id="portfolio-log-content"></pre></dialog>
   <div id="save-overlay" class="save-overlay" role="dialog" aria-modal="true" aria-labelledby="save-overlay-title" hidden><div class="save-overlay-card"><span class="save-spinner" aria-hidden="true"></span><div aria-live="polite"><strong id="save-overlay-title">Procesando…</strong><p id="save-overlay-detail">Espera mientras se completa la operación.</p></div></div></div>
   <div id="toast" role="status"></div>
-  <script src="/portfolios_grid.js?v=20260806-1"></script>
+  <script src="/portfolios_grid.js?v=20260806-2"></script>
 </body>
 </html>

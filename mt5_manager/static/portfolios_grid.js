@@ -2,7 +2,7 @@ const params = new URLSearchParams(location.search);
 const nodeId = params.get('node') || '';
 const scope = 'grid';
 const form = document.querySelector('#portfolio-form');
-const numericFields = ['capital', 'valley_dd_pct', 'dd_reserve_pct', 'top_k_per_symbol', 'max_total_candidates', 'max_sets_per_symbol', 'min_trades_2020_2026', 'max_margin_pct'];
+const numericFields = ['capital', 'valley_dd_pct', 'dd_reserve_pct', 'top_k_per_symbol', 'max_total_candidates', 'max_sets_per_symbol', 'min_trades_2020_2026', 'max_margin_pct', 'max_open_overlap'];
 const booleanFields = ['exclude_used_sets', 'use_correlation', 'require_3_positive_months_6m', 'validate_margin'];
 let managerState = {proposals: []};
 let portfolioData = {portfolios: [], summary: {}};
@@ -142,10 +142,13 @@ function renderProposals() {
   document.querySelector('#proposal-cards').innerHTML = proposals.map(proposal => {
     const result = proposal.result || {};
     const adjusted = proposal.auto_adjusted_valley ? ` · objetivo ajustado ${number(proposal.requested_valley_dd_pct, 2)}% → ${number(proposal.adjusted_valley_dd_pct, 2)}%` : '';
-    return `<button type="button" class="proposal-card ${proposal.key === selectedProposal ? 'selected' : ''}" onclick="selectProposal('${esc(proposal.key)}')">
+    const risk = result.daily_dd_summary || {};
+    const peak = risk.grid_peak_margin || {};
+    return `<button type="button" class="proposal-card ${proposal.key === selectedProposal ? 'selected' : ''} ${peak.exceeds_limit ? 'stress-alert' : ''}" onclick="selectProposal('${esc(proposal.key)}')">
       <span>${esc(proposal.label)}</span><strong>${number(result.total_net_profit, 2)}</strong>
-      <small>${number(result.active_strategies)} estrategias · ${number(result.total_lot, 2)} lotes${adjusted}</small>
+      <small>${number(result.active_strategies)} estrategias · ${number(result.total_lot, 2)} lotes base${adjusted}</small>
       <small>DD riesgo ${number(result.actual_valley_dd, 2)} / ${number(result.target_valley_dd, 2)} · máx(flotante ${number(result.floating_dd_buffer, 2)}, cerrado ${number(result.actual_closed_valley_dd, 2)})</small>
+      <small>Escalera abierta ${number(risk.grid_peak_lots, 2)} lotes · margen pico ${number(peak.total, 2)} / ${number(peak.limit, 2)} (${number(peak.usage_pct, 1)}%)${peak.exceeds_limit ? ' · ALERTA' : ''}</small>
       <small>Reserva ${number(proposal.reserve_pct, 1)}% · uso ${number(result.valley_usage_pct, 1)}%</small>
     </button>`;
   }).join('');
@@ -154,20 +157,62 @@ function renderProposals() {
 
 function selectProposal(key) { selectedProposal = key; renderProposals(); }
 
-function memberRow(member, saved = false, index = 0, selectable = false) {
+// Riesgo propio del grid: lo que no se ve en la curva de operaciones cerradas.
+function riskMetrics(risk) {
+  const exposure = risk?.grid_open_exposure;
+  const margin = risk?.grid_peak_margin;
+  if (!exposure && !margin) return '';
+  const tiles = [];
+  if (exposure?.measured_days) {
+    tiles.push(metric(
+      number(exposure.binding, 2), 'Flotante vinculante',
+      `medido ${number(exposure.measured_open_exposure, 2)} · declarado ${number(exposure.declared_floating_dd, 2)}`,
+      Number(exposure.measured_open_exposure) > Number(exposure.declared_floating_dd),
+    ));
+    tiles.push(metric(
+      esc(exposure.worst_day || '—'), 'Peor día de exposición abierta',
+      `${number(exposure.coincident_sets)} estrategia(s) a la vez bajo el agua`,
+    ));
+  }
+  if (margin?.total != null) {
+    tiles.push(metric(
+      number(margin.total, 2), 'Margen de pico',
+      `${number(margin.usage_pct, 1)}% de ${number(margin.limit, 2)} · libre ${number(margin.free_margin_pct, 1)}%`,
+      Boolean(margin.exceeds_limit),
+    ));
+  }
+  if (risk?.grid_peak_lots != null) {
+    tiles.push(metric(number(risk.grid_peak_lots, 2), 'Lotes abiertos a la vez', 'pico simultáneo de la escalera'));
+  }
+  return tiles.join('');
+}
+
+// Escalera abierta del grid: piernas y lotes simultáneos medidos del informe.
+// El lote asignado describe la pierna base, no lo que la cuenta llega a tener
+// abierto a la vez, que es lo que consume margen.
+function ladderCell(member, risk) {
+  const entry = (risk?.grid_peak_margin?.by_set || {})[member.set_path || member.set_id || ''];
+  if (!entry) return '<td>—</td>';
+  const title = `Margen nominal ${number(entry.nominal_margin, 2)} · de pico ${number(entry.peak_margin, 2)} (x${number(entry.peak_exposure_ratio, 1)}) · pierna base ${number(entry.base_leg_lot, 2)}`;
+  return `<td title="${esc(title)}"><strong>${number(entry.peak_lots, 2)}</strong> lotes<small>${number(entry.peak_legs)} piernas · x${number(entry.peak_exposure_ratio, 0)}</small></td>`;
+}
+
+function memberRow(member, saved = false, index = 0, selectable = false, risk = null) {
   const path = member.set_path || member.set_id || '';
   const selector = selectable ? `<td><input type="checkbox" aria-label="Seleccionar ${esc(setName(member))}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
   const action = saved
     ? `<td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button></div></td>`
     : `<td><button type="button" class="danger table-action" onclick="excludeStrategy('proposal',${index})">Excluir</button></td>`;
-  return `<tr>${selector}<td title="${esc(path)}"><strong>${esc(setName(member))}</strong><small>${esc(path)}</small></td><td>${esc(member.candidate_id || '—')}</td><td><strong>${esc(member.symbol || '')}</strong></td><td>${esc(member.timeframe || '—')}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution, 2)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Fuente: ${esc(member.floating_dd_source || '—')}">${number(member.standalone_floating_dd, 2)}</td><td>${number(member.max_balance_dd_001, 2)}</td><td>${number(member.max_equity_dd_001, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td>${action}</tr>`;
+  return `<tr>${selector}<td title="${esc(path)}"><strong>${esc(setName(member))}</strong><small>${esc(path)}</small></td><td>${esc(member.candidate_id || '—')}</td><td><strong>${esc(member.symbol || '')}</strong></td><td>${esc(member.timeframe || '—')}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution, 2)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Fuente: ${esc(member.floating_dd_source || '—')}">${number(member.standalone_floating_dd, 2)}</td><td>${number(member.max_balance_dd_001, 2)}</td><td>${number(member.max_equity_dd_001, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td>${ladderCell(member, risk)}${action}</tr>`;
 }
 
 function renderSelectedProposal() {
   const proposal = (managerState.proposals || []).find(item => item.key === selectedProposal);
   if (!proposal) return;
   proposalMembers = proposal.result?.allocations || [];
-  document.querySelector('#proposal-members').innerHTML = proposalMembers.length ? proposalMembers.map((member, index) => memberRow(member, false, index)).join('') : '<tr><td colspan="12">Esta variante no contiene sets.</td></tr>';
+  const risk = proposal.result?.daily_dd_summary || null;
+  document.querySelector('#proposal-members').innerHTML = proposalMembers.length ? proposalMembers.map((member, index) => memberRow(member, false, index, false, risk)).join('') : '<tr><td colspan="13">Esta variante no contiene sets.</td></tr>';
+  document.querySelector('#proposal-risk').innerHTML = riskMetrics(risk);
   const warnings = proposal.result?.warnings || [];
   document.querySelector('#proposal-warnings').innerHTML = warnings.length ? `<details><summary>Auditoría y avisos (${warnings.length})</summary><ul>${warnings.map(warning => `<li>${esc(warning)}</li>`).join('')}</ul></details>` : '';
 }
@@ -195,10 +240,11 @@ function renderAudit(portfolio) {
   const stress = metrics.stress_bootstrap || {};
   const margin = metrics.margin_summary || {};
   document.querySelector('#detail-audit').innerHTML = [
-    metric(number(stress.valley_dd_p50, 2), 'Bootstrap P50'),
+    metric(number(stress.valley_dd_p50, 2), 'Bootstrap P50', 'sobre equity con flotante'),
     metric(number(stress.valley_dd_p95, 2), 'Bootstrap P95', stress.alert ? 'ALERTA' : '', stress.alert),
     metric(`${number(stress.probability_exceed_effective_pct, 1)}%`, 'P exceder DD efectivo'),
     metric(number(margin.total, 2), 'Margen nominal', `${number(margin.usage_pct, 1)}% de ${number(margin.limit, 2)}`),
+    riskMetrics(metrics.daily_dd_summary),
   ].join('');
   const decisions = portfolio.decisions || [];
   document.querySelector('#detail-decisions').innerHTML = decisions.length ? decisions.map(row => `<tr><td>${number(row.step)}</td><td>${esc(row.action)}</td><td>${esc(setName({set_id: row.set_id || row.to_set_id}))}</td><td>${number(row.gain, 2)}</td><td>${number(row.valley_cost, 2)}</td><td>${number(row.score, 3)}</td><td>${esc(row.reason || '')}</td></tr>`).join('') : '<tr><td colspan="7">No hay decisiones guardadas.</td></tr>';
@@ -246,9 +292,10 @@ function renderSavedVariant(key) {
   document.querySelector('#detail-select-column').hidden = !bundle;
   document.querySelector('#detail-exclude-selected').hidden = !bundle;
   document.querySelector('#detail-select-all').checked = false;
+  const risk = variant.daily_dd_summary || null;
   document.querySelector('#portfolio-members').innerHTML = detailMembers.length
-    ? detailMembers.map((member, index) => memberRow(member, true, index, bundle)).join('')
-    : `<tr><td colspan="${bundle ? 13 : 12}">Esta variante no tiene sets guardados.</td></tr>`;
+    ? detailMembers.map((member, index) => memberRow(member, true, index, bundle, risk)).join('')
+    : `<tr><td colspan="${bundle ? 14 : 13}">Esta variante no tiene sets guardados.</td></tr>`;
   updateDetailSelection();
   const label = String(variant.label || '');
   const decisions = (portfolio.decisions || []).filter(row => !selectedDetailVariant || !label || String(row.reason || '').startsWith(`${label}:`));
@@ -341,7 +388,7 @@ async function loadDetail(id) {
   renderSavedList();
   document.querySelector('#portfolio-empty').hidden = true;
   document.querySelector('#portfolio-detail').hidden = false;
-  document.querySelector('#portfolio-members').innerHTML = '<tr><td colspan="12">Cargando detalle…</td></tr>';
+  document.querySelector('#portfolio-members').innerHTML = '<tr><td colspan="14">Cargando detalle…</td></tr>';
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolios/${selectedId}?scope=${scope}`, {cache: 'no-store'});
     const data = await jsonResponse(response);

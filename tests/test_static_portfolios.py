@@ -151,10 +151,28 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("se borrará por completo el paquete Grid A/M/C", script)
         self.assertIn("set_paths: members.map", script)
         self.assertIn("No participan en futuras generaciones de Portafolio Grid UBS", script)
-        # La tabla de propuestas gana la columna de acciones y la de guardados la
-        # de selección: los colspan vacíos tienen que seguirlas.
-        self.assertIn('colspan="12">Esta variante no contiene sets.', script)
-        self.assertIn("${bundle ? 13 : 12}", script)
+        # La tabla de propuestas gana las columnas de acciones y escalera, y la
+        # de guardados además la de selección: los colspan vacíos las siguen.
+        self.assertIn('colspan="13">Esta variante no contiene sets.', script)
+        self.assertIn("${bundle ? 14 : 13}", script)
+
+    def test_grid_screen_shows_the_open_ladder_and_its_peak_margin(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios_grid.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios_grid.js").read_text(encoding="utf-8")
+
+        self.assertEqual(page.count("<th>Escalera abierta</th>"), 2)
+        self.assertIn('id="proposal-risk"', page)
+        self.assertIn('name="max_open_overlap"', page)
+        self.assertIn("function ladderCell", script)
+        self.assertIn("grid_peak_margin", script)
+        self.assertIn("grid_open_exposure", script)
+        self.assertIn("grid_peak_lots", script)
+        self.assertIn("Flotante vinculante", script)
+        self.assertIn("Peor día de exposición abierta", script)
+        self.assertIn("Margen de pico", script)
+        # El lote asignado es la pierna base, no lo que la cuenta llega a abrir.
+        self.assertIn("lotes base", script)
 
     def test_explicit_save_actions_show_a_blocking_progress_overlay(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -323,6 +341,7 @@ class PortfolioFormTests(unittest.TestCase):
             "dd_reserve_pct": (0, 10, 99.5),
             "search_restarts": (0, 4),
             "max_margin_pct": (0.5, 100, 100.25),
+            "max_open_overlap": (0.05, 0.6, 1),
             "max_pair_corr": (0, 0.35, 0.355, 1),
             "max_downside_corr": (0, 0.25, 0.255, 1),
             "max_dd_overlap": (0, 0.35, 0.355, 1),
