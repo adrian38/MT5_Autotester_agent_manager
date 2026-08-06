@@ -355,6 +355,54 @@ class MinimumLotExecutionTests(unittest.TestCase):
         executable, _ = _execution_plan_allocations(sets, {"AIRBUS.set": 3}, 10000.0, model)
         self.assertEqual(executable["AIRBUS.set"], 2)
 
+    def test_execution_rounding_repairs_dd_without_losing_required_sets(self) -> None:
+        from portfolio_manager.ubs_portfolio import (
+            _repair_executable_allocations,
+            execution_units_from_step,
+        )
+
+        risk = replace(
+            strategy("EURUSD", 1.10),
+            curve_2020_2026_001=[0.0, -100.0, 100.0],
+            curve_points_2020_2026_001=[],
+            net_profit_2020_2026_001=100.0,
+            valley_dd_2020_2026_001=100.0,
+            point_dd_2020_2026_001=100.0,
+        )
+        hedge = replace(
+            strategy("AIRBUS", 200.0),
+            curve_2020_2026_001=[0.0, 50.0, 60.0],
+            curve_points_2020_2026_001=[],
+            net_profit_2020_2026_001=60.0,
+            valley_dd_2020_2026_001=0.0,
+            point_dd_2020_2026_001=0.0,
+        )
+        sets = [risk, hedge]
+        model = self.model(EURUSD=0.01, AIRBUS=1.0)
+
+        # Dos riesgos + tres coberturas tienen DD 50. El step entero de AIRBUS
+        # solo expresa dos coberturas, lo que eleva el DD a 100. La reparación
+        # debe bajar el riesgo a una unidad y conservar los dos sets comunes.
+        allocations, evaluation, steps, log = _repair_executable_allocations(
+            sets,
+            {"EURUSD.set": 2, "AIRBUS.set": 3},
+            1000.0,
+            model,
+            target_valley_dd=60.0,
+            target_point_dd=60.0,
+            enforce_point_dd=False,
+            minimum_active_strategies=2,
+        )
+
+        self.assertEqual(allocations, {"EURUSD.set": 1, "AIRBUS.set": 2})
+        self.assertLessEqual(evaluation.valley_dd, 60.0)
+        self.assertEqual(evaluation.active_strategies, 2)
+        self.assertEqual([item.action for item in log], ["reduce_unit_for_execution_dd"])
+        self.assertEqual(
+            execution_units_from_step(1000.0, steps["AIRBUS.set"]),
+            200,
+        )
+
 
 class SymbolMarginLoaderTests(unittest.TestCase):
     def test_terminal_dump_gives_margin_and_reference_leverage(self) -> None:

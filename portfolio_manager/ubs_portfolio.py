@@ -5196,25 +5196,33 @@ def optimize_portfolio(
             current = refined_current
             stop_reason += "; deep optimization refined the solution"
 
-    executable_allocations, executable_steps = _execution_plan_allocations(
-        selected, allocations, capital, resolve_margin_model(margin_profile),
+    optimized_allocations = allocations.copy()
+    (
+        executable_allocations,
+        current,
+        executable_steps,
+        execution_repair_log,
+    ) = _repair_executable_allocations(
+        selected,
+        allocations,
+        capital,
+        resolve_margin_model(margin_profile),
+        target_valley_dd=target_valley_dd,
+        target_point_dd=target_point_dd,
+        max_daily_dd=max_daily_dd,
+        enforce_point_dd=enforce_point_dd,
+        daily_dd_full_history=daily_dd_full_history,
+        minimum_active_strategies=minimum_active_strategies,
+        protected_set_ids=required_ids,
     )
     execution_adjustments = {
         set_id: executable_allocations[set_id]
-        for set_id, units in allocations.items()
+        for set_id, units in optimized_allocations.items()
         if units > 0 and executable_allocations.get(set_id, 0) != units
     }
-    if execution_adjustments:
-        current = evaluate_portfolio(
-            selected,
-            executable_allocations,
-            target_valley_dd,
-            target_point_dd,
-            max_daily_dd,
-            enforce_point_dd,
-            daily_dd_full_history,
-        )
-        allocations = executable_allocations
+    allocations = executable_allocations
+    if execution_repair_log:
+        stop_reason += "; executable lot rounding repaired to preserve DD limits"
 
     if current.valley_dd > target_valley_dd:
         raise ValueError("Final portfolio violates valley DD")
@@ -5394,6 +5402,11 @@ def optimize_portfolio(
         warnings.append(
             "Lots were rounded down to match integer LotPerBalance_step export values."
         )
+    if execution_repair_log:
+        warnings.append(
+            "Executable lot rounding raised combined DD; "
+            f"{len(execution_repair_log)} additional unit reduction(s) restored the configured limits."
+        )
     if correlation_rejections:
         warnings.append(f"{correlation_rejections} increment candidate(s) rejected by correlation limits.")
     if group_limit_overages:
@@ -5475,7 +5488,7 @@ def optimize_portfolio(
         active_strategies=current.active_strategies,
         stop_reason=stop_reason,
         warnings=warnings,
-        decision_log=greedy_log + local_log + multi_start_log + deep_log,
+        decision_log=greedy_log + local_log + multi_start_log + deep_log + execution_repair_log,
         unused_sets=unused_sets,
         correlation_rejections=correlation_rejections,
         group_summary=group_summary,
@@ -5826,6 +5839,148 @@ def _execution_plan_allocations(
         executable[strategy.set_id] = execution_units_from_step(capital, step) // increments
         steps[strategy.set_id] = step
     return executable, steps
+
+
+def _repair_executable_allocations(
+    sets: list[RobustStrategySet],
+    allocations: dict[str, int],
+    capital: float,
+    model: MarginModel | None,
+    *,
+    target_valley_dd: float,
+    target_point_dd: float,
+    max_daily_dd: float | None = None,
+    enforce_point_dd: bool = True,
+    daily_dd_full_history: bool = False,
+    minimum_active_strategies: int | None = None,
+    protected_set_ids: Sequence[str] | None = None,
+) -> tuple[
+    dict[str, int],
+    PortfolioEvaluation,
+    dict[str, int],
+    list[OptimizationDecision],
+]:
+    """Make the integer EA lot plan safe without losing required strategies.
+
+    Rounding one strategy down can remove profit that hedged another curve and
+    therefore *increase* the combined closed drawdown.  Starting from the
+    actual executable plan, reduce one executable unit at a time until both DD
+    limits are valid.  A valid immediate choice keeps the most profit; while
+    still invalid, the search follows the lowest violation ratio.  Reductions
+    always make progress, so a required all-one composition is reached when
+    that is the only feasible plan.
+    """
+    current_allocations, current_steps = _execution_plan_allocations(
+        sets, allocations, capital, model,
+    )
+    current = evaluate_portfolio(
+        sets,
+        current_allocations,
+        target_valley_dd,
+        target_point_dd,
+        max_daily_dd,
+        enforce_point_dd,
+        daily_dd_full_history,
+    )
+    decision_log: list[OptimizationDecision] = []
+    if not _evaluation_violates_dd_limits(current):
+        return current_allocations, current, current_steps, decision_log
+
+    protected = {str(set_id) for set_id in (protected_set_ids or ())}
+    minimum_active = max(int(minimum_active_strategies or 0), 0)
+    by_id = {strategy.set_id: strategy for strategy in sets}
+
+    while _evaluation_violates_dd_limits(current):
+        best_valid: tuple[object, ...] | None = None
+        best_progress: tuple[object, ...] | None = None
+        for strategy in sets:
+            units = current_allocations.get(strategy.set_id, 0)
+            minimum_units = 1 if strategy.set_id in protected else 0
+            if units <= minimum_units:
+                continue
+            requested = current_allocations.copy()
+            requested[strategy.set_id] = units - 1
+            trial_allocations, trial_steps = _execution_plan_allocations(
+                sets, requested, capital, model,
+            )
+            if trial_allocations == current_allocations:
+                continue
+            if any(trial_allocations.get(set_id, 0) <= 0 for set_id in protected):
+                continue
+            active = sum(1 for value in trial_allocations.values() if value > 0)
+            if active < minimum_active:
+                continue
+            trial = evaluate_portfolio(
+                sets,
+                trial_allocations,
+                target_valley_dd,
+                target_point_dd,
+                max_daily_dd,
+                enforce_point_dd,
+                daily_dd_full_history,
+            )
+            payload = (
+                strategy.set_id,
+                trial_allocations,
+                trial,
+                trial_steps,
+            )
+            if not _evaluation_violates_dd_limits(trial):
+                choice = (
+                    -trial.total_net_profit,
+                    _evaluation_violation_ratio(trial),
+                    strategy.set_id,
+                    *payload,
+                )
+                if best_valid is None or choice[:3] < best_valid[:3]:
+                    best_valid = choice
+            else:
+                choice = (
+                    _evaluation_violation_ratio(trial),
+                    -trial.total_net_profit,
+                    strategy.set_id,
+                    *payload,
+                )
+                if best_progress is None or choice[:3] < best_progress[:3]:
+                    best_progress = choice
+
+        selected = best_valid or best_progress
+        if selected is None:
+            break
+        reduced_set_id = str(selected[3])
+        next_allocations = selected[4]
+        next_evaluation = selected[5]
+        next_steps = selected[6]
+        assert isinstance(next_allocations, dict)
+        assert isinstance(next_evaluation, PortfolioEvaluation)
+        assert isinstance(next_steps, dict)
+        previous = current
+        current_allocations = next_allocations
+        current = next_evaluation
+        current_steps = next_steps
+        reduced_set = by_id[reduced_set_id]
+        decision_log.append(
+            OptimizationDecision(
+                step=len(decision_log) + 1,
+                action="reduce_unit_for_execution_dd",
+                set_id=reduced_set_id,
+                from_set_id=reduced_set_id,
+                to_set_id=None,
+                gain=current.total_net_profit - previous.total_net_profit,
+                valley_cost=current.valley_dd - previous.valley_dd,
+                point_cost=current.point_dd - previous.point_dd,
+                score=-_evaluation_violation_ratio(current),
+                portfolio_net_profit_after=current.total_net_profit,
+                portfolio_valley_dd_after=current.valley_dd,
+                portfolio_point_dd_after=current.point_dd,
+                reason=(
+                    "Executable LotPerBalance_step rounding raised combined DD; "
+                    "reduced one executable unit while preserving required strategies"
+                ),
+            )
+        )
+
+    return current_allocations, current, current_steps, decision_log
 
 
 def _step_for_max_units(capital: float, units: int) -> int:

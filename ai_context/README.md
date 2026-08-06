@@ -10,6 +10,9 @@ Contexto persistente para agentes que trabajan en `MT5_Autotester_agent_manager`
 - `axi_margin_files_from_the_agent.md`: qué ficheros del proyecto del agente lee
   el margen AXI, qué campo está en divisa de cuenta y por qué `skipped_symbols`
   bloquea el respaldo por grupo.
+- `portfolio_execution_rounding_dd.md`: caso límite en el que convertir las
+  unidades optimizadas a steps ejecutables reduce una cobertura y eleva el DD
+  combinado por encima del límite.
 - `manager_snapshot_after_node_writes.md`: por qué el manager lee la memoria del
   nodo por copia y por qué toda escritura confirmada por el nodo tiene que
   invalidarla, o la pantalla sigue enseñando el estado anterior.
