@@ -26,6 +26,7 @@
           <label>Máx. sets por símbolo<input name="max_sets_per_symbol" type="number" min="1" step="1"></label>
           <label>Mín. trades<input name="min_trades_2020_2026" type="number" min="0" step="1"></label>
           <label>Máx. margen %<input name="max_margin_pct" type="number" min="0.01" step="0.01"></label>
+          <label>Apalancamiento (AXI)<select name="account_leverage"><option value="1000">1:1000</option><option value="500">1:500</option><option value="100">1:100</option></select></label>
           <label title="Fracción máxima de días con posiciones abiertas que dos grids pueden compartir antes de considerar que no diversifican.">Máx. solape de exposición<input name="max_open_overlap" type="number" min="0.05" max="1" step="0.05"></label>
         </div>
         <fieldset><legend>Procesamiento y filtros</legend><div class="portfolio-checks">
@@ -36,15 +37,23 @@
           <label><input name="require_3_positive_months_6m" type="checkbox"> Exigir 3 meses positivos</label>
           <label><input name="validate_margin" type="checkbox"> Validar margen</label>
         </div></fieldset>
-        <div class="builder-actions"><button id="portfolio-log" type="button" class="secondary" disabled>Ver log del cálculo</button><button id="save-settings" type="button" class="secondary">Guardar configuración</button><button id="generate-proposals" type="submit">Generar propuestas Grid</button></div>
+        <div class="builder-actions"><button id="portfolio-log" type="button" class="secondary" disabled>Ver log del cálculo</button><button id="reset-settings" type="button" class="secondary">Restablecer</button><button id="save-settings" type="button" class="secondary">Guardar configuración</button><button id="generate-proposals" type="submit">Generar propuestas Grid</button></div>
       </form>
       <div id="builder-progress" class="builder-progress" hidden><div class="progress-track"><span id="builder-progress-bar"></span></div><p id="builder-progress-text">Preparando cálculo…</p></div>
+      <section id="calculation-monitor" class="calculation-monitor" hidden aria-live="polite">
+        <div class="monitor-head"><div><p class="eyebrow">PROGRESO DEL CÁLCULO</p><h3 id="monitor-title">Preparando cálculo Grid</h3></div><span id="stage-count">0 / 4</span></div>
+        <div id="stage-list" class="stage-list">
+          <span data-stage="1">Candidatos Grid</span><span data-stage="2">Reportes y elegibilidad</span><span data-stage="3">Optimización A/M/C</span><span data-stage="4">Propuestas</span>
+        </div>
+        <pre id="live-log" class="live-log">El log aparecerá al iniciar un cálculo.</pre>
+      </section>
 
       <div id="proposal-area" hidden>
         <div class="panel-title"><div><p class="eyebrow">RESULTADOS</p><h2>Propuestas calculadas</h2><p id="proposal-operation" class="subtitle">Se guardarán las tres variantes en un solo paquete; la seleccionada quedará abierta.</p></div><div class="header-actions"><button id="save-proposal" type="button" class="secondary">Guardar las 3 variantes</button><button id="save-export-proposal" type="button">Guardar las 3 y exportar paquete</button></div></div>
         <div id="proposal-cards" class="proposal-cards"></div>
         <div id="proposal-risk" class="detail-metrics audit-metrics"></div>
         <div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th>Set</th><th>Cuenta / candidato</th><th>Símbolo</th><th>TF</th><th>Lote</th><th>Net histórico</th><th>DD riesgo máx.</th><th>DD flotante</th><th>DD balance</th><th>DD equity</th><th>Margen</th><th>Escalera abierta</th><th>Acciones</th></tr></thead><tbody id="proposal-members"></tbody></table></div>
+        <section id="proposal-diff-section" class="audit-section" hidden><h3>Cambios frente al paquete Grid guardado</h3><div class="universe-table-wrap audit-table-wrap"><table class="universe-table"><thead><tr><th>Estado</th><th>Set</th><th>Símbolo</th><th>Unid. antes</th><th>Unid. después</th><th>Δ</th><th>Lote antes</th><th>Lote después</th></tr></thead><tbody id="proposal-diff"></tbody></table></div></section>
         <div id="proposal-warnings" class="portfolio-note"></div>
       </div>
 

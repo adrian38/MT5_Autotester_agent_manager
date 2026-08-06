@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 PORTFOLIO_SCOPES = ("full_history", "monthly", "grid")
+SCOPE_LABELS = {"full_history": "UBS", "monthly": "mensual", "grid": "Grid"}
 
 
 def normalize_portfolio_scope(value: object, *, default: str = "full_history") -> str:

@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
-    MIN_RECENT_EQUITY_RECOVERY,
     PortfolioResult,
     PortfolioType,
-    filter_eligible_sets,
     optimize_portfolio,
     optimize_strict_monthly_portfolio,
     slice_strategy_sets_to_month,
@@ -24,11 +21,16 @@ from .portfolio_service import (
     _optimize_without_recent_fillers,
     _optimizer_kwargs,
     _seasonal_coverage,
+    _with_executable_valley_floor,
+    build_margin_model,
     cached_report,
+    describe_eligibility,
+    eligibility_counts,
     filter_rows_by_recent_positive_months,
     filter_rows_grid_off,
     load_robust_sets_from_rows,
     portfolio_group_key,
+    prepare_scope_log,
     settings_inputs,
     summarize_robust_rows,
 )
@@ -41,45 +43,19 @@ Progress = Callable[[str], None]
 def monthly_eligibility_counts(
     monthly_sets: list[Any], minimum_trades: int
 ) -> dict[str, int]:
-    """Explain the common UBS eligibility funnel after the seasonal slice."""
-    with_trades = [item for item in monthly_sets if int(item.trades_2020_2026) > 0]
-    enough_trades = [
-        item for item in with_trades
-        if int(item.trades_2020_2026) >= int(minimum_trades)
-    ]
-    positive = [
-        item for item in enough_trades
-        if float(item.net_profit_2020_2026_001) > 0
-    ]
-    recent_recovery = [
-        item for item in positive
-        if not item.has_recent_performance
-        or (
-            float(item.recent_net_profit_001)
-            / max(float(item.recent_equity_dd_001), 1.0)
-        ) >= MIN_RECENT_EQUITY_RECOVERY
-    ]
-    eligible = filter_eligible_sets(monthly_sets, int(minimum_trades))
-    return {
-        "total": len(monthly_sets),
-        "with_trades": len(with_trades),
-        "enough_trades": len(enough_trades),
-        "positive": len(positive),
-        "recent_recovery": len(recent_recovery),
-        "eligible": len(eligible),
-    }
+    """Explain the common UBS eligibility funnel after the seasonal slice.
+
+    El embudo es el mismo en los tres ámbitos: la única diferencia mensual es
+    que se mide sobre las curvas ya recortadas al mes objetivo.
+    """
+    return eligibility_counts(monthly_sets, int(minimum_trades))
 
 
 def prepare_monthly_log(source: PortfolioSource, operation: str, job_id: str) -> Path:
     """Create the monthly log before the worker starts so the UI can open it immediately."""
-    log_dir = source.project / "portfolio_logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    path = log_dir / f"manager_monthly_{operation}_{job_id}.log"
-    path.write_text(
-        f"{datetime.now().isoformat(timespec='seconds')} | 0/6 · Preparando cálculo mensual\n",
-        encoding="utf-8",
+    return prepare_scope_log(
+        source, "monthly", operation, job_id, "0/6 · Preparando cálculo mensual",
     )
-    return path
 
 
 def _monthly_proposals(
@@ -189,6 +165,10 @@ def generate_monthly_proposals(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if inputs.get("portfolio_scope") != "monthly":
         raise ValueError("La lógica mensual sólo admite portfolio_scope=monthly")
+    # El modelo de margen medido (tramos por grupo, apalancamiento de cuenta y
+    # nocional real de AXI) lo construían solo UBS full y Grid. Sin él, la misma
+    # cuenta valida el margen con dos modelos distintos según la pantalla.
+    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
     if progress:
         progress("1/6 · Leyendo candidatos Final Tick aceptados")
     rows = source.candidate_rows(include_quarantined=False)
@@ -246,18 +226,15 @@ def generate_monthly_proposals(
         raise ValueError("Ningún candidato tiene trades para el mes objetivo")
     minimum_trades = int(inputs["min_trades_2020_2026"])
     eligibility = monthly_eligibility_counts(monthly_sets, minimum_trades)
-    eligibility_message = (
-        f"4/6 · Mes {int(inputs['target_month']):02d}: "
-        f"{eligibility['with_trades']}/{eligibility['total']} con operaciones; "
-        f"{eligibility['enough_trades']} con >= {minimum_trades} trades; "
-        f"{eligibility['positive']} con neto positivo; "
-        f"{eligibility['eligible']} elegibles"
+    eligibility_text = (
+        f"Mes {int(inputs['target_month']):02d}: "
+        + describe_eligibility(eligibility, minimum_trades)
     )
     if progress:
-        progress(eligibility_message)
+        progress(f"4/6 · {eligibility_text}")
     if not eligibility["eligible"]:
         raise ValueError(
-            eligibility_message.removeprefix("4/6 · ")
+            eligibility_text
             + ". Revise la cobertura temporal de IS/OOS y los filtros comunes UBS."
         )
     existing = (
@@ -265,8 +242,10 @@ def generate_monthly_proposals(
         if inputs.get("corr_with_monthly_portfolios") else []
     )
 
-    def validate_strict(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        if not inputs.get("strict_yearly_month_validation"):
+    def validate_strict(
+        items: list[dict[str, Any]], attempt_inputs: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        if not attempt_inputs.get("strict_yearly_month_validation"):
             return items
         if progress:
             progress("6/6 · Validando el mes objetivo sobre cinco años")
@@ -282,7 +261,7 @@ def generate_monthly_proposals(
             validation = validate_strict_monthly_portfolio(
                 [full_by_id[set_id] for set_id in units if set_id in full_by_id],
                 units,
-                target_month=int(inputs["target_month"]),
+                target_month=int(attempt_inputs["target_month"]),
                 target_valley_dd=result.target_valley_dd,
                 target_point_dd=result.target_point_dd,
                 enforce_point_dd=False,
@@ -300,30 +279,55 @@ def generate_monthly_proposals(
             )
         return valid
 
-    try:
-        proposals = _monthly_proposals(monthly_sets, raw_sets, inputs, existing, progress)
-        proposals = validate_strict(proposals)
-    except ValueError:
-        if not inputs.get("strict_yearly_month_validation"):
-            raise
-        if progress:
-            progress("4/6 · Reintentando con el pool mensual estricto")
-        strict_raw_sets, strict_warnings = _strict_monthly_candidate_pool(raw_sets, inputs)
-        if not strict_raw_sets:
-            raise
-        strict_monthly_sets, strict_slice_warnings = slice_strategy_sets_to_month(
-            strict_raw_sets, int(inputs["target_month"]),
-        )
-        warnings.extend(strict_warnings)
-        warnings.extend(strict_slice_warnings)
-        if not strict_monthly_sets:
-            raise
-        proposals = _monthly_proposals(strict_monthly_sets, raw_sets, inputs, existing, progress)
-        proposals = validate_strict(proposals)
+    attempt_warnings: list[str] = []
+
+    def build(attempt_inputs: dict[str, Any]) -> list[dict[str, Any]]:
+        # Las advertencias del reintento estricto se acumulan por intento y solo
+        # se publican cuando el intento sale adelante: si además hay que ajustar
+        # el valle, no se repiten en cada pasada.
+        attempt_warnings.clear()
+        try:
+            proposals = _monthly_proposals(monthly_sets, raw_sets, attempt_inputs, existing, progress)
+            return validate_strict(proposals, attempt_inputs)
+        except ValueError:
+            if not attempt_inputs.get("strict_yearly_month_validation"):
+                raise
+            if progress:
+                progress("4/6 · Reintentando con el pool mensual estricto")
+            strict_raw_sets, strict_warnings = _strict_monthly_candidate_pool(raw_sets, attempt_inputs)
+            if not strict_raw_sets:
+                raise
+            strict_monthly_sets, strict_slice_warnings = slice_strategy_sets_to_month(
+                strict_raw_sets, int(attempt_inputs["target_month"]),
+            )
+            if not strict_monthly_sets:
+                raise
+            attempt_warnings.extend(strict_warnings)
+            attempt_warnings.extend(strict_slice_warnings)
+            proposals = _monthly_proposals(
+                strict_monthly_sets, raw_sets, attempt_inputs, existing, progress,
+            )
+            return validate_strict(proposals, attempt_inputs)
+
+    requested_valley_pct = float(inputs["valley_dd_pct"])
+    proposals, auto_adjusted, applied_pct = _with_executable_valley_floor(
+        build,
+        inputs,
+        monthly_sets,
+        minimum_trades=minimum_trades,
+        # La reserva vinculante es la mayor de las tres propuestas mensuales:
+        # el suelo que sirve para «Máximo margen DD» sirve para las otras dos.
+        reserve_pct=max(float(inputs.get("dd_reserve_pct") or 0.0), 25.0),
+        warnings=warnings,
+    )
+    warnings.extend(attempt_warnings)
     if progress and not inputs.get("strict_yearly_month_validation"):
         progress("6/6 · Preparando propuestas mensuales")
     for proposal in proposals:
         proposal["result"].warnings[:0] = warnings
+        proposal["auto_adjusted_valley"] = auto_adjusted
+        proposal["requested_valley_dd_pct"] = requested_valley_pct
+        proposal["adjusted_valley_dd_pct"] = applied_pct
     availability.update({"loaded_sets": len(raw_sets), "group_counts": group_counts, "warnings": warnings})
     return availability, proposals
 
@@ -334,6 +338,7 @@ def generate_monthly_completion_proposal(
     inputs: dict[str, Any],
     progress: Progress | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
     detail = source.saved_portfolio_detail(portfolio_id, "monthly")["portfolio"]
     members = list(detail.get("members") or [])
     target = max(int(detail.get("target_strategies") or 0), int(detail.get("active_strategies") or 0))

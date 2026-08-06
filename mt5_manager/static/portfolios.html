@@ -1,5 +1,5 @@
 <!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Portafolio UBS · MT5 Manager</title><link rel="stylesheet" href="/styles.css"></head>
-<body class="portfolio-page">
+<body class="portfolio-page portfolio-full-page">
   <header><div><p class="eyebrow" id="portfolio-eyebrow">PORTAFOLIO UBS</p><h1 id="portfolio-title">Cargando…</h1><p id="portfolio-subtitle" class="subtitle">Motor central de portafolios</p></div><div class="header-actions"><a class="button secondary" href="/">Volver al manager</a><button id="portfolio-refresh" class="secondary">Actualizar</button></div></header>
   <main>
     <section id="portfolio-summary" class="summary"></section>
@@ -35,6 +35,13 @@
         <div class="builder-actions"><button id="portfolio-log" type="button" class="secondary" disabled>Ver log del cálculo</button><button id="reset-settings" type="button" class="secondary">Restablecer</button><button id="save-settings" type="button" class="secondary">Guardar configuración</button><button id="generate-proposals" type="submit">Generar propuestas</button></div>
       </form>
       <div id="builder-progress" class="builder-progress" hidden><div class="progress-track"><span></span></div><p id="builder-progress-text">Calculando…</p></div>
+      <section id="calculation-monitor" class="calculation-monitor" hidden aria-live="polite">
+        <div class="monitor-head"><div><p class="eyebrow">PROGRESO DEL CÁLCULO</p><h3 id="monitor-title">Preparando cálculo UBS</h3></div><span id="stage-count">0 / 5</span></div>
+        <div id="stage-list" class="stage-list">
+          <span data-stage="1">Candidatos</span><span data-stage="2">Reportes</span><span data-stage="3">Elegibilidad</span><span data-stage="4">Composición base</span><span data-stage="5">Variantes A/M/C</span>
+        </div>
+        <pre id="live-log" class="live-log">El log aparecerá al iniciar un cálculo.</pre>
+      </section>
       <div id="proposal-area" hidden><div class="panel-title"><div><h2 id="proposal-title">Propuestas calculadas</h2><p id="proposal-operation" class="subtitle"></p></div><button id="save-proposal" type="button">Guardar seleccionada</button></div><div id="proposal-cards" class="proposal-cards"></div><div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th>Set</th><th>Símbolo</th><th>TF</th><th>Unidades</th><th>Lote</th><th>Net histórico</th><th>DD riesgo máx.</th><th>Flotante máx.</th><th>Aporte 6M</th><th>DD puntual</th><th>Margen</th><th></th></tr></thead><tbody id="proposal-members"></tbody></table></div><section id="proposal-diff-section" class="audit-section" hidden><h3>Cambios frente al portafolio guardado</h3><div class="universe-table-wrap audit-table-wrap"><table class="universe-table"><thead><tr><th>Estado</th><th>Set</th><th>Símbolo</th><th>Unid. antes</th><th>Unid. después</th><th>Δ</th><th>Lote antes</th><th>Lote después</th></tr></thead><tbody id="proposal-diff"></tbody></table></div></section><div id="proposal-warnings" class="portfolio-note"></div></div>
       <div class="portfolio-inventory">
         <section class="inventory-panel"><div class="panel-title"><div><h2>Sets disponibles por símbolo</h2><p id="inventory-summary" class="subtitle">Cargando disponibilidad…</p></div></div><div class="universe-table-wrap inventory-table-wrap"><table class="universe-table"><thead><tr><th>Símbolo</th><th>Total</th><th>Cuarentena</th><th>Usados</th><th>Disponibles</th></tr></thead><tbody id="inventory-symbols"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></section>

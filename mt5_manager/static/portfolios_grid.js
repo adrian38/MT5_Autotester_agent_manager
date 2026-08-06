@@ -2,7 +2,7 @@ const params = new URLSearchParams(location.search);
 const nodeId = params.get('node') || '';
 const scope = 'grid';
 const form = document.querySelector('#portfolio-form');
-const numericFields = ['capital', 'valley_dd_pct', 'dd_reserve_pct', 'top_k_per_symbol', 'max_total_candidates', 'max_sets_per_symbol', 'min_trades_2020_2026', 'max_margin_pct', 'max_open_overlap'];
+const numericFields = ['capital', 'valley_dd_pct', 'dd_reserve_pct', 'top_k_per_symbol', 'max_total_candidates', 'max_sets_per_symbol', 'min_trades_2020_2026', 'max_margin_pct', 'account_leverage', 'max_open_overlap'];
 const booleanFields = ['exclude_used_sets', 'use_correlation', 'require_3_positive_months_6m', 'validate_margin'];
 let managerState = {proposals: []};
 let portfolioData = {portfolios: [], summary: {}};
@@ -15,6 +15,10 @@ let selectedDetailVariant = null;
 let selectedDetailMembers = new Set();
 let pollTimer = null;
 let settingsSaveTimer = null;
+let logRequestInFlight = false;
+let visualStage = 0;
+let visualJobId = '';
+const stageCount = document.querySelectorAll('#stage-list [data-stage]').length;
 
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[char]));
 const number = (value, digits = 0) => value == null || Number.isNaN(Number(value)) ? '—' : Number(value).toLocaleString('es-ES', {minimumFractionDigits: digits, maximumFractionDigits: digits});
@@ -74,11 +78,61 @@ function progressPercent(job = {}) {
   if (match) return 25 + Math.min(Number(match[1]) / Math.max(Number(match[2]), 1), 1) * 35;
   match = text.match(/Optimizando .*\((\d+)\/3\)/i);
   if (match) return 60 + Math.min(Number(match[1]) / 3, 1) * 30;
-  if (/Grid 4\/4|Propuestas listas/i.test(text)) return 100;
-  if (/Grid 3\/4/i.test(text)) return 70;
-  if (/Grid 2\/4|Cargando reportes/i.test(text)) return 25;
-  if (/Grid 1\/4|Leyendo candidatos/i.test(text)) return 12;
+  match = text.match(/^(\d+)\/(\d+)\s*[·-]/);
+  if (match) return Math.min(Number(match[1]) / Math.max(Number(match[2]), 1), 1) * 100;
   return job.status === 'running' ? 6 : 0;
+}
+
+function stageFromProgress(job = {}) {
+  if (job.id && job.id !== visualJobId) {
+    visualJobId = job.id;
+    visualStage = 0;
+  }
+  visualStage = Math.max(visualStage, Number(job.stage || 0));
+  const explicit = String(job.progress || '').match(/^(\d+)\/(\d+)\s*[·-]/);
+  if (explicit) visualStage = Math.max(visualStage, Number(explicit[1]));
+  if (job.status === 'completed') visualStage = stageCount;
+  return Math.min(visualStage, stageCount);
+}
+
+function renderCalculationMonitor(job = {}) {
+  const monitor = document.querySelector('#calculation-monitor');
+  const hasCalculation = Boolean(job.id || job.log_path || job.last_log_path);
+  monitor.hidden = !hasCalculation;
+  if (!hasCalculation) return;
+  const stage = stageFromProgress(job);
+  document.querySelector('#monitor-title').textContent = job.progress || 'Preparando cálculo Grid';
+  document.querySelector('#stage-count').textContent = `${stage} / ${Number(job.stage_total || stageCount)}`;
+  document.querySelectorAll('#stage-list [data-stage]').forEach(item => {
+    const value = Number(item.dataset.stage);
+    item.classList.toggle('completed', value < stage || job.status === 'completed');
+    item.classList.toggle('current', value === stage && job.status !== 'completed');
+    item.classList.toggle('failed', value === stage && job.status === 'failed');
+  });
+}
+
+async function refreshCalculationLog(silent = true) {
+  const job = managerState.job || {};
+  if (logRequestInFlight || !(job.id || job.log_path || job.last_log_path)) return;
+  logRequestInFlight = true;
+  try {
+    const data = await postManager('log', {lines: 1000});
+    const content = (data.lines || []).join('\n') || 'El cálculo todavía no ha escrito mensajes.';
+    const live = document.querySelector('#live-log');
+    live.textContent = content;
+    live.scrollTop = live.scrollHeight;
+    const dialog = document.querySelector('#portfolio-log-dialog');
+    if (dialog.open) {
+      document.querySelector('#portfolio-log-title').textContent = data.path || 'Salida del cálculo Grid';
+      const dialogContent = document.querySelector('#portfolio-log-content');
+      dialogContent.textContent = content;
+      dialogContent.scrollTop = dialogContent.scrollHeight;
+    }
+  } catch (error) {
+    if (!silent) toast(error.message, true);
+  } finally {
+    logRequestInFlight = false;
+  }
 }
 
 function renderJob(job = {}, task = {}) {
@@ -95,7 +149,10 @@ function renderJob(job = {}, task = {}) {
   document.querySelector('#builder-progress-bar').style.width = `${taskActive ? 100 : progressPercent(job)}%`;
   document.querySelector('#generate-proposals').disabled = active;
   document.querySelector('#save-settings').disabled = calculating;
+  document.querySelector('#reset-settings').disabled = calculating;
   document.querySelector('#portfolio-log').disabled = !(job.log_path || job.last_log_path);
+  renderCalculationMonitor(job);
+  refreshCalculationLog(true);
   if (active && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadTaskState(); }, 1200);
   if (!active && pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
 }
@@ -213,6 +270,11 @@ function renderSelectedProposal() {
   const risk = proposal.result?.daily_dd_summary || null;
   document.querySelector('#proposal-members').innerHTML = proposalMembers.length ? proposalMembers.map((member, index) => memberRow(member, false, index, false, risk)).join('') : '<tr><td colspan="13">Esta variante no contiene sets.</td></tr>';
   document.querySelector('#proposal-risk').innerHTML = riskMetrics(risk);
+  // El manager ya calcula el diff para los tres ámbitos; Grid era el único que
+  // no lo pintaba, así que una reoptimización no decía qué había cambiado.
+  const diff = proposal.diff || [];
+  document.querySelector('#proposal-diff-section').hidden = !diff.length;
+  document.querySelector('#proposal-diff').innerHTML = diff.map(row => `<tr><td><span class="change-state ${row.state.toLowerCase().replace(' ', '-')}">${esc(row.state)}</span></td><td title="${esc(row.set_path)}">${esc(row.set_name)}</td><td>${esc(row.symbol)}</td><td>${number(row.old_units)}</td><td>${number(row.new_units)}</td><td>${number(row.delta_units)}</td><td>${number(row.old_lot, 2)}</td><td>${number(row.new_lot, 2)}</td></tr>`).join('');
   const warnings = proposal.result?.warnings || [];
   document.querySelector('#proposal-warnings').innerHTML = warnings.length ? `<details><summary>Auditoría y avisos (${warnings.length})</summary><ul>${warnings.map(warning => `<li>${esc(warning)}</li>`).join('')}</ul></details>` : '';
 }
@@ -452,6 +514,17 @@ document.querySelector('#save-settings').addEventListener('click', async () => {
   if (!form.reportValidity()) return;
   try { await withOverlay('Guardando configuración Grid', 'Persistiendo los filtros y límites de esta tarjeta…', () => saveSettings()); await loadManagerState(); }
   catch (error) { toast(error.message, true); }
+});
+
+document.querySelector('#reset-settings').addEventListener('click', () => {
+  hydrate({
+    capital: 10000, valley_dd_pct: 10, dd_reserve_pct: 10, top_k_per_symbol: 3,
+    max_total_candidates: 30, max_sets_per_symbol: 1, min_trades_2020_2026: 100,
+    max_margin_pct: 100, account_leverage: 1000, max_open_overlap: 0.6,
+    exclude_used_sets: true, use_correlation: true,
+    require_3_positive_months_6m: false, validate_margin: true,
+  });
+  toast('Valores restablecidos; pulsa Guardar configuración para persistirlos.');
 });
 
 async function saveSelectedProposal(exportAfter = false) {

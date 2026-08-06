@@ -27,6 +27,7 @@ from typing import Any, Callable
 from portfolio_manager.ubs_portfolio import (
     ACCOUNT_LEVERAGE_CHOICES,
     DEFAULT_ACCOUNT_LEVERAGE,
+    MIN_RECENT_EQUITY_RECOVERY,
     BootstrapDrawdownAnalysis,
     OptimizationDecision,
     PortfolioResult,
@@ -34,6 +35,7 @@ from portfolio_manager.ubs_portfolio import (
     StrategyAllocation,
     UnusedSetInfo,
     bootstrap_valley_drawdown,
+    filter_eligible_sets,
     load_max_product_leverage,
     load_symbol_notional,
     load_symbol_specs,
@@ -56,7 +58,7 @@ from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
 from .common import load_json, safe_float, safe_int, save_json, utc_now
-from .portfolio_scope import PORTFOLIO_SCOPES, normalize_portfolio_scope
+from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 from .portfolio_full_experimental import optimize_experimental_full_portfolio
 
 
@@ -1522,6 +1524,230 @@ class PortfolioSource:
         )
 
 
+def eligibility_counts(
+    sets: list[Any],
+    minimum_trades: int,
+    *,
+    apply_recent_recovery: bool = True,
+) -> dict[str, int]:
+    """Explain the shared UBS eligibility funnel stage by stage.
+
+    ``filter_eligible_sets`` decide en una pasada y solo devuelve a los
+    supervivientes: cuando el pool se queda vacío no dice qué filtro lo vació.
+    Este recuento repite exactamente sus condiciones, en su orden, para que los
+    tres ámbitos puedan nombrar la etapa culpable en vez de fallar en seco.
+
+    ``apply_recent_recovery=False`` es para Grid, que desactiva a propósito la
+    regla de recuperación reciente (``has_recent_performance=False`` en
+    ``optimize_grid_portfolio``): contarla ahí daría un número de elegibles que
+    no es el que el optimizador va a usar.
+    """
+    minimum = int(minimum_trades)
+    accepted = [
+        item for item in sets
+        if str(getattr(item, "robustness_status", "")) == "accepted"
+    ]
+    not_used = [item for item in accepted if not bool(getattr(item, "already_used", False))]
+    with_curve = [item for item in not_used if getattr(item, "curve_2020_2026_001", None)]
+    with_trades = [item for item in with_curve if int(item.trades_2020_2026) > 0]
+    enough_trades = [item for item in with_curve if int(item.trades_2020_2026) >= minimum]
+    positive = [item for item in enough_trades if float(item.net_profit_2020_2026_001) > 0]
+    recent_recovery = [
+        item for item in positive
+        if not apply_recent_recovery
+        or not item.has_recent_performance
+        or (
+            float(item.recent_net_profit_001) / max(float(item.recent_equity_dd_001), 1.0)
+        ) >= MIN_RECENT_EQUITY_RECOVERY
+    ]
+    return {
+        "total": len(sets),
+        "accepted": len(accepted),
+        "not_used": len(not_used),
+        "with_curve": len(with_curve),
+        "with_trades": len(with_trades),
+        "enough_trades": len(enough_trades),
+        "positive": len(positive),
+        "recent_recovery": len(recent_recovery),
+        "eligible": len(recent_recovery),
+    }
+
+
+def strategy_unit_risk(strategy: Any) -> float:
+    """Riesgo de una unidad con la misma regla que ``evaluate_portfolio``.
+
+    La cartera se mide como ``max(DD cerrado combinado, flotante)``; con una
+    sola unidad eso es el máximo entre su valle cerrado y su flotante.
+    """
+    return max(
+        float(getattr(strategy, "max_floating_dd_001", 0.0) or 0.0),
+        float(getattr(strategy, "valley_dd_2020_2026_001", 0.0) or 0.0),
+    )
+
+
+def _adjusted_valley_pcts(
+    strategies: list[Any],
+    *,
+    capital: float,
+    reserve_pct: float,
+    requested_pct: float,
+    risk_of: Callable[[Any], float] = strategy_unit_risk,
+) -> list[float]:
+    """Executable valley floors above the requested percentage.
+
+    Si el valle pedido no llega ni al riesgo de la estrategia más pequeña del
+    pool, no existe ninguna cartera: ni una sola unidad cabe. Devolver el error
+    seco deja la pantalla vacía sin decir cuánto falta. Estos son los siguientes
+    escalones -- uno por nivel de riesgo distinto, de menor a mayor -- y el
+    primero que optimice es el mínimo ejecutable de ese pool.
+    """
+    if capital <= 0:
+        return []
+    reserve_factor = 1.0 - min(max(float(reserve_pct), 0.0), 99.0) / 100.0
+    if reserve_factor <= 0:
+        return []
+    requested_limit = float(capital) * float(requested_pct) / 100.0 * reserve_factor
+    risks = sorted({
+        round(risk, 8)
+        for risk in (float(risk_of(strategy)) for strategy in strategies)
+        if risk > requested_limit + 1e-9
+    })
+    return [
+        risk / float(capital) * 100.0 / reserve_factor + 1e-7
+        for risk in risks
+    ]
+
+
+MAX_VALLEY_FLOOR_ATTEMPTS = 5
+
+
+def _proposals_are_empty(proposals: list[dict[str, Any]]) -> bool:
+    """True when every proposal came back without una sola estrategia activa.
+
+    Un valle inalcanzable no siempre lanza error. UBS completo sí lo hace -- la
+    composición base no produce ningún set --, pero el mensual devuelve tres
+    propuestas de cero estrategias y cero neto, que es exactamente el mismo
+    fracaso presentado como resultado. Ambos casos disparan el suelo ejecutable.
+    """
+    active = [
+        int(getattr(proposal.get("result"), "active_strategies", -1) or 0)
+        for proposal in proposals
+    ]
+    return bool(active) and all(value == 0 for value in active)
+
+
+def _with_executable_valley_floor(
+    build: Callable[[dict[str, Any]], list[dict[str, Any]]],
+    inputs: dict[str, Any],
+    raw_sets: list[Any],
+    *,
+    minimum_trades: int,
+    reserve_pct: float,
+    warnings: list[str],
+    risk_of: Callable[[Any], float] = strategy_unit_risk,
+) -> tuple[list[dict[str, Any]], bool, float]:
+    """Run ``build`` and, if the valley is unreachable, retry from its floor.
+
+    Devuelve las propuestas, si hubo ajuste y el porcentaje realmente aplicado.
+    El ajuste no se persiste solo: viaja en la propuesta y únicamente se guarda
+    si el usuario elige esa propuesta, igual que en Grid.
+    """
+    requested_pct = float(inputs["valley_dd_pct"])
+    first_error: ValueError | None = None
+    empty_baseline: list[dict[str, Any]] = []
+    try:
+        proposals = build(inputs)
+        if not _proposals_are_empty(proposals):
+            return proposals, False, requested_pct
+        empty_baseline = proposals
+    except ValueError as exc:
+        first_error = exc
+
+    floors = _adjusted_valley_pcts(
+        filter_eligible_sets(raw_sets, int(minimum_trades)),
+        capital=float(inputs["capital"]),
+        reserve_pct=float(reserve_pct),
+        requested_pct=requested_pct,
+        risk_of=risk_of,
+    )
+    attempts = floors[:MAX_VALLEY_FLOOR_ATTEMPTS]
+    for adjusted_pct in attempts:
+        attempt_inputs = {**inputs, "valley_dd_pct": adjusted_pct, "point_dd_pct": adjusted_pct}
+        try:
+            proposals = build(attempt_inputs)
+        except ValueError:
+            continue
+        if _proposals_are_empty(proposals):
+            continue
+        warnings.insert(
+            0,
+            f"El valle solicitado {requested_pct:.3f}% no admite el lote mínimo de "
+            f"este pool. Esta propuesta usa el mínimo ejecutable {adjusted_pct:.3f}%.",
+        )
+        return proposals, True, adjusted_pct
+    if len(floors) > len(attempts):
+        warnings.append(
+            f"Se probaron los {len(attempts)} primeros valles ejecutables de "
+            f"{len(floors)} posibles sin encontrar una cartera viable."
+        )
+    if first_error is not None:
+        raise first_error
+    # Ningún suelo dio cartera: se devuelve lo que había, que es lo que este
+    # ámbito devolvía antes del reintento.
+    warnings.insert(
+        0,
+        f"El valle solicitado {requested_pct:.3f}% no admite el lote mínimo de este "
+        f"pool y ninguno de los {len(attempts)} valles ejecutables probados dio cartera.",
+    )
+    return empty_baseline, False, requested_pct
+
+
+def scope_stage_count(scope: str, operation: str) -> int:
+    """Number of numbered stages the worker of this scope/operation emits."""
+    scope = normalize_portfolio_scope(scope)
+    if scope == "monthly":
+        return 6
+    if scope == "grid":
+        return 4
+    return 3 if operation == "complete" else 5
+
+
+def prepare_scope_log(
+    source: PortfolioSource,
+    scope: str,
+    operation: str,
+    job_id: str,
+    first_line: str,
+) -> Path:
+    """Create the calculation log before the worker thread starts.
+
+    La pantalla habilita «Ver log» en cuanto el trabajo pasa a running; si el
+    fichero aún no existe, el botón abre un diálogo vacío justo cuando más
+    interesa mirar. Crearlo antes del hilo era una ventaja que solo tenía el
+    mensual y no depende de nada estacional.
+    """
+    log_dir = source.project / "portfolio_logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    path = log_dir / f"manager_{normalize_portfolio_scope(scope)}_{operation}_{job_id}.log"
+    path.write_text(
+        f"{datetime.now().isoformat(timespec='seconds')} | {first_line}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def describe_eligibility(counts: dict[str, int], minimum_trades: int) -> str:
+    """Embudo en una línea para el progreso y para el error de pool vacío."""
+    return (
+        f"{counts['total']} cargada(s); {counts['accepted']} aceptada(s); "
+        f"{counts['not_used']} sin usar; {counts['with_trades']} con operaciones; "
+        f"{counts['enough_trades']} con >= {int(minimum_trades)} trades; "
+        f"{counts['positive']} con neto positivo; "
+        f"{counts['recent_recovery']} con recuperación reciente 6M; "
+        f"{counts['eligible']} elegibles"
+    )
+
+
 def _reserve_pct(configured: float, portfolio_type: PortfolioType) -> float:
     if portfolio_type == PortfolioType.CONSERVATIVE:
         return max(configured, 25.0)
@@ -1728,7 +1954,7 @@ def _locked_full_proposals(
     base_inputs["dd_reserve_pct"] = base_reserve
     minimum_recent_pct = float(inputs.get("min_strategy_recent_contribution_pct") or 0.0)
     if progress:
-        progress(f"Seleccionando composicion base {TYPE_LABELS[base_type.value]}")
+        progress(f"4/5 · Seleccionando composicion base {TYPE_LABELS[base_type.value]}")
     base_kwargs = _optimizer_kwargs(
         base_inputs,
         base_type,
@@ -1791,7 +2017,7 @@ def _locked_full_proposals(
         errors: list[str] = []
         for index, (key, label, portfolio_type) in enumerate(LOCKED_VARIANTS, 1):
             if progress:
-                progress(f"Calculando variante {index}/3: {label}")
+                progress(f"5/5 · Calculando variante {index}/3: {label}")
             reserve = _reserve_pct(configured, portfolio_type)
             proposal_inputs = settings_inputs(inputs)
             proposal_inputs.update({
@@ -1835,8 +2061,8 @@ def _locked_full_proposals(
                 ] = experimental_audit
                 result.warnings[:0] = experimental_warnings
             proposals.append({"key": key, "label": label, "reserve_pct": reserve, "inputs": proposal_inputs, "result": result})
-        if len(proposals) != 3:
-            raise ValueError("No se pudieron calcular las tres variantes bloqueadas. " + " | ".join(errors))
+        if not proposals:
+            raise ValueError("No se pudo calcular ninguna variante bloqueada. " + " | ".join(errors))
 
         for proposal in proposals:
             result = proposal["result"]
@@ -1849,6 +2075,16 @@ def _locked_full_proposals(
                     1,
                     "Regla antirrelleno 6M: "
                     f"{len(removed_ids)} estrategia(s) eliminada(s) antes de fijar la composicion A/M/C.",
+                )
+            # Una variante inviable no anula a las demas: el redondeo ejecutable
+            # puede dejar fuera solo a la mas restrictiva. Se entregan las
+            # viables para poder mirarlas, y `prepare_save` bloquea el guardado
+            # mientras el paquete no tenga las tres.
+            if errors:
+                result.warnings.insert(
+                    2 if removed_ids else 1,
+                    f"Paquete A/M/C incompleto: {len(proposals)}/3 variantes viables. "
+                    "No se puede guardar hasta recalcular. " + " | ".join(errors),
                 )
         return proposals
 
@@ -1876,6 +2112,7 @@ def result_payload(result: PortfolioResult) -> dict[str, Any]:
         "seasonal_coverage": result.seasonal_coverage,
         "seasonal_validation": result.seasonal_validation,
         "margin_summary": result.margin_summary,
+        "floating_overlap_audit": result.floating_overlap_audit,
         "daily_dd_summary": result.daily_dd_summary,
         "max_daily_dd": result.max_daily_dd,
         "target_daily_dd": result.target_daily_dd,
@@ -1929,7 +2166,7 @@ def generate_proposals(
         raise ValueError("El cálculo mensual debe usar portfolio_monthly_service")
     inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
     if progress:
-        progress("Leyendo candidatos Final Tick aceptados")
+        progress("1/5 · Leyendo candidatos Final Tick aceptados")
     rows = source.candidate_rows(include_quarantined=False)
     if not rows:
         raise ValueError("No hay candidatos con Final Tick continuo y 6M aceptados")
@@ -1966,7 +2203,7 @@ def generate_proposals(
     )
     availability = asdict(summarize_robust_rows(rows, used))
     if progress:
-        progress(f"Cargando reportes de {len(rows)} candidatos")
+        progress(f"2/5 · Cargando reportes de {len(rows)} candidatos")
     raw_sets, load_warnings = load_robust_sets_from_rows(
         rows, used, parse=cached_report, progress=progress,
     )
@@ -1977,6 +2214,16 @@ def generate_proposals(
     ]
     if not raw_sets:
         raise ValueError("No quedan sets cargados después de los filtros")
+    minimum_trades = int(inputs["min_trades_2020_2026"])
+    eligibility = eligibility_counts(raw_sets, minimum_trades)
+    eligibility_text = describe_eligibility(eligibility, minimum_trades)
+    if progress:
+        progress(f"3/5 · Elegibilidad: {eligibility_text}")
+    if not eligibility["eligible"]:
+        raise ValueError(
+            eligibility_text
+            + ". Revise mínimo de trades, sets ya usados y la recuperación reciente 6M."
+        )
     existing_by_type = {
         kind: source.saved_curves(
             monthly=False,
@@ -1985,9 +2232,25 @@ def generate_proposals(
         )
         for kind in PORTFOLIO_TYPES.values()
     }
-    proposals = _locked_full_proposals(raw_sets, inputs, existing_by_type, progress)
+    requested_valley_pct = float(inputs["valley_dd_pct"])
+    proposals, auto_adjusted, applied_pct = _with_executable_valley_floor(
+        lambda attempt_inputs: _locked_full_proposals(
+            raw_sets, attempt_inputs, existing_by_type, progress,
+        ),
+        inputs,
+        raw_sets,
+        minimum_trades=minimum_trades,
+        reserve_pct=max(
+            _reserve_pct(float(inputs.get("dd_reserve_pct") or 0.0), portfolio_type)
+            for _key, _label, portfolio_type in LOCKED_VARIANTS
+        ),
+        warnings=warnings,
+    )
     for proposal in proposals:
         proposal["result"].warnings[:0] = warnings
+        proposal["auto_adjusted_valley"] = auto_adjusted
+        proposal["requested_valley_dd_pct"] = requested_valley_pct
+        proposal["adjusted_valley_dd_pct"] = applied_pct
     availability.update({
         "loaded_sets": len(raw_sets),
         "group_counts": group_counts,
@@ -2014,7 +2277,7 @@ def generate_completion_proposal(
     if target <= len(members):
         raise ValueError("El portafolio ya tiene todas sus estrategias")
     if progress:
-        progress(f"Reconstruyendo {len(members)} estrategias que deben conservarse")
+        progress(f"1/3 · Reconstruyendo {len(members)} estrategias que deben conservarse")
     required_rows = [{
         "candidate_id": item.get("candidate_id"),
         "set_path": item.get("set_path") or item.get("set_id"),
@@ -2065,6 +2328,8 @@ def generate_completion_proposal(
         )
         if inputs.get("exclude_used_sets", True) else []
     )
+    if progress:
+        progress(f"2/3 · Cargando reportes de {len(rows)} candidatos")
     candidate_sets, load_warnings = load_robust_sets_from_rows(
         rows, used, parse=cached_report, progress=progress,
     )
@@ -2093,7 +2358,7 @@ def generate_completion_proposal(
         "preserve_required_allocations": True,
     })
     if progress:
-        progress(f"Buscando sustituta para completar {len(members)}/{target}")
+        progress(f"3/3 · Buscando sustituta para completar {len(members)}/{target}")
     result = optimize_portfolio(
         raw_sets=raw_sets,
         use_deep_refinement=bool(inputs.get("deep_optimization")),
@@ -2145,6 +2410,7 @@ def _result_metrics(inputs: dict[str, Any], result: PortfolioResult) -> dict[str
         "seasonal_coverage": result.seasonal_coverage,
         "seasonal_validation": result.seasonal_validation,
         "margin_summary": result.margin_summary,
+        "floating_overlap_audit": result.floating_overlap_audit,
         "daily_dd_summary": result.daily_dd_summary,
         "max_daily_dd": result.max_daily_dd,
         "target_daily_dd": result.target_daily_dd,
@@ -2218,7 +2484,9 @@ LEGACY_ALLOCATION_RISK_FIELDS = {
     "final_tick_report_path",
     "full_history_report_path",
 }
-LEGACY_RESULT_RISK_FIELDS = {"actual_closed_valley_dd", "floating_dd_buffer"}
+LEGACY_RESULT_RISK_FIELDS = {
+    "actual_closed_valley_dd", "floating_dd_buffer", "floating_overlap_audit",
+}
 
 
 def legacy_compatible_portfolio_save_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -2791,33 +3059,38 @@ class PortfolioCoordinator:
                 raise ValueError("Ya hay un cálculo de portafolio en curso")
             if any(task.get("status") in {"pending", "running"} for task in self.tasks.get(key, [])):
                 raise ValueError("Hay una tarea de portafolio pendiente o en ejecución")
+            stage_total = scope_stage_count(scope, operation)
+            prelude = (
+                f"0/{stage_total} · Preparando cálculo "
+                f"{SCOPE_LABELS[normalize_portfolio_scope(scope)]}"
+            )
             job = {
                 "id": time.strftime("%Y%m%d_%H%M%S"), "status": "running",
-                "started_at": utc_now(), "finished_at": None, "progress": "Preparando cálculo",
+                "started_at": utc_now(), "finished_at": None,
+                "progress": prelude,
                 "error": None, "availability": None, "operation": operation,
                 "portfolio_id": portfolio_id, "previous_members": previous_members,
-                "stage": 0,
+                "stage": 0, "stage_total": stage_total,
             }
             self.jobs[key] = job
             self.proposals.pop(key, None)
-        if scope == "monthly":
-            from .portfolio_monthly_service import prepare_monthly_log
-
-            try:
-                source = PortfolioSource(self._node(node_id))
-                log_path = prepare_monthly_log(source, operation, str(job["id"]))
-                with self.lock:
-                    self.jobs[key]["log_path"] = str(log_path)
-                    job["log_path"] = str(log_path)
-            except Exception as exc:
-                with self.lock:
-                    self.jobs[key].update({
-                        "status": "failed",
-                        "finished_at": utc_now(),
-                        "progress": "Error preparando el log mensual",
-                        "error": str(exc),
-                    })
-                raise
+        # El log se crea antes del hilo en los tres ámbitos: así «Ver log» ya
+        # tiene contenido en cuanto la pantalla ve el trabajo en marcha.
+        try:
+            source = PortfolioSource(self._node(node_id))
+            log_path = prepare_scope_log(source, scope, operation, str(job["id"]), prelude)
+            with self.lock:
+                self.jobs[key]["log_path"] = str(log_path)
+                job["log_path"] = str(log_path)
+        except Exception as exc:
+            with self.lock:
+                self.jobs[key].update({
+                    "status": "failed",
+                    "finished_at": utc_now(),
+                    "progress": "Error preparando el log del cálculo",
+                    "error": str(exc),
+                })
+            raise
         threading.Thread(target=self._worker, args=(node_id, scope, settings, operation, portfolio_id), daemon=True).start()
         return dict(job)
 
@@ -2843,13 +3116,15 @@ class PortfolioCoordinator:
             with self.lock:
                 if key in self.jobs:
                     self.jobs[key]["progress"] = str(message)
-                    if scope == "monthly":
-                        match = re.match(r"^\s*([0-6])/6\b", str(message))
-                        if match:
-                            self.jobs[key]["stage"] = max(
-                                int(self.jobs[key].get("stage") or 0),
-                                int(match.group(1)),
-                            )
+                    # Los tres ámbitos numeran sus etapas «N/M». El mensual era
+                    # el único que lo leía y por eso el único con monitor.
+                    match = re.match(r"^\s*(\d+)/(\d+)\b", str(message))
+                    if match:
+                        self.jobs[key]["stage"] = max(
+                            int(self.jobs[key].get("stage") or 0),
+                            int(match.group(1)),
+                        )
+                        self.jobs[key]["stage_total"] = int(match.group(2))
 
         try:
             source = self._calculation_source(node_id, scope)
@@ -2899,10 +3174,11 @@ class PortfolioCoordinator:
                 )
             with self.lock:
                 self.proposals[key] = proposals
+                stage_total = int(self.jobs[key].get("stage_total") or 0)
                 self.jobs[key].update({
                     "status": "completed", "finished_at": utc_now(), "progress": "Propuestas listas",
                     "availability": availability, "proposal_count": len(proposals),
-                    "stage": 6 if scope == "monthly" else self.jobs[key].get("stage", 0),
+                    "stage": stage_total or self.jobs[key].get("stage", 0),
                 })
             source.notify(
                 f"Portfolio Builder {operation} listo en {source.broker}/{source.account}: "
@@ -3009,6 +3285,19 @@ class PortfolioCoordinator:
             raise ValueError("Genera una propuesta antes de guardar")
         if not any(str(proposal.get("key") or "") == selected_key for proposal in proposals):
             raise ValueError("La propuesta seleccionada ya no está disponible")
+        # Un paquete A/M/C incompleto se muestra para poder mirarlo, pero no se
+        # guarda: la fila guardada representa las tres variantes de una misma
+        # composicion y media fila no es reoptimizable ni comparable.
+        keys = {str(proposal.get("key") or "") for proposal in proposals}
+        locked_keys = {key for key, _label, _type in LOCKED_VARIANTS}
+        # Solo UBS full y Grid nombran sus variantes A/M/C; el mensual usa
+        # profit/balanced/margin y comparte el nombre «balanced» por accidente.
+        bundle_scope = normalize_portfolio_scope(scope) in {"full_history", "grid"}
+        if bundle_scope and keys and keys < locked_keys:
+            raise ValueError(
+                f"El paquete A/M/C esta incompleto ({len(keys)}/3 variantes viables: "
+                f"{', '.join(sorted(keys))}). Ajusta los limites y recalcula antes de guardar."
+            )
         operation = str(job.get("operation") or "generate")
         target_id = safe_int(job.get("portfolio_id"), 0)
         if operation in {"reoptimize", "complete"} and target_id <= 0:

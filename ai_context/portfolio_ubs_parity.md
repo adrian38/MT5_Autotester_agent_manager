@@ -43,6 +43,17 @@ permitir su reintegración, pero ni la generación ni el completado mensual debe
   `_optimizer_kwargs()` los convierte temporalmente en `None`. Si una
   configuración antigua reactiva correlaciones con los cuatro valores vacíos,
   `normalize_settings()` recupera los defaults.
+- El modelo de margen medido (`build_margin_model`) lo construyen los tres
+  ámbitos. Que sólo lo hiciera UBS completo dejaba a la misma cuenta AXI con dos
+  números de margen distintos según la pantalla.
+
+## Primitivas compartidas nacidas en un ámbito
+
+Lo que empezó en un solo scope y hoy usan los tres está en
+`cross_scope_parity.md`: embudo de elegibilidad, suelo de valle ejecutable, log y
+monitor de etapas, tolerancia a variante inviable y auditoría de exposición
+abierta agregada. Ese documento también recoge qué divergencias se mantienen a
+propósito y por qué.
 
 ## Contrato del pool de candidatos
 

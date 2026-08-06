@@ -599,17 +599,19 @@ class AccountLeverageSettingTests(unittest.TestCase):
         self.assertEqual(ACCOUNT_LEVERAGE_CHOICES, (1000.0, 500.0, 100.0))
         self.assertEqual(DEFAULT_ACCOUNT_LEVERAGE, 1000.0)
 
-        page = (
-            Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.html"
-        ).read_text(encoding="utf-8")
-        for choice in ACCOUNT_LEVERAGE_CHOICES:
-            self.assertIn(f'<option value="{int(choice)}">1:{int(choice)}</option>', page)
-
-        # El mensual no expone el selector: el alcance de hoy es solo el UBS.
-        monthly = (
-            Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios_monthly.html"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("account_leverage", monthly)
+        # Los tres ambitos construyen ya el modelo de margen medido, asi que los
+        # tres tienen que poder decir con que apalancamiento se mide la cuenta:
+        # si uno se queda con el valor por defecto, la misma cuenta valida el
+        # margen con dos numeros distintos segun la pantalla.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        for name in ("portfolios.html", "portfolios_monthly.html", "portfolios_grid.html"):
+            page = (static_dir / name).read_text(encoding="utf-8")
+            self.assertIn('name="account_leverage"', page, name)
+            for choice in ACCOUNT_LEVERAGE_CHOICES:
+                self.assertIn(f'<option value="{int(choice)}">1:{int(choice)}</option>', page, name)
+        for name in ("portfolios.js", "portfolios_monthly.js", "portfolios_grid.js"):
+            script = (static_dir / name).read_text(encoding="utf-8")
+            self.assertIn("'account_leverage'", script, name)
 
 
 if __name__ == "__main__":

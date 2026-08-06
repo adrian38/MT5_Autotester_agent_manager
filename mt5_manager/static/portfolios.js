@@ -20,6 +20,10 @@ let settingsSaveTimer = null;
 let settingsSaveQueue = Promise.resolve();
 let taskStateObserved = false;
 let lastTaskMarker = '';
+let logRequestInFlight = false;
+let visualStage = 0;
+let visualJobId = '';
+const stageCount = document.querySelectorAll('#stage-list [data-stage]').length;
 
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[c]));
 const number = (value, digits = 0) => value == null || Number.isNaN(Number(value)) ? '—' : Number(value).toLocaleString('es-ES', {minimumFractionDigits: digits, maximumFractionDigits: digits});
@@ -73,6 +77,64 @@ function formPayload() {
   return payload;
 }
 
+function stageFromProgress(job = {}) {
+  if (job.id && job.id !== visualJobId) {
+    visualJobId = job.id;
+    visualStage = 0;
+  }
+  visualStage = Math.max(visualStage, Number(job.stage || 0));
+  const explicit = String(job.progress || '').match(/^(\d+)\/(\d+)\s*[·-]/);
+  if (explicit) visualStage = Math.max(visualStage, Number(explicit[1]));
+  if (job.status === 'completed') visualStage = stageCount;
+  return Math.min(visualStage, stageCount);
+}
+
+function renderCalculationMonitor(job = {}) {
+  const monitor = document.querySelector('#calculation-monitor');
+  const hasCalculation = Boolean(job.id || job.log_path || job.last_log_path);
+  monitor.hidden = !hasCalculation;
+  if (!hasCalculation) return;
+  const stage = stageFromProgress(job);
+  // Completar un portafolio tiene 3 etapas y no 5: el contador sigue al trabajo,
+  // no a la lista de nombres, que describe el camino normal.
+  const total = Number(job.stage_total || stageCount);
+  document.querySelector('#monitor-title').textContent = job.progress || 'Preparando cálculo UBS';
+  document.querySelector('#stage-count').textContent = `${stage} / ${total}`;
+  document.querySelectorAll('#stage-list [data-stage]').forEach(item => {
+    const value = Number(item.dataset.stage);
+    item.hidden = value > total;
+    item.classList.toggle('completed', value < stage || job.status === 'completed');
+    item.classList.toggle('current', value === stage && job.status !== 'completed');
+    item.classList.toggle('failed', value === stage && job.status === 'failed');
+  });
+  const progressBar = document.querySelector('#builder-progress .progress-track span');
+  if (progressBar) progressBar.style.width = `${Math.max(stage, 0) / Math.max(total, 1) * 100}%`;
+}
+
+async function refreshCalculationLog(silent = true) {
+  const job = managerState.job || {};
+  if (logRequestInFlight || !(job.id || job.log_path || job.last_log_path)) return;
+  logRequestInFlight = true;
+  try {
+    const data = await postManager('log', {scope, lines: 1000});
+    const content = (data.lines || []).join('\n') || 'El cálculo todavía no ha escrito mensajes.';
+    const live = document.querySelector('#live-log');
+    live.textContent = content;
+    live.scrollTop = live.scrollHeight;
+    const dialog = document.querySelector('#portfolio-log-dialog');
+    if (dialog.open) {
+      document.querySelector('#portfolio-log-title').textContent = data.path || 'Salida del cálculo';
+      const dialogContent = document.querySelector('#portfolio-log-content');
+      dialogContent.textContent = content;
+      dialogContent.scrollTop = dialogContent.scrollHeight;
+    }
+  } catch (error) {
+    if (!silent) toast(error.message, true);
+  } finally {
+    logRequestInFlight = false;
+  }
+}
+
 function jobBadge(job, task = {}) {
   const calculationRunning = job?.status === 'running';
   const taskActive = ['pending', 'running'].includes(task?.status);
@@ -92,6 +154,8 @@ function jobBadge(job, task = {}) {
   const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : '';
   document.querySelector('#proposal-operation').textContent = opText;
   document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : 'Guardar seleccionada';
+  renderCalculationMonitor(job || {});
+  refreshCalculationLog(true);
   if (active && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadTaskState(); }, 1800);
   if (!active && pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
 }
@@ -156,6 +220,14 @@ function largestGroup(summary) {
   return `${name} ${number(data.unit_pct, 1)}%`;
 }
 
+// Exposición abierta agregada del peor día. Es informativa: el riesgo aplicado
+// sigue siendo máx(cerrado, flotante máximo individual). Solo se muestra cuando
+// contradice ese máximo, que es cuando dice algo.
+function overlapNote(audit) {
+  if (!audit || !audit.overlap_detected || !audit.exceeds_declared) return '';
+  return `<small class="overlap-alert">${number(audit.coincident_sets)}/${number(audit.active_sets)} hundidas a la vez el ${esc(audit.worst_day)}: agregado ${number(audit.measured_aggregate, 2)} vs ${number(audit.worst_single, 2)} de la peor sola (informativo)</small>`;
+}
+
 function renderProposals() {
   const proposals = managerState.proposals || [];
   const area = document.querySelector('#proposal-area');
@@ -167,10 +239,12 @@ function renderProposals() {
     const stress = result.stress_bootstrap || {};
     const margin = result.margin_summary || {};
     const changed = result.changed_allocations ?? (proposal.diff || []).filter(row => row.state !== 'SIN CAMBIO').length;
+    const adjusted = proposal.auto_adjusted_valley ? ` · objetivo ajustado ${number(proposal.requested_valley_dd_pct, 2)}% → ${number(proposal.adjusted_valley_dd_pct, 2)}%` : '';
     return `<button type="button" class="proposal-card ${proposal.key === selectedProposal ? 'selected' : ''} ${stress.alert ? 'stress-alert' : ''}" onclick="selectProposal('${esc(proposal.key)}')">
-      <span>${esc(proposal.label)}</span><strong>${number(result.total_net_profit)}</strong>
+      <span>${esc(proposal.label)}${adjusted}</span><strong>${number(result.total_net_profit)}</strong>
       <small>${number(result.active_strategies)} estrategias · ${number(result.total_units)} uds. · ${largestGroup(result.group_summary)}</small>
       <small>DD riesgo máx. ${number(result.actual_valley_dd, 2)} / ${number(result.target_valley_dd, 2)} (${number(result.valley_usage_pct, 1)}%) · máx(cerrado ${number(result.actual_closed_valley_dd, 2)}, flotante ${number(result.floating_dd_buffer, 2)})</small>
+      ${overlapNote(result.floating_overlap_audit)}
       <small>Margen DD nominal ${number(result.nominal_valley_margin, 2)} / ${number(result.nominal_valley_dd, 2)} (${number(result.nominal_valley_margin_pct, 1)}%)</small>
       <small>DD puntual ${number(result.actual_point_dd, 2)}${result.enforce_point_dd ? ` / ${number(result.target_point_dd, 2)}` : ' informativo'}</small>
       <small>Stress P50 ${number(stress.valley_dd_p50, 2)} · P95 ${number(stress.valley_dd_p95, 2)}${stress.alert ? ' · ALERTA' : ''}</small>

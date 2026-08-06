@@ -99,6 +99,12 @@ def normalize_grid_settings(raw: dict[str, Any], broker: str = "ICTRADING") -> d
         "max_total_units": None,
         "max_units_per_symbol": None,
         "grid_off": False,
+        # La regla antirrelleno 6M mide el aporte reciente de cada estrategia, y
+        # Grid desactiva a propósito `has_recent_performance` en el optimizador
+        # (la puerta de calidad son las cuatro etapas aceptadas). Con todos los
+        # aportes a cero la regla no podría descartar nada: se deja explícito en
+        # 0 para que nadie lea un valor heredado como si estuviera activo.
+        "min_strategy_recent_contribution_pct": 0.0,
         "experimental_full_search": False,
         "experimental_monthly_search": False,
         "enforce_point_dd": False,
@@ -163,18 +169,24 @@ def generate_grid_proposals(
         _reserve_pct,
         build_margin_model,
         cached_report,
+        describe_eligibility,
+        eligibility_counts,
     )
 
     settings = normalize_grid_settings(inputs, source.broker)
     settings["margin_model"] = build_margin_model(source, settings)
     if progress:
-        progress("Grid 1/4 · Leyendo candidatos aceptados en las cuatro etapas")
+        progress("1/4 · Leyendo candidatos aceptados en las cuatro etapas")
     rows = source.candidate_rows(include_quarantined=False)
     if not rows:
         raise ValueError("No hay candidatos con Final Tick continuo y 6M aceptados")
+    accepted_rows = len(rows)
     rows, warnings = filter_rows_grid_on(rows)
     if not rows:
-        raise ValueError("No hay candidatos aceptados con EnableGrid=true explícito")
+        raise ValueError(
+            f"{accepted_rows} candidato(s) aceptado(s) y ninguno con EnableGrid=true explícito"
+        )
+    grid_rows = len(rows)
     if settings.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(
             rows,
@@ -196,7 +208,11 @@ def generate_grid_proposals(
             filtered.append(row)
     rows = filtered
     if not rows:
-        raise ValueError("No quedan candidatos grid en los grupos de activos seleccionados")
+        raise ValueError(
+            f"{grid_rows} candidato(s) Grid y ninguno en los grupos de activos "
+            f"seleccionados. Encontrados por grupo: "
+            + ", ".join(f"{group} {count}" for group, count in sorted(group_counts.items()))
+        )
     used = (
         source.used_set_paths("grid", exclude_portfolio_id=exclude_portfolio_id)
         if settings.get("exclude_used_sets", True)
@@ -204,7 +220,7 @@ def generate_grid_proposals(
     )
     availability = asdict(summarize_robust_rows(rows, used))
     if progress:
-        progress(f"Grid 2/4 · Cargando reportes de {len(rows)} candidatos")
+        progress(f"2/4 · Cargando reportes de {len(rows)} candidatos")
     raw_sets, load_warnings = load_robust_sets_from_rows(
         rows, used, parse=cached_report, progress=progress,
     )
@@ -215,6 +231,22 @@ def generate_grid_proposals(
     ]
     if not raw_sets:
         raise ValueError("No quedan estrategias grid cargadas después de los filtros")
+    # Grid apaga la regla de recuperación reciente en el optimizador, así que el
+    # embudo tampoco puede contarla: daría un número de elegibles que no es el
+    # que se va a usar.
+    minimum_trades = int(settings["min_trades_2020_2026"])
+    eligibility = eligibility_counts(raw_sets, minimum_trades, apply_recent_recovery=False)
+    eligibility_text = (
+        f"{accepted_rows} aceptado(s); {grid_rows} con EnableGrid; "
+        + describe_eligibility(eligibility, minimum_trades)
+    )
+    if progress:
+        progress(f"2/4 · Elegibilidad Grid: {eligibility_text}")
+    if not eligibility["eligible"]:
+        raise ValueError(
+            eligibility_text
+            + ". Revise el mínimo de trades, los sets Grid ya usados y la cuarentena."
+        )
     # Los filtros de correlación compartidos miran el P/L cerrado diario, que en
     # un grid es positivo casi siempre porque cierra ganadoras y deja abiertas
     # las perdedoras. El solapamiento que importa aquí es el de los días con
@@ -234,21 +266,23 @@ def generate_grid_proposals(
             warnings.extend(overlap_warnings[:10])
         if not raw_sets:
             raise ValueError(
-                "Todas las estrategias grid comparten sus días de exposición abierta"
+                f"{eligibility['eligible']} estrategia(s) grid elegible(s) y todas "
+                f"comparten sus días de exposición abierta por encima de "
+                f"{float(settings.get('max_open_overlap') or DEFAULT_MAX_OPEN_OVERLAP):.0%}. "
+                "Suba «Máx. solape de exposición» o desmarque la casilla."
             )
     proposals: list[dict[str, Any]] = []
     variant_failures: list[str] = []
     configured_reserve = float(settings.get("dd_reserve_pct") or 0.0)
     for index, (key, label, objective_type) in enumerate(GRID_VARIANTS, start=1):
         if progress:
-            progress(f"Grid 3/4 · Optimizando {label} ({index}/3)")
+            progress(f"3/4 · Optimizando {label} ({index}/3)")
         reserve = _reserve_pct(configured_reserve, objective_type)
-        existing = source.saved_curves(
-            monthly=False,
-            scope="grid",
-            portfolio_type=objective_type,
-            exclude_portfolio_id=exclude_portfolio_id,
-        )
+        # Grid anula `max_portfolio_corr`, y `_portfolio_corr_allowed` sale por
+        # la primera línea cuando es None: leer las curvas guardadas por cada
+        # variante era una consulta a SQLite por propuesta que no decidía nada.
+        # Lo que evita repetir sets entre paquetes es `exclude_used_sets`.
+        existing: list[list[float]] = []
         variant_inputs = {
             **settings,
             "portfolio_type": key,
@@ -313,7 +347,7 @@ def generate_grid_proposals(
         "grid_only": True,
     })
     if progress:
-        progress("Grid 4/4 · Propuestas listas")
+        progress("4/4 · Propuestas listas")
     return availability, proposals
 
 

@@ -5,8 +5,13 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from mt5_manager.portfolio_grid_service import _adjusted_grid_valley_pcts, normalize_grid_settings
+from mt5_manager.portfolio_grid_service import (
+    _adjusted_grid_valley_pcts,
+    generate_grid_proposals,
+    normalize_grid_settings,
+)
 from mt5_manager.portfolio_scope import normalize_portfolio_scope
 from mt5_manager.portfolio_service import _optimizer_kwargs, normalize_settings
 from portfolio_manager.grid_portfolio import _grid_evaluation, _prune_to_grid_valley
@@ -320,6 +325,104 @@ class GridOverlapTests(unittest.TestCase):
         for key in ("max_pair_corr", "max_downside_corr", "max_dd_overlap", "max_portfolio_corr"):
             self.assertIsNotNone(values[key], key)
         self.assertNotIn("max_open_overlap", values)
+
+
+class GridOrchestrationTests(unittest.TestCase):
+    """Lo que Grid toma prestado de UBS y mensual, y lo que deja de hacer."""
+
+    def settings(self) -> dict:
+        return {
+            "capital": 1000, "valley_dd_pct": 10, "allowed_asset_groups": ["Forex"],
+            "min_trades_2020_2026": 100,
+        }
+
+    def source(self):
+        class Source:
+            universe = Path("assets.ini")
+            broker = "ROBOFOREX"
+            def candidate_rows(self, *, include_quarantined):
+                return [{"set_path": "a.set", "symbol": "EURUSD", "target_symbol": "EURUSD"}]
+            def used_set_paths(self, *_args, **_kwargs): return []
+            def saved_curves(self, **_kwargs):
+                raise AssertionError("Grid anula max_portfolio_corr: no debe leer curvas guardadas")
+        return Source()
+
+    def eligible_strategy(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            set_id="a.set", symbol="EURUSD", robustness_status="accepted", already_used=False,
+            curve_2020_2026_001=[0.0, 100.0], trades_2020_2026=200,
+            net_profit_2020_2026_001=100.0, has_recent_performance=False,
+            recent_net_profit_001=0.0, recent_equity_dd_001=0.0,
+        )
+
+    def test_grid_does_not_read_saved_curves_it_cannot_use(self) -> None:
+        strategy = self.eligible_strategy()
+        result = SimpleNamespace(warnings=[])
+        with patch("mt5_manager.portfolio_grid_service.filter_rows_grid_on",
+                   side_effect=lambda rows: (rows, [])), \
+             patch("mt5_manager.portfolio_grid_service.load_robust_sets_from_rows",
+                   return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio_grid_service.summarize_robust_rows",
+                   return_value=SimpleNamespace(__dataclass_fields__={})), \
+             patch("mt5_manager.portfolio_grid_service.asdict", return_value={}), \
+             patch("mt5_manager.portfolio_grid_service.prune_overlapping_sets",
+                   side_effect=lambda sets, **_kwargs: (sets, [])), \
+             patch("mt5_manager.portfolio_grid_service.optimize_grid_portfolio", return_value=result):
+            _availability, proposals = generate_grid_proposals(self.source(), self.settings())
+
+        self.assertEqual([item["key"] for item in proposals],
+                         ["aggressive", "balanced", "conservative"])
+
+    def test_an_empty_grid_pool_names_the_stage_that_emptied_it(self) -> None:
+        # Antes el error era «No quedan estrategias grid cargadas»: no decia si
+        # faltaban trades, si estaban usadas o si el solape las tiro.
+        blocked = SimpleNamespace(
+            set_id="a.set", symbol="EURUSD", robustness_status="accepted", already_used=False,
+            curve_2020_2026_001=[0.0, 100.0], trades_2020_2026=4,
+            net_profit_2020_2026_001=100.0, has_recent_performance=False,
+            recent_net_profit_001=0.0, recent_equity_dd_001=0.0,
+        )
+        with patch("mt5_manager.portfolio_grid_service.filter_rows_grid_on",
+                   side_effect=lambda rows: (rows, [])), \
+             patch("mt5_manager.portfolio_grid_service.load_robust_sets_from_rows",
+                   return_value=([blocked], [])), \
+             patch("mt5_manager.portfolio_grid_service.summarize_robust_rows",
+                   return_value=SimpleNamespace(__dataclass_fields__={})), \
+             patch("mt5_manager.portfolio_grid_service.asdict", return_value={}), \
+             self.assertRaises(ValueError) as error:
+            generate_grid_proposals(self.source(), self.settings())
+
+        message = str(error.exception)
+        self.assertIn("con EnableGrid", message)
+        self.assertIn("con >= 100 trades", message)
+        self.assertIn("0 elegibles", message)
+
+    def test_the_overlap_pruning_error_says_which_threshold_emptied_the_pool(self) -> None:
+        strategy = self.eligible_strategy()
+        with patch("mt5_manager.portfolio_grid_service.filter_rows_grid_on",
+                   side_effect=lambda rows: (rows, [])), \
+             patch("mt5_manager.portfolio_grid_service.load_robust_sets_from_rows",
+                   return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio_grid_service.summarize_robust_rows",
+                   return_value=SimpleNamespace(__dataclass_fields__={})), \
+             patch("mt5_manager.portfolio_grid_service.asdict", return_value={}), \
+             patch("mt5_manager.portfolio_grid_service.prune_overlapping_sets",
+                   return_value=([], ["descartada"])), \
+             self.assertRaises(ValueError) as error:
+            generate_grid_proposals(self.source(), self.settings())
+
+        self.assertIn("60%", str(error.exception))
+
+    def test_the_recent_contribution_rule_is_explicitly_neutral_in_grid(self) -> None:
+        # Grid apaga `has_recent_performance` en el optimizador, asi que la regla
+        # antirrelleno no podria descartar nada: heredar un 5% daba a entender
+        # que estaba activa.
+        values = normalize_grid_settings({
+            "capital": 1000, "valley_dd_pct": 10, "allowed_asset_groups": ["Forex"],
+            "min_strategy_recent_contribution_pct": 5.0,
+        }, "ROBOFOREX")
+
+        self.assertEqual(values["min_strategy_recent_contribution_pct"], 0.0)
 
 
 class GridScopeTests(unittest.TestCase):

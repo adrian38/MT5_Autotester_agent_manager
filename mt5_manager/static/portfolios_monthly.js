@@ -63,7 +63,7 @@ function hydrate(settings) {
   groups.forEach(group => setField(`group_${group}`, allowed.has(group)));
 }
 
-const numericFields = ['capital', 'valley_dd_pct', 'target_month', 'max_daily_dd', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];
+const numericFields = ['capital', 'valley_dd_pct', 'target_month', 'max_daily_dd', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'account_leverage', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];
 const booleanFields = ['run_local_search', 'deep_optimization', 'experimental_monthly_search', 'use_correlation', 'require_3_positive_months_6m', 'grid_off', 'exclude_monthly_used', 'corr_with_monthly_portfolios', 'strict_yearly_month_validation', 'daily_dd_full_history'];
 
 function formPayload() {
@@ -222,6 +222,14 @@ function largestGroup(summary) {
   return `${name} ${number(data.unit_pct, 1)}%`;
 }
 
+// Exposición abierta agregada del peor día. Es informativa: el riesgo aplicado
+// sigue siendo máx(cerrado, flotante máximo individual). Solo se muestra cuando
+// contradice ese máximo, que es cuando dice algo.
+function overlapNote(audit) {
+  if (!audit || !audit.overlap_detected || !audit.exceeds_declared) return '';
+  return `<small class="overlap-alert">${number(audit.coincident_sets)}/${number(audit.active_sets)} hundidas a la vez el ${esc(audit.worst_day)}: agregado ${number(audit.measured_aggregate, 2)} vs ${number(audit.worst_single, 2)} de la peor sola (informativo)</small>`;
+}
+
 function renderProposals() {
   const proposals = managerState.proposals || [];
   const area = document.querySelector('#proposal-area');
@@ -234,10 +242,12 @@ function renderProposals() {
     const margin = result.margin_summary || {};
     const strict = result.seasonal_validation || {};
     const changed = result.changed_allocations ?? (proposal.diff || []).filter(row => row.state !== 'SIN CAMBIO').length;
+    const adjusted = proposal.auto_adjusted_valley ? ` · objetivo ajustado ${number(proposal.requested_valley_dd_pct, 2)}% → ${number(proposal.adjusted_valley_dd_pct, 2)}%` : '';
     return `<button type="button" class="proposal-card ${proposal.key === selectedProposal ? 'selected' : ''} ${stress.alert ? 'stress-alert' : ''}" onclick="selectProposal('${esc(proposal.key)}')">
-      <span>${esc(proposal.label)}</span><strong>${number(result.total_net_profit)}</strong>
+      <span>${esc(proposal.label)}${adjusted}</span><strong>${number(result.total_net_profit)}</strong>
       <small>${number(result.active_strategies)} estrategias · ${number(result.total_units)} uds. · ${largestGroup(result.group_summary)}</small>
       <small>DD riesgo máx. ${number(result.actual_valley_dd, 2)} / ${number(result.target_valley_dd, 2)} (${number(result.valley_usage_pct, 1)}%) · máx(cerrado ${number(result.actual_closed_valley_dd, 2)}, flotante ${number(result.floating_dd_buffer, 2)})</small>
+      ${overlapNote(result.floating_overlap_audit)}
       <small>Margen DD nominal ${number(result.nominal_valley_margin, 2)} / ${number(result.nominal_valley_dd, 2)} (${number(result.nominal_valley_margin_pct, 1)}%)</small>
       <small>DD puntual ${number(result.actual_point_dd, 2)}${result.enforce_point_dd ? ` / ${number(result.target_point_dd, 2)}` : ' informativo'}${scope === 'monthly' ? ` · diario visual ${number(result.max_daily_dd, 2)} / ${number(result.target_daily_dd, 2)} (no limita)` : ''}</small>
       <small>Stress P50 ${number(stress.valley_dd_p50, 2)} · P95 ${number(stress.valley_dd_p95, 2)}${stress.alert ? ' · ALERTA' : ''}</small>
@@ -384,7 +394,7 @@ document.querySelector('#portfolio-log-close').addEventListener('click', () => {
 });
 
 document.querySelector('#reset-settings').addEventListener('click', () => {
-  hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', target_month: 1, max_daily_dd: 150, top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 15, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: false, experimental_monthly_search: false, use_correlation: true, exclude_monthly_used: false, corr_with_monthly_portfolios: false, strict_yearly_month_validation: false, daily_dd_full_history: false, allowed_asset_groups: groups});
+  hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', target_month: 1, max_daily_dd: 150, top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 15, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', account_leverage: 1000, max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: false, experimental_monthly_search: false, use_correlation: true, exclude_monthly_used: false, corr_with_monthly_portfolios: false, strict_yearly_month_validation: false, daily_dd_full_history: false, allowed_asset_groups: groups});
   toast('Valores mensuales restablecidos; pulsa Guardar configuración para persistirlos.');
 });
 

@@ -8,6 +8,7 @@ from portfolio_manager.ubs_portfolio import (
     build_robust_strategy_set,
     evaluate_portfolio,
     filter_eligible_sets,
+    portfolio_floating_overlap_audit,
     slice_strategy_set_to_month,
     _evaluation_violates_dd_limits,
 )
@@ -344,6 +345,80 @@ class PortfolioEquityRiskTests(unittest.TestCase):
 
         self.assertLess(strategy.recent_net_profit_001 / strategy.recent_equity_dd_001, 1.0)
         self.assertEqual(filter_eligible_sets([strategy], min_trades_2020_2026=1), [])
+
+
+class FloatingOverlapAuditTests(unittest.TestCase):
+    """El `max()` del flotante supone que solo una estrategia esta bajo el agua."""
+
+    def strategy(self, set_id: str, loss_day: int, equity_dd: float):
+        losing = ClosedTrade(
+            datetime(2024, 3, loss_day), datetime(2024, 3, loss_day + 1),
+            "XAGUSD", 0.01, -40.0,
+        )
+        base = replace(
+            period("2020_2024", 2020, 2024, balance_dd=1.0, equity_dd=equity_dd),
+            closed_trades=[losing],
+        )
+        return build_robust_strategy_set(
+            set_id=set_id, candidate_id=set_id, symbol="XAGUSD", timeframe="H4",
+            strategy_family="test", robustness_status="accepted", already_used=False,
+            report_2020_2024=base,
+            report_2025_2026=period("2025_2026", 2025, 2026, balance_dd=1.0, equity_dd=1.0),
+        )
+
+    def test_the_audit_flags_the_day_where_several_are_underwater_at_once(self) -> None:
+        # Las dos se hunden el mismo dia: el agregado dobla a la peor sola, y esa
+        # diferencia es exactamente lo que el `max()` no puede ver.
+        left = self.strategy("left.set", 4, 50.0)
+        right = self.strategy("right.set", 4, 30.0)
+
+        audit = portfolio_floating_overlap_audit(
+            [left, right], {"left.set": 1, "right.set": 1}, 50.0,
+        )
+
+        self.assertTrue(audit["overlap_detected"])
+        self.assertEqual(audit["coincident_sets"], 2)
+        self.assertEqual(audit["active_sets"], 2)
+        self.assertAlmostEqual(
+            audit["measured_aggregate"], audit["worst_single"] + audit["overlap_excess"], places=6,
+        )
+        self.assertGreater(audit["overlap_excess"], 0.0)
+
+    def test_days_that_do_not_coincide_show_no_overlap(self) -> None:
+        # Mismo proxy en los dos lados: sin coincidencia, el agregado es la peor
+        # sola y el exceso es cero, aunque el proxy quede por encima del
+        # flotante declarado por medir cosas distintas.
+        left = self.strategy("left.set", 4, 50.0)
+        right = self.strategy("right.set", 20, 30.0)
+
+        audit = portfolio_floating_overlap_audit(
+            [left, right], {"left.set": 1, "right.set": 1}, 50.0,
+        )
+
+        self.assertFalse(audit["overlap_detected"])
+        self.assertEqual(audit["overlap_excess"], 0.0)
+        self.assertEqual(audit["coincident_sets"], 1)
+
+    def test_a_single_strategy_has_nothing_to_overlap_with(self) -> None:
+        audit = portfolio_floating_overlap_audit(
+            [self.strategy("left.set", 4, 50.0)], {"left.set": 1}, 50.0,
+        )
+
+        self.assertEqual(audit, {})
+
+    def test_the_applied_risk_does_not_change_with_the_audit(self) -> None:
+        # La medida es informativa: `evaluate_portfolio` sigue devolviendo el
+        # maximo entre valle cerrado y flotante individual.
+        left = self.strategy("left.set", 4, 50.0)
+        right = self.strategy("right.set", 4, 30.0)
+        allocations = {"left.set": 1, "right.set": 1}
+
+        evaluation = evaluate_portfolio(
+            [left, right], allocations, target_valley_dd=1000.0, target_point_dd=1000.0,
+        )
+
+        self.assertEqual(evaluation.floating_dd_buffer, 50.0)
+        self.assertEqual(evaluation.valley_dd, max(evaluation.closed_valley_dd, 50.0))
 
 
 if __name__ == "__main__":

@@ -16,6 +16,9 @@
 - El bootstrap de estrés Grid corre sobre la equity diaria (cerrado acumulado menos exposición abierta), no sobre la curva cerrada.
 - La variante Agresiva **selecciona por eficiencia** como las otras dos. Su identidad son la reserva menor y los límites de grupo más holgados, que viajan explícitos al optimizador compartido. Puntuar por ganancia absoluta bajo la regla `max()` era contraproducente: añadir un set cuyo flotante queda por debajo del máximo vigente no cuesta valle, así que el criterio de eficiencia recoge más beneficio con el mismo riesgo. La siembra por grupo se limita a 2 unidades porque sembrar 5 multiplica por 5 el flotante de ese set antes de medir nada.
 - Todo lo anterior vive en `portfolio_manager/grid_risk.py` y sus dos consumidores Grid. `ubs_portfolio.py` y `portfolio_service.py` no cambian.
+- La idea de alinear los días **sí** viajó a los otros dos ámbitos, pero como medida informativa: `portfolio_floating_overlap_audit` en `ubs_portfolio.py` avisa cuando varias estrategias coinciden bajo el agua y el `max()` deja de describir la exposición. En UBS y mensual no es vinculante; el razonamiento y la medición sobre 45 variantes reales están en `cross_scope_parity.md`.
+- El aporte mínimo reciente (`min_strategy_recent_contribution_pct`) queda fijado en 0 en `normalize_grid_settings`: con `has_recent_performance` apagado la regla antirrelleno no podría descartar nada, y heredar un valor distinto de cero daba a entender que estaba activa.
+- Grid no lee `saved_curves`: con `max_portfolio_corr` a `None` esas curvas no deciden nada y eran una consulta a SQLite por variante.
 - El margen continúa siendo una validación de viabilidad operativa, no un segundo límite de pérdida.
 
 ## Separación

@@ -390,6 +390,10 @@ class PortfolioResult:
     enforce_point_dd: bool = True
     actual_closed_valley_dd: float = 0.0
     floating_dd_buffer: float = 0.0
+    #: Exposicion abierta agregada alineada en el tiempo. Informativa: mide lo
+    #: que ``floating_dd_buffer`` no puede ver porque toma el maximo entre
+    #: estrategias en vez de sumar las que coinciden bajo el agua.
+    floating_overlap_audit: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -547,6 +551,77 @@ def portfolio_daily_closed_floating_dd(
         "worst_dd": float(worst_dd),
         "by_day": totals_by_day,
         "by_set": by_set,
+    }
+
+
+def portfolio_floating_overlap_audit(
+    sets: list[RobustStrategySet],
+    allocations: dict[str, int],
+    declared_floating: float,
+    *,
+    full_history: bool = False,
+) -> dict[str, object]:
+    """Compare the ``max()`` floating term against the time-aligned aggregate.
+
+    ``evaluate_portfolio`` toma el peor episodio flotante individual a su lote y
+    lo compara con el valle cerrado. Ese ``max()`` supone que solo una estrategia
+    esta bajo el agua en cada momento. Alinear los dias dice cuanto se acumula de
+    verdad cuando varias coinciden.
+
+    La medida es **informativa**: usa el mismo proxy diario que el DD diario del
+    proyecto (la perdida final de cada operacion perdedora pesa en cada dia que
+    estuvo abierta), que exagera hacia arriba en operaciones largas y se queda
+    corto en la excursion adversa de las ganadoras. Sirve para detectar que el
+    supuesto del ``max()`` se esta rompiendo, no para sustituirlo en silencio.
+
+    El solapamiento se aisla comparando el agregado contra ``worst_single``, que
+    es el mismo proxy tomando solo la peor estrategia: ambos lados salen de la
+    misma medida, asi que la diferencia entre ellos es coincidencia y nada mas.
+    Comparar el agregado directamente contra el flotante declarado mezclaria dos
+    magnitudes distintas -- el declarado es el DD de equity del informe -- y
+    marcaria solapamiento donde solo hay cambio de escala.
+    """
+    active = {set_id: units for set_id, units in allocations.items() if int(units) > 0}
+    if len(active) < 2:
+        return {}
+    measured, summary = portfolio_daily_closed_floating_dd(
+        sets, allocations, full_history=full_history,
+    )
+    if not summary.get("enabled"):
+        return {}
+    worst_day = summary.get("worst_day")
+    by_set = summary.get("by_set") or {}
+    by_day = summary.get("by_day") or {}
+    worst_single = max(
+        (
+            float(entry.get("worst_allocated_dd", 0.0))
+            for entry in by_set.values() if isinstance(entry, dict)
+        ),
+        default=0.0,
+    )
+    contributions: dict[str, float] = {}
+    for strategy in sets:
+        units = int(active.get(strategy.set_id, 0))
+        if units <= 0 or not worst_day:
+            continue
+        series = strategy_daily_closed_floating_dd(strategy, full_history=full_history)
+        value = float(series.get(str(worst_day), 0.0)) * units
+        if value > 0:
+            contributions[strategy.set_id] = round(value, 2)
+    return {
+        "worst_day": worst_day,
+        "measured_aggregate": round(float(measured), 2),
+        "worst_single": round(float(worst_single), 2),
+        "overlap_excess": round(max(float(measured) - float(worst_single), 0.0), 2),
+        "overlap_detected": bool(float(measured) > float(worst_single) + 1e-9),
+        "declared_floating_dd": round(float(declared_floating), 2),
+        "exceeds_declared": bool(float(measured) > float(declared_floating) + 1e-9),
+        "coincident_sets": len(contributions),
+        "active_sets": len(active),
+        "measured_days": len(by_day),
+        "contributions": dict(
+            sorted(contributions.items(), key=lambda item: item[1], reverse=True)[:10]
+        ),
     }
 
 
@@ -5335,6 +5410,24 @@ def optimize_portfolio(
             f"{current.closed_valley_dd:.2f}, flotante maximo individual "
             f"{current.floating_dd_buffer:.2f}) = {current.valley_dd:.2f}."
         )
+    # Auditoria del supuesto del `max()`: se mide una sola vez sobre la cartera
+    # final, nunca dentro de la busqueda. No cambia el riesgo aplicado; avisa
+    # cuando varias estrategias coinciden bajo el agua y el maximo individual
+    # deja de describir la exposicion.
+    floating_overlap_audit = portfolio_floating_overlap_audit(
+        selected, allocations, current.floating_dd_buffer,
+    )
+    if floating_overlap_audit.get("overlap_detected") and floating_overlap_audit.get("exceeds_declared"):
+        warnings.append(
+            f"{int(floating_overlap_audit['coincident_sets'])} de "
+            f"{int(floating_overlap_audit['active_sets'])} estrategias coinciden bajo el agua el "
+            f"{floating_overlap_audit['worst_day']}: exposicion agregada "
+            f"{float(floating_overlap_audit['measured_aggregate']):.2f} frente a "
+            f"{float(floating_overlap_audit['worst_single']):.2f} de la peor sola "
+            f"(+{float(floating_overlap_audit['overlap_excess']):.2f}), por encima del flotante "
+            f"aplicado {float(floating_overlap_audit['declared_floating_dd']):.2f}. "
+            "Medida informativa; el riesgo aplicado sigue siendo el maximo individual."
+        )
     recent_recovery_rejections = sum(
         1
         for strategy in raw_sets
@@ -5501,6 +5594,7 @@ def optimize_portfolio(
         enforce_point_dd=bool(enforce_point_dd),
         actual_closed_valley_dd=current.closed_valley_dd,
         floating_dd_buffer=current.floating_dd_buffer,
+        floating_overlap_audit=floating_overlap_audit,
     )
 
 

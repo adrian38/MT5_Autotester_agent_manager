@@ -117,6 +117,57 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn('name="target_month"', full_page)
         self.assertNotIn('name="max_daily_dd"', full_page)
 
+    def test_the_three_builders_share_the_stage_monitor_and_live_log(self) -> None:
+        # El monitor de etapas y el log en vivo eran una ventaja solo del
+        # mensual; los tres calculos numeran ya sus etapas «N/M».
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        for page_name, script_name, stages in (
+            ("portfolios.html", "portfolios.js", 5),
+            ("portfolios_grid.html", "portfolios_grid.js", 4),
+        ):
+            page = (static_dir / page_name).read_text(encoding="utf-8")
+            script = (static_dir / script_name).read_text(encoding="utf-8")
+            self.assertIn('id="calculation-monitor"', page, page_name)
+            self.assertIn('id="live-log"', page, page_name)
+            self.assertIn('id="stage-list"', page, page_name)
+            self.assertEqual(
+                page.count('<span data-stage="'), stages, page_name,
+            )
+            self.assertIn("function stageFromProgress", script, script_name)
+            self.assertIn("async function refreshCalculationLog", script, script_name)
+            self.assertIn(r"/^(\d+)\/(\d+)\s*[·-]/", script, script_name)
+        monthly = (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
+        self.assertIn('id="monthly-calculation-monitor"', monthly)
+
+    def test_the_three_builders_report_an_auto_adjusted_valley(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        for name in ("portfolios.js", "portfolios_monthly.js", "portfolios_grid.js"):
+            script = (static_dir / name).read_text(encoding="utf-8")
+            self.assertIn("proposal.auto_adjusted_valley", script, name)
+            self.assertIn("objetivo ajustado", script, name)
+
+    def test_grid_shows_the_reoptimization_diff_and_can_reset_its_form(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios_grid.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios_grid.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="proposal-diff-section"', page)
+        self.assertIn('id="proposal-diff"', page)
+        self.assertIn("proposal.diff || []", script)
+        self.assertIn('id="reset-settings"', page)
+        self.assertIn("#reset-settings", script)
+
+    def test_the_open_exposure_overlap_is_reported_without_changing_the_risk(self) -> None:
+        # La medida agregada es informativa: la tarjeta sigue enseñando
+        # máx(cerrado, flotante) como riesgo aplicado.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        for name in ("portfolios.js", "portfolios_monthly.js"):
+            script = (static_dir / name).read_text(encoding="utf-8")
+            self.assertIn("function overlapNote", script, name)
+            self.assertIn("audit.overlap_detected", script, name)
+            self.assertIn("(informativo)", script, name)
+            self.assertIn("máx(cerrado ${number(result.actual_closed_valley_dd, 2)}", script, name)
+
     def test_saved_bundle_members_can_be_excluded(self) -> None:
         script = (
             Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.js"
