@@ -56,7 +56,7 @@ from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
 from .common import load_json, safe_float, safe_int, save_json, utc_now
-from .portfolio_scope import normalize_portfolio_scope
+from .portfolio_scope import PORTFOLIO_SCOPES, normalize_portfolio_scope
 from .portfolio_full_experimental import optimize_experimental_full_portfolio
 
 
@@ -810,7 +810,14 @@ class PortfolioSource:
             "warnings": warnings,
         }
 
-    def exclude_strategy(self, payload: dict[str, Any]) -> int:
+    def exclude_strategy(self, payload: dict[str, Any], *, memory: Path | None = None) -> int:
+        """Quarantine a candidate.
+
+        ``memory`` overrides where the quarantine row is written. By default it
+        lands in the memory that owns the candidate (the broker's), which is the
+        global UBS quarantine. The Grid scope passes its manager-owned database
+        instead, so a Grid exclusion is written where the Grid packages live.
+        """
         requested = str(payload.get("set_path") or payload.get("set_id") or "").strip()
         if not requested:
             raise ValueError("Falta identificar el set que se quiere excluir")
@@ -824,7 +831,7 @@ class PortfolioSource:
         if not matches:
             raise ValueError("El set no pertenece a los candidatos Final Tick 6M accepted")
         row = matches[0]
-        source_memory = Path(str(row.get("source_memory_path") or self.memory)).absolute()
+        source_memory = Path(memory or str(row.get("source_memory_path") or self.memory)).absolute()
         account_label = str(row.get("account_type") or f"{self.broker}/{self.account}")
         with self.connect_memory(source_memory, write=True) as conn:
             conn.execute(
@@ -3042,6 +3049,71 @@ class PortfolioCoordinator:
         source = self._persistence_source(node_id, scope)
         return source.saved_portfolio_detail(portfolio_id, scope) if portfolio_id is not None else source.saved_portfolios(scope)
 
+    def _quarantine_grid_set(self, node_id: str, set_path: str, reason: str) -> int:
+        """Quarantine one set in the manager's own Grid database.
+
+        The node endpoint cannot be used here: it requires a ``portfolio_id``
+        that exists in the broker memory ("Falta el portafolio que contiene las
+        estrategias"), and a Grid package only exists in this manager. Writing
+        the quarantine next to the packages keeps the whole Grid scope
+        manager-owned, and ``candidate_rows`` already filters by the quarantine
+        of every memory source, so the exclusion holds on the next generation.
+        A Grid exclusion is therefore Grid-only; the broker quarantine written
+        from the UBS screens keeps applying to Grid as well.
+        """
+        source = self._calculation_source(node_id, "grid")
+        grid_memory = self._persistence_source(node_id, "grid").memory
+        return source.exclude_strategy({"set_path": set_path, "reason": reason}, memory=grid_memory)
+
+    def exclude_grid(self, node_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Quarantine Grid strategies and drop the saved package that held them.
+
+        Excluding a member invalidates the three variants, so the package is
+        deleted whole instead of being recalculated, exactly like a UBS A/M/C
+        bundle.
+        """
+        portfolio_id = safe_int(payload.get("portfolio_id"), 0)
+        raw_paths = payload.get("set_paths")
+        if raw_paths is None:
+            raw_paths = [payload.get("set_path") or payload.get("set_id")]
+        elif not isinstance(raw_paths, list) or not raw_paths:
+            raise ValueError("Selecciona al menos una estrategia")
+        paths: list[str] = []
+        for value in raw_paths:
+            text = str(value or "").strip()
+            if text and text not in paths:
+                paths.append(text)
+        if not paths:
+            raise ValueError("Falta identificar el set que se quiere excluir")
+        reason = str(payload.get("reason") or "").strip() or (
+            "Excluida manualmente de un paquete Grid A/M/C eliminado" if portfolio_id
+            else "Excluida manualmente desde el manager Grid"
+        )
+        source = self._persistence_source(node_id, "grid")
+        if portfolio_id:
+            detail = source.saved_portfolio_detail(portfolio_id, "grid")["portfolio"]
+            members = {source._match_key(item.get("set_path")) for item in detail.get("members") or []}
+            for path in paths:
+                if source._match_key(path) not in members:
+                    raise ValueError("Una de las estrategias seleccionadas ya no pertenece al portafolio Grid")
+        quarantine_ids = [self._quarantine_grid_set(node_id, path, reason) for path in paths]
+        if portfolio_id:
+            source.delete_portfolio(portfolio_id, "grid")
+        self._drop_cached_proposals(node_id)
+        return {
+            "quarantine_id": quarantine_ids[0],
+            "quarantine_ids": quarantine_ids,
+            "deleted": bool(portfolio_id),
+            "portfolio_id": portfolio_id or None,
+            "scope": "grid",
+        }
+
+    def _drop_cached_proposals(self, node_id: str) -> None:
+        """Invalidate every scope: the quarantine is shared by all of them."""
+        with self.lock:
+            for scope in PORTFOLIO_SCOPES:
+                self.proposals.pop(self._key(node_id, scope), None)
+
     def exclude(self, node_id: str, scope: str, payload: dict[str, Any]) -> int:
         if payload.get("set_paths") is not None:
             raise ValueError("La exclusión múltiple debe ejecutarse mediante la API del nodo")
@@ -3071,9 +3143,7 @@ class PortfolioCoordinator:
         else:
             source = PortfolioSource(node)
             quarantine_id = source.remove_member_to_quarantine(payload, scope) if safe_int(payload.get("portfolio_id"), 0) else source.exclude_strategy(payload)
-        with self.lock:
-            self.proposals.pop(self._key(node_id, "full_history"), None)
-            self.proposals.pop(self._key(node_id, "monthly"), None)
+        self._drop_cached_proposals(node_id)
         return quarantine_id
 
     def _invalidate_node_snapshots(self, node_id: str) -> None:
@@ -3103,15 +3173,14 @@ class PortfolioCoordinator:
         source = PortfolioSource(self._node(node_id))
         for _account, memory in source.memory_sources:
             source._invalidate_remote_snapshot(memory)
-        with self.lock:
-            self.proposals.pop(self._key(node_id, "full_history"), None)
-            self.proposals.pop(self._key(node_id, "monthly"), None)
+        self._drop_cached_proposals(node_id)
 
-    def release(self, node_id: str, quarantine_id: str | int) -> None:
-        PortfolioSource(self._node(node_id)).release_strategy(quarantine_id)
-        with self.lock:
-            self.proposals.pop(self._key(node_id, "full_history"), None)
-            self.proposals.pop(self._key(node_id, "monthly"), None)
+    def release(self, node_id: str, scope: str, quarantine_id: str | int) -> None:
+        # La clave de cuarentena lleva la etiqueta de la memoria que la guarda.
+        # En Grid esa memoria es la base del manager, que solo aparece en las
+        # fuentes de cálculo de ese ámbito.
+        self._calculation_source(node_id, scope).release_strategy(quarantine_id)
+        self._drop_cached_proposals(node_id)
 
     def undo(self, node_id: str, scope: str, portfolio_id: int) -> int:
         return self._persistence_source(node_id, scope).undo_latest(portfolio_id, scope)

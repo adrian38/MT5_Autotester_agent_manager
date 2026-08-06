@@ -12,6 +12,7 @@ let proposalMembers = [];
 let detailMembers = [];
 let detailPortfolio = null;
 let selectedDetailVariant = null;
+let selectedDetailMembers = new Set();
 let pollTimer = null;
 let settingsSaveTimer = null;
 
@@ -125,8 +126,11 @@ async function loadTaskState() {
 function renderInventory() {
   const inventory = managerState.inventory || {};
   const rows = inventory.by_symbol || [];
+  const quarantine = inventory.quarantine || [];
   document.querySelector('#inventory-summary').textContent = `${number(inventory.available)} disponibles de ${number(inventory.total)} sets Grid · ${number(inventory.symbols)} símbolos`;
   document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.symbol)}</strong></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td></tr>`).join('') : '<tr><td colspan="5">No hay sets Grid para los filtros actuales.</td></tr>';
+  document.querySelector('#quarantine-note').textContent = 'No participan en futuras generaciones de Portafolio Grid UBS.';
+  document.querySelector('#quarantine-rows').innerHTML = quarantine.length ? quarantine.map(row => `<tr><td title="${esc(row.set_path)}">${esc(row.set_name)}</td><td><strong>${esc(row.symbol || '')}</strong><small>${esc(row.source_account || '')}</small></td><td>${esc(row.timeframe || '')}</td><td>${esc(row.quarantined_at || '')}</td><td><button type="button" class="secondary table-action" onclick="releaseStrategy('${esc(row.quarantine_key || row.id)}')">Reintegrar</button></td></tr>`).join('') : '<tr><td colspan="5">No hay estrategias en cuarentena.</td></tr>';
 }
 
 function renderProposals() {
@@ -150,17 +154,20 @@ function renderProposals() {
 
 function selectProposal(key) { selectedProposal = key; renderProposals(); }
 
-function memberRow(member, saved = false, index = 0) {
+function memberRow(member, saved = false, index = 0, selectable = false) {
   const path = member.set_path || member.set_id || '';
-  const action = saved ? `<td><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button></td>` : '';
-  return `<tr><td title="${esc(path)}"><strong>${esc(setName(member))}</strong><small>${esc(path)}</small></td><td>${esc(member.candidate_id || '—')}</td><td><strong>${esc(member.symbol || '')}</strong></td><td>${esc(member.timeframe || '—')}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution, 2)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Fuente: ${esc(member.floating_dd_source || '—')}">${number(member.standalone_floating_dd, 2)}</td><td>${number(member.max_balance_dd_001, 2)}</td><td>${number(member.max_equity_dd_001, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td>${action}</tr>`;
+  const selector = selectable ? `<td><input type="checkbox" aria-label="Seleccionar ${esc(setName(member))}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
+  const action = saved
+    ? `<td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button></div></td>`
+    : `<td><button type="button" class="danger table-action" onclick="excludeStrategy('proposal',${index})">Excluir</button></td>`;
+  return `<tr>${selector}<td title="${esc(path)}"><strong>${esc(setName(member))}</strong><small>${esc(path)}</small></td><td>${esc(member.candidate_id || '—')}</td><td><strong>${esc(member.symbol || '')}</strong></td><td>${esc(member.timeframe || '—')}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution, 2)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Fuente: ${esc(member.floating_dd_source || '—')}">${number(member.standalone_floating_dd, 2)}</td><td>${number(member.max_balance_dd_001, 2)}</td><td>${number(member.max_equity_dd_001, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td>${action}</tr>`;
 }
 
 function renderSelectedProposal() {
   const proposal = (managerState.proposals || []).find(item => item.key === selectedProposal);
   if (!proposal) return;
   proposalMembers = proposal.result?.allocations || [];
-  document.querySelector('#proposal-members').innerHTML = proposalMembers.length ? proposalMembers.map(member => memberRow(member)).join('') : '<tr><td colspan="11">Esta variante no contiene sets.</td></tr>';
+  document.querySelector('#proposal-members').innerHTML = proposalMembers.length ? proposalMembers.map((member, index) => memberRow(member, false, index)).join('') : '<tr><td colspan="12">Esta variante no contiene sets.</td></tr>';
   const warnings = proposal.result?.warnings || [];
   document.querySelector('#proposal-warnings').innerHTML = warnings.length ? `<details><summary>Auditoría y avisos (${warnings.length})</summary><ul>${warnings.map(warning => `<li>${esc(warning)}</li>`).join('')}</ul></details>` : '';
 }
@@ -232,15 +239,102 @@ function renderSavedVariant(key) {
   detailMembers = selectedDetailVariant
     ? allMembers.filter(member => member.variant_key === selectedDetailVariant)
     : allMembers;
+  // Cambiar de variante repinta otra tabla: los índices seleccionados dejarían
+  // de apuntar a las mismas estrategias, así que la selección se descarta.
+  selectedDetailMembers.clear();
+  const bundle = isBundlePortfolio(portfolio);
+  document.querySelector('#detail-select-column').hidden = !bundle;
+  document.querySelector('#detail-exclude-selected').hidden = !bundle;
+  document.querySelector('#detail-select-all').checked = false;
   document.querySelector('#portfolio-members').innerHTML = detailMembers.length
-    ? detailMembers.map((member, index) => memberRow(member, true, index)).join('')
-    : '<tr><td colspan="12">Esta variante no tiene sets guardados.</td></tr>';
+    ? detailMembers.map((member, index) => memberRow(member, true, index, bundle)).join('')
+    : `<tr><td colspan="${bundle ? 13 : 12}">Esta variante no tiene sets guardados.</td></tr>`;
+  updateDetailSelection();
   const label = String(variant.label || '');
   const decisions = (portfolio.decisions || []).filter(row => !selectedDetailVariant || !label || String(row.reason || '').startsWith(`${label}:`));
   renderAudit({metrics: variant, decisions});
 }
 
 function selectSavedVariant(key) { renderSavedVariant(key); }
+
+// El paquete Grid guardado es siempre A/M/C: excluir un set invalida las tres
+// variantes, así que se pone en cuarentena y se borra el paquete entero, igual
+// que en el Portafolio UBS.
+function isBundlePortfolio(portfolio) {
+  return String(portfolio?.portfolio_type || '').toLowerCase() === 'grid_bundle'
+    || Boolean(portfolio?.metrics?.portfolio_bundle);
+}
+
+function updateDetailSelection() {
+  const button = document.querySelector('#detail-exclude-selected');
+  const selectAll = document.querySelector('#detail-select-all');
+  const count = selectedDetailMembers.size;
+  button.textContent = `Excluir seleccionadas (${count})`;
+  button.disabled = count === 0;
+  selectAll.checked = detailMembers.length > 0 && count === detailMembers.length;
+  selectAll.indeterminate = count > 0 && count < detailMembers.length;
+}
+
+function toggleDetailSelection(index, checked) {
+  if (checked) selectedDetailMembers.add(index); else selectedDetailMembers.delete(index);
+  updateDetailSelection();
+}
+
+async function excludeStrategy(source, index) {
+  const member = source === 'proposal' ? proposalMembers[index] : detailMembers[index];
+  if (!member) return;
+  const name = setName(member);
+  const saved = source === 'detail';
+  const message = saved
+    ? `${name} se pondrá en cuarentena y se borrará por completo el paquete Grid A/M/C #${selectedId}, sin recalcularlo. ¿Continuar?`
+    : `${name} dejará de participar en futuras generaciones Grid. ¿Continuar?`;
+  if (!confirm(message)) return;
+  const affectedPortfolioId = selectedId;
+  try {
+    await withOverlay(
+      saved ? 'Borrando paquete Grid A/M/C' : 'Excluyendo estrategia Grid',
+      saved
+        ? `Poniendo ${name} en cuarentena y eliminando el portafolio Grid #${affectedPortfolioId}…`
+        : `Poniendo ${name} en cuarentena…`,
+      async () => {
+        await postManager('exclude', {set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null});
+        selectedProposal = null;
+        if (saved) selectedId = null;
+        await Promise.all([loadManagerState(), loadPortfolios()]);
+      },
+    );
+    toast(saved ? `${name} puesta en cuarentena y paquete Grid #${affectedPortfolioId} borrado.` : `${name} puesta en cuarentena.`);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function excludeSelectedStrategies() {
+  if (!selectedId || !selectedDetailMembers.size) return;
+  const members = [...selectedDetailMembers].sort((a, b) => a - b).map(index => detailMembers[index]).filter(Boolean);
+  if (!members.length) return;
+  const count = members.length;
+  if (!confirm(`Se pondrán ${count} estrategia${count === 1 ? '' : 's'} en cuarentena y después se borrará por completo el paquete Grid A/M/C #${selectedId}, sin recalcularlo. ¿Continuar?`)) return;
+  const affectedPortfolioId = selectedId;
+  try {
+    await withOverlay(
+      'Excluyendo estrategias y borrando paquete Grid A/M/C',
+      `Poniendo ${count} estrategia${count === 1 ? '' : 's'} en cuarentena antes de eliminar el portafolio Grid #${affectedPortfolioId}…`,
+      async () => {
+        await postManager('exclude', {portfolio_id: affectedPortfolioId, set_paths: members.map(member => member.set_path || member.set_id)});
+        selectedProposal = null;
+        selectedDetailMembers.clear();
+        selectedId = null;
+        await Promise.all([loadManagerState(), loadPortfolios()]);
+      },
+    );
+    toast(`${count} estrategia${count === 1 ? '' : 's'} puesta${count === 1 ? '' : 's'} en cuarentena y paquete Grid #${affectedPortfolioId} borrado.`);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function releaseStrategy(quarantineId) {
+  if (!confirm('La estrategia volverá a ser elegible para futuros portafolios Grid. ¿Continuar?')) return;
+  try { await postManager('release', {quarantine_id: quarantineId}); toast('Estrategia reintegrada.'); await loadManagerState(); }
+  catch (error) { toast(error.message, true); }
+}
 
 async function loadDetail(id) {
   selectedId = Number(id);
@@ -339,6 +433,13 @@ document.querySelector('#detail-reoptimize').addEventListener('click', async () 
   if (!selectedId || !confirm(`Se calcularán nuevas propuestas para el portafolio Grid #${selectedId}. El guardado no cambia hasta que elijas una. ¿Continuar?`)) return;
   try { await postManager('reoptimize', {...formPayload(), portfolio_id: selectedId}); selectedProposal = null; await loadManagerState(); toast('Reoptimización Grid iniciada.'); }
   catch (error) { toast(error.message, true); }
+});
+
+document.querySelector('#detail-exclude-selected').addEventListener('click', excludeSelectedStrategies);
+document.querySelector('#detail-select-all').addEventListener('change', event => {
+  selectedDetailMembers = event.target.checked ? new Set(detailMembers.map((_, index) => index)) : new Set();
+  document.querySelectorAll('#portfolio-members input[type="checkbox"]').forEach(input => { input.checked = event.target.checked; });
+  updateDetailSelection();
 });
 
 document.querySelector('#detail-undo').addEventListener('click', async () => {

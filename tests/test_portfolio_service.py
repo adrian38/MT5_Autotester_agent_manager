@@ -447,6 +447,144 @@ class PortfolioServiceTests(unittest.TestCase):
         self.assertEqual(quarantine_ids, [1, 2])
         self.assertEqual(events, [f"exclude:{first_path}", f"exclude:{second_path}", "delete"])
 
+    def _grid_package(self, coordinator: PortfolioCoordinator, node_id: str, set_paths: list[str]) -> int:
+        grid = coordinator._persistence_source(node_id, "grid")
+        with grid.connect(write=True) as conn:
+            portfolio_id = int(conn.execute(
+                "insert into portfolios(created_at,name,type,portfolio_type,portfolio_scope,metrics_json) values(?,?,?,?,?,?)",
+                ("2026-08-06", "Grid A/M/C", "grid_bundle", "grid_bundle", "grid",
+                 json.dumps({"portfolio_bundle": True, "grid_portfolio": True})),
+            ).lastrowid)
+            for index, set_path in enumerate(set_paths, start=1):
+                conn.execute(
+                    """insert into portfolio_allocations(
+                       portfolio_id,variant_key,variant_label,set_id,candidate_id,symbol,units,lot,
+                       net_profit_contribution,standalone_valley_dd,standalone_point_dd,set_path,timeframe
+                       ) values(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (portfolio_id, "balanced", "Moderado Grid", set_path, f"ICTRADING/STANDARD:{index}",
+                     "EURUSD", index, index * .01, 100, 20, 10, set_path, "H1"),
+                )
+            conn.commit()
+        return portfolio_id
+
+    def test_excluding_a_grid_member_quarantines_it_in_the_manager_and_deletes_the_package(self) -> None:
+        # El endpoint de exclusión del nodo exige un portfolio_id que exista en
+        # su memoria ("Falta el portafolio que contiene las estrategias"), y el
+        # paquete Grid solo existe en el manager. La cuarentena Grid se escribe
+        # por eso junto a los paquetes, nunca en la memoria del broker.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "project"
+            (project / "outputs").mkdir(parents=True)
+            (project / "assets").mkdir()
+            memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+            memory.touch()
+            node = {
+                "id": "ic",
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], Path(temp_dir) / "settings.json")
+            set_path = str(project / "grid_strategy.set")
+            portfolio_id = self._grid_package(coordinator, "ic", [set_path])
+            candidate = {
+                "set_path": set_path,
+                "source_memory_path": str(memory),
+                "account_type": "ICTRADING/STANDARD",
+                "source_candidate_id": 1,
+                "target_symbol": "EURUSD",
+                "period": "H1",
+            }
+            for scope in ("full_history", "monthly", "grid"):
+                coordinator.proposals[coordinator._key("ic", scope)] = ["obsoleta"]
+
+            with patch.object(PortfolioSource, "candidate_rows", return_value=[candidate]):
+                result = coordinator.exclude_grid("ic", {"portfolio_id": portfolio_id, "set_path": set_path})
+
+            self.assertTrue(result["deleted"])
+            self.assertEqual(result["portfolio_id"], portfolio_id)
+            self.assertGreater(result["quarantine_id"], 0)
+            with coordinator._persistence_source("ic", "grid").connect() as conn:
+                quarantine = conn.execute(
+                    "select set_path from portfolio_quarantine where id=?", (result["quarantine_id"],)
+                ).fetchone()
+                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+            self.assertEqual(quarantine["set_path"], set_path)
+            # La memoria del broker no se toca: la exclusión Grid es de Grid.
+            with PortfolioSource(node).connect() as conn:
+                self.assertEqual(conn.execute(
+                    "select count(*) from sqlite_master where type='table' and name='portfolio_quarantine'"
+                ).fetchone()[0], 0)
+            self.assertEqual(coordinator.proposals, {})
+            # El pool Grid la ve en cuarentena y la reintegración la encuentra en
+            # la base del manager a través de su clave de cuarentena.
+            rows = coordinator._calculation_source("ic", "grid").quarantine_rows()
+            self.assertEqual([row["set_path"] for row in rows], [set_path])
+            coordinator.release("ic", "grid", str(rows[0]["quarantine_key"]))
+            self.assertEqual(coordinator._calculation_source("ic", "grid").quarantine_rows(), [])
+
+    def test_excluding_several_grid_members_quarantines_all_before_deleting_the_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "project"
+            (project / "outputs").mkdir(parents=True)
+            (project / "assets").mkdir()
+            memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+            memory.touch()
+            node = {
+                "id": "ic",
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], Path(temp_dir) / "settings.json")
+            paths = [str(project / "first_grid.set"), str(project / "second_grid.set")]
+            portfolio_id = self._grid_package(coordinator, "ic", paths)
+            candidates = [
+                {
+                    "set_path": path,
+                    "source_memory_path": str(memory),
+                    "account_type": "ICTRADING/STANDARD",
+                    "source_candidate_id": index,
+                    "target_symbol": "EURUSD",
+                    "period": "H1",
+                }
+                for index, path in enumerate(paths, start=1)
+            ]
+
+            with patch.object(PortfolioSource, "candidate_rows", return_value=candidates):
+                result = coordinator.exclude_grid(
+                    "ic", {"portfolio_id": portfolio_id, "set_paths": paths}
+                )
+
+            self.assertEqual(len(result["quarantine_ids"]), 2)
+            with coordinator._persistence_source("ic", "grid").connect() as conn:
+                stored = [row[0] for row in conn.execute("select set_path from portfolio_quarantine order by id")]
+                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+            self.assertEqual(stored, paths)
+
+    def test_excluding_a_grid_member_rejects_a_set_outside_the_saved_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "project"
+            (project / "outputs").mkdir(parents=True)
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            node = {
+                "id": "ic",
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], Path(temp_dir) / "settings.json")
+            portfolio_id = self._grid_package(coordinator, "ic", [str(project / "member.set")])
+
+            with self.assertRaises(ValueError):
+                coordinator.exclude_grid(
+                    "ic", {"portfolio_id": portfolio_id, "set_path": str(project / "other.set")}
+                )
+
+            with coordinator._persistence_source("ic", "grid").connect() as conn:
+                self.assertIsNotNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+
     def test_save_selected_bundle_commits_and_is_readable_afterward(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

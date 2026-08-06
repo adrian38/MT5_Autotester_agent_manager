@@ -426,7 +426,12 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         node_id, scope, portfolio_id, action, body or None
                     )})
                 elif action == "exclude":
-                    if body.get("set_paths") is not None:
+                    if scope == "grid":
+                        # El paquete Grid vive en la base del manager y la
+                        # cuarentena en la memoria del nodo: el coordinador
+                        # reparte cada escritura a su dueño.
+                        self._send_json(201, self.server.portfolios.exclude_grid(node_id, body))
+                    elif body.get("set_paths") is not None:
                         status, value = node_request(
                             node,
                             "POST",
@@ -451,7 +456,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         quarantine_result = self.server.portfolios.exclude(node_id, scope, body)
                         self._send_json(201, {"quarantine_id": quarantine_result})
                 elif action == "release":
-                    self.server.portfolios.release(node_id, str(body.get("quarantine_id") or ""))
+                    self.server.portfolios.release(node_id, scope, str(body.get("quarantine_id") or ""))
                     self._send_json(200, {"released": True})
                 elif action == "undo":
                     version = self.server.portfolios.undo(node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1))

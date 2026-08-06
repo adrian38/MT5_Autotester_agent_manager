@@ -137,6 +137,25 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("selectedDetailMembers = new Set", script)
         self.assertIn("await waitForPortfolioRemoval(affectedPortfolioId)", script)
 
+    def test_grid_members_can_be_excluded_and_released_like_the_ubs_ones(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios_grid.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios_grid.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="quarantine-rows"', page)
+        self.assertIn('id="detail-select-all"', page)
+        self.assertIn('id="detail-exclude-selected"', page)
+        self.assertIn("onclick=\"excludeStrategy('proposal',${index})\">Excluir</button>", script)
+        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        self.assertIn("onclick=\"releaseStrategy(", script)
+        self.assertIn("se borrará por completo el paquete Grid A/M/C", script)
+        self.assertIn("set_paths: members.map", script)
+        self.assertIn("No participan en futuras generaciones de Portafolio Grid UBS", script)
+        # La tabla de propuestas gana la columna de acciones y la de guardados la
+        # de selección: los colspan vacíos tienen que seguirlas.
+        self.assertIn('colspan="12">Esta variante no contiene sets.', script)
+        self.assertIn("${bundle ? 13 : 12}", script)
+
     def test_explicit_save_actions_show_a_blocking_progress_overlay(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = html.fromstring((static_dir / "portfolios.html").read_text(encoding="utf-8"))

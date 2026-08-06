@@ -15,7 +15,7 @@ from pathlib import Path
 
 from mt5_manager.manager import ManagerServer
 from mt5_manager.node import JobController, NodeServer
-from mt5_manager.portfolio_service import normalize_settings
+from mt5_manager.portfolio_service import PortfolioSource, normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
 
 
@@ -471,6 +471,70 @@ enabled=0
             "scope": "full_history",
         })
         invalidate.assert_called_once_with("test-node")
+
+    def test_grid_exclusion_stays_in_the_manager_instead_of_calling_the_node(self) -> None:
+        # El paquete Grid no está en la memoria del nodo, sino en la base del
+        # manager. El endpoint de exclusión del nodo exige un portfolio_id que
+        # exista allí, así que reenviarle la exclusión devolvía "Falta el
+        # portafolio que contiene las estrategias".
+        self.manager.nodes[0].update({
+            "portfolio_project_dir": str(self.root),
+            "portfolio_memory_path": str(self.root / "portfolio-grid-exclude.sqlite"),
+            "portfolio_broker": "TEST",
+            "portfolio_account_type": "DEMO",
+        })
+        (self.root / "portfolio-grid-exclude.sqlite").touch()
+        self.manager.portfolios.settings_path = self.root / "portfolio_settings.json"
+        grid = self.manager.portfolios._persistence_source("test-node", "grid")
+        set_path = str(self.root / "grid_member.set")
+        with grid.connect(write=True) as conn:
+            portfolio_id = int(conn.execute(
+                "insert into portfolios(created_at,name,type,portfolio_type,portfolio_scope,metrics_json) values(?,?,?,?,?,?)",
+                ("2026-08-06", "Grid A/M/C", "grid_bundle", "grid_bundle", "grid",
+                 json.dumps({"portfolio_bundle": True})),
+            ).lastrowid)
+            conn.execute(
+                """insert into portfolio_allocations(
+                   portfolio_id,variant_key,variant_label,set_id,candidate_id,symbol,units,lot,
+                   net_profit_contribution,standalone_valley_dd,standalone_point_dd,set_path,timeframe
+                   ) values(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (portfolio_id, "balanced", "Moderado Grid", set_path, "TEST/DEMO:1",
+                 "EURUSD", 1, .01, 100, 20, 10, set_path, "H1"),
+            )
+            conn.commit()
+
+        candidate = {
+            "set_path": set_path,
+            "source_memory_path": str(self.root / "portfolio-grid-exclude.sqlite"),
+            "account_type": "TEST/DEMO",
+            "source_candidate_id": 1,
+            "target_symbol": "EURUSD",
+            "period": "H1",
+        }
+        with (
+            mock.patch.object(
+                self.controller,
+                "exclude_portfolio_members",
+                side_effect=AssertionError("el nodo no debe recibir la exclusión Grid"),
+            ),
+            mock.patch.object(PortfolioSource, "candidate_rows", return_value=[candidate]),
+        ):
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/exclude",
+                {"scope": "grid", "portfolio_id": portfolio_id, "set_path": set_path},
+            )
+
+        self.assertEqual(status, 201)
+        self.assertGreater(payload["quarantine_id"], 0)
+        self.assertTrue(payload["deleted"])
+        self.assertEqual(payload["portfolio_id"], portfolio_id)
+        with grid.connect() as conn:
+            self.assertIsNone(
+                conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone()
+            )
+            self.assertEqual(
+                conn.execute("select set_path from portfolio_quarantine").fetchone()[0], set_path
+            )
 
     def test_single_exclusion_is_forwarded_to_the_node_api(self) -> None:
         # A single exclusion must also run on the node (the DB owner), not be
