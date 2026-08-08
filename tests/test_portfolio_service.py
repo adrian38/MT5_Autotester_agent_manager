@@ -453,6 +453,56 @@ class PortfolioServiceTests(unittest.TestCase):
         self.assertEqual(quarantine_ids, [1, 2])
         self.assertEqual(events, [f"exclude:{first_path}", f"exclude:{second_path}", "delete"])
 
+    def test_excluding_multiple_monthly_members_is_allowed_and_deletes_the_month(self) -> None:
+        # El mensual se borra completo al excluir un miembro, igual que un
+        # bundle: la exclusión múltiple vale aunque el tipo no sea 'bundle'.
+        source = object.__new__(PortfolioSource)
+        source.project = Path(".")
+        events: list[str] = []
+        first_path = str(Path("first.set").absolute())
+        second_path = str(Path("second.set").absolute())
+        detail = {"portfolio": {
+            "portfolio_type": "aggressive",
+            "target_month": 8,
+            "metrics": {},
+            "members": [
+                {"set_path": first_path, "set_id": first_path},
+                {"set_path": second_path, "set_id": second_path},
+            ],
+        }}
+        reasons: list[str] = []
+
+        def exclude(payload: dict[str, object]) -> int:
+            events.append(f"exclude:{payload['set_path']}")
+            reasons.append(str(payload.get("reason") or ""))
+            return len(events)
+
+        with patch.object(source, "saved_portfolio_detail", return_value=detail), patch.object(
+            source, "exclude_strategy", side_effect=exclude
+        ), patch.object(source, "delete_portfolio", side_effect=lambda *_: events.append("delete")):
+            quarantine_ids = source.remove_members_to_quarantine(
+                {"portfolio_id": 88, "set_paths": ["first.set", "second.set"]}, "monthly"
+            )
+
+        self.assertEqual(quarantine_ids, [1, 2])
+        self.assertEqual(events, [f"exclude:{first_path}", f"exclude:{second_path}", "delete"])
+        self.assertTrue(all("Portafolio UBS mensual" in reason for reason in reasons), reasons)
+
+    def test_excluding_multiple_members_is_rejected_on_a_single_objective_portfolio(self) -> None:
+        # Un full_history de objetivo único se recalcula al quitar un miembro,
+        # así que la exclusión múltiple sigue vetada ahí.
+        source = object.__new__(PortfolioSource)
+        source.project = Path(".")
+        detail = {"portfolio": {"portfolio_type": "balanced", "metrics": {}, "members": []}}
+
+        with patch.object(source, "saved_portfolio_detail", return_value=detail):
+            with self.assertRaises(ValueError) as error:
+                source.remove_members_to_quarantine(
+                    {"portfolio_id": 12, "set_paths": ["first.set"]}, "full_history"
+                )
+
+        self.assertIn("A/M/C y mensuales", str(error.exception))
+
     def _grid_package(self, coordinator: PortfolioCoordinator, node_id: str, set_paths: list[str]) -> int:
         grid = coordinator._persistence_source(node_id, "grid")
         with grid.connect(write=True) as conn:

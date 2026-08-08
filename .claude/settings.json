@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/tools/hook_node_fork_warning.py\"",
+            "timeout": 15,
+            "statusMessage": "Comprobando la copia bifurcada del nodo"
+          }
+        ]
+      }
+    ]
+  }
+}

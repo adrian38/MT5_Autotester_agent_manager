@@ -1341,6 +1341,13 @@ class PortfolioSource:
         )
 
     def remove_member_to_quarantine(self, payload: dict[str, Any], scope: str) -> int:
+        """Excluye un miembro y decide si el portafolio se borra o se recalcula.
+
+        REGLA DUPLICADA. El agente no ejecuta esto: reimplementa la misma regla en
+        `manager_node_runtime/portfolio_save.py::exclude_portfolio_members_payload`.
+        Cambiar solo aquí no tiene efecto para el usuario. Portar el cambio y
+        comprobarlo con `tests/test_node_runtime_fork_parity.py`.
+        """
         portfolio_id = safe_int(payload.get("portfolio_id"), 0)
         if portfolio_id < 1:
             return self.exclude_strategy(payload)
@@ -1402,6 +1409,13 @@ class PortfolioSource:
         return quarantine_id
 
     def remove_members_to_quarantine(self, payload: dict[str, Any], scope: str) -> list[int]:
+        """Excluye varios miembros y borra el portafolio que los contenía.
+
+        REGLA DUPLICADA. Igual que `remove_member_to_quarantine`: el agente la
+        reimplementa en `manager_node_runtime/portfolio_save.py`, y es la copia del
+        agente la que se ejecuta cuando el usuario pulsa el botón. Portar allí todo
+        cambio de criterio; `tests/test_node_runtime_fork_parity.py` lo verifica.
+        """
         portfolio_id = safe_int(payload.get("portfolio_id"), 0)
         if portfolio_id < 1:
             raise ValueError("Falta el portafolio que contiene las estrategias")
@@ -1410,8 +1424,12 @@ class PortfolioSource:
             raise ValueError("Selecciona al menos una estrategia")
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
         is_bundle = _is_bundle_portfolio(detail)
-        if not is_bundle:
-            raise ValueError("La exclusión múltiple solo está disponible para portafolios A/M/C")
+        # Se admite donde la exclusión borra el portafolio entero: bundles A/M/C
+        # y mensuales, exactamente el mismo criterio que remove_member_to_quarantine.
+        # Un portafolio de objetivo único (full_history) se recalcula tras quitar
+        # un miembro, así que ahí la exclusión sigue siendo de una en una.
+        if not (is_bundle or scope == "monthly"):
+            raise ValueError("La exclusión múltiple solo está disponible para portafolios A/M/C y mensuales")
         members_by_path = {
             self._match_key(item.get("set_path")): item for item in detail.get("members") or []
         }
@@ -1430,7 +1448,10 @@ class PortfolioSource:
             self.exclude_strategy({
                 **payload,
                 "set_path": member.get("set_path") or member.get("set_id"),
-                "reason": payload.get("reason") or "Excluida manualmente de un portafolio A/M/C eliminado",
+                "reason": payload.get("reason") or (
+                    "Excluida manualmente de un portafolio A/M/C eliminado" if is_bundle
+                    else "Excluida manualmente de un Portafolio UBS mensual eliminado"
+                ),
             })
             for member in members
         ]

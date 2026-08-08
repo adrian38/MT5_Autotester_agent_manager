@@ -475,11 +475,11 @@ async function excludeSelectedStrategies() {
   const members = [...selectedDetailMembers].sort((a, b) => a - b).map(index => detailMembers[index]).filter(Boolean);
   if (!members.length) return;
   const count = members.length;
-  if (!confirm(`Se pondrán ${count} estrategia${count === 1 ? '' : 's'} en cuarentena y después se borrará por completo el portafolio A/M/C #${selectedId}, sin recalcularlo. ¿Continuar?`)) return;
+  if (!confirm(`Se pondrán ${count} estrategia${count === 1 ? '' : 's'} en cuarentena y después se borrará por completo el Portafolio UBS mensual #${selectedId}, sin recalcularlo. ¿Continuar?`)) return;
   try {
     const affectedPortfolioId = selectedId;
     await withSaveOverlay(
-      'Excluyendo estrategias y borrando portafolio A/M/C',
+      'Excluyendo estrategias y borrando portafolio mensual',
       `Poniendo ${count} estrategia${count === 1 ? '' : 's'} en cuarentena antes de eliminar el portafolio #${affectedPortfolioId}…`,
       async () => {
         await postManager('exclude', {scope, portfolio_id: affectedPortfolioId, set_paths: members.map(member => member.set_path || member.set_id)});
@@ -537,8 +537,11 @@ async function loadDetail(id) {
     currentDetail = portfolio;
     const stress = portfolio.metrics?.stress_bootstrap || {};
     const isBundle = portfolio.portfolio_type === 'bundle' || portfolio.metrics?.portfolio_bundle;
-    document.querySelector('#detail-select-column').hidden = !isBundle;
-    document.querySelector('#detail-exclude-selected').hidden = !isBundle;
+    // Excluir un miembro borra el portafolio mensual completo, igual que en un
+    // bundle A/M/C, así que la selección múltiple aplica a todo mes guardado y
+    // no solo a los bundles.
+    document.querySelector('#detail-select-column').hidden = false;
+    document.querySelector('#detail-exclude-selected').hidden = false;
     document.querySelector('#detail-title').textContent = `Portafolio #${portfolio.id}`;
     document.querySelector('#detail-meta').textContent = `${portfolio.created_at}${portfolio.target_month ? ` · ${monthNames[portfolio.target_month]}` : ''}`;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
@@ -557,8 +560,8 @@ async function loadDetail(id) {
       const seasonalText = seasonal.year_count != null ? `${seasonal.positive_year_count}/${seasonal.year_count} años · ${seasonal.trades || 0} trades` : '—';
       const candidate = member.candidate_id || '—';
       const variant = member.variant_key || member.variant_label || 'default';
-      const selector = isBundle ? `<td><input type="checkbox" aria-label="Seleccionar ${esc(member.set_name || member.set_id)}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
-      const excludeAction = isBundle ? '' : `<button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button>`;
+      const selector = `<td><input type="checkbox" aria-label="Seleccionar ${esc(member.set_name || member.set_id)}" onchange="toggleDetailSelection(${index},this.checked)"></td>`;
+      const excludeAction = `<button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button>`;
       return `<tr>${selector}<td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, detailRecentTotals[variant] || 0)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button>${excludeAction}</div></td></tr>`;
     }).join('') : '<tr><td colspan="16">Este portafolio no tiene estrategias guardadas.</td></tr>';
     updateDetailSelection();

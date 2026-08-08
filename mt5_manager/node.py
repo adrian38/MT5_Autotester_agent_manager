@@ -1,3 +1,19 @@
+"""Nodo remoto del manager. ATENCIÓN: NO es el nodo que corre en los brokers.
+
+Los equipos broker ejecutan una copia bifurcada y renombrada en
+`manager_node_runtime/` del proyecto del agente, embebida en `app_ui.py` vía
+`manager_node_lifecycle.py`. Este módulo y `run_node.bat` solo sirven para
+ejecutar un nodo desde este repositorio.
+
+Consecuencia: cambiar aquí una regla de comportamiento del nodo (guardado,
+exclusión, escritura en la memoria UBS) **no tiene ningún efecto** sobre los
+agentes. La copia del agente reimplementa esas reglas en
+`manager_node_runtime/portfolio_save.py` con otros nombres de función, así que no
+la encuentra ni el grafo ni una búsqueda por símbolo: hay que buscarla por el
+texto del mensaje al usuario. Ver `ai_context/node_runtime_is_forked_per_agent.md`
+y `tests/test_node_runtime_fork_parity.py`, que falla si las copias divergen.
+"""
+
 from __future__ import annotations
 
 import argparse

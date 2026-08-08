@@ -188,6 +188,24 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("selectedDetailMembers = new Set", script)
         self.assertIn("await waitForPortfolioRemoval(affectedPortfolioId)", script)
 
+    def test_monthly_members_support_batch_selection_like_the_ubs_ones(self) -> None:
+        # Cualquier mes guardado se borra completo al excluir, así que las
+        # casillas no dependen de que el portafolio sea un bundle.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="detail-select-all"', page)
+        self.assertIn('id="detail-exclude-selected"', page)
+        self.assertIn("set_paths: members.map", script)
+        self.assertIn("await waitForPortfolioRemoval(affectedPortfolioId)", script)
+        self.assertIn("onchange=\"toggleDetailSelection(${index},this.checked)\"", script)
+        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        self.assertNotIn("const selector = isBundle", script)
+        self.assertNotIn("const excludeAction = isBundle", script)
+        self.assertIn("se borrará por completo el Portafolio UBS mensual #${selectedId}", script)
+        self.assertNotIn("portafolio A/M/C", script)
+
     def test_grid_members_can_be_excluded_and_released_like_the_ubs_ones(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios_grid.html").read_text(encoding="utf-8")
