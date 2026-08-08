@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import dev_branch
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
 from .portfolio_service import PortfolioSource, save_portfolio_payload
 from .portfolio_scope import normalize_portfolio_scope
@@ -1795,7 +1796,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default="node.json")
     args = parser.parse_args(argv)
     config_path = Path(args.config).expanduser().resolve()
-    config = load_json(config_path)
+    config = dev_branch.apply_node_config(load_json(config_path))
     for key in ("node_id", "project_dir", "token"):
         if not str(config.get(key) or "").strip():
             parser.error(f"Falta {key} en {config_path}")

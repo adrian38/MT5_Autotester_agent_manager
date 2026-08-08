@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import dev_branch
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
 from .portfolio_service import (
     PortfolioCoordinator,
@@ -650,7 +651,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, help="Sobrescribe temporalmente el puerto del archivo de configuración")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args(argv)
-    config = load_json(args.config)
+    config = dev_branch.apply_manager_config(load_json(args.config))
     config.setdefault(
         "preferences_file",
         str(Path(args.config).expanduser().resolve().parent / "runtime" / "launch_preferences.json"),

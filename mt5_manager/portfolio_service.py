@@ -57,6 +57,7 @@ from portfolio_manager.ubs_portfolio import (
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
+from . import dev_branch
 from .common import load_json, safe_float, safe_int, save_json, utc_now
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 from .portfolio_full_experimental import optimize_experimental_full_portfolio
@@ -634,6 +635,9 @@ class PortfolioSource:
         conn: sqlite3.Connection | None = None
         try:
             if write:
+                # Unico punto de escritura en la memoria de un agente: aqui se
+                # aplica el limite de la rama de pruebas.
+                dev_branch.assert_writable(memory, "memoria UBS")
                 try:
                     conn = sqlite3.connect(memory, timeout=10 if snapshot else 30)
                     ensure_portfolio_schema(conn)
@@ -1463,6 +1467,7 @@ class PortfolioSource:
         )
         folder_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"PORTAFOLIO_{portfolio_id}_{label}_{created[:15]}").strip("._")
         output = root.resolve() / (folder_name or f"PORTAFOLIO_{portfolio_id}")
+        dev_branch.assert_writable(output, "carpeta de exportación")
         output.mkdir(parents=True, exist_ok=True)
         copied: set[str] = set()
         exported: list[dict[str, Any]] = []
