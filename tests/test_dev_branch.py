@@ -194,6 +194,55 @@ class DevBranchTests(unittest.TestCase):
                 self.assertIn(dev_branch.DEV_PROJECT_DIR, str(caught.exception))
                 self.assertIn("memoria UBS", str(caught.exception))
 
+    def test_the_export_folder_chosen_by_the_user_is_not_an_agent_write(self) -> None:
+        # Exportar copia `.set` a donde diga el usuario. Tratar eso como una
+        # escritura de agente dejaba la exportación inservible en `dev`: elegir
+        # el Escritorio devolvía «la rama dev solo puede escribir en …».
+        os.environ[dev_branch.OVERRIDE_ENV] = "1"
+        allowed = Path(dev_branch.DEV_PROJECT_DIR)
+        foreign = Path(r"Y:\TRADING\MT5_Autotester_agent_AXI")
+
+        for destination in (
+            r"C:\Users\Adrian\Desktop\PORTAFOLIO_8_A_M_C_20260809",
+            r"E:\pendrive\portafolios",
+        ):
+            with self.subTest(destination=destination):
+                self.assertEqual(
+                    dev_branch.assert_export_destination(destination, allowed),
+                    Path(destination),
+                )
+                # Da igual desde qué agente se exporte: el destino sigue siendo
+                # una carpeta del usuario, no el árbol de ese agente.
+                self.assertEqual(
+                    dev_branch.assert_export_destination(destination, foreign),
+                    Path(destination),
+                )
+
+    def test_exporting_inside_a_foreign_agent_tree_is_still_refused(self) -> None:
+        # El destino por defecto es `<proyecto>/exports`: ahí sí manda la regla
+        # de siempre, así que un nodo de producción no escribe en su propio árbol.
+        os.environ[dev_branch.OVERRIDE_ENV] = "1"
+        foreign = Path(r"Y:\TRADING\MT5_Autotester_agent_AXI")
+
+        with self.assertRaises(ValueError) as caught:
+            dev_branch.assert_export_destination(foreign / "exports" / "PORTAFOLIO_8", foreign)
+
+        self.assertIn("carpeta de exportación", str(caught.exception))
+        allowed = Path(dev_branch.DEV_PROJECT_DIR)
+        self.assertEqual(
+            dev_branch.assert_export_destination(allowed / "exports" / "PORTAFOLIO_8", allowed),
+            allowed / "exports" / "PORTAFOLIO_8",
+        )
+
+    def test_outside_dev_the_export_guard_checks_nothing(self) -> None:
+        os.environ[dev_branch.OVERRIDE_ENV] = "0"
+        foreign = Path(r"Y:\TRADING\MT5_Autotester_agent_AXI")
+
+        self.assertEqual(
+            dev_branch.assert_export_destination(foreign / "exports", foreign),
+            foreign / "exports",
+        )
+
     def test_manager_own_state_and_temporary_files_stay_writable(self) -> None:
         os.environ[dev_branch.OVERRIDE_ENV] = "1"
         runtime = Path(__file__).resolve().parents[1] / "runtime"

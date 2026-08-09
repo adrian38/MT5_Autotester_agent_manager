@@ -57,7 +57,7 @@ from portfolio_manager.ubs_portfolio import (
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
-from . import candidate_verdict, dev_branch
+from . import candidate_verdict, dev_branch, portfolio_import
 from .common import load_json, safe_float, safe_int, save_json, utc_now
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 from .portfolio_full_experimental import optimize_experimental_full_portfolio
@@ -1582,7 +1582,10 @@ class PortfolioSource:
         )
         folder_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"PORTAFOLIO_{portfolio_id}_{label}_{created[:15]}").strip("._")
         output = root.resolve() / (folder_name or f"PORTAFOLIO_{portfolio_id}")
-        dev_branch.assert_writable(output, "carpeta de exportación")
+        # La carpeta de destino la elige el usuario y no es dato de un agente:
+        # solo se acota cuando cae dentro del proyecto del propio agente, que es
+        # donde va el destino por defecto.
+        dev_branch.assert_export_destination(output, self.project)
         output.mkdir(parents=True, exist_ok=True)
         copied: set[str] = set()
         exported: list[dict[str, Any]] = []
@@ -2844,6 +2847,196 @@ def _insert_decisions(
         )
 
 
+def build_import_proposals(
+    source: PortfolioSource,
+    scope: str,
+    header: dict[str, Any],
+    members: list[Any],
+) -> tuple[list[dict[str, Any]], str, dict[str, Any]]:
+    """Reconstruye las propuestas de un portafolio exportado.
+
+    Del resumen solo sale la **composición**: qué set, con cuántas unidades y en
+    qué variante. Los números se recalculan desde los informes MT5 del candidato
+    con las mismas funciones que un cálculo nuevo (`load_robust_sets_from_rows`
+    y `evaluate_portfolio`), así que el portafolio importado no es una copia
+    degradada del texto: es el mismo cálculo sobre la misma composición.
+
+    Ver `mt5_manager/portfolio_import.py` para el formato y sus límites.
+    """
+    scope = normalize_portfolio_scope(scope)
+    candidates = source.candidate_rows(include_quarantined=True)
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for row in candidates:
+        by_name.setdefault(Path(str(row.get("set_path") or "")).name.casefold(), []).append(row)
+    resolved: dict[str, dict[str, Any]] = {}
+    unresolved: list[str] = []
+    ambiguous: list[str] = []
+    for member in members:
+        name = str(member.set_name)
+        key = name.casefold()
+        if key in resolved or key in {value.casefold() for value in unresolved + ambiguous}:
+            continue
+        matches = by_name.get(key) or []
+        if not matches:
+            unresolved.append(name)
+        elif len(matches) > 1:
+            ambiguous.append(name)
+        else:
+            resolved[key] = matches[0]
+    if not resolved:
+        raise ValueError(
+            "Ninguno de los sets del portafolio exportado sigue siendo un candidato de "
+            "este nodo: no hay informes con los que reconstruirlo"
+        )
+    rows = list(resolved.values())
+    strategies, warnings = load_robust_sets_from_rows(rows, [], parse=cached_report)
+    if not strategies:
+        raise ValueError("No se pudo reconstruir ninguna estrategia desde sus informes")
+    path_by_name = {Path(str(row.get("set_path") or "")).name.casefold(): str(row.get("set_path") or "") for row in rows}
+    capital = float(header.get("capital") or 0)
+    target_valley = float(header.get("target_valley_dd") or 0)
+    target_point = float(header.get("target_point_dd") or 0) or target_valley
+    target_month = _imported_target_month(header)
+    if scope == "monthly" and target_month:
+        strategies, monthly_warnings = slice_strategy_sets_to_month(strategies, int(target_month))
+        warnings.extend(monthly_warnings)
+    by_set = {strategy.set_id: strategy for strategy in strategies}
+    order: list[str] = []
+    grouped: dict[str, list[Any]] = {}
+    for member in members:
+        if member.variant_label not in order:
+            order.append(member.variant_label)
+        grouped.setdefault(member.variant_label, []).append(member)
+    proposals: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    for label in order:
+        units: dict[str, int] = {}
+        lots: dict[str, float] = {}
+        for member in grouped[label]:
+            set_path = path_by_name.get(str(member.set_name).casefold())
+            if not set_path or set_path not in by_set:
+                if member.set_name not in skipped:
+                    skipped.append(member.set_name)
+                continue
+            units[set_path] = units.get(set_path, 0) + int(member.units)
+            lots[set_path] = float(member.lot)
+        if not units:
+            continue
+        key = portfolio_import.variant_key_for(label, order)
+        inputs: dict[str, Any] = {
+            "capital": capital,
+            "valley_dd_pct": target_valley * 100.0 / capital if capital > 0 else 0.0,
+            "point_dd_pct": target_point * 100.0 / capital if capital > 0 else 0.0,
+            "portfolio_type": key,
+            "composition_portfolio_type": key,
+            "portfolio_scope": scope,
+        }
+        if scope == "monthly" and target_month:
+            inputs["target_month"] = int(target_month)
+        evaluation = evaluate_portfolio(strategies, units, target_valley, target_point, None, False, False)
+        allocations = [
+            StrategyAllocation(
+                set_id=strategy.set_id, candidate_id=strategy.candidate_id, symbol=strategy.symbol,
+                units=units[strategy.set_id], lot=lots.get(strategy.set_id, 0.0),
+                net_profit_contribution=strategy.net_profit_2020_2026_001 * units[strategy.set_id],
+                standalone_valley_dd=max(strategy.valley_dd_2020_2026_001, strategy.max_floating_dd_001) * units[strategy.set_id],
+                standalone_point_dd=strategy.point_dd_2020_2026_001 * units[strategy.set_id],
+                timeframe=strategy.timeframe, set_path=strategy.set_path,
+                is_report_path=strategy.is_report_path, oos_report_path=strategy.oos_report_path,
+                lot_size_step=None,
+                max_balance_dd_001=strategy.max_balance_dd_001, max_equity_dd_001=strategy.max_equity_dd_001,
+                floating_dd_source=strategy.floating_dd_source,
+                standalone_floating_dd=strategy.max_floating_dd_001 * units[strategy.set_id],
+                recent_net_profit_001=strategy.recent_net_profit_001,
+                recent_equity_dd_001=strategy.recent_equity_dd_001,
+                has_recent_performance=strategy.has_recent_performance,
+                final_tick_report_path=strategy.final_tick_report_path,
+                full_history_report_path=strategy.full_history_report_path,
+            )
+            for strategy in strategies if units.get(strategy.set_id, 0) > 0
+        ]
+        result = PortfolioResult(
+            allocations=allocations,
+            equity_curve_2020_2026=evaluation.equity_curve_2020_2026,
+            total_net_profit=evaluation.total_net_profit,
+            actual_valley_dd=evaluation.valley_dd, actual_point_dd=evaluation.point_dd,
+            target_valley_dd=target_valley, target_point_dd=target_point,
+            valley_usage_pct=evaluation.valley_usage_pct, point_usage_pct=evaluation.point_usage_pct,
+            total_lot=evaluation.total_lot, total_units=evaluation.total_units,
+            active_strategies=evaluation.active_strategies,
+            stop_reason="Composición importada de una exportación previa",
+            warnings=list(warnings), decision_log=[],
+            group_summary=portfolio_group_summary(strategies, units),
+            stress_bootstrap=bootstrap_valley_drawdown(
+                evaluation.equity_curve_2020_2026,
+                nominal_valley_dd_limit=capital * float(inputs["valley_dd_pct"]) / 100.0,
+                effective_valley_dd_limit=target_valley,
+            ),
+            seasonal_coverage={
+                strategy.set_id: {
+                    "target_month": strategy.target_month, "years": list(strategy.month_years),
+                    "positive_years": list(strategy.positive_month_years),
+                    "year_count": len(strategy.month_years),
+                    "positive_year_count": len(strategy.positive_month_years),
+                    "trades": strategy.trades_2020_2026,
+                }
+                for strategy in strategies
+                if strategy.target_month is not None and units.get(strategy.set_id, 0) > 0
+            },
+            actual_closed_valley_dd=evaluation.closed_valley_dd,
+            floating_dd_buffer=evaluation.floating_dd_buffer,
+            enforce_point_dd=False,
+        )
+        proposals.append({"key": key, "label": label.strip() or key, "inputs": inputs, "result": result})
+    if not proposals:
+        raise ValueError("El resumen no dejó ninguna variante reconstruible")
+    if scope == "full_history" and len(proposals) > 1:
+        # `save_proposal` exige que las tres variantes A/M/C compartan
+        # composición, y un paquete guardado siempre la comparte: solo cambian
+        # las unidades. Si el resumen no lo cumple, decirlo aquí evita que el
+        # guardado falle más abajo con un mensaje que no señala al fichero.
+        compositions = {
+            str(proposal["key"]): frozenset(
+                allocation.set_id for allocation in proposal["result"].allocations
+            )
+            for proposal in proposals
+        }
+        if len(set(compositions.values())) > 1:
+            raise ValueError(
+                "Las variantes del resumen no comparten la misma composición, cosa que "
+                "un paquete A/M/C guardado siempre cumple. Revisa que el resumen esté "
+                "completo: " + "; ".join(
+                    f"{key}: {len(sets)} sets" for key, sets in sorted(compositions.items())
+                )
+            )
+    keys = [str(proposal["key"]) for proposal in proposals]
+    selected_key = "balanced" if "balanced" in keys else keys[0]
+    report = {
+        "variants": keys,
+        "strategies": len({allocation.set_id for proposal in proposals for allocation in proposal["result"].allocations}),
+        "unresolved": unresolved,
+        "ambiguous": ambiguous,
+        "skipped": skipped,
+        "warnings": warnings,
+        "target_month": target_month,
+    }
+    return proposals, selected_key, report
+
+
+def _imported_target_month(header: dict[str, Any]) -> int | None:
+    """El mes objetivo no es un campo del resumen: viaja en el nombre.
+
+    `save_proposal` compone «Moderado | Mes 08 | …» para el mensual, así que el
+    nombre exportado lo lleva. Sin él, un mensual importado se evaluaria sobre la
+    curva completa y sus números no serían los del mes guardado.
+    """
+    match = re.search(r"\bMes\s+(\d{1,2})\b", str(header.get("name") or ""), re.IGNORECASE)
+    if not match:
+        return None
+    month = int(match.group(1))
+    return month if 1 <= month <= 12 else None
+
+
 def save_proposal(
     source: PortfolioSource,
     proposals: list[dict[str, Any]],
@@ -3752,6 +3945,58 @@ class PortfolioCoordinator:
             raise ValueError("El nodo no confirmó el borrado del portafolio")
         source = PortfolioSource(node)
         source._invalidate_remote_snapshot(source.memory)
+
+    def import_portfolio(self, node_id: str, scope: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Recrea un portafolio guardado desde una carpeta o ZIP de exportación.
+
+        Se ejecuta en el manager, no en el nodo, y termina en `save_proposal`:
+        la fila resultante es la misma que la de un guardado normal. El destino
+        de la escritura es el de siempre para el ámbito —la memoria del broker,
+        o la base del manager en Grid—, y los candidatos se buscan en la fuente
+        de cálculo, que en Grid incluye las dos.
+        """
+        scope = normalize_portfolio_scope(scope)
+        source_path = str(payload.get("folder") or payload.get("path") or "").strip()
+        archive = payload.get("archive")
+        if archive:
+            header, members, set_files = self._read_uploaded_export(archive, str(payload.get("filename") or ""))
+        elif source_path:
+            header, members, set_files = portfolio_import.read_export(source_path)
+        else:
+            raise ValueError("Falta la carpeta o el ZIP del portafolio exportado")
+        calculation = self._calculation_source(node_id, scope)
+        proposals, selected_key, report = build_import_proposals(calculation, scope, header, members)
+        portfolio_id = save_proposal(self._persistence_source(node_id, scope), proposals, selected_key, scope)
+        missing_files = sorted({member.set_name for member in members} - set(set_files))
+        self.invalidate_after_exclusion(node_id)
+        return {
+            "portfolio_id": portfolio_id,
+            "scope": scope,
+            "name": str(header.get("name") or ""),
+            "missing_set_files": missing_files,
+            **report,
+        }
+
+    @staticmethod
+    def _read_uploaded_export(archive: Any, filename: str) -> tuple[dict[str, Any], list[Any], list[str]]:
+        """El ZIP llega en base64 cuando el manager no puede abrir un diálogo local.
+
+        Es el reflejo de la exportación: con `export_mode=folder` el manager abre
+        el selector nativo, y con `download` el navegador se descarga el ZIP. La
+        importación tiene que aceptar las dos formas o queda inservible en uno de
+        los dos despliegues.
+        """
+        import base64
+
+        try:
+            content = base64.b64decode(str(archive), validate=True)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("El archivo subido no es un ZIP válido") from exc
+        suffix = ".zip" if not filename.lower().endswith(".zip") else Path(filename).suffix
+        with tempfile.TemporaryDirectory(prefix="mt5-portfolio-upload-") as temp_dir:
+            target = Path(temp_dir) / (Path(filename).name or f"portafolio{suffix}")
+            target.write_bytes(content)
+            return portfolio_import.read_export(target)
 
     def export(self, node_id: str, scope: str, portfolio_id: int, destination: str | None) -> dict[str, Any]:
         return self._persistence_source(node_id, scope).export_portfolio(portfolio_id, scope, destination)

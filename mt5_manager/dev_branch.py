@@ -165,6 +165,29 @@ def assert_writable(path: str | Path, what: str = "") -> Path:
     )
 
 
+def assert_export_destination(path: str | Path, project: str | Path) -> Path:
+    """Candado de la carpeta de exportación, que no es dato de ningún agente.
+
+    Exportar copia ficheros `.set` a donde diga el usuario: el Escritorio, un
+    pendrive, una carpeta de trabajo. Eso no es una escritura «del lado de los
+    agentes» y pasarlo por ``assert_writable`` rompía la exportación en ``dev``
+    para cualquier destino que no fuese el proyecto de ICTrading, el ``runtime/``
+    del manager o el temporal del sistema.
+
+    Lo que sí sigue acotado es escribir **dentro del proyecto del agente**, que
+    es donde cae el destino por defecto (``<proyecto>/exports``): ahí se aplica
+    la regla de siempre, así que un nodo de producción sigue sin poder escribir
+    en su propio árbol desde la rama de pruebas. El invariante sigue siendo una
+    lista de permitidas; lo que cambia es qué se considera escritura de agente.
+    """
+    target = Path(path).expanduser().absolute()
+    if not is_active():
+        return target
+    if _within(target, Path(project).expanduser().absolute()):
+        return assert_writable(target, "carpeta de exportación")
+    return target
+
+
 def apply_manager_config(config: dict[str, Any], start: Path | None = None) -> dict[str, Any]:
     """Corrige la ruta del nodo de ICTrading en ``manager.json`` cuando toca.
 

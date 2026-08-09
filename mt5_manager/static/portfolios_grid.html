@@ -67,7 +67,7 @@
     </section>
 
     <section class="portfolio-layout">
-      <aside class="portfolio-list-panel"><div class="panel-title"><h2>Portafolios Grid guardados</h2><span id="portfolio-count"></span></div><div id="portfolio-list" class="portfolio-list">Cargando…</div></aside>
+      <aside class="portfolio-list-panel"><div class="panel-title"><h2>Portafolios Grid guardados</h2><span id="portfolio-count"></span><button id="portfolio-import" type="button" class="secondary table-action" title="Recrea un portafolio desde su carpeta o ZIP de exportacion">Importar</button></div><div id="portfolio-list" class="portfolio-list">Cargando…</div></aside>
       <section class="portfolio-detail-panel"><div id="portfolio-empty" class="portfolio-empty">Selecciona un portafolio Grid para ver sus sets y acciones.</div><div id="portfolio-detail" hidden>
         <div class="portfolio-detail-head"><div><p class="eyebrow">DETALLE GUARDADO</p><h2 id="detail-title"></h2><p id="detail-meta" class="subtitle"></p></div><span id="detail-type" class="badge completed">GRID</span></div>
         <div class="detail-actions"><button id="detail-reoptimize" type="button">Reoptimizar las 3</button><button id="detail-undo" type="button" class="secondary">Deshacer recomposición</button><button id="detail-export" type="button" class="secondary">Exportar paquete A/M/C (.zip)</button><button id="detail-exclude-selected" type="button" class="danger" hidden disabled>Excluir seleccionadas (0)</button><button id="detail-delete" type="button" class="danger">Borrar</button></div>
@@ -81,6 +81,6 @@
   <dialog id="portfolio-log-dialog" class="log-dialog"><div class="dialog-head"><div><p class="eyebrow">LOG DEL CONSTRUCTOR GRID</p><h2 id="portfolio-log-title">Salida del cálculo</h2></div><button type="button" class="icon-button" onclick="document.querySelector('#portfolio-log-dialog').close()">×</button></div><pre id="portfolio-log-content"></pre></dialog>
   <div id="save-overlay" class="save-overlay" role="dialog" aria-modal="true" aria-labelledby="save-overlay-title" hidden><div class="save-overlay-card"><span class="save-spinner" aria-hidden="true"></span><div aria-live="polite"><strong id="save-overlay-title">Procesando…</strong><p id="save-overlay-detail">Espera mientras se completa la operación.</p></div></div></div>
   <div id="toast" role="status"></div>
-  <script src="/exclusion_reason.js"></script><script src="/portfolios_grid.js?v=20260806-2"></script>
+  <script src="/exclusion_reason.js"></script><script src="/portfolio_transfer.js"></script><script src="/portfolios_grid.js?v=20260806-2"></script>
 </body>
 </html>

@@ -608,6 +608,28 @@ async function openReport(index) {
   catch (error) { toast(error.message, true); }
 }
 
+document.querySelector('#portfolio-import').addEventListener('click', async () => {
+  const button = document.querySelector('#portfolio-import');
+  button.disabled = true;
+  try {
+    // El selector va antes del velo: taparlo mientras se busca la carpeta seria
+    // un estorbo. La pantalla de carga cubre solo la reconstruccion, que relee
+    // los informes de cada estrategia y puede tardar.
+    const origin = await pickPortfolioImportSource('grid', managerState.capabilities?.export_mode, postManager);
+    if (!origin) return;
+    const {label, ...request} = origin;
+    const progress = portfolioImportProgress(label);
+    let data = null;
+    await withOverlay(progress.title, progress.detail, async () => {
+      data = await postManager('import', {scope: 'grid', ...request});
+      await Promise.all([loadManagerState(), loadPortfolios()]);
+    });
+    toast(describePortfolioImport(data));
+  }
+  catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
+
 document.querySelector('#portfolio-refresh').addEventListener('click', () => Promise.all([loadManagerState(), loadPortfolios(selectedId)]).catch(error => toast(error.message, true)));
 
 if (!nodeId) document.body.innerHTML = '<p>Falta seleccionar el nodo.</p>';

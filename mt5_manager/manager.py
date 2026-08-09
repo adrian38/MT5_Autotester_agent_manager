@@ -42,7 +42,10 @@ LAUNCH_PREFERENCE_KEYS = (
 LAUNCH_DEFAULT_OVERRIDE_KEYS = ("generations", "variants_per_seed", "max_seeds")
 
 
-def choose_directory(initial_directory: str | None = None) -> str | None:
+def choose_directory(
+    initial_directory: str | None = None,
+    title: str = "Selecciona la carpeta para exportar los sets",
+) -> str | None:
     """Open the native desktop folder picker on the manager machine."""
     try:
         import tkinter as tk
@@ -61,7 +64,7 @@ def choose_directory(initial_directory: str | None = None) -> str | None:
             root.update()
             selected = filedialog.askdirectory(
                 parent=root,
-                title="Selecciona la carpeta para exportar los sets",
+                title=title,
                 initialdir=str(initial),
                 mustexist=True,
             )
@@ -327,6 +330,10 @@ class ManagerHandler(BaseHTTPRequestHandler):
             # ámbito sigue siendo suya; lo que no puede divergir es el código que
             # viaja al nodo y decide qué se escribe en la memoria del agente.
             "exclusion_reason.js",
+            # Importar es el reflejo de exportar y hereda su transporte: la
+            # lectura del ZIP y el resumen del resultado no pueden divergir
+            # entre pantallas.
+            "portfolio_transfer.js",
         }:
             self._send_file(STATIC_DIR / relative)
             return
@@ -486,6 +493,16 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)
                     )
                     self._send_json(202, {"task": task})
+                elif action == "choose-import-folder":
+                    if self.server.export_mode != "folder":
+                        raise ValueError("El selector local de carpetas no está disponible en modo Docker")
+                    folder = choose_directory(
+                        str(body.get("initial_directory") or "").strip() or None,
+                        title="Selecciona la carpeta del portafolio exportado",
+                    )
+                    self._send_json(200, {"folder": folder, "cancelled": folder is None})
+                elif action == "import":
+                    self._send_json(201, self.server.portfolios.import_portfolio(node_id, scope, body))
                 elif action == "choose-export-folder":
                     if self.server.export_mode != "folder":
                         raise ValueError("El selector local de carpetas no está disponible en modo Docker")

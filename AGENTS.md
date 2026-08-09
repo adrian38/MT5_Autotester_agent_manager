@@ -85,8 +85,15 @@ escribe en la memoria de un agente, el grafo del manager no es la autoridad.
   pertenecer a ningún agente: `runtime/` de este repositorio y el temporal del
   sistema (`writable_roots`).
 - Todo punto de escritura nuevo hacia el proyecto de un agente tiene que pasar
-  por `assert_writable`. Hoy los puntos son `PortfolioSource.connect_memory` con
-  `write=True` y `PortfolioSource.export_portfolio`.
+  por `assert_writable`. Hoy el punto es `PortfolioSource.connect_memory` con
+  `write=True`.
+- La carpeta de exportación **no** es dato de un agente: la elige el usuario y
+  puede ser el Escritorio o un pendrive. Pasarla por `assert_writable` rompía la
+  exportación en `dev` para cualquier destino que no fuese uno de los tres
+  permitidos. `PortfolioSource.export_portfolio` usa `assert_export_destination`,
+  que solo aplica la regla cuando el destino cae **dentro del proyecto del
+  agente** —donde va el destino por defecto, `<proyecto>/exports`—, así que un
+  nodo de producción sigue sin poder escribir en su propio árbol.
 - La condición es la rama, nunca el fichero de configuración. Fuera de `dev`,
   `main` incluida, las funciones devuelven la configuración intacta y el candado
   no comprueba nada: el merge no puede contaminar producción.

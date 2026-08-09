@@ -451,6 +451,41 @@ class PortfolioFormTests(unittest.TestCase):
         return math.isclose(quotient, round(quotient), abs_tol=1e-9)
 
 
+class PortfolioImportScreenTests(unittest.TestCase):
+    """Importar existe en los tres ámbitos y hereda el transporte de exportar."""
+
+    PAGES = ("portfolios", "portfolios_monthly", "portfolios_grid")
+
+    def static(self, name: str) -> str:
+        return (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / name
+        ).read_text(encoding="utf-8")
+
+    def test_every_scope_offers_the_import_button(self) -> None:
+        for name in self.PAGES:
+            page, script = self.static(f"{name}.html"), self.static(f"{name}.js")
+            with self.subTest(page=name):
+                self.assertIn('id="portfolio-import"', page)
+                self.assertIn('src="/portfolio_transfer.js"', page)
+                self.assertIn("pickPortfolioImportSource(", script)
+                self.assertIn("describePortfolioImport(data)", script)
+                # El velo cubre la reconstruccion, nunca el selector de origen.
+                self.assertLess(
+                    script.index("pickPortfolioImportSource("),
+                    script.index("portfolioImportProgress(label)"),
+                )
+                self.assertIn("portfolioImportProgress(label)", script)
+
+    def test_the_import_mirrors_the_export_transport(self) -> None:
+        # Con `export_mode=folder` el manager abre su selector nativo; con
+        # `download` el ZIP viaja desde el navegador. Si la importación solo
+        # cubriera uno, quedaría inservible en el otro despliegue.
+        transfer = self.static("portfolio_transfer.js")
+        self.assertIn("exportMode === 'download'", transfer)
+        self.assertIn("'choose-import-folder'", transfer)
+        self.assertIn("readAsDataURL", transfer)
+
+
 class ExclusionReasonScreenTests(unittest.TestCase):
     """Las tres pantallas piden el motivo y reparten la cuarentena en tres tablas.
 
@@ -497,6 +532,13 @@ class ExclusionReasonScreenTests(unittest.TestCase):
         styles = self.static("styles.css")
         self.assertIn(".reason-option input{width:auto", styles)
         self.assertIn("padding:0;border:0", styles)
+
+    def test_the_toast_wraps_long_windows_paths(self) -> None:
+        # Los avisos llevan rutas de Windows, que no tienen espacios: sin
+        # permitir el corte dentro de la palabra el texto se salía del recuadro.
+        styles = self.static("styles.css")
+        self.assertIn("overflow-wrap:anywhere", styles)
+        self.assertIn("max-width:min(420px,calc(100vw - 48px))", styles)
 
     def test_the_panel_note_lives_inside_the_panel_padding(self) -> None:
         # El panel no tiene padding propio: lo pone .panel-title. Sin esto la
