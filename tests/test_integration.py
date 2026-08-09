@@ -13,7 +13,7 @@ from contextlib import closing
 from unittest import mock
 from pathlib import Path
 
-from mt5_manager.manager import ManagerServer
+from mt5_manager.manager import PULSE_JOB_KEYS, ManagerServer
 from mt5_manager.node import JobController, NodeServer
 from mt5_manager.portfolio_service import PortfolioSource, normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
@@ -174,6 +174,52 @@ enabled=0
 
         with urllib.request.urlopen(self.base + "/universe.html?node=test-node", timeout=3) as response:
             self.assertIn("UNIVERSO DE ACTIVOS", response.read().decode("utf-8"))
+
+    def test_pulse_projects_the_same_state_as_nodes_but_without_its_peso(self) -> None:
+        """`/api/pulse` existe para poder sondear desde un móvil.
+
+        Lo que se comprueba no es solo que responda: es que diga exactamente lo
+        mismo que `/api/nodes` sobre el trabajo en curso —si divergen, el aviso
+        de «terminó» llega cuando no toca— y que no arrastre el payload del
+        panel, que es la razón de que el endpoint exista.
+        """
+        status, job = self.request("/api/nodes/test-node/start", {
+            "generations": 1, "variants_per_seed": 1, "max_seeds": 1,
+            "execute_backtests": False, "dry_run": True,
+        })
+        self.assertEqual(status, 202)
+        deadline = time.time() + 3
+        while time.time() < deadline and self.controller.status()["job"]["status"] == "running":
+            time.sleep(.03)
+
+        status, pulse = self.request("/api/pulse")
+        self.assertEqual(status, 200)
+        node = pulse["nodes"][0]
+        self.assertEqual(node["id"], "test-node")
+        self.assertEqual(node["name"], "Test Node")
+        self.assertFalse(node["offline"])
+        self.assertEqual(node["job"]["status"], "completed")
+        self.assertEqual(node["job"]["job_type"], "generation")
+        self.assertIsNotNone(node["job"]["job_id"])
+        self.assertIsNotNone(node["job"]["finished_at"])
+
+        # Sin portfolio_project_dir no hay motor central para ese nodo: la lista
+        # va vacía en lugar de reventar.
+        self.assertEqual(pulse["portfolios"], [])
+
+        # El job del pulso es un recorte del de /api/nodes, no otra lectura.
+        _status, full = self.request("/api/nodes")
+        full_job = full["nodes"][0]["job"]
+        # `task_queue` es {count, items}: contar el dict daría el nº de claves.
+        self.assertEqual(node["queued"], full["nodes"][0]["task_queue"]["count"])
+        self.assertEqual(set(node["job"]), set(PULSE_JOB_KEYS))
+        for key in PULSE_JOB_KEYS:
+            self.assertEqual(node["job"][key], full_job[key], key)
+
+        # El recorte tiene que notarse: el comando, el pipeline y el snapshot de
+        # la base son justo lo que no puede viajar en cada sondeo.
+        self.assertLess(len(json.dumps(pulse)), len(json.dumps(full)) / 2)
+        self.assertNotIn("command", json.dumps(pulse))
 
     def test_manager_remembers_every_generation_field_that_was_launched(self) -> None:
         launch = {
