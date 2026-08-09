@@ -22,7 +22,7 @@ from .portfolio_service import (
     PortfolioCoordinator,
     legacy_compatible_portfolio_save_payload,
 )
-from .portfolio_scope import normalize_portfolio_scope
+from .portfolio_scope import PORTFOLIO_SCOPES, normalize_portfolio_scope
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -40,6 +40,16 @@ LAUNCH_PREFERENCE_KEYS = (
 )
 # Preferencias que el diálogo relee desde launch_defaults en lugar de launch_preferences.
 LAUNCH_DEFAULT_OVERRIDE_KEYS = ("generations", "variants_per_seed", "max_seeds")
+# Lo que un vigilante externo necesita para detectar que algo terminó o falló.
+# `/api/nodes` ronda los 400 KB porque lleva el comando completo, el pipeline y
+# el snapshot de la base de cada nodo; sondear eso cada medio minuto desde un
+# móvil no es razonable, así que `/api/pulse` proyecta solo estos campos.
+PULSE_JOB_KEYS = (
+    "job_id", "job_type", "status", "current_stage", "return_code",
+    "started_at", "finished_at", "error",
+)
+PULSE_PORTFOLIO_JOB_KEYS = ("status", "operation", "portfolio_id", "error")
+PULSE_PORTFOLIO_TASK_KEYS = ("id", "status", "operation", "portfolio_id", "error")
 
 
 def choose_directory(
@@ -244,11 +254,61 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     }
         return [results[str(node.get("id"))] for node in self.server.nodes]
 
+    def _pulse(self) -> dict[str, Any]:
+        """Estado mínimo para un vigilante externo, sin el peso del panel.
+
+        Se apoya en `_all_status` a propósito, aunque solo aproveche una parte:
+        duplicar aquí la consulta a los nodos abriría la puerta a que el móvil
+        y el panel no vieran lo mismo, que es justo lo que no puede pasar en un
+        aviso de «terminó» o «falló».
+
+        Los portafolios se leen del coordinador central, que los tiene en
+        memoria: no cuestan red y por eso van en la misma respuesta, para que el
+        vigilante cierre todo con una sola petición.
+        """
+        nodes = []
+        for status in self._all_status():
+            meta = status.get("manager_node") if isinstance(status.get("manager_node"), dict) else {}
+            job = status.get("job") if isinstance(status.get("job"), dict) else {}
+            # `task_queue` es el snapshot {count, items}, no una lista: contarlo
+            # directamente daría el número de claves del dict.
+            queue = status.get("task_queue") if isinstance(status.get("task_queue"), dict) else {}
+            nodes.append({
+                "id": meta.get("id"),
+                "name": meta.get("name"),
+                "offline": bool(status.get("offline")),
+                "error": status.get("error"),
+                "queued": safe_int(queue.get("count"), 0, minimum=0),
+                "job": {key: job.get(key) for key in PULSE_JOB_KEYS},
+            })
+        portfolios = []
+        for node in self.server.nodes:
+            node_id = str(node.get("id"))
+            if not str(node.get("portfolio_project_dir") or "").strip():
+                continue
+            for scope in PORTFOLIO_SCOPES:
+                try:
+                    state = self.server.portfolios.task_state(node_id, scope)
+                except (KeyError, ValueError):
+                    continue
+                job = state.get("job") if isinstance(state.get("job"), dict) else {}
+                task = state.get("task") if isinstance(state.get("task"), dict) else {}
+                portfolios.append({
+                    "node_id": node_id,
+                    "scope": scope,
+                    "job": {key: job.get(key) for key in PULSE_PORTFOLIO_JOB_KEYS},
+                    "task": {key: task.get(key) for key in PULSE_PORTFOLIO_TASK_KEYS},
+                })
+        return {"nodes": nodes, "portfolios": portfolios, "observed_at": utc_now()}
+
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
         if parsed.path == "/api/nodes":
             self._send_json(200, {"nodes": self._all_status(), "observed_at": utc_now()})
+            return
+        if parsed.path == "/api/pulse":
+            self._send_json(200, self._pulse())
             return
         if parsed.path.startswith("/api/nodes/") and parsed.path.endswith("/logs"):
             parts = parsed.path.strip("/").split("/")
