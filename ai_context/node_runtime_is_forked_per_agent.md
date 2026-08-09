@@ -86,3 +86,18 @@ cualquier mes guardado, porque excluir un miembro ya borraba el mes completo.
 
 Las casillas de selección de `portfolios_monthly.js` dependían de `isBundle`, que
 en un mes guardado es siempre falso: ese fue el segundo candado, en la interfaz.
+
+## Estado del port del veredicto de exclusión
+
+Excluir por degradación o por OHLC ≠ every tick escribe estados en la memoria del
+agente (y con ellos score y pesos). Detalle en `exclusion_verdict.md`.
+
+| Copia | Veredicto (`reason_code`) |
+| --- | --- |
+| Manager (`candidate_verdict.py`, `portfolio_service.py`, `node.py`) | sí |
+| ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano |
+| AXI | **no**, pendiente (`F:` no montada) |
+| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+
+Aquí el nodo sin portar **no falla en silencio**: devuelve la cuarentena sin
+`verdict_applied` y el manager avisa de que los estados no se tocaron.

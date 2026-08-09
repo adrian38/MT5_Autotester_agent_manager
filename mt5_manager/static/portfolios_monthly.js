@@ -212,7 +212,7 @@ function renderInventory() {
   document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.symbol)}</strong></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td></tr>`).join('') : '<tr><td colspan="5">No hay sets para los filtros actuales.</td></tr>';
   document.querySelector('#quarantine-title').textContent = 'Estrategias excluidas';
   document.querySelector('#quarantine-note').textContent = 'No participan en futuras generaciones de Portafolio UBS mensual hasta reintegrarlas.';
-  document.querySelector('#quarantine-rows').innerHTML = quarantine.length ? quarantine.map(row => `<tr><td title="${esc(row.set_path)}">${esc(row.set_name)}</td><td><strong>${esc(row.symbol || '')}</strong><small>${esc(row.source_account || '')}</small></td><td>${esc(row.timeframe || '')}</td><td>${esc(row.quarantined_at || '')}</td><td><button type="button" class="secondary table-action" onclick="releaseStrategy('${esc(row.quarantine_key || row.id)}')">Reintegrar</button></td></tr>`).join('') : '<tr><td colspan="5">No hay estrategias en cuarentena.</td></tr>';
+  renderQuarantineTables(quarantine);
 }
 
 function largestGroup(summary) {
@@ -419,31 +419,38 @@ async function excludeStrategy(source, index) {
   const setName = member.set_name || (member.set_path || member.set_id || '').split(/[\\/]/).pop();
   const saved = source === 'detail';
   const message = saved
-    ? `${setName} se pondrá en cuarentena y se borrará por completo el Portafolio UBS mensual #${selectedId}. ¿Continuar?`
-    : `${setName} dejará de participar en futuras generaciones mensuales. ¿Continuar?`;
-  if (!confirm(message)) return;
+    ? `${setName} se pondrá en cuarentena. El Portafolio UBS mensual #${selectedId} no se modifica: sigue guardado con esta estrategia.`
+    : `${setName} dejará de participar en futuras generaciones mensuales.`;
+  const reasonCode = await askExclusionReason({title: `Excluir ${setName}`, detail: message});
+  if (!reasonCode) return;
+  const verdict = reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(reasonCode)}`;
   try {
     const affectedPortfolioId = selectedId;
     await withSaveOverlay(
-      saved ? 'Borrando portafolio mensual' : 'Excluyendo estrategia',
-      saved
-        ? `Poniendo ${setName} en cuarentena y eliminando el portafolio #${affectedPortfolioId}…`
-        : `Poniendo ${setName} en cuarentena…`,
+      'Excluyendo estrategia',
+      `Poniendo ${setName} en cuarentena…`,
       async () => {
-        await postManager('exclude', {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null});
+        await postManager('exclude', {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: reasonCode});
         selectedProposal = null;
-        if (saved) selectedId = null;
-        await Promise.all([loadManagerState(), loadPortfolios(null)]);
+        await Promise.all([loadManagerState(), loadPortfolios(saved ? affectedPortfolioId : null)]);
       },
     );
-    toast(saved ? `${setName} puesta en cuarentena y portafolio #${affectedPortfolioId} borrado.` : `${setName} puesta en cuarentena.`);
+    toast(`${setName} puesta en cuarentena.` + verdict);
   } catch (error) { toast(error.message, true); }
 }
 
-async function releaseStrategy(quarantineId) {
-  if (!confirm('La estrategia volverá a ser elegible para futuros portafolios. ¿Continuar?')) return;
-  try { await postManager('release', {scope, quarantine_id: quarantineId}); toast('Estrategia reintegrada.'); await loadManagerState(); }
-  catch (error) { toast(error.message, true); }
+async function requalifyStrategy(quarantineId, currentCode) {
+  const target = await askQuarantineTarget({
+    title: 'Cambiar estado de la estrategia',
+    detail: 'Reclasificar deshace el veredicto vigente antes de aplicar el nuevo, así que nunca se acumulan.',
+    current: currentCode,
+  });
+  if (!target || target === currentCode) return;
+  try {
+    await postManager('requalify', {scope, quarantine_id: quarantineId, reason_code: target});
+    toast(target === 'pool' ? 'Estrategia reintegrada al pool.' : `Estrategia movida a «${exclusionReasonLabel(target)}».`);
+    await loadManagerState();
+  } catch (error) { toast(error.message, true); }
 }
 
 function updateDetailSelection() {
@@ -461,36 +468,29 @@ function toggleDetailSelection(index, checked) {
   updateDetailSelection();
 }
 
-async function waitForPortfolioRemoval(portfolioId) {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    await loadPortfolios();
-    if (!(portfolioData.portfolios || []).some(row => row.id === portfolioId)) return;
-    await new Promise(resolve => setTimeout(resolve, 400));
-  }
-  throw new Error(`El nodo confirmó el borrado, pero el portafolio #${portfolioId} sigue visible.`);
-}
-
 async function excludeSelectedStrategies() {
   if (!selectedId || !selectedDetailMembers.size) return;
   const members = [...selectedDetailMembers].sort((a, b) => a - b).map(index => detailMembers[index]).filter(Boolean);
   if (!members.length) return;
   const count = members.length;
-  if (!confirm(`Se pondrán ${count} estrategia${count === 1 ? '' : 's'} en cuarentena y después se borrará por completo el Portafolio UBS mensual #${selectedId}, sin recalcularlo. ¿Continuar?`)) return;
+  const reasonCode = await askExclusionReason({
+    title: `Excluir ${count} estrategia${count === 1 ? '' : 's'}`,
+    detail: `Se pondrán ${count} estrategia${count === 1 ? '' : 's'} en cuarentena. El Portafolio UBS mensual #${selectedId} no se modifica: sigue guardado con ellas.`,
+  });
+  if (!reasonCode) return;
   try {
     const affectedPortfolioId = selectedId;
     await withSaveOverlay(
-      'Excluyendo estrategias y borrando portafolio mensual',
-      `Poniendo ${count} estrategia${count === 1 ? '' : 's'} en cuarentena antes de eliminar el portafolio #${affectedPortfolioId}…`,
+      'Excluyendo estrategias',
+      `Poniendo ${count} estrategia${count === 1 ? '' : 's'} en cuarentena…`,
       async () => {
-        await postManager('exclude', {scope, portfolio_id: affectedPortfolioId, set_paths: members.map(member => member.set_path || member.set_id)});
+        await postManager('exclude', {scope, portfolio_id: affectedPortfolioId, set_paths: members.map(member => member.set_path || member.set_id), reason_code: reasonCode});
         selectedProposal = null;
         selectedDetailMembers.clear();
-        selectedId = null;
-        await waitForPortfolioRemoval(affectedPortfolioId);
-        await loadManagerState();
+        await Promise.all([loadManagerState(), loadPortfolios(affectedPortfolioId)]);
       },
     );
-    toast(`${count} estrategia${count === 1 ? '' : 's'} puesta${count === 1 ? '' : 's'} en cuarentena y portafolio #${affectedPortfolioId} borrado.`);
+    toast(`${count} estrategia${count === 1 ? '' : 's'} puesta${count === 1 ? '' : 's'} en cuarentena.`);
   } catch (error) { toast(error.message, true); }
 }
 

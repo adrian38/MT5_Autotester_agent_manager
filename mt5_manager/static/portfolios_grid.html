@@ -60,6 +60,10 @@
       <section class="inventory-panel"><div class="panel-title"><div><h2>Sets Grid disponibles por símbolo</h2><p id="inventory-summary" class="subtitle">Cargando disponibilidad…</p></div></div><div class="universe-table-wrap inventory-table-wrap"><table class="universe-table"><thead><tr><th>Símbolo</th><th>Total</th><th>Cuarentena</th><th>Usados</th><th>Disponibles</th></tr></thead><tbody id="inventory-symbols"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></section>
 
       <section class="inventory-panel"><div class="panel-title"><div><h2 id="quarantine-title">Estrategias excluidas</h2><p id="quarantine-note" class="subtitle"></p></div></div><div class="universe-table-wrap inventory-table-wrap"><table class="universe-table"><thead><tr><th>Set</th><th>Símbolo</th><th>TF</th><th>Desde</th><th></th></tr></thead><tbody id="quarantine-rows"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></section>
+      <div class="portfolio-inventory-verdicts">
+        <section class="inventory-panel"><div class="panel-title"><div><h2 id="quarantine-degradation-title">Excluidas por degradación</h2><p id="quarantine-degradation-note" class="subtitle">Rechazadas en el test de robustez del agente: dejan de sumar en score y en pesos.</p></div></div><p class="quarantine-verdict-note">Cambiar de estado devuelve robustez, Final Tick, Final Tick 6M y regresión al estado que tenían antes de excluirlas.</p><div class="universe-table-wrap inventory-table-wrap"><table class="universe-table"><thead><tr><th>Set</th><th>Símbolo</th><th>TF</th><th>Desde</th><th></th></tr></thead><tbody id="quarantine-degradation-rows"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></section>
+      <section class="inventory-panel"><div class="panel-title"><div><h2 id="quarantine-ohlc-title">Excluidas por OHLC ≠ every tick</h2><p id="quarantine-ohlc-note" class="subtitle">Rechazadas en Final Tick 6M, que es justo lo que esa prueba mide: dejan de sumar en score y en pesos.</p></div></div><p class="quarantine-verdict-note">Cambiar de estado devuelve Final Tick 6M y la regresión al estado que tenían antes de excluirlas.</p><div class="universe-table-wrap inventory-table-wrap"><table class="universe-table"><thead><tr><th>Set</th><th>Símbolo</th><th>TF</th><th>Desde</th><th></th></tr></thead><tbody id="quarantine-ohlc-rows"><tr><td colspan="5">Cargando…</td></tr></tbody></table></div></section>
+    </div>
     </section>
 
     <section class="portfolio-layout">
@@ -77,6 +81,6 @@
   <dialog id="portfolio-log-dialog" class="log-dialog"><div class="dialog-head"><div><p class="eyebrow">LOG DEL CONSTRUCTOR GRID</p><h2 id="portfolio-log-title">Salida del cálculo</h2></div><button type="button" class="icon-button" onclick="document.querySelector('#portfolio-log-dialog').close()">×</button></div><pre id="portfolio-log-content"></pre></dialog>
   <div id="save-overlay" class="save-overlay" role="dialog" aria-modal="true" aria-labelledby="save-overlay-title" hidden><div class="save-overlay-card"><span class="save-spinner" aria-hidden="true"></span><div aria-live="polite"><strong id="save-overlay-title">Procesando…</strong><p id="save-overlay-detail">Espera mientras se completa la operación.</p></div></div></div>
   <div id="toast" role="status"></div>
-  <script src="/portfolios_grid.js?v=20260806-2"></script>
+  <script src="/exclusion_reason.js"></script><script src="/portfolios_grid.js?v=20260806-2"></script>
 </body>
 </html>

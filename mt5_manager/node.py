@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from . import dev_branch
+from . import candidate_verdict, dev_branch
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
 from .portfolio_service import PortfolioSource, save_portfolio_payload
 from .portfolio_scope import normalize_portfolio_scope
@@ -1552,6 +1552,11 @@ class JobController:
     def exclude_portfolio_members(self, payload: dict[str, Any]) -> dict[str, Any]:
         scope = normalize_portfolio_scope(payload.get("scope"))
         source = self._portfolio_source()
+        # `verdict_applied` es la confirmación que el manager exige cuando el
+        # motivo no es manual. Un nodo sin portar no devuelve esta clave y el
+        # manager avisa en vez de dar por escrito un veredicto que no existe.
+        reason_code = candidate_verdict.normalize_reason_code(payload.get("reason_code"))
+        verdict_applied = reason_code != candidate_verdict.MANUAL
         if payload.get("set_paths") is not None:
             portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
             quarantine_ids = source.remove_members_to_quarantine(payload, scope)
@@ -1560,6 +1565,8 @@ class JobController:
                 "deleted": True,
                 "portfolio_id": portfolio_id,
                 "scope": scope,
+                "reason_code": reason_code,
+                "verdict_applied": verdict_applied,
             }
         # Single exclusion (from a saved portfolio, or straight from the inventory
         # when no portfolio_id is sent). This MUST run on the node: the manager
@@ -1575,6 +1582,8 @@ class JobController:
             "quarantine_id": quarantine_id,
             "portfolio_id": portfolio_id or None,
             "scope": scope,
+            "reason_code": reason_code,
+            "verdict_applied": verdict_applied,
         }
 
     def delete_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:

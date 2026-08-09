@@ -87,8 +87,10 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         # dejarían de comparar nada sin avisar. Esta ancla lo impide.
         self.assertIn("def remove_member_to_quarantine", self.manager_source)
         self.assertIn("def remove_members_to_quarantine", self.manager_source)
-        self.assertIn('if is_bundle or scope == "monthly":', self.manager_source)
         self.assertIn('if not (is_bundle or scope == "monthly"):', self.manager_source)
+        self.assertIn("def _quarantine_member", self.manager_source)
+        self.assertIn("def _apply_candidate_verdict", self.manager_source)
+        self.assertIn("def _assert_node_applied_verdict", self.manager_source)
 
     def test_batch_exclusion_accepts_monthly_on_every_reachable_fork(self) -> None:
         def check(project: Path, source: str) -> None:
@@ -110,27 +112,39 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "exclusión múltiple mensual")
 
-    def test_whole_deletion_criteria_match_the_manager_on_every_reachable_fork(self) -> None:
-        # El manager borra el portafolio entero cuando es bundle o mensual; el
-        # agente añade el caso múltiple, que implica lo mismo.
-        def check(project: Path, source: str) -> None:
-            self._assert_present(
-                source,
-                r'delete_whole = multiple or is_bundle or scope == "monthly"',
-                f"{project}: el criterio de borrado completo divergió del manager "
-                "(bundle o mensual se borran enteros; el full_history de objetivo "
-                "único se recalcula).",
-            )
+    def test_no_fork_deletes_the_saved_portfolio_when_excluding(self) -> None:
+        # Excluir decide sobre el pool y, si hay veredicto, sobre los estados del
+        # agente. El portafolio guardado no es un efecto colateral de eso: antes
+        # se borraba entero (bundle, mes o exclusión múltiple) o se le quitaba la
+        # asignación y se recalculaban sus métricas.
+        self._assert_absent(
+            self.manager_source,
+            r"self\.delete_portfolio\(portfolio_id, scope\)",
+            "El manager volvió a borrar el portafolio al excluir un miembro.",
+        )
 
-        self._assert_on_every_fork(check, "borrado completo")
+        def check(project: Path, source: str) -> None:
+            for pattern, hint in (
+                (r"delete_whole", "el borrado completo del portafolio"),
+                (r"_recalculate_saved_portfolio", "el recálculo del portafolio guardado"),
+            ):
+                self._assert_absent(
+                    source,
+                    pattern,
+                    f"{project}: la copia del agente sigue con {hint} al excluir. "
+                    "Portar la regla del manager (`PortfolioSource._quarantine_member`): "
+                    "la exclusión no toca el portafolio guardado.",
+                )
+
+        self._assert_on_every_fork(check, "el portafolio guardado sobrevive a la exclusión")
 
     def test_user_facing_exclusion_messages_match_on_every_reachable_fork(self) -> None:
         # El texto del mensaje es lo único que une las dos copias: los nombres de
         # función difieren. Si el texto se desincroniza, se pierde el único hilo
         # que permite encontrar la copia del agente al buscar por síntoma.
         expected = {
-            "Excluida manualmente de un portafolio A/M/C eliminado",
-            "Excluida manualmente de un Portafolio UBS mensual eliminado",
+            "Excluida manualmente desde un portafolio A/M/C guardado",
+            "Excluida manualmente desde un Portafolio UBS mensual guardado",
         }
         for text in expected:
             self.assertIn(text, self.manager_source, f"El manager perdió el texto: {text}")
@@ -144,6 +158,50 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
                 )
 
         self._assert_on_every_fork(check, "textos de cuarentena")
+
+    def test_the_verdict_reason_codes_reach_every_reachable_fork(self) -> None:
+        # Excluir por degradación o por OHLC ≠ every tick no retira la estrategia
+        # del portafolio: declara que falló y escribe estados en la memoria del
+        # agente, de donde salen score y pesos. Un nodo sin portar aceptaría el
+        # motivo y no escribiría nada, así que la pantalla prometería un cambio
+        # que no ocurre. `verdict_applied` es la confirmación que exige el manager.
+        def check(project: Path, source: str) -> None:
+            for token, hint in (
+                ("reason_code", "el motivo de exclusión"),
+                ("verdict_applied", "la confirmación del veredicto"),
+                ("restore_json", "el respaldo que permite reintegrar"),
+                ("mark_candidate_robustness", "el veredicto de degradación"),
+                ("mark_candidate_final_tick", "el veredicto de Final Tick 6M"),
+            ):
+                self._assert_present(
+                    source,
+                    re.escape(token),
+                    f"{project}: falta {hint} (`{token}`) en "
+                    "manager_node_runtime/portfolio_save.py. Portar el cambio desde "
+                    "mt5_manager/candidate_verdict.py y duplicar la prueba en "
+                    "tests/test_manager_node_portfolio_save.py.",
+                )
+
+        self._assert_on_every_fork(check, "veredicto de exclusión")
+
+    def test_the_verdict_texts_match_on_every_reachable_fork(self) -> None:
+        expected = {
+            "Excluida por degradación: rechazada en el test de robustez",
+            "Excluida porque el OHLC no se parece al every tick: rechazada en Final Tick 6M",
+        }
+        manager_texts = (MANAGER_ROOT / "mt5_manager" / "candidate_verdict.py").read_text(encoding="utf-8")
+        for text in expected:
+            self.assertIn(text, manager_texts, f"El manager perdió el texto: {text}")
+
+        def check(project: Path, source: str) -> None:
+            for text in sorted(expected):
+                self.assertIn(
+                    text,
+                    source,
+                    msg=f"{project}: la copia del agente no comparte el texto «{text}».",
+                )
+
+        self._assert_on_every_fork(check, "textos del veredicto")
 
     def test_every_reachable_fork_keeps_its_own_manager_node_test(self) -> None:
         # Paso 3 del procedimiento de `ai_context/node_runtime_is_forked_per_agent.md`:

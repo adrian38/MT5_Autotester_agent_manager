@@ -57,7 +57,7 @@ from portfolio_manager.ubs_portfolio import (
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
-from . import dev_branch
+from . import candidate_verdict, dev_branch
 from .common import load_json, safe_float, safe_int, save_json, utc_now
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 from .portfolio_full_experimental import optimize_experimental_full_portfolio
@@ -766,6 +766,11 @@ class PortfolioSource:
                 item["source_account"] = account_label
                 item["set_path"] = _resolve_source_path(item.get("set_path"), self.project)
                 item["set_name"] = Path(str(item.get("set_path") or "")).name
+                # El respaldo de etapas puede ocupar decenas de KB por fila y la
+                # interfaz solo necesita saber si existe.
+                item["restorable"] = bool(str(item.pop("restore_json", "") or "").strip())
+                item["reason_code"] = candidate_verdict.normalize_reason_code(item.get("reason_code"))
+                item["reason_label"] = candidate_verdict.REASON_LABELS[item["reason_code"]]
                 result.append(item)
         return sorted(result, key=lambda item: (str(item.get("quarantined_at") or ""), int(item.get("id") or 0)), reverse=True)
 
@@ -823,6 +828,12 @@ class PortfolioSource:
         lands in the memory that owns the candidate (the broker's), which is the
         global UBS quarantine. The Grid scope passes its manager-owned database
         instead, so a Grid exclusion is written where the Grid packages live.
+
+        ``reason_code`` decide además si la exclusión escribe un veredicto de
+        etapa en la memoria del candidato (`mt5_manager/candidate_verdict.py`).
+        El veredicto va siempre a la memoria que **posee** al candidato, aunque
+        la cuarentena se escriba en otra: en Grid la fila vive en la base del
+        manager, pero los estados, el score y los pesos son del agente.
         """
         requested = str(payload.get("set_path") or payload.get("set_id") or "").strip()
         if not requested:
@@ -837,39 +848,62 @@ class PortfolioSource:
         if not matches:
             raise ValueError("El set no pertenece a los candidatos Final Tick 6M accepted")
         row = matches[0]
-        source_memory = Path(memory or str(row.get("source_memory_path") or self.memory)).absolute()
+        candidate_memory = Path(str(row.get("source_memory_path") or self.memory)).absolute()
+        source_memory = Path(memory or candidate_memory).absolute()
         account_label = str(row.get("account_type") or f"{self.broker}/{self.account}")
-        with self.connect_memory(source_memory, write=True) as conn:
-            conn.execute(
-                """
-                create table if not exists portfolio_quarantine (
-                    id integer primary key autoincrement,account_type text not null,candidate_id,
-                    set_path text not null unique,symbol text,timeframe text,reason text not null default '',
-                    source_portfolio_id integer,quarantined_at text not null
+        reason_code = candidate_verdict.normalize_reason_code(payload.get("reason_code"))
+        candidate_id = row.get("source_candidate_id")
+        # El respaldo se lee ANTES de escribir nada y viaja con la cuarentena. Si
+        # el veredicto fallase despues, la fila ya guardada describe el estado
+        # actual y «Reintegrar» sigue siendo correcto.
+        restore_json = None
+        if reason_code != candidate_verdict.MANUAL:
+            # `write=True` aunque aqui solo se lea: es el unico modo de abrir el
+            # fichero real. Una lectura normal sobre una memoria remota devuelve
+            # la copia, que puede ir por detras, y el respaldo saldria de un
+            # estado que ya no es el que se va a rechazar.
+            with self.connect_memory(candidate_memory, write=True) as read_conn:
+                restore_json = candidate_verdict.dumps_snapshot(
+                    candidate_verdict.snapshot_candidate_stages(read_conn, candidate_id)
                 )
-                """
-            )
+        with self.connect_memory(source_memory, write=True) as conn:
+            candidate_verdict.ensure_quarantine_schema(conn)
             conn.execute(
                 """
-                insert into portfolio_quarantine(account_type,candidate_id,set_path,symbol,timeframe,reason,source_portfolio_id,quarantined_at)
-                values(?,?,?,?,?,?,?,?)
+                insert into portfolio_quarantine(account_type,candidate_id,set_path,symbol,timeframe,reason,source_portfolio_id,quarantined_at,reason_code,restore_json)
+                values(?,?,?,?,?,?,?,?,?,?)
                 on conflict(set_path) do update set account_type=excluded.account_type,candidate_id=excluded.candidate_id,
                     symbol=excluded.symbol,timeframe=excluded.timeframe,reason=excluded.reason,
-                    source_portfolio_id=excluded.source_portfolio_id,quarantined_at=excluded.quarantined_at
+                    source_portfolio_id=excluded.source_portfolio_id,quarantined_at=excluded.quarantined_at,
+                    reason_code=excluded.reason_code,restore_json=excluded.restore_json
                 """,
                 (
-                    account_label, row.get("source_candidate_id"), row.get("set_path"),
+                    account_label, candidate_id, row.get("set_path"),
                     portfolio_display_symbol(str(row.get("target_symbol") or row.get("symbol") or "")), row.get("period"),
-                    str(payload.get("reason") or "Excluida manualmente desde el manager"),
+                    candidate_verdict.reason_text(reason_code, payload.get("reason")),
                     safe_int(payload.get("portfolio_id"), 0) or None,
                     datetime.now().isoformat(timespec="seconds"),
+                    reason_code, restore_json,
                 ),
             )
             saved = conn.execute("select id from portfolio_quarantine where set_path=?", (row.get("set_path"),)).fetchone()
             conn.commit()
+        self._apply_candidate_verdict(candidate_memory, candidate_id, reason_code)
         return int(saved[0])
 
-    def release_strategy(self, quarantine_key: str | int) -> None:
+    def _apply_candidate_verdict(self, memory: Path, candidate_id: Any, reason_code: str) -> None:
+        """Escribe el veredicto de etapa en la memoria que posee al candidato.
+
+        REGLA DUPLICADA: el agente hace lo mismo desde
+        `manager_node_runtime/portfolio_save.py` llamando a `ubs.manual_status`.
+        """
+        if candidate_verdict.normalize_reason_code(reason_code) == candidate_verdict.MANUAL:
+            return
+        with self.connect_memory(Path(memory).absolute(), write=True) as conn:
+            candidate_verdict.apply_verdict(conn, candidate_id, reason_code)
+            conn.commit()
+
+    def _quarantine_memory(self, quarantine_key: str | int) -> tuple[Path, int]:
         raw = str(quarantine_key)
         if "|" in raw:
             account_label, raw_id = raw.rsplit("|", 1)
@@ -882,13 +916,83 @@ class PortfolioSource:
             quarantine_id = safe_int(raw, 0)
         if quarantine_id < 1:
             raise ValueError("Identificador de cuarentena inválido")
+        return Path(memory).absolute(), quarantine_id
+
+    def requalify_strategy(self, quarantine_key: str | int, reason_code: str) -> str:
+        """Mueve una estrategia excluida entre los cuatro estados posibles.
+
+        Los tres motivos de exclusión y el pool son estados de una misma cosa, no
+        operaciones independientes: reclasificar es **deshacer el veredicto
+        actual y aplicar el nuevo**, nunca aplicar uno encima de otro. Sin
+        deshacer primero, pasar de degradación a OHLC guardaría como «estado
+        anterior» una memoria a la que ya le faltan Final Tick y 6M, y el
+        candidato no volvería nunca al pool.
+
+        No pasa por `candidate_rows`: un candidato con veredicto ya no está ahí.
+        Todo lo que hace falta está en la fila de cuarentena.
+        """
+        target = candidate_verdict.normalize_reason_code(reason_code) if str(reason_code) != "pool" else "pool"
+        memory, quarantine_id = self._quarantine_memory(quarantine_key)
         with self.connect_memory(memory, write=True) as conn:
             if not _table_exists(conn, "portfolio_quarantine"):
                 raise ValueError("No existe la cuarentena")
-            deleted = conn.execute("delete from portfolio_quarantine where id=?", (quarantine_id,))
-            if deleted.rowcount != 1:
+            candidate_verdict.ensure_quarantine_schema(conn)
+            row = conn.execute(
+                "select account_type,candidate_id,reason,reason_code,restore_json"
+                " from portfolio_quarantine where id=?", (quarantine_id,)
+            ).fetchone()
+            if row is None:
                 raise ValueError("La estrategia excluida ya no existe")
+            current = candidate_verdict.normalize_reason_code(row["reason_code"])
             conn.commit()
+        if target == current:
+            return current
+        candidate_memory = next(
+            (path for label, path in self.memory_sources if label == str(row["account_type"] or "")),
+            memory,
+        )
+        restore_json: str | None = None
+        with self.connect_memory(candidate_memory, write=True) as conn:
+            # 1. Deshacer el veredicto vigente, si lo hubiera.
+            candidate_verdict.restore_candidate_stages(conn, row["restore_json"])
+            # 2. Fotografiar el estado ya restaurado, que es el que habrá que
+            #    devolver la próxima vez.
+            snapshot = candidate_verdict.snapshot_candidate_stages(conn, row["candidate_id"])
+            if target not in {"pool", candidate_verdict.MANUAL}:
+                if not snapshot:
+                    raise ValueError(
+                        "El candidato ya no tiene etapas en la memoria del agente: "
+                        "no se puede aplicar el veredicto"
+                    )
+                restore_json = candidate_verdict.dumps_snapshot(snapshot)
+                candidate_verdict.apply_verdict(conn, row["candidate_id"], target)
+            conn.commit()
+        with self.connect_memory(memory, write=True) as conn:
+            if target == "pool":
+                conn.execute("delete from portfolio_quarantine where id=?", (quarantine_id,))
+            else:
+                conn.execute(
+                    "update portfolio_quarantine set reason_code=?,reason=?,restore_json=?,quarantined_at=?"
+                    " where id=?",
+                    (
+                        target,
+                        candidate_verdict.reason_text(target, candidate_verdict.origin_text(row["reason"])),
+                        restore_json,
+                        datetime.now().isoformat(timespec="seconds"),
+                        quarantine_id,
+                    ),
+                )
+            conn.commit()
+        return target
+
+    def release_strategy(self, quarantine_key: str | int) -> None:
+        """Devuelve la estrategia al pool: es reclasificarla al estado `pool`.
+
+        Delega en `requalify_strategy` para que reintegrar y reclasificar no
+        puedan divergir: las dos operaciones tienen que deshacer el veredicto
+        vigente antes de nada.
+        """
+        self.requalify_strategy(quarantine_key, "pool")
 
     def used_set_paths(
         self,
@@ -1357,59 +1461,59 @@ class PortfolioSource:
         member = next((item for item in detail.get("members") or [] if self._match_key(item.get("set_path")) == requested), None)
         if member is None:
             raise ValueError("No se encontró la estrategia dentro del portafolio")
-        # A/M/C bundles are always deleted whole. Monthly portfolios behave the
-        # same way as the UBS (full_history) bundles do in practice: excluding a
-        # member invalidates the saved month, so quarantine the set and delete
-        # the whole portfolio instead of recalculating a partial month.
-        if is_bundle or scope == "monthly":
-            quarantine_id = self.exclude_strategy({
-                **payload,
-                "set_path": member.get("set_path") or member.get("set_id"),
-                "portfolio_id": portfolio_id,
-                "reason": payload.get("reason") or (
-                    "Excluida manualmente de un portafolio A/M/C eliminado" if is_bundle
-                    else "Excluida manualmente de un Portafolio UBS mensual eliminado"
-                ),
-            })
-            self.delete_portfolio(portfolio_id, scope)
-            return quarantine_id
+        return self._quarantine_member(member, portfolio_id, payload, is_bundle, scope)
+
+    def _quarantine_member(
+        self, member: dict[str, Any], portfolio_id: int, payload: dict[str, Any],
+        is_bundle: bool, scope: str,
+    ) -> int:
+        """Pone en cuarentena un miembro guardado, sin tocar el portafolio.
+
+        EL PORTAFOLIO GUARDADO NO SE MODIFICA. Antes, excluir un miembro borraba
+        el A/M/C o el mes entero, y en un `full_history` de objetivo único
+        quitaba la asignación y recalculaba las métricas. Las dos cosas
+        destruían un resultado guardado como efecto colateral de una decisión
+        sobre el pool. La exclusión afecta ahora a lo que decide: el pool y, si
+        hay veredicto, los estados del agente.
+
+        No pasa por `candidate_rows` a propósito: un candidato con veredicto ya
+        no aparece ahí (`exclude_strategy` lo exige y fallaría), y aun así tiene
+        que poder excluirse desde el portafolio que lo contiene. Los datos salen
+        del miembro guardado, que es donde están.
+        """
         candidate_text = str(member.get("candidate_id") or "")
         candidate_id = safe_int(candidate_text.rsplit(":", 1)[-1], 0) or None
         account_label = candidate_text.rsplit(":", 1)[0] if ":" in candidate_text else f"{self.broker}/{self.account}"
         source_memory = next((path for label, path in self.memory_sources if label == account_label), self.memory)
         set_path = str(member.get("set_path") or member.get("set_id") or "")
+        reason_code = candidate_verdict.normalize_reason_code(payload.get("reason_code"))
+        default_reason = (
+            "Excluida manualmente desde un portafolio A/M/C guardado" if is_bundle
+            else "Excluida manualmente desde un Portafolio UBS mensual guardado" if scope == "monthly"
+            else "Retirada manualmente de un portafolio guardado"
+        )
         with self.connect_memory(source_memory, write=True) as source_conn:
+            candidate_verdict.ensure_quarantine_schema(source_conn)
+            restore_json = candidate_verdict.dumps_snapshot(
+                candidate_verdict.snapshot_candidate_stages(source_conn, candidate_id)
+            ) if reason_code != candidate_verdict.MANUAL else None
             source_conn.execute(
-                """insert into portfolio_quarantine(account_type,candidate_id,set_path,symbol,timeframe,reason,source_portfolio_id,quarantined_at)
-                   values(?,?,?,?,?,?,?,?) on conflict(set_path) do update set account_type=excluded.account_type,
+                """insert into portfolio_quarantine(account_type,candidate_id,set_path,symbol,timeframe,reason,source_portfolio_id,quarantined_at,reason_code,restore_json)
+                   values(?,?,?,?,?,?,?,?,?,?) on conflict(set_path) do update set account_type=excluded.account_type,
                    candidate_id=excluded.candidate_id,symbol=excluded.symbol,timeframe=excluded.timeframe,
-                   reason=excluded.reason,source_portfolio_id=excluded.source_portfolio_id,quarantined_at=excluded.quarantined_at""",
+                   reason=excluded.reason,source_portfolio_id=excluded.source_portfolio_id,quarantined_at=excluded.quarantined_at,
+                   reason_code=excluded.reason_code,restore_json=excluded.restore_json""",
                 (account_label, candidate_id, set_path, str(member.get("symbol") or ""), str(member.get("timeframe") or ""),
-                 str(payload.get("reason") or "Retirada manualmente de un portafolio guardado"), portfolio_id,
-                 datetime.now().isoformat(timespec="seconds")),
+                 candidate_verdict.reason_text(reason_code, payload.get("reason") or default_reason),
+                 portfolio_id, datetime.now().isoformat(timespec="seconds"), reason_code, restore_json),
             )
             quarantine_id = int(source_conn.execute("select id from portfolio_quarantine where set_path=?", (set_path,)).fetchone()[0])
+            candidate_verdict.apply_verdict(source_conn, candidate_id, reason_code)
             source_conn.commit()
-        with self.connect(write=True) as conn:
-            row = conn.execute("select active_strategies,target_strategies from portfolios where id=?", (portfolio_id,)).fetchone()
-            if row is None:
-                raise ValueError("El portafolio ya no existe")
-            target = max(int(row[0] or 0), int(row[1] or 0))
-            conn.execute("update portfolios set target_strategies=? where id=?", (target, portfolio_id))
-            allocations = conn.execute("select id,set_path from portfolio_allocations where portfolio_id=?", (portfolio_id,)).fetchall()
-            ids = [int(row["id"]) for row in allocations if self._match_key(row["set_path"]) == requested]
-            if not ids:
-                raise ValueError("No se encontró la asignación dentro del portafolio")
-            conn.executemany("delete from portfolio_allocations where id=?", [(value,) for value in ids])
-            members = conn.execute("select id,set_path from portfolio_members where portfolio_id=?", (portfolio_id,)).fetchall()
-            member_ids = [int(row["id"]) for row in members if self._match_key(row["set_path"]) == requested]
-            conn.executemany("delete from portfolio_members where id=?", [(value,) for value in member_ids])
-            self._recalculate_saved(conn, portfolio_id)
-            conn.commit()
         return quarantine_id
 
     def remove_members_to_quarantine(self, payload: dict[str, Any], scope: str) -> list[int]:
-        """Excluye varios miembros y borra el portafolio que los contenía.
+        """Excluye varios miembros. El portafolio guardado no se toca.
 
         REGLA DUPLICADA. Igual que `remove_member_to_quarantine`: el agente la
         reimplementa en `manager_node_runtime/portfolio_save.py`, y es la copia del
@@ -1424,10 +1528,9 @@ class PortfolioSource:
             raise ValueError("Selecciona al menos una estrategia")
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
         is_bundle = _is_bundle_portfolio(detail)
-        # Se admite donde la exclusión borra el portafolio entero: bundles A/M/C
-        # y mensuales, exactamente el mismo criterio que remove_member_to_quarantine.
-        # Un portafolio de objetivo único (full_history) se recalcula tras quitar
-        # un miembro, así que ahí la exclusión sigue siendo de una en una.
+        # Se admite en bundles A/M/C y mensuales, que es donde la interfaz ofrece
+        # las casillas de selección. Ya no hay ninguna asimetría de borrado
+        # detrás: ningún ámbito borra ni modifica el portafolio guardado.
         if not (is_bundle or scope == "monthly"):
             raise ValueError("La exclusión múltiple solo está disponible para portafolios A/M/C y mensuales")
         members_by_path = {
@@ -1444,19 +1547,10 @@ class PortfolioSource:
                 raise ValueError("Una de las estrategias seleccionadas ya no pertenece al portafolio")
             seen.add(key)
             members.append(member)
-        quarantine_ids = [
-            self.exclude_strategy({
-                **payload,
-                "set_path": member.get("set_path") or member.get("set_id"),
-                "reason": payload.get("reason") or (
-                    "Excluida manualmente de un portafolio A/M/C eliminado" if is_bundle
-                    else "Excluida manualmente de un Portafolio UBS mensual eliminado"
-                ),
-            })
+        return [
+            self._quarantine_member(member, portfolio_id, payload, is_bundle, scope)
             for member in members
         ]
-        self.delete_portfolio(portfolio_id, scope)
-        return quarantine_ids
 
     def open_member_report(self, portfolio_id: int, scope: str, set_path: str) -> str:
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
@@ -3364,7 +3458,7 @@ class PortfolioCoordinator:
         source = self._persistence_source(node_id, scope)
         return source.saved_portfolio_detail(portfolio_id, scope) if portfolio_id is not None else source.saved_portfolios(scope)
 
-    def _quarantine_grid_set(self, node_id: str, set_path: str, reason: str) -> int:
+    def _quarantine_grid_set(self, node_id: str, set_path: str, reason: str, reason_code: str = "manual") -> int:
         """Quarantine one set in the manager's own Grid database.
 
         The node endpoint cannot be used here: it requires a ``portfolio_id``
@@ -3375,17 +3469,25 @@ class PortfolioCoordinator:
         of every memory source, so the exclusion holds on the next generation.
         A Grid exclusion is therefore Grid-only; the broker quarantine written
         from the UBS screens keeps applying to Grid as well.
+
+        El veredicto de etapa es la excepción a esa asimetría, y a propósito: los
+        estados, el score y los pesos son del agente, no de Grid, así que
+        `exclude_strategy` los escribe en la memoria del broker aunque la fila de
+        cuarentena se quede aquí. Una estrategia rechazada por degradación deja
+        de ser candidata en los tres ámbitos, que es lo que significa el rechazo.
         """
         source = self._calculation_source(node_id, "grid")
         grid_memory = self._persistence_source(node_id, "grid").memory
-        return source.exclude_strategy({"set_path": set_path, "reason": reason}, memory=grid_memory)
+        return source.exclude_strategy(
+            {"set_path": set_path, "reason": reason, "reason_code": reason_code}, memory=grid_memory
+        )
 
     def exclude_grid(self, node_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Quarantine Grid strategies and drop the saved package that held them.
+        """Quarantine Grid strategies. The saved package is left untouched.
 
-        Excluding a member invalidates the three variants, so the package is
-        deleted whole instead of being recalculated, exactly like a UBS A/M/C
-        bundle.
+        Antes se borraba el paquete A/M/C entero, igual que en UBS. Ya no: la
+        exclusión decide sobre el pool y, si hay veredicto, sobre los estados del
+        agente; el resultado guardado no es un efecto colateral de eso.
         """
         portfolio_id = safe_int(payload.get("portfolio_id"), 0)
         raw_paths = payload.get("set_paths")
@@ -3400,8 +3502,9 @@ class PortfolioCoordinator:
                 paths.append(text)
         if not paths:
             raise ValueError("Falta identificar el set que se quiere excluir")
+        reason_code = candidate_verdict.normalize_reason_code(payload.get("reason_code"))
         reason = str(payload.get("reason") or "").strip() or (
-            "Excluida manualmente de un paquete Grid A/M/C eliminado" if portfolio_id
+            "Excluida manualmente desde un paquete Grid A/M/C guardado" if portfolio_id
             else "Excluida manualmente desde el manager Grid"
         )
         source = self._persistence_source(node_id, "grid")
@@ -3411,14 +3514,14 @@ class PortfolioCoordinator:
             for path in paths:
                 if source._match_key(path) not in members:
                     raise ValueError("Una de las estrategias seleccionadas ya no pertenece al portafolio Grid")
-        quarantine_ids = [self._quarantine_grid_set(node_id, path, reason) for path in paths]
-        if portfolio_id:
-            source.delete_portfolio(portfolio_id, "grid")
-        self._drop_cached_proposals(node_id)
+        quarantine_ids = [self._quarantine_grid_set(node_id, path, reason, reason_code) for path in paths]
+        # El veredicto se escribe en la memoria del broker, que el manager lee por
+        # copia: sin invalidar la firma seguiría enseñando al candidato aceptado.
+        self.invalidate_after_exclusion(node_id)
         return {
             "quarantine_id": quarantine_ids[0],
             "quarantine_ids": quarantine_ids,
-            "deleted": bool(portfolio_id),
+            "deleted": False,
             "portfolio_id": portfolio_id or None,
             "scope": "grid",
         }
@@ -3455,11 +3558,34 @@ class PortfolioCoordinator:
                 source = PortfolioSource(node)
                 for _account, memory in source.memory_sources:
                     source._invalidate_remote_snapshot(memory)
+            self._assert_node_applied_verdict(payload, value)
         else:
             source = PortfolioSource(node)
             quarantine_id = source.remove_member_to_quarantine(payload, scope) if safe_int(payload.get("portfolio_id"), 0) else source.exclude_strategy(payload)
         self._drop_cached_proposals(node_id)
         return quarantine_id
+
+    @staticmethod
+    def _assert_node_applied_verdict(payload: dict[str, Any], value: dict[str, Any]) -> None:
+        """Un nodo sin portar acepta el motivo y no escribe el veredicto.
+
+        La copia de `manager_node_runtime/` es distinta en cada agente y se porta
+        a mano, así que un nodo antiguo devuelve 200 tras poner la estrategia en
+        cuarentena y descarta `reason_code` en silencio: el usuario creería que
+        se actualizaron estados, score y pesos cuando no se tocó nada. El nodo
+        portado confirma con `verdict_applied`; sin esa confirmación, esto falla
+        y dice exactamente qué ha pasado y qué queda por hacer.
+        """
+        reason_code = candidate_verdict.normalize_reason_code(payload.get("reason_code"))
+        if reason_code == candidate_verdict.MANUAL or value.get("verdict_applied"):
+            return
+        raise ValueError(
+            "La estrategia quedó en cuarentena, pero el nodo no escribió el veredicto "
+            f"«{candidate_verdict.REASON_LABELS[reason_code]}»: estados, score y pesos siguen "
+            "igual en la memoria del agente. Ese nodo aún no tiene portado el cambio en "
+            "manager_node_runtime/portfolio_save.py; actualízalo y reinícialo. "
+            "Puedes reintegrar la estrategia desde la tabla de excluidas."
+        )
 
     def _invalidate_node_snapshots(self, node_id: str) -> None:
         """Obliga a recopiar la memoria del nodo en la proxima lectura.
@@ -3494,8 +3620,23 @@ class PortfolioCoordinator:
         # La clave de cuarentena lleva la etiqueta de la memoria que la guarda.
         # En Grid esa memoria es la base del manager, que solo aparece en las
         # fuentes de cálculo de ese ámbito.
-        self._calculation_source(node_id, scope).release_strategy(quarantine_id)
-        self._drop_cached_proposals(node_id)
+        self.requalify(node_id, scope, quarantine_id, "pool")
+
+    def requalify(self, node_id: str, scope: str, quarantine_id: str | int, reason_code: str) -> str:
+        """Mueve una estrategia excluida entre los tres motivos y el pool.
+
+        Se ejecuta en el manager, como la reintegración de siempre, no en el
+        nodo: la escritura es sobre la memoria del broker y no depende de ningún
+        portafolio guardado, así que el endpoint del nodo no aporta nada aquí.
+        """
+        # La clave de cuarentena lleva la etiqueta de la memoria que la guarda.
+        # En Grid esa memoria es la base del manager, que solo aparece en las
+        # fuentes de cálculo de ese ámbito.
+        target = self._calculation_source(node_id, scope).requalify_strategy(quarantine_id, reason_code)
+        # Reclasificar devuelve y vuelve a escribir filas de etapa en la memoria
+        # del broker: hay que tirar la copia como en cualquier escritura.
+        self.invalidate_after_exclusion(node_id)
+        return target
 
     def undo(self, node_id: str, scope: str, portfolio_id: int) -> int:
         return self._persistence_source(node_id, scope).undo_latest(portfolio_id, scope)
