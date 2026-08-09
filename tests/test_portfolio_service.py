@@ -264,7 +264,7 @@ class PortfolioServiceTests(unittest.TestCase):
         settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]})
         self.assertEqual(settings["min_strategy_recent_contribution_pct"], 5.0)
 
-    def test_excluding_a_bundle_member_quarantines_it_and_deletes_the_portfolio(self) -> None:
+    def test_excluding_a_bundle_member_quarantines_it_and_keeps_the_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             (project / "outputs").mkdir()
@@ -309,14 +309,19 @@ class PortfolioServiceTests(unittest.TestCase):
 
             self.assertGreater(quarantine_id, 0)
             with source.connect() as conn:
-                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+                # El portafolio guardado no es un efecto colateral de una decision
+                # sobre el pool: sigue ahi, con su asignacion intacta.
+                self.assertIsNotNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+                self.assertEqual(conn.execute(
+                    "select count(*) from portfolio_allocations where portfolio_id=?", (portfolio_id,)
+                ).fetchone()[0], 1)
                 quarantine = conn.execute(
                     "select set_path,source_portfolio_id from portfolio_quarantine where id=?", (quarantine_id,)
                 ).fetchone()
             self.assertEqual(quarantine["set_path"], set_path)
             self.assertEqual(quarantine["source_portfolio_id"], portfolio_id)
 
-    def test_excluding_a_monthly_member_quarantines_it_and_deletes_the_portfolio(self) -> None:
+    def test_excluding_a_monthly_member_quarantines_it_and_keeps_the_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             (project / "outputs").mkdir()
@@ -361,21 +366,25 @@ class PortfolioServiceTests(unittest.TestCase):
 
             self.assertGreater(quarantine_id, 0)
             with source.connect() as conn:
-                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+                # El portafolio guardado no es un efecto colateral de una decision
+                # sobre el pool: sigue ahi, con su asignacion intacta.
+                self.assertIsNotNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+                self.assertEqual(conn.execute(
+                    "select count(*) from portfolio_allocations where portfolio_id=?", (portfolio_id,)
+                ).fetchone()[0], 1)
                 quarantine = conn.execute(
                     "select set_path,source_portfolio_id from portfolio_quarantine where id=?", (quarantine_id,)
                 ).fetchone()
             self.assertEqual(quarantine["set_path"], set_path)
             self.assertEqual(quarantine["source_portfolio_id"], portfolio_id)
 
-    def test_excluding_a_member_saved_under_a_foreign_project_root_still_deletes(self) -> None:
+    def test_excluding_a_member_saved_under_a_foreign_project_root_still_matches(self) -> None:
         # Regression: portfolio 49 was saved while the manager ran in Docker, so
         # its members were stored under /data/roboforex/.../outputs/... . The
         # manager now runs on Windows (project on a mapped drive). The member
         # lookup compared a freshly resolved request against the raw stored path,
-        # so it never matched, raised "no se encontró la estrategia", and the
-        # monthly portfolio was never deleted (it kept reappearing). Both sides
-        # must be resolved to the current project first.
+        # so it never matched and the exclusion aborted with "no se encontró la
+        # estrategia". Both sides must be resolved to the current project first.
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             (project / "outputs").mkdir()
@@ -422,9 +431,9 @@ class PortfolioServiceTests(unittest.TestCase):
 
             self.assertGreater(quarantine_id, 0)
             with source.connect() as conn:
-                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+                self.assertIsNotNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
 
-    def test_excluding_multiple_bundle_members_quarantines_all_before_deleting(self) -> None:
+    def test_excluding_multiple_bundle_members_quarantines_all_and_keeps_the_bundle(self) -> None:
         source = object.__new__(PortfolioSource)
         source.project = Path(".")
         events: list[str] = []
@@ -439,19 +448,71 @@ class PortfolioServiceTests(unittest.TestCase):
             ],
         }}
 
-        def exclude(payload: dict[str, object]) -> int:
-            events.append(f"exclude:{payload['set_path']}")
+        def quarantine(member: dict[str, object], *_args: object) -> int:
+            events.append(f"exclude:{member['set_path']}")
             return len(events)
 
         with patch.object(source, "saved_portfolio_detail", return_value=detail), patch.object(
-            source, "exclude_strategy", side_effect=exclude
-        ), patch.object(source, "delete_portfolio", side_effect=lambda *_: events.append("delete")):
+            source, "_quarantine_member", side_effect=quarantine
+        ), patch.object(source, "delete_portfolio", side_effect=AssertionError("no debe borrar")):
             quarantine_ids = source.remove_members_to_quarantine(
                 {"portfolio_id": 40, "set_paths": ["first.set", "second.set"]}, "full_history"
             )
 
         self.assertEqual(quarantine_ids, [1, 2])
-        self.assertEqual(events, [f"exclude:{first_path}", f"exclude:{second_path}", "delete"])
+        self.assertEqual(events, [f"exclude:{first_path}", f"exclude:{second_path}"])
+
+    def test_excluding_multiple_monthly_members_is_allowed_and_keeps_the_month(self) -> None:
+        # La exclusión múltiple vale aunque el tipo no sea 'bundle', y el mes
+        # guardado sobrevive igual que el A/M/C.
+        source = object.__new__(PortfolioSource)
+        source.project = Path(".")
+        events: list[str] = []
+        first_path = str(Path("first.set").absolute())
+        second_path = str(Path("second.set").absolute())
+        detail = {"portfolio": {
+            "portfolio_type": "aggressive",
+            "target_month": 8,
+            "metrics": {},
+            "members": [
+                {"set_path": first_path, "set_id": first_path},
+                {"set_path": second_path, "set_id": second_path},
+            ],
+        }}
+        reasons: list[str] = []
+
+        def quarantine(member: dict[str, object], _portfolio_id: object, _payload: object,
+                       _is_bundle: object, member_scope: str) -> int:
+            events.append(f"exclude:{member['set_path']}")
+            reasons.append(member_scope)
+            return len(events)
+
+        with patch.object(source, "saved_portfolio_detail", return_value=detail), patch.object(
+            source, "_quarantine_member", side_effect=quarantine
+        ), patch.object(source, "delete_portfolio", side_effect=AssertionError("no debe borrar")):
+            quarantine_ids = source.remove_members_to_quarantine(
+                {"portfolio_id": 88, "set_paths": ["first.set", "second.set"]}, "monthly"
+            )
+
+        self.assertEqual(quarantine_ids, [1, 2])
+        self.assertEqual(events, [f"exclude:{first_path}", f"exclude:{second_path}"])
+        self.assertEqual(reasons, ["monthly", "monthly"])
+
+    def test_excluding_multiple_members_is_rejected_on_a_single_objective_portfolio(self) -> None:
+        # Las casillas de selección solo se ofrecen en A/M/C y mensuales, así que
+        # la exclusión múltiple sigue vetada en un full_history de objetivo único
+        # aunque ya no haya ninguna asimetría de borrado detrás.
+        source = object.__new__(PortfolioSource)
+        source.project = Path(".")
+        detail = {"portfolio": {"portfolio_type": "balanced", "metrics": {}, "members": []}}
+
+        with patch.object(source, "saved_portfolio_detail", return_value=detail):
+            with self.assertRaises(ValueError) as error:
+                source.remove_members_to_quarantine(
+                    {"portfolio_id": 12, "set_paths": ["first.set"]}, "full_history"
+                )
+
+        self.assertIn("A/M/C y mensuales", str(error.exception))
 
     def _grid_package(self, coordinator: PortfolioCoordinator, node_id: str, set_paths: list[str]) -> int:
         grid = coordinator._persistence_source(node_id, "grid")
@@ -473,7 +534,7 @@ class PortfolioServiceTests(unittest.TestCase):
             conn.commit()
         return portfolio_id
 
-    def test_excluding_a_grid_member_quarantines_it_in_the_manager_and_deletes_the_package(self) -> None:
+    def test_excluding_a_grid_member_quarantines_it_in_the_manager_and_keeps_the_package(self) -> None:
         # El endpoint de exclusión del nodo exige un portfolio_id que exista en
         # su memoria ("Falta el portafolio que contiene las estrategias"), y el
         # paquete Grid solo existe en el manager. La cuarentena Grid se escribe
@@ -507,14 +568,14 @@ class PortfolioServiceTests(unittest.TestCase):
             with patch.object(PortfolioSource, "candidate_rows", return_value=[candidate]):
                 result = coordinator.exclude_grid("ic", {"portfolio_id": portfolio_id, "set_path": set_path})
 
-            self.assertTrue(result["deleted"])
+            self.assertFalse(result["deleted"])
             self.assertEqual(result["portfolio_id"], portfolio_id)
             self.assertGreater(result["quarantine_id"], 0)
             with coordinator._persistence_source("ic", "grid").connect() as conn:
                 quarantine = conn.execute(
                     "select set_path from portfolio_quarantine where id=?", (result["quarantine_id"],)
                 ).fetchone()
-                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+                self.assertIsNotNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
             self.assertEqual(quarantine["set_path"], set_path)
             # La memoria del broker no se toca: la exclusión Grid es de Grid.
             with PortfolioSource(node).connect() as conn:
@@ -529,7 +590,7 @@ class PortfolioServiceTests(unittest.TestCase):
             coordinator.release("ic", "grid", str(rows[0]["quarantine_key"]))
             self.assertEqual(coordinator._calculation_source("ic", "grid").quarantine_rows(), [])
 
-    def test_excluding_several_grid_members_quarantines_all_before_deleting_the_package(self) -> None:
+    def test_excluding_several_grid_members_quarantines_all_and_keeps_the_package(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir) / "project"
             (project / "outputs").mkdir(parents=True)
@@ -565,7 +626,7 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(len(result["quarantine_ids"]), 2)
             with coordinator._persistence_source("ic", "grid").connect() as conn:
                 stored = [row[0] for row in conn.execute("select set_path from portfolio_quarantine order by id")]
-                self.assertIsNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
+                self.assertIsNotNone(conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone())
             self.assertEqual(stored, paths)
 
     def test_excluding_a_grid_member_rejects_a_set_outside_the_saved_package(self) -> None:

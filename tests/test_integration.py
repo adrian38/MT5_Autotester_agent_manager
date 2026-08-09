@@ -526,10 +526,11 @@ enabled=0
 
         self.assertEqual(status, 201)
         self.assertGreater(payload["quarantine_id"], 0)
-        self.assertTrue(payload["deleted"])
+        # Excluir ya no borra el paquete guardado en ningun ambito.
+        self.assertFalse(payload["deleted"])
         self.assertEqual(payload["portfolio_id"], portfolio_id)
         with grid.connect() as conn:
-            self.assertIsNone(
+            self.assertIsNotNone(
                 conn.execute("select id from portfolios where id=?", (portfolio_id,)).fetchone()
             )
             self.assertEqual(

@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import dev_branch
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
 from .portfolio_service import (
     PortfolioCoordinator,
@@ -41,7 +42,10 @@ LAUNCH_PREFERENCE_KEYS = (
 LAUNCH_DEFAULT_OVERRIDE_KEYS = ("generations", "variants_per_seed", "max_seeds")
 
 
-def choose_directory(initial_directory: str | None = None) -> str | None:
+def choose_directory(
+    initial_directory: str | None = None,
+    title: str = "Selecciona la carpeta para exportar los sets",
+) -> str | None:
     """Open the native desktop folder picker on the manager machine."""
     try:
         import tkinter as tk
@@ -60,7 +64,7 @@ def choose_directory(initial_directory: str | None = None) -> str | None:
             root.update()
             selected = filedialog.askdirectory(
                 parent=root,
-                title="Selecciona la carpeta para exportar los sets",
+                title=title,
                 initialdir=str(initial),
                 mustexist=True,
             )
@@ -321,6 +325,15 @@ class ManagerHandler(BaseHTTPRequestHandler):
             "portfolios.html", "portfolios.js",
             "portfolios_monthly.html", "portfolios_monthly.js",
             "portfolios_grid.html", "portfolios_grid.js",
+            # Primitiva compartida por los tres ámbitos: el diálogo del motivo de
+            # exclusión y las etiquetas de sus tres códigos. La interfaz de cada
+            # ámbito sigue siendo suya; lo que no puede divergir es el código que
+            # viaja al nodo y decide qué se escribe en la memoria del agente.
+            "exclusion_reason.js",
+            # Importar es el reflejo de exportar y hereda su transporte: la
+            # lectura del ZIP y el resumen del resultado no pueden divergir
+            # entre pantallas.
+            "portfolio_transfer.js",
         }:
             self._send_file(STATIC_DIR / relative)
             return
@@ -448,9 +461,14 @@ class ManagerHandler(BaseHTTPRequestHandler):
                             error = value.get("error") if isinstance(value, dict) else value
                             raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
                         portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=1)
-                        if not value.get("deleted") or safe_int(value.get("portfolio_id"), 0) != portfolio_id:
+                        # El portafolio guardado ya no se borra, así que lo que se
+                        # confirma es la cuarentena, no un borrado.
+                        if not value.get("quarantine_ids") or safe_int(value.get("portfolio_id"), 0) != portfolio_id:
                             raise ValueError("El nodo no confirmó correctamente la exclusión múltiple")
                         self.server.portfolios.invalidate_after_exclusion(node_id)
+                        # Misma comprobación que en la exclusión individual: un nodo
+                        # sin portar acepta el motivo y no escribe el veredicto.
+                        PortfolioCoordinator._assert_node_applied_verdict(body, value)
                         self._send_json(201, value)
                     else:
                         quarantine_result = self.server.portfolios.exclude(node_id, scope, body)
@@ -458,6 +476,15 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 elif action == "release":
                     self.server.portfolios.release(node_id, scope, str(body.get("quarantine_id") or ""))
                     self._send_json(200, {"released": True})
+                elif action == "requalify":
+                    # Mover una estrategia excluida entre los tres motivos y el
+                    # pool. Reintegrar es el caso `pool` de esta misma operación.
+                    target = self.server.portfolios.requalify(
+                        node_id, scope,
+                        str(body.get("quarantine_id") or ""),
+                        str(body.get("reason_code") or "pool"),
+                    )
+                    self._send_json(200, {"reason_code": target})
                 elif action == "undo":
                     version = self.server.portfolios.undo(node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1))
                     self._send_json(200, {"restored_version": version})
@@ -466,6 +493,16 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)
                     )
                     self._send_json(202, {"task": task})
+                elif action == "choose-import-folder":
+                    if self.server.export_mode != "folder":
+                        raise ValueError("El selector local de carpetas no está disponible en modo Docker")
+                    folder = choose_directory(
+                        str(body.get("initial_directory") or "").strip() or None,
+                        title="Selecciona la carpeta del portafolio exportado",
+                    )
+                    self._send_json(200, {"folder": folder, "cancelled": folder is None})
+                elif action == "import":
+                    self._send_json(201, self.server.portfolios.import_portfolio(node_id, scope, body))
                 elif action == "choose-export-folder":
                     if self.server.export_mode != "folder":
                         raise ValueError("El selector local de carpetas no está disponible en modo Docker")
@@ -650,7 +687,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, help="Sobrescribe temporalmente el puerto del archivo de configuración")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args(argv)
-    config = load_json(args.config)
+    config = dev_branch.apply_manager_config(load_json(args.config))
     config.setdefault(
         "preferences_file",
         str(Path(args.config).expanduser().resolve().parent / "runtime" / "launch_preferences.json"),

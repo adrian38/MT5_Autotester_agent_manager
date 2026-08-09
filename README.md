@@ -140,6 +140,26 @@ que es también cuando MT5 puede ejecutarse en esa sesión interactiva.
    `portfolio_project_dir`, `portfolio_broker` y `portfolio_account_type`.
 5. Ejecutar `run_manager.bat`.
 
+### Rama de pruebas `dev`
+
+`dev` es la rama de pruebas y en ella se usa el agente local de ICTrading: al
+arrancar, manager y nodo fuerzan la ruta de los nodos `ICTRADING` a
+`C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent`.
+Los demás nodos siguen en el panel con sus rutas de producción, sin tocar. La
+consola lo anuncia con líneas `[dev]`.
+
+Estando en `dev` esa es además la **única dirección de nodo en la que se puede
+escribir**: cualquier intento de escribir en otra —`X:`, `Y:`, una ruta UNC u otra
+copia local del agente— se rechaza con un error visible en el panel, aunque se
+abra la tarjeta de un nodo de producción. Se permiten también `runtime/` de este
+repositorio y el temporal del sistema, que son estado propio del manager y no
+pertenecen a ningún agente.
+
+En cualquier otra rama, `main` incluida, la configuración se usa tal cual y no hay
+candado: las rutas de producción no se tocan. Escapes por entorno:
+`MT5_MANAGER_DEV_OVERRIDE` (`0` desactiva, `1` fuerza) y
+`MT5_MANAGER_DEV_PROJECT_DIR` para apuntar a otra copia del agente de pruebas.
+
 Las configuraciones de ambos constructores se guardan por nodo y tipo en
 `runtime/portfolio_settings.json`. Generar, completar o reoptimizar una propuesta
 solo lee SQLite y los reportes hasta que el usuario confirma **Guardar** o

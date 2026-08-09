@@ -187,7 +187,7 @@ function renderInventory() {
   document.querySelector('#inventory-summary').textContent = `${number(inventory.available)} disponibles de ${number(inventory.total)} sets Grid · ${number(inventory.symbols)} símbolos`;
   document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.symbol)}</strong></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td></tr>`).join('') : '<tr><td colspan="5">No hay sets Grid para los filtros actuales.</td></tr>';
   document.querySelector('#quarantine-note').textContent = 'No participan en futuras generaciones de Portafolio Grid UBS.';
-  document.querySelector('#quarantine-rows').innerHTML = quarantine.length ? quarantine.map(row => `<tr><td title="${esc(row.set_path)}">${esc(row.set_name)}</td><td><strong>${esc(row.symbol || '')}</strong><small>${esc(row.source_account || '')}</small></td><td>${esc(row.timeframe || '')}</td><td>${esc(row.quarantined_at || '')}</td><td><button type="button" class="secondary table-action" onclick="releaseStrategy('${esc(row.quarantine_key || row.id)}')">Reintegrar</button></td></tr>`).join('') : '<tr><td colspan="5">No hay estrategias en cuarentena.</td></tr>';
+  renderQuarantineTables(quarantine);
 }
 
 function renderProposals() {
@@ -395,24 +395,24 @@ async function excludeStrategy(source, index) {
   const name = setName(member);
   const saved = source === 'detail';
   const message = saved
-    ? `${name} se pondrá en cuarentena y se borrará por completo el paquete Grid A/M/C #${selectedId}, sin recalcularlo. ¿Continuar?`
-    : `${name} dejará de participar en futuras generaciones Grid. ¿Continuar?`;
-  if (!confirm(message)) return;
+    ? `${name} se pondrá en cuarentena. El paquete Grid A/M/C #${selectedId} no se modifica: sigue guardado con esta estrategia.`
+    : `${name} dejará de participar en futuras generaciones Grid.`;
+  const reasonCode = await askExclusionReason({title: `Excluir ${name}`, detail: message});
+  if (!reasonCode) return;
+  const verdict = reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(reasonCode)}`;
   const affectedPortfolioId = selectedId;
   try {
     await withOverlay(
-      saved ? 'Borrando paquete Grid A/M/C' : 'Excluyendo estrategia Grid',
-      saved
-        ? `Poniendo ${name} en cuarentena y eliminando el portafolio Grid #${affectedPortfolioId}…`
-        : `Poniendo ${name} en cuarentena…`,
+      'Excluyendo estrategia Grid',
+      `Poniendo ${name} en cuarentena…`,
       async () => {
-        await postManager('exclude', {set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null});
+        await postManager('exclude', {set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: reasonCode});
         selectedProposal = null;
         if (saved) selectedId = null;
         await Promise.all([loadManagerState(), loadPortfolios()]);
       },
     );
-    toast(saved ? `${name} puesta en cuarentena y paquete Grid #${affectedPortfolioId} borrado.` : `${name} puesta en cuarentena.`);
+    toast((saved ? `${name} puesta en cuarentena y paquete Grid #${affectedPortfolioId} borrado.` : `${name} puesta en cuarentena.`) + verdict);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -421,28 +421,39 @@ async function excludeSelectedStrategies() {
   const members = [...selectedDetailMembers].sort((a, b) => a - b).map(index => detailMembers[index]).filter(Boolean);
   if (!members.length) return;
   const count = members.length;
-  if (!confirm(`Se pondrán ${count} estrategia${count === 1 ? '' : 's'} en cuarentena y después se borrará por completo el paquete Grid A/M/C #${selectedId}, sin recalcularlo. ¿Continuar?`)) return;
+  const reasonCode = await askExclusionReason({
+    title: `Excluir ${count} estrategia${count === 1 ? '' : 's'}`,
+    detail: `Se pondrán ${count} estrategia${count === 1 ? '' : 's'} en cuarentena. El paquete Grid A/M/C #${selectedId} no se modifica: sigue guardado con ellas.`,
+  });
+  if (!reasonCode) return;
   const affectedPortfolioId = selectedId;
   try {
     await withOverlay(
-      'Excluyendo estrategias y borrando paquete Grid A/M/C',
-      `Poniendo ${count} estrategia${count === 1 ? '' : 's'} en cuarentena antes de eliminar el portafolio Grid #${affectedPortfolioId}…`,
+      'Excluyendo estrategias Grid',
+      `Poniendo ${count} estrategia${count === 1 ? '' : 's'} en cuarentena…`,
       async () => {
-        await postManager('exclude', {portfolio_id: affectedPortfolioId, set_paths: members.map(member => member.set_path || member.set_id)});
+        await postManager('exclude', {portfolio_id: affectedPortfolioId, set_paths: members.map(member => member.set_path || member.set_id), reason_code: reasonCode});
         selectedProposal = null;
         selectedDetailMembers.clear();
-        selectedId = null;
         await Promise.all([loadManagerState(), loadPortfolios()]);
       },
     );
-    toast(`${count} estrategia${count === 1 ? '' : 's'} puesta${count === 1 ? '' : 's'} en cuarentena y paquete Grid #${affectedPortfolioId} borrado.`);
+    toast(`${count} estrategia${count === 1 ? '' : 's'} puesta${count === 1 ? '' : 's'} en cuarentena.`);
   } catch (error) { toast(error.message, true); }
 }
 
-async function releaseStrategy(quarantineId) {
-  if (!confirm('La estrategia volverá a ser elegible para futuros portafolios Grid. ¿Continuar?')) return;
-  try { await postManager('release', {quarantine_id: quarantineId}); toast('Estrategia reintegrada.'); await loadManagerState(); }
-  catch (error) { toast(error.message, true); }
+async function requalifyStrategy(quarantineId, currentCode) {
+  const target = await askQuarantineTarget({
+    title: 'Cambiar estado de la estrategia',
+    detail: 'Reclasificar deshace el veredicto vigente antes de aplicar el nuevo, así que nunca se acumulan.',
+    current: currentCode,
+  });
+  if (!target || target === currentCode) return;
+  try {
+    await postManager('requalify', {quarantine_id: quarantineId, reason_code: target});
+    toast(target === 'pool' ? 'Estrategia reintegrada al pool.' : `Estrategia movida a «${exclusionReasonLabel(target)}».`);
+    await loadManagerState();
+  } catch (error) { toast(error.message, true); }
 }
 
 async function loadDetail(id) {
@@ -596,6 +607,28 @@ async function openReport(index) {
   try { const data = await postManager('open-report', {portfolio_id: selectedId, set_path: member.set_path}); toast(`Reporte abierto: ${data.report}`); }
   catch (error) { toast(error.message, true); }
 }
+
+document.querySelector('#portfolio-import').addEventListener('click', async () => {
+  const button = document.querySelector('#portfolio-import');
+  button.disabled = true;
+  try {
+    // El selector va antes del velo: taparlo mientras se busca la carpeta seria
+    // un estorbo. La pantalla de carga cubre solo la reconstruccion, que relee
+    // los informes de cada estrategia y puede tardar.
+    const origin = await pickPortfolioImportSource('grid', managerState.capabilities?.export_mode, postManager);
+    if (!origin) return;
+    const {label, ...request} = origin;
+    const progress = portfolioImportProgress(label);
+    let data = null;
+    await withOverlay(progress.title, progress.detail, async () => {
+      data = await postManager('import', {scope: 'grid', ...request});
+      await Promise.all([loadManagerState(), loadPortfolios()]);
+    });
+    toast(describePortfolioImport(data));
+  }
+  catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
 
 document.querySelector('#portfolio-refresh').addEventListener('click', () => Promise.all([loadManagerState(), loadPortfolios(selectedId)]).catch(error => toast(error.message, true)));
 

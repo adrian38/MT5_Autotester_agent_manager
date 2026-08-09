@@ -1,3 +1,19 @@
+"""Nodo remoto del manager. ATENCIÓN: NO es el nodo que corre en los brokers.
+
+Los equipos broker ejecutan una copia bifurcada y renombrada en
+`manager_node_runtime/` del proyecto del agente, embebida en `app_ui.py` vía
+`manager_node_lifecycle.py`. Este módulo y `run_node.bat` solo sirven para
+ejecutar un nodo desde este repositorio.
+
+Consecuencia: cambiar aquí una regla de comportamiento del nodo (guardado,
+exclusión, escritura en la memoria UBS) **no tiene ningún efecto** sobre los
+agentes. La copia del agente reimplementa esas reglas en
+`manager_node_runtime/portfolio_save.py` con otros nombres de función, así que no
+la encuentra ni el grafo ni una búsqueda por símbolo: hay que buscarla por el
+texto del mensaje al usuario. Ver `ai_context/node_runtime_is_forked_per_agent.md`
+y `tests/test_node_runtime_fork_parity.py`, que falla si las copias divergen.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -20,6 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import candidate_verdict, dev_branch
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
 from .portfolio_service import PortfolioSource, save_portfolio_payload
 from .portfolio_scope import normalize_portfolio_scope
@@ -1535,6 +1552,11 @@ class JobController:
     def exclude_portfolio_members(self, payload: dict[str, Any]) -> dict[str, Any]:
         scope = normalize_portfolio_scope(payload.get("scope"))
         source = self._portfolio_source()
+        # `verdict_applied` es la confirmación que el manager exige cuando el
+        # motivo no es manual. Un nodo sin portar no devuelve esta clave y el
+        # manager avisa en vez de dar por escrito un veredicto que no existe.
+        reason_code = candidate_verdict.normalize_reason_code(payload.get("reason_code"))
+        verdict_applied = reason_code != candidate_verdict.MANUAL
         if payload.get("set_paths") is not None:
             portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
             quarantine_ids = source.remove_members_to_quarantine(payload, scope)
@@ -1543,6 +1565,8 @@ class JobController:
                 "deleted": True,
                 "portfolio_id": portfolio_id,
                 "scope": scope,
+                "reason_code": reason_code,
+                "verdict_applied": verdict_applied,
             }
         # Single exclusion (from a saved portfolio, or straight from the inventory
         # when no portfolio_id is sent). This MUST run on the node: the manager
@@ -1558,6 +1582,8 @@ class JobController:
             "quarantine_id": quarantine_id,
             "portfolio_id": portfolio_id or None,
             "scope": scope,
+            "reason_code": reason_code,
+            "verdict_applied": verdict_applied,
         }
 
     def delete_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1795,7 +1821,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default="node.json")
     args = parser.parse_args(argv)
     config_path = Path(args.config).expanduser().resolve()
-    config = load_json(config_path)
+    config = dev_branch.apply_node_config(load_json(config_path))
     for key in ("node_id", "project_dir", "token"):
         if not str(config.get(key) or "").strip():
             parser.error(f"Falta {key} en {config_path}")

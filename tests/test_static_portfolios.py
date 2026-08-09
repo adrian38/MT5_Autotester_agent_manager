@@ -102,7 +102,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("function stageFromProgress", monthly_script)
         self.assertIn("Number(job.stage || 0)", monthly_script)
         self.assertIn("No participan en futuras generaciones de Portafolio UBS mensual", monthly_script)
-        self.assertIn("se borrará por completo el Portafolio UBS mensual", monthly_script)
+        self.assertIn("El Portafolio UBS mensual #${selectedId} no se modifica", monthly_script)
         self.assertNotIn("se recalcularán sus métricas", monthly_script)
         self.assertNotIn("Cuarentena informativa", monthly_script)
         self.assertNotIn("no se excluyen del cálculo", monthly_script)
@@ -173,7 +173,7 @@ class PortfolioFormTests(unittest.TestCase):
             Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.js"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("se borrará por completo el portafolio A/M/C", script)
+        self.assertIn("El portafolio #${selectedId} no se modifica", script)
         self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
         self.assertNotIn("${isBundle ? '' : `<button type=\"button\" class=\"danger table-action\"", script)
 
@@ -186,7 +186,27 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="detail-exclude-selected"', page)
         self.assertIn("set_paths: members.map", script)
         self.assertIn("selectedDetailMembers = new Set", script)
-        self.assertIn("await waitForPortfolioRemoval(affectedPortfolioId)", script)
+        # Excluir ya no borra el portafolio guardado, ni entero ni por partes.
+        self.assertNotIn("waitForPortfolioRemoval", script)
+        self.assertIn("El portafolio A/M/C #${selectedId} no se modifica", script)
+
+    def test_monthly_members_support_batch_selection_like_the_ubs_ones(self) -> None:
+        # Las casillas no dependen de que el portafolio sea un bundle: un mes
+        # guardado nunca lo es.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="detail-select-all"', page)
+        self.assertIn('id="detail-exclude-selected"', page)
+        self.assertIn("set_paths: members.map", script)
+        self.assertNotIn("waitForPortfolioRemoval", script)
+        self.assertIn("onchange=\"toggleDetailSelection(${index},this.checked)\"", script)
+        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        self.assertNotIn("const selector = isBundle", script)
+        self.assertNotIn("const excludeAction = isBundle", script)
+        self.assertIn("El Portafolio UBS mensual #${selectedId} no se modifica", script)
+        self.assertNotIn("portafolio A/M/C", script)
 
     def test_grid_members_can_be_excluded_and_released_like_the_ubs_ones(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -198,8 +218,15 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="detail-exclude-selected"', page)
         self.assertIn("onclick=\"excludeStrategy('proposal',${index})\">Excluir</button>", script)
         self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
-        self.assertIn("onclick=\"releaseStrategy(", script)
-        self.assertIn("se borrará por completo el paquete Grid A/M/C", script)
+        # El botón de la tabla lo pinta ahora la primitiva compartida, que es la
+        # misma para los tres ámbitos; la función sigue siendo de esta pantalla.
+        self.assertIn("renderQuarantineTables(quarantine);", script)
+        self.assertIn("async function requalifyStrategy(", script)
+        self.assertIn(
+            "onclick=\"requalifyStrategy(",
+            (static_dir / "exclusion_reason.js").read_text(encoding="utf-8"),
+        )
+        self.assertIn("El paquete Grid A/M/C #${selectedId} no se modifica", script)
         self.assertIn("set_paths: members.map", script)
         self.assertIn("No participan en futuras generaciones de Portafolio Grid UBS", script)
         # La tabla de propuestas gana las columnas de acciones y escalera, y la
@@ -243,8 +270,10 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("async function loadTaskState()", script)
         self.assertIn("portfolio-manager/task?scope=${scope}", script)
         self.assertIn("pollTimer = null; loadTaskState();", script)
-        self.assertIn("'Borrando portafolio A/M/C'", script)
+        # Excluir ya no borra el portafolio guardado, así que el overlay lo dice.
+        self.assertNotIn("'Borrando portafolio A/M/C'", script)
         self.assertIn("'Excluyendo estrategia'", script)
+        self.assertIn("'Excluyendo estrategias'", script)
         self.assertIn("'Restaurando portafolio'", script)
         self.assertIn("guardado, pero no se pudo actualizar la vista", script)
         self.assertIn(".save-overlay{", styles)
@@ -420,6 +449,137 @@ class PortfolioFormTests(unittest.TestCase):
         base = float(field.get("min") or field.get("value") or 0)
         quotient = (value - base) / float(step)
         return math.isclose(quotient, round(quotient), abs_tol=1e-9)
+
+
+class PortfolioImportScreenTests(unittest.TestCase):
+    """Importar existe en los tres ámbitos y hereda el transporte de exportar."""
+
+    PAGES = ("portfolios", "portfolios_monthly", "portfolios_grid")
+
+    def static(self, name: str) -> str:
+        return (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / name
+        ).read_text(encoding="utf-8")
+
+    def test_every_scope_offers_the_import_button(self) -> None:
+        for name in self.PAGES:
+            page, script = self.static(f"{name}.html"), self.static(f"{name}.js")
+            with self.subTest(page=name):
+                self.assertIn('id="portfolio-import"', page)
+                self.assertIn('src="/portfolio_transfer.js"', page)
+                self.assertIn("pickPortfolioImportSource(", script)
+                self.assertIn("describePortfolioImport(data)", script)
+                # El velo cubre la reconstruccion, nunca el selector de origen.
+                self.assertLess(
+                    script.index("pickPortfolioImportSource("),
+                    script.index("portfolioImportProgress(label)"),
+                )
+                self.assertIn("portfolioImportProgress(label)", script)
+
+    def test_the_import_mirrors_the_export_transport(self) -> None:
+        # Con `export_mode=folder` el manager abre su selector nativo; con
+        # `download` el ZIP viaja desde el navegador. Si la importación solo
+        # cubriera uno, quedaría inservible en el otro despliegue.
+        transfer = self.static("portfolio_transfer.js")
+        self.assertIn("exportMode === 'download'", transfer)
+        self.assertIn("'choose-import-folder'", transfer)
+        self.assertIn("readAsDataURL", transfer)
+
+
+class ExclusionReasonScreenTests(unittest.TestCase):
+    """Las tres pantallas piden el motivo y reparten la cuarentena en tres tablas.
+
+    Los tres ámbitos tienen interfaz separada a propósito, así que sin una prueba
+    que los recorra a los tres una mejora se queda en la pantalla donde nació.
+    """
+
+    PAGES = ("portfolios", "portfolios_monthly", "portfolios_grid")
+
+    def static(self, name: str) -> str:
+        return (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / name
+        ).read_text(encoding="utf-8")
+
+    def test_every_scope_has_the_two_verdict_tables(self) -> None:
+        for name in self.PAGES:
+            page = self.static(f"{name}.html")
+            with self.subTest(page=name):
+                self.assertIn('id="quarantine-rows"', page)
+                self.assertIn('id="quarantine-degradation-rows"', page)
+                self.assertIn('id="quarantine-ohlc-rows"', page)
+                self.assertIn('src="/exclusion_reason.js"', page)
+
+    def test_the_two_verdict_panels_share_a_row_of_equal_columns(self) -> None:
+        # Sueltos caían en las columnas 1fr/1.3fr del inventario y el de la
+        # izquierda salía estrecho, partiendo la fecha en dos líneas.
+        styles = self.static("styles.css")
+        self.assertIn(".portfolio-inventory-verdicts{grid-column:1/-1", styles)
+        self.assertIn("grid-template-columns:repeat(2,minmax(0,1fr))", styles)
+        for name in self.PAGES:
+            page = html.fromstring(self.static(f"{name}.html"))
+            with self.subTest(page=name):
+                wrappers = page.xpath('//div[@class="portfolio-inventory-verdicts"]')
+                self.assertEqual(len(wrappers), 1)
+                self.assertEqual(
+                    [child.get("class") for child in wrappers[0]],
+                    ["inventory-panel", "inventory-panel"],
+                )
+
+    def test_the_radio_of_each_option_escapes_the_global_input_rule(self) -> None:
+        # `input,select{width:100%;padding:10px;border:...}` alcanza también a
+        # los radios: cada uno era una caja ancha con el punto centrado dentro,
+        # así que caía en una x distinta en cada fila según su texto.
+        styles = self.static("styles.css")
+        self.assertIn(".reason-option input{width:auto", styles)
+        self.assertIn("padding:0;border:0", styles)
+
+    def test_the_toast_wraps_long_windows_paths(self) -> None:
+        # Los avisos llevan rutas de Windows, que no tienen espacios: sin
+        # permitir el corte dentro de la palabra el texto se salía del recuadro.
+        styles = self.static("styles.css")
+        self.assertIn("overflow-wrap:anywhere", styles)
+        self.assertIn("max-width:min(420px,calc(100vw - 48px))", styles)
+
+    def test_the_panel_note_lives_inside_the_panel_padding(self) -> None:
+        # El panel no tiene padding propio: lo pone .panel-title. Sin esto la
+        # nota salía pegada al borde y desalineada con el título.
+        self.assertIn(".quarantine-verdict-note{margin:0;padding:11px 15px 0", self.static("styles.css"))
+
+    def test_every_scope_asks_for_the_reason_and_sends_its_code(self) -> None:
+        for name in self.PAGES:
+            script = self.static(f"{name}.js")
+            with self.subTest(script=name):
+                # Sin `reason_code` en las dos llamadas, la pantalla excluiría sin
+                # veredicto: el nodo escribiría solo la cuarentena.
+                self.assertEqual(script.count("reason_code: reasonCode"), 2)
+                self.assertEqual(script.count("await askExclusionReason("), 2)
+                self.assertIn("renderQuarantineTables(quarantine);", script)
+
+    def test_the_three_reason_codes_match_the_python_side(self) -> None:
+        script = self.static("exclusion_reason.js")
+        from mt5_manager import candidate_verdict
+
+        for code in candidate_verdict.REASON_CODES:
+            self.assertIn(f"code: '{code}'", script)
+
+    def test_the_table_button_offers_the_three_reasons_and_the_pool(self) -> None:
+        # El botón de la tabla no es «Reintegrar» a secas: mueve la estrategia
+        # entre los tres motivos y el pool, que son estados de la misma cosa.
+        script = self.static("exclusion_reason.js")
+        self.assertIn("code: 'pool'", script)
+        self.assertIn("options: [...EXCLUSION_REASONS, POOL_TARGET]", script)
+        # Excluir NO ofrece el pool: no es un motivo de exclusión.
+        self.assertIn("options: EXCLUSION_REASONS,", script)
+        self.assertIn('onclick="requalifyStrategy(', script)
+
+    def test_every_scope_sends_the_requalification_to_its_own_endpoint(self) -> None:
+        for name in self.PAGES:
+            script = self.static(f"{name}.js")
+            with self.subTest(script=name):
+                self.assertIn("async function requalifyStrategy(", script)
+                self.assertIn("postManager('requalify'", script)
+                self.assertIn("reason_code: target", script)
+                self.assertNotIn("postManager('release'", script)
 
 
 if __name__ == "__main__":
