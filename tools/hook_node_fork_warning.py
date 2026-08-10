@@ -11,6 +11,7 @@ rompe el turno es peor que un aviso perdido.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import sys
@@ -61,6 +62,12 @@ def main() -> int:
             warning = AGENT_WARNING
         else:
             return 0
+        # El aviso del manager lleva «↔», que no existe en cp1252: sin forzar UTF-8
+        # el `print` moria con UnicodeEncodeError y el `except` de abajo lo tragaba,
+        # asi que ese aviso —justo el que recuerda portar al agente— no salia nunca.
+        # Solo se veia el del lado del agente, que es ASCII salvo acentos.
+        with contextlib.suppress(AttributeError, OSError, ValueError):
+            sys.stdout.reconfigure(encoding="utf-8")
         print(json.dumps({
             "systemMessage": f"[nodo bifurcado] {warning}",
             "hookSpecificOutput": {

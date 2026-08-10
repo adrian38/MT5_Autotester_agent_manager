@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -265,6 +266,122 @@ class RequalifyTests(unittest.TestCase):
             self.assertEqual(
                 [item["source_candidate_id"] for item in source.candidate_rows(include_quarantined=False)], [1, 2]
             )
+
+
+class RequalifyRoutingTests(unittest.TestCase):
+    """Quién escribe el cambio de estado lo decide la memoria, no el ámbito.
+
+    Sobre un recurso de red o un bind mount de Docker el manager no puede escribir
+    la memoria del agente: abrir en modo WAL falla con «disk I/O error» porque no
+    hay `-shm` que respalde el índice compartido. Eso es lo que rompía el botón
+    «Cambiar estado» en los nodos que no son locales, mientras excluir sí
+    funcionaba —la exclusión ya se delegaba al nodo desde el principio.
+    """
+
+    @contextlib.contextmanager
+    def _excluded_strategy(self):
+        """Un candidato ya excluido por degradación, con su coordinador."""
+        with broker_project() as (source, memory):
+            pristine = stage_rows(memory)
+            quarantine_id = source.exclude_strategy({"set_path": "sets/a.set", "reason_code": "degradation"})
+            node = {
+                "id": "broker-node",
+                "portfolio_project_dir": str(source.project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+                "url": "http://127.0.0.1:9",
+            }
+            coordinator = PortfolioCoordinator([node], source.project / "settings.json")
+            yield coordinator, source, memory, f"ICTRADING/STANDARD|{quarantine_id}", pristine
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _unwritable_memory():
+        """La memoria se ve como la ve el manager de un nodo remoto."""
+        with mock.patch.object(PortfolioSource, "_needs_snapshot_read", staticmethod(lambda memory: True)):
+            yield
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _node_answers(status: int, body: dict):
+        calls: list[tuple[str, dict]] = []
+
+        def post(self, node, path, payload, timeout=60):
+            calls.append((path, payload))
+            return status, body
+
+        with mock.patch.object(PortfolioCoordinator, "_post_to_node", post):
+            yield calls
+
+    def test_a_memory_the_manager_cannot_write_sends_the_change_to_the_node(self) -> None:
+        with self._excluded_strategy() as (coordinator, source, memory, key, _pristine):
+            before = stage_rows(memory)
+            with self._unwritable_memory(), self._node_answers(
+                200, {"requalified": True, "reason_code": "ohlc_mismatch"}
+            ) as calls:
+                target = coordinator.requalify("broker-node", "full_history", key, "ohlc_mismatch")
+
+            self.assertEqual(target, "ohlc_mismatch")
+            self.assertEqual([path for path, _payload in calls], ["/api/v1/portfolios/requalify"])
+            self.assertEqual(calls[0][1]["quarantine_id"], key)
+            self.assertEqual(calls[0][1]["reason_code"], "ohlc_mismatch")
+            # El manager no ha tocado la memoria: la escritura era del nodo.
+            self.assertEqual(stage_rows(memory), before)
+            self.assertEqual(source.quarantine_rows()[0]["reason_code"], "degradation")
+
+    def test_a_node_without_the_endpoint_says_what_to_port(self) -> None:
+        with self._excluded_strategy() as (coordinator, source, memory, key, _pristine):
+            before = stage_rows(memory)
+            with self._unwritable_memory(), self._node_answers(404, {"error": "Ruta no encontrada"}):
+                with self.assertRaises(ValueError) as raised:
+                    coordinator.requalify("broker-node", "full_history", key, "pool")
+
+            message = str(raised.exception)
+            self.assertIn("manager_node_runtime", message)
+            self.assertIn("requalify", message)
+            # Nada a medias: la exclusión sigue exactamente como estaba.
+            self.assertEqual(stage_rows(memory), before)
+            self.assertEqual(source.quarantine_rows()[0]["reason_code"], "degradation")
+
+    def test_a_node_that_does_not_confirm_is_not_believed(self) -> None:
+        with self._excluded_strategy() as (coordinator, _source, _memory, key, _pristine):
+            with self._unwritable_memory(), self._node_answers(200, {"reason_code": "pool"}):
+                with self.assertRaises(ValueError) as raised:
+                    coordinator.requalify("broker-node", "full_history", key, "pool")
+            self.assertIn("sigue excluida", str(raised.exception))
+
+    def test_a_local_memory_keeps_being_written_by_the_manager(self) -> None:
+        # El nodo local es el único caso en el que esto ya funcionaba: no puede
+        # empezar a depender de un endpoint portado a mano.
+        with self._excluded_strategy() as (coordinator, source, memory, key, pristine):
+            with self._node_answers(500, {"error": "el nodo no debería recibir nada"}) as calls:
+                target = coordinator.requalify("broker-node", "full_history", key, "pool")
+
+            self.assertEqual(target, "pool")
+            self.assertEqual(calls, [])
+            # Volver al pool deshace el veredicto: las cuatro etapas vuelven a estar
+            # como antes de excluir, que es lo que exige `candidate_rows`.
+            self.assertEqual(stage_rows(memory), pristine)
+            self.assertEqual(source.quarantine_rows(), [])
+
+    def test_the_raw_sqlite_error_becomes_an_actionable_message(self) -> None:
+        # «disk I/O error» era literalmente lo que veía el usuario en la pantalla.
+        with broker_project() as (source, memory):
+            real_connect = sqlite3.connect
+
+            def failing_connect(target, *args, **kwargs):
+                if str(target) == str(memory):
+                    raise sqlite3.OperationalError("disk I/O error")
+                return real_connect(target, *args, **kwargs)
+
+            with self._unwritable_memory(), mock.patch.object(sqlite3, "connect", failing_connect):
+                with self.assertRaises(ValueError) as raised:
+                    with source.connect_memory(memory, write=True):
+                        pass
+
+            message = str(raised.exception)
+            self.assertIn("WAL", message)
+            self.assertIn("nodo del agente", message)
 
 
 if __name__ == "__main__":

@@ -546,6 +546,20 @@ class PortfolioSource:
             return False
 
     @classmethod
+    def write_needs_node(cls, memory: Path) -> bool:
+        """True si esta memoria solo puede escribirla el nodo del agente.
+
+        El criterio es el mismo que decide copiar para leer, y no por casualidad:
+        un sistema de ficheros que no soporta el `-shm` del modo WAL no sirve ni
+        para leer ni para escribir. La diferencia es que leer tiene salida —una
+        copia en otro disco— y escribir no: la escritura tiene que ir al original
+        o no vale para nada. La unica salida es ejecutarla donde la base es local,
+        es decir en el nodo del agente, igual que ya hacen la exclusion y el
+        borrado (`node.py::exclude_portfolio_members`, `_delete_on_node`).
+        """
+        return cls._needs_snapshot_read(memory)
+
+    @classmethod
     def _snapshot_root(cls) -> Path:
         """Directorio donde dejar las copias, en un disco que soporte WAL.
 
@@ -647,6 +661,21 @@ class PortfolioSource:
                             f"No se pudo guardar: {memory.name} está bloqueada por otro proceso "
                             "(por ejemplo, una generación activa). La propuesta sigue disponible; "
                             "inténtalo de nuevo cuando termine."
+                        ) from exc
+                    if snapshot:
+                        # La lectura tiene salida —copiar la base a otro disco— y la
+                        # escritura no: el original es el unico sitio valido. Sobre un
+                        # recurso de red o un bind mount de Docker, abrir en modo WAL
+                        # falla con "disk I/O error" porque no hay `-shm` que respalde
+                        # el indice compartido. Un error crudo de SQLite no dice nada
+                        # de eso; este si, y nombra la unica salida real: que escriba
+                        # el nodo, que tiene la base en local.
+                        raise ValueError(
+                            f"No se pudo escribir en {memory.name}: está en un sistema de ficheros "
+                            "que no soporta el índice en memoria compartida del modo WAL (recurso "
+                            "de red o bind mount de Docker), así que esta memoria solo puede "
+                            "escribirla el nodo del agente. Si la operación no pasa por el nodo, "
+                            "hay que portarla a manager_node_runtime/."
                         ) from exc
                     raise
             elif snapshot:
@@ -930,6 +959,12 @@ class PortfolioSource:
 
         No pasa por `candidate_rows`: un candidato con veredicto ya no está ahí.
         Todo lo que hace falta está en la fila de cuarentena.
+
+        REGLA DUPLICADA: sobre una memoria que el manager ve por red o por un bind
+        mount, esto no se puede ejecutar aquí y `PortfolioCoordinator.requalify` lo
+        manda al nodo, que reimplementa el mismo orden en
+        `manager_node_runtime/portfolio_save.py::requalify_portfolio_member_payload`.
+        Cambiar el orden solo aquí no tiene efecto para esos nodos.
         """
         target = candidate_verdict.normalize_reason_code(reason_code) if str(reason_code) != "pool" else "pool"
         memory, quarantine_id = self._quarantine_memory(quarantine_key)
@@ -3818,18 +3853,66 @@ class PortfolioCoordinator:
     def requalify(self, node_id: str, scope: str, quarantine_id: str | int, reason_code: str) -> str:
         """Mueve una estrategia excluida entre los tres motivos y el pool.
 
-        Se ejecuta en el manager, como la reintegración de siempre, no en el
-        nodo: la escritura es sobre la memoria del broker y no depende de ningún
-        portafolio guardado, así que el endpoint del nodo no aporta nada aquí.
+        Quién ejecuta la escritura lo decide la memoria, no el ámbito. Cuando el
+        manager la ve por un recurso de red o un bind mount de Docker —el caso de
+        cualquier nodo que no sea local— no puede escribirla: abrir en modo WAL
+        falla con "disk I/O error" porque ese sistema de ficheros no respalda el
+        `-shm`. Ahí la operación va al nodo, que la tiene en local, exactamente
+        como la exclusión y el borrado. Con la memoria en local la escribe el
+        manager, que es el único caso en el que esto funcionaba antes.
         """
         # La clave de cuarentena lleva la etiqueta de la memoria que la guarda.
         # En Grid esa memoria es la base del manager, que solo aparece en las
         # fuentes de cálculo de ese ámbito.
-        target = self._calculation_source(node_id, scope).requalify_strategy(quarantine_id, reason_code)
+        source = self._calculation_source(node_id, scope)
+        memory, _quarantine_row_id = source._quarantine_memory(quarantine_id)
+        if PortfolioSource.write_needs_node(memory):
+            target = self._requalify_on_node(node_id, scope, quarantine_id, reason_code)
+        else:
+            target = source.requalify_strategy(quarantine_id, reason_code)
         # Reclasificar devuelve y vuelve a escribir filas de etapa en la memoria
         # del broker: hay que tirar la copia como en cualquier escritura.
         self.invalidate_after_exclusion(node_id)
         return target
+
+    def _requalify_on_node(self, node_id: str, scope: str, quarantine_id: str | int, reason_code: str) -> str:
+        """Pide al nodo que reclasifique, porque la memoria no es escribible aquí.
+
+        Mismo patrón que `exclude` y `_delete_on_node`: la copia de
+        `manager_node_runtime/` es distinta en cada agente y se porta a mano, así
+        que un nodo sin portar devuelve 404 y hay que decir qué falta en vez de
+        propagar un «Ruta no encontrada» que no explica nada.
+        """
+        node = self._node(node_id)
+        base_url = str(node.get("url") or "").rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            raise ValueError(
+                "Esta memoria solo puede escribirla el nodo del agente (el manager la ve por "
+                "red o por un bind mount), y este nodo no tiene URL HTTP configurada en "
+                "manager.json."
+            )
+        status, value = self._post_to_node(
+            node,
+            "/api/v1/portfolios/requalify",
+            {"scope": normalize_portfolio_scope(scope), "quarantine_id": str(quarantine_id), "reason_code": reason_code},
+        )
+        if status == 404:
+            raise ValueError(
+                "El nodo todavía no admite cambiar el estado de una estrategia excluida: "
+                "falta portar /api/v1/portfolios/requalify a su manager_node_runtime/ "
+                "(node.py y portfolio_save.py) y reiniciar la aplicación del agente. "
+                "La estrategia sigue excluida como estaba."
+            )
+        if status >= 400 or not isinstance(value, dict):
+            error = value.get("error") if isinstance(value, dict) else value
+            raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+        if not value.get("requalified"):
+            raise ValueError(
+                "El nodo respondió sin confirmar el cambio de estado: la estrategia sigue "
+                "excluida como estaba. Comprueba el port de manager_node_runtime/."
+            )
+        applied = str(value.get("reason_code") or "")
+        return "pool" if applied == "pool" else candidate_verdict.normalize_reason_code(applied)
 
     def undo(self, node_id: str, scope: str, portfolio_id: int) -> int:
         return self._persistence_source(node_id, scope).undo_latest(portfolio_id, scope)

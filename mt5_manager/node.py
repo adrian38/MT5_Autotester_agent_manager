@@ -1586,6 +1586,31 @@ class JobController:
             "verdict_applied": verdict_applied,
         }
 
+    def requalify_portfolio_member(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Mueve una estrategia excluida entre los tres motivos y el pool.
+
+        Corre en el nodo por lo mismo que la exclusión individual: el manager
+        solo lee esta memoria por una copia de lectura, y escribirla
+        directamente por CIFS o por un bind mount de Docker no falla en silencio
+        sino con "disk I/O error", porque el modo WAL necesita un `-shm` que esos
+        sistemas de ficheros no respaldan. Aquí la base es local.
+
+        La confirmación es `requalified`: un nodo sin portar no tiene esta ruta y
+        devuelve 404, que el manager traduce a qué hay que portar.
+        """
+        scope = normalize_portfolio_scope(payload.get("scope"))
+        quarantine_key = str(payload.get("quarantine_id") or "").strip()
+        if not quarantine_key:
+            raise ValueError("Falta la estrategia excluida que se quiere reclasificar")
+        source = self._portfolio_source()
+        target = source.requalify_strategy(quarantine_key, str(payload.get("reason_code") or "pool"))
+        return {
+            "requalified": True,
+            "quarantine_id": quarantine_key,
+            "reason_code": target,
+            "scope": scope,
+        }
+
     def delete_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
         scope = normalize_portfolio_scope(payload.get("scope"))
@@ -1797,6 +1822,8 @@ class NodeHandler(BaseHTTPRequestHandler):
                 self._send(201, self.server.controller.save_portfolio(self._body(50_000_000)))
             elif self.path == "/api/v1/portfolios/exclude":
                 self._send(200, self.server.controller.exclude_portfolio_members(self._body()))
+            elif self.path == "/api/v1/portfolios/requalify":
+                self._send(200, self.server.controller.requalify_portfolio_member(self._body()))
             elif self.path == "/api/v1/portfolios/delete":
                 self._send(200, self.server.controller.delete_portfolio(self._body()))
             else:

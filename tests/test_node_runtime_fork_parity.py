@@ -91,6 +91,9 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         self.assertIn("def _quarantine_member", self.manager_source)
         self.assertIn("def _apply_candidate_verdict", self.manager_source)
         self.assertIn("def _assert_node_applied_verdict", self.manager_source)
+        self.assertIn("def requalify_strategy", self.manager_source)
+        self.assertIn("def _requalify_on_node", self.manager_source)
+        self.assertIn("def write_needs_node", self.manager_source)
 
     def test_batch_exclusion_accepts_monthly_on_every_reachable_fork(self) -> None:
         def check(project: Path, source: str) -> None:
@@ -183,6 +186,51 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
                 )
 
         self._assert_on_every_fork(check, "veredicto de exclusión")
+
+    def test_changing_the_state_of_an_excluded_strategy_reaches_every_reachable_fork(self) -> None:
+        # El manager no puede escribir la memoria de un nodo remoto: sobre CIFS o
+        # sobre un bind mount de Docker, abrirla en modo WAL falla con «disk I/O
+        # error» porque no hay `-shm` que la respalde. Por eso el cambio de estado
+        # se delega al nodo, como ya se delegaban la exclusión y el borrado. Un
+        # nodo sin portar devuelve 404 y el manager dice qué falta, pero el botón
+        # no funciona hasta que la copia del agente tenga las dos piezas.
+        def check(project: Path, source: str) -> None:
+            self._assert_present(
+                source,
+                r"def requalify_portfolio_member_payload",
+                f"{project}: falta `requalify_portfolio_member_payload` en "
+                "manager_node_runtime/portfolio_save.py. Portar el orden de "
+                "`PortfolioSource.requalify_strategy` (deshacer el veredicto vigente, "
+                "fotografiar el estado restaurado, aplicar el nuevo) y duplicar la prueba "
+                "en tests/test_manager_node_portfolio_save.py.",
+            )
+            node_runtime = project / "manager_node_runtime" / "node.py"
+            try:
+                node_source = node_runtime.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                self.fail(f"{project}: no se puede leer {node_runtime}")
+            self._assert_present(
+                node_source,
+                re.escape("/api/v1/portfolios/requalify"),
+                f"{project}: falta la ruta /api/v1/portfolios/requalify en "
+                "manager_node_runtime/node.py. Sin ella el manager recibe 404 y el botón "
+                "«Cambiar estado» no funciona en ese agente. Hay que reiniciar la "
+                "aplicación del agente después de portarla.",
+            )
+            # Paso 3 del procedimiento: el port no está terminado sin su prueba.
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "requalify" in path.read_text(encoding="utf-8", errors="replace").lower()
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre el cambio de estado; "
+                    "duplicar allí la cobertura de requalify_portfolio_member_payload."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "cambiar el estado de una estrategia excluida")
 
     def test_the_verdict_texts_match_on_every_reachable_fork(self) -> None:
         expected = {

@@ -101,3 +101,22 @@ agente (y con ellos score y pesos). Detalle en `exclusion_verdict.md`.
 
 Aquí el nodo sin portar **no falla en silencio**: devuelve la cuarentena sin
 `verdict_applied` y el manager avisa de que los estados no se tocaron.
+
+## Estado del port de «Cambiar estado» de una estrategia excluida
+
+`POST /api/v1/portfolios/requalify` +
+`portfolio_save.py::requalify_portfolio_member_payload`. Se añadió porque el
+manager no puede escribir la memoria de un agente que ve por red o por un bind
+mount de Docker: falla con `disk I/O error`. Detalle en
+`portfolio_write_needs_the_node.md`.
+
+| Copia | `requalify` |
+| --- | --- |
+| Manager (`mt5_manager/node.py` + `PortfolioCoordinator._requalify_on_node`) | sí, desde 2026-08-10 |
+| ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano el 2026-08-10 |
+| AXI | **no**, pendiente (`F:` no montada) |
+| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+
+Son **dos** piezas en el proyecto del agente, y falta cualquiera rompe el botón:
+la función en `manager_node_runtime/portfolio_save.py` y la ruta en
+`manager_node_runtime/node.py`. Hay que reiniciar la aplicación del agente.

@@ -16,6 +16,9 @@ Contexto persistente para agentes que trabajan en `MT5_Autotester_agent_manager`
 - `manager_snapshot_after_node_writes.md`: por qué el manager lee la memoria del
   nodo por copia y por qué toda escritura confirmada por el nodo tiene que
   invalidarla, o la pantalla sigue enseñando el estado anterior.
+- `portfolio_write_needs_the_node.md`: por qué el manager no puede escribir la
+  memoria de un agente que ve por red o por un bind mount de Docker («disk I/O
+  error» del modo WAL) y cómo se delega esa escritura al nodo.
 - `node_runtime_is_forked_per_agent.md`: por qué `mt5_manager/node.py` y
   `manager_node_runtime/node.py` de cada agente han divergido y cómo portar un
   endpoint nuevo sin romper ninguna de las dos copias.
