@@ -53,9 +53,13 @@ memoria a la que ya le faltan Final Tick y 6M, y la estrategia no volvería nunc
 al pool. `release_strategy` es exactamente `requalify_strategy(..., "pool")`,
 para que reintegrar y reclasificar no puedan divergir.
 
-La operación corre en el **manager**, como la reintegración de siempre: escribe
-sobre la memoria del broker y no depende de ningún portafolio guardado, así que
-el endpoint del nodo no aporta nada. Ruta HTTP: acción `requalify`.
+Quién ejecuta esa escritura lo decide **la memoria, no el ámbito**, y esto costó
+un «disk I/O error» en pantalla (RoboForex, 2026-08-10). La premisa anterior era
+que el endpoint del nodo «no aporta nada aquí» porque la escritura es sobre la
+memoria del broker y no depende de ningún portafolio guardado. Falso: aporta lo
+único que hace falta, que la base sea **local** para quien escribe. Detalle en
+`portfolio_write_needs_the_node.md`. Ruta HTTP del manager: acción `requalify`;
+del nodo, `POST /api/v1/portfolios/requalify`.
 
 ## Los pesos no se guardan
 
@@ -93,7 +97,8 @@ producción ya tienen la tabla sin esas columnas.
 | --- | --- | --- |
 | UBS completo y mensual | `POST /api/v1/portfolios/exclude` del nodo | **el agente**, en `manager_node_runtime/portfolio_save.py` |
 | Grid | `PortfolioCoordinator.exclude_grid`, del manager | el manager, sobre la memoria del broker |
-| Cambiar de estado (los tres) | `PortfolioCoordinator.requalify` | el manager, sobre la memoria del broker |
+| Cambiar de estado, memoria local | `PortfolioCoordinator.requalify` | el manager, sobre la memoria del broker |
+| Cambiar de estado, memoria por red o bind mount | `POST /api/v1/portfolios/requalify` del nodo | **el agente**, en `manager_node_runtime/portfolio_save.py` |
 
 Grid es la excepción por lo que ya documenta `grid_portfolio_scope.md`: el
 endpoint del nodo exige un `portfolio_id` que exista en la memoria del broker y
@@ -139,11 +144,28 @@ No es nuevo ni lo introduce el veredicto, pero limita dónde se pueden usar las
 dos tablas nuevas: hoy se alimentan desde un portafolio guardado (individual o
 selección múltiple) y desde Grid, que no pasa por el nodo.
 
+### Estado del port de «Cambiar estado»
+
+| Copia | `POST /api/v1/portfolios/requalify` |
+| --- | --- |
+| Manager (`node.py` + `PortfolioCoordinator._requalify_on_node`) | sí |
+| ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano el 2026-08-10 |
+| AXI | **no**, pendiente (`F:` no montada) |
+| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+
+Sin portar, el manager no propaga el 404 crudo: dice que falta portar
+`/api/v1/portfolios/requalify` y que la estrategia sigue excluida como estaba. El
+nodo local sigue escribiéndose desde el manager, así que ahí no hace falta el port
+para que el botón funcione.
+
 ## Pruebas
 
-- Manager: `tests/test_exclusion_verdict.py` (13, con `RequalifyTests`),
+- Manager: `tests/test_exclusion_verdict.py` (18, con `RequalifyTests` y
+  `RequalifyRoutingTests`),
   `tests/test_static_portfolios.py::ExclusionReasonScreenTests` (5),
-  `tests/test_node_runtime_fork_parity.py` (`test_no_fork_deletes_the_saved_portfolio_when_excluding`
-  y las dos del veredicto).
-- Agente IC: `tests/test_manager_node_portfolio_save.py::ManagerNodeExclusionVerdictTests` (4)
-  y las dos de exclusión múltiple, que ahora comprueban que el portafolio sobrevive.
+  `tests/test_node_runtime_fork_parity.py` (`test_no_fork_deletes_the_saved_portfolio_when_excluding`,
+  las dos del veredicto y
+  `test_changing_the_state_of_an_excluded_strategy_reaches_every_reachable_fork`).
+- Agente IC: `tests/test_manager_node_portfolio_save.py::ManagerNodeExclusionVerdictTests` (4),
+  `::ManagerNodeRequalifyTests` (5) y las dos de exclusión múltiple, que ahora
+  comprueban que el portafolio sobrevive.
