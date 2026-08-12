@@ -54,7 +54,7 @@ SCORE_OPTIONS = {
 
 VALUE_OPTIONS = {
     "--source-dir", "--output-dir", "--memory", "--broker", "--account-type", "--template",
-    "--generations", "--variants-per-seed", "--max-seeds", "--delay", "--generation-mode",
+    "--generations", "--variants-per-seed", "--max-seeds", "--delay", "--generation-mode", "--random-seed",
     "--from-date", "--to-date", "--min-net-profit", "--min-profit-factor", "--min-trades",
     "--max-drawdown-pct", "--min-recovery-factor", "--min-trades-w1", "--min-trades-mn",
     "--terminals-config", "--max-workers", "--expert", "--mt5-path", "--data-dir", "--symbol-map",
@@ -330,6 +330,7 @@ def build_generation_command(config: dict[str, Any], payload: dict[str, Any]) ->
     _add(args, "--max-seeds", max_seeds)
     _add(args, "--delay", pick("delay", "delay", 5))
     _add(args, "--generation-mode", generation_mode)
+    _add(args, "--random-seed", payload.get("random_seed", defaults.get("random_seed")))
     _add(args, "--from-date", payload.get("from_date", defaults.get("from_date", setting(cfg, "General", "ubs_agent_from_date"))))
     _add(args, "--to-date", payload.get("to_date", defaults.get("to_date", setting(cfg, "General", "ubs_agent_to_date"))))
 
@@ -917,6 +918,14 @@ class JobController:
 
     def _normalize_generation(self, payload: dict[str, Any]) -> dict[str, Any]:
         payload = dict(payload)
+        random_seed = payload.get("random_seed")
+        if random_seed is None or str(random_seed).strip() == "":
+            payload["random_seed"] = None
+        else:
+            try:
+                payload["random_seed"] = int(random_seed)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("random_seed debe ser un entero o null") from exc
         cycles = safe_int(payload.get("cycles"), 1, minimum=1, maximum=100)
         payload["cycles"] = cycles
         run_robustness = bool(payload.get("run_robustness", False))
@@ -1435,6 +1444,7 @@ class JobController:
                 "variants_per_seed": safe_int(defaults.get("variants_per_seed", setting(cfg, "General", "ubs_variants_per_seed", "10")), 10, minimum=1),
                 "max_seeds": safe_int(defaults.get("max_seeds", setting(cfg, "General", "ubs_max_seeds", "30")), 30, minimum=0),
                 "generation_mode": str(defaults.get("generation_mode", setting(cfg, "General", "ubs_generation_mode", "production"))),
+                "random_seed": defaults.get("random_seed"),
                 "max_workers": safe_int(setting(cfg, "Multiterminal", "workers", "1"), 1, minimum=1, maximum=64),
                 "run_robustness": setting_bool(cfg, "General", "ubs_robust_auto", False),
                 "run_final_tick": setting_bool(cfg, "General", "ubs_final_tick_auto", False),

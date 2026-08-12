@@ -93,11 +93,13 @@ enabled=0
             "generation_mode": "discovery", "execute_backtests": True,
             "max_workers": 4,
             "from_date": "2025.01.01", "to_date": "2025.12.31",
+            "random_seed": 20260812,
         })
         self.assertEqual(cwd, self.root)
         self.assertIn(str(self.root / "ubs_agent.py"), command)
         self.assertEqual(command[command.index("--generations") + 1], "3")
         self.assertEqual(command[command.index("--generation-mode") + 1], "discovery")
+        self.assertEqual(command[command.index("--random-seed") + 1], "20260812")
         self.assertIn("--execute-backtests", command)
         self.assertIn("--expert", command)
         self.assertEqual(command[command.index("--min-trades-w1") + 1], "11")
@@ -350,6 +352,14 @@ enabled=0
     def test_invalid_generation_mode_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             build_generation_command(self.config, {"generation_mode": "random"})
+
+    def test_generation_normalizes_optional_random_seed(self) -> None:
+        controller = JobController(self.config, self.root / "node.json")
+
+        self.assertEqual(controller._normalize_generation({"random_seed": "20260812"})["random_seed"], 20260812)
+        self.assertIsNone(controller._normalize_generation({"random_seed": ""})["random_seed"])
+        with self.assertRaisesRegex(ValueError, "random_seed"):
+            controller._normalize_generation({"random_seed": "not-an-int"})
 
     def test_legacy_branch_drops_new_cli_options_and_uses_legacy_memory(self) -> None:
         (self.root / "ubs_agent.py").write_text(

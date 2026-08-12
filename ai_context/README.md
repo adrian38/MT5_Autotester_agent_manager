@@ -22,6 +22,8 @@ Contexto persistente para agentes que trabajan en `MT5_Autotester_agent_manager`
 - `node_runtime_is_forked_per_agent.md`: por qué `mt5_manager/node.py` y
   `manager_node_runtime/node.py` de cada agente han divergido y cómo portar un
   endpoint nuevo sin romper ninguna de las dos copias.
+- `reproducible_generation.md`: contrato del reintento cuando MT5 termina sin
+  informe y de la semilla reproducible desde el manager hasta los tres agentes.
 - `dev_branch_test_paths.md`: por qué en la rama `dev` la ruta del nodo ICTrading
   se fuerza al agente local sin quitar las demás tarjetas, y cómo se garantiza
   que el merge a `main` no toque las rutas de producción.

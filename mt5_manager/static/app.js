@@ -157,6 +157,7 @@ function settingsFor(node, id) {
     cardSettings[id] = {
       cycles: Number(defaults.cycles || 1),
       generation_mode: defaults.generation_mode || 'production',
+      random_seed: defaults.random_seed ?? null,
       max_workers: Number(defaults.max_workers || 1),
       repair_max_workers: Number(defaults.repair_max_workers || 1),
       regression_max_workers: Number(defaults.regression_max_workers || 1),
@@ -413,6 +414,7 @@ function openStart(id, name) {
   document.querySelector('#variants').value = defaults.variants_per_seed || 10;
   document.querySelector('#max-seeds').value = defaults.max_seeds ?? 30;
   document.querySelector('#mode').value = selected.generation_mode;
+  document.querySelector('#random-seed').value = selected.random_seed ?? '';
   document.querySelector('#max-workers').value = selected.max_workers;
   document.querySelector('#max-workers').disabled = !workers;
   const regressionAvailable = supportsRegression(node);
@@ -441,12 +443,14 @@ document.querySelector('#start-form').addEventListener('submit', async event => 
   if (event.submitter?.value === 'cancel') return;
   event.preventDefault();
   const id = document.querySelector('#node-id').value;
+  const randomSeedValue = document.querySelector('#random-seed').value.trim();
   const payload = {
     cycles: Number(document.querySelector('#cycles').value),
     generations: Number(document.querySelector('#generations').value),
     variants_per_seed: Number(document.querySelector('#variants').value),
     max_seeds: Number(document.querySelector('#max-seeds').value),
     generation_mode: document.querySelector('#mode').value,
+    random_seed: randomSeedValue === '' ? null : Number(randomSeedValue),
     max_workers: Number(document.querySelector('#max-workers').value),
     execute_backtests: document.querySelector('#execute').checked,
     run_robustness: document.querySelector('#run-robustness').checked,
@@ -462,11 +466,13 @@ document.querySelector('#start-form').addEventListener('submit', async event => 
     dry_run: document.querySelector('#dry-run').checked,
   };
   const saved = settingsFor(nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {}, id);
+  saved.random_seed = payload.random_seed;
   saved.repair_after_generation = payload.repair_after_generation;
   saved.repair_max_workers = payload.repair_max_workers;
   saved.repair_attempts = payload.repair_attempts;
   saved.cleanup_after_run = payload.cleanup_after_run;
   persistCardSettings(id, {
+    random_seed: payload.random_seed,
     repair_after_generation: payload.repair_after_generation,
     repair_max_workers: payload.repair_max_workers,
     repair_attempts: payload.repair_attempts,
