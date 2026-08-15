@@ -34,7 +34,7 @@ BOOL_PREFERENCE_KEYS = (
 # Cada campo del diálogo de generación se recuerda por nodo a partir del propio
 # lanzamiento, sin depender de que el navegador lo reenvíe a /preferences.
 LAUNCH_PREFERENCE_KEYS = (
-    "cycles", "generations", "variants_per_seed", "max_seeds", "generation_mode",
+    "cycles", "generations", "variants_per_seed", "max_seeds", "generation_mode", "random_seed",
     "max_workers", "repair_max_workers", "regression_max_workers", "repair_attempts",
     *BOOL_PREFERENCE_KEYS,
 )
@@ -705,6 +705,15 @@ class ManagerServer(ThreadingHTTPServer):
             if mode not in {"production", "discovery"}:
                 raise ValueError("generation_mode debe ser production o discovery")
             normalized["generation_mode"] = mode
+        if "random_seed" in changes:
+            value = changes["random_seed"]
+            if value is None or str(value).strip() == "":
+                normalized["random_seed"] = None
+            else:
+                try:
+                    normalized["random_seed"] = int(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("random_seed debe ser un entero o null") from exc
         for key in ("max_workers", "repair_max_workers", "regression_max_workers"):
             if key in changes:
                 normalized[key] = safe_int(changes[key], 1, minimum=1, maximum=64)

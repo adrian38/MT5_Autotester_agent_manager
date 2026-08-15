@@ -228,6 +228,7 @@ enabled=0
         launch = {
             "cycles": 2, "generations": 3, "variants_per_seed": 7, "max_seeds": 11,
             "generation_mode": "discovery", "max_workers": 10, "execute_backtests": True,
+            "random_seed": 20260812,
             "run_robustness": True, "run_final_tick": True, "run_final_tick_6m": True,
             "run_regression": True, "repair_after_generation": True,
             "repair_max_workers": 6, "repair_attempts": 4, "cleanup_after_run": False,
@@ -251,6 +252,7 @@ enabled=0
         self.assertEqual(status, 200)
         node = payload["nodes"][0]
         self.assertEqual(node["launch_preferences"]["max_workers"], 10)
+        self.assertEqual(node["launch_preferences"]["random_seed"], 20260812)
         self.assertTrue(node["launch_preferences"]["run_regression"])
         # El diálogo relee estos tres desde launch_defaults, no desde launch_preferences.
         self.assertEqual(node["launch_defaults"]["generations"], 3)

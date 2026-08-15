@@ -411,6 +411,7 @@ class PortfolioFormTests(unittest.TestCase):
             "generations": (1, 1000),
             "variants": (1, 10, 10000),
             "max-seeds": (0, 30, 100000),
+            "random-seed": (-7, 0, 20260812),
             "max-workers": (1, 64),
             "repair-workers": (1, 64),
             "regression-workers": (1, 64),
