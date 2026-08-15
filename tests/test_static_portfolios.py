@@ -35,6 +35,16 @@ class NodeCardControlsTests(unittest.TestCase):
         script = self.script()
         self.assertIn("Se corta la etapa en curso", script)
 
+    def test_application_restart_button_is_capability_gated_and_idle_only(self) -> None:
+        script = self.script()
+        self.assertIn("node.capabilities?.application_restart", script)
+        self.assertIn("RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped']", script)
+        self.assertIn("onclick=\"restartNode(", script)
+        self.assertIn("/restart`", script)
+        self.assertIn("git pull --ff-only", script)
+        self.assertIn("git push", script)
+        self.assertIn("window.restartNode = restartNode", script)
+
 
 class PortfolioFormTests(unittest.TestCase):
     def test_capital_accepts_any_numeric_value_like_the_original_ubs_form(self) -> None:

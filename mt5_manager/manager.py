@@ -384,6 +384,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
             "app.js", "styles.css", "universe.html", "universe.js",
             "portfolios.html", "portfolios.js",
             "portfolios_monthly.html", "portfolios_monthly.js",
+            "portfolio_improvement.js", "portfolio_monthly_improvement.js",
             "portfolios_grid.html", "portfolios_grid.js",
             # Primitiva compartida por los tres ámbitos: el diálogo del motivo de
             # exclusión y las etiquetas de sus tres códigos. La interfaz de cada
@@ -493,7 +494,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         "portfolio_id": selected_id,
                         "portfolio_ids": portfolio_ids,
                     })
-                elif action in {"reoptimize", "complete"}:
+                elif action in {"reoptimize", "complete", "improve"}:
                     portfolio_id = safe_int(body.pop("portfolio_id", 0), 0, minimum=1)
                     self._send_json(202, {"job": self.server.portfolios.start_saved_operation(
                         node_id, scope, portfolio_id, action, body or None
@@ -600,7 +601,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": str(exc)})
             return
         if len(parts) != 4 or parts[:2] != ["api", "nodes"] or parts[3] not in {
-            "start", "stop", "pause", "resume", "repair", "regression", "cleanup", "universe",
+            "start", "stop", "pause", "resume", "restart", "repair", "regression", "cleanup", "universe",
         }:
             self._send_json(404, {"error": "Ruta no encontrada"})
             return
@@ -612,6 +613,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 "stop": "/api/v1/jobs/stop",
                 "pause": "/api/v1/jobs/pause",
                 "resume": "/api/v1/jobs/resume",
+                "restart": "/api/v1/application/restart",
                 "repair": "/api/v1/jobs/repair",
                 "regression": "/api/v1/jobs/regression",
                 "cleanup": "/api/v1/jobs/cleanup",

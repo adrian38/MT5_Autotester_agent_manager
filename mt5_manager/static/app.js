@@ -18,6 +18,12 @@ const domId = value => String(value).replace(/[^a-zA-Z0-9_-]/g, '_');
 // 'interrupted' lo que queda cuando el agente se cerro con un trabajo en marcha.
 const RESUMABLE_STATES = ['paused', 'interrupted'];
 const isResumable = state => RESUMABLE_STATES.includes(String(state || ''));
+const RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped'];
+const canRestartApplication = (node, state) => Boolean(
+  node.capabilities?.application_restart
+  && RESTARTABLE_STATES.includes(String(state || ''))
+  && Number(node.task_queue?.count || 0) === 0
+);
 
 function toast(message, error = false) {
   const element = document.querySelector('#toast');
@@ -360,6 +366,9 @@ function render() {
       : 'Todavía no hay runs en la memoria SQLite.';
     const supportsQueue = Boolean(node.capabilities?.task_queue);
     const queuedCount = Number(node.task_queue?.count || 0);
+    const restartButton = node.capabilities?.application_restart
+      ? `<button class="secondary" title="Sincronizar con origin, cerrar y volver a abrir la aplicación del agente" onclick="restartNode('${esc(id)}','${esc(name)}')" ${canRestartApplication(node, state) ? '' : 'disabled'}>Reiniciar app</button>`
+      : '';
     const repairButton = node.capabilities?.repair_runs
       ? `<button class="secondary" onclick="openRepair('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${supportsQueue && (state === 'running' || queuedCount) ? 'Agregar reparación' : 'Reparar'}</button>`
       : '';
@@ -376,7 +385,7 @@ function render() {
       ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><a class="button secondary" href="/portfolios_monthly.html?node=${encodeURIComponent(id)}">Portafolio mensual</a><a class="button secondary" href="/portfolios_grid.html?node=${encodeURIComponent(id)}">Portafolio Grid UBS</a>`
       : '';
     const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
-    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${isResumable(state) ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || isResumable(state) ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
+    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${restartButton}${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${isResumable(state) ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || isResumable(state) ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
   }).join('');
 }
 
@@ -760,6 +769,23 @@ async function resumeNode(id) {
   } catch (error) { toast(error.message, true); }
 }
 
+async function restartNode(id, name) {
+  const warning = `¿Reiniciar la aplicación completa de ${name}?\n\n`
+    + 'La ventana del agente se cerrará, ejecutará git pull --ff-only y git push sobre la rama actual, '
+    + 'y volverá a abrir para cargar los cambios de código. '
+    + 'El nodo quedará sin conexión durante unos segundos.';
+  if (!confirm(warning)) return;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/restart`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    toast(`Reinicio completo solicitado en ${name}`);
+    setTimeout(refresh, 1500);
+  } catch (error) { toast(error.message, true); }
+}
+
 async function showLogs(id, name) {
   document.querySelector('#log-title').textContent = `Log · ${name}`;
   document.querySelector('#log-content').textContent = 'Cargando…';
@@ -842,6 +868,7 @@ window.cleanupNode = cleanupNode;
 window.stopNode = stopNode;
 window.pauseNode = pauseNode;
 window.resumeNode = resumeNode;
+window.restartNode = restartNode;
 window.showLogs = showLogs;
 window.refresh = refresh;
 refresh();

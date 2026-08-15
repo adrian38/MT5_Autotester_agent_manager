@@ -155,9 +155,9 @@ function jobBadge(job, task = {}) {
   document.querySelector('#portfolio-log').disabled = !(job?.id || job?.log_path || job?.last_log_path);
   renderMonthlyMonitor(job || {});
   if (job?.id || job?.log_path || job?.last_log_path) refreshMonthlyLog(true);
-  const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : '';
+  const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : operation === 'improve' ? `Mejora mensual #${job.portfolio_id}` : '';
   document.querySelector('#proposal-operation').textContent = opText;
-  document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : 'Guardar seleccionada';
+  document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : operation === 'improve' ? 'Aplicar mejora' : 'Guardar seleccionada';
   if (active && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadTaskState(); }, 1800);
   if (!active && pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
 }
@@ -241,6 +241,7 @@ function renderProposals() {
     const stress = result.stress_bootstrap || {};
     const margin = result.margin_summary || {};
     const strict = result.seasonal_validation || {};
+    const improvement = strict.portfolio_improvement || {};
     const changed = result.changed_allocations ?? (proposal.diff || []).filter(row => row.state !== 'SIN CAMBIO').length;
     const adjusted = proposal.auto_adjusted_valley ? ` · objetivo ajustado ${number(proposal.requested_valley_dd_pct, 2)}% → ${number(proposal.adjusted_valley_dd_pct, 2)}%` : '';
     return `<button type="button" class="proposal-card ${proposal.key === selectedProposal ? 'selected' : ''} ${stress.alert ? 'stress-alert' : ''}" onclick="selectProposal('${esc(proposal.key)}')">
@@ -254,6 +255,7 @@ function renderProposals() {
       <small>P&gt;nominal ${number(stress.probability_exceed_nominal_pct, 1)}% · P&gt;efectivo ${number(stress.probability_exceed_effective_pct, 1)}%</small>
       <small>Margen ${number(margin.total, 2)} / ${number(margin.limit, 2)} (${number(margin.usage_pct, 1)}%) · reserva ${number(proposal.reserve_pct, 1)}%</small>
       ${scope === 'monthly' && Object.keys(strict).length ? `<small>Validación estricta ${strict.passed ? 'OK' : 'FAIL'} · mejor mes ${strict.best_month ? String(strict.best_month).padStart(2, '0') : '—'}</small>` : ''}
+      ${improvement.verdict ? `<small>Base original: ${number(improvement.original_count)} intactas · +${number(improvement.added_count)} · beneficio/DD ${Number(improvement.efficiency_gain_pct) >= 0 ? '+' : ''}${number(improvement.efficiency_gain_pct, 2)}%</small>` : ''}
       <small>${changed} asignaciones modificadas</small>
     </button>`;
   }).join('');
@@ -401,7 +403,7 @@ document.querySelector('#reset-settings').addEventListener('click', () => {
 document.querySelector('#save-proposal').addEventListener('click', async () => {
   if (!selectedProposal) return;
   const operation = managerState.job?.operation || 'generate';
-  const title = operation === 'reoptimize' ? 'Aplicando reoptimización' : operation === 'complete' ? 'Aplicando sustitución' : 'Guardando portafolio';
+  const title = operation === 'reoptimize' ? 'Aplicando reoptimización' : operation === 'complete' ? 'Aplicando sustitución' : operation === 'improve' ? 'Aplicando mejora mensual' : 'Guardando portafolio';
   const detail = operation === 'generate' ? 'Guardando la propuesta seleccionada y sus estrategias…' : `Actualizando el portafolio #${managerState.job?.portfolio_id || selectedId}…`;
   try {
     const data = await withSaveOverlay(title, detail, () => postManager('save', {scope, proposal_key: selectedProposal}));
@@ -508,6 +510,7 @@ function renderAudit(portfolio) {
   const stress = metrics.stress_bootstrap || {};
   const margin = metrics.margin_summary || {};
   const strict = metrics.seasonal_validation || {};
+  const improvement = strict.portfolio_improvement || {};
   document.querySelector('#detail-audit').innerHTML = [
     metric(number(stress.valley_dd_p50, 2), 'Bootstrap P50'),
     metric(number(stress.valley_dd_p95, 2), 'Bootstrap P95', stress.alert ? 'ALERTA DE ESTRÉS' : '', stress.alert),
@@ -516,7 +519,8 @@ function renderAudit(portfolio) {
     metric(number(margin.total, 2), 'Margen nominal', `${number(margin.usage_pct, 1)}% de ${number(margin.limit, 2)}`),
     metric(largestGroup(metrics.group_summary), 'Mayor grupo'),
     metric(portfolio.target_month ? `${String(portfolio.target_month).padStart(2, '0')} · ${monthNames[portfolio.target_month]}` : '—', 'Mes objetivo'),
-    metric(Object.keys(strict).length ? (strict.passed ? 'OK' : 'FAIL') : '—', 'Validación estricta', strict.best_month ? `mejor mes ${String(strict.best_month).padStart(2, '0')}` : ''),
+    metric(strict.passed != null ? (strict.passed ? 'OK' : 'FAIL') : '—', 'Validación estricta', strict.best_month ? `mejor mes ${String(strict.best_month).padStart(2, '0')}` : ''),
+    metric(improvement.verdict || '—', 'Mejora de base', improvement.verdict ? `${number(improvement.original_count)} originales intactas · +${number(improvement.added_count)} · beneficio/DD ${Number(improvement.efficiency_gain_pct) >= 0 ? '+' : ''}${number(improvement.efficiency_gain_pct, 2)}%` : ''),
   ].join('');
   const decisions = portfolio.decisions || [];
   document.querySelector('#detail-decisions').innerHTML = decisions.length ? decisions.map(row => `<tr><td>${number(row.step)}</td><td>${esc(row.action)}</td><td>${esc((row.set_id || row.to_set_id || '').split(/[\\/]/).pop())}</td><td>${number(row.gain, 2)}</td><td>${number(row.valley_cost, 2)}</td><td>${number(row.score, 3)}</td><td>${esc(row.reason || '')}</td></tr>`).join('') : '<tr><td colspan="7">No hay decisiones guardadas.</td></tr>';
