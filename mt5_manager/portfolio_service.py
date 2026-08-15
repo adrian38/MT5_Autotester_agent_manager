@@ -3445,7 +3445,7 @@ class PortfolioCoordinator:
     def start_saved_operation(
         self, node_id: str, scope: str, portfolio_id: int, operation: str, changes: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        if operation not in {"reoptimize", "complete"}:
+        if operation not in {"reoptimize", "complete", "improve"}:
             raise ValueError("Operación guardada desconocida")
         source = self._persistence_source(node_id, scope)
         detail = source.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
@@ -3503,6 +3503,14 @@ class PortfolioCoordinator:
 
                 availability, proposals = run_grid_operation(
                     source, operation, portfolio_id, settings, logged_progress,
+                )
+            elif operation == "improve":
+                if portfolio_id is None:
+                    raise ValueError("Falta el portafolio cuya base se quiere mejorar")
+                from .portfolio_improvement_service import generate_full_history_improvement
+
+                availability, proposals = generate_full_history_improvement(
+                    source, portfolio_id, settings, logged_progress,
                 )
             elif operation == "complete":
                 if portfolio_id is None:
@@ -3648,7 +3656,7 @@ class PortfolioCoordinator:
             )
         operation = str(job.get("operation") or "generate")
         target_id = safe_int(job.get("portfolio_id"), 0)
-        if operation in {"reoptimize", "complete"} and target_id <= 0:
+        if operation in {"reoptimize", "complete", "improve"} and target_id <= 0:
             raise ValueError("Falta el portafolio que se quiere actualizar")
         request_id = str(job.get("save_request_id") or "")
         if not request_id or str(job.get("save_selected_key") or "") != selected_key:
@@ -3658,10 +3666,16 @@ class PortfolioCoordinator:
                 self.jobs[key] = job
             self.jobs[key]["save_request_id"] = request_id
             self.jobs[key]["save_selected_key"] = selected_key
+        # La escritura pertenece al nodo del agente. "complete" ya expresa en
+        # el protocolo antiguo la misma mutación transaccional (reemplazar el
+        # portafolio guardando una versión previa), por lo que la mejora viaja
+        # con ese verbo y conserva compatibilidad con las copias bifurcadas.
+        wire_operation = "complete" if operation == "improve" else operation
         return {
             "scope": scope,
             "selected_key": selected_key,
-            "operation": operation,
+            "operation": wire_operation,
+            "manager_operation": operation,
             "portfolio_id": target_id or None,
             "request_id": request_id,
             "proposals": serialize_portfolio_proposals(proposals, request_id),

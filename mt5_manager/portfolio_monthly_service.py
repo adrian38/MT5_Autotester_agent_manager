@@ -481,6 +481,12 @@ def run_monthly_operation(
     settings: dict[str, Any],
     progress: Progress,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if operation == "improve":
+        if portfolio_id is None:
+            raise ValueError("Falta el portafolio mensual cuya base se quiere mejorar")
+        from .portfolio_monthly_improvement_service import generate_monthly_improvement
+
+        return generate_monthly_improvement(source, portfolio_id, settings, progress)
     if operation == "complete":
         if portfolio_id is None:
             raise ValueError("Falta el portafolio que se quiere completar")

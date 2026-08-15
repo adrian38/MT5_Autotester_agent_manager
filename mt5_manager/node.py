@@ -34,7 +34,7 @@ import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import candidate_verdict, dev_branch
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
@@ -1476,6 +1476,7 @@ class JobController:
                 "universe_management": True,
                 "portfolio_views": True,
                 "task_queue": True,
+                "application_restart": bool(getattr(self, "application_restart_available", False)),
                 "historical_cleanup": bool(historical_cleanup_scripts(self.config, required=False)),
             },
             "observed_at": utc_now(),
@@ -1810,7 +1811,9 @@ class NodeHandler(BaseHTTPRequestHandler):
             self._send(401, {"error": "No autorizado"})
             return
         try:
-            if self.path == "/api/v1/jobs/generation":
+            if self.path == "/api/v1/application/restart":
+                self._send(202, self.server.request_application_restart())
+            elif self.path == "/api/v1/jobs/generation":
                 self._send(202, self.server.controller.start(self._body()))
             elif self.path == "/api/v1/jobs/repair":
                 self._send(202, self.server.controller.start_repair(self._body()))
@@ -1848,9 +1851,28 @@ class NodeHandler(BaseHTTPRequestHandler):
 class NodeServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], controller: JobController) -> None:
+    def __init__(
+        self,
+        address: tuple[str, int],
+        controller: JobController,
+        restart_callback: Callable[[], None] | None = None,
+    ) -> None:
         self.controller = controller
+        self.restart_callback = restart_callback
+        self.controller.application_restart_available = restart_callback is not None
         super().__init__(address, NodeHandler)
+
+    def request_application_restart(self) -> dict[str, Any]:
+        callback = self.restart_callback
+        if callback is None:
+            raise RuntimeError("El reinicio remoto solo esta disponible en la aplicacion integrada")
+        with self.controller.lock:
+            if self.controller._busy() or self.controller.queue:
+                raise RuntimeError(
+                    "No se puede reiniciar la aplicacion con una ejecucion activa o tareas pendientes"
+                )
+        callback()
+        return {"status": "restarting", "message": "Reinicio de la aplicacion solicitado"}
 
 
 def main(argv: list[str] | None = None) -> int:

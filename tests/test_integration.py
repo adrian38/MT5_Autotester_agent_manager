@@ -61,7 +61,10 @@ enabled=0
         config_path = self.root / "node.json"
         config_path.write_text(json.dumps(node_config), encoding="utf-8")
         self.controller = JobController(node_config, config_path)
-        self.node = NodeServer(("127.0.0.1", 0), self.controller)
+        self.restart_requested = threading.Event()
+        self.node = NodeServer(
+            ("127.0.0.1", 0), self.controller, restart_callback=self.restart_requested.set
+        )
         self.node_thread = threading.Thread(target=self.node.serve_forever, daemon=True)
         self.node_thread.start()
         node_url = f"http://127.0.0.1:{self.node.server_address[1]}"
@@ -409,6 +412,26 @@ enabled=0
         self.assertEqual(caught.exception.code, 409)
         self.assertIn("pausar", json.loads(caught.exception.read())["error"])
 
+    def test_application_restart_reaches_the_embedded_node(self) -> None:
+        status, payload = self.request("/api/nodes/test-node/restart", {})
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["status"], "restarting")
+        self.assertTrue(self.restart_requested.wait(1))
+
+    def test_application_restart_refuses_pending_work(self) -> None:
+        with self.controller.lock:
+            self.controller.queue.append({"id": "queued-test"})
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.request("/api/nodes/test-node/restart", {})
+            self.assertEqual(caught.exception.code, 409)
+            self.assertIn("tareas pendientes", json.loads(caught.exception.read())["error"])
+            self.assertFalse(self.restart_requested.is_set())
+        finally:
+            with self.controller.lock:
+                self.controller.queue.clear()
+
     def test_export_folder_endpoint_opens_the_manager_picker(self) -> None:
         # El modo se fija aqui a proposito. Antes se heredaba del entorno y
         # MT5_MANAGER_EXPORT_MODE=download (lo que pone docker-compose) hacia que
@@ -625,6 +648,38 @@ enabled=0
         self.assertEqual(status, 200)
         self.assertEqual(payload, task_state)
         status_call.assert_called_once_with("test-node", "full_history")
+
+    def test_saved_portfolio_improvement_reaches_the_independent_job(self) -> None:
+        job = {"id": "improve-33", "status": "running", "operation": "improve"}
+        with mock.patch.object(
+            self.manager.portfolios,
+            "start_saved_operation",
+            return_value=job,
+        ) as start:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/improve",
+                {
+                    "scope": "full_history",
+                    "portfolio_id": 33,
+                    "improvement_additions": 2,
+                    "improvement_exclude_used_sets": True,
+                    "improvement_allow_same_symbol": True,
+                },
+            )
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload, {"job": job})
+        start.assert_called_once_with(
+            "test-node",
+            "full_history",
+            33,
+            "improve",
+            {
+                "improvement_additions": 2,
+                "improvement_exclude_used_sets": True,
+                "improvement_allow_same_symbol": True,
+            },
+        )
 
     def test_controller_runs_each_node_queue_in_order_and_persists_it(self) -> None:
         (self.root / "ubs_agent.py").write_text(

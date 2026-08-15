@@ -120,3 +120,39 @@ mount de Docker: falla con `disk I/O error`. Detalle en
 Son **dos** piezas en el proyecto del agente, y falta cualquiera rompe el botón:
 la función en `manager_node_runtime/portfolio_save.py` y la ruta en
 `manager_node_runtime/node.py`. Hay que reiniciar la aplicación del agente.
+
+## Reinicio completo de la aplicacion desde el manager
+
+El boton `Reiniciar app` de la tarjeta usa
+`POST /api/nodes/<id>/restart`, que el manager delega en
+`POST /api/v1/application/restart`. La capacidad se anuncia como
+`capabilities.application_restart` solamente cuando `NodeServer` fue creado
+por `EmbeddedManagerNode` con un callback de reinicio; el nodo señuelo ejecutado
+por separado no la anuncia.
+
+La ruta que se ejecuta de verdad esta en
+`manager_node_runtime/node.py` del agente ICTrading. Rechaza el reinicio si hay
+un proceso activo, un pipeline pausado/reanudable o tareas en cola. Cuando esta
+libre, el handler marca un `threading.Event`; `app_ui.py` lo consume desde el
+hilo de Tk, cierra el servidor y la ventana, y `manager_node_lifecycle.py`
+reemplaza el proceso con el mismo `app_ui.py` o el mismo ejecutable congelado.
+Asi se evita tocar Tk desde el hilo HTTP y el puerto queda libre antes del
+relanzamiento.
+
+Antes de relanzar, `manager_node_lifecycle.py` detecta la rama Git actual y
+ejecuta, en este orden, `git pull --ff-only origin <rama>` y
+`git push origin <rama>`. El pull no crea merges automaticos; si falla, el push
+se omite. Los comandos no piden credenciales de forma interactiva y dejan su
+resultado en `logs/manager_node_restart.log`. El relanzamiento se ejecuta
+siempre, incluso si Git no esta disponible, vence el timeout o la
+sincronizacion falla, para no dejar apagado el agente.
+
+El reinicio vuelve a cargar cambios Python cuando la aplicacion corre desde
+fuente. Si corre como ejecutable PyInstaller, relanza el mismo binario: para
+incorporar cambios de fuente hay que reconstruirlo. Tampoco compila codigo MQ5;
+esa compilacion sigue siendo una accion separada de la aplicacion.
+
+Estado del port (2026-08-14): manager e ICTrading de este equipo, si; AXI y
+RoboForex, pendientes hasta que sus unidades esten montadas y su rama permita
+escribirlas. `test_application_restart_reaches_every_embedded_node_fork` impide
+que una copia montada vuelva a quedar sin la ruta o sin su prueba.

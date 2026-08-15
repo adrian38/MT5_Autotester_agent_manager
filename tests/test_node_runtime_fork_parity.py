@@ -274,6 +274,44 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "pruebas del nodo en el agente")
 
+    def test_application_restart_reaches_every_embedded_node_fork(self) -> None:
+        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        self.assertIn("/api/v1/application/restart", manager_node)
+        self.assertIn("application_restart", manager_node)
+
+        def check(project: Path, _source: str) -> None:
+            node_source = (project / "manager_node_runtime" / "node.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            lifecycle_source = (project / "manager_node_lifecycle.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            lifecycle_tests = (project / "tests" / "test_manager_node_lifecycle.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            for token in (
+                "/api/v1/application/restart",
+                "application_restart",
+                "request_application_restart",
+            ):
+                self.assertIn(token, node_source, msg=f"{project}: falta `{token}` en el nodo real")
+            for token in (
+                "restart_callback",
+                "consume_restart_request",
+                "sync_origin_before_relaunch",
+                "git pull --ff-only origin",
+                "git push origin",
+                "relaunch_application",
+            ):
+                self.assertIn(token, lifecycle_source, msg=f"{project}: falta `{token}` en el ciclo de vida")
+            self.assertIn(
+                "/api/v1/application/restart",
+                lifecycle_tests,
+                msg=f"{project}: el reinicio completo no tiene prueba en el proyecto del agente",
+            )
+
+        self._assert_on_every_fork(check, "reinicio completo de la aplicacion")
+
 
 if __name__ == "__main__":
     unittest.main()

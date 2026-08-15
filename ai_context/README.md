@@ -7,6 +7,9 @@ Contexto persistente para agentes que trabajan en `MT5_Autotester_agent_manager`
   automática de datos históricos al terminar cada run.
 
 - `portfolio_ubs_parity.md`: separación de aplicaciones y reglas del núcleo estable compartido entre UBS completo y UBS mensual.
+- `portfolio_saved_base_improvement.md`: contrato de «Mejorar base», bloqueo de
+  originales, puertas de diversificación/Final Tick 6M, separación full/mensual
+  y reutilización del verbo transaccional del nodo.
 - `axi_margin_files_from_the_agent.md`: qué ficheros del proyecto del agente lee
   el margen AXI, qué campo está en divisa de cuenta y por qué `skipped_symbols`
   bloquea el respaldo por grupo.
