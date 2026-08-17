@@ -354,6 +354,35 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "reinicio completo de la aplicacion")
 
+    def test_optional_cli_values_are_omitted_instead_of_stringified_on_every_fork(self) -> None:
+        # `_add` es quien construye la línea de comandos de ubs_agent.py, y quien
+        # la ejecuta es el nodo del agente. Con `str(None)` la semilla vacía se
+        # convertía en `--random-seed None` y argparse mataba la generación con
+        # código 2 antes de crear un solo candidato (2026-08-17, run #124 de
+        # ICTrading). Arreglarlo solo aquí no habría cambiado nada para el usuario.
+        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        self._assert_present(
+            manager_node,
+            r"def _add\(.*?\n(?:\s*#.*\n)*\s*if value is None:\s*\n\s*return",
+            "El manager volvió a convertir un valor opcional en el texto \"None\" "
+            "al construir la orden de ubs_agent.py.",
+        )
+
+        def check(project: Path, _source: str) -> None:
+            node_source = (project / "manager_node_runtime" / "node.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            self._assert_present(
+                node_source,
+                r"def _add\(.*?\n(?:\s*#.*\n)*\s*if value is None:\s*\n\s*return",
+                f"{project}: `_add` de manager_node_runtime/node.py sigue pasando "
+                "el texto \"None\" como valor. Portar la guarda del manager "
+                "(`if value is None: return`): sin ella, dejar la semilla "
+                "reproducible vacía hace fallar la generación con código 2.",
+            )
+
+        self._assert_on_every_fork(check, "valores opcionales de la orden de ubs_agent.py")
+
 
 if __name__ == "__main__":
     unittest.main()

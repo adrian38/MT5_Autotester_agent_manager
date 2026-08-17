@@ -30,6 +30,44 @@ el routing ni desplaza las variantes vecinas. La versión actual del contrato qu
 registrada en `run_config.json` como
 `generation-selection-mutation-v1`.
 
+## Semilla vacía: fallo con código 2 (2026-08-17)
+
+El run #124 de ICTrading terminó como `FAILED` un segundo después de arrancar, con
+`return_code = 2` y sin ninguna etapa ejecutada. La causa no estaba en la
+generación: `_add` de `node.py` construía la orden con `str(value)`, así que un
+`random_seed` `None` —lo que deja el diálogo con la semilla vacía— viajaba como el
+texto `"None"`. `ubs_agent.py` moría en `argparse`:
+
+```
+ubs_agent.py: error: argument --random-seed: invalid int value: 'None'
+```
+
+Detalles que costaron tiempo y conviene no volver a investigar:
+
+- Ninguna otra opción lo delataba: `--from-date`, `--symbol-map` y compañía caen en
+  `setting(...)`, que devuelve cadena vacía. `--random-seed` es la única sin
+  respaldo, así que es la única que llegaba como `None`.
+- AXI y RoboForex seguían corriendo con la misma semilla vacía, así que sus nodos
+  no están añadiendo la opción. No se puede comprobar desde este equipo: los dos
+  corren en `DESKTOP-E2VTFPQ` (192.168.1.152) y aquí no hay copia de su
+  `manager_node_runtime/`. Es decir, el fallo aparece **solo** donde el nodo sí
+  está portado, lo contrario de lo que sugiere la tarjeta.
+- Latente cinco días: el código es del 12-08 (`c80ba2f` aquí, `b0a155a` en el
+  agente) y el árbol del agente lo tenía desde el 16-08 a las 02:26, pero el
+  proceso seguía con el `node.py` anterior en memoria. Se destapó al reiniciar la
+  aplicación el 17-08 a las 12:25. Las reparaciones no lo notaron nunca:
+  `build_pipeline_stage_command` no pasa la semilla.
+- `_normalize_generation` ya dejaba `None` correctamente; el error estaba después,
+  al serializar la orden. La prueba del agente comprobaba la normalización y se
+  quedaba a una línea de destaparlo.
+
+Arreglado con `if value is None: return` en `_add`, en el manager y en la copia del
+agente. Lo vigilan `tests/test_node.py`
+(`test_build_generation_command_omits_the_seed_when_it_is_random`),
+`tests/test_node_runtime_fork_parity.py`
+(`test_optional_cli_values_are_omitted_instead_of_stringified_on_every_fork`) y
+`tests/test_manager_node_regression.py` del agente.
+
 ## Copias desplegadas
 
 El contrato está implementado en el manager y en los runtimes embebidos de los
