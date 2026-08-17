@@ -130,6 +130,7 @@ enabled=0
             "run_final_tick": True,
             "run_final_tick_6m": False,
             "run_regression": True,
+            "repair_run_regression": False,
             "cleanup_after_run": True,
         })
         self.assertEqual(status, 200)
@@ -140,6 +141,8 @@ enabled=0
         self.assertEqual(saved["preferences"]["repair_attempts"], 3)
         self.assertTrue(saved["preferences"]["repair_after_generation"])
         self.assertTrue(saved["preferences"]["run_regression"])
+        # La casilla de Reparar se recuerda aparte de la de la nueva ejecución.
+        self.assertFalse(saved["preferences"]["repair_run_regression"])
         self.assertTrue(saved["preferences"]["cleanup_after_run"])
         persisted = json.loads(self.preferences_path.read_text(encoding="utf-8"))["test-node"]
         self.assertEqual(persisted["max_workers"], 4)

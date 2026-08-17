@@ -173,6 +173,10 @@ function settingsFor(node, id) {
       run_final_tick: Boolean(defaults.run_final_tick),
       run_final_tick_6m: Boolean(defaults.run_final_tick_6m),
       run_regression: Boolean(defaults.run_regression),
+      // Independiente de `run_regression`, que pertenece a la nueva ejecución: esta
+      // decide si Reparar añade la etapa regresiva. Por omisión sí, que es lo que
+      // hacía el nodo antes de que la casilla existiera.
+      repair_run_regression: defaults.repair_run_regression !== false,
       cleanup_after_run: supportsCleanup(node) && defaults.cleanup_after_run !== false,
     };
   }
@@ -507,11 +511,16 @@ async function openRepair(id, name) {
   document.querySelector('#repair-node-id').value = id;
   document.querySelector('#repair-title').textContent = `Reparar · ${name}`;
   const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id) || {};
-  const regressionStep = supportsRegression(node) ? ' → Prueba regresiva' : '';
+  // La etapa regresiva es opcional: la casilla del diálogo decide, y solo aparece
+  // cuando el nodo anuncia la capacidad. El nodo la aplica únicamente a los runs
+  // de producción, igual que antes.
+  const regressionStep = supportsRegression(node) ? ' → Prueba regresiva (opcional)' : '';
   document.querySelector('#repair-help-text').textContent =
     `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. Ejecutará las pruebas pendientes con el límite de terminales indicado.`;
   document.querySelector('#repair-workers').value = settingsFor(node, id).repair_max_workers;
   document.querySelector('#repair-attempts').value = settingsFor(node, id).repair_attempts;
+  document.querySelector('#repair-regression-option').hidden = !supportsRegression(node);
+  document.querySelector('#repair-regression').checked = settingsFor(node, id).repair_run_regression;
   const container = document.querySelector('#repair-runs');
   document.querySelector('#repair-select-row').hidden = true;
   updateRepairSelectionState();
@@ -581,6 +590,12 @@ function setRepairAttempts(value) {
   setCardValue(id, 'repair_attempts', Math.max(1, Math.min(20, Number(value) || 1)));
 }
 
+function setRepairRegression(checked) {
+  const id = document.querySelector('#repair-node-id').value;
+  if (!id) return;
+  setCardValue(id, 'repair_run_regression', Boolean(checked));
+}
+
 function setStageWorkers(dialogName, value) {
   const id = document.querySelector(`#${dialogName}-node-id`).value;
   if (!id) return;
@@ -596,6 +611,13 @@ async function submitRepair() {
   }
   const button = document.querySelector('#repair-submit');
   button.disabled = true;
+  const regressionOption = document.querySelector('#repair-regression-option');
+  // En un nodo sin capacidad regresiva la casilla no se muestra y no se envía nada:
+  // así el nodo mantiene su comportamiento por omisión en lugar de recibir un
+  // `false` que no significa nada para él.
+  const runRegression = regressionOption.hidden
+    ? null
+    : document.querySelector('#repair-regression').checked;
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/repair`, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
@@ -603,6 +625,7 @@ async function submitRepair() {
         max_workers: Number(document.querySelector('#repair-workers').value),
         repair_attempts: Number(document.querySelector('#repair-attempts').value),
         retry_low_quality: document.querySelector('#repair-low-quality').checked,
+        ...(runRegression === null ? {} : {run_regression: runRegression}),
         cleanup_after_run: true,
       }),
     });
@@ -611,7 +634,8 @@ async function submitRepair() {
     repairDialog.close();
     toast(data.queued
       ? `Reparación agregada a la cola · posición ${data.queue_item?.position || data.task_queue?.count}`
-      : `Reparación iniciada para ${runIds.length} run(s), ${document.querySelector('#repair-attempts').value} intento(s), hasta ${document.querySelector('#repair-workers').value} terminal(es).`);
+      : `Reparación iniciada para ${runIds.length} run(s), ${document.querySelector('#repair-attempts').value} intento(s), hasta ${document.querySelector('#repair-workers').value} terminal(es)${
+        runRegression === null ? '' : runRegression ? ', con prueba regresiva' : ', sin prueba regresiva'}.`);
     await refresh();
   } catch (error) {
     toast(error.message, true);
@@ -864,6 +888,7 @@ window.openRegression = openRegression;
 window.submitRegression = submitRegression;
 window.toggleRegressionRuns = toggleRegressionRuns;
 window.setRepairAttempts = setRepairAttempts;
+window.setRepairRegression = setRepairRegression;
 window.setStageWorkers = setStageWorkers;
 window.setCardValue = setCardValue;
 window.syncCardPipeline = syncCardPipeline;

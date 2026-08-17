@@ -10,6 +10,9 @@
   en nodos remotos, asi que el manager la proxya con timeout de 120 segundos.
 - La lista de runs del modal de reparacion incluye un control "Seleccionar
   todos" con contador para operar sobre todos los runs cargados.
+- El modal incluye la casilla «Prueba regresiva», opcional y visible solo en nodos
+  con la capacidad: envía `run_regression` y se recuerda como
+  `repair_run_regression`. Detalle en `ictrading_regression_button.md`.
 - El límite de terminales del modal se persiste como `repair_max_workers`.
   No reutiliza ni modifica `max_workers`, que pertenece a una nueva ejecución,
   ni `regression_max_workers`, que pertenece a la regresiva manual.

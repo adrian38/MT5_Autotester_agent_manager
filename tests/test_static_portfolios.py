@@ -384,6 +384,27 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("`${dialogName}_max_workers`", script)
         self.assertIn(".repair-select-row", styles)
 
+    def test_repair_dialog_makes_the_regression_stage_optional(self) -> None:
+        # La etapa regresiva de Reparar dejó de ser obligatoria: la decide una casilla
+        # del propio diálogo, que solo aparece en nodos con la capacidad y se recuerda
+        # aparte de `run_regression`, la de la nueva ejecución.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "app.js").read_text(encoding="utf-8")
+        page = (static_dir / "index.html").read_text(encoding="utf-8")
+        styles = (static_dir / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="repair-regression-option"', page)
+        self.assertIn('id="repair-regression"', page)
+        self.assertIn("setRepairRegression(this.checked)", page)
+        self.assertIn("repair_run_regression", script)
+        self.assertIn(
+            "document.querySelector('#repair-regression-option').hidden = !supportsRegression(node)",
+            script,
+        )
+        self.assertIn("run_regression: runRegression", script)
+        self.assertIn("window.setRepairRegression = setRepairRegression", script)
+        self.assertIn(".repair-regression", styles)
+
     def test_regression_dialog_can_select_all_runs(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")

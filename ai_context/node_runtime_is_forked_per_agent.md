@@ -121,6 +121,26 @@ Son **dos** piezas en el proyecto del agente, y falta cualquiera rompe el botón
 la función en `manager_node_runtime/portfolio_save.py` y la ruta en
 `manager_node_runtime/node.py`. Hay que reiniciar la aplicación del agente.
 
+## Estado del port de la prueba regresiva opcional en Reparar
+
+La casilla «Prueba regresiva» del diálogo de Reparar envía `run_regression` en
+`POST /api/nodes/<id>/repair`. La etapa nunca existió en `mt5_manager/node.py`:
+programarla es criterio exclusivo de la copia del agente (`_start_repair` la añade
+a los runs de producción), así que aquí el manager no es la referencia, solo el
+emisor de la casilla.
+
+| Copia | `run_regression` en Reparar |
+| --- | --- |
+| Manager (`mt5_manager/node.py`) | no aplica; nunca programó la etapa |
+| ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano el 2026-08-17 |
+| AXI | **no**, pendiente (`F:` no montada) |
+| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+
+Fallo silencioso: un nodo sin portar acepta la petición, ignora el campo y ejecuta
+la regresiva igual. No hay 404 ni error de validación; el usuario desmarca la
+casilla y el flujo no cambia. `test_optional_repair_regression_reaches_every_reachable_fork`
+lo convierte en un fallo mecánico en cuanto la copia esté montada.
+
 ## Reinicio completo de la aplicacion desde el manager
 
 El boton `Reiniciar app` de la tarjeta usa
