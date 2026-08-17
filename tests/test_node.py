@@ -104,6 +104,17 @@ enabled=0
         self.assertIn("--expert", command)
         self.assertEqual(command[command.index("--min-trades-w1") + 1], "11")
 
+    def test_build_generation_command_omits_the_seed_when_it_is_random(self) -> None:
+        # Semilla vacía en el diálogo llega como null y `_normalize_generation`
+        # la deja en None. Pasarla como texto añadía `--random-seed None` y
+        # ubs_agent.py moría con código 2 (`invalid int value: 'None'`) antes de
+        # generar nada, así que la ejecución fallaba en un segundo.
+        command, _ = build_generation_command(self.config, {
+            "generations": 2, "generation_mode": "discovery", "random_seed": None,
+        })
+        self.assertNotIn("--random-seed", command)
+        self.assertNotIn("None", command)
+
     def test_pipeline_stage_commands_use_stage_dates_and_worker_override(self) -> None:
         robustness, _ = build_pipeline_stage_command(self.config, {"max_workers": 3}, "robustness", 17)
         self.assertIn("--evaluate-robustness", robustness)
