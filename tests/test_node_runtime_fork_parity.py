@@ -274,6 +274,48 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "pruebas del nodo en el agente")
 
+    def test_optional_repair_regression_reaches_every_reachable_fork(self) -> None:
+        # La etapa regresiva del flujo de Reparar solo existe en la copia del agente:
+        # `mt5_manager/node.py` nunca la programó, así que aquí el manager no es la
+        # referencia del criterio, solo el emisor de la casilla. Un nodo sin portar
+        # acepta la petición, ignora `run_regression` y ejecuta la regresiva igual:
+        # el usuario desmarca la casilla y no pasa nada. No hay 404 que lo delate.
+        script = (MANAGER_ROOT / "mt5_manager" / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("run_regression: runRegression", script)
+        self.assertIn("repair_run_regression", script)
+
+        def check(project: Path, _source: str) -> None:
+            node_source = (project / "manager_node_runtime" / "node.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            self._assert_present(
+                node_source,
+                re.escape('payload["run_regression"] = bool(payload.get("run_regression", True))'),
+                f"{project}: `_normalize_repair` no lee `run_regression`, así que la casilla "
+                "«Prueba regresiva» del diálogo de Reparar no hace nada en ese agente. "
+                "Portar el cambio a manager_node_runtime/node.py y duplicar la prueba en "
+                "tests/test_manager_node_regression.py.",
+            )
+            self._assert_present(
+                node_source,
+                re.escape('if run_regression and run_modes[run_id] == "production":'),
+                f"{project}: el flujo de Reparar sigue añadiendo la regresiva a todo run de "
+                "producción sin consultar la casilla del diálogo.",
+            )
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "run_regression" in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre `run_regression` en Reparar; "
+                    "duplicar allí la cobertura de la casilla opcional."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "prueba regresiva opcional en Reparar")
+
     def test_application_restart_reaches_every_embedded_node_fork(self) -> None:
         manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
         self.assertIn("/api/v1/application/restart", manager_node)

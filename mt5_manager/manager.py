@@ -29,6 +29,9 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 FOLDER_PICKER_LOCK = threading.Lock()
 BOOL_PREFERENCE_KEYS = (
     "run_robustness", "run_final_tick", "run_final_tick_6m", "run_regression",
+    # `repair_run_regression` es la casilla del diálogo de Reparar, independiente de
+    # `run_regression` (nueva ejecución) como `repair_max_workers` lo es de `max_workers`.
+    "repair_run_regression",
     "repair_after_generation", "execute_backtests", "cleanup_after_run", "dry_run",
 )
 # Cada campo del diálogo de generación se recuerda por nodo a partir del propio
