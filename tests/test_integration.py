@@ -192,18 +192,31 @@ enabled=0
 
         status, saved = self.request("/api/nodes/test-node/live-audit-config", {
             "enabled": True,
-            "deployment_name": "Cartera real",
-            "account_login": "00123456",
-            "account_server": "Broker-Live",
-            "terminal_path": "C:\\Broker MT5\\terminal64.exe",
+            "selected_portfolio_ids": [11, 12],
+            "source_login": "00123456",
+            "source_server": "Broker-Live",
+            "source_password": "real-secret",
+            "tester_login": "00987654",
+            "tester_server": "Broker-Demo",
+            "tester_password": "tester-secret",
+            "active_job_policy": "pause_resume",
             "period_days": 30,
         })
         self.assertEqual(status, 200)
         self.assertTrue(saved["configured"])
         self.assertTrue(saved["settings"]["enabled"])
-        self.assertEqual(saved["settings"]["account_login"], "00123456")
+        self.assertEqual(saved["settings"]["source_login"], "00123456")
+        self.assertEqual(saved["settings"]["tester_login"], "00987654")
+        self.assertEqual(saved["settings"]["selected_portfolio_ids"], [11, 12])
+        self.assertTrue(saved["source_password_saved"])
+        self.assertTrue(saved["tester_password_saved"])
+        self.assertNotIn("source_password", saved)
+        self.assertNotIn("tester_password", saved)
         persisted = json.loads(self.live_audit_settings_path.read_text(encoding="utf-8"))
         self.assertEqual(persisted["test-node"]["settings"]["period_days"], 30)
+        encrypted = (self.root / "live_audit_credentials.json").read_text(encoding="utf-8")
+        self.assertNotIn("real-secret", encrypted)
+        self.assertNotIn("tester-secret", encrypted)
 
         with urllib.request.urlopen(self.base + "/live_audit.html?node=test-node", timeout=3) as response:
             self.assertIn(b"Auditor de cuenta real", response.read())
