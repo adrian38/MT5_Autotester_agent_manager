@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Auditor de cuenta real · MT5 Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/live_audit.css">
+</head>
+<body class="live-audit-page">
+  <header>
+    <div>
+      <p class="eyebrow">AUDITOR DE CUENTA REAL</p>
+      <h1 id="audit-title">Cargando…</h1>
+      <p class="subtitle">Configuración de seguimiento y comparación con Strategy Tester</p>
+    </div>
+    <div class="header-actions"><a class="button secondary" href="/">Volver al manager</a></div>
+  </header>
+  <main>
+    <section class="live-audit-notice" aria-label="Estado del MVP">
+      <div><strong>MVP · solo configuración</strong><p>Todavía no conecta con MT5 ni ejecuta pruebas. Cada portafolio marcado conserva una auditoría independiente.</p></div>
+      <span id="config-state" class="badge idle">SIN GUARDAR</span>
+    </section>
+
+    <form id="audit-form" class="live-audit-form">
+      <section class="panel-card live-audit-card">
+        <div class="panel-title"><div><p class="eyebrow">1 · PORTAFOLIOS</p><h2>Selecciona los portafolios que quieres probar</h2></div><span id="portfolio-count" class="badge idle">CARGANDO</span></div>
+        <p class="live-audit-section-help">Marca uno o varios. Debajo aparecerá una configuración separada para cada portafolio.</p>
+        <div id="portfolio-list" class="live-audit-portfolios" aria-live="polite"></div>
+      </section>
+
+      <div id="portfolio-configs" class="live-audit-configs" aria-live="polite"></div>
+
+      <div class="builder-actions live-audit-actions">
+        <button id="reset-audit" type="button" class="secondary">Restablecer valores</button>
+        <button id="save-audit" type="submit">Guardar configuraciones</button>
+      </div>
+    </form>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/live_audit.js"></script>
+</body>
+</html>
