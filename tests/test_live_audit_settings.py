@@ -284,6 +284,14 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertGreaterEqual(self.script.count("/live-audit-config`"), 2)
         self.assertIn("if (!form.reportValidity()) return", self.script)
 
+    def test_status_poll_does_not_replace_open_form_controls(self) -> None:
+        refresh = self.script.split("async function refreshAuditStates()", 1)[1].split(
+            "async function loadSettings()", 1
+        )[0]
+        self.assertIn("renderAuditOperations(ids)", refresh)
+        self.assertNotIn("renderProfiles()", refresh)
+        self.assertNotIn("captureDrafts()", refresh)
+
 
 if __name__ == "__main__":
     unittest.main()

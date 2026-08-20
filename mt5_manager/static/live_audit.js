@@ -212,6 +212,14 @@ function renderProfiles() {
   updateProfileControls();
 }
 
+function renderAuditOperations(ids = selectedAuditIds) {
+  ids.forEach(id => {
+    const card = configsEl.querySelector(`[data-profile-id="${CSS.escape(String(id))}"]`);
+    const operation = card?.querySelector('.live-audit-operation');
+    if (operation) operation.outerHTML = auditOperationsMarkup(id);
+  });
+}
+
 function readCard(card) {
   const field = name => card.querySelector(`[data-field="${name}"]`);
   const number = name => Number(field(name).value);
@@ -338,7 +346,7 @@ async function runAuditNow(id, button) {
     const data = await jsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     auditStates[String(id)] = data.audit || data;
-    renderProfiles();
+    renderAuditOperations([id]);
     toast(`Auditoría de ${auditTitle(id)} iniciada.`);
   } catch (error) {
     toast(error.message, true);
@@ -360,8 +368,9 @@ async function refreshAuditStates() {
       changed = true;
     });
     if (changed) {
-      captureDrafts();
-      renderProfiles();
+      // El sondeo solo cambia el bloque operativo. Rehacer la tarjeta completa
+      // cerraría selects abiertos y robaría el foco mientras el usuario edita.
+      renderAuditOperations(ids);
     }
   } catch (_error) {
     // La carga principal mostrará la desconexión; el sondeo no debe borrar el formulario.

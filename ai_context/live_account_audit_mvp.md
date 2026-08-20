@@ -207,3 +207,13 @@ la variante `balanced` y descartó 4 cierres ajenos. El tester produjo 39
 operaciones y hubo 4 coincidencias. Sus seis copias `.set` quedaron UTF-16 con
 un solo `StartLots`; los 27 artefactos `.log`/`.txt` no contenían secretos ni
 líneas Password sin redactar.
+
+### El sondeo de estado no debe reconstruir los formularios
+
+La página consulta el estado de las auditorías cada dos segundos. Ese sondeo no
+puede llamar a `renderProfiles()`: reemplazar las tarjetas completas cierra un
+`select` nativo que el usuario tenga abierto, roba el foco y puede descartar una
+edición todavía no capturada. `refreshAuditStates()` actualiza únicamente cada
+región `.live-audit-operation` mediante `renderAuditOperations(ids)`. Los
+cambios de estructura solicitados por el usuario (añadir o quitar usos) siguen
+siendo los únicos que reconstruyen las tarjetas completas.
