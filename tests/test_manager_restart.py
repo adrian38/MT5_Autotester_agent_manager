@@ -33,11 +33,13 @@ class ManagerRestartWorkerTests(unittest.TestCase):
         with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=succeed):
             worker.run()
 
-        self.assertEqual(calls, [
+        requested = [command for command in calls if command[0] in {"git", "docker"}]
+        self.assertEqual(requested, [
             ["git", "pull"],
             ["git", "push"],
             ["docker", "compose", "up", "-d", "--build", "manager"],
         ])
+        self.assertIn(["gh", "auth", "setup-git", "--hostname", "github.com"], calls)
         self.assertEqual(load_json(self.state_path)["status"], "completed")
 
     def test_failure_stops_the_sequence(self) -> None:
@@ -51,10 +53,31 @@ class ManagerRestartWorkerTests(unittest.TestCase):
         with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=fail_on_push):
             worker.run()
 
-        self.assertEqual(calls, [["git", "pull"], ["git", "push"]])
+        requested = [command for command in calls if command[0] in {"git", "docker"}]
+        self.assertEqual(requested, [["git", "pull"], ["git", "push"]])
         state = load_json(self.state_path)
         self.assertEqual(state["status"], "failed")
         self.assertIn("git push", state["error"])
+
+    def test_first_push_uses_device_login_and_later_runs_reuse_it(self) -> None:
+        calls: list[list[str]] = []
+
+        def unauthenticated_once(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            return_code = 1 if command[:3] == ["gh", "auth", "status"] else 0
+            return subprocess.CompletedProcess(command, return_code)
+
+        worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
+        with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=unauthenticated_once):
+            worker.run()
+
+        self.assertIn([
+            "gh", "auth", "login", "--hostname", "github.com",
+            "--git-protocol", "https", "--web", "--skip-ssh-key", "--insecure-storage",
+        ], calls)
+        self.assertLess(calls.index(["git", "pull"]), calls.index(["git", "push"]))
+        self.assertEqual(load_json(self.state_path)["status"], "completed")
+        self.assertIn("github.com/login/device", self.log_path.read_text(encoding="utf-8"))
 
     def test_container_mounts_are_reused_with_daemon_visible_sources(self) -> None:
         environment = ManagerRestartController._container_environment({
@@ -78,8 +101,11 @@ class ManagerRestartDockerContractTests(unittest.TestCase):
         compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertIn("apt-get install -y --no-install-recommends ca-certificates git", dockerfile)
         self.assertIn("docker-compose", dockerfile)
+        self.assertIn("gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz", dockerfile)
         self.assertIn("target: /workspace/manager-repo", compose)
         self.assertIn("target: /var/run/docker.sock", compose)
+        self.assertIn("target: /root/.config/gh", compose)
+        self.assertIn("manager-git-auth:", compose)
         self.assertIn("MT5_MANAGER_RESTART_REPO: /workspace/manager-repo", compose)
 
 

@@ -27,15 +27,28 @@ Esto es necesario en Docker Desktop: una ruta visible dentro del contenedor no
 es automáticamente una ruta válida para crear los bind mounts del contenedor
 nuevo.
 
-La imagen del manager incluye Git, Docker CLI y el plugin Compose. El servicio
-monta el repositorio en `/workspace/manager-repo` y el socket de Docker. El
-socket concede control del daemon y se monta únicamente porque esta función lo
-necesita explícitamente.
+La imagen del manager incluye Git, GitHub CLI, Docker CLI y el plugin Compose.
+El servicio monta el repositorio en `/workspace/manager-repo` y el socket de
+Docker. El socket concede control del daemon y se monta únicamente porque esta
+función lo necesita explícitamente.
 
-Git se ejecuta sin prompt interactivo. La autenticación de `git push` debe estar
-disponible en el entorno donde corre el trabajador; si no lo está, el push falla,
-no se reconstruye el manager y el motivo queda en el log. No guardar tokens ni
-credenciales en este repositorio.
+## Autorización GitHub de una sola vez
+
+El contenedor Linux no puede reutilizar Git Credential Manager de Windows. Antes
+del primer `git push`, el trabajador comprueba `gh auth status`. Si todavía no
+hay sesión, cambia a `authentication_required` y ejecuta el flujo web de
+`gh auth login`: la interfaz muestra el log con el código de dispositivo y un
+enlace a `https://github.com/login/device`.
+
+La sesión resultante vive exclusivamente en el volumen Docker nombrado
+`manager-git-auth`, montado en `/root/.config/gh`. Los trabajadores posteriores
+heredan ese volumen y ejecutan `gh auth setup-git` antes del push, de modo que la
+autorización solo se pide la primera vez. El volumen no forma parte del
+repositorio ni de `runtime/`; no copiar tokens a ninguno de esos lugares.
+
+El login tiene quince minutos para completarse. Si caduca o se cancela, el push
+y Compose no se ejecutan y el estado explica que hay que volver a pulsar el
+botón para obtener un código nuevo.
 
 Este flujo solo actualiza el repositorio y el contenedor del manager. No llama a
 los endpoints de reinicio de aplicaciones de los agentes ni modifica sus forks

@@ -52,6 +52,9 @@ class NodeCardControlsTests(unittest.TestCase):
         self.assertIn('id="restart-manager"', page)
         self.assertIn("fetch('/api/manager/restart'", script)
         self.assertIn("git pull, git push y docker compose up -d --build manager", script)
+        self.assertIn('id="manager-auth-dialog"', page)
+        self.assertIn("https://github.com/login/device", page)
+        self.assertIn("authentication_required", script)
         self.assertIn("window.restartManager = restartManager", script)
 
 

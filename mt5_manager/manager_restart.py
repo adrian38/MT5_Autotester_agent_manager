@@ -16,7 +16,8 @@ RESTART_COMMANDS = (
     ("git_push", ("git", "push")),
     ("docker_compose", ("docker", "compose", "up", "-d", "--build", "manager")),
 )
-ACTIVE_STATUSES = {"starting", "running", "restarting"}
+ACTIVE_STATUSES = {"starting", "running", "authentication_required", "restarting"}
+GITHUB_AUTH_URL = "https://github.com/login/device"
 MOUNT_ENV_BY_DESTINATION = {
     "/workspace/manager-repo": "MT5_MANAGER_REPO_SOURCE",
     "/app/config/manager.json": "MT5_MANAGER_CONFIG_SOURCE",
@@ -39,6 +40,7 @@ def _default_state() -> dict[str, Any]:
         "updated_at": None,
         "finished_at": None,
         "error": None,
+        "auth_url": None,
         "commands": [" ".join(command) for _step, command in RESTART_COMMANDS],
     }
 
@@ -69,6 +71,83 @@ class ManagerRestartWorker:
         save_json(self.state_path, state)
         return state
 
+    def _command_environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        # El auxiliar corre como root y el bind mount puede conservar el
+        # propietario del host. Se declara por invocación para no tocar el repo.
+        environment["GIT_CONFIG_COUNT"] = "1"
+        environment["GIT_CONFIG_KEY_0"] = "safe.directory"
+        environment["GIT_CONFIG_VALUE_0"] = str(self.repo_dir)
+        return environment
+
+    def _run_command(
+        self,
+        command: list[str] | tuple[str, ...],
+        log: Any,
+        environment: dict[str, str],
+        *,
+        timeout: int,
+    ) -> subprocess.CompletedProcess[Any]:
+        log.write(f"\n[{utc_now()}] $ {' '.join(command)}\n")
+        log.flush()
+        return subprocess.run(
+            list(command),
+            cwd=self.repo_dir,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+
+    def _ensure_github_auth(self, log: Any, environment: dict[str, str]) -> None:
+        status = self._run_command(
+            ["gh", "auth", "status", "--hostname", "github.com"],
+            log,
+            environment,
+            timeout=30,
+        )
+        if status.returncode:
+            self._transition(
+                status="authentication_required",
+                step="github_auth",
+                auth_url=GITHUB_AUTH_URL,
+                error=None,
+            )
+            log.write(
+                "\nAutoriza GitHub una sola vez. Abre "
+                f"{GITHUB_AUTH_URL} e introduce el código que aparecerá debajo.\n"
+            )
+            log.flush()
+            login = self._run_command(
+                [
+                    "gh", "auth", "login",
+                    "--hostname", "github.com",
+                    "--git-protocol", "https",
+                    "--web",
+                    "--skip-ssh-key",
+                    "--insecure-storage",
+                ],
+                log,
+                environment,
+                timeout=900,
+            )
+            if login.returncode:
+                raise RuntimeError(
+                    "No se completó la autorización de GitHub. Vuelve a pulsar Reiniciar manager para intentarlo de nuevo."
+                )
+        setup = self._run_command(
+            ["gh", "auth", "setup-git", "--hostname", "github.com"],
+            log,
+            environment,
+            timeout=30,
+        )
+        if setup.returncode:
+            raise RuntimeError("GitHub quedó autorizado, pero no se pudo configurar Git para usar esa sesión")
+        self._transition(status="running", step="git_push", auth_url=None, error=None)
+
     def run(self) -> None:
         started_at = utc_now()
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -76,31 +155,20 @@ class ManagerRestartWorker:
             self._validate()
             self._transition(
                 status="running", step="git_pull", started_at=started_at,
-                finished_at=None, error=None,
+                finished_at=None, error=None, auth_url=None,
             )
             with self.log_path.open("w", encoding="utf-8", errors="replace") as log:
+                environment = self._command_environment()
                 for step, command in RESTART_COMMANDS:
                     status = "restarting" if step == "docker_compose" else "running"
                     self._transition(status=status, step=step, error=None)
-                    log.write(f"\n[{utc_now()}] $ {' '.join(command)}\n")
-                    log.flush()
-                    environment = os.environ.copy()
-                    environment["GIT_TERMINAL_PROMPT"] = "0"
-                    # El auxiliar corre como root y el bind mount puede conservar
-                    # el propietario del host. Declararlo por invocación evita el
-                    # falso positivo de "dubious ownership" sin tocar .git/config.
-                    environment["GIT_CONFIG_COUNT"] = "1"
-                    environment["GIT_CONFIG_KEY_0"] = "safe.directory"
-                    environment["GIT_CONFIG_VALUE_0"] = str(self.repo_dir)
-                    completed = subprocess.run(
-                        list(command),
-                        cwd=self.repo_dir,
-                        env=environment,
-                        stdin=subprocess.DEVNULL,
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
+                    if step == "git_push":
+                        self._ensure_github_auth(log, environment)
+                    completed = self._run_command(
+                        command,
+                        log,
+                        environment,
                         timeout=1800 if step == "docker_compose" else 300,
-                        check=False,
                     )
                     if completed.returncode:
                         raise RuntimeError(
@@ -190,6 +258,7 @@ class ManagerRestartController:
             "MT5_MANAGER_RESTART_REPO": str(self.repo_dir),
             "MT5_MANAGER_RESTART_STATE": str(self.state_path),
             "MT5_MANAGER_RESTART_LOG": str(self.log_path),
+            "GH_CONFIG_DIR": "/root/.config/gh",
             **self._container_environment(container),
         }
         command = [

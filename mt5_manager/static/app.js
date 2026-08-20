@@ -5,6 +5,7 @@ const startDialog = document.querySelector('#start-dialog');
 const logDialog = document.querySelector('#log-dialog');
 const repairDialog = document.querySelector('#repair-dialog');
 const regressionDialog = document.querySelector('#regression-dialog');
+const managerAuthDialog = document.querySelector('#manager-auth-dialog');
 const restartManagerButton = document.querySelector('#restart-manager');
 const cardSettings = {};
 let nodeData = [];
@@ -820,12 +821,20 @@ async function restartNode(id, name) {
 }
 
 function showManagerRestartState(state) {
-  const active = ['starting', 'running', 'restarting'].includes(String(state?.status || ''));
+  const active = ['starting', 'running', 'authentication_required', 'restarting'].includes(String(state?.status || ''));
   managerRestarting = active;
   restartManagerButton.disabled = active;
   restartManagerButton.textContent = active
-    ? (state.status === 'restarting' ? 'Reconstruyendo…' : 'Sincronizando…')
+    ? (state.status === 'restarting'
+      ? 'Reconstruyendo…'
+      : (state.status === 'authentication_required' ? 'Autoriza GitHub…' : 'Sincronizando…'))
     : 'Reiniciar manager';
+  if (state.status === 'authentication_required') {
+    document.querySelector('#manager-auth-log').textContent = (state.log || []).join('\n') || 'Esperando el código de GitHub…';
+    if (!managerAuthDialog.open) managerAuthDialog.showModal();
+  } else if (managerAuthDialog.open) {
+    managerAuthDialog.close();
+  }
 }
 
 async function readManagerRestartState() {
@@ -975,6 +984,6 @@ window.showLogs = showLogs;
 window.refresh = refresh;
 refresh();
 readManagerRestartState().then(state => {
-  if (['starting', 'running', 'restarting'].includes(String(state.status || ''))) monitorManagerRestart();
+  if (['starting', 'running', 'authentication_required', 'restarting'].includes(String(state.status || ''))) monitorManagerRestart();
 }).catch(() => {});
 setInterval(refresh, 5000);

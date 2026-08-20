@@ -117,6 +117,15 @@
       <button id="regression-submit" onclick="submitRegression()">Ejecutar prueba regresiva</button>
     </div>
   </dialog>
+  <dialog id="manager-auth-dialog" class="log-dialog">
+    <div class="dialog-head">
+      <div><p class="eyebrow">AUTORIZACIÓN ÚNICA</p><h2>Conectar el manager con GitHub</h2></div>
+      <button class="icon-button" onclick="this.closest('dialog').close()">×</button>
+    </div>
+    <p class="subtitle">Abre el enlace, inicia sesión en GitHub e introduce el código que aparece en el log. La autorización se guardará en un volumen Docker y no volverá a pedirse.</p>
+    <p class="dialog-actions"><a class="button" href="https://github.com/login/device" target="_blank" rel="noopener noreferrer">Abrir autorización de GitHub</a></p>
+    <pre id="manager-auth-log">Esperando el código de GitHub…</pre>
+  </dialog>
   <div id="toast" role="status"></div>
   <script src="/app.js"></script>
 </body>
