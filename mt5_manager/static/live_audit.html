@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Auditor de cuenta real · MT5 Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="live-audit-page">
+  <header>
+    <div>
+      <p class="eyebrow">AUDITOR DE CUENTA REAL</p>
+      <h1 id="audit-title">Cargando…</h1>
+      <p class="subtitle">Configuración de seguimiento y comparación con Strategy Tester</p>
+    </div>
+    <div class="header-actions"><a class="button secondary" href="/">Volver al manager</a></div>
+  </header>
+  <main>
+    <section class="live-audit-notice" aria-label="Estado del MVP">
+      <div><strong>MVP · solo configuración</strong><p>Esta versión guarda los ajustes en el manager. Todavía no conecta con MT5, no ejecuta pruebas y no modifica operaciones.</p></div>
+      <span id="config-state" class="badge idle">SIN GUARDAR</span>
+    </section>
+
+    <form id="audit-form" class="live-audit-form">
+      <section class="panel-card live-audit-card">
+        <div class="panel-title"><div><p class="eyebrow">CONEXIÓN</p><h2>Cuenta y terminal</h2></div></div>
+        <div class="live-audit-fields">
+          <label class="check live-audit-enable"><input name="enabled" type="checkbox"> Habilitar cuando el servicio esté disponible</label>
+          <label>Nombre del despliegue<input name="deployment_name" maxlength="120" placeholder="Ej. Cartera UBS real agosto"></label>
+          <label>Login de la cuenta<input name="account_login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" placeholder="Número de cuenta"></label>
+          <label>Servidor MT5<input name="account_server" maxlength="160" autocomplete="off" placeholder="Nombre exacto del servidor"></label>
+          <label class="live-audit-wide">Ruta de terminal64.exe<input name="terminal_path" maxlength="1000" autocomplete="off" placeholder="Vacío: usar el terminal predeterminado del agente"></label>
+        </div>
+        <p class="live-audit-security"><strong>No se guarda ninguna contraseña.</strong> El agente utilizará en una fase posterior la sesión que ya esté guardada localmente en ese terminal.</p>
+      </section>
+
+      <section class="panel-card live-audit-card">
+        <div class="panel-title"><div><p class="eyebrow">PERIODO Y FRECUENCIA</p><h2>Recogida y auditoría</h2></div></div>
+        <div class="live-audit-fields">
+          <label>Periodo comparado (días)<input name="period_days" type="number" min="1" max="3650" required></label>
+          <label>Sincronizar cada (minutos)<input name="sync_interval_minutes" type="number" min="1" max="1440" required></label>
+          <label>Auditoría diaria a las<input name="daily_audit_time" type="time" required></label>
+          <label>Heartbeat vencido tras (minutos)<input name="heartbeat_timeout_minutes" type="number" min="1" max="1440" required></label>
+        </div>
+      </section>
+
+      <section class="panel-card live-audit-card">
+        <div class="panel-title"><div><p class="eyebrow">COMPARACIÓN</p><h2>Tester y tolerancias</h2></div></div>
+        <div class="live-audit-fields">
+          <label>Modelo del tester<select name="tester_model"><option value="real_ticks">Every tick based on real ticks</option></select></label>
+          <label>Retraso de ejecución<select name="execution_delay_mode"><option value="measured">Ping medido</option><option value="none">Sin retraso</option><option value="fixed">Fijo</option></select></label>
+          <label>Retraso fijo (ms)<input name="fixed_delay_ms" type="number" min="0" max="600000" required></label>
+          <label>Tolerancia horaria (segundos)<input name="trade_time_tolerance_seconds" type="number" min="0" max="86400" required></label>
+          <label>Tolerancia de precio (puntos)<input name="price_tolerance_points" type="number" min="0" max="1000000" step="any" required></label>
+          <label>Tolerancia de volumen (%)<input name="volume_tolerance_pct" type="number" min="0" max="100" step="any" required></label>
+          <label>Aviso por desviación de PnL (%)<input name="pnl_deviation_warning_pct" type="number" min="0" max="10000" step="any" required></label>
+          <label>Aviso por desviación de DD (%)<input name="drawdown_deviation_warning_pct" type="number" min="0" max="10000" step="any" required></label>
+        </div>
+      </section>
+
+      <div class="builder-actions live-audit-actions">
+        <button id="reset-audit" type="button" class="secondary">Restablecer valores</button>
+        <button id="save-audit" type="submit">Guardar configuración</button>
+      </div>
+    </form>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/live_audit.js"></script>
+</body>
+</html>

@@ -18,6 +18,7 @@ from typing import Any
 
 from . import dev_branch
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
+from .live_audit_settings import LiveAuditSettingsStore
 from .manager_restart import ManagerRestartController, RestartAlreadyRunning
 from .portfolio_service import (
     PortfolioCoordinator,
@@ -348,6 +349,16 @@ class ManagerHandler(BaseHTTPRequestHandler):
             except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self._send_json(502, {"error": str(exc)})
             return
+        if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audit-config":
+            try:
+                node_id = urllib.parse.unquote(parts[2])
+                node = self._node(node_id)
+                state = self.server.live_audit_settings.state(node_id)
+                state["node"] = {"id": node_id, "name": node.get("name") or node_id}
+                self._send_json(200, state)
+            except KeyError as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-manager":
             try:
                 node_id = urllib.parse.unquote(parts[2])
@@ -391,6 +402,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
         relative = parsed.path.lstrip("/")
         if relative in {
             "app.js", "styles.css", "universe.html", "universe.js",
+            "live_audit.html", "live_audit.js",
             "portfolios.html", "portfolios.js",
             "portfolios_monthly.html", "portfolios_monthly.js",
             "portfolio_improvement.js", "portfolio_monthly_improvement.js",
@@ -437,6 +449,16 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 saved = self.server.update_preferences(node_id, self._body())
                 self._send_json(200, {"preferences": saved})
             except (KeyError, ValueError, OSError, sqlite3.Error, json.JSONDecodeError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audit-config":
+            try:
+                node_id = urllib.parse.unquote(parts[2])
+                node = self._node(node_id)
+                state = self.server.live_audit_settings.update(node_id, self._body())
+                state["node"] = {"id": node_id, "name": node.get("name") or node_id}
+                self._send_json(200, state)
+            except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
                 self._send_json(400, {"error": str(exc)})
             return
         if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-manager":
@@ -691,6 +713,13 @@ class ManagerServer(ThreadingHTTPServer):
                 }
             except ValueError:
                 self.preferences = {}
+        live_audit_settings_file = str(config.get("live_audit_settings_file") or "").strip()
+        live_audit_settings_path = (
+            Path(live_audit_settings_file).expanduser().resolve()
+            if live_audit_settings_file
+            else Path.cwd() / "runtime" / "live_audit_settings.json"
+        )
+        self.live_audit_settings = LiveAuditSettingsStore(live_audit_settings_path)
         portfolio_settings_file = str(config.get("portfolio_settings_file") or "").strip()
         portfolio_settings_path = (
             Path(portfolio_settings_file).expanduser().resolve()
@@ -814,6 +843,10 @@ def main(argv: list[str] | None = None) -> int:
     config.setdefault(
         "portfolio_settings_file",
         str(Path(args.config).expanduser().resolve().parent / "runtime" / "portfolio_settings.json"),
+    )
+    config.setdefault(
+        "live_audit_settings_file",
+        str(Path(args.config).expanduser().resolve().parent / "runtime" / "live_audit_settings.json"),
     )
     host = str(config.get("host") or "127.0.0.1")
     port = safe_int(args.port if args.port is not None else config.get("port"), 8750, minimum=1, maximum=65535)

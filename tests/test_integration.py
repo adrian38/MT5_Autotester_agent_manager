@@ -69,9 +69,11 @@ enabled=0
         self.node_thread.start()
         node_url = f"http://127.0.0.1:{self.node.server_address[1]}"
         self.preferences_path = self.root / "launch_preferences.json"
+        self.live_audit_settings_path = self.root / "live_audit_settings.json"
         self.manager = ManagerServer(("127.0.0.1", 0), {
             "nodes": [{"id": "test-node", "name": "Test Node", "url": node_url, "token": "integration-secret"}],
             "preferences_file": str(self.preferences_path),
+            "live_audit_settings_file": str(self.live_audit_settings_path),
         })
         self.manager_thread = threading.Thread(target=self.manager.serve_forever, daemon=True)
         self.manager_thread.start()
@@ -180,6 +182,33 @@ enabled=0
 
         with urllib.request.urlopen(self.base + "/universe.html?node=test-node", timeout=3) as response:
             self.assertIn("UNIVERSO DE ACTIVOS", response.read().decode("utf-8"))
+
+    def test_manager_serves_and_persists_live_audit_configuration_without_the_node(self) -> None:
+        status, initial = self.request("/api/nodes/test-node/live-audit-config")
+        self.assertEqual(status, 200)
+        self.assertEqual(initial["phase"], "configuration_only")
+        self.assertFalse(initial["configured"])
+        self.assertEqual(initial["node"]["name"], "Test Node")
+
+        status, saved = self.request("/api/nodes/test-node/live-audit-config", {
+            "enabled": True,
+            "deployment_name": "Cartera real",
+            "account_login": "00123456",
+            "account_server": "Broker-Live",
+            "terminal_path": "C:\\Broker MT5\\terminal64.exe",
+            "period_days": 30,
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(saved["configured"])
+        self.assertTrue(saved["settings"]["enabled"])
+        self.assertEqual(saved["settings"]["account_login"], "00123456")
+        persisted = json.loads(self.live_audit_settings_path.read_text(encoding="utf-8"))
+        self.assertEqual(persisted["test-node"]["settings"]["period_days"], 30)
+
+        with urllib.request.urlopen(self.base + "/live_audit.html?node=test-node", timeout=3) as response:
+            self.assertIn(b"Auditor de cuenta real", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit.js", timeout=3) as response:
+            self.assertIn(b"live-audit-config", response.read())
 
     def test_pulse_projects_the_same_state_as_nodes_but_without_its_peso(self) -> None:
         """`/api/pulse` existe para poder sondear desde un móvil.

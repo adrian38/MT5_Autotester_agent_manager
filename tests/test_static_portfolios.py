@@ -493,6 +493,15 @@ class PortfolioFormTests(unittest.TestCase):
             "max_downside_corr": (0, 0.25, 0.255, 1),
             "max_dd_overlap": (0, 0.35, 0.355, 1),
             "max_portfolio_corr": (0, 0.5, 0.505, 1),
+            "period_days": (1, 7, 3650),
+            "sync_interval_minutes": (1, 5, 1440),
+            "heartbeat_timeout_minutes": (1, 5, 1440),
+            "fixed_delay_ms": (0, 125, 600000),
+            "trade_time_tolerance_seconds": (0, 60, 86400),
+            "price_tolerance_points": (0, 10, 10.5, 1000000),
+            "volume_tolerance_pct": (0, 1, 1.5, 100),
+            "pnl_deviation_warning_pct": (0, 10, 10.5, 10000),
+            "drawdown_deviation_warning_pct": (0, 15, 15.5, 10000),
         }
         self.assertEqual(set(fields), set(valid_values), "Actualiza la auditoría para los inputs numéricos")
 
