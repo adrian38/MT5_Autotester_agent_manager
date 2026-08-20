@@ -75,10 +75,13 @@ class ManagerRestartWorker:
         environment = os.environ.copy()
         environment["GIT_TERMINAL_PROMPT"] = "0"
         # El auxiliar corre como root y el bind mount puede conservar el
-        # propietario del host. Se declara por invocación para no tocar el repo.
-        environment["GIT_CONFIG_COUNT"] = "1"
+        # propietario y los finales CRLF del host Windows. Ambas opciones se
+        # declaran por invocación para no tocar la configuración del repo.
+        environment["GIT_CONFIG_COUNT"] = "2"
         environment["GIT_CONFIG_KEY_0"] = "safe.directory"
         environment["GIT_CONFIG_VALUE_0"] = str(self.repo_dir)
+        environment["GIT_CONFIG_KEY_1"] = "core.autocrlf"
+        environment["GIT_CONFIG_VALUE_1"] = "true"
         return environment
 
     def _run_command(

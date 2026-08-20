@@ -42,6 +42,17 @@ class ManagerRestartWorkerTests(unittest.TestCase):
         self.assertIn(["gh", "auth", "setup-git", "--hostname", "github.com"], calls)
         self.assertEqual(load_json(self.state_path)["status"], "completed")
 
+    def test_git_commands_normalize_the_windows_bind_mount_line_endings(self) -> None:
+        worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
+
+        environment = worker._command_environment()
+
+        self.assertEqual(environment["GIT_CONFIG_COUNT"], "2")
+        self.assertEqual(environment["GIT_CONFIG_KEY_0"], "safe.directory")
+        self.assertEqual(environment["GIT_CONFIG_VALUE_0"], str(self.root))
+        self.assertEqual(environment["GIT_CONFIG_KEY_1"], "core.autocrlf")
+        self.assertEqual(environment["GIT_CONFIG_VALUE_1"], "true")
+
     def test_failure_stops_the_sequence(self) -> None:
         calls: list[list[str]] = []
 
