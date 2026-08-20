@@ -174,6 +174,61 @@ def _portfolio_universe_group_maps(
     return _portfolio_universe_group_maps_for_files(_portfolio_universe_files_key(universe_files))
 
 
+def _portfolio_universe_symbol_base(symbol: str) -> str:
+    value = str(symbol or "").strip()
+    if value.endswith("+"):
+        value = value[:-1]
+    else:
+        value = re.sub(r"(?<=[A-Za-z0-9])\.[A-Za-z0-9]+$", "", value)
+    return value.upper()
+
+
+@lru_cache(maxsize=32)
+def _portfolio_universe_display_maps_for_files(
+    universe_files: tuple[str, ...],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Map legacy logical symbols to the executable spelling in a broker universe."""
+    exact: dict[str, str] = {}
+    by_base: dict[str, str] = {}
+    alias_rows: list[tuple[str, str]] = []
+    for relative_path in universe_files:
+        groups, aliases = load_asset_universe(
+            resolve_workspace_path(relative_path),
+            include_disabled=True,
+        )
+        for symbols in groups.values():
+            for symbol in symbols:
+                display = str(symbol).strip()
+                if not display:
+                    continue
+                exact[display.upper()] = display
+                by_base.setdefault(_portfolio_universe_symbol_base(display), display)
+        alias_rows.extend(aliases.items())
+    for alias, target in alias_rows:
+        display = exact.get(str(target).strip().upper()) or by_base.get(
+            _portfolio_universe_symbol_base(target)
+        )
+        if display:
+            exact[str(alias).strip().upper()] = display
+            by_base.setdefault(_portfolio_universe_symbol_base(alias), display)
+    return exact, by_base
+
+
+def _portfolio_universe_display_symbol(
+    symbol: str,
+    universe_files: Iterable[str | Path],
+) -> str:
+    display = str(symbol or "").strip()
+    if not display:
+        return display
+    exact, by_base = _portfolio_universe_display_maps_for_files(
+        _portfolio_universe_files_key(universe_files)
+    )
+    return exact.get(display.upper()) or by_base.get(
+        _portfolio_universe_symbol_base(display)
+    ) or display
+
+
 def _portfolio_universe_group_by_symbol(
     universe_files: Iterable[str | Path] | None = None,
 ) -> dict[str, str]:
@@ -5859,8 +5914,15 @@ def portfolio_symbol_key(symbol: str) -> str:
     return PORTFOLIO_SYMBOL_ALIASES.get(normalized, normalized)
 
 
-def portfolio_display_symbol(symbol: str) -> str:
-    return str(symbol or "").strip() or portfolio_symbol_key(symbol)
+def portfolio_display_symbol(
+    symbol: str,
+    *,
+    universe_files: Iterable[str | Path] | None = None,
+) -> str:
+    display = str(symbol or "").strip()
+    if universe_files is not None:
+        display = _portfolio_universe_display_symbol(display, universe_files)
+    return display or portfolio_symbol_key(symbol)
 
 
 def portfolio_group_key(

@@ -824,10 +824,20 @@ class PortfolioSource:
         elif not monthly and settings.get("exclude_used_sets", True):
             used_paths = self.used_set_paths("full_history")
         used = {self._path_key(path) for path in used_paths}
-        by_symbol: dict[str, dict[str, int]] = {}
+        by_symbol: dict[str, dict[str, Any]] = {}
         for row in rows:
-            symbol = portfolio_display_symbol(str(row.get("target_symbol") or row.get("symbol") or ""))
-            counts = by_symbol.setdefault(symbol, {"total": 0, "quarantined": 0, "used": 0, "available": 0})
+            symbol = portfolio_display_symbol(
+                str(row.get("target_symbol") or row.get("symbol") or ""),
+                universe_files=[self.universe],
+            )
+            symbol_key = portfolio_symbol_key(symbol)
+            counts = by_symbol.setdefault(symbol_key, {
+                "symbol": symbol,
+                "total": 0,
+                "quarantined": 0,
+                "used": 0,
+                "available": 0,
+            })
             counts["total"] += 1
             key = self._path_key(row.get("set_path"))
             is_quarantined = key in quarantined
@@ -838,7 +848,7 @@ class PortfolioSource:
                 counts["used"] += 1
             if not is_quarantined and not is_used:
                 counts["available"] += 1
-        symbol_rows = [{"symbol": symbol, **counts} for symbol, counts in sorted(by_symbol.items())]
+        symbol_rows = sorted(by_symbol.values(), key=lambda item: str(item["symbol"]).upper())
         return {
             "scope": "monthly" if monthly else "full_history",
             "total": sum(row["total"] for row in symbol_rows),

@@ -1042,6 +1042,61 @@ class PortfolioServiceTests(unittest.TestCase):
             source.release_strategy(quarantine_id)
             self.assertEqual(source.inventory("full_history", settings)["available"], 1)
 
+    def test_axi_inventory_groups_legacy_symbols_under_the_executable_broker_symbol(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "assets" / "axi_assets.ini").write_text(
+                "[Crypto]\nsymbols=BTCUSD.sa,ETHUSD.sa\n",
+                encoding="utf-8",
+            )
+            memory = project / "outputs" / "ubs_memory_AXI_STANDARD.sqlite"
+            with contextlib.closing(sqlite3.connect(memory)) as conn:
+                conn.executescript(
+                    """
+                    create table candidates(id integer primary key,set_path text,symbol text,target_symbol text,period text,family text,report_path text,status text);
+                    create table candidate_robustness(candidate_id integer,report_path text,status text);
+                    create table candidate_final_tick(candidate_id integer,real_tick_report_path text,from_date text,to_date text,status text);
+                    create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text);
+                    insert into candidates values(1,'sets/legacy.set','BTCUSD','ETHUSD','H1','f','reports/legacy.html','accepted');
+                    insert into candidates values(2,'sets/current.set','BTCUSD.sa','ETHUSD.sa','H1','f','reports/current.html','accepted');
+                    insert into candidate_robustness values(1,'reports/legacy_oos.html','accepted');
+                    insert into candidate_robustness values(2,'reports/current_oos.html','accepted');
+                    insert into candidate_final_tick values(1,'reports/legacy_full.html','2020.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick values(2,'reports/current_full.html','2020.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted');
+                    """
+                )
+                conn.commit()
+            source = PortfolioSource({
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "AXI",
+                "portfolio_account_type": "STANDARD",
+            })
+            expected = [{
+                "symbol": "ETHUSD.sa",
+                "total": 2,
+                "quarantined": 0,
+                "used": 0,
+                "available": 2,
+            }]
+
+            full_history = source.inventory(
+                "full_history",
+                normalize_settings("full_history", {"allowed_asset_groups": ["Crypto"]}, "AXI"),
+            )
+            monthly = source.inventory(
+                "monthly",
+                normalize_settings("monthly", {"allowed_asset_groups": ["Crypto"]}, "AXI"),
+            )
+
+            self.assertEqual(full_history["by_symbol"], expected)
+            self.assertEqual(full_history["symbols"], 1)
+            self.assertEqual(monthly["by_symbol"], expected)
+            self.assertEqual(monthly["symbols"], 1)
+
     def test_portfolio_source_accepts_pending_ohlc_trades_on_the_short_final_tick(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
