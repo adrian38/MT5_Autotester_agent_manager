@@ -1,3 +1,5 @@
+FROM docker:27-cli AS docker-cli
+
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -5,6 +7,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MT5_MANAGER_EXPORT_MODE=download
 
 WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 
 COPY pyproject.toml README.md ./
 COPY mt5_manager ./mt5_manager

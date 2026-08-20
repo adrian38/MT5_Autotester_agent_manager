@@ -45,6 +45,15 @@ class NodeCardControlsTests(unittest.TestCase):
         self.assertIn("git push", script)
         self.assertIn("window.restartNode = restartNode", script)
 
+    def test_manager_restart_button_uses_the_manager_endpoint_and_exact_sequence(self) -> None:
+        root = Path(__file__).parents[1]
+        page = (root / "mt5_manager" / "static" / "index.html").read_text(encoding="utf-8")
+        script = self.script()
+        self.assertIn('id="restart-manager"', page)
+        self.assertIn("fetch('/api/manager/restart'", script)
+        self.assertIn("git pull, git push y docker compose up -d --build manager", script)
+        self.assertIn("window.restartManager = restartManager", script)
+
 
 class PortfolioFormTests(unittest.TestCase):
     def test_capital_accepts_any_numeric_value_like_the_original_ubs_form(self) -> None:
@@ -79,6 +88,29 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("await loadManagerState(data.job?.status === 'completed')", script)
         self.assertIn("loadManagerState(true)", script)
         self.assertIn("scrollIntoView({behavior: 'smooth', block: 'start'})", script)
+
+    def test_full_history_can_be_stopped_and_monthly_generation_is_disabled(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        full_page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        full_script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        manager_script = (static_dir / "app.js").read_text(encoding="utf-8")
+        monthly_page = html.fromstring(
+            (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
+        )
+        monthly_script = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="stop-calculation"', full_page)
+        self.assertIn("postManager('stop', {scope})", full_script)
+        self.assertIn("['running', 'stopping'].includes(job?.status)", full_script)
+        monthly_button = monthly_page.xpath('//button[@id="generate-proposals"]')[0]
+        self.assertEqual(monthly_button.get("disabled"), "disabled")
+        self.assertIn("document.querySelector('#generate-proposals').disabled = true", monthly_script)
+        self.assertNotIn("postManager('generate', formPayload())", monthly_script)
+        self.assertIn(
+            'disabled title="Portafolio UBS mensual congelado temporalmente">Portafolio mensual</button>',
+            manager_script,
+        )
+        self.assertNotIn('href="/portfolios_monthly.html?node=', manager_script)
 
     def test_portfolio_risk_is_presented_as_maximum_not_addition(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"

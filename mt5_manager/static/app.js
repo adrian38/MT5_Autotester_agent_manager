@@ -5,9 +5,12 @@ const startDialog = document.querySelector('#start-dialog');
 const logDialog = document.querySelector('#log-dialog');
 const repairDialog = document.querySelector('#repair-dialog');
 const regressionDialog = document.querySelector('#regression-dialog');
+const restartManagerButton = document.querySelector('#restart-manager');
 const cardSettings = {};
 let nodeData = [];
 let refreshing = false;
+let managerRestarting = false;
+let managerRestartMonitor = null;
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -387,7 +390,7 @@ function render() {
       ? `<a class="button secondary" href="/universe.html?node=${encodeURIComponent(id)}">Universo</a>`
       : '';
     const portfolioButtons = node.manager_portfolio?.available || node.capabilities?.portfolio_views
-      ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><a class="button secondary" href="/portfolios_monthly.html?node=${encodeURIComponent(id)}">Portafolio mensual</a><a class="button secondary" href="/portfolios_grid.html?node=${encodeURIComponent(id)}">Portafolio Grid UBS</a>`
+      ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><button class="secondary" disabled title="Portafolio UBS mensual congelado temporalmente">Portafolio mensual</button><a class="button secondary" href="/portfolios_grid.html?node=${encodeURIComponent(id)}">Portafolio Grid UBS</a>`
       : '';
     const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
     return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${restartButton}${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${isResumable(state) ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || isResumable(state) ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
@@ -407,7 +410,7 @@ async function refresh() {
     refreshState.textContent = `Actualizado ${new Date().toLocaleTimeString()}`;
   } catch (error) {
     refreshState.textContent = 'Error de conexión';
-    toast(error.message, true);
+    if (!managerRestarting) toast(error.message, true);
   } finally {
     refreshing = false;
   }
@@ -816,6 +819,72 @@ async function restartNode(id, name) {
   } catch (error) { toast(error.message, true); }
 }
 
+function showManagerRestartState(state) {
+  const active = ['starting', 'running', 'restarting'].includes(String(state?.status || ''));
+  managerRestarting = active;
+  restartManagerButton.disabled = active;
+  restartManagerButton.textContent = active
+    ? (state.status === 'restarting' ? 'Reconstruyendo…' : 'Sincronizando…')
+    : 'Reiniciar manager';
+}
+
+async function readManagerRestartState() {
+  const response = await fetch('/api/manager/restart?lines=80', {cache: 'no-store'});
+  const data = await readJsonResponse(response);
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  showManagerRestartState(data);
+  return data;
+}
+
+function monitorManagerRestart() {
+  if (managerRestartMonitor) return;
+  managerRestartMonitor = (async () => {
+    while (managerRestarting) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      try {
+        const state = await readManagerRestartState();
+        if (state.status === 'failed') {
+          toast(state.error || 'Falló el reinicio del manager. Consulta el log.', true);
+          break;
+        }
+        if (state.status === 'completed') {
+          location.reload();
+          return;
+        }
+      } catch (_error) {
+        managerRestarting = true;
+        restartManagerButton.disabled = true;
+        restartManagerButton.textContent = 'Reconectando…';
+      }
+    }
+    managerRestartMonitor = null;
+  })();
+}
+
+async function restartManager() {
+  const warning = '¿Reiniciar el manager?\n\n'
+    + 'Se ejecutará en este orden: git pull, git push y docker compose up -d --build manager. '
+    + 'Si un paso falla, los siguientes no se ejecutarán. La web perderá conexión durante la reconstrucción.';
+  if (!confirm(warning)) return;
+  restartManagerButton.disabled = true;
+  restartManagerButton.textContent = 'Preparando…';
+  try {
+    const response = await fetch('/api/manager/restart', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    });
+    const data = await readJsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    showManagerRestartState(data);
+    toast('Sincronización y reinicio del manager solicitados');
+    monitorManagerRestart();
+  } catch (error) {
+    managerRestarting = false;
+    restartManagerButton.disabled = false;
+    restartManagerButton.textContent = 'Reiniciar manager';
+    toast(error.message, true);
+  }
+}
+
 async function showLogs(id, name) {
   document.querySelector('#log-title').textContent = `Log · ${name}`;
   document.querySelector('#log-content').textContent = 'Cargando…';
@@ -880,6 +949,7 @@ document.querySelector('#regression-runs').addEventListener('change', event => {
   if (event.target.matches('input[name="regression-run"]')) updateRegressionSelectionState();
 });
 document.querySelector('#refresh').addEventListener('click', refresh);
+restartManagerButton.addEventListener('click', restartManager);
 window.openStart = openStart;
 window.openRepair = openRepair;
 window.submitRepair = submitRepair;
@@ -900,7 +970,11 @@ window.stopNode = stopNode;
 window.pauseNode = pauseNode;
 window.resumeNode = resumeNode;
 window.restartNode = restartNode;
+window.restartManager = restartManager;
 window.showLogs = showLogs;
 window.refresh = refresh;
 refresh();
+readManagerRestartState().then(state => {
+  if (['starting', 'running', 'restarting'].includes(String(state.status || ''))) monitorManagerRestart();
+}).catch(() => {});
 setInterval(refresh, 5000);

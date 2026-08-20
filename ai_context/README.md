@@ -5,8 +5,12 @@ Contexto persistente para agentes que trabajan en `MT5_Autotester_agent_manager`
 - `ictrading_regression_button.md`: contrato de interfaz y proxy para ejecutar únicamente la prueba regresiva en ICTrading.
 - `historical_cleanup_cards.md`: contrato del botón manual y de la limpieza
   automática de datos históricos al terminar cada run.
+- `manager_self_restart.md`: secuencia Git/Compose del botón de reinicio del
+  manager, trabajador Docker auxiliar y persistencia del estado/log.
 
 - `portfolio_ubs_parity.md`: separación de aplicaciones y reglas del núcleo estable compartido entre UBS completo y UBS mensual.
+- `monthly_portfolio_frozen.md`: congelación temporal del Portafolio UBS mensual;
+  no modificarlo salvo petición explícita y mantener deshabilitada su generación.
 - `portfolio_saved_base_improvement.md`: contrato de «Mejorar base», bloqueo de
   originales, puertas de diversificación/Final Tick 6M, separación full/mensual
   y reutilización del verbo transaccional del nodo.

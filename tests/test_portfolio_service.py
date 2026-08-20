@@ -39,12 +39,15 @@ from portfolio_manager.ubs_portfolio import (
     ClosedTrade,
     PeriodReport,
     PortfolioAvailability,
+    PortfolioCalculationCancelled,
     PortfolioResult,
     PortfolioType,
     StrategyAllocation,
     filter_eligible_sets,
     filter_rows_grid_off,
+    evaluate_portfolio,
     load_robust_sets_from_rows,
+    set_portfolio_cancellation_check,
 )
 
 
@@ -861,6 +864,50 @@ class PortfolioServiceTests(unittest.TestCase):
 
             monthly_run.assert_called_once()
             self.assertEqual(coordinator.jobs["ic:monthly"]["status"], "completed")
+
+    def test_full_history_stop_marks_the_job_and_worker_as_stopped(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            node = {
+                "id": "ic",
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], project / "settings.json")
+            settings = normalize_settings("full_history", {}, "ICTRADING")
+            with patch("threading.Thread.start"):
+                coordinator.start("ic", "full_history", settings)
+
+            stopping = coordinator.stop("ic", "full_history")
+            self.assertEqual(stopping["status"], "stopping")
+            with self.assertRaisesRegex(ValueError, "Ya hay un cálculo"):
+                coordinator.start("ic", "full_history", settings)
+
+            coordinator._worker("ic", "full_history", settings)
+            job = coordinator.jobs["ic:full_history"]
+            self.assertEqual(job["status"], "stopped")
+            self.assertIsNone(job["error"])
+            self.assertNotIn("ic:full_history", coordinator.cancellation_events)
+
+    def test_stop_is_not_enabled_for_the_frozen_monthly_scope(self) -> None:
+        coordinator = PortfolioCoordinator([{"id": "ic"}], Path("settings.json"))
+        with self.assertRaisesRegex(ValueError, "solo está disponible"):
+            coordinator.stop("ic", "monthly")
+
+    def test_optimizer_hot_path_obeys_and_restores_the_cancellation_check(self) -> None:
+        previous = set_portfolio_cancellation_check(lambda: True)
+        try:
+            with self.assertRaises(PortfolioCalculationCancelled):
+                evaluate_portfolio([], {}, 100.0, 100.0)
+        finally:
+            set_portfolio_cancellation_check(previous)
+
+        result = evaluate_portfolio([], {}, 100.0, 100.0)
+        self.assertEqual(result.active_strategies, 0)
 
     def test_delete_is_queued_and_returns_before_the_database_work_finishes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -149,7 +149,7 @@ function jobBadge(job, task = {}) {
   const active = calculationRunning || taskActive;
   document.querySelector('#builder-progress').hidden = !active;
   document.querySelector('#builder-progress-text').textContent = displayed?.progress || 'Calculando…';
-  document.querySelector('#generate-proposals').disabled = active;
+  document.querySelector('#generate-proposals').disabled = true;
   document.querySelector('#save-settings').disabled = calculationRunning;
   document.querySelector('#reset-settings').disabled = calculationRunning;
   document.querySelector('#portfolio-log').disabled = !(job?.id || job?.log_path || job?.last_log_path);
@@ -365,9 +365,7 @@ form.addEventListener('change', scheduleSettingsSave);
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (settingsSaveTimer) { clearTimeout(settingsSaveTimer); settingsSaveTimer = null; }
-  try { await postManager('generate', formPayload()); selectedProposal = null; await loadManagerState(); toast('Cálculo iniciado en el manager.'); }
-  catch (error) { toast(error.message, true); }
+  toast('La generación de Portafolio UBS mensual está deshabilitada temporalmente.', true);
 });
 
 document.querySelector('#save-settings').addEventListener('click', async () => {

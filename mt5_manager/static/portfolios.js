@@ -136,7 +136,7 @@ async function refreshCalculationLog(silent = true) {
 }
 
 function jobBadge(job, task = {}) {
-  const calculationRunning = job?.status === 'running';
+  const calculationRunning = ['running', 'stopping'].includes(job?.status);
   const taskActive = ['pending', 'running'].includes(task?.status);
   const displayed = taskActive || (!calculationRunning && task?.status && task.status !== 'idle') ? task : job;
   const status = displayed?.status || 'idle';
@@ -148,6 +148,9 @@ function jobBadge(job, task = {}) {
   document.querySelector('#builder-progress').hidden = !active;
   document.querySelector('#builder-progress-text').textContent = displayed?.progress || 'Calculando…';
   document.querySelector('#generate-proposals').disabled = active;
+  const stopButton = document.querySelector('#stop-calculation');
+  stopButton.disabled = job?.status !== 'running';
+  stopButton.textContent = job?.status === 'stopping' ? 'Deteniendo…' : 'Detener';
   document.querySelector('#save-settings').disabled = calculationRunning;
   document.querySelector('#reset-settings').disabled = calculationRunning;
   document.querySelector('#portfolio-log').disabled = !(job?.log_path || job?.last_log_path);
@@ -364,6 +367,14 @@ form.addEventListener('submit', async event => {
   if (settingsSaveTimer) { clearTimeout(settingsSaveTimer); settingsSaveTimer = null; }
   try { await postManager('generate', formPayload()); selectedProposal = null; await loadManagerState(); toast('Cálculo iniciado en el manager.'); }
   catch (error) { toast(error.message, true); }
+});
+
+document.querySelector('#stop-calculation').addEventListener('click', async () => {
+  try {
+    await postManager('stop', {scope});
+    await loadTaskState();
+    toast('Detención solicitada.');
+  } catch (error) { toast(error.message, true); }
 });
 
 document.querySelector('#save-settings').addEventListener('click', async () => {
