@@ -150,8 +150,6 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
         login = normalized[key]
         if login and not login.isdigit():
             raise ValueError(f"{key} debe contener solo dígitos")
-    if normalized["source_login"] and normalized["source_login"] == normalized["tester_login"]:
-        raise ValueError("La cuenta real y la cuenta de pruebas deben tener logins diferentes")
     return normalized
 
 

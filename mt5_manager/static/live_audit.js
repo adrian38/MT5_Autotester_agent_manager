@@ -124,7 +124,7 @@ function profileMarkup(id) {
   const testerSaved = Boolean(credentials.tester_password_saved);
   return `<section class="panel-card live-audit-card live-audit-profile" data-profile-id="${id}">
     <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO #${id}</p><h2>${escapeHtml(portfolioName(id))}</h2></div><span class="badge ${sourceSaved && testerSaved ? 'completed' : 'idle'}">${sourceSaved && testerSaved ? 'CREDENCIALES GUARDADAS' : 'PENDIENTE'}</span></div>
-    <div class="live-audit-subtitle"><strong>Cuentas de esta prueba</strong><span>Los logins real y de pruebas deben ser diferentes.</span></div>
+    <div class="live-audit-subtitle"><strong>Cuentas de esta prueba</strong><span>Ambas credenciales se guardan de forma independiente; los logins pueden coincidir.</span></div>
     <div class="live-audit-account-grid">
       <fieldset class="live-audit-account">
         <legend>Cuenta real · extraer información</legend>

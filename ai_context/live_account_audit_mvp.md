@@ -8,7 +8,7 @@ este orden:
 
 - uno o varios portafolios ya guardados (`scope=full_history`);
 - por cada portafolio marcado, un perfil de auditoría independiente con su
-  propia cuenta real de origen y otra cuenta distinta para Strategy Tester,
+  cuenta real de origen y una cuenta para Strategy Tester,
   periodo, tolerancias y contraseñas persistentes;
 - la política fija `pause_resume`, reutilizando las rutas multterminal que ya
   posee el agente;
@@ -43,8 +43,9 @@ configuración compartida en un perfil por cada ID que estuviera seleccionado.
 - `phase=configuration_only`: todavía no conecta con MT5, no recoge deals, no
   lanza Strategy Tester y no modifica operaciones.
 - No existe interruptor global de habilitación. Guardar exige que cada
-  portafolio marcado tenga dos logins numéricos diferentes, ambos servidores y
-  ambas contraseñas. El modelo del tester queda fijado a `real_ticks`.
+  portafolio marcado tenga dos logins numéricos, ambos servidores y ambas
+  contraseñas. Los logins pueden coincidir; sus credenciales siguen guardándose
+  de forma independiente. El modelo del tester queda fijado a `real_ticks`.
 - `min_tick_history_quality_pct` es una puerta obligatoria por portafolio, no
   una alerta. Usa la misma escala porcentual de `History Quality` que Final Tick
   y vale 80 % por defecto, igual que `ubs_final_tick_min_history_quality`. La

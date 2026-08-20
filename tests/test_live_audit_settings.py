@@ -35,11 +35,31 @@ class LiveAuditSettingsTests(unittest.TestCase):
         for obsolete in ("sync_interval_minutes", "daily_audit_time", "heartbeat_timeout_minutes"):
             self.assertNotIn(obsolete, DEFAULT_LIVE_AUDIT_PROFILE)
 
-    def test_profile_accounts_must_be_different(self) -> None:
-        with self.assertRaisesRegex(ValueError, "logins diferentes"):
-            normalize_live_audit_settings({"source_login": "123", "tester_login": "123"})
+    def test_profile_logins_must_be_numeric_but_may_match(self) -> None:
+        normalized = normalize_live_audit_settings({"source_login": "123", "tester_login": "123"})
+        self.assertEqual(normalized["source_login"], "123")
+        self.assertEqual(normalized["tester_login"], "123")
         with self.assertRaisesRegex(ValueError, "solo dígitos"):
             normalize_live_audit_settings({"source_login": "12A34"})
+
+    def test_same_login_can_be_saved_with_independent_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
+            saved = store.update("node-a", {
+                "selected_portfolio_ids": [11],
+                "profiles": {"11": {
+                    **profile("123", "123"),
+                    "source_password": "real-secret",
+                    "tester_password": "tester-secret",
+                }},
+            })
+            credentials = store.credentials("node-a", 11)
+
+        self.assertEqual(saved["configured_portfolio_ids"], [11])
+        self.assertEqual(credentials, {
+            "source_password": "real-secret",
+            "tester_password": "tester-secret",
+        })
 
     def test_profile_numeric_limits_and_fixed_policy_are_validated(self) -> None:
         with self.assertRaisesRegex(ValueError, "period_days"):
@@ -196,6 +216,8 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         ):
             self.assertIn(f'data-field="{field}"', self.script)
         self.assertNotIn("terminal_path", self.page_text + self.script)
+        self.assertIn("los logins pueden coincidir", self.script)
+        self.assertNotIn("deben ser diferentes", self.script)
 
     def test_schedule_only_asks_for_audited_period_and_interval_in_days(self) -> None:
         self.assertIn("Periodo auditado (días)", self.script)
