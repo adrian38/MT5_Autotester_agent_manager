@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Auditor de cuenta real · MT5 Manager</title>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/live_audit.css">
 </head>
 <body class="live-audit-page">
   <header>
@@ -17,78 +18,22 @@
   </header>
   <main>
     <section class="live-audit-notice" aria-label="Estado del MVP">
-      <div><strong>MVP · solo configuración</strong><p>Esta versión guarda portafolios, cuentas y reglas en el manager. Todavía no conecta con MT5, no ejecuta pruebas y no modifica operaciones.</p></div>
+      <div><strong>MVP · solo configuración</strong><p>Todavía no conecta con MT5 ni ejecuta pruebas. Cada portafolio marcado conserva una auditoría independiente.</p></div>
       <span id="config-state" class="badge idle">SIN GUARDAR</span>
     </section>
 
     <form id="audit-form" class="live-audit-form">
       <section class="panel-card live-audit-card">
-        <div class="panel-title"><div><p class="eyebrow">1 · PORTAFOLIOS</p><h2>Qué portafolios se auditarán</h2></div><span id="portfolio-count" class="badge idle">CARGANDO</span></div>
-        <div class="live-audit-enable-row">
-          <label class="check live-audit-enable"><input name="enabled" type="checkbox"> Habilitar cuando el servicio esté disponible</label>
-          <p>Solo se muestran portafolios UBS completos. El portafolio mensual permanece deshabilitado.</p>
-        </div>
+        <div class="panel-title"><div><p class="eyebrow">1 · PORTAFOLIOS</p><h2>Selecciona los portafolios que quieres probar</h2></div><span id="portfolio-count" class="badge idle">CARGANDO</span></div>
+        <p class="live-audit-section-help">Marca uno o varios. Debajo aparecerá una configuración separada para cada portafolio.</p>
         <div id="portfolio-list" class="live-audit-portfolios" aria-live="polite"></div>
-        <input name="selected_portfolio_ids" type="hidden" value="">
       </section>
 
-      <section class="panel-card live-audit-card">
-        <div class="panel-title"><div><p class="eyebrow">2 · CUENTAS</p><h2>Origen real y entorno de pruebas</h2></div></div>
-        <div class="live-audit-account-grid">
-          <fieldset class="live-audit-account">
-            <legend>Cuenta real · extraer información</legend>
-            <label>Login real<input name="source_login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" placeholder="Número de cuenta real"></label>
-            <label>Servidor real<input name="source_server" maxlength="160" autocomplete="off" placeholder="Nombre exacto del servidor"></label>
-            <label>Contraseña real<input name="source_password" type="password" maxlength="512" autocomplete="new-password" placeholder="Introduce la contraseña"></label>
-            <small id="source-password-state">Todavía no guardada</small>
-          </fieldset>
-          <fieldset class="live-audit-account">
-            <legend>Cuenta de pruebas · ejecutar tester</legend>
-            <label>Login de pruebas<input name="tester_login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" placeholder="Número de cuenta de pruebas"></label>
-            <label>Servidor de pruebas<input name="tester_server" maxlength="160" autocomplete="off" placeholder="Nombre exacto del servidor"></label>
-            <label>Contraseña de pruebas<input name="tester_password" type="password" maxlength="512" autocomplete="new-password" placeholder="Introduce la contraseña"></label>
-            <small id="tester-password-state">Todavía no guardada</small>
-          </fieldset>
-        </div>
-        <p class="live-audit-security"><strong>Credenciales persistentes y cifradas.</strong> Las contraseñas se guardan aparte de los ajustes y nunca vuelven al navegador. Si ya están guardadas, deja el campo vacío para conservarlas.</p>
-      </section>
-
-      <section class="panel-card live-audit-card">
-        <div class="panel-title"><div><p class="eyebrow">3 · TERMINALES Y TRABAJO ACTIVO</p><h2>Usar la configuración existente del nodo</h2></div></div>
-        <div class="live-audit-policy">
-          <input name="active_job_policy" type="hidden" value="pause_resume">
-          <strong>Política fija: pausar y reanudar.</strong>
-          <p>El auditor reutilizará las rutas y terminales MT5 ya configurados en el agente. Si encuentra un proceso activo, lo pausará antes del trabajo y lo reanudará al finalizar. Si ya estaba pausado por el usuario, conservará ese estado.</p>
-        </div>
-      </section>
-
-      <section class="panel-card live-audit-card">
-        <div class="panel-title"><div><p class="eyebrow">4 · PERIODO Y FRECUENCIA</p><h2>Recogida y auditoría</h2></div></div>
-        <div class="live-audit-fields">
-          <label>Periodo comparado (días)<input name="period_days" type="number" min="1" max="3650" required></label>
-          <label>Sincronizar cada (minutos)<input name="sync_interval_minutes" type="number" min="1" max="1440" required></label>
-          <label>Auditoría diaria a las<input name="daily_audit_time" type="time" required></label>
-          <label>Heartbeat vencido tras (minutos)<input name="heartbeat_timeout_minutes" type="number" min="1" max="1440" required></label>
-        </div>
-      </section>
-
-      <section class="panel-card live-audit-card">
-        <div class="panel-title"><div><p class="eyebrow">5 · COMPARACIÓN</p><h2>Tester y tolerancias</h2></div></div>
-        <div class="live-audit-fields">
-          <label>Modelo del tester<select name="tester_model"><option value="real_ticks">Every tick based on real ticks</option></select></label>
-          <label>Retraso de ejecución<select name="execution_delay_mode"><option value="measured">Ping medido</option><option value="none">Sin retraso</option><option value="fixed">Fijo</option></select></label>
-          <label>Retraso fijo (ms)<input name="fixed_delay_ms" type="number" min="0" max="600000" required></label>
-          <label>Tolerancia horaria (segundos)<input name="trade_time_tolerance_seconds" type="number" min="0" max="86400" required></label>
-          <label>Tolerancia de precio (puntos)<input name="price_tolerance_points" type="number" min="0" max="1000000" step="any" required></label>
-          <label>Tolerancia de volumen (%)<input name="volume_tolerance_pct" type="number" min="0" max="100" step="any" required></label>
-          <label>Aviso por desviación de PnL (%)<input name="pnl_deviation_warning_pct" type="number" min="0" max="10000" step="any" required></label>
-          <label>Aviso por desviación de DD (%)<input name="drawdown_deviation_warning_pct" type="number" min="0" max="10000" step="any" required></label>
-        </div>
-      </section>
+      <div id="portfolio-configs" class="live-audit-configs" aria-live="polite"></div>
 
       <div class="builder-actions live-audit-actions">
         <button id="reset-audit" type="button" class="secondary">Restablecer valores</button>
-        <button id="save-audit" type="submit">Guardar configuración</button>
+        <button id="save-audit" type="submit">Guardar configuraciones</button>
       </div>
     </form>
   </main>

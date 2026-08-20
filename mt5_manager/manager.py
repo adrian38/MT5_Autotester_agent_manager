@@ -402,7 +402,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
         relative = parsed.path.lstrip("/")
         if relative in {
             "app.js", "styles.css", "universe.html", "universe.js",
-            "live_audit.html", "live_audit.js",
+            "live_audit.html", "live_audit.js", "live_audit.css",
             "portfolios.html", "portfolios.js",
             "portfolios_monthly.html", "portfolios_monthly.js",
             "portfolio_improvement.js", "portfolio_monthly_improvement.js",

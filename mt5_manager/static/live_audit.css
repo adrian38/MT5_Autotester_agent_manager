@@ -1,0 +1,41 @@
+.live-audit-section-help {
+  padding: 16px 20px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.live-audit-configs {
+  display: grid;
+  gap: 18px;
+}
+
+.live-audit-subtitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 0;
+  color: var(--accent2);
+  font-size: 13px;
+}
+
+.live-audit-subtitle span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.live-audit-selection-empty {
+  margin-bottom: 18px;
+  padding: 28px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (max-width: 700px) {
+  .live-audit-subtitle {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

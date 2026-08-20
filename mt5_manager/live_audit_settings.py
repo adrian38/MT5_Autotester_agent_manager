@@ -12,9 +12,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from .common import load_json, save_json, utc_now
 
 
-DEFAULT_LIVE_AUDIT_SETTINGS: dict[str, Any] = {
-    "enabled": False,
-    "selected_portfolio_ids": [],
+DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "source_login": "",
     "source_server": "",
     "tester_login": "",
@@ -34,7 +32,9 @@ DEFAULT_LIVE_AUDIT_SETTINGS: dict[str, Any] = {
     "drawdown_deviation_warning_pct": 15.0,
 }
 
-_BOOL_KEYS = {"enabled"}
+# Alias conservado para consumidores de la primera versión del MVP.
+DEFAULT_LIVE_AUDIT_SETTINGS = DEFAULT_LIVE_AUDIT_PROFILE
+
 _TEXT_LIMITS = {
     "source_login": 32,
     "source_server": 160,
@@ -55,6 +55,7 @@ _FLOAT_LIMITS = {
     "drawdown_deviation_warning_pct": (0.0, 10_000.0),
 }
 _SECRET_KEYS = {"source_password", "tester_password"}
+_REQUEST_KEYS = {"selected_portfolio_ids", "profiles"}
 
 
 def _text(value: Any, key: str, maximum: int) -> str:
@@ -104,19 +105,14 @@ def _portfolio_ids(value: Any) -> list[int]:
 
 
 def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
+    """Normaliza el perfil independiente de un portafolio."""
     if not isinstance(value, dict):
-        raise ValueError("La configuración del auditor debe ser un objeto JSON")
-    unknown = set(value) - set(DEFAULT_LIVE_AUDIT_SETTINGS)
+        raise ValueError("La configuración del portafolio debe ser un objeto JSON")
+    unknown = set(value) - set(DEFAULT_LIVE_AUDIT_PROFILE)
     if unknown:
         raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
 
-    normalized = dict(DEFAULT_LIVE_AUDIT_SETTINGS)
-    normalized["selected_portfolio_ids"] = []
-    for key in _BOOL_KEYS:
-        if key in value:
-            if not isinstance(value[key], bool):
-                raise ValueError(f"{key} debe ser booleano")
-            normalized[key] = value[key]
+    normalized = dict(DEFAULT_LIVE_AUDIT_PROFILE)
     for key, maximum in _TEXT_LIMITS.items():
         if key in value:
             normalized[key] = _text(value[key], key, maximum)
@@ -126,8 +122,6 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
     for key, (minimum, maximum) in _FLOAT_LIMITS.items():
         if key in value:
             normalized[key] = _number(value[key], key, minimum, maximum)
-    if "selected_portfolio_ids" in value:
-        normalized["selected_portfolio_ids"] = _portfolio_ids(value["selected_portfolio_ids"])
 
     if "daily_audit_time" in value:
         audit_time = _text(value["daily_audit_time"], "daily_audit_time", 5)
@@ -157,34 +151,31 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{key} debe contener solo dígitos")
     if normalized["source_login"] and normalized["source_login"] == normalized["tester_login"]:
         raise ValueError("La cuenta real y la cuenta de pruebas deben tener logins diferentes")
-    if normalized["enabled"]:
-        if not normalized["selected_portfolio_ids"]:
-            raise ValueError("Selecciona al menos un portafolio para habilitar el auditor")
-        for key, label in (
-            ("source_login", "login de la cuenta real"),
-            ("source_server", "servidor de la cuenta real"),
-            ("tester_login", "login de la cuenta de pruebas"),
-            ("tester_server", "servidor de la cuenta de pruebas"),
-        ):
-            if not normalized[key]:
-                raise ValueError(f"Falta el {label} para habilitar el auditor")
     return normalized
 
 
-def _migrate_legacy_settings(raw: dict[str, Any]) -> dict[str, Any]:
-    legacy = {"deployment_name", "account_login", "account_server", "terminal_path"}
-    if not legacy.intersection(raw):
-        return raw
-    migrated = {key: value for key, value in raw.items() if key not in legacy}
-    migrated["source_login"] = raw.get("source_login") or raw.get("account_login") or ""
-    migrated["source_server"] = raw.get("source_server") or raw.get("account_server") or ""
-    # La configuración anterior no tenía cuenta de pruebas, portafolios ni secretos.
-    migrated["enabled"] = False
-    return migrated
+def _require_complete_profile(portfolio_id: int, profile: dict[str, Any]) -> None:
+    for key, label in (
+        ("source_login", "login de la cuenta real"),
+        ("source_server", "servidor de la cuenta real"),
+        ("tester_login", "login de la cuenta de pruebas"),
+        ("tester_server", "servidor de la cuenta de pruebas"),
+    ):
+        if not profile[key]:
+            raise ValueError(f"Falta el {label} del portafolio #{portfolio_id}")
+
+
+def _public_legacy_profile(raw: dict[str, Any]) -> dict[str, Any]:
+    legacy = dict(raw)
+    legacy["source_login"] = legacy.get("source_login") or legacy.get("account_login") or ""
+    legacy["source_server"] = legacy.get("source_server") or legacy.get("account_server") or ""
+    for key in ("enabled", "selected_portfolio_ids", "deployment_name", "account_login", "account_server", "terminal_path"):
+        legacy.pop(key, None)
+    return normalize_live_audit_settings(legacy)
 
 
 class LiveAuditSettingsStore:
-    """Configuración pública y credenciales cifradas del futuro auditor."""
+    """Perfiles y credenciales cifradas, independientes por portafolio."""
 
     def __init__(
         self,
@@ -205,29 +196,57 @@ class LiveAuditSettingsStore:
         )
         self.lock = threading.RLock()
         self.records: dict[str, dict[str, Any]] = {}
-        self.credential_records: dict[str, dict[str, str]] = {}
+        self.credential_records: dict[str, dict[str, dict[str, str]]] = {}
         if self.path.is_file():
-            stored = load_json(self.path)
-            for node_id, record in stored.items():
-                if not isinstance(record, dict):
-                    continue
-                raw_settings = record.get("settings")
-                if not isinstance(raw_settings, dict):
-                    continue
-                try:
-                    settings = normalize_live_audit_settings(_migrate_legacy_settings(raw_settings))
-                except ValueError:
-                    continue
-                self.records[str(node_id)] = {
-                    "settings": settings,
-                    "updated_at": str(record.get("updated_at") or ""),
-                }
+            self._load_settings(load_json(self.path))
         if self.credentials_path.is_file():
-            stored_credentials = load_json(self.credentials_path)
-            cipher = self._cipher(create=False)
-            for node_id, record in stored_credentials.items():
+            self._load_credentials(load_json(self.credentials_path))
+
+    def _load_settings(self, stored: dict[str, Any]) -> None:
+        for raw_node_id, record in stored.items():
+            if not isinstance(record, dict):
+                continue
+            node_id = str(raw_node_id)
+            try:
+                if isinstance(record.get("profiles"), dict):
+                    selected = _portfolio_ids(record.get("selected_portfolio_ids") or [])
+                    profiles = {
+                        str(_integer(portfolio_id, "portfolio_id", 1, 2_147_483_647)): normalize_live_audit_settings(profile)
+                        for portfolio_id, profile in record["profiles"].items()
+                        if isinstance(profile, dict)
+                    }
+                elif isinstance(record.get("settings"), dict):
+                    raw_settings = record["settings"]
+                    selected = _portfolio_ids(raw_settings.get("selected_portfolio_ids") or [])
+                    profile = _public_legacy_profile(raw_settings)
+                    profiles = {str(portfolio_id): dict(profile) for portfolio_id in selected}
+                else:
+                    continue
+            except ValueError:
+                continue
+            self.records[node_id] = {
+                "selected_portfolio_ids": selected,
+                "profiles": profiles,
+                "updated_at": str(record.get("updated_at") or ""),
+            }
+
+    def _load_credentials(self, stored: dict[str, Any]) -> None:
+        cipher = self._cipher(create=False)
+        for raw_node_id, raw_record in stored.items():
+            if not isinstance(raw_record, dict):
+                continue
+            node_id = str(raw_node_id)
+            # Migración del primer MVP: dos secretos compartidos por todos los IDs seleccionados.
+            if _SECRET_KEYS.intersection(raw_record):
+                selected = (self.records.get(node_id) or {}).get("selected_portfolio_ids") or []
+                portfolio_records = {str(portfolio_id): raw_record for portfolio_id in selected}
+            else:
+                portfolio_records = raw_record
+            clean_portfolios: dict[str, dict[str, str]] = {}
+            for raw_portfolio_id, record in portfolio_records.items():
                 if not isinstance(record, dict):
                     continue
+                portfolio_id = str(_integer(raw_portfolio_id, "portfolio_id", 1, 2_147_483_647))
                 clean: dict[str, str] = {}
                 for key in _SECRET_KEYS:
                     token = str(record.get(key) or "")
@@ -236,10 +255,12 @@ class LiveAuditSettingsStore:
                     try:
                         cipher.decrypt(token.encode("ascii"))
                     except (InvalidToken, UnicodeEncodeError) as exc:
-                        raise ValueError(f"Credencial cifrada inválida para {node_id}") from exc
+                        raise ValueError(f"Credencial cifrada inválida para {node_id}, portafolio #{portfolio_id}") from exc
                     clean[key] = token
                 if clean:
-                    self.credential_records[str(node_id)] = clean
+                    clean_portfolios[portfolio_id] = clean
+            if clean_portfolios:
+                self.credential_records[node_id] = clean_portfolios
 
     def _cipher(self, *, create: bool) -> Fernet:
         configured_key = str(os.environ.get("MT5_MANAGER_LIVE_AUDIT_KEY") or "").strip()
@@ -258,8 +279,8 @@ class LiveAuditSettingsStore:
             pass
         return Fernet(key)
 
-    def _password_flags(self, node_id: str) -> dict[str, bool]:
-        credentials = self.credential_records.get(node_id) or {}
+    def _credential_flags(self, node_id: str, portfolio_id: str) -> dict[str, bool]:
+        credentials = (self.credential_records.get(node_id) or {}).get(portfolio_id) or {}
         return {
             "source_password_saved": bool(credentials.get("source_password")),
             "tester_password_saved": bool(credentials.get("tester_password")),
@@ -268,63 +289,111 @@ class LiveAuditSettingsStore:
     def state(self, node_id: str) -> dict[str, Any]:
         with self.lock:
             record = self.records.get(node_id) or {}
-            settings = dict(record.get("settings") or DEFAULT_LIVE_AUDIT_SETTINGS)
-            settings["selected_portfolio_ids"] = list(settings.get("selected_portfolio_ids") or [])
-            flags = self._password_flags(node_id)
-            identity_ready = all(settings.get(key) for key in (
-                "selected_portfolio_ids", "source_login", "source_server", "tester_login", "tester_server"
-            ))
+            selected = list(record.get("selected_portfolio_ids") or [])
+            profiles = {
+                str(portfolio_id): dict(profile)
+                for portfolio_id, profile in (record.get("profiles") or {}).items()
+            }
+            credential_state = {
+                portfolio_id: self._credential_flags(node_id, portfolio_id)
+                for portfolio_id in set(profiles) | {str(value) for value in selected}
+            }
+            configured_ids = [
+                portfolio_id for portfolio_id in selected
+                if str(portfolio_id) in profiles
+                and all(credential_state[str(portfolio_id)].values())
+                and all(profiles[str(portfolio_id)].get(key) for key in (
+                    "source_login", "source_server", "tester_login", "tester_server"
+                ))
+            ]
             return {
-                "settings": settings,
-                "defaults": {**DEFAULT_LIVE_AUDIT_SETTINGS, "selected_portfolio_ids": []},
+                "selected_portfolio_ids": selected,
+                "profiles": profiles,
+                "defaults": dict(DEFAULT_LIVE_AUDIT_PROFILE),
+                "credential_state": credential_state,
+                "configured_portfolio_ids": configured_ids,
+                "configured": bool(selected) and len(configured_ids) == len(selected),
                 "updated_at": record.get("updated_at") or None,
-                "configured": bool(identity_ready and all(flags.values())),
-                **flags,
                 "phase": "configuration_only",
             }
 
     def update(self, node_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(changes, dict):
             raise ValueError("La configuración del auditor debe ser un objeto JSON")
+        unknown = set(changes) - _REQUEST_KEYS
+        if unknown:
+            raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
+        selected = _portfolio_ids(changes.get("selected_portfolio_ids") or [])
+        submitted_profiles = changes.get("profiles")
+        if not isinstance(submitted_profiles, dict):
+            raise ValueError("profiles debe ser un objeto por portafolio")
+
         with self.lock:
-            changes = dict(changes)
-            secret_changes: dict[str, str] = {}
-            for key in _SECRET_KEYS:
-                if key not in changes:
-                    continue
-                value = changes.pop(key)
-                if not isinstance(value, str):
-                    raise ValueError(f"{key} debe ser texto")
-                if len(value) > 512:
-                    raise ValueError(f"{key} no puede superar 512 caracteres")
-                if value:
-                    secret_changes[key] = value
+            existing = self.records.get(node_id) or {}
+            profiles = {
+                str(portfolio_id): dict(profile)
+                for portfolio_id, profile in (existing.get("profiles") or {}).items()
+            }
+            node_credentials = {
+                str(portfolio_id): dict(credentials)
+                for portfolio_id, credentials in (self.credential_records.get(node_id) or {}).items()
+            }
+            credentials_changed = False
+            cipher: Fernet | None = None
 
-            current = self.state(node_id)["settings"]
-            current.update(changes)
-            normalized = normalize_live_audit_settings(current)
-            existing_credentials = dict(self.credential_records.get(node_id) or {})
-            available_secrets = set(existing_credentials) | set(secret_changes)
-            if normalized["enabled"] and not _SECRET_KEYS.issubset(available_secrets):
-                raise ValueError("Guarda las contraseñas de la cuenta real y de pruebas antes de habilitar el auditor")
+            for portfolio_id in selected:
+                key = str(portfolio_id)
+                raw_profile = submitted_profiles.get(key, submitted_profiles.get(portfolio_id))
+                if not isinstance(raw_profile, dict):
+                    raise ValueError(f"Falta la configuración del portafolio #{portfolio_id}")
+                raw_profile = dict(raw_profile)
+                secret_changes: dict[str, str] = {}
+                for secret_key in _SECRET_KEYS:
+                    if secret_key not in raw_profile:
+                        continue
+                    value = raw_profile.pop(secret_key)
+                    if not isinstance(value, str):
+                        raise ValueError(f"{secret_key} del portafolio #{portfolio_id} debe ser texto")
+                    if len(value) > 512:
+                        raise ValueError(f"{secret_key} del portafolio #{portfolio_id} no puede superar 512 caracteres")
+                    if value:
+                        secret_changes[secret_key] = value
 
-            if secret_changes:
-                cipher = self._cipher(create=True)
-                for key, value in secret_changes.items():
-                    existing_credentials[key] = cipher.encrypt(value.encode("utf-8")).decode("ascii")
+                merged = dict(profiles.get(key) or DEFAULT_LIVE_AUDIT_PROFILE)
+                merged.update(raw_profile)
+                normalized = normalize_live_audit_settings(merged)
+                _require_complete_profile(portfolio_id, normalized)
+
+                encrypted = dict(node_credentials.get(key) or {})
+                available_secrets = set(encrypted) | set(secret_changes)
+                if not _SECRET_KEYS.issubset(available_secrets):
+                    raise ValueError(f"Guarda las dos contraseñas del portafolio #{portfolio_id}")
+                if secret_changes:
+                    cipher = cipher or self._cipher(create=True)
+                    for secret_key, value in secret_changes.items():
+                        encrypted[secret_key] = cipher.encrypt(value.encode("utf-8")).decode("ascii")
+                    node_credentials[key] = encrypted
+                    credentials_changed = True
+                profiles[key] = normalized
+
+            if credentials_changed:
                 credential_records = dict(self.credential_records)
-                credential_records[node_id] = existing_credentials
+                credential_records[node_id] = node_credentials
                 save_json(self.credentials_path, credential_records)
                 self.credential_records = credential_records
 
-            self.records[node_id] = {"settings": normalized, "updated_at": utc_now()}
+            self.records[node_id] = {
+                "selected_portfolio_ids": selected,
+                "profiles": profiles,
+                "updated_at": utc_now(),
+            }
             save_json(self.path, self.records)
             return self.state(node_id)
 
-    def credentials(self, node_id: str) -> dict[str, str]:
-        """Devuelve secretos solo al futuro orquestador interno, nunca a la API."""
+    def credentials(self, node_id: str, portfolio_id: int) -> dict[str, str]:
+        """Devuelve secretos de un portafolio solo al futuro orquestador interno."""
         with self.lock:
-            record = self.credential_records.get(node_id) or {}
+            record = (self.credential_records.get(node_id) or {}).get(str(portfolio_id)) or {}
             if not record:
                 return {}
             cipher = self._cipher(create=False)

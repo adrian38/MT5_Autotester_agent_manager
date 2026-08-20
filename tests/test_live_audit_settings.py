@@ -8,145 +8,144 @@ from pathlib import Path
 from lxml import html
 
 from mt5_manager.live_audit_settings import (
-    DEFAULT_LIVE_AUDIT_SETTINGS,
+    DEFAULT_LIVE_AUDIT_PROFILE,
     LiveAuditSettingsStore,
     normalize_live_audit_settings,
 )
 
 
+def profile(source_login: str, tester_login: str, **changes: object) -> dict[str, object]:
+    return {
+        **DEFAULT_LIVE_AUDIT_PROFILE,
+        "source_login": source_login,
+        "source_server": "Broker-Live",
+        "tester_login": tester_login,
+        "tester_server": "Broker-Demo",
+        **changes,
+    }
+
+
 class LiveAuditSettingsTests(unittest.TestCase):
-    def test_defaults_are_safe_and_do_not_enable_the_future_service(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
-            state = store.state("node-a")
+    def test_defaults_have_no_unrequested_enable_switch(self) -> None:
+        self.assertNotIn("enabled", DEFAULT_LIVE_AUDIT_PROFILE)
+        self.assertNotIn("selected_portfolio_ids", DEFAULT_LIVE_AUDIT_PROFILE)
+        self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["active_job_policy"], "pause_resume")
 
-        self.assertEqual(state["settings"], DEFAULT_LIVE_AUDIT_SETTINGS)
-        self.assertFalse(state["settings"]["enabled"])
-        self.assertEqual(state["settings"]["active_job_policy"], "pause_resume")
-        self.assertEqual(state["phase"], "configuration_only")
-        self.assertFalse(state["configured"])
-        self.assertFalse(state["source_password_saved"])
-        self.assertFalse(state["tester_password_saved"])
-
-    def test_enabled_configuration_requires_portfolio_and_both_accounts(self) -> None:
-        base = {
-            "enabled": True,
-            "selected_portfolio_ids": [11],
-            "source_login": "123456",
-            "source_server": "Broker-Live",
-            "tester_login": "987654",
-            "tester_server": "Broker-Demo",
-        }
-        for key, error in (
-            ("selected_portfolio_ids", "portafolio"),
-            ("source_login", "login de la cuenta real"),
-            ("source_server", "servidor de la cuenta real"),
-            ("tester_login", "login de la cuenta de pruebas"),
-            ("tester_server", "servidor de la cuenta de pruebas"),
-        ):
-            value = dict(base)
-            value[key] = [] if key == "selected_portfolio_ids" else ""
-            with self.subTest(key=key), self.assertRaisesRegex(ValueError, error):
-                normalize_live_audit_settings(value)
-
-    def test_accounts_must_be_different_and_portfolio_ids_are_normalized(self) -> None:
+    def test_profile_accounts_must_be_different(self) -> None:
         with self.assertRaisesRegex(ValueError, "logins diferentes"):
             normalize_live_audit_settings({"source_login": "123", "tester_login": "123"})
-        normalized = normalize_live_audit_settings({"selected_portfolio_ids": [8, "7", 8]})
-        self.assertEqual(normalized["selected_portfolio_ids"], [8, 7])
+        with self.assertRaisesRegex(ValueError, "solo dígitos"):
+            normalize_live_audit_settings({"source_login": "12A34"})
 
-    def test_unknown_fields_and_invalid_policy_are_rejected(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Campos desconocidos: password"):
-            normalize_live_audit_settings({"password": "never-store-this"})
+    def test_profile_numeric_limits_and_fixed_policy_are_validated(self) -> None:
+        with self.assertRaisesRegex(ValueError, "period_days"):
+            normalize_live_audit_settings({"period_days": 0})
+        with self.assertRaisesRegex(ValueError, "HH:MM"):
+            normalize_live_audit_settings({"daily_audit_time": "25:00"})
         with self.assertRaisesRegex(ValueError, "pause_resume"):
             normalize_live_audit_settings({"active_job_policy": "interrupt"})
 
-    def test_numeric_limits_and_account_format_are_validated(self) -> None:
-        with self.assertRaisesRegex(ValueError, "period_days"):
-            normalize_live_audit_settings({"period_days": 0})
-        with self.assertRaisesRegex(ValueError, "solo dígitos"):
-            normalize_live_audit_settings({"source_login": "12A34"})
-        with self.assertRaisesRegex(ValueError, "HH:MM"):
-            normalize_live_audit_settings({"daily_audit_time": "25:00"})
-        with self.assertRaisesRegex(ValueError, "price_tolerance_points"):
-            normalize_live_audit_settings({"price_tolerance_points": "nan"})
-
-    def test_settings_and_encrypted_credentials_survive_reload(self) -> None:
+    def test_two_portfolios_keep_independent_profiles_and_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             path = root / "live_audit_settings.json"
             store = LiveAuditSettingsStore(path)
+            first = profile("001111", "009111", period_days=7)
+            second = profile("002222", "009222", period_days=30)
             saved = store.update("node-a", {
-                "enabled": True,
                 "selected_portfolio_ids": [11, 12],
-                "source_login": "00123456",
-                "source_server": "Broker-Live",
-                "source_password": "real-secret",
-                "tester_login": "00987654",
-                "tester_server": "Broker-Demo",
-                "tester_password": "tester-secret",
-                "period_days": 30,
-                "execution_delay_mode": "fixed",
-                "fixed_delay_ms": 125,
+                "profiles": {
+                    "11": {**first, "source_password": "real-11", "tester_password": "test-11"},
+                    "12": {**second, "source_password": "real-12", "tester_password": "test-12"},
+                },
             })
             reloaded_store = LiveAuditSettingsStore(path)
             reloaded = reloaded_store.state("node-a")
-            credentials = reloaded_store.credentials("node-a")
-            public_document = path.read_text(encoding="utf-8")
-            encrypted_document = (root / "live_audit_credentials.json").read_text(encoding="utf-8")
+            credentials_11 = reloaded_store.credentials("node-a", 11)
+            credentials_12 = reloaded_store.credentials("node-a", 12)
+            encrypted = (root / "live_audit_credentials.json").read_text(encoding="utf-8")
 
-        self.assertTrue(saved["configured"])
-        self.assertTrue(saved["source_password_saved"])
-        self.assertTrue(saved["tester_password_saved"])
-        self.assertNotIn("source_password", saved)
-        self.assertNotIn("tester_password", saved)
-        self.assertEqual(reloaded["settings"]["selected_portfolio_ids"], [11, 12])
-        self.assertEqual(reloaded["settings"]["source_login"], "00123456")
-        self.assertEqual(credentials, {"source_password": "real-secret", "tester_password": "tester-secret"})
-        self.assertNotIn("real-secret", public_document + encrypted_document)
-        self.assertNotIn("tester-secret", public_document + encrypted_document)
+        self.assertEqual(saved["configured_portfolio_ids"], [11, 12])
+        self.assertEqual(reloaded["profiles"]["11"]["period_days"], 7)
+        self.assertEqual(reloaded["profiles"]["12"]["period_days"], 30)
+        self.assertEqual(credentials_11, {"source_password": "real-11", "tester_password": "test-11"})
+        self.assertEqual(credentials_12, {"source_password": "real-12", "tester_password": "test-12"})
+        for secret in ("real-11", "test-11", "real-12", "test-12"):
+            self.assertNotIn(secret, encrypted)
 
-    def test_empty_password_fields_keep_the_saved_credentials(self) -> None:
+    def test_empty_passwords_preserve_each_portfolios_saved_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
-            store.update("node-a", {"source_password": "one", "tester_password": "two"})
-            state = store.update("node-a", {"source_password": "", "tester_password": "", "period_days": 14})
-            credentials = store.credentials("node-a")
+            store.update("node-a", {
+                "selected_portfolio_ids": [11],
+                "profiles": {"11": {
+                    **profile("111", "911"),
+                    "source_password": "one",
+                    "tester_password": "two",
+                }},
+            })
+            saved = store.update("node-a", {
+                "selected_portfolio_ids": [11],
+                "profiles": {"11": {
+                    **profile("111", "911", period_days=14),
+                    "source_password": "",
+                    "tester_password": "",
+                }},
+            })
+            credentials = store.credentials("node-a", 11)
 
-        self.assertTrue(state["source_password_saved"])
-        self.assertTrue(state["tester_password_saved"])
+        self.assertEqual(saved["profiles"]["11"]["period_days"], 14)
         self.assertEqual(credentials, {"source_password": "one", "tester_password": "two"})
 
-    def test_enabling_requires_both_saved_passwords(self) -> None:
+    def test_every_selected_portfolio_requires_its_own_profile_and_passwords(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
-            with self.assertRaisesRegex(ValueError, "contraseñas"):
+            with self.assertRaisesRegex(ValueError, "portafolio #12"):
                 store.update("node-a", {
-                    "enabled": True,
+                    "selected_portfolio_ids": [11, 12],
+                    "profiles": {"11": {
+                        **profile("111", "911"),
+                        "source_password": "one",
+                        "tester_password": "two",
+                    }},
+                })
+            with self.assertRaisesRegex(ValueError, "contraseñas del portafolio #11"):
+                store.update("node-a", {
                     "selected_portfolio_ids": [11],
-                    "source_login": "123",
-                    "source_server": "Live",
-                    "tester_login": "456",
-                    "tester_server": "Demo",
-                    "source_password": "only-one",
+                    "profiles": {"11": profile("111", "911")},
                 })
 
-    def test_legacy_single_account_configuration_is_migrated_disabled(self) -> None:
+    def test_unselected_portfolio_profile_is_retained_for_later(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
+            store.update("node-a", {
+                "selected_portfolio_ids": [11, 12],
+                "profiles": {
+                    "11": {**profile("111", "911"), "source_password": "a", "tester_password": "b"},
+                    "12": {**profile("222", "922"), "source_password": "c", "tester_password": "d"},
+                },
+            })
+            state = store.update("node-a", {
+                "selected_portfolio_ids": [11],
+                "profiles": {"11": {**profile("111", "911"), "source_password": "", "tester_password": ""}},
+            })
+
+        self.assertEqual(state["selected_portfolio_ids"], [11])
+        self.assertIn("12", state["profiles"])
+
+    def test_previous_shared_configuration_becomes_one_profile_per_selected_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "live_audit_settings.json"
             path.write_text(json.dumps({"node-a": {"settings": {
-                **DEFAULT_LIVE_AUDIT_SETTINGS,
                 "enabled": True,
-                "deployment_name": "old",
-                "account_login": "123",
-                "account_server": "Live",
-                "terminal_path": "terminal64.exe",
+                "selected_portfolio_ids": [11, 12],
+                **profile("111", "911", period_days=21),
             }}}), encoding="utf-8")
             state = LiveAuditSettingsStore(path).state("node-a")
 
-        self.assertFalse(state["settings"]["enabled"])
-        self.assertEqual(state["settings"]["source_login"], "123")
-        self.assertNotIn("terminal_path", state["settings"])
+        self.assertEqual(state["selected_portfolio_ids"], [11, 12])
+        self.assertEqual(state["profiles"]["11"]["period_days"], 21)
+        self.assertEqual(state["profiles"]["12"]["period_days"], 21)
 
 
 class LiveAuditConfigurationScreenTests(unittest.TestCase):
@@ -160,40 +159,32 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
 
     def test_every_node_card_links_to_the_page(self) -> None:
         self.assertIn('/live_audit.html?node=${encodeURIComponent(id)}', self.manager_script)
-        self.assertIn("Auditor real", self.manager_script)
 
-    def test_portfolio_selection_is_first_and_only_uses_full_history(self) -> None:
-        cards = self.page.xpath('//form[@id="audit-form"]/section')
-        self.assertIn("PORTAFOLIOS", cards[0].text_content())
+    def test_unrequested_enable_row_and_monthly_notice_are_gone(self) -> None:
+        self.assertNotIn("Habilitar cuando el servicio esté disponible", self.page_text)
+        self.assertNotIn("El portafolio mensual permanece deshabilitado", self.page_text)
+        self.assertFalse(self.page.xpath('//*[@name="enabled"]'))
+
+    def test_each_marked_portfolio_renders_an_independent_configuration(self) -> None:
+        self.assertIn("Cada portafolio marcado conserva una auditoría independiente", self.page_text)
+        self.assertIn("ids.map(profileMarkup)", self.script)
+        self.assertIn("data-profile-id", self.script)
+        self.assertIn("profiles: Object.fromEntries", self.script)
+        self.assertIn("credentialState[String(id)]", self.script)
+
+    def test_each_profile_has_two_accounts_passwords_schedule_and_tolerances(self) -> None:
+        for field in (
+            "source_login", "source_server", "source_password", "tester_login", "tester_server",
+            "tester_password", "period_days", "daily_audit_time", "tester_model",
+            "price_tolerance_points", "drawdown_deviation_warning_pct",
+        ):
+            self.assertIn(f'data-field="{field}"', self.script)
+        self.assertNotIn("terminal_path", self.page_text + self.script)
+
+    def test_script_loads_full_history_portfolios_and_the_manager_endpoint(self) -> None:
         self.assertIn("/portfolios?scope=full_history", self.script)
-        self.assertIn("selected_portfolio_ids", self.script)
-
-    def test_page_has_two_distinct_persistent_credentials_and_no_terminal_path(self) -> None:
-        password_names = {element.get("name") for element in self.page.xpath('//input[@type="password"]')}
-        self.assertEqual(password_names, {"source_password", "tester_password"})
-        self.assertTrue(self.page.xpath('//*[@name="source_login"]'))
-        self.assertTrue(self.page.xpath('//*[@name="tester_login"]'))
-        self.assertFalse(self.page.xpath('//*[@name="terminal_path"]'))
-        self.assertIn("nunca vuelven al navegador", self.page_text)
-
-    def test_form_exposes_public_settings_plus_the_two_password_inputs(self) -> None:
-        names = {element.get("name") for element in self.page.xpath('//form[@id="audit-form"]//*[@name]')}
-        self.assertEqual(names, set(DEFAULT_LIVE_AUDIT_SETTINGS) | {"source_password", "tester_password"})
-        tester = self.page.xpath('//select[@name="tester_model"]/option')[0]
-        self.assertEqual(tester.get("value"), "real_ticks")
-
-    def test_pause_resume_policy_and_existing_terminals_are_explicit(self) -> None:
-        self.assertIn("pausará antes del trabajo", self.page_text)
-        self.assertIn("lo reanudará al finalizar", self.page_text)
-        self.assertIn("ya configurados en el agente", self.page_text)
-        self.assertIn("active_job_policy: 'pause_resume'", self.script)
-
-    def test_script_reads_and_writes_the_manager_endpoint(self) -> None:
-        endpoint = "/live-audit-config`"
-        self.assertGreaterEqual(self.script.count(endpoint), 2)
+        self.assertGreaterEqual(self.script.count("/live-audit-config`"), 2)
         self.assertIn("if (!form.reportValidity()) return", self.script)
-        self.assertIn("source_login', 'source_server', 'tester_login', 'tester_server", self.script)
-        self.assertIn("Guardada · deja vacío para conservar", self.script)
 
 
 if __name__ == "__main__":

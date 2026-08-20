@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import math
+import re
 from pathlib import Path
 
 from lxml import html
@@ -461,6 +462,13 @@ class PortfolioFormTests(unittest.TestCase):
                 key = field.get("name") or field.get("id")
                 self.assertIsNotNone(key, f"Input numérico sin name/id en {path.name}")
                 fields.setdefault(key, []).append((path.name, field))
+        # Los controles del auditor se crean una vez por cada portafolio marcado.
+        # Se audita también el HTML del template literal que los genera.
+        live_audit_script = (static_dir / "live_audit.js").read_text(encoding="utf-8")
+        for markup in re.findall(r'<input data-field="[^"]+" type="number"[^>]*>', live_audit_script):
+            field = html.fragment_fromstring(markup)
+            key = field.get("data-field")
+            fields.setdefault(key, []).append(("live_audit.js", field))
 
         valid_values = {
             "cycles": (1, 100),
