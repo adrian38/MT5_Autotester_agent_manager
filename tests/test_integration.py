@@ -186,7 +186,8 @@ enabled=0
     def test_manager_serves_and_persists_live_audit_configuration_without_the_node(self) -> None:
         status, initial = self.request("/api/nodes/test-node/live-audit-config")
         self.assertEqual(status, 200)
-        self.assertEqual(initial["phase"], "configuration_only")
+        self.assertEqual(initial["phase"], "connected")
+        self.assertEqual(initial["audit_states"], {})
         self.assertFalse(initial["configured"])
         self.assertEqual(initial["node"]["name"], "Test Node")
 

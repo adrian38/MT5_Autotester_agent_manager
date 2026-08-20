@@ -71,10 +71,12 @@ function auditRuntime(id) {
   const running = ['queued', 'pausing', 'running', 'resuming'].includes(value.status);
   return {
     status: value.status || 'idle',
-    status_label: value.status_label || (configPhase === 'configuration_only' ? 'SERVICIO PENDIENTE' : 'NO EJECUTADO'),
+    status_label: value.status_label || (configPhase === 'configuration_only' ? 'SERVICIO PENDIENTE'
+      : configPhase === 'agent_unavailable' ? 'AGENTE DESCONECTADO' : 'NO EJECUTADO'),
     progress_pct: progress,
     progress_text: value.progress_text || (configPhase === 'configuration_only'
       ? 'El motor de auditoría todavía no está conectado al nodo.'
+      : configPhase === 'agent_unavailable' ? 'No se puede consultar el agente ICTrading.'
       : 'Aún no se ha ejecutado ninguna auditoría.'),
     stage: value.stage || 'idle',
     running,
@@ -104,6 +106,7 @@ function auditOperationsMarkup(id) {
     && runtime.can_run && !runtime.running;
   const runTitle = configPhase === 'configuration_only'
     ? 'Disponible cuando se implemente el motor MT5 del agente'
+    : configPhase === 'agent_unavailable' ? 'El agente ICTrading no está disponible'
     : configuredPortfolioIds.has(Number(id)) ? '' : 'Guarda antes la configuración completa';
   return `<section class="live-audit-operation" aria-label="Operación de auditoría del portafolio #${id}">
     <div class="live-audit-operation-head"><div><p class="eyebrow">ESTADO DE LA AUDITORÍA</p><strong>${escapeHtml(runtime.progress_text)}</strong></div><span class="badge ${runtime.running ? 'pending' : runtime.status === 'failed' ? 'failed' : 'idle'}">${escapeHtml(runtime.status_label)}</span></div>
@@ -307,6 +310,29 @@ async function runAuditNow(id, button) {
   } finally { button.disabled = false; }
 }
 
+async function refreshAuditStates() {
+  if (!nodeId || !selectedPortfolioIds.size || configPhase !== 'connected') return;
+  try {
+    const ids = [...selectedPortfolioIds];
+    const responses = await Promise.all(ids.map(id =>
+      fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${id}`, {cache: 'no-store'})
+    ));
+    const values = await Promise.all(responses.map(jsonResponse));
+    let changed = false;
+    responses.forEach((response, index) => {
+      if (!response.ok || !values[index].audit) return;
+      auditStates[String(ids[index])] = values[index].audit;
+      changed = true;
+    });
+    if (changed) {
+      captureDrafts();
+      renderProfiles();
+    }
+  } catch (_error) {
+    // La carga principal mostrará la desconexión; el sondeo no debe borrar el formulario.
+  }
+}
+
 async function loadSettings() {
   if (!nodeId) {
     form.hidden = true;
@@ -399,3 +425,4 @@ document.querySelector('#reset-audit').addEventListener('click', () => {
 });
 
 loadSettings();
+setInterval(refreshAuditStates, 2000);

@@ -86,3 +86,49 @@ se reanuda. Cualquier endpoint futuro necesita port manual y pruebas en
 `manager_node_runtime/` de cada agente autorizado, según
 `node_runtime_is_forked_per_agent.md`. El manager debe seguir limitándose a
 orquestar y mostrar datos normalizados.
+
+## Conexión real con ICTrading (2026-08-20)
+
+La fase operativa quedó implementada para `ictrading-standard-test`, tanto en el
+nodo señuelo del manager como en la copia que realmente carga la aplicación:
+`C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent\manager_node_runtime`.
+
+- El agente expone `GET /api/v1/live-audits[/<portfolio_id>]` y
+  `POST /api/v1/live-audits/<portfolio_id>/run`; anuncia
+  `capabilities.live_account_audit`.
+- El manager añade el perfil y las dos contraseñas solo al POST interno. El
+  agente nunca persiste ese payload: sus estados públicos contienen progreso,
+  logs y resultado, pero no secretos. Los INI de MT5 sí necesitan la contraseña
+  durante el lanzamiento y se eliminan en `finally`, incluidos los INI que
+  genera `run_tests.py`.
+- Se trabaja exclusivamente con `scope=full_history`; el mensual continúa
+  congelado. En un bundle A/M/C se toma la variante guardada en
+  `metrics.inputs.portfolio_type`, no las tres variantes a la vez.
+- El auditor prueba las rutas habilitadas en `ui_settings.ini`, prioriza la que
+  coincide con el servidor solicitado, y registra/cierra únicamente los
+  `terminal64.exe` que él mismo lanzó. Los `.set` se copian a runtime y se
+  ajusta `StartLots` al lote del miembro guardado.
+- La cuenta real se obtiene mediante MetaTrader5 y la cuenta de pruebas se usa
+  en Strategy Tester `Model=4`. La puerta `History Quality` se evalúa antes de
+  comparar. La comparación alinea símbolo, dirección y hora; después comprueba
+  cierre, precio, volumen y PnL, calcula DD y marca estrategias sin
+  coincidencias como detenidas.
+- Si el pipeline estaba ejecutándose, el agente lo pausa, espera la confirmación
+  y lo reanuda en `finally`. Si ya estaba `paused`/`interrupted`, no llama a
+  `resume`. El estado terminal `failed` o `not_comparable` se conserva también
+  después de reanudar.
+- El manager revisa cada cinco minutos los perfiles configurados y lanza los que
+  hayan vencido según `audit_interval_days`. La pantalla sondea cada dos segundos
+  y alimenta barra, modal de resultado y logs por portafolio.
+
+Validación: 357 pruebas del manager y 56 pruebas focalizadas del nodo ICTrading.
+El pase manual desde la sesión Windows de Adrian confirmó login, extracción,
+resolución de los seis sets y selección del perfil ICTrading, pero el tester no
+puede leer `C:\Users\test\AppData` desde ese usuario. No se cambiaron permisos:
+el pase completo debe ejecutarlo el agente embebido, que corre como `test`.
+
+Activación pendiente en el momento de escribir esto: el manager Docker ya fue
+reconstruido, pero el proceso embebido seguía con el módulo anterior y con el
+pipeline pausado por el usuario. Cerrar y volver a abrir la aplicación ICTrading
+carga el endpoint nuevo y conserva esa pausa; no usar `stop`, porque descartaría
+la posición reanudable.

@@ -38,6 +38,7 @@ from typing import Any, Callable
 
 from . import candidate_verdict, dev_branch
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
+from .live_audit_engine import LiveAuditController
 from .portfolio_service import PortfolioSource, save_portfolio_payload
 from .portfolio_scope import normalize_portfolio_scope
 
@@ -807,6 +808,7 @@ class JobController:
                     self.queue = [dict(item) for item in stored_queue if isinstance(item, dict)]
             except ValueError:
                 pass
+        self.live_audits = LiveAuditController(self, self.runtime_dir)
         if self.queue:
             self._schedule_queue_drain()
 
@@ -836,7 +838,7 @@ class JobController:
         # Un pipeline en pausa tambien reserva el nodo: si no, la cola arrancaria
         # el siguiente trabajo encima del que el usuario dejo a medias y ya no
         # habria forma de reanudarlo.
-        return self.process is not None or self._is_resumable()
+        return self.process is not None or self._is_resumable() or self.live_audits.is_running()
 
     def _is_resumable(self) -> bool:
         return (
@@ -1482,6 +1484,7 @@ class JobController:
                 "task_queue": True,
                 "application_restart": bool(getattr(self, "application_restart_available", False)),
                 "historical_cleanup": bool(historical_cleanup_scripts(self.config, required=False)),
+                "live_account_audit": True,
             },
             "observed_at": utc_now(),
         }
@@ -1800,6 +1803,11 @@ class NodeHandler(BaseHTTPRequestHandler):
             self._send(200, self.server.controller.runs(safe_int(query.get("limit", [100])[0], 100)))
         elif parsed.path == "/api/v1/universe":
             self._send(200, self.server.controller.universe())
+        elif parsed.path == "/api/v1/live-audits":
+            self._send(200, {"audits": self.server.controller.live_audits.all_states(), "observed_at": utc_now()})
+        elif parsed.path.startswith("/api/v1/live-audits/"):
+            portfolio_id = safe_int(parsed.path.rsplit("/", 1)[-1], 0, minimum=1)
+            self._send(200, {"audit": self.server.controller.live_audits.state(portfolio_id), "observed_at": utc_now()})
         elif parsed.path == "/api/v1/portfolios":
             query = urllib.parse.parse_qs(parsed.query)
             self._send(200, self.server.controller.portfolios(query.get("scope", ["full_history"])[0]))
@@ -1833,6 +1841,11 @@ class NodeHandler(BaseHTTPRequestHandler):
                 self._send(202, self.server.controller.resume())
             elif self.path == "/api/v1/jobs/queue/cancel":
                 self._send(200, self.server.controller.cancel_queued(str(self._body().get("task_id") or "")))
+            elif self.path.startswith("/api/v1/live-audits/") and self.path.endswith("/run"):
+                portfolio_id = safe_int(self.path.strip("/").split("/")[-2], 0, minimum=1)
+                body = self._body()
+                body["portfolio_id"] = portfolio_id
+                self._send(202, {"audit": self.server.controller.live_audits.start(body)})
             elif self.path == "/api/v1/universe/symbols":
                 self._send(200, self.server.controller.update_universe(self._body()))
             elif self.path == "/api/v1/portfolios/save":
