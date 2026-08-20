@@ -30,6 +30,10 @@ class LiveAuditSettingsTests(unittest.TestCase):
         self.assertNotIn("enabled", DEFAULT_LIVE_AUDIT_PROFILE)
         self.assertNotIn("selected_portfolio_ids", DEFAULT_LIVE_AUDIT_PROFILE)
         self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["active_job_policy"], "pause_resume")
+        self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["min_tick_history_quality_pct"], 80.0)
+        self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["audit_interval_days"], 1)
+        for obsolete in ("sync_interval_minutes", "daily_audit_time", "heartbeat_timeout_minutes"):
+            self.assertNotIn(obsolete, DEFAULT_LIVE_AUDIT_PROFILE)
 
     def test_profile_accounts_must_be_different(self) -> None:
         with self.assertRaisesRegex(ValueError, "logins diferentes"):
@@ -40,10 +44,22 @@ class LiveAuditSettingsTests(unittest.TestCase):
     def test_profile_numeric_limits_and_fixed_policy_are_validated(self) -> None:
         with self.assertRaisesRegex(ValueError, "period_days"):
             normalize_live_audit_settings({"period_days": 0})
-        with self.assertRaisesRegex(ValueError, "HH:MM"):
-            normalize_live_audit_settings({"daily_audit_time": "25:00"})
+        with self.assertRaisesRegex(ValueError, "audit_interval_days"):
+            normalize_live_audit_settings({"audit_interval_days": 0})
+        with self.assertRaisesRegex(ValueError, "min_tick_history_quality_pct"):
+            normalize_live_audit_settings({"min_tick_history_quality_pct": 100.1})
         with self.assertRaisesRegex(ValueError, "pause_resume"):
             normalize_live_audit_settings({"active_job_policy": "interrupt"})
+
+    def test_obsolete_minute_schedule_is_migrated_to_a_daily_audit(self) -> None:
+        normalized = normalize_live_audit_settings({
+            "sync_interval_minutes": 5,
+            "daily_audit_time": "00:30",
+            "heartbeat_timeout_minutes": 5,
+        })
+        self.assertEqual(normalized["audit_interval_days"], 1)
+        for obsolete in ("sync_interval_minutes", "daily_audit_time", "heartbeat_timeout_minutes"):
+            self.assertNotIn(obsolete, normalized)
 
     def test_two_portfolios_keep_independent_profiles_and_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -166,7 +182,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertFalse(self.page.xpath('//*[@name="enabled"]'))
 
     def test_each_marked_portfolio_renders_an_independent_configuration(self) -> None:
-        self.assertIn("Cada portafolio marcado conserva una auditoría independiente", self.page_text)
+        self.assertIn("Cada portafolio conserva configuración, controles, progreso, último resultado y logs independientes", self.page_text)
         self.assertIn("ids.map(profileMarkup)", self.script)
         self.assertIn("data-profile-id", self.script)
         self.assertIn("profiles: Object.fromEntries", self.script)
@@ -175,11 +191,35 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
     def test_each_profile_has_two_accounts_passwords_schedule_and_tolerances(self) -> None:
         for field in (
             "source_login", "source_server", "source_password", "tester_login", "tester_server",
-            "tester_password", "period_days", "daily_audit_time", "tester_model",
-            "price_tolerance_points", "drawdown_deviation_warning_pct",
+            "tester_password", "period_days", "audit_interval_days", "tester_model",
+            "min_tick_history_quality_pct", "price_tolerance_points", "drawdown_deviation_warning_pct",
         ):
             self.assertIn(f'data-field="{field}"', self.script)
         self.assertNotIn("terminal_path", self.page_text + self.script)
+
+    def test_schedule_only_asks_for_audited_period_and_interval_in_days(self) -> None:
+        self.assertIn("Periodo auditado (días)", self.script)
+        self.assertIn("Ejecutar auditoría cada (días)", self.script)
+        for obsolete in ("Sincronizar cada", "Auditoría diaria a las", "Heartbeat vencido"):
+            self.assertNotIn(obsolete, self.script)
+
+    def test_each_portfolio_has_manual_audit_progress_results_and_logs(self) -> None:
+        self.assertIn('data-audit-action="run"', self.script)
+        self.assertIn('data-audit-action="result"', self.script)
+        self.assertIn('data-audit-action="logs"', self.script)
+        self.assertIn('role="progressbar"', self.script)
+        for stage in ("Preparación", "Extracción real", "Strategy Tester", "Comparación", "Finalizado"):
+            self.assertIn(stage, self.script)
+        self.assertTrue(self.page.xpath('//dialog[@id="audit-result-dialog"]'))
+        self.assertTrue(self.page.xpath('//dialog[@id="audit-log-dialog"]'))
+        self.assertIn("Sin resultados auditados", self.script)
+        self.assertIn("configuration_only", self.script)
+
+    def test_tick_quality_is_a_required_comparison_gate_per_portfolio(self) -> None:
+        self.assertIn("Calidad de datos tick a tick", self.script)
+        self.assertIn("no se realiza la comparación", self.script)
+        self.assertIn("MT5 no acredita este porcentaje", self.script)
+        self.assertIn("min_tick_history_quality_pct: number('min_tick_history_quality_pct')", self.script)
 
     def test_script_loads_full_history_portfolios_and_the_manager_endpoint(self) -> None:
         self.assertIn("/portfolios?scope=full_history", self.script)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import os
-import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,10 +18,9 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "tester_server": "",
     "active_job_policy": "pause_resume",
     "period_days": 7,
-    "sync_interval_minutes": 5,
-    "daily_audit_time": "00:30",
-    "heartbeat_timeout_minutes": 5,
+    "audit_interval_days": 1,
     "tester_model": "real_ticks",
+    "min_tick_history_quality_pct": 80.0,
     "execution_delay_mode": "measured",
     "fixed_delay_ms": 0,
     "trade_time_tolerance_seconds": 60,
@@ -43,12 +41,12 @@ _TEXT_LIMITS = {
 }
 _INT_LIMITS = {
     "period_days": (1, 3650),
-    "sync_interval_minutes": (1, 1440),
-    "heartbeat_timeout_minutes": (1, 1440),
+    "audit_interval_days": (1, 3650),
     "fixed_delay_ms": (0, 600_000),
     "trade_time_tolerance_seconds": (0, 86_400),
 }
 _FLOAT_LIMITS = {
+    "min_tick_history_quality_pct": (0.0, 100.0),
     "price_tolerance_points": (0.0, 1_000_000.0),
     "volume_tolerance_pct": (0.0, 100.0),
     "pnl_deviation_warning_pct": (0.0, 10_000.0),
@@ -56,6 +54,11 @@ _FLOAT_LIMITS = {
 }
 _SECRET_KEYS = {"source_password", "tester_password"}
 _REQUEST_KEYS = {"selected_portfolio_ids", "profiles"}
+_LEGACY_SCHEDULE_KEYS = {
+    "sync_interval_minutes",
+    "daily_audit_time",
+    "heartbeat_timeout_minutes",
+}
 
 
 def _text(value: Any, key: str, maximum: int) -> str:
@@ -108,6 +111,10 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
     """Normaliza el perfil independiente de un portafolio."""
     if not isinstance(value, dict):
         raise ValueError("La configuración del portafolio debe ser un objeto JSON")
+    # La primera versión confundía sincronización/heartbeat con la cadencia de
+    # la auditoría. Se aceptan solo para poder cargar y reemplazar registros ya
+    # guardados; nunca vuelven a formar parte del contrato público.
+    value = {key: item for key, item in value.items() if key not in _LEGACY_SCHEDULE_KEYS}
     unknown = set(value) - set(DEFAULT_LIVE_AUDIT_PROFILE)
     if unknown:
         raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
@@ -122,12 +129,6 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
     for key, (minimum, maximum) in _FLOAT_LIMITS.items():
         if key in value:
             normalized[key] = _number(value[key], key, minimum, maximum)
-
-    if "daily_audit_time" in value:
-        audit_time = _text(value["daily_audit_time"], "daily_audit_time", 5)
-        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", audit_time):
-            raise ValueError("daily_audit_time debe tener formato HH:MM")
-        normalized["daily_audit_time"] = audit_time
 
     if "tester_model" in value:
         tester_model = _text(value["tester_model"], "tester_model", 32).lower()

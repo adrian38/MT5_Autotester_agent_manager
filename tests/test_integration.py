@@ -223,6 +223,8 @@ enabled=0
         self.assertEqual(saved["profiles"]["12"]["source_login"], "002222")
         self.assertEqual(saved["profiles"]["11"]["period_days"], 7)
         self.assertEqual(saved["profiles"]["12"]["period_days"], 30)
+        self.assertEqual(saved["profiles"]["11"]["audit_interval_days"], 1)
+        self.assertEqual(saved["profiles"]["11"]["min_tick_history_quality_pct"], 80.0)
         self.assertTrue(saved["credential_state"]["11"]["source_password_saved"])
         self.assertTrue(saved["credential_state"]["12"]["tester_password_saved"])
         self.assertNotIn("source_password", saved)

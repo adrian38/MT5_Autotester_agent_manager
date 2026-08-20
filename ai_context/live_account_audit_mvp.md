@@ -12,8 +12,9 @@ este orden:
   periodo, tolerancias y contraseñas persistentes;
 - la política fija `pause_resume`, reutilizando las rutas multterminal que ya
   posee el agente;
-- periodo, frecuencia incremental, hora diaria y timeout de heartbeat;
-- modo de ticks/retraso y tolerancias de tiempo, precio, volumen, PnL y DD.
+- periodo auditado y cadencia independiente expresada únicamente en días;
+- calidad histórica mínima de datos tick a tick, modo de ticks/retraso y
+  tolerancias de tiempo, precio, volumen, PnL y DD.
 
 El backend expone `GET/POST /api/nodes/<id>/live-audit-config` y persiste por
 nodo en `runtime/live_audit_settings.json` mediante `LiveAuditSettingsStore`.
@@ -44,6 +45,24 @@ configuración compartida en un perfil por cada ID que estuviera seleccionado.
 - No existe interruptor global de habilitación. Guardar exige que cada
   portafolio marcado tenga dos logins numéricos diferentes, ambos servidores y
   ambas contraseñas. El modelo del tester queda fijado a `real_ticks`.
+- `min_tick_history_quality_pct` es una puerta obligatoria por portafolio, no
+  una alerta. Usa la misma escala porcentual de `History Quality` que Final Tick
+  y vale 80 % por defecto, igual que `ubs_final_tick_min_history_quality`. La
+  futura comparación debe devolver `no comparable` cuando MT5 no informe la
+  calidad o cuando sea inferior al umbral; nunca calcular discrepancias sobre
+  datos que no superaron esta puerta.
+- La programación pública contiene solo `period_days` y
+  `audit_interval_days`. Los campos del primer MVP
+  `sync_interval_minutes`, `daily_audit_time` y
+  `heartbeat_timeout_minutes` se aceptan únicamente al migrar registros viejos,
+  se descartan y no vuelven a guardarse. Un registro migrado parte de una
+  auditoría cada día.
+- Cada tarjeta reserva su propia interfaz operativa: `Auditar ahora`, barra de
+  progreso con preparación/extracción/tester/comparación/finalización, modal de
+  último resultado y modal de logs. Mientras `phase=configuration_only`, el
+  botón manual permanece visible y deshabilitado; resultados y logs muestran
+  un estado vacío real. No se simulan auditorías ni métricas. El contrato futuro
+  del frontend espera estado y resultado por ID de portafolio.
 - La clave junto al cifrado protege contra exposición accidental y contra que
   el JSON de ajustes filtre secretos. Quien tenga lectura completa de
   `runtime/` puede obtener clave y cifrado; para separarlos en producción se

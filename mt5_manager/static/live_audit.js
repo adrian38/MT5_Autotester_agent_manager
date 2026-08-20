@@ -8,8 +8,11 @@ let defaults = {};
 let portfolios = [];
 let profiles = {};
 let credentialState = {};
+let auditStates = {};
 let passwordDrafts = {};
 let selectedPortfolioIds = new Set();
+let configuredPortfolioIds = new Set();
+let configPhase = 'configuration_only';
 
 function toast(message, error = false) {
   const element = document.querySelector('#toast');
@@ -62,6 +65,58 @@ function option(value, label, current) {
   return `<option value="${value}"${current === value ? ' selected' : ''}>${label}</option>`;
 }
 
+function auditRuntime(id) {
+  const value = auditStates[String(id)] || {};
+  const progress = Math.max(0, Math.min(100, Number(value.progress_pct || 0)));
+  const running = ['queued', 'pausing', 'running', 'resuming'].includes(value.status);
+  return {
+    status: value.status || 'idle',
+    status_label: value.status_label || (configPhase === 'configuration_only' ? 'SERVICIO PENDIENTE' : 'NO EJECUTADO'),
+    progress_pct: progress,
+    progress_text: value.progress_text || (configPhase === 'configuration_only'
+      ? 'El motor de auditoría todavía no está conectado al nodo.'
+      : 'Aún no se ha ejecutado ninguna auditoría.'),
+    stage: value.stage || 'idle',
+    running,
+    can_run: Boolean(value.can_run),
+    log_lines: Array.isArray(value.log_lines) ? value.log_lines : [],
+    last_result: value.last_result || null,
+  };
+}
+
+function auditOperationsMarkup(id) {
+  const runtime = auditRuntime(id);
+  const stages = [
+    ['preparing', 'Preparación'],
+    ['extracting', 'Extracción real'],
+    ['testing', 'Strategy Tester'],
+    ['comparing', 'Comparación'],
+    ['completed', 'Finalizado'],
+  ];
+  const current = stages.findIndex(([stage]) => stage === runtime.stage);
+  const stageMarkup = stages.map(([stage, label], index) => {
+    const mode = runtime.status === 'failed' && index === Math.max(current, 0)
+      ? 'failed'
+      : index < current || runtime.stage === 'completed' ? 'completed' : index === current ? 'current' : '';
+    return `<span class="${mode}" data-audit-stage="${stage}">${label}</span>`;
+  }).join('');
+  const canRun = configPhase !== 'configuration_only' && configuredPortfolioIds.has(Number(id))
+    && runtime.can_run && !runtime.running;
+  const runTitle = configPhase === 'configuration_only'
+    ? 'Disponible cuando se implemente el motor MT5 del agente'
+    : configuredPortfolioIds.has(Number(id)) ? '' : 'Guarda antes la configuración completa';
+  return `<section class="live-audit-operation" aria-label="Operación de auditoría del portafolio #${id}">
+    <div class="live-audit-operation-head"><div><p class="eyebrow">ESTADO DE LA AUDITORÍA</p><strong>${escapeHtml(runtime.progress_text)}</strong></div><span class="badge ${runtime.running ? 'pending' : runtime.status === 'failed' ? 'failed' : 'idle'}">${escapeHtml(runtime.status_label)}</span></div>
+    <div class="progress-track" role="progressbar" aria-label="Progreso de la auditoría" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${runtime.progress_pct}"><span style="width:${runtime.progress_pct}%"></span></div>
+    <div class="live-audit-stage-list">${stageMarkup}</div>
+    <div class="live-audit-operation-actions">
+      <button type="button" data-audit-action="run"${canRun ? '' : ' disabled'} title="${escapeHtml(runTitle)}">Auditar ahora</button>
+      <button type="button" class="secondary" data-audit-action="result">Último resultado</button>
+      <button type="button" class="secondary" data-audit-action="logs">Ver logs</button>
+    </div>
+  </section>`;
+}
+
 function profileMarkup(id) {
   const profile = {...defaults, ...(profiles[String(id)] || {})};
   const credentials = credentialState[String(id)] || {};
@@ -87,12 +142,15 @@ function profileMarkup(id) {
       </fieldset>
     </div>
     <p class="live-audit-security"><strong>Credenciales cifradas e independientes.</strong> Las contraseñas de este portafolio nunca vuelven al navegador.</p>
-    <div class="live-audit-subtitle"><strong>Periodo y frecuencia</strong></div>
+    <div class="live-audit-subtitle"><strong>Calidad de datos tick a tick</strong><span>Sin calidad informada o por debajo del mínimo, no se realiza la comparación.</span></div>
+    <div class="live-audit-fields live-audit-quality-fields">
+      <label>Calidad histórica mínima (%)<input data-field="min_tick_history_quality_pct" type="number" min="0" max="100" step="any" value="${profile.min_tick_history_quality_pct}" required></label>
+      <div class="live-audit-quality-gate"><strong>Puerta obligatoria</strong><span>El resultado se marcará como no comparable si MT5 no acredita este porcentaje de calidad tick a tick.</span></div>
+    </div>
+    <div class="live-audit-subtitle"><strong>Periodo y frecuencia</strong><span>Cuánto historial se compara y cada cuántos días se repite.</span></div>
     <div class="live-audit-fields">
-      <label>Periodo comparado (días)<input data-field="period_days" type="number" min="1" max="3650" value="${profile.period_days}" required></label>
-      <label>Sincronizar cada (minutos)<input data-field="sync_interval_minutes" type="number" min="1" max="1440" value="${profile.sync_interval_minutes}" required></label>
-      <label>Auditoría diaria a las<input data-field="daily_audit_time" type="time" value="${escapeHtml(profile.daily_audit_time)}" required></label>
-      <label>Heartbeat vencido tras (minutos)<input data-field="heartbeat_timeout_minutes" type="number" min="1" max="1440" value="${profile.heartbeat_timeout_minutes}" required></label>
+      <label>Periodo auditado (días)<input data-field="period_days" type="number" min="1" max="3650" value="${profile.period_days}" required></label>
+      <label>Ejecutar auditoría cada (días)<input data-field="audit_interval_days" type="number" min="1" max="3650" value="${profile.audit_interval_days}" required></label>
     </div>
     <div class="live-audit-subtitle"><strong>Tester y tolerancias</strong></div>
     <div class="live-audit-fields">
@@ -106,6 +164,7 @@ function profileMarkup(id) {
       <label>Aviso por desviación de DD (%)<input data-field="drawdown_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.drawdown_deviation_warning_pct}" required></label>
     </div>
     <div class="live-audit-policy"><strong>Terminales del nodo · pausar y reanudar.</strong><p>Esta prueba reutilizará los terminales ya configurados. Si el auditor pausa un proceso activo, lo reanudará al terminar; si ya estaba pausado por el usuario, conservará ese estado.</p></div>
+    ${auditOperationsMarkup(id)}
   </section>`;
 }
 
@@ -135,10 +194,9 @@ function readCard(card) {
     tester_server: field('tester_server').value.trim(),
     active_job_policy: 'pause_resume',
     period_days: number('period_days'),
-    sync_interval_minutes: number('sync_interval_minutes'),
-    daily_audit_time: field('daily_audit_time').value,
-    heartbeat_timeout_minutes: number('heartbeat_timeout_minutes'),
+    audit_interval_days: number('audit_interval_days'),
     tester_model: field('tester_model').value,
+    min_tick_history_quality_pct: number('min_tick_history_quality_pct'),
     execution_delay_mode: field('execution_delay_mode').value,
     fixed_delay_ms: Number(field('fixed_delay_ms').value || 0),
     trade_time_tolerance_seconds: number('trade_time_tolerance_seconds'),
@@ -184,12 +242,69 @@ function applyState(data) {
   defaults = data.defaults || {};
   profiles = data.profiles || {};
   credentialState = data.credential_state || {};
+  auditStates = data.audit_states || auditStates;
   passwordDrafts = {};
   selectedPortfolioIds = new Set((data.selected_portfolio_ids || []).map(Number));
+  configuredPortfolioIds = new Set((data.configured_portfolio_ids || []).map(Number));
+  configPhase = data.phase || 'configuration_only';
   renderPortfolios();
   renderProfiles();
   const configured = data.configured_portfolio_ids?.length || 0;
   setState(configured ? `${configured} CONFIGURADO${configured === 1 ? '' : 'S'}` : 'PENDIENTE', configured ? 'completed' : 'idle');
+}
+
+function resultMetric(label, value) {
+  return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value ?? '—')}</dd></div>`;
+}
+
+function openLastResult(id) {
+  const dialog = document.querySelector('#audit-result-dialog');
+  const result = auditRuntime(id).last_result;
+  document.querySelector('#audit-result-title').textContent = `${portfolioName(id)} · última auditoría`;
+  const content = document.querySelector('#audit-result-content');
+  if (!result) {
+    content.innerHTML = '<div class="live-audit-modal-empty"><strong>Sin resultados auditados</strong><p>Cuando termine la primera auditoría, aquí aparecerán el periodo, la calidad tick, las operaciones comparadas y las discrepancias.</p></div>';
+  } else {
+    const period = [result.period_start, result.period_end].filter(Boolean).join(' → ') || `${result.period_days || '—'} días`;
+    content.innerHTML = `<div class="live-audit-result-summary"><span class="badge ${result.status === 'failed' ? 'failed' : 'completed'}">${escapeHtml(result.status_label || result.status || 'COMPLETADA')}</span><p>${escapeHtml(result.summary || 'Auditoría finalizada.')}</p></div>
+      <dl class="live-audit-result-grid">
+        ${resultMetric('Finalizada', result.completed_at)}
+        ${resultMetric('Periodo auditado', period)}
+        ${resultMetric('Calidad tick', result.history_quality_pct == null ? '—' : `${result.history_quality_pct} %`)}
+        ${resultMetric('Operaciones reales', result.real_trades)}
+        ${resultMetric('Operaciones del tester', result.tester_trades)}
+        ${resultMetric('Coincidencias', result.matched_trades)}
+        ${resultMetric('Discrepancias', result.discrepancies)}
+        ${resultMetric('Estrategias detenidas', result.stalled_strategies)}
+      </dl>`;
+  }
+  if (!dialog.open) dialog.showModal();
+}
+
+function openAuditLogs(id) {
+  const dialog = document.querySelector('#audit-log-dialog');
+  const lines = auditRuntime(id).log_lines;
+  document.querySelector('#audit-log-title').textContent = `${portfolioName(id)} · logs`;
+  document.querySelector('#audit-log-content').textContent = lines.length
+    ? lines.join('\n')
+    : 'Todavía no hay logs de auditoría para este portafolio.';
+  if (!dialog.open) dialog.showModal();
+}
+
+async function runAuditNow(id, button) {
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${id}/run`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    });
+    const data = await jsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    auditStates[String(id)] = data.audit || data;
+    renderProfiles();
+    toast(`Auditoría de ${portfolioName(id)} iniciada.`);
+  } catch (error) {
+    toast(error.message, true);
+  } finally { button.disabled = false; }
 }
 
 async function loadSettings() {
@@ -237,6 +352,20 @@ form.addEventListener('change', event => {
   if (event.target.dataset.field === 'execution_delay_mode') updateProfileControls();
   setState('CAMBIOS SIN GUARDAR', 'pending');
 });
+
+configsEl.addEventListener('click', event => {
+  const button = event.target.closest('[data-audit-action]');
+  if (!button) return;
+  const card = button.closest('[data-profile-id]');
+  const id = Number(card?.dataset.profileId || 0);
+  if (!id) return;
+  if (button.dataset.auditAction === 'result') openLastResult(id);
+  else if (button.dataset.auditAction === 'logs') openAuditLogs(id);
+  else if (button.dataset.auditAction === 'run') runAuditNow(id, button);
+});
+
+document.querySelector('#audit-result-close').addEventListener('click', () => document.querySelector('#audit-result-dialog').close());
+document.querySelector('#audit-log-close').addEventListener('click', () => document.querySelector('#audit-log-dialog').close());
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
