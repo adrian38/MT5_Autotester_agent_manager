@@ -28,6 +28,12 @@ del nodo (`assets/axi_assets.ini` para AXI):
   (`ETHUSD` -> `ETHUSD.sa`, y también soporta `.fs` y `+`);
 - después agrupa por `portfolio_symbol_key` y muestra el símbolo ejecutable.
 
+Cuando el nombre lógico también necesita un alias (no solo un sufijo), la fuente
+autoritaria es `candidate_final_tick_6m.real_tick_metrics_json.symbol`: ahí queda
+guardado el símbolo que MT5 ejecutó después del mapa temporal del agente. Esto
+evita mezclar instrumentos distintos de una misma familia; por ejemplo, en AXI
+`USTEC` se ejecutó como `USTECH.sa` y no debe sumarse a `NAS100.fs`.
+
 La misma primitiva alimenta `PortfolioSource.inventory` para los scopes
 `full_history` y `monthly`, de modo que UBS A/M/C y UBS mensual no divergen.
 La interfaz JavaScript no transforma símbolos: renderiza el inventario ya

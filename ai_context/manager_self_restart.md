@@ -27,6 +27,12 @@ Esto es necesario en Docker Desktop: una ruta visible dentro del contenedor no
 es automáticamente una ruta válida para crear los bind mounts del contenedor
 nuevo.
 
+El repositorio se monta desde Windows y su árbol de trabajo puede contener
+finales CRLF aunque el índice de Git almacene LF. El trabajador aplica
+`core.autocrlf=true` solo mediante el entorno de sus comandos Git; así el
+contenedor Linux no confunde todos los ficheros con cambios locales y no se
+modifica la configuración compartida del repositorio.
+
 La imagen del manager incluye Git, GitHub CLI, Docker CLI y el plugin Compose.
 El servicio monta el repositorio en `/workspace/manager-repo` y el socket de
 Docker. El socket concede control del daemon y se monta únicamente porque esta
