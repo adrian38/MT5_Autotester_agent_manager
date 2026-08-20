@@ -183,6 +183,40 @@ class LiveAuditSettingsTests(unittest.TestCase):
         self.assertEqual(state["profiles"]["11"]["period_days"], 21)
         self.assertEqual(state["profiles"]["12"]["period_days"], 21)
 
+    def test_same_portfolio_can_have_modes_and_accounts_as_independent_uses(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
+            saved = store.update("node-a", {
+                "selected_audit_ids": ["main-balanced", "reserve-conservative"],
+                "profiles": {
+                    "main-balanced": {
+                        **profile("111", "911"), "portfolio_id": 11, "portfolio_type": "balanced",
+                        "source_password": "real-a", "tester_password": "test-a",
+                    },
+                    "reserve-conservative": {
+                        **profile("222", "922"), "portfolio_id": 11, "portfolio_type": "conservative",
+                        "source_password": "real-b", "tester_password": "test-b",
+                    },
+                },
+            })
+
+        self.assertEqual(saved["selected_portfolio_ids"], [11])
+        self.assertEqual(saved["configured_audit_ids"], ["main-balanced", "reserve-conservative"])
+        self.assertEqual(saved["profiles"]["main-balanced"]["portfolio_type"], "balanced")
+        self.assertEqual(saved["profiles"]["reserve-conservative"]["source_login"], "222")
+
+    def test_modern_use_requires_an_explicit_portfolio_type(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
+            with self.assertRaisesRegex(ValueError, "Selecciona Agresivo, Moderado o Conservador"):
+                store.update("node-a", {
+                    "selected_audit_ids": ["account-a"],
+                    "profiles": {"account-a": {
+                        **profile("111", "911"), "portfolio_id": 11, "portfolio_type": "",
+                        "source_password": "real", "tester_password": "test",
+                    }},
+                })
+
 
 class LiveAuditConfigurationScreenTests(unittest.TestCase):
     @classmethod
@@ -202,11 +236,13 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertFalse(self.page.xpath('//*[@name="enabled"]'))
 
     def test_each_marked_portfolio_renders_an_independent_configuration(self) -> None:
-        self.assertIn("Cada portafolio conserva configuración, controles, progreso, último resultado y logs independientes", self.page_text)
+        self.assertIn("Cada uso del portafolio conserva modo Agresivo, Moderado o Conservador", self.page_text)
         self.assertIn("ids.map(profileMarkup)", self.script)
         self.assertIn("data-profile-id", self.script)
         self.assertIn("profiles: Object.fromEntries", self.script)
-        self.assertIn("credentialState[String(id)]", self.script)
+        self.assertIn("credentialState[String(auditId)]", self.script)
+        self.assertIn('data-field="portfolio_type"', self.script)
+        self.assertIn("Añadir otro uso", self.script)
 
     def test_each_profile_has_two_accounts_passwords_schedule_and_tolerances(self) -> None:
         for field in (

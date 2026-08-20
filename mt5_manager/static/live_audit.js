@@ -10,8 +10,9 @@ let profiles = {};
 let credentialState = {};
 let auditStates = {};
 let passwordDrafts = {};
-let selectedPortfolioIds = new Set();
-let configuredPortfolioIds = new Set();
+let selectedAuditIds = [];
+let configuredAuditIds = new Set();
+let auditSequence = 0;
 let configPhase = 'configuration_only';
 
 function toast(message, error = false) {
@@ -43,8 +44,25 @@ function portfolioName(id) {
   return row?.name || `Portafolio #${id}`;
 }
 
+function portfolioForAudit(auditId) {
+  return Number(profiles[String(auditId)]?.portfolio_id || 0);
+}
+
+function auditTitle(auditId) {
+  const profile = profiles[String(auditId)] || {};
+  const labels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
+  const account = profile.source_login ? ` · cuenta ${profile.source_login}` : '';
+  return `${portfolioName(profile.portfolio_id)} · ${labels[profile.portfolio_type] || 'sin modo'}${account}`;
+}
+
+function newAuditId(portfolioId) {
+  auditSequence += 1;
+  return `audit-${portfolioId}-${Date.now().toString(36)}-${auditSequence}`;
+}
+
 function renderPortfolios() {
   const knownIds = new Set(portfolios.map(row => Number(row.id)));
+  const selectedPortfolioIds = new Set(selectedAuditIds.map(portfolioForAudit));
   const missingIds = [...selectedPortfolioIds].filter(id => !knownIds.has(id));
   const rows = portfolios.map(row => {
     const id = Number(row.id);
@@ -52,13 +70,14 @@ function renderPortfolios() {
     const title = row.name || `Portafolio #${id}`;
     const meta = [row.portfolio_type || 'sin tipo', row.created_at || '', `${row.active_strategies || 0} estrategias`]
       .filter(Boolean).join(' · ');
-    return `<label class="live-audit-portfolio"><input type="checkbox" data-portfolio-id="${id}"${checked}><span><strong>${escapeHtml(title)}</strong><small>#${id} · ${escapeHtml(meta)}</small></span></label>`;
+    const uses = selectedAuditIds.filter(auditId => portfolioForAudit(auditId) === id).length;
+    return `<label class="live-audit-portfolio"><input type="checkbox" data-portfolio-id="${id}"${checked}><span><strong>${escapeHtml(title)}</strong><small>#${id} · ${escapeHtml(meta)} · ${uses} uso${uses === 1 ? '' : 's'}</small></span><button type="button" class="secondary" data-add-portfolio="${id}">Añadir otro uso</button></label>`;
   });
   missingIds.forEach(id => rows.push(`<label class="live-audit-portfolio missing"><input type="checkbox" data-portfolio-id="${id}" checked><span><strong>Portafolio no disponible</strong><small>#${id} · desmárcalo si ya no debe auditarse</small></span></label>`));
   portfolioList.innerHTML = rows.length ? rows.join('') : '<p class="live-audit-empty">No hay portafolios guardados en este nodo.</p>';
   const count = document.querySelector('#portfolio-count');
-  count.textContent = `${selectedPortfolioIds.size} SELECCIONADO${selectedPortfolioIds.size === 1 ? '' : 'S'}`;
-  count.className = `badge ${selectedPortfolioIds.size ? 'completed' : 'idle'}`;
+  count.textContent = `${selectedAuditIds.length} USO${selectedAuditIds.length === 1 ? '' : 'S'}`;
+  count.className = `badge ${selectedAuditIds.length ? 'completed' : 'idle'}`;
 }
 
 function option(value, label, current) {
@@ -68,7 +87,7 @@ function option(value, label, current) {
 function auditRuntime(id) {
   const value = auditStates[String(id)] || {};
   const progress = Math.max(0, Math.min(100, Number(value.progress_pct || 0)));
-  const running = ['queued', 'pausing', 'running', 'resuming'].includes(value.status);
+  const running = ['queued', 'pausing', 'extracting', 'testing', 'comparing', 'resuming'].includes(value.status);
   return {
     status: value.status || 'idle',
     status_label: value.status_label || (configPhase === 'configuration_only' ? 'SERVICIO PENDIENTE'
@@ -86,8 +105,8 @@ function auditRuntime(id) {
   };
 }
 
-function auditOperationsMarkup(id) {
-  const runtime = auditRuntime(id);
+function auditOperationsMarkup(auditId) {
+  const runtime = auditRuntime(auditId);
   const stages = [
     ['preparing', 'Preparación'],
     ['extracting', 'Extracción real'],
@@ -102,13 +121,13 @@ function auditOperationsMarkup(id) {
       : index < current || runtime.stage === 'completed' ? 'completed' : index === current ? 'current' : '';
     return `<span class="${mode}" data-audit-stage="${stage}">${label}</span>`;
   }).join('');
-  const canRun = configPhase !== 'configuration_only' && configuredPortfolioIds.has(Number(id))
+  const canRun = configPhase !== 'configuration_only' && configuredAuditIds.has(String(auditId))
     && runtime.can_run && !runtime.running;
   const runTitle = configPhase === 'configuration_only'
     ? 'Disponible cuando se implemente el motor MT5 del agente'
     : configPhase === 'agent_unavailable' ? 'El agente ICTrading no está disponible'
-    : configuredPortfolioIds.has(Number(id)) ? '' : 'Guarda antes la configuración completa';
-  return `<section class="live-audit-operation" aria-label="Operación de auditoría del portafolio #${id}">
+    : configuredAuditIds.has(String(auditId)) ? '' : 'Guarda antes la configuración completa';
+  return `<section class="live-audit-operation" aria-label="Operación de auditoría ${escapeHtml(auditId)}">
     <div class="live-audit-operation-head"><div><p class="eyebrow">ESTADO DE LA AUDITORÍA</p><strong>${escapeHtml(runtime.progress_text)}</strong></div><span class="badge ${runtime.running ? 'pending' : runtime.status === 'failed' ? 'failed' : 'idle'}">${escapeHtml(runtime.status_label)}</span></div>
     <div class="progress-track" role="progressbar" aria-label="Progreso de la auditoría" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${runtime.progress_pct}"><span style="width:${runtime.progress_pct}%"></span></div>
     <div class="live-audit-stage-list">${stageMarkup}</div>
@@ -120,13 +139,19 @@ function auditOperationsMarkup(id) {
   </section>`;
 }
 
-function profileMarkup(id) {
-  const profile = {...defaults, ...(profiles[String(id)] || {})};
-  const credentials = credentialState[String(id)] || {};
+function profileMarkup(auditId) {
+  const profile = {...defaults, ...(profiles[String(auditId)] || {})};
+  const id = Number(profile.portfolio_id || 0);
+  const credentials = credentialState[String(auditId)] || {};
   const sourceSaved = Boolean(credentials.source_password_saved);
   const testerSaved = Boolean(credentials.tester_password_saved);
-  return `<section class="panel-card live-audit-card live-audit-profile" data-profile-id="${id}">
-    <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO #${id}</p><h2>${escapeHtml(portfolioName(id))}</h2></div><span class="badge ${sourceSaved && testerSaved ? 'completed' : 'idle'}">${sourceSaved && testerSaved ? 'CREDENCIALES GUARDADAS' : 'PENDIENTE'}</span></div>
+  return `<section class="panel-card live-audit-card live-audit-profile" data-profile-id="${escapeHtml(auditId)}">
+    <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO #${id} · USO ${escapeHtml(auditId)}</p><h2>${escapeHtml(portfolioName(id))}</h2></div><div><span class="badge ${sourceSaved && testerSaved ? 'completed' : 'idle'}">${sourceSaved && testerSaved ? 'CREDENCIALES GUARDADAS' : 'PENDIENTE'}</span><button type="button" class="secondary" data-remove-audit="${escapeHtml(auditId)}">Quitar uso</button></div></div>
+    <div class="live-audit-subtitle"><strong>Identidad de este uso</strong><span>El mismo portafolio puede repetirse con otro modo y otra cuenta sin sobrescribir esta auditoría.</span></div>
+    <div class="live-audit-fields">
+      <label>Nombre descriptivo<input data-field="deployment_name" maxlength="120" value="${escapeHtml(profile.deployment_name)}" placeholder="Ej.: Moderado cuenta principal"></label>
+      <label>Modo del portafolio<select data-field="portfolio_type" required>${option('', 'Selecciona Agresivo / Moderado / Conservador', profile.portfolio_type)}${option('aggressive', 'Agresivo', profile.portfolio_type)}${option('balanced', 'Moderado', profile.portfolio_type)}${option('conservative', 'Conservador', profile.portfolio_type)}</select></label>
+    </div>
     <div class="live-audit-subtitle"><strong>Cuentas de esta prueba</strong><span>Ambas credenciales se guardan de forma independiente; los logins pueden coincidir.</span></div>
     <div class="live-audit-account-grid">
       <fieldset class="live-audit-account">
@@ -167,12 +192,12 @@ function profileMarkup(id) {
       <label>Aviso por desviación de DD (%)<input data-field="drawdown_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.drawdown_deviation_warning_pct}" required></label>
     </div>
     <div class="live-audit-policy"><strong>Terminales del nodo · pausar y reanudar.</strong><p>Esta prueba reutilizará los terminales ya configurados. Si el auditor pausa un proceso activo, lo reanudará al terminar; si ya estaba pausado por el usuario, conservará ese estado.</p></div>
-    ${auditOperationsMarkup(id)}
+    ${auditOperationsMarkup(auditId)}
   </section>`;
 }
 
 function renderProfiles() {
-  const ids = [...selectedPortfolioIds];
+  const ids = [...selectedAuditIds];
   if (!ids.length) {
     configsEl.innerHTML = '<section class="live-audit-selection-empty">Marca al menos un portafolio para configurar su prueba.</section>';
     return;
@@ -191,6 +216,9 @@ function readCard(card) {
   const field = name => card.querySelector(`[data-field="${name}"]`);
   const number = name => Number(field(name).value);
   return {
+    portfolio_id: portfolioForAudit(card.dataset.profileId),
+    portfolio_type: field('portfolio_type').value,
+    deployment_name: field('deployment_name').value.trim(),
     source_login: field('source_login').value.trim(),
     source_server: field('source_server').value.trim(),
     tester_login: field('tester_login').value.trim(),
@@ -230,9 +258,9 @@ function updateProfileControls() {
 
 function payload() {
   captureDrafts();
-  const selected = [...selectedPortfolioIds];
+  const selected = [...selectedAuditIds];
   return {
-    selected_portfolio_ids: selected,
+    selected_audit_ids: selected,
     profiles: Object.fromEntries(selected.map(id => [String(id), {
       ...profiles[String(id)],
       source_password: passwordDrafts[String(id)]?.source_password || '',
@@ -247,12 +275,12 @@ function applyState(data) {
   credentialState = data.credential_state || {};
   auditStates = data.audit_states || auditStates;
   passwordDrafts = {};
-  selectedPortfolioIds = new Set((data.selected_portfolio_ids || []).map(Number));
-  configuredPortfolioIds = new Set((data.configured_portfolio_ids || []).map(Number));
+  selectedAuditIds = (data.selected_audit_ids || []).map(String);
+  configuredAuditIds = new Set((data.configured_audit_ids || []).map(String));
   configPhase = data.phase || 'configuration_only';
   renderPortfolios();
   renderProfiles();
-  const configured = data.configured_portfolio_ids?.length || 0;
+  const configured = data.configured_audit_ids?.length || 0;
   setState(configured ? `${configured} CONFIGURADO${configured === 1 ? '' : 'S'}` : 'PENDIENTE', configured ? 'completed' : 'idle');
 }
 
@@ -263,23 +291,30 @@ function resultMetric(label, value) {
 function openLastResult(id) {
   const dialog = document.querySelector('#audit-result-dialog');
   const result = auditRuntime(id).last_result;
-  document.querySelector('#audit-result-title').textContent = `${portfolioName(id)} · última auditoría`;
+  document.querySelector('#audit-result-title').textContent = `${auditTitle(id)} · última auditoría`;
   const content = document.querySelector('#audit-result-content');
   if (!result) {
     content.innerHTML = '<div class="live-audit-modal-empty"><strong>Sin resultados auditados</strong><p>Cuando termine la primera auditoría, aquí aparecerán el periodo, la calidad tick, las operaciones comparadas y las discrepancias.</p></div>';
   } else {
     const period = [result.period_start, result.period_end].filter(Boolean).join(' → ') || `${result.period_days || '—'} días`;
+    const account = result.account || {};
+    const realHistory = result.real_history_detail || {};
     content.innerHTML = `<div class="live-audit-result-summary"><span class="badge ${result.status === 'failed' ? 'failed' : 'completed'}">${escapeHtml(result.status_label || result.status || 'COMPLETADA')}</span><p>${escapeHtml(result.summary || 'Auditoría finalizada.')}</p></div>
       <dl class="live-audit-result-grid">
         ${resultMetric('Finalizada', result.completed_at)}
         ${resultMetric('Periodo auditado', period)}
+        ${resultMetric('Modo', {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[result.portfolio_type] || result.portfolio_type)}
+        ${resultMetric('Cuenta MT5 conectada', account.connected ? `${account.login} · ${account.server}` : 'NO VERIFICADA')}
+        ${resultMetric('Deals brutos del periodo', realHistory.period_raw_deals)}
+        ${resultMetric('Cierres del periodo', realHistory.closing_deals)}
+        ${resultMetric('Aperturas anteriores recuperadas', realHistory.positions_recovered)}
         ${resultMetric('Calidad tick', result.history_quality_pct == null ? '—' : `${result.history_quality_pct} %`)}
-        ${resultMetric('Operaciones reales', result.real_trades)}
+        ${resultMetric('Cierres reales del portafolio', result.real_trades)}
         ${resultMetric('Operaciones del tester', result.tester_trades)}
-        ${resultMetric('Coincidencias', result.matched_trades)}
+        ${resultMetric('Coincidencias real ↔ tester', result.matched_trades)}
         ${resultMetric('Discrepancias', result.discrepancies)}
         ${resultMetric('Estrategias detenidas', result.stalled_strategies)}
-      </dl>`;
+      </dl><pre class="live-audit-diagnostics">${escapeHtml(JSON.stringify({real_history: realHistory, comparison: result.comparison_detail || {}}, null, 2))}</pre>`;
   }
   if (!dialog.open) dialog.showModal();
 }
@@ -287,7 +322,7 @@ function openLastResult(id) {
 function openAuditLogs(id) {
   const dialog = document.querySelector('#audit-log-dialog');
   const lines = auditRuntime(id).log_lines;
-  document.querySelector('#audit-log-title').textContent = `${portfolioName(id)} · logs`;
+  document.querySelector('#audit-log-title').textContent = `${auditTitle(id)} · logs`;
   document.querySelector('#audit-log-content').textContent = lines.length
     ? lines.join('\n')
     : 'Todavía no hay logs de auditoría para este portafolio.';
@@ -297,25 +332,25 @@ function openAuditLogs(id) {
 async function runAuditNow(id, button) {
   button.disabled = true;
   try {
-    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${id}/run`, {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(id)}/run`, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
     });
     const data = await jsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     auditStates[String(id)] = data.audit || data;
     renderProfiles();
-    toast(`Auditoría de ${portfolioName(id)} iniciada.`);
+    toast(`Auditoría de ${auditTitle(id)} iniciada.`);
   } catch (error) {
     toast(error.message, true);
   } finally { button.disabled = false; }
 }
 
 async function refreshAuditStates() {
-  if (!nodeId || !selectedPortfolioIds.size || configPhase !== 'connected') return;
+  if (!nodeId || !selectedAuditIds.length || configPhase !== 'connected') return;
   try {
-    const ids = [...selectedPortfolioIds];
+    const ids = [...selectedAuditIds];
     const responses = await Promise.all(ids.map(id =>
-      fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${id}`, {cache: 'no-store'})
+      fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(id)}`, {cache: 'no-store'})
     ));
     const values = await Promise.all(responses.map(jsonResponse));
     let changed = false;
@@ -364,10 +399,13 @@ portfolioList.addEventListener('change', event => {
   if (!id) return;
   captureDrafts();
   if (event.target.checked) {
-    selectedPortfolioIds.add(id);
-    profiles[String(id)] ||= {...defaults};
+    if (!selectedAuditIds.some(auditId => portfolioForAudit(auditId) === id)) {
+      const auditId = newAuditId(id);
+      selectedAuditIds.push(auditId);
+      profiles[auditId] = {...defaults, portfolio_id: id, portfolio_type: ''};
+    }
   } else {
-    selectedPortfolioIds.delete(id);
+    selectedAuditIds = selectedAuditIds.filter(auditId => portfolioForAudit(auditId) !== id);
   }
   renderPortfolios();
   renderProfiles();
@@ -379,11 +417,35 @@ form.addEventListener('change', event => {
   setState('CAMBIOS SIN GUARDAR', 'pending');
 });
 
+portfolioList.addEventListener('click', event => {
+  const button = event.target.closest('[data-add-portfolio]');
+  if (!button) return;
+  event.preventDefault();
+  captureDrafts();
+  const portfolioId = Number(button.dataset.addPortfolio || 0);
+  const auditId = newAuditId(portfolioId);
+  selectedAuditIds.push(auditId);
+  profiles[auditId] = {...defaults, portfolio_id: portfolioId, portfolio_type: ''};
+  renderPortfolios();
+  renderProfiles();
+  setState('CAMBIOS SIN GUARDAR', 'pending');
+});
+
 configsEl.addEventListener('click', event => {
+  const remove = event.target.closest('[data-remove-audit]');
+  if (remove) {
+    captureDrafts();
+    const auditId = remove.dataset.removeAudit;
+    selectedAuditIds = selectedAuditIds.filter(value => value !== auditId);
+    renderPortfolios();
+    renderProfiles();
+    setState('CAMBIOS SIN GUARDAR', 'pending');
+    return;
+  }
   const button = event.target.closest('[data-audit-action]');
   if (!button) return;
   const card = button.closest('[data-profile-id]');
-  const id = Number(card?.dataset.profileId || 0);
+  const id = String(card?.dataset.profileId || '');
   if (!id) return;
   if (button.dataset.auditAction === 'result') openLastResult(id);
   else if (button.dataset.auditAction === 'logs') openAuditLogs(id);
@@ -395,7 +457,7 @@ document.querySelector('#audit-log-close').addEventListener('click', () => docum
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (!selectedPortfolioIds.size) {
+  if (!selectedAuditIds.length) {
     toast('Selecciona al menos un portafolio.', true);
     return;
   }
@@ -417,7 +479,9 @@ form.addEventListener('submit', async event => {
 });
 
 document.querySelector('#reset-audit').addEventListener('click', () => {
-  selectedPortfolioIds.forEach(id => { profiles[String(id)] = {...defaults}; });
+  selectedAuditIds.forEach(id => {
+    profiles[String(id)] = {...defaults, portfolio_id: portfolioForAudit(id), portfolio_type: ''};
+  });
   passwordDrafts = {};
   renderProfiles();
   setState('CAMBIOS SIN GUARDAR', 'pending');

@@ -53,8 +53,17 @@ def _as_float(value: Any, name: str, minimum: float = 0.0, maximum: float | None
 
 def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
     value = dict(payload or {})
+    audit_key = str(value.get("audit_key") or value.get("portfolio_id") or "").strip()
+    if not audit_key or len(audit_key) > 120 or not all(char.isalnum() or char in "-_." for char in audit_key):
+        raise ValueError("audit_key no es un identificador válido")
+    portfolio_type = str(value.get("portfolio_type") or "").strip().lower()
+    if portfolio_type not in {"aggressive", "balanced", "conservative"}:
+        raise ValueError("portfolio_type debe ser aggressive, balanced o conservative")
     result = {
+        "audit_key": audit_key,
         "portfolio_id": _as_int(value.get("portfolio_id"), "portfolio_id", 1),
+        "portfolio_type": portfolio_type,
+        "deployment_name": str(value.get("deployment_name") or "").strip()[:120],
         "source_login": str(value.get("source_login") or "").strip(),
         "source_server": str(value.get("source_server") or "").strip(),
         "source_password": str(value.get("source_password") or ""),
@@ -110,11 +119,48 @@ def _drawdown(trades: list[dict[str, Any]]) -> float:
     return maximum
 
 
+def _redact_runner_output(text: str, *secrets: str) -> str:
+    """El runner imprime el INI; nunca permitir contraseñas en artefactos o errores."""
+    result = str(text or "")
+    for secret in secrets:
+        if secret:
+            result = result.replace(str(secret), "[REDACTED]")
+    return re.sub(r"(?mi)^(\s*Password\s*=).*$", r"\1[REDACTED]", result)
+
+
+def _read_set_text(path: Path) -> tuple[str, str]:
+    """Lee .set UTF-8/UTF-16 sin convertir sus parámetros en texto con NUL."""
+    data = path.read_bytes()
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16"), "utf-16"
+    if data[:4096].count(b"\x00") > max(8, len(data[:4096]) // 8):
+        return data.decode("utf-16-le"), "utf-16"
+    return data.decode("utf-8-sig", errors="replace"), "utf-8"
+
+
+def _redact_log_files(directory: Path, *secrets: str) -> None:
+    """Sanea también los logs propios de run_tests.py, no solo su stdout."""
+    if not directory.is_dir():
+        return
+    for path in directory.rglob("*"):
+        if not path.is_file() or path.suffix.casefold() not in {".log", ".txt"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            redacted = _redact_runner_output(text, *secrets)
+            if redacted != text:
+                path.write_text(redacted, encoding="utf-8")
+        except OSError:
+            continue
+
+
 def _safe_state(raw: dict[str, Any]) -> dict[str, Any]:
     status = str(raw.get("status") or "idle")
     stage, progress = PROGRESS.get(status, ("idle", 0))
     return {
+        "audit_key": str(raw.get("audit_key") or raw.get("portfolio_id") or ""),
         "portfolio_id": int(raw.get("portfolio_id") or 0),
+        "portfolio_type": str(raw.get("portfolio_type") or ""),
         "audit_id": raw.get("audit_id"),
         "status": status,
         "status_label": STATUS_LABELS.get(status, status.upper()),
@@ -132,6 +178,9 @@ def _safe_state(raw: dict[str, Any]) -> dict[str, Any]:
 
 class LiveAuditController:
     """Ejecuta auditorías en el agente sin persistir las credenciales recibidas."""
+
+    history_sync_attempts = 6
+    history_sync_delay_seconds = 1.0
 
     def __init__(self, owner: Any, runtime_dir: Path) -> None:
         self.owner = owner
@@ -163,34 +212,42 @@ class LiveAuditController:
         with self.lock:
             return {key: _safe_state(value) for key, value in self.states.items()}
 
-    def state(self, portfolio_id: int) -> dict[str, Any]:
+    def state(self, audit_key: str | int) -> dict[str, Any]:
         with self.lock:
-            raw = self.states.get(str(portfolio_id)) or {"portfolio_id": portfolio_id, "status": "idle"}
+            key = str(audit_key)
+            raw = self.states.get(key) or {"audit_key": key, "status": "idle"}
             return _safe_state(raw)
 
     def start(self, payload: dict[str, Any]) -> dict[str, Any]:
         request = normalize_request(payload)
         portfolio_id = request["portfolio_id"]
+        audit_key = request["audit_key"]
         # Solo el UBS estable entra en este servicio. El mensual sigue congelado.
-        self.owner.portfolio_detail(portfolio_id, "full_history")
+        self._portfolio_members(portfolio_id, request["portfolio_type"])
         with self.lock:
             if self.is_running():
                 raise RuntimeError("Ya hay una auditoría utilizando las terminales del nodo")
             audit_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            self.states[str(portfolio_id)] = {
-                "portfolio_id": portfolio_id, "audit_id": audit_id, "status": "queued",
+            self.states[audit_key] = {
+                "audit_key": audit_key, "portfolio_id": portfolio_id,
+                "portfolio_type": request["portfolio_type"], "audit_id": audit_id, "status": "queued",
                 "started_at": utc_now(), "finished_at": None, "error": None,
-                "progress_text": "Preparando la auditoría en ICTrading.", "log_lines": [],
-                "last_result": (self.states.get(str(portfolio_id)) or {}).get("last_result"),
+                "progress_text": "Preparando la auditoría en el nodo.",
+                "log_lines": [
+                    f"[{utc_now()}] Inicio {audit_key}: portafolio #{portfolio_id}, "
+                    f"variante {request['portfolio_type']}, cuenta real {request['source_login']} "
+                    f"({request['source_server']}), tester {request['tester_login']} ({request['tester_server']})"
+                ],
+                "last_result": (self.states.get(audit_key) or {}).get("last_result"),
             }
             self._persist()
         thread = threading.Thread(target=self._run, args=(request, audit_id), daemon=True)
         thread.start()
-        return self.state(portfolio_id)
+        return self.state(audit_key)
 
-    def _update(self, portfolio_id: int, status: str, text: str, log: str | None = None, **changes: Any) -> None:
+    def _update(self, audit_key: str, status: str, text: str, log: str | None = None, **changes: Any) -> None:
         with self.lock:
-            raw = self.states[str(portfolio_id)]
+            raw = self.states[audit_key]
             raw.update(status=status, progress_text=text, **changes)
             if log:
                 raw.setdefault("log_lines", []).append(f"[{utc_now()}] {log}")
@@ -210,6 +267,7 @@ class LiveAuditController:
 
     def _run(self, request: dict[str, Any], audit_id: str) -> None:
         portfolio_id = request["portfolio_id"]
+        audit_key = request["audit_key"]
         paused_by_auditor = False
         status_after_resume: str | None = None
         try:
@@ -217,21 +275,72 @@ class LiveAuditController:
                 job_status = str(self.owner.state.get("status") or "idle")
                 has_process = self.owner.process is not None
             if has_process and job_status in {"running", "stopping"}:
-                self._update(portfolio_id, "pausing", "Pausando el proceso activo.", "Pausa solicitada al pipeline activo")
+                self._update(audit_key, "pausing", "Pausando el proceso activo.", "Pausa solicitada al pipeline activo")
                 self.owner.pause()
                 paused_by_auditor = self._wait_for_pause()
                 if not paused_by_auditor:
                     raise RuntimeError("El proceso terminó sin confirmar la pausa; la auditoría no ocupó sus terminales")
             elif job_status in {"paused", "interrupted"}:
-                self._update(portfolio_id, "queued", "El pipeline ya estaba pausado; se conservará así.", "Pausa previa del usuario detectada")
+                self._update(audit_key, "queued", "El pipeline ya estaba pausado; se conservará así.", "Pausa previa del usuario detectada")
 
-            self._update(portfolio_id, "extracting", "Extrayendo operaciones de la cuenta real.", "Conectando la cuenta real")
+            self._update(audit_key, "extracting", "Extrayendo operaciones de la cuenta real.", "Conectando la cuenta real")
             period_end = datetime.now(timezone.utc)
             period_start = period_end - timedelta(days=request["period_days"])
             real_trades, symbol_points, account = self._extract_real(request, period_start, period_end)
-            self._update(portfolio_id, "testing", "Ejecutando el portafolio con ticks reales en ICTrading.", f"{len(real_trades)} operaciones reales extraídas")
+            real_history_detail = dict(account.pop("history_detail", {}) or {})
+            self._update(
+                audit_key, "extracting", "Historial de la cuenta real sincronizado.",
+                f"Cuenta MT5 verificada: login {account.get('login')}, servidor {account.get('server')}, "
+                f"terminal {account.get('terminal_profile')}; "
+                f"{real_history_detail.get('period_raw_deals', 0)} deals brutos, "
+                f"{real_history_detail.get('closing_deals', 0)} cierres y "
+                f"{real_history_detail.get('positions_recovered', 0)} apertura(s) anterior(es) recuperada(s) "
+                f"tras {real_history_detail.get('sync_attempts', 0)} consulta(s).",
+            )
+            _detail, selected_members = self._portfolio_members(portfolio_id, request["portfolio_type"])
+            signatures: set[tuple[str, str]] = set()
+            for member in selected_members:
+                raw_set = str(member.get("set_path") or member.get("set_id") or "")
+                if not raw_set:
+                    continue
+                source = self._resolve_set(raw_set)
+                set_text, _encoding = _read_set_text(source)
+                magic = self._set_parameter(set_text, "EA_MagicNumber")
+                if magic:
+                    signatures.add((str(member.get("symbol") or "").casefold(), magic))
+            if signatures:
+                before_filter = len(real_trades)
+                real_trades = [
+                    trade for trade in real_trades
+                    if (str(trade.get("symbol") or "").casefold(), str(trade.get("strategy") or "")) in signatures
+                ]
+                ignored = before_filter - len(real_trades)
+                self._update(
+                    audit_key, "extracting", "Filtrando operaciones de la variante seleccionada.",
+                    f"Filtro por símbolo/magic: {len(real_trades)} cierres del portafolio, "
+                    f"{ignored} cierres ajenos ignorados; firmas {sorted(signatures)}",
+                )
+                real_history_detail["portfolio_closures"] = len(real_trades)
+                real_history_detail["foreign_closures_ignored"] = ignored
+            real_groups: dict[str, int] = {}
+            for trade in real_trades:
+                key = f"{trade.get('symbol') or '?'} / magic {trade.get('strategy') or '?'}"
+                real_groups[key] = real_groups.get(key, 0) + 1
+            real_summary = ", ".join(f"{key}: {count}" for key, count in sorted(real_groups.items())) or "sin cierres"
+            self._update(
+                audit_key, "testing", "Ejecutando el portafolio con ticks reales en el nodo.",
+                f"{len(real_trades)} operaciones reales extraídas ({real_summary})",
+            )
             tester_trades, qualities, strategies = self._run_tester(request, audit_id, period_start, period_end)
-            self._update(portfolio_id, "comparing", "Comparando cuenta real y Strategy Tester.", f"{len(tester_trades)} operaciones generadas por el tester")
+            tester_groups: dict[str, int] = {}
+            for trade in tester_trades:
+                key = f"{trade.get('symbol') or '?'} / {trade.get('strategy') or '?'}"
+                tester_groups[key] = tester_groups.get(key, 0) + 1
+            tester_summary = ", ".join(f"{key}: {count}" for key, count in sorted(tester_groups.items())) or "sin operaciones"
+            self._update(
+                audit_key, "comparing", "Comparando cuenta real y Strategy Tester.",
+                f"{len(tester_trades)} operaciones del tester ({tester_summary})",
+            )
             quality = min(qualities) if qualities else None
             if quality is None or quality < request["min_tick_history_quality_pct"]:
                 result = self._result_base(request, period_start, period_end, real_trades, tester_trades, quality)
@@ -246,7 +355,6 @@ class LiveAuditController:
                 comparison = self._compare(real_trades, tester_trades, symbol_points, request, strategies)
                 result = self._result_base(request, period_start, period_end, real_trades, tester_trades, quality)
                 result.update(comparison)
-                result["account"] = account
                 result["summary"] = (
                     f"{comparison['matched_trades']} coincidencias y {comparison['discrepancies']} discrepancias; "
                     f"{comparison['stalled_strategies']} estrategia(s) sin continuidad."
@@ -254,23 +362,32 @@ class LiveAuditController:
                 result["status"] = result["status_label"] = "completed"
                 result["status_label"] = "COMPLETADA"
                 final_status = "completed"
-            self._update(portfolio_id, final_status, result["summary"], "Comparación finalizada", last_result=result)
+            result["account"] = account
+            result["real_history_detail"] = real_history_detail
+            result["audit_key"] = audit_key
+            result["portfolio_type"] = request["portfolio_type"]
+            detail = result.get("comparison_detail") or {}
+            detail_log = "; ".join(f"{key}={value}" for key, value in detail.items())
+            self._update(
+                audit_key, final_status, result["summary"],
+                f"Comparación finalizada" + (f": {detail_log}" if detail_log else ""), last_result=result,
+            )
         except Exception as exc:
             self._update(
-                portfolio_id, "failed", f"La auditoría falló: {exc}", str(exc),
+                audit_key, "failed", f"La auditoría falló: {exc}", str(exc),
                 error=str(exc), finished_at=utc_now(),
             )
         finally:
             if paused_by_auditor:
                 try:
                     with self.lock:
-                        status_after_resume = str(self.states[str(portfolio_id)].get("status") or "completed")
-                    self._update(portfolio_id, "resuming", "Reanudando el proceso que pausó el auditor.", "Reanudación solicitada")
+                        status_after_resume = str(self.states[audit_key].get("status") or "completed")
+                    self._update(audit_key, "resuming", "Reanudando el proceso que pausó el auditor.", "Reanudación solicitada")
                     self.owner.resume()
                 except Exception as exc:
-                    self._update(portfolio_id, "failed", f"La auditoría terminó, pero no se pudo reanudar: {exc}", str(exc), error=str(exc))
+                    self._update(audit_key, "failed", f"La auditoría terminó, pero no se pudo reanudar: {exc}", str(exc), error=str(exc))
             with self.lock:
-                raw = self.states[str(portfolio_id)]
+                raw = self.states[audit_key]
                 if str(raw.get("status")) == "resuming":
                     raw.update(
                         status=status_after_resume or "completed",
@@ -369,26 +486,139 @@ class LiveAuditController:
     def _extract_real(
         self, request: dict[str, Any], period_start: datetime, period_end: datetime
     ) -> tuple[list[dict[str, Any]], dict[str, float], dict[str, Any]]:
-        mt5, _section, _profile, launched_pids = self._login_terminal(
+        mt5, section, profile, launched_pids = self._login_terminal(
             request["source_login"], request["source_password"], request["source_server"]
         )
         try:
             info = mt5.account_info()
             if info is None or int(info.login) != int(request["source_login"]):
                 raise RuntimeError("MT5 no confirmó el login de la cuenta real")
-            deals = mt5.history_deals_get(period_start, period_end)
-            if deals is None:
-                raise RuntimeError(f"No se pudo extraer el historial real: {mt5.last_error()}")
-            trades = self._real_trades(deals)
+            actual_server = str(getattr(info, "server", "") or "")
+            if actual_server.casefold() != str(request["source_server"]).casefold():
+                raise RuntimeError(
+                    f"MT5 confirmó el login, pero en el servidor {actual_server!r} y no "
+                    f"{request['source_server']!r}"
+                )
+            terminal = mt5.terminal_info()
+            if terminal is None or not bool(getattr(terminal, "connected", False)):
+                raise RuntimeError("MT5 confirmó el login local, pero el terminal no está conectado al broker")
+
+            period_deals, sync_detail = self._synchronised_history(mt5, period_start, period_end)
+            market_deals = [deal for deal in period_deals if self._is_market_deal(deal)]
+            opening_positions = {
+                int(getattr(deal, "position_id", 0) or 0)
+                for deal in market_deals if int(getattr(deal, "entry", -1)) in {0, 2}
+            }
+            closing_positions = {
+                int(getattr(deal, "position_id", 0) or 0)
+                for deal in market_deals if int(getattr(deal, "entry", -1)) in {1, 2, 3}
+            }
+            missing_open_positions = closing_positions - opening_positions
+            all_deals = list(period_deals)
+            recovered_positions = 0
+            unresolved_positions: list[int] = []
+            for position_id in sorted(missing_open_positions):
+                position_deals = mt5.history_deals_get(position=position_id)
+                if position_deals is None:
+                    unresolved_positions.append(position_id)
+                    continue
+                prior_openings = [
+                    deal for deal in position_deals
+                    if self._is_market_deal(deal) and int(getattr(deal, "entry", -1)) in {0, 2}
+                ]
+                if prior_openings:
+                    recovered_positions += 1
+                    all_deals.extend(position_deals)
+                else:
+                    unresolved_positions.append(position_id)
+
+            unique_deals: dict[tuple[Any, ...], Any] = {}
+            for deal in all_deals:
+                unique_deals[self._deal_identity(deal)] = deal
+            trades = [
+                trade for trade in self._real_trades(unique_deals.values())
+                if period_start <= trade["close_time"] <= period_end
+            ]
             points: dict[str, float] = {}
             for symbol in {row["symbol"] for row in trades}:
                 symbol_info = mt5.symbol_info(symbol)
                 points[symbol] = float(getattr(symbol_info, "point", 0.0) or 0.0)
-            account = {"login": str(info.login), "server": str(info.server), "currency": str(info.currency)}
+            history_detail = {
+                **sync_detail,
+                "period_raw_deals": len(period_deals),
+                "market_deals": len(market_deals),
+                "opening_deals": sum(int(getattr(deal, "entry", -1)) in {0, 2} for deal in market_deals),
+                "closing_deals": sum(int(getattr(deal, "entry", -1)) in {1, 2, 3} for deal in market_deals),
+                "positions_closed": len(closing_positions),
+                "positions_missing_open_in_period": len(missing_open_positions),
+                "positions_recovered": recovered_positions,
+                "positions_unresolved": len(unresolved_positions),
+                "trades_reconstructed": len(trades),
+            }
+            account = {
+                "login": str(info.login), "server": actual_server, "currency": str(info.currency),
+                "connected": True, "terminal_profile": str(profile.get("name") or section),
+                "history_detail": history_detail,
+            }
             return trades, points, account
         finally:
             mt5.shutdown()
             self._close_terminal_pids(launched_pids)
+
+    def _synchronised_history(
+        self, mt5: Any, period_start: datetime, period_end: datetime
+    ) -> tuple[list[Any], dict[str, Any]]:
+        """Espera a que el historial del login recién activado deje de ser caché vacía/inestable."""
+        latest: list[Any] | None = None
+        snapshots: list[int | None] = []
+        previous_fingerprint: tuple[int, int, int] | None = None
+        stable_non_empty = 0
+        for attempt in range(1, self.history_sync_attempts + 1):
+            current = mt5.history_deals_get(period_start, period_end)
+            if current is None:
+                snapshots.append(None)
+            else:
+                latest = list(current)
+                snapshots.append(len(latest))
+                fingerprint = (
+                    len(latest),
+                    max((int(getattr(deal, "ticket", 0) or 0) for deal in latest), default=0),
+                    max((int(getattr(deal, "time_msc", 0) or 0) for deal in latest), default=0),
+                )
+                stable_non_empty = (
+                    stable_non_empty + 1
+                    if fingerprint == previous_fingerprint and latest else int(bool(latest))
+                )
+                previous_fingerprint = fingerprint
+                if attempt >= 3 and stable_non_empty >= 2:
+                    break
+            if attempt < self.history_sync_attempts:
+                time.sleep(self.history_sync_delay_seconds)
+        if latest is None:
+            raise RuntimeError(f"No se pudo sincronizar el historial real: {mt5.last_error()}")
+        return latest, {
+            "sync_attempts": len(snapshots),
+            "sync_snapshots": snapshots,
+            "history_empty_after_sync": not bool(latest),
+        }
+
+    @staticmethod
+    def _is_market_deal(deal: Any) -> bool:
+        return (
+            int(getattr(deal, "type", -1)) in {0, 1}
+            and bool(int(getattr(deal, "position_id", 0) or 0))
+        )
+
+    @staticmethod
+    def _deal_identity(deal: Any) -> tuple[Any, ...]:
+        ticket = int(getattr(deal, "ticket", 0) or 0)
+        if ticket:
+            return ("ticket", ticket)
+        return (
+            "fallback", int(getattr(deal, "position_id", 0) or 0),
+            int(getattr(deal, "time_msc", 0) or 0), int(getattr(deal, "entry", -1)),
+            float(getattr(deal, "volume", 0.0) or 0.0), float(getattr(deal, "price", 0.0) or 0.0),
+        )
 
     @staticmethod
     def _real_trades(deals: Any) -> list[dict[str, Any]]:
@@ -422,13 +652,19 @@ class LiveAuditController:
             })
         return trades
 
-    def _portfolio_members(self, portfolio_id: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    def _portfolio_members(
+        self, portfolio_id: int, portfolio_type: str
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         detail = self.owner.portfolio_detail(portfolio_id, "full_history")["portfolio"]
-        inputs = ((detail.get("metrics") or {}).get("inputs") or {})
-        variant = str(inputs.get("portfolio_type") or inputs.get("optimization_profile") or "").strip()
         members = [dict(row) for row in detail.get("members") or []]
-        matching = [row for row in members if str(row.get("variant_key") or "") == variant]
-        return detail, matching or members
+        matching = [row for row in members if str(row.get("variant_key") or "") == portfolio_type]
+        if not matching:
+            available = sorted({str(row.get("variant_key") or "") for row in members if row.get("variant_key")})
+            raise ValueError(
+                f"El portafolio #{portfolio_id} no contiene la variante {portfolio_type}; "
+                f"disponibles: {', '.join(available) or 'ninguna'}"
+            )
+        return detail, matching
 
     @staticmethod
     def _set_value(text: str, key: str, value: str) -> str:
@@ -436,6 +672,11 @@ class LiveAuditController:
         if pattern.search(text):
             return pattern.sub(lambda match: f"{key}={value}{match.group(2)}", text, count=1)
         return text + f"\n{key}={value}||{value}||0||0||N\n"
+
+    @staticmethod
+    def _set_parameter(text: str, key: str) -> str:
+        match = re.search(rf"(?mi)^{re.escape(key)}=([^|\r\n]*)", text)
+        return match.group(1).strip() if match else ""
 
     def _resolve_set(self, raw: str) -> Path:
         project = Path(str(self.owner.config["project_dir"])).expanduser().resolve()
@@ -458,10 +699,10 @@ class LiveAuditController:
     ) -> tuple[list[dict[str, Any]], list[float], dict[str, int]]:
         from portfolio_manager.mt5_report import parse_report
 
-        detail, members = self._portfolio_members(request["portfolio_id"])
+        detail, members = self._portfolio_members(request["portfolio_id"], request["portfolio_type"])
         if not members:
             raise ValueError("El portafolio no contiene estrategias")
-        work = self.runtime_dir / f"portfolio_{request['portfolio_id']}" / audit_id
+        work = self.runtime_dir / f"audit_{request['audit_key']}" / audit_id
         sets_dir, reports_dir, configs_dir, logs_dir = (work / name for name in ("sets", "reports", "configs", "logs"))
         for directory in (sets_dir, reports_dir, configs_dir, logs_dir):
             directory.mkdir(parents=True, exist_ok=True)
@@ -469,12 +710,20 @@ class LiveAuditController:
         member_by_stem: dict[str, dict[str, Any]] = {}
         for index, member in enumerate(members, 1):
             source = self._resolve_set(str(member.get("set_path") or member.get("set_id") or ""))
-            text = source.read_text(encoding="utf-8-sig", errors="replace")
+            text, set_encoding = _read_set_text(source)
             text = self._set_value(text, "StartLots", f"{float(member.get('lot') or .01):.8f}".rstrip("0").rstrip("."))
             target = sets_dir / f"audit_{index:03d}_{source.name}"
-            target.write_text(text, encoding="utf-8", newline="\n")
+            target.write_text(text, encoding=set_encoding, newline="\n")
             set_files.append(target)
             member_by_stem[target.stem] = member
+        selected_summary = ", ".join(
+            f"{member.get('symbol') or '?'}:{member.get('candidate_id') or Path(str(member.get('set_path') or '')).stem}"
+            for member in members
+        )
+        self._update(
+            request["audit_key"], "testing", "Preparando Strategy Tester.",
+            f"Variante {request['portfolio_type']} seleccionada con {len(members)} estrategias: {selected_summary}",
+        )
         template = configparser.ConfigParser(interpolation=None)
         template.optionxform = str
         template.read_dict({
@@ -538,9 +787,15 @@ class LiveAuditController:
                             secret_file.unlink()
                     except OSError:
                         pass
-        (work / "runner.log").write_text(completed.stdout or "", encoding="utf-8")
+            _redact_log_files(
+                logs_dir, request.get("source_password", ""), request.get("tester_password", "")
+            )
+        runner_output = _redact_runner_output(
+            completed.stdout or "", request.get("source_password", ""), request.get("tester_password", "")
+        )
+        (work / "runner.log").write_text(runner_output, encoding="utf-8")
         if completed.returncode:
-            tail = "\n".join((completed.stdout or "").splitlines()[-20:])
+            tail = "\n".join(runner_output.splitlines()[-20:])
             raise RuntimeError(f"Strategy Tester terminó con código {completed.returncode}: {tail}")
         tester_trades: list[dict[str, Any]] = []
         qualities: list[float] = []
@@ -556,6 +811,11 @@ class LiveAuditController:
                 qualities.append(quality)
             strategy = str(member.get("candidate_id") or stem)
             strategies[strategy] = len(report.trades)
+            self._update(
+                request["audit_key"], "testing", "Leyendo reportes del Strategy Tester.",
+                f"Reporte {report.symbol} / {strategy}: {len(report.trades)} operaciones, "
+                f"History Quality {quality if quality is not None else 'no informada'}",
+            )
             for trade in report.trades:
                 open_time = trade.open_time.replace(tzinfo=timezone.utc) if trade.open_time.tzinfo is None else trade.open_time
                 close_time = trade.close_time.replace(tzinfo=timezone.utc) if trade.close_time.tzinfo is None else trade.close_time
@@ -575,6 +835,8 @@ class LiveAuditController:
         matched = 0
         deviations = 0
         matched_by_strategy: dict[str, int] = {}
+        missing_by_strategy: dict[str, int] = {}
+        deviation_reasons = {"close_time": 0, "open_price": 0, "volume": 0, "pnl": 0, "drawdown": 0}
         time_limit = request["trade_time_tolerance_seconds"]
         for expected in tester:
             candidates: list[tuple[float, int]] = []
@@ -586,6 +848,8 @@ class LiveAuditController:
                 if delta <= time_limit:
                     candidates.append((delta, index))
             if not candidates:
+                strategy = str(expected["strategy"])
+                missing_by_strategy[strategy] = missing_by_strategy.get(strategy, 0) + 1
                 continue
             _, index = min(candidates)
             unused.remove(index)
@@ -597,25 +861,44 @@ class LiveAuditController:
             price_limit = request["price_tolerance_points"] * point
             volume_limit = max(expected["volume"], 1e-9) * request["volume_tolerance_pct"] / 100
             pnl_limit = max(abs(expected["profit"]), 1.0) * request["pnl_deviation_warning_pct"] / 100
-            if (
-                abs(actual["close_time"].timestamp() - expected["close_time"].timestamp()) > time_limit
-                or (point > 0 and abs(actual["open_price"] - expected["open_price"]) > price_limit)
-                or abs(actual["volume"] - expected["volume"]) > volume_limit
-                or abs(actual["profit"] - expected["profit"]) > pnl_limit
-            ):
+            reasons = []
+            if abs(actual["close_time"].timestamp() - expected["close_time"].timestamp()) > time_limit:
+                reasons.append("close_time")
+            if point > 0 and abs(actual["open_price"] - expected["open_price"]) > price_limit:
+                reasons.append("open_price")
+            if abs(actual["volume"] - expected["volume"]) > volume_limit:
+                reasons.append("volume")
+            if abs(actual["profit"] - expected["profit"]) > pnl_limit:
+                reasons.append("pnl")
+            if reasons:
                 deviations += 1
+                for reason in reasons:
+                    deviation_reasons[reason] += 1
         missing = len(tester) - matched
         extra = len(unused)
         real_dd, tester_dd = _drawdown(real), _drawdown(tester)
         dd_deviation = abs(real_dd - tester_dd) / max(tester_dd, 1.0) * 100
         if dd_deviation > request["drawdown_deviation_warning_pct"]:
             deviations += 1
+            deviation_reasons["drawdown"] += 1
         stalled = sum(1 for strategy, count in strategies.items() if count and not matched_by_strategy.get(strategy))
+        unmatched_real: dict[str, int] = {}
+        for index in unused:
+            trade = real[index]
+            key = f"{trade.get('symbol') or '?'} / magic {trade.get('strategy') or '?'}"
+            unmatched_real[key] = unmatched_real.get(key, 0) + 1
         return {
             "matched_trades": matched, "missing_real_trades": missing, "extra_real_trades": extra,
             "deviating_trades": deviations, "discrepancies": missing + extra + deviations,
             "stalled_strategies": stalled, "real_drawdown": round(real_dd, 2),
             "tester_drawdown": round(tester_dd, 2), "drawdown_deviation_pct": round(dd_deviation, 2),
+            "comparison_detail": {
+                "matched_by_strategy": matched_by_strategy,
+                "missing_by_strategy": missing_by_strategy,
+                "unmatched_real": unmatched_real,
+                "deviation_reasons": {key: value for key, value in deviation_reasons.items() if value},
+                "time_tolerance_seconds": time_limit,
+            },
         }
 
     @staticmethod
@@ -624,7 +907,8 @@ class LiveAuditController:
         real: list[dict[str, Any]], tester: list[dict[str, Any]], quality: float | None,
     ) -> dict[str, Any]:
         return {
-            "portfolio_id": request["portfolio_id"], "completed_at": utc_now(),
+            "audit_key": request["audit_key"], "portfolio_id": request["portfolio_id"],
+            "portfolio_type": request["portfolio_type"], "completed_at": utc_now(),
             "period_start": period_start.isoformat(), "period_end": period_end.isoformat(),
             "period_days": request["period_days"],
             "history_quality_pct": round(quality, 2) if quality is not None else None,

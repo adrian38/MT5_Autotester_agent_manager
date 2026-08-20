@@ -1806,8 +1806,8 @@ class NodeHandler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/v1/live-audits":
             self._send(200, {"audits": self.server.controller.live_audits.all_states(), "observed_at": utc_now()})
         elif parsed.path.startswith("/api/v1/live-audits/"):
-            portfolio_id = safe_int(parsed.path.rsplit("/", 1)[-1], 0, minimum=1)
-            self._send(200, {"audit": self.server.controller.live_audits.state(portfolio_id), "observed_at": utc_now()})
+            audit_key = urllib.parse.unquote(parsed.path.rsplit("/", 1)[-1])
+            self._send(200, {"audit": self.server.controller.live_audits.state(audit_key), "observed_at": utc_now()})
         elif parsed.path == "/api/v1/portfolios":
             query = urllib.parse.parse_qs(parsed.query)
             self._send(200, self.server.controller.portfolios(query.get("scope", ["full_history"])[0]))

@@ -132,3 +132,78 @@ reconstruido, pero el proceso embebido seguía con el módulo anterior y con el
 pipeline pausado por el usuario. Cerrar y volver a abrir la aplicación ICTrading
 carga el endpoint nuevo y conserva esa pausa; no usar `stop`, porque descartaría
 la posición reanudable.
+
+## Auditoría real 2026-08-20 22:12 y correcciones de contrato
+
+La ejecución `portfolio_9/20260820_221214_728726` terminó, pero evidenció que el
+primer contrato operativo no era suficiente:
+
+- La configuración del manager solo guardaba `portfolio_id=9`; no guardaba el
+  modo A/M/C. El nodo eligió implícitamente `metrics.inputs.portfolio_type`, que
+  en ese bundle era `balanced`.
+- Los perfiles, credenciales y estados se indexaban por `portfolio_id`. Dos
+  usos del mismo bundle en cuentas o modos distintos se sobrescribían.
+- El estado público conservó cuatro líneas para un resultado de 72 operaciones
+  tester, 8 cierres reales, 1 coincidencia y 80 discrepancias. No persistió el
+  reparto por estrategia ni la causa de los emparejamientos fallidos.
+- Los `.set` de origen son UTF-16. `live_audit.py` los leyó como UTF-8 y produjo
+  copias con miles de NUL; `StartLots` quedó añadido al final en lugar de
+  reemplazar el parámetro. Un tester con código 0 no acredita que cargase los
+  parámetros correctos.
+- `run_tests.py` imprime el INI y, por tanto, la contraseña del tester. El
+  auditor guardaba stdout literalmente en `runner.log`, contradiciendo la
+  intención de no persistir secretos.
+- La extracción real tomaba todos los deals cerrados de la cuenta, sin filtrar
+  los `(símbolo, EA_MagicNumber)` de la variante auditada.
+
+El contrato de referencia del manager pasa a usar `selected_audit_ids` y
+`configured_audit_ids`. Cada perfil incluye `portfolio_id`, `portfolio_type`,
+nombre descriptivo y cuentas. La UI puede añadir el mismo portafolio más de una
+vez. El motor de referencia usa `audit_key` para estado y runtime, exige una
+variante exacta, detecta UTF-16, filtra cierres por símbolo/magic, detalla
+faltantes/extras/desviaciones por estrategia y redacta los secretos de stdout
+antes de escribir `runner.log` o construir un error. También sanea los `.log` y
+`.txt` que `run_tests.py` escribe por su cuenta; la ejecución observada dejó el
+secreto en tres ficheros (`runner.log`, `logs/last_run.log` y el log fechado).
+
+El proceso que ejecuta estas reglas es la copia embebida
+`manager_node_runtime/live_audit.py`, no `mt5_manager/live_audit_engine.py`.
+La aparente contradicción de alcance se resolvió a favor de la regla específica
+de la rama de broker y de la confirmación expresa del usuario: la copia IC de
+este equipo es escribible. El motor se portó a IC, se reinició la aplicación y
+el endpoint con `audit_key` confirmó que ya estaba cargado.
+
+### Diagnóstico de la extracción real de esa ejecución
+
+Una comprobación directa con las credenciales configuradas aclaró que el `1`
+mostrado no era el número de operaciones reales: era `matched_trades`. MT5
+confirmó el login `52958158`, el servidor `CapitalPointTrading-Demo`, terminal
+conectado y negociación permitida. Para el intervalo exacto persistido devolvió
+17 deals de mercado: 8 aperturas y 9 cierres, sin posiciones todavía abiertas.
+El primer acceso inmediatamente posterior a `initialize` llegó a devolver cero
+deals y el siguiente acceso ya devolvió los 17, por lo que no es válido consultar
+el historial una sola vez justo después de cambiar de login.
+
+El extractor antiguo informó 8 operaciones porque `_real_trades` solo recibía
+los deals comprendidos en el periodo. Uno de los 9 cierres pertenecía a una
+posición abierta antes del inicio, así que no encontraba su deal de apertura y
+lo descartaba. El motor de referencia ahora:
+
+- exige coincidencia de login y servidor y comprueba `terminal_info.connected`;
+- sondea el historial hasta obtener una instantánea no vacía estable (o agotar
+  la espera si la cuenta realmente está vacía);
+- recupera por `position_id` las aperturas anteriores al periodo;
+- persiste y muestra `sync_snapshots`, deals brutos, aperturas, cierres,
+  posiciones recuperadas/no resueltas y cierres del portafolio tras el filtro;
+- rotula por separado los cierres reales y las coincidencias real-tester.
+
+Para esta cuenta concreta los cierres se repartían entre EURUSD, GBPUSD,
+USDJPY, XAGUSD y XAUUSD. El filtrado posterior por las firmas de la variante es
+necesario porque no todos esos cierres pertenecen al portafolio 9.
+
+La repetición operativa `20260820_230239_154815`, ya con ambos procesos
+reiniciados, sincronizó `[17, 17, 17]`, reconstruyó 9 cierres, conservó los 5 de
+la variante `balanced` y descartó 4 cierres ajenos. El tester produjo 39
+operaciones y hubo 4 coincidencias. Sus seis copias `.set` quedaron UTF-16 con
+un solo `StartLots`; los 27 artefactos `.log`/`.txt` no contenían secretos ni
+líneas Password sin redactar.

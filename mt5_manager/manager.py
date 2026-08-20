@@ -383,8 +383,10 @@ class ManagerHandler(BaseHTTPRequestHandler):
         if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audits":
             try:
                 node = self._node(urllib.parse.unquote(parts[2]))
-                portfolio_id = safe_int(parts[4], 0, minimum=1)
-                status, value = node_request(node, "GET", f"/api/v1/live-audits/{portfolio_id}", timeout=10)
+                audit_id = urllib.parse.unquote(parts[4])
+                status, value = node_request(
+                    node, "GET", f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}", timeout=10
+                )
                 self._send_json(status, value)
             except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self._send_json(502, {"error": str(exc)})
@@ -500,13 +502,14 @@ class ManagerHandler(BaseHTTPRequestHandler):
             try:
                 node_id = urllib.parse.unquote(parts[2])
                 node = self._node(node_id)
-                portfolio_id = safe_int(parts[4], 0, minimum=1)
+                audit_id = urllib.parse.unquote(parts[4])
                 state = self.server.live_audit_settings.state(node_id)
-                if portfolio_id not in state.get("configured_portfolio_ids", []):
-                    raise ValueError(f"Guarda la configuración completa del portafolio #{portfolio_id}")
-                profile = dict((state.get("profiles") or {}).get(str(portfolio_id)) or {})
-                credentials = self.server.live_audit_settings.credentials(node_id, portfolio_id)
-                payload = {**profile, **credentials, "portfolio_id": portfolio_id}
+                if audit_id not in state.get("configured_audit_ids", []):
+                    raise ValueError(f"Guarda la configuración completa del uso {audit_id}")
+                profile = dict((state.get("profiles") or {}).get(audit_id) or {})
+                portfolio_id = safe_int(profile.get("portfolio_id"), 0, minimum=1)
+                credentials = self.server.live_audit_settings.credentials(node_id, audit_id)
+                payload = {**profile, **credentials, "audit_key": audit_id, "portfolio_id": portfolio_id}
                 status, value = node_request(
                     node, "POST", f"/api/v1/live-audits/{portfolio_id}/run", payload, timeout=30
                 )
@@ -848,19 +851,22 @@ class ManagerServer(ThreadingHTTPServer):
         for node in self.nodes:
             node_id = str(node.get("id") or "")
             state = self.live_audit_settings.state(node_id)
-            configured = list(state.get("configured_portfolio_ids") or [])
+            configured = list(state.get("configured_audit_ids") or [])
             if not configured:
                 continue
             try:
                 status, value = node_request(node, "GET", "/api/v1/live-audits", timeout=10)
-            except (OSError, urllib.error.URLError, TimeoutError, ValueError):
+            except (OSError, urllib.error.URLError, TimeoutError, ValueError) as exc:
+                sys.stderr.write(f"[live-audit-scheduler] {node_id}: no se pudo consultar el nodo: {exc}\n")
                 continue
             if status != 200 or not isinstance(value, dict):
+                sys.stderr.write(f"[live-audit-scheduler] {node_id}: GET devolvió HTTP {status}: {value}\n")
                 continue
             audits = value.get("audits") if isinstance(value.get("audits"), dict) else {}
-            for portfolio_id in configured:
-                profile = dict((state.get("profiles") or {}).get(str(portfolio_id)) or {})
-                audit = dict(audits.get(str(portfolio_id)) or {})
+            for audit_id in configured:
+                profile = dict((state.get("profiles") or {}).get(str(audit_id)) or {})
+                portfolio_id = safe_int(profile.get("portfolio_id"), 0, minimum=1)
+                audit = dict(audits.get(str(audit_id)) or {})
                 if str(audit.get("status") or "") in {"queued", "pausing", "extracting", "testing", "comparing", "resuming"}:
                     continue
                 result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
@@ -873,15 +879,21 @@ class ManagerServer(ThreadingHTTPServer):
                         continue
                 payload = {
                     **profile,
-                    **self.live_audit_settings.credentials(node_id, int(portfolio_id)),
-                    "portfolio_id": int(portfolio_id),
+                    **self.live_audit_settings.credentials(node_id, audit_id),
+                    "audit_key": audit_id,
+                    "portfolio_id": portfolio_id,
                 }
+                sys.stderr.write(
+                    f"[live-audit-scheduler] iniciando {node_id}/{audit_id}: "
+                    f"portafolio #{portfolio_id}, variante {profile.get('portfolio_type')}, "
+                    f"cuenta {profile.get('source_login')}\n"
+                )
                 start_status, response = node_request(
-                    node, "POST", f"/api/v1/live-audits/{int(portfolio_id)}/run", payload, timeout=30
+                    node, "POST", f"/api/v1/live-audits/{portfolio_id}/run", payload, timeout=30
                 )
                 if start_status >= 400 and start_status != 409:
                     sys.stderr.write(
-                        f"[live-audit-scheduler] {node_id}/#{portfolio_id}: HTTP {start_status} {response}\n"
+                        f"[live-audit-scheduler] {node_id}/{audit_id}/#{portfolio_id}: HTTP {start_status} {response}\n"
                     )
 
     def preferences_for(self, node_id: str) -> dict[str, Any]:
