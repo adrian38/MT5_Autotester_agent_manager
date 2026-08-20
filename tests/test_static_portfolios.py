@@ -36,10 +36,13 @@ class NodeCardControlsTests(unittest.TestCase):
         script = self.script()
         self.assertIn("Se corta la etapa en curso", script)
 
-    def test_application_restart_button_is_capability_gated_and_idle_only(self) -> None:
+    def test_application_restart_button_is_capability_gated_and_accepts_paused_jobs(self) -> None:
         script = self.script()
         self.assertIn("node.capabilities?.application_restart", script)
-        self.assertIn("RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped']", script)
+        self.assertIn(
+            "RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped', 'paused', 'interrupted']",
+            script,
+        )
         self.assertIn("onclick=\"restartNode(", script)
         self.assertIn("/restart`", script)
         self.assertIn("git pull --ff-only", script)

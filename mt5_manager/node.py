@@ -1884,7 +1884,11 @@ class NodeServer(ThreadingHTTPServer):
         if callback is None:
             raise RuntimeError("El reinicio remoto solo esta disponible en la aplicacion integrada")
         with self.controller.lock:
-            if self.controller._busy() or self.controller.queue:
+            process = self.controller.process
+            process_running = process is not None and process.poll() is None
+            status = str(self.controller.state.get("status") or "")
+            restartable = status in {"idle", "completed", "failed", "stopped", "paused", "interrupted"}
+            if process_running or self.controller.live_audits.is_running() or self.controller.queue or not restartable:
                 raise RuntimeError(
                     "No se puede reiniciar la aplicacion con una ejecucion activa o tareas pendientes"
                 )

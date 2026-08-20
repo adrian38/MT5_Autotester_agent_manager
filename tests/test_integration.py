@@ -485,6 +485,24 @@ enabled=0
         self.assertEqual(payload["status"], "restarting")
         self.assertTrue(self.restart_requested.wait(1))
 
+    def test_application_restart_preserves_a_paused_pipeline(self) -> None:
+        with self.controller.lock:
+            self.controller.state.update({
+                "status": "paused",
+                "pipeline": [{"action": "generation"}],
+                "current_step_index": 0,
+                "paused_at": "2026-08-20T20:36:39+02:00",
+            })
+            self.controller._persist()
+
+        status, payload = self.request("/api/nodes/test-node/restart", {})
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["status"], "restarting")
+        self.assertTrue(self.restart_requested.wait(1))
+        self.assertEqual(self.controller.state["status"], "paused")
+        self.assertEqual(self.controller.state["current_step_index"], 0)
+
     def test_manager_restart_has_its_own_async_endpoint_and_status(self) -> None:
         accepted = {"status": "starting", "step": "starting", "log": []}
         with mock.patch.object(self.manager.manager_restart, "start", return_value=accepted) as start:

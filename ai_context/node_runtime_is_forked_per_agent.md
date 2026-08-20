@@ -152,8 +152,10 @@ por separado no la anuncia.
 
 La ruta que se ejecuta de verdad esta en
 `manager_node_runtime/node.py` del agente ICTrading. Rechaza el reinicio si hay
-un proceso activo, un pipeline pausado/reanudable o tareas en cola. Cuando esta
-libre, el handler marca un `threading.Event`; `app_ui.py` lo consume desde el
+un proceso activo, una auditoria activa o tareas en cola. Un pipeline `paused`
+o `interrupted` si puede reiniciarse: conserva su posicion y sigue reanudable
+despues de abrir la aplicacion. Cuando esta libre, el handler marca un
+`threading.Event`; `app_ui.py` lo consume desde el
 hilo de Tk, cierra el servidor y la ventana, y `manager_node_lifecycle.py`
 reemplaza el proceso con el mismo `app_ui.py` o el mismo ejecutable congelado.
 Asi se evita tocar Tk desde el hilo HTTP y el puerto queda libre antes del

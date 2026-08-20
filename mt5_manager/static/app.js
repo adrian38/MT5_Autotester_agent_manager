@@ -22,7 +22,7 @@ const domId = value => String(value).replace(/[^a-zA-Z0-9_-]/g, '_');
 // 'interrupted' lo que queda cuando el agente se cerro con un trabajo en marcha.
 const RESUMABLE_STATES = ['paused', 'interrupted'];
 const isResumable = state => RESUMABLE_STATES.includes(String(state || ''));
-const RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped'];
+const RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped', 'paused', 'interrupted'];
 const canRestartApplication = (node, state) => Boolean(
   node.capabilities?.application_restart
   && RESTARTABLE_STATES.includes(String(state || ''))
