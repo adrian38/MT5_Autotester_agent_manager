@@ -1048,7 +1048,8 @@ class PortfolioServiceTests(unittest.TestCase):
             (project / "outputs").mkdir()
             (project / "assets").mkdir()
             (project / "assets" / "axi_assets.ini").write_text(
-                "[Crypto]\nsymbols=BTCUSD.sa,ETHUSD.sa\n",
+                "[Crypto]\nsymbols=BTCUSD.sa,ETHUSD.sa\n"
+                "[Indices]\nsymbols=NAS100.fs,USTECH.sa\n",
                 encoding="utf-8",
             )
             memory = project / "outputs" / "ubs_memory_AXI_STANDARD.sqlite"
@@ -1058,15 +1059,27 @@ class PortfolioServiceTests(unittest.TestCase):
                     create table candidates(id integer primary key,set_path text,symbol text,target_symbol text,period text,family text,report_path text,status text);
                     create table candidate_robustness(candidate_id integer,report_path text,status text);
                     create table candidate_final_tick(candidate_id integer,real_tick_report_path text,from_date text,to_date text,status text);
-                    create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text);
+                    create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text,real_tick_metrics_json text);
                     insert into candidates values(1,'sets/legacy.set','BTCUSD','ETHUSD','H1','f','reports/legacy.html','accepted');
                     insert into candidates values(2,'sets/current.set','BTCUSD.sa','ETHUSD.sa','H1','f','reports/current.html','accepted');
+                    insert into candidates values(3,'sets/ustec.set','USTEC','USTEC','H1','f','reports/ustec.html','accepted');
+                    insert into candidates values(4,'sets/nas100.set','NAS100.fs','NAS100.fs','H1','f','reports/nas100.html','accepted');
+                    insert into candidates values(5,'sets/ustech.set','USTECH.sa','USTECH.sa','H1','f','reports/ustech.html','accepted');
                     insert into candidate_robustness values(1,'reports/legacy_oos.html','accepted');
                     insert into candidate_robustness values(2,'reports/current_oos.html','accepted');
+                    insert into candidate_robustness values(3,'reports/ustec_oos.html','accepted');
+                    insert into candidate_robustness values(4,'reports/nas100_oos.html','accepted');
+                    insert into candidate_robustness values(5,'reports/ustech_oos.html','accepted');
                     insert into candidate_final_tick values(1,'reports/legacy_full.html','2020.01.01','2026.06.30','accepted');
                     insert into candidate_final_tick values(2,'reports/current_full.html','2020.01.01','2026.06.30','accepted');
-                    insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted');
-                    insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick values(3,'reports/ustec_full.html','2020.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick values(4,'reports/nas100_full.html','2020.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick values(5,'reports/ustech_full.html','2020.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted','{"symbol":"ETHUSD.sa"}');
+                    insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted','{"symbol":"ETHUSD.sa"}');
+                    insert into candidate_final_tick_6m values(3,'','','2026.01.01','2026.06.30','accepted','{"symbol":"USTECH.sa"}');
+                    insert into candidate_final_tick_6m values(4,'','','2026.01.01','2026.06.30','accepted','{"symbol":"NAS100.fs"}');
+                    insert into candidate_final_tick_6m values(5,'','','2026.01.01','2026.06.30','accepted','{"symbol":"USTECH.sa"}');
                     """
                 )
                 conn.commit()
@@ -1075,27 +1088,51 @@ class PortfolioServiceTests(unittest.TestCase):
                 "portfolio_broker": "AXI",
                 "portfolio_account_type": "STANDARD",
             })
-            expected = [{
-                "symbol": "ETHUSD.sa",
-                "total": 2,
-                "quarantined": 0,
-                "used": 0,
-                "available": 2,
-            }]
+            expected = [
+                {
+                    "symbol": "ETHUSD.sa",
+                    "total": 2,
+                    "quarantined": 0,
+                    "used": 0,
+                    "available": 2,
+                },
+                {
+                    "symbol": "NAS100.fs",
+                    "total": 1,
+                    "quarantined": 0,
+                    "used": 0,
+                    "available": 1,
+                },
+                {
+                    "symbol": "USTECH.sa",
+                    "total": 2,
+                    "quarantined": 0,
+                    "used": 0,
+                    "available": 2,
+                },
+            ]
 
             full_history = source.inventory(
                 "full_history",
-                normalize_settings("full_history", {"allowed_asset_groups": ["Crypto"]}, "AXI"),
+                normalize_settings(
+                    "full_history",
+                    {"allowed_asset_groups": ["Crypto", "Indices"]},
+                    "AXI",
+                ),
             )
             monthly = source.inventory(
                 "monthly",
-                normalize_settings("monthly", {"allowed_asset_groups": ["Crypto"]}, "AXI"),
+                normalize_settings(
+                    "monthly",
+                    {"allowed_asset_groups": ["Crypto", "Indices"]},
+                    "AXI",
+                ),
             )
 
             self.assertEqual(full_history["by_symbol"], expected)
-            self.assertEqual(full_history["symbols"], 1)
+            self.assertEqual(full_history["symbols"], 3)
             self.assertEqual(monthly["by_symbol"], expected)
-            self.assertEqual(monthly["symbols"], 1)
+            self.assertEqual(monthly["symbols"], 3)
 
     def test_portfolio_source_accepts_pending_ohlc_trades_on_the_short_final_tick(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

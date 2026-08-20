@@ -725,8 +725,17 @@ class PortfolioSource:
                     # intentionally part of memory_sources for used-set and
                     # correlation lookups, never as a candidate source.
                     continue
+                final_tick_6m_columns = {
+                    str(column[1])
+                    for column in conn.execute("pragma table_info(candidate_final_tick_6m)")
+                }
+                final_tick_metrics_sql = (
+                    "ft6.real_tick_metrics_json"
+                    if "real_tick_metrics_json" in final_tick_6m_columns
+                    else "null"
+                )
                 rows = conn.execute(
-                    """
+                    f"""
                     select ? as account_type, ? || ':' || c.id as candidate_id,
                            c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
                            c.period, c.family, c.report_path as is_report_path,
@@ -734,7 +743,8 @@ class PortfolioSource:
                            ft.real_tick_report_path as full_history_report_path,
                            ft6.ohlc_report_path as final_ohlc_report_path,
                            ft6.real_tick_report_path as final_tick_report_path,
-                           ft6.from_date as final_tick_from_date, ft6.to_date as final_tick_to_date
+                           ft6.from_date as final_tick_from_date, ft6.to_date as final_tick_to_date,
+                           {final_tick_metrics_sql} as final_tick_metrics_json
                     from candidates c join candidate_robustness cr on cr.candidate_id=c.id
                     join candidate_final_tick ft on ft.candidate_id=c.id
                     join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id
@@ -746,6 +756,18 @@ class PortfolioSource:
                 ).fetchall()
             for db_row in rows:
                 item = dict(db_row)
+                final_tick_metrics = item.pop("final_tick_metrics_json", None)
+                if final_tick_metrics:
+                    try:
+                        executable_symbol = str(
+                            (json.loads(final_tick_metrics) or {}).get("symbol") or ""
+                        ).strip()
+                    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+                        executable_symbol = ""
+                    if executable_symbol:
+                        # This is the symbol that MT5 actually executed after the
+                        # agent applied its temporary broker map and suffixes.
+                        item["executable_symbol"] = executable_symbol
                 item["source_memory_path"] = str(memory)
                 result.append(item)
         for row in result:
@@ -811,7 +833,10 @@ class PortfolioSource:
         allowed = set(settings.get("allowed_asset_groups") or ASSET_GROUPS)
         rows = [
             row for row in rows
-            if portfolio_group_key(str(row.get("target_symbol") or row.get("symbol") or ""), universe_files=[self.universe]) in allowed
+            if portfolio_group_key(
+                str(row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""),
+                universe_files=[self.universe],
+            ) in allowed
         ]
         warnings: list[str] = []
         if settings.get("grid_off"):
@@ -827,7 +852,7 @@ class PortfolioSource:
         by_symbol: dict[str, dict[str, Any]] = {}
         for row in rows:
             symbol = portfolio_display_symbol(
-                str(row.get("target_symbol") or row.get("symbol") or ""),
+                str(row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""),
                 universe_files=[self.universe],
             )
             symbol_key = portfolio_symbol_key(symbol)
