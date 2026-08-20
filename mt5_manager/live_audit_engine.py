@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import configparser
+import html
 import json
 import math
 import re
@@ -119,6 +120,20 @@ def _drawdown(trades: list[dict[str, Any]]) -> float:
     return maximum
 
 
+def _trade_view(trade: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Convierte una operación interna en un registro JSON auditable."""
+    if trade is None:
+        return None
+    result: dict[str, Any] = {}
+    for key in (
+        "strategy", "symbol", "side", "open_time", "close_time",
+        "open_price", "close_price", "volume", "profit",
+    ):
+        value = trade.get(key)
+        result[key] = value.isoformat() if isinstance(value, datetime) else value
+    return result
+
+
 def _redact_runner_output(text: str, *secrets: str) -> str:
     """El runner imprime el INI; nunca permitir contraseñas en artefactos o errores."""
     result = str(text or "")
@@ -218,6 +233,29 @@ class LiveAuditController:
             raw = self.states.get(key) or {"audit_key": key, "status": "idle"}
             return _safe_state(raw)
 
+    def artifact_path(self, audit_key: str, audit_id: str, filename: str) -> Path:
+        """Resuelve únicamente reportes de la ejecución visible de una auditoría."""
+        if any(
+            not value or len(value) > 255 or not all(char.isalnum() or char in "-_." for char in value)
+            for value in (str(audit_key), str(audit_id))
+        ):
+            raise ValueError("Identificador de artefacto no válido")
+        if not filename or Path(filename).name != filename:
+            raise ValueError("Nombre de artefacto no válido")
+        if Path(filename).suffix.casefold() not in {".htm", ".html", ".png", ".gif", ".jpg", ".jpeg"}:
+            raise ValueError("Tipo de artefacto no permitido")
+        with self.lock:
+            raw = self.states.get(str(audit_key))
+            if not raw or str(raw.get("audit_id") or "") != str(audit_id):
+                raise FileNotFoundError("La ejecución solicitada no es la ejecución visible")
+        reports_dir = (
+            self.runtime_dir / f"audit_{audit_key}" / str(audit_id) / "reports"
+        ).resolve()
+        path = (reports_dir / filename).resolve()
+        if path.parent != reports_dir or not path.is_file():
+            raise FileNotFoundError(filename)
+        return path
+
     def start(self, payload: dict[str, Any]) -> dict[str, Any]:
         request = normalize_request(payload)
         portfolio_id = request["portfolio_id"]
@@ -287,6 +325,7 @@ class LiveAuditController:
             period_end = datetime.now(timezone.utc)
             period_start = period_end - timedelta(days=request["period_days"])
             real_trades, symbol_points, account = self._extract_real(request, period_start, period_end)
+            account_real_trades = list(real_trades)
             real_history_detail = dict(account.pop("history_detail", {}) or {})
             self._update(
                 audit_key, "extracting", "Historial de la cuenta real sincronizado.",
@@ -331,7 +370,13 @@ class LiveAuditController:
                 audit_key, "testing", "Ejecutando el portafolio con ticks reales en el nodo.",
                 f"{len(real_trades)} operaciones reales extraídas ({real_summary})",
             )
-            tester_trades, qualities, strategies = self._run_tester(request, audit_id, period_start, period_end)
+            tester_trades, qualities, strategies, strategy_artifacts = self._run_tester(
+                request, audit_id, period_start, period_end
+            )
+            real_account_report = self._write_real_account_report(
+                request, audit_id, period_start, period_end, account,
+                real_history_detail, account_real_trades, signatures,
+            )
             tester_groups: dict[str, int] = {}
             for trade in tester_trades:
                 key = f"{trade.get('symbol') or '?'} / {trade.get('strategy') or '?'}"
@@ -355,9 +400,13 @@ class LiveAuditController:
                 comparison = self._compare(real_trades, tester_trades, symbol_points, request, strategies)
                 result = self._result_base(request, period_start, period_end, real_trades, tester_trades, quality)
                 result.update(comparison)
+                invalid_tester = sum((comparison.get("comparison_detail") or {}).get("tester_data_issues", {}).values())
                 result["summary"] = (
-                    f"{comparison['matched_trades']} coincidencias y {comparison['discrepancies']} discrepancias; "
-                    f"{comparison['stalled_strategies']} estrategia(s) sin continuidad."
+                    f"{comparison['matched_trades']} parejas alineadas, "
+                    f"{comparison['within_tolerance_trades']} dentro de todas las tolerancias y "
+                    f"{comparison['discrepancies']} discrepancias; "
+                    f"{comparison['stalled_strategies']} estrategia(s) sin continuidad"
+                    + (f"; {invalid_tester} operación(es) tester con tiempos inválidos." if invalid_tester else ".")
                 )
                 result["status"] = result["status_label"] = "completed"
                 result["status_label"] = "COMPLETADA"
@@ -365,9 +414,17 @@ class LiveAuditController:
             result["account"] = account
             result["real_history_detail"] = real_history_detail
             result["audit_key"] = audit_key
+            result["audit_id"] = audit_id
             result["portfolio_type"] = request["portfolio_type"]
+            result["strategy_artifacts"] = strategy_artifacts
+            result["real_account_report"] = real_account_report
             detail = result.get("comparison_detail") or {}
-            detail_log = "; ".join(f"{key}={value}" for key, value in detail.items())
+            detail_log = "; ".join(
+                f"{key}={detail[key]}" for key in (
+                    "matched_by_strategy", "within_tolerance_by_strategy", "deviating_by_strategy",
+                    "missing_by_strategy", "unmatched_real", "deviation_reasons", "tester_data_issues",
+                ) if detail.get(key)
+            )
             self._update(
                 audit_key, final_status, result["summary"],
                 f"Comparación finalizada" + (f": {detail_log}" if detail_log else ""), last_result=result,
@@ -666,6 +723,50 @@ class LiveAuditController:
             )
         return detail, matching
 
+    def _broker_volume_rules(self) -> dict[str, tuple[float, float]]:
+        """Carga volume_min/volume_step publicados por el agente del broker."""
+        project = Path(str(self.owner.config["project_dir"])).expanduser().resolve()
+        broker = str(self.owner.config.get("broker") or "ICTRADING").strip().lower()
+        path = project / "assets" / f"{broker}_symbol_specs.json"
+        try:
+            data = load_json(path)
+        except (OSError, ValueError):
+            return {}
+        symbols = data.get("symbols") if isinstance(data, dict) else None
+        if not isinstance(symbols, dict):
+            return {}
+        rules: dict[str, tuple[float, float]] = {}
+        for symbol, raw in symbols.items():
+            if not isinstance(raw, dict):
+                continue
+            try:
+                volume_min = float(raw.get("volume_min") or 0.0)
+                volume_step = float(raw.get("volume_step") or volume_min or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if volume_min > 0:
+                rules[str(symbol).casefold()] = (volume_min, volume_step if volume_step > 0 else volume_min)
+        return rules
+
+    @staticmethod
+    def _tester_lot(
+        member: dict[str, Any], rules: dict[str, tuple[float, float]],
+    ) -> tuple[float, float, float | None, float | None, int]:
+        """Normaliza un lote guardado antiguo al mínimo y paso reales del broker."""
+        portfolio_lot = float(member.get("lot") if member.get("lot") is not None else .01)
+        try:
+            units = max(1, int(member.get("units") or 1))
+        except (TypeError, ValueError):
+            units = 1
+        rule = rules.get(str(member.get("symbol") or "").casefold())
+        if not rule:
+            return portfolio_lot, portfolio_lot, None, None, units
+        volume_min, volume_step = rule
+        tester_lot = max(portfolio_lot, volume_min * units)
+        if volume_step > 0:
+            tester_lot = math.ceil((tester_lot - 1e-12) / volume_step) * volume_step
+        return portfolio_lot, round(tester_lot, 8), volume_min, volume_step, units
+
     @staticmethod
     def _set_value(text: str, key: str, value: str) -> str:
         pattern = re.compile(rf"(?mi)^{re.escape(key)}=([^|\r\n]*)(.*)$")
@@ -694,9 +795,83 @@ class LiveAuditController:
             return matches[0]
         raise FileNotFoundError(f"No se encontró el set del portafolio: {path.name or raw}")
 
+    def _write_real_account_report(
+        self, request: dict[str, Any], audit_id: str,
+        period_start: datetime, period_end: datetime, account: dict[str, Any],
+        history: dict[str, Any], trades: list[dict[str, Any]],
+        signatures: set[tuple[str, str]],
+    ) -> dict[str, Any]:
+        """Crea un reporte autocontenido del historial real, sin credenciales."""
+        reports_dir = self.runtime_dir / f"audit_{request['audit_key']}" / audit_id / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        filename = "real_account_period_report.html"
+
+        def escaped(value: Any) -> str:
+            if isinstance(value, datetime):
+                value = value.isoformat()
+            return html.escape(str(value if value not in (None, "") else "—"))
+
+        rows: list[str] = []
+        selected_count = 0
+        for trade in sorted(trades, key=lambda item: item.get("close_time") or datetime.min.replace(tzinfo=timezone.utc)):
+            signature = (
+                str(trade.get("symbol") or "").casefold(),
+                str(trade.get("strategy") or ""),
+            )
+            selected = signature in signatures
+            selected_count += int(selected)
+            rows.append(
+                "<tr>"
+                f"<td>{escaped(trade.get('symbol'))}</td>"
+                f"<td>{escaped(trade.get('strategy'))}</td>"
+                f"<td>{escaped(trade.get('side'))}</td>"
+                f"<td>{escaped(trade.get('open_time'))}</td>"
+                f"<td>{escaped(trade.get('close_time'))}</td>"
+                f"<td>{escaped(trade.get('volume'))}</td>"
+                f"<td>{escaped(trade.get('open_price'))}</td>"
+                f"<td>{escaped(trade.get('close_price'))}</td>"
+                f"<td>{escaped(trade.get('profit'))}</td>"
+                f"<td class=\"{'selected' if selected else 'foreign'}\">{'SÍ' if selected else 'NO'}</td>"
+                "</tr>"
+            )
+        if not rows:
+            rows.append('<tr><td colspan="10">No se reconstruyeron cierres en el periodo.</td></tr>')
+
+        diagnostics = [
+            ("Deals brutos del periodo", history.get("period_raw_deals")),
+            ("Deals de mercado", history.get("market_deals")),
+            ("Aperturas", history.get("opening_deals")),
+            ("Cierres", history.get("closing_deals")),
+            ("Operaciones reconstruidas", history.get("trades_reconstructed")),
+            ("Aperturas anteriores recuperadas", history.get("positions_recovered")),
+        ]
+        cards = "".join(
+            f"<div><small>{escaped(label)}</small><strong>{escaped(value)}</strong></div>"
+            for label, value in diagnostics
+        )
+        document = f"""<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cuenta real · auditoría {escaped(request['audit_key'])}</title>
+<style>
+body{{margin:0;padding:28px;background:#07111f;color:#e8f3ff;font:14px system-ui,sans-serif}}h1{{margin:.2rem 0}}p{{color:#9fb5ca}}.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:20px 0}}.cards div{{padding:14px;border:1px solid #294158;border-radius:10px;background:#0d1b29}}small{{display:block;color:#8eb6d5}}strong{{font-size:18px}}.meta{{padding:14px;border-left:4px solid #42d3b0;background:#0b1d20}}table{{width:100%;border-collapse:collapse;background:#0b1622}}th,td{{padding:9px 10px;border:1px solid #294158;text-align:left;white-space:nowrap}}th{{position:sticky;top:0;background:#102338;color:#a9d7f5}}.selected{{color:#6ce8c7;font-weight:700}}.foreign{{color:#ffc96b}}.wrap{{overflow:auto;max-height:70vh}}
+</style></head><body>
+<p>REPORTE DE CUENTA REAL</p><h1>Historial reconstruido del periodo auditado</h1>
+<div class="meta">Cuenta <b>{escaped(account.get('login'))}</b> · servidor <b>{escaped(account.get('server'))}</b> · {escaped(period_start)} → {escaped(period_end)}<br>Modo: <b>{escaped(request['portfolio_type'])}</b>. Se muestran todos los cierres reconstruidos; la última columna indica cuáles pertenecen a la variante auditada.</div>
+<div class="cards">{cards}</div>
+<p>{len(trades)} cierre(s) reconstruido(s) en la cuenta; {selected_count} pertenecen al portafolio seleccionado y {len(trades) - selected_count} son ajenos.</p>
+<div class="wrap"><table><thead><tr><th>Símbolo</th><th>Magic</th><th>Lado</th><th>Apertura</th><th>Cierre</th><th>Volumen</th><th>Precio apertura</th><th>Precio cierre</th><th>PnL</th><th>En modo auditado</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+</body></html>"""
+        (reports_dir / filename).write_text(document, encoding="utf-8", newline="\n")
+        return {
+            "filename": filename,
+            "account_trades": len(trades),
+            "portfolio_trades": selected_count,
+            "foreign_trades": len(trades) - selected_count,
+        }
+
     def _run_tester(
         self, request: dict[str, Any], audit_id: str, period_start: datetime, period_end: datetime
-    ) -> tuple[list[dict[str, Any]], list[float], dict[str, int]]:
+    ) -> tuple[list[dict[str, Any]], list[float], dict[str, int], list[dict[str, Any]]]:
         from portfolio_manager.mt5_report import parse_report
 
         detail, members = self._portfolio_members(request["portfolio_id"], request["portfolio_type"])
@@ -708,14 +883,43 @@ class LiveAuditController:
             directory.mkdir(parents=True, exist_ok=True)
         set_files: list[Path] = []
         member_by_stem: dict[str, dict[str, Any]] = {}
+        volume_rules = self._broker_volume_rules()
         for index, member in enumerate(members, 1):
             source = self._resolve_set(str(member.get("set_path") or member.get("set_id") or ""))
             text, set_encoding = _read_set_text(source)
-            text = self._set_value(text, "StartLots", f"{float(member.get('lot') or .01):.8f}".rstrip("0").rstrip("."))
+            portfolio_lot, tester_lot, volume_min, volume_step, units = self._tester_lot(member, volume_rules)
+            text = self._set_value(text, "StartLots", f"{tester_lot:.8f}".rstrip("0").rstrip("."))
             target = sets_dir / f"audit_{index:03d}_{source.name}"
             target.write_text(text, encoding=set_encoding, newline="\n")
+            runtime_text, _runtime_encoding = _read_set_text(target)
+            runtime_lot_text = self._set_parameter(runtime_text, "StartLots")
+            try:
+                runtime_lot = float(runtime_lot_text)
+            except (TypeError, ValueError):
+                runtime_lot = None
             set_files.append(target)
-            member_by_stem[target.stem] = member
+            member_by_stem[target.stem] = {
+                "member": member,
+                "artifact": {
+                    "strategy": str(member.get("candidate_id") or target.stem),
+                    "symbol": str(member.get("symbol") or ""),
+                    "configured_lot": portfolio_lot,
+                    "tester_lot": tester_lot,
+                    "portfolio_units": units,
+                    "broker_volume_min": volume_min,
+                    "broker_volume_step": volume_step,
+                    "lot_adjusted_to_broker_rules": not math.isclose(
+                        portfolio_lot, tester_lot, rel_tol=0, abs_tol=1e-9
+                    ),
+                    "runtime_start_lots": runtime_lot,
+                    "lot_matches_portfolio": (
+                        runtime_lot is not None and math.isclose(runtime_lot, portfolio_lot, rel_tol=0, abs_tol=1e-9)
+                    ),
+                    "magic": self._set_parameter(runtime_text, "EA_MagicNumber"),
+                    "source_set": source.name,
+                    "runtime_set": target.name,
+                },
+            }
         selected_summary = ", ".join(
             f"{member.get('symbol') or '?'}:{member.get('candidate_id') or Path(str(member.get('set_path') or '')).stem}"
             for member in members
@@ -800,7 +1004,9 @@ class LiveAuditController:
         tester_trades: list[dict[str, Any]] = []
         qualities: list[float] = []
         strategies: dict[str, int] = {}
-        for stem, member in member_by_stem.items():
+        strategy_artifacts: list[dict[str, Any]] = []
+        for stem, prepared in member_by_stem.items():
+            member = prepared["member"]
             candidates = [reports_dir / f"{stem}.htm", reports_dir / f"{stem}.html"]
             report_path = next((path for path in candidates if path.is_file()), None)
             if report_path is None:
@@ -811,6 +1017,20 @@ class LiveAuditController:
                 qualities.append(quality)
             strategy = str(member.get("candidate_id") or stem)
             strategies[strategy] = len(report.trades)
+            observed_trade_volumes = sorted({round(float(trade.size), 8) for trade in report.trades})
+            runtime_lot = prepared["artifact"].get("runtime_start_lots")
+            artifact = dict(prepared["artifact"])
+            artifact.update(
+                report_file=report_path.name,
+                tester_trades=len(report.trades),
+                history_quality_pct=quality,
+                observed_trade_volumes=observed_trade_volumes,
+                report_volumes_match_start_lots=(
+                    all(math.isclose(value, runtime_lot, rel_tol=0, abs_tol=1e-9) for value in observed_trade_volumes)
+                    if observed_trade_volumes and runtime_lot is not None else None
+                ),
+            )
+            strategy_artifacts.append(artifact)
             self._update(
                 request["audit_key"], "testing", "Leyendo reportes del Strategy Tester.",
                 f"Reporte {report.symbol} / {strategy}: {len(report.trades)} operaciones, "
@@ -824,7 +1044,7 @@ class LiveAuditController:
                     "open_time": open_time, "close_time": close_time, "open_price": trade.open_price,
                     "close_price": trade.close_price, "volume": trade.size, "profit": trade.profit_loss,
                 })
-        return tester_trades, qualities, strategies
+        return tester_trades, qualities, strategies, strategy_artifacts
 
     @staticmethod
     def _compare(
@@ -833,47 +1053,114 @@ class LiveAuditController:
     ) -> dict[str, Any]:
         unused = set(range(len(real)))
         matched = 0
+        within_tolerance = 0
         deviations = 0
         matched_by_strategy: dict[str, int] = {}
+        within_tolerance_by_strategy: dict[str, int] = {}
+        deviating_by_strategy: dict[str, int] = {}
         missing_by_strategy: dict[str, int] = {}
         deviation_reasons = {"close_time": 0, "open_price": 0, "volume": 0, "pnl": 0, "drawdown": 0}
+        tester_data_issues: dict[str, int] = {}
+        operation_comparisons: list[dict[str, Any]] = []
         time_limit = request["trade_time_tolerance_seconds"]
-        for expected in tester:
+        for tester_index, expected in enumerate(tester, 1):
+            strategy = str(expected["strategy"])
+            data_issues: list[str] = []
+            if expected["close_time"] < expected["open_time"]:
+                data_issues.append("close_before_open")
+                tester_data_issues["close_before_open"] = tester_data_issues.get("close_before_open", 0) + 1
             candidates: list[tuple[float, int]] = []
+            same_market: list[tuple[float, int]] = []
             for index in unused:
                 actual = real[index]
                 if actual["symbol"].casefold() != expected["symbol"].casefold() or actual["side"] != expected["side"]:
                     continue
                 delta = abs((actual["open_time"] - expected["open_time"]).total_seconds())
+                same_market.append((delta, index))
                 if delta <= time_limit:
                     candidates.append((delta, index))
             if not candidates:
-                strategy = str(expected["strategy"])
                 missing_by_strategy[strategy] = missing_by_strategy.get(strategy, 0) + 1
+                nearest = min(same_market) if same_market else None
+                nearest_trade = real[nearest[1]] if nearest else None
+                operation_comparisons.append({
+                    "tester_index": tester_index,
+                    "status": "missing",
+                    "strategy": strategy,
+                    "tester": _trade_view(expected),
+                    "real": None,
+                    "nearest_unused_real": _trade_view(nearest_trade),
+                    "measurements": {
+                        "nearest_open_time_delta_seconds": round(nearest[0], 3) if nearest else None,
+                    },
+                    "limits": {"open_time_seconds": time_limit},
+                    "data_issues": data_issues,
+                    "reasons": [
+                        "open_time_outside_tolerance" if nearest else "no_real_same_symbol_and_side"
+                    ],
+                })
                 continue
-            _, index = min(candidates)
+            open_time_delta, index = min(candidates)
             unused.remove(index)
             actual = real[index]
             matched += 1
-            strategy = str(expected["strategy"])
             matched_by_strategy[strategy] = matched_by_strategy.get(strategy, 0) + 1
             point = points.get(actual["symbol"], 0.0)
             price_limit = request["price_tolerance_points"] * point
             volume_limit = max(expected["volume"], 1e-9) * request["volume_tolerance_pct"] / 100
             pnl_limit = max(abs(expected["profit"]), 1.0) * request["pnl_deviation_warning_pct"] / 100
-            reasons = []
-            if abs(actual["close_time"].timestamp() - expected["close_time"].timestamp()) > time_limit:
+            close_time_delta = abs((actual["close_time"] - expected["close_time"]).total_seconds())
+            open_price_delta = abs(float(actual["open_price"]) - float(expected["open_price"]))
+            volume_delta = abs(float(actual["volume"]) - float(expected["volume"]))
+            pnl_delta = abs(float(actual["profit"]) - float(expected["profit"]))
+            reasons: list[str] = []
+            if close_time_delta > time_limit:
                 reasons.append("close_time")
-            if point > 0 and abs(actual["open_price"] - expected["open_price"]) > price_limit:
+            if point > 0 and open_price_delta > price_limit:
                 reasons.append("open_price")
-            if abs(actual["volume"] - expected["volume"]) > volume_limit:
+            if volume_delta > volume_limit:
                 reasons.append("volume")
-            if abs(actual["profit"] - expected["profit"]) > pnl_limit:
+            if pnl_delta > pnl_limit:
                 reasons.append("pnl")
             if reasons:
                 deviations += 1
+                deviating_by_strategy[strategy] = deviating_by_strategy.get(strategy, 0) + 1
                 for reason in reasons:
                     deviation_reasons[reason] += 1
+            else:
+                within_tolerance += 1
+                within_tolerance_by_strategy[strategy] = within_tolerance_by_strategy.get(strategy, 0) + 1
+            operation_comparisons.append({
+                "tester_index": tester_index,
+                "real_index": index + 1,
+                "status": "deviation" if reasons else "matched",
+                "strategy": strategy,
+                "tester": _trade_view(expected),
+                "real": _trade_view(actual),
+                "nearest_unused_real": None,
+                "measurements": {
+                    "open_time_delta_seconds": round(open_time_delta, 3),
+                    "close_time_delta_seconds": round(close_time_delta, 3),
+                    "open_price_delta": round(open_price_delta, 10),
+                    "open_price_delta_points": round(open_price_delta / point, 3) if point > 0 else None,
+                    "volume_delta": round(volume_delta, 8),
+                    "volume_delta_pct": round(volume_delta / max(abs(float(expected["volume"])), 1e-9) * 100, 3),
+                    "pnl_delta": round(pnl_delta, 2),
+                    "pnl_delta_pct": round(pnl_delta / max(abs(float(expected["profit"])), 1.0) * 100, 3),
+                },
+                "limits": {
+                    "open_time_seconds": time_limit,
+                    "close_time_seconds": time_limit,
+                    "open_price_points": request["price_tolerance_points"],
+                    "open_price_absolute": round(price_limit, 10),
+                    "volume_pct": request["volume_tolerance_pct"],
+                    "volume_absolute": round(volume_limit, 8),
+                    "pnl_pct": request["pnl_deviation_warning_pct"],
+                    "pnl_absolute": round(pnl_limit, 2),
+                },
+                "data_issues": data_issues,
+                "reasons": reasons,
+            })
         missing = len(tester) - matched
         extra = len(unused)
         real_dd, tester_dd = _drawdown(real), _drawdown(tester)
@@ -883,21 +1170,64 @@ class LiveAuditController:
             deviation_reasons["drawdown"] += 1
         stalled = sum(1 for strategy, count in strategies.items() if count and not matched_by_strategy.get(strategy))
         unmatched_real: dict[str, int] = {}
+        unmatched_real_operations: list[dict[str, Any]] = []
         for index in unused:
             trade = real[index]
             key = f"{trade.get('symbol') or '?'} / magic {trade.get('strategy') or '?'}"
             unmatched_real[key] = unmatched_real.get(key, 0) + 1
+            unmatched_real_operations.append({
+                "real_index": index + 1,
+                "status": "extra",
+                "real": _trade_view(trade),
+                "reason": "not_used_by_any_tester_operation",
+            })
+        strategy_summary = []
+        for strategy in sorted(strategies):
+            strategy_summary.append({
+                "strategy": strategy,
+                "tester_trades": int(strategies.get(strategy) or 0),
+                "aligned": matched_by_strategy.get(strategy, 0),
+                "within_tolerance": within_tolerance_by_strategy.get(strategy, 0),
+                "with_deviations": deviating_by_strategy.get(strategy, 0),
+                "missing_real": missing_by_strategy.get(strategy, 0),
+            })
         return {
-            "matched_trades": matched, "missing_real_trades": missing, "extra_real_trades": extra,
+            "matched_trades": matched, "within_tolerance_trades": within_tolerance,
+            "missing_real_trades": missing, "extra_real_trades": extra,
+            "deviating_pairs": sum(deviating_by_strategy.values()),
             "deviating_trades": deviations, "discrepancies": missing + extra + deviations,
             "stalled_strategies": stalled, "real_drawdown": round(real_dd, 2),
             "tester_drawdown": round(tester_dd, 2), "drawdown_deviation_pct": round(dd_deviation, 2),
             "comparison_detail": {
                 "matched_by_strategy": matched_by_strategy,
+                "within_tolerance_by_strategy": within_tolerance_by_strategy,
+                "deviating_by_strategy": deviating_by_strategy,
                 "missing_by_strategy": missing_by_strategy,
                 "unmatched_real": unmatched_real,
                 "deviation_reasons": {key: value for key, value in deviation_reasons.items() if value},
+                "tester_data_issues": tester_data_issues,
                 "time_tolerance_seconds": time_limit,
+                "methodology": {
+                    "alignment": "Mismo símbolo y lado; apertura dentro de tolerancia; se elige el menor delta y cada real se usa una vez.",
+                    "validation": "Después se validan cierre, precio de apertura, volumen y PnL; el drawdown se valida sobre el conjunto.",
+                    "tolerances": {
+                        "time_seconds": time_limit,
+                        "price_points": request["price_tolerance_points"],
+                        "volume_pct": request["volume_tolerance_pct"],
+                        "pnl_pct": request["pnl_deviation_warning_pct"],
+                        "drawdown_pct": request["drawdown_deviation_warning_pct"],
+                    },
+                },
+                "strategy_summary": strategy_summary,
+                "operation_comparisons": operation_comparisons,
+                "unmatched_real_operations": unmatched_real_operations,
+                "drawdown": {
+                    "real": round(real_dd, 2),
+                    "tester": round(tester_dd, 2),
+                    "deviation_pct": round(dd_deviation, 2),
+                    "limit_pct": request["drawdown_deviation_warning_pct"],
+                    "outside_tolerance": dd_deviation > request["drawdown_deviation_warning_pct"],
+                },
             },
         }
 

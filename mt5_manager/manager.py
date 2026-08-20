@@ -147,6 +147,25 @@ def node_request(
         return exc.code, value
 
 
+def node_artifact_request(
+    node: dict[str, Any], path: str, *, timeout: float = 120,
+) -> tuple[int, bytes, str]:
+    """Obtiene bytes de un reporte del nodo sin interpretarlos como JSON."""
+    base_url = str(node.get("url") or "").rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise ValueError(f"URL invalida para {node.get('id')}: {base_url}")
+    request = urllib.request.Request(
+        base_url + path,
+        method="GET",
+        headers={"Authorization": f"Bearer {node.get('token', '')}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, response.read(), response.headers.get("Content-Type", "application/octet-stream")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(), exc.headers.get("Content-Type", "application/json; charset=utf-8")
+
+
 def submit_repair_request(node: dict[str, Any], payload: dict[str, Any]) -> None:
     try:
         status, value = node_request(
@@ -200,6 +219,20 @@ class ManagerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type + ("; charset=utf-8" if content_type.startswith("text/") else ""))
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_artifact(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type or "application/octet-stream")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if (content_type or "").casefold().startswith("text/html"):
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+            )
         self.end_headers()
         self.wfile.write(body)
 
@@ -380,6 +413,24 @@ class ManagerHandler(BaseHTTPRequestHandler):
             except KeyError as exc:
                 self._send_json(400, {"error": str(exc)})
             return
+        if (
+            len(parts) == 8 and parts[:2] == ["api", "nodes"]
+            and parts[3] == "live-audits" and parts[5] == "artifacts"
+        ):
+            try:
+                node = self._node(urllib.parse.unquote(parts[2]))
+                encoded = "/".join(
+                    urllib.parse.quote(urllib.parse.unquote(value), safe="")
+                    for value in (parts[4], parts[6], parts[7])
+                )
+                status, body, content_type = node_artifact_request(
+                    node, f"/api/v1/live-audits/{encoded.split('/')[0]}/artifacts/"
+                    f"{encoded.split('/')[1]}/{encoded.split('/')[2]}", timeout=120,
+                )
+                self._send_artifact(status, body, content_type)
+            except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+                self._send_json(502, {"error": str(exc)})
+            return
         if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audits":
             try:
                 node = self._node(urllib.parse.unquote(parts[2]))
@@ -435,6 +486,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
         if relative in {
             "app.js", "styles.css", "universe.html", "universe.js",
             "live_audit.html", "live_audit.js", "live_audit.css",
+            "live_audit_result.html", "live_audit_result.js", "live_audit_result.css",
             "portfolios.html", "portfolios.js",
             "portfolios_monthly.html", "portfolios_monthly.js",
             "portfolio_improvement.js", "portfolio_monthly_improvement.js",

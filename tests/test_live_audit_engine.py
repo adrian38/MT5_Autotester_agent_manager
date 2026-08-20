@@ -80,7 +80,9 @@ class LiveAuditEngineTests(unittest.TestCase):
             "close_price": 1.1, "volume": .01, "profit": 1.0,
         }
         controller._extract_real = lambda *_args: ([dict(trade)], {"EURUSD": .00001}, {"login": "111"})
-        controller._run_tester = lambda *_args: ([dict(trade)], [] if quality is None else [quality], {"one": 1})
+        controller._run_tester = lambda *_args: (
+            [dict(trade)], [] if quality is None else [quality], {"one": 1}, []
+        )
         return owner, controller
 
     @staticmethod
@@ -141,6 +143,69 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertNotIn("\x00", reread)
         self.assertIn("StartLots=0.02||0.01||0.01||1||N", reread)
         self.assertEqual(LiveAuditController._set_parameter(reread, "EA_MagicNumber"), "1007")
+
+    def test_saved_ustec_lot_is_raised_to_the_broker_minimum_for_the_tester(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            assets = root / "assets"
+            assets.mkdir()
+            (assets / "ictrading_symbol_specs.json").write_text(
+                '{"symbols":{"USTEC":{"volume_min":0.1,"volume_step":0.1}}}',
+                encoding="utf-8",
+            )
+            owner = FakeOwner("idle")
+            owner.config.update(project_dir=str(root), broker="ICTRADING")
+            controller = LiveAuditController(owner, root / "runtime")
+            rules = controller._broker_volume_rules()
+            result = controller._tester_lot(
+                {"symbol": "USTEC", "units": 1, "lot": 0.01}, rules,
+            )
+
+        self.assertEqual(result, (0.01, 0.1, 0.1, 0.1, 1))
+
+    def test_real_account_report_marks_portfolio_and_foreign_closures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            controller = LiveAuditController(FakeOwner("idle"), Path(temp))
+            now = datetime.now(timezone.utc)
+            trades = [
+                {"strategy": "1007", "symbol": "EURUSD", "side": "buy", "open_time": now,
+                 "close_time": now, "open_price": 1.1, "close_price": 1.2, "volume": .06, "profit": 3.0},
+                {"strategy": "999", "symbol": "XAUUSD", "side": "sell", "open_time": now,
+                 "close_time": now, "open_price": 1.0, "close_price": .9, "volume": .01, "profit": 2.0},
+            ]
+            artifact = controller._write_real_account_report(
+                request(), "run_1", now - timedelta(days=7), now,
+                {"login": "111", "server": "IC-Real"}, {"period_raw_deals": 4}, trades,
+                {("eurusd", "1007")},
+            )
+            report_path = Path(temp) / "live_audits" / "audit_9" / "run_1" / "reports" / artifact["filename"]
+            report = report_path.read_text(encoding="utf-8")
+
+        self.assertEqual(artifact["account_trades"], 2)
+        self.assertEqual(artifact["portfolio_trades"], 1)
+        self.assertEqual(artifact["foreign_trades"], 1)
+        self.assertIn("EURUSD", report)
+        self.assertIn("XAUUSD", report)
+        self.assertNotIn("real-secret", report)
+
+    def test_artifact_path_only_exposes_reports_from_current_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            controller = LiveAuditController(FakeOwner("idle"), Path(temp))
+            controller.states["9"] = {"audit_key": "9", "audit_id": "run_1", "status": "completed"}
+            reports = Path(temp) / "live_audits" / "audit_9" / "run_1" / "reports"
+            reports.mkdir(parents=True)
+            report = reports / "strategy.htm"
+            report.write_text("report", encoding="utf-8")
+            hidden_set = reports / "strategy.set"
+            hidden_set.write_text("StartLots=0.06", encoding="utf-8")
+
+            self.assertEqual(controller.artifact_path("9", "run_1", "strategy.htm"), report.resolve())
+            with self.assertRaises(ValueError):
+                controller.artifact_path("9", "run_1", "strategy.set")
+            with self.assertRaises(ValueError):
+                controller.artifact_path("9", "run_1", "../strategy.htm")
+            with self.assertRaises(FileNotFoundError):
+                controller.artifact_path("9", "old_run", "strategy.htm")
 
     def test_real_history_waits_for_sync_and_recovers_open_before_period(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -235,7 +300,7 @@ class LiveAuditEngineTests(unittest.TestCase):
             "close_time": now, "open_price": 1.1, "volume": .01, "profit": 1.0,
         }, {
             "strategy": "two", "symbol": "XAUUSD", "side": "sell", "open_time": now,
-            "close_time": now, "open_price": 1.0, "volume": .01, "profit": 1.0,
+            "close_time": now - timedelta(hours=1), "open_price": 1.0, "volume": .01, "profit": 1.0,
         }]
         result = LiveAuditController._compare(
             real, expected, {"EURUSD": .00001}, request(), {"one": 1, "two": 1},
@@ -243,6 +308,22 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertEqual(result["comparison_detail"]["missing_by_strategy"], {"two": 1})
         self.assertEqual(result["comparison_detail"]["deviation_reasons"]["volume"], 1)
         self.assertEqual(result["comparison_detail"]["deviation_reasons"]["pnl"], 1)
+        self.assertEqual(result["matched_trades"], 1)
+        self.assertEqual(result["within_tolerance_trades"], 0)
+        self.assertEqual(result["deviating_pairs"], 1)
+        rows = result["comparison_detail"]["operation_comparisons"]
+        self.assertEqual([row["status"] for row in rows], ["deviation", "missing"])
+        self.assertEqual(rows[0]["real"]["strategy"], "1007")
+        self.assertIsInstance(rows[0]["tester"]["open_time"], str)
+        self.assertEqual(rows[0]["measurements"]["open_price_delta_points"], 10000.0)
+        self.assertEqual(rows[1]["reasons"], ["no_real_same_symbol_and_side"])
+        self.assertEqual(rows[1]["data_issues"], ["close_before_open"])
+        self.assertEqual(result["comparison_detail"]["tester_data_issues"], {"close_before_open": 1})
+        self.assertEqual(result["comparison_detail"]["strategy_summary"][0], {
+            "strategy": "one", "tester_trades": 1, "aligned": 1,
+            "within_tolerance": 0, "with_deviations": 1, "missing_real": 0,
+        })
+        self.assertIn("cada real se usa una vez", result["comparison_detail"]["methodology"]["alignment"])
 
     def test_active_pipeline_is_paused_and_only_that_pipeline_is_resumed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

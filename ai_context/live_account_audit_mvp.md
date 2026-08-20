@@ -217,3 +217,61 @@ edición todavía no capturada. `refreshAuditStates()` actualiza únicamente cad
 región `.live-audit-operation` mediante `renderAuditOperations(ids)`. Los
 cambios de estructura solicitados por el usuario (añadir o quitar usos) siguen
 siendo los únicos que reconstruyen las tarjetas completas.
+
+### El resultado es una página auditable, no un JSON en un modal
+
+`Último resultado` abre `live_audit_result.html?node=<id>&audit=<audit_key>` en
+una pestaña nueva. La página separa resumen, metodología, trazabilidad del
+historial real, continuidad por estrategia, comparación operación por operación
+y cierres reales sin pareja. El JSON queda relegado a un bloque técnico
+plegable.
+
+Para que esa interfaz no fabrique explicaciones a partir de agregados, el nodo
+persiste `comparison_detail.operation_comparisons`: por cada operación tester
+guarda la real elegida (o el candidato no usado más próximo), deltas medidos,
+límites aplicados y motivos exactos. También conserva
+`unmatched_real_operations`, `strategy_summary`, metodología y validación de
+drawdown. `matched_trades` significa parejas alineadas por símbolo/lado/hora;
+`within_tolerance_trades` distingue las que además cumplen todos los límites.
+Un resultado anterior a este contrato muestra una advertencia y exige repetir
+la auditoría, porque sus parejas no pueden reconstruirse honestamente desde los
+totales.
+
+### Reportes MT5, reporte real y evidencia del lote ejecutado
+
+El resultado conserva `strategy_artifacts` para cada miembro de la variante:
+estrategia, símbolo, magic, lote guardado en el portafolio, `StartLots` releído
+de la copia `.set` que se entrega al tester, nombres del set de origen y de la
+copia, operaciones, History Quality y nombre del reporte MT5. La UI marca
+`COINCIDE` solo cuando el valor releído es numéricamente igual al lote del
+portafolio; no se limita a afirmar que el código intentó escribirlo.
+
+La ejecución real `20260821_000733_052028` del uso 9, variante agresiva,
+verificó los seis pares: BTCUSD 0.06, XAUUSD 0.03, USDJPY 0.04, XAGUSD 0.04,
+EURUSD 0.06 y USTEC 0.01. Los seis reportes informaron History Quality 100%.
+Esta verificación demuestra el valor escrito en el set, no debe confundirse con
+el volumen finalmente abierto por la EA. Cinco reportes negociaron exactamente
+ese volumen; USTEC negoció 0.10 aunque el set usado contenía `StartLots=0.01`.
+La UI muestra ambas columnas y marca `REPORTE ≠ SET` para no ocultar esta
+diferencia, que puede provenir de lógica interna de tamaño o límites del símbolo.
+
+Además se genera `real_account_period_report.html` con todos los cierres
+reconstruidos de la cuenta en el intervalo y una columna que distingue los de
+la variante auditada. En esa ejecución contiene 9 cierres: 5 del portafolio y
+4 ajenos. Los HTML y sus imágenes se sirven mediante una ruta autenticada del
+nodo y un proxy del manager. `artifact_path` restringe el acceso a la carpeta
+`reports/` de la ejecución visible y a extensiones de imagen/HTML; nunca sirve
+sets, INI, logs ni ejecuciones antiguas. Los HTML llevan CSP en el manager.
+
+La implementación que crea y sirve estos archivos se ejecuta en el agente IC:
+`manager_node_runtime/live_audit.py` y `manager_node_runtime/node.py`. Las
+copias `mt5_manager/live_audit_engine.py` y `mt5_manager/node.py` se mantienen
+como referencia y paridad, pero no son el proceso broker.
+## Lote mínimo del broker en portfolios antiguos
+
+Desde 2026-08-21 el auditor lee `assets/<broker>_symbol_specs.json` y normaliza
+el `StartLots` del tester a `max(lot_guardado, units * volume_min)`, redondeado a
+`volume_step`. Esto permite auditar portfolios ICTrading guardados antes de que
+la construcción consumiera `volume_min`; USTEC con una unidad y `lot=0.01` se
+prueba explícitamente a `0.10`. El artefacto conserva por separado el lote
+guardado, el lote ejecutado y la regla del broker.

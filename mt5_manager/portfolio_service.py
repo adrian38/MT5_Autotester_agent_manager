@@ -2321,15 +2321,26 @@ def result_payload(result: PortfolioResult) -> dict[str, Any]:
 def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
     """Modelo de margen del perfil configurado, con el nocional medido si lo hay.
 
-    Solo AXI estrena tramos por grupo, apalancamiento de cuenta y nocional real;
-    para el resto de perfiles devuelve el modelo heredado, de forma que ningún
-    portafolio ya guardado cambia de números.
+    AXI usa tramos por grupo, apalancamiento de cuenta y nocional real.
+    ICTrading consume únicamente ``volume_min`` para dimensionar unidades
+    ejecutables; el resto de perfiles conserva el modelo heredado.
     """
-    if normalize_margin_profile(inputs.get("margin_profile")) != "axi":
+    profile = normalize_margin_profile(inputs.get("margin_profile"))
+    if profile not in {"axi", "ictrading"}:
+        return margin_model_for_profile(inputs.get("margin_profile"))
+    symbol_specs_path = getattr(source, "symbol_specs", None)
+    if not symbol_specs_path:
         return margin_model_for_profile(inputs.get("margin_profile"))
     (
         symbol_margin, symbol_min_lot, symbol_contract_size, reference_leverage, margin_source,
-    ) = load_symbol_specs(source.symbol_specs)
+    ) = load_symbol_specs(symbol_specs_path)
+    if profile == "ictrading":
+        # ICTrading publica volume_min/volume_step en su volcado del terminal.
+        # Solo incorporamos aquí el lote mínimo: margen, nocional y leverage
+        # conservan el comportamiento heredado reservado a AXI.
+        return margin_model_for_profile(
+            inputs.get("margin_profile"), symbol_min_lot=symbol_min_lot,
+        )
     symbol_notional, group_notional, notional_source = load_symbol_notional(source.normalization)
     unmeasured_symbols = load_unmeasured_symbols(source.normalization)
     return margin_model_for_profile(

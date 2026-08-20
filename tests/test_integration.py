@@ -143,6 +143,7 @@ enabled=0
         self.assertEqual(saved["preferences"]["repair_attempts"], 3)
         self.assertTrue(saved["preferences"]["repair_after_generation"])
         self.assertTrue(saved["preferences"]["run_regression"])
+
         # La casilla de Reparar se recuerda aparte de la de la nueva ejecución.
         self.assertFalse(saved["preferences"]["repair_run_regression"])
         self.assertTrue(saved["preferences"]["cleanup_after_run"])
@@ -182,6 +183,34 @@ enabled=0
 
         with urllib.request.urlopen(self.base + "/universe.html?node=test-node", timeout=3) as response:
             self.assertIn("UNIVERSO DE ACTIVOS", response.read().decode("utf-8"))
+
+    def test_manager_proxies_only_current_live_audit_reports(self) -> None:
+        run_id = "run_1"
+        with self.controller.live_audits.lock:
+            self.controller.live_audits.states["9"] = {
+                "audit_key": "9", "audit_id": run_id, "status": "completed",
+            }
+        reports = self.controller.live_audits.runtime_dir / "audit_9" / run_id / "reports"
+        reports.mkdir(parents=True)
+        report = reports / "strategy.htm"
+        report.write_text("<html><body>MT5 report</body></html>", encoding="utf-8")
+        (reports / "strategy.set").write_text("StartLots=0.06", encoding="utf-8")
+
+        with urllib.request.urlopen(
+            self.base + "/api/nodes/test-node/live-audits/9/artifacts/run_1/strategy.htm",
+            timeout=3,
+        ) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "text/html")
+            self.assertIn(b"MT5 report", response.read())
+            self.assertIn("default-src 'none'", response.headers["Content-Security-Policy"])
+
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(
+                self.base + "/api/nodes/test-node/live-audits/9/artifacts/run_1/strategy.set",
+                timeout=3,
+            )
+        self.assertEqual(caught.exception.code, 404)
 
     def test_manager_serves_and_persists_live_audit_configuration_without_the_node(self) -> None:
         status, initial = self.request("/api/nodes/test-node/live-audit-config")
@@ -243,6 +272,12 @@ enabled=0
             self.assertIn(b"live-audit-config", response.read())
         with urllib.request.urlopen(self.base + "/live_audit.css", timeout=3) as response:
             self.assertIn(b"live-audit-configs", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_result.html?node=test-node&audit=11", timeout=3) as response:
+            self.assertIn(b"Comparaci", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_result.js", timeout=3) as response:
+            self.assertIn(b"operation_comparisons", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_result.css", timeout=3) as response:
+            self.assertIn(b"audit-operation-table", response.read())
 
     def test_pulse_projects_the_same_state_as_nodes_but_without_its_peso(self) -> None:
         """`/api/pulse` existe para poder sondear desde un móvil.

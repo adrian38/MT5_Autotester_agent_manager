@@ -2263,9 +2263,9 @@ def margin_model_for_profile(
 ) -> MarginModel:
     """Construye el modelo de margen del perfil indicado.
 
-    Solo AXI estrena margen medido y apalancamiento de cuenta. ICTrading,
-    RoboForex y TTP conservan exactamente el comportamiento anterior para no
-    mover portafolios ya guardados.
+    Solo AXI usa margen medido y apalancamiento de cuenta. ICTrading puede
+    recibir el lote mínimo medido para que una unidad sea ejecutable, pero
+    conserva el cálculo heredado de margen; RoboForex y TTP no cambian.
     """
     normalized = normalize_margin_profile(profile)
     if normalized != "axi":
@@ -2275,6 +2275,9 @@ def margin_model_for_profile(
             default_leverage=default_leverage,
             stock_contract_size=stock_contract_size,
             default_contract_size=default_contract_size,
+            # El lote mínimo no altera el modelo de margen heredado, pero sí
+            # define cuánto representa una unidad ejecutable del portafolio.
+            symbol_min_lot=dict(symbol_min_lot or {}),
         )
     return MarginModel(
         profile=normalized,

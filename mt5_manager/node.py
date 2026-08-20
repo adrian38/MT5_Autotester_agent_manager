@@ -21,6 +21,7 @@ import configparser
 import contextlib
 import hmac
 import json
+import mimetypes
 import os
 import platform
 import re
@@ -1777,6 +1778,17 @@ class NodeHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_artifact(self, path: Path) -> None:
+        body = path.read_bytes()
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _body(self, maximum: int = 1_000_000) -> dict[str, Any]:
         length = safe_int(self.headers.get("Content-Length"), 0, minimum=0, maximum=maximum)
         if length == 0:
@@ -1805,6 +1817,21 @@ class NodeHandler(BaseHTTPRequestHandler):
             self._send(200, self.server.controller.universe())
         elif parsed.path == "/api/v1/live-audits":
             self._send(200, {"audits": self.server.controller.live_audits.all_states(), "observed_at": utc_now()})
+        elif (
+            len(parsed.path.strip("/").split("/")) == 7
+            and parsed.path.strip("/").split("/")[:3] == ["api", "v1", "live-audits"]
+            and parsed.path.strip("/").split("/")[4] == "artifacts"
+        ):
+            parts = parsed.path.strip("/").split("/")
+            try:
+                path = self.server.controller.live_audits.artifact_path(
+                    urllib.parse.unquote(parts[3]),
+                    urllib.parse.unquote(parts[5]),
+                    urllib.parse.unquote(parts[6]),
+                )
+                self._send_artifact(path)
+            except (ValueError, FileNotFoundError):
+                self._send(404, {"error": "Reporte de auditoría no encontrado"})
         elif parsed.path.startswith("/api/v1/live-audits/"):
             audit_key = urllib.parse.unquote(parsed.path.rsplit("/", 1)[-1])
             self._send(200, {"audit": self.server.controller.live_audits.state(audit_key), "observed_at": utc_now()})

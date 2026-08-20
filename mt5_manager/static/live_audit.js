@@ -292,39 +292,11 @@ function applyState(data) {
   setState(configured ? `${configured} CONFIGURADO${configured === 1 ? '' : 'S'}` : 'PENDIENTE', configured ? 'completed' : 'idle');
 }
 
-function resultMetric(label, value) {
-  return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value ?? '—')}</dd></div>`;
-}
-
 function openLastResult(id) {
-  const dialog = document.querySelector('#audit-result-dialog');
-  const result = auditRuntime(id).last_result;
-  document.querySelector('#audit-result-title').textContent = `${auditTitle(id)} · última auditoría`;
-  const content = document.querySelector('#audit-result-content');
-  if (!result) {
-    content.innerHTML = '<div class="live-audit-modal-empty"><strong>Sin resultados auditados</strong><p>Cuando termine la primera auditoría, aquí aparecerán el periodo, la calidad tick, las operaciones comparadas y las discrepancias.</p></div>';
-  } else {
-    const period = [result.period_start, result.period_end].filter(Boolean).join(' → ') || `${result.period_days || '—'} días`;
-    const account = result.account || {};
-    const realHistory = result.real_history_detail || {};
-    content.innerHTML = `<div class="live-audit-result-summary"><span class="badge ${result.status === 'failed' ? 'failed' : 'completed'}">${escapeHtml(result.status_label || result.status || 'COMPLETADA')}</span><p>${escapeHtml(result.summary || 'Auditoría finalizada.')}</p></div>
-      <dl class="live-audit-result-grid">
-        ${resultMetric('Finalizada', result.completed_at)}
-        ${resultMetric('Periodo auditado', period)}
-        ${resultMetric('Modo', {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[result.portfolio_type] || result.portfolio_type)}
-        ${resultMetric('Cuenta MT5 conectada', account.connected ? `${account.login} · ${account.server}` : 'NO VERIFICADA')}
-        ${resultMetric('Deals brutos del periodo', realHistory.period_raw_deals)}
-        ${resultMetric('Cierres del periodo', realHistory.closing_deals)}
-        ${resultMetric('Aperturas anteriores recuperadas', realHistory.positions_recovered)}
-        ${resultMetric('Calidad tick', result.history_quality_pct == null ? '—' : `${result.history_quality_pct} %`)}
-        ${resultMetric('Cierres reales del portafolio', result.real_trades)}
-        ${resultMetric('Operaciones del tester', result.tester_trades)}
-        ${resultMetric('Coincidencias real ↔ tester', result.matched_trades)}
-        ${resultMetric('Discrepancias', result.discrepancies)}
-        ${resultMetric('Estrategias detenidas', result.stalled_strategies)}
-      </dl><pre class="live-audit-diagnostics">${escapeHtml(JSON.stringify({real_history: realHistory, comparison: result.comparison_detail || {}}, null, 2))}</pre>`;
-  }
-  if (!dialog.open) dialog.showModal();
+  const url = `/live_audit_result.html?node=${encodeURIComponent(nodeId)}&audit=${encodeURIComponent(id)}`;
+  const resultTab = window.open(url, '_blank');
+  if (resultTab) resultTab.opener = null;
+  else toast('El navegador bloqueó la pestaña del resultado. Permite ventanas emergentes para este manager.', true);
 }
 
 function openAuditLogs(id) {
@@ -461,7 +433,6 @@ configsEl.addEventListener('click', event => {
   else if (button.dataset.auditAction === 'run') runAuditNow(id, button);
 });
 
-document.querySelector('#audit-result-close').addEventListener('click', () => document.querySelector('#audit-result-dialog').close());
 document.querySelector('#audit-log-close').addEventListener('click', () => document.querySelector('#audit-log-dialog').close());
 
 form.addEventListener('submit', async event => {

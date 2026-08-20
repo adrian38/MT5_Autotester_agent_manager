@@ -224,8 +224,11 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         cls.static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         cls.page_text = (cls.static_dir / "live_audit.html").read_text(encoding="utf-8")
         cls.script = (cls.static_dir / "live_audit.js").read_text(encoding="utf-8")
+        cls.result_page_text = (cls.static_dir / "live_audit_result.html").read_text(encoding="utf-8")
+        cls.result_script = (cls.static_dir / "live_audit_result.js").read_text(encoding="utf-8")
         cls.manager_script = (cls.static_dir / "app.js").read_text(encoding="utf-8")
         cls.page = html.fromstring(cls.page_text)
+        cls.result_page = html.fromstring(cls.result_page_text)
 
     def test_every_node_card_links_to_the_page(self) -> None:
         self.assertIn('/live_audit.html?node=${encodeURIComponent(id)}', self.manager_script)
@@ -261,17 +264,41 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         for obsolete in ("Sincronizar cada", "Auditoría diaria a las", "Heartbeat vencido"):
             self.assertNotIn(obsolete, self.script)
 
-    def test_each_portfolio_has_manual_audit_progress_results_and_logs(self) -> None:
+    def test_each_portfolio_has_manual_audit_progress_result_tab_and_logs(self) -> None:
         self.assertIn('data-audit-action="run"', self.script)
         self.assertIn('data-audit-action="result"', self.script)
         self.assertIn('data-audit-action="logs"', self.script)
         self.assertIn('role="progressbar"', self.script)
         for stage in ("Preparación", "Extracción real", "Strategy Tester", "Comparación", "Finalizado"):
             self.assertIn(stage, self.script)
-        self.assertTrue(self.page.xpath('//dialog[@id="audit-result-dialog"]'))
+        self.assertFalse(self.page.xpath('//dialog[@id="audit-result-dialog"]'))
         self.assertTrue(self.page.xpath('//dialog[@id="audit-log-dialog"]'))
-        self.assertIn("Sin resultados auditados", self.script)
+        self.assertIn("/live_audit_result.html?node=", self.script)
+        self.assertIn("window.open(url, '_blank')", self.script)
         self.assertIn("configuration_only", self.script)
+
+    def test_result_tab_explains_method_and_each_operation_in_tables(self) -> None:
+        self.assertTrue(self.result_page.xpath('//table/tbody[@id="comparison-body"]'))
+        self.assertTrue(self.result_page.xpath('//table/tbody[@id="strategy-body"]'))
+        self.assertTrue(self.result_page.xpath('//table/tbody[@id="artifact-body"]'))
+        self.assertTrue(self.result_page.xpath('//section[@id="extra-section"]'))
+        for text in (
+            "Cómo se decide cada emparejamiento", "Comparación tester ↔ real, fila por fila",
+            "Qué archivo y qué lote ejecutó cada estrategia", "Lote del portafolio",
+            "StartLots en set usado", "Volumen(es) del reporte",
+            "Operaciones reales que ningún resultado del tester utilizó", "Diagnóstico técnico completo",
+        ):
+            self.assertIn(text, self.result_page_text)
+        for field in (
+            "operation_comparisons", "nearest_unused_real", "open_time_delta_seconds",
+            "open_price_delta_points", "volume_delta_pct", "pnl_delta_pct", "strategy_summary",
+            "strategy_artifacts", "real_account_report", "lot_matches_portfolio",
+            "observed_trade_volumes", "report_volumes_match_start_lots",
+        ):
+            self.assertIn(field, self.result_script)
+        self.assertIn("Resultado antiguo sin trazabilidad por operación", self.result_script)
+        self.assertIn("Abrir reporte MT5", self.result_script)
+        self.assertIn("Abrir reporte de cuenta real", self.result_script)
 
     def test_tick_quality_is_a_required_comparison_gate_per_portfolio(self) -> None:
         self.assertIn("Calidad de datos tick a tick", self.script)
