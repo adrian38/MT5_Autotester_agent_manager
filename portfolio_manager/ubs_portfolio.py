@@ -18,6 +18,7 @@ import math
 from pathlib import Path
 import random
 import re
+import threading
 import unicodedata
 from typing import Callable, Iterable, Sequence
 
@@ -31,6 +32,33 @@ from ubs.universe import load_asset_universe
 
 
 ProgressCallback = Callable[[str], None]
+CancellationCheck = Callable[[], bool]
+
+
+class PortfolioCalculationCancelled(RuntimeError):
+    """Raised cooperatively when the active portfolio calculation is stopped."""
+
+
+_CANCELLATION_STATE = threading.local()
+
+
+def set_portfolio_cancellation_check(
+    check: CancellationCheck | None,
+) -> CancellationCheck | None:
+    """Install a cancellation check for this worker thread and return the old one."""
+    previous = getattr(_CANCELLATION_STATE, "check", None)
+    if check is None:
+        if hasattr(_CANCELLATION_STATE, "check"):
+            delattr(_CANCELLATION_STATE, "check")
+    else:
+        _CANCELLATION_STATE.check = check
+    return previous
+
+
+def _raise_if_portfolio_cancelled() -> None:
+    check = getattr(_CANCELLATION_STATE, "check", None)
+    if check is not None and check():
+        raise PortfolioCalculationCancelled("Cálculo de portafolio detenido por el usuario")
 
 
 DEFAULT_BOOTSTRAP_SIMULATIONS = 1_000
@@ -760,6 +788,7 @@ def bootstrap_valley_drawdown(
     rng = random.Random(int(seed))
     drawdowns: list[float] = []
     for _simulation in range(int(simulations)):
+        _raise_if_portfolio_cancelled()
         sampled = 0
         equity = 0.0
         peak = 0.0
@@ -1839,6 +1868,10 @@ def evaluate_portfolio(
     enforce_point_dd: bool = True,
     daily_dd_full_history: bool = False,
 ) -> PortfolioEvaluation:
+    # Es el punto caliente común de la búsqueda UBS. La comprobación por hilo
+    # permite detener el UBS completo sin alterar el comportamiento mensual,
+    # que no instala ninguna señal de cancelación.
+    _raise_if_portfolio_cancelled()
     active_sets = [strategy for strategy in sets if allocations.get(strategy.set_id, 0) > 0]
     if not active_sets:
         return PortfolioEvaluation(

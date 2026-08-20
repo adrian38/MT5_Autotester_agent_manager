@@ -18,6 +18,7 @@ from typing import Any
 
 from . import dev_branch
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
+from .manager_restart import ManagerRestartController, RestartAlreadyRunning
 from .portfolio_service import (
     PortfolioCoordinator,
     legacy_compatible_portfolio_save_payload,
@@ -307,6 +308,11 @@ class ManagerHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
+        if parsed.path == "/api/manager/restart":
+            query = urllib.parse.parse_qs(parsed.query)
+            lines = safe_int(query.get("lines", [120])[0], 120, minimum=1, maximum=1000)
+            self._send_json(200, self.server.manager_restart.status(log_lines=lines))
+            return
         if parsed.path == "/api/nodes":
             self._send_json(200, {"nodes": self._all_status(), "observed_at": utc_now()})
             return
@@ -406,6 +412,14 @@ class ManagerHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
+        if parsed.path == "/api/manager/restart":
+            try:
+                self._send_json(202, self.server.manager_restart.start())
+            except RestartAlreadyRunning as exc:
+                self._send_json(409, {"error": str(exc)})
+            except (ValueError, OSError, RuntimeError) as exc:
+                self._send_json(503, {"error": str(exc)})
+            return
         if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3:] == ["queue", "cancel"]:
             try:
                 node = self._node(urllib.parse.unquote(parts[2]))
@@ -436,6 +450,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     self._send_json(200, {"settings": self.server.portfolios.update_settings(node_id, scope, body)})
                 elif action == "generate":
                     self._send_json(202, {"job": self.server.portfolios.start(node_id, scope, body)})
+                elif action == "stop":
+                    self._send_json(202, {"job": self.server.portfolios.stop(node_id, scope)})
                 elif action == "save":
                     save_payload = self.server.portfolios.prepare_save(
                         node_id, scope, str(body.get("proposal_key") or "")
@@ -682,6 +698,31 @@ class ManagerServer(ThreadingHTTPServer):
             else Path.cwd() / "runtime" / "portfolio_settings.json"
         )
         self.portfolios = PortfolioCoordinator(nodes, portfolio_settings_path)
+        repo_dir = str(
+            os.environ.get("MT5_MANAGER_RESTART_REPO")
+            or config.get("manager_repo_dir")
+            or Path(__file__).resolve().parents[1]
+        )
+        restart_state_file = str(
+            os.environ.get("MT5_MANAGER_RESTART_STATE")
+            or config.get("manager_restart_state_file")
+            or Path.cwd() / "runtime" / "manager_restart.json"
+        )
+        restart_log_file = str(
+            os.environ.get("MT5_MANAGER_RESTART_LOG")
+            or config.get("manager_restart_log_file")
+            or Path.cwd() / "runtime" / "manager_restart.log"
+        )
+        self.manager_restart = ManagerRestartController(
+            repo_dir,
+            restart_state_file,
+            restart_log_file,
+            container_name=str(
+                os.environ.get("MT5_MANAGER_CONTAINER_NAME")
+                or config.get("manager_container_name")
+                or "mt5-autotester-manager"
+            ),
+        )
         super().__init__(address, ManagerHandler)
 
     def preferences_for(self, node_id: str) -> dict[str, Any]:
@@ -762,6 +803,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args(argv)
     config = dev_branch.apply_manager_config(load_json(args.config))
+    config_dir = Path(args.config).expanduser().resolve().parent
+    config.setdefault("manager_repo_dir", str(config_dir))
+    config.setdefault("manager_restart_state_file", str(config_dir / "runtime" / "manager_restart.json"))
+    config.setdefault("manager_restart_log_file", str(config_dir / "runtime" / "manager_restart.log"))
     config.setdefault(
         "preferences_file",
         str(Path(args.config).expanduser().resolve().parent / "runtime" / "launch_preferences.json"),

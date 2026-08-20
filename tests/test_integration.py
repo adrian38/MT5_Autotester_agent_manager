@@ -422,6 +422,23 @@ enabled=0
         self.assertEqual(payload["status"], "restarting")
         self.assertTrue(self.restart_requested.wait(1))
 
+    def test_manager_restart_has_its_own_async_endpoint_and_status(self) -> None:
+        accepted = {"status": "starting", "step": "starting", "log": []}
+        with mock.patch.object(self.manager.manager_restart, "start", return_value=accepted) as start:
+            status, payload = self.request("/api/manager/restart", {})
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["status"], "starting")
+        start.assert_called_once_with()
+
+        completed = {"status": "completed", "step": "completed", "log": ["ok"]}
+        with mock.patch.object(
+            self.manager.manager_restart, "status", return_value=completed
+        ) as restart_status:
+            status, payload = self.request("/api/manager/restart?lines=80")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["log"], ["ok"])
+        restart_status.assert_called_once_with(log_lines=80)
+
     def test_application_restart_refuses_pending_work(self) -> None:
         with self.controller.lock:
             self.controller.queue.append({"id": "queued-test"})
@@ -651,6 +668,18 @@ enabled=0
         self.assertEqual(status, 200)
         self.assertEqual(payload, task_state)
         status_call.assert_called_once_with("test-node", "full_history")
+
+    def test_portfolio_stop_endpoint_reaches_the_coordinator(self) -> None:
+        job = {"id": "ubs-stop", "status": "stopping"}
+        with mock.patch.object(self.manager.portfolios, "stop", return_value=job) as stop:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/stop",
+                {"scope": "full_history"},
+            )
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload, {"job": job})
+        stop.assert_called_once_with("test-node", "full_history")
 
     def test_saved_portfolio_improvement_reaches_the_independent_job(self) -> None:
         job = {"id": "improve-33", "status": "running", "operation": "improve"}

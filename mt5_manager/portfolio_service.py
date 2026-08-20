@@ -32,6 +32,7 @@ from portfolio_manager.ubs_portfolio import (
     OptimizationDecision,
     PortfolioResult,
     PortfolioType,
+    PortfolioCalculationCancelled,
     StrategyAllocation,
     UnusedSetInfo,
     bootstrap_valley_drawdown,
@@ -50,6 +51,7 @@ from portfolio_manager.ubs_portfolio import (
     portfolio_group_key,
     portfolio_group_summary,
     portfolio_symbol_key,
+    set_portfolio_cancellation_check,
     slice_strategy_sets_to_month,
     summarize_robust_rows,
     validate_strict_monthly_portfolio,
@@ -3306,6 +3308,7 @@ class PortfolioCoordinator:
         self.proposals: dict[str, list[dict[str, Any]]] = {}
         self.tasks: dict[str, list[dict[str, Any]]] = {}
         self.task_workers: set[str] = set()
+        self.cancellation_events: dict[str, threading.Event] = {}
         if settings_path.is_file():
             try:
                 loaded = load_json(settings_path)
@@ -3403,7 +3406,7 @@ class PortfolioCoordinator:
     ) -> dict[str, Any]:
         key = self._key(node_id, scope)
         with self.lock:
-            if (self.jobs.get(key) or {}).get("status") == "running":
+            if (self.jobs.get(key) or {}).get("status") in {"running", "stopping"}:
                 raise ValueError("Ya hay un cálculo de portafolio en curso")
             if any(task.get("status") in {"pending", "running"} for task in self.tasks.get(key, [])):
                 raise ValueError("Hay una tarea de portafolio pendiente o en ejecución")
@@ -3421,6 +3424,7 @@ class PortfolioCoordinator:
                 "stage": 0, "stage_total": stage_total,
             }
             self.jobs[key] = job
+            self.cancellation_events[key] = threading.Event()
             self.proposals.pop(key, None)
         # El log se crea antes del hilo en los tres ámbitos: así «Ver log» ya
         # tiene contenido en cuanto la pantalla ve el trabajo en marcha.
@@ -3438,9 +3442,28 @@ class PortfolioCoordinator:
                     "progress": "Error preparando el log del cálculo",
                     "error": str(exc),
                 })
+                self.cancellation_events.pop(key, None)
             raise
         threading.Thread(target=self._worker, args=(node_id, scope, settings, operation, portfolio_id), daemon=True).start()
         return dict(job)
+
+    def stop(self, node_id: str, scope: str) -> dict[str, Any]:
+        scope = normalize_portfolio_scope(scope)
+        if scope != "full_history":
+            raise ValueError("Detener solo está disponible para Portafolio UBS")
+        key = self._key(node_id, scope)
+        with self.lock:
+            job = self.jobs.get(key) or {}
+            if job.get("status") == "stopping":
+                return dict(job)
+            if job.get("status") != "running":
+                raise ValueError("No hay un cálculo UBS en curso")
+            event = self.cancellation_events.get(key)
+            if event is None:
+                raise ValueError("El cálculo en curso no admite detención")
+            event.set()
+            job.update({"status": "stopping", "progress": "Deteniendo cálculo…"})
+            return dict(job)
 
     def start_saved_operation(
         self, node_id: str, scope: str, portfolio_id: int, operation: str, changes: dict[str, Any] | None = None
@@ -3459,6 +3482,19 @@ class PortfolioCoordinator:
         self, node_id: str, scope: str, settings: dict[str, Any], operation: str = "generate", portfolio_id: int | None = None
     ) -> None:
         key = self._key(node_id, scope)
+        with self.lock:
+            cancellation_event = self.cancellation_events.get(key)
+
+        def cancellation_requested() -> bool:
+            return bool(cancellation_event and cancellation_event.is_set())
+
+        def raise_if_cancelled() -> None:
+            if cancellation_requested():
+                raise PortfolioCalculationCancelled("Cálculo de portafolio detenido por el usuario")
+
+        previous_cancellation_check = None
+        if scope == "full_history":
+            previous_cancellation_check = set_portfolio_cancellation_check(cancellation_requested)
 
         def progress(message: str) -> None:
             with self.lock:
@@ -3475,6 +3511,7 @@ class PortfolioCoordinator:
                         self.jobs[key]["stage_total"] = int(match.group(2))
 
         try:
+            raise_if_cancelled()
             source = self._calculation_source(node_id, scope)
             with self.lock:
                 prepared_log_path = str(self.jobs[key].get("log_path") or "")
@@ -3488,6 +3525,7 @@ class PortfolioCoordinator:
                     self.jobs[key]["log_path"] = str(log_path)
 
             def logged_progress(message: str) -> None:
+                raise_if_cancelled()
                 progress(message)
                 with log_path.open("a", encoding="utf-8") as handle:
                     handle.write(f"{datetime.now().isoformat(timespec='seconds')} | {message}\n")
@@ -3528,6 +3566,7 @@ class PortfolioCoordinator:
                     exclude_portfolio_id=portfolio_id if operation == "reoptimize" else None,
                     lock_portfolio_type=lock_portfolio_type,
                 )
+            raise_if_cancelled()
             with self.lock:
                 self.proposals[key] = proposals
                 stage_total = int(self.jobs[key].get("stage_total") or 0)
@@ -3540,7 +3579,40 @@ class PortfolioCoordinator:
                 f"Portfolio Builder {operation} listo en {source.broker}/{source.account}: "
                 f"{len(proposals)} propuesta(s)" + (f" para portafolio #{portfolio_id}" if portfolio_id else "")
             )
+        except PortfolioCalculationCancelled:
+            with self.lock:
+                job = self.jobs.get(key) or {}
+                job.update({
+                    "status": "stopped", "finished_at": utc_now(), "error": None,
+                    "progress": "Cálculo detenido por el usuario",
+                })
+                stopped_log_path = str(job.get("log_path") or "")
+            if stopped_log_path:
+                try:
+                    with Path(stopped_log_path).open("a", encoding="utf-8") as handle:
+                        handle.write(
+                            f"{datetime.now().isoformat(timespec='seconds')} | DETENIDO por el usuario\n"
+                        )
+                except OSError:
+                    pass
         except Exception as exc:
+            if cancellation_requested():
+                with self.lock:
+                    job = self.jobs.get(key) or {}
+                    job.update({
+                        "status": "stopped", "finished_at": utc_now(), "error": None,
+                        "progress": "Cálculo detenido por el usuario",
+                    })
+                    stopped_log_path = str(job.get("log_path") or "")
+                if stopped_log_path:
+                    try:
+                        with Path(stopped_log_path).open("a", encoding="utf-8") as handle:
+                            handle.write(
+                                f"{datetime.now().isoformat(timespec='seconds')} | DETENIDO por el usuario\n"
+                            )
+                    except OSError:
+                        pass
+                return
             with self.lock:
                 self.jobs[key].update({"status": "failed", "finished_at": utc_now(), "error": str(exc), "progress": "Error"})
                 failed_log_path = str(self.jobs[key].get("log_path") or "")
@@ -3558,6 +3630,12 @@ class PortfolioCoordinator:
                 )
             except Exception:
                 pass
+        finally:
+            if scope == "full_history":
+                set_portfolio_cancellation_check(previous_cancellation_check)
+            with self.lock:
+                if self.cancellation_events.get(key) is cancellation_event:
+                    self.cancellation_events.pop(key, None)
 
     def state(self, node_id: str, scope: str) -> dict[str, Any]:
         status = self.task_state(node_id, scope)

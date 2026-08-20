@@ -8,15 +8,23 @@ services:
       - "8750:8750"
     environment:
       MT5_MANAGER_EXPORT_MODE: download
+      MT5_MANAGER_CONTAINER_NAME: mt5-autotester-manager
+      MT5_MANAGER_RESTART_REPO: /workspace/manager-repo
+      MT5_MANAGER_RESTART_STATE: /app/runtime/manager_restart.json
+      MT5_MANAGER_RESTART_LOG: /app/runtime/manager_restart.log
+      GH_CONFIG_DIR: /root/.config/gh
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - type: bind
-        source: ./manager.json
+        source: ${MT5_MANAGER_REPO_SOURCE:-.}
+        target: /workspace/manager-repo
+      - type: bind
+        source: ${MT5_MANAGER_CONFIG_SOURCE:-./manager.json}
         target: /app/config/manager.json
         read_only: true
       - type: bind
-        source: ./runtime
+        source: ${MT5_MANAGER_RUNTIME_SOURCE:-./runtime}
         target: /app/runtime
       - type: bind
         source: ${IC_PROJECT_DIR}
@@ -27,3 +35,12 @@ services:
       - type: bind
         source: ${ROBOFOREX_PROJECT_DIR}
         target: /data/roboforex
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: volume
+        source: manager-git-auth
+        target: /root/.config/gh
+
+volumes:
+  manager-git-auth:
