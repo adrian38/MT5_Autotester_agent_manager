@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from mt5_manager.live_audit_engine import (
     LiveAuditController, _read_set_text, _redact_log_files, _redact_runner_output, normalize_request,
 )
+from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
 
 
 def request() -> dict:
@@ -79,7 +80,10 @@ class LiveAuditEngineTests(unittest.TestCase):
             "open_time": now, "close_time": now, "open_price": 1.1,
             "close_price": 1.1, "volume": .01, "profit": 1.0,
         }
-        controller._extract_real = lambda *_args: ([dict(trade)], {"EURUSD": .00001}, {"login": "111"})
+        controller._extract_real = lambda *_args: (
+            [dict(trade)], {"EURUSD": .00001},
+            {"login": "111", "native_report": {"filename": "real.html", "native_terminal_report": True}},
+        )
         controller._run_tester = lambda *_args: (
             [dict(trade)], [] if quality is None else [quality], {"one": 1}, []
         )
@@ -163,30 +167,33 @@ class LiveAuditEngineTests(unittest.TestCase):
 
         self.assertEqual(result, (0.01, 0.1, 0.1, 0.1, 1))
 
-    def test_real_account_report_marks_portfolio_and_foreign_closures(self) -> None:
+    def test_real_account_report_must_be_the_native_terminal_html(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            controller = LiveAuditController(FakeOwner("idle"), Path(temp))
-            now = datetime.now(timezone.utc)
-            trades = [
-                {"strategy": "1007", "symbol": "EURUSD", "side": "buy", "open_time": now,
-                 "close_time": now, "open_price": 1.1, "close_price": 1.2, "volume": .06, "profit": 3.0},
-                {"strategy": "999", "symbol": "XAUUSD", "side": "sell", "open_time": now,
-                 "close_time": now, "open_price": 1.0, "close_price": .9, "volume": .01, "profit": 2.0},
-            ]
-            artifact = controller._write_real_account_report(
-                request(), "run_1", now - timedelta(days=7), now,
-                {"login": "111", "server": "IC-Real"}, {"period_raw_deals": 4}, trades,
-                {("eurusd", "1007")},
+            path = Path(temp) / "ReportHistory-111.html"
+            path.write_text(
+                '<html><head><title>111 - Trade History Report</title>'
+                '<meta name="generator" content="client terminal"></head><body>'
+                + ("x" * 600) + "</body></html>",
+                encoding="utf-16",
             )
-            report_path = Path(temp) / "live_audits" / "audit_9" / "run_1" / "reports" / artifact["filename"]
-            report = report_path.read_text(encoding="utf-8")
+            artifact = validate_native_history_report(path, "111")
+            localized = Path(temp) / "InformeHistorial-111.html"
+            localized.write_text(
+                '<html><head><title>111 - Informe del historial de trading</title>'
+                '<meta name="generator" content="client terminal"></head><body>'
+                + ("x" * 600) + "</body></html>",
+                encoding="utf-16",
+            )
+            localized_artifact = validate_native_history_report(localized, "111")
+            fake = Path(temp) / "reconstructed.html"
+            fake.write_text("<html>Historial reconstruido</html>", encoding="utf-8")
 
-        self.assertEqual(artifact["account_trades"], 2)
-        self.assertEqual(artifact["portfolio_trades"], 1)
-        self.assertEqual(artifact["foreign_trades"], 1)
-        self.assertIn("EURUSD", report)
-        self.assertIn("XAUUSD", report)
-        self.assertNotIn("real-secret", report)
+            with self.assertRaises(NativeHistoryReportError):
+                validate_native_history_report(fake, "111")
+
+        self.assertTrue(artifact["native_terminal_report"])
+        self.assertTrue(localized_artifact["native_terminal_report"])
+        self.assertEqual(artifact["source"], "mt5_terminal_history_report")
 
     def test_artifact_path_only_exposes_reports_from_current_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

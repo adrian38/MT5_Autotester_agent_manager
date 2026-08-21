@@ -298,7 +298,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             self.assertIn(field, self.result_script)
         self.assertIn("Resultado antiguo sin trazabilidad por operación", self.result_script)
         self.assertIn("Abrir reporte MT5", self.result_script)
-        self.assertIn("Abrir reporte de cuenta real", self.result_script)
+        self.assertIn("Abrir HTML nativo de MT5", self.result_script)
 
     def test_tick_quality_is_a_required_comparison_gate_per_portfolio(self) -> None:
         self.assertIn("Calidad de datos tick a tick", self.script)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import configparser
-import html
 import json
 import math
 import re
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import load_json, save_json, utc_now
+from .mt5_native_history_report import NativeHistoryReportError, export_native_history_report
 
 
 RUNNING_STATUSES = frozenset({"queued", "pausing", "extracting", "testing", "comparing", "resuming"})
@@ -324,8 +324,14 @@ class LiveAuditController:
             self._update(audit_key, "extracting", "Extrayendo operaciones de la cuenta real.", "Conectando la cuenta real")
             period_end = datetime.now(timezone.utc)
             period_start = period_end - timedelta(days=request["period_days"])
-            real_trades, symbol_points, account = self._extract_real(request, period_start, period_end)
-            account_real_trades = list(real_trades)
+            reports_dir = self.runtime_dir / f"audit_{audit_key}" / audit_id / "reports"
+            native_report_path = reports_dir / "real_account_mt5_report.html"
+            real_trades, symbol_points, account = self._extract_real(
+                request, period_start, period_end, native_report_path,
+            )
+            real_account_report = dict(account.pop("native_report", {}) or {})
+            if not real_account_report.get("native_terminal_report"):
+                raise RuntimeError("MT5 no entregó el HTML nativo del historial de la cuenta real")
             real_history_detail = dict(account.pop("history_detail", {}) or {})
             self._update(
                 audit_key, "extracting", "Historial de la cuenta real sincronizado.",
@@ -334,7 +340,13 @@ class LiveAuditController:
                 f"{real_history_detail.get('period_raw_deals', 0)} deals brutos, "
                 f"{real_history_detail.get('closing_deals', 0)} cierres y "
                 f"{real_history_detail.get('positions_recovered', 0)} apertura(s) anterior(es) recuperada(s) "
-                f"tras {real_history_detail.get('sync_attempts', 0)} consulta(s).",
+                f"tras {real_history_detail.get('sync_attempts', 0)} consulta(s). "
+                f"HTML nativo {real_account_report.get('filename')} capturado por "
+                f"{real_account_report.get('capture_terminal_profile') or account.get('terminal_profile')} "
+                f"con periodo {real_account_report.get('period_mode')} "
+                f"{real_account_report.get('period_start_date')} a {real_account_report.get('period_end_date')}, "
+                f"{real_account_report.get('bytes', 0)} bytes, sha256 "
+                f"{str(real_account_report.get('sha256') or '')[:16]}...",
             )
             _detail, selected_members = self._portfolio_members(portfolio_id, request["portfolio_type"])
             signatures: set[tuple[str, str]] = set()
@@ -372,10 +384,6 @@ class LiveAuditController:
             )
             tester_trades, qualities, strategies, strategy_artifacts = self._run_tester(
                 request, audit_id, period_start, period_end
-            )
-            real_account_report = self._write_real_account_report(
-                request, audit_id, period_start, period_end, account,
-                real_history_detail, account_real_trades, signatures,
             )
             tester_groups: dict[str, int] = {}
             for trade in tester_trades:
@@ -484,6 +492,26 @@ class LiveAuditController:
     def _terminal_path(self) -> Path:
         return Path(self._terminal_profiles()[0][1]["mt5_path"])
 
+    def _native_report_profiles(self, excluded_path: Path) -> list[tuple[str, dict[str, str]]]:
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(self._settings_path(), encoding="utf-8")
+        excluded = excluded_path.resolve()
+        profiles: list[tuple[str, dict[str, str]]] = []
+        for section in parser.sections():
+            if not section.casefold().startswith("terminal."):
+                continue
+            profile = dict(parser[section])
+            path = Path(str(profile.get("mt5_path") or "")).expanduser()
+            if path.is_file() and path.resolve() != excluded:
+                profiles.append((section, profile))
+        profiles.sort(
+            key=lambda item: 0 if any(
+                token in " ".join(item[1].values()).casefold()
+                for token in ("mt5_ic", "capital point", "ictrading")
+            ) else 1
+        )
+        return profiles
+
     @staticmethod
     def _terminal_pids() -> set[int]:
         if sys.platform != "win32":
@@ -541,7 +569,8 @@ class LiveAuditController:
         raise RuntimeError("No se pudo iniciar sesión en ninguna terminal configurada: " + " | ".join(errors))
 
     def _extract_real(
-        self, request: dict[str, Any], period_start: datetime, period_end: datetime
+        self, request: dict[str, Any], period_start: datetime, period_end: datetime,
+        native_report_path: Path | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, float], dict[str, Any]]:
         mt5, section, profile, launched_pids = self._login_terminal(
             request["source_login"], request["source_password"], request["source_server"]
@@ -617,10 +646,75 @@ class LiveAuditController:
                 "connected": True, "terminal_profile": str(profile.get("name") or section),
                 "history_detail": history_detail,
             }
+            if native_report_path is not None:
+                account["native_report"] = self._export_native_account_report(
+                    mt5=mt5, request=request, profile_name=str(profile.get("name") or section),
+                    terminal_path=Path(str(profile.get("mt5_path") or "")),
+                    login=str(info.login), server=actual_server, period_start=period_start,
+                    period_end=period_end, destination=native_report_path,
+                )
             return trades, points, account
         finally:
             mt5.shutdown()
             self._close_terminal_pids(launched_pids)
+
+    def _export_native_account_report(
+        self, *, mt5: Any, request: dict[str, Any], profile_name: str,
+        terminal_path: Path, login: str, server: str, period_start: datetime,
+        period_end: datetime, destination: Path,
+    ) -> dict[str, object]:
+        try:
+            metadata = export_native_history_report(
+                terminal_path=terminal_path, login=login, server=server,
+                period_start=period_start, period_end=period_end, destination=destination,
+            )
+            metadata["capture_terminal_profile"] = profile_name
+            return metadata
+        except NativeHistoryReportError as primary_error:
+            # MetaTrader5 puede adjuntarse a un terminal abierto en otra sesión
+            # de Windows. La API funciona, pero su ventana no es automatizable
+            # desde el nodo. Para el reporte se abre una copia IC aislada en la
+            # sesión del nodo y se cierra al terminar.
+            mt5.shutdown()
+            errors = [f"{profile_name}: {primary_error}"]
+            for section, profile in self._native_report_profiles(terminal_path):
+                path = Path(str(profile.get("mt5_path") or ""))
+                before = self._terminal_pids()
+                launched: set[int] = set()
+                try:
+                    if not mt5.initialize(
+                        path=str(path), login=int(login), password=request["source_password"],
+                        server=server, timeout=60000,
+                    ):
+                        errors.append(f"{profile.get('name') or section}: {mt5.last_error()}")
+                        continue
+                    launched = self._terminal_pids() - before
+                    info = mt5.account_info()
+                    terminal = mt5.terminal_info()
+                    if (
+                        info is None or int(info.login) != int(login)
+                        or str(getattr(info, "server", "") or "").casefold() != server.casefold()
+                        or terminal is None or not bool(getattr(terminal, "connected", False))
+                    ):
+                        errors.append(f"{profile.get('name') or section}: la cuenta no quedó conectada")
+                        continue
+                    self._synchronised_history(mt5, period_start, period_end)
+                    metadata = export_native_history_report(
+                        terminal_path=path, login=login, server=server,
+                        period_start=period_start, period_end=period_end, destination=destination,
+                    )
+                    metadata["capture_terminal_profile"] = str(profile.get("name") or section)
+                    metadata["isolated_capture_terminal"] = True
+                    return metadata
+                except Exception as exc:
+                    errors.append(f"{profile.get('name') or section}: {exc}")
+                finally:
+                    mt5.shutdown()
+                    self._close_terminal_pids(launched or (self._terminal_pids() - before))
+            raise NativeHistoryReportError(
+                "No se pudo obtener el HTML nativo en ninguna terminal IC accesible: "
+                + " | ".join(errors)
+            ) from primary_error
 
     def _synchronised_history(
         self, mt5: Any, period_start: datetime, period_end: datetime
@@ -794,80 +888,6 @@ class LiveAuditController:
         if len(matches) == 1:
             return matches[0]
         raise FileNotFoundError(f"No se encontró el set del portafolio: {path.name or raw}")
-
-    def _write_real_account_report(
-        self, request: dict[str, Any], audit_id: str,
-        period_start: datetime, period_end: datetime, account: dict[str, Any],
-        history: dict[str, Any], trades: list[dict[str, Any]],
-        signatures: set[tuple[str, str]],
-    ) -> dict[str, Any]:
-        """Crea un reporte autocontenido del historial real, sin credenciales."""
-        reports_dir = self.runtime_dir / f"audit_{request['audit_key']}" / audit_id / "reports"
-        reports_dir.mkdir(parents=True, exist_ok=True)
-        filename = "real_account_period_report.html"
-
-        def escaped(value: Any) -> str:
-            if isinstance(value, datetime):
-                value = value.isoformat()
-            return html.escape(str(value if value not in (None, "") else "—"))
-
-        rows: list[str] = []
-        selected_count = 0
-        for trade in sorted(trades, key=lambda item: item.get("close_time") or datetime.min.replace(tzinfo=timezone.utc)):
-            signature = (
-                str(trade.get("symbol") or "").casefold(),
-                str(trade.get("strategy") or ""),
-            )
-            selected = signature in signatures
-            selected_count += int(selected)
-            rows.append(
-                "<tr>"
-                f"<td>{escaped(trade.get('symbol'))}</td>"
-                f"<td>{escaped(trade.get('strategy'))}</td>"
-                f"<td>{escaped(trade.get('side'))}</td>"
-                f"<td>{escaped(trade.get('open_time'))}</td>"
-                f"<td>{escaped(trade.get('close_time'))}</td>"
-                f"<td>{escaped(trade.get('volume'))}</td>"
-                f"<td>{escaped(trade.get('open_price'))}</td>"
-                f"<td>{escaped(trade.get('close_price'))}</td>"
-                f"<td>{escaped(trade.get('profit'))}</td>"
-                f"<td class=\"{'selected' if selected else 'foreign'}\">{'SÍ' if selected else 'NO'}</td>"
-                "</tr>"
-            )
-        if not rows:
-            rows.append('<tr><td colspan="10">No se reconstruyeron cierres en el periodo.</td></tr>')
-
-        diagnostics = [
-            ("Deals brutos del periodo", history.get("period_raw_deals")),
-            ("Deals de mercado", history.get("market_deals")),
-            ("Aperturas", history.get("opening_deals")),
-            ("Cierres", history.get("closing_deals")),
-            ("Operaciones reconstruidas", history.get("trades_reconstructed")),
-            ("Aperturas anteriores recuperadas", history.get("positions_recovered")),
-        ]
-        cards = "".join(
-            f"<div><small>{escaped(label)}</small><strong>{escaped(value)}</strong></div>"
-            for label, value in diagnostics
-        )
-        document = f"""<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cuenta real · auditoría {escaped(request['audit_key'])}</title>
-<style>
-body{{margin:0;padding:28px;background:#07111f;color:#e8f3ff;font:14px system-ui,sans-serif}}h1{{margin:.2rem 0}}p{{color:#9fb5ca}}.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:20px 0}}.cards div{{padding:14px;border:1px solid #294158;border-radius:10px;background:#0d1b29}}small{{display:block;color:#8eb6d5}}strong{{font-size:18px}}.meta{{padding:14px;border-left:4px solid #42d3b0;background:#0b1d20}}table{{width:100%;border-collapse:collapse;background:#0b1622}}th,td{{padding:9px 10px;border:1px solid #294158;text-align:left;white-space:nowrap}}th{{position:sticky;top:0;background:#102338;color:#a9d7f5}}.selected{{color:#6ce8c7;font-weight:700}}.foreign{{color:#ffc96b}}.wrap{{overflow:auto;max-height:70vh}}
-</style></head><body>
-<p>REPORTE DE CUENTA REAL</p><h1>Historial reconstruido del periodo auditado</h1>
-<div class="meta">Cuenta <b>{escaped(account.get('login'))}</b> · servidor <b>{escaped(account.get('server'))}</b> · {escaped(period_start)} → {escaped(period_end)}<br>Modo: <b>{escaped(request['portfolio_type'])}</b>. Se muestran todos los cierres reconstruidos; la última columna indica cuáles pertenecen a la variante auditada.</div>
-<div class="cards">{cards}</div>
-<p>{len(trades)} cierre(s) reconstruido(s) en la cuenta; {selected_count} pertenecen al portafolio seleccionado y {len(trades) - selected_count} son ajenos.</p>
-<div class="wrap"><table><thead><tr><th>Símbolo</th><th>Magic</th><th>Lado</th><th>Apertura</th><th>Cierre</th><th>Volumen</th><th>Precio apertura</th><th>Precio cierre</th><th>PnL</th><th>En modo auditado</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
-</body></html>"""
-        (reports_dir / filename).write_text(document, encoding="utf-8", newline="\n")
-        return {
-            "filename": filename,
-            "account_trades": len(trades),
-            "portfolio_trades": selected_count,
-            "foreign_trades": len(trades) - selected_count,
-        }
 
     def _run_tester(
         self, request: dict[str, Any], audit_id: str, period_start: datetime, period_end: datetime

@@ -255,13 +255,31 @@ ese volumen; USTEC negoció 0.10 aunque el set usado contenía `StartLots=0.01`.
 La UI muestra ambas columnas y marca `REPORTE ≠ SET` para no ocultar esta
 diferencia, que puede provenir de lógica interna de tamaño o límites del símbolo.
 
-Además se genera `real_account_period_report.html` con todos los cierres
-reconstruidos de la cuenta en el intervalo y una columna que distingue los de
-la variante auditada. En esa ejecución contiene 9 cierres: 5 del portafolio y
-4 ajenos. Los HTML y sus imágenes se sirven mediante una ruta autenticada del
-nodo y un proxy del manager. `artifact_path` restringe el acceso a la carpeta
-`reports/` de la ejecución visible y a extensiones de imagen/HTML; nunca sirve
-sets, INI, logs ni ejecuciones antiguas. Los HTML llevan CSP en el manager.
+El reporte de cuenta real ya no se reconstruye en Python. El runtime activa
+`Toolbox / History`, abre el comando nativo `Custom Period`, selecciona
+explícitamente el modo custom (índice interno 0), fija las dos fechas y ejecuta
+`Report / HTML (Internet Explorer)` del propio terminal. Guarda
+`real_account_mt5_report.html` y el PNG que MT5 genera a su lado. Antes de
+publicarlo exige el título nativo (`Trade History Report` o su localización
+oficial `Informe del historial de trading`), la firma
+`<meta name="generator" content="client terminal">` y el login auditado; si la
+exportación o la firma fallan, la auditoría falla en vez de sustituirla por una
+tabla inventada. La reconstrucción de deals sigue existiendo únicamente como
+entrada y diagnóstico de la comparación. Los HTML y sus imágenes se sirven
+mediante una ruta autenticada del nodo y un proxy del manager.
+`artifact_path` restringe el acceso a la carpeta `reports/` de la ejecución
+visible y a extensiones de imagen/HTML; nunca sirve sets, INI, logs ni
+ejecuciones antiguas. Los HTML llevan CSP en el manager.
+
+El nodo IC puede ejecutarse en una sesión RDP distinta de la terminal que usa
+la API. Una ventana de la sesión de consola no se puede automatizar desde ese
+nodo. En ese caso el runtime abre temporalmente otra terminal IC configurada
+en su propia sesión, conecta la misma cuenta, exporta el HTML y cierra solo el
+PID que él inició. El cuadro Guardar como se controla mediante mensajes del
+propio control porque `SetForegroundWindow` puede estar bloqueado en RDP. La
+ejecución real `20260821_021042_643587` verificó este camino con `MT5_IC_2`:
+82.696 bytes UTF-16, firma `client terminal`, login 52958158, periodo custom
+2026-08-14 a 2026-08-21 y PNG acompañante.
 
 La implementación que crea y sirve estos archivos se ejecuta en el agente IC:
 `manager_node_runtime/live_audit.py` y `manager_node_runtime/node.py`. Las

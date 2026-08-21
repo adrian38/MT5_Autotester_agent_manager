@@ -132,8 +132,8 @@ function renderArtifacts(result) {
     fallbackVolumes.set(operation.strategy, values);
   });
   document.querySelector('#real-report-action').innerHTML = real.filename ? `
-    <a class="button secondary audit-report-link" target="_blank" rel="noopener" href="${escapeHtml(artifactUrl(result, real.filename))}">Abrir reporte de cuenta real</a>
-    <small>${escapeHtml(real.account_trades)} cierres de cuenta · ${escapeHtml(real.portfolio_trades)} del modo · ${escapeHtml(real.foreign_trades)} ajenos</small>` : '';
+    <a class="button secondary audit-report-link" target="_blank" rel="noopener" href="${escapeHtml(artifactUrl(result, real.filename))}">Abrir HTML nativo de MT5</a>
+    <small>Report/HTML original del terminal · Custom period ${escapeHtml(real.period_start_date || '—')} → ${escapeHtml(real.period_end_date || '—')}</small>` : '';
   if (!rows.length || !result.audit_id) {
     warning.hidden = false;
     warning.innerHTML = '<strong>Ejecución antigua sin evidencia de archivos y lotes.</strong><span>Vuelve a ejecutar la auditoría para conservar los reportes MT5 y comprobar el StartLots exacto de cada copia.</span>';
