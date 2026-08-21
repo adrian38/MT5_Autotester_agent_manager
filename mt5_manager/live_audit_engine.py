@@ -187,6 +187,7 @@ def _safe_state(raw: dict[str, Any]) -> dict[str, Any]:
         "can_run": status not in RUNNING_STATUSES,
         "log_lines": list(raw.get("log_lines") or [])[-500:],
         "last_result": raw.get("last_result"),
+        "terminal_restore": raw.get("terminal_restore"),
         "error": raw.get("error"),
     }
 
@@ -204,6 +205,10 @@ class LiveAuditController:
         self.state_path = self.runtime_dir / "state.json"
         self.lock = threading.RLock()
         self.states: dict[str, dict[str, Any]] = {}
+        # Terminales donde esta auditoría activó la cuenta real. MT5 recuerda la
+        # última cuenta de cada terminal, así que hay que devolverlos a la cuenta
+        # de pruebas antes de soltarlos: ver `_restore_tester_login`.
+        self.real_account_terminals: dict[str, list[dict[str, str]]] = {}
         if self.state_path.is_file():
             try:
                 stored = load_json(self.state_path)
@@ -291,6 +296,32 @@ class LiveAuditController:
                 raw.setdefault("log_lines", []).append(f"[{utc_now()}] {log}")
             self._persist()
 
+    def _log(self, audit_key: str, line: str) -> None:
+        """Registra un hecho sin tocar el estado terminal ya publicado."""
+        with self.lock:
+            raw = self.states.get(audit_key)
+            if raw is None:
+                return
+            raw.setdefault("log_lines", []).append(f"[{utc_now()}] {line}")
+            self._persist()
+
+    def _remember_real_account_terminal(
+        self, audit_key: str, section: str, profile: dict[str, str]
+    ) -> None:
+        """Anota un terminal en el que se activó la cuenta real."""
+        path = str(profile.get("mt5_path") or "")
+        if not path:
+            return
+        with self.lock:
+            touched = self.real_account_terminals.setdefault(audit_key, [])
+            if any(row["mt5_path"].casefold() == path.casefold() for row in touched):
+                return
+            touched.append({
+                "section": section,
+                "terminal": str(profile.get("name") or section),
+                "mt5_path": path,
+            })
+
     def _wait_for_pause(self, timeout: float = 180.0) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -308,6 +339,9 @@ class LiveAuditController:
         audit_key = request["audit_key"]
         paused_by_auditor = False
         status_after_resume: str | None = None
+        unrestored: list[dict[str, Any]] = []
+        with self.lock:
+            self.real_account_terminals[audit_key] = []
         try:
             with self.owner.lock:
                 job_status = str(self.owner.state.get("status") or "idle")
@@ -443,6 +477,40 @@ class LiveAuditController:
                 error=str(exc), finished_at=utc_now(),
             )
         finally:
+            # La cuenta activa de un terminal es estado persistente de MT5, así que
+            # se restaura antes de reanudar: el pipeline reanudado vuelve a probar
+            # estrategias en esos mismos terminales.
+            try:
+                restored = self._restore_tester_login(request)
+            except Exception as exc:
+                # Un fallo aquí no puede tapar el resultado de la auditoría.
+                restored = [{
+                    "terminal": "desconocido", "mt5_path": "", "section": "",
+                    "expected_login": str(request.get("tester_login") or ""),
+                    "expected_server": str(request.get("tester_server") or ""),
+                    "login": None, "server": None, "restored": False,
+                    "error": _redact_runner_output(
+                        str(exc), str(request.get("tester_password") or ""),
+                        str(request.get("source_password") or ""),
+                    ),
+                }]
+            with self.lock:
+                self.real_account_terminals.pop(audit_key, None)
+            if restored:
+                unrestored = [row for row in restored if not row["restored"]]
+                self._log(audit_key, "Cuenta dejada en cada terminal: " + "; ".join(
+                    f"{row['terminal']} → {row['expected_login']} ({row['expected_server']})"
+                    if row["restored"] else
+                    f"{row['terminal']} → SIN RESTAURAR: {row['error']}"
+                    for row in restored
+                ))
+                with self.lock:
+                    raw = self.states[audit_key]
+                    raw["terminal_restore"] = restored
+                    last_result = raw.get("last_result")
+                    if isinstance(last_result, dict) and str(last_result.get("audit_id") or "") == audit_id:
+                        last_result["terminal_restore"] = restored
+                    self._persist()
             if paused_by_auditor:
                 try:
                     with self.lock:
@@ -460,6 +528,14 @@ class LiveAuditController:
                             (raw.get("last_result") or {}).get("summary")
                             or raw.get("error") or "Auditoría finalizada."
                         ),
+                    )
+                if unrestored:
+                    # No cambia el veredicto de la comparación, pero el usuario tiene
+                    # que enterarse sin abrir los logs: el terminal quedó en otra cuenta.
+                    raw["progress_text"] = str(raw.get("progress_text") or "") + (
+                        " ⚠ "
+                        + ", ".join(str(row["terminal"]) for row in unrestored)
+                        + f" no quedó en la cuenta de pruebas {request['tester_login']}."
                     )
                 raw["finished_at"] = utc_now()
                 self._persist()
@@ -539,7 +615,98 @@ class LiveAuditController:
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=30,
             )
 
-    def _login_terminal(self, login: str, password: str, server: str) -> tuple[Any, str, dict[str, str], set[int]]:
+    def _close_terminal_pids_gracefully(self, pids: set[int], timeout: float = 30.0) -> None:
+        """Pide el cierre con WM_CLOSE y solo fuerza a los que no obedecen.
+
+        `taskkill /F` mata el proceso antes de que MT5 escriba su configuración,
+        así que la cuenta que se acaba de restaurar se perdería y el terminal
+        volvería a abrirse en la cuenta real.
+        """
+        if not pids:
+            return
+        for pid in sorted(pids):
+            subprocess.run(
+                ["taskkill", "/PID", str(pid)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=30,
+            )
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            remaining = pids & self._terminal_pids()
+            if not remaining:
+                return
+            time.sleep(0.5)
+        self._close_terminal_pids(pids & self._terminal_pids())
+
+    def _restore_tester_login(self, request: dict[str, Any]) -> list[dict[str, Any]]:
+        """Deja cada terminal que abrió la cuenta real en la cuenta de pruebas.
+
+        El auditor cambia la cuenta del terminal con `initialize(login=...)` y MT5
+        recuerda la última: sin esta restauración el pipeline seguiría probando
+        cada estrategia con la cuenta real en lugar de la demo de pruebas. Se
+        ejecuta siempre, también cuando la auditoría falla, y antes de reanudar.
+        """
+        audit_key = str(request["audit_key"])
+        with self.lock:
+            terminals = list(self.real_account_terminals.get(audit_key) or [])
+        if not terminals:
+            return []
+        login, server = str(request["tester_login"]), str(request["tester_server"])
+        secrets = (str(request.get("tester_password") or ""), str(request.get("source_password") or ""))
+        try:
+            import MetaTrader5 as mt5
+        except ImportError:
+            return [{
+                **terminal, "expected_login": login, "expected_server": server,
+                "login": None, "server": None, "restored": False,
+                "error": "MetaTrader5 no está instalado en el agente",
+            } for terminal in terminals]
+        rows: list[dict[str, Any]] = []
+        for terminal in terminals:
+            row: dict[str, Any] = {
+                **terminal, "expected_login": login, "expected_server": server,
+                "login": None, "server": None, "restored": False, "error": None,
+            }
+            before = self._terminal_pids()
+            launched: set[int] = set()
+            try:
+                if not mt5.initialize(
+                    path=terminal["mt5_path"], login=int(login),
+                    password=request["tester_password"], server=server, timeout=60000,
+                ):
+                    row["error"] = f"MT5 no aceptó la cuenta de pruebas: {mt5.last_error()}"
+                else:
+                    launched = self._terminal_pids() - before
+                    info = mt5.account_info()
+                    actual_server = str(getattr(info, "server", "") or "") if info is not None else ""
+                    row["login"] = str(info.login) if info is not None else None
+                    row["server"] = actual_server or None
+                    if info is None or int(info.login) != int(login):
+                        row["error"] = "el terminal no confirmó la cuenta de pruebas"
+                    elif actual_server.casefold() != server.casefold():
+                        row["error"] = f"la cuenta quedó en el servidor {actual_server!r}"
+                    else:
+                        row["restored"] = True
+            except Exception as exc:
+                row["error"] = _redact_runner_output(str(exc), *secrets)
+            finally:
+                try:
+                    mt5.shutdown()
+                except Exception:
+                    pass
+                self._close_terminal_pids_gracefully(launched or (self._terminal_pids() - before))
+            rows.append(row)
+        return rows
+
+    def _login_terminal(
+        self, login: str, password: str, server: str, *, remember_for: str | None = None
+    ) -> tuple[Any, str, dict[str, str], set[int]]:
+        """Activa una cuenta en la primera terminal que la confirme.
+
+        `remember_for` marca los logins de la cuenta **real**: cada terminal que
+        acepta esas credenciales queda anotado para devolverlo después a la
+        cuenta de pruebas.
+        """
         try:
             import MetaTrader5 as mt5
         except ImportError as exc:
@@ -560,6 +727,10 @@ class LiveAuditController:
                 mt5.shutdown()
                 self._close_terminal_pids(self._terminal_pids() - before)
                 continue
+            # El terminal aceptó las credenciales: desde aquí su cuenta guardada
+            # ya cambió, tanto si el login se confirma como si no.
+            if remember_for:
+                self._remember_real_account_terminal(remember_for, section, profile)
             info = mt5.account_info()
             if info is not None and int(info.login) == int(login):
                 return mt5, section, profile, self._terminal_pids() - before
@@ -573,7 +744,8 @@ class LiveAuditController:
         native_report_path: Path | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, float], dict[str, Any]]:
         mt5, section, profile, launched_pids = self._login_terminal(
-            request["source_login"], request["source_password"], request["source_server"]
+            request["source_login"], request["source_password"], request["source_server"],
+            remember_for=str(request["audit_key"]),
         )
         try:
             info = mt5.account_info()
@@ -689,6 +861,11 @@ class LiveAuditController:
                         errors.append(f"{profile.get('name') or section}: {mt5.last_error()}")
                         continue
                     launched = self._terminal_pids() - before
+                    # Este terminal no participa en el pipeline, pero también se
+                    # queda con la cuenta real hasta que se restaure.
+                    self._remember_real_account_terminal(
+                        str(request["audit_key"]), section, profile
+                    )
                     info = mt5.account_info()
                     terminal = mt5.terminal_info()
                     if (

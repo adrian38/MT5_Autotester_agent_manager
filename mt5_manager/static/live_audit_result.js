@@ -54,6 +54,23 @@ function delta(value, limit, unit = '') {
   return `<span class="audit-delta">Δ ${escapeHtml(number(value, 4))}${escapeHtml(unit)} · límite ${escapeHtml(number(limit, 4))}${escapeHtml(unit)}</span>`;
 }
 
+function terminalRestore(result) {
+  // El auditor cambia la cuenta del terminal para leer la real. Lo que importa
+  // después es en qué cuenta lo dejó: la demo con la que se testea cada estrategia.
+  const rows = result.terminal_restore;
+  if (!Array.isArray(rows) || !rows.length) {
+    return ['NO REGISTRADO · ejecución anterior a esta comprobación', ''];
+  }
+  const failed = rows.filter(row => !row.restored);
+  if (failed.length) {
+    return [
+      `SIN RESTAURAR · ${failed.map(row => `${row.terminal}: ${row.error || 'sin confirmar'}`).join(' · ')}`,
+      'bad',
+    ];
+  }
+  return [rows.map(row => `${row.terminal} → ${row.login} · ${row.server}`).join(' · '), 'good'];
+}
+
 function renderSummary(result) {
   const account = result.account || {};
   const period = `${dateTime(result.period_start)} → ${dateTime(result.period_end)}`;
@@ -69,6 +86,7 @@ function renderSummary(result) {
     metric('Periodo auditado', period),
     metric('Modo', modeLabels[result.portfolio_type] || result.portfolio_type),
     metric('Cuenta real verificada', account.connected ? `${account.login} · ${account.server}` : 'NO VERIFICADA', account.connected ? '' : 'bad'),
+    metric('Terminal devuelto a la cuenta de pruebas', ...terminalRestore(result)),
     metric('Calidad tick', result.history_quality_pct == null ? 'NO INFORMADA' : `${number(result.history_quality_pct)} %`),
     metric('Cierres reales del portafolio', result.real_trades),
     metric('Operaciones del tester', result.tester_trades),
@@ -274,6 +292,7 @@ function renderResult(result, config, portfolios) {
     real_history: result.real_history_detail || {},
     strategy_artifacts: result.strategy_artifacts || [],
     real_account_report: result.real_account_report || {},
+    terminal_restore: result.terminal_restore || [],
     comparison: detail,
   }, null, 2);
   document.querySelector('#result-main').hidden = false;

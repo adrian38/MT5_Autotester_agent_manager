@@ -285,6 +285,54 @@ La implementación que crea y sirve estos archivos se ejecuta en el agente IC:
 `manager_node_runtime/live_audit.py` y `manager_node_runtime/node.py`. Las
 copias `mt5_manager/live_audit_engine.py` y `mt5_manager/node.py` se mantienen
 como referencia y paridad, pero no son el proceso broker.
+## El terminal se queda en la cuenta de pruebas (2026-08-21)
+
+Auditar cambia la cuenta del terminal. `MetaTrader5.initialize(login=...)` no es una
+consulta: activa esa cuenta en el terminal y MT5 la recuerda como la última. El
+auditor lo hacía en dos sitios y no lo deshacía:
+
+- `_extract_real` activa la cuenta **real** en el primer terminal que la confirma
+  —el mismo `MT5_IC_1` que el pipeline usa para probar cada estrategia—;
+- el camino aislado de `_export_native_account_report` activa la cuenta real en
+  otro terminal IC (`MT5_IC_2` en la ejecución `20260821_021042_643587`).
+
+Consecuencia: al reanudar, el pipeline seguía probando estrategias en un terminal
+logueado en la cuenta real en vez de en la demo de pruebas. El orden de las etapas
+lo tapaba a veces —el tester loguea después su propia cuenta— pero no cuando la
+auditoría fallaba antes de la etapa `testing`, ni nunca en el terminal del reporte.
+
+Ahora cada login de la cuenta real queda anotado (`_remember_real_account_terminal`)
+y el `finally` de `_run` los devuelve a la cuenta de pruebas con
+`_restore_tester_login` **antes** de reanudar el pipeline, tanto si la auditoría
+terminó bien como si falló.
+
+- La restauración se confirma con `account_info()`: login y servidor tienen que
+  coincidir con los configurados. No basta con que `initialize` devuelva `True`.
+- Los terminales que el auditor arrancó se cierran con
+  `_close_terminal_pids_gracefully` (WM_CLOSE, y `/F` solo para quien no obedezca
+  en 30 s). `taskkill /F` mata el proceso antes de que MT5 escriba su
+  configuración, así que forzarlo perdería justo la cuenta que se acaba de
+  restaurar. Un terminal que ya estaba abierto no se cierra: se queda vivo y
+  logueado en la cuenta de pruebas.
+- El resultado guarda `terminal_restore` (terminal, ruta, cuenta esperada, cuenta
+  confirmada, `restored`, error) y la pantalla de resultado lo muestra como
+  «Terminal devuelto a la cuenta de pruebas». Una ejecución anterior a este
+  contrato dice `NO REGISTRADO` en lugar de fingir que se comprobó.
+- Si la restauración falla, la auditoría **no** cambia de veredicto: la
+  comparación ya estaba hecha y es válida. El aviso va al `progress_text` de la
+  tarjeta («… no quedó en la cuenta de pruebas <login>»), al log y a la pantalla
+  de resultado en rojo.
+- Un fallo dentro de la restauración se captura: no puede tapar el resultado de la
+  auditoría ni el error original.
+
+Límite honesto de lo verificado: las pruebas comprueban que el auditor pide la
+cuenta de pruebas, valida `account_info()`, ordena el cierre respetuoso y publica
+el resultado. Que MT5 conserve esa cuenta en disco tras cerrarse depende del propio
+terminal, y eso solo se puede observar en un pase real del proceso embebido, que
+corre como el usuario `test`. Está portado a
+`manager_node_runtime/live_audit.py` de ICTrading, con guarda de paridad en
+`tests/test_node_runtime_fork_parity.py`.
+
 ## Lote mínimo del broker en portfolios antiguos
 
 Desde 2026-08-21 el auditor lee `assets/<broker>_symbol_specs.json` y normaliza

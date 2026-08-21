@@ -354,6 +354,63 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "reinicio completo de la aplicacion")
 
+    def test_the_auditor_leaves_the_tester_account_on_every_ported_fork(self) -> None:
+        # El auditor real activa la cuenta real con `initialize(login=...)` y MT5
+        # recuerda la última cuenta de cada terminal. Sin restaurar, el pipeline
+        # reanudado seguiría probando cada estrategia contra la cuenta real. El
+        # proceso que ejecuta esto es `manager_node_runtime/live_audit.py`, no la
+        # copia de referencia del manager.
+        manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        for token in (
+            "def _restore_tester_login",
+            "def _remember_real_account_terminal",
+            "def _close_terminal_pids_gracefully",
+            "remember_for=str(request[\"audit_key\"])",
+        ):
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                # El auditor real solo se ha portado a ICTrading; una copia sin el
+                # módulo no ha recibido la función, no una regresión que ocultar.
+                print(f"\n[paridad] auditor real: {project} no tiene manager_node_runtime/live_audit.py")
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            for token, hint in (
+                ("def _restore_tester_login", "la restauración de la cuenta de pruebas"),
+                ("def _remember_real_account_terminal", "el registro de terminales con la cuenta real"),
+                ("def _close_terminal_pids_gracefully", "el cierre que deja a MT5 guardar la cuenta"),
+            ):
+                self._assert_present(
+                    source,
+                    re.escape(token),
+                    f"{project}: falta {hint} (`{token}`) en manager_node_runtime/live_audit.py. "
+                    "Portar el cambio desde mt5_manager/live_audit_engine.py: sin él el "
+                    "terminal se queda en la cuenta real y el siguiente backtest del "
+                    "pipeline no usa la cuenta demo de pruebas.",
+                )
+            self._assert_absent(
+                source,
+                r"finally:\s*\n\s*if paused_by_auditor:",
+                f"{project}: la copia del agente reanuda el pipeline sin restaurar antes la "
+                "cuenta de pruebas del terminal.",
+            )
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "_restore_tester_login" in path.read_text(encoding="utf-8", errors="replace")
+                or "terminal_restore" in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre en qué cuenta queda el terminal; "
+                    "duplicar allí la cobertura de `terminal_restore`."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "cuenta que queda en el terminal tras auditar")
+
     def test_optional_cli_values_are_omitted_instead_of_stringified_on_every_fork(self) -> None:
         # `_add` es quien construye la línea de comandos de ubs_agent.py, y quien
         # la ejecuta es el nodo del agente. Con `str(None)` la semilla vacía se

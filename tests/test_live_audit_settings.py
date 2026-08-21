@@ -300,6 +300,16 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Abrir reporte MT5", self.result_script)
         self.assertIn("Abrir HTML nativo de MT5", self.result_script)
 
+    def test_the_result_says_in_which_account_the_terminal_was_left(self) -> None:
+        # El auditor cambia la cuenta del terminal para leer la real; lo que el
+        # usuario necesita comprobar es que la dejó en la de pruebas.
+        self.assertIn("Terminal devuelto a la cuenta de pruebas", self.result_script)
+        self.assertIn("function terminalRestore(result)", self.result_script)
+        self.assertIn("terminal_restore", self.result_script)
+        # Sin fila no se afirma nada, y una restauración fallida se marca en rojo.
+        self.assertIn("NO REGISTRADO", self.result_script)
+        self.assertIn("SIN RESTAURAR", self.result_script)
+
     def test_tick_quality_is_a_required_comparison_gate_per_portfolio(self) -> None:
         self.assertIn("Calidad de datos tick a tick", self.script)
         self.assertIn("no se realiza la comparación", self.script)

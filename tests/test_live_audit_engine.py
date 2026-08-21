@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -88,6 +90,19 @@ class LiveAuditEngineTests(unittest.TestCase):
             [dict(trade)], [] if quality is None else [quality], {"one": 1}, []
         )
         return owner, controller
+
+    @staticmethod
+    def _remember_on_extraction(controller: LiveAuditController) -> None:
+        """Imita al auditor real: la extracción deja la cuenta real en un terminal."""
+        extract = controller._extract_real
+
+        def remembering(*args):
+            controller._remember_real_account_terminal(
+                "9", "Terminal.2", {"name": "MT5_IC_1", "mt5_path": r"C:\IC\terminal64.exe"},
+            )
+            return extract(*args)
+
+        controller._extract_real = remembering
 
     @staticmethod
     def _wait(controller: LiveAuditController) -> dict:
@@ -268,7 +283,7 @@ class LiveAuditEngineTests(unittest.TestCase):
                     self.shutdown_called = True
 
             mt5 = FakeMt5()
-            controller._login_terminal = lambda *_args: (
+            controller._login_terminal = lambda *_args, **_kwargs: (
                 mt5, "Terminal.2", {"name": "MT5_IC_1"}, set()
             )
             trades, points, account = controller._extract_real(request(), period_start, period_end)
@@ -348,6 +363,95 @@ class LiveAuditEngineTests(unittest.TestCase):
             self.assertEqual(state["status"], "completed")
             self.assertEqual((owner.pause_calls, owner.resume_calls), (0, 0))
             self.assertEqual(owner.state["status"], "paused")
+
+    def test_the_terminal_is_left_on_the_tester_account_and_the_result_proves_it(self) -> None:
+        # El auditor loguea la cuenta real con initialize(login=...) y MT5 recuerda
+        # la última cuenta del terminal: sin restaurar, el siguiente backtest del
+        # pipeline probaría cada estrategia contra la cuenta real.
+        with tempfile.TemporaryDirectory() as temp:
+            owner, controller = self._controller(Path(temp), "running")
+            logins: list[tuple[str, str]] = []
+            closed_gracefully: list[set[int]] = []
+
+            class FakeMt5:
+                @staticmethod
+                def initialize(**kwargs) -> bool:
+                    logins.append((str(kwargs["login"]), str(kwargs["server"])))
+                    return True
+
+                @staticmethod
+                def account_info() -> SimpleNamespace:
+                    return SimpleNamespace(login=222, server="IC-Demo", currency="EUR")
+
+                @staticmethod
+                def shutdown() -> None:
+                    pass
+
+            self._remember_on_extraction(controller)
+            controller._terminal_pids = lambda: set()
+            controller._close_terminal_pids_gracefully = closed_gracefully.append
+            with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": FakeMt5}):
+                controller.start(request())
+                state = self._wait(controller)
+
+        self.assertEqual(state["status"], "completed")
+        self.assertEqual(logins, [("222", "IC-Demo")])
+        self.assertEqual(closed_gracefully, [set()])
+        restore = state["terminal_restore"]
+        self.assertEqual(len(restore), 1)
+        self.assertEqual(restore[0]["terminal"], "MT5_IC_1")
+        self.assertEqual((restore[0]["login"], restore[0]["server"]), ("222", "IC-Demo"))
+        self.assertTrue(restore[0]["restored"])
+        self.assertEqual(state["last_result"]["terminal_restore"], restore)
+        self.assertNotIn("tester-secret", str(state))
+        # La restauración precede a la reanudación: el pipeline no puede reabrir
+        # el terminal en la cuenta real.
+        self.assertEqual((owner.pause_calls, owner.resume_calls), (1, 1))
+        self.assertTrue(any("MT5_IC_1 → 222 (IC-Demo)" in line for line in state["log_lines"]))
+
+    def test_a_terminal_left_on_another_account_is_reported_without_hiding_the_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+
+            class RefusingMt5:
+                @staticmethod
+                def initialize(**_kwargs) -> bool:
+                    return False
+
+                @staticmethod
+                def last_error() -> tuple[int, str]:
+                    return -6, "Authorization failed"
+
+                @staticmethod
+                def shutdown() -> None:
+                    pass
+
+            self._remember_on_extraction(controller)
+            controller._terminal_pids = lambda: set()
+            controller._close_terminal_pids_gracefully = lambda _pids: None
+            with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": RefusingMt5}):
+                controller.start(request())
+                state = self._wait(controller)
+
+        self.assertEqual(state["status"], "completed")
+        self.assertFalse(state["terminal_restore"][0]["restored"])
+        self.assertIn("Authorization failed", state["terminal_restore"][0]["error"])
+        self.assertIn("no quedó en la cuenta de pruebas 222", state["progress_text"])
+
+    def test_the_same_terminal_is_only_restored_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            controller = LiveAuditController(FakeOwner("idle"), Path(temp))
+            for section in ("Terminal.2", "Terminal.2", "Terminal.3"):
+                controller._remember_real_account_terminal(
+                    "9", section,
+                    {"name": section, "mt5_path": rf"C:\IC\{section}\terminal64.exe"},
+                )
+            controller._remember_real_account_terminal(
+                "9", "Terminal.9", {"name": "sin ruta", "mt5_path": ""},
+            )
+            touched = controller.real_account_terminals["9"]
+
+        self.assertEqual([row["section"] for row in touched], ["Terminal.2", "Terminal.3"])
 
     def test_missing_tick_quality_makes_the_result_not_comparable(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
