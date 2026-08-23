@@ -58,6 +58,21 @@ PULSE_PORTFOLIO_JOB_KEYS = ("status", "operation", "portfolio_id", "error")
 PULSE_PORTFOLIO_TASK_KEYS = ("id", "status", "operation", "portfolio_id", "error")
 
 
+def _truthy(*values: Any) -> bool:
+    """Primer valor no vacío interpretado como interruptor; ausencia es «no».
+
+    Un interruptor que arranca procesos desatendidos no puede activarse por un
+    valor mal escrito: solo cuenta como sí lo que se reconoce explícitamente.
+    """
+    for value in values:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().casefold() in {"1", "true", "yes", "on", "si", "sí"}
+    return False
+
+
 def choose_directory(
     initial_directory: str | None = None,
     title: str = "Selecciona la carpeta para exportar los sets",
@@ -865,7 +880,25 @@ class ManagerServer(ThreadingHTTPServer):
             ),
         )
         super().__init__(address, ManagerHandler)
+        # La auditoría en vivo se dispara **solo a mano** mientras el MVP no esté
+        # cerrado. Automática pausaba el pipeline del agente, corría sola y lo
+        # reanudaba sin nadie delante; el 2026-08-21 una ejecución desatendida
+        # dejó un terminal sin cuenta y dos días de discovery a cero. Para
+        # rearmarla: `live_audit_scheduler_enabled: true` en manager.json, o
+        # MT5_MANAGER_LIVE_AUDIT_SCHEDULER=1.
+        self.live_audit_scheduler_enabled = _truthy(
+            os.environ.get("MT5_MANAGER_LIVE_AUDIT_SCHEDULER"),
+            config.get("live_audit_scheduler_enabled"),
+        )
         self.live_audit_stop = threading.Event()
+        self.live_audit_thread: threading.Thread | None = None
+        if not self.live_audit_scheduler_enabled:
+            print(
+                "[live-audit-scheduler] desactivado: la auditoría solo se lanza a mano. "
+                "Para rearmarlo, live_audit_scheduler_enabled=true en manager.json.",
+                flush=True,
+            )
+            return
         self.live_audit_thread = threading.Thread(
             target=self._live_audit_schedule_loop,
             daemon=True,
@@ -899,6 +932,10 @@ class ManagerServer(ThreadingHTTPServer):
             self.live_audit_stop.wait(300)
 
     def _run_due_live_audits(self) -> None:
+        # Segundo candado: aunque alguien arranque el bucle, sin el interruptor
+        # no se lanza ninguna auditoría.
+        if not self.live_audit_scheduler_enabled:
+            return
         now = datetime.now(timezone.utc)
         for node in self.nodes:
             node_id = str(node.get("id") or "")

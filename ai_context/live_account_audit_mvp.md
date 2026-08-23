@@ -333,6 +333,41 @@ corre como el usuario `test`. Está portado a
 `manager_node_runtime/live_audit.py` de ICTrading, con guarda de paridad en
 `tests/test_node_runtime_fork_parity.py`.
 
+## La auditoría automática queda desarmada (2026-08-23)
+
+`ManagerServer` arrancaba un hilo `live-audit-scheduler` que cada 5 minutos
+buscaba auditorías vencidas y las lanzaba solo. Con `active_job_policy`
+`pause_resume` eso significa: pausa el pipeline del agente, abre terminales MT5
+reales, audita y reanuda, sin nadie delante.
+
+Desactivado por defecto mientras el MVP no esté cerrado. Se rearma con
+`live_audit_scheduler_enabled: true` en `manager.json` o
+`MT5_MANAGER_LIVE_AUDIT_SCHEDULER=1`; cualquier otro valor —incluido un typo—
+cuenta como «no», porque un interruptor que lanza procesos desatendidos no puede
+activarse por accidente. El botón de la interfaz sigue funcionando: solo se ha
+quitado el disparo automático.
+
+Dos candados, no uno: no se arranca el hilo y `_run_due_live_audits` sale
+inmediatamente si el interruptor está apagado.
+`test_the_live_audit_scheduler_stays_disarmed_unless_it_is_switched_on` lo
+vigila. Al arrancar, el manager imprime una línea diciendo que está desactivado,
+para que no parezca que la auditoría falla en silencio.
+
+Por qué: el 2026-08-21 una ejecución desatendida cerró un terminal MT5 con
+`taskkill /F`, MT5 murió antes de guardar su configuración y el terminal perdió
+la cuenta. Los dos días siguientes ningún backtest generó informe
+(`not synchronized with trade server`) y el discovery del 08-22 puntuó 0
+supervivientes con 45/45 fallos. La causa del cierre está arreglada en el nodo
+—todos los cierres pasan ya por `_close_terminal_pids_gracefully`, ver
+«Cerrar el terminal sin matarlo» en el `ai_context/11-live-audit.md` del
+agente—, pero mientras la auditoría no esté probada no se lanza sola.
+
+Estado configurado a fecha de hoy, por si hay que restaurarlo: nodo
+`ictrading-standard-test`, auditoría `9`, portafolio 9, variante `aggressive`,
+cada 30 días, política `pause_resume`
+(`runtime/runtime/live_audit_settings.json`). No se ha tocado: sigue ahí, solo
+no se dispara.
+
 ## Lote mínimo del broker en portfolios antiguos
 
 Desde 2026-08-21 el auditor lee `assets/<broker>_symbol_specs.json` y normaliza

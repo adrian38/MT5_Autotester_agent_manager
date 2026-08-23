@@ -5,7 +5,9 @@
       "command": "cmd",
       "args": ["/c", "codebase-memory-mcp"],
       "env": {
-        "CBM_ALLOWED_ROOT": "I:\\TRADING\\MT5_Autotester_agent_manager"
+        "CBM_ALLOWED_ROOT": "C:\\Users\\Adrian\\Adrian\\TRADING\\MT5_Autotester_agent_manager",
+        "CBM_CACHE_DIR": "C:\\cbm\\cache",
+        "CBM_RUNTIME_DIR": "C:\\cbm\\run"
       }
     }
   }

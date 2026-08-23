@@ -618,6 +618,51 @@ enabled=0
         finally:
             server.server_close()
 
+    def test_the_live_audit_scheduler_stays_disarmed_unless_it_is_switched_on(self) -> None:
+        # La auditoría pausa el pipeline del agente, corre y lo reanuda. Sin
+        # nadie delante eso es una ejecución desatendida sobre terminales MT5
+        # reales: el 2026-08-21 dejó un terminal sin cuenta y dos días de
+        # discovery puntuando 0 supervivientes. Se lanza a mano hasta que el MVP
+        # esté cerrado, así que por defecto ni se arranca el hilo.
+        nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
+        with mock.patch.dict("os.environ", {}, clear=True):
+            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes})
+        try:
+            self.assertFalse(server.live_audit_scheduler_enabled)
+            self.assertIsNone(server.live_audit_thread)
+            # Y aunque se llame al barrido a mano, no sale ninguna petición.
+            with mock.patch("mt5_manager.manager.node_request") as node_request:
+                server._run_due_live_audits()
+            node_request.assert_not_called()
+        finally:
+            server.server_close()
+
+        for switch in ({"live_audit_scheduler_enabled": True}, {"live_audit_scheduler_enabled": "si"}):
+            with mock.patch.dict("os.environ", {}, clear=True):
+                server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes, **switch})
+            try:
+                self.assertTrue(server.live_audit_scheduler_enabled, msg=f"con {switch}")
+                self.assertIsNotNone(server.live_audit_thread)
+            finally:
+                server.server_close()
+
+        # El entorno también rearma, para el contenedor.
+        with mock.patch.dict("os.environ", {"MT5_MANAGER_LIVE_AUDIT_SCHEDULER": "1"}, clear=True):
+            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes})
+        try:
+            self.assertTrue(server.live_audit_scheduler_enabled)
+        finally:
+            server.server_close()
+
+        # Un valor que no se reconoce NO arma nada: un typo no puede lanzar
+        # auditorías desatendidas.
+        with mock.patch.dict("os.environ", {}, clear=True):
+            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes, "live_audit_scheduler_enabled": "quizá"})
+        try:
+            self.assertFalse(server.live_audit_scheduler_enabled)
+        finally:
+            server.server_close()
+
     def test_export_download_returns_a_zip_attachment(self) -> None:
         archive = {
             "filename": "PORTAFOLIO_9_A_M_C.zip",
