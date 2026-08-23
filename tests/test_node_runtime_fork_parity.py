@@ -94,6 +94,7 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         self.assertIn("def requalify_strategy", self.manager_source)
         self.assertIn("def _requalify_on_node", self.manager_source)
         self.assertIn("def write_needs_node", self.manager_source)
+        self.assertIn("def _supported_dataclass_values", self.manager_source)
 
     def test_batch_exclusion_accepts_monthly_on_every_reachable_fork(self) -> None:
         def check(project: Path, source: str) -> None:
@@ -410,6 +411,62 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
             )
 
         self._assert_on_every_fork(check, "cuenta que queda en el terminal tras auditar")
+
+    def test_every_reachable_fork_ignores_fields_from_a_newer_manager(self) -> None:
+        # El manager manda la tanda de riesgo por equity (`max_balance_dd_001`,
+        # `max_equity_dd_001`, DD flotante, rendimiento reciente, rutas de informe)
+        # y los campos de auditoría del resultado. El `portfolio_manager/ubs_portfolio.py`
+        # de cada agente es una generación anterior y no los declara: con
+        # `StrategyAllocation(**item)` el nodo moría con `unexpected keyword argument`,
+        # devolvía un 500 con la traza en su consola y solo guardaba en el segundo
+        # POST, el del reintento con `legacy_compatible_portfolio_save_payload`.
+        # El reintento del manager es la red, no el arreglo: cada guardado dejaba
+        # una traza que parecía una caída.
+        self._assert_present(
+            self.manager_source,
+            r"StrategyAllocation\(\*\*_supported_dataclass_values\(",
+            "El manager dejó de tolerar campos desconocidos al reconstruir las "
+            "asignaciones; sin eso esta paridad no compara nada.",
+        )
+
+        def check(project: Path, source: str) -> None:
+            for dataclass_name in (
+                "StrategyAllocation",
+                "OptimizationDecision",
+                "UnusedSetInfo",
+                "BootstrapDrawdownAnalysis",
+                "PortfolioResult",
+            ):
+                self._assert_absent(
+                    source,
+                    rf"{dataclass_name}\(\*\*(?:item|stress|result_values)\)",
+                    f"{project}: `_deserialize_proposals` sigue construyendo "
+                    f"{dataclass_name} con el diccionario crudo del manager. "
+                    "Portar `_supported_dataclass_values` de "
+                    "mt5_manager/portfolio_service.py a "
+                    "manager_node_runtime/portfolio_save.py: sin él, cada guardado "
+                    "deja un TypeError y una traza en la consola del agente antes "
+                    "de que el manager reintente con el payload heredado.",
+                )
+            self._assert_present(
+                source,
+                r"def _supported_dataclass_values",
+                f"{project}: falta `_supported_dataclass_values` en "
+                "manager_node_runtime/portfolio_save.py.",
+            )
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "max_balance_dd_001" in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre un payload de un manager "
+                    "más nuevo; duplicar allí la cobertura del filtro de campos."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "campos nuevos del manager en el guardado")
 
     def test_optional_cli_values_are_omitted_instead_of_stringified_on_every_fork(self) -> None:
         # `_add` es quien construye la línea de comandos de ubs_agent.py, y quien
