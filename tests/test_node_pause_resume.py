@@ -100,6 +100,32 @@ class NodePauseResumeTests(unittest.TestCase):
         self.assertEqual(launch.call_args.args[0], 1)
         self.assertEqual(controller.state["error"], None)
 
+    def test_a_failed_stage_can_be_resumed_from_the_same_pipeline_position(self) -> None:
+        controller = self.controller()
+        self.running_pipeline(controller)
+        controller.process = None
+        controller.state.update({"status": "failed", "pid": None, "return_code": 1})
+        controller._persist()
+
+        self.assertTrue(controller._is_resumable())
+        with mock.patch.object(controller, "_launch_next_runnable", return_value=True) as launch:
+            controller.resume()
+
+        launch.assert_called_once()
+        self.assertEqual(launch.call_args.args[0], 1)
+        self.assertEqual(controller.state["error"], None)
+
+    def test_failed_without_a_valid_saved_position_is_not_resumable(self) -> None:
+        controller = self.controller()
+        self.running_pipeline(controller)
+        controller.process = None
+        controller.state.update({"status": "failed", "current_step_index": None})
+
+        self.assertFalse(controller._is_resumable())
+
+    def test_node_announces_failed_resume_support(self) -> None:
+        self.assertTrue(self.controller().status()["capabilities"]["failed_resume"])
+
     def test_a_paused_pipeline_survives_the_agent_closing_and_reopening(self) -> None:
         controller = self.controller()
         process = self.running_pipeline(controller)

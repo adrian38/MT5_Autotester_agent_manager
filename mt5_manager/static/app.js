@@ -18,10 +18,21 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({
 }[char]));
 const domId = value => String(value).replace(/[^a-zA-Z0-9_-]/g, '_');
 
-// Estados de los que se puede continuar: 'paused' es una pausa pedida, y
-// 'interrupted' lo que queda cuando el agente se cerro con un trabajo en marcha.
-const RESUMABLE_STATES = ['paused', 'interrupted'];
-const isResumable = state => RESUMABLE_STATES.includes(String(state || ''));
+// Un fallo de la etapa relanzada no pierde el pipeline: se puede intentar otra
+// vez si el nodo conserva una posicion y un log validos.
+const RESUMABLE_STATES = ['paused', 'interrupted', 'failed'];
+const isResumable = node => {
+  const job = node?.job || {};
+  const pipeline = Array.isArray(job?.pipeline) ? job.pipeline : [];
+  const stepIndex = Number(job?.current_step_index);
+  return RESUMABLE_STATES.includes(String(job?.status || ''))
+    && (job?.status !== 'failed' || Boolean(node?.capabilities?.failed_resume))
+    && job?.current_step_index != null
+    && Number.isInteger(stepIndex)
+    && stepIndex >= 0
+    && stepIndex < pipeline.length
+    && Boolean(String(job?.log_path || '').trim());
+};
 const RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped'];
 const canRestartApplication = (node, state) => Boolean(
   node.capabilities?.application_restart
@@ -375,6 +386,7 @@ function render() {
       : 'Todavía no hay runs en la memoria SQLite.';
     const supportsQueue = Boolean(node.capabilities?.task_queue);
     const queuedCount = Number(node.task_queue?.count || 0);
+    const resumable = isResumable(node);
     const restartButton = node.capabilities?.application_restart
       ? `<button class="secondary" title="Sincronizar con origin, cerrar y volver a abrir la aplicación del agente" onclick="restartNode('${esc(id)}','${esc(name)}')" ${canRestartApplication(node, state) ? '' : 'disabled'}>Reiniciar app</button>`
       : '';
@@ -395,7 +407,7 @@ function render() {
       ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><button class="secondary" disabled title="Portafolio UBS mensual congelado temporalmente">Portafolio mensual</button><a class="button secondary" href="/portfolios_grid.html?node=${encodeURIComponent(id)}">Portafolio Grid UBS</a>`
       : '';
     const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
-    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}${liveAuditButton}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${restartButton}${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${isResumable(state) ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || isResumable(state) ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
+    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}${liveAuditButton}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${restartButton}${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${resumable ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || resumable ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
   }).join('');
 }
 

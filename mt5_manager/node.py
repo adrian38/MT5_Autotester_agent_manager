@@ -758,11 +758,10 @@ def pipeline_stage_pending_count(
         return sum(1 for row in rows if pending(row))
 
 
-#: Estados desde los que un pipeline puede continuar donde lo dejo. ``paused`` es
-#: una pausa pedida por el usuario; ``interrupted`` es lo que queda cuando el
-#: agente se cerro con un trabajo en marcha. Los dos conservan ``pipeline`` y
-#: ``current_step_index``, que es cuanto hace falta para retomarlo.
-RESUMABLE_STATUSES = frozenset({"paused", "interrupted"})
+#: Estados desde los que un pipeline puede continuar donde lo dejo. ``failed``
+#: tambien es retomable cuando la etapa relanzada fallo antes de avanzar el
+#: pipeline; ``_is_resumable`` exige que conserve posicion y log validos.
+RESUMABLE_STATUSES = frozenset({"paused", "interrupted", "failed"})
 
 
 class JobController:
@@ -839,9 +838,12 @@ class JobController:
         return self.process is not None or self._is_resumable()
 
     def _is_resumable(self) -> bool:
+        pipeline = list(self.state.get("pipeline") or [])
+        step_index = safe_int(self.state.get("current_step_index"), -1)
         return (
             str(self.state.get("status") or "") in RESUMABLE_STATUSES
-            and bool(self.state.get("pipeline"))
+            and 0 <= step_index < len(pipeline)
+            and bool(str(self.state.get("log_path") or "").strip())
         )
 
     def _enqueue(self, task_type: str, payload: dict[str, Any], summary: str) -> dict[str, Any]:
@@ -1405,7 +1407,7 @@ class JobController:
             if self.process is not None and self.process.poll() is None:
                 raise RuntimeError("Ya hay una etapa en marcha")
             if not self._is_resumable():
-                raise RuntimeError("No hay ningun pipeline pausado o interrumpido")
+                raise RuntimeError("No hay ningun pipeline pausado, interrumpido o fallido que reanudar")
             step_index = safe_int(self.state.get("current_step_index"), -1)
             pipeline = list(self.state.get("pipeline") or [])
             if not 0 <= step_index < len(pipeline):
@@ -1475,6 +1477,7 @@ class JobController:
             "capabilities": {
                 "worker_override": True,
                 "pipeline_controls": True,
+                "failed_resume": True,
                 "cycles": True,
                 "repair_runs": True,
                 "universe_management": True,

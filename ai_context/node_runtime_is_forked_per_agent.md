@@ -48,6 +48,27 @@ porque el nodo IC seguía con la versión anterior.
 | AXI | sí, portado a mano |
 | RoboForex / `MT5_Autotester_agent` | **no**, sigue devolviendo `Ruta no encontrada` |
 
+### Reanudar después de que falle la etapa relanzada
+
+El 2026-08-29 AXI y RoboForex se pausaron dejando terminales MT5 abiertas. La
+primera reanudación sí llegó a ambos nodos, pero `run_tests.py` terminó con código
+1 al detectar esas terminales. El vigilante conservó `pipeline`,
+`current_step_index` y `log_path`, pero cambió el estado a `failed`; tanto el
+backend como `app.js` solo aceptaban `paused`/`interrupted`, por lo que el botón
+«Reanudar» desaparecía precisamente cuando hacía falta reintentar.
+
+`failed` es reanudable únicamente si conserva un índice dentro del pipeline y un
+log no vacío. Los fallos sin esa información siguen siendo terminales. El nodo
+portado anuncia `capabilities.failed_resume`; el manager exige esa capacidad
+para mostrar el botón en `failed`, de modo que un despliegue mixto no ofrezca la
+acción en copias que todavía rechazan `/api/v1/jobs/resume`.
+
+| Copia | Reanudar `failed` con posición válida |
+| --- | --- |
+| Manager (`mt5_manager/node.py` + `static/app.js`) | sí, 2026-08-29 |
+| AXI | sí, portado a `manager_node_runtime/node.py` el 2026-08-29 |
+| RoboForex / `MT5_Autotester_agent` | **no**, pendiente de merge desde AXI |
+
 En el momento del port, la copia de AXI y la de ICTrading eran byte a byte
 idénticas (sin contar fin de línea), así que valió el mismo parche. No dar eso
 por hecho la próxima vez: comprobarlo con `diff --strip-trailing-cr -q` antes de
