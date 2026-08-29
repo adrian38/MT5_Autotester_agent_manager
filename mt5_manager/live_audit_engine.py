@@ -16,17 +16,21 @@ from .common import load_json, save_json, utc_now
 from .mt5_native_history_report import NativeHistoryReportError, export_native_history_report
 
 
-RUNNING_STATUSES = frozenset({"queued", "pausing", "extracting", "testing", "comparing", "resuming"})
+RUNNING_STATUSES = frozenset({
+    "queued", "pausing", "extracting", "testing", "comparing", "finalizing", "resuming",
+})
 STATUS_LABELS = {
     "idle": "NO EJECUTADO", "queued": "EN COLA", "pausing": "PAUSANDO",
     "extracting": "EXTRAYENDO", "testing": "PROBANDO", "comparing": "COMPARANDO",
-    "resuming": "REANUDANDO", "completed": "COMPLETADA", "not_comparable": "NO COMPARABLE",
+    "finalizing": "FINALIZANDO", "resuming": "REANUDANDO",
+    "completed": "COMPLETADA", "not_comparable": "NO COMPARABLE",
     "failed": "FALLIDA",
 }
 PROGRESS = {
     "idle": ("idle", 0), "queued": ("preparing", 5), "pausing": ("preparing", 10),
     "extracting": ("extracting", 25), "testing": ("testing", 55),
-    "comparing": ("comparing", 85), "resuming": ("comparing", 95),
+    "comparing": ("comparing", 85), "finalizing": ("comparing", 95),
+    "resuming": ("comparing", 98),
     "completed": ("completed", 100), "not_comparable": ("completed", 100),
     "failed": ("completed", 100),
 }
@@ -71,6 +75,9 @@ def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
         "tester_login": str(value.get("tester_login") or "").strip(),
         "tester_server": str(value.get("tester_server") or "").strip(),
         "tester_password": str(value.get("tester_password") or ""),
+        "restore_login": str(value.get("restore_login") or "").strip(),
+        "restore_server": str(value.get("restore_server") or "").strip(),
+        "restore_password": str(value.get("restore_password") or ""),
         "period_days": _as_int(value.get("period_days"), "period_days", 1),
         "min_tick_history_quality_pct": _as_float(
             value.get("min_tick_history_quality_pct"), "min_tick_history_quality_pct", 0, 100
@@ -87,10 +94,13 @@ def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
         "execution_delay_mode": str(value.get("execution_delay_mode") or "measured"),
         "fixed_delay_ms": _as_int(value.get("fixed_delay_ms", 0), "fixed_delay_ms", 0),
     }
-    for key in ("source_login", "tester_login"):
+    for key in ("source_login", "tester_login", "restore_login"):
         if not result[key].isdigit():
             raise ValueError(f"{key} debe contener solo números")
-    for key in ("source_server", "tester_server", "source_password", "tester_password"):
+    for key in (
+        "source_server", "tester_server", "restore_server",
+        "source_password", "tester_password", "restore_password",
+    ):
         if not result[key]:
             raise ValueError(f"Falta {key}")
     return result
@@ -207,7 +217,7 @@ class LiveAuditController:
         self.states: dict[str, dict[str, Any]] = {}
         # Terminales donde esta auditoría activó la cuenta real. MT5 recuerda la
         # última cuenta de cada terminal, así que hay que devolverlos a la cuenta
-        # de pruebas antes de soltarlos: ver `_restore_tester_login`.
+        # configurada para restauración antes de soltarlos: ver `_restore_tester_login`.
         self.real_account_terminals: dict[str, list[dict[str, str]]] = {}
         if self.state_path.is_file():
             try:
@@ -338,7 +348,7 @@ class LiveAuditController:
         portfolio_id = request["portfolio_id"]
         audit_key = request["audit_key"]
         paused_by_auditor = False
-        status_after_resume: str | None = None
+        terminal_status = "failed"
         unrestored: list[dict[str, Any]] = []
         with self.lock:
             self.real_account_terminals[audit_key] = []
@@ -467,31 +477,34 @@ class LiveAuditController:
                     "missing_by_strategy", "unmatched_real", "deviation_reasons", "tester_data_issues",
                 ) if detail.get(key)
             )
+            terminal_status = final_status
             self._update(
-                audit_key, final_status, result["summary"],
+                audit_key, "finalizing", "Restaurando las cuentas de todas las terminales utilizadas.",
                 f"Comparación finalizada" + (f": {detail_log}" if detail_log else ""), last_result=result,
             )
         except Exception as exc:
+            terminal_status = "failed"
             self._update(
-                audit_key, "failed", f"La auditoría falló: {exc}", str(exc),
-                error=str(exc), finished_at=utc_now(),
+                audit_key, "finalizing", f"La auditoría falló; restaurando las terminales: {exc}", str(exc),
+                error=str(exc),
             )
         finally:
-            # La cuenta activa de un terminal es estado persistente de MT5, así que
-            # se restaura antes de reanudar: el pipeline reanudado vuelve a probar
-            # estrategias en esos mismos terminales.
+            # La cuenta activa de un terminal es estado persistente de MT5. Cada
+            # terminal que tocó la auditoría se devuelve a la cuenta independiente
+            # configurada para restauración antes de reanudar el pipeline.
             try:
                 restored = self._restore_tester_login(request)
             except Exception as exc:
                 # Un fallo aquí no puede tapar el resultado de la auditoría.
                 restored = [{
                     "terminal": "desconocido", "mt5_path": "", "section": "",
-                    "expected_login": str(request.get("tester_login") or ""),
-                    "expected_server": str(request.get("tester_server") or ""),
+                    "expected_login": str(request.get("restore_login") or ""),
+                    "expected_server": str(request.get("restore_server") or ""),
                     "login": None, "server": None, "restored": False,
                     "error": _redact_runner_output(
                         str(exc), str(request.get("tester_password") or ""),
                         str(request.get("source_password") or ""),
+                        str(request.get("restore_password") or ""),
                     ),
                 }]
             with self.lock:
@@ -513,17 +526,15 @@ class LiveAuditController:
                     self._persist()
             if paused_by_auditor:
                 try:
-                    with self.lock:
-                        status_after_resume = str(self.states[audit_key].get("status") or "completed")
                     self._update(audit_key, "resuming", "Reanudando el proceso que pausó el auditor.", "Reanudación solicitada")
                     self.owner.resume()
                 except Exception as exc:
                     self._update(audit_key, "failed", f"La auditoría terminó, pero no se pudo reanudar: {exc}", str(exc), error=str(exc))
             with self.lock:
                 raw = self.states[audit_key]
-                if str(raw.get("status")) == "resuming":
+                if str(raw.get("status")) in {"finalizing", "resuming"}:
                     raw.update(
-                        status=status_after_resume or "completed",
+                        status=terminal_status,
                         progress_text=str(
                             (raw.get("last_result") or {}).get("summary")
                             or raw.get("error") or "Auditoría finalizada."
@@ -535,7 +546,7 @@ class LiveAuditController:
                     raw["progress_text"] = str(raw.get("progress_text") or "") + (
                         " ⚠ "
                         + ", ".join(str(row["terminal"]) for row in unrestored)
-                        + f" no quedó en la cuenta de pruebas {request['tester_login']}."
+                        + f" no quedó en la cuenta configurada {request['restore_login']}."
                     )
                 raw["finished_at"] = utc_now()
                 self._persist()
@@ -639,20 +650,24 @@ class LiveAuditController:
         self._close_terminal_pids(pids & self._terminal_pids())
 
     def _restore_tester_login(self, request: dict[str, Any]) -> list[dict[str, Any]]:
-        """Deja cada terminal que abrió la cuenta real en la cuenta de pruebas.
+        """Deja todos los terminales usados en la cuenta de restauración.
 
         El auditor cambia la cuenta del terminal con `initialize(login=...)` y MT5
-        recuerda la última: sin esta restauración el pipeline seguiría probando
-        cada estrategia con la cuenta real en lugar de la demo de pruebas. Se
-        ejecuta siempre, también cuando la auditoría falla, y antes de reanudar.
+        recuerda la última. La cuenta final es una configuración independiente de
+        las cuentas real y tester del perfil. Se ejecuta siempre, también cuando
+        la auditoría falla, y antes de reanudar.
         """
         audit_key = str(request["audit_key"])
         with self.lock:
             terminals = list(self.real_account_terminals.get(audit_key) or [])
         if not terminals:
             return []
-        login, server = str(request["tester_login"]), str(request["tester_server"])
-        secrets = (str(request.get("tester_password") or ""), str(request.get("source_password") or ""))
+        login, server = str(request["restore_login"]), str(request["restore_server"])
+        secrets = (
+            str(request.get("restore_password") or ""),
+            str(request.get("tester_password") or ""),
+            str(request.get("source_password") or ""),
+        )
         try:
             import MetaTrader5 as mt5
         except ImportError:
@@ -672,9 +687,9 @@ class LiveAuditController:
             try:
                 if not mt5.initialize(
                     path=terminal["mt5_path"], login=int(login),
-                    password=request["tester_password"], server=server, timeout=60000,
+                    password=request["restore_password"], server=server, timeout=60000,
                 ):
-                    row["error"] = f"MT5 no aceptó la cuenta de pruebas: {mt5.last_error()}"
+                    row["error"] = f"MT5 no aceptó la cuenta de restauración: {mt5.last_error()}"
                 else:
                     launched = self._terminal_pids() - before
                     info = mt5.account_info()
@@ -682,7 +697,7 @@ class LiveAuditController:
                     row["login"] = str(info.login) if info is not None else None
                     row["server"] = actual_server or None
                     if info is None or int(info.login) != int(login):
-                        row["error"] = "el terminal no confirmó la cuenta de pruebas"
+                        row["error"] = "el terminal no confirmó la cuenta de restauración"
                     elif actual_server.casefold() != server.casefold():
                         row["error"] = f"la cuenta quedó en el servidor {actual_server!r}"
                     else:

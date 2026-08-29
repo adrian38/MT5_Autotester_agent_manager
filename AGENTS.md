@@ -3,8 +3,15 @@
 ## Alcance obligatorio
 
 - Este repositorio es `MT5_Autotester_agent_manager`.
-- Se permite trabajar exclusivamente en `F:\TRADING\MT5_Autotester_agent_AXI` y en MT5_Autotester_agent_manager.
-- No modificar las copias de IC, RoboForex ni `MT5_Autotester_agent`.
+- En la rama `dev` se permite trabajar exclusivamente en
+  `MT5_Autotester_agent_manager` y en la copia ICTrading de este equipo:
+  `C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent`.
+- **La copia ICTrading sí se puede y se debe modificar** cuando el comportamiento
+  solicitado se ejecuta en su `manager_node_runtime/`; un cambio equivalente en
+  `mt5_manager/node.py` o `mt5_manager/live_audit_engine.py` no lo sustituye.
+- En `dev` no modificar AXI, RoboForex ni la copia genérica
+  `MT5_Autotester_agent`. Fuera de `dev`, no inferir permiso sobre otra copia:
+  debe estar autorizada explícitamente para la tarea.
 - Preservar cambios ajenos y limitar cada modificación al objetivo solicitado.
 
 ## El nodo NO ejecuta este repositorio

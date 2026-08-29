@@ -33,6 +33,11 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "drawdown_deviation_warning_pct": 15.0,
 }
 
+DEFAULT_TERMINAL_RESTORE_ACCOUNT: dict[str, str] = {
+    "login": "11637157",
+    "server": "CapitalPointTrading-MT5-4",
+}
+
 # Alias conservado para consumidores de la primera versión del MVP.
 DEFAULT_LIVE_AUDIT_SETTINGS = DEFAULT_LIVE_AUDIT_PROFILE
 
@@ -57,7 +62,9 @@ _FLOAT_LIMITS = {
     "pnl_deviation_warning_pct": (0.0, 10_000.0),
     "drawdown_deviation_warning_pct": (0.0, 10_000.0),
 }
-_SECRET_KEYS = {"source_password", "tester_password"}
+_PROFILE_SECRET_KEYS = {"source_password", "tester_password"}
+_RESTORE_SECRET_KEYS = {"restore_password"}
+_RESTORE_CREDENTIAL_ID = "__terminal_restore__"
 _REQUEST_KEYS = {"selected_audit_ids", "selected_portfolio_ids", "profiles"}
 _LEGACY_SCHEDULE_KEYS = {
     "sync_interval_minutes",
@@ -125,6 +132,25 @@ def _audit_ids(value: Any) -> list[str]:
         if audit_id not in result:
             result.append(audit_id)
     return result
+
+
+def normalize_terminal_restore_account(value: dict[str, Any]) -> dict[str, str]:
+    """Valida la cuenta independiente que debe quedar activa en cada terminal usado."""
+    if not isinstance(value, dict):
+        raise ValueError("La cuenta de restauración debe ser un objeto JSON")
+    unknown = set(value) - {"login", "server"}
+    if unknown:
+        raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
+    normalized = dict(DEFAULT_TERMINAL_RESTORE_ACCOUNT)
+    if "login" in value:
+        normalized["login"] = _text(value["login"], "login de restauración", 32)
+    if "server" in value:
+        normalized["server"] = _text(value["server"], "servidor de restauración", 160)
+    if not normalized["login"] or not normalized["login"].isdigit():
+        raise ValueError("El login de restauración debe contener solo dígitos")
+    if not normalized["server"]:
+        raise ValueError("Falta el servidor de restauración")
+    return normalized
 
 
 def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
@@ -241,6 +267,11 @@ class LiveAuditSettingsStore:
                 continue
             node_id = str(raw_node_id)
             try:
+                restore_account = (
+                    normalize_terminal_restore_account(record["restore_account"])
+                    if isinstance(record.get("restore_account"), dict)
+                    else None
+                )
                 if isinstance(record.get("profiles"), dict):
                     if "selected_audit_ids" in record:
                         selected = _audit_ids(record.get("selected_audit_ids") or [])
@@ -274,14 +305,19 @@ class LiveAuditSettingsStore:
                         for portfolio_id in portfolio_ids
                     }
                 else:
-                    continue
+                    selected = []
+                    profiles = {}
             except ValueError:
+                continue
+            if not profiles and restore_account is None:
                 continue
             self.records[node_id] = {
                 "selected_audit_ids": selected,
                 "profiles": profiles,
                 "updated_at": str(record.get("updated_at") or ""),
             }
+            if restore_account is not None:
+                self.records[node_id]["restore_account"] = restore_account
 
     def _load_credentials(self, stored: dict[str, Any]) -> None:
         cipher = self._cipher(create=False)
@@ -290,7 +326,7 @@ class LiveAuditSettingsStore:
                 continue
             node_id = str(raw_node_id)
             # Migración del primer MVP: dos secretos compartidos por todos los IDs seleccionados.
-            if _SECRET_KEYS.intersection(raw_record):
+            if _PROFILE_SECRET_KEYS.intersection(raw_record):
                 selected = (self.records.get(node_id) or {}).get("selected_audit_ids") or []
                 portfolio_records = {str(audit_id): raw_record for audit_id in selected}
             else:
@@ -303,7 +339,10 @@ class LiveAuditSettingsStore:
                 if not audit_id or len(audit_id) > 120:
                     continue
                 clean: dict[str, str] = {}
-                for key in _SECRET_KEYS:
+                secret_keys = (
+                    _RESTORE_SECRET_KEYS if audit_id == _RESTORE_CREDENTIAL_ID else _PROFILE_SECRET_KEYS
+                )
+                for key in secret_keys:
                     token = str(record.get(key) or "")
                     if not token:
                         continue
@@ -341,6 +380,20 @@ class LiveAuditSettingsStore:
             "tester_password_saved": bool(credentials.get("tester_password")),
         }
 
+    def _restore_account_state(self, node_id: str, record: dict[str, Any]) -> dict[str, Any]:
+        account = {
+            **DEFAULT_TERMINAL_RESTORE_ACCOUNT,
+            **dict(record.get("restore_account") or {}),
+        }
+        encrypted = (
+            (self.credential_records.get(node_id) or {}).get(_RESTORE_CREDENTIAL_ID) or {}
+        )
+        account["password_saved"] = bool(encrypted.get("restore_password"))
+        account["configured"] = bool(
+            account["login"] and account["server"] and account["password_saved"]
+        )
+        return account
+
     def state(self, node_id: str) -> dict[str, Any]:
         with self.lock:
             record = self.records.get(node_id) or {}
@@ -373,6 +426,7 @@ class LiveAuditSettingsStore:
                 "selected_portfolio_ids": selected_portfolios,
                 "profiles": profiles,
                 "defaults": dict(DEFAULT_LIVE_AUDIT_PROFILE),
+                "restore_account": self._restore_account_state(node_id, record),
                 "credential_state": credential_state,
                 "configured_audit_ids": configured_ids,
                 "configured_portfolio_ids": configured_portfolios,
@@ -425,7 +479,7 @@ class LiveAuditSettingsStore:
                         raw_profile["portfolio_type"] = "balanced"
                 portfolio_id = int(raw_profile.get("portfolio_id") or 0)
                 secret_changes: dict[str, str] = {}
-                for secret_key in _SECRET_KEYS:
+                for secret_key in _PROFILE_SECRET_KEYS:
                     if secret_key not in raw_profile:
                         continue
                     value = raw_profile.pop(secret_key)
@@ -443,7 +497,7 @@ class LiveAuditSettingsStore:
 
                 encrypted = dict(node_credentials.get(key) or {})
                 available_secrets = set(encrypted) | set(secret_changes)
-                if not _SECRET_KEYS.issubset(available_secrets):
+                if not _PROFILE_SECRET_KEYS.issubset(available_secrets):
                     raise ValueError(f"Guarda las dos contraseñas del portafolio #{portfolio_id} ({audit_id})")
                 if secret_changes:
                     cipher = cipher or self._cipher(create=True)
@@ -464,8 +518,74 @@ class LiveAuditSettingsStore:
                 "profiles": profiles,
                 "updated_at": utc_now(),
             }
+            if existing.get("restore_account"):
+                self.records[node_id]["restore_account"] = dict(existing["restore_account"])
             save_json(self.path, self.records)
             return self.state(node_id)
+
+    def update_restore_account(self, node_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        """Guarda la cuenta que debe quedar activa sin mezclarla con la del tester."""
+        if not isinstance(changes, dict):
+            raise ValueError("La cuenta de restauración debe ser un objeto JSON")
+        unknown = set(changes) - {"login", "server", "password"}
+        if unknown:
+            raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
+        password = changes.get("password", "")
+        if not isinstance(password, str):
+            raise ValueError("La contraseña de restauración debe ser texto")
+        if len(password) > 512:
+            raise ValueError("La contraseña de restauración no puede superar 512 caracteres")
+
+        with self.lock:
+            existing = self.records.get(node_id) or {}
+            account = normalize_terminal_restore_account({
+                **dict(existing.get("restore_account") or DEFAULT_TERMINAL_RESTORE_ACCOUNT),
+                **{key: changes[key] for key in ("login", "server") if key in changes},
+            })
+            node_credentials = {
+                str(key): dict(value)
+                for key, value in (self.credential_records.get(node_id) or {}).items()
+            }
+            encrypted = dict(node_credentials.get(_RESTORE_CREDENTIAL_ID) or {})
+            if password:
+                cipher = self._cipher(create=True)
+                encrypted["restore_password"] = cipher.encrypt(password.encode("utf-8")).decode("ascii")
+                node_credentials[_RESTORE_CREDENTIAL_ID] = encrypted
+                credential_records = dict(self.credential_records)
+                credential_records[node_id] = node_credentials
+                save_json(self.credentials_path, credential_records)
+                self.credential_records = credential_records
+            if not encrypted.get("restore_password"):
+                raise ValueError("Falta la contraseña de la cuenta de restauración")
+
+            self.records[node_id] = {
+                "selected_audit_ids": list(existing.get("selected_audit_ids") or []),
+                "profiles": {
+                    str(key): dict(value)
+                    for key, value in (existing.get("profiles") or {}).items()
+                },
+                "restore_account": account,
+                "updated_at": utc_now(),
+            }
+            save_json(self.path, self.records)
+            return self.state(node_id)
+
+    def restore_credentials(self, node_id: str) -> dict[str, str]:
+        """Devuelve al orquestador la cuenta de restauración con nombres del contrato del nodo."""
+        with self.lock:
+            state = self._restore_account_state(node_id, self.records.get(node_id) or {})
+            encrypted = (
+                (self.credential_records.get(node_id) or {}).get(_RESTORE_CREDENTIAL_ID) or {}
+            )
+            token = str(encrypted.get("restore_password") or "")
+            if not state["configured"] or not token:
+                return {}
+            cipher = self._cipher(create=False)
+            return {
+                "restore_login": str(state["login"]),
+                "restore_server": str(state["server"]),
+                "restore_password": cipher.decrypt(token.encode("ascii")).decode("utf-8"),
+            }
 
     def credentials(self, node_id: str, audit_id: str | int) -> dict[str, str]:
         """Devuelve secretos de un uso auditado solo al orquestador interno."""
@@ -476,5 +596,5 @@ class LiveAuditSettingsStore:
             cipher = self._cipher(create=False)
             return {
                 key: cipher.decrypt(token.encode("ascii")).decode("utf-8")
-                for key, token in record.items()
+                for key, token in record.items() if key in _PROFILE_SECRET_KEYS
             }

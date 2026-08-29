@@ -1489,6 +1489,7 @@ class JobController:
                 "application_restart": bool(getattr(self, "application_restart_available", False)),
                 "historical_cleanup": bool(historical_cleanup_scripts(self.config, required=False)),
                 "live_account_audit": True,
+                "live_audit_restore_account": True,
             },
             "observed_at": utc_now(),
         }

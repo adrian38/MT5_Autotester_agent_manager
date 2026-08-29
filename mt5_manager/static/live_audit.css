@@ -4,6 +4,59 @@
   font-size: 13px;
 }
 
+.live-audit-config-button {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.live-audit-settings-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.live-audit-dialog-body {
+  display: grid;
+  gap: 16px;
+  padding: 4px 20px 20px;
+}
+
+.live-audit-dialog-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.live-audit-dialog-help strong {
+  color: var(--text);
+}
+
+.live-audit-dialog-actions {
+  padding: 0 20px 20px;
+}
+
+.live-audit-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.live-audit-switch input {
+  width: auto;
+  margin-top: 3px;
+}
+
+.live-audit-switch span {
+  display: grid;
+  gap: 4px;
+}
+
+.live-audit-switch small {
+  color: var(--muted);
+}
+
 .live-audit-configs {
   display: grid;
   gap: 18px;

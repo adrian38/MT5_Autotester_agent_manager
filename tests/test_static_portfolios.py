@@ -526,6 +526,8 @@ class PortfolioFormTests(unittest.TestCase):
             "volume_tolerance_pct": (0, 1, 1.5, 100),
             "pnl_deviation_warning_pct": (0, 10, 10.5, 10000),
             "drawdown_deviation_warning_pct": (0, 15, 15.5, 10000),
+            "scheduler-check-minutes": (1, 5, 1440),
+            "scheduler-startup-delay": (0, 30, 3600),
         }
         self.assertEqual(set(fields), set(valid_values), "Actualiza la auditoría para los inputs numéricos")
 

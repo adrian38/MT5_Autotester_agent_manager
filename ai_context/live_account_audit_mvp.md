@@ -368,6 +368,43 @@ cada 30 días, política `pause_resume`
 (`runtime/runtime/live_audit_settings.json`). No se ha tocado: sigue ahí, solo
 no se dispara.
 
+## Cuenta final y programación visibles (2026-08-29)
+
+La cuenta que queda activa en los terminales ya no se deduce de la cuenta
+tester de cada perfil. Es una configuración independiente por nodo, accesible
+desde el botón `⚙ Cuenta final` del auditor. El contrato privado que viaja al
+nodo usa `restore_login`, `restore_server` y `restore_password`; los perfiles
+siguen usando sus propios `tester_*` únicamente para Strategy Tester.
+
+El valor inicial visible es login `11637157` y servidor
+`CapitalPointTrading-MT5-4`. La contraseña nunca está en el código ni en el JSON
+público: se guarda como `restore_password` cifrada con la misma clave Fernet en
+el registro reservado `__terminal_restore__`. El estado público solo devuelve
+`password_saved` y `configured`. Guardar una contraseña vacía conserva el
+secreto anterior.
+
+El manager no permite lanzar manual ni automáticamente una auditoría sin una
+cuenta final completa. El runtime IC registra cada ruta donde activó la cuenta
+real, deduplica rutas sin distinguir mayúsculas, restaura todas las rutas
+registradas incluso tras un fallo, verifica login y servidor por terminal y
+cierra respetuosamente solo los procesos que tuvo que arrancar. La restauración
+ocurre antes de reanudar el pipeline.
+
+El antiguo interruptor oculto del programador tiene ahora el botón
+`⚙ Programación`. Su diálogo explica y permite editar `enabled`, el intervalo
+de revisión en minutos y la espera inicial. Se persiste en
+`runtime/live_audit_scheduler.json` (relativo al directorio de la configuración
+efectiva), se aplica sin reiniciar el manager y sigue desactivado por defecto.
+Cada perfil conserva `audit_interval_days`: el programador solo comprueba cuáles
+han vencido. `MT5_MANAGER_LIVE_AUDIT_SCHEDULER` mantiene precedencia y la UI lo
+declara expresamente como override; mientras está desactivado, el segundo
+candado de `_run_due_live_audits` sigue impidiendo solicitudes al nodo.
+
+El runtime compatible anuncia `capabilities.live_audit_restore_account=true`.
+El manager bloquea lanzamientos manuales y programados mientras el nodo todavía
+no anuncie esa capacidad. Así se puede desplegar primero el manager sin que un
+agente ocupado ejecute la restauración antigua antes de poder reiniciarlo.
+
 ## Lote mínimo del broker en portfolios antiguos
 
 Desde 2026-08-21 el auditor lee `assets/<broker>_symbol_specs.json` y normaliza

@@ -56,6 +56,11 @@ PULSE_JOB_KEYS = (
 )
 PULSE_PORTFOLIO_JOB_KEYS = ("status", "operation", "portfolio_id", "error")
 PULSE_PORTFOLIO_TASK_KEYS = ("id", "status", "operation", "portfolio_id", "error")
+DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS = {
+    "enabled": False,
+    "check_interval_minutes": 5,
+    "startup_delay_seconds": 30,
+}
 
 
 def _truthy(*values: Any) -> bool:
@@ -71,6 +76,31 @@ def _truthy(*values: Any) -> bool:
             return value
         return str(value).strip().casefold() in {"1", "true", "yes", "on", "si", "sí"}
     return False
+
+
+def normalize_live_audit_scheduler_settings(
+    value: dict[str, Any], defaults: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Normaliza la configuración persistente del programador interno."""
+    if not isinstance(value, dict):
+        raise ValueError("La configuración automática debe ser un objeto JSON")
+    unknown = set(value) - set(DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS)
+    if unknown:
+        raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
+    normalized = {**DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS, **dict(defaults or {})}
+    if "enabled" in value:
+        if not isinstance(value["enabled"], bool):
+            raise ValueError("enabled debe ser true o false")
+        normalized["enabled"] = value["enabled"]
+    if "check_interval_minutes" in value:
+        normalized["check_interval_minutes"] = safe_int(
+            value["check_interval_minutes"], 5, minimum=1, maximum=1440
+        )
+    if "startup_delay_seconds" in value:
+        normalized["startup_delay_seconds"] = safe_int(
+            value["startup_delay_seconds"], 30, minimum=0, maximum=3600
+        )
+    return normalized
 
 
 def choose_directory(
@@ -381,6 +411,9 @@ class ManagerHandler(BaseHTTPRequestHandler):
             lines = safe_int(query.get("lines", [120])[0], 120, minimum=1, maximum=1000)
             self._send_json(200, self.server.manager_restart.status(log_lines=lines))
             return
+        if parsed.path == "/api/live-audit-scheduler-config":
+            self._send_json(200, self.server.live_audit_scheduler_state())
+            return
         if parsed.path == "/api/nodes":
             self._send_json(200, {"nodes": self._all_status(), "observed_at": utc_now()})
             return
@@ -534,6 +567,12 @@ class ManagerHandler(BaseHTTPRequestHandler):
             except (ValueError, OSError, RuntimeError) as exc:
                 self._send_json(503, {"error": str(exc)})
             return
+        if parsed.path == "/api/live-audit-scheduler-config":
+            try:
+                self._send_json(200, self.server.update_live_audit_scheduler(self._body()))
+            except (ValueError, OSError, json.JSONDecodeError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3:] == ["queue", "cancel"]:
             try:
                 node = self._node(urllib.parse.unquote(parts[2]))
@@ -565,6 +604,18 @@ class ManagerHandler(BaseHTTPRequestHandler):
             except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
                 self._send_json(400, {"error": str(exc)})
             return
+        if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audit-restore-account":
+            try:
+                node_id = urllib.parse.unquote(parts[2])
+                node = self._node(node_id)
+                state = self._live_audit_config_state(
+                    node, self.server.live_audit_settings.update_restore_account(node_id, self._body())
+                )
+                state["node"] = {"id": node_id, "name": node.get("name") or node_id}
+                self._send_json(200, state)
+            except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if (
             len(parts) == 6 and parts[:2] == ["api", "nodes"]
             and parts[3] == "live-audits" and parts[5] == "run"
@@ -572,6 +623,14 @@ class ManagerHandler(BaseHTTPRequestHandler):
             try:
                 node_id = urllib.parse.unquote(parts[2])
                 node = self._node(node_id)
+                node_status, node_state = node_request(node, "GET", "/api/v1/status", timeout=10)
+                capabilities = (
+                    node_state.get("capabilities") if node_status == 200 and isinstance(node_state, dict) else {}
+                )
+                if not isinstance(capabilities, dict) or not capabilities.get("live_audit_restore_account"):
+                    raise ValueError(
+                        "El agente ICTrading aún usa el auditor anterior; reinícialo cuando termine su trabajo actual."
+                    )
                 audit_id = urllib.parse.unquote(parts[4])
                 state = self.server.live_audit_settings.state(node_id)
                 if audit_id not in state.get("configured_audit_ids", []):
@@ -579,7 +638,13 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 profile = dict((state.get("profiles") or {}).get(audit_id) or {})
                 portfolio_id = safe_int(profile.get("portfolio_id"), 0, minimum=1)
                 credentials = self.server.live_audit_settings.credentials(node_id, audit_id)
-                payload = {**profile, **credentials, "audit_key": audit_id, "portfolio_id": portfolio_id}
+                restore = self.server.live_audit_settings.restore_credentials(node_id)
+                if not restore:
+                    raise ValueError("Configura y guarda la cuenta que debe quedar en los terminales")
+                payload = {
+                    **profile, **credentials, **restore,
+                    "audit_key": audit_id, "portfolio_id": portfolio_id,
+                }
                 status, value = node_request(
                     node, "POST", f"/api/v1/live-audits/{portfolio_id}/run", payload, timeout=30
                 )
@@ -850,6 +915,36 @@ class ManagerServer(ThreadingHTTPServer):
             else Path.cwd() / "runtime" / "live_audit_settings.json"
         )
         self.live_audit_settings = LiveAuditSettingsStore(live_audit_settings_path)
+        scheduler_file = str(config.get("live_audit_scheduler_settings_file") or "").strip()
+        self.live_audit_scheduler_path = (
+            Path(scheduler_file).expanduser().resolve()
+            if scheduler_file else live_audit_settings_path.with_name("live_audit_scheduler.json")
+        )
+        scheduler_defaults = {
+            "enabled": _truthy(config.get("live_audit_scheduler_enabled")),
+            "check_interval_minutes": safe_int(
+                config.get("live_audit_scheduler_check_interval_minutes"), 5,
+                minimum=1, maximum=1440,
+            ),
+            "startup_delay_seconds": safe_int(
+                config.get("live_audit_scheduler_startup_delay_seconds"), 30,
+                minimum=0, maximum=3600,
+            ),
+        }
+        self.live_audit_scheduler_settings = dict(scheduler_defaults)
+        if self.live_audit_scheduler_path.is_file():
+            try:
+                self.live_audit_scheduler_settings = normalize_live_audit_scheduler_settings(
+                    load_json(self.live_audit_scheduler_path), scheduler_defaults,
+                )
+            except ValueError as exc:
+                print(f"[live-audit-scheduler] configuración ignorada: {exc}", flush=True)
+        raw_scheduler_environment = os.environ.get("MT5_MANAGER_LIVE_AUDIT_SCHEDULER")
+        self.live_audit_scheduler_environment = (
+            str(raw_scheduler_environment).strip()
+            if raw_scheduler_environment is not None and str(raw_scheduler_environment).strip()
+            else None
+        )
         portfolio_settings_file = str(config.get("portfolio_settings_file") or "").strip()
         portfolio_settings_path = (
             Path(portfolio_settings_file).expanduser().resolve()
@@ -889,11 +984,13 @@ class ManagerServer(ThreadingHTTPServer):
         # dejó un terminal sin cuenta y dos días de discovery a cero. Para
         # rearmarla: `live_audit_scheduler_enabled: true` en manager.json, o
         # MT5_MANAGER_LIVE_AUDIT_SCHEDULER=1.
-        self.live_audit_scheduler_enabled = _truthy(
-            os.environ.get("MT5_MANAGER_LIVE_AUDIT_SCHEDULER"),
-            config.get("live_audit_scheduler_enabled"),
+        self.live_audit_scheduler_enabled = (
+            _truthy(self.live_audit_scheduler_environment)
+            if self.live_audit_scheduler_environment is not None
+            else bool(self.live_audit_scheduler_settings["enabled"])
         )
         self.live_audit_stop = threading.Event()
+        self.live_audit_wakeup = threading.Event()
         self.live_audit_thread: threading.Thread | None = None
         if not self.live_audit_scheduler_enabled:
             print(
@@ -911,7 +1008,45 @@ class ManagerServer(ThreadingHTTPServer):
 
     def server_close(self) -> None:
         self.live_audit_stop.set()
+        self.live_audit_wakeup.set()
         super().server_close()
+
+    def live_audit_scheduler_state(self) -> dict[str, Any]:
+        """Contrato público y explícito del antiguo «cron» interno."""
+        return {
+            **dict(self.live_audit_scheduler_settings),
+            "effective_enabled": bool(self.live_audit_scheduler_enabled),
+            "source": "environment" if self.live_audit_scheduler_environment is not None else "saved",
+            "environment_override": self.live_audit_scheduler_environment is not None,
+            "description": (
+                "El manager revisa periódicamente cada auditoría configurada. "
+                "Solo inicia las que no están ejecutándose y cuya última finalización "
+                "supera los días indicados en su perfil."
+            ),
+        }
+
+    def update_live_audit_scheduler(self, changes: dict[str, Any]) -> dict[str, Any]:
+        """Persiste y aplica el programador sin exigir reiniciar el manager."""
+        normalized = normalize_live_audit_scheduler_settings(
+            changes, self.live_audit_scheduler_settings,
+        )
+        save_json(self.live_audit_scheduler_path, normalized)
+        self.live_audit_scheduler_settings = normalized
+        self.live_audit_scheduler_enabled = (
+            _truthy(self.live_audit_scheduler_environment)
+            if self.live_audit_scheduler_environment is not None
+            else bool(normalized["enabled"])
+        )
+        if self.live_audit_scheduler_enabled and self.live_audit_thread is None:
+            self.live_audit_thread = threading.Thread(
+                target=self._live_audit_schedule_loop,
+                daemon=True,
+                name="live-audit-scheduler",
+            )
+            self.live_audit_thread.start()
+        else:
+            self.live_audit_wakeup.set()
+        return self.live_audit_scheduler_state()
 
     @staticmethod
     def _audit_timestamp(value: object) -> datetime | None:
@@ -924,15 +1059,19 @@ class ManagerServer(ThreadingHTTPServer):
             return None
 
     def _live_audit_schedule_loop(self) -> None:
-        # Se deja arrancar primero al HTTP y al nodo. Después se revisa cada cinco minutos.
-        if self.live_audit_stop.wait(30):
+        # Se deja arrancar primero al HTTP y al nodo. Ambos tiempos se muestran y
+        # se editan en la interfaz; ya no existe un «cron» oculto.
+        delay = int(self.live_audit_scheduler_settings["startup_delay_seconds"])
+        if self.live_audit_stop.wait(delay):
             return
         while not self.live_audit_stop.is_set():
             try:
                 self._run_due_live_audits()
             except Exception as exc:
                 sys.stderr.write(f"[live-audit-scheduler] {exc}\n")
-            self.live_audit_stop.wait(300)
+            timeout = int(self.live_audit_scheduler_settings["check_interval_minutes"]) * 60
+            self.live_audit_wakeup.wait(timeout)
+            self.live_audit_wakeup.clear()
 
     def _run_due_live_audits(self) -> None:
         # Segundo candado: aunque alguien arranque el bucle, sin el interruptor
@@ -941,12 +1080,24 @@ class ManagerServer(ThreadingHTTPServer):
             return
         now = datetime.now(timezone.utc)
         for node in self.nodes:
+            if not self.live_audit_scheduler_enabled or self.live_audit_stop.is_set():
+                return
             node_id = str(node.get("id") or "")
             state = self.live_audit_settings.state(node_id)
             configured = list(state.get("configured_audit_ids") or [])
             if not configured:
                 continue
             try:
+                status_status, node_state = node_request(node, "GET", "/api/v1/status", timeout=10)
+                capabilities = (
+                    node_state.get("capabilities")
+                    if status_status == 200 and isinstance(node_state, dict) else {}
+                )
+                if not isinstance(capabilities, dict) or not capabilities.get("live_audit_restore_account"):
+                    sys.stderr.write(
+                        f"[live-audit-scheduler] {node_id}: auditor antiguo; pendiente reiniciar el agente\n"
+                    )
+                    continue
                 status, value = node_request(node, "GET", "/api/v1/live-audits", timeout=10)
             except (OSError, urllib.error.URLError, TimeoutError, ValueError) as exc:
                 sys.stderr.write(f"[live-audit-scheduler] {node_id}: no se pudo consultar el nodo: {exc}\n")
@@ -956,10 +1107,14 @@ class ManagerServer(ThreadingHTTPServer):
                 continue
             audits = value.get("audits") if isinstance(value.get("audits"), dict) else {}
             for audit_id in configured:
+                if not self.live_audit_scheduler_enabled or self.live_audit_stop.is_set():
+                    return
                 profile = dict((state.get("profiles") or {}).get(str(audit_id)) or {})
                 portfolio_id = safe_int(profile.get("portfolio_id"), 0, minimum=1)
                 audit = dict(audits.get(str(audit_id)) or {})
-                if str(audit.get("status") or "") in {"queued", "pausing", "extracting", "testing", "comparing", "resuming"}:
+                if str(audit.get("status") or "") in {
+                    "queued", "pausing", "extracting", "testing", "comparing", "finalizing", "resuming",
+                }:
                     continue
                 result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
                 previous = self._audit_timestamp(result.get("completed_at") or audit.get("finished_at"))
@@ -972,9 +1127,16 @@ class ManagerServer(ThreadingHTTPServer):
                 payload = {
                     **profile,
                     **self.live_audit_settings.credentials(node_id, audit_id),
+                    **self.live_audit_settings.restore_credentials(node_id),
                     "audit_key": audit_id,
                     "portfolio_id": portfolio_id,
                 }
+                if not payload.get("restore_password"):
+                    sys.stderr.write(
+                        f"[live-audit-scheduler] {node_id}/{audit_id}: "
+                        "falta la cuenta de restauración de terminales\n"
+                    )
+                    continue
                 sys.stderr.write(
                     f"[live-audit-scheduler] iniciando {node_id}/{audit_id}: "
                     f"portafolio #{portfolio_id}, variante {profile.get('portfolio_type')}, "
@@ -1081,6 +1243,10 @@ def main(argv: list[str] | None = None) -> int:
     config.setdefault(
         "live_audit_settings_file",
         str(Path(args.config).expanduser().resolve().parent / "runtime" / "live_audit_settings.json"),
+    )
+    config.setdefault(
+        "live_audit_scheduler_settings_file",
+        str(Path(args.config).expanduser().resolve().parent / "runtime" / "live_audit_scheduler.json"),
     )
     host = str(config.get("host") or "127.0.0.1")
     port = safe_int(args.port if args.port is not None else config.get("port"), 8750, minimum=1, maximum=65535)

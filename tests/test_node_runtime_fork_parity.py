@@ -380,18 +380,24 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "reinicio completo de la aplicacion")
 
-    def test_the_auditor_leaves_the_tester_account_on_every_ported_fork(self) -> None:
+    def test_the_auditor_leaves_the_configured_account_on_every_ported_fork(self) -> None:
         # El auditor real activa la cuenta real con `initialize(login=...)` y MT5
         # recuerda la última cuenta de cada terminal. Sin restaurar, el pipeline
         # reanudado seguiría probando cada estrategia contra la cuenta real. El
         # proceso que ejecuta esto es `manager_node_runtime/live_audit.py`, no la
         # copia de referencia del manager.
         manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        self.assertIn('"live_audit_restore_account": True', manager_node)
         for token in (
             "def _restore_tester_login",
             "def _remember_real_account_terminal",
             "def _close_terminal_pids_gracefully",
             "remember_for=str(request[\"audit_key\"])",
+            'request["restore_login"]',
+            'request["restore_password"]',
+            'request["restore_server"]',
+            '"finalizing"',
         ):
             self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
 
@@ -403,10 +409,21 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
                 print(f"\n[paridad] auditor real: {project} no tiene manager_node_runtime/live_audit.py")
                 return
             source = engine.read_text(encoding="utf-8", errors="replace")
+            node_source = (project / "manager_node_runtime" / "node.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            self.assertIn(
+                '"live_audit_restore_account": True', node_source,
+                f"{project}: el runtime nuevo no anuncia al manager la restauración independiente.",
+            )
             for token, hint in (
                 ("def _restore_tester_login", "la restauración de la cuenta de pruebas"),
                 ("def _remember_real_account_terminal", "el registro de terminales con la cuenta real"),
                 ("def _close_terminal_pids_gracefully", "el cierre que deja a MT5 guardar la cuenta"),
+                ('request["restore_login"]', "el login final independiente de la cuenta tester"),
+                ('request["restore_password"]', "la credencial final independiente de la cuenta tester"),
+                ('request["restore_server"]', "el servidor final independiente de la cuenta tester"),
+                ('"finalizing"', "el estado que impide publicar un fin antes de restaurar las terminales"),
             ):
                 self._assert_present(
                     source,

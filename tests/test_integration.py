@@ -219,6 +219,27 @@ enabled=0
         self.assertEqual(initial["audit_states"], {})
         self.assertFalse(initial["configured"])
         self.assertEqual(initial["node"]["name"], "Test Node")
+        self.assertEqual(initial["restore_account"]["login"], "11637157")
+        self.assertFalse(initial["restore_account"]["configured"])
+
+        status, restored = self.request("/api/nodes/test-node/live-audit-restore-account", {
+            "login": "333", "server": "Broker-Live", "password": "restore-secret",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(restored["restore_account"]["configured"])
+        self.assertNotIn("restore-secret", json.dumps(restored))
+
+        status, scheduler = self.request("/api/live-audit-scheduler-config")
+        self.assertEqual(status, 200)
+        self.assertFalse(scheduler["effective_enabled"])
+        status, scheduler = self.request("/api/live-audit-scheduler-config", {
+            "enabled": False, "check_interval_minutes": 17, "startup_delay_seconds": 4,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(scheduler["check_interval_minutes"], 17)
+        self.assertEqual(scheduler["startup_delay_seconds"], 4)
+        scheduler_path = self.live_audit_settings_path.with_name("live_audit_scheduler.json")
+        self.assertEqual(json.loads(scheduler_path.read_text(encoding="utf-8"))["check_interval_minutes"], 17)
 
         status, saved = self.request("/api/nodes/test-node/live-audit-config", {
             "selected_portfolio_ids": [11, 12],
@@ -263,7 +284,7 @@ enabled=0
         self.assertEqual(persisted["test-node"]["profiles"]["11"]["period_days"], 7)
         self.assertEqual(persisted["test-node"]["profiles"]["12"]["period_days"], 30)
         encrypted = (self.root / "live_audit_credentials.json").read_text(encoding="utf-8")
-        for secret in ("real-11", "test-11", "real-12", "test-12"):
+        for secret in ("restore-secret", "real-11", "test-11", "real-12", "test-12"):
             self.assertNotIn(secret, encrypted)
 
         with urllib.request.urlopen(self.base + "/live_audit.html?node=test-node", timeout=3) as response:
@@ -625,8 +646,11 @@ enabled=0
         # discovery puntuando 0 supervivientes. Se lanza a mano hasta que el MVP
         # esté cerrado, así que por defecto ni se arranca el hilo.
         nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
+        scheduler_file = str(self.root / "scheduler-safety-test.json")
         with mock.patch.dict("os.environ", {}, clear=True):
-            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes})
+            server = ManagerServer(("127.0.0.1", 0), {
+                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
+            })
         try:
             self.assertFalse(server.live_audit_scheduler_enabled)
             self.assertIsNone(server.live_audit_thread)
@@ -639,7 +663,9 @@ enabled=0
 
         for switch in ({"live_audit_scheduler_enabled": True}, {"live_audit_scheduler_enabled": "si"}):
             with mock.patch.dict("os.environ", {}, clear=True):
-                server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes, **switch})
+                server = ManagerServer(("127.0.0.1", 0), {
+                    "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file, **switch,
+                })
             try:
                 self.assertTrue(server.live_audit_scheduler_enabled, msg=f"con {switch}")
                 self.assertIsNotNone(server.live_audit_thread)
@@ -648,7 +674,9 @@ enabled=0
 
         # El entorno también rearma, para el contenedor.
         with mock.patch.dict("os.environ", {"MT5_MANAGER_LIVE_AUDIT_SCHEDULER": "1"}, clear=True):
-            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes})
+            server = ManagerServer(("127.0.0.1", 0), {
+                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
+            })
         try:
             self.assertTrue(server.live_audit_scheduler_enabled)
         finally:
@@ -657,7 +685,10 @@ enabled=0
         # Un valor que no se reconoce NO arma nada: un typo no puede lanzar
         # auditorías desatendidas.
         with mock.patch.dict("os.environ", {}, clear=True):
-            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes, "live_audit_scheduler_enabled": "quizá"})
+            server = ManagerServer(("127.0.0.1", 0), {
+                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
+                "live_audit_scheduler_enabled": "quizá",
+            })
         try:
             self.assertFalse(server.live_audit_scheduler_enabled)
         finally:

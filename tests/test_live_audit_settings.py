@@ -26,6 +26,49 @@ def profile(source_login: str, tester_login: str, **changes: object) -> dict[str
 
 
 class LiveAuditSettingsTests(unittest.TestCase):
+    def test_terminal_restore_account_is_independent_encrypted_and_has_safe_public_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = LiveAuditSettingsStore(root / "live_audit_settings.json")
+            initial = store.state("node-a")["restore_account"]
+            self.assertEqual(initial["login"], "11637157")
+            self.assertEqual(initial["server"], "CapitalPointTrading-MT5-4")
+            self.assertFalse(initial["configured"])
+
+            saved = store.update_restore_account("node-a", {
+                "login": "333", "server": "Broker-Live", "password": "restore-secret",
+            })
+            reloaded_store = LiveAuditSettingsStore(root / "live_audit_settings.json")
+            reloaded = reloaded_store.state("node-a")["restore_account"]
+            credentials = reloaded_store.restore_credentials("node-a")
+            encrypted = (root / "live_audit_credentials.json").read_text(encoding="utf-8")
+
+        self.assertTrue(saved["restore_account"]["configured"])
+        self.assertEqual(reloaded, {
+            "login": "333", "server": "Broker-Live",
+            "password_saved": True, "configured": True,
+        })
+        self.assertEqual(credentials, {
+            "restore_login": "333", "restore_server": "Broker-Live",
+            "restore_password": "restore-secret",
+        })
+        self.assertNotIn("restore-secret", encrypted)
+        self.assertNotIn("restore_password", str(saved))
+
+    def test_empty_restore_password_preserves_the_saved_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
+            store.update_restore_account("node-a", {
+                "login": "333", "server": "Broker-A", "password": "secret",
+            })
+            store.update_restore_account("node-a", {
+                "login": "444", "server": "Broker-B", "password": "",
+            })
+            credentials = store.restore_credentials("node-a")
+        self.assertEqual(credentials["restore_login"], "444")
+        self.assertEqual(credentials["restore_server"], "Broker-B")
+        self.assertEqual(credentials["restore_password"], "secret")
+
     def test_defaults_have_no_unrequested_enable_switch(self) -> None:
         self.assertNotIn("enabled", DEFAULT_LIVE_AUDIT_PROFILE)
         self.assertNotIn("selected_portfolio_ids", DEFAULT_LIVE_AUDIT_PROFILE)
@@ -303,12 +346,24 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
     def test_the_result_says_in_which_account_the_terminal_was_left(self) -> None:
         # El auditor cambia la cuenta del terminal para leer la real; lo que el
         # usuario necesita comprobar es que la dejó en la de pruebas.
-        self.assertIn("Terminal devuelto a la cuenta de pruebas", self.result_script)
+        self.assertIn("Terminal devuelto a la cuenta final configurada", self.result_script)
         self.assertIn("function terminalRestore(result)", self.result_script)
         self.assertIn("terminal_restore", self.result_script)
         # Sin fila no se afirma nada, y una restauración fallida se marca en rojo.
         self.assertIn("NO REGISTRADO", self.result_script)
         self.assertIn("SIN RESTAURAR", self.result_script)
+
+    def test_restore_account_and_scheduler_have_explicit_editable_dialogs(self) -> None:
+        self.assertTrue(self.page.xpath('//button[@id="open-restore-account"]'))
+        self.assertTrue(self.page.xpath('//button[@id="open-scheduler"]'))
+        self.assertTrue(self.page.xpath('//dialog[@id="restore-account-dialog"]'))
+        self.assertTrue(self.page.xpath('//dialog[@id="scheduler-dialog"]'))
+        for token in (
+            "/live-audit-restore-account", "/api/live-audit-scheduler-config",
+            "restoreAccount.configured", "todos los terminales usados",
+            "check_interval_minutes", "startup_delay_seconds", "environment_override",
+        ):
+            self.assertIn(token, self.page_text + self.script)
 
     def test_tick_quality_is_a_required_comparison_gate_per_portfolio(self) -> None:
         self.assertIn("Calidad de datos tick a tick", self.script)

@@ -12,6 +12,8 @@ let auditStates = {};
 let passwordDrafts = {};
 let selectedAuditIds = [];
 let configuredAuditIds = new Set();
+let restoreAccount = {};
+let schedulerSettings = {};
 let auditSequence = 0;
 let configPhase = 'configuration_only';
 
@@ -87,7 +89,9 @@ function option(value, label, current) {
 function auditRuntime(id) {
   const value = auditStates[String(id)] || {};
   const progress = Math.max(0, Math.min(100, Number(value.progress_pct || 0)));
-  const running = ['queued', 'pausing', 'extracting', 'testing', 'comparing', 'resuming'].includes(value.status);
+  const running = [
+    'queued', 'pausing', 'extracting', 'testing', 'comparing', 'finalizing', 'resuming',
+  ].includes(value.status);
   return {
     status: value.status || 'idle',
     status_label: value.status_label || (configPhase === 'configuration_only' ? 'SERVICIO PENDIENTE'
@@ -121,11 +125,13 @@ function auditOperationsMarkup(auditId) {
       : index < current || runtime.stage === 'completed' ? 'completed' : index === current ? 'current' : '';
     return `<span class="${mode}" data-audit-stage="${stage}">${label}</span>`;
   }).join('');
-  const canRun = configPhase !== 'configuration_only' && configuredAuditIds.has(String(auditId))
+  const canRun = configPhase !== 'configuration_only' && restoreAccount.configured
+    && configuredAuditIds.has(String(auditId))
     && runtime.can_run && !runtime.running;
   const runTitle = configPhase === 'configuration_only'
     ? 'Disponible cuando se implemente el motor MT5 del agente'
     : configPhase === 'agent_unavailable' ? 'El agente ICTrading no está disponible'
+    : !restoreAccount.configured ? 'Configura primero la cuenta que debe quedar en los terminales'
     : configuredAuditIds.has(String(auditId)) ? '' : 'Guarda antes la configuración completa';
   return `<section class="live-audit-operation" aria-label="Operación de auditoría ${escapeHtml(auditId)}">
     <div class="live-audit-operation-head"><div><p class="eyebrow">ESTADO DE LA AUDITORÍA</p><strong>${escapeHtml(runtime.progress_text)}</strong></div><span class="badge ${runtime.running ? 'pending' : runtime.status === 'failed' ? 'failed' : 'idle'}">${escapeHtml(runtime.status_label)}</span></div>
@@ -285,11 +291,25 @@ function applyState(data) {
   passwordDrafts = {};
   selectedAuditIds = (data.selected_audit_ids || []).map(String);
   configuredAuditIds = new Set((data.configured_audit_ids || []).map(String));
+  restoreAccount = data.restore_account || restoreAccount || {};
   configPhase = data.phase || 'configuration_only';
   renderPortfolios();
   renderProfiles();
   const configured = data.configured_audit_ids?.length || 0;
-  setState(configured ? `${configured} CONFIGURADO${configured === 1 ? '' : 'S'}` : 'PENDIENTE', configured ? 'completed' : 'idle');
+  if (configured && !restoreAccount.configured) setState('FALTA CUENTA FINAL', 'pending');
+  else setState(configured ? `${configured} CONFIGURADO${configured === 1 ? '' : 'S'}` : 'PENDIENTE', configured ? 'completed' : 'idle');
+}
+
+function applySchedulerState(data) {
+  schedulerSettings = data || {};
+  document.querySelector('#scheduler-enabled').checked = Boolean(schedulerSettings.enabled);
+  document.querySelector('#scheduler-check-minutes').value = schedulerSettings.check_interval_minutes ?? 5;
+  document.querySelector('#scheduler-startup-delay').value = schedulerSettings.startup_delay_seconds ?? 30;
+  document.querySelector('#scheduler-description').textContent = schedulerSettings.description || '';
+  const source = document.querySelector('#scheduler-source');
+  source.textContent = schedulerSettings.environment_override
+    ? `La variable MT5_MANAGER_LIVE_AUDIT_SCHEDULER manda sobre este interruptor. Estado efectivo: ${schedulerSettings.effective_enabled ? 'ACTIVO' : 'DESACTIVADO'}.`
+    : `Estado efectivo: ${schedulerSettings.effective_enabled ? 'ACTIVO' : 'DESACTIVADO'}. Los cambios se aplican inmediatamente.`;
 }
 
 function openLastResult(id) {
@@ -358,16 +378,21 @@ async function loadSettings() {
   }
   try {
     const encoded = encodeURIComponent(nodeId);
-    const [configResponse, portfoliosResponse] = await Promise.all([
+    const [configResponse, portfoliosResponse, schedulerResponse] = await Promise.all([
       fetch(`/api/nodes/${encoded}/live-audit-config`, {cache: 'no-store'}),
       fetch(`/api/nodes/${encoded}/portfolios?scope=full_history`, {cache: 'no-store'}),
+      fetch('/api/live-audit-scheduler-config', {cache: 'no-store'}),
     ]);
-    const [data, portfolioData] = await Promise.all([jsonResponse(configResponse), jsonResponse(portfoliosResponse)]);
+    const [data, portfolioData, schedulerData] = await Promise.all([
+      jsonResponse(configResponse), jsonResponse(portfoliosResponse), jsonResponse(schedulerResponse),
+    ]);
     if (!configResponse.ok) throw new Error(data.error || configResponse.statusText);
     if (!portfoliosResponse.ok) throw new Error(portfolioData.error || portfoliosResponse.statusText);
+    if (!schedulerResponse.ok) throw new Error(schedulerData.error || schedulerResponse.statusText);
     portfolios = portfolioData.portfolios || [];
     document.querySelector('#audit-title').textContent = data.node?.name || nodeId;
     applyState(data);
+    applySchedulerState(schedulerData);
   } catch (error) {
     setState('ERROR', 'failed');
     portfolioList.innerHTML = '<p class="live-audit-empty">No se pudieron cargar los portafolios.</p>';
@@ -434,6 +459,74 @@ configsEl.addEventListener('click', event => {
 });
 
 document.querySelector('#audit-log-close').addEventListener('click', () => document.querySelector('#audit-log-dialog').close());
+
+document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
+  document.querySelector(`#${button.dataset.closeDialog}`).close();
+}));
+
+document.querySelector('#open-restore-account').addEventListener('click', () => {
+  document.querySelector('#restore-login').value = restoreAccount.login || '';
+  document.querySelector('#restore-server').value = restoreAccount.server || '';
+  document.querySelector('#restore-password').value = '';
+  document.querySelector('#restore-password').required = !restoreAccount.password_saved;
+  document.querySelector('#restore-password-state').textContent = restoreAccount.password_saved
+    ? 'Contraseña cifrada guardada. Déjala vacía para conservarla.'
+    : 'Todavía no hay contraseña guardada; es obligatoria antes de auditar.';
+  document.querySelector('#restore-account-dialog').showModal();
+});
+
+document.querySelector('#open-scheduler').addEventListener('click', () => {
+  applySchedulerState(schedulerSettings);
+  document.querySelector('#scheduler-dialog').showModal();
+});
+
+document.querySelector('#restore-account-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!event.currentTarget.reportValidity()) return;
+  const button = document.querySelector('#save-restore-account');
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audit-restore-account`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+        login: document.querySelector('#restore-login').value.trim(),
+        server: document.querySelector('#restore-server').value.trim(),
+        password: document.querySelector('#restore-password').value,
+      }),
+    });
+    const data = await jsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    restoreAccount = data.restore_account || {};
+    renderAuditOperations([...selectedAuditIds]);
+    if (configuredAuditIds.size) {
+      setState(`${configuredAuditIds.size} CONFIGURADO${configuredAuditIds.size === 1 ? '' : 'S'}`, 'completed');
+    }
+    document.querySelector('#restore-account-dialog').close();
+    toast('Cuenta final guardada y cifrada. Se aplicará a todos los terminales usados.');
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
+
+document.querySelector('#scheduler-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!event.currentTarget.reportValidity()) return;
+  const button = document.querySelector('#save-scheduler');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/live-audit-scheduler-config', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+        enabled: document.querySelector('#scheduler-enabled').checked,
+        check_interval_minutes: Number(document.querySelector('#scheduler-check-minutes').value),
+        startup_delay_seconds: Number(document.querySelector('#scheduler-startup-delay').value),
+      }),
+    });
+    const data = await jsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    applySchedulerState(data);
+    document.querySelector('#scheduler-dialog').close();
+    toast(`Programación guardada: ${data.effective_enabled ? 'automática activa' : 'solo manual'}.`);
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
 
 form.addEventListener('submit', async event => {
   event.preventDefault();

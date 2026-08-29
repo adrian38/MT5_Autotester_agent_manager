@@ -56,7 +56,8 @@ function delta(value, limit, unit = '') {
 
 function terminalRestore(result) {
   // El auditor cambia la cuenta del terminal para leer la real. Lo que importa
-  // después es en qué cuenta lo dejó: la demo con la que se testea cada estrategia.
+  // después es en qué cuenta lo dejó: la cuenta final configurada, independiente
+  // de las cuentas real y tester utilizadas durante la auditoría.
   const rows = result.terminal_restore;
   if (!Array.isArray(rows) || !rows.length) {
     return ['NO REGISTRADO · ejecución anterior a esta comprobación', ''];
@@ -86,7 +87,7 @@ function renderSummary(result) {
     metric('Periodo auditado', period),
     metric('Modo', modeLabels[result.portfolio_type] || result.portfolio_type),
     metric('Cuenta real verificada', account.connected ? `${account.login} · ${account.server}` : 'NO VERIFICADA', account.connected ? '' : 'bad'),
-    metric('Terminal devuelto a la cuenta de pruebas', ...terminalRestore(result)),
+    metric('Terminal devuelto a la cuenta final configurada', ...terminalRestore(result)),
     metric('Calidad tick', result.history_quality_pct == null ? 'NO INFORMADA' : `${number(result.history_quality_pct)} %`),
     metric('Cierres reales del portafolio', result.real_trades),
     metric('Operaciones del tester', result.tester_trades),

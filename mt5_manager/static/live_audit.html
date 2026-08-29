@@ -14,7 +14,11 @@
       <h1 id="audit-title">Cargando…</h1>
       <p class="subtitle">Configuración de seguimiento y comparación con Strategy Tester</p>
     </div>
-    <div class="header-actions"><a class="button secondary" href="/">Volver al manager</a></div>
+    <div class="header-actions">
+      <button id="open-restore-account" type="button" class="secondary live-audit-config-button" title="Configurar la cuenta que quedará activa en todos los terminales usados">⚙ Cuenta final</button>
+      <button id="open-scheduler" type="button" class="secondary live-audit-config-button" title="Ver y editar cómo se lanzan las auditorías automáticas">⚙ Programación</button>
+      <a class="button secondary" href="/">Volver al manager</a>
+    </div>
   </header>
   <main>
     <section class="live-audit-notice" aria-label="Estado del MVP">
@@ -37,6 +41,35 @@
       </div>
     </form>
   </main>
+
+  <dialog id="restore-account-dialog" class="log-dialog live-audit-settings-dialog" aria-labelledby="restore-account-title">
+    <form id="restore-account-form" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow">CUENTA FINAL DE LOS TERMINALES</p><h2 id="restore-account-title">Restauración después de auditar</h2></div><button data-close-dialog="restore-account-dialog" type="button" class="icon-button" aria-label="Cerrar">×</button></div>
+      <div class="live-audit-dialog-body">
+        <p class="live-audit-dialog-help">La auditoría registra cada terminal donde activa la cuenta real. Al terminar —también si falla— conecta esta cuenta en <strong>todos los terminales usados</strong>, verifica login y servidor, y solo después reanuda el proceso.</p>
+        <label>Login que debe quedar activo<input id="restore-login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" required></label>
+        <label>Servidor<input id="restore-server" maxlength="160" autocomplete="off" required></label>
+        <label>Contraseña<input id="restore-password" type="password" maxlength="512" autocomplete="new-password"></label>
+        <p id="restore-password-state" class="live-audit-security"></p>
+      </div>
+      <div class="builder-actions live-audit-dialog-actions"><button data-close-dialog="restore-account-dialog" type="button" class="secondary">Cancelar</button><button id="save-restore-account" type="submit">Guardar cuenta final</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="scheduler-dialog" class="log-dialog live-audit-settings-dialog" aria-labelledby="scheduler-title">
+    <form id="scheduler-form" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow">PROGRAMACIÓN AUTOMÁTICA</p><h2 id="scheduler-title">Cron interno del manager</h2></div><button data-close-dialog="scheduler-dialog" type="button" class="icon-button" aria-label="Cerrar">×</button></div>
+      <div class="live-audit-dialog-body">
+        <p id="scheduler-description" class="live-audit-dialog-help"></p>
+        <label class="live-audit-switch"><input id="scheduler-enabled" type="checkbox"><span><strong>Activar auditorías automáticas</strong><small>Desactivado: solo funciona «Auditar ahora».</small></span></label>
+        <label>Revisar auditorías vencidas cada (minutos)<input id="scheduler-check-minutes" type="number" min="1" max="1440" required></label>
+        <label>Espera inicial al arrancar el manager (segundos)<input id="scheduler-startup-delay" type="number" min="0" max="3600" required></label>
+        <p class="live-audit-dialog-help">Cada perfil conserva su propia cadencia en días. Esta tarea solo revisa cuándo venció; nunca vuelve a lanzar una auditoría que ya está ejecutándose.</p>
+        <p id="scheduler-source" class="live-audit-security"></p>
+      </div>
+      <div class="builder-actions live-audit-dialog-actions"><button data-close-dialog="scheduler-dialog" type="button" class="secondary">Cancelar</button><button id="save-scheduler" type="submit">Guardar programación</button></div>
+    </form>
+  </dialog>
 
   <dialog id="audit-log-dialog" class="log-dialog" aria-labelledby="audit-log-title">
     <div class="dialog-head"><div><p class="eyebrow">LOG DE AUDITORÍA</p><h2 id="audit-log-title">Actividad del auditor</h2></div><button id="audit-log-close" type="button" class="icon-button" aria-label="Cerrar">×</button></div>

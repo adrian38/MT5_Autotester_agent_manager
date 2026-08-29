@@ -27,6 +27,9 @@ def request() -> dict:
         "tester_login": "222",
         "tester_server": "IC-Demo",
         "tester_password": "tester-secret",
+        "restore_login": "333",
+        "restore_server": "CapitalPoint-Live",
+        "restore_password": "restore-secret",
         "period_days": 7,
         "min_tick_history_quality_pct": 80,
         "trade_time_tolerance_seconds": 60,
@@ -109,7 +112,9 @@ class LiveAuditEngineTests(unittest.TestCase):
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             state = controller.state(9)
-            if state["status"] not in {"queued", "pausing", "extracting", "testing", "comparing", "resuming"}:
+            if state["status"] not in {
+                "queued", "pausing", "extracting", "testing", "comparing", "finalizing", "resuming",
+            }:
                 return state
             time.sleep(.01)
         raise AssertionError("la auditoría no terminó")
@@ -364,7 +369,7 @@ class LiveAuditEngineTests(unittest.TestCase):
             self.assertEqual((owner.pause_calls, owner.resume_calls), (0, 0))
             self.assertEqual(owner.state["status"], "paused")
 
-    def test_the_terminal_is_left_on_the_tester_account_and_the_result_proves_it(self) -> None:
+    def test_the_terminal_is_left_on_the_configured_restore_account_and_the_result_proves_it(self) -> None:
         # El auditor loguea la cuenta real con initialize(login=...) y MT5 recuerda
         # la última cuenta del terminal: sin restaurar, el siguiente backtest del
         # pipeline probaría cada estrategia contra la cuenta real.
@@ -381,7 +386,7 @@ class LiveAuditEngineTests(unittest.TestCase):
 
                 @staticmethod
                 def account_info() -> SimpleNamespace:
-                    return SimpleNamespace(login=222, server="IC-Demo", currency="EUR")
+                    return SimpleNamespace(login=333, server="CapitalPoint-Live", currency="EUR")
 
                 @staticmethod
                 def shutdown() -> None:
@@ -395,19 +400,20 @@ class LiveAuditEngineTests(unittest.TestCase):
                 state = self._wait(controller)
 
         self.assertEqual(state["status"], "completed")
-        self.assertEqual(logins, [("222", "IC-Demo")])
+        self.assertEqual(logins, [("333", "CapitalPoint-Live")])
         self.assertEqual(closed_gracefully, [set()])
         restore = state["terminal_restore"]
         self.assertEqual(len(restore), 1)
         self.assertEqual(restore[0]["terminal"], "MT5_IC_1")
-        self.assertEqual((restore[0]["login"], restore[0]["server"]), ("222", "IC-Demo"))
+        self.assertEqual((restore[0]["login"], restore[0]["server"]), ("333", "CapitalPoint-Live"))
         self.assertTrue(restore[0]["restored"])
         self.assertEqual(state["last_result"]["terminal_restore"], restore)
         self.assertNotIn("tester-secret", str(state))
+        self.assertNotIn("restore-secret", str(state))
         # La restauración precede a la reanudación: el pipeline no puede reabrir
         # el terminal en la cuenta real.
         self.assertEqual((owner.pause_calls, owner.resume_calls), (1, 1))
-        self.assertTrue(any("MT5_IC_1 → 222 (IC-Demo)" in line for line in state["log_lines"]))
+        self.assertTrue(any("MT5_IC_1 → 333 (CapitalPoint-Live)" in line for line in state["log_lines"]))
 
     def test_a_terminal_left_on_another_account_is_reported_without_hiding_the_result(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -436,7 +442,7 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertEqual(state["status"], "completed")
         self.assertFalse(state["terminal_restore"][0]["restored"])
         self.assertIn("Authorization failed", state["terminal_restore"][0]["error"])
-        self.assertIn("no quedó en la cuenta de pruebas 222", state["progress_text"])
+        self.assertIn("no quedó en la cuenta configurada 333", state["progress_text"])
 
     def test_the_same_terminal_is_only_restored_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
