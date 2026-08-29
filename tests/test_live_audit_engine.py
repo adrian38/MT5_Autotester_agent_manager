@@ -90,7 +90,8 @@ class LiveAuditEngineTests(unittest.TestCase):
             {"login": "111", "native_report": {"filename": "real.html", "native_terminal_report": True}},
         )
         controller._run_tester = lambda *_args: (
-            [dict(trade)], [] if quality is None else [quality], {"one": 1}, []
+            [dict(trade)], [] if quality is None else [quality], {"one": 1}, [],
+            {"portfolio_type": "balanced", "set_count": 1, "workers": 1, "terminal_profiles": ["MT5_IC_1"]},
         )
         return owner, controller
 
@@ -316,6 +317,43 @@ class LiveAuditEngineTests(unittest.TestCase):
             _detail, members = controller._portfolio_members(9, "balanced")
             self.assertEqual([row["candidate_id"] for row in members], ["one"])
 
+    def test_tester_uses_five_configured_broker_terminals_for_six_sets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+            profiles = [
+                (f"Terminal.{index}", {"name": f"MT5_IC_{index}", "mt5_path": fr"C:\\IC{index}\\terminal64.exe"})
+                for index in range(1, 6)
+            ]
+            controller._terminal_profiles = lambda *, include_disabled=False: (
+                list(profiles) if include_disabled else list(profiles[:1])
+            )
+            selected = controller._tester_terminal_pool("Terminal.3", profiles[2][1], 6)
+
+        self.assertEqual(len(selected), 5)
+        self.assertEqual(selected[0][0], "Terminal.3")
+        self.assertEqual({section for section, _profile in selected}, {section for section, _profile in profiles})
+
+    def test_native_report_fallback_uses_only_the_active_broker_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            primary = root / "primary.exe"
+            fallback = root / "fallback.exe"
+            foreign = root / "foreign.exe"
+            for path in (primary, fallback, foreign):
+                path.touch()
+            (root / "ui_settings.ini").write_text(
+                "[Terminal.1]\nname=Primary\nenabled=1\nbroker=ICTRADING\nmt5_path=" + str(primary) + "\n"
+                "[Terminal.2]\nname=Fallback\nenabled=0\nbroker=ICTRADING\nmt5_path=" + str(fallback) + "\n"
+                "[Terminal.3]\nname=Foreign\nenabled=1\nbroker=ROBOFOREX\nmt5_path=" + str(foreign) + "\n",
+                encoding="utf-8",
+            )
+            owner = FakeOwner("idle")
+            owner.config.update(project_dir=str(root), settings_file="ui_settings.ini")
+            controller = LiveAuditController(owner, root / "runtime")
+            profiles = controller._native_report_profiles(primary)
+
+        self.assertEqual([profile[1]["name"] for profile in profiles], ["Fallback"])
+
     def test_comparison_explains_missing_extra_and_deviation_reasons(self) -> None:
         now = datetime.now(timezone.utc)
         real = [{
@@ -375,13 +413,14 @@ class LiveAuditEngineTests(unittest.TestCase):
         # pipeline probaría cada estrategia contra la cuenta real.
         with tempfile.TemporaryDirectory() as temp:
             owner, controller = self._controller(Path(temp), "running")
-            logins: list[tuple[str, str]] = []
+            initialize_calls: list[dict[str, object]] = []
+            launches: list[tuple[str, str | None]] = []
             closed_gracefully: list[set[int]] = []
 
             class FakeMt5:
                 @staticmethod
                 def initialize(**kwargs) -> bool:
-                    logins.append((str(kwargs["login"]), str(kwargs["server"])))
+                    initialize_calls.append(dict(kwargs))
                     return True
 
                 @staticmethod
@@ -389,24 +428,41 @@ class LiveAuditEngineTests(unittest.TestCase):
                     return SimpleNamespace(login=333, server="CapitalPoint-Live", currency="EUR")
 
                 @staticmethod
+                def terminal_info() -> SimpleNamespace:
+                    return SimpleNamespace(connected=True)
+
+                @staticmethod
                 def shutdown() -> None:
                     pass
 
             self._remember_on_extraction(controller)
-            controller._terminal_pids = lambda: set()
+            controller._terminal_pids_for_path = lambda _path: set()
+            controller._launch_terminal = lambda path, config_path=None: (
+                launches.append((
+                    path, config_path.read_text(encoding="utf-8") if config_path else None,
+                )) or {101}
+            )
             controller._close_terminal_pids_gracefully = closed_gracefully.append
             with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": FakeMt5}):
                 controller.start(request())
                 state = self._wait(controller)
 
         self.assertEqual(state["status"], "completed")
-        self.assertEqual(logins, [("333", "CapitalPoint-Live")])
-        self.assertEqual(closed_gracefully, [set()])
+        self.assertEqual(len(initialize_calls), 2)
+        self.assertTrue(all(set(call) == {"path", "timeout"} for call in initialize_calls))
+        self.assertEqual(len(launches), 2)
+        self.assertIn("KeepPrivate = 1", launches[0][1] or "")
+        self.assertIn("Login = 333", launches[0][1] or "")
+        self.assertIn("Password = restore-secret", launches[0][1] or "")
+        self.assertIsNone(launches[1][1])
+        self.assertEqual(closed_gracefully, [set(), set(), set()])
         restore = state["terminal_restore"]
         self.assertEqual(len(restore), 1)
         self.assertEqual(restore[0]["terminal"], "MT5_IC_1")
         self.assertEqual((restore[0]["login"], restore[0]["server"]), ("333", "CapitalPoint-Live"))
         self.assertTrue(restore[0]["restored"])
+        self.assertTrue(restore[0]["password_persisted"])
+        self.assertTrue(restore[0]["reopened_without_password"])
         self.assertEqual(state["last_result"]["terminal_restore"], restore)
         self.assertNotIn("tester-secret", str(state))
         self.assertNotIn("restore-secret", str(state))
@@ -418,11 +474,22 @@ class LiveAuditEngineTests(unittest.TestCase):
     def test_a_terminal_left_on_another_account_is_reported_without_hiding_the_result(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             _owner, controller = self._controller(Path(temp), "idle")
+            attempts = 0
 
             class RefusingMt5:
                 @staticmethod
                 def initialize(**_kwargs) -> bool:
-                    return False
+                    nonlocal attempts
+                    attempts += 1
+                    return attempts == 1
+
+                @staticmethod
+                def account_info() -> SimpleNamespace:
+                    return SimpleNamespace(login=333, server="CapitalPoint-Live")
+
+                @staticmethod
+                def terminal_info() -> SimpleNamespace:
+                    return SimpleNamespace(connected=True)
 
                 @staticmethod
                 def last_error() -> tuple[int, str]:
@@ -433,14 +500,18 @@ class LiveAuditEngineTests(unittest.TestCase):
                     pass
 
             self._remember_on_extraction(controller)
-            controller._terminal_pids = lambda: set()
+            controller._terminal_pids_for_path = lambda _path: set()
+            controller._launch_terminal = lambda _path, _config_path=None: {101}
             controller._close_terminal_pids_gracefully = lambda _pids: None
             with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": RefusingMt5}):
                 controller.start(request())
                 state = self._wait(controller)
 
         self.assertEqual(state["status"], "completed")
+        self.assertEqual(attempts, 2)
         self.assertFalse(state["terminal_restore"][0]["restored"])
+        self.assertFalse(state["terminal_restore"][0]["password_persisted"])
+        self.assertFalse(state["terminal_restore"][0]["reopened_without_password"])
         self.assertIn("Authorization failed", state["terminal_restore"][0]["error"])
         self.assertIn("no quedó en la cuenta configurada 333", state["progress_text"])
 
@@ -458,6 +529,79 @@ class LiveAuditEngineTests(unittest.TestCase):
             touched = controller.real_account_terminals["9"]
 
         self.assertEqual([row["section"] for row in touched], ["Terminal.2", "Terminal.3"])
+
+    def test_tester_login_is_confirmed_independently_in_every_selected_terminal(self) -> None:
+        controller = LiveAuditController(FakeOwner("idle"), Path(tempfile.gettempdir()))
+        initialized: list[str] = []
+        closed: list[set[int]] = []
+
+        class FakeMt5:
+            @staticmethod
+            def initialize(**kwargs) -> bool:
+                initialized.append(str(kwargs["path"]))
+                return True
+
+            @staticmethod
+            def account_info() -> SimpleNamespace:
+                return SimpleNamespace(login=222, server="IC-Demo")
+
+            @staticmethod
+            def terminal_info() -> SimpleNamespace:
+                return SimpleNamespace(connected=True)
+
+            @staticmethod
+            def shutdown() -> None:
+                pass
+
+        controller._terminal_pids = lambda: set()
+        controller._close_terminal_pids_gracefully = closed.append
+        profiles = [
+            ("Terminal.2", {"name": "MT5_IC_1", "mt5_path": r"C:\IC1\terminal64.exe"}),
+            ("Terminal.3", {"name": "MT5_IC_2", "mt5_path": r"C:\IC2\terminal64.exe"}),
+        ]
+        with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": FakeMt5}):
+            rows = controller._verify_tester_terminals(request(), profiles)
+
+        self.assertEqual(initialized, [r"C:\IC1\terminal64.exe", r"C:\IC2\terminal64.exe"])
+        self.assertEqual(closed, [set(), set()])
+        self.assertTrue(all(row["verified"] for row in rows))
+        self.assertEqual({row["login"] for row in rows}, {"222"})
+        self.assertEqual({row["server"] for row in rows}, {"IC-Demo"})
+
+    def test_main_journal_capture_keeps_only_new_lines_and_redacts_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            data_dir = root / "terminal-data"
+            journal = data_dir / "logs" / "20260829.log"
+            journal.parent.mkdir(parents=True)
+            journal.write_bytes(b"\xff\xfe" + "old line\r\n".encode("utf-16-le"))
+            profiles = [("Terminal.2", {
+                "name": "MT5_IC_1", "data_dir": str(data_dir),
+                "mt5_path": r"C:\IC1\terminal64.exe",
+            })]
+            snapshot = LiveAuditController._main_journal_snapshot(profiles)
+            with journal.open("ab") as handle:
+                handle.write(
+                    "222: authorized on IC-Demo; tester-secret\r\n".encode("utf-16-le")
+                )
+            validations = [{
+                "section": "Terminal.2", "terminal": "MT5_IC_1", "login": "222",
+                "server": "IC-Demo", "connected": True, "verified": True, "error": None,
+            }]
+            controller = LiveAuditController(FakeOwner("idle"), root / "runtime")
+            output_dir = root / "audit-logs"
+            controller._capture_main_journals(
+                profiles, snapshot, output_dir, validations, request()
+            )
+            captured = (output_dir / "main_journal_MT5_IC_1.txt").read_text(encoding="utf-8")
+
+        self.assertNotIn("old line", captured)
+        self.assertIn("222: authorized on IC-Demo", captured)
+        self.assertNotIn("tester-secret", captured)
+        self.assertIn("[REDACTED]", captured)
+        self.assertTrue(validations[0]["journal_captured"])
+        self.assertTrue(validations[0]["journal_login_seen"])
+        self.assertTrue(validations[0]["journal_server_seen"])
 
     def test_missing_tick_quality_makes_the_result_not_comparable(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mt5_manager import portfolio_import
 from mt5_manager.portfolio_service import (
+    PortfolioCoordinator,
     PortfolioSource,
     _imported_target_month,
     build_import_proposals,
@@ -298,6 +299,72 @@ class ImportRoundTripTests(unittest.TestCase):
         )
         self.assertEqual(_imported_target_month(header), 8)
         self.assertIsNone(_imported_target_month({"name": "A/M/C | Base Moderado"}))
+
+
+class ImportPersistenceRoutingTests(unittest.TestCase):
+    def test_ubs_import_is_written_by_the_node_that_owns_the_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            coordinator = PortfolioCoordinator(
+                [{
+                    "id": "ic", "url": "http://ic-node:8765", "token": "secret",
+                    "portfolio_project_dir": temp_dir, "portfolio_broker": "ICTRADING",
+                    "portfolio_account_type": "STANDARD",
+                }],
+                Path(temp_dir) / "portfolio-settings.json",
+            )
+            response = {"portfolio_id": 41}
+
+            def node_save(_node, path, payload, timeout=60):
+                self.assertEqual(path, "/api/v1/portfolios/save")
+                self.assertEqual(timeout, 120)
+                self.assertEqual(payload["scope"], "full_history")
+                self.assertEqual(payload["operation"], "generate")
+                self.assertEqual(payload["selected_key"], "balanced")
+                response["request_id"] = payload["request_id"]
+                return 201, response
+
+            with patch.object(coordinator, "_post_to_node", side_effect=node_save) as post, patch(
+                "mt5_manager.portfolio_service.save_portfolio_payload"
+            ) as local_save:
+                portfolio_id = coordinator._save_imported_ubs_proposals(
+                    "ic", "full_history", [], "balanced"
+                )
+
+            self.assertEqual(portfolio_id, 41)
+            post.assert_called_once()
+            local_save.assert_not_called()
+
+    def test_ubs_import_rejects_a_node_that_does_not_confirm_the_request(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            coordinator = PortfolioCoordinator(
+                [{
+                    "id": "ic", "url": "http://ic-node:8765", "token": "secret",
+                    "portfolio_project_dir": temp_dir, "portfolio_broker": "ICTRADING",
+                    "portfolio_account_type": "STANDARD",
+                }],
+                Path(temp_dir) / "portfolio-settings.json",
+            )
+            with patch.object(
+                coordinator, "_post_to_node", return_value=(201, {"portfolio_id": 41})
+            ):
+                with self.assertRaises(ValueError) as raised:
+                    coordinator._save_imported_ubs_proposals(
+                        "ic", "full_history", [], "balanced"
+                    )
+
+            self.assertIn("confirmó", str(raised.exception))
+
+    def test_node_import_routing_is_rejected_outside_ubs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            coordinator = PortfolioCoordinator(
+                [{"id": "ic", "portfolio_project_dir": temp_dir}],
+                Path(temp_dir) / "portfolio-settings.json",
+            )
+            for scope in ("monthly", "grid"):
+                with self.subTest(scope=scope), self.assertRaises(ValueError):
+                    coordinator._save_imported_ubs_proposals(
+                        "ic", scope, [], "balanced"
+                    )
 
 
 if __name__ == "__main__":

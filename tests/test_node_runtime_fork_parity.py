@@ -392,6 +392,9 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         for token in (
             "def _restore_tester_login",
             "def _remember_real_account_terminal",
+            "def _tester_terminal_pool",
+            '"tester_execution"',
+            '"workers": str(workers)',
             "def _close_terminal_pids_gracefully",
             "remember_for=str(request[\"audit_key\"])",
             'request["restore_login"]',
@@ -419,6 +422,9 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
             for token, hint in (
                 ("def _restore_tester_login", "la restauración de la cuenta de pruebas"),
                 ("def _remember_real_account_terminal", "el registro de terminales con la cuenta real"),
+                ("def _tester_terminal_pool", "el reparto del tester entre terminales habilitadas"),
+                ('"tester_execution"', "la evidencia del modo y del pool de terminales ejecutado"),
+                ('"workers": str(workers)', "el número efectivo de terminales del tester"),
                 ("def _close_terminal_pids_gracefully", "el cierre que deja a MT5 guardar la cuenta"),
                 ('request["restore_login"]', "el login final independiente de la cuenta tester"),
                 ('request["restore_password"]', "la credencial final independiente de la cuenta tester"),

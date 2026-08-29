@@ -123,6 +123,109 @@ class LiveAuditSettingsTests(unittest.TestCase):
             "tester_password": "tester-secret",
         })
 
+    def test_saved_accounts_are_public_without_secrets_and_can_be_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = LiveAuditSettingsStore(root / "live_audit_settings.json")
+            store.update("node-a", {
+                "selected_audit_ids": ["original"],
+                "profiles": {"original": {
+                    **profile("111", "911"),
+                    "portfolio_id": 11,
+                    "portfolio_type": "balanced",
+                    "source_password": "real-secret",
+                    "tester_password": "tester-secret",
+                }},
+            })
+            catalog = store.state("node-a")["saved_accounts"]
+            source_id = next(account["id"] for account in catalog if account["login"] == "111")
+            tester_id = next(account["id"] for account in catalog if account["login"] == "911")
+
+            saved = store.update("node-a", {
+                "selected_audit_ids": ["another-portfolio"],
+                "profiles": {"another-portfolio": {
+                    **DEFAULT_LIVE_AUDIT_PROFILE,
+                    "portfolio_id": 12,
+                    "portfolio_type": "conservative",
+                    "source_saved_account_id": source_id,
+                    "tester_saved_account_id": tester_id,
+                }},
+            })
+            reused = store.credentials("node-a", "another-portfolio")
+
+        self.assertEqual(reused, {
+            "source_password": "real-secret",
+            "tester_password": "tester-secret",
+        })
+        self.assertEqual(saved["profiles"]["another-portfolio"]["source_login"], "111")
+        self.assertEqual(saved["profiles"]["another-portfolio"]["source_server"], "Broker-Live")
+        self.assertEqual(saved["profiles"]["another-portfolio"]["tester_login"], "911")
+        self.assertEqual(saved["profiles"]["another-portfolio"]["tester_server"], "Broker-Demo")
+        public = json.dumps(saved)
+        self.assertNotIn("real-secret", public)
+        self.assertNotIn("tester-secret", public)
+        self.assertNotIn("password", json.dumps(saved["saved_accounts"]))
+
+    def test_restore_account_is_also_reusable_but_references_are_node_local(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
+            store.update_restore_account("node-a", {
+                "login": "333", "server": "Broker-Final", "password": "final-secret",
+            })
+            account_id = store.state("node-a")["saved_accounts"][0]["id"]
+            saved = store.update("node-a", {
+                "selected_audit_ids": ["portfolio-20"],
+                "profiles": {"portfolio-20": {
+                    **profile("", "900"),
+                    "portfolio_id": 20,
+                    "portfolio_type": "aggressive",
+                    "source_saved_account_id": account_id,
+                    "tester_password": "tester-secret",
+                }},
+            })
+            credentials = store.credentials("node-a", "portfolio-20")
+            with self.assertRaisesRegex(ValueError, "ya no está disponible"):
+                store.update("node-b", {
+                    "selected_audit_ids": ["portfolio-21"],
+                    "profiles": {"portfolio-21": {
+                        **profile("", "901"),
+                        "portfolio_id": 21,
+                        "portfolio_type": "balanced",
+                        "source_saved_account_id": account_id,
+                        "tester_password": "other-tester-secret",
+                    }},
+                })
+
+        self.assertEqual(saved["profiles"]["portfolio-20"]["source_login"], "333")
+        self.assertEqual(saved["profiles"]["portfolio-20"]["source_server"], "Broker-Final")
+        self.assertEqual(credentials["source_password"], "final-secret")
+
+    def test_catalog_keeps_real_tester_and_final_entries_even_when_credentials_match(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
+            store.update("node-a", {
+                "selected_audit_ids": ["portfolio-20"],
+                "profiles": {"portfolio-20": {
+                    **profile("111", "333"),
+                    "portfolio_id": 20,
+                    "portfolio_type": "balanced",
+                    "source_password": "real-secret",
+                    "tester_password": "shared-secret",
+                }},
+            })
+            store.update_restore_account("node-a", {
+                "login": "333", "server": "Broker-Demo", "password": "shared-secret",
+            })
+            catalog = store.state("node-a")["saved_accounts"]
+
+        self.assertEqual(len(catalog), 3)
+        self.assertEqual(
+            [account["id"] for account in catalog],
+            ["profile:portfolio-20:source", "profile:portfolio-20:tester", "restore:terminal"],
+        )
+        self.assertEqual([account["login"] for account in catalog], ["111", "333", "333"])
+        self.assertNotIn("password", json.dumps(catalog))
+
     def test_profile_numeric_limits_and_fixed_policy_are_validated(self) -> None:
         with self.assertRaisesRegex(ValueError, "period_days"):
             normalize_live_audit_settings({"period_days": 0})
@@ -320,6 +423,16 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("los logins pueden coincidir", self.script)
         self.assertNotIn("deben ser diferentes", self.script)
 
+    def test_saved_accounts_can_be_selected_again_for_any_portfolio_use(self) -> None:
+        self.assertIn("saved_accounts", self.script)
+        self.assertIn('data-saved-account-role="source"', self.script)
+        self.assertIn('data-saved-account-role="tester"', self.script)
+        self.assertIn("source_saved_account_id", self.script)
+        self.assertIn("tester_saved_account_id", self.script)
+        self.assertIn("Cuenta para este uso", self.script)
+        self.assertIn("Nueva cuenta · escribir login, servidor y contraseña", self.script)
+        self.assertIn("la contraseña nunca vuelve al navegador", self.script)
+
     def test_profile_only_asks_for_the_audited_period(self) -> None:
         self.assertIn("Periodo auditado (días)", self.script)
         self.assertNotIn('data-field="audit_interval_days"', self.script)
@@ -355,9 +468,11 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             "operation_comparisons", "nearest_unused_real", "open_time_delta_seconds",
             "open_price_delta_points", "volume_delta_pct", "pnl_delta_pct", "strategy_summary",
             "strategy_artifacts", "real_account_report", "lot_matches_portfolio",
-            "observed_trade_volumes", "report_volumes_match_start_lots",
+            "observed_trade_volumes", "report_volumes_match_start_lots", "tester_execution",
         ):
             self.assertIn(field, self.result_script)
+        self.assertIn("sets ·", self.result_script)
+        self.assertIn("terminales ·", self.result_script)
         self.assertIn("Resultado antiguo sin trazabilidad por operación", self.result_script)
         self.assertIn("Abrir reporte MT5", self.result_script)
         self.assertIn("Abrir HTML nativo de MT5", self.result_script)
@@ -368,6 +483,11 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Terminal devuelto a la cuenta final configurada", self.result_script)
         self.assertIn("function terminalRestore(result)", self.result_script)
         self.assertIn("terminal_restore", self.result_script)
+        self.assertIn("password_persisted", self.result_script)
+        self.assertIn("reopened_without_password", self.result_script)
+        self.assertIn("contraseña persistida · reapertura verificada", self.result_script)
+        self.assertIn("terminal_validations", self.result_script)
+        self.assertIn("Cuenta tester confirmada por terminal", self.result_script)
         # Sin fila no se afirma nada, y una restauración fallida se marca en rojo.
         self.assertIn("NO REGISTRADO", self.result_script)
         self.assertIn("SIN RESTAURAR", self.result_script)

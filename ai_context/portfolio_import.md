@@ -62,12 +62,15 @@ que los de exportar.
 
 ## Quién escribe
 
-El manager, no el nodo, como la reintegración y la reclasificación. El destino es
-el de siempre para el ámbito: la memoria del broker en UBS y mensual, la base del
-manager en Grid (`_persistence_source`). Los candidatos se buscan en la fuente de
-cálculo (`_calculation_source`), que en Grid incluye las dos memorias. Después se
-invalida la copia remota, porque ha habido una escritura sobre una memoria que el
-manager lee por copia: ver `manager_snapshot_after_node_writes.md`.
+En Portafolio UBS el manager reconstruye las propuestas desde los informes, pero
+no escribe la memoria: la envía por `/api/v1/portfolios/save` al nodo, igual que
+un guardado normal. Es el nodo quien ejecuta `save_portfolio_payload` contra su
+base WAL local. Intentar `save_proposal` desde el manager falla en Docker/bind
+mounts o SMB con `disk I/O error`; ver `portfolio_write_needs_the_node.md`.
+
+Este cambio está acotado a `full_history`. UBS mensual queda fuera del alcance y
+conserva su comportamiento anterior hasta autorización explícita. Grid también
+conserva su base propia en el manager mediante `_persistence_source`.
 
 ## Guardas
 

@@ -12,7 +12,7 @@ este orden:
   periodo, tolerancias y contraseñas persistentes;
 - la política fija `pause_resume`, reutilizando las rutas multterminal que ya
   posee el agente;
-- periodo auditado y cadencia independiente expresada únicamente en días;
+- periodo auditado y una cadencia global expresada únicamente en días;
 - calidad histórica mínima de datos tick a tick, modo de ticks/retraso y
   tolerancias de tiempo, precio, volumen, PnL y DD.
 
@@ -52,8 +52,8 @@ configuración compartida en un perfil por cada ID que estuviera seleccionado.
   futura comparación debe devolver `no comparable` cuando MT5 no informe la
   calidad o cuando sea inferior al umbral; nunca calcular discrepancias sobre
   datos que no superaron esta puerta.
-- La programación pública contiene solo `period_days` y
-  `audit_interval_days`. Los campos del primer MVP
+- Cada perfil contiene solo su periodo auditado (`period_days`). La programación
+  automática tiene una sola cadencia global (`interval_days`). Los campos del primer MVP
   `sync_interval_minutes`, `daily_audit_time` y
   `heartbeat_timeout_minutes` se aceptan únicamente al migrar registros viejos,
   se descartan y no vuelven a guardarse. Un registro migrado parte de una
@@ -117,8 +117,8 @@ nodo señuelo del manager como en la copia que realmente carga la aplicación:
   y lo reanuda en `finally`. Si ya estaba `paused`/`interrupted`, no llama a
   `resume`. El estado terminal `failed` o `not_comparable` se conserva también
   después de reanudar.
-- El manager revisa cada cinco minutos los perfiles configurados y lanza los que
-  hayan vencido según `audit_interval_days`. La pantalla sondea cada dos segundos
+- El manager revisa internamente cada cinco minutos y, cuando vence el único
+  `interval_days` global, lanza todos los perfiles configurados. La pantalla sondea cada dos segundos
   y alimenta barra, modal de resultado y logs por portafolio.
 
 Validación: 357 pruebas del manager y 56 pruebas focalizadas del nodo ICTrading.
@@ -391,14 +391,41 @@ cierra respetuosamente solo los procesos que tuvo que arrancar. La restauración
 ocurre antes de reanudar el pipeline.
 
 El antiguo interruptor oculto del programador tiene ahora el botón
-`⚙ Programación`. Su diálogo explica y permite editar `enabled`, el intervalo
-de revisión en minutos y la espera inicial. Se persiste en
+`⚙ Programación`. Su diálogo solo permite activar/desactivar y editar cada
+cuántos días se ejecutan todas las auditorías configuradas. Se persiste en
 `runtime/live_audit_scheduler.json` (relativo al directorio de la configuración
 efectiva), se aplica sin reiniciar el manager y sigue desactivado por defecto.
-Cada perfil conserva `audit_interval_days`: el programador solo comprueba cuáles
-han vencido. `MT5_MANAGER_LIVE_AUDIT_SCHEDULER` mantiene precedencia y la UI lo
+La espera inicial de 30 segundos y el sondeo interno de 5 minutos son detalles
+fijos, no opciones públicas. Los antiguos timers y cadencias por perfil solo se
+aceptan para migración y no vuelven a guardarse. `MT5_MANAGER_LIVE_AUDIT_SCHEDULER`
+mantiene precedencia y la UI lo
 declara expresamente como override; mientras está desactivado, el segundo
 candado de `_run_due_live_audits` sigue impidiendo solicitudes al nodo.
+
+## Variante, paralelismo y extracción del informe (2026-08-29)
+
+`_portfolio_members` exige coincidencia exacta de `variant_key` con el modo del
+uso. No hay fallback ni unión A/M/C: una petición `aggressive` solo copia y
+ejecuta los miembros agresivos, y falla si esa variante no existe. El resultado
+guarda `tester_execution.portfolio_type`, el número exacto de sets, los workers
+y los nombres de terminal para que esta decisión sea visible y auditable.
+
+El tester ya no fuerza `workers=1`. Con más de un worker sigue la semántica del
+multiterminal existente: selecciona hasta un perfil configurado del broker por
+set aunque sus casillas individuales estén desactivadas, prioriza el perfil cuya
+cuenta se validó y pasa el pool al runner. Seis sets con cinco perfiles IC se
+ejecutan con cinco workers. Todas esas
+rutas se registran para restaurar después la cuenta `restore_*`, incluso si el
+tester falla.
+
+La extracción de la cuenta real sigue usando una sola terminal porque el
+historial pertenece a la cuenta: repetirlo en cinco terminales duplicaría el
+mismo dato y añadiría fallos. La API MetaTrader5 proporciona los deals para la
+comparación; el HTML de evidencia debe salir del GUI nativo porque la API no lo
+exporta. Se valida tamaño, firma `client terminal`, título nativo, login, periodo
+y SHA-256. Si la ventana principal pertenece a otra sesión Windows se prueba,
+de forma secuencial, otra terminal configurada del mismo broker. Nunca prueba
+un perfil de otro broker.
 
 El runtime compatible anuncia `capabilities.live_audit_restore_account=true`.
 El manager bloquea lanzamientos manuales y programados mientras el nodo todavía
@@ -413,3 +440,77 @@ el `StartLots` del tester a `max(lot_guardado, units * volume_min)`, redondeado 
 la construcción consumiera `volume_min`; USTEC con una unidad y `lot=0.01` se
 prueba explícitamente a `0.10`. El artefacto conserva por separado el lote
 guardado, el lote ejecutado y la regla del broker.
+
+## Validación y Journal principal por terminal (2026-08-29)
+
+El `Login=` del INI y el Journal del Strategy Tester demuestran qué credenciales
+se pidieron y qué servidor/histórico se utilizó, pero MT5 no imprime el número de
+cuenta tester en ese Journal. Antes de ejecutar, el runtime IC autentica ahora la
+cuenta tester por separado en cada terminal seleccionada y exige simultáneamente
+`account_info().login`, servidor exacto y `terminal_info().connected`. Si falla
+una sola terminal, no se inicia el pool.
+
+Antes de esas validaciones se fotografían los tamaños de `<data_dir>/logs/*.log`.
+Al terminar los testers, y antes de restaurar las cuentas, se copian únicamente
+las líneas nuevas del Journal principal a
+`logs/main_journal_<terminal>.txt`. Los secretos de origen, tester y restauración
+se redactan antes de escribir. El resultado público conserva solo metadatos
+seguros en `tester_execution.terminal_validations`. Los Journals no se sirven
+como artefactos web.
+
+## Reutilización de cuentas guardadas entre portafolios (2026-08-30)
+
+Las cuentas cifradas de un nodo forman ahora un catálogo reutilizable para todos
+sus usos de portafolio. Incluye las cuentas reales, las cuentas de Strategy
+Tester y la cuenta final de restauración que ya tengan contraseña guardada. El
+estado público `saved_accounts` contiene únicamente un identificador opaco,
+login, servidor y procedencia; nunca contiene la contraseña ni el token Fernet.
+
+Cada bloque «Cuenta real» y «Cuenta de pruebas» ofrece un selector de ese
+catálogo. Al guardar, `source_saved_account_id` y
+`tester_saved_account_id` son referencias transitorias: el manager valida que
+pertenezcan al mismo nodo, fija el login/servidor de la cuenta elegida y copia
+internamente el token cifrado al nuevo uso. Las referencias no se persisten en
+el perfil ni llegan al agente. El payload operativo que recibe
+`manager_node_runtime/live_audit.py` no cambia.
+
+Cada lugar en el que se guardó una credencial aparece como opción independiente
+y con procedencia visible: cuenta real, cuenta de Strategy Tester y cuenta final.
+No se fusionan aunque login, servidor y secreto coincidan; el selector debe
+reflejar las tres entradas que el usuario guardó y permitir reutilizar cualquiera.
+El catálogo es por nodo: una referencia obtenida en otro nodo se rechaza.
+
+Este comportamiento se ejecuta íntegramente en el proceso manager, dueño de
+`runtime/live_audit_settings.json` y de las credenciales cifradas. No requiere
+port a la bifurcación ICTrading porque el nodo solo recibe la cuenta ya resuelta
+al iniciar una auditoría.
+
+## La cuenta activa no implica contraseña persistida (2026-08-30)
+
+La captura de MT5 con el login `11637157` en el título y el diálogo «Inicio de
+sesión» abierto, contraseña vacía y «Guardar contraseña» desmarcado demostró que
+la restauración anterior producía un falso positivo. Pasar
+`login/password/server` a `MetaTrader5.initialize()` autentica la sesión actual,
+pero no acredita que el secreto haya entrado en la base cifrada de cuentas del
+terminal. `account_info()` antes de cerrar tampoco prueba una reapertura.
+
+La restauración que se ejecuta realmente en
+`manager_node_runtime/live_audit.py` cierra ahora únicamente los procesos de la
+ruta MT5 afectada, arranca esa instalación con un INI temporal `[Common]` que
+incluye `KeepPrivate=1`, confirma la cuenta, cierra limpiamente para que MT5
+escriba su base y elimina el INI. Después abre de nuevo el terminal sin pasar
+login, servidor ni contraseña a la API y exige login, servidor y conexión. Solo
+entonces publica `restored=true`, `password_persisted=true` y
+`reopened_without_password=true`. Si falla la segunda apertura, el resultado
+dice `SIN RESTAURAR` aunque la primera sesión hubiese conectado.
+
+La instancia que ya estaba abierta antes de la auditoría se vuelve a dejar
+abierta tras la comprobación. Una instancia creada solo para auditar se cierra
+limpiamente después de verificarla. Nunca se fuerza el cierre de procesos de
+otra instalación y el secreto temporal continúa sujeto a borrado en `finally`.
+
+Referencia oficial: `KeepPrivate=1` significa guardar la contraseña entre
+conexiones y una contraseña omitida en `initialize()` solo funciona si ya está
+guardada en la base del terminal:
+https://www.metatrader5.com/en/terminal/help/start_advanced/start
+https://www.mql5.com/en/docs/python_metatrader5/mt5initialize_py

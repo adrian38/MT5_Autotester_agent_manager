@@ -8,6 +8,7 @@ let defaults = {};
 let portfolios = [];
 let profiles = {};
 let credentialState = {};
+let savedAccounts = [];
 let auditStates = {};
 let passwordDrafts = {};
 let selectedAuditIds = [];
@@ -86,6 +87,17 @@ function option(value, label, current) {
   return `<option value="${value}"${current === value ? ' selected' : ''}>${label}</option>`;
 }
 
+function savedAccountOptions(current = '', hasCurrent = false) {
+  const rows = savedAccounts.map(account => {
+    const label = `${account.login} · ${account.server} · ${account.origin}`;
+    return `<option value="${escapeHtml(account.id)}"${current === account.id ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  });
+  const manualLabel = hasCurrent
+    ? 'Conservar esta cuenta o escribir una nueva manualmente'
+    : 'Nueva cuenta · escribir login, servidor y contraseña';
+  return `<option value="">${manualLabel}</option>${rows.join('')}`;
+}
+
 function auditRuntime(id) {
   const value = auditStates[String(id)] || {};
   const progress = Math.max(0, Math.min(100, Number(value.progress_pct || 0)));
@@ -151,31 +163,37 @@ function profileMarkup(auditId) {
   const credentials = credentialState[String(auditId)] || {};
   const sourceSaved = Boolean(credentials.source_password_saved);
   const testerSaved = Boolean(credentials.tester_password_saved);
+  const sourceReference = profile.source_saved_account_id || '';
+  const testerReference = profile.tester_saved_account_id || '';
+  const sourceReady = sourceSaved || Boolean(sourceReference);
+  const testerReady = testerSaved || Boolean(testerReference);
   return `<section class="panel-card live-audit-card live-audit-profile" data-profile-id="${escapeHtml(auditId)}">
-    <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO #${id} · USO ${escapeHtml(auditId)}</p><h2>${escapeHtml(portfolioName(id))}</h2></div><div><span class="badge ${sourceSaved && testerSaved ? 'completed' : 'idle'}">${sourceSaved && testerSaved ? 'CREDENCIALES GUARDADAS' : 'PENDIENTE'}</span><button type="button" class="secondary" data-remove-audit="${escapeHtml(auditId)}">Quitar uso</button></div></div>
+    <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO #${id} · USO ${escapeHtml(auditId)}</p><h2>${escapeHtml(portfolioName(id))}</h2></div><div><span class="badge ${sourceReady && testerReady ? 'completed' : 'idle'}">${sourceReady && testerReady ? 'CREDENCIALES DISPONIBLES' : 'PENDIENTE'}</span><button type="button" class="secondary" data-remove-audit="${escapeHtml(auditId)}">Quitar uso</button></div></div>
     <div class="live-audit-subtitle"><strong>Identidad de este uso</strong><span>El mismo portafolio puede repetirse con otro modo y otra cuenta sin sobrescribir esta auditoría.</span></div>
     <div class="live-audit-fields">
       <label>Nombre descriptivo<input data-field="deployment_name" maxlength="120" value="${escapeHtml(profile.deployment_name)}" placeholder="Ej.: Moderado cuenta principal"></label>
       <label>Modo del portafolio<select data-field="portfolio_type" required>${option('', 'Selecciona Agresivo / Moderado / Conservador', profile.portfolio_type)}${option('aggressive', 'Agresivo', profile.portfolio_type)}${option('balanced', 'Moderado', profile.portfolio_type)}${option('conservative', 'Conservador', profile.portfolio_type)}</select></label>
     </div>
-    <div class="live-audit-subtitle"><strong>Cuentas de esta prueba</strong><span>Ambas credenciales se guardan de forma independiente; los logins pueden coincidir.</span></div>
+    <div class="live-audit-subtitle"><strong>Cuentas de esta prueba</strong><span>Puedes reutilizar cualquier cuenta cifrada del nodo en otro portafolio; los logins pueden coincidir.</span></div>
     <div class="live-audit-account-grid">
       <fieldset class="live-audit-account">
         <legend>Cuenta real · extraer información</legend>
-        <label>Login real<input data-field="source_login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" value="${escapeHtml(profile.source_login)}" required></label>
-        <label>Servidor real<input data-field="source_server" maxlength="160" autocomplete="off" value="${escapeHtml(profile.source_server)}" required></label>
-        <label>Contraseña real<input data-field="source_password" type="password" maxlength="512" autocomplete="new-password" placeholder="${sourceSaved ? 'Guardada · deja vacío para conservar' : 'Introduce la contraseña'}"${sourceSaved ? '' : ' required'}></label>
-        <small class="${sourceSaved ? 'saved' : ''}">${sourceSaved ? 'Contraseña guardada' : 'Todavía no guardada'}</small>
+        <label>Cuenta para este uso<select data-saved-account-role="source">${savedAccountOptions(sourceReference, sourceSaved)}</select></label>
+        <label>Login real<input data-field="source_login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" value="${escapeHtml(profile.source_login)}" data-original-value="${escapeHtml(profile.source_login)}" required></label>
+        <label>Servidor real<input data-field="source_server" maxlength="160" autocomplete="off" value="${escapeHtml(profile.source_server)}" data-original-value="${escapeHtml(profile.source_server)}" required></label>
+        <label>Contraseña real<input data-field="source_password" type="password" maxlength="512" autocomplete="new-password" placeholder="${sourceReady ? 'Guardada · no es necesario volver a escribirla' : 'Introduce la contraseña'}"${sourceReady ? '' : ' required'}></label>
+        <small data-account-state-role="source" class="${sourceReady ? 'saved' : ''}">${sourceReference ? 'Se reutilizará la contraseña cifrada de la cuenta elegida' : sourceSaved ? 'Contraseña guardada en este uso' : 'Todavía no guardada'}</small>
       </fieldset>
       <fieldset class="live-audit-account">
         <legend>Cuenta de pruebas · ejecutar tester</legend>
-        <label>Login de pruebas<input data-field="tester_login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" value="${escapeHtml(profile.tester_login)}" required></label>
-        <label>Servidor de pruebas<input data-field="tester_server" maxlength="160" autocomplete="off" value="${escapeHtml(profile.tester_server)}" required></label>
-        <label>Contraseña de pruebas<input data-field="tester_password" type="password" maxlength="512" autocomplete="new-password" placeholder="${testerSaved ? 'Guardada · deja vacío para conservar' : 'Introduce la contraseña'}"${testerSaved ? '' : ' required'}></label>
-        <small class="${testerSaved ? 'saved' : ''}">${testerSaved ? 'Contraseña guardada' : 'Todavía no guardada'}</small>
+        <label>Cuenta para este uso<select data-saved-account-role="tester">${savedAccountOptions(testerReference, testerSaved)}</select></label>
+        <label>Login de pruebas<input data-field="tester_login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" value="${escapeHtml(profile.tester_login)}" data-original-value="${escapeHtml(profile.tester_login)}" required></label>
+        <label>Servidor de pruebas<input data-field="tester_server" maxlength="160" autocomplete="off" value="${escapeHtml(profile.tester_server)}" data-original-value="${escapeHtml(profile.tester_server)}" required></label>
+        <label>Contraseña de pruebas<input data-field="tester_password" type="password" maxlength="512" autocomplete="new-password" placeholder="${testerReady ? 'Guardada · no es necesario volver a escribirla' : 'Introduce la contraseña'}"${testerReady ? '' : ' required'}></label>
+        <small data-account-state-role="tester" class="${testerReady ? 'saved' : ''}">${testerReference ? 'Se reutilizará la contraseña cifrada de la cuenta elegida' : testerSaved ? 'Contraseña guardada en este uso' : 'Todavía no guardada'}</small>
       </fieldset>
     </div>
-    <p class="live-audit-security"><strong>Credenciales cifradas e independientes.</strong> Las contraseñas de este portafolio nunca vuelven al navegador.</p>
+    <p class="live-audit-security"><strong>Catálogo seguro por nodo.</strong> Solo se muestran login y servidor; al reutilizar una cuenta, el manager copia internamente su secreto cifrado y la contraseña nunca vuelve al navegador.</p>
     <div class="live-audit-subtitle"><strong>Calidad de datos tick a tick</strong><span>Sin calidad informada o por debajo del mínimo, no se realiza la comparación.</span></div>
     <div class="live-audit-fields live-audit-quality-fields">
       <label>Calidad histórica mínima (%)<input data-field="min_tick_history_quality_pct" type="number" min="0" max="100" step="any" value="${profile.min_tick_history_quality_pct}" required></label>
@@ -232,8 +250,10 @@ function readCard(card) {
     portfolio_id: portfolioForAudit(card.dataset.profileId),
     portfolio_type: field('portfolio_type').value,
     deployment_name: field('deployment_name').value.trim(),
+    source_saved_account_id: card.querySelector('[data-saved-account-role="source"]').value,
     source_login: field('source_login').value.trim(),
     source_server: field('source_server').value.trim(),
+    tester_saved_account_id: card.querySelector('[data-saved-account-role="tester"]').value,
     tester_login: field('tester_login').value.trim(),
     tester_server: field('tester_server').value.trim(),
     active_job_policy: 'pause_resume',
@@ -265,7 +285,44 @@ function updateProfileControls() {
   configsEl.querySelectorAll('[data-profile-id]').forEach(card => {
     const fixed = card.querySelector('[data-field="execution_delay_mode"]').value === 'fixed';
     card.querySelector('[data-field="fixed_delay_ms"]').disabled = !fixed;
+    ['source', 'tester'].forEach(role => {
+      const reused = Boolean(card.querySelector(`[data-saved-account-role="${role}"]`).value);
+      card.querySelector(`[data-field="${role}_login"]`).readOnly = reused;
+      card.querySelector(`[data-field="${role}_server"]`).readOnly = reused;
+    });
   });
+}
+
+function applySavedAccount(card, role) {
+  const selector = card.querySelector(`[data-saved-account-role="${role}"]`);
+  const login = card.querySelector(`[data-field="${role}_login"]`);
+  const server = card.querySelector(`[data-field="${role}_server"]`);
+  const password = card.querySelector(`[data-field="${role}_password"]`);
+  const state = card.querySelector(`[data-account-state-role="${role}"]`);
+  const account = savedAccounts.find(item => item.id === selector.value);
+  const alreadySaved = Boolean(
+    credentialState[String(card.dataset.profileId)]?.[`${role}_password_saved`]
+  );
+  if (account) {
+    login.value = account.login;
+    server.value = account.server;
+    login.readOnly = true;
+    server.readOnly = true;
+    password.value = '';
+    password.required = false;
+    password.placeholder = 'Guardada · no es necesario volver a escribirla';
+    state.textContent = 'Se reutilizará la contraseña cifrada de la cuenta elegida';
+    state.classList.add('saved');
+    return;
+  }
+  login.value = login.dataset.originalValue || '';
+  server.value = server.dataset.originalValue || '';
+  login.readOnly = false;
+  server.readOnly = false;
+  password.required = !alreadySaved;
+  password.placeholder = alreadySaved ? 'Guardada · deja vacío para conservar' : 'Introduce la contraseña';
+  state.textContent = alreadySaved ? 'Contraseña guardada en este uso' : 'Todavía no guardada';
+  state.classList.toggle('saved', alreadySaved);
 }
 
 function payload() {
@@ -285,6 +342,7 @@ function applyState(data) {
   defaults = data.defaults || {};
   profiles = data.profiles || {};
   credentialState = data.credential_state || {};
+  savedAccounts = data.saved_accounts || [];
   auditStates = data.audit_states || auditStates;
   passwordDrafts = {};
   selectedAuditIds = (data.selected_audit_ids || []).map(String);
@@ -416,6 +474,9 @@ portfolioList.addEventListener('change', event => {
 });
 
 form.addEventListener('change', event => {
+  if (event.target.dataset.savedAccountRole) {
+    applySavedAccount(event.target.closest('[data-profile-id]'), event.target.dataset.savedAccountRole);
+  }
   if (event.target.dataset.field === 'execution_delay_mode') updateProfileControls();
   setState('CAMBIOS SIN GUARDAR', 'pending');
 });

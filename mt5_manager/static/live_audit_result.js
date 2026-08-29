@@ -62,18 +62,44 @@ function terminalRestore(result) {
   if (!Array.isArray(rows) || !rows.length) {
     return ['NO REGISTRADO · ejecución anterior a esta comprobación', ''];
   }
-  const failed = rows.filter(row => !row.restored);
+  const failed = rows.filter(row => (
+    !row.restored || !row.password_persisted || !row.reopened_without_password
+  ));
   if (failed.length) {
     return [
-      `SIN RESTAURAR · ${failed.map(row => `${row.terminal}: ${row.error || 'sin confirmar'}`).join(' · ')}`,
+      `SIN RESTAURAR · ${failed.map(row => `${row.terminal}: ${row.error || 'no se verificó la reapertura sin contraseña'}`).join(' · ')}`,
       'bad',
     ];
   }
-  return [rows.map(row => `${row.terminal} → ${row.login} · ${row.server}`).join(' · '), 'good'];
+  return [
+    rows.map(row => (
+      `${row.terminal} → ${row.login} · ${row.server} · contraseña persistida · reapertura verificada`
+    )).join(' · '),
+    'good',
+  ];
+}
+
+function testerTerminalValidation(testerExecution) {
+  const rows = testerExecution.terminal_validations;
+  if (!Array.isArray(rows) || !rows.length) {
+    return ['NO REGISTRADA · ejecución anterior a esta comprobación', ''];
+  }
+  const failed = rows.filter(row => !row.verified);
+  if (failed.length) {
+    return [
+      `SIN CONFIRMAR · ${failed.map(row => `${row.terminal}: ${row.error || 'sin confirmar'}`).join(' · ')}`,
+      'bad',
+    ];
+  }
+  return [
+    rows.map(row => `${row.terminal} → ${row.login} · ${row.server} · Journal ${row.journal_captured ? 'capturado' : 'sin líneas nuevas'}`).join(' · '),
+    'good',
+  ];
 }
 
 function renderSummary(result) {
   const account = result.account || {};
+  const testerExecution = result.tester_execution || {};
   const period = `${dateTime(result.period_start)} → ${dateTime(result.period_end)}`;
   const deviatingPairs = result.deviating_pairs ?? Object.values(result.comparison_detail?.deviating_by_strategy || {})
     .reduce((total, value) => total + Number(value || 0), 0);
@@ -86,6 +112,10 @@ function renderSummary(result) {
   document.querySelector('#summary-grid').innerHTML = [
     metric('Periodo auditado', period),
     metric('Modo', modeLabels[result.portfolio_type] || result.portfolio_type),
+    metric('Ejecución del tester', testerExecution.workers
+      ? `${testerExecution.set_count} sets · ${testerExecution.workers} terminales · ${(testerExecution.terminal_profiles || []).join(' · ')}`
+      : 'NO REGISTRADA · ejecución anterior'),
+    metric('Cuenta tester confirmada por terminal', ...testerTerminalValidation(testerExecution)),
     metric('Cuenta real verificada', account.connected ? `${account.login} · ${account.server}` : 'NO VERIFICADA', account.connected ? '' : 'bad'),
     metric('Terminal devuelto a la cuenta final configurada', ...terminalRestore(result)),
     metric('Calidad tick', result.history_quality_pct == null ? 'NO INFORMADA' : `${number(result.history_quality_pct)} %`),
@@ -293,6 +323,7 @@ function renderResult(result, config, portfolios) {
     real_history: result.real_history_detail || {},
     strategy_artifacts: result.strategy_artifacts || [],
     real_account_report: result.real_account_report || {},
+    tester_execution: result.tester_execution || {},
     terminal_restore: result.terminal_restore || [],
     comparison: detail,
   }, null, 2);

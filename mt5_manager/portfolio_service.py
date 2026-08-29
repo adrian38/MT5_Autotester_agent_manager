@@ -4167,14 +4167,62 @@ class PortfolioCoordinator:
         source = PortfolioSource(node)
         source._invalidate_remote_snapshot(source.memory)
 
+    def _save_imported_ubs_proposals(
+        self,
+        node_id: str,
+        scope: str,
+        proposals: list[dict[str, Any]],
+        selected_key: str,
+    ) -> int:
+        """Guarda una importacion UBS en la memoria local de su nodo."""
+        if normalize_portfolio_scope(scope) != "full_history":
+            raise ValueError("El guardado importado por nodo solo pertenece a Portafolio UBS")
+        request_id = str(uuid.uuid4())
+        save_payload = {
+            "scope": scope,
+            "selected_key": selected_key,
+            "operation": "generate",
+            "portfolio_id": None,
+            "request_id": request_id,
+            "proposals": serialize_portfolio_proposals(proposals, request_id),
+        }
+        node = self._node(node_id)
+        base_url = str(node.get("url") or "").rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            value = save_portfolio_payload(PortfolioSource(node), save_payload)
+        else:
+            status, value = self._post_to_node(
+                node, "/api/v1/portfolios/save", save_payload, timeout=120
+            )
+            error_text = str(value.get("error") if isinstance(value, dict) else value or "")
+            if status >= 400 and "unexpected keyword argument" in error_text:
+                status, value = self._post_to_node(
+                    node,
+                    "/api/v1/portfolios/save",
+                    legacy_compatible_portfolio_save_payload(save_payload),
+                    timeout=120,
+                )
+            if status == 404:
+                raise ValueError(
+                    "El nodo todavía no admite guardado local de portafolios; "
+                    "actualiza su código y reinícialo."
+                )
+            if status >= 400 or not isinstance(value, dict):
+                error = value.get("error") if isinstance(value, dict) else value
+                raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+        if not isinstance(value, dict):
+            raise ValueError("El guardado del portafolio importado devolvió una respuesta inválida")
+        portfolio_id = safe_int(value.get("portfolio_id"), 0)
+        if portfolio_id <= 0 or str(value.get("request_id") or "") != request_id:
+            raise ValueError("El nodo no confirmó correctamente el portafolio importado")
+        return portfolio_id
+
     def import_portfolio(self, node_id: str, scope: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Recrea un portafolio guardado desde una carpeta o ZIP de exportación.
 
-        Se ejecuta en el manager, no en el nodo, y termina en `save_proposal`:
-        la fila resultante es la misma que la de un guardado normal. El destino
-        de la escritura es el de siempre para el ámbito —la memoria del broker,
-        o la base del manager en Grid—, y los candidatos se buscan en la fuente
-        de cálculo, que en Grid incluye las dos.
+        En Portafolio UBS el manager reconstruye las propuestas y las persiste
+        con el endpoint de guardado del nodo: es el proceso que tiene la memoria
+        WAL en local. Los demás ámbitos conservan sin cambios su camino previo.
         """
         scope = normalize_portfolio_scope(scope)
         source_path = str(payload.get("folder") or payload.get("path") or "").strip()
@@ -4187,7 +4235,14 @@ class PortfolioCoordinator:
             raise ValueError("Falta la carpeta o el ZIP del portafolio exportado")
         calculation = self._calculation_source(node_id, scope)
         proposals, selected_key, report = build_import_proposals(calculation, scope, header, members)
-        portfolio_id = save_proposal(self._persistence_source(node_id, scope), proposals, selected_key, scope)
+        if scope == "full_history":
+            portfolio_id = self._save_imported_ubs_proposals(
+                node_id, scope, proposals, selected_key
+            )
+        else:
+            portfolio_id = save_proposal(
+                self._persistence_source(node_id, scope), proposals, selected_key, scope
+            )
         missing_files = sorted({member.set_name for member in members} - set(set_files))
         self.invalidate_after_exclusion(node_id)
         return {

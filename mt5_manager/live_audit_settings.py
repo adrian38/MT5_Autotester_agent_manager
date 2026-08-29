@@ -65,6 +65,10 @@ _FLOAT_LIMITS = {
 _PROFILE_SECRET_KEYS = {"source_password", "tester_password"}
 _RESTORE_SECRET_KEYS = {"restore_password"}
 _RESTORE_CREDENTIAL_ID = "__terminal_restore__"
+_ACCOUNT_REFERENCE_KEYS = {
+    "source": "source_saved_account_id",
+    "tester": "tester_saved_account_id",
+}
 _REQUEST_KEYS = {"selected_audit_ids", "selected_portfolio_ids", "profiles"}
 _LEGACY_SCHEDULE_KEYS = {
     "sync_interval_minutes",
@@ -394,6 +398,77 @@ class LiveAuditSettingsStore:
         )
         return account
 
+    def _saved_account_sources(
+        self, node_id: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
+        """Catálogo público y fuentes cifradas reutilizables del nodo.
+
+        Las contraseñas nunca forman parte del catálogo público. Cada lugar en
+        el que el usuario guardó una credencial queda visible con su procedencia,
+        incluso si otra entrada usa el mismo login, servidor y secreto. Así el
+        catálogo refleja fielmente cuenta real, tester y cuenta final.
+        """
+        record = self.records.get(node_id) or {}
+        profiles = record.get("profiles") or {}
+        encrypted = self.credential_records.get(node_id) or {}
+        candidates: list[dict[str, str]] = []
+        for audit_id, profile in profiles.items():
+            if not isinstance(profile, dict):
+                continue
+            stored = encrypted.get(str(audit_id)) or {}
+            portfolio_id = int(profile.get("portfolio_id") or 0)
+            deployment = str(profile.get("deployment_name") or "").strip()
+            portfolio_label = deployment or (
+                f"Portafolio #{portfolio_id}" if portfolio_id else f"Uso {audit_id}"
+            )
+            for role, password_key, role_label in (
+                ("source", "source_password", "cuenta real"),
+                ("tester", "tester_password", "cuenta de pruebas"),
+            ):
+                login = str(profile.get(f"{role}_login") or "").strip()
+                server = str(profile.get(f"{role}_server") or "").strip()
+                token = str(stored.get(password_key) or "")
+                if login and server and token:
+                    candidates.append({
+                        "id": f"profile:{audit_id}:{role}",
+                        "login": login,
+                        "server": server,
+                        "token": token,
+                        "origin": f"{portfolio_label} · {role_label}",
+                    })
+
+        restore = self._restore_account_state(node_id, record)
+        restore_token = str(
+            (encrypted.get(_RESTORE_CREDENTIAL_ID) or {}).get("restore_password") or ""
+        )
+        if restore["login"] and restore["server"] and restore_token:
+            candidates.append({
+                "id": "restore:terminal",
+                "login": str(restore["login"]),
+                "server": str(restore["server"]),
+                "token": restore_token,
+                "origin": "Cuenta final de los terminales",
+            })
+
+        if not candidates:
+            return [], {}
+        public: list[dict[str, Any]] = []
+        sources: dict[str, dict[str, str]] = {}
+        for candidate in candidates:
+            account_id = candidate["id"]
+            sources[account_id] = {
+                "login": candidate["login"],
+                "server": candidate["server"],
+                "token": candidate["token"],
+            }
+            public.append({
+                "id": account_id,
+                "login": candidate["login"],
+                "server": candidate["server"],
+                "origin": candidate["origin"],
+            })
+        return public, sources
+
     def state(self, node_id: str) -> dict[str, Any]:
         with self.lock:
             record = self.records.get(node_id) or {}
@@ -421,12 +496,14 @@ class LiveAuditSettingsStore:
             configured_portfolios = list(dict.fromkeys(
                 int(profiles[audit_id]["portfolio_id"]) for audit_id in configured_ids
             ))
+            saved_accounts, _account_sources = self._saved_account_sources(node_id)
             return {
                 "selected_audit_ids": selected,
                 "selected_portfolio_ids": selected_portfolios,
                 "profiles": profiles,
                 "defaults": dict(DEFAULT_LIVE_AUDIT_PROFILE),
                 "restore_account": self._restore_account_state(node_id, record),
+                "saved_accounts": saved_accounts,
                 "credential_state": credential_state,
                 "configured_audit_ids": configured_ids,
                 "configured_portfolio_ids": configured_portfolios,
@@ -452,6 +529,7 @@ class LiveAuditSettingsStore:
 
         with self.lock:
             existing = self.records.get(node_id) or {}
+            _saved_accounts, account_sources = self._saved_account_sources(node_id)
             profiles = {
                 str(portfolio_id): dict(profile)
                 for portfolio_id, profile in (existing.get("profiles") or {}).items()
@@ -478,6 +556,19 @@ class LiveAuditSettingsStore:
                     if raw_profile.get("portfolio_type") not in {"aggressive", "balanced", "conservative"}:
                         raw_profile["portfolio_type"] = "balanced"
                 portfolio_id = int(raw_profile.get("portfolio_id") or 0)
+                reused_secrets: dict[str, str] = {}
+                for role, reference_key in _ACCOUNT_REFERENCE_KEYS.items():
+                    account_id = str(raw_profile.pop(reference_key, "") or "").strip()
+                    if not account_id:
+                        continue
+                    account = account_sources.get(account_id)
+                    if account is None:
+                        raise ValueError(
+                            f"La cuenta guardada seleccionada para {role} ya no está disponible; recarga la página"
+                        )
+                    raw_profile[f"{role}_login"] = account["login"]
+                    raw_profile[f"{role}_server"] = account["server"]
+                    reused_secrets[f"{role}_password"] = account["token"]
                 secret_changes: dict[str, str] = {}
                 for secret_key in _PROFILE_SECRET_KEYS:
                     if secret_key not in raw_profile:
@@ -496,6 +587,8 @@ class LiveAuditSettingsStore:
                 _require_complete_profile(audit_id, normalized)
 
                 encrypted = dict(node_credentials.get(key) or {})
+                if reused_secrets:
+                    encrypted.update(reused_secrets)
                 available_secrets = set(encrypted) | set(secret_changes)
                 if not _PROFILE_SECRET_KEYS.issubset(available_secrets):
                     raise ValueError(f"Guarda las dos contraseñas del portafolio #{portfolio_id} ({audit_id})")
@@ -503,6 +596,7 @@ class LiveAuditSettingsStore:
                     cipher = cipher or self._cipher(create=True)
                     for secret_key, value in secret_changes.items():
                         encrypted[secret_key] = cipher.encrypt(value.encode("utf-8")).decode("ascii")
+                if reused_secrets or secret_changes:
                     node_credentials[key] = encrypted
                     credentials_changed = True
                 profiles[key] = normalized

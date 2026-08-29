@@ -664,6 +664,39 @@ enabled=0
         finally:
             server.server_close()
 
+        for switch in ({"live_audit_scheduler_enabled": True}, {"live_audit_scheduler_enabled": "si"}):
+            with mock.patch.dict("os.environ", {}, clear=True):
+                server = ManagerServer(("127.0.0.1", 0), {
+                    "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file, **switch,
+                })
+            try:
+                self.assertTrue(server.live_audit_scheduler_enabled, msg=f"con {switch}")
+                self.assertIsNotNone(server.live_audit_thread)
+            finally:
+                server.server_close()
+
+        # El entorno también rearma, para el contenedor.
+        with mock.patch.dict("os.environ", {"MT5_MANAGER_LIVE_AUDIT_SCHEDULER": "1"}, clear=True):
+            server = ManagerServer(("127.0.0.1", 0), {
+                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
+            })
+        try:
+            self.assertTrue(server.live_audit_scheduler_enabled)
+        finally:
+            server.server_close()
+
+        # Un valor que no se reconoce NO arma nada: un typo no puede lanzar
+        # auditorías desatendidas.
+        with mock.patch.dict("os.environ", {}, clear=True):
+            server = ManagerServer(("127.0.0.1", 0), {
+                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
+                "live_audit_scheduler_enabled": "quizá",
+            })
+        try:
+            self.assertFalse(server.live_audit_scheduler_enabled)
+        finally:
+            server.server_close()
+
     def test_the_scheduler_uses_its_single_global_interval_in_days(self) -> None:
         nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
         server = ManagerServer(("127.0.0.1", 0), {
@@ -708,39 +741,6 @@ enabled=0
                 server._run_due_live_audits()
                 posts = [call for call in node_request.call_args_list if call.args[1] == "POST"]
                 self.assertEqual(len(posts), 1)
-        finally:
-            server.server_close()
-
-        for switch in ({"live_audit_scheduler_enabled": True}, {"live_audit_scheduler_enabled": "si"}):
-            with mock.patch.dict("os.environ", {}, clear=True):
-                server = ManagerServer(("127.0.0.1", 0), {
-                    "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file, **switch,
-                })
-            try:
-                self.assertTrue(server.live_audit_scheduler_enabled, msg=f"con {switch}")
-                self.assertIsNotNone(server.live_audit_thread)
-            finally:
-                server.server_close()
-
-        # El entorno también rearma, para el contenedor.
-        with mock.patch.dict("os.environ", {"MT5_MANAGER_LIVE_AUDIT_SCHEDULER": "1"}, clear=True):
-            server = ManagerServer(("127.0.0.1", 0), {
-                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
-            })
-        try:
-            self.assertTrue(server.live_audit_scheduler_enabled)
-        finally:
-            server.server_close()
-
-        # Un valor que no se reconoce NO arma nada: un typo no puede lanzar
-        # auditorías desatendidas.
-        with mock.patch.dict("os.environ", {}, clear=True):
-            server = ManagerServer(("127.0.0.1", 0), {
-                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
-                "live_audit_scheduler_enabled": "quizá",
-            })
-        try:
-            self.assertFalse(server.live_audit_scheduler_enabled)
         finally:
             server.server_close()
 
