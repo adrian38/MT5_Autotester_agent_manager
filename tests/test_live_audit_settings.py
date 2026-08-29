@@ -7,11 +7,30 @@ from pathlib import Path
 
 from lxml import html
 
+from mt5_manager.manager import normalize_live_audit_scheduler_settings
 from mt5_manager.live_audit_settings import (
     DEFAULT_LIVE_AUDIT_PROFILE,
     LiveAuditSettingsStore,
     normalize_live_audit_settings,
 )
+
+
+class LiveAuditSchedulerSettingsTests(unittest.TestCase):
+    def test_the_only_public_cadence_is_interval_days(self) -> None:
+        self.assertEqual(
+            normalize_live_audit_scheduler_settings({"enabled": True, "interval_days": 7}),
+            {"enabled": True, "interval_days": 7},
+        )
+        with self.assertRaisesRegex(ValueError, "interval_days"):
+            normalize_live_audit_scheduler_settings({"interval_days": 0})
+
+    def test_old_technical_timers_are_migrated_without_remaining_public(self) -> None:
+        self.assertEqual(
+            normalize_live_audit_scheduler_settings({
+                "enabled": False, "check_interval_minutes": 5, "startup_delay_seconds": 30,
+            }),
+            {"enabled": False, "interval_days": 30},
+        )
 
 
 def profile(source_login: str, tester_login: str, **changes: object) -> dict[str, object]:
@@ -290,10 +309,10 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn('data-field="portfolio_type"', self.script)
         self.assertIn("Añadir otro uso", self.script)
 
-    def test_each_profile_has_two_accounts_passwords_schedule_and_tolerances(self) -> None:
+    def test_each_profile_has_two_accounts_passwords_period_and_tolerances(self) -> None:
         for field in (
             "source_login", "source_server", "source_password", "tester_login", "tester_server",
-            "tester_password", "period_days", "audit_interval_days", "tester_model",
+            "tester_password", "period_days", "tester_model",
             "min_tick_history_quality_pct", "price_tolerance_points", "drawdown_deviation_warning_pct",
         ):
             self.assertIn(f'data-field="{field}"', self.script)
@@ -301,9 +320,9 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("los logins pueden coincidir", self.script)
         self.assertNotIn("deben ser diferentes", self.script)
 
-    def test_schedule_only_asks_for_audited_period_and_interval_in_days(self) -> None:
+    def test_profile_only_asks_for_the_audited_period(self) -> None:
         self.assertIn("Periodo auditado (días)", self.script)
-        self.assertIn("Ejecutar auditoría cada (días)", self.script)
+        self.assertNotIn('data-field="audit_interval_days"', self.script)
         for obsolete in ("Sincronizar cada", "Auditoría diaria a las", "Heartbeat vencido"):
             self.assertNotIn(obsolete, self.script)
 
@@ -361,9 +380,11 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         for token in (
             "/live-audit-restore-account", "/api/live-audit-scheduler-config",
             "restoreAccount.configured", "todos los terminales usados",
-            "check_interval_minutes", "startup_delay_seconds", "environment_override",
+            "interval_days", "scheduler-interval-days", "environment_override",
         ):
             self.assertIn(token, self.page_text + self.script)
+        for obsolete in ("scheduler-check-minutes", "scheduler-startup-delay", "check_interval_minutes", "startup_delay_seconds"):
+            self.assertNotIn(obsolete, self.page_text + self.script)
 
     def test_tick_quality_is_a_required_comparison_gate_per_portfolio(self) -> None:
         self.assertIn("Calidad de datos tick a tick", self.script)

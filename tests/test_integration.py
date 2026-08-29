@@ -10,6 +10,7 @@ import unittest
 import urllib.error
 import urllib.request
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 from pathlib import Path
 
@@ -233,13 +234,15 @@ enabled=0
         self.assertEqual(status, 200)
         self.assertFalse(scheduler["effective_enabled"])
         status, scheduler = self.request("/api/live-audit-scheduler-config", {
-            "enabled": False, "check_interval_minutes": 17, "startup_delay_seconds": 4,
+            "enabled": False, "interval_days": 17,
         })
         self.assertEqual(status, 200)
-        self.assertEqual(scheduler["check_interval_minutes"], 17)
-        self.assertEqual(scheduler["startup_delay_seconds"], 4)
+        self.assertEqual(scheduler["interval_days"], 17)
+        self.assertNotIn("check_interval_minutes", scheduler)
+        self.assertNotIn("startup_delay_seconds", scheduler)
         scheduler_path = self.live_audit_settings_path.with_name("live_audit_scheduler.json")
-        self.assertEqual(json.loads(scheduler_path.read_text(encoding="utf-8"))["check_interval_minutes"], 17)
+        persisted_scheduler = json.loads(scheduler_path.read_text(encoding="utf-8"))
+        self.assertEqual(persisted_scheduler, {"enabled": False, "interval_days": 17})
 
         status, saved = self.request("/api/nodes/test-node/live-audit-config", {
             "selected_portfolio_ids": [11, 12],
@@ -658,6 +661,53 @@ enabled=0
             with mock.patch("mt5_manager.manager.node_request") as node_request:
                 server._run_due_live_audits()
             node_request.assert_not_called()
+        finally:
+            server.server_close()
+
+    def test_the_scheduler_uses_its_single_global_interval_in_days(self) -> None:
+        nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
+        server = ManagerServer(("127.0.0.1", 0), {
+            "nodes": nodes,
+            "live_audit_scheduler_settings_file": str(self.root / "scheduler-global-days.json"),
+        })
+        state = {
+            "configured_audit_ids": ["11"],
+            "profiles": {"11": {
+                "portfolio_id": 11, "portfolio_type": "aggressive",
+                "source_login": "1", "audit_interval_days": 999,
+            }},
+        }
+        completed_at = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+
+        def request(_node, method, path, payload=None, timeout=0):
+            if path == "/api/v1/status":
+                return 200, {"capabilities": {"live_audit_restore_account": True}}
+            if method == "GET" and path == "/api/v1/live-audits":
+                return 200, {"audits": {"11": {
+                    "status": "completed", "last_result": {"completed_at": completed_at},
+                }}}
+            return 202, {"audit": {"status": "queued"}}
+
+        try:
+            server.live_audit_scheduler_enabled = True
+            with (
+                mock.patch.object(server.live_audit_settings, "state", return_value=state),
+                mock.patch.object(server.live_audit_settings, "credentials", return_value={}),
+                mock.patch.object(
+                    server.live_audit_settings, "restore_credentials",
+                    return_value={"restore_password": "saved"},
+                ),
+                mock.patch("mt5_manager.manager.node_request", side_effect=request) as node_request,
+            ):
+                server.live_audit_scheduler_settings["interval_days"] = 7
+                server._run_due_live_audits()
+                self.assertFalse(any(call.args[1] == "POST" for call in node_request.call_args_list))
+
+                node_request.reset_mock()
+                server.live_audit_scheduler_settings["interval_days"] = 1
+                server._run_due_live_audits()
+                posts = [call for call in node_request.call_args_list if call.args[1] == "POST"]
+                self.assertEqual(len(posts), 1)
         finally:
             server.server_close()
 

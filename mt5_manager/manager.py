@@ -58,9 +58,13 @@ PULSE_PORTFOLIO_JOB_KEYS = ("status", "operation", "portfolio_id", "error")
 PULSE_PORTFOLIO_TASK_KEYS = ("id", "status", "operation", "portfolio_id", "error")
 DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS = {
     "enabled": False,
-    "check_interval_minutes": 5,
-    "startup_delay_seconds": 30,
+    "interval_days": 30,
 }
+_LEGACY_LIVE_AUDIT_SCHEDULER_KEYS = frozenset({
+    "check_interval_minutes", "startup_delay_seconds",
+})
+_LIVE_AUDIT_INTERNAL_STARTUP_DELAY_SECONDS = 30
+_LIVE_AUDIT_INTERNAL_CHECK_INTERVAL_SECONDS = 300
 
 
 def _truthy(*values: Any) -> bool:
@@ -84,22 +88,29 @@ def normalize_live_audit_scheduler_settings(
     """Normaliza la configuración persistente del programador interno."""
     if not isinstance(value, dict):
         raise ValueError("La configuración automática debe ser un objeto JSON")
+    # Las claves técnicas de la primera versión se aceptan solo para migrar un
+    # JSON antiguo. Ya no forman parte de la configuración pública ni se guardan.
+    value = {key: item for key, item in value.items() if key not in _LEGACY_LIVE_AUDIT_SCHEDULER_KEYS}
+    defaults = {
+        key: item for key, item in dict(defaults or {}).items()
+        if key not in _LEGACY_LIVE_AUDIT_SCHEDULER_KEYS
+    }
     unknown = set(value) - set(DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS)
     if unknown:
         raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
-    normalized = {**DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS, **dict(defaults or {})}
+    normalized = {**DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS, **defaults}
     if "enabled" in value:
         if not isinstance(value["enabled"], bool):
             raise ValueError("enabled debe ser true o false")
         normalized["enabled"] = value["enabled"]
-    if "check_interval_minutes" in value:
-        normalized["check_interval_minutes"] = safe_int(
-            value["check_interval_minutes"], 5, minimum=1, maximum=1440
-        )
-    if "startup_delay_seconds" in value:
-        normalized["startup_delay_seconds"] = safe_int(
-            value["startup_delay_seconds"], 30, minimum=0, maximum=3600
-        )
+    if "interval_days" in value:
+        try:
+            interval_days = int(value["interval_days"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("interval_days debe ser un entero") from exc
+        if isinstance(value["interval_days"], bool) or not 1 <= interval_days <= 3650:
+            raise ValueError("interval_days debe estar entre 1 y 3650")
+        normalized["interval_days"] = interval_days
     return normalized
 
 
@@ -922,13 +933,9 @@ class ManagerServer(ThreadingHTTPServer):
         )
         scheduler_defaults = {
             "enabled": _truthy(config.get("live_audit_scheduler_enabled")),
-            "check_interval_minutes": safe_int(
-                config.get("live_audit_scheduler_check_interval_minutes"), 5,
-                minimum=1, maximum=1440,
-            ),
-            "startup_delay_seconds": safe_int(
-                config.get("live_audit_scheduler_startup_delay_seconds"), 30,
-                minimum=0, maximum=3600,
+            "interval_days": safe_int(
+                config.get("live_audit_scheduler_interval_days"), 30,
+                minimum=1, maximum=3650,
             ),
         }
         self.live_audit_scheduler_settings = dict(scheduler_defaults)
@@ -1019,9 +1026,8 @@ class ManagerServer(ThreadingHTTPServer):
             "source": "environment" if self.live_audit_scheduler_environment is not None else "saved",
             "environment_override": self.live_audit_scheduler_environment is not None,
             "description": (
-                "El manager revisa periódicamente cada auditoría configurada. "
-                "Solo inicia las que no están ejecutándose y cuya última finalización "
-                "supera los días indicados en su perfil."
+                "El manager ejecuta las auditorías configuradas cada X días. "
+                "Nunca vuelve a iniciar una que ya esté ejecutándose."
             ),
         }
 
@@ -1059,18 +1065,16 @@ class ManagerServer(ThreadingHTTPServer):
             return None
 
     def _live_audit_schedule_loop(self) -> None:
-        # Se deja arrancar primero al HTTP y al nodo. Ambos tiempos se muestran y
-        # se editan en la interfaz; ya no existe un «cron» oculto.
-        delay = int(self.live_audit_scheduler_settings["startup_delay_seconds"])
-        if self.live_audit_stop.wait(delay):
+        # La espera inicial y el sondeo son detalles internos; el usuario solo
+        # configura la cadencia real en días.
+        if self.live_audit_stop.wait(_LIVE_AUDIT_INTERNAL_STARTUP_DELAY_SECONDS):
             return
         while not self.live_audit_stop.is_set():
             try:
                 self._run_due_live_audits()
             except Exception as exc:
                 sys.stderr.write(f"[live-audit-scheduler] {exc}\n")
-            timeout = int(self.live_audit_scheduler_settings["check_interval_minutes"]) * 60
-            self.live_audit_wakeup.wait(timeout)
+            self.live_audit_wakeup.wait(_LIVE_AUDIT_INTERNAL_CHECK_INTERVAL_SECONDS)
             self.live_audit_wakeup.clear()
 
     def _run_due_live_audits(self) -> None:
@@ -1118,7 +1122,7 @@ class ManagerServer(ThreadingHTTPServer):
                     continue
                 result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
                 previous = self._audit_timestamp(result.get("completed_at") or audit.get("finished_at"))
-                interval = max(1, safe_int(profile.get("audit_interval_days"), 1, minimum=1, maximum=3650))
+                interval = int(self.live_audit_scheduler_settings["interval_days"])
                 if previous is not None:
                     if previous.tzinfo is None:
                         previous = previous.replace(tzinfo=timezone.utc)

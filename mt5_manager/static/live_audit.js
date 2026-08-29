@@ -181,10 +181,9 @@ function profileMarkup(auditId) {
       <label>Calidad histórica mínima (%)<input data-field="min_tick_history_quality_pct" type="number" min="0" max="100" step="any" value="${profile.min_tick_history_quality_pct}" required></label>
       <div class="live-audit-quality-gate"><strong>Puerta obligatoria</strong><span>El resultado se marcará como no comparable si MT5 no acredita este porcentaje de calidad tick a tick.</span></div>
     </div>
-    <div class="live-audit-subtitle"><strong>Periodo y frecuencia</strong><span>Cuánto historial se compara y cada cuántos días se repite.</span></div>
+    <div class="live-audit-subtitle"><strong>Periodo auditado</strong><span>Cuánto historial se compara en este uso.</span></div>
     <div class="live-audit-fields">
       <label>Periodo auditado (días)<input data-field="period_days" type="number" min="1" max="3650" value="${profile.period_days}" required></label>
-      <label>Ejecutar auditoría cada (días)<input data-field="audit_interval_days" type="number" min="1" max="3650" value="${profile.audit_interval_days}" required></label>
     </div>
     <div class="live-audit-subtitle"><strong>Tester y tolerancias</strong></div>
     <div class="live-audit-fields">
@@ -239,7 +238,6 @@ function readCard(card) {
     tester_server: field('tester_server').value.trim(),
     active_job_policy: 'pause_resume',
     period_days: number('period_days'),
-    audit_interval_days: number('audit_interval_days'),
     tester_model: field('tester_model').value,
     min_tick_history_quality_pct: number('min_tick_history_quality_pct'),
     execution_delay_mode: field('execution_delay_mode').value,
@@ -303,8 +301,7 @@ function applyState(data) {
 function applySchedulerState(data) {
   schedulerSettings = data || {};
   document.querySelector('#scheduler-enabled').checked = Boolean(schedulerSettings.enabled);
-  document.querySelector('#scheduler-check-minutes').value = schedulerSettings.check_interval_minutes ?? 5;
-  document.querySelector('#scheduler-startup-delay').value = schedulerSettings.startup_delay_seconds ?? 30;
+  document.querySelector('#scheduler-interval-days').value = schedulerSettings.interval_days ?? 30;
   document.querySelector('#scheduler-description').textContent = schedulerSettings.description || '';
   const source = document.querySelector('#scheduler-source');
   source.textContent = schedulerSettings.environment_override
@@ -515,8 +512,7 @@ document.querySelector('#scheduler-form').addEventListener('submit', async event
     const response = await fetch('/api/live-audit-scheduler-config', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
         enabled: document.querySelector('#scheduler-enabled').checked,
-        check_interval_minutes: Number(document.querySelector('#scheduler-check-minutes').value),
-        startup_delay_seconds: Number(document.querySelector('#scheduler-startup-delay').value),
+        interval_days: Number(document.querySelector('#scheduler-interval-days').value),
       }),
     });
     const data = await jsonResponse(response);

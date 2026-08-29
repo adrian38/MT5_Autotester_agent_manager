@@ -518,7 +518,6 @@ class PortfolioFormTests(unittest.TestCase):
             "max_dd_overlap": (0, 0.35, 0.355, 1),
             "max_portfolio_corr": (0, 0.5, 0.505, 1),
             "period_days": (1, 7, 3650),
-            "audit_interval_days": (1, 7, 3650),
             "min_tick_history_quality_pct": (0, 80, 99.9, 100),
             "fixed_delay_ms": (0, 125, 600000),
             "trade_time_tolerance_seconds": (0, 60, 86400),
@@ -526,8 +525,7 @@ class PortfolioFormTests(unittest.TestCase):
             "volume_tolerance_pct": (0, 1, 1.5, 100),
             "pnl_deviation_warning_pct": (0, 10, 10.5, 10000),
             "drawdown_deviation_warning_pct": (0, 15, 15.5, 10000),
-            "scheduler-check-minutes": (1, 5, 1440),
-            "scheduler-startup-delay": (0, 30, 3600),
+            "scheduler-interval-days": (1, 30, 3650),
         }
         self.assertEqual(set(fields), set(valid_values), "Actualiza la auditoría para los inputs numéricos")
 

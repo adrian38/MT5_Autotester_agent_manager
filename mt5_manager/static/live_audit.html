@@ -62,9 +62,8 @@
       <div class="live-audit-dialog-body">
         <p id="scheduler-description" class="live-audit-dialog-help"></p>
         <label class="live-audit-switch"><input id="scheduler-enabled" type="checkbox"><span><strong>Activar auditorías automáticas</strong><small>Desactivado: solo funciona «Auditar ahora».</small></span></label>
-        <label>Revisar auditorías vencidas cada (minutos)<input id="scheduler-check-minutes" type="number" min="1" max="1440" required></label>
-        <label>Espera inicial al arrancar el manager (segundos)<input id="scheduler-startup-delay" type="number" min="0" max="3600" required></label>
-        <p class="live-audit-dialog-help">Cada perfil conserva su propia cadencia en días. Esta tarea solo revisa cuándo venció; nunca vuelve a lanzar una auditoría que ya está ejecutándose.</p>
+        <label>Ejecutar automáticamente cada (días)<input id="scheduler-interval-days" type="number" min="1" max="3650" required></label>
+        <p class="live-audit-dialog-help">Esta cadencia se aplica a todas las auditorías configuradas. Nunca vuelve a lanzar una auditoría que ya está ejecutándose.</p>
         <p id="scheduler-source" class="live-audit-security"></p>
       </div>
       <div class="builder-actions live-audit-dialog-actions"><button data-close-dialog="scheduler-dialog" type="button" class="secondary">Cancelar</button><button id="save-scheduler" type="submit">Guardar programación</button></div>
