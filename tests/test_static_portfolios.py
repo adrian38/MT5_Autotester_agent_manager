@@ -19,10 +19,13 @@ class NodeCardControlsTests(unittest.TestCase):
         # Pausar solo con algo en marcha; Reanudar solo desde un estado retomable.
         self.assertIn("onclick=\"pauseNode(", script)
         self.assertIn("onclick=\"resumeNode(", script)
-        self.assertIn("RESUMABLE_STATES = ['paused', 'interrupted']", script)
-        self.assertIn("isResumable(state) ? `<button onclick=\"resumeNode(", script)
+        self.assertIn("RESUMABLE_STATES = ['paused', 'interrupted', 'failed']", script)
+        self.assertIn("const resumable = isResumable(node)", script)
+        self.assertIn("resumable ? `<button onclick=\"resumeNode(", script)
+        self.assertIn("stepIndex < pipeline.length", script)
+        self.assertIn("node?.capabilities?.failed_resume", script)
         # Detener sigue disponible sobre un pipeline pausado, para descartarlo.
-        self.assertIn("state === 'running' || isResumable(state)", script)
+        self.assertIn("state === 'running' || resumable", script)
 
     def test_pause_and_resume_call_their_own_manager_endpoints(self) -> None:
         script = self.script()
