@@ -417,6 +417,13 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="repair-workers"', page)
         self.assertIn("max_workers: Number(document.querySelector('#repair-workers').value)", script)
         self.assertIn("settingsFor(node, id).repair_max_workers", script)
+        self.assertIn("const RUN_PAGE_SIZE = 100", script)
+        self.assertEqual(script.count("runs?limit=${RUN_PAGE_SIZE}&offset=${currentOffset}"), 2)
+        self.assertNotIn("runs?limit=100", script)
+        self.assertIn('id="repair-load-more"', page)
+        self.assertIn("loadMoreRepairRuns()", page)
+        self.assertIn("window.loadMoreRepairRuns = loadMoreRepairRuns", script)
+        self.assertIn("pagination.has_more", script)
         self.assertIn('id="generation-repair-workers"', page)
         self.assertIn("repair_max_workers: Number(document.querySelector('#generation-repair-workers').value)", script)
         self.assertIn("Terminales para reparación", page)
@@ -455,6 +462,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("function toggleRegressionRuns", script)
         self.assertIn("function updateRegressionSelectionState", script)
         self.assertIn("window.toggleRegressionRuns = toggleRegressionRuns", script)
+        self.assertIn('id="regression-load-more"', page)
+        self.assertIn("loadMoreRegressionRuns()", page)
+        self.assertIn("window.loadMoreRegressionRuns = loadMoreRegressionRuns", script)
 
     def test_every_html_number_input_accepts_representative_backend_values(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"

@@ -15,6 +15,7 @@ from mt5_manager.node import (
     build_historical_cleanup_command,
     build_generation_command,
     build_pipeline_stage_command,
+    completed_runs_snapshot,
     database_snapshot,
     historical_cleanup_scripts,
     pipeline_stage_pending_count,
@@ -359,6 +360,33 @@ enabled=0
         self.assertEqual(snapshot["max_generation"], 2)
         self.assertEqual(snapshot["stages"]["generation"], {"accepted": 1, "rejected": 1})
         self.assertEqual(snapshot["stages"]["robustness"], {"accepted": 1})
+
+    def test_completed_runs_are_paginated_without_a_global_limit(self) -> None:
+        path = self.root / "runs.sqlite"
+        with closing(sqlite3.connect(path)) as conn:
+            conn.executescript("""
+                create table runs(id integer primary key, created_at text, generations integer, hidden integer default 0);
+                create table candidates(id integer primary key, run_id integer, generation integer, status text);
+            """)
+            conn.executemany(
+                "insert into runs values(?, '2026-08-29', 1, 0)",
+                ((run_id,) for run_id in range(1, 206)),
+            )
+            conn.executemany(
+                "insert into candidates values(?, ?, 1, 'accepted')",
+                ((run_id, run_id) for run_id in range(1, 206)),
+            )
+            conn.commit()
+
+        self.assertEqual(
+            [run["id"] for run in completed_runs_snapshot(path, 100, 100)],
+            list(range(105, 5, -1)),
+        )
+        self.config["memory_path"] = str(path)
+        page = JobController(self.config, self.root / "node.json").runs(100, 200)
+        self.assertEqual([run["id"] for run in page["runs"]], [5, 4, 3, 2, 1])
+        self.assertFalse(page["pagination"]["has_more"])
+        self.assertIsNone(page["pagination"]["next_offset"])
 
     def test_invalid_generation_mode_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

@@ -96,6 +96,31 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         self.assertIn("def write_needs_node", self.manager_source)
         self.assertIn("def _supported_dataclass_values", self.manager_source)
 
+    def test_run_history_pagination_reaches_every_reachable_fork(self) -> None:
+        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        for token in ('limit ? offset ?', '"pagination": {', '"next_offset"', 'query.get("offset"'):
+            self.assertIn(token, manager_node, f"El nodo fuente del manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            node_path = project / "manager_node_runtime" / "node.py"
+            node_source = node_path.read_text(encoding="utf-8", errors="replace")
+            for token in ('limit ? offset ?', '"pagination": {', '"next_offset"', 'query.get("offset"'):
+                self.assertIn(
+                    token,
+                    node_source,
+                    msg=(
+                        f"{project}: falta `{token}` en manager_node_runtime/node.py; "
+                        "sin el port el botón «Cargar más» no puede superar la primera página."
+                    ),
+                )
+            tests = sorted((project / "tests").glob("test_manager_node_*pagination*.py"))
+            self.assertTrue(
+                tests,
+                msg=f"{project}: falta una prueba propia de paginación del historial de runs.",
+            )
+
+        self._assert_on_every_fork(check, "paginación del historial de runs")
+
     def test_batch_exclusion_accepts_monthly_on_every_reachable_fork(self) -> None:
         def check(project: Path, source: str) -> None:
             self._assert_absent(

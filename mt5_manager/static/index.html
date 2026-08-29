@@ -90,6 +90,9 @@
       <span id="repair-selected-count">0 seleccionados</span>
     </div>
     <div id="repair-runs" class="repair-runs">Cargando runs…</div>
+    <div id="repair-load-row" class="repair-load-row" hidden>
+      <button id="repair-load-more" class="secondary" onclick="loadMoreRepairRuns()">Cargar más</button>
+    </div>
     <div class="dialog-actions">
       <button class="secondary" onclick="this.closest('dialog').close()">Cancelar</button>
       <button id="repair-submit" onclick="submitRepair()">Reparar seleccionados</button>
@@ -112,6 +115,9 @@
       <span id="regression-selected-count">0 seleccionados</span>
     </div>
     <div id="regression-runs" class="repair-runs">Cargando runs…</div>
+    <div id="regression-load-row" class="repair-load-row" hidden>
+      <button id="regression-load-more" class="secondary" onclick="loadMoreRegressionRuns()">Cargar más</button>
+    </div>
     <div class="dialog-actions">
       <button class="secondary" onclick="this.closest('dialog').close()">Cancelar</button>
       <button id="regression-submit" onclick="submitRegression()">Ejecutar prueba regresiva</button>

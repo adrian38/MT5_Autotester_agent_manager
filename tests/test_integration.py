@@ -421,14 +421,14 @@ enabled=0
             "mt5_manager.manager.node_request",
             return_value=(200, {"runs": [{"id": 7}]}),
         ) as request_node:
-            status, payload = self.request("/api/nodes/test-node/runs?limit=100")
+            status, payload = self.request("/api/nodes/test-node/runs?limit=100&offset=200")
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["runs"], [{"id": 7}])
         node, method, path = request_node.call_args.args
         self.assertEqual(node["id"], "test-node")
         self.assertEqual(method, "GET")
-        self.assertEqual(path, "/api/v1/runs?limit=100")
+        self.assertEqual(path, "/api/v1/runs?limit=100&offset=200")
         self.assertEqual(request_node.call_args.kwargs, {"timeout": 120})
 
     def test_manager_submits_repair_without_waiting_for_the_node_response(self) -> None:

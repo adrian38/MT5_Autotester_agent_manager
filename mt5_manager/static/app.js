@@ -23,6 +23,13 @@ const domId = value => String(value).replace(/[^a-zA-Z0-9_-]/g, '_');
 const RESUMABLE_STATES = ['paused', 'interrupted'];
 const isResumable = state => RESUMABLE_STATES.includes(String(state || ''));
 const RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped', 'paused', 'interrupted'];
+const RUN_PAGE_SIZE = 100;
+let repairRunsOffset = 0;
+let repairRunsLoading = false;
+let repairLoadedRunIds = new Set();
+let regressionRunsOffset = 0;
+let regressionRunsLoading = false;
+let regressionLoadedRunIds = new Set();
 const canRestartApplication = (node, state) => Boolean(
   node.capabilities?.application_restart
   && RESTARTABLE_STATES.includes(String(state || ''))
@@ -528,11 +535,30 @@ async function openRepair(id, name) {
   document.querySelector('#repair-regression').checked = settingsFor(node, id).repair_run_regression;
   const container = document.querySelector('#repair-runs');
   document.querySelector('#repair-select-row').hidden = true;
+  document.querySelector('#repair-load-row').hidden = true;
   updateRepairSelectionState();
+  repairRunsOffset = 0;
+  repairLoadedRunIds = new Set();
   container.textContent = 'Cargando runs terminados…';
   repairDialog.showModal();
+  await loadRepairRuns();
+}
+
+async function loadRepairRuns() {
+  if (repairRunsLoading) return;
+  const id = document.querySelector('#repair-node-id').value;
+  const container = document.querySelector('#repair-runs');
+  const loadRow = document.querySelector('#repair-load-row');
+  const loadButton = document.querySelector('#repair-load-more');
+  const currentOffset = repairRunsOffset;
+  repairRunsLoading = true;
+  loadButton.disabled = true;
+  loadButton.textContent = 'Cargando…';
   try {
-    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/runs?limit=100`, {cache: 'no-store'});
+    const response = await fetch(
+      `/api/nodes/${encodeURIComponent(id)}/runs?limit=${RUN_PAGE_SIZE}&offset=${currentOffset}`,
+      {cache: 'no-store'},
+    );
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     // Reparable = tiene candidatos y ninguno en vuelo (generated/pending/running),
@@ -541,12 +567,14 @@ async function openRepair(id, name) {
     const isActive = run => ['generated', 'pending', 'running']
       .some(status => (run.candidate_counts?.[status] || 0) > 0);
     const isRepairable = run => total(run.candidate_counts) > 0 && !isActive(run);
-    const runs = (data.runs || []).filter(isRepairable);
-    if (!runs.length) {
-      container.innerHTML = '<div class="repair-empty">No hay runs reparables disponibles.</div>';
-      return;
-    }
-    container.innerHTML = runs.map(run => {
+    const rawRuns = data.runs || [];
+    const freshRuns = rawRuns.filter(run => !repairLoadedRunIds.has(String(run.id)));
+    freshRuns.forEach(run => repairLoadedRunIds.add(String(run.id)));
+    const runs = freshRuns.filter(isRepairable);
+    const selectNew = repairRunInputs().length > 0 && repairRunInputs().every(input => input.checked);
+    if (currentOffset === 0) container.innerHTML = '';
+    container.querySelector('.repair-empty')?.remove();
+    container.insertAdjacentHTML('beforeend', runs.map(run => {
       const base = total(run.candidate_counts);
       const robust = total(run.stages?.robustness);
       const finalTick = total(run.stages?.final_tick);
@@ -555,13 +583,43 @@ async function openRepair(id, name) {
       const badge = incomplete
         ? ` <span class="repair-run-badge">incompleto · gen ${run.max_generation || 0}/${run.generations || 0}</span>`
         : '';
-      return `<label class="repair-run"><input type="checkbox" name="repair-run" value="${run.id}"><span><strong>Run #${run.id}</strong>${badge}<small>${esc(run.created_at)} · candidatos ${base} · OOS ${robust} · FT ${finalTick} · 6M ${sixMonth}</small></span></label>`;
-    }).join('');
+      const checked = selectNew ? ' checked' : '';
+      return `<label class="repair-run"><input type="checkbox" name="repair-run" value="${run.id}"${checked}><span><strong>Run #${run.id}</strong>${badge}<small>${esc(run.created_at)} · candidatos ${base} · OOS ${robust} · FT ${finalTick} · 6M ${sixMonth}</small></span></label>`;
+    }).join(''));
+    const pagination = data.pagination || {};
+    const parsedNextOffset = Number(pagination.next_offset);
+    const nextOffset = pagination.next_offset !== null && Number.isFinite(parsedNextOffset)
+      ? parsedNextOffset
+      : currentOffset + rawRuns.length;
+    const pageAddedNothing = currentOffset > 0 && freshRuns.length === 0;
+    const hasMore = !pageAddedNothing && Boolean(
+      data.pagination ? pagination.has_more : rawRuns.length === RUN_PAGE_SIZE
+    ) && nextOffset > currentOffset;
+    repairRunsOffset = nextOffset;
+    loadRow.hidden = !hasMore;
+    if (!repairRunInputs().length) {
+      container.innerHTML = `<div class="repair-empty">${hasMore
+        ? 'No hay runs reparables en las páginas cargadas.'
+        : 'No hay runs reparables disponibles.'}</div>`;
+    }
     updateRepairSelectionState();
   } catch (error) {
-    container.innerHTML = `<div class="repair-empty error">${esc(error.message)}</div>`;
+    if (repairRunInputs().length) {
+      toast(error.message, true);
+      loadRow.hidden = false;
+    } else {
+      container.innerHTML = `<div class="repair-empty error">${esc(error.message)}</div>`;
+    }
     updateRepairSelectionState();
+  } finally {
+    repairRunsLoading = false;
+    loadButton.disabled = false;
+    loadButton.textContent = 'Cargar más';
   }
+}
+
+function loadMoreRepairRuns() {
+  return loadRepairRuns();
 }
 
 function repairRunInputs() {
@@ -656,27 +714,78 @@ async function openRegression(id, name) {
   document.querySelector('#regression-workers').value = settingsFor(node, id).regression_max_workers;
   const container = document.querySelector('#regression-runs');
   document.querySelector('#regression-select-row').hidden = true;
+  document.querySelector('#regression-load-row').hidden = true;
   updateRegressionSelectionState();
+  regressionRunsOffset = 0;
+  regressionLoadedRunIds = new Set();
   container.textContent = 'Cargando runs terminados…';
   regressionDialog.showModal();
+  await loadRegressionRuns();
+}
+
+async function loadRegressionRuns() {
+  if (regressionRunsLoading) return;
+  const id = document.querySelector('#regression-node-id').value;
+  const container = document.querySelector('#regression-runs');
+  const loadRow = document.querySelector('#regression-load-row');
+  const loadButton = document.querySelector('#regression-load-more');
+  const currentOffset = regressionRunsOffset;
+  regressionRunsLoading = true;
+  loadButton.disabled = true;
+  loadButton.textContent = 'Cargando…';
   try {
-    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/runs?limit=100`, {cache: 'no-store'});
+    const response = await fetch(
+      `/api/nodes/${encodeURIComponent(id)}/runs?limit=${RUN_PAGE_SIZE}&offset=${currentOffset}`,
+      {cache: 'no-store'},
+    );
     const data = await readJsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
-    const runs = (data.runs || []).filter(run => run.completed);
-    if (!runs.length) {
-      container.innerHTML = '<div class="repair-empty">No hay runs terminados disponibles.</div>';
-      return;
-    }
-    container.innerHTML = runs.map(run => {
+    const rawRuns = data.runs || [];
+    const freshRuns = rawRuns.filter(run => !regressionLoadedRunIds.has(String(run.id)));
+    freshRuns.forEach(run => regressionLoadedRunIds.add(String(run.id)));
+    const runs = freshRuns.filter(run => run.completed);
+    const selectNew = regressionRunInputs().length > 0 && regressionRunInputs().every(input => input.checked);
+    if (currentOffset === 0) container.innerHTML = '';
+    container.querySelector('.repair-empty')?.remove();
+    container.insertAdjacentHTML('beforeend', runs.map(run => {
       const base = total(run.candidate_counts);
-      return `<label class="repair-run"><input type="checkbox" name="regression-run" value="${run.id}"><span><strong>Run #${run.id}</strong><small>${esc(run.created_at)} · candidatos ${base}</small></span></label>`;
-    }).join('');
+      const checked = selectNew ? ' checked' : '';
+      return `<label class="repair-run"><input type="checkbox" name="regression-run" value="${run.id}"${checked}><span><strong>Run #${run.id}</strong><small>${esc(run.created_at)} · candidatos ${base}</small></span></label>`;
+    }).join(''));
+    const pagination = data.pagination || {};
+    const parsedNextOffset = Number(pagination.next_offset);
+    const nextOffset = pagination.next_offset !== null && Number.isFinite(parsedNextOffset)
+      ? parsedNextOffset
+      : currentOffset + rawRuns.length;
+    const pageAddedNothing = currentOffset > 0 && freshRuns.length === 0;
+    const hasMore = !pageAddedNothing && Boolean(
+      data.pagination ? pagination.has_more : rawRuns.length === RUN_PAGE_SIZE
+    ) && nextOffset > currentOffset;
+    regressionRunsOffset = nextOffset;
+    loadRow.hidden = !hasMore;
+    if (!regressionRunInputs().length) {
+      container.innerHTML = `<div class="repair-empty">${hasMore
+        ? 'No hay runs terminados en las páginas cargadas.'
+        : 'No hay runs terminados disponibles.'}</div>`;
+    }
     updateRegressionSelectionState();
   } catch (error) {
-    container.innerHTML = `<div class="repair-empty error">${esc(error.message)}</div>`;
+    if (regressionRunInputs().length) {
+      toast(error.message, true);
+      loadRow.hidden = false;
+    } else {
+      container.innerHTML = `<div class="repair-empty error">${esc(error.message)}</div>`;
+    }
     updateRegressionSelectionState();
+  } finally {
+    regressionRunsLoading = false;
+    loadButton.disabled = false;
+    loadButton.textContent = 'Cargar más';
   }
+}
+
+function loadMoreRegressionRuns() {
+  return loadRegressionRuns();
 }
 
 function regressionRunInputs() {
@@ -964,9 +1073,11 @@ window.openStart = openStart;
 window.openRepair = openRepair;
 window.submitRepair = submitRepair;
 window.toggleRepairRuns = toggleRepairRuns;
+window.loadMoreRepairRuns = loadMoreRepairRuns;
 window.openRegression = openRegression;
 window.submitRegression = submitRegression;
 window.toggleRegressionRuns = toggleRegressionRuns;
+window.loadMoreRegressionRuns = loadMoreRegressionRuns;
 window.setRepairAttempts = setRepairAttempts;
 window.setRepairRegression = setRepairRegression;
 window.setStageWorkers = setStageWorkers;

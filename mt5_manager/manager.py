@@ -402,8 +402,11 @@ class ManagerHandler(BaseHTTPRequestHandler):
             try:
                 node = self._node(urllib.parse.unquote(parts[2]))
                 query = urllib.parse.parse_qs(parsed.query)
-                limit = safe_int(query.get("limit", [100])[0], 100, minimum=1, maximum=500)
-                status, value = node_request(node, "GET", f"/api/v1/runs?limit={limit}", timeout=120)
+                limit = safe_int(query.get("limit", [100])[0], 100, minimum=1, maximum=100)
+                offset = safe_int(query.get("offset", [0])[0], 0, minimum=0)
+                status, value = node_request(
+                    node, "GET", f"/api/v1/runs?limit={limit}&offset={offset}", timeout=120
+                )
                 self._send_json(status, value)
             except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self._send_json(502, {"error": str(exc)})
