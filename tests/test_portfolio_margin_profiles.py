@@ -595,6 +595,40 @@ class AccountLeverageSettingTests(unittest.TestCase):
             self.assertIsNone(legacy.account_leverage)
             self.assertEqual(legacy.leverage_for("EURUSD"), 500.0)
 
+    def test_ictrading_uses_terminal_volume_min_without_enabling_axi_margin(self) -> None:
+        import contextlib
+        import sqlite3
+
+        from mt5_manager.portfolio_service import PortfolioSource, build_margin_model
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            with contextlib.closing(
+                sqlite3.connect(project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite")
+            ) as conn:
+                conn.execute("create table candidates(id integer primary key)")
+                conn.commit()
+            (project / "assets" / "ictrading_symbol_specs.json").write_text(
+                json.dumps({"symbols": {"USTEC": {
+                    "volume_min": 0.1, "volume_step": 0.1,
+                    "margin_min_lot": 12.86, "contract_size": 1.0,
+                }}}), encoding="utf-8",
+            )
+            source = PortfolioSource({
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            })
+            model = build_margin_model(source, {"margin_profile": "ictrading"})
+
+        self.assertEqual(model.min_lot_for("USTEC"), 0.1)
+        self.assertEqual(model.lot_size_for("USTEC", 2), 0.2)
+        self.assertEqual(model.lot_increments_for("USTEC"), 10)
+        self.assertIsNone(model.margin_for_one("USTEC"))
+        self.assertIsNone(model.notional_for("USTEC"))
+
     def test_choices_and_default_match_the_form(self) -> None:
         self.assertEqual(ACCOUNT_LEVERAGE_CHOICES, (1000.0, 500.0, 100.0))
         self.assertEqual(DEFAULT_ACCOUNT_LEVERAGE, 1000.0)

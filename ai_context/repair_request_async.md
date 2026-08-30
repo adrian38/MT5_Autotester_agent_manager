@@ -5,7 +5,10 @@
 - El nodo conserva su implementacion y contrato actuales; no necesita cambios.
 - La llamada en segundo plano permite hasta una hora para que el nodo termine su
   preflight sincrono. Los errores posteriores se registran en stderr del manager.
-- El modal de reparacion carga primero `GET /api/nodes/{id}/runs?limit=100`.
+- Los modales de reparacion y prueba regresiva usan paginacion real. Cargan
+  paginas de 100 con `GET /api/nodes/{id}/runs?limit=100&offset=N` y muestran
+  «Cargar mas» mientras el nodo devuelva `pagination.has_more`. El limite es por
+  pagina, no global: SQLite aplica `LIMIT/OFFSET` y cualquier run puede alcanzarse.
   Esa llamada es de solo lectura pero puede tardar mas que el timeout generico
   en nodos remotos, asi que el manager la proxya con timeout de 120 segundos.
 - La lista de runs del modal de reparacion incluye un control "Seleccionar
@@ -21,3 +24,7 @@
   aparece tanto en la tarjeta como en el modal de nueva ejecución; sus etapas
   solo heredan `max_workers` como compatibilidad para clientes antiguos que
   omitan el nuevo campo.
+- El diálogo de Reparar muestra, cuando el nodo anuncia
+  `capabilities.historical_cleanup`, la casilla «Limpiar datos históricos después
+  de cada run seleccionado». Reutiliza y persiste `cleanup_after_run`, y envía el
+  valor elegido al nodo; ya no fuerza el borrado en toda reparación manual.

@@ -39,10 +39,13 @@ class NodeCardControlsTests(unittest.TestCase):
         script = self.script()
         self.assertIn("Se corta la etapa en curso", script)
 
-    def test_application_restart_button_is_capability_gated_and_idle_only(self) -> None:
+    def test_application_restart_button_is_capability_gated_and_accepts_paused_jobs(self) -> None:
         script = self.script()
         self.assertIn("node.capabilities?.application_restart", script)
-        self.assertIn("RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped']", script)
+        self.assertIn(
+            "RESTARTABLE_STATES = ['idle', 'completed', 'failed', 'stopped', 'paused', 'interrupted']",
+            script,
+        )
         self.assertIn("onclick=\"restartNode(", script)
         self.assertIn("/restart`", script)
         self.assertIn("git pull --ff-only", script)
@@ -396,9 +399,14 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("Eliminar históricos", script)
         self.assertIn("TODAS las terminales", script)
         self.assertIn("syncCleanupAfterRun", script)
-        self.assertEqual(script.count("cleanup_after_run: true"), 2)
+        self.assertEqual(script.count("cleanup_after_run: true"), 1)
         self.assertIn('id="cleanup-after-run"', page)
         self.assertIn("Limpiar datos históricos al completar cada run", page)
+        self.assertIn('id="repair-cleanup"', page)
+        self.assertIn("Limpiar datos históricos después de cada run seleccionado", page)
+        self.assertIn("settingsFor(node, id).cleanup_after_run", script)
+        self.assertIn("cleanup_after_run: cleanupAfterRun", script)
+        self.assertIn("setRepairCleanup", script)
         self.assertGreaterEqual(page.count("después de cada run seleccionado"), 2)
         self.assertIn(".card-cleanup-policy", styles)
 
@@ -417,6 +425,13 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="repair-workers"', page)
         self.assertIn("max_workers: Number(document.querySelector('#repair-workers').value)", script)
         self.assertIn("settingsFor(node, id).repair_max_workers", script)
+        self.assertIn("const RUN_PAGE_SIZE = 100", script)
+        self.assertEqual(script.count("runs?limit=${RUN_PAGE_SIZE}&offset=${currentOffset}"), 2)
+        self.assertNotIn("runs?limit=100", script)
+        self.assertIn('id="repair-load-more"', page)
+        self.assertIn("loadMoreRepairRuns()", page)
+        self.assertIn("window.loadMoreRepairRuns = loadMoreRepairRuns", script)
+        self.assertIn("pagination.has_more", script)
         self.assertIn('id="generation-repair-workers"', page)
         self.assertIn("repair_max_workers: Number(document.querySelector('#generation-repair-workers').value)", script)
         self.assertIn("Terminales para reparación", page)
@@ -455,6 +470,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("function toggleRegressionRuns", script)
         self.assertIn("function updateRegressionSelectionState", script)
         self.assertIn("window.toggleRegressionRuns = toggleRegressionRuns", script)
+        self.assertIn('id="regression-load-more"', page)
+        self.assertIn("loadMoreRegressionRuns()", page)
+        self.assertIn("window.loadMoreRegressionRuns = loadMoreRegressionRuns", script)
 
     def test_every_html_number_input_accepts_representative_backend_values(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -505,14 +523,14 @@ class PortfolioFormTests(unittest.TestCase):
             "max_dd_overlap": (0, 0.35, 0.355, 1),
             "max_portfolio_corr": (0, 0.5, 0.505, 1),
             "period_days": (1, 7, 3650),
-            "sync_interval_minutes": (1, 5, 1440),
-            "heartbeat_timeout_minutes": (1, 5, 1440),
+            "min_tick_history_quality_pct": (0, 80, 99.9, 100),
             "fixed_delay_ms": (0, 125, 600000),
             "trade_time_tolerance_seconds": (0, 60, 86400),
             "price_tolerance_points": (0, 10, 10.5, 1000000),
             "volume_tolerance_pct": (0, 1, 1.5, 100),
             "pnl_deviation_warning_pct": (0, 10, 10.5, 10000),
             "drawdown_deviation_warning_pct": (0, 15, 15.5, 10000),
+            "scheduler-interval-days": (1, 30, 3650),
         }
         self.assertEqual(set(fields), set(valid_values), "Actualiza la auditoría para los inputs numéricos")
 

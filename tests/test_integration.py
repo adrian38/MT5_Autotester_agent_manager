@@ -10,6 +10,7 @@ import unittest
 import urllib.error
 import urllib.request
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 from pathlib import Path
 
@@ -143,6 +144,7 @@ enabled=0
         self.assertEqual(saved["preferences"]["repair_attempts"], 3)
         self.assertTrue(saved["preferences"]["repair_after_generation"])
         self.assertTrue(saved["preferences"]["run_regression"])
+
         # La casilla de Reparar se recuerda aparte de la de la nueva ejecución.
         self.assertFalse(saved["preferences"]["repair_run_regression"])
         self.assertTrue(saved["preferences"]["cleanup_after_run"])
@@ -183,12 +185,64 @@ enabled=0
         with urllib.request.urlopen(self.base + "/universe.html?node=test-node", timeout=3) as response:
             self.assertIn("UNIVERSO DE ACTIVOS", response.read().decode("utf-8"))
 
+    def test_manager_proxies_only_current_live_audit_reports(self) -> None:
+        run_id = "run_1"
+        with self.controller.live_audits.lock:
+            self.controller.live_audits.states["9"] = {
+                "audit_key": "9", "audit_id": run_id, "status": "completed",
+            }
+        reports = self.controller.live_audits.runtime_dir / "audit_9" / run_id / "reports"
+        reports.mkdir(parents=True)
+        report = reports / "strategy.htm"
+        report.write_text("<html><body>MT5 report</body></html>", encoding="utf-8")
+        (reports / "strategy.set").write_text("StartLots=0.06", encoding="utf-8")
+
+        with urllib.request.urlopen(
+            self.base + "/api/nodes/test-node/live-audits/9/artifacts/run_1/strategy.htm",
+            timeout=3,
+        ) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "text/html")
+            self.assertIn(b"MT5 report", response.read())
+            self.assertIn("default-src 'none'", response.headers["Content-Security-Policy"])
+
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(
+                self.base + "/api/nodes/test-node/live-audits/9/artifacts/run_1/strategy.set",
+                timeout=3,
+            )
+        self.assertEqual(caught.exception.code, 404)
+
     def test_manager_serves_and_persists_live_audit_configuration_without_the_node(self) -> None:
         status, initial = self.request("/api/nodes/test-node/live-audit-config")
         self.assertEqual(status, 200)
-        self.assertEqual(initial["phase"], "configuration_only")
+        self.assertEqual(initial["phase"], "connected")
+        self.assertEqual(initial["audit_states"], {})
         self.assertFalse(initial["configured"])
         self.assertEqual(initial["node"]["name"], "Test Node")
+        self.assertEqual(initial["restore_account"]["login"], "11637157")
+        self.assertFalse(initial["restore_account"]["configured"])
+
+        status, restored = self.request("/api/nodes/test-node/live-audit-restore-account", {
+            "login": "333", "server": "Broker-Live", "password": "restore-secret",
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(restored["restore_account"]["configured"])
+        self.assertNotIn("restore-secret", json.dumps(restored))
+
+        status, scheduler = self.request("/api/live-audit-scheduler-config")
+        self.assertEqual(status, 200)
+        self.assertFalse(scheduler["effective_enabled"])
+        status, scheduler = self.request("/api/live-audit-scheduler-config", {
+            "enabled": False, "interval_days": 17,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(scheduler["interval_days"], 17)
+        self.assertNotIn("check_interval_minutes", scheduler)
+        self.assertNotIn("startup_delay_seconds", scheduler)
+        scheduler_path = self.live_audit_settings_path.with_name("live_audit_scheduler.json")
+        persisted_scheduler = json.loads(scheduler_path.read_text(encoding="utf-8"))
+        self.assertEqual(persisted_scheduler, {"enabled": False, "interval_days": 17})
 
         status, saved = self.request("/api/nodes/test-node/live-audit-config", {
             "selected_portfolio_ids": [11, 12],
@@ -223,6 +277,8 @@ enabled=0
         self.assertEqual(saved["profiles"]["12"]["source_login"], "002222")
         self.assertEqual(saved["profiles"]["11"]["period_days"], 7)
         self.assertEqual(saved["profiles"]["12"]["period_days"], 30)
+        self.assertEqual(saved["profiles"]["11"]["audit_interval_days"], 1)
+        self.assertEqual(saved["profiles"]["11"]["min_tick_history_quality_pct"], 80.0)
         self.assertTrue(saved["credential_state"]["11"]["source_password_saved"])
         self.assertTrue(saved["credential_state"]["12"]["tester_password_saved"])
         self.assertNotIn("source_password", saved)
@@ -231,7 +287,7 @@ enabled=0
         self.assertEqual(persisted["test-node"]["profiles"]["11"]["period_days"], 7)
         self.assertEqual(persisted["test-node"]["profiles"]["12"]["period_days"], 30)
         encrypted = (self.root / "live_audit_credentials.json").read_text(encoding="utf-8")
-        for secret in ("real-11", "test-11", "real-12", "test-12"):
+        for secret in ("restore-secret", "real-11", "test-11", "real-12", "test-12"):
             self.assertNotIn(secret, encrypted)
 
         with urllib.request.urlopen(self.base + "/live_audit.html?node=test-node", timeout=3) as response:
@@ -240,6 +296,12 @@ enabled=0
             self.assertIn(b"live-audit-config", response.read())
         with urllib.request.urlopen(self.base + "/live_audit.css", timeout=3) as response:
             self.assertIn(b"live-audit-configs", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_result.html?node=test-node&audit=11", timeout=3) as response:
+            self.assertIn(b"Comparaci", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_result.js", timeout=3) as response:
+            self.assertIn(b"operation_comparisons", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_result.css", timeout=3) as response:
+            self.assertIn(b"audit-operation-table", response.read())
 
     def test_pulse_projects_the_same_state_as_nodes_but_without_its_peso(self) -> None:
         """`/api/pulse` existe para poder sondear desde un móvil.
@@ -383,14 +445,14 @@ enabled=0
             "mt5_manager.manager.node_request",
             return_value=(200, {"runs": [{"id": 7}]}),
         ) as request_node:
-            status, payload = self.request("/api/nodes/test-node/runs?limit=100")
+            status, payload = self.request("/api/nodes/test-node/runs?limit=100&offset=200")
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["runs"], [{"id": 7}])
         node, method, path = request_node.call_args.args
         self.assertEqual(node["id"], "test-node")
         self.assertEqual(method, "GET")
-        self.assertEqual(path, "/api/v1/runs?limit=100")
+        self.assertEqual(path, "/api/v1/runs?limit=100&offset=200")
         self.assertEqual(request_node.call_args.kwargs, {"timeout": 120})
 
     def test_manager_submits_repair_without_waiting_for_the_node_response(self) -> None:
@@ -482,6 +544,24 @@ enabled=0
         self.assertEqual(payload["status"], "restarting")
         self.assertTrue(self.restart_requested.wait(1))
 
+    def test_application_restart_preserves_a_paused_pipeline(self) -> None:
+        with self.controller.lock:
+            self.controller.state.update({
+                "status": "paused",
+                "pipeline": [{"action": "generation"}],
+                "current_step_index": 0,
+                "paused_at": "2026-08-20T20:36:39+02:00",
+            })
+            self.controller._persist()
+
+        status, payload = self.request("/api/nodes/test-node/restart", {})
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["status"], "restarting")
+        self.assertTrue(self.restart_requested.wait(1))
+        self.assertEqual(self.controller.state["status"], "paused")
+        self.assertEqual(self.controller.state["current_step_index"], 0)
+
     def test_manager_restart_has_its_own_async_endpoint_and_status(self) -> None:
         accepted = {"status": "starting", "step": "starting", "log": []}
         with mock.patch.object(self.manager.manager_restart, "start", return_value=accepted) as start:
@@ -559,6 +639,108 @@ enabled=0
             server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes})
         try:
             self.assertEqual(server.export_mode, "folder")
+        finally:
+            server.server_close()
+
+    def test_the_live_audit_scheduler_stays_disarmed_unless_it_is_switched_on(self) -> None:
+        # La auditoría pausa el pipeline del agente, corre y lo reanuda. Sin
+        # nadie delante eso es una ejecución desatendida sobre terminales MT5
+        # reales: el 2026-08-21 dejó un terminal sin cuenta y dos días de
+        # discovery puntuando 0 supervivientes. Se lanza a mano hasta que el MVP
+        # esté cerrado, así que por defecto ni se arranca el hilo.
+        nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
+        scheduler_file = str(self.root / "scheduler-safety-test.json")
+        with mock.patch.dict("os.environ", {}, clear=True):
+            server = ManagerServer(("127.0.0.1", 0), {
+                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
+            })
+        try:
+            self.assertFalse(server.live_audit_scheduler_enabled)
+            self.assertIsNone(server.live_audit_thread)
+            # Y aunque se llame al barrido a mano, no sale ninguna petición.
+            with mock.patch("mt5_manager.manager.node_request") as node_request:
+                server._run_due_live_audits()
+            node_request.assert_not_called()
+        finally:
+            server.server_close()
+
+        for switch in ({"live_audit_scheduler_enabled": True}, {"live_audit_scheduler_enabled": "si"}):
+            with mock.patch.dict("os.environ", {}, clear=True):
+                server = ManagerServer(("127.0.0.1", 0), {
+                    "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file, **switch,
+                })
+            try:
+                self.assertTrue(server.live_audit_scheduler_enabled, msg=f"con {switch}")
+                self.assertIsNotNone(server.live_audit_thread)
+            finally:
+                server.server_close()
+
+        # El entorno también rearma, para el contenedor.
+        with mock.patch.dict("os.environ", {"MT5_MANAGER_LIVE_AUDIT_SCHEDULER": "1"}, clear=True):
+            server = ManagerServer(("127.0.0.1", 0), {
+                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
+            })
+        try:
+            self.assertTrue(server.live_audit_scheduler_enabled)
+        finally:
+            server.server_close()
+
+        # Un valor que no se reconoce NO arma nada: un typo no puede lanzar
+        # auditorías desatendidas.
+        with mock.patch.dict("os.environ", {}, clear=True):
+            server = ManagerServer(("127.0.0.1", 0), {
+                "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
+                "live_audit_scheduler_enabled": "quizá",
+            })
+        try:
+            self.assertFalse(server.live_audit_scheduler_enabled)
+        finally:
+            server.server_close()
+
+    def test_the_scheduler_uses_its_single_global_interval_in_days(self) -> None:
+        nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
+        server = ManagerServer(("127.0.0.1", 0), {
+            "nodes": nodes,
+            "live_audit_scheduler_settings_file": str(self.root / "scheduler-global-days.json"),
+        })
+        state = {
+            "configured_audit_ids": ["11"],
+            "profiles": {"11": {
+                "portfolio_id": 11, "portfolio_type": "aggressive",
+                "source_login": "1", "audit_interval_days": 999,
+            }},
+        }
+        completed_at = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+
+        def request(_node, method, path, payload=None, timeout=0):
+            if path == "/api/v1/status":
+                return 200, {"capabilities": {"live_audit_restore_account": True}}
+            if method == "GET" and path == "/api/v1/live-audits":
+                return 200, {"audits": {"11": {
+                    "status": "completed", "last_result": {"completed_at": completed_at},
+                }}}
+            return 202, {"audit": {"status": "queued"}}
+
+        try:
+            server.live_audit_scheduler_enabled = True
+            with (
+                mock.patch.object(server.live_audit_settings, "state", return_value=state),
+                mock.patch.object(server.live_audit_settings, "credentials", return_value={}),
+                mock.patch.object(
+                    server.live_audit_settings, "restore_credentials",
+                    return_value={"restore_password": "saved"},
+                ),
+                mock.patch("mt5_manager.manager.node_request", side_effect=request) as node_request,
+            ):
+                server.live_audit_scheduler_settings["interval_days"] = 7
+                server._run_due_live_audits()
+                self.assertFalse(any(call.args[1] == "POST" for call in node_request.call_args_list))
+
+                node_request.reset_mock()
+                server.live_audit_scheduler_settings["interval_days"] = 1
+                server._run_due_live_audits()
+                posts = [call for call in node_request.call_args_list if call.args[1] == "POST"]
+                self.assertEqual(len(posts), 1)
         finally:
             server.server_close()
 

@@ -22,6 +22,13 @@ funciona, y reiniciar el servidor MCP cuando se pueda:
 El parámetro obligatorio es `repo_path`, no `project`; pasar `project` devuelve el mismo
 mensaje de crash en lugar de un error de validación, y hace perder el diagnóstico.
 
+Si el servidor MCP se queda en «connecting» y no aparece ninguna de sus herramientas,
+**no** es el índice: desde la 0.10.8 se niega a arrancar si su caché cuelga del perfil.
+Por eso `.mcp.json` fija `CBM_CACHE_DIR` y `CBM_RUNTIME_DIR` en `C:\cbm`, igual que los
+proyectos de Idrica. Diagnóstico en `ai_context/codebase_memory_mcp_no_arranca.md`.
+Que el CLI de arriba funcione **no** demuestra que el servidor arranque: es otro
+ejecutable y otra versión (0.9.0 contra 0.10.8).
+
 Antes de leer o modificar código:
 
 1. `search_graph` / `search_code` para localizar símbolos y flujos — **en lugar de** `rg` o `grep`

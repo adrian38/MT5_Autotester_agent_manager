@@ -94,6 +94,32 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         self.assertIn("def requalify_strategy", self.manager_source)
         self.assertIn("def _requalify_on_node", self.manager_source)
         self.assertIn("def write_needs_node", self.manager_source)
+        self.assertIn("def _supported_dataclass_values", self.manager_source)
+
+    def test_run_history_pagination_reaches_every_reachable_fork(self) -> None:
+        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        for token in ('limit ? offset ?', '"pagination": {', '"next_offset"', 'query.get("offset"'):
+            self.assertIn(token, manager_node, f"El nodo fuente del manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            node_path = project / "manager_node_runtime" / "node.py"
+            node_source = node_path.read_text(encoding="utf-8", errors="replace")
+            for token in ('limit ? offset ?', '"pagination": {', '"next_offset"', 'query.get("offset"'):
+                self.assertIn(
+                    token,
+                    node_source,
+                    msg=(
+                        f"{project}: falta `{token}` en manager_node_runtime/node.py; "
+                        "sin el port el botón «Cargar más» no puede superar la primera página."
+                    ),
+                )
+            tests = sorted((project / "tests").glob("test_manager_node_*pagination*.py"))
+            self.assertTrue(
+                tests,
+                msg=f"{project}: falta una prueba propia de paginación del historial de runs.",
+            )
+
+        self._assert_on_every_fork(check, "paginación del historial de runs")
 
     def test_batch_exclusion_accepts_monthly_on_every_reachable_fork(self) -> None:
         def check(project: Path, source: str) -> None:
@@ -353,6 +379,142 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
             )
 
         self._assert_on_every_fork(check, "reinicio completo de la aplicacion")
+
+    def test_the_auditor_leaves_the_configured_account_on_every_ported_fork(self) -> None:
+        # El auditor real activa la cuenta real con `initialize(login=...)` y MT5
+        # recuerda la última cuenta de cada terminal. Sin restaurar, el pipeline
+        # reanudado seguiría probando cada estrategia contra la cuenta real. El
+        # proceso que ejecuta esto es `manager_node_runtime/live_audit.py`, no la
+        # copia de referencia del manager.
+        manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        self.assertIn('"live_audit_restore_account": True', manager_node)
+        for token in (
+            "def _restore_tester_login",
+            "def _remember_real_account_terminal",
+            "def _tester_terminal_pool",
+            '"tester_execution"',
+            '"workers": str(workers)',
+            "def _close_terminal_pids_gracefully",
+            "remember_for=str(request[\"audit_key\"])",
+            'request["restore_login"]',
+            'request["restore_password"]',
+            'request["restore_server"]',
+            '"finalizing"',
+        ):
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                # El auditor real solo se ha portado a ICTrading; una copia sin el
+                # módulo no ha recibido la función, no una regresión que ocultar.
+                print(f"\n[paridad] auditor real: {project} no tiene manager_node_runtime/live_audit.py")
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            node_source = (project / "manager_node_runtime" / "node.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            self.assertIn(
+                '"live_audit_restore_account": True', node_source,
+                f"{project}: el runtime nuevo no anuncia al manager la restauración independiente.",
+            )
+            for token, hint in (
+                ("def _restore_tester_login", "la restauración de la cuenta de pruebas"),
+                ("def _remember_real_account_terminal", "el registro de terminales con la cuenta real"),
+                ("def _tester_terminal_pool", "el reparto del tester entre terminales habilitadas"),
+                ('"tester_execution"', "la evidencia del modo y del pool de terminales ejecutado"),
+                ('"workers": str(workers)', "el número efectivo de terminales del tester"),
+                ("def _close_terminal_pids_gracefully", "el cierre que deja a MT5 guardar la cuenta"),
+                ('request["restore_login"]', "el login final independiente de la cuenta tester"),
+                ('request["restore_password"]', "la credencial final independiente de la cuenta tester"),
+                ('request["restore_server"]', "el servidor final independiente de la cuenta tester"),
+                ('"finalizing"', "el estado que impide publicar un fin antes de restaurar las terminales"),
+            ):
+                self._assert_present(
+                    source,
+                    re.escape(token),
+                    f"{project}: falta {hint} (`{token}`) en manager_node_runtime/live_audit.py. "
+                    "Portar el cambio desde mt5_manager/live_audit_engine.py: sin él el "
+                    "terminal se queda en la cuenta real y el siguiente backtest del "
+                    "pipeline no usa la cuenta demo de pruebas.",
+                )
+            self._assert_absent(
+                source,
+                r"finally:\s*\n\s*if paused_by_auditor:",
+                f"{project}: la copia del agente reanuda el pipeline sin restaurar antes la "
+                "cuenta de pruebas del terminal.",
+            )
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "_restore_tester_login" in path.read_text(encoding="utf-8", errors="replace")
+                or "terminal_restore" in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre en qué cuenta queda el terminal; "
+                    "duplicar allí la cobertura de `terminal_restore`."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "cuenta que queda en el terminal tras auditar")
+
+    def test_every_reachable_fork_ignores_fields_from_a_newer_manager(self) -> None:
+        # El manager manda la tanda de riesgo por equity (`max_balance_dd_001`,
+        # `max_equity_dd_001`, DD flotante, rendimiento reciente, rutas de informe)
+        # y los campos de auditoría del resultado. El `portfolio_manager/ubs_portfolio.py`
+        # de cada agente es una generación anterior y no los declara: con
+        # `StrategyAllocation(**item)` el nodo moría con `unexpected keyword argument`,
+        # devolvía un 500 con la traza en su consola y solo guardaba en el segundo
+        # POST, el del reintento con `legacy_compatible_portfolio_save_payload`.
+        # El reintento del manager es la red, no el arreglo: cada guardado dejaba
+        # una traza que parecía una caída.
+        self._assert_present(
+            self.manager_source,
+            r"StrategyAllocation\(\*\*_supported_dataclass_values\(",
+            "El manager dejó de tolerar campos desconocidos al reconstruir las "
+            "asignaciones; sin eso esta paridad no compara nada.",
+        )
+
+        def check(project: Path, source: str) -> None:
+            for dataclass_name in (
+                "StrategyAllocation",
+                "OptimizationDecision",
+                "UnusedSetInfo",
+                "BootstrapDrawdownAnalysis",
+                "PortfolioResult",
+            ):
+                self._assert_absent(
+                    source,
+                    rf"{dataclass_name}\(\*\*(?:item|stress|result_values)\)",
+                    f"{project}: `_deserialize_proposals` sigue construyendo "
+                    f"{dataclass_name} con el diccionario crudo del manager. "
+                    "Portar `_supported_dataclass_values` de "
+                    "mt5_manager/portfolio_service.py a "
+                    "manager_node_runtime/portfolio_save.py: sin él, cada guardado "
+                    "deja un TypeError y una traza en la consola del agente antes "
+                    "de que el manager reintente con el payload heredado.",
+                )
+            self._assert_present(
+                source,
+                r"def _supported_dataclass_values",
+                f"{project}: falta `_supported_dataclass_values` en "
+                "manager_node_runtime/portfolio_save.py.",
+            )
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "max_balance_dd_001" in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre un payload de un manager "
+                    "más nuevo; duplicar allí la cobertura del filtro de campos."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "campos nuevos del manager en el guardado")
 
     def test_optional_cli_values_are_omitted_instead_of_stringified_on_every_fork(self) -> None:
         # `_add` es quien construye la línea de comandos de ubs_agent.py, y quien

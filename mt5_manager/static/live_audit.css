@@ -4,6 +4,59 @@
   font-size: 13px;
 }
 
+.live-audit-config-button {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.live-audit-settings-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.live-audit-dialog-body {
+  display: grid;
+  gap: 16px;
+  padding: 4px 20px 20px;
+}
+
+.live-audit-dialog-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.live-audit-dialog-help strong {
+  color: var(--text);
+}
+
+.live-audit-dialog-actions {
+  padding: 0 20px 20px;
+}
+
+.live-audit-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.live-audit-switch input {
+  width: auto;
+  margin-top: 3px;
+}
+
+.live-audit-switch span {
+  display: grid;
+  gap: 4px;
+}
+
+.live-audit-switch small {
+  color: var(--muted);
+}
+
 .live-audit-configs {
   display: grid;
   gap: 18px;
@@ -33,9 +86,189 @@
   text-align: center;
 }
 
+.live-audit-quality-gate {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid #4c4631;
+  border-radius: 10px;
+  background: #1b1810;
+}
+
+.live-audit-quality-gate strong {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.live-audit-quality-gate span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.live-audit-operation {
+  margin: 18px 20px 0;
+  padding: 16px;
+  border: 1px solid #294256;
+  border-radius: 12px;
+  background: #0b1722;
+}
+
+.live-audit-operation-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.live-audit-operation-head .eyebrow {
+  margin: 0 0 5px;
+}
+
+.live-audit-operation-head strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.live-audit-stage-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.live-audit-stage-list span {
+  padding: 9px 6px;
+  border: 1px solid #294256;
+  border-radius: 8px;
+  color: #7893a8;
+  text-align: center;
+  font-size: 11px;
+}
+
+.live-audit-stage-list span.current {
+  border-color: var(--accent2);
+  color: #dffdf5;
+  background: #55e6c11c;
+}
+
+.live-audit-stage-list span.completed {
+  border-color: #2d8c77;
+  color: var(--accent2);
+  background: #2d8c771f;
+}
+
+.live-audit-stage-list span.failed {
+  border-color: #dc5964;
+  color: #ff9da5;
+  background: #dc59641f;
+}
+
+.live-audit-operation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.live-audit-result-dialog {
+  width: min(820px, calc(100vw - 32px));
+}
+
+.live-audit-result-content {
+  padding: 0 20px 20px;
+}
+
+.live-audit-modal-empty {
+  padding: 36px 20px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.live-audit-modal-empty strong {
+  color: var(--text);
+}
+
+.live-audit-modal-empty p,
+.live-audit-result-summary p {
+  margin: 8px 0 0;
+}
+
+.live-audit-result-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.live-audit-result-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.live-audit-result-grid div {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0b141e;
+}
+
+.live-audit-result-grid dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.live-audit-result-grid dd {
+  margin: 5px 0 0;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.live-audit-diagnostics {
+  max-height: 22rem;
+  overflow: auto;
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #07111f;
+  color: #d8e7f7;
+  white-space: pre-wrap;
+}
+
+.live-audit-portfolio button {
+  margin-left: auto;
+}
+
+.live-audit-card .panel-title > div:last-child {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 @media (max-width: 700px) {
   .live-audit-subtitle {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .live-audit-stage-list,
+  .live-audit-result-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .live-audit-operation-head {
+    flex-direction: column;
+  }
+
+  .live-audit-operation-actions button {
+    flex: 1 1 100%;
   }
 }

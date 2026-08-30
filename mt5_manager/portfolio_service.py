@@ -788,6 +788,95 @@ class PortfolioSource:
                 result = [row for row in result if self._path_key(row.get("set_path")) not in quarantined]
         return result
 
+    def import_candidate_rows(self) -> list[dict[str, Any]]:
+        """Devuelve candidatos reconstruibles sin volver a filtrar su veredicto.
+
+        Un cálculo nuevo solo puede usar el pool que superó las cuatro etapas,
+        y para eso existe :meth:`candidate_rows`. Una importación tiene otro
+        contrato: el ZIP ya fija la composición que el usuario guardó. Si una
+        reparación posterior cambió el veredicto de robustez o Final Tick, se
+        conserva como información, pero no puede borrar una estrategia del
+        paquete restaurado.
+
+        Siguen siendo imprescindibles el candidato y sus informes base/OOS;
+        ``load_robust_sets_from_rows`` nombrará cualquier informe ausente o
+        ilegible en vez de inventar métricas.
+        """
+        result: list[dict[str, Any]] = []
+        for account_label, memory in self.memory_sources:
+            with self.connect_memory(memory) as conn:
+                if not all(_table_exists(conn, table) for table in ("candidates", "candidate_robustness")):
+                    continue
+                has_final_tick = _table_exists(conn, "candidate_final_tick")
+                has_final_tick_6m = _table_exists(conn, "candidate_final_tick_6m")
+                final_tick_join = (
+                    "left join candidate_final_tick ft on ft.candidate_id=c.id"
+                    if has_final_tick else ""
+                )
+                final_tick_6m_join = (
+                    "left join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id"
+                    if has_final_tick_6m else ""
+                )
+                full_history_sql = "ft.real_tick_report_path" if has_final_tick else "null"
+                final_tick_status_sql = "ft.status" if has_final_tick else "null"
+                final_ohlc_sql = "ft6.ohlc_report_path" if has_final_tick_6m else "null"
+                final_real_sql = "ft6.real_tick_report_path" if has_final_tick_6m else "null"
+                final_from_sql = "ft6.from_date" if has_final_tick_6m else "null"
+                final_to_sql = "ft6.to_date" if has_final_tick_6m else "null"
+                final_tick_6m_status_sql = "ft6.status" if has_final_tick_6m else "null"
+                final_tick_metrics_sql = "null"
+                if has_final_tick_6m:
+                    final_tick_6m_columns = {
+                        str(column[1])
+                        for column in conn.execute("pragma table_info(candidate_final_tick_6m)")
+                    }
+                    if "real_tick_metrics_json" in final_tick_6m_columns:
+                        final_tick_metrics_sql = "ft6.real_tick_metrics_json"
+                rows = conn.execute(
+                    f"""
+                    select ? as account_type, ? || ':' || c.id as candidate_id,
+                           c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
+                           c.period, c.family, c.report_path as is_report_path,
+                           cr.report_path as oos_report_path,
+                           {full_history_sql} as full_history_report_path,
+                           {final_ohlc_sql} as final_ohlc_report_path,
+                           {final_real_sql} as final_tick_report_path,
+                           {final_from_sql} as final_tick_from_date,
+                           {final_to_sql} as final_tick_to_date,
+                           {final_tick_metrics_sql} as final_tick_metrics_json,
+                           c.status as base_status, cr.status as robustness_status,
+                           {final_tick_status_sql} as final_tick_status,
+                           {final_tick_6m_status_sql} as final_tick_6m_status
+                    from candidates c
+                    join candidate_robustness cr on cr.candidate_id=c.id
+                    {final_tick_join}
+                    {final_tick_6m_join}
+                    order by c.id
+                    """,
+                    (account_label, account_label),
+                ).fetchall()
+            for db_row in rows:
+                item = dict(db_row)
+                final_tick_metrics = item.pop("final_tick_metrics_json", None)
+                if final_tick_metrics:
+                    try:
+                        executable_symbol = str(
+                            (json.loads(final_tick_metrics) or {}).get("symbol") or ""
+                        ).strip()
+                    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+                        executable_symbol = ""
+                    if executable_symbol:
+                        item["executable_symbol"] = executable_symbol
+                item["source_memory_path"] = str(memory)
+                result.append(item)
+        for row in result:
+            for key in (
+                "set_path", "is_report_path", "oos_report_path", "full_history_report_path",
+                "final_ohlc_report_path", "final_tick_report_path",
+            ):
+                row[key] = _resolve_source_path(row.get(key), self.project)
+        return result
+
     @staticmethod
     def _path_key(value: Any) -> str:
         return str(Path(str(value or "")).expanduser()).replace("/", "\\").casefold()
@@ -2321,15 +2410,26 @@ def result_payload(result: PortfolioResult) -> dict[str, Any]:
 def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
     """Modelo de margen del perfil configurado, con el nocional medido si lo hay.
 
-    Solo AXI estrena tramos por grupo, apalancamiento de cuenta y nocional real;
-    para el resto de perfiles devuelve el modelo heredado, de forma que ningún
-    portafolio ya guardado cambia de números.
+    AXI usa tramos por grupo, apalancamiento de cuenta y nocional real.
+    ICTrading consume únicamente ``volume_min`` para dimensionar unidades
+    ejecutables; el resto de perfiles conserva el modelo heredado.
     """
-    if normalize_margin_profile(inputs.get("margin_profile")) != "axi":
+    profile = normalize_margin_profile(inputs.get("margin_profile"))
+    if profile not in {"axi", "ictrading"}:
+        return margin_model_for_profile(inputs.get("margin_profile"))
+    symbol_specs_path = getattr(source, "symbol_specs", None)
+    if not symbol_specs_path:
         return margin_model_for_profile(inputs.get("margin_profile"))
     (
         symbol_margin, symbol_min_lot, symbol_contract_size, reference_leverage, margin_source,
-    ) = load_symbol_specs(source.symbol_specs)
+    ) = load_symbol_specs(symbol_specs_path)
+    if profile == "ictrading":
+        # ICTrading publica volume_min/volume_step en su volcado del terminal.
+        # Solo incorporamos aquí el lote mínimo: margen, nocional y leverage
+        # conservan el comportamiento heredado reservado a AXI.
+        return margin_model_for_profile(
+            inputs.get("margin_profile"), symbol_min_lot=symbol_min_lot,
+        )
     symbol_notional, group_notional, notional_source = load_symbol_notional(source.normalization)
     unmeasured_symbols = load_unmeasured_symbols(source.normalization)
     return margin_model_for_profile(
@@ -2936,7 +3036,11 @@ def build_import_proposals(
     Ver `mt5_manager/portfolio_import.py` para el formato y sus límites.
     """
     scope = normalize_portfolio_scope(scope)
-    candidates = source.candidate_rows(include_quarantined=True)
+    # El ZIP es la autoridad de composición. No reutilizar ``candidate_rows``:
+    # ese inventario pertenece a cálculos nuevos y elimina estrategias cuyo
+    # veredicto actual ya no supera las cuatro etapas, que fue precisamente lo
+    # que convirtió una exportación real de 7 sets en un portafolio de 4.
+    candidates = source.import_candidate_rows()
     by_name: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
         by_name.setdefault(Path(str(row.get("set_path") or "")).name.casefold(), []).append(row)
@@ -2961,7 +3065,26 @@ def build_import_proposals(
             "este nodo: no hay informes con los que reconstruirlo"
         )
     rows = list(resolved.values())
+    changed_verdicts = []
+    for row in rows:
+        statuses = {
+            "base": str(row.get("base_status") or ""),
+            "robustez": str(row.get("robustness_status") or ""),
+            "Final Tick": str(row.get("final_tick_status") or ""),
+            "Final Tick 6M": str(row.get("final_tick_6m_status") or ""),
+        }
+        changed = [f"{stage}={status or 'sin evaluar'}" for stage, status in statuses.items() if status != "accepted"]
+        if changed:
+            changed_verdicts.append(
+                f"{Path(str(row.get('set_path') or '')).name}: " + ", ".join(changed)
+            )
     strategies, warnings = load_robust_sets_from_rows(rows, [], parse=cached_report)
+    if changed_verdicts:
+        warnings.append(
+            "La composición se restauró exactamente desde el ZIP aunque algunos "
+            "veredictos actuales hayan cambiado."
+        )
+        warnings.append("Veredictos actuales: " + " | ".join(changed_verdicts))
     if not strategies:
         raise ValueError("No se pudo reconstruir ninguna estrategia desde sus informes")
     path_by_name = {Path(str(row.get("set_path") or "")).name.casefold(): str(row.get("set_path") or "") for row in rows}
@@ -4156,14 +4279,62 @@ class PortfolioCoordinator:
         source = PortfolioSource(node)
         source._invalidate_remote_snapshot(source.memory)
 
+    def _save_imported_ubs_proposals(
+        self,
+        node_id: str,
+        scope: str,
+        proposals: list[dict[str, Any]],
+        selected_key: str,
+    ) -> int:
+        """Guarda una importacion UBS en la memoria local de su nodo."""
+        if normalize_portfolio_scope(scope) != "full_history":
+            raise ValueError("El guardado importado por nodo solo pertenece a Portafolio UBS")
+        request_id = str(uuid.uuid4())
+        save_payload = {
+            "scope": scope,
+            "selected_key": selected_key,
+            "operation": "generate",
+            "portfolio_id": None,
+            "request_id": request_id,
+            "proposals": serialize_portfolio_proposals(proposals, request_id),
+        }
+        node = self._node(node_id)
+        base_url = str(node.get("url") or "").rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            value = save_portfolio_payload(PortfolioSource(node), save_payload)
+        else:
+            status, value = self._post_to_node(
+                node, "/api/v1/portfolios/save", save_payload, timeout=120
+            )
+            error_text = str(value.get("error") if isinstance(value, dict) else value or "")
+            if status >= 400 and "unexpected keyword argument" in error_text:
+                status, value = self._post_to_node(
+                    node,
+                    "/api/v1/portfolios/save",
+                    legacy_compatible_portfolio_save_payload(save_payload),
+                    timeout=120,
+                )
+            if status == 404:
+                raise ValueError(
+                    "El nodo todavía no admite guardado local de portafolios; "
+                    "actualiza su código y reinícialo."
+                )
+            if status >= 400 or not isinstance(value, dict):
+                error = value.get("error") if isinstance(value, dict) else value
+                raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+        if not isinstance(value, dict):
+            raise ValueError("El guardado del portafolio importado devolvió una respuesta inválida")
+        portfolio_id = safe_int(value.get("portfolio_id"), 0)
+        if portfolio_id <= 0 or str(value.get("request_id") or "") != request_id:
+            raise ValueError("El nodo no confirmó correctamente el portafolio importado")
+        return portfolio_id
+
     def import_portfolio(self, node_id: str, scope: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Recrea un portafolio guardado desde una carpeta o ZIP de exportación.
 
-        Se ejecuta en el manager, no en el nodo, y termina en `save_proposal`:
-        la fila resultante es la misma que la de un guardado normal. El destino
-        de la escritura es el de siempre para el ámbito —la memoria del broker,
-        o la base del manager en Grid—, y los candidatos se buscan en la fuente
-        de cálculo, que en Grid incluye las dos.
+        En Portafolio UBS el manager reconstruye las propuestas y las persiste
+        con el endpoint de guardado del nodo: es el proceso que tiene la memoria
+        WAL en local. Los demás ámbitos conservan sin cambios su camino previo.
         """
         scope = normalize_portfolio_scope(scope)
         source_path = str(payload.get("folder") or payload.get("path") or "").strip()
@@ -4176,7 +4347,14 @@ class PortfolioCoordinator:
             raise ValueError("Falta la carpeta o el ZIP del portafolio exportado")
         calculation = self._calculation_source(node_id, scope)
         proposals, selected_key, report = build_import_proposals(calculation, scope, header, members)
-        portfolio_id = save_proposal(self._persistence_source(node_id, scope), proposals, selected_key, scope)
+        if scope == "full_history":
+            portfolio_id = self._save_imported_ubs_proposals(
+                node_id, scope, proposals, selected_key
+            )
+        else:
+            portfolio_id = save_proposal(
+                self._persistence_source(node_id, scope), proposals, selected_key, scope
+            )
         missing_files = sorted({member.set_name for member in members} - set(set_files))
         self.invalidate_after_exclusion(node_id)
         return {

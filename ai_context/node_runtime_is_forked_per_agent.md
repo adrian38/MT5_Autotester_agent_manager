@@ -162,6 +162,45 @@ la regresiva igual. No hay 404 ni error de validación; el usuario desmarca la
 casilla y el flujo no cambia. `test_optional_repair_regression_reaches_every_reachable_fork`
 lo convierte en un fallo mecánico en cuanto la copia esté montada.
 
+## Estado del port del filtro de campos nuevos al guardar
+
+Síntoma: al guardar un portafolio, la consola del agente escupe una traza
+
+```
+TypeError: StrategyAllocation.__init__() got an unexpected keyword argument 'max_balance_dd_001'
+```
+
+y el registro HTTP muestra `POST /api/v1/portfolios/save 500` seguido de `201`.
+
+No es una caída: es la primera mitad de una negociación de versión. El manager
+envía la tanda de riesgo por equity (`max_balance_dd_001`, `max_equity_dd_001`,
+`floating_dd_source`, `standalone_floating_dd`, `recent_*`, las rutas de informe)
+y los campos de auditoría del resultado (`actual_closed_valley_dd`,
+`floating_dd_buffer`, `floating_overlap_audit`) desde `bfa7534` (2026-07-15).
+El `portfolio_manager/ubs_portfolio.py` de cada agente es de una generación
+anterior y no declara ninguno. `ManagerHandler.do_POST` reintenta con
+`legacy_compatible_portfolio_save_payload`, que los recorta, y ese segundo POST
+devuelve 201: **el portafolio sí se guarda**, siempre lo hizo.
+
+Lo que había que arreglar es que el reintento fuese la vía normal. El manager
+tolera campos desconocidos desde el mismo commit
+(`portfolio_service.py::_supported_dataclass_values`), pero eso vive en la copia
+señuelo: el filtro nunca se portó al fork, así que el 500 y la traza se repetían
+en cada guardado. Portado, el primer POST ya responde 201 y se guarda
+exactamente lo mismo que guardaba el reintento (esos campos no tienen dónde
+caber en las dataclasses del agente).
+
+| Copia | Filtro `_supported_dataclass_values` en `_deserialize_proposals` |
+| --- | --- |
+| Manager (`portfolio_service.deserialize_portfolio_proposals`) | sí, desde `bfa7534` |
+| ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano el 2026-08-23 |
+| AXI | **no**, pendiente (`F:` no montada) |
+| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+
+`test_every_reachable_fork_ignores_fields_from_a_newer_manager` lo vigila. No
+quitar el reintento del manager: es la red para las copias sin portar y para
+cualquier campo que se añada mañana.
+
 ## Reinicio completo de la aplicacion desde el manager
 
 El boton `Reiniciar app` de la tarjeta usa
@@ -173,8 +212,10 @@ por separado no la anuncia.
 
 La ruta que se ejecuta de verdad esta en
 `manager_node_runtime/node.py` del agente ICTrading. Rechaza el reinicio si hay
-un proceso activo, un pipeline pausado/reanudable o tareas en cola. Cuando esta
-libre, el handler marca un `threading.Event`; `app_ui.py` lo consume desde el
+un proceso activo, una auditoria activa o tareas en cola. Un pipeline `paused`
+o `interrupted` si puede reiniciarse: conserva su posicion y sigue reanudable
+despues de abrir la aplicacion. Cuando esta libre, el handler marca un
+`threading.Event`; `app_ui.py` lo consume desde el
 hilo de Tk, cierra el servidor y la ventana, y `manager_node_lifecycle.py`
 reemplaza el proceso con el mismo `app_ui.py` o el mismo ejecutable congelado.
 Asi se evita tocar Tk desde el hilo HTTP y el puerto queda libre antes del

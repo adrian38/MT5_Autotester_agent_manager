@@ -48,6 +48,22 @@ texto, el número coincidiría y la prueba fallaría.
 Un nombre de set que aparece en dos candidatos distintos se marca `ambiguous` y
 se deja fuera: elegir uno al azar comprometería el set equivocado.
 
+## La composición exportada es autoritativa
+
+Importar no vuelve a calcular la elegibilidad del pool. El ZIP representa una
+decisión ya guardada y debe restaurar todos sus miembros aunque una reparación
+posterior haya cambiado a `rejected` el veredicto de robustez, Final Tick o
+Final Tick 6M. Esos veredictos actuales se muestran como advertencia, pero no
+se usan para recortar la composición.
+
+Por eso la resolución usa `PortfolioSource.import_candidate_rows`, separado de
+`candidate_rows`: este último conserva el filtro estricto de las cuatro etapas
+para cálculos nuevos. La separación corrigió el caso real del
+`PORTAFOLIO_5_ICTRADING.zip`, cuyo resumen contenía 7 sets A/M/C pero se había
+restaurado como portafolio #15 de solo 4 porque XAUCHF estaba rechazado en Final
+Tick 6M y USDJPY/XAGUSD en robustez. Con el inventario de importación se
+reconstruyen los 7 en las tres variantes, sin unresolved, ambiguous ni skipped.
+
 ## Transporte: el reflejo de la exportación
 
 | `export_mode` | Exportar | Importar |
@@ -62,12 +78,15 @@ que los de exportar.
 
 ## Quién escribe
 
-El manager, no el nodo, como la reintegración y la reclasificación. El destino es
-el de siempre para el ámbito: la memoria del broker en UBS y mensual, la base del
-manager en Grid (`_persistence_source`). Los candidatos se buscan en la fuente de
-cálculo (`_calculation_source`), que en Grid incluye las dos memorias. Después se
-invalida la copia remota, porque ha habido una escritura sobre una memoria que el
-manager lee por copia: ver `manager_snapshot_after_node_writes.md`.
+En Portafolio UBS el manager reconstruye las propuestas desde los informes, pero
+no escribe la memoria: la envía por `/api/v1/portfolios/save` al nodo, igual que
+un guardado normal. Es el nodo quien ejecuta `save_portfolio_payload` contra su
+base WAL local. Intentar `save_proposal` desde el manager falla en Docker/bind
+mounts o SMB con `disk I/O error`; ver `portfolio_write_needs_the_node.md`.
+
+Este cambio está acotado a `full_history`. UBS mensual queda fuera del alcance y
+conserva su comportamiento anterior hasta autorización explícita. Grid también
+conserva su base propia en el manager mediante `_persistence_source`.
 
 ## Guardas
 
