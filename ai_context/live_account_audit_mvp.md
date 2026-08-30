@@ -501,6 +501,22 @@ USDJPY 0.09, GBPUSD 0.01, EURUSD 0.03 y XAGUSD 0.06. El resultado no debe
 interpretarse como ausencia de actividad: demuestra que la cuenta ejecutó el
 modo conservador y no el equilibrado configurado.
 
+## El resultado prioriza decisiones, no contadores técnicos (2026-08-30)
+
+La primera versión abría con 17 tarjetas que mezclaban cuentas, terminales,
+calidad, operaciones y discrepancias no excluyentes. El resultado debe responder
+primero cuatro preguntas: cuántos cierres pertenecen al modo, cuántas operaciones
+tester cumplen todo, cuántas parejas tienen desviaciones y cuántas operaciones
+quedan sin pareja a cada lado. Después muestra el diagnóstico por símbolo/lote y
+abre la tabla de operaciones filtrada por problemas. Metodología, terminales,
+trazabilidad MT5, archivos, magic y JSON quedan disponibles en bloques
+desplegables, pero no compiten con el veredicto.
+
+No presentar `discrepancies` como categoría junto a alineadas/correctas: ese
+total agrega motivos y no forma una partición comprensible. Las categorías
+operativas mutuamente excluyentes son `within_tolerance`, `deviation` y
+`missing` sobre el tester; los reales sin pareja se muestran aparte.
+
 ## La cuenta activa no implica contraseña persistida (2026-08-30)
 
 La captura de MT5 con el login `11637157` en el título y el diálogo «Inicio de

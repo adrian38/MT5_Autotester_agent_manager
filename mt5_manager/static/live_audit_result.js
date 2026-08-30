@@ -13,7 +13,7 @@ const reasonLabels = {
   close_before_open: 'Dato tester inválido: el cierre es anterior a la apertura',
 };
 let comparisonRows = [];
-let activeFilter = 'all';
+let activeFilter = 'issues';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -79,6 +79,50 @@ function terminalRestore(result) {
   ];
 }
 
+function percent(part, total) {
+  const numerator = Number(part || 0);
+  const denominator = Number(total || 0);
+  return denominator > 0 ? `${number(numerator / denominator * 100, 0)} %` : '—';
+}
+
+function renderVerdict(result) {
+  const total = Number(result.tester_trades || 0);
+  const aligned = Number(result.matched_trades || 0);
+  const correct = Number(result.within_tolerance_trades || 0);
+  const missing = Number(result.missing_real_trades || 0);
+  const extra = Number(result.extra_real_trades || 0);
+  const deviating = Number(result.deviating_pairs ?? Math.max(0, aligned - correct));
+  const real = Number(result.real_trades || 0);
+  const history = result.real_history_detail || {};
+  const portfolioClosures = Number(history.portfolio_closures ?? real);
+  const membershipComplete = real > 0 && portfolioClosures === real;
+  const exact = total > 0 && correct === total && !extra;
+  const title = exact
+    ? `Coincidencia completa: ${correct} de ${total} operaciones cumplen todo`
+    : `Coincidencia parcial: ${correct} de ${total} operaciones cumplen todo`;
+  document.querySelector('#verdict-title').textContent = title;
+  document.querySelector('#verdict-explanation').innerHTML = exact
+    ? 'La cuenta real y el tester reproducen las mismas operaciones dentro de todas las tolerancias.'
+    : `El modo y los lotes ${membershipComplete ? '<strong>sí corresponden</strong>' : '<strong>no corresponden por completo</strong>'} a la cuenta. `
+      + `<strong>${aligned}</strong> operaciones pudieron emparejarse; de ellas, <strong>${deviating}</strong> exceden al menos una tolerancia. `
+      + `<strong>${missing}</strong> operaciones tester no tienen pareja real y quedan <strong>${extra}</strong> reales sin pareja.`;
+  document.querySelector('#verdict-grid').innerHTML = [
+    metric('Pertenencia al modo', `${portfolioClosures} de ${real} cierres`, membershipComplete ? 'good' : 'bad'),
+    metric('Cumplen todo', `${correct} de ${total} · ${percent(correct, total)}`, correct === total ? 'good' : 'warn'),
+    metric('Parejas con desviación', deviating, deviating ? 'warn' : 'good'),
+    metric('Sin pareja', `${missing} tester · ${extra} reales`, missing || extra ? 'bad' : 'good'),
+  ].join('');
+  const reasons = result.comparison_detail?.deviation_reasons || {};
+  const labels = {
+    close_time: 'Cierre', open_price: 'Precio de apertura', volume: 'Volumen',
+    pnl: 'PnL', drawdown: 'Drawdown',
+  };
+  const items = Object.entries(reasons).filter(([, count]) => Number(count) > 0);
+  document.querySelector('#reason-list').innerHTML = items.length
+    ? `<strong>Principales causas:</strong>${items.map(([key, count]) => `<span>${escapeHtml(labels[key] || key)} · ${escapeHtml(count)}</span>`).join('')}`
+    : '<strong class="good-text">No se detectaron desviaciones.</strong>';
+}
+
 function testerTerminalValidation(testerExecution) {
   const rows = testerExecution.terminal_validations;
   if (!Array.isArray(rows) || !rows.length) {
@@ -101,14 +145,6 @@ function renderSummary(result) {
   const account = result.account || {};
   const testerExecution = result.tester_execution || {};
   const period = `${dateTime(result.period_start)} → ${dateTime(result.period_end)}`;
-  const deviatingPairs = result.deviating_pairs ?? Object.values(result.comparison_detail?.deviating_by_strategy || {})
-    .reduce((total, value) => total + Number(value || 0), 0);
-  const operationRows = result.comparison_detail?.operation_comparisons || [];
-  const invalidTester = operationRows.filter(row => {
-    if ((row.data_issues || []).length) return true;
-    const tester = row.tester || {};
-    return tester.open_time && tester.close_time && new Date(tester.close_time) < new Date(tester.open_time);
-  }).length;
   document.querySelector('#summary-grid').innerHTML = [
     metric('Periodo auditado', period),
     metric('Modo', modeLabels[result.portfolio_type] || result.portfolio_type),
@@ -119,16 +155,6 @@ function renderSummary(result) {
     metric('Cuenta real verificada', account.connected ? `${account.login} · ${account.server}` : 'NO VERIFICADA', account.connected ? '' : 'bad'),
     metric('Terminal devuelto a la cuenta final configurada', ...terminalRestore(result)),
     metric('Calidad tick', result.history_quality_pct == null ? 'NO INFORMADA' : `${number(result.history_quality_pct)} %`),
-    metric('Cierres reales del portafolio', result.real_trades),
-    metric('Operaciones del tester', result.tester_trades),
-    metric('Parejas alineadas', result.matched_trades),
-    metric('Dentro de todas las tolerancias', result.within_tolerance_trades ?? 'No disponible', 'good'),
-    metric('Tester sin real', result.missing_real_trades),
-    metric('Real sin tester', result.extra_real_trades),
-    metric('Parejas con desviaciones', deviatingPairs),
-    metric('Discrepancias totales', result.discrepancies, Number(result.discrepancies) ? 'bad' : 'good'),
-    metric('Estrategias sin continuidad', result.stalled_strategies),
-    metric('Operaciones tester con tiempos inválidos', invalidTester, invalidTester ? 'bad' : 'good'),
   ].join('');
 }
 
@@ -186,7 +212,7 @@ function renderArtifacts(result) {
   if (!rows.length || !result.audit_id) {
     warning.hidden = false;
     warning.innerHTML = '<strong>Ejecución antigua sin evidencia de archivos y lotes.</strong><span>Vuelve a ejecutar la auditoría para conservar los reportes MT5 y comprobar el StartLots exacto de cada copia.</span>';
-    document.querySelector('#artifact-body').innerHTML = '<tr><td colspan="8" class="audit-empty">No hay artefactos auditables guardados para esta ejecución.</td></tr>';
+    document.querySelector('#artifact-body').innerHTML = '<tr><td colspan="7" class="audit-empty">No hay artefactos auditables guardados para esta ejecución.</td></tr>';
     return;
   }
   const enrichedRows = rows.map(row => {
@@ -217,8 +243,7 @@ function renderArtifacts(result) {
     const reportVolumeTone = row.volumeMatches == null ? 'warn' : row.volumeMatches ? 'good' : 'bad';
     const report = row.report_file ? `<a class="button secondary audit-report-link" target="_blank" rel="noopener" href="${escapeHtml(artifactUrl(result, row.report_file))}">Abrir reporte MT5</a>` : '<span class="bad-text">Sin reporte</span>';
     return `<tr>
-      <th>${escapeHtml(row.strategy)}<small>Origen: ${escapeHtml(row.source_set)}</small><small>Copia: ${escapeHtml(row.runtime_set)}</small></th>
-      <td><strong>${escapeHtml(row.symbol)}</strong><small>magic ${escapeHtml(row.magic || '—')}</small></td>
+      <th><strong>${escapeHtml(row.symbol)}</strong><small>${escapeHtml(row.strategy)}</small><details><summary>Archivos y magic</summary><small>Magic: ${escapeHtml(row.magic || '—')}</small><small>Origen: ${escapeHtml(row.source_set)}</small><small>Copia: ${escapeHtml(row.runtime_set)}</small></details></th>
       <td>${escapeHtml(number(row.configured_lot, 8))}<small>${escapeHtml(row.portfolio_units ?? '—')} unidad(es)</small></td>
       <td>${escapeHtml(number(row.runtime_start_lots, 8))}<small>${row.broker_volume_min == null ? 'Sin regla publicada' : `mín. ${escapeHtml(number(row.broker_volume_min, 8))} · paso ${escapeHtml(number(row.broker_volume_step, 8))}`}</small></td>
       <td>${escapeHtml(row.observedVolumes.length ? row.observedVolumes.map(value => number(value, 8)).join(' · ') : '—')}</td>
@@ -229,12 +254,21 @@ function renderArtifacts(result) {
   }).join('');
 }
 
-function renderStrategies(detail) {
+function renderStrategies(result) {
+  const detail = result.comparison_detail || {};
   const rows = detail.strategy_summary || [];
+  const artifacts = new Map((result.strategy_artifacts || []).map(row => [String(row.strategy), row]));
   document.querySelector('#strategy-body').innerHTML = rows.length ? rows.map(row => `<tr>
-    <th>${escapeHtml(row.strategy)}</th><td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
-    <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
-  </tr>`).join('') : '<tr><td colspan="6" class="audit-empty">Esta ejecución no guardó el detalle por estrategia.</td></tr>';
+    ${(() => {
+      const artifact = artifacts.get(String(row.strategy)) || {};
+      const diagnosis = Number(row.missing_real) === Number(row.tester_trades) ? ['SIN CONTINUIDAD', 'bad']
+        : Number(row.with_deviations) || Number(row.missing_real) ? ['REVISAR', 'warn'] : ['CORRECTA', 'good'];
+      return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote ${escapeHtml(number(artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy)}</small></th>
+        <td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
+        <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
+        <td><span class="audit-status ${diagnosis[1]}">${diagnosis[0]}</span></td>`;
+    })()}
+  </tr>`).join('') : '<tr><td colspan="7" class="audit-empty">Esta ejecución no guardó el detalle por estrategia.</td></tr>';
 }
 
 function comparisonMarkup(row) {
@@ -255,7 +289,7 @@ function comparisonMarkup(row) {
   const nearestNote = row.status === 'missing' && nearest.open_time ? '<em>Candidato más cercano, no consumido</em>' : '';
   return `<tr data-status="${escapeHtml(displayStatus)}" data-search="${escapeHtml(`${row.strategy || ''} ${tester.symbol || ''} ${real.strategy || nearest.strategy || ''}`.toLocaleLowerCase('es'))}">
     <td><span class="audit-status ${statusClass}">${escapeHtml(statusLabel)}</span><small>#T${escapeHtml(row.tester_index)}</small></td>
-    <td><strong>${escapeHtml(row.strategy)}</strong><span>${escapeHtml(tester.symbol)} · ${escapeHtml(tester.side)}</span><small>${real.strategy ? `magic real ${escapeHtml(real.strategy)}` : nearest.strategy ? `magic candidato ${escapeHtml(nearest.strategy)}` : 'sin magic real'}</small></td>
+    <td><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><span>${escapeHtml(tester.side)}</span><small>${escapeHtml(row.strategy)}</small></td>
     <td>${pair(tester.open_time, openReal, dateTime)}${delta(openDelta, limits.open_time_seconds, ' s')}${nearestNote}</td>
     <td>${pair(tester.close_time, real.close_time, dateTime)}${row.status === 'missing' ? '' : delta(measurements.close_time_delta_seconds, limits.close_time_seconds, ' s')}</td>
     <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}</td>
@@ -269,7 +303,9 @@ function applyFilters() {
   const query = document.querySelector('#comparison-search').value.trim().toLocaleLowerCase('es');
   let visible = 0;
   document.querySelectorAll('#comparison-body tr[data-status]').forEach(row => {
-    const show = (activeFilter === 'all' || row.dataset.status === activeFilter) && (!query || row.dataset.search.includes(query));
+    const statusMatches = activeFilter === 'all' || row.dataset.status === activeFilter
+      || (activeFilter === 'issues' && row.dataset.status !== 'matched');
+    const show = statusMatches && (!query || row.dataset.search.includes(query));
     row.hidden = !show;
     if (show) visible += 1;
   });
@@ -298,7 +334,7 @@ function renderExtras(detail) {
   section.hidden = false;
   document.querySelector('#extra-body').innerHTML = rows.map(row => {
     const real = row.real || {};
-    return `<tr><td><strong>${escapeHtml(real.strategy)}</strong><span>${escapeHtml(real.symbol)} · ${escapeHtml(real.side)}</span></td><td>${escapeHtml(dateTime(real.open_time))}</td><td>${escapeHtml(dateTime(real.close_time))}</td><td>${escapeHtml(number(real.volume, 4))}</td><td>${escapeHtml(number(real.profit, 2))}</td><td>Ninguna operación del tester utilizó esta real</td></tr>`;
+    return `<tr><td><strong>${escapeHtml(real.symbol)} · ${escapeHtml(number(real.volume, 4))} lotes</strong><span>${escapeHtml(real.side)}</span></td><td>${escapeHtml(dateTime(real.open_time))}</td><td>${escapeHtml(dateTime(real.close_time))}</td><td>${escapeHtml(number(real.profit, 2))}</td><td>Ninguna operación del tester utilizó esta real</td></tr>`;
   }).join('');
 }
 
@@ -310,13 +346,15 @@ function renderResult(result, config, portfolios) {
   document.querySelector('#result-title').textContent = title;
   document.querySelector('#result-subtitle').textContent = `${modeLabels[result.portfolio_type] || result.portfolio_type || 'Sin modo'} · cuenta ${result.account?.login || profile.source_login || '—'} · finalizada ${dateTime(result.completed_at)}`;
   const state = document.querySelector('#result-state');
-  state.innerHTML = `<span class="badge ${result.status === 'failed' ? 'failed' : 'completed'}">${escapeHtml(result.status_label || result.status || 'COMPLETADA')}</span><strong>${escapeHtml(result.summary || 'Auditoría finalizada.')}</strong>`;
+  const needsReview = Number(result.missing_real_trades) || Number(result.extra_real_trades) || Number(result.deviating_pairs);
+  state.innerHTML = `<span class="badge ${result.status === 'failed' ? 'failed' : needsReview ? 'idle' : 'completed'}">${result.status === 'failed' ? 'FALLIDA' : needsReview ? 'REQUIERE REVISIÓN' : 'COINCIDE'}</span><strong>${needsReview ? 'La cuenta pertenece al modo seleccionado, pero la reproducción no es completa.' : 'La cuenta y el tester coinciden dentro de todas las tolerancias.'}</strong>`;
+  renderVerdict(result);
   renderSummary(result);
   renderMethodology(result);
   renderHistory(result);
   renderArtifacts(result);
   const detail = result.comparison_detail || {};
-  renderStrategies(detail);
+  renderStrategies(result);
   renderComparisons(detail);
   renderExtras(detail);
   document.querySelector('#raw-result').textContent = JSON.stringify({

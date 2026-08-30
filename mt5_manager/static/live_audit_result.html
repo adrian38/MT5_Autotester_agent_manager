@@ -21,49 +21,46 @@
     <section id="result-state" class="audit-result-state" aria-live="polite"></section>
 
     <section class="panel-card audit-section">
-      <div class="panel-title"><div><p class="eyebrow">1 · RESUMEN</p><h2>Qué ocurrió en esta auditoría</h2></div></div>
-      <dl id="summary-grid" class="audit-summary-grid"></dl>
+      <div class="panel-title"><div><p class="eyebrow">1 · VEREDICTO</p><h2 id="verdict-title">Conclusión de la auditoría</h2></div></div>
+      <div class="audit-verdict">
+        <p id="verdict-explanation" class="audit-verdict-explanation"></p>
+        <dl id="verdict-grid" class="audit-verdict-grid"></dl>
+        <div id="reason-list" class="audit-reason-list"></div>
+      </div>
     </section>
 
     <section class="panel-card audit-section">
-      <div class="panel-title"><div><p class="eyebrow">2 · MÉTODO</p><h2>Cómo se decide cada emparejamiento</h2></div></div>
-      <div id="methodology" class="audit-methodology"></div>
-    </section>
-
-    <section class="panel-card audit-section">
-      <div class="panel-title"><div><p class="eyebrow">3 · ORIGEN REAL</p><h2>De los deals de MT5 a los cierres del portafolio</h2></div></div>
-      <div id="history-flow" class="audit-history-flow"></div>
-    </section>
-
-    <section class="panel-card audit-section">
-      <div class="panel-title"><div><p class="eyebrow">4 · REPORTES Y LOTES</p><h2>Qué archivo y qué lote ejecutó cada estrategia</h2></div><div id="real-report-action"></div></div>
-      <div id="artifact-warning" class="audit-warning" hidden></div>
-      <div class="audit-table-wrap"><table class="audit-table audit-artifact-table"><thead><tr><th>Estrategia</th><th>Símbolo / magic</th><th>Lote del portafolio guardado</th><th>StartLots en set usado (ejecutado)</th><th>Volumen(es) del reporte</th><th>Verificación</th><th>Operaciones / calidad</th><th>Reporte MT5</th></tr></thead><tbody id="artifact-body"></tbody></table></div>
-    </section>
-
-    <section class="panel-card audit-section">
-      <div class="panel-title"><div><p class="eyebrow">5 · ESTRATEGIAS</p><h2>Continuidad por estrategia del tester</h2></div></div>
-      <div class="audit-table-wrap"><table class="audit-table"><thead><tr><th>Estrategia</th><th>Tester</th><th>Alineadas</th><th>Dentro de tolerancia</th><th>Con desviaciones</th><th>Sin operación real</th></tr></thead><tbody id="strategy-body"></tbody></table></div>
+      <div class="panel-title"><div><p class="eyebrow">2 · POR ESTRATEGIA</p><h2>Dónde está el problema</h2></div></div>
+      <div class="audit-table-wrap"><table class="audit-table audit-strategy-table"><thead><tr><th>Símbolo y lote</th><th>Tester</th><th>Alineadas</th><th>Correctas</th><th>Con desviación</th><th>Sin real</th><th>Diagnóstico</th></tr></thead><tbody id="strategy-body"></tbody></table></div>
     </section>
 
     <section class="panel-card audit-section audit-comparisons">
-      <div class="panel-title"><div><p class="eyebrow">6 · OPERACIONES</p><h2>Comparación tester ↔ real, fila por fila</h2></div><span id="comparison-count" class="badge idle">0 FILAS</span></div>
+      <div class="panel-title"><div><p class="eyebrow">3 · OPERACIONES</p><h2>Comparación tester ↔ real, fila por fila</h2><p class="audit-section-help">Se muestran primero los problemas. Abre “Todas” para revisar también las operaciones correctas.</p></div><span id="comparison-count" class="badge idle">0 FILAS</span></div>
       <div class="audit-filters" role="group" aria-label="Filtros de comparación">
-        <button type="button" class="secondary active" data-status-filter="all">Todas</button>
-        <button type="button" class="secondary" data-status-filter="matched">Dentro</button>
-        <button type="button" class="secondary" data-status-filter="deviation">Desviación</button>
+        <button type="button" class="secondary active" data-status-filter="issues">Problemas</button>
+        <button type="button" class="secondary" data-status-filter="all">Todas</button>
+        <button type="button" class="secondary" data-status-filter="matched">Correctas</button>
+        <button type="button" class="secondary" data-status-filter="deviation">Con desviación</button>
         <button type="button" class="secondary" data-status-filter="missing">Sin real</button>
         <button type="button" class="secondary" data-status-filter="invalid">Fuente inválida</button>
-        <label>Buscar estrategia o símbolo<input id="comparison-search" type="search" placeholder="Ej.: 32296 o EURUSD"></label>
+        <label>Buscar estrategia o símbolo<input id="comparison-search" type="search" placeholder="Ej.: EURUSD"></label>
       </div>
       <div id="legacy-warning" class="audit-warning" hidden></div>
-      <div class="audit-table-wrap audit-operation-wrap"><table class="audit-table audit-operation-table"><thead><tr><th>Estado</th><th>Estrategia y mercado</th><th>Apertura</th><th>Cierre</th><th>Precio apertura</th><th>Volumen</th><th>PnL</th><th>Decisión</th></tr></thead><tbody id="comparison-body"></tbody></table></div>
+      <div class="audit-table-wrap audit-operation-wrap"><table class="audit-table audit-operation-table"><thead><tr><th>Estado</th><th>Mercado</th><th>Apertura</th><th>Cierre</th><th>Precio apertura</th><th>Volumen</th><th>PnL</th><th>Por qué</th></tr></thead><tbody id="comparison-body"></tbody></table></div>
     </section>
 
     <section id="extra-section" class="panel-card audit-section" hidden>
-      <div class="panel-title"><div><p class="eyebrow">7 · REALES SIN PAREJA</p><h2>Operaciones reales que ningún resultado del tester utilizó</h2></div></div>
-      <div class="audit-table-wrap"><table class="audit-table"><thead><tr><th>Magic / mercado</th><th>Apertura</th><th>Cierre</th><th>Volumen</th><th>PnL</th><th>Motivo</th></tr></thead><tbody id="extra-body"></tbody></table></div>
+      <div class="panel-title"><div><p class="eyebrow">4 · REALES SIN PAREJA</p><h2>Operaciones reales que ningún resultado del tester utilizó</h2></div></div>
+      <div class="audit-table-wrap"><table class="audit-table"><thead><tr><th>Símbolo / lote</th><th>Apertura</th><th>Cierre</th><th>PnL</th><th>Motivo</th></tr></thead><tbody id="extra-body"></tbody></table></div>
     </section>
+
+    <details class="panel-card audit-technical">
+      <summary>Ver metodología, cuentas, origen MT5, lotes y reportes</summary>
+      <section class="audit-technical-section"><div class="panel-title"><div><p class="eyebrow">DATOS DE EJECUCIÓN</p><h2>Cuentas, periodo y terminales</h2></div></div><dl id="summary-grid" class="audit-summary-grid"></dl></section>
+      <section class="audit-technical-section"><div class="panel-title"><div><p class="eyebrow">MÉTODO</p><h2>Cómo se decide cada emparejamiento</h2></div></div><div id="methodology" class="audit-methodology"></div></section>
+      <section class="audit-technical-section"><div class="panel-title"><div><p class="eyebrow">ORIGEN REAL</p><h2>De los deals de MT5 a los cierres del portafolio</h2></div></div><div id="history-flow" class="audit-history-flow"></div></section>
+      <section class="audit-technical-section"><div class="panel-title"><div><p class="eyebrow">REPORTES Y LOTES</p><h2>Qué archivo y qué lote ejecutó cada estrategia</h2></div><div id="real-report-action"></div></div><div id="artifact-warning" class="audit-warning" hidden></div><div class="audit-table-wrap"><table class="audit-table audit-artifact-table"><thead><tr><th>Símbolo</th><th>Lote del portafolio</th><th>StartLots en set usado</th><th>Volumen(es) del reporte</th><th>Verificación</th><th>Operaciones / calidad</th><th>Reporte MT5</th></tr></thead><tbody id="artifact-body"></tbody></table></div></section>
+    </details>
 
     <details class="panel-card audit-raw"><summary>Diagnóstico técnico completo (JSON)</summary><pre id="raw-result"></pre></details>
   </main>

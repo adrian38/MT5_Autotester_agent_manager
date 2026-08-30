@@ -477,6 +477,17 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Abrir reporte MT5", self.result_script)
         self.assertIn("Abrir HTML nativo de MT5", self.result_script)
 
+    def test_result_leads_with_mutually_exclusive_outcomes_and_hides_technical_noise(self) -> None:
+        for text in (
+            "1 · VEREDICTO", "Pertenencia al modo", "Cumplen todo",
+            "Parejas con desviación", "Sin pareja", "Dónde está el problema",
+            "Ver metodología, cuentas, origen MT5, lotes y reportes",
+        ):
+            self.assertIn(text, self.result_page_text + self.result_script)
+        self.assertIn("let activeFilter = 'issues'", self.result_script)
+        self.assertIn("activeFilter === 'issues'", self.result_script)
+        self.assertIn("33 de 33", self.result_script.replace("${portfolioClosures}", "33").replace("${real}", "33"))
+
     def test_the_result_says_in_which_account_the_terminal_was_left(self) -> None:
         # El auditor cambia la cuenta del terminal para leer la real; lo que el
         # usuario necesita comprobar es que la dejó en la de pruebas.
