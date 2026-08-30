@@ -56,7 +56,7 @@ class FakeOwner:
         if portfolio_id != 9 or scope != "full_history":
             raise ValueError("portfolio inesperado")
         return {"portfolio": {"id": 9, "members": [
-            {"variant_key": "balanced", "candidate_id": "one", "symbol": "EURUSD"},
+            {"variant_key": "balanced", "candidate_id": "one", "symbol": "EURUSD", "lot": .01},
             {"variant_key": "aggressive", "candidate_id": "two", "symbol": "XAUUSD"},
         ]}}
 
@@ -397,6 +397,29 @@ class LiveAuditEngineTests(unittest.TestCase):
             state = self._wait(controller)
             self.assertEqual(state["status"], "completed")
             self.assertEqual((owner.pause_calls, owner.resume_calls), (1, 1))
+
+    def test_real_account_membership_uses_symbol_and_lot_not_magic(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+            now = datetime.now(timezone.utc)
+            matching = {
+                "strategy": "magic-can-differ", "symbol": "EURUSD", "side": "buy",
+                "open_time": now, "close_time": now, "open_price": 1.1,
+                "close_price": 1.1, "volume": .01, "profit": 1.0,
+            }
+            wrong_lot = {**matching, "strategy": "one", "volume": .02}
+            controller._extract_real = lambda *_args: (
+                [matching, wrong_lot], {"EURUSD": .00001},
+                {"login": "111", "native_report": {"filename": "real.html", "native_terminal_report": True},
+                 "history_detail": {}},
+            )
+            controller.start(request())
+            state = self._wait(controller)
+
+        self.assertEqual(state["status"], "completed")
+        self.assertEqual(state["last_result"]["real_trades"], 1)
+        self.assertEqual(state["last_result"]["real_history_detail"]["portfolio_closures"], 1)
+        self.assertEqual(state["last_result"]["real_history_detail"]["foreign_closures_ignored"], 1)
 
     def test_pipeline_already_paused_by_user_stays_paused(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

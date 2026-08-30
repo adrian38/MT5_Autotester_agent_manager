@@ -485,6 +485,22 @@ Este comportamiento se ejecuta íntegramente en el proceso manager, dueño de
 port a la bifurcación ICTrading porque el nodo solo recibe la cuenta ya resuelta
 al iniciar una auditoría.
 
+## La pertenencia real usa símbolo y lote, no magic (2026-08-30)
+
+Los números mágicos del terminal real pueden diferir de los que conserva el
+`.set` importado. Por tanto, el filtro de cierres de la variante seleccionada usa
+exclusivamente el par `(símbolo, lote guardado)`; el magic se conserva como dato
+diagnóstico, pero no decide la pertenencia al portafolio. La misma regla está en
+el motor de referencia y en `manager_node_runtime/live_audit.py` de ICTrading.
+
+El pase real `20260830_140529_983577`, portafolio 16 y variante `balanced`,
+reconstruyó 33 cierres en los últimos 7 días y solo encontró una firma de ese
+modo (`XAUCHF 0.01`). El HTML nativo mostró que los otros cierres corresponden
+exactamente a los lotes de la variante conservadora: BTCUSD 0.08, XAUUSD 0.04,
+USDJPY 0.09, GBPUSD 0.01, EURUSD 0.03 y XAGUSD 0.06. El resultado no debe
+interpretarse como ausencia de actividad: demuestra que la cuenta ejecutó el
+modo conservador y no el equilibrado configurado.
+
 ## La cuenta activa no implica contraseña persistida (2026-08-30)
 
 La captura de MT5 con el login `11637157` en el título y el diálogo «Inicio de

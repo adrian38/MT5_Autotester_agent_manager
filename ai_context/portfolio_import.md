@@ -48,6 +48,22 @@ texto, el número coincidiría y la prueba fallaría.
 Un nombre de set que aparece en dos candidatos distintos se marca `ambiguous` y
 se deja fuera: elegir uno al azar comprometería el set equivocado.
 
+## La composición exportada es autoritativa
+
+Importar no vuelve a calcular la elegibilidad del pool. El ZIP representa una
+decisión ya guardada y debe restaurar todos sus miembros aunque una reparación
+posterior haya cambiado a `rejected` el veredicto de robustez, Final Tick o
+Final Tick 6M. Esos veredictos actuales se muestran como advertencia, pero no
+se usan para recortar la composición.
+
+Por eso la resolución usa `PortfolioSource.import_candidate_rows`, separado de
+`candidate_rows`: este último conserva el filtro estricto de las cuatro etapas
+para cálculos nuevos. La separación corrigió el caso real del
+`PORTAFOLIO_5_ICTRADING.zip`, cuyo resumen contenía 7 sets A/M/C pero se había
+restaurado como portafolio #15 de solo 4 porque XAUCHF estaba rechazado en Final
+Tick 6M y USDJPY/XAGUSD en robustez. Con el inventario de importación se
+reconstruyen los 7 en las tres variantes, sin unresolved, ambiguous ni skipped.
+
 ## Transporte: el reflejo de la exportación
 
 | `export_mode` | Exportar | Importar |

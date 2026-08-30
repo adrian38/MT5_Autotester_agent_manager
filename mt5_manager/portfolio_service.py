@@ -788,6 +788,95 @@ class PortfolioSource:
                 result = [row for row in result if self._path_key(row.get("set_path")) not in quarantined]
         return result
 
+    def import_candidate_rows(self) -> list[dict[str, Any]]:
+        """Devuelve candidatos reconstruibles sin volver a filtrar su veredicto.
+
+        Un cálculo nuevo solo puede usar el pool que superó las cuatro etapas,
+        y para eso existe :meth:`candidate_rows`. Una importación tiene otro
+        contrato: el ZIP ya fija la composición que el usuario guardó. Si una
+        reparación posterior cambió el veredicto de robustez o Final Tick, se
+        conserva como información, pero no puede borrar una estrategia del
+        paquete restaurado.
+
+        Siguen siendo imprescindibles el candidato y sus informes base/OOS;
+        ``load_robust_sets_from_rows`` nombrará cualquier informe ausente o
+        ilegible en vez de inventar métricas.
+        """
+        result: list[dict[str, Any]] = []
+        for account_label, memory in self.memory_sources:
+            with self.connect_memory(memory) as conn:
+                if not all(_table_exists(conn, table) for table in ("candidates", "candidate_robustness")):
+                    continue
+                has_final_tick = _table_exists(conn, "candidate_final_tick")
+                has_final_tick_6m = _table_exists(conn, "candidate_final_tick_6m")
+                final_tick_join = (
+                    "left join candidate_final_tick ft on ft.candidate_id=c.id"
+                    if has_final_tick else ""
+                )
+                final_tick_6m_join = (
+                    "left join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id"
+                    if has_final_tick_6m else ""
+                )
+                full_history_sql = "ft.real_tick_report_path" if has_final_tick else "null"
+                final_tick_status_sql = "ft.status" if has_final_tick else "null"
+                final_ohlc_sql = "ft6.ohlc_report_path" if has_final_tick_6m else "null"
+                final_real_sql = "ft6.real_tick_report_path" if has_final_tick_6m else "null"
+                final_from_sql = "ft6.from_date" if has_final_tick_6m else "null"
+                final_to_sql = "ft6.to_date" if has_final_tick_6m else "null"
+                final_tick_6m_status_sql = "ft6.status" if has_final_tick_6m else "null"
+                final_tick_metrics_sql = "null"
+                if has_final_tick_6m:
+                    final_tick_6m_columns = {
+                        str(column[1])
+                        for column in conn.execute("pragma table_info(candidate_final_tick_6m)")
+                    }
+                    if "real_tick_metrics_json" in final_tick_6m_columns:
+                        final_tick_metrics_sql = "ft6.real_tick_metrics_json"
+                rows = conn.execute(
+                    f"""
+                    select ? as account_type, ? || ':' || c.id as candidate_id,
+                           c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
+                           c.period, c.family, c.report_path as is_report_path,
+                           cr.report_path as oos_report_path,
+                           {full_history_sql} as full_history_report_path,
+                           {final_ohlc_sql} as final_ohlc_report_path,
+                           {final_real_sql} as final_tick_report_path,
+                           {final_from_sql} as final_tick_from_date,
+                           {final_to_sql} as final_tick_to_date,
+                           {final_tick_metrics_sql} as final_tick_metrics_json,
+                           c.status as base_status, cr.status as robustness_status,
+                           {final_tick_status_sql} as final_tick_status,
+                           {final_tick_6m_status_sql} as final_tick_6m_status
+                    from candidates c
+                    join candidate_robustness cr on cr.candidate_id=c.id
+                    {final_tick_join}
+                    {final_tick_6m_join}
+                    order by c.id
+                    """,
+                    (account_label, account_label),
+                ).fetchall()
+            for db_row in rows:
+                item = dict(db_row)
+                final_tick_metrics = item.pop("final_tick_metrics_json", None)
+                if final_tick_metrics:
+                    try:
+                        executable_symbol = str(
+                            (json.loads(final_tick_metrics) or {}).get("symbol") or ""
+                        ).strip()
+                    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+                        executable_symbol = ""
+                    if executable_symbol:
+                        item["executable_symbol"] = executable_symbol
+                item["source_memory_path"] = str(memory)
+                result.append(item)
+        for row in result:
+            for key in (
+                "set_path", "is_report_path", "oos_report_path", "full_history_report_path",
+                "final_ohlc_report_path", "final_tick_report_path",
+            ):
+                row[key] = _resolve_source_path(row.get(key), self.project)
+        return result
+
     @staticmethod
     def _path_key(value: Any) -> str:
         return str(Path(str(value or "")).expanduser()).replace("/", "\\").casefold()
@@ -2947,7 +3036,11 @@ def build_import_proposals(
     Ver `mt5_manager/portfolio_import.py` para el formato y sus límites.
     """
     scope = normalize_portfolio_scope(scope)
-    candidates = source.candidate_rows(include_quarantined=True)
+    # El ZIP es la autoridad de composición. No reutilizar ``candidate_rows``:
+    # ese inventario pertenece a cálculos nuevos y elimina estrategias cuyo
+    # veredicto actual ya no supera las cuatro etapas, que fue precisamente lo
+    # que convirtió una exportación real de 7 sets en un portafolio de 4.
+    candidates = source.import_candidate_rows()
     by_name: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
         by_name.setdefault(Path(str(row.get("set_path") or "")).name.casefold(), []).append(row)
@@ -2972,7 +3065,26 @@ def build_import_proposals(
             "este nodo: no hay informes con los que reconstruirlo"
         )
     rows = list(resolved.values())
+    changed_verdicts = []
+    for row in rows:
+        statuses = {
+            "base": str(row.get("base_status") or ""),
+            "robustez": str(row.get("robustness_status") or ""),
+            "Final Tick": str(row.get("final_tick_status") or ""),
+            "Final Tick 6M": str(row.get("final_tick_6m_status") or ""),
+        }
+        changed = [f"{stage}={status or 'sin evaluar'}" for stage, status in statuses.items() if status != "accepted"]
+        if changed:
+            changed_verdicts.append(
+                f"{Path(str(row.get('set_path') or '')).name}: " + ", ".join(changed)
+            )
     strategies, warnings = load_robust_sets_from_rows(rows, [], parse=cached_report)
+    if changed_verdicts:
+        warnings.append(
+            "La composición se restauró exactamente desde el ZIP aunque algunos "
+            "veredictos actuales hayan cambiado."
+        )
+        warnings.append("Veredictos actuales: " + " | ".join(changed_verdicts))
     if not strategies:
         raise ValueError("No se pudo reconstruir ninguna estrategia desde sus informes")
     path_by_name = {Path(str(row.get("set_path") or "")).name.casefold(): str(row.get("set_path") or "") for row in rows}

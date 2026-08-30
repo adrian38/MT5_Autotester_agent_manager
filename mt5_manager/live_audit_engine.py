@@ -395,33 +395,35 @@ class LiveAuditController:
                 f"{str(real_account_report.get('sha256') or '')[:16]}...",
             )
             _detail, selected_members = self._portfolio_members(portfolio_id, request["portfolio_type"])
-            signatures: set[tuple[str, str]] = set()
+            signatures: set[tuple[str, float]] = set()
             for member in selected_members:
-                raw_set = str(member.get("set_path") or member.get("set_id") or "")
-                if not raw_set:
+                symbol = str(member.get("symbol") or "").casefold()
+                try:
+                    lot = float(member.get("lot"))
+                except (TypeError, ValueError):
                     continue
-                source = self._resolve_set(raw_set)
-                set_text, _encoding = _read_set_text(source)
-                magic = self._set_parameter(set_text, "EA_MagicNumber")
-                if magic:
-                    signatures.add((str(member.get("symbol") or "").casefold(), magic))
+                if symbol and lot > 0:
+                    signatures.add((symbol, round(lot, 8)))
             if signatures:
                 before_filter = len(real_trades)
                 real_trades = [
                     trade for trade in real_trades
-                    if (str(trade.get("symbol") or "").casefold(), str(trade.get("strategy") or "")) in signatures
+                    if (
+                        str(trade.get("symbol") or "").casefold(),
+                        round(float(trade.get("volume") or 0), 8),
+                    ) in signatures
                 ]
                 ignored = before_filter - len(real_trades)
                 self._update(
                     audit_key, "extracting", "Filtrando operaciones de la variante seleccionada.",
-                    f"Filtro por símbolo/magic: {len(real_trades)} cierres del portafolio, "
+                    f"Filtro por símbolo/lote: {len(real_trades)} cierres del portafolio, "
                     f"{ignored} cierres ajenos ignorados; firmas {sorted(signatures)}",
                 )
                 real_history_detail["portfolio_closures"] = len(real_trades)
                 real_history_detail["foreign_closures_ignored"] = ignored
             real_groups: dict[str, int] = {}
             for trade in real_trades:
-                key = f"{trade.get('symbol') or '?'} / magic {trade.get('strategy') or '?'}"
+                key = f"{trade.get('symbol') or '?'} / lote {float(trade.get('volume') or 0):g}"
                 real_groups[key] = real_groups.get(key, 0) + 1
             real_summary = ", ".join(f"{key}: {count}" for key, count in sorted(real_groups.items())) or "sin cierres"
             self._update(
@@ -1715,7 +1717,7 @@ class LiveAuditController:
         unmatched_real_operations: list[dict[str, Any]] = []
         for index in unused:
             trade = real[index]
-            key = f"{trade.get('symbol') or '?'} / magic {trade.get('strategy') or '?'}"
+            key = f"{trade.get('symbol') or '?'} / lote {float(trade.get('volume') or 0):g}"
             unmatched_real[key] = unmatched_real.get(key, 0) + 1
             unmatched_real_operations.append({
                 "real_index": index + 1,

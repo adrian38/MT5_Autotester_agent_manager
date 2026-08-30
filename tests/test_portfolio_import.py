@@ -9,6 +9,7 @@ sets vuelven a bloquear el pool.
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -174,6 +175,53 @@ class ImportRoundTripTests(unittest.TestCase):
             for index, (name, symbol) in enumerate((("alpha.set", "EURUSD"), ("beta.set", "GBPUSD")), start=1)
         ]
 
+    def test_import_inventory_includes_candidates_with_changed_verdicts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            with sqlite3.connect(source.memory) as conn:
+                conn.executescript("""
+                    create table candidates (
+                        id integer primary key,set_path text,symbol text,target_symbol text,
+                        period text,family text,report_path text,status text
+                    );
+                    create table candidate_robustness (
+                        candidate_id integer,report_path text,status text
+                    );
+                    create table candidate_final_tick (
+                        candidate_id integer,real_tick_report_path text,status text
+                    );
+                    create table candidate_final_tick_6m (
+                        candidate_id integer,ohlc_report_path text,real_tick_report_path text,
+                        from_date text,to_date text,status text,real_tick_metrics_json text
+                    );
+                """)
+                conn.execute(
+                    "insert into candidates values (1,?,?,?,?,?,?,?)",
+                    (str(project / "alpha.set"), "EURUSD", "EURUSD", "H1", "", "base.htm", "accepted"),
+                )
+                conn.execute(
+                    "insert into candidate_robustness values (?,?,?)",
+                    (1, "robust.htm", "rejected"),
+                )
+                conn.execute(
+                    "insert into candidate_final_tick values (?,?,?)",
+                    (1, "tick.htm", "accepted"),
+                )
+                conn.execute(
+                    "insert into candidate_final_tick_6m values (?,?,?,?,?,?,?)",
+                    (1, "ohlc6m.htm", "tick6m.htm", "2026.01.01", "2026.06.30", "rejected", "{}"),
+                )
+                conn.commit()
+            conn.close()
+
+            rows = source.import_candidate_rows()
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["source_candidate_id"], 1)
+            self.assertEqual(rows[0]["robustness_status"], "rejected")
+            self.assertEqual(rows[0]["final_tick_6m_status"], "rejected")
+
     def test_an_exported_bundle_comes_back_as_a_normal_saved_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
@@ -185,7 +233,7 @@ class ImportRoundTripTests(unittest.TestCase):
             ]
             header, members = portfolio_import.parse_summary(SUMMARY)
 
-            with patch.object(PortfolioSource, "candidate_rows", return_value=candidates), patch(
+            with patch.object(PortfolioSource, "import_candidate_rows", return_value=candidates), patch(
                 "mt5_manager.portfolio_service.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
@@ -235,7 +283,7 @@ class ImportRoundTripTests(unittest.TestCase):
             ]
             header, members = portfolio_import.parse_summary(SUMMARY)
 
-            with patch.object(PortfolioSource, "candidate_rows", return_value=self._candidates(project)), patch(
+            with patch.object(PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)), patch(
                 "mt5_manager.portfolio_service.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
@@ -263,7 +311,7 @@ class ImportRoundTripTests(unittest.TestCase):
             strategies = [strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0)]
             header, members = portfolio_import.parse_summary(SUMMARY)
 
-            with patch.object(PortfolioSource, "candidate_rows", return_value=only_alpha), patch(
+            with patch.object(PortfolioSource, "import_candidate_rows", return_value=only_alpha), patch(
                 "mt5_manager.portfolio_service.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
@@ -285,11 +333,46 @@ class ImportRoundTripTests(unittest.TestCase):
             source = self._source(project)
             header, members = portfolio_import.parse_summary(SUMMARY)
 
-            with patch.object(PortfolioSource, "candidate_rows", return_value=[]):
+            with patch.object(PortfolioSource, "import_candidate_rows", return_value=[]):
                 with self.assertRaises(ValueError) as raised:
                     build_import_proposals(source, "full_history", header, members)
 
             self.assertIn("candidato", str(raised.exception))
+
+    def test_a_changed_current_verdict_warns_but_does_not_remove_the_exported_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            candidates = self._candidates(project)
+            candidates[0].update({
+                "base_status": "accepted", "robustness_status": "rejected",
+                "final_tick_status": "", "final_tick_6m_status": "",
+            })
+            candidates[1].update({
+                "base_status": "accepted", "robustness_status": "accepted",
+                "final_tick_status": "accepted", "final_tick_6m_status": "rejected",
+            })
+            strategies = [
+                strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0),
+                strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+            ]
+            header, members = portfolio_import.parse_summary(SUMMARY)
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=candidates
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                return_value=(strategies, []),
+            ):
+                proposals, _selected, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+
+            self.assertEqual(report["strategies"], 2)
+            self.assertTrue(all(len(proposal["result"].allocations) == 2 for proposal in proposals))
+            self.assertTrue(any("exactamente desde el ZIP" in warning for warning in report["warnings"]))
+            self.assertTrue(any("robustez=rejected" in warning for warning in report["warnings"]))
+            self.assertTrue(any("Final Tick 6M=rejected" in warning for warning in report["warnings"]))
 
     def test_a_monthly_export_recovers_its_target_month_from_the_name(self) -> None:
         # El mes no es un campo del resumen: viaja en el nombre. Sin él, el
