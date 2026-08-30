@@ -84,6 +84,7 @@
       </label>
       <label class="check repair-quality"><input id="repair-low-quality" type="checkbox" checked> Reprobar calidad baja en Corto y 6M</label>
       <label class="check repair-regression" id="repair-regression-option" hidden><input id="repair-regression" type="checkbox" checked onchange="setRepairRegression(this.checked)"> Prueba regresiva</label>
+      <label class="check repair-cleanup" id="repair-cleanup-option" hidden><input id="repair-cleanup" type="checkbox" checked onchange="setRepairCleanup(this.checked)"> Limpiar datos históricos después de cada run seleccionado</label>
     </div>
     <div id="repair-select-row" class="repair-select-row" hidden>
       <label class="check"><input id="repair-select-all" type="checkbox" onchange="toggleRepairRuns(this.checked)"> Seleccionar todos</label>

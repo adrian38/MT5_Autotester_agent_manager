@@ -24,3 +24,7 @@
   aparece tanto en la tarjeta como en el modal de nueva ejecución; sus etapas
   solo heredan `max_workers` como compatibilidad para clientes antiguos que
   omitan el nuevo campo.
+- El diálogo de Reparar muestra, cuando el nodo anuncia
+  `capabilities.historical_cleanup`, la casilla «Limpiar datos históricos después
+  de cada run seleccionado». Reutiliza y persiste `cleanup_after_run`, y envía el
+  valor elegido al nodo; ya no fuerza el borrado en toda reparación manual.

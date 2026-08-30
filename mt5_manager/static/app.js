@@ -545,6 +545,8 @@ async function openRepair(id, name) {
   document.querySelector('#repair-attempts').value = settingsFor(node, id).repair_attempts;
   document.querySelector('#repair-regression-option').hidden = !supportsRegression(node);
   document.querySelector('#repair-regression').checked = settingsFor(node, id).repair_run_regression;
+  document.querySelector('#repair-cleanup-option').hidden = !supportsCleanup(node);
+  document.querySelector('#repair-cleanup').checked = settingsFor(node, id).cleanup_after_run;
   const container = document.querySelector('#repair-runs');
   document.querySelector('#repair-select-row').hidden = true;
   document.querySelector('#repair-load-row').hidden = true;
@@ -671,6 +673,12 @@ function setRepairRegression(checked) {
   setCardValue(id, 'repair_run_regression', Boolean(checked));
 }
 
+function setRepairCleanup(checked) {
+  const id = document.querySelector('#repair-node-id').value;
+  if (!id) return;
+  setCardValue(id, 'cleanup_after_run', Boolean(checked));
+}
+
 function setStageWorkers(dialogName, value) {
   const id = document.querySelector(`#${dialogName}-node-id`).value;
   if (!id) return;
@@ -693,6 +701,8 @@ async function submitRepair() {
   const runRegression = regressionOption.hidden
     ? null
     : document.querySelector('#repair-regression').checked;
+  const cleanupAfterRun = !document.querySelector('#repair-cleanup-option').hidden
+    && document.querySelector('#repair-cleanup').checked;
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(id)}/repair`, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
@@ -701,7 +711,7 @@ async function submitRepair() {
         repair_attempts: Number(document.querySelector('#repair-attempts').value),
         retry_low_quality: document.querySelector('#repair-low-quality').checked,
         ...(runRegression === null ? {} : {run_regression: runRegression}),
-        cleanup_after_run: true,
+        cleanup_after_run: cleanupAfterRun,
       }),
     });
     const data = await readJsonResponse(response);
@@ -1092,6 +1102,7 @@ window.toggleRegressionRuns = toggleRegressionRuns;
 window.loadMoreRegressionRuns = loadMoreRegressionRuns;
 window.setRepairAttempts = setRepairAttempts;
 window.setRepairRegression = setRepairRegression;
+window.setRepairCleanup = setRepairCleanup;
 window.setStageWorkers = setStageWorkers;
 window.setCardValue = setCardValue;
 window.syncCardPipeline = syncCardPipeline;
