@@ -124,6 +124,34 @@
       <button id="regression-submit" onclick="submitRegression()">Ejecutar prueba regresiva</button>
     </div>
   </dialog>
+  <dialog id="symbol-sync-dialog" class="repair-dialog">
+    <div class="dialog-head">
+      <div><p class="eyebrow">UNIVERSO DEL AGENTE</p><h2 id="symbol-sync-title">Sincronización de símbolos</h2></div>
+      <button class="icon-button" onclick="this.closest('dialog').close()" aria-label="Cerrar">×</button>
+    </div>
+    <p>Ejecuta los pasos en este orden. Sincronizar no lanza backtests.</p>
+    <form id="symbol-sync-credentials" autocomplete="off">
+      <p>Credenciales opcionales: deja los campos vacíos para usar la sesión guardada del terminal del agente.</p>
+      <div class="form-grid">
+        <label>Ruta de MT5 en el agente<input id="symbol-sync-path" placeholder="Terminal configurado"></label>
+        <label>Login<input id="symbol-sync-login" inputmode="numeric" pattern="[0-9]+"></label>
+        <label>Servidor<input id="symbol-sync-server"></label>
+        <label>Contraseña<input id="symbol-sync-password" type="password" autocomplete="new-password"></label>
+      </div>
+      <button type="submit" data-symbol-action>1. Sincronización de símbolos</button>
+    </form>
+    <p>Probar history GEN procesa solo los símbolos GEN=sí sin veredicto previo. Puede pasar varios minutos preparando sin salida y durar horas con miles de símbolos.</p>
+    <div class="dialog-actions">
+      <button type="button" data-symbol-action onclick="probeSymbolHistory()">2. Probar history GEN</button>
+      <button type="button" data-symbol-action class="danger" onclick="disableSymbolsWithoutHistory()">3. Deshabilitar símbolos sin history</button>
+      <button type="button" data-symbol-action class="secondary" onclick="refreshSymbolUniverse()">4. Actualizar</button>
+    </div>
+    <p id="symbol-sync-result" role="status" aria-live="polite" style="white-space: pre-wrap"></p>
+    <div class="dialog-actions">
+      <button type="button" class="secondary" onclick="showSymbolHistoryLog()">Ver log</button>
+      <a id="symbol-sync-universe" class="button secondary">Abrir Universo</a>
+    </div>
+  </dialog>
   <dialog id="manager-auth-dialog" class="log-dialog">
     <div class="dialog-head">
       <div><p class="eyebrow">AUTORIZACIÓN ÚNICA</p><h2>Conectar el manager con GitHub</h2></div>

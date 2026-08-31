@@ -849,6 +849,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
             return
         if len(parts) != 4 or parts[:2] != ["api", "nodes"] or parts[3] not in {
             "start", "stop", "pause", "resume", "restart", "repair", "regression", "cleanup", "universe",
+            "universe-sync", "universe-history-preview", "universe-history",
+            "universe-disable-preview", "universe-disable-no-history",
         }:
             self._send_json(404, {"error": "Ruta no encontrada"})
             return
@@ -865,6 +867,11 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 "regression": "/api/v1/jobs/regression",
                 "cleanup": "/api/v1/jobs/cleanup",
                 "universe": "/api/v1/universe/symbols",
+                "universe-sync": "/api/v1/universe/sync",
+                "universe-history-preview": "/api/v1/universe/history-preview",
+                "universe-history": "/api/v1/jobs/universe-history",
+                "universe-disable-preview": "/api/v1/universe/disable-preview",
+                "universe-disable-no-history": "/api/v1/universe/disable-no-history",
             }
             target = targets[parts[3]]
             body = self._body()
@@ -883,7 +890,17 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     "request": body,
                 })
                 return
-            status, value = node_request(node, "POST", target, body)
+            if parts[3].startswith("universe-"):
+                project = node.get("portfolio_project_dir")
+                if dev_branch.is_active() and not project:
+                    raise ValueError("Falta portfolio_project_dir para verificar el destino en dev")
+                if project:
+                    dev_branch.assert_writable(project, "sincronización de símbolos")
+                # MT5 initialization can exceed the normal status timeout. Never
+                # retry a mutation: the node may already have applied it.
+                status, value = node_request(node, "POST", target, body, timeout=120)
+            else:
+                status, value = node_request(node, "POST", target, body)
             if parts[3] == "start" and status < 400:
                 self.server.remember_launch_request(node_id, body)
             self._send_json(status, value)
