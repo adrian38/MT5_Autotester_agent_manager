@@ -2,7 +2,21 @@
 
 - El manager responde inmediatamente al `POST /api/nodes/{id}/repair` con HTTP
   202 y envia la peticion real al nodo desde un hilo en segundo plano.
-- El nodo conserva su implementacion y contrato actuales; no necesita cambios.
+- El envío asíncrono no cambia el contrato POST del nodo.
+- Para evitar timeouts de sondeo durante reparaciones masivas, el runtime IC
+  publica snapshots independientes del bloqueo de ejecución. Estado y log usan
+  esos snapshots cuando el bloqueo está ocupado; `job_snapshot_stale` y
+  `job_observed_at` indican que se está mostrando la última observación.
+- El manager conserva por nodo la última respuesta válida si un sondeo falla.
+  Devuelve los mismos datos con `offline=true`, `stale=true`, `last_successful_at`
+  y `last_attempt_at`, sin adelantar `observed_at`. La tarjeta sigue mostrando
+  métricas, ejecución, cola y configuración, con aviso de estado sin actualizar
+  y controles de escritura deshabilitados. Un éxito posterior elimina el aviso.
+  Sin respuesta previa se mantiene la tarjeta sin conexión; no se inventan datos.
+  La caché vive en memoria del manager y `/api/pulse` propaga `stale` para que
+  sus consumidores tampoco interpreten datos antiguos como estado confirmado.
+  Los cambios del runtime requieren reiniciar el agente cuando sea seguro;
+  los del servidor manager requieren recargar su proceso.
 - La llamada en segundo plano permite hasta una hora para que el nodo termine su
   preflight sincrono. Los errores posteriores se registran en stderr del manager.
 - Los modales de reparacion y prueba regresiva usan paginacion real. Cargan

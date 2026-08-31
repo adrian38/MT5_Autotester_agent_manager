@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import mimetypes
 import os
@@ -334,6 +335,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     status, value = future.result()
                     if status >= 400:
                         raise RuntimeError(str(value.get("error") if isinstance(value, dict) else value))
+                    if not isinstance(value, dict) or not isinstance(value.get("job"), dict):
+                        raise ValueError("Respuesta de estado del nodo no válida")
                     if isinstance(value, dict):
                         value["manager_node"] = {"id": node_id, "name": node.get("name") or node_id, "url": node.get("url")}
                         preferences = self.server.preferences_for(node_id)
@@ -359,11 +362,18 @@ class ManagerHandler(BaseHTTPRequestHandler):
                                     )
                             except (ValueError, urllib.error.URLError, TimeoutError):
                                 pass
+                    value["last_successful_at"] = utc_now()
+                    with self.server.node_status_lock:
+                        self.server.node_status_cache[node_id] = copy.deepcopy(value)
                     results[node_id] = value
                 except Exception as exc:
+                    with self.server.node_status_lock:
+                        cached = copy.deepcopy(self.server.node_status_cache.get(node_id, {}))
                     results[node_id] = {
+                        **cached,
                         "manager_node": {"id": node_id, "name": node.get("name") or node_id, "url": node.get("url")},
-                        "offline": True, "error": str(exc), "observed_at": utc_now(),
+                        "offline": True, "stale": bool(cached), "error": str(exc),
+                        "last_attempt_at": utc_now(),
                     }
         return [results[str(node.get("id"))] for node in self.server.nodes]
 
@@ -390,6 +400,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 "id": meta.get("id"),
                 "name": meta.get("name"),
                 "offline": bool(status.get("offline")),
+                "stale": bool(status.get("stale") or status.get("job_snapshot_stale")),
                 "error": status.get("error"),
                 "queued": safe_int(queue.get("count"), 0, minimum=0),
                 "job": {key: job.get(key) for key in PULSE_JOB_KEYS},
@@ -918,6 +929,8 @@ class ManagerServer(ThreadingHTTPServer):
         if not isinstance(nodes, list) or not nodes:
             raise ValueError("manager.json debe contener una lista nodes no vacia")
         self.nodes = nodes
+        self.node_status_lock = threading.Lock()
+        self.node_status_cache: dict[str, dict[str, Any]] = {}
         export_mode = str(
             os.environ.get("MT5_MANAGER_EXPORT_MODE") or config.get("export_mode") or "folder"
         ).strip().lower()

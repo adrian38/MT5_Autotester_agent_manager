@@ -125,7 +125,7 @@ function liveExecution(node, state) {
     cleanup_data: 'Limpieza histórica · Bases e historial',
     cleanup_verify: 'Limpieza histórica · Verificación',
   };
-  const cycleText = job.current_cycle
+  const cycleText = node.stale ? 'Última ejecución conocida' : job.current_cycle
     ? `Ciclo ${job.current_cycle}/${Number(request.cycles || 1)}`
     : 'Ejecución activa';
   const attemptText = job.current_attempt != null
@@ -373,10 +373,16 @@ function render() {
   nodesEl.innerHTML = nodeData.map(node => {
     const id = node.manager_node?.id || node.node?.id;
     const name = node.manager_node?.name || node.node?.name || id;
-    const state = statusOf(node);
-    if (node.offline) {
+    const state = node.stale ? (node.job?.status || 'idle') : statusOf(node);
+    if (node.offline && !node.stale) {
       return `<article class="node-card offline"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.manager_node?.url)}</p></div><span class="badge offline">Sin conexión</span></div><div class="run-info">${esc(node.error)}</div><div class="card-actions"><button class="secondary" onclick="refresh()">Reintentar</button></div></article>`;
     }
+    const statusWarning = node.stale
+      ? `<div class="run-info" role="status"><strong>Estado sin actualizar.</strong> Se conserva la última información recibida (${esc(node.last_successful_at)}). No se puede confirmar el estado actual del proceso. ${esc(node.error)} <button class="secondary" onclick="refresh()">Reintentar</button></div>`
+      : node.job_snapshot_stale
+        ? `<div class="run-info" role="status">El nodo está ocupado. Último estado confirmado: ${esc(node.job_observed_at)}. La información se actualizará automáticamente.</div>`
+        : '';
+    const badgeText = node.stale ? 'Estado sin actualizar' : state;
     const run = node.database?.latest_run;
     const stages = node.database?.stages || {};
     const stageDefinitions = [
@@ -416,7 +422,7 @@ function render() {
       ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><button class="secondary" disabled title="Portafolio UBS mensual congelado temporalmente">Portafolio mensual</button><a class="button secondary" href="/portfolios_grid.html?node=${encodeURIComponent(id)}">Portafolio Grid UBS</a>`
       : '';
     const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
-    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${symbolSyncButton}${portfolioButtons}${liveAuditButton}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${restartButton}${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${resumable ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || resumable ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
+    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${node.stale ? 'pending' : state}">${esc(badgeText)}</span></div>${statusWarning}<div class="run-info">${runText}</div>${liveExecution(node, state)}${stageHtml}<fieldset class="node-controls" ${node.stale ? 'disabled' : ''}>${taskQueueBlock(node, id)}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${symbolSyncButton}${portfolioButtons}${liveAuditButton}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${restartButton}${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${resumable ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || resumable ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></fieldset></article>`;
   }).join('');
 }
 
