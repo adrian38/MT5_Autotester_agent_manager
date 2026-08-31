@@ -41,15 +41,19 @@ función lo necesita explícitamente.
 ## Autorización GitHub de una sola vez
 
 El contenedor Linux no puede reutilizar Git Credential Manager de Windows. Antes
-del primer `git push`, el trabajador comprueba `gh auth status`. Si todavía no
+del primer `git pull`, el trabajador comprueba `gh auth status`. Si todavía no
 hay sesión, cambia a `authentication_required` y ejecuta el flujo web de
 `gh auth login`: la interfaz muestra el log con el código de dispositivo y un
 enlace a `https://github.com/login/device`.
 
 La sesión resultante vive exclusivamente en el volumen Docker nombrado
 `manager-git-auth`, montado en `/root/.config/gh`. Los trabajadores posteriores
-heredan ese volumen y ejecutan `gh auth setup-git` antes del push, de modo que la
-autorización solo se pide la primera vez. El volumen no forma parte del
+heredan ese volumen y ejecutan `gh auth setup-git` antes del pull, de modo que la
+autorización solo se pide la primera vez. Configurar el helper antes del pull es
+obligatorio aunque `gh auth status` ya funcione: el volumen conserva la sesión,
+pero no el `.gitconfig` de cada trabajador efímero. Hacerlo solo antes del push
+provocaba `could not read Username ... terminal prompts disabled` y abortaba
+antes de llegar a la autenticación. El volumen no forma parte del
 repositorio ni de `runtime/`; no copiar tokens a ninguno de esos lugares.
 
 El login tiene quince minutos para completarse. Si caduca o se cancela, el push

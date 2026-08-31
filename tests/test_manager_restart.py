@@ -40,6 +40,8 @@ class ManagerRestartWorkerTests(unittest.TestCase):
             ["docker", "compose", "up", "-d", "--build", "manager"],
         ])
         self.assertIn(["gh", "auth", "setup-git", "--hostname", "github.com"], calls)
+        self.assertLess(calls.index(["gh", "auth", "setup-git", "--hostname", "github.com"]),
+                        calls.index(["git", "pull"]))
         self.assertEqual(load_json(self.state_path)["status"], "completed")
 
     def test_git_commands_normalize_the_windows_bind_mount_line_endings(self) -> None:
@@ -70,7 +72,7 @@ class ManagerRestartWorkerTests(unittest.TestCase):
         self.assertEqual(state["status"], "failed")
         self.assertIn("git push", state["error"])
 
-    def test_first_push_uses_device_login_and_later_runs_reuse_it(self) -> None:
+    def test_first_pull_uses_device_login_and_later_runs_reuse_it(self) -> None:
         calls: list[list[str]] = []
 
         def unauthenticated_once(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -87,8 +89,35 @@ class ManagerRestartWorkerTests(unittest.TestCase):
             "--git-protocol", "https", "--web", "--skip-ssh-key", "--insecure-storage",
         ], calls)
         self.assertLess(calls.index(["git", "pull"]), calls.index(["git", "push"]))
+        self.assertLess(calls.index(["gh", "auth", "setup-git", "--hostname", "github.com"]),
+                        calls.index(["git", "pull"]))
         self.assertEqual(load_json(self.state_path)["status"], "completed")
         self.assertIn("github.com/login/device", self.log_path.read_text(encoding="utf-8"))
+
+    def test_authentication_failure_prevents_pull_push_and_rebuild(self) -> None:
+        calls = []
+        def fail_login(command, **kwargs):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 1)
+        worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
+        with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=fail_login):
+            worker.run()
+        self.assertFalse(any(command[0] in {"git", "docker"} for command in calls))
+        self.assertEqual(load_json(self.state_path)["status"], "failed")
+
+    def test_saved_session_is_configured_in_every_fresh_worker_without_login(self) -> None:
+        calls = []
+        def run(command, **kwargs):
+            calls.append(command)
+            if command == ["git", "pull"]:
+                self.assertEqual(load_json(self.state_path)["step"], "git_pull")
+            return subprocess.CompletedProcess(command, 0)
+        for _ in range(2):
+            worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
+            with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=run):
+                worker.run()
+        self.assertEqual(calls.count(["gh", "auth", "setup-git", "--hostname", "github.com"]), 2)
+        self.assertFalse(any(command[:3] == ["gh", "auth", "login"] for command in calls))
 
     def test_container_mounts_are_reused_with_daemon_visible_sources(self) -> None:
         environment = ManagerRestartController._container_environment({

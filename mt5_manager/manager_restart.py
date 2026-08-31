@@ -149,7 +149,7 @@ class ManagerRestartWorker:
         )
         if setup.returncode:
             raise RuntimeError("GitHub quedó autorizado, pero no se pudo configurar Git para usar esa sesión")
-        self._transition(status="running", step="git_push", auth_url=None, error=None)
+        self._transition(status="running", step="git_pull", auth_url=None, error=None)
 
     def run(self) -> None:
         started_at = utc_now()
@@ -162,11 +162,13 @@ class ManagerRestartWorker:
             )
             with self.log_path.open("w", encoding="utf-8", errors="replace") as log:
                 environment = self._command_environment()
+                # Private repositories need authentication for pull too. The gh
+                # session persists in its volume, but each ephemeral worker
+                # needs its own Git credential-helper configuration.
+                self._ensure_github_auth(log, environment)
                 for step, command in RESTART_COMMANDS:
                     status = "restarting" if step == "docker_compose" else "running"
                     self._transition(status=status, step=step, error=None)
-                    if step == "git_push":
-                        self._ensure_github_auth(log, environment)
                     completed = self._run_command(
                         command,
                         log,
