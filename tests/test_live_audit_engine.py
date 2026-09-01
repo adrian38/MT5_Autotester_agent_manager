@@ -11,7 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mt5_manager.live_audit_engine import (
-    LiveAuditController, _read_set_text, _redact_log_files, _redact_runner_output, normalize_request,
+    LiveAuditController, _audit_period, _read_set_text, _redact_log_files, _redact_runner_output,
+    normalize_request,
 )
 from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
 
@@ -32,7 +33,7 @@ def request() -> dict:
         "restore_password": "restore-secret",
         "period_days": 7,
         "min_tick_history_quality_pct": 80,
-        "trade_time_tolerance_seconds": 60,
+        "trade_time_tolerance_seconds": 120,
         "price_tolerance_points": 10,
         "volume_tolerance_pct": 1,
         "pnl_deviation_warning_pct": 10,
@@ -132,6 +133,27 @@ class LiveAuditEngineTests(unittest.TestCase):
             self.assertNotIn("password", str(state).casefold())
             self.assertNotIn("secret", (Path(temp) / "live_audits" / "state.json").read_text(encoding="utf-8"))
 
+    def test_rolling_period_uses_complete_calendar_days(self) -> None:
+        normalized = normalize_request(request())
+        start, end = _audit_period(normalized, datetime(2026, 8, 30, 16, 45, tzinfo=timezone.utc))
+
+        self.assertEqual(start, datetime(2026, 8, 23, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(end.date().isoformat(), "2026-08-30")
+        self.assertEqual(end.time(), datetime.max.time())
+
+    def test_fixed_calendar_period_is_inclusive_and_validated(self) -> None:
+        payload = {
+            **request(), "period_mode": "fixed_dates",
+            "period_start_date": "2026-08-23", "period_end_date": "2026-08-30",
+        }
+        normalized = normalize_request(payload)
+        start, end = _audit_period(normalized)
+
+        self.assertEqual(start.isoformat(), "2026-08-23T00:00:00+00:00")
+        self.assertEqual(end.date().isoformat(), "2026-08-30")
+        with self.assertRaisesRegex(ValueError, "posterior"):
+            normalize_request({**payload, "period_start_date": "2026-08-31"})
+
     def test_runner_output_redacts_ini_and_incidental_secret_copies(self) -> None:
         text = "[Common]\nPassword=tester-secret\nerror tester-secret\nPassword=another-value\n"
         redacted = _redact_runner_output(text, "tester-secret")
@@ -187,6 +209,13 @@ class LiveAuditEngineTests(unittest.TestCase):
             )
 
         self.assertEqual(result, (0.01, 0.1, 0.1, 0.1, 1))
+
+    def test_portfolio_units_do_not_multiply_the_broker_minimum(self) -> None:
+        result = LiveAuditController._tester_lot(
+            {"symbol": "DE40", "units": 3, "lot": 0.03}, {"de40": (0.1, 0.1)},
+        )
+
+        self.assertEqual(result, (0.03, 0.1, 0.1, 0.1, 3))
 
     def test_real_account_report_must_be_the_native_terminal_html(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -390,6 +419,25 @@ class LiveAuditEngineTests(unittest.TestCase):
         })
         self.assertIn("cada real se usa una vez", result["comparison_detail"]["methodology"]["alignment"])
 
+    def test_82_second_open_difference_is_aligned_with_the_new_default_tolerance(self) -> None:
+        now = datetime(2026, 8, 25, 10, tzinfo=timezone.utc)
+        real = [{
+            "strategy": "real", "symbol": "DE40", "side": "buy",
+            "open_time": now + timedelta(seconds=82), "close_time": now + timedelta(hours=1),
+            "open_price": 100.0, "close_price": 101.0, "volume": .1, "profit": 5.0,
+        }]
+        expected = [{
+            "strategy": "orb", "symbol": "DE40", "side": "buy", "open_time": now,
+            "close_time": now + timedelta(hours=1), "open_price": 100.0,
+            "close_price": 101.0, "volume": .1, "profit": 5.0,
+        }]
+
+        result = LiveAuditController._compare(real, expected, {"DE40": 1.0}, request(), {"orb": 1})
+
+        self.assertEqual(result["matched_trades"], 1)
+        self.assertEqual(result["missing_real_trades"], 0)
+        self.assertEqual(result["within_tolerance_trades"], 1)
+
     def test_active_pipeline_is_paused_and_only_that_pipeline_is_resumed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             owner, controller = self._controller(Path(temp), "running")
@@ -420,6 +468,30 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertEqual(state["last_result"]["real_trades"], 1)
         self.assertEqual(state["last_result"]["real_history_detail"]["portfolio_closures"], 1)
         self.assertEqual(state["last_result"]["real_history_detail"]["foreign_closures_ignored"], 1)
+
+    def test_real_account_filter_uses_effective_broker_lot_not_invalid_saved_lot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            owner, controller = self._controller(Path(temp), "idle")
+            owner.portfolio_detail = lambda *_args: {"portfolio": {"id": 9, "members": [{
+                "variant_key": "balanced", "candidate_id": "de40", "symbol": "DE40",
+                "lot": .03, "units": 3,
+            }]}}
+            controller._broker_volume_rules = lambda: {"de40": (.1, .1)}
+            now = datetime.now(timezone.utc)
+            base = {
+                "strategy": "real", "symbol": "DE40", "side": "buy", "open_time": now,
+                "close_time": now, "open_price": 100.0, "close_price": 100.0, "profit": 1.0,
+            }
+            controller._extract_real = lambda *_args: (
+                [{**base, "volume": .1}, {**base, "volume": .3}], {"DE40": 1.0},
+                {"login": "111", "native_report": {"filename": "real.html", "native_terminal_report": True},
+                 "history_detail": {}},
+            )
+            controller.start(request())
+            state = self._wait(controller)
+
+        self.assertEqual(state["last_result"]["real_trades"], 1)
+        self.assertEqual(state["last_result"]["real_history_detail"]["portfolio_closures"], 1)
 
     def test_pipeline_already_paused_by_user_stays_paused(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -201,7 +201,10 @@ function profileMarkup(auditId) {
     </div>
     <div class="live-audit-subtitle"><strong>Periodo auditado</strong><span>Cuánto historial se compara en este uso.</span></div>
     <div class="live-audit-fields">
-      <label>Periodo auditado (días)<input data-field="period_days" type="number" min="1" max="3650" value="${profile.period_days}" required></label>
+      <label class="check"><input data-field="use_calendar_period" type="checkbox"${profile.period_mode === 'fixed_dates' ? ' checked' : ''}>Usar calendario para elegir el periodo</label>
+      <label data-period-control="rolling_days">Días hacia atrás · incluye hoy<input data-field="period_days" type="number" min="1" max="3650" value="${profile.period_days}" required></label>
+      <label data-period-control="fixed_dates">Desde · día completo<input data-field="period_start_date" type="date" value="${escapeHtml(profile.period_start_date || '')}"></label>
+      <label data-period-control="fixed_dates">Hasta · día completo<input data-field="period_end_date" type="date" value="${escapeHtml(profile.period_end_date || '')}"></label>
     </div>
     <div class="live-audit-subtitle"><strong>Tester y tolerancias</strong></div>
     <div class="live-audit-fields">
@@ -257,7 +260,10 @@ function readCard(card) {
     tester_login: field('tester_login').value.trim(),
     tester_server: field('tester_server').value.trim(),
     active_job_policy: 'pause_resume',
+    period_mode: field('use_calendar_period').checked ? 'fixed_dates' : 'rolling_days',
     period_days: number('period_days'),
+    period_start_date: field('period_start_date').value,
+    period_end_date: field('period_end_date').value,
     tester_model: field('tester_model').value,
     min_tick_history_quality_pct: number('min_tick_history_quality_pct'),
     execution_delay_mode: field('execution_delay_mode').value,
@@ -285,6 +291,13 @@ function updateProfileControls() {
   configsEl.querySelectorAll('[data-profile-id]').forEach(card => {
     const fixed = card.querySelector('[data-field="execution_delay_mode"]').value === 'fixed';
     card.querySelector('[data-field="fixed_delay_ms"]').disabled = !fixed;
+    const fixedDates = card.querySelector('[data-field="use_calendar_period"]').checked;
+    card.querySelectorAll('[data-period-control="rolling_days"]').forEach(control => { control.hidden = fixedDates; });
+    card.querySelectorAll('[data-period-control="fixed_dates"]').forEach(control => { control.hidden = !fixedDates; });
+    card.querySelector('[data-field="period_days"]').required = !fixedDates;
+    for (const name of ['period_start_date', 'period_end_date']) {
+      card.querySelector(`[data-field="${name}"]`).required = fixedDates;
+    }
     ['source', 'tester'].forEach(role => {
       const reused = Boolean(card.querySelector(`[data-saved-account-role="${role}"]`).value);
       card.querySelector(`[data-field="${role}_login"]`).readOnly = reused;
@@ -477,7 +490,7 @@ form.addEventListener('change', event => {
   if (event.target.dataset.savedAccountRole) {
     applySavedAccount(event.target.closest('[data-profile-id]'), event.target.dataset.savedAccountRole);
   }
-  if (event.target.dataset.field === 'execution_delay_mode') updateProfileControls();
+  if (['execution_delay_mode', 'use_calendar_period'].includes(event.target.dataset.field)) updateProfileControls();
   setState('CAMBIOS SIN GUARDAR', 'pending');
 });
 

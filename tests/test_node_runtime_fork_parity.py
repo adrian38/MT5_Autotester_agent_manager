@@ -460,6 +460,25 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "cuenta que queda en el terminal tras auditar")
 
+    def test_ictrading_live_auditor_has_calendar_boundaries_and_effective_lot_rules(self) -> None:
+        manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        ic_project = FORK_CANDIDATES[0]
+        ic_engine_path = ic_project / "manager_node_runtime" / "live_audit.py"
+        if not ic_engine_path.is_file():
+            self.skipTest(f"La copia ICTrading no está montada: {ic_engine_path}")
+        ic_engine = ic_engine_path.read_text(encoding="utf-8", errors="replace")
+        for token in (
+            "def _audit_period",
+            'period_mode == "fixed_dates"',
+            "datetime.min.time()",
+            "datetime.max.time()",
+            "tester_lot = max(portfolio_lot, volume_min)",
+            "configured_lot_below_broker_minimum",
+            "lot_matches_effective_lot",
+        ):
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+            self.assertIn(token, ic_engine, f"ICTrading no ejecutará la regla `{token}`.")
+
     def test_every_reachable_fork_ignores_fields_from_a_newer_manager(self) -> None:
         # El manager manda la tanda de riesgo por equity (`max_balance_dd_001`,
         # `max_equity_dd_001`, DD flotante, rendimiento reciente, rutas de informe)

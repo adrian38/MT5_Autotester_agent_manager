@@ -42,6 +42,12 @@ function dateTime(value) {
   return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('es-ES', {dateStyle: 'short', timeStyle: 'medium'});
 }
 
+function marketDateTime(value) {
+  if (!value) return '—';
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}, ${match[4]}:${match[5]}:${match[6]}` : String(value);
+}
+
 function metric(label, value, tone = '') {
   return `<div class="${tone}"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value ?? '—')}</dd></div>`;
 }
@@ -144,7 +150,7 @@ function testerTerminalValidation(testerExecution) {
 function renderSummary(result) {
   const account = result.account || {};
   const testerExecution = result.tester_execution || {};
-  const period = `${dateTime(result.period_start)} → ${dateTime(result.period_end)}`;
+  const period = `${marketDateTime(result.period_start)} → ${marketDateTime(result.period_end)} · hora MT5`;
   document.querySelector('#summary-grid').innerHTML = [
     metric('Periodo auditado', period),
     metric('Modo', modeLabels[result.portfolio_type] || result.portfolio_type),
@@ -226,26 +232,26 @@ function renderArtifacts(result) {
     return {...row, observedVolumes, volumeMatches};
   });
   const normalizedSets = enrichedRows.filter(row => row.lot_adjusted_to_broker_rules === true).length;
-  const setMismatches = enrichedRows.filter(
-    row => row.lot_matches_portfolio !== true && row.lot_adjusted_to_broker_rules !== true
-  ).length;
+  const setMismatches = enrichedRows.filter(row => row.lot_matches_effective_lot === false).length;
+  const invalidConfiguredLots = enrichedRows.filter(row => row.configured_lot_below_broker_minimum === true).length;
   const reportMismatches = enrichedRows.filter(row => row.volumeMatches === false).length;
-  warning.hidden = setMismatches === 0 && reportMismatches === 0;
+  warning.hidden = setMismatches === 0 && reportMismatches === 0 && invalidConfiguredLots === 0;
   if (!warning.hidden) warning.innerHTML = `
     <strong>Hay una diferencia que revisar.</strong>
-    <span>${escapeHtml(setMismatches)} set(s) difieren del portafolio sin normalización conocida; ${escapeHtml(reportMismatches)} estrategia(s) muestran en el reporte un volumen distinto de StartLots. ${escapeHtml(normalizedSets)} set(s) fueron ajustados al mínimo/paso publicado por el broker.</span>`;
+    <span>${escapeHtml(setMismatches)} set(s) difieren del lote efectivo; ${escapeHtml(reportMismatches)} estrategia(s) muestran en el reporte un volumen distinto de StartLots. ${escapeHtml(invalidConfiguredLots)} lote(s) guardado(s) están por debajo del mínimo del broker y ${escapeHtml(normalizedSets)} set(s) fueron normalizados.</span>`;
   document.querySelector('#artifact-body').innerHTML = enrichedRows.map(row => {
-    const matches = row.lot_matches_portfolio === true;
+    const matches = row.lot_matches_effective_lot ?? (row.lot_matches_portfolio === true);
     const brokerAdjusted = row.lot_adjusted_to_broker_rules === true;
-    const setLabel = brokerAdjusted ? 'NORMALIZADO POR BROKER' : matches ? 'SET COINCIDE' : 'SET NO COINCIDE';
+    const invalidConfiguredLot = row.configured_lot_below_broker_minimum === true;
+    const setLabel = invalidConfiguredLot ? 'LOTE GUARDADO INVÁLIDO · USA MÍNIMO' : brokerAdjusted ? 'NORMALIZADO POR BROKER' : matches ? 'SET COINCIDE' : 'SET NO COINCIDE';
     const setTone = brokerAdjusted ? 'warn' : matches ? 'good' : 'bad';
     const reportVolumeLabel = row.volumeMatches == null ? 'SIN OPERACIONES' : row.volumeMatches ? 'REPORTE = SET' : 'REPORTE ≠ SET';
     const reportVolumeTone = row.volumeMatches == null ? 'warn' : row.volumeMatches ? 'good' : 'bad';
     const report = row.report_file ? `<a class="button secondary audit-report-link" target="_blank" rel="noopener" href="${escapeHtml(artifactUrl(result, row.report_file))}">Abrir reporte MT5</a>` : '<span class="bad-text">Sin reporte</span>';
     return `<tr>
       <th><strong>${escapeHtml(row.symbol)}</strong><small>${escapeHtml(row.strategy)}</small><details><summary>Archivos y magic</summary><small>Magic: ${escapeHtml(row.magic || '—')}</small><small>Origen: ${escapeHtml(row.source_set)}</small><small>Copia: ${escapeHtml(row.runtime_set)}</small></details></th>
-      <td>${escapeHtml(number(row.configured_lot, 8))}<small>${escapeHtml(row.portfolio_units ?? '—')} unidad(es)</small></td>
-      <td>${escapeHtml(number(row.runtime_start_lots, 8))}<small>${row.broker_volume_min == null ? 'Sin regla publicada' : `mín. ${escapeHtml(number(row.broker_volume_min, 8))} · paso ${escapeHtml(number(row.broker_volume_step, 8))}`}</small></td>
+      <td>${escapeHtml(number(row.configured_lot, 8))}<small>${escapeHtml(row.portfolio_units ?? '—')} unidad(es) informativa(s)</small></td>
+      <td>${escapeHtml(number(row.runtime_start_lots, 8))}<small>efectivo ${escapeHtml(number(row.tester_lot, 8))} · ${row.broker_volume_min == null ? 'sin regla publicada' : `mín. ${escapeHtml(number(row.broker_volume_min, 8))} · paso ${escapeHtml(number(row.broker_volume_step, 8))}`}</small></td>
       <td>${escapeHtml(row.observedVolumes.length ? row.observedVolumes.map(value => number(value, 8)).join(' · ') : '—')}</td>
       <td><span class="audit-status ${setTone}">${setLabel}</span><small><span class="audit-status ${reportVolumeTone}">${reportVolumeLabel}</span></small></td>
       <td>${escapeHtml(row.tester_trades ?? '—')}<small>History Quality ${escapeHtml(row.history_quality_pct == null ? '—' : `${number(row.history_quality_pct)} %`)}</small></td>
@@ -263,7 +269,7 @@ function renderStrategies(result) {
       const artifact = artifacts.get(String(row.strategy)) || {};
       const diagnosis = Number(row.missing_real) === Number(row.tester_trades) ? ['SIN CONTINUIDAD', 'bad']
         : Number(row.with_deviations) || Number(row.missing_real) ? ['REVISAR', 'warn'] : ['CORRECTA', 'good'];
-      return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote ${escapeHtml(number(artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy)}</small></th>
+      return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote efectivo ${escapeHtml(number(artifact.tester_lot ?? artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy)}</small></th>
         <td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
         <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
         <td><span class="audit-status ${diagnosis[1]}">${diagnosis[0]}</span></td>`;
@@ -290,8 +296,8 @@ function comparisonMarkup(row) {
   return `<tr data-status="${escapeHtml(displayStatus)}" data-search="${escapeHtml(`${row.strategy || ''} ${tester.symbol || ''} ${real.strategy || nearest.strategy || ''}`.toLocaleLowerCase('es'))}">
     <td><span class="audit-status ${statusClass}">${escapeHtml(statusLabel)}</span><small>#T${escapeHtml(row.tester_index)}</small></td>
     <td><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><span>${escapeHtml(tester.side)}</span><small>${escapeHtml(row.strategy)}</small></td>
-    <td>${pair(tester.open_time, openReal, dateTime)}${delta(openDelta, limits.open_time_seconds, ' s')}${nearestNote}</td>
-    <td>${pair(tester.close_time, real.close_time, dateTime)}${row.status === 'missing' ? '' : delta(measurements.close_time_delta_seconds, limits.close_time_seconds, ' s')}</td>
+    <td>${pair(tester.open_time, openReal, marketDateTime)}${delta(openDelta, limits.open_time_seconds, ' s')}${nearestNote}</td>
+    <td>${pair(tester.close_time, real.close_time, marketDateTime)}${row.status === 'missing' ? '' : delta(measurements.close_time_delta_seconds, limits.close_time_seconds, ' s')}</td>
     <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}</td>
     <td>${pair(tester.volume, real.volume, value => number(value, 4))}${row.status === 'missing' ? '' : delta(measurements.volume_delta_pct, limits.volume_pct, ' %')}</td>
     <td>${pair(tester.profit, real.profit, value => number(value, 2))}${row.status === 'missing' ? '' : delta(measurements.pnl_delta_pct, limits.pnl_pct, ' %')}</td>
@@ -334,7 +340,7 @@ function renderExtras(detail) {
   section.hidden = false;
   document.querySelector('#extra-body').innerHTML = rows.map(row => {
     const real = row.real || {};
-    return `<tr><td><strong>${escapeHtml(real.symbol)} · ${escapeHtml(number(real.volume, 4))} lotes</strong><span>${escapeHtml(real.side)}</span></td><td>${escapeHtml(dateTime(real.open_time))}</td><td>${escapeHtml(dateTime(real.close_time))}</td><td>${escapeHtml(number(real.profit, 2))}</td><td>Ninguna operación del tester utilizó esta real</td></tr>`;
+    return `<tr><td><strong>${escapeHtml(real.symbol)} · ${escapeHtml(number(real.volume, 4))} lotes</strong><span>${escapeHtml(real.side)}</span></td><td>${escapeHtml(marketDateTime(real.open_time))}</td><td>${escapeHtml(marketDateTime(real.close_time))}</td><td>${escapeHtml(number(real.profit, 2))}</td><td>Ninguna operación del tester utilizó esta real</td></tr>`;
   }).join('');
 }
 

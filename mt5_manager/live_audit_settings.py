@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import os
 import threading
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -20,13 +21,16 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "tester_login": "",
     "tester_server": "",
     "active_job_policy": "pause_resume",
+    "period_mode": "rolling_days",
     "period_days": 7,
+    "period_start_date": "",
+    "period_end_date": "",
     "audit_interval_days": 1,
     "tester_model": "real_ticks",
     "min_tick_history_quality_pct": 80.0,
     "execution_delay_mode": "measured",
     "fixed_delay_ms": 0,
-    "trade_time_tolerance_seconds": 60,
+    "trade_time_tolerance_seconds": 120,
     "price_tolerance_points": 10.0,
     "volume_tolerance_pct": 1.0,
     "pnl_deviation_warning_pct": 10.0,
@@ -48,6 +52,8 @@ _TEXT_LIMITS = {
     "source_server": 160,
     "tester_login": 32,
     "tester_server": 160,
+    "period_start_date": 10,
+    "period_end_date": 10,
 }
 _INT_LIMITS = {
     "period_days": (1, 3650),
@@ -161,6 +167,7 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
     """Normaliza el perfil independiente de un portafolio."""
     if not isinstance(value, dict):
         raise ValueError("La configuración del portafolio debe ser un objeto JSON")
+    legacy_period_contract = "period_mode" not in value
     # La primera versión confundía sincronización/heartbeat con la cadencia de
     # la auditoría. Se aceptan solo para poder cargar y reemplazar registros ya
     # guardados; nunca vuelven a formar parte del contrato público.
@@ -183,12 +190,39 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
     for key, (minimum, maximum) in _FLOAT_LIMITS.items():
         if key in value:
             normalized[key] = _number(value[key], key, minimum, maximum)
+    if legacy_period_contract and normalized["trade_time_tolerance_seconds"] == 60:
+        # 60 s era el valor heredado y convertía diferencias admisibles de 82 s
+        # en falsos "SIN REAL". Los perfiles nuevos conservan cualquier valor
+        # elegido explícitamente por el usuario.
+        normalized["trade_time_tolerance_seconds"] = 120
 
     if "tester_model" in value:
         tester_model = _text(value["tester_model"], "tester_model", 32).lower()
         if tester_model != "real_ticks":
             raise ValueError("tester_model debe ser real_ticks en este MVP")
         normalized["tester_model"] = tester_model
+
+    if "period_mode" in value:
+        period_mode = _text(value["period_mode"], "period_mode", 32).lower()
+        if period_mode not in {"rolling_days", "fixed_dates"}:
+            raise ValueError("period_mode debe ser rolling_days o fixed_dates")
+        normalized["period_mode"] = period_mode
+    parsed_dates: dict[str, date] = {}
+    for key in ("period_start_date", "period_end_date"):
+        raw = normalized[key]
+        if not raw:
+            continue
+        try:
+            parsed_dates[key] = date.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError(f"{key} debe tener formato AAAA-MM-DD") from exc
+    if normalized["period_mode"] == "fixed_dates":
+        if set(parsed_dates) != {"period_start_date", "period_end_date"}:
+            raise ValueError("El periodo por calendario requiere fecha desde y fecha hasta")
+        if parsed_dates["period_start_date"] > parsed_dates["period_end_date"]:
+            raise ValueError("La fecha desde no puede ser posterior a la fecha hasta")
+        if (parsed_dates["period_end_date"] - parsed_dates["period_start_date"]).days > 3650:
+            raise ValueError("El periodo por calendario no puede superar 3650 días")
 
     if normalized["portfolio_type"]:
         normalized["portfolio_type"] = normalized["portfolio_type"].lower()

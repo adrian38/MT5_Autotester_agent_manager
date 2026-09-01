@@ -10,7 +10,7 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +66,25 @@ def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
     portfolio_type = str(value.get("portfolio_type") or "").strip().lower()
     if portfolio_type not in {"aggressive", "balanced", "conservative"}:
         raise ValueError("portfolio_type debe ser aggressive, balanced o conservative")
+    period_mode = str(value.get("period_mode") or "rolling_days").strip().lower()
+    if period_mode not in {"rolling_days", "fixed_dates"}:
+        raise ValueError("period_mode debe ser rolling_days o fixed_dates")
+    period_dates: dict[str, date] = {}
+    for key in ("period_start_date", "period_end_date"):
+        raw = str(value.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            period_dates[key] = date.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError(f"{key} debe tener formato AAAA-MM-DD") from exc
+    if period_mode == "fixed_dates":
+        if set(period_dates) != {"period_start_date", "period_end_date"}:
+            raise ValueError("El periodo por calendario requiere fecha desde y fecha hasta")
+        if period_dates["period_start_date"] > period_dates["period_end_date"]:
+            raise ValueError("La fecha desde no puede ser posterior a la fecha hasta")
+        if (period_dates["period_end_date"] - period_dates["period_start_date"]).days > 3650:
+            raise ValueError("El periodo por calendario no puede superar 3650 días")
     result = {
         "audit_key": audit_key,
         "portfolio_id": _as_int(value.get("portfolio_id"), "portfolio_id", 1),
@@ -80,7 +99,10 @@ def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
         "restore_login": str(value.get("restore_login") or "").strip(),
         "restore_server": str(value.get("restore_server") or "").strip(),
         "restore_password": str(value.get("restore_password") or ""),
+        "period_mode": period_mode,
         "period_days": _as_int(value.get("period_days"), "period_days", 1),
+        "period_start_date": str(value.get("period_start_date") or "").strip(),
+        "period_end_date": str(value.get("period_end_date") or "").strip(),
         "min_tick_history_quality_pct": _as_float(
             value.get("min_tick_history_quality_pct"), "min_tick_history_quality_pct", 0, 100
         ),
@@ -106,6 +128,21 @@ def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
         if not result[key]:
             raise ValueError(f"Falta {key}")
     return result
+
+
+def _audit_period(request: dict[str, Any], now: datetime | None = None) -> tuple[datetime, datetime]:
+    """Devuelve límites UTC inclusivos de días completos para extracción y tester."""
+    if request.get("period_mode") == "fixed_dates":
+        start_date = date.fromisoformat(str(request["period_start_date"]))
+        end_date = date.fromisoformat(str(request["period_end_date"]))
+    else:
+        current_date = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).date()
+        start_date = current_date - timedelta(days=int(request["period_days"]))
+        end_date = current_date
+    return (
+        datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc),
+        datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc),
+    )
 
 
 def _metric_number(metrics: dict[str, str], *names: str) -> float | None:
@@ -368,8 +405,7 @@ class LiveAuditController:
                 self._update(audit_key, "queued", "El pipeline ya estaba pausado; se conservará así.", "Pausa previa del usuario detectada")
 
             self._update(audit_key, "extracting", "Extrayendo operaciones de la cuenta real.", "Conectando la cuenta real")
-            period_end = datetime.now(timezone.utc)
-            period_start = period_end - timedelta(days=request["period_days"])
+            period_start, period_end = _audit_period(request)
             reports_dir = self.runtime_dir / f"audit_{audit_key}" / audit_id / "reports"
             native_report_path = reports_dir / "real_account_mt5_report.html"
             real_trades, symbol_points, account = self._extract_real(
@@ -395,15 +431,18 @@ class LiveAuditController:
                 f"{str(real_account_report.get('sha256') or '')[:16]}...",
             )
             _detail, selected_members = self._portfolio_members(portfolio_id, request["portfolio_type"])
+            volume_rules = self._broker_volume_rules()
             signatures: set[tuple[str, float]] = set()
             for member in selected_members:
                 symbol = str(member.get("symbol") or "").casefold()
                 try:
-                    lot = float(member.get("lot"))
+                    _configured_lot, effective_lot, _volume_min, _volume_step, _units = self._tester_lot(
+                        member, volume_rules,
+                    )
                 except (TypeError, ValueError):
                     continue
-                if symbol and lot > 0:
-                    signatures.add((symbol, round(lot, 8)))
+                if symbol and effective_lot > 0:
+                    signatures.add((symbol, round(effective_lot, 8)))
             if signatures:
                 before_filter = len(real_trades)
                 real_trades = [
@@ -1334,7 +1373,7 @@ class LiveAuditController:
         if not rule:
             return portfolio_lot, portfolio_lot, None, None, units
         volume_min, volume_step = rule
-        tester_lot = max(portfolio_lot, volume_min * units)
+        tester_lot = max(portfolio_lot, volume_min)
         if volume_step > 0:
             tester_lot = math.ceil((tester_lot - 1e-12) / volume_step) * volume_step
         return portfolio_lot, round(tester_lot, 8), volume_min, volume_step, units
@@ -1406,12 +1445,18 @@ class LiveAuditController:
                     "portfolio_units": units,
                     "broker_volume_min": volume_min,
                     "broker_volume_step": volume_step,
+                    "configured_lot_below_broker_minimum": (
+                        volume_min is not None and portfolio_lot < volume_min - 1e-9
+                    ),
                     "lot_adjusted_to_broker_rules": not math.isclose(
                         portfolio_lot, tester_lot, rel_tol=0, abs_tol=1e-9
                     ),
                     "runtime_start_lots": runtime_lot,
                     "lot_matches_portfolio": (
                         runtime_lot is not None and math.isclose(runtime_lot, portfolio_lot, rel_tol=0, abs_tol=1e-9)
+                    ),
+                    "lot_matches_effective_lot": (
+                        runtime_lot is not None and math.isclose(runtime_lot, tester_lot, rel_tol=0, abs_tol=1e-9)
                     ),
                     "magic": self._set_parameter(runtime_text, "EA_MagicNumber"),
                     "source_set": source.name,
@@ -1784,7 +1829,10 @@ class LiveAuditController:
             "audit_key": request["audit_key"], "portfolio_id": request["portfolio_id"],
             "portfolio_type": request["portfolio_type"], "completed_at": utc_now(),
             "period_start": period_start.isoformat(), "period_end": period_end.isoformat(),
+            "period_mode": request.get("period_mode", "rolling_days"),
             "period_days": request["period_days"],
+            "period_start_date": request.get("period_start_date", ""),
+            "period_end_date": request.get("period_end_date", ""),
             "history_quality_pct": round(quality, 2) if quality is not None else None,
             "real_trades": len(real), "tester_trades": len(tester),
         }

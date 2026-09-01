@@ -525,7 +525,7 @@ class PortfolioFormTests(unittest.TestCase):
             "period_days": (1, 7, 3650),
             "min_tick_history_quality_pct": (0, 80, 99.9, 100),
             "fixed_delay_ms": (0, 125, 600000),
-            "trade_time_tolerance_seconds": (0, 60, 86400),
+            "trade_time_tolerance_seconds": (0, 120, 86400),
             "price_tolerance_points": (0, 10, 10.5, 1000000),
             "volume_tolerance_pct": (0, 1, 1.5, 100),
             "pnl_deviation_warning_pct": (0, 10, 10.5, 10000),
