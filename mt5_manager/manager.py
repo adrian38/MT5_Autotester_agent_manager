@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from . import dev_branch
+from . import guided_batches
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
 from .live_audit_settings import LiveAuditSettingsStore
 from .manager_restart import ManagerRestartController, RestartAlreadyRunning
@@ -174,6 +175,40 @@ def live_log_progress(lines: list[Any], current_stage: object) -> dict[str, Any]
         "last_profile": starts[-1][0] if starts else None,
         "waiting_seconds": int(waits[-1]) if waits else None,
     }
+
+
+def submit_guided_to_node(node: dict[str, Any], package: dict[str, Any]) -> tuple[int, Any]:
+    project = node.get('portfolio_project_dir')
+    if not project:
+        raise ValueError('El nodo no tiene proyecto/broker configurado')
+    dev_branch.assert_writable(project, 'Lote guiado')
+    broker = str(node.get('portfolio_broker') or '').upper()
+    account = str(node.get('portfolio_account_type') or '').upper()
+    normalize_path = lambda value: str(value or '').replace('/', '\\').rstrip('\\').casefold()
+    remote_project = node.get('node_project_dir') or project
+    # Docker has no .git in /app. Inspect its existing checkout bind mount too;
+    # a container must not turn dev into permission to write production nodes.
+    checkout = os.environ.get('MT5_MANAGER_RESTART_REPO')
+    if checkout and dev_branch.is_active(Path(checkout)):
+        explicitly_allowed = {
+            value.strip().upper()
+            for value in os.environ.get('MT5_MANAGER_GUIDED_DEV_BROKERS', '').split(',')
+            if value.strip()
+        }
+        if broker not in ({dev_branch.DEV_BROKER} | explicitly_allowed):
+            raise ValueError('La rama dev solo permite lotes al agente IC local')
+        if broker == dev_branch.DEV_BROKER and normalize_path(remote_project) != normalize_path(dev_branch.DEV_PROJECT_DIR):
+            raise ValueError('La rama dev solo permite lotes al agente IC local')
+    guided_batches.validate_package(package, broker, account)
+    status, state = node_request(node, 'GET', '/api/v1/status', timeout=15)
+    if status!=200 or not (state.get('capabilities') or {}).get('guided_batches_v1'):
+        raise ValueError('El nodo todavía no soporta lotes guiados; actualizar su runtime')
+    identity = state.get('node') or {}
+    if identity.get('broker')!=broker or identity.get('account_type')!=account:
+        raise ValueError('La identidad del nodo no coincide con el destino')
+    if normalize_path(identity.get('project_dir'))!=normalize_path(remote_project):
+        raise ValueError('El proyecto anunciado por el nodo no coincide con el configurado')
+    return node_request(node, 'POST', '/api/v1/guided-batches', package, timeout=60)
 
 
 def node_request(
@@ -428,6 +463,16 @@ class ManagerHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
+        if len(parts)==5 and parts[:2]==["api","nodes"] and parts[3]=="guided-batches":
+            try:
+                batch_id = parts[4]
+                if not re.fullmatch("[a-f0-9]{64}", batch_id):
+                    raise ValueError("Identificador de lote inválido")
+                status, value = node_request(self._node(urllib.parse.unquote(parts[2])), "GET", "/api/v1/guided-batches/"+batch_id, timeout=30)
+                self._send_json(status, value)
+            except (KeyError, ValueError, OSError, urllib.error.URLError, TimeoutError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if parsed.path == "/api/manager/restart":
             query = urllib.parse.parse_qs(parsed.query)
             lines = safe_int(query.get("lines", [120])[0], 120, minimum=1, maximum=1000)
@@ -581,6 +626,17 @@ class ManagerHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
+        if len(parts)==4 and parts[:2]==["api","nodes"] and parts[3]=="guided-batches":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= guided_batches.MAX_BODY:
+                    raise ValueError("Lote demasiado grande o vacío")
+                package = json.loads(self.rfile.read(length).decode("utf-8"))
+                status, value = submit_guided_to_node(self._node(urllib.parse.unquote(parts[2])), package)
+                self._send_json(status, value)
+            except (KeyError, ValueError, OSError, urllib.error.URLError, TimeoutError) as exc:
+                self._send_json(400, {"error": str(exc)})
+            return
         if parsed.path == "/api/manager/restart":
             try:
                 self._send_json(202, self.server.manager_restart.start())

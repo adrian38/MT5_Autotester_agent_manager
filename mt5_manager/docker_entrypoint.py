@@ -51,6 +51,8 @@ def docker_config(source: dict[str, Any]) -> dict[str, Any]:
         project = CONTAINER_PROJECTS.get(broker)
         if not project:
             continue
+        # Keep the node's Windows identity separate from the manager's bind mount.
+        node.setdefault("node_project_dir", node.get("portfolio_project_dir"))
         node["portfolio_project_dir"] = project
         if node.get("portfolio_memory_path"):
             node["portfolio_memory_path"] = _container_project_path(
