@@ -38,6 +38,7 @@ class DockerEntrypointTests(unittest.TestCase):
         self.assertEqual(result["nodes"][0]["url"], "http://host.docker.internal:8761")
         self.assertEqual(result["nodes"][0]["token"], "secret")
         self.assertEqual(result["nodes"][0]["portfolio_project_dir"], "/data/ic")
+        self.assertEqual(result["nodes"][0]["node_project_dir"], r"C:\projects\ic")
         self.assertEqual(result["nodes"][0]["portfolio_memory_path"], "/data/ic/outputs/memory.sqlite")
         self.assertEqual(
             result["nodes"][0]["portfolio_memory_paths"][0]["path"],

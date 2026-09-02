@@ -120,11 +120,12 @@ function liveExecution(node, state) {
     final_tick_6m: 'Final Tick 6M',
     final_tick_6m_quality: 'Reintento de calidad · Final Tick 6M',
     regression: 'Prueba regresiva',
+    universe_history: 'Probar history GEN',
     cleanup_tester: 'Limpieza histórica · Tester',
     cleanup_data: 'Limpieza histórica · Bases e historial',
     cleanup_verify: 'Limpieza histórica · Verificación',
   };
-  const cycleText = job.current_cycle
+  const cycleText = node.stale ? 'Última ejecución conocida' : job.current_cycle
     ? `Ciclo ${job.current_cycle}/${Number(request.cycles || 1)}`
     : 'Ejecución activa';
   const attemptText = job.current_attempt != null
@@ -372,10 +373,16 @@ function render() {
   nodesEl.innerHTML = nodeData.map(node => {
     const id = node.manager_node?.id || node.node?.id;
     const name = node.manager_node?.name || node.node?.name || id;
-    const state = statusOf(node);
-    if (node.offline) {
+    const state = node.stale ? (node.job?.status || 'idle') : statusOf(node);
+    if (node.offline && !node.stale) {
       return `<article class="node-card offline"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.manager_node?.url)}</p></div><span class="badge offline">Sin conexión</span></div><div class="run-info">${esc(node.error)}</div><div class="card-actions"><button class="secondary" onclick="refresh()">Reintentar</button></div></article>`;
     }
+    const statusWarning = node.stale
+      ? `<div class="run-info" role="status"><strong>Estado sin actualizar.</strong> Se conserva la última información recibida (${esc(node.last_successful_at)}). No se puede confirmar el estado actual del proceso. ${esc(node.error)} <button class="secondary" onclick="refresh()">Reintentar</button></div>`
+      : node.job_snapshot_stale
+        ? `<div class="run-info" role="status">El nodo está ocupado. Último estado confirmado: ${esc(node.job_observed_at)}. La información se actualizará automáticamente.</div>`
+        : '';
+    const badgeText = node.stale ? 'Estado sin actualizar' : state;
     const run = node.database?.latest_run;
     const stages = node.database?.stages || {};
     const stageDefinitions = [
@@ -409,14 +416,120 @@ function render() {
     const universeButton = node.capabilities?.universe_management
       ? `<a class="button secondary" href="/universe.html?node=${encodeURIComponent(id)}">Universo</a>`
       : '';
+    const symbolSyncButton = `<button class="secondary" onclick="openSymbolSync('${esc(id)}','${esc(name)}')" ${node.capabilities?.universe_sync ? '' : 'disabled title="Pendiente de actualizar el nodo del agente"'}>Sincronización de símbolos</button>`;
     const liveAuditButton = `<a class="button secondary" href="/live_audit.html?node=${encodeURIComponent(id)}">Auditor real</a>`;
     const portfolioButtons = node.manager_portfolio?.available || node.capabilities?.portfolio_views
       ? `<a class="button secondary" href="/portfolios.html?node=${encodeURIComponent(id)}">Portafolio UBS</a><button class="secondary" disabled title="Portafolio UBS mensual congelado temporalmente">Portafolio mensual</button><a class="button secondary" href="/portfolios_grid.html?node=${encodeURIComponent(id)}">Portafolio Grid UBS</a>`
       : '';
     const startLabel = supportsQueue && (state === 'running' || queuedCount) ? 'Agregar ejecución' : 'Iniciar';
-    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${state}">${esc(state)}</span></div><div class="run-info">${runText}</div>${liveExecution(node, state)}${taskQueueBlock(node, id)}${stageHtml}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${portfolioButtons}${liveAuditButton}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${restartButton}${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${resumable ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || resumable ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></article>`;
+    return `<article class="node-card"><div class="node-head"><div><h2>${esc(name)}</h2><p class="broker">${esc(node.node?.broker)} · ${esc(node.node?.account_type)} · ${esc(node.node?.machine)}/${esc(node.node?.user)}</p></div><span class="badge ${node.stale ? 'pending' : state}">${esc(badgeText)}</span></div>${statusWarning}<div class="run-info">${runText}</div>${liveExecution(node, state)}${stageHtml}<fieldset class="node-controls" ${node.stale ? 'disabled' : ''}>${taskQueueBlock(node, id)}${launchControls(node, id)}<div class="card-actions"><button onclick="openStart('${esc(id)}','${esc(name)}')" ${state === 'running' && !supportsQueue ? 'disabled' : ''}>${startLabel}</button>${repairButton}${regressionButton}${universeButton}${symbolSyncButton}${portfolioButtons}${liveAuditButton}<button class="secondary" onclick="showLogs('${esc(id)}','${esc(name)}')">Ver log</button>${restartButton}${cleanupButton}${state === 'running' ? `<button class="secondary" onclick="pauseNode('${esc(id)}')">Pausar</button>` : ''}${resumable ? `<button onclick="resumeNode('${esc(id)}')">Reanudar</button>` : ''}${state === 'running' || resumable ? `<button class="danger" onclick="stopNode('${esc(id)}')">Detener</button>` : ''}</div></fieldset></article>`;
   }).join('');
 }
+
+const symbolSyncDialog = document.querySelector('#symbol-sync-dialog');
+let symbolSyncNode = null;
+let symbolSyncBusy = false;
+
+function symbolSyncMessage(message) {
+  document.querySelector('#symbol-sync-result').textContent = message;
+}
+
+function openSymbolSync(id, name) {
+  if (symbolSyncBusy) return toast('Espera a que termine la operación de símbolos.');
+  const node = nodeData.find(item => (item.manager_node?.id || item.node?.id) === id);
+  if (!node?.capabilities?.universe_sync) return toast('Actualiza el nodo del agente para habilitar este flujo.', true);
+  symbolSyncNode = {id, name};
+  document.querySelector('#symbol-sync-title').textContent = `Sincronización de símbolos · ${name}`;
+  document.querySelector('#symbol-sync-credentials').reset();
+  document.querySelector('#symbol-sync-universe').href = `/universe.html?node=${encodeURIComponent(id)}`;
+  symbolSyncMessage('Paso 1: sincroniza el universo desde el servidor MT5.');
+  symbolSyncDialog.showModal();
+}
+
+async function symbolNodeRequest(action, payload = {}) {
+  const response = await fetch(`/api/nodes/${encodeURIComponent(symbolSyncNode.id)}/${action}`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+  });
+  const result = await readJsonResponse(response);
+  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+  return result;
+}
+
+async function withSymbolOperation(operation) {
+  if (symbolSyncBusy || !symbolSyncNode) return;
+  symbolSyncBusy = true;
+  symbolSyncDialog.querySelectorAll('[data-symbol-action]').forEach(button => { button.disabled = true; });
+  try { await operation(); }
+  catch (error) { symbolSyncMessage(`Error: ${error.message}\nNo se reintenta automáticamente. Comprueba el estado del agente antes de repetir.`); }
+  finally {
+    symbolSyncBusy = false;
+    symbolSyncDialog.querySelectorAll('[data-symbol-action]').forEach(button => { button.disabled = false; });
+    refresh();
+  }
+}
+
+document.querySelector('#symbol-sync-credentials').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!confirm('Se reescribirá el universo desde el servidor MT5 con backup: añade los nuevos, retira los ausentes y deshabilita los retirados en GEN. No lanza backtests. ¿Continuar?')) return;
+  const payload = {
+    mt5_path: document.querySelector('#symbol-sync-path').value.trim(),
+    login: document.querySelector('#symbol-sync-login').value.trim(),
+    server: document.querySelector('#symbol-sync-server').value.trim(),
+    password: document.querySelector('#symbol-sync-password').value,
+  };
+  // Credentials belong only to this request, never to card preferences.
+  document.querySelector('#symbol-sync-password').value = '';
+  withSymbolOperation(async () => {
+    symbolSyncMessage('Sincronizando con el servidor MT5… No se están lanzando backtests.');
+    try {
+      const result = await symbolNodeRequest('universe-sync', payload);
+      symbolSyncMessage(`Universo sincronizado: ${result.total} símbolos\nAñadidos: ${result.added}\nRetirados: ${result.removed}\nDeshabilitados en GEN ahora: ${result.newly_disabled}\n\nSiguiente paso: Probar history GEN y, cuando termine, Deshabilitar símbolos sin history.`);
+    } finally { payload.password = ''; }
+  });
+});
+
+async function probeSymbolHistory() {
+  await withSymbolOperation(async () => {
+    symbolSyncMessage('Consultando símbolos GEN=sí pendientes…');
+    const preview = await symbolNodeRequest('universe-history-preview');
+    if (!preview.pending) return symbolSyncMessage('No hay símbolos GEN=sí pendientes de probe histórico.');
+    const message = `Se probarán ${preview.pending} símbolos GEN=sí sin veredicto previo.\n${preview.from_date || ''} → ${preview.to_date || ''} · H1\nLa preparación puede ser silenciosa durante minutos y los backtests durar horas. ¿Iniciar?`;
+    symbolSyncMessage(message);
+    if (!confirm(message)) return;
+    await symbolNodeRequest('universe-history');
+    symbolSyncMessage('Probe histórico iniciado en el agente. Sigue el progreso en la tarjeta y en Ver log. Espera a que termine antes de deshabilitar los símbolos no_history.');
+  });
+}
+
+async function disableSymbolsWithoutHistory() {
+  await withSymbolOperation(async () => {
+    symbolSyncMessage('Consultando veredictos no_history…');
+    const preview = await symbolNodeRequest('universe-disable-preview');
+    const message = `Veredictos no_history: ${preview.total}\nYa deshabilitados: ${preview.already_disabled}\nNuevos a deshabilitar en GEN: ${preview.newly_disabled}`;
+    symbolSyncMessage(message);
+    if (!preview.newly_disabled || !confirm(`${message}\n\n¿Confirmas deshabilitarlos?`)) return;
+    // Send the previewed set, so newly arriving verdicts cannot expand approval.
+    const result = await symbolNodeRequest('universe-disable-no-history', {symbols: preview.symbols});
+    symbolSyncMessage(`Deshabilitados en GEN ahora: ${result.newly_disabled}.\nSiguiente paso: Actualizar para consultar el universo resultante.`);
+  });
+}
+
+async function refreshSymbolUniverse() {
+  await withSymbolOperation(async () => {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(symbolSyncNode.id)}/universe`, {cache: 'no-store'});
+    const result = await readJsonResponse(response);
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    symbolSyncMessage(`Universo: ${result.summary.total} símbolos\nGEN=sí: ${result.summary.generation_enabled}\nGEN=no: ${result.summary.generation_disabled}`);
+  });
+}
+
+function showSymbolHistoryLog() {
+  if (symbolSyncNode) showLogs(symbolSyncNode.id, symbolSyncNode.name);
+}
+
+symbolSyncDialog.addEventListener('close', () => {
+  document.querySelector('#symbol-sync-credentials').reset();
+});
 
 async function refresh() {
   if (refreshing) return;
@@ -1116,6 +1229,11 @@ window.resumeNode = resumeNode;
 window.restartNode = restartNode;
 window.restartManager = restartManager;
 window.showLogs = showLogs;
+window.openSymbolSync = openSymbolSync;
+window.probeSymbolHistory = probeSymbolHistory;
+window.disableSymbolsWithoutHistory = disableSymbolsWithoutHistory;
+window.refreshSymbolUniverse = refreshSymbolUniverse;
+window.showSymbolHistoryLog = showSymbolHistoryLog;
 window.refresh = refresh;
 refresh();
 readManagerRestartState().then(state => {

@@ -546,3 +546,35 @@ conexiones y una contraseña omitida en `initialize()` solo funciona si ya está
 guardada en la base del terminal:
 https://www.metatrader5.com/en/terminal/help/start_advanced/start
 https://www.mql5.com/en/docs/python_metatrader5/mt5initialize_py
+
+## Periodos completos, calendario y lote efectivo (2026-09-02)
+
+La auditoría conserva el campo histórico de «días hacia atrás» cuando el
+checkbox «Usar calendario para elegir el periodo» está desmarcado. Al marcarlo,
+la interfaz despliega `Desde` y `Hasta` como calendarios nativos. El rango fijo
+es inclusivo y exige ambas fechas ordenadas. En ambos modos, extracción real,
+HTML nativo y Strategy Tester reciben días completos: inicio a las 00:00:00 y
+fin a las 23:59:59.999999 en la convención UTC/hora MT5 del auditor. Así, 7 días
+ejecutados el 2026-08-30 conservan el rango de fechas 2026-08-23→2026-08-30,
+pero ya no pierden las operaciones de la mañana del día 23.
+
+La regla anterior de esta nota que hablaba de `(símbolo, lote guardado)` queda
+corregida: la pertenencia usa `(símbolo, lote efectivo)`. El lote efectivo es el
+guardado ajustado como mínimo a `volume_min` y después al `volume_step` del
+broker. `units` se conserva como metadato de asignación y no multiplica el lote
+mínimo. Ejemplo ICTrading: lote guardado 0.03, 3 unidades y mínimo 0.10 produce
+0.10, nunca 0.30. El resultado marca el lote guardado inferior al mínimo como
+inválido y muestra por separado lote guardado, efectivo, StartLots y volumen
+observado en el reporte.
+
+La tolerancia horaria predeterminada pasa de 60 a 120 segundos; los perfiles
+heredados con el antiguo valor por defecto se migran a 120 al adquirir el nuevo
+contrato de periodo. Esto permite alinear una diferencia admisible de 82
+segundos sin convertirla falsamente en `SIN REAL`. Los tiempos de operaciones y
+del periodo se representan como hora MT5 literal, sin aplicar el desplazamiento
+`+02:00` del navegador; solo `completed_at` sigue mostrándose como hora local.
+
+Estas reglas están duplicadas a propósito en el motor de referencia del manager
+y en el proceso que realmente las ejecuta en este equipo:
+`C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent\manager_node_runtime\live_audit.py`.
+La prueba de paridad falla si el port de ICTrading vuelve a perderlas.

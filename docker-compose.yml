@@ -12,6 +12,7 @@ services:
       MT5_MANAGER_RESTART_REPO: /workspace/manager-repo
       MT5_MANAGER_RESTART_STATE: /app/runtime/manager_restart.json
       MT5_MANAGER_RESTART_LOG: /app/runtime/manager_restart.log
+      MT5_MANAGER_GUIDED_DEV_BROKERS: ${MT5_MANAGER_GUIDED_DEV_BROKERS:-}
       GH_CONFIG_DIR: /root/.config/gh
     extra_hosts:
       - "host.docker.internal:host-gateway"

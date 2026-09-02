@@ -236,6 +236,32 @@ class LiveAuditSettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pause_resume"):
             normalize_live_audit_settings({"active_job_policy": "interrupt"})
 
+    def test_fixed_calendar_period_requires_an_ordered_inclusive_range(self) -> None:
+        normalized = normalize_live_audit_settings({
+            "period_mode": "fixed_dates",
+            "period_start_date": "2026-08-23",
+            "period_end_date": "2026-08-30",
+        })
+        self.assertEqual(normalized["period_start_date"], "2026-08-23")
+        self.assertEqual(normalized["period_end_date"], "2026-08-30")
+        with self.assertRaisesRegex(ValueError, "fecha desde y fecha hasta"):
+            normalize_live_audit_settings({"period_mode": "fixed_dates"})
+        with self.assertRaisesRegex(ValueError, "posterior"):
+            normalize_live_audit_settings({
+                "period_mode": "fixed_dates",
+                "period_start_date": "2026-08-31",
+                "period_end_date": "2026-08-30",
+            })
+
+    def test_legacy_60_second_tolerance_is_migrated_but_new_explicit_values_are_kept(self) -> None:
+        legacy = normalize_live_audit_settings({"trade_time_tolerance_seconds": 60})
+        current = normalize_live_audit_settings({
+            "period_mode": "rolling_days", "trade_time_tolerance_seconds": 60,
+        })
+
+        self.assertEqual(legacy["trade_time_tolerance_seconds"], 120)
+        self.assertEqual(current["trade_time_tolerance_seconds"], 60)
+
     def test_obsolete_minute_schedule_is_migrated_to_a_daily_audit(self) -> None:
         normalized = normalize_live_audit_settings({
             "sync_interval_minutes": 5,
@@ -415,13 +441,20 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
     def test_each_profile_has_two_accounts_passwords_period_and_tolerances(self) -> None:
         for field in (
             "source_login", "source_server", "source_password", "tester_login", "tester_server",
-            "tester_password", "period_days", "tester_model",
+            "tester_password", "use_calendar_period", "period_days", "period_start_date", "period_end_date", "tester_model",
             "min_tick_history_quality_pct", "price_tolerance_points", "drawdown_deviation_warning_pct",
         ):
             self.assertIn(f'data-field="{field}"', self.script)
         self.assertNotIn("terminal_path", self.page_text + self.script)
         self.assertIn("los logins pueden coincidir", self.script)
         self.assertNotIn("deben ser diferentes", self.script)
+
+    def test_period_can_be_selected_with_native_calendar_inputs(self) -> None:
+        self.assertIn('type="date"', self.script)
+        self.assertIn("Usar calendario para elegir el periodo", self.script)
+        self.assertIn('data-period-control="fixed_dates"', self.script)
+        self.assertIn("marketDateTime", self.result_script)
+        self.assertIn("hora MT5", self.result_script)
 
     def test_saved_accounts_can_be_selected_again_for_any_portfolio_use(self) -> None:
         self.assertIn("saved_accounts", self.script)
@@ -434,7 +467,8 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("la contraseña nunca vuelve al navegador", self.script)
 
     def test_profile_only_asks_for_the_audited_period(self) -> None:
-        self.assertIn("Periodo auditado (días)", self.script)
+        self.assertIn("Días hacia atrás · incluye hoy", self.script)
+        self.assertIn("Usar calendario para elegir el periodo", self.script)
         self.assertNotIn('data-field="audit_interval_days"', self.script)
         for obsolete in ("Sincronizar cada", "Auditoría diaria a las", "Heartbeat vencido"):
             self.assertNotIn(obsolete, self.script)
