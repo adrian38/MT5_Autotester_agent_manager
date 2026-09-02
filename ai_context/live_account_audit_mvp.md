@@ -578,3 +578,28 @@ Estas reglas están duplicadas a propósito en el motor de referencia del manage
 y en el proceso que realmente las ejecuta en este equipo:
 `C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent\manager_node_runtime\live_audit.py`.
 La prueba de paridad falla si el port de ICTrading vuelve a perderlas.
+
+## La validación debe mostrar todas las filas y no disfrazar resultados antiguos (2026-09-02)
+
+La validación manual `transcripcion_Auditor_02.xlsx` reveló dos errores de
+presentación que parecían errores de extracción. En el resultado
+`20260831_165713_001648`, XAGUSD 2026-08-28 09:49:52 y USDJPY
+2026-08-26 21:30:49 / 2026-08-27 12:25:46 sí estaban alineadas con operaciones
+reales, pero el filtro inicial «Problemas» ocultaba las filas `matched`. El
+resultado abre ahora en «Todas»; los filtros siguen disponibles para acotar la
+tabla sin ocultar de entrada operaciones auditadas.
+
+La ejecución posterior del 2026-09-02 extrajo correctamente 23 cierres reales
+(DE40 7, EURUSD 1, US30 1, USDJPY 8, XAGUSD 2 y XAUUSD 4), pero falló al iniciar
+la cuenta tester y no produjo una comparación nueva. El estado conservó
+`last_result` de la ejecución anterior y la página lo presentaba sin advertirlo.
+Cuando `audit_id` y `last_result.audit_id` difieren, la página indica ahora de
+forma explícita que el resultado es anterior, identifica ambas ejecuciones y
+muestra el error de la última. No se debe interpretar un `last_result`
+conservado como salida de una ejecución fallida posterior.
+
+La diferencia de apertura XAUUSD observada fue 11 puntos y la validación del
+usuario la considera admisible. El valor predeterminado de precio pasa de 10 a
+15 puntos y el valor heredado de 10 se migra junto al contrato antiguo de
+periodo; una configuración moderna establecida explícitamente en 10 se respeta.
+Hay una regresión directa con 4566.63 real frente a 4566.74 tester y punto 0.01.

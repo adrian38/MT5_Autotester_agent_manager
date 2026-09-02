@@ -18,6 +18,7 @@
   </header>
 
   <main id="result-main" hidden>
+    <section id="stale-result-warning" class="audit-warning" role="alert" hidden></section>
     <section id="result-state" class="audit-result-state" aria-live="polite"></section>
 
     <section class="panel-card audit-section">
@@ -35,10 +36,10 @@
     </section>
 
     <section class="panel-card audit-section audit-comparisons">
-      <div class="panel-title"><div><p class="eyebrow">3 · OPERACIONES</p><h2>Comparación tester ↔ real, fila por fila</h2><p class="audit-section-help">Se muestran primero los problemas. Abre “Todas” para revisar también las operaciones correctas.</p></div><span id="comparison-count" class="badge idle">0 FILAS</span></div>
+      <div class="panel-title"><div><p class="eyebrow">3 · OPERACIONES</p><h2>Comparación tester ↔ real, fila por fila</h2><p class="audit-section-help">Se muestran todas las operaciones. Usa los filtros para aislar problemas o coincidencias correctas.</p></div><span id="comparison-count" class="badge idle">0 FILAS</span></div>
       <div class="audit-filters" role="group" aria-label="Filtros de comparación">
-        <button type="button" class="secondary active" data-status-filter="issues">Problemas</button>
-        <button type="button" class="secondary" data-status-filter="all">Todas</button>
+        <button type="button" class="secondary active" data-status-filter="all">Todas</button>
+        <button type="button" class="secondary" data-status-filter="issues">Problemas</button>
         <button type="button" class="secondary" data-status-filter="matched">Correctas</button>
         <button type="button" class="secondary" data-status-filter="deviation">Con desviación</button>
         <button type="button" class="secondary" data-status-filter="missing">Sin real</button>

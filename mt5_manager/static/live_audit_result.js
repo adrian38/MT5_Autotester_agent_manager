@@ -13,7 +13,7 @@ const reasonLabels = {
   close_before_open: 'Dato tester inválido: el cierre es anterior a la apertura',
 };
 let comparisonRows = [];
-let activeFilter = 'issues';
+let activeFilter = 'all';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -344,13 +344,20 @@ function renderExtras(detail) {
   }).join('');
 }
 
-function renderResult(result, config, portfolios) {
+function renderResult(result, config, portfolios, auditState = {}) {
   const profile = (config.profiles || {})[auditId] || {};
   const portfolio = (portfolios.portfolios || []).find(row => Number(row.id) === Number(profile.portfolio_id || result.portfolio_id));
   const title = profile.deployment_name || portfolio?.name || `Portafolio #${result.portfolio_id}`;
   document.title = `${title} · detalle de auditoría`;
   document.querySelector('#result-title').textContent = title;
   document.querySelector('#result-subtitle').textContent = `${modeLabels[result.portfolio_type] || result.portfolio_type || 'Sin modo'} · cuenta ${result.account?.login || profile.source_login || '—'} · finalizada ${dateTime(result.completed_at)}`;
+  const staleWarning = document.querySelector('#stale-result-warning');
+  const stale = Boolean(auditState.audit_id && result.audit_id && auditState.audit_id !== result.audit_id);
+  staleWarning.hidden = !stale;
+  if (stale) {
+    const currentStatus = auditState.status_label || auditState.status || 'sin resultado';
+    staleWarning.innerHTML = `<strong>Este no es el resultado de la última ejecución.</strong><span>Se muestra la auditoría ${escapeHtml(result.audit_id)} porque la ejecución ${escapeHtml(auditState.audit_id)} terminó ${escapeHtml(currentStatus)} antes de producir una comparación nueva. ${escapeHtml(auditState.error || '')}</span>`;
+  }
   const state = document.querySelector('#result-state');
   const needsReview = Number(result.missing_real_trades) || Number(result.extra_real_trades) || Number(result.deviating_pairs);
   state.innerHTML = `<span class="badge ${result.status === 'failed' ? 'failed' : needsReview ? 'idle' : 'completed'}">${result.status === 'failed' ? 'FALLIDA' : needsReview ? 'REQUIERE REVISIÓN' : 'COINCIDE'}</span><strong>${needsReview ? 'La cuenta pertenece al modo seleccionado, pero la reproducción no es completa.' : 'La cuenta y el tester coinciden dentro de todas las tolerancias.'}</strong>`;
@@ -385,7 +392,7 @@ async function loadResult() {
   ]);
   const result = audit.audit?.last_result;
   if (!result) throw new Error('Esta configuración todavía no tiene una auditoría terminada.');
-  renderResult(result, config, portfolios);
+  renderResult(result, config, portfolios, audit.audit || {});
 }
 
 document.querySelectorAll('[data-status-filter]').forEach(button => button.addEventListener('click', () => {

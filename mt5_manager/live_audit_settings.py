@@ -31,7 +31,7 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "execution_delay_mode": "measured",
     "fixed_delay_ms": 0,
     "trade_time_tolerance_seconds": 120,
-    "price_tolerance_points": 10.0,
+    "price_tolerance_points": 15.0,
     "volume_tolerance_pct": 1.0,
     "pnl_deviation_warning_pct": 10.0,
     "drawdown_deviation_warning_pct": 15.0,
@@ -195,6 +195,10 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
         # en falsos "SIN REAL". Los perfiles nuevos conservan cualquier valor
         # elegido explícitamente por el usuario.
         normalized["trade_time_tolerance_seconds"] = 120
+    if legacy_period_contract and normalized["price_tolerance_points"] == 10.0:
+        # 10 puntos era el límite heredado. La validación real confirmó que una
+        # diferencia de 11 puntos debe seguir considerándose admisible.
+        normalized["price_tolerance_points"] = 15.0
 
     if "tester_model" in value:
         tester_model = _text(value["tester_model"], "tester_model", 32).lower()

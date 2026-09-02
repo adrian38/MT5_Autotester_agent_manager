@@ -254,13 +254,18 @@ class LiveAuditSettingsTests(unittest.TestCase):
             })
 
     def test_legacy_60_second_tolerance_is_migrated_but_new_explicit_values_are_kept(self) -> None:
-        legacy = normalize_live_audit_settings({"trade_time_tolerance_seconds": 60})
+        legacy = normalize_live_audit_settings({
+            "trade_time_tolerance_seconds": 60, "price_tolerance_points": 10,
+        })
         current = normalize_live_audit_settings({
             "period_mode": "rolling_days", "trade_time_tolerance_seconds": 60,
+            "price_tolerance_points": 10,
         })
 
         self.assertEqual(legacy["trade_time_tolerance_seconds"], 120)
+        self.assertEqual(legacy["price_tolerance_points"], 15)
         self.assertEqual(current["trade_time_tolerance_seconds"], 60)
+        self.assertEqual(current["price_tolerance_points"], 10)
 
     def test_obsolete_minute_schedule_is_migrated_to_a_daily_audit(self) -> None:
         normalized = normalize_live_audit_settings({
@@ -518,8 +523,10 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             "Ver metodología, cuentas, origen MT5, lotes y reportes",
         ):
             self.assertIn(text, self.result_page_text + self.result_script)
-        self.assertIn("let activeFilter = 'issues'", self.result_script)
+        self.assertIn("let activeFilter = 'all'", self.result_script)
         self.assertIn("activeFilter === 'issues'", self.result_script)
+        self.assertIn("Este no es el resultado de la última ejecución", self.result_script)
+        self.assertIn('id="stale-result-warning"', self.result_page_text)
         self.assertIn("33 de 33", self.result_script.replace("${portfolioClosures}", "33").replace("${real}", "33"))
 
     def test_the_result_says_in_which_account_the_terminal_was_left(self) -> None:
