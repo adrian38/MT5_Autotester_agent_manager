@@ -603,3 +603,37 @@ usuario la considera admisible. El valor predeterminado de precio pasa de 10 a
 15 puntos y el valor heredado de 10 se migra junto al contrato antiguo de
 periodo; una configuración moderna establecida explícitamente en 10 se respeta.
 Hay una regresión directa con 4566.63 real frente a 4566.74 tester y punto 0.01.
+
+## El botón manual debe ejecutar el formulario visible y los deals se ordenan (2026-09-02)
+
+La validación `transcripcion_auditor_03.xlsx` se hizo seleccionando en pantalla
+el calendario 2026-08-23→2026-08-30. Sin embargo, la ejecución
+`20260902_140828_006007` persistió `period_mode=rolling_days`,
+`period_days=7` y auditó realmente 2026-08-26→2026-09-02. La causa no estaba
+en `_audit_period`: `Auditar ahora` enviaba un POST vacío y el manager construía
+la orden con el último perfil guardado. Los cambios visibles solo se capturaban
+al pulsar el botón independiente «Guardar configuración».
+
+El botón manual valida y persiste ahora todo el formulario visible mediante
+`saveAuditSettings()` antes de solicitar `/live-audits/<id>/run`. Por tanto, el
+checkbox, Desde/Hasta, tolerancias y cuentas que ve el usuario son exactamente
+los valores de la ejecución. La prueba de interfaz exige que el guardado ocurra
+antes que el arranque. El subtítulo del resultado muestra el periodo efectivo
+en primer plano, no solo dentro del diagnóstico técnico.
+
+La misma ejecución expuso otro fallo independiente. El HTML tester de XAUUSD
+enumeró la apertura de las 16:12 antes que la de las 11:09. `_build_trades`
+consumía el orden del documento y cruzó los cierres: produjo 11:09→16:13 y
+16:12→11:12, incluida una operación imposible con cierre anterior. Los deals
+se ordenan ahora de forma estable por timestamp antes de reconstruir posiciones.
+La regresión reproduce esos cuatro deals y exige 11:09→11:12 y 16:12→16:13.
+Esta corrección está tanto en `portfolio_manager/mt5_report.py` del manager como
+en la copia ICTrading, que es la que lee los reportes durante la auditoría real.
+
+Las demás observaciones de la hoja derivan del periodo equivocado: las filas
+del 31 de agosto y 1 de septiembre estaban fuera del calendario solicitado; y
+los tickets reales de los días 24 y 25 quedaron fuera porque el rolling efectivo
+comenzó el día 26. El reporte tester independiente 24→28 confirma para USDJPY
+que la posición abierta el 28 a las 17:00:07 se cierra por fin de prueba a las
+23:56:53; el cierre del 31 a las 04:43:37 pertenecía al tester de la ejecución
+rolling, no al rango solicitado.

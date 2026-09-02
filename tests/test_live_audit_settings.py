@@ -461,6 +461,23 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("marketDateTime", self.result_script)
         self.assertIn("hora MT5", self.result_script)
 
+    def test_audit_now_saves_the_visible_calendar_period_before_starting(self) -> None:
+        run = self.script.split("async function runAuditNow", 1)[1].split(
+            "async function refreshAuditStates", 1
+        )[0]
+        self.assertIn("if (!form.reportValidity()) return", run)
+        self.assertIn("await saveAuditSettings({apply: false})", run)
+        self.assertLess(
+            run.index("await saveAuditSettings({apply: false})"),
+            run.index("/live-audits/${encodeURIComponent(id)}/run"),
+        )
+        self.assertGreater(run.index("applyState(savedSettings)"), run.index("/live-audits/${encodeURIComponent(id)}/run"))
+        save = self.script.split("async function saveAuditSettings", 1)[1].split(
+            "async function runAuditNow", 1
+        )[0]
+        self.assertIn("/live-audit-config", save)
+        self.assertIn("JSON.stringify(payload())", save)
+
     def test_saved_accounts_can_be_selected_again_for_any_portfolio_use(self) -> None:
         self.assertIn("saved_accounts", self.script)
         self.assertIn('data-saved-account-role="source"', self.script)
@@ -515,6 +532,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Resultado antiguo sin trazabilidad por operación", self.result_script)
         self.assertIn("Abrir reporte MT5", self.result_script)
         self.assertIn("Abrir HTML nativo de MT5", self.result_script)
+        self.assertIn("· periodo ${auditedPeriod} ·", self.result_script)
 
     def test_result_leads_with_mutually_exclusive_outcomes_and_hides_technical_noise(self) -> None:
         for text in (

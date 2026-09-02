@@ -350,7 +350,8 @@ function renderResult(result, config, portfolios, auditState = {}) {
   const title = profile.deployment_name || portfolio?.name || `Portafolio #${result.portfolio_id}`;
   document.title = `${title} · detalle de auditoría`;
   document.querySelector('#result-title').textContent = title;
-  document.querySelector('#result-subtitle').textContent = `${modeLabels[result.portfolio_type] || result.portfolio_type || 'Sin modo'} · cuenta ${result.account?.login || profile.source_login || '—'} · finalizada ${dateTime(result.completed_at)}`;
+  const auditedPeriod = `${marketDateTime(result.period_start)} → ${marketDateTime(result.period_end)}`;
+  document.querySelector('#result-subtitle').textContent = `${modeLabels[result.portfolio_type] || result.portfolio_type || 'Sin modo'} · cuenta ${result.account?.login || profile.source_login || '—'} · periodo ${auditedPeriod} · finalizada ${dateTime(result.completed_at)}`;
   const staleWarning = document.querySelector('#stale-result-warning');
   const stale = Boolean(auditState.audit_id && result.audit_id && auditState.audit_id !== result.audit_id);
   staleWarning.hidden = !stale;
