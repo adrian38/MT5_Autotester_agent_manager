@@ -450,6 +450,8 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             "min_tick_history_quality_pct", "price_tolerance_points", "drawdown_deviation_warning_pct",
         ):
             self.assertIn(f'data-field="{field}"', self.script)
+        self.assertIn("Tolerancia base de precio (puntos)", self.script)
+        self.assertIn("Se amplía automáticamente según la escala y la familia del instrumento.", self.script)
         self.assertNotIn("terminal_path", self.page_text + self.script)
         self.assertIn("los logins pueden coincidir", self.script)
         self.assertNotIn("deben ser diferentes", self.script)
@@ -533,6 +535,9 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Abrir reporte MT5", self.result_script)
         self.assertIn("Abrir HTML nativo de MT5", self.result_script)
         self.assertIn("· periodo ${auditedPeriod} ·", self.result_script)
+        self.assertIn("Precio adaptativo por instrumento", self.result_script)
+        self.assertIn("Límite absoluto", self.result_script)
+        self.assertIn("adaptive_indices: 'índices'", self.result_script)
 
     def test_result_leads_with_mutually_exclusive_outcomes_and_hides_technical_noise(self) -> None:
         for text in (

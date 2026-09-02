@@ -637,3 +637,28 @@ comenzó el día 26. El reporte tester independiente 24→28 confirma para USDJP
 que la posición abierta el 28 a las 17:00:07 se cierra por fin de prueba a las
 23:56:53; el cierre del 31 a las 04:43:37 pertenecía al tester de la ejecución
 rolling, no al rango solicitado.
+
+## La tolerancia de precio tiene pisos por familia de instrumento (2026-09-03)
+
+La validación `transcripcion_auditor_04.xlsx` confirmó que el calendario ya
+ejecutó exactamente 2026-08-23 00:00:00→2026-08-30 23:59:59.999999 en la
+auditoría `20260902_232450_778028`. Las 19 primeras filas fueron validadas por
+el usuario; la única clasificación nueva incorrecta fue US30: 53472.5 tester
+frente a 53472 real. El delta absoluto era 0.5, pero el motor lo convirtió en
+50 puntos y aplicó el único límite configurado de 15 puntos (0.15), aunque esa
+diferencia es admisible para el índice.
+
+Un número fijo de puntos no es comparable entre escalas. La tolerancia efectiva
+es ahora el máximo entre los puntos configurados y estos pisos absolutos
+validados: US30/DE40/USTEC(H) 10.5; XAU 2.05; XAG 0.02; pares con cotización JPY
+0.05; otros pares formados por divisas conocidas 0.0005. Símbolos sin familia
+validada conservan exclusivamente el límite configurado en puntos; no se inventa
+una tolerancia relativa. Se reconocen sufijos de broker separados por signos.
+
+Cada comparación persiste el límite efectivo en valor absoluto y puntos, los
+puntos configurados y la regla que ganó. La metodología de la página avisa que
+el precio es adaptativo y cada fila muestra su límite absoluto. Las diferencias
+exactamente iguales al límite usan una epsilon derivada del punto para evitar
+falsos rechazos por representación binaria; una diferencia realmente superior
+sigue siendo desviación. La misma función y sus regresiones viven en el motor
+de referencia y en `manager_node_runtime/live_audit.py` de ICTrading.

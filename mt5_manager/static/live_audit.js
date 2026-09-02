@@ -212,7 +212,7 @@ function profileMarkup(auditId) {
       <label>Retraso de ejecución<select data-field="execution_delay_mode">${option('measured', 'Ping medido', profile.execution_delay_mode)}${option('none', 'Sin retraso', profile.execution_delay_mode)}${option('fixed', 'Fijo', profile.execution_delay_mode)}</select></label>
       <label>Retraso fijo (ms)<input data-field="fixed_delay_ms" type="number" min="0" max="600000" value="${profile.fixed_delay_ms}" required></label>
       <label>Tolerancia horaria (segundos)<input data-field="trade_time_tolerance_seconds" type="number" min="0" max="86400" value="${profile.trade_time_tolerance_seconds}" required></label>
-      <label>Tolerancia de precio (puntos)<input data-field="price_tolerance_points" type="number" min="0" max="1000000" step="any" value="${profile.price_tolerance_points}" required></label>
+      <label>Tolerancia base de precio (puntos)<input data-field="price_tolerance_points" type="number" min="0" max="1000000" step="any" value="${profile.price_tolerance_points}" required><small>Se amplía automáticamente según la escala y la familia del instrumento.</small></label>
       <label>Tolerancia de volumen (%)<input data-field="volume_tolerance_pct" type="number" min="0" max="100" step="any" value="${profile.volume_tolerance_pct}" required></label>
       <label>Aviso por desviación de PnL (%)<input data-field="pnl_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.pnl_deviation_warning_pct}" required></label>
       <label>Aviso por desviación de DD (%)<input data-field="drawdown_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.drawdown_deviation_warning_pct}" required></label>

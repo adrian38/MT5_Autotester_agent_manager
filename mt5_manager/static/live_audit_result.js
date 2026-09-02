@@ -12,6 +12,15 @@ const reasonLabels = {
   no_real_same_symbol_and_side: 'No existe una real libre con el mismo símbolo y lado',
   close_before_open: 'Dato tester inválido: el cierre es anterior a la apertura',
 };
+const priceRuleLabels = {
+  adaptive_indices: 'índices',
+  adaptive_gold: 'oro',
+  adaptive_silver: 'plata',
+  adaptive_jpy_fx: 'divisas con cotización JPY',
+  adaptive_fx: 'divisas',
+  configured_points: 'puntos configurados',
+  unavailable: 'sin regla disponible',
+};
 let comparisonRows = [];
 let activeFilter = 'all';
 
@@ -168,6 +177,7 @@ function renderMethodology(result) {
   const detail = result.comparison_detail || {};
   const methodology = detail.methodology || {};
   const tolerances = methodology.tolerances || {};
+  const adaptivePrice = tolerances.price_policy === 'adaptive_by_instrument';
   document.querySelector('#methodology').innerHTML = `
     <ol>
       <li><strong>Alinear.</strong><span>${escapeHtml(methodology.alignment || 'Mismo símbolo y lado, con apertura dentro de la tolerancia temporal. Se usa la real más cercana y no puede reutilizarse.')}</span></li>
@@ -176,7 +186,7 @@ function renderMethodology(result) {
     </ol>
     <div class="audit-tolerances">
       <span>Tiempo ±${escapeHtml(number(tolerances.time_seconds ?? detail.time_tolerance_seconds, 0))} s</span>
-      <span>Precio ±${escapeHtml(number(tolerances.price_points, 2))} puntos</span>
+      <span>${adaptivePrice ? 'Precio adaptativo por instrumento · límite efectivo en cada fila' : `Precio ±${escapeHtml(number(tolerances.price_points, 2))} puntos`}</span>
       <span>Volumen ±${escapeHtml(number(tolerances.volume_pct, 2))} %</span>
       <span>PnL ±${escapeHtml(number(tolerances.pnl_pct, 2))} %</span>
       <span>Drawdown ±${escapeHtml(number(tolerances.drawdown_pct, 2))} %</span>
@@ -298,7 +308,7 @@ function comparisonMarkup(row) {
     <td><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><span>${escapeHtml(tester.side)}</span><small>${escapeHtml(row.strategy)}</small></td>
     <td>${pair(tester.open_time, openReal, marketDateTime)}${delta(openDelta, limits.open_time_seconds, ' s')}${nearestNote}</td>
     <td>${pair(tester.close_time, real.close_time, marketDateTime)}${row.status === 'missing' ? '' : delta(measurements.close_time_delta_seconds, limits.close_time_seconds, ' s')}</td>
-    <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}</td>
+    <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : `${delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}<small>Límite absoluto ${escapeHtml(number(limits.open_price_absolute, 8))} · regla ${escapeHtml(priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada')}</small>`}</td>
     <td>${pair(tester.volume, real.volume, value => number(value, 4))}${row.status === 'missing' ? '' : delta(measurements.volume_delta_pct, limits.volume_pct, ' %')}</td>
     <td>${pair(tester.profit, real.profit, value => number(value, 2))}${row.status === 'missing' ? '' : delta(measurements.pnl_delta_pct, limits.pnl_pct, ' %')}</td>
     <td>${reasons.length ? `<ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : '<strong class="good-text">Todos los límites se cumplen</strong>'}</td>

@@ -469,6 +469,12 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         ic_engine = ic_engine_path.read_text(encoding="utf-8", errors="replace")
         for token in (
             "def _audit_period",
+            "def _effective_price_tolerance",
+            '"indices": 10.5',
+            '"gold": 2.05',
+            '"silver": 0.02',
+            '"jpy_fx": 0.05',
+            '"fx": 0.0005',
             'period_mode == "fixed_dates"',
             "datetime.min.time()",
             "datetime.max.time()",
