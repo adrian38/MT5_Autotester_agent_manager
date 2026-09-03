@@ -41,7 +41,26 @@
   pendiente y se omite sin lanzar proceso cuando no queda nada; el uso previsto
   es paralelo primero y secuencial después, para lo que falla por contención de
   terminales. `repair_attempts` multiplica: N reintentos son 2N pasadas.
-  La limpieza histórica sigue cerrando el run una sola vez, tras las dos fases.
+- **El reintento pertenece a un run seleccionado**, no al lote. El orden del
+  pipeline es `run → reintento → fase → etapa`: se agotan los reintentos y las
+  dos fases de un run antes de empezar el siguiente, y la limpieza histórica
+  sigue cerrando cada run. Confirmado por el usuario el 2026-09-03, después de
+  probar el orden contrario (`reintento → fase → run`) y descartarlo.
+- Para ver qué pipeline construyó realmente un nodo, leer
+  `runtime/<node_id>/state.json` del proyecto del agente: guarda el pipeline
+  completo con `attempt`, `phase` y `max_workers` de cada paso. Es la única
+  forma de comprobar el orden sin depender de lo que diga la interfaz.
+- **Detener y pausar no piden `self.lock` para hacerse oír.** El bucle que
+  descarta etapas sin pendientes (`_launch_next_runnable`) retiene el bloqueo y
+  hace una consulta a SQLite por etapa —medido en ~1 s por etapa el 2026-09-03—,
+  así que en una reparación de cien runs lo tiene minutos seguidos. `stop()` y
+  `pause()` ponen su bandera **antes** de pedir el bloqueo, esperan solo
+  `CONTROL_LOCK_TIMEOUT` y, si no lo consiguen, responden `stopping`/`pausing`;
+  el propio bucle atiende la petición entre etapa y etapa
+  (`_honour_stop_request`). Antes, el POST expiraba en el manager, el estado
+  seguía en `running` y el trabajo continuaba: el botón parecía no existir.
+  Detener deja el trabajo en `stopped` tanto si cortó una etapa en marcha como
+  si cortó entre etapas; antes lo primero acababa en `failed`.
 - La fase forma parte de la clave de etapa (`run_7_attempt_1_phase_2_final_tick`,
   `cycle_1_attempt_1_phase_2_result`). Sin ella la segunda pasada pisaría el
   código de retorno, el comando y el recuento de pendientes de la primera. El

@@ -69,9 +69,16 @@ class GuidedRoutingTests(unittest.TestCase):
             self.assertEqual(manager.submit_guided_to_node(node,payload),(200,{'queued':True}))
 
     def test_portable_protocol_matches_actual_ic_runtime(self):
+        # Se compara el contenido con los finales de línea normalizados, no los
+        # bytes: el checkout de IC fuerza LF para `*.py` en su `.gitattributes` y
+        # el del manager, sin `.gitattributes` y con `core.autocrlf=true`, deja
+        # CRLF. La igualdad byte a byte se rompía sola en el primer checkout de
+        # cualquiera de los dos lados (2026-09-03, tras un merge de origin/AXI),
+        # sin que el protocolo hubiera divergido en una sola línea.
         root = Path(__file__).parents[1]
         agent = root.parent/'MT5_Autotester_agent_IC'/'MT5_Autotester_agent'
         if not agent.is_dir(): self.skipTest('IC checkout unavailable')
         for name in ('guided_batches.py', 'guided_controller.py'):
-            self.assertEqual((root/'mt5_manager'/name).read_bytes(),
-                             (agent/'manager_node_runtime'/name).read_bytes())
+            self.assertEqual((root/'mt5_manager'/name).read_bytes().replace(b'\r\n', b'\n'),
+                             (agent/'manager_node_runtime'/name).read_bytes().replace(b'\r\n', b'\n'),
+                             f'{name} divergió entre el manager y el runtime de IC')
