@@ -230,7 +230,12 @@ def _build_trades(raw_deals: list[RawDeal]) -> list[Trade]:
     open_positions: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
     trades: list[Trade] = []
 
-    for deal in raw_deals:
+    # El HTML de MT5 no garantiza que la tabla quede ordenada por fecha. Si dos
+    # posiciones del mismo símbolo y lado se solapan, consumir el orden visual
+    # puede cruzar sus cierres e incluso fabricar close_time < open_time.
+    # `sorted` es estable, por lo que conserva el orden original entre deals que
+    # comparten exactamente el mismo timestamp.
+    for deal in sorted(raw_deals, key=lambda item: item.timestamp):
         trade_type = deal.trade_type.lower()
         direction = deal.direction.lower()
         if trade_type not in {"buy", "sell"}:

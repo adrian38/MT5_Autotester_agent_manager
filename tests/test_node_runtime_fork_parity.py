@@ -342,6 +342,58 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "prueba regresiva opcional en Reparar")
 
+    def test_two_phase_repair_reaches_every_reachable_fork(self) -> None:
+        # Quien parte la reparación en dos fases es el nodo, y el nodo real es la
+        # copia del agente. Sin portarlo, el manager manda
+        # `repair_phase2_max_workers`, el agente lo ignora y sigue reparando en una
+        # sola pasada: el campo nuevo del diálogo no haría nada y no hay 404 que lo
+        # delate. La clave de etapa también tiene que llevar la fase; si no, la
+        # segunda pasada pisa el código de retorno y el recuento de la primera.
+        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        for token in (
+            'payload.get("repair_phase2_max_workers")',
+            "for phase, workers in enumerate(",
+            'phase_part = f"phase_{phase}_" if phase is not None else ""',
+        ):
+            self.assertIn(token, manager_node, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            node_source = (project / "manager_node_runtime" / "node.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            for token, hint in (
+                ('payload.get("repair_phase2_max_workers")', "el límite de terminales de la fase 2"),
+                ("for phase, workers in enumerate(", "las dos fases del pipeline de reparación"),
+                (
+                    'phase_part = f"phase_{phase}_" if phase is not None else ""',
+                    "la fase en la clave de etapa",
+                ),
+                ('self.state["current_phase"] = step.get("phase")', "la fase publicada al manager"),
+            ):
+                self._assert_present(
+                    node_source,
+                    re.escape(token),
+                    f"{project}: falta {hint} (`{token}`) en manager_node_runtime/node.py. "
+                    "Portar el cambio desde mt5_manager/node.py: sin él la reparación "
+                    "sigue siendo una sola pasada y el campo «Terminales fase 2» del "
+                    "diálogo no cambia nada. Duplicar la prueba en "
+                    "tests/test_manager_node_repair_phases.py y reiniciar la aplicación "
+                    "del agente.",
+                )
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "repair_phase2_max_workers" in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre las dos fases de la "
+                    "reparación; duplicar allí la cobertura del reparto de terminales."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "reparación en dos fases")
+
     def test_application_restart_reaches_every_embedded_node_fork(self) -> None:
         manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
         self.assertIn("/api/v1/application/restart", manager_node)
@@ -469,6 +521,12 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         ic_engine = ic_engine_path.read_text(encoding="utf-8", errors="replace")
         for token in (
             "def _audit_period",
+            "def _effective_price_tolerance",
+            '"indices": 10.5',
+            '"gold": 2.05',
+            '"silver": 0.02',
+            '"jpy_fx": 0.05',
+            '"fx": 0.0005',
             'period_mode == "fixed_dates"',
             "datetime.min.time()",
             "datetime.max.time()",

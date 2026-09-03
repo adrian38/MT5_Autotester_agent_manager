@@ -1224,6 +1224,7 @@ enabled=0
                 "repair_after_generation": True,
                 "repair_attempts": 2,
                 "max_workers": 4,
+                "repair_phase2_max_workers": 2,
             })
             repair_actions = [
                 "result", "robustness", "final_tick", "final_tick_quality",
@@ -1232,26 +1233,37 @@ enabled=0
             expected_actions = []
             for _cycle in (1, 2):
                 expected_actions.append("generation")
-                expected_actions.extend(repair_actions * 2)
+                # Dos intentos y dos fases por intento sobre las mismas etapas.
+                expected_actions.extend(repair_actions * 4)
             self.assertEqual([step["action"] for step in state["pipeline"]], expected_actions)
             self.assertTrue(state["request"]["repair_after_generation"])
             self.assertEqual(state["request"]["repair_attempts"], 2)
-            deadline = time.time() + 5
+            # 50 etapas: 2 ciclos x (generacion + 2 intentos x 2 fases x 6 etapas).
+            deadline = time.time() + 60
             while time.time() < deadline and self.controller.status()["job"]["status"] == "running":
                 time.sleep(.03)
         result = self.controller.status()["job"]
         self.assertEqual(result["status"], "completed")
         self.assertTrue(build_auto_repair_stage.call_args_list)
-        self.assertTrue(all(
-            call.args[1]["max_workers"] == 4
-            for call in build_auto_repair_stage.call_args_list
-        ))
+        # Lo unico que distingue las fases es el numero de terminales: la primera
+        # hereda `max_workers` y la segunda usa su propio limite.
+        expected_workers = [
+            workers
+            for _cycle in (1, 2)
+            for _attempt in (1, 2)
+            for workers in ([4] * len(repair_actions) + [2] * len(repair_actions))
+        ]
+        self.assertEqual(
+            [call.args[1]["max_workers"] for call in build_auto_repair_stage.call_args_list],
+            expected_workers,
+        )
         expected_stages = []
         for cycle in (1, 2):
             expected_stages.append(f"cycle_{cycle}_generation")
             expected_stages.extend(
-                f"cycle_{cycle}_attempt_{attempt}_{action}"
+                f"cycle_{cycle}_attempt_{attempt}_phase_{phase}_{action}"
                 for attempt in (1, 2)
+                for phase in (1, 2)
                 for action in repair_actions
             )
         self.assertEqual(result["completed_stages"], expected_stages)
@@ -1267,26 +1279,36 @@ enabled=0
         ):
             state = self.controller.start_repair({
                 "run_ids": [7, 9], "max_workers": 3,
+                "repair_phase2_max_workers": 1,
                 "repair_attempts": 2, "retry_low_quality": True,
             })
             self.assertEqual(state["request"]["max_workers"], 3)
+            self.assertEqual(state["request"]["repair_phase2_max_workers"], 1)
             self.assertEqual(state["request"]["repair_attempts"], 2)
-            self.assertEqual(len(state["pipeline"]), 24)
-            deadline = time.time() + 5
+            # 2 runs x 2 intentos x 2 fases x 6 etapas.
+            self.assertEqual(len(state["pipeline"]), 48)
+            deadline = time.time() + 60
             while time.time() < deadline and self.controller.status()["job"]["status"] == "running":
                 time.sleep(.03)
         result = self.controller.status()["job"]
         self.assertEqual(result["status"], "completed")
         self.assertTrue(build_stage.call_args_list)
-        self.assertTrue(all(
-            call.args[1]["max_workers"] == 3
-            for call in build_stage.call_args_list
-        ))
         actions = ["result", "robustness", "final_tick", "final_tick_quality", "final_tick_6m", "final_tick_6m_quality"]
+        # La fase 2 recorre las mismas etapas con su propio limite de terminales.
+        self.assertEqual(
+            [call.args[1]["max_workers"] for call in build_stage.call_args_list],
+            [
+                workers
+                for _run_id in (7, 9)
+                for _attempt in (1, 2)
+                for workers in ([3] * len(actions) + [1] * len(actions))
+            ],
+        )
         expected = [
-            f"run_{run_id}_attempt_{attempt}_{action}"
+            f"run_{run_id}_attempt_{attempt}_phase_{phase}_{action}"
             for run_id in (7, 9)
             for attempt in (1, 2)
+            for phase in (1, 2)
             for action in actions
         ]
         self.assertEqual(result["completed_stages"], expected)
@@ -1303,9 +1325,12 @@ enabled=0
         self.assertEqual(
             state["skipped_stages"],
             [
-                "run_7_attempt_1_result", "run_7_attempt_1_robustness",
-                "run_7_attempt_1_final_tick", "run_7_attempt_1_final_tick_quality",
-                "run_7_attempt_1_final_tick_6m", "run_7_attempt_1_final_tick_6m_quality",
+                f"run_7_attempt_1_phase_{phase}_{action}"
+                for phase in (1, 2)
+                for action in (
+                    "result", "robustness", "final_tick", "final_tick_quality",
+                    "final_tick_6m", "final_tick_6m_quality",
+                )
             ],
         )
         self.assertFalse(build_command.called)

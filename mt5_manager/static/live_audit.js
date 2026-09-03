@@ -212,7 +212,7 @@ function profileMarkup(auditId) {
       <label>Retraso de ejecución<select data-field="execution_delay_mode">${option('measured', 'Ping medido', profile.execution_delay_mode)}${option('none', 'Sin retraso', profile.execution_delay_mode)}${option('fixed', 'Fijo', profile.execution_delay_mode)}</select></label>
       <label>Retraso fijo (ms)<input data-field="fixed_delay_ms" type="number" min="0" max="600000" value="${profile.fixed_delay_ms}" required></label>
       <label>Tolerancia horaria (segundos)<input data-field="trade_time_tolerance_seconds" type="number" min="0" max="86400" value="${profile.trade_time_tolerance_seconds}" required></label>
-      <label>Tolerancia de precio (puntos)<input data-field="price_tolerance_points" type="number" min="0" max="1000000" step="any" value="${profile.price_tolerance_points}" required></label>
+      <label>Tolerancia base de precio (puntos)<input data-field="price_tolerance_points" type="number" min="0" max="1000000" step="any" value="${profile.price_tolerance_points}" required><small>Se amplía automáticamente según la escala y la familia del instrumento.</small></label>
       <label>Tolerancia de volumen (%)<input data-field="volume_tolerance_pct" type="number" min="0" max="100" step="any" value="${profile.volume_tolerance_pct}" required></label>
       <label>Aviso por desviación de PnL (%)<input data-field="pnl_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.pnl_deviation_warning_pct}" required></label>
       <label>Aviso por desviación de DD (%)<input data-field="drawdown_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.drawdown_deviation_warning_pct}" required></label>
@@ -397,18 +397,42 @@ function openAuditLogs(id) {
   if (!dialog.open) dialog.showModal();
 }
 
+async function saveAuditSettings({apply = true} = {}) {
+  const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audit-config`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload()),
+  });
+  const data = await jsonResponse(response);
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  if (apply) applyState(data);
+  return data;
+}
+
 async function runAuditNow(id, button) {
+  if (!form.reportValidity()) return;
   button.disabled = true;
+  let savedSettings = null;
   try {
+    // El periodo, las tolerancias y las cuentas que están visibles son la orden
+    // de esta ejecución. Persistirlos primero evita lanzar silenciosamente la
+    // configuración anterior cuando el usuario acaba de marcar el calendario.
+    savedSettings = await saveAuditSettings({apply: false});
     const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(id)}/run`, {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
     });
     const data = await jsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
+    // Se reconstruye la tarjeta solo después de que el nodo acepte el arranque;
+    // hasta entonces el botón original permanece deshabilitado y no permite
+    // lanzar dos auditorías durante el guardado automático.
+    applyState(savedSettings);
+    savedSettings = null;
     auditStates[String(id)] = data.audit || data;
     renderAuditOperations([id]);
     toast(`Auditoría de ${auditTitle(id)} iniciada.`);
   } catch (error) {
+    // Si el guardado funcionó pero el nodo rechazó el arranque, la pantalla no
+    // debe seguir diciendo que esos valores aún están sin guardar.
+    if (savedSettings) applyState(savedSettings);
     toast(error.message, true);
   } finally { button.disabled = false; }
 }
@@ -608,12 +632,7 @@ form.addEventListener('submit', async event => {
   const button = document.querySelector('#save-audit');
   button.disabled = true;
   try {
-    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audit-config`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload()),
-    });
-    const data = await jsonResponse(response);
-    if (!response.ok) throw new Error(data.error || response.statusText);
-    applyState(data);
+    await saveAuditSettings();
     toast('Configuraciones independientes guardadas.');
   } catch (error) {
     setState('ERROR', 'failed');

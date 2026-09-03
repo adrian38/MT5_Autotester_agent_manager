@@ -254,13 +254,18 @@ class LiveAuditSettingsTests(unittest.TestCase):
             })
 
     def test_legacy_60_second_tolerance_is_migrated_but_new_explicit_values_are_kept(self) -> None:
-        legacy = normalize_live_audit_settings({"trade_time_tolerance_seconds": 60})
+        legacy = normalize_live_audit_settings({
+            "trade_time_tolerance_seconds": 60, "price_tolerance_points": 10,
+        })
         current = normalize_live_audit_settings({
             "period_mode": "rolling_days", "trade_time_tolerance_seconds": 60,
+            "price_tolerance_points": 10,
         })
 
         self.assertEqual(legacy["trade_time_tolerance_seconds"], 120)
+        self.assertEqual(legacy["price_tolerance_points"], 15)
         self.assertEqual(current["trade_time_tolerance_seconds"], 60)
+        self.assertEqual(current["price_tolerance_points"], 10)
 
     def test_obsolete_minute_schedule_is_migrated_to_a_daily_audit(self) -> None:
         normalized = normalize_live_audit_settings({
@@ -445,6 +450,8 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             "min_tick_history_quality_pct", "price_tolerance_points", "drawdown_deviation_warning_pct",
         ):
             self.assertIn(f'data-field="{field}"', self.script)
+        self.assertIn("Tolerancia base de precio (puntos)", self.script)
+        self.assertIn("Se amplía automáticamente según la escala y la familia del instrumento.", self.script)
         self.assertNotIn("terminal_path", self.page_text + self.script)
         self.assertIn("los logins pueden coincidir", self.script)
         self.assertNotIn("deben ser diferentes", self.script)
@@ -455,6 +462,23 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn('data-period-control="fixed_dates"', self.script)
         self.assertIn("marketDateTime", self.result_script)
         self.assertIn("hora MT5", self.result_script)
+
+    def test_audit_now_saves_the_visible_calendar_period_before_starting(self) -> None:
+        run = self.script.split("async function runAuditNow", 1)[1].split(
+            "async function refreshAuditStates", 1
+        )[0]
+        self.assertIn("if (!form.reportValidity()) return", run)
+        self.assertIn("await saveAuditSettings({apply: false})", run)
+        self.assertLess(
+            run.index("await saveAuditSettings({apply: false})"),
+            run.index("/live-audits/${encodeURIComponent(id)}/run"),
+        )
+        self.assertGreater(run.index("applyState(savedSettings)"), run.index("/live-audits/${encodeURIComponent(id)}/run"))
+        save = self.script.split("async function saveAuditSettings", 1)[1].split(
+            "async function runAuditNow", 1
+        )[0]
+        self.assertIn("/live-audit-config", save)
+        self.assertIn("JSON.stringify(payload())", save)
 
     def test_saved_accounts_can_be_selected_again_for_any_portfolio_use(self) -> None:
         self.assertIn("saved_accounts", self.script)
@@ -510,6 +534,10 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Resultado antiguo sin trazabilidad por operación", self.result_script)
         self.assertIn("Abrir reporte MT5", self.result_script)
         self.assertIn("Abrir HTML nativo de MT5", self.result_script)
+        self.assertIn("· periodo ${auditedPeriod} ·", self.result_script)
+        self.assertIn("Precio adaptativo por instrumento", self.result_script)
+        self.assertIn("Límite absoluto", self.result_script)
+        self.assertIn("adaptive_indices: 'índices'", self.result_script)
 
     def test_result_leads_with_mutually_exclusive_outcomes_and_hides_technical_noise(self) -> None:
         for text in (
@@ -518,8 +546,10 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             "Ver metodología, cuentas, origen MT5, lotes y reportes",
         ):
             self.assertIn(text, self.result_page_text + self.result_script)
-        self.assertIn("let activeFilter = 'issues'", self.result_script)
+        self.assertIn("let activeFilter = 'all'", self.result_script)
         self.assertIn("activeFilter === 'issues'", self.result_script)
+        self.assertIn("Este no es el resultado de la última ejecución", self.result_script)
+        self.assertIn('id="stale-result-warning"', self.result_page_text)
         self.assertIn("33 de 33", self.result_script.replace("${portfolioClosures}", "33").replace("${real}", "33"))
 
     def test_the_result_says_in_which_account_the_terminal_was_left(self) -> None:

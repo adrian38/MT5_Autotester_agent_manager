@@ -43,7 +43,8 @@ BOOL_PREFERENCE_KEYS = (
 # lanzamiento, sin depender de que el navegador lo reenvíe a /preferences.
 LAUNCH_PREFERENCE_KEYS = (
     "cycles", "generations", "variants_per_seed", "max_seeds", "generation_mode", "random_seed",
-    "max_workers", "repair_max_workers", "regression_max_workers", "repair_attempts",
+    "max_workers", "repair_max_workers", "repair_phase2_max_workers",
+    "regression_max_workers", "repair_attempts",
     *BOOL_PREFERENCE_KEYS,
 )
 # Preferencias que el diálogo relee desde launch_defaults en lugar de launch_preferences.
@@ -918,6 +919,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
             "start", "stop", "pause", "resume", "restart", "repair", "regression", "cleanup", "universe",
             "universe-sync", "universe-history-preview", "universe-history",
             "universe-disable-preview", "universe-disable-no-history",
+            "universe-trade-disabled-preview", "universe-disable-trade-disabled",
         }:
             self._send_json(404, {"error": "Ruta no encontrada"})
             return
@@ -939,6 +941,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 "universe-history": "/api/v1/jobs/universe-history",
                 "universe-disable-preview": "/api/v1/universe/disable-preview",
                 "universe-disable-no-history": "/api/v1/universe/disable-no-history",
+                "universe-trade-disabled-preview": "/api/v1/universe/trade-disabled-preview",
+                "universe-disable-trade-disabled": "/api/v1/universe/disable-trade-disabled",
             }
             target = targets[parts[3]]
             body = self._body()

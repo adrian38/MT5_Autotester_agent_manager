@@ -37,6 +37,20 @@ PROGRESS = {
     "failed": ("completed", 100),
 }
 
+# Pisos absolutos validados por el usuario. La tolerancia configurada en puntos
+# sigue existiendo y puede ampliar estos límites, pero no reducirlos: un único
+# número de puntos no representa la misma desviación económica en EURUSD,
+# metales e índices con escalas de cotización distintas.
+ADAPTIVE_PRICE_TOLERANCE_FLOORS = {
+    "indices": 10.5,
+    "gold": 2.05,
+    "silver": 0.02,
+    "jpy_fx": 0.05,
+    "fx": 0.0005,
+}
+_INDEX_SYMBOL_PREFIXES = ("US30", "DE40", "USTEC", "USTECH")
+_FX_CURRENCIES = frozenset({"AUD", "CAD", "CHF", "EUR", "GBP", "JPY", "NZD", "USD"})
+
 
 def _as_int(value: Any, name: str, minimum: int = 0) -> int:
     try:
@@ -56,6 +70,40 @@ def _as_float(value: Any, name: str, minimum: float = 0.0, maximum: float | None
     if not math.isfinite(result) or result < minimum or (maximum is not None and result > maximum):
         raise ValueError(f"{name} está fuera del rango permitido")
     return result
+
+
+def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:
+    """Devuelve el piso absoluto validado para la familia del instrumento."""
+    root = re.split(r"[^A-Z0-9]", str(symbol or "").upper(), maxsplit=1)[0]
+    if root.startswith(_INDEX_SYMBOL_PREFIXES):
+        return ADAPTIVE_PRICE_TOLERANCE_FLOORS["indices"], "adaptive_indices"
+    if root.startswith("XAU"):
+        return ADAPTIVE_PRICE_TOLERANCE_FLOORS["gold"], "adaptive_gold"
+    if root.startswith("XAG"):
+        return ADAPTIVE_PRICE_TOLERANCE_FLOORS["silver"], "adaptive_silver"
+    if len(root) >= 6 and root[:3] in _FX_CURRENCIES and root[3:6] in _FX_CURRENCIES:
+        family = "jpy_fx" if root[3:6] == "JPY" else "fx"
+        return ADAPTIVE_PRICE_TOLERANCE_FLOORS[family], f"adaptive_{family}"
+    return None, "configured_points"
+
+
+def _effective_price_tolerance(
+    symbol: str, point: float, configured_points: float,
+) -> tuple[float | None, float | None, str]:
+    """Combina el límite manual en puntos con el piso de cada instrumento."""
+    configured_absolute = configured_points * point if point > 0 else None
+    adaptive_absolute, adaptive_rule = _adaptive_price_tolerance_floor(symbol)
+    available = [value for value in (configured_absolute, adaptive_absolute) if value is not None]
+    if not available:
+        return None, None, "unavailable"
+    absolute = max(available)
+    effective_points = absolute / point if point > 0 else None
+    rule = (
+        adaptive_rule
+        if adaptive_absolute is not None and adaptive_absolute >= (configured_absolute or 0.0)
+        else "configured_points"
+    )
+    return absolute, effective_points, rule
 
 
 def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1695,7 +1743,9 @@ class LiveAuditController:
             matched += 1
             matched_by_strategy[strategy] = matched_by_strategy.get(strategy, 0) + 1
             point = points.get(actual["symbol"], 0.0)
-            price_limit = request["price_tolerance_points"] * point
+            price_limit, price_limit_points, price_limit_rule = _effective_price_tolerance(
+                actual["symbol"], point, request["price_tolerance_points"],
+            )
             volume_limit = max(expected["volume"], 1e-9) * request["volume_tolerance_pct"] / 100
             pnl_limit = max(abs(expected["profit"]), 1.0) * request["pnl_deviation_warning_pct"] / 100
             close_time_delta = abs((actual["close_time"] - expected["close_time"]).total_seconds())
@@ -1705,7 +1755,12 @@ class LiveAuditController:
             reasons: list[str] = []
             if close_time_delta > time_limit:
                 reasons.append("close_time")
-            if point > 0 and open_price_delta > price_limit:
+            price_limit_epsilon = max(point * 1e-6, 1e-12)
+            if (
+                price_limit is not None
+                and open_price_delta > price_limit
+                and not math.isclose(open_price_delta, price_limit, rel_tol=0.0, abs_tol=price_limit_epsilon)
+            ):
                 reasons.append("open_price")
             if volume_delta > volume_limit:
                 reasons.append("volume")
@@ -1740,8 +1795,10 @@ class LiveAuditController:
                 "limits": {
                     "open_time_seconds": time_limit,
                     "close_time_seconds": time_limit,
-                    "open_price_points": request["price_tolerance_points"],
-                    "open_price_absolute": round(price_limit, 10),
+                    "open_price_points": round(price_limit_points, 3) if price_limit_points is not None else None,
+                    "open_price_absolute": round(price_limit, 10) if price_limit is not None else None,
+                    "open_price_configured_points": request["price_tolerance_points"],
+                    "open_price_rule": price_limit_rule,
                     "volume_pct": request["volume_tolerance_pct"],
                     "volume_absolute": round(volume_limit, 8),
                     "pnl_pct": request["pnl_deviation_warning_pct"],
@@ -1802,6 +1859,8 @@ class LiveAuditController:
                     "tolerances": {
                         "time_seconds": time_limit,
                         "price_points": request["price_tolerance_points"],
+                        "price_policy": "adaptive_by_instrument",
+                        "price_absolute_floors": ADAPTIVE_PRICE_TOLERANCE_FLOORS,
                         "volume_pct": request["volume_tolerance_pct"],
                         "pnl_pct": request["pnl_deviation_warning_pct"],
                         "drawdown_pct": request["drawdown_deviation_warning_pct"],

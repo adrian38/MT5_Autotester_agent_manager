@@ -51,7 +51,8 @@
       </div>
       <div class="auto-repair-options">
         <label class="check"><input id="repair-after-generation" type="checkbox"> Reparar después de completar el run</label>
-        <label>Terminales para reparación<input id="generation-repair-workers" type="number" min="1" max="64" value="1" required></label>
+        <label>Terminales reparación · fase 1<input id="generation-repair-workers" type="number" min="1" max="64" value="1" required></label>
+        <label>Terminales reparación · fase 2<input id="generation-repair-workers-phase2" type="number" min="1" max="64" value="1" required></label>
         <label>Reintentos por run<input id="generation-repair-attempts" type="number" min="1" max="20" value="1" required></label>
       </div>
       <div class="cleanup-options" id="cleanup-after-run-option" hidden>
@@ -76,8 +77,11 @@
     <input type="hidden" id="repair-node-id">
     <p class="repair-help" id="repair-help-text">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Ejecutará las pruebas pendientes y limpiará los históricos después de cada run seleccionado.</p>
     <div class="repair-options">
-      <label>Terminales MT5
+      <label>Terminales MT5 · fase 1
         <input id="repair-workers" type="number" min="1" max="64" value="1" oninput="setStageWorkers('repair', Number(this.value))">
+      </label>
+      <label>Terminales MT5 · fase 2
+        <input id="repair-workers-phase2" type="number" min="1" max="64" value="1" oninput="setRepairPhase2Workers(Number(this.value))">
       </label>
       <label>Número de reintentos
         <input id="repair-attempts" type="number" min="1" max="20" value="1" oninput="setRepairAttempts(Number(this.value))">
@@ -140,11 +144,12 @@
       </div>
       <button type="submit" data-symbol-action>1. Sincronización de símbolos</button>
     </form>
-    <p>Probar history GEN procesa solo los símbolos GEN=sí sin veredicto previo. Puede pasar varios minutos preparando sin salida y durar horas con miles de símbolos.</p>
+    <p>Probar history GEN procesa solo los símbolos GEN=sí sin veredicto previo. Puede pasar varios minutos preparando sin salida y durar horas con miles de símbolos. El paso 4 usa la terminal configurada y su sesión ya iniciada para consultar <code>trade_mode</code>; no pide credenciales ni usa journals.</p>
     <div class="dialog-actions">
       <button type="button" data-symbol-action onclick="probeSymbolHistory()">2. Probar history GEN</button>
       <button type="button" data-symbol-action class="danger" onclick="disableSymbolsWithoutHistory()">3. Deshabilitar símbolos sin history</button>
-      <button type="button" data-symbol-action class="secondary" onclick="refreshSymbolUniverse()">4. Actualizar</button>
+      <button type="button" data-symbol-action class="danger" onclick="disableTradeBlockedSymbols()">4. Deshabilitar trading bloqueado</button>
+      <button type="button" data-symbol-action class="secondary" onclick="refreshSymbolUniverse()">5. Actualizar</button>
     </div>
     <p id="symbol-sync-result" role="status" aria-live="polite" style="white-space: pre-wrap"></p>
     <div class="dialog-actions">

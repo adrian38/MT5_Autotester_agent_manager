@@ -101,8 +101,12 @@ function supportsCleanup(node) {
 function pipelineStepLabel(job) {
   const cycle = job.current_cycle;
   const stage = job.current_stage || 'generation';
+  // Cada intento de reparación recorre las etapas dos veces, una por fase, y el
+  // nodo distingue las claves con `phase_N`. Sin ella se leería el recuento de
+  // pendientes de la otra pasada.
+  const phase = job.current_phase != null ? `phase_${job.current_phase}_` : '';
   return job.current_attempt != null
-    ? `cycle_${cycle}_attempt_${job.current_attempt}_${stage}`
+    ? `cycle_${cycle}_attempt_${job.current_attempt}_${phase}${stage}`
     : `cycle_${cycle}_${stage}`;
 }
 
@@ -130,6 +134,7 @@ function liveExecution(node, state) {
     : 'Ejecución activa';
   const attemptText = job.current_attempt != null
     ? ` · reparación ${job.current_attempt}/${Number(request.repair_attempts || 1)}`
+      + (job.current_phase != null ? ` · fase ${job.current_phase}/2` : '')
     : '';
   const pending = Number((job.stage_pending_counts || {})[pipelineStepLabel(job)] || 0);
   const completed = Number(progress.jobs_completed || 0);
@@ -189,6 +194,9 @@ function settingsFor(node, id) {
       random_seed: defaults.random_seed ?? null,
       max_workers: Number(defaults.max_workers || 1),
       repair_max_workers: Number(defaults.repair_max_workers || 1),
+      // Terminales de la segunda fase de cada intento de reparación. Por omisión
+      // 1: la fase 2 recoge en secuencial lo que la fase 1 dejó pendiente.
+      repair_phase2_max_workers: Number(defaults.repair_phase2_max_workers || 1),
       regression_max_workers: Number(defaults.regression_max_workers || 1),
       repair_attempts: Number(defaults.repair_attempts || 1),
       repair_after_generation: Boolean(defaults.repair_after_generation),
@@ -243,10 +251,15 @@ function launchControls(node, id) {
       <div class="card-auto-repair">
         <label class="check"><input type="checkbox" ${values.repair_after_generation ? 'checked' : ''}
           onchange="syncAutoRepair('${esc(id)}',this.checked)"> Reparar después de completar el run</label>
-        <label>Terminales para reparación
+        <label>Terminales reparación · fase 1
           <input type="number" min="1" max="64" value="${values.repair_max_workers}"
             ${values.repair_after_generation ? '' : 'disabled'}
             oninput="setCardValue('${esc(id)}','repair_max_workers',Number(this.value))">
+        </label>
+        <label>Terminales reparación · fase 2
+          <input type="number" min="1" max="64" value="${values.repair_phase2_max_workers}"
+            ${values.repair_after_generation ? '' : 'disabled'}
+            oninput="setCardValue('${esc(id)}','repair_phase2_max_workers',Number(this.value))">
         </label>
         <label>Reintentos por run
           <input type="number" min="1" max="20" value="${values.repair_attempts}"
@@ -468,22 +481,26 @@ async function withSymbolOperation(operation) {
   }
 }
 
-document.querySelector('#symbol-sync-credentials').addEventListener('submit', event => {
-  event.preventDefault();
-  if (!confirm('Se reescribirá el universo desde el servidor MT5 con backup: añade los nuevos, retira los ausentes y deshabilita los retirados en GEN. No lanza backtests. ¿Continuar?')) return;
-  const payload = {
+function symbolSyncCredentialsPayload() {
+  return {
     mt5_path: document.querySelector('#symbol-sync-path').value.trim(),
     login: document.querySelector('#symbol-sync-login').value.trim(),
     server: document.querySelector('#symbol-sync-server').value.trim(),
     password: document.querySelector('#symbol-sync-password').value,
   };
+}
+
+document.querySelector('#symbol-sync-credentials').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!confirm('Se reescribirá el universo desde el servidor MT5 con backup: añade los nuevos, retira los ausentes y deshabilita los retirados en GEN. No lanza backtests. ¿Continuar?')) return;
+  const payload = symbolSyncCredentialsPayload();
   // Credentials belong only to this request, never to card preferences.
   document.querySelector('#symbol-sync-password').value = '';
   withSymbolOperation(async () => {
     symbolSyncMessage('Sincronizando con el servidor MT5… No se están lanzando backtests.');
     try {
       const result = await symbolNodeRequest('universe-sync', payload);
-      symbolSyncMessage(`Universo sincronizado: ${result.total} símbolos\nAñadidos: ${result.added}\nRetirados: ${result.removed}\nDeshabilitados en GEN ahora: ${result.newly_disabled}\n\nSiguiente paso: Probar history GEN y, cuando termine, Deshabilitar símbolos sin history.`);
+      symbolSyncMessage(`Universo sincronizado: ${result.total} símbolos\nAñadidos: ${result.added}\nRetirados: ${result.removed}\nTrading bloqueado detectado en MT5: ${result.trade_blocked ?? 0}\nDeshabilitados en GEN ahora: ${result.newly_disabled}\n\nSiguientes pasos: Probar history GEN, deshabilitar símbolos sin history y revisar trading bloqueado.`);
     } finally { payload.password = ''; }
   });
 });
@@ -511,6 +528,22 @@ async function disableSymbolsWithoutHistory() {
     // Send the previewed set, so newly arriving verdicts cannot expand approval.
     const result = await symbolNodeRequest('universe-disable-no-history', {symbols: preview.symbols});
     symbolSyncMessage(`Deshabilitados en GEN ahora: ${result.newly_disabled}.\nSiguiente paso: Actualizar para consultar el universo resultante.`);
+  });
+}
+
+async function disableTradeBlockedSymbols() {
+  await withSymbolOperation(async () => {
+    symbolSyncMessage('Consultando directamente en MT5 el trade_mode actual de todos los símbolos…');
+    const preview = await symbolNodeRequest('universe-trade-disabled-preview');
+    const captured = preview.terminal_captured_at || 'consulta recién realizada';
+    const account = preview.account_login || 'sesión guardada';
+    const server = preview.server || 'sesión guardada';
+    const message = `DISABLED/CLOSEONLY actuales en MT5: ${preview.terminal_total ?? preview.total}\nConsulta MT5: ${captured}\nCuenta: ${account}\nServidor: ${server}\nYa deshabilitados: ${preview.already_disabled}\nNuevos a deshabilitar en GEN: ${preview.newly_disabled}`;
+    symbolSyncMessage(message);
+    if (!preview.newly_disabled || !confirm(`${message}\n\n¿Confirmas deshabilitarlos?`)) return;
+    // Send exactly the live-previewed set; the confirmation cannot expand later.
+    const result = await symbolNodeRequest('universe-disable-trade-disabled', {symbols: preview.symbols});
+    symbolSyncMessage(`Símbolos con trading bloqueado deshabilitados en GEN ahora: ${result.newly_disabled}.\nSiguiente paso: Actualizar para consultar el universo resultante.`);
   });
 }
 
@@ -578,10 +611,13 @@ function openStart(id, name) {
   cleanupOption.hidden = !supportsCleanup(node);
   document.querySelector('#cleanup-after-run').checked = supportsCleanup(node) && selected.cleanup_after_run;
   document.querySelector('#generation-repair-workers').value = selected.repair_max_workers;
+  document.querySelector('#generation-repair-workers-phase2').value = selected.repair_phase2_max_workers;
   document.querySelector('#generation-repair-attempts').value = selected.repair_attempts;
   document.querySelector('#repair-after-generation').disabled = !advanced;
-  document.querySelector('#generation-repair-workers').disabled = !advanced || !selected.repair_after_generation || !document.querySelector('#execute').checked;
-  document.querySelector('#generation-repair-attempts').disabled = !advanced || !selected.repair_after_generation || !document.querySelector('#execute').checked;
+  const repairFieldsDisabled = !advanced || !selected.repair_after_generation || !document.querySelector('#execute').checked;
+  document.querySelector('#generation-repair-workers').disabled = repairFieldsDisabled;
+  document.querySelector('#generation-repair-workers-phase2').disabled = repairFieldsDisabled;
+  document.querySelector('#generation-repair-attempts').disabled = repairFieldsDisabled;
   document.querySelectorAll('#run-robustness,#run-final-tick,#run-final-tick-6m,#run-regression').forEach(element => { element.disabled = !advanced; });
   const note = document.querySelector('#capability-note');
   note.hidden = advanced && workers;
@@ -610,6 +646,7 @@ document.querySelector('#start-form').addEventListener('submit', async event => 
       && document.querySelector('#run-regression').checked,
     repair_after_generation: document.querySelector('#repair-after-generation').checked,
     repair_max_workers: Number(document.querySelector('#generation-repair-workers').value),
+    repair_phase2_max_workers: Number(document.querySelector('#generation-repair-workers-phase2').value),
     repair_attempts: Number(document.querySelector('#generation-repair-attempts').value),
     cleanup_after_run: !document.querySelector('#cleanup-after-run-option').hidden
       && document.querySelector('#cleanup-after-run').checked,
@@ -619,12 +656,14 @@ document.querySelector('#start-form').addEventListener('submit', async event => 
   saved.random_seed = payload.random_seed;
   saved.repair_after_generation = payload.repair_after_generation;
   saved.repair_max_workers = payload.repair_max_workers;
+  saved.repair_phase2_max_workers = payload.repair_phase2_max_workers;
   saved.repair_attempts = payload.repair_attempts;
   saved.cleanup_after_run = payload.cleanup_after_run;
   persistCardSettings(id, {
     random_seed: payload.random_seed,
     repair_after_generation: payload.repair_after_generation,
     repair_max_workers: payload.repair_max_workers,
+    repair_phase2_max_workers: payload.repair_phase2_max_workers,
     repair_attempts: payload.repair_attempts,
     cleanup_after_run: payload.cleanup_after_run,
   });
@@ -653,8 +692,11 @@ async function openRepair(id, name) {
   // de producción, igual que antes.
   const regressionStep = supportsRegression(node) ? ' → Prueba regresiva (opcional)' : '';
   document.querySelector('#repair-help-text').textContent =
-    `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. Ejecutará las pruebas pendientes con el límite de terminales indicado.`;
+    `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. `
+    + 'Cada reintento recorre ese flujo dos veces: la fase 1 con sus terminales y la fase 2 con los suyos, '
+    + 'sobre lo que la fase 1 haya dejado pendiente.';
   document.querySelector('#repair-workers').value = settingsFor(node, id).repair_max_workers;
+  document.querySelector('#repair-workers-phase2').value = settingsFor(node, id).repair_phase2_max_workers;
   document.querySelector('#repair-attempts').value = settingsFor(node, id).repair_attempts;
   document.querySelector('#repair-regression-option').hidden = !supportsRegression(node);
   document.querySelector('#repair-regression').checked = settingsFor(node, id).repair_run_regression;
@@ -780,6 +822,12 @@ function setRepairAttempts(value) {
   setCardValue(id, 'repair_attempts', Math.max(1, Math.min(20, Number(value) || 1)));
 }
 
+function setRepairPhase2Workers(value) {
+  const id = document.querySelector('#repair-node-id').value;
+  if (!id) return;
+  setCardValue(id, 'repair_phase2_max_workers', Math.max(1, Math.min(64, Number(value) || 1)));
+}
+
 function setRepairRegression(checked) {
   const id = document.querySelector('#repair-node-id').value;
   if (!id) return;
@@ -821,6 +869,7 @@ async function submitRepair() {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
         run_ids: runIds,
         max_workers: Number(document.querySelector('#repair-workers').value),
+        repair_phase2_max_workers: Number(document.querySelector('#repair-workers-phase2').value),
         repair_attempts: Number(document.querySelector('#repair-attempts').value),
         retry_low_quality: document.querySelector('#repair-low-quality').checked,
         ...(runRegression === null ? {} : {run_regression: runRegression}),
@@ -1189,12 +1238,12 @@ document.querySelector('#execute').addEventListener('change', event => {
   const autoRepair = document.querySelector('#repair-after-generation');
   autoRepair.disabled = !event.target.checked || !supported;
   if (!event.target.checked) autoRepair.checked = false;
-  document.querySelector('#generation-repair-workers').disabled = !autoRepair.checked || autoRepair.disabled;
-  document.querySelector('#generation-repair-attempts').disabled = !autoRepair.checked || autoRepair.disabled;
+  document.querySelectorAll('#generation-repair-workers,#generation-repair-workers-phase2,#generation-repair-attempts')
+    .forEach(element => { element.disabled = !autoRepair.checked || autoRepair.disabled; });
 });
 document.querySelector('#repair-after-generation').addEventListener('change', event => {
-  document.querySelector('#generation-repair-workers').disabled = !event.target.checked;
-  document.querySelector('#generation-repair-attempts').disabled = !event.target.checked;
+  document.querySelectorAll('#generation-repair-workers,#generation-repair-workers-phase2,#generation-repair-attempts')
+    .forEach(element => { element.disabled = !event.target.checked; });
 });
 document.querySelector('#repair-runs').addEventListener('change', event => {
   if (event.target.matches('input[name="repair-run"]')) updateRepairSelectionState();
@@ -1214,6 +1263,7 @@ window.submitRegression = submitRegression;
 window.toggleRegressionRuns = toggleRegressionRuns;
 window.loadMoreRegressionRuns = loadMoreRegressionRuns;
 window.setRepairAttempts = setRepairAttempts;
+window.setRepairPhase2Workers = setRepairPhase2Workers;
 window.setRepairRegression = setRepairRegression;
 window.setRepairCleanup = setRepairCleanup;
 window.setStageWorkers = setStageWorkers;
@@ -1232,6 +1282,7 @@ window.showLogs = showLogs;
 window.openSymbolSync = openSymbolSync;
 window.probeSymbolHistory = probeSymbolHistory;
 window.disableSymbolsWithoutHistory = disableSymbolsWithoutHistory;
+window.disableTradeBlockedSymbols = disableTradeBlockedSymbols;
 window.refreshSymbolUniverse = refreshSymbolUniverse;
 window.showSymbolHistoryLog = showSymbolHistoryLog;
 window.refresh = refresh;

@@ -434,9 +434,37 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("pagination.has_more", script)
         self.assertIn('id="generation-repair-workers"', page)
         self.assertIn("repair_max_workers: Number(document.querySelector('#generation-repair-workers').value)", script)
-        self.assertIn("Terminales para reparación", page)
+        self.assertIn("Terminales reparación · fase 1", page)
         self.assertIn("`${dialogName}_max_workers`", script)
         self.assertIn(".repair-select-row", styles)
+
+    def test_repair_dialogs_configure_the_terminals_of_both_phases(self) -> None:
+        # Cada intento de reparación se ejecuta en dos fases sobre las mismas
+        # etapas, y lo único que las diferencia es cuántos terminales usan a la vez.
+        # Los dos diálogos y la tarjeta tienen que poder fijar las dos.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "app.js").read_text(encoding="utf-8")
+        page = (static_dir / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="repair-workers-phase2"', page)
+        self.assertIn('id="generation-repair-workers-phase2"', page)
+        self.assertEqual(page.count("fase 2"), 2)
+        self.assertIn(
+            "repair_phase2_max_workers: Number(document.querySelector('#repair-workers-phase2').value)",
+            script,
+        )
+        self.assertIn(
+            "repair_phase2_max_workers: Number(document.querySelector('#generation-repair-workers-phase2').value)",
+            script,
+        )
+        self.assertIn("setRepairPhase2Workers(Number(this.value))", page)
+        self.assertIn("window.setRepairPhase2Workers = setRepairPhase2Workers", script)
+        self.assertIn("'repair_phase2_max_workers',Number(this.value)", script)
+        self.assertIn("settingsFor(node, id).repair_phase2_max_workers", script)
+        # El estado en vivo distingue las dos pasadas: sin la fase, la tarjeta leería
+        # el recuento de pendientes de la otra.
+        self.assertIn("`phase_${job.current_phase}_`", script)
+        self.assertIn("fase ${job.current_phase}/2", script)
 
     def test_repair_dialog_makes_the_regression_stage_optional(self) -> None:
         # La etapa regresiva de Reparar dejó de ser obligatoria: la decide una casilla
@@ -499,8 +527,10 @@ class PortfolioFormTests(unittest.TestCase):
             "random-seed": (-7, 0, 20260812),
             "max-workers": (1, 64),
             "repair-workers": (1, 64),
+            "repair-workers-phase2": (1, 64),
             "regression-workers": (1, 64),
             "generation-repair-workers": (1, 64),
+            "generation-repair-workers-phase2": (1, 64),
             "generation-repair-attempts": (1, 20),
             "repair-attempts": (1, 20),
             "capital": (0.5, 5000, 10000.25),
@@ -526,7 +556,7 @@ class PortfolioFormTests(unittest.TestCase):
             "min_tick_history_quality_pct": (0, 80, 99.9, 100),
             "fixed_delay_ms": (0, 125, 600000),
             "trade_time_tolerance_seconds": (0, 120, 86400),
-            "price_tolerance_points": (0, 10, 10.5, 1000000),
+            "price_tolerance_points": (0, 15, 15.5, 1000000),
             "volume_tolerance_pct": (0, 1, 1.5, 100),
             "pnl_deviation_warning_pct": (0, 10, 10.5, 10000),
             "drawdown_deviation_warning_pct": (0, 15, 15.5, 10000),
