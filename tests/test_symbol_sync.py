@@ -52,11 +52,12 @@ class SymbolSyncRoutingTests(unittest.TestCase):
             "universe-disable-trade-disabled": "/api/v1/universe/disable-trade-disabled",
         }
         for action, target in routes.items():
-            payload = (
-                {"password": "test-only", "login": "123"}
-                if action in {"universe-sync", "universe-trade-disabled-preview"}
-                else {"symbols": ["TEST"]}
-            )
+            if action == "universe-sync":
+                payload = {"password": "test-only", "login": "123"}
+            elif action == "universe-trade-disabled-preview":
+                payload = {}
+            else:
+                payload = {"symbols": ["TEST"]}
             with self.subTest(action=action), mock.patch(
                 "mt5_manager.manager.node_request", return_value=(202, {"status": "running"})
             ) as forward:

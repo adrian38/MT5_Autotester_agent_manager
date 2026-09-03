@@ -519,23 +519,18 @@ async function disableSymbolsWithoutHistory() {
 }
 
 async function disableTradeBlockedSymbols() {
-  const payload = symbolSyncCredentialsPayload();
-  // The terminal query may use these credentials, but they are never persisted.
-  document.querySelector('#symbol-sync-password').value = '';
   await withSymbolOperation(async () => {
     symbolSyncMessage('Consultando directamente en MT5 el trade_mode actual de todos los símbolos…');
-    try {
-      const preview = await symbolNodeRequest('universe-trade-disabled-preview', payload);
-      const captured = preview.terminal_captured_at || 'consulta recién realizada';
-      const account = preview.account_login || 'sesión guardada';
-      const server = preview.server || 'sesión guardada';
-      const message = `DISABLED/CLOSEONLY actuales en MT5: ${preview.terminal_total ?? preview.total}\nConsulta MT5: ${captured}\nCuenta: ${account}\nServidor: ${server}\nYa deshabilitados: ${preview.already_disabled}\nNuevos a deshabilitar en GEN: ${preview.newly_disabled}`;
-      symbolSyncMessage(message);
-      if (!preview.newly_disabled || !confirm(`${message}\n\n¿Confirmas deshabilitarlos?`)) return;
-      // Send exactly the live-previewed set; the confirmation cannot expand later.
-      const result = await symbolNodeRequest('universe-disable-trade-disabled', {symbols: preview.symbols});
-      symbolSyncMessage(`Símbolos con trading bloqueado deshabilitados en GEN ahora: ${result.newly_disabled}.\nSiguiente paso: Actualizar para consultar el universo resultante.`);
-    } finally { payload.password = ''; }
+    const preview = await symbolNodeRequest('universe-trade-disabled-preview');
+    const captured = preview.terminal_captured_at || 'consulta recién realizada';
+    const account = preview.account_login || 'sesión guardada';
+    const server = preview.server || 'sesión guardada';
+    const message = `DISABLED/CLOSEONLY actuales en MT5: ${preview.terminal_total ?? preview.total}\nConsulta MT5: ${captured}\nCuenta: ${account}\nServidor: ${server}\nYa deshabilitados: ${preview.already_disabled}\nNuevos a deshabilitar en GEN: ${preview.newly_disabled}`;
+    symbolSyncMessage(message);
+    if (!preview.newly_disabled || !confirm(`${message}\n\n¿Confirmas deshabilitarlos?`)) return;
+    // Send exactly the live-previewed set; the confirmation cannot expand later.
+    const result = await symbolNodeRequest('universe-disable-trade-disabled', {symbols: preview.symbols});
+    symbolSyncMessage(`Símbolos con trading bloqueado deshabilitados en GEN ahora: ${result.newly_disabled}.\nSiguiente paso: Actualizar para consultar el universo resultante.`);
   });
 }
 

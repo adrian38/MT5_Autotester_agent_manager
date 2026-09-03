@@ -140,7 +140,7 @@
       </div>
       <button type="submit" data-symbol-action>1. Sincronización de símbolos</button>
     </form>
-    <p>Probar history GEN procesa solo los símbolos GEN=sí sin veredicto previo. Puede pasar varios minutos preparando sin salida y durar horas con miles de símbolos. El paso 4 consulta en ese momento el <code>trade_mode</code> de la terminal MT5; no usa journals.</p>
+    <p>Probar history GEN procesa solo los símbolos GEN=sí sin veredicto previo. Puede pasar varios minutos preparando sin salida y durar horas con miles de símbolos. El paso 4 usa la terminal configurada y su sesión ya iniciada para consultar <code>trade_mode</code>; no pide credenciales ni usa journals.</p>
     <div class="dialog-actions">
       <button type="button" data-symbol-action onclick="probeSymbolHistory()">2. Probar history GEN</button>
       <button type="button" data-symbol-action class="danger" onclick="disableSymbolsWithoutHistory()">3. Deshabilitar símbolos sin history</button>

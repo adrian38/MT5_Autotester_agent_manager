@@ -18,8 +18,9 @@ después de sincronizar.
 
 La sincronización guarda además una captura derivada de `symbol_info.trade_mode`
 para todos los símbolos devueltos por la terminal. El paso de trading bloqueado
-vuelve a consultar el terminal en ese momento y usa exclusivamente sus valores
-actuales (`DISABLED=0` y `CLOSEONLY=3`). Guarda la captura exacta aprobada para
+vuelve a consultar el terminal configurado en ese momento, reutiliza su última
+sesión iniciada sin pedir credenciales y usa exclusivamente sus valores actuales
+(`DISABLED=0` y `CLOSEONLY=3`). Guarda la captura exacta aprobada para
 que la confirmación posterior no pueda expandirse. Los journals no alimentan
 esta política: solo diagnostican un candidato mientras se genera un run. La
 contraseña nunca se persiste en la captura ni en el estado del manager.
