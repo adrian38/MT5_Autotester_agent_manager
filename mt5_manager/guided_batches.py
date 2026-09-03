@@ -113,7 +113,7 @@ def validate_package(package, broker, account):
             raise ValueError('Padre inválido')
         if any(not isinstance(item[k],str) or not item[k] or len(item[k])>2048 for k in ('family','target_symbol','period','root_seed')):
             raise ValueError('Metadatos inválidos')
-        if item['mode'] not in {'guided','exploration'} or not re.fullmatch(r'(M[1-9][0-9]*|H[1-9][0-9]*|D1|W1|MN1)',item['period']):
+        if item['mode'] not in {'guided','exploration','symbol_exploration'} or not re.fullmatch(r'(M[1-9][0-9]*|H[1-9][0-9]*|D1|W1|MN1)',item['period']):
             raise ValueError('Modo o timeframe inválido')
         raw = []
         for prefix in ('set','parent'):
@@ -126,17 +126,26 @@ def validate_package(package, broker, account):
             raw.append(content)
         values, previous = set_params(raw[0]), set_params(raw[1])
         change = item['mutation']
-        if not isinstance(change,dict) or not {'key','old','new','step','direction','minimum','maximum'}<=set(change) or not isinstance(change['key'],str):
+        if not isinstance(change,dict) or not isinstance(change.get('key'),str):
             raise ValueError('Mutación inválida')
-        try:
-            old,new,step,minimum,maximum = (Decimal(str(change[k])) for k in ('old','new','step','minimum','maximum'))
-            valid = all(v.is_finite() for v in (old,new,step,minimum,maximum)) and step>0 and minimum<maximum
-            valid = valid and change['direction'] in (-1,1) and new-old==step*change['direction'] and minimum<=new<=maximum
-        except (InvalidOperation,TypeError,ValueError):
-            valid = False
-        if not valid:
-            raise ValueError('Paso/rango/dirección de mutación inválidos')
         key = change['key']
+        symbol_exploration = item['mode']=='symbol_exploration'
+        if symbol_exploration:
+            if set(change)!={'kind','key','old','new'} or change.get('kind')!='symbol_exploration' or key!='ForceSymbol':
+                raise ValueError('Retargeting de símbolo inválido')
+            if not all(isinstance(change.get(k),str) and change[k] for k in ('old','new')) or change['old'].upper()==change['new'].upper():
+                raise ValueError('Símbolo anterior/nuevo inválido')
+        else:
+            if not {'key','old','new','step','direction','minimum','maximum'}<=set(change):
+                raise ValueError('Mutación numérica incompleta')
+            try:
+                old,new,step,minimum,maximum = (Decimal(str(change[k])) for k in ('old','new','step','minimum','maximum'))
+                valid = all(v.is_finite() for v in (old,new,step,minimum,maximum)) and step>0 and minimum<maximum
+                valid = valid and change['direction'] in (-1,1) and new-old==step*change['direction'] and minimum<=new<=maximum
+            except (InvalidOperation,TypeError,ValueError):
+                valid = False
+            if not valid:
+                raise ValueError('Paso/rango/dirección de mutación inválidos')
         if set(values)!=set(previous) or [k for k in sorted(values) if normalized(values[k])!=normalized(previous[k])]!=[key]:
             raise ValueError('Se exige exactamente una mutación')
         if normalized(previous[key])!=normalized(change['old']) or normalized(values[key])!=normalized(change['new']):
