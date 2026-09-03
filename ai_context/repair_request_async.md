@@ -61,6 +61,13 @@
   seguía en `running` y el trabajo continuaba: el botón parecía no existir.
   Detener deja el trabajo en `stopped` tanto si cortó una etapa en marcha como
   si cortó entre etapas; antes lo primero acababa en `failed`.
+- La otra mitad de ese fallo estaba en el manager: `node_request` usa
+  `node.get("timeout", 5)` y ningún nodo de `manager.json` fija `timeout`, así
+  que el POST de detener expiraba a los 5 segundos —menos de los 8 que
+  `_terminate_current` espera a que muera el proceso— y el handler devolvía 502.
+  La pantalla daba el botón por fallido aunque el nodo lo hubiera aplicado.
+  `stop`, `pause` y `resume` van con `NODE_CONTROL_TIMEOUT` (30 s); como las
+  demás mutaciones, no se reintentan.
 - La fase forma parte de la clave de etapa (`run_7_attempt_1_phase_2_final_tick`,
   `cycle_1_attempt_1_phase_2_result`). Sin ella la segunda pasada pisaría el
   código de retorno, el comando y el recuento de pendientes de la primera. El

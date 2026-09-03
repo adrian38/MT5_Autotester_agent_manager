@@ -65,6 +65,25 @@ class SymbolSyncRoutingTests(unittest.TestCase):
                 forward.assert_called_once_with(self.server.nodes[0], "POST", target, payload, timeout=120)
                 self.assertEqual(self.server.preferences, {})
 
+    def test_stopping_a_node_waits_longer_than_a_status_poll(self):
+        # Detener mata la etapa en curso y espera hasta 8 segundos a que el proceso
+        # muera; pausar, lo mismo. Con el timeout general de 5 segundos el POST
+        # expiraba y la pantalla daba el botón por fallido aunque el nodo lo
+        # hubiera aplicado. Se comprobó el 2026-09-03 con una reparación de 4800
+        # etapas que siguió corriendo después de pulsar «Detener».
+        for action, target in (
+            ("stop", "/api/v1/jobs/stop"),
+            ("pause", "/api/v1/jobs/pause"),
+            ("resume", "/api/v1/jobs/resume"),
+        ):
+            with self.subTest(action=action), mock.patch(
+                "mt5_manager.manager.node_request", return_value=(200, {"status": "stopping"})
+            ) as forward:
+                self.assertEqual(self.post(action, {}), (200, {"status": "stopping"}))
+                forward.assert_called_once_with(
+                    self.server.nodes[0], "POST", target, {}, timeout=30,
+                )
+
     def test_busy_and_old_nodes_return_their_error_without_retry(self):
         for status in (409, 404):
             with self.subTest(status=status), mock.patch(
