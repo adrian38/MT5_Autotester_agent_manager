@@ -33,6 +33,25 @@
 - El límite de terminales del modal se persiste como `repair_max_workers`.
   No reutiliza ni modifica `max_workers`, que pertenece a una nueva ejecución,
   ni `regression_max_workers`, que pertenece a la regresiva manual.
+- **Cada reintento se ejecuta en dos fases** sobre las mismas etapas. Lo único que
+  las diferencia es cuántos terminales usan a la vez: la fase 1 con
+  `repair_max_workers` (`max_workers` en la reparación manual) y la fase 2 con
+  `repair_phase2_max_workers`, que por omisión es 1. Como todas las etapas son
+  `--*-pending-only`, la fase 2 solo trabaja sobre lo que la fase 1 dejó
+  pendiente y se omite sin lanzar proceso cuando no queda nada; el uso previsto
+  es paralelo primero y secuencial después, para lo que falla por contención de
+  terminales. `repair_attempts` multiplica: N reintentos son 2N pasadas.
+  La limpieza histórica sigue cerrando el run una sola vez, tras las dos fases.
+- La fase forma parte de la clave de etapa (`run_7_attempt_1_phase_2_final_tick`,
+  `cycle_1_attempt_1_phase_2_result`). Sin ella la segunda pasada pisaría el
+  código de retorno, el comando y el recuento de pendientes de la primera. El
+  nodo publica `current_phase` y la tarjeta lo usa para leer el recuento correcto
+  y para mostrar «fase N/2».
+- El nodo real es la copia del agente: el cambio está portado a
+  `manager_node_runtime/node.py` de ICTrading, con `tests/test_manager_node_repair_phases.py`
+  allí y la guarda `test_two_phase_repair_reaches_every_reachable_fork` aquí.
+  **AXI y RoboForex siguen sin portar**: aceptan `repair_phase2_max_workers`, lo
+  ignoran y reparan en una sola pasada, sin error que lo delate.
 - La reparación automática posterior a cada run usa el mismo
   `repair_max_workers` independiente. El campo "Terminales para reparación"
   aparece tanto en la tarjeta como en el modal de nueva ejecución; sus etapas

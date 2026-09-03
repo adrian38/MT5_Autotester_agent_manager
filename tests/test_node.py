@@ -186,6 +186,7 @@ enabled=0
                 "cycles": 1,
                 "max_workers": 7,
                 "repair_max_workers": 3,
+                "repair_phase2_max_workers": 1,
                 "repair_after_generation": True,
                 "repair_attempts": 1,
                 "run_robustness": True,
@@ -194,12 +195,47 @@ enabled=0
 
         self.assertEqual(state["request"]["max_workers"], 7)
         self.assertEqual(state["request"]["repair_max_workers"], 3)
+        self.assertEqual(state["request"]["repair_phase2_max_workers"], 1)
         repair_steps = [
             step for step in state["pipeline"]
             if step["action"] != "generation"
         ]
         self.assertTrue(repair_steps)
-        self.assertTrue(all(step["max_workers"] == 3 for step in repair_steps))
+        # Un solo intento, dos fases: mismas etapas, distinto numero de terminales.
+        self.assertEqual(
+            [(step["action"], step["phase"], step["max_workers"]) for step in repair_steps],
+            [
+                (action, phase, workers)
+                for phase, workers in ((1, 3), (2, 1))
+                for action in ("result", "robustness")
+            ],
+        )
+
+    def test_auto_repair_second_phase_defaults_to_a_single_terminal(self) -> None:
+        # Un manager antiguo no manda `repair_phase2_max_workers`; la fase 2 tiene
+        # que existir igual y recoger en secuencial lo que la fase 1 deje pendiente.
+        config_path = self.root / "node.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        controller = JobController(self.config, config_path)
+
+        with mock.patch.object(controller, "_launch_step"):
+            state = controller.start({
+                "cycles": 1,
+                "max_workers": 6,
+                "repair_after_generation": True,
+                "repair_attempts": 1,
+                "run_robustness": False,
+                "cleanup_after_run": False,
+            })
+
+        self.assertEqual(state["request"]["repair_phase2_max_workers"], 1)
+        self.assertEqual(
+            [
+                (step["phase"], step["max_workers"])
+                for step in state["pipeline"] if step["action"] == "result"
+            ],
+            [(1, 6), (2, 1)],
+        )
 
     def test_manual_historical_cleanup_is_a_queueable_job(self) -> None:
         scripts_dir = self.root / "scripts"
@@ -228,12 +264,18 @@ enabled=0
         with mock.patch.object(controller, "_launch_next_runnable", return_value=True):
             state = controller.start_repair({
                 "run_ids": [7, 9], "repair_attempts": 1, "cleanup_after_run": True,
+                "max_workers": 5, "repair_phase2_max_workers": 2,
             })
 
         actions = ["result", "robustness", "final_tick", "final_tick_quality",
                    "final_tick_6m", "final_tick_6m_quality"]
+        # La limpieza cierra el run una sola vez, despues de las dos fases.
         expected = [
-            *((run_id, action) for run_id in (7, 9) for action in (*actions, *CLEANUP_STAGES)),
+            *(
+                (run_id, action)
+                for run_id in (7, 9)
+                for action in (*actions, *actions, *CLEANUP_STAGES)
+            ),
         ]
         self.assertTrue(state["request"]["cleanup_after_run"])
         self.assertEqual(
@@ -241,8 +283,21 @@ enabled=0
             expected,
         )
         self.assertEqual(
+            [
+                (step["phase"], step["max_workers"])
+                for step in state["pipeline"] if step["action"] == "result"
+            ],
+            [(1, 5), (2, 2), (1, 5), (2, 2)],
+        )
+        self.assertEqual(
             controller._step_label({"action": "cleanup_tester", "cycle": None, "run_id": 7}),
             "run_7_cleanup_tester",
+        )
+        self.assertEqual(
+            controller._step_label(
+                {"action": "result", "cycle": None, "run_id": 7, "attempt": 1, "phase": 2},
+            ),
+            "run_7_attempt_1_phase_2_result",
         )
 
     def test_manual_regression_cleans_after_each_selected_run(self) -> None:

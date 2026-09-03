@@ -970,6 +970,9 @@ class JobController(GuidedControllerMixin):
         repair_attempts = safe_int(payload.get("repair_attempts"), 1, minimum=1, maximum=20)
         payload["repair_after_generation"] = repair_after_generation
         payload["repair_max_workers"] = repair_max_workers
+        payload["repair_phase2_max_workers"] = safe_int(
+            payload.get("repair_phase2_max_workers"), 1, minimum=1, maximum=64
+        )
         payload["repair_attempts"] = repair_attempts
         payload["cleanup_after_run"] = cleanup_after_run_enabled(self.config, payload)
         return payload
@@ -981,7 +984,9 @@ class JobController(GuidedControllerMixin):
         run_final_tick = payload["run_final_tick"]
         run_final_tick_6m = payload["run_final_tick_6m"]
         repair_after_generation = payload["repair_after_generation"]
-        repair_max_workers = payload["repair_max_workers"]
+        repair_phase_workers = (
+            payload["repair_max_workers"], payload["repair_phase2_max_workers"],
+        )
         repair_attempts = payload["repair_attempts"]
         cleanup_after_run = payload["cleanup_after_run"]
         pipeline: list[dict[str, Any]] = []
@@ -995,12 +1000,18 @@ class JobController(GuidedControllerMixin):
                     repair_actions.extend(["final_tick", "final_tick_quality"])
                 if run_final_tick_6m:
                     repair_actions.extend(["final_tick_6m", "final_tick_6m_quality"])
+                # Cada intento se parte en dos fases sobre las mismas etapas: la
+                # primera con los terminales de reparacion y la segunda con los
+                # suyos. Todas las etapas son «pending-only», asi que la segunda
+                # solo trabaja lo que la primera dejo pendiente y se omite sin
+                # lanzar proceso cuando no queda nada.
                 pipeline.extend(
                     {
                         "action": action, "cycle": cycle, "run_id": None,
-                        "attempt": attempt, "max_workers": repair_max_workers,
+                        "attempt": attempt, "phase": phase, "max_workers": workers,
                     }
                     for attempt in range(1, repair_attempts + 1)
+                    for phase, workers in enumerate(repair_phase_workers, start=1)
                     for action in repair_actions
                 )
             else:
@@ -1050,7 +1061,8 @@ class JobController(GuidedControllerMixin):
             "started_at": utc_now(), "finished_at": None, "return_code": None,
             "request": {}, "command": None, "log_path": str(log_path), "error": None,
             "pipeline": pipeline, "current_stage": "cleanup_tester", "current_cycle": None,
-            "current_run_id": None, "current_attempt": None, "completed_stages": [],
+            "current_run_id": None, "current_attempt": None, "current_phase": None,
+            "completed_stages": [],
             "skipped_stages": [], "stage_return_codes": {}, "stage_pending_counts": {},
             "commands": {}, "cycle_run_ids": {}, "cleanup_failed": False,
         }
@@ -1083,6 +1095,11 @@ class JobController(GuidedControllerMixin):
             payload.get("max_workers"), 1, minimum=1, maximum=64
         )
         payload["execute_backtests"] = True
+        # `max_workers` son los terminales de la primera fase; la segunda tiene los
+        # suyos y por omision es secuencial, que es el sentido de partir el intento.
+        payload["repair_phase2_max_workers"] = safe_int(
+            payload.get("repair_phase2_max_workers"), 1, minimum=1, maximum=64
+        )
         repair_attempts = safe_int(payload.get("repair_attempts"), 1, minimum=1, maximum=20)
         payload["repair_attempts"] = repair_attempts
         retry_low_quality = bool(payload.get("retry_low_quality", True))
@@ -1101,11 +1118,18 @@ class JobController(GuidedControllerMixin):
         actions.append("final_tick_6m")
         if retry_low_quality:
             actions.append("final_tick_6m_quality")
+        # Dos fases por intento, distinguidas solo por cuantos terminales usan a la
+        # vez: la primera en paralelo y la segunda sobre lo que quede pendiente.
+        phase_workers = (payload["max_workers"], payload["repair_phase2_max_workers"])
         pipeline: list[dict[str, Any]] = []
         for run_id in run_ids:
             pipeline.extend(
-                {"action": action, "cycle": None, "run_id": run_id, "attempt": attempt}
+                {
+                    "action": action, "cycle": None, "run_id": run_id,
+                    "attempt": attempt, "phase": phase, "max_workers": workers,
+                }
                 for attempt in range(1, repair_attempts + 1)
+                for phase, workers in enumerate(phase_workers, start=1)
                 for action in actions
             )
             if payload["cleanup_after_run"]:
@@ -1120,7 +1144,7 @@ class JobController(GuidedControllerMixin):
             "started_at": utc_now(), "finished_at": None, "return_code": None,
             "request": payload, "command": None, "log_path": str(log_path), "error": None,
             "pipeline": pipeline, "current_stage": None, "current_cycle": None,
-            "current_run_id": None, "current_attempt": None,
+            "current_run_id": None, "current_attempt": None, "current_phase": None,
             "completed_stages": [], "skipped_stages": [],
             "stage_return_codes": {}, "stage_pending_counts": {}, "commands": {}, "cycle_run_ids": {},
             "cleanup_failed": False,
@@ -1188,7 +1212,7 @@ class JobController(GuidedControllerMixin):
             "started_at": utc_now(), "finished_at": None, "return_code": None,
             "request": payload, "command": None, "log_path": str(log_path), "error": None,
             "pipeline": pipeline, "current_stage": None, "current_cycle": None,
-            "current_run_id": None, "current_attempt": None,
+            "current_run_id": None, "current_attempt": None, "current_phase": None,
             "completed_stages": [], "skipped_stages": [],
             "stage_return_codes": {}, "stage_pending_counts": {}, "commands": {},
             "cycle_run_ids": {}, "cleanup_failed": False,
@@ -1213,12 +1237,17 @@ class JobController(GuidedControllerMixin):
         if cycle is None and stage in CLEANUP_STAGES:
             run_id = safe_int(step.get("run_id"), 0, minimum=0)
             return f"run_{run_id}_{stage}" if run_id > 0 else stage
+        # La reparacion recorre las mismas etapas una vez por fase. Sin la fase en
+        # la clave, la segunda pasada pisaria el codigo de retorno, el comando y el
+        # recuento de pendientes de la primera.
+        phase = step.get("phase")
+        phase_part = f"phase_{phase}_" if phase is not None else ""
         if cycle is not None:
             if step.get("attempt") is not None:
-                return f"cycle_{cycle}_attempt_{step.get('attempt')}_{stage}"
+                return f"cycle_{cycle}_attempt_{step.get('attempt')}_{phase_part}{stage}"
             return f"cycle_{cycle}_{stage}"
         attempt = step.get("attempt")
-        return f"run_{step.get('run_id')}_attempt_{attempt}_{stage}"
+        return f"run_{step.get('run_id')}_attempt_{attempt}_{phase_part}{stage}"
 
     def _append_skip_log(self, log_path: Path, label: str) -> None:
         with log_path.open("a", encoding="utf-8", errors="replace") as handle:
@@ -1293,6 +1322,7 @@ class JobController(GuidedControllerMixin):
         self.state["current_cycle"] = step.get("cycle")
         self.state["current_run_id"] = step.get("run_id")
         self.state["current_attempt"] = step.get("attempt")
+        self.state["current_phase"] = step.get("phase")
         self.state["command"] = command
         self._persist()
         threading.Thread(target=self._watch, args=(process, step_index), daemon=True).start()

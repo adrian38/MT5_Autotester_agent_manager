@@ -43,7 +43,8 @@ BOOL_PREFERENCE_KEYS = (
 # lanzamiento, sin depender de que el navegador lo reenvíe a /preferences.
 LAUNCH_PREFERENCE_KEYS = (
     "cycles", "generations", "variants_per_seed", "max_seeds", "generation_mode", "random_seed",
-    "max_workers", "repair_max_workers", "regression_max_workers", "repair_attempts",
+    "max_workers", "repair_max_workers", "repair_phase2_max_workers",
+    "regression_max_workers", "repair_attempts",
     *BOOL_PREFERENCE_KEYS,
 )
 # Preferencias que el diálogo relee desde launch_defaults en lugar de launch_preferences.
