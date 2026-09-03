@@ -17,11 +17,12 @@ deshabilitar `trade_disabled` y actualizar. No inicia automáticamente el probe
 después de sincronizar.
 
 La sincronización guarda además una captura derivada de `symbol_info.trade_mode`
-para todos los símbolos devueltos por la terminal. El preview de trading bloqueado
-usa esa captura MT5 (`DISABLED=0` y `CLOSEONLY=3`) como fuente vigente. Los
-veredictos explícitos de journal solo son fallback para símbolos ausentes de la
-captura; un `FULL` actual corrige un bloqueo histórico. El preview devuelve los
-totales de cada fuente y la fecha de captura. La contraseña nunca entra en ella.
+para todos los símbolos devueltos por la terminal. El paso de trading bloqueado
+vuelve a consultar el terminal en ese momento y usa exclusivamente sus valores
+actuales (`DISABLED=0` y `CLOSEONLY=3`). Guarda la captura exacta aprobada para
+que la confirmación posterior no pueda expandirse. Los journals no alimentan
+esta política: solo diagnostican un candidato mientras se genera un run. La
+contraseña nunca se persiste en la captura ni en el estado del manager.
 
 ## Lógica existente que debe reutilizar el agente
 
@@ -38,10 +39,10 @@ Leída en la copia ICTrading de este equipo:
 - `_count_ubs_history_probe_symbols`: GEN activo sin veredicto final previo.
 - `_no_history_universe_symbols` / `_disable_no_history_universe_symbols`:
   último veredicto por símbolo de candidatos con `policy='history_probe'`.
-- `_trade_disabled_universe_symbols` / `_disable_trade_disabled_universe_symbols`:
-  último veredicto normal por símbolo; solo admite `trade_disabled`, que exige
-  cero operaciones y evidencia explícita del journal (close-only/10044 o
-  trade-disabled/10017).
+- `_extract_live_mt5_symbols` / `_disable_trade_disabled_universe_symbols`:
+  consulta actual de `symbol_info.trade_mode` y deshabilita únicamente símbolos
+  `DISABLED` o `CLOSEONLY` después de una segunda confirmación. El diagnóstico
+  journal `trade_disabled` permanece separado en el procesamiento del run.
 
 Los métodos de UI dependen de Tk: no invocarlos desde el hilo HTTP. El nuevo
 servicio reutiliza `ubs.mt5_symbol_extract`, `ubs.universe` y `ubs.account`, y
@@ -60,7 +61,7 @@ Todas las rutas del manager son POST `/api/nodes/<id>/<acción>`:
 | `universe-history` | `/api/v1/jobs/universe-history` | aceptación del job, sin esperar los backtests |
 | `universe-disable-preview` | `/api/v1/universe/disable-preview` | `total`, `already_disabled`, `newly_disabled`, `symbols` (solo los nuevos) |
 | `universe-disable-no-history` | `/api/v1/universe/disable-no-history` | `newly_disabled` |
-| `universe-trade-disabled-preview` | `/api/v1/universe/trade-disabled-preview` | `total`, `already_disabled`, `newly_disabled`, `symbols`, `terminal_total`, `journal_total`, `journal_fallback_total`, `terminal_captured_at` |
+| `universe-trade-disabled-preview` | `/api/v1/universe/trade-disabled-preview` | `total`, `already_disabled`, `newly_disabled`, `symbols`, `terminal_total`, `terminal_captured_at`, `account_login`, `server` |
 | `universe-disable-trade-disabled` | `/api/v1/universe/disable-trade-disabled` | `newly_disabled` |
 
 Sincronizar envía `mt5_path`, `login` (texto numérico o vacío), `server`,

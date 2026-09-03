@@ -468,15 +468,19 @@ async function withSymbolOperation(operation) {
   }
 }
 
-document.querySelector('#symbol-sync-credentials').addEventListener('submit', event => {
-  event.preventDefault();
-  if (!confirm('Se reescribirá el universo desde el servidor MT5 con backup: añade los nuevos, retira los ausentes y deshabilita los retirados en GEN. No lanza backtests. ¿Continuar?')) return;
-  const payload = {
+function symbolSyncCredentialsPayload() {
+  return {
     mt5_path: document.querySelector('#symbol-sync-path').value.trim(),
     login: document.querySelector('#symbol-sync-login').value.trim(),
     server: document.querySelector('#symbol-sync-server').value.trim(),
     password: document.querySelector('#symbol-sync-password').value,
   };
+}
+
+document.querySelector('#symbol-sync-credentials').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!confirm('Se reescribirá el universo desde el servidor MT5 con backup: añade los nuevos, retira los ausentes y deshabilita los retirados en GEN. No lanza backtests. ¿Continuar?')) return;
+  const payload = symbolSyncCredentialsPayload();
   // Credentials belong only to this request, never to card preferences.
   document.querySelector('#symbol-sync-password').value = '';
   withSymbolOperation(async () => {
@@ -515,16 +519,23 @@ async function disableSymbolsWithoutHistory() {
 }
 
 async function disableTradeBlockedSymbols() {
+  const payload = symbolSyncCredentialsPayload();
+  // The terminal query may use these credentials, but they are never persisted.
+  document.querySelector('#symbol-sync-password').value = '';
   await withSymbolOperation(async () => {
-    symbolSyncMessage('Consultando veredictos trade_disabled…');
-    const preview = await symbolNodeRequest('universe-trade-disabled-preview');
-    const captured = preview.terminal_captured_at || 'sin sincronización guardada';
-    const message = `Símbolos bloqueados: ${preview.total}\nDetectados en última sincronización MT5: ${preview.terminal_total ?? 0}\nCaptura MT5: ${captured}\nConfirmados por journal: ${preview.journal_total ?? 0}\nJournal usado como fallback: ${preview.journal_fallback_total ?? 0}\nYa deshabilitados: ${preview.already_disabled}\nNuevos a deshabilitar en GEN: ${preview.newly_disabled}`;
-    symbolSyncMessage(message);
-    if (!preview.newly_disabled || !confirm(`${message}\n\n¿Confirmas deshabilitarlos?`)) return;
-    // Send the previewed set, so newly arriving verdicts cannot expand approval.
-    const result = await symbolNodeRequest('universe-disable-trade-disabled', {symbols: preview.symbols});
-    symbolSyncMessage(`Símbolos con trading bloqueado deshabilitados en GEN ahora: ${result.newly_disabled}.\nSiguiente paso: Actualizar para consultar el universo resultante.`);
+    symbolSyncMessage('Consultando directamente en MT5 el trade_mode actual de todos los símbolos…');
+    try {
+      const preview = await symbolNodeRequest('universe-trade-disabled-preview', payload);
+      const captured = preview.terminal_captured_at || 'consulta recién realizada';
+      const account = preview.account_login || 'sesión guardada';
+      const server = preview.server || 'sesión guardada';
+      const message = `DISABLED/CLOSEONLY actuales en MT5: ${preview.terminal_total ?? preview.total}\nConsulta MT5: ${captured}\nCuenta: ${account}\nServidor: ${server}\nYa deshabilitados: ${preview.already_disabled}\nNuevos a deshabilitar en GEN: ${preview.newly_disabled}`;
+      symbolSyncMessage(message);
+      if (!preview.newly_disabled || !confirm(`${message}\n\n¿Confirmas deshabilitarlos?`)) return;
+      // Send exactly the live-previewed set; the confirmation cannot expand later.
+      const result = await symbolNodeRequest('universe-disable-trade-disabled', {symbols: preview.symbols});
+      symbolSyncMessage(`Símbolos con trading bloqueado deshabilitados en GEN ahora: ${result.newly_disabled}.\nSiguiente paso: Actualizar para consultar el universo resultante.`);
+    } finally { payload.password = ''; }
   });
 }
 
