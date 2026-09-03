@@ -48,6 +48,8 @@ class SymbolSyncRoutingTests(unittest.TestCase):
             "universe-history": "/api/v1/jobs/universe-history",
             "universe-disable-preview": "/api/v1/universe/disable-preview",
             "universe-disable-no-history": "/api/v1/universe/disable-no-history",
+            "universe-trade-disabled-preview": "/api/v1/universe/trade-disabled-preview",
+            "universe-disable-trade-disabled": "/api/v1/universe/disable-trade-disabled",
         }
         for action, target in routes.items():
             payload = {"password": "test-only", "login": "123"} if action == "universe-sync" else {"symbols": ["TEST"]}

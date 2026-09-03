@@ -483,7 +483,7 @@ document.querySelector('#symbol-sync-credentials').addEventListener('submit', ev
     symbolSyncMessage('Sincronizando con el servidor MT5… No se están lanzando backtests.');
     try {
       const result = await symbolNodeRequest('universe-sync', payload);
-      symbolSyncMessage(`Universo sincronizado: ${result.total} símbolos\nAñadidos: ${result.added}\nRetirados: ${result.removed}\nDeshabilitados en GEN ahora: ${result.newly_disabled}\n\nSiguiente paso: Probar history GEN y, cuando termine, Deshabilitar símbolos sin history.`);
+      symbolSyncMessage(`Universo sincronizado: ${result.total} símbolos\nAñadidos: ${result.added}\nRetirados: ${result.removed}\nTrading bloqueado detectado en MT5: ${result.trade_blocked ?? 0}\nDeshabilitados en GEN ahora: ${result.newly_disabled}\n\nSiguientes pasos: Probar history GEN, deshabilitar símbolos sin history y revisar trading bloqueado.`);
     } finally { payload.password = ''; }
   });
 });
@@ -511,6 +511,20 @@ async function disableSymbolsWithoutHistory() {
     // Send the previewed set, so newly arriving verdicts cannot expand approval.
     const result = await symbolNodeRequest('universe-disable-no-history', {symbols: preview.symbols});
     symbolSyncMessage(`Deshabilitados en GEN ahora: ${result.newly_disabled}.\nSiguiente paso: Actualizar para consultar el universo resultante.`);
+  });
+}
+
+async function disableTradeBlockedSymbols() {
+  await withSymbolOperation(async () => {
+    symbolSyncMessage('Consultando veredictos trade_disabled…');
+    const preview = await symbolNodeRequest('universe-trade-disabled-preview');
+    const captured = preview.terminal_captured_at || 'sin sincronización guardada';
+    const message = `Símbolos bloqueados: ${preview.total}\nDetectados en última sincronización MT5: ${preview.terminal_total ?? 0}\nCaptura MT5: ${captured}\nConfirmados por journal: ${preview.journal_total ?? 0}\nJournal usado como fallback: ${preview.journal_fallback_total ?? 0}\nYa deshabilitados: ${preview.already_disabled}\nNuevos a deshabilitar en GEN: ${preview.newly_disabled}`;
+    symbolSyncMessage(message);
+    if (!preview.newly_disabled || !confirm(`${message}\n\n¿Confirmas deshabilitarlos?`)) return;
+    // Send the previewed set, so newly arriving verdicts cannot expand approval.
+    const result = await symbolNodeRequest('universe-disable-trade-disabled', {symbols: preview.symbols});
+    symbolSyncMessage(`Símbolos con trading bloqueado deshabilitados en GEN ahora: ${result.newly_disabled}.\nSiguiente paso: Actualizar para consultar el universo resultante.`);
   });
 }
 
@@ -1232,6 +1246,7 @@ window.showLogs = showLogs;
 window.openSymbolSync = openSymbolSync;
 window.probeSymbolHistory = probeSymbolHistory;
 window.disableSymbolsWithoutHistory = disableSymbolsWithoutHistory;
+window.disableTradeBlockedSymbols = disableTradeBlockedSymbols;
 window.refreshSymbolUniverse = refreshSymbolUniverse;
 window.showSymbolHistoryLog = showSymbolHistoryLog;
 window.refresh = refresh;

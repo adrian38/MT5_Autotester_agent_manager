@@ -144,7 +144,8 @@
     <div class="dialog-actions">
       <button type="button" data-symbol-action onclick="probeSymbolHistory()">2. Probar history GEN</button>
       <button type="button" data-symbol-action class="danger" onclick="disableSymbolsWithoutHistory()">3. Deshabilitar símbolos sin history</button>
-      <button type="button" data-symbol-action class="secondary" onclick="refreshSymbolUniverse()">4. Actualizar</button>
+      <button type="button" data-symbol-action class="danger" onclick="disableTradeBlockedSymbols()">4. Deshabilitar trading bloqueado</button>
+      <button type="button" data-symbol-action class="secondary" onclick="refreshSymbolUniverse()">5. Actualizar</button>
     </div>
     <p id="symbol-sync-result" role="status" aria-live="polite" style="white-space: pre-wrap"></p>
     <div class="dialog-actions">

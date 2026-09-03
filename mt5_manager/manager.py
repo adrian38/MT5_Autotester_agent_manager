@@ -918,6 +918,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
             "start", "stop", "pause", "resume", "restart", "repair", "regression", "cleanup", "universe",
             "universe-sync", "universe-history-preview", "universe-history",
             "universe-disable-preview", "universe-disable-no-history",
+            "universe-trade-disabled-preview", "universe-disable-trade-disabled",
         }:
             self._send_json(404, {"error": "Ruta no encontrada"})
             return
@@ -939,6 +940,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 "universe-history": "/api/v1/jobs/universe-history",
                 "universe-disable-preview": "/api/v1/universe/disable-preview",
                 "universe-disable-no-history": "/api/v1/universe/disable-no-history",
+                "universe-trade-disabled-preview": "/api/v1/universe/trade-disabled-preview",
+                "universe-disable-trade-disabled": "/api/v1/universe/disable-trade-disabled",
             }
             target = targets[parts[3]]
             body = self._body()
