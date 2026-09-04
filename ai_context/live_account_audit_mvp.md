@@ -688,3 +688,19 @@ admisible» o «En contra · límite» y la metodología declara
 siguen usando la visualización absoluta antigua, sin reinterpretar datos que no
 guardaron la decisión direccional. La implementación está tanto en el motor de
 referencia como en `manager_node_runtime/live_audit.py` de ICTrading.
+
+## La tabla por operación se descarga en CSV (2026-09-04)
+
+La página de resultado ofrece `Descargar tabla CSV` junto a los filtros. El
+archivo contiene siempre las operaciones completas de
+`comparison_detail.operation_comparisons`, no solo las filas visibles tras
+filtrar o buscar. Conserva por columnas ID, estado, mercado, apertura, cierre,
+precio, volumen, PnL y motivo, y añade `Validación / observaciones` vacía para
+que el usuario pueda devolver su revisión sin reconstruir la tabla a mano.
+
+El CSV usa separador punto y coma y BOM UTF-8 para abrirse directamente en Excel
+con configuración española. El nombre incluye ejecución y periodo. Todos los
+campos se entrecomillan, se escapan y los valores que podrían interpretarse
+como fórmulas se neutralizan. El botón queda deshabilitado en resultados
+antiguos sin detalle por operación. Es una descarga enteramente cliente: no
+añade endpoint ni modifica el runtime del nodo ICTrading.

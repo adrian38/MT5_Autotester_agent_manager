@@ -544,6 +544,20 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("A favor +", self.result_script)
         self.assertIn("PnL: alerta si el real empeora más de", self.result_script)
 
+    def test_result_can_download_the_complete_comparison_as_excel_compatible_csv(self) -> None:
+        buttons = self.result_page.xpath('//button[@id="download-comparison"]')
+        self.assertEqual(len(buttons), 1)
+        self.assertEqual(buttons[0].text, "Descargar tabla CSV")
+        self.assertIn("disabled", buttons[0].attrib)
+        for token in (
+            "function downloadComparisons()", "comparisonRows.map(comparisonCsvRow)",
+            "Validación / observaciones", "text/csv;charset=utf-8", "\\uFEFF",
+            "link.download = `auditoria_", "URL.revokeObjectURL(url)",
+            "#download-comparison').disabled = !comparisonRows.length",
+        ):
+            self.assertIn(token, self.result_script)
+        self.assertIn("if (/^[=+\\-@]/.test(text))", self.result_script)
+
     def test_result_leads_with_mutually_exclusive_outcomes_and_hides_technical_noise(self) -> None:
         for text in (
             "1 · VEREDICTO", "Pertenencia al modo", "Cumplen todo",

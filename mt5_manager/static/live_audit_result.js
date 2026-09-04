@@ -23,6 +23,7 @@ const priceRuleLabels = {
 };
 let comparisonRows = [];
 let activeFilter = 'all';
+let currentResult = null;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -80,6 +81,98 @@ function pnlDelta(measurements, limit) {
     return `<span class="audit-delta">En contra ${escapeHtml(number(changePct, 4))} % · límite ${escapeHtml(number(limit, 4))} %</span>`;
   }
   return `<span class="audit-delta good-text">Sin diferencia · límite ${escapeHtml(number(limit, 4))} %</span>`;
+}
+
+function comparisonDecision(row) {
+  const tester = row.tester || {};
+  const real = row.real || {};
+  const nearest = row.nearest_unused_real || {};
+  const detectedIssues = [...(row.data_issues || [])];
+  if (tester.open_time && tester.close_time && new Date(tester.close_time) < new Date(tester.open_time)
+      && !detectedIssues.includes('close_before_open')) detectedIssues.push('close_before_open');
+  const displayStatus = detectedIssues.length ? 'invalid' : row.status;
+  return {
+    tester,
+    real,
+    nearest,
+    detectedIssues,
+    displayStatus,
+    statusLabel: {matched: 'DENTRO', deviation: 'DESVIACIÓN', missing: 'SIN REAL', invalid: 'FUENTE INVÁLIDA'}[displayStatus] || displayStatus,
+    statusClass: {matched: 'good', deviation: 'warn', missing: 'bad', invalid: 'bad'}[displayStatus] || '',
+    reasons: [...detectedIssues, ...(row.reasons || [])].map(reason => reasonLabels[reason] || reason),
+  };
+}
+
+function plainPair(tester, real, formatter = value => number(value)) {
+  return `TESTER: ${formatter(tester)} · REAL: ${formatter(real)}`;
+}
+
+function plainDelta(value, limit, unit = '') {
+  return `Δ ${number(value, 4)}${unit} · límite ${number(limit, 4)}${unit}`;
+}
+
+function plainPnlDelta(measurements, limit) {
+  if (!measurements.pnl_direction) return plainDelta(measurements.pnl_delta_pct, limit, ' %');
+  const changePct = Math.abs(Number(measurements.pnl_change_pct || 0));
+  if (measurements.pnl_direction === 'favorable') return `A favor +${number(changePct, 4)} % · admisible`;
+  if (measurements.pnl_direction === 'unfavorable') return `En contra ${number(changePct, 4)} % · límite ${number(limit, 4)} %`;
+  return `Sin diferencia · límite ${number(limit, 4)} %`;
+}
+
+function comparisonCsvRow(row) {
+  const {tester, real, nearest, statusLabel, reasons} = comparisonDecision(row);
+  const measurements = row.measurements || {};
+  const limits = row.limits || {};
+  const openReal = real.open_time || nearest.open_time;
+  const openDelta = measurements.open_time_delta_seconds ?? measurements.nearest_open_time_delta_seconds;
+  const reasonText = reasons.length ? reasons.join('; ') : 'Todos los límites se cumplen';
+  const closeText = row.status === 'missing'
+    ? plainPair(tester.close_time, real.close_time, marketDateTime)
+    : `${plainPair(tester.close_time, real.close_time, marketDateTime)} · ${plainDelta(measurements.close_time_delta_seconds, limits.close_time_seconds, ' s')}`;
+  const priceText = row.status === 'missing'
+    ? plainPair(tester.open_price, real.open_price, value => number(value, 8))
+    : `${plainPair(tester.open_price, real.open_price, value => number(value, 8))} · ${plainDelta(measurements.open_price_delta_points, limits.open_price_points, ' pt')} · límite absoluto ${number(limits.open_price_absolute, 8)} · regla ${priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada'}`;
+  const volumeText = row.status === 'missing'
+    ? plainPair(tester.volume, real.volume, value => number(value, 4))
+    : `${plainPair(tester.volume, real.volume, value => number(value, 4))} · ${plainDelta(measurements.volume_delta_pct, limits.volume_pct, ' %')}`;
+  const pnlText = row.status === 'missing'
+    ? plainPair(tester.profit, real.profit, value => number(value, 2))
+    : `${plainPair(tester.profit, real.profit, value => number(value, 2))} · ${plainPnlDelta(measurements, limits.pnl_pct)}`;
+  return [
+    `T${row.tester_index ?? ''}`,
+    statusLabel,
+    `${tester.symbol || '—'} · ${number(tester.volume, 4)} lotes · ${tester.side || '—'} · ${row.strategy || '—'}`,
+    `${plainPair(tester.open_time, openReal, marketDateTime)} · ${plainDelta(openDelta, limits.open_time_seconds, ' s')}${row.status === 'missing' && nearest.open_time ? ' · candidato más cercano, no consumido' : ''}`,
+    closeText,
+    priceText,
+    volumeText,
+    pnlText,
+    reasonText,
+    '',
+  ];
+}
+
+function csvCell(value) {
+  let text = String(value ?? '').replace(/\r?\n/g, ' ').trim();
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function downloadComparisons() {
+  if (!comparisonRows.length || !currentResult) return;
+  const headers = ['ID', 'Estado', 'Mercado', 'Apertura', 'Cierre', 'Precio apertura', 'Volumen', 'PnL', 'Por qué', 'Validación / observaciones'];
+  const csv = `\uFEFF${[headers, ...comparisonRows.map(comparisonCsvRow)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
+  const fileId = String(currentResult.audit_id || auditId || 'resultado').replace(/[^A-Za-z0-9_-]+/g, '_');
+  const start = String(currentResult.period_start || '').slice(0, 10) || 'sin-inicio';
+  const end = String(currentResult.period_end || '').slice(0, 10) || 'sin-fin';
+  const url = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8;'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `auditoria_${fileId}_${start}_${end}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function terminalRestore(result) {
@@ -301,18 +394,9 @@ function renderStrategies(result) {
 }
 
 function comparisonMarkup(row) {
-  const tester = row.tester || {};
-  const real = row.real || {};
-  const nearest = row.nearest_unused_real || {};
+  const {tester, real, nearest, detectedIssues, displayStatus, statusLabel, statusClass, reasons} = comparisonDecision(row);
   const measurements = row.measurements || {};
   const limits = row.limits || {};
-  const detectedIssues = [...(row.data_issues || [])];
-  if (tester.open_time && tester.close_time && new Date(tester.close_time) < new Date(tester.open_time)
-      && !detectedIssues.includes('close_before_open')) detectedIssues.push('close_before_open');
-  const displayStatus = detectedIssues.length ? 'invalid' : row.status;
-  const statusLabel = {matched: 'DENTRO', deviation: 'DESVIACIÓN', missing: 'SIN REAL', invalid: 'FUENTE INVÁLIDA'}[displayStatus] || displayStatus;
-  const statusClass = {matched: 'good', deviation: 'warn', missing: 'bad', invalid: 'bad'}[displayStatus] || '';
-  const reasons = [...detectedIssues, ...(row.reasons || [])].map(reason => reasonLabels[reason] || reason);
   const openReal = real.open_time || nearest.open_time;
   const openDelta = measurements.open_time_delta_seconds ?? measurements.nearest_open_time_delta_seconds;
   const nearestNote = row.status === 'missing' && nearest.open_time ? '<em>Candidato más cercano, no consumido</em>' : '';
@@ -345,6 +429,7 @@ function renderComparisons(detail) {
   comparisonRows = detail.operation_comparisons || [];
   const body = document.querySelector('#comparison-body');
   const warning = document.querySelector('#legacy-warning');
+  document.querySelector('#download-comparison').disabled = !comparisonRows.length;
   if (!comparisonRows.length) {
     body.innerHTML = '<tr><td colspan="8" class="audit-empty">No hay filas de comparación guardadas.</td></tr>';
     warning.hidden = false;
@@ -368,6 +453,7 @@ function renderExtras(detail) {
 }
 
 function renderResult(result, config, portfolios, auditState = {}) {
+  currentResult = result;
   const profile = (config.profiles || {})[auditId] || {};
   const portfolio = (portfolios.portfolios || []).find(row => Number(row.id) === Number(profile.portfolio_id || result.portfolio_id));
   const title = profile.deployment_name || portfolio?.name || `Portafolio #${result.portfolio_id}`;
@@ -425,6 +511,7 @@ document.querySelectorAll('[data-status-filter]').forEach(button => button.addEv
   applyFilters();
 }));
 document.querySelector('#comparison-search').addEventListener('input', applyFilters);
+document.querySelector('#download-comparison').addEventListener('click', downloadComparisons);
 
 loadResult().catch(error => {
   const target = document.querySelector('#result-error');
