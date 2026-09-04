@@ -6,7 +6,7 @@ const reasonLabels = {
   close_time: 'Cierre fuera de tolerancia',
   open_price: 'Precio de apertura fuera de tolerancia',
   volume: 'Volumen fuera de tolerancia',
-  pnl: 'PnL fuera de tolerancia',
+  pnl: 'PnL real peor que el tester',
   drawdown: 'Drawdown fuera de tolerancia',
   open_time_outside_tolerance: 'La operación real más cercana abre fuera de la tolerancia',
   no_real_same_symbol_and_side: 'No existe una real libre con el mismo símbolo y lado',
@@ -67,6 +67,19 @@ function pair(tester, real, formatter = value => number(value)) {
 
 function delta(value, limit, unit = '') {
   return `<span class="audit-delta">Δ ${escapeHtml(number(value, 4))}${escapeHtml(unit)} · límite ${escapeHtml(number(limit, 4))}${escapeHtml(unit)}</span>`;
+}
+
+function pnlDelta(measurements, limit) {
+  const direction = measurements.pnl_direction;
+  if (!direction) return delta(measurements.pnl_delta_pct, limit, ' %');
+  const changePct = Math.abs(Number(measurements.pnl_change_pct || 0));
+  if (direction === 'favorable') {
+    return `<span class="audit-delta good-text">A favor +${escapeHtml(number(changePct, 4))} % · admisible</span>`;
+  }
+  if (direction === 'unfavorable') {
+    return `<span class="audit-delta">En contra ${escapeHtml(number(changePct, 4))} % · límite ${escapeHtml(number(limit, 4))} %</span>`;
+  }
+  return `<span class="audit-delta good-text">Sin diferencia · límite ${escapeHtml(number(limit, 4))} %</span>`;
 }
 
 function terminalRestore(result) {
@@ -130,7 +143,7 @@ function renderVerdict(result) {
   const reasons = result.comparison_detail?.deviation_reasons || {};
   const labels = {
     close_time: 'Cierre', open_price: 'Precio de apertura', volume: 'Volumen',
-    pnl: 'PnL', drawdown: 'Drawdown',
+    pnl: 'PnL desfavorable', drawdown: 'Drawdown',
   };
   const items = Object.entries(reasons).filter(([, count]) => Number(count) > 0);
   document.querySelector('#reason-list').innerHTML = items.length
@@ -181,14 +194,14 @@ function renderMethodology(result) {
   document.querySelector('#methodology').innerHTML = `
     <ol>
       <li><strong>Alinear.</strong><span>${escapeHtml(methodology.alignment || 'Mismo símbolo y lado, con apertura dentro de la tolerancia temporal. Se usa la real más cercana y no puede reutilizarse.')}</span></li>
-      <li><strong>Validar la pareja.</strong><span>${escapeHtml(methodology.validation || 'Se comprueban cierre, precio de apertura, volumen y PnL. El drawdown se valida para el conjunto.')}</span></li>
+      <li><strong>Validar la pareja.</strong><span>${escapeHtml(methodology.validation || 'Se comprueban cierre, precio de apertura y volumen. El PnL alerta cuando el resultado real empeora; una mejora es admisible. El drawdown se valida para el conjunto.')}</span></li>
       <li><strong>Contabilizar.</strong><span>Tester sin real = faltante; real sin tester = extra; una pareja fuera de cualquier límite = desviación.</span></li>
     </ol>
     <div class="audit-tolerances">
       <span>Tiempo ±${escapeHtml(number(tolerances.time_seconds ?? detail.time_tolerance_seconds, 0))} s</span>
       <span>${adaptivePrice ? 'Precio adaptativo por instrumento · límite efectivo en cada fila' : `Precio ±${escapeHtml(number(tolerances.price_points, 2))} puntos`}</span>
       <span>Volumen ±${escapeHtml(number(tolerances.volume_pct, 2))} %</span>
-      <span>PnL ±${escapeHtml(number(tolerances.pnl_pct, 2))} %</span>
+      <span>${tolerances.pnl_policy === 'adverse_shortfall_only' ? `PnL: alerta si el real empeora más de ${escapeHtml(number(tolerances.pnl_pct, 2))} %` : `PnL ±${escapeHtml(number(tolerances.pnl_pct, 2))} %`}</span>
       <span>Drawdown ±${escapeHtml(number(tolerances.drawdown_pct, 2))} %</span>
     </div>`;
 }
@@ -310,7 +323,7 @@ function comparisonMarkup(row) {
     <td>${pair(tester.close_time, real.close_time, marketDateTime)}${row.status === 'missing' ? '' : delta(measurements.close_time_delta_seconds, limits.close_time_seconds, ' s')}</td>
     <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : `${delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}<small>Límite absoluto ${escapeHtml(number(limits.open_price_absolute, 8))} · regla ${escapeHtml(priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada')}</small>`}</td>
     <td>${pair(tester.volume, real.volume, value => number(value, 4))}${row.status === 'missing' ? '' : delta(measurements.volume_delta_pct, limits.volume_pct, ' %')}</td>
-    <td>${pair(tester.profit, real.profit, value => number(value, 2))}${row.status === 'missing' ? '' : delta(measurements.pnl_delta_pct, limits.pnl_pct, ' %')}</td>
+    <td>${pair(tester.profit, real.profit, value => number(value, 2))}${row.status === 'missing' ? '' : pnlDelta(measurements, limits.pnl_pct)}</td>
     <td>${reasons.length ? `<ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : '<strong class="good-text">Todos los límites se cumplen</strong>'}</td>
   </tr>`;
 }

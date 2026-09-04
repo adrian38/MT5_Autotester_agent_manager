@@ -106,6 +106,39 @@ def _effective_price_tolerance(
     return absolute, effective_points, rule
 
 
+def _pnl_comparison(
+    actual_profit: float, tester_profit: float, warning_pct: float,
+) -> dict[str, float | str | bool]:
+    """Mide por separado la diferencia total y el deterioro contra el tester."""
+    actual = float(actual_profit)
+    expected = float(tester_profit)
+    basis = max(abs(expected), 1.0)
+    limit = basis * warning_pct / 100
+    change = actual - expected
+    delta = abs(change)
+    adverse_delta = max(-change, 0.0)
+    epsilon = max(abs(limit) * 1e-12, 1e-12)
+    outside_tolerance = (
+        adverse_delta > limit
+        and not math.isclose(adverse_delta, limit, rel_tol=0.0, abs_tol=epsilon)
+    )
+    if math.isclose(change, 0.0, rel_tol=0.0, abs_tol=1e-12):
+        direction = "equal"
+    else:
+        direction = "favorable" if change > 0 else "unfavorable"
+    return {
+        "delta": delta,
+        "delta_pct": delta / basis * 100,
+        "change": change,
+        "change_pct": change / basis * 100,
+        "adverse_delta": adverse_delta,
+        "adverse_delta_pct": adverse_delta / basis * 100,
+        "limit": limit,
+        "direction": direction,
+        "outside_tolerance": outside_tolerance,
+    }
+
+
 def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
     value = dict(payload or {})
     audit_key = str(value.get("audit_key") or value.get("portfolio_id") or "").strip()
@@ -1747,11 +1780,14 @@ class LiveAuditController:
                 actual["symbol"], point, request["price_tolerance_points"],
             )
             volume_limit = max(expected["volume"], 1e-9) * request["volume_tolerance_pct"] / 100
-            pnl_limit = max(abs(expected["profit"]), 1.0) * request["pnl_deviation_warning_pct"] / 100
+            pnl = _pnl_comparison(
+                actual["profit"], expected["profit"], request["pnl_deviation_warning_pct"],
+            )
+            pnl_limit = float(pnl["limit"])
             close_time_delta = abs((actual["close_time"] - expected["close_time"]).total_seconds())
             open_price_delta = abs(float(actual["open_price"]) - float(expected["open_price"]))
             volume_delta = abs(float(actual["volume"]) - float(expected["volume"]))
-            pnl_delta = abs(float(actual["profit"]) - float(expected["profit"]))
+            pnl_delta = float(pnl["delta"])
             reasons: list[str] = []
             if close_time_delta > time_limit:
                 reasons.append("close_time")
@@ -1764,7 +1800,7 @@ class LiveAuditController:
                 reasons.append("open_price")
             if volume_delta > volume_limit:
                 reasons.append("volume")
-            if pnl_delta > pnl_limit:
+            if pnl["outside_tolerance"]:
                 reasons.append("pnl")
             if reasons:
                 deviations += 1
@@ -1791,6 +1827,11 @@ class LiveAuditController:
                     "volume_delta_pct": round(volume_delta / max(abs(float(expected["volume"])), 1e-9) * 100, 3),
                     "pnl_delta": round(pnl_delta, 2),
                     "pnl_delta_pct": round(pnl_delta / max(abs(float(expected["profit"])), 1.0) * 100, 3),
+                    "pnl_change": round(float(pnl["change"]), 2),
+                    "pnl_change_pct": round(float(pnl["change_pct"]), 3),
+                    "pnl_adverse_delta": round(float(pnl["adverse_delta"]), 2),
+                    "pnl_adverse_delta_pct": round(float(pnl["adverse_delta_pct"]), 3),
+                    "pnl_direction": pnl["direction"],
                 },
                 "limits": {
                     "open_time_seconds": time_limit,
@@ -1855,7 +1896,7 @@ class LiveAuditController:
                 "time_tolerance_seconds": time_limit,
                 "methodology": {
                     "alignment": "Mismo símbolo y lado; apertura dentro de tolerancia; se elige el menor delta y cada real se usa una vez.",
-                    "validation": "Después se validan cierre, precio de apertura, volumen y PnL; el drawdown se valida sobre el conjunto.",
+                    "validation": "Después se validan cierre, precio de apertura y volumen. El PnL solo alerta si el resultado real empeora frente al tester; una mejora es admisible. El drawdown se valida sobre el conjunto.",
                     "tolerances": {
                         "time_seconds": time_limit,
                         "price_points": request["price_tolerance_points"],
@@ -1863,6 +1904,7 @@ class LiveAuditController:
                         "price_absolute_floors": ADAPTIVE_PRICE_TOLERANCE_FLOORS,
                         "volume_pct": request["volume_tolerance_pct"],
                         "pnl_pct": request["pnl_deviation_warning_pct"],
+                        "pnl_policy": "adverse_shortfall_only",
                         "drawdown_pct": request["drawdown_deviation_warning_pct"],
                     },
                 },

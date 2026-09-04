@@ -387,7 +387,7 @@ class LiveAuditEngineTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         real = [{
             "strategy": "1007", "symbol": "EURUSD", "side": "buy", "open_time": now,
-            "close_time": now, "open_price": 1.2, "volume": .02, "profit": 5.0,
+            "close_time": now, "open_price": 1.2, "volume": .02, "profit": -5.0,
         }]
         expected = [{
             "strategy": "one", "symbol": "EURUSD", "side": "buy", "open_time": now,
@@ -418,6 +418,51 @@ class LiveAuditEngineTests(unittest.TestCase):
             "within_tolerance": 0, "with_deviations": 1, "missing_real": 0,
         })
         self.assertIn("cada real se usa una vez", result["comparison_detail"]["methodology"]["alignment"])
+
+    def test_only_adverse_pnl_differences_trigger_the_tolerance(self) -> None:
+        now = datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc)
+        base = {
+            "strategy": "pnl", "symbol": "EURUSD", "side": "buy",
+            "open_time": now, "close_time": now, "open_price": 1.1, "volume": .1,
+        }
+        cases = (
+            (28.69, 37.64, "favorable", "matched"),
+            (-.45, 1.79, "favorable", "matched"),
+            (-4.73, -1.25, "favorable", "matched"),
+            (1.80, -1.12, "unfavorable", "deviation"),
+            (-3.15, -3.35, "unfavorable", "matched"),
+            (10.0, 9.0, "unfavorable", "matched"),
+        )
+        for tester_profit, real_profit, direction, status in cases:
+            with self.subTest(tester=tester_profit, real=real_profit):
+                result = LiveAuditController._compare(
+                    [{**base, "profit": real_profit}],
+                    [{**base, "profit": tester_profit}],
+                    {"EURUSD": .00001}, request(), {"pnl": 1},
+                )
+                row = result["comparison_detail"]["operation_comparisons"][0]
+                self.assertEqual(row["status"], status)
+                self.assertEqual(row["measurements"]["pnl_direction"], direction)
+                self.assertEqual("pnl" in row["reasons"], status == "deviation")
+                if direction == "favorable":
+                    self.assertEqual(row["measurements"]["pnl_adverse_delta"], 0)
+
+        adverse = LiveAuditController._compare(
+            [{**base, "profit": -1.12}], [{**base, "profit": 1.80}],
+            {"EURUSD": .00001}, request(), {"pnl": 1},
+        )["comparison_detail"]["operation_comparisons"][0]
+        self.assertEqual(adverse["reasons"], ["pnl"])
+        self.assertEqual(adverse["measurements"]["pnl_adverse_delta"], 2.92)
+        self.assertEqual(adverse["measurements"]["pnl_adverse_delta_pct"], 162.222)
+
+        favorable_but_late = LiveAuditController._compare(
+            [{**base, "close_time": now + timedelta(seconds=384), "profit": 37.64}],
+            [{**base, "profit": 28.69}],
+            {"EURUSD": .00001}, request(), {"pnl": 1},
+        )["comparison_detail"]["operation_comparisons"][0]
+        self.assertEqual(favorable_but_late["status"], "deviation")
+        self.assertEqual(favorable_but_late["reasons"], ["close_time"])
+        self.assertEqual(favorable_but_late["measurements"]["pnl_direction"], "favorable")
 
     def test_xauusd_eleven_point_price_delta_is_within_default_tolerance(self) -> None:
         now = datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc)

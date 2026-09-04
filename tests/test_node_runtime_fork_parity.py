@@ -578,6 +578,9 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         for token in (
             "def _audit_period",
             "def _effective_price_tolerance",
+            "def _pnl_comparison",
+            '"pnl_policy": "adverse_shortfall_only"',
+            '"pnl_adverse_delta"',
             '"indices": 10.5',
             '"gold": 2.05',
             '"silver": 0.02',

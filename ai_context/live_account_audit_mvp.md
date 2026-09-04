@@ -662,3 +662,29 @@ exactamente iguales al límite usan una epsilon derivada del punto para evitar
 falsos rechazos por representación binaria; una diferencia realmente superior
 sigue siendo desviación. La misma función y sus regresiones viven en el motor
 de referencia y en `manager_node_runtime/live_audit.py` de ICTrading.
+
+## El PnL solo alerta cuando el resultado real empeora (2026-09-04)
+
+La validación `transcripcion_auditor_05.xlsx` sobre la auditoría
+`20260903_104841_727259` mostró que el motor trataba como desviación cualquier
+diferencia absoluta de PnL. Eso marcaba también resultados favorables: más
+beneficio, pasar de pérdida a beneficio o una pérdida real menor que la del
+tester. La política correcta es direccional: solo el déficit
+`max(PnL tester - PnL real, 0)` se compara con el porcentaje configurado. La
+diferencia total sigue guardándose para trazabilidad.
+
+En esa ejecución T4, T6, T7, T11, T13 y T14 tienen PnL real mejor que el tester;
+dejan de aportar el motivo `pnl`, aunque conservan `DESVIACIÓN` porque el cierre
+supera 120 segundos. T1 y T12 sí empeoran. T9 también empeora (tester `+1.80`,
+real `-1.12`), por lo que la anotación que lo consideraba admisible era
+incorrecta y el motivo `pnl` debe permanecer. El total de parejas desviadas de
+esa ejecución seguiría siendo 9 por los cierres; las causas PnL bajarían de 9 a
+3.
+
+Las filas nuevas persisten `pnl_change`, `pnl_change_pct`, déficit adverso y
+dirección (`favorable`, `unfavorable`, `equal`). La página muestra «A favor ·
+admisible» o «En contra · límite» y la metodología declara
+`pnl_policy=adverse_shortfall_only`. Resultados históricos sin estos campos
+siguen usando la visualización absoluta antigua, sin reinterpretar datos que no
+guardaron la decisión direccional. La implementación está tanto en el motor de
+referencia como en `manager_node_runtime/live_audit.py` de ICTrading.
