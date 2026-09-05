@@ -2411,22 +2411,20 @@ def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
     """Modelo de margen del perfil configurado, con el nocional medido si lo hay.
 
     AXI usa tramos por grupo, apalancamiento de cuenta y nocional real.
-    ICTrading consume únicamente ``volume_min`` para dimensionar unidades
-    ejecutables; el resto de perfiles conserva el modelo heredado.
+    Los lotes ejecutables pertenecen al broker de origen, no al perfil de
+    margen elegido: ICTrading con perfil TTP también necesita ``volume_min``.
+    El resto de datos medidos sigue reservado al modelo de margen AXI.
     """
     profile = normalize_margin_profile(inputs.get("margin_profile"))
-    if profile not in {"axi", "ictrading"}:
-        return margin_model_for_profile(inputs.get("margin_profile"))
     symbol_specs_path = getattr(source, "symbol_specs", None)
     if not symbol_specs_path:
         return margin_model_for_profile(inputs.get("margin_profile"))
     (
         symbol_margin, symbol_min_lot, symbol_contract_size, reference_leverage, margin_source,
     ) = load_symbol_specs(symbol_specs_path)
-    if profile == "ictrading":
-        # ICTrading publica volume_min/volume_step en su volcado del terminal.
-        # Solo incorporamos aquí el lote mínimo: margen, nocional y leverage
-        # conservan el comportamiento heredado reservado a AXI.
+    if profile != "axi":
+        # PortfolioSource resuelve las especificaciones del broker real.
+        # Cambiar el perfil financiero no cambia sus restricciones de lotaje.
         return margin_model_for_profile(
             inputs.get("margin_profile"), symbol_min_lot=symbol_min_lot,
         )
