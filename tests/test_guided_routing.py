@@ -34,6 +34,21 @@ class GuidedRoutingTests(unittest.TestCase):
             with self.assertRaises(ValueError): manager.submit_guided_to_node(self.node, package())
             call.assert_not_called()
 
+    def test_launch_options_require_capability_and_are_forwarded_unchanged(self):
+        options={'max_workers':5,'repair_after_generation':True,'repair_max_workers':4,
+                 'repair_phase2_max_workers':1,'repair_attempts':3}
+        submission={'package':package(),'launch_options':options}
+        with mock.patch.object(dev_branch,'assert_writable'), \
+             mock.patch.object(manager,'node_request',return_value=(200,self.state)) as call:
+            with self.assertRaisesRegex(ValueError,'terminales/reparación'):
+                manager.submit_guided_to_node(self.node,submission)
+            self.assertEqual(call.call_count,1)
+        supported={**self.state,'capabilities':{**self.state['capabilities'],'guided_launch_options_v1':True}}
+        with mock.patch.object(dev_branch,'assert_writable'), \
+             mock.patch.object(manager,'node_request',side_effect=[(200,supported),(200,{'queued':True})]) as call:
+            self.assertEqual(manager.submit_guided_to_node(self.node,submission),(200,{'queued':True}))
+            self.assertEqual(call.call_args.args[3],submission)
+
     def test_docker_routes_by_windows_identity_and_still_blocks_other_agents_in_dev(self):
         original = {**self.node, 'portfolio_project_dir': dev_branch.DEV_PROJECT_DIR}
         node = docker_config({'nodes': [original]})['nodes'][0]

@@ -6,28 +6,40 @@ from . import guided_batches as batches
 
 
 class GuidedControllerMixin:
-    def submit_guided(self, package):
+    def submit_guided(self, submission):
         with self.lock:
+            package, launch_options = batches.unpack_submission(submission)
             project = self.config['project_dir']
             broker = str(self.config['broker']).upper()
             account = str(self.config['account_type']).upper()
             directory = batches.store_batch(project,package,broker,account)
             batch_id = package['batch_id']
             receipt = directory/'receipt.json'
+            options_path = directory/'launch_options.json'
             queued = any((q.get('payload') or {}).get('guided_batch_id')==batch_id for q in self.queue)
             current = (self.state.get('request') or {}).get('guided_batch_id')==batch_id
-            if receipt.exists() or queued or current or batches.read_run(project,batch_id):
+            duplicate = receipt.exists() or queued or current or bool(batches.read_run(project,batch_id))
+            if options_path.exists():
+                stored_options = json.loads(options_path.read_text(encoding='utf-8'))
+                if launch_options is not None and stored_options != launch_options:
+                    raise ValueError('El lote ya está ligado a otra configuración de ejecución')
+                launch_options = stored_options
+            elif launch_options is not None:
+                if duplicate:
+                    raise ValueError('Un lote ya recibido no puede adquirir otra configuración de ejecución')
+                batches.save_json(options_path,launch_options)
+            if duplicate:
                 return {'batch_id':batch_id,'duplicate':True,'status':self.guided_status(batch_id)}
-            request = self._normalize_generation({
+            request = self._normalize_generation({**{
                 'guided_batch_id':batch_id,'generation_mode':'discovery','cycles':1,'generations':1,
                 'variants_per_seed':1,'max_seeds':len(package['candidates']),
                 'execute_backtests':True,'dry_run':False,'continue_last':False,
                 'run_robustness':True,'run_final_tick':True,'run_final_tick_6m':True,
-                'repair_after_generation':False,'cleanup_after_run':False})
+                'repair_after_generation':False,'cleanup_after_run':False}, **(launch_options or {})})
             # Persist in the ordinary queue before acknowledging receipt. A retry
             # after a lost HTTP response finds the same batch and never relaunches it.
             value = self._enqueue('generation',request,f"Guiado {batch_id[:12]} · {len(package['candidates'])} candidatos")
-            batches.save_json(receipt,{'status':'queued','batch_id':batch_id,
+            batches.save_json(receipt,{'status':'queued','batch_id':batch_id,'launch_options':launch_options or {},
                                       'queue_id':value['queue_item']['id'],'stage_wall_seconds':{}})
             self._schedule_queue_drain()
             return {'batch_id':batch_id,'duplicate':False,'queued':True,'queue_id':value['queue_item']['id']}

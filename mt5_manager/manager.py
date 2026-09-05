@@ -186,7 +186,8 @@ def live_log_progress(lines: list[Any], current_stage: object) -> dict[str, Any]
     }
 
 
-def submit_guided_to_node(node: dict[str, Any], package: dict[str, Any]) -> tuple[int, Any]:
+def submit_guided_to_node(node: dict[str, Any], submission: dict[str, Any]) -> tuple[int, Any]:
+    package, launch_options = guided_batches.unpack_submission(submission)
     project = node.get('portfolio_project_dir')
     if not project:
         raise ValueError('El nodo no tiene proyecto/broker configurado')
@@ -212,12 +213,15 @@ def submit_guided_to_node(node: dict[str, Any], package: dict[str, Any]) -> tupl
     status, state = node_request(node, 'GET', '/api/v1/status', timeout=15)
     if status!=200 or not (state.get('capabilities') or {}).get('guided_batches_v1'):
         raise ValueError('El nodo todavía no soporta lotes guiados; actualizar su runtime')
+    if launch_options is not None and not (state.get('capabilities') or {}).get('guided_launch_options_v1'):
+        raise ValueError('El nodo todavía no soporta terminales/reparación en lotes guiados; actualizar su runtime')
     identity = state.get('node') or {}
     if identity.get('broker')!=broker or identity.get('account_type')!=account:
         raise ValueError('La identidad del nodo no coincide con el destino')
     if normalize_path(identity.get('project_dir'))!=normalize_path(remote_project):
         raise ValueError('El proyecto anunciado por el nodo no coincide con el configurado')
-    return node_request(node, 'POST', '/api/v1/guided-batches', package, timeout=60)
+    forwarded = {'package': package, 'launch_options': launch_options} if launch_options is not None else package
+    return node_request(node, 'POST', '/api/v1/guided-batches', forwarded, timeout=60)
 
 
 def node_request(

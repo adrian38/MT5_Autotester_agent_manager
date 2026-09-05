@@ -13,6 +13,30 @@ from pathlib import Path
 MAX_BODY = 16_000_000
 MAX_SET = 256_000
 MAX_CANDIDATES = 200
+LAUNCH_OPTION_KEYS = frozenset({
+    'max_workers', 'repair_after_generation', 'repair_max_workers',
+    'repair_phase2_max_workers', 'repair_attempts',
+})
+
+
+def normalize_launch_options(value):
+    if not isinstance(value, dict) or set(value) != LAUNCH_OPTION_KEYS:
+        raise ValueError('Opciones de ejecución guiada incompletas o desconocidas')
+    result = {'repair_after_generation': value['repair_after_generation']}
+    if type(result['repair_after_generation']) is not bool:
+        raise ValueError('repair_after_generation debe ser booleano')
+    for key in LAUNCH_OPTION_KEYS - {'repair_after_generation'}:
+        maximum = 20 if key == 'repair_attempts' else 64
+        if type(value[key]) is not int or not 1 <= value[key] <= maximum:
+            raise ValueError(f'{key} fuera de rango')
+        result[key] = value[key]
+    return result
+
+
+def unpack_submission(value):
+    if isinstance(value, dict) and set(value) == {'package', 'launch_options'}:
+        return value['package'], normalize_launch_options(value['launch_options'])
+    return value, None
 
 
 def digest(raw: bytes) -> str:

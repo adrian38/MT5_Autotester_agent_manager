@@ -1621,6 +1621,7 @@ class JobController(GuidedControllerMixin):
             "launch_defaults": launch_defaults,
             "capabilities": {
                 "guided_batches_v1": True,
+                "guided_launch_options_v1": True,
                 "worker_override": True,
                 "pipeline_controls": True,
                 "failed_resume": True,
