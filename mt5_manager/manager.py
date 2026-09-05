@@ -49,6 +49,14 @@ LAUNCH_PREFERENCE_KEYS = (
 )
 # Preferencias que el diálogo relee desde launch_defaults en lugar de launch_preferences.
 LAUNCH_DEFAULT_OVERRIDE_KEYS = ("generations", "variants_per_seed", "max_seeds")
+# Detener, pausar y reanudar no son consultas: matan la etapa en curso y esperan
+# hasta 8 segundos a que el proceso muera, más lo que tarde el nodo en atender la
+# petición si su pipeline está descartando etapas sin candidatos pendientes. Con
+# el timeout general de 5 segundos el POST expiraba siempre, la pantalla decía
+# que el botón había fallado y el trabajo seguía corriendo aunque el nodo sí lo
+# hubiera aplicado. Como las demás mutaciones, no se reintenta.
+NODE_CONTROL_ACTIONS = frozenset({"stop", "pause", "resume"})
+NODE_CONTROL_TIMEOUT = 30
 # Lo que un vigilante externo necesita para detectar que algo terminó o falló.
 # `/api/nodes` ronda los 400 KB porque lleva el comando completo, el pipeline y
 # el snapshot de la base de cada nodo; sondear eso cada medio minuto desde un
@@ -970,6 +978,10 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 # MT5 initialization can exceed the normal status timeout. Never
                 # retry a mutation: the node may already have applied it.
                 status, value = node_request(node, "POST", target, body, timeout=120)
+            elif parts[3] in NODE_CONTROL_ACTIONS:
+                status, value = node_request(
+                    node, "POST", target, body, timeout=NODE_CONTROL_TIMEOUT,
+                )
             else:
                 status, value = node_request(node, "POST", target, body)
             if parts[3] == "start" and status < 400:

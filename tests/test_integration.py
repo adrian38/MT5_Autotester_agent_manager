@@ -1294,7 +1294,8 @@ enabled=0
         self.assertEqual(result["status"], "completed")
         self.assertTrue(build_stage.call_args_list)
         actions = ["result", "robustness", "final_tick", "final_tick_quality", "final_tick_6m", "final_tick_6m_quality"]
-        # La fase 2 recorre las mismas etapas con su propio limite de terminales.
+        # El reintento es por run: cada run agota sus dos intentos y sus dos fases
+        # antes de que empiece el siguiente.
         self.assertEqual(
             [call.args[1]["max_workers"] for call in build_stage.call_args_list],
             [

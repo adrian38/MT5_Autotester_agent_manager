@@ -448,7 +448,8 @@ class PortfolioFormTests(unittest.TestCase):
 
         self.assertIn('id="repair-workers-phase2"', page)
         self.assertIn('id="generation-repair-workers-phase2"', page)
-        self.assertEqual(page.count("fase 2"), 2)
+        self.assertIn("Terminales MT5 · fase 2", page)
+        self.assertIn("Terminales reparación · fase 2", page)
         self.assertIn(
             "repair_phase2_max_workers: Number(document.querySelector('#repair-workers-phase2').value)",
             script,

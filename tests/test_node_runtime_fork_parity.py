@@ -322,9 +322,12 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
                 "Portar el cambio a manager_node_runtime/node.py y duplicar la prueba en "
                 "tests/test_manager_node_regression.py.",
             )
+            # Sin el `if ... :`: la condición vive dentro de la comprensión que
+            # arma las etapas de cada run, y lo que no puede desaparecer es la
+            # condición, no su formato.
             self._assert_present(
                 node_source,
-                re.escape('if run_regression and run_modes[run_id] == "production":'),
+                re.escape('run_regression and run_modes[run_id] == "production"'),
                 f"{project}: el flujo de Reparar sigue añadiendo la regresiva a todo run de "
                 "producción sin consultar la casilla del diálogo.",
             )
@@ -393,6 +396,59 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
             )
 
         self._assert_on_every_fork(check, "reparación en dos fases")
+
+    def test_stop_without_the_lock_reaches_every_reachable_fork(self) -> None:
+        # Quien retiene el bloqueo es el nodo del agente, así que ahí es donde
+        # detener se quedaba esperando. Un nodo sin portar acepta el POST, tarda
+        # minutos en atenderlo y deja el trabajo corriendo: la pantalla dice que
+        # falló y el pipeline sigue. No hay 404 que lo delate.
+        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        for token in (
+            "self.stop_requested = True",
+            "self.lock.acquire(timeout=CONTROL_LOCK_TIMEOUT)",
+            "def _honour_stop_request",
+        ):
+            self.assertIn(token, manager_node, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            node_source = (project / "manager_node_runtime" / "node.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            for token, hint in (
+                ("self.stop_requested = True", "la petición de parada fuera del bloqueo"),
+                (
+                    "self.lock.acquire(timeout=CONTROL_LOCK_TIMEOUT)",
+                    "la espera acotada por el bloqueo",
+                ),
+                ("def _honour_stop_request", "el cierre del pipeline entre etapas"),
+                (
+                    "if self.stop_requested or self.pause_requested:",
+                    "la comprobación dentro del bucle que descarta etapas",
+                ),
+            ):
+                self._assert_present(
+                    node_source,
+                    re.escape(token),
+                    f"{project}: falta {hint} (`{token}`) en manager_node_runtime/node.py. "
+                    "Portar el cambio desde mt5_manager/node.py: sin él, «Detener» no "
+                    "hace nada mientras el pipeline descarta etapas sin pendientes, que "
+                    "en una reparación de cien runs son minutos seguidos. Duplicar la "
+                    "prueba en tests/test_manager_node_stop.py y reiniciar la aplicación "
+                    "del agente.",
+                )
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "stop_requested" in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre detener con el bloqueo "
+                    "ocupado; duplicar allí la cobertura de `stop_requested`."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "detener sin depender del bloqueo")
 
     def test_application_restart_reaches_every_embedded_node_fork(self) -> None:
         manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
@@ -522,6 +578,9 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         for token in (
             "def _audit_period",
             "def _effective_price_tolerance",
+            "def _pnl_comparison",
+            '"pnl_policy": "adverse_shortfall_only"',
+            '"pnl_adverse_delta"',
             '"indices": 10.5',
             '"gold": 2.05',
             '"silver": 0.02',

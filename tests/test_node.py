@@ -4,6 +4,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import closing
 from pathlib import Path
@@ -237,6 +238,67 @@ enabled=0
             [(1, 6), (2, 1)],
         )
 
+    def test_stop_reaches_a_pipeline_that_is_skipping_empty_stages(self) -> None:
+        # El bucle que descarta etapas sin pendientes retiene `self.lock` y hace
+        # una consulta a SQLite por etapa: en una reparacion de cien runs lo tiene
+        # minutos. `stop()` pedia ese mismo bloqueo, asi que el POST del manager
+        # expiraba y el trabajo seguia como si nadie hubiera pulsado nada.
+        config_path = self.root / "node.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        controller = JobController(self.config, config_path)
+        controller.state.update({
+            "status": "running",
+            "job_type": "repair",
+            "log_path": str(self.root / "repair.log"),
+            "pipeline": [
+                {"action": "result", "cycle": None, "run_id": run_id,
+                 "attempt": 1, "phase": 1, "max_workers": 5}
+                for run_id in (7, 9, 11)
+            ],
+            "current_step_index": 0,
+        })
+        held = threading.Event()
+        released = threading.Event()
+
+        def hold_the_lock() -> None:
+            with controller.lock:
+                held.set()
+                released.wait(5)
+
+        keeper = threading.Thread(target=hold_the_lock, daemon=True)
+        keeper.start()
+        self.assertTrue(held.wait(5))
+        try:
+            state = controller.stop()
+        finally:
+            released.set()
+            keeper.join(5)
+
+        # Responde sin el bloqueo y deja la peticion puesta.
+        self.assertEqual(state["status"], "stopping")
+        self.assertTrue(controller.stop_requested)
+
+        with mock.patch.object(controller, "_launch_step") as launch:
+            self.assertTrue(
+                controller._launch_next_runnable(0, Path(str(controller.state["log_path"]))),
+            )
+        self.assertFalse(launch.called)
+        self.assertEqual(controller.state["status"], "stopped")
+        self.assertIsNone(controller.state["current_step_index"])
+        self.assertFalse(controller.stop_requested)
+
+    def test_a_pending_stop_never_survives_into_the_next_job(self) -> None:
+        config_path = self.root / "node.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        controller = JobController(self.config, config_path)
+        controller.stop_requested = True
+        controller.state["log_path"] = str(self.root / "old.log")
+
+        controller._complete(0)
+
+        self.assertFalse(controller.stop_requested)
+        self.assertEqual(controller.state["status"], "completed")
+
     def test_manual_historical_cleanup_is_a_queueable_job(self) -> None:
         scripts_dir = self.root / "scripts"
         scripts_dir.mkdir()
@@ -269,7 +331,8 @@ enabled=0
 
         actions = ["result", "robustness", "final_tick", "final_tick_quality",
                    "final_tick_6m", "final_tick_6m_quality"]
-        # La limpieza cierra el run una sola vez, despues de las dos fases.
+        # El reintento es por run: se termina con el 7 (sus dos fases) y su limpieza
+        # antes de empezar el 9.
         expected = [
             *(
                 (run_id, action)
@@ -284,10 +347,10 @@ enabled=0
         )
         self.assertEqual(
             [
-                (step["phase"], step["max_workers"])
+                (step["run_id"], step["phase"], step["max_workers"])
                 for step in state["pipeline"] if step["action"] == "result"
             ],
-            [(1, 5), (2, 2), (1, 5), (2, 2)],
+            [(7, 1, 5), (7, 2, 2), (9, 1, 5), (9, 2, 2)],
         )
         self.assertEqual(
             controller._step_label({"action": "cleanup_tester", "cycle": None, "run_id": 7}),

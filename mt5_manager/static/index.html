@@ -75,7 +75,7 @@
       <button class="icon-button" onclick="this.closest('dialog').close()">×</button>
     </div>
     <input type="hidden" id="repair-node-id">
-    <p class="repair-help" id="repair-help-text">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Ejecutará las pruebas pendientes y limpiará los históricos después de cada run seleccionado.</p>
+    <p class="repair-help" id="repair-help-text">Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M. Cada reintento de cada run recorre ese flujo con los terminales de la fase 1 y después otra vez con los de la fase 2.</p>
     <div class="repair-options">
       <label>Terminales MT5 · fase 1
         <input id="repair-workers" type="number" min="1" max="64" value="1" oninput="setStageWorkers('repair', Number(this.value))">

@@ -614,20 +614,96 @@ class AccountLeverageSettingTests(unittest.TestCase):
                 json.dumps({"symbols": {"USTEC": {
                     "volume_min": 0.1, "volume_step": 0.1,
                     "margin_min_lot": 12.86, "contract_size": 1.0,
-                }}}), encoding="utf-8",
+                }, "JP225": {"volume_min": 1.0, "volume_step": 1.0}}}), encoding="utf-8",
             )
             source = PortfolioSource({
                 "portfolio_project_dir": str(project),
                 "portfolio_broker": "ICTRADING",
                 "portfolio_account_type": "STANDARD",
             })
-            model = build_margin_model(source, {"margin_profile": "ictrading"})
+            from portfolio_manager.ubs_portfolio import (
+                _execution_plan_allocations, execution_units_from_step,
+            )
+            from mt5_manager.portfolio_service import _optimizer_kwargs, normalize_settings
 
-        self.assertEqual(model.min_lot_for("USTEC"), 0.1)
-        self.assertEqual(model.lot_size_for("USTEC", 2), 0.2)
-        self.assertEqual(model.lot_increments_for("USTEC"), 10)
-        self.assertIsNone(model.margin_for_one("USTEC"))
-        self.assertIsNone(model.notional_for("USTEC"))
+            for profile in ("ictrading", "ttp", "roboforex"):
+                for scope in ("full_history", "monthly"):
+                    with self.subTest(profile=profile, scope=scope):
+                        inputs = normalize_settings(scope, {
+                            "capital": 5000, "margin_profile": profile,
+                        }, "ICTRADING")
+                        model = build_margin_model(source, inputs)
+                        inputs["margin_model"] = model
+                        self.assertIs(
+                            _optimizer_kwargs(inputs, "balanced", [], 10)["margin_profile"], model,
+                        )
+                        self.assertEqual(model.profile, profile)
+                        self.assertEqual(model.min_lot_for("USTEC"), 0.1)
+                        self.assertEqual(model.lot_size_for("USTEC", 2), 0.2)
+                        self.assertEqual(model.lot_increments_for("USTEC"), 10)
+                        self.assertEqual(model.lot_size_for("JP225", 2), 2.0)
+                        self.assertIsNone(model.margin_for_one("USTEC"))
+                        self.assertIsNone(model.notional_for("USTEC"))
+                        sets = [strategy("USTEC", 20000), strategy("EURUSD", 1.1), strategy("JP225", 40000)]
+                        units, steps = _execution_plan_allocations(
+                            sets, {"USTEC.set": 3, "EURUSD.set": 3, "JP225.set": 1}, 5000, model,
+                        )
+                        self.assertEqual(units["USTEC.set"], 3)
+                        self.assertAlmostEqual(
+                            execution_units_from_step(5000, steps["USTEC.set"]) * .01, .3,
+                        )
+                        self.assertAlmostEqual(
+                            execution_units_from_step(5000, steps["EURUSD.set"]) * .01, .03,
+                        )
+                        self.assertAlmostEqual(
+                            execution_units_from_step(5000, steps["JP225.set"]) * .01, 1.0,
+                        )
+
+    def test_every_broker_keeps_its_minimum_lot_under_every_margin_profile(self) -> None:
+        import contextlib
+        import sqlite3
+
+        from mt5_manager.portfolio_service import PortfolioSource, build_margin_model
+        from portfolio_manager.ubs_portfolio import _execution_plan_allocations, execution_units_from_step
+
+        # Deliberately different minima for the same symbol: selecting a margin
+        # profile must never select another broker's execution specifications.
+        minima = {"ICTRADING": 0.1, "AXI": 1.0, "ROBOFOREX": 0.01}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            for broker, minimum in minima.items():
+                with contextlib.closing(sqlite3.connect(
+                    project / "outputs" / f"ubs_memory_{broker}_STANDARD.sqlite"
+                )) as conn:
+                    conn.execute("create table candidates(id integer primary key)")
+                    conn.commit()
+                (project / "assets" / f"{broker.lower()}_symbol_specs.json").write_text(
+                    json.dumps({"symbols": {"TEST": {"volume_min": minimum}}}),
+                    encoding="utf-8",
+                )
+
+            for broker, minimum in minima.items():
+                source = PortfolioSource({
+                    "portfolio_project_dir": str(project),
+                    "portfolio_broker": broker,
+                    "portfolio_account_type": "STANDARD",
+                })
+                for profile in ("ictrading", "axi", "roboforex", "ttp"):
+                    with self.subTest(broker=broker, profile=profile):
+                        model = build_margin_model(source, {"margin_profile": profile})
+                        self.assertEqual(model.profile, profile)
+                        self.assertEqual(model.min_lot_for("TEST"), minimum)
+                        executable, steps = _execution_plan_allocations(
+                            [strategy("TEST", 100)], {"TEST.set": 2}, 100000, model,
+                        )
+                        self.assertEqual(executable["TEST.set"], 2)
+                        self.assertAlmostEqual(model.lot_size_for("TEST", 2), 2 * minimum)
+                        self.assertAlmostEqual(
+                            execution_units_from_step(100000, steps["TEST.set"]) * .01,
+                            2 * minimum,
+                        )
 
     def test_choices_and_default_match_the_form(self) -> None:
         self.assertEqual(ACCOUNT_LEVERAGE_CHOICES, (1000.0, 500.0, 100.0))

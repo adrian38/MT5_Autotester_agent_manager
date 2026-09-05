@@ -693,8 +693,8 @@ async function openRepair(id, name) {
   const regressionStep = supportsRegression(node) ? ' → Prueba regresiva (opcional)' : '';
   document.querySelector('#repair-help-text').textContent =
     `Flujo: Resultado (Continuar run) → Robustez OOS → Final Tick corto → Final Tick 6M${regressionStep}. `
-    + 'Cada reintento recorre ese flujo dos veces: la fase 1 con sus terminales y la fase 2 con los suyos, '
-    + 'sobre lo que la fase 1 haya dejado pendiente.';
+    + 'Cada reintento de cada run hace dos pasadas: la primera con los terminales de la fase 1 y la '
+    + 'segunda con los de la fase 2, sobre lo que la primera haya dejado pendiente.';
   document.querySelector('#repair-workers').value = settingsFor(node, id).repair_max_workers;
   document.querySelector('#repair-workers-phase2').value = settingsFor(node, id).repair_phase2_max_workers;
   document.querySelector('#repair-attempts').value = settingsFor(node, id).repair_attempts;
