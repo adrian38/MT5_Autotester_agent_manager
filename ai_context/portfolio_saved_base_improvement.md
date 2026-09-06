@@ -18,9 +18,15 @@ sola variante. El manager tiene la misma regla en `save_proposal`. Las copias de
 AXI/RoboForex quedan fuera de alcance; no asumir que ya tienen este cambio.
 El proceso que ejecuta la escritura real es `app_ui.py` con su nodo embebido.
 
-UBS normal compara los resultados válidos de una hasta el máximo de
-incorporaciones y elige mayor mejora beneficio/DD (menos incorporaciones en
-empate). Veta nuevas estrategias por debajo del aporte 6M mínimo guardado al
+UBS normal exige el **mínimo** de incorporaciones elegido por el usuario
+(`improvement_min_additions`, dos por defecto). Compara desde ese mínimo hasta
+el límite existente de cinco incorporaciones por búsqueda, explícito en la UI,
+y elige mayor mejora beneficio/DD (menos incorporaciones en empate). No baja
+del mínimo cuando no encuentra suficientes candidatas válidas. La clave antigua
+`improvement_additions` sigue aceptándose como mínimo para peticiones antiguas;
+internamente cada intento usa esa clave como cantidad exacta. La auditoría y
+los inputs guardados conservan mínimo, límite y cantidad realmente añadida.
+Veta nuevas estrategias por debajo del aporte 6M mínimo guardado al
 lotaje final, sin eliminar originales. El umbral explícito de 0 % se respeta.
 Estas correcciones viven en la orquestación normal, sin alterar el mensual.
 La búsqueda sigue siendo heurística: un rechazo no prueba que todas las
@@ -28,6 +34,54 @@ combinaciones posibles sean inviables.
 
 «Portafolio» sin especificar ámbito significa UBS normal. El mensual permanece
 congelado hasta petición explícita; ver `monthly_portfolio_frozen.md`.
+
+### Identificación y comparación de mejoras guardadas
+
+La lista y el detalle muestran `Mejora del portafolio #X · modo Moderado` y
+el detalle de una mejora habilita `Comparar con el original`. La pantalla
+compara beneficio, DD, beneficio/DD, capital, estrategias, unidades y lotes,
+además de las incorporaciones y cambios de lote por estrategia.
+
+No se debe detectar una mejora solo por el nombre: el #19 de ICTrading se guardó
+con nombre genérico A/M/C desde un nodo que aún ejecutaba el código anterior,
+pero `metrics.inputs` sí conservaba origen #9 y modo `balanced`. Para UBS normal,
+`saved_portfolios` expone `improvement_origin` y un nombre legible a partir de
+esos metadatos, sin escribir en SQLite. Mensual no usa esta rama.
+
+`portfolio_comparison.js` usa únicamente la variante del modo guardado en el
+origen, nunca el resumen global de un bundle A/M/C. Las nuevas mejoras conservan
+`seasonal_validation.portfolio_improvement.source_snapshot`, con métricas de la
+base evaluada y miembros del modo elegido. Si el original cambia o se borra,
+la comparación usa esa copia. Las mejoras anteriores consultan el original
+actual y lo indican; si ya no existe, muestran lo conservado en la auditoría y
+dejan como no disponibles las métricas y estrategias ausentes.
+
+La pantalla solo lee datos; este cambio no precisa otro port en el nodo. El
+snapshot viaja dentro del diccionario de auditoría ya serializado. El botón,
+script y estilos están limitados a UBS normal.
+
+### Lectura del caso ICTrading #9 → #19, Moderado (2026-09-06)
+
+El beneficio histórico pasa de 18880,82 a 16911,60 (-10,43 %) y el DD de
+262,49 a 223,02 (-15,04 %); beneficio/DD aumenta aproximadamente 5,42 %.
+La aceptación mide eficiencia, no exige aumento del beneficio absoluto; la UI
+lo explica. El #19 añadió una estrategia bajo la regla anterior de máximo dos.
+La regla nueva de mínimo dos lo rechazaría; no altera carteras ya guardadas.
+
+Las unidades bajan de 23 a 19, pero el lote sube de 0,23 a 0,28. La lectura
+de ambas carteras confirma que USTEC conserva una unidad y pasa de 0,01 a 0,10
+lotes. `assets/ictrading_symbol_specs.json` del agente publica `volume_min=0.1`
+y `volume_step=0.1` para USTEC: el original tiene un lote antiguo inferior al
+mínimo actual. Ver `portfolio_broker_min_lot_vs_margin_profile.md`. Las unidades
+no equivalen siempre a 0,01 lotes ni el lote sumado mide por sí solo el riesgo.
+
+El nuevo mínimo se valida en el proceso manager y viaja con la auditoría ya
+serializada; no requiere nuevas escrituras o lógica en el nodo. Se verificó
+rechazo de una incorporación cuando se piden dos, búsqueda de tres o más,
+validación de enteros y ausencia de fallback por debajo del mínimo. Las
+primitivas y la orquestación mensual conservan su máximo anterior. Durante
+esta revisión codebase-memory-mcp devolvió `Transport closed` al indexar,
+buscar y trazar; se verificó el flujo directamente en código y con pruebas.
 
 ## Comportamiento anterior y reglas comunes
 

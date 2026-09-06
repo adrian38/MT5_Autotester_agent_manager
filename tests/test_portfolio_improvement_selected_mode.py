@@ -59,15 +59,40 @@ class SelectedModeTests(unittest.TestCase):
                 self.assertEqual(audit["source_portfolio_id"], 42)
                 self.assertEqual(audit["minimum_efficiency_gain_pct"], 3)
                 self.assertTrue(audit["save_as_new"])
+                self.assertEqual(audit["source_snapshot"]["id"], 42)
+                self.assertEqual(audit["source_snapshot"]["total_net_profit"], 100)
+                self.assertEqual(len(audit["source_snapshot"]["members"]), 1)
+                self.assertEqual(audit["source_snapshot"]["members"][0]["variant_key"], mode)
 
-    def test_selects_one_when_it_beats_two(self):
+    def test_minimum_two_can_select_three_and_never_tries_one(self):
         def attempt(_source, _id, inputs, _progress):
-            return {}, [proposal(gain=4 if inputs["improvement_additions"] == 2 else 20)]
+            count = inputs["improvement_additions"]
+            return {"improvement": {"actual_additions": count}}, [proposal(gain=20 if count == 3 else 4)]
         with patch.object(full, "_generate_full_history_improvement_attempt", side_effect=attempt) as search:
-            availability, result = full.generate_full_history_improvement(object(), 1, {"improvement_additions": 2})
-        self.assertEqual(search.call_count, 2)
-        self.assertEqual(availability["improvement"]["actual_additions"], 1)
+            availability, result = full.generate_full_history_improvement(object(), 1, {"improvement_min_additions": 2})
+        self.assertEqual([call.args[2]["improvement_additions"] for call in search.call_args_list], [2, 3, 4, 5])
+        self.assertEqual(availability["improvement"]["actual_additions"], 3)
+        self.assertEqual(availability["improvement"]["minimum_additions"], 2)
+        self.assertEqual(result[0]["inputs"]["improvement_min_additions"], 2)
+        self.assertEqual(result[0]["result"].seasonal_validation["portfolio_improvement"]["minimum_additions"], 2)
         self.assertEqual(result[0]["result"].seasonal_validation["portfolio_improvement"]["efficiency_gain_pct"], 20)
+
+    def test_invalid_minimum_is_rejected_before_searching(self):
+        for value in (0, -1, 6, 2.5, None, True, "bad"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "mínimo.*entero entre 1 y 5"):
+                full.generate_full_history_improvement(object(), 1, {"improvement_min_additions": value})
+
+    def test_selector_cannot_return_one_when_minimum_is_two(self):
+        output = proposal()
+        old_id = output["result"].allocations[0].set_id
+        detail = {"portfolio_type": "balanced", "members": [{"set_path": old_id, "units": 1}]}
+        source = NS(project=Path.cwd(), saved_portfolio_detail=Mock(return_value={"portfolio": detail}), saved_curves=Mock(return_value=[]))
+        sets = [NS(set_id=a.set_id) for a in output["result"].allocations] + [NS(set_id="another.set")]
+        with patch.object(full, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full, "build_margin_model", return_value=None), patch.object(full, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full, "evaluate_portfolio") as baseline:
+            with self.assertRaisesRegex(ValueError, "al menos 2.*selector añadió 1"):
+                full.generate_full_history_improvement(source, 1, {**output["inputs"], "improvement_min_additions": 2})
+        self.assertEqual(optimize.call_count, 1)
+        baseline.assert_not_called()
 
     def test_new_fillers_are_rejected_before_accepting_historical_gain(self):
         output = proposal()
@@ -112,8 +137,16 @@ class SelectedModeTests(unittest.TestCase):
             self.assertTrue(retry["deduplicated"])
             self.assertEqual(saved["portfolio_id"], retry["portfolio_id"])
             self.assertEqual(before, source.saved_portfolio_detail(original_id, "full_history")["portfolio"])
+            # Simulate an older node that retained provenance but generated a
+            # generic name. Reading recovers identity without changing SQLite.
+            with source.connect(write=True) as conn:
+                conn.execute("update portfolios set name='A/M/C antiguo' where id=?", (saved["portfolio_id"],))
+                conn.commit()
             new = source.saved_portfolio_detail(saved["portfolio_id"], "full_history")["portfolio"]
-            self.assertIn(f"Mejora de #{original_id} | Conservador", new["name"])
+            self.assertIn(f"Mejora del portafolio #{original_id} | modo Conservador", new["name"])
+            self.assertEqual(new["improvement_origin"], {"source_id": original_id, "mode": "conservative"})
             self.assertEqual(new["portfolio_type"], "conservative")
             self.assertFalse(new["metrics"].get("portfolio_bundle", False))
             self.assertEqual(new["metrics"]["inputs"]["improvement_source_portfolio_id"], original_id)
+            with source.connect() as conn:
+                self.assertEqual(conn.execute("select name from portfolios where id=?", (saved["portfolio_id"],)).fetchone()[0], "A/M/C antiguo")

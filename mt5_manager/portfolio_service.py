@@ -1285,6 +1285,22 @@ class PortfolioSource:
             "stop_reason": str(value(row, "stop_reason", "") or ""),
             "binding_constraint": str(value(row, "binding_constraint", "") or ""),
         } for row in rows]
+        if portfolio_scope == "full_history":
+            # Older embedded nodes saved a single-mode improvement under a
+            # generic bundle name. Recover its explicit lineage from metadata
+            # without rewriting the broker's memory.
+            for portfolio, row in zip(portfolios, rows):
+                try:
+                    metrics = json.loads(value(row, "metrics_json", "{}") or "{}")
+                    inputs = metrics.get("inputs") or {}
+                    audit = (metrics.get("seasonal_validation") or {}).get("portfolio_improvement") or {}
+                    source_id = int(inputs.get("improvement_source_portfolio_id") or audit.get("source_portfolio_id") or 0)
+                    mode = inputs.get("improvement_portfolio_type") or audit.get("target_portfolio_type") or inputs.get("portfolio_type")
+                    if source_id > 0 and mode in TYPE_LABELS:
+                        portfolio["improvement_origin"] = {"source_id": source_id, "mode": mode}
+                        portfolio["name"] = f"Mejora del portafolio #{source_id} | modo {TYPE_LABELS[mode]}"
+                except (ValueError, TypeError, AttributeError):
+                    pass
         return {
             "node": {"id": self.node.get("id"), "name": self.node.get("name") or self.node.get("id"), "broker": self.broker, "account_type": self.account},
             "scope": portfolio_scope,

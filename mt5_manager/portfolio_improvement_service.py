@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -43,6 +44,20 @@ from .portfolio_service import (
 
 
 Progress = Callable[[str], None]
+MAX_IMPROVEMENT_ADDITIONS = 5
+
+
+def minimum_additions(inputs: dict[str, Any]) -> int:
+    # Keep the old request key usable for an already-open normal UBS page.
+    value = inputs.get("improvement_min_additions", inputs.get("improvement_additions", 2))
+    try:
+        count = int(value)
+        valid = not isinstance(value, bool) and float(value) == count
+    except (TypeError, ValueError, OverflowError):
+        valid, count = False, 0
+    if not valid or not 1 <= count <= MAX_IMPROVEMENT_ADDITIONS:
+        raise ValueError("El mínimo de estrategias a añadir debe ser un entero entre 1 y 5")
+    return count
 
 
 def improvement_options(inputs: dict[str, Any]):
@@ -164,8 +179,8 @@ def _generate_full_history_improvement_attempt(
     maximum_target = len(original_ids) + options.max_additions
     if len(raw_sets) < minimum_target:
         raise ValueError(
-            "No hay ninguna estrategia nueva con aporte Final Tick 6M positivo "
-            "que pueda mejorar la base"
+            f"Solo hay {len(raw_sets) - len(original_ids)} candidatas nuevas con aporte "
+            f"Final Tick 6M positivo; se necesitan {minimum_target - len(original_ids)}"
         )
 
     base_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
@@ -198,7 +213,7 @@ def _generate_full_history_improvement_attempt(
     )
     if progress:
         progress(
-            f"4/5 · Buscando hasta {options.max_additions} incorporación(es) con baja dependencia"
+            f"4/5 · Buscando {options.max_additions} incorporación(es) con baja dependencia"
         )
     selected_base = optimize_portfolio(
         raw_sets=raw_sets,
@@ -213,10 +228,10 @@ def _generate_full_history_improvement_attempt(
     if not set(original_ids).issubset(selected_ids):
         raise ValueError("El selector intentó retirar una estrategia original")
     actual_additions = len(selected_ids) - len(original_ids)
-    if not 1 <= actual_additions <= options.max_additions:
+    if not minimum_target <= len(selected_ids) <= maximum_target:
         raise ValueError(
-            "No se encontró ninguna incorporación que mejorase la base dentro "
-            f"del máximo de {options.max_additions}"
+            f"El selector añadió {actual_additions} estrategias; este intento requiere "
+            f"{minimum_target - len(original_ids)}"
         )
     selected_target = len(selected_ids)
     raw_by_id = {strategy.set_id: strategy for strategy in raw_sets}
@@ -280,10 +295,26 @@ def _generate_full_history_improvement_attempt(
         scope="full_history",
         minimum_gain_pct=options.min_efficiency_gain_pct,
     )
+    if audit["added_count"] != actual_additions:
+        raise ValueError("El ajuste final no conservó las incorporaciones seleccionadas")
     audit["target_portfolio_type"] = base_type.value
     audit["target_portfolio_type_label"] = TYPE_LABELS[base_type.value]
     audit["source_portfolio_id"] = portfolio_id
     audit["save_as_new"] = True
+    # Preserve the exact selected-mode baseline for the saved comparison, even
+    # if the original portfolio is later changed or deleted.
+    audit["source_snapshot"] = {
+        "id": portfolio_id,
+        "portfolio_type": target,
+        "captured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "capital": float(inputs["capital"]),
+        "total_net_profit": float(baseline.total_net_profit),
+        "actual_valley_dd": float(baseline.valley_dd),
+        "total_units": sum(int(member.get("units") or 0) for member in detail["members"]),
+        "total_lot": sum(float(member.get("lot") or 0) for member in detail["members"]),
+        "active_strategies": len(original_ids),
+        "members": [dict(member) for member in detail["members"]],
+    }
     _seasonal_coverage(result, selected_sets)
     result.warnings.extend(warnings)
     proposal_inputs = settings_inputs(inputs)
@@ -350,15 +381,16 @@ def generate_full_history_improvement(
         "portfolio_type": target_type,
         "improvement_portfolio_type": target_type,
     }
-    requested = improvement_options(inputs).max_additions
+    requested = minimum_additions(inputs)
+    inputs["improvement_min_additions"] = requested
     failures: list[str] = []
     best = None
     best_rank = (float("-inf"), 0)
-    for additions in range(requested, 0, -1):
+    for additions in range(requested, MAX_IMPROVEMENT_ADDITIONS + 1):
         if progress:
             progress(
                 f"Mejora {TYPE_LABELS[target_type]} · probando {additions} incorporación(es) "
-                f"del máximo {requested}"
+                f"con mínimo {requested} y límite de búsqueda {MAX_IMPROVEMENT_ADDITIONS}"
             )
         attempt_inputs = {
             **inputs,
@@ -373,15 +405,19 @@ def generate_full_history_improvement(
             failures.append(f"{additions}: {exc}")
             continue
         improvement = availability.setdefault("improvement", {})
-        improvement["maximum_additions"] = requested
-        improvement["actual_additions"] = additions
+        improvement["minimum_additions"] = requested
+        improvement["maximum_additions"] = MAX_IMPROVEMENT_ADDITIONS
         for proposal in proposals:
-            proposal.setdefault("inputs", {})["improvement_max_additions"] = requested
+            proposal.setdefault("inputs", {}).update({
+                "improvement_min_additions": requested,
+                "improvement_max_additions": MAX_IMPROVEMENT_ADDITIONS,
+            })
             audit = (proposal["result"].seasonal_validation or {}).get(
                 "portfolio_improvement"
             )
             if isinstance(audit, dict):
-                audit["maximum_additions"] = requested
+                audit["minimum_additions"] = requested
+                audit["maximum_additions"] = MAX_IMPROVEMENT_ADDITIONS
         gain = float((proposals[0]["result"].seasonal_validation or {}).get(
             "portfolio_improvement", {}
         ).get("efficiency_gain_pct", 0)) if proposals else 0.0
@@ -390,8 +426,9 @@ def generate_full_history_improvement(
             best, best_rank = (availability, proposals), rank
     if best is not None:
         return best
-    detail = failures[-1] if failures else "sin candidatas válidas"
+    detail = "; ".join(failures) if failures else "sin candidatas válidas"
     raise ValueError(
-        "No se encontró una mejora válida entre una estrategia y el máximo "
-        f"de {requested}. Último intento: {detail}"
+        f"No se encontró una mejora válida con al menos {requested} estrategias nuevas "
+        f"(límite de búsqueda: {MAX_IMPROVEMENT_ADDITIONS}). No se rebaja el mínimo. "
+        f"Intentos: {detail}"
     )

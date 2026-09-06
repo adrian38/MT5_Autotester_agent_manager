@@ -621,6 +621,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
             "portfolios.html", "portfolios.js",
             "portfolios_monthly.html", "portfolios_monthly.js",
             "portfolio_improvement.js", "portfolio_monthly_improvement.js",
+            "portfolio_comparison.js",
             "portfolios_grid.html", "portfolios_grid.js",
             # Primitiva compartida por los tres ámbitos: el diálogo del motivo de
             # exclusión y las etiquetas de sus tres códigos. La interfaz de cada

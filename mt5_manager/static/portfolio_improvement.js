@@ -14,7 +14,7 @@
       <p class="portfolio-note"><strong id="improvement-original-count">Las estrategias originales quedan bloqueadas.</strong> Esta operación sólo propone incorporaciones; no excluye ni sustituye ninguna original. El lotaje sí puede reajustarse para respetar el mismo riesgo guardado.</p>
       <div class="portfolio-form-grid">
         <label>Variante que quieres mejorar<select name="improvement_portfolio_type" required><option value="aggressive">Agresivo</option><option value="balanced" selected>Moderado</option><option value="conservative">Conservador</option></select></label>
-        <label>Máximo de estrategias a añadir<input name="improvement_additions" type="number" min="1" max="5" value="2" required></label>
+        <label>Mínimo de estrategias a añadir<input name="improvement_min_additions" type="number" min="1" max="5" step="1" value="2" required></label>
         <label>Mejora mínima beneficio/DD %<input name="improvement_min_efficiency_gain_pct" type="number" min="0" max="25" step="0.1" value="3" required></label>
       </div>
       <p class="portfolio-note">Solo se calcula y compara el modo elegido, con sus límites y lotajes guardados. Al guardar se creará otro portafolio, identificado como mejora del original y de ese modo.</p>
@@ -22,7 +22,7 @@
         <label title="No usa como candidatas estrategias presentes en ningún otro Portafolio UBS completo o mensual."><input name="improvement_exclude_used_sets" type="checkbox" checked> Excluir estrategias ya usadas en otros portafolios</label>
         <label title="Sólo se aceptan si respetan correlación Pearson, correlación en pérdidas y solapamiento de drawdown."><input name="improvement_allow_same_symbol" type="checkbox" checked> Permitir el mismo símbolo cuando la baja relación lo justifique</label>
       </div></fieldset>
-      <p class="portfolio-note">Se añadirán sólo las candidatas válidas, entre una y el máximo indicado; nunca se completará el cupo con estrategias mediocres. Cada candidata debe seguir aceptada en las cuatro etapas, aportar beneficio positivo en Final Tick 6M, respetar el DD y mejorar la eficiencia histórica de la base. Revisarás la propuesta antes de guardarla como otro portafolio.</p>
+      <p class="portfolio-note">Se añadirán al menos las estrategias indicadas, con un límite de cinco incorporaciones por búsqueda. Si no se alcanza el mínimo con candidatas válidas, no habrá propuesta. Cada candidata debe seguir aceptada en las cuatro etapas, aportar beneficio positivo en Final Tick 6M y respetar los límites de dependencia. La cartera debe respetar el DD y mejorar beneficio/DD; esto puede reducir el beneficio total si el DD baja en mayor proporción. Revisarás la propuesta antes de guardarla como otro portafolio.</p>
       <div class="builder-actions"><button type="button" class="secondary" data-close>Cancelar</button><button type="submit">Buscar mejora</button></div>
     </form>`;
   document.body.appendChild(dialog);
@@ -59,7 +59,7 @@
         scope,
         portfolio_id: selectedId,
         improvement_portfolio_type: fields.improvement_portfolio_type.value,
-        improvement_additions: Number(fields.improvement_additions.value),
+        improvement_min_additions: Number(fields.improvement_min_additions.value),
         improvement_min_efficiency_gain_pct: Number(fields.improvement_min_efficiency_gain_pct.value),
         improvement_exclude_used_sets: fields.improvement_exclude_used_sets.checked,
         improvement_allow_same_symbol: fields.improvement_allow_same_symbol.checked,

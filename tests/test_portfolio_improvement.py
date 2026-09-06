@@ -215,20 +215,19 @@ class ImprovementWireTests(unittest.TestCase):
 
 
 class ImprovementMaximumFallbackTests(unittest.TestCase):
-    def test_full_history_retries_with_one_when_two_do_not_pass(self) -> None:
+    def test_full_history_never_reduces_the_requested_minimum(self) -> None:
         with mock.patch.object(
             full_improvement,
             "_generate_full_history_improvement_attempt",
-            side_effect=[ValueError("dos no cumplen"), ({"improvement": {}}, [])],
+            side_effect=ValueError("no cumplen"),
         ) as attempt:
-            availability, _proposals = full_improvement.generate_full_history_improvement(
-                object(), 7, {"improvement_additions": 2}
-            )
+            with self.assertRaisesRegex(ValueError, "al menos 2.*No se rebaja el mínimo"):
+                full_improvement.generate_full_history_improvement(
+                    object(), 7, {"improvement_additions": 2}
+                )
 
         tried = [call.args[2]["improvement_additions"] for call in attempt.call_args_list]
-        self.assertEqual(tried, [2, 1])
-        self.assertEqual(availability["improvement"]["maximum_additions"], 2)
-        self.assertEqual(availability["improvement"]["actual_additions"], 1)
+        self.assertEqual(tried, [2, 3, 4, 5])
 
     def test_monthly_retries_with_one_when_two_do_not_pass(self) -> None:
         with mock.patch.object(
@@ -265,8 +264,15 @@ class ImprovementScreenTests(unittest.TestCase):
             self.assertIn('name="improvement_exclude_used_sets" type="checkbox" checked', script)
             self.assertIn("originales quedarán bloqueadas", script)
             self.assertIn("improvement_allow_same_symbol", script)
-            self.assertIn("Máximo de estrategias a añadir", script)
+            expected = "Mínimo" if name == "portfolio_improvement.js" else "Máximo"
+            self.assertIn(f"{expected} de estrategias a añadir", script)
             self.assertIn('max="25" step="0.1" value="3"', script)
+
+    def test_normal_dialog_sends_a_minimum_and_explains_acceptance(self) -> None:
+        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+        self.assertIn("improvement_min_additions: Number(fields.improvement_min_additions.value)", script)
+        self.assertIn("Si no se alcanza el mínimo con candidatas válidas, no habrá propuesta", script)
+        self.assertIn("límite de cinco incorporaciones por búsqueda", script)
 
     def test_manager_serves_both_new_static_assets(self) -> None:
         manager = (self.ROOT.parent / "manager.py").read_text(encoding="utf-8")

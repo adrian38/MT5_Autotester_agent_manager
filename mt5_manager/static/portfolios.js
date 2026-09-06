@@ -508,7 +508,7 @@ function renderList() {
   document.querySelector('#portfolio-count').textContent = `${rows.length} portafolios`;
   listEl.innerHTML = rows.length ? rows.map(row => {
     const month = '';
-    return `<button class="portfolio-list-item ${row.id === selectedId ? 'selected' : ''}" onclick="loadDetail(${row.id})"><span><strong>#${row.id}${month}</strong>${row.name?.startsWith('Mejora de #') ? `<small>${esc(row.name)}</small>` : ''}<small>${esc(row.created_at)} · ${esc(row.portfolio_type || 'Sin tipo')}</small></span><span><strong>${number(row.total_net_profit)}</strong><small>${row.active_strategies}/${row.target_strategies || row.active_strategies} estrategias</small></span></button>`;
+    return `<button class="portfolio-list-item ${row.id === selectedId ? 'selected' : ''}" onclick="loadDetail(${row.id})"><span><strong>#${row.id}${month}</strong>${PortfolioComparison.label(row) ? `<small class="improvement-label">${esc(PortfolioComparison.label(row))}</small>` : ''}<small>${esc(row.created_at)} · ${esc(row.portfolio_type || 'Sin tipo')}</small></span><span><strong>${number(row.total_net_profit)}</strong><small>${row.active_strategies}/${row.target_strategies || row.active_strategies} estrategias</small></span></button>`;
   }).join('') : '<div class="portfolio-empty">No hay portafolios guardados en esta sección.</div>';
 }
 
@@ -535,6 +535,9 @@ function renderAudit(portfolio) {
 
 async function loadDetail(id) {
   selectedId = id;
+  currentDetail = null;
+  document.querySelector('#detail-compare-original').hidden = true;
+  document.querySelector('#detail-improvement-origin').hidden = true;
   selectedDetailMembers.clear();
   renderList();
   emptyEl.hidden = true;
@@ -546,11 +549,17 @@ async function loadDetail(id) {
     if (!response.ok) throw new Error(data.error || response.statusText);
     const portfolio = data.portfolio;
     currentDetail = portfolio;
+    const improvementLabel = PortfolioComparison.label(portfolio);
+    const originBanner = document.querySelector('#detail-improvement-origin');
+    originBanner.textContent = improvementLabel;
+    originBanner.hidden = !improvementLabel;
+    document.querySelector('#detail-compare-original').hidden = !PortfolioComparison.lineage(portfolio);
+    document.querySelector('#detail-compare-original').disabled = false;
     const stress = portfolio.metrics?.stress_bootstrap || {};
     const isBundle = portfolio.portfolio_type === 'bundle' || portfolio.metrics?.portfolio_bundle;
     document.querySelector('#detail-select-column').hidden = !isBundle;
     document.querySelector('#detail-exclude-selected').hidden = !isBundle;
-    document.querySelector('#detail-title').textContent = `Portafolio #${portfolio.id}${portfolio.name?.startsWith('Mejora de #') ? ` · ${portfolio.name}` : ''}`;
+    document.querySelector('#detail-title').textContent = `Portafolio #${portfolio.id}`;
     document.querySelector('#detail-meta').textContent = portfolio.created_at;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
     document.querySelector('#detail-metrics').innerHTML = [metric(number(portfolio.capital), 'Capital'), metric(number(portfolio.total_net_profit), 'Net total'), metric(number(portfolio.actual_valley_dd, 2), 'DD riesgo máx.', `máx(cerrado ${number(portfolio.actual_closed_valley_dd, 2)}, flotante ${number(portfolio.floating_dd_buffer, 2)}) · límite ${number(portfolio.target_valley_dd, 2)} · ${number(portfolio.valley_usage_pct, 1)}%`), metric(number(portfolio.actual_point_dd, 2), 'DD puntual', portfolio.metrics?.enforce_point_dd ? `límite ${number(portfolio.target_point_dd, 2)}` : 'informativo'), metric(number(portfolio.total_lot, 2), 'Lote total'), metric(number(portfolio.total_units), 'Unidades'), metric(`${number(portfolio.active_strategies)}/${number(portfolio.target_strategies || portfolio.active_strategies)}`, 'Estrategias'), metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert)].join('');
