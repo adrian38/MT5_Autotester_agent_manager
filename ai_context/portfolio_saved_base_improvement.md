@@ -1,5 +1,28 @@
 # Mejora incremental de un portafolio guardado
 
+## Separación del motor de mejora
+
+Petición explícita del usuario: la mejora debe mantenerse en un fichero propio,
+como un motor distinto de la generación de portafolios.
+
+- `mt5_manager/portfolio_improvement_service.py` contiene el motor de mejora
+  UBS normal: reconstrucción del modo elegido, originales protegidas, búsqueda
+  desde el mínimo de incorporaciones, selección, aceptación y snapshot del origen.
+- `PortfolioCoordinator._worker` en `portfolio_service.py` solo despacha
+  `operation=improve` a `generate_full_history_improvement`; esa rama no llama
+  a `generate_proposals`, que sigue siendo la generación ordinaria.
+- La mejora reutiliza carga, optimización matemática, riesgo, serialización y
+  persistencia. Compartir estas primitivas no debe arrastrar las reglas A/M/C
+  de generación al motor de mejora. Sus nuevas reglas deben entrar en su módulo.
+- La interfaz propia está en `static/portfolio_improvement.js`; la comparación
+  guardada está en `static/portfolio_comparison.js`. La página principal conserva
+  los botones y la integración con los portafolios guardados.
+- La persistencia común conserva los metadatos de origen y modo. La escritura
+  real sigue en el nodo embebido del agente; separar motores no la traslada.
+
+La revisión del código y del grafo confirmó esta separación ya existente.
+No requiere duplicar el optimizador ni modificar el motor mensual congelado.
+
 ## Regla vigente para UBS normal (2026-09-06)
 
 El usuario elige **Agresivo, Moderado o Conservador**. Solo se reconstruye,
