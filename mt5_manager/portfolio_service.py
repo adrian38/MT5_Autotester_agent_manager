@@ -3248,7 +3248,11 @@ def save_proposal(
         raise ValueError("La propuesta mensual no pasó la validación estricta")
     created_at = datetime.now().isoformat(timespec="seconds")
     target_month = int(selected_inputs.get("target_month") or 0) or None
-    bundle = scope in {"full_history", "grid"}
+    standalone_improvement = (
+        scope == "full_history" and len(proposals) == 1
+        and int(selected_inputs.get("improvement_source_portfolio_id") or 0) > 0
+    )
+    bundle = scope in {"full_history", "grid"} and not standalone_improvement
     if bundle:
         common = [allocation.set_id for allocation in selected_result.allocations if allocation.units > 0]
         common_set = set(common)
@@ -3287,6 +3291,10 @@ def save_proposal(
         else:
             row_type = "bundle"
             name = f"A/M/C | Base {TYPE_LABELS.get(str(selected_inputs.get('composition_portfolio_type')), 'Moderado')} | {len(common)} sets | {datetime.now():%d.%m.%Y %H:%M}"
+    elif standalone_improvement:
+        metrics = _result_metrics(selected_inputs, selected_result)
+        row_type = str(selected_inputs["portfolio_type"])
+        name = f"Mejora de #{int(selected_inputs['improvement_source_portfolio_id'])} | {TYPE_LABELS[row_type]} | {datetime.now():%d.%m.%Y %H:%M}"
     elif scope == "monthly":
         metrics = _result_metrics(selected_inputs, selected_result)
         row_type = str(selected_inputs["portfolio_type"])
@@ -3875,6 +3883,10 @@ class PortfolioCoordinator:
             raise ValueError("Genera una propuesta antes de guardar")
         if not any(str(proposal.get("key") or "") == selected_key for proposal in proposals):
             raise ValueError("La propuesta seleccionada ya no está disponible")
+        operation = str(job.get("operation") or "generate")
+        standalone_improvement = operation == "improve" and normalize_portfolio_scope(scope) == "full_history"
+        if standalone_improvement and (len(proposals) != 1 or selected_key not in PORTFOLIO_TYPES):
+            raise ValueError("Recalcula la mejora para una sola variante antes de guardar")
         # Un paquete A/M/C incompleto se muestra para poder mirarlo, pero no se
         # guarda: la fila guardada representa las tres variantes de una misma
         # composicion y media fila no es reoptimizable ni comparable.
@@ -3883,7 +3895,7 @@ class PortfolioCoordinator:
         # Solo UBS full y Grid nombran sus variantes A/M/C; el mensual usa
         # profit/balanced/margin y comparte el nombre «balanced» por accidente.
         bundle_scope = normalize_portfolio_scope(scope) in {"full_history", "grid"}
-        if bundle_scope and keys and keys < locked_keys:
+        if bundle_scope and keys and keys < locked_keys and not standalone_improvement:
             raise ValueError(
                 f"El paquete A/M/C esta incompleto ({len(keys)}/3 variantes viables: "
                 f"{', '.join(sorted(keys))}). Ajusta los limites y recalcula antes de guardar."
@@ -3900,17 +3912,15 @@ class PortfolioCoordinator:
                 self.jobs[key] = job
             self.jobs[key]["save_request_id"] = request_id
             self.jobs[key]["save_selected_key"] = selected_key
-        # La escritura pertenece al nodo del agente. "complete" ya expresa en
-        # el protocolo antiguo la misma mutación transaccional (reemplazar el
-        # portafolio guardando una versión previa), por lo que la mejora viaja
-        # con ese verbo y conserva compatibilidad con las copias bifurcadas.
-        wire_operation = "complete" if operation == "improve" else operation
+        # UBS normal guarda la mejora como un portafolio nuevo de un solo modo.
+        # El mensual conserva su protocolo anterior mientras siga congelado.
+        wire_operation = "generate" if standalone_improvement else "complete" if operation == "improve" else operation
         return {
             "scope": scope,
             "selected_key": selected_key,
             "operation": wire_operation,
             "manager_operation": operation,
-            "portfolio_id": target_id or None,
+            "portfolio_id": None if standalone_improvement else target_id or None,
             "request_id": request_id,
             "proposals": serialize_portfolio_proposals(proposals, request_id),
         }

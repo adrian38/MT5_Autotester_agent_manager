@@ -188,7 +188,7 @@ class ImprovementAuditTests(unittest.TestCase):
 
 
 class ImprovementWireTests(unittest.TestCase):
-    def test_improvement_uses_the_compatible_transactional_node_verb(self) -> None:
+    def test_full_improvement_creates_a_new_single_mode_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             coordinator = PortfolioCoordinator(
                 [{"id": "node-1"}], Path(folder) / "settings.json"
@@ -199,9 +199,7 @@ class ImprovementWireTests(unittest.TestCase):
                 "portfolio_id": 41,
             }
             coordinator.proposals[key] = [
-                {"key": "aggressive"},
                 {"key": "balanced"},
-                {"key": "conservative"},
             ]
             with mock.patch(
                 "mt5_manager.portfolio_service.serialize_portfolio_proposals",
@@ -211,9 +209,9 @@ class ImprovementWireTests(unittest.TestCase):
                     "node-1", "full_history", "balanced"
                 )
 
-        self.assertEqual(payload["operation"], "complete")
+        self.assertEqual(payload["operation"], "generate")
         self.assertEqual(payload["manager_operation"], "improve")
-        self.assertEqual(payload["portfolio_id"], 41)
+        self.assertIsNone(payload["portfolio_id"])
 
 
 class ImprovementMaximumFallbackTests(unittest.TestCase):

@@ -935,6 +935,7 @@ enabled=0
                 {
                     "scope": "full_history",
                     "portfolio_id": 33,
+                    "improvement_portfolio_type": "conservative",
                     "improvement_additions": 2,
                     "improvement_exclude_used_sets": True,
                     "improvement_allow_same_symbol": True,
@@ -949,6 +950,7 @@ enabled=0
             33,
             "improve",
             {
+                "improvement_portfolio_type": "conservative",
                 "improvement_additions": 2,
                 "improvement_exclude_used_sets": True,
                 "improvement_allow_same_symbol": True,

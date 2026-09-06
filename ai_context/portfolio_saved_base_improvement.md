@@ -1,5 +1,36 @@
 # Mejora incremental de un portafolio guardado
 
+## Regla vigente para UBS normal (2026-09-06)
+
+El usuario elige **Agresivo, Moderado o Conservador**. Solo se reconstruye,
+optimiza y compara esa variante, usando sus propios lotajes y ajustes guardados.
+Las otras dos no se recalculan ni condicionan la aceptación. Guardar crea otro
+portafolio de ese único modo, con nombre `Mejora de #<origen> | <modo>` y
+`inputs.improvement_source_portfolio_id`; el portafolio original queda intacto.
+Esto sustituye, exclusivamente en UBS normal, la orquestación A/M/C y el
+reemplazo descritos más abajo como comportamiento anterior.
+
+El manager conserva `operation=improve` en el trabajo, pero envía `generate` y
+`portfolio_id=null` al nodo. La copia local ICTrading de
+`manager_node_runtime/portfolio_save.py::_insert_proposal` reconoce la procedencia
+y llama a la persistencia de un portafolio individual; no crea un bundle de una
+sola variante. El manager tiene la misma regla en `save_proposal`. Las copias de
+AXI/RoboForex quedan fuera de alcance; no asumir que ya tienen este cambio.
+El proceso que ejecuta la escritura real es `app_ui.py` con su nodo embebido.
+
+UBS normal compara los resultados válidos de una hasta el máximo de
+incorporaciones y elige mayor mejora beneficio/DD (menos incorporaciones en
+empate). Veta nuevas estrategias por debajo del aporte 6M mínimo guardado al
+lotaje final, sin eliminar originales. El umbral explícito de 0 % se respeta.
+Estas correcciones viven en la orquestación normal, sin alterar el mensual.
+La búsqueda sigue siendo heurística: un rechazo no prueba que todas las
+combinaciones posibles sean inviables.
+
+«Portafolio» sin especificar ámbito significa UBS normal. El mensual permanece
+congelado hasta petición explícita; ver `monthly_portfolio_frozen.md`.
+
+## Comportamiento anterior y reglas comunes
+
 ## Invariante de la base original
 
 `Mejorar base` significa **añadir**, no recomponer ni sustituir. Todas las
