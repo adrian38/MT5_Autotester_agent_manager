@@ -1235,12 +1235,13 @@ enabled=0
             expected_actions = []
             for _cycle in (1, 2):
                 expected_actions.append("generation")
+                expected_actions.extend(["robustness", "final_tick", "final_tick_6m"])
                 # Dos intentos y dos fases por intento sobre las mismas etapas.
                 expected_actions.extend(repair_actions * 4)
             self.assertEqual([step["action"] for step in state["pipeline"]], expected_actions)
             self.assertTrue(state["request"]["repair_after_generation"])
             self.assertEqual(state["request"]["repair_attempts"], 2)
-            # 50 etapas: 2 ciclos x (generacion + 2 intentos x 2 fases x 6 etapas).
+            # Cada ciclo termina sus etapas normales antes de empezar a reparar.
             deadline = time.time() + 60
             while time.time() < deadline and self.controller.status()["job"]["status"] == "running":
                 time.sleep(.03)
@@ -1249,12 +1250,14 @@ enabled=0
         self.assertTrue(build_auto_repair_stage.call_args_list)
         # Lo unico que distingue las fases es el numero de terminales: la primera
         # hereda `max_workers` y la segunda usa su propio limite.
-        expected_workers = [
-            workers
-            for _cycle in (1, 2)
-            for _attempt in (1, 2)
-            for workers in ([4] * len(repair_actions) + [2] * len(repair_actions))
-        ]
+        expected_workers = []
+        for _cycle in (1, 2):
+            expected_workers.extend([4] * 3)
+            expected_workers.extend(
+                workers
+                for _attempt in (1, 2)
+                for workers in ([4] * len(repair_actions) + [2] * len(repair_actions))
+            )
         self.assertEqual(
             [call.args[1]["max_workers"] for call in build_auto_repair_stage.call_args_list],
             expected_workers,
@@ -1262,6 +1265,10 @@ enabled=0
         expected_stages = []
         for cycle in (1, 2):
             expected_stages.append(f"cycle_{cycle}_generation")
+            expected_stages.extend(
+                f"cycle_{cycle}_{action}"
+                for action in ("robustness", "final_tick", "final_tick_6m")
+            )
             expected_stages.extend(
                 f"cycle_{cycle}_attempt_{attempt}_phase_{phase}_{action}"
                 for attempt in (1, 2)

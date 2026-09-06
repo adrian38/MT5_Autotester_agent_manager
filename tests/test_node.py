@@ -199,8 +199,12 @@ enabled=0
         self.assertEqual(state["request"]["repair_phase2_max_workers"], 1)
         repair_steps = [
             step for step in state["pipeline"]
-            if step["action"] != "generation"
+            if "phase" in step
         ]
+        self.assertEqual(
+            [step["action"] for step in state["pipeline"][:2]],
+            ["generation", "robustness"],
+        )
         self.assertTrue(repair_steps)
         # Un solo intento, dos fases: mismas etapas, distinto numero de terminales.
         self.assertEqual(

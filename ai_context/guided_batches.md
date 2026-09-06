@@ -20,6 +20,10 @@ el usuario puede habilitar brokers únicamente para este endpoint con
   El watcher utiliza ese run, no el último arbitrario de SQLite.
 - GET por las mismas rutas más `/{hash}` devuelve etapas, positivo sólo con Final
   Tick 6M accepted y tiempos de pared por etapa (no horas CPU por candidato).
+- La reparación automática es siempre posterior al run: primero se ejecutan una
+  vez generación, robustez y ambos Final Tick con los terminales del run; después
+  comienzan los intentos y fases `pending-only` de reparación. No sustituye ni
+  se intercala entre las etapas normales.
 - Docker conserva `node_project_dir` (Windows) separado de `portfolio_project_dir`
   (`/data/ic`). La identidad anunciada debe coincidir. El endpoint comprueba también
   la rama del checkout montado: `/app` no contiene .git.

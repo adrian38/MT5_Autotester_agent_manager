@@ -1003,6 +1003,15 @@ class JobController(GuidedControllerMixin):
         pipeline: list[dict[str, Any]] = []
         for cycle in range(1, cycles + 1):
             pipeline.append({"action": "generation", "cycle": cycle, "run_id": None})
+            # Complete the ordinary run once with its own worker limit. Repair is
+            # a later pass over the finished run; it must never replace or split
+            # these stages.
+            if run_robustness:
+                pipeline.append({"action": "robustness", "cycle": cycle, "run_id": None})
+            if run_final_tick:
+                pipeline.append({"action": "final_tick", "cycle": cycle, "run_id": None})
+            if run_final_tick_6m:
+                pipeline.append({"action": "final_tick_6m", "cycle": cycle, "run_id": None})
             if repair_after_generation:
                 repair_actions = ["result"]
                 if run_robustness:
@@ -1025,13 +1034,6 @@ class JobController(GuidedControllerMixin):
                     for phase, workers in enumerate(repair_phase_workers, start=1)
                     for action in repair_actions
                 )
-            else:
-                if run_robustness:
-                    pipeline.append({"action": "robustness", "cycle": cycle, "run_id": None})
-                if run_final_tick:
-                    pipeline.append({"action": "final_tick", "cycle": cycle, "run_id": None})
-                if run_final_tick_6m:
-                    pipeline.append({"action": "final_tick_6m", "cycle": cycle, "run_id": None})
             if cleanup_after_run:
                 pipeline.extend(
                     {"action": action, "cycle": cycle, "run_id": None}
