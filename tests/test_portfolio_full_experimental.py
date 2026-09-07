@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from mt5_manager.portfolio_full_experimental import (
-    EXPERIMENTAL_FULL_ANTIFILLER_RETRIES,
     _result_rank,
     build_experimental_full_candidate_pools,
     optimize_experimental_full_portfolio,
@@ -452,7 +451,7 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
         self.assertEqual(result.total_net_profit, 900.0)
         self.assertEqual(result.active_strategies, 3)
 
-    def test_antifiller_retries_are_bounded(self) -> None:
+    def test_antifiller_retries_continue_until_clean_and_shrink_the_pool(self) -> None:
         strategies = [strategy(index) for index in range(12)]
         calls: list[int] = []
 
@@ -474,7 +473,7 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
             "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
             side_effect=always_leaves_fillers,
         ):
-            optimize_experimental_full_portfolio(
+            result = optimize_experimental_full_portfolio(
                 raw_sets=strategies,
                 use_deep_refinement=True,
                 recent_filler_ids=recent_fillers,
@@ -483,11 +482,10 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
                 top_k_per_symbol=3,
             )
 
-        # Cada reintento reoptimiza un lote, no el torneo, y esta acotado: es lo
-        # que impide volver al bucle de torneos repetidos.
-        self.assertLessEqual(
-            len(calls), 1 + EXPERIMENTAL_FULL_ANTIFILLER_RETRIES
-        )
+        # Requiere mas de los tres intentos antiguos. Cada vuelta reduce el lote,
+        # por lo que termina sin relanzar el torneo ni devolver rellenos.
+        self.assertEqual(calls, [12, 10, 8, 6, 4, 2, 1])
+        self.assertEqual(recent_fillers(result), set())
 
     def test_result_rank_still_rewards_breadth_over_concentration(self) -> None:
         # Guarda del objetivo del modo: a igual beneficio gana la composicion

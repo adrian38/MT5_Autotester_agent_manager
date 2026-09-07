@@ -154,3 +154,53 @@ Pendiente de comprobación en producción: hace falta cargar la imagen corregida
 relanzar una generación con `experimental_full_search` para ver el resultado
 sobre las 486 candidatas reales. Editar el fichero no actualiza una ejecución en
 curso.
+
+## Comprobación en producción: el portafolio 22 aún se encoge (2026-09-07)
+
+La imagen corregida sí se ejecutó. El portafolio guardado #22 conserva la
+telemetría del torneo real (507/507 candidatos, 3 rondas) y registra 9 rellenos
+sustituidos. Sin embargo, la auditoría experimental declara 8 estrategias y el
+resultado persistido contiene sólo 6. Frente al control estándar #21, baja de
+7 a 6 estrategias y de 21.885,68 a 13.882,76 de beneficio, aunque usa 96,9 %
+del DD objetivo.
+
+El log `manager_full_history_generate_20260907_123957.log` demuestra el flujo:
+
+- las líneas 839-841 consumen los tres reintentos del final completo;
+- las líneas 842-844 consumen los tres reintentos del otro finalista;
+- todavía quedan 2 rellenos, y la línea 845 entra en la primitiva compartida;
+- ésta conserva sólo 6 supervivientes y vuelve a llamar al motor experimental,
+  que ya no ejecuta torneo porque 6 es menor que el lote máximo de 100.
+
+La causa es que `_refined_without_recent_fillers` devuelve el último resultado
+al agotar `EXPERIMENTAL_FULL_ANTIFILLER_RETRIES = 3` sin comprobar la
+postcondición `recent_filler_ids(result) == set()`. Después,
+`_optimize_without_recent_fillers` cumple la regla mediante su refinamiento
+monótonamente decreciente. Así reaparece exactamente el encogimiento que el
+arreglo experimental pretendía evitar; además, la auditoría y los avisos
+guardados describen la composición experimental de 8, no la composición final
+de 6.
+
+Las 10 pruebas focalizadas anteriores pasaban, pero
+`test_antifiller_retries_are_bounded` solamente comprobaba el máximo de
+llamadas. No exigía que el resultado entregado quedase sin rellenos ni cubría
+una cadena real que necesitase un cuarto reemplazo.
+
+## Corrección aplicada tras el portafolio 22
+
+`_refined_without_recent_fillers` ya no usa un máximo arbitrario de tres
+reintentos. Cada vuelta elimina al menos un candidato y reoptimiza un único lote
+estrictamente menor; el tamaño inicial del lote es el límite superior mecánico.
+El motor no devuelve un finalista mientras `recent_filler_ids(result)` siga
+teniendo elementos. Si un lote no puede reducirse o no admite reposición, ese
+finalista se descarta y se prueba el otro; si ninguno cumple la regla, la
+generación falla explícitamente en lugar de guardar una composición distinta de
+la auditada.
+
+La regresión
+`test_antifiller_retries_continue_until_clean_and_shrink_the_pool` necesita más
+de los tres intentos antiguos, comprueba la secuencia estrictamente decreciente
+`12 → 10 → 8 → 6 → 4 → 2 → 1` y exige cero rellenos en el resultado. Pasan las
+10 pruebas del módulo, las 69 de integración full/mensual y las 474 del suite
+completo. No se modifica el mensual ni el fork del nodo: este cálculo lo ejecuta
+el manager Docker.
