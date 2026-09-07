@@ -17,6 +17,9 @@ from portfolio_manager.ubs_portfolio import (
 
 Progress = Callable[[str], None]
 EXPERIMENTAL_FULL_POOL_ROTATIONS = 3
+# Cada reintento reoptimiza UN lote, no el torneo: por eso puede acotarse aqui
+# sin reabrir el bucle de torneos repetidos de la generacion del 2026-09-06.
+EXPERIMENTAL_FULL_ANTIFILLER_RETRIES = 3
 
 
 def _strategy_id(strategy: RobustStrategySet) -> str:
@@ -296,6 +299,71 @@ def _optimize_exact_pool(
     )
 
 
+def _refined_without_recent_fillers(
+    result: PortfolioResult,
+    candidate_pool: Sequence[RobustStrategySet],
+    recent_filler_ids: Callable[[PortfolioResult], set[str]] | None,
+    *,
+    use_deep_refinement: bool,
+    optimizer_kwargs: dict[str, Any],
+    progress: Progress | None = None,
+) -> tuple[PortfolioResult, set[str]]:
+    """Drop recent fillers while the freed risk budget can still be refilled.
+
+    The caller-level rule refines only surviving allocations, so a broad
+    composition that loses half its members can never use the released DD
+    budget again: it ships smaller than the pool allows. Here the pool that
+    produced the composition is known, so each removal is replaced from it and
+    breadth survives the rule instead of being traded for it.
+
+    The rule itself is not reimplemented and not folded into `_result_rank`:
+    ranking by recent contribution share would bias the tournament towards
+    concentrated compositions and defeat the diversification it exists for.
+    Retries are capped and each one reoptimises a single pool, never the
+    tournament, so this cannot reopen the repeated-tournament loop.
+    """
+    if recent_filler_ids is None:
+        return result, set()
+    pool = list(candidate_pool)
+    removed: set[str] = set()
+    current = result
+    for _attempt in range(EXPERIMENTAL_FULL_ANTIFILLER_RETRIES):
+        fillers = set(recent_filler_ids(current)) - removed
+        if not fillers:
+            break
+        active = _active_allocation_ids(current)
+        if not active or active <= fillers:
+            # Every active set is thin: emptying the composition is not a
+            # refinement. The shared caller-level rule owns that tie-break.
+            break
+        candidates = [
+            strategy for strategy in pool
+            if _strategy_id(strategy) not in removed | fillers
+        ]
+        if not candidates:
+            break
+        if progress:
+            progress(
+                "Búsqueda experimental UBS: "
+                f"{len(fillers)} relleno(s) 6M fuera; reoptimizando "
+                f"{len(candidates)} candidato(s) del lote ganador"
+            )
+        try:
+            refreshed = _optimize_exact_pool(
+                candidates,
+                use_deep_refinement=use_deep_refinement,
+                optimizer_kwargs=optimizer_kwargs,
+            )
+        except Exception:
+            # Sin reposicion viable se entrega la ultima composicion valida; la
+            # primitiva compartida del llamador sigue siendo la red de seguridad.
+            break
+        removed |= fillers
+        pool = candidates
+        current = refreshed
+    return current, removed
+
+
 def _segment_stability_audit(
     result: PortfolioResult,
     candidate_pool: Sequence[RobustStrategySet],
@@ -421,6 +489,7 @@ def optimize_experimental_full_portfolio(
     raw_sets: list[RobustStrategySet],
     use_deep_refinement: bool,
     progress: Progress | None = None,
+    recent_filler_ids: Callable[[PortfolioResult], set[str]] | None = None,
     **optimizer_kwargs: Any,
 ) -> PortfolioResult:
     """Evaluate every eligible full-history strategy before fixing A/M/C sets."""
@@ -581,23 +650,40 @@ def optimize_experimental_full_portfolio(
         failed_pools += 1
         final_error = exc
 
-    if final_result is not None and (
-        best_result is None
-        or _result_rank(final_result) >= _result_rank(best_result)
+    # Se compara lo que se va a entregar, no lo que el optimizador propuso: la
+    # regla de aporte reciente ya esta aplicada en ambos finalistas. Asi la
+    # amplitud que sobrevive a la regla gana, y la que la regla destruiria deja
+    # de ganar el torneo sobre el papel. El orden conserva el desempate a favor
+    # de la final completa.
+    finalists: list[tuple[PortfolioResult, list[RobustStrategySet], set[str]]] = []
+    for candidate_result, candidate_pool in (
+        (final_result, current),
+        (best_result, best_result_pool),
     ):
-        selected_result = final_result
-        selected_pool = current
-    elif best_result is not None:
-        selected_result = best_result
-        selected_pool = best_result_pool
-    elif final_error is not None:
-        raise ValueError(
-            "La búsqueda UBS experimental no encontró ningún lote viable."
-        ) from final_error
-    else:
+        if candidate_result is None:
+            continue
+        refined, dropped = _refined_without_recent_fillers(
+            candidate_result,
+            candidate_pool,
+            recent_filler_ids,
+            use_deep_refinement=use_deep_refinement,
+            optimizer_kwargs=optimizer_kwargs,
+            progress=progress,
+        )
+        finalists.append((refined, list(candidate_pool), dropped))
+
+    if not finalists:
+        if final_error is not None:
+            raise ValueError(
+                "La búsqueda UBS experimental no encontró ningún lote viable."
+            ) from final_error
         raise ValueError(
             "La búsqueda UBS experimental no produjo resultados."
         )
+
+    selected_result, selected_pool, removed_recent = max(
+        finalists, key=lambda item: _result_rank(item[0])
+    )
 
     stability = _segment_stability_audit(
         selected_result, selected_pool
@@ -622,6 +708,13 @@ def optimize_experimental_full_portfolio(
         f"{failed_pools} no viables; "
         f"{round_number} ronda(s)."
     )
+    if removed_recent:
+        selected_result.warnings.append(
+            "Regla antirrelleno 6M en la búsqueda experimental: "
+            f"{len(removed_recent)} relleno(s) sustituido(s) desde el lote "
+            "ganador; la composición conserva su amplitud en vez de encogerse "
+            "a los supervivientes."
+        )
     if stability.get("status") == "completed":
         segments = stability["segments"]
         selected_result.warnings.append(

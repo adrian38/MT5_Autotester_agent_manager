@@ -6,14 +6,57 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from mt5_manager.portfolio_full_experimental import (
+    EXPERIMENTAL_FULL_ANTIFILLER_RETRIES,
+    _result_rank,
     build_experimental_full_candidate_pools,
     optimize_experimental_full_portfolio,
 )
 from mt5_manager.portfolio_service import (
     PORTFOLIO_TYPES,
     _locked_full_proposals,
+    _underrepresented_recent_allocation_ids,
     normalize_settings,
 )
+
+
+def allocation(
+    set_id: str,
+    *,
+    units: int = 1,
+    recent: float = 10.0,
+    contribution: float = 100.0,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        set_id=set_id,
+        units=units,
+        net_profit_contribution=contribution,
+        recent_net_profit_001=recent,
+        has_recent_performance=True,
+    )
+
+
+def built_result(allocations, *, profit: float | None = None) -> SimpleNamespace:
+    allocations = list(allocations)
+    return SimpleNamespace(
+        allocations=allocations,
+        total_net_profit=float(
+            profit
+            if profit is not None
+            else sum(item.net_profit_contribution for item in allocations)
+        ),
+        active_strategies=len([item for item in allocations if item.units > 0]),
+        actual_valley_dd=10.0,
+        target_valley_dd=1000.0,
+        target_point_dd=1000.0,
+        total_units=sum(item.units for item in allocations),
+        warnings=[],
+        seasonal_coverage={},
+        seasonal_validation={},
+    )
+
+
+def recent_fillers(result) -> set[str]:
+    return _underrepresented_recent_allocation_ids(result, 5.0)
 
 
 def strategy(index: int) -> SimpleNamespace:
@@ -297,6 +340,242 @@ class ExperimentalFullSearchTests(unittest.TestCase):
                     warning.startswith("Búsqueda UBS experimental:")
                     for warning in proposal["result"].warnings
                 )
+            )
+
+
+class ExperimentalRecentContributionTests(unittest.TestCase):
+    """La regla de aporte reciente no debe encoger la composición elegida."""
+
+    def test_recent_fillers_are_replaced_from_the_winning_pool(self) -> None:
+        strategies = [strategy(index) for index in range(6)]
+        pools_seen: list[list[str]] = []
+
+        def fake_optimize(pool, **_kwargs):
+            pools_seen.append([item.set_id for item in pool])
+            if len(pools_seen) == 1:
+                # Dos miembros con peso y dos rellenos 6M.
+                return built_result([
+                    allocation("set-0", units=10, recent=50.0, contribution=500.0),
+                    allocation("set-1", units=10, recent=45.0, contribution=450.0),
+                    allocation("set-2", units=1, recent=0.2, contribution=5.0),
+                    allocation("set-3", units=1, recent=0.2, contribution=5.0),
+                ], profit=960.0)
+            return built_result([
+                allocation("set-0", units=10, recent=50.0, contribution=500.0),
+                allocation("set-1", units=10, recent=45.0, contribution=450.0),
+                allocation("set-4", units=8, recent=40.0, contribution=400.0),
+                allocation("set-5", units=8, recent=38.0, contribution=380.0),
+            ], profit=1730.0)
+
+        with patch(
+            "mt5_manager.portfolio_full_experimental.filter_eligible_sets",
+            return_value=strategies,
+        ), patch(
+            "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
+            side_effect=fake_optimize,
+        ):
+            result = optimize_experimental_full_portfolio(
+                raw_sets=strategies,
+                use_deep_refinement=True,
+                recent_filler_ids=recent_fillers,
+                min_trades_2020_2026=100,
+                max_total_candidates=10,
+                top_k_per_symbol=3,
+            )
+
+        self.assertEqual(len(pools_seen), 2)
+        # La reoptimizacion no se limita a los supervivientes: ofrece el resto
+        # del lote ganador, incluidos candidatos que la primera pasada no eligio.
+        self.assertEqual(
+            set(pools_seen[1]), {"set-0", "set-1", "set-4", "set-5"}
+        )
+        self.assertEqual(result.active_strategies, 4)
+        self.assertEqual(result.total_net_profit, 1730.0)
+        self.assertTrue(
+            any(
+                warning.startswith(
+                    "Regla antirrelleno 6M en la búsqueda experimental:"
+                )
+                for warning in result.warnings
+            )
+        )
+
+    def test_finalists_are_ranked_after_the_recent_contribution_rule(self) -> None:
+        strategies = [strategy(index) for index in range(6)]
+        calls: list[list[str]] = []
+
+        def fake_optimize(pool, **_kwargs):
+            calls.append([item.set_id for item in pool])
+            items = list(pool)
+            stage = len(calls)
+            if stage <= 6:
+                # Rondas clasificatorias: composicion limpia y repartida.
+                return built_result([
+                    allocation(item.set_id, units=5, recent=30.0, contribution=300.0)
+                    for item in items
+                ])
+            if stage == 7:
+                # Final completa: mas beneficio sobre el papel, pero casi todo
+                # relleno; la regla la va a dejar en un solo miembro.
+                return built_result(
+                    [allocation(items[0].set_id, units=10, recent=100.0, contribution=1000.0)]
+                    + [
+                        allocation(item.set_id, units=1, recent=0.1, contribution=5.0)
+                        for item in items[1:]
+                    ],
+                    profit=1500.0,
+                )
+            # Sin reposicion posible: solo queda el miembro con peso.
+            return built_result(
+                [allocation(items[0].set_id, units=10, recent=100.0, contribution=800.0)],
+                profit=800.0,
+            )
+
+        with patch(
+            "mt5_manager.portfolio_full_experimental.filter_eligible_sets",
+            return_value=strategies,
+        ), patch(
+            "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
+            side_effect=fake_optimize,
+        ):
+            result = optimize_experimental_full_portfolio(
+                raw_sets=strategies,
+                use_deep_refinement=True,
+                recent_filler_ids=recent_fillers,
+                min_trades_2020_2026=100,
+                max_total_candidates=3,
+                top_k_per_symbol=3,
+            )
+
+        # Gana la composicion amplia que sobrevive a la regla, no la que
+        # declaraba 1500 antes de aplicarla y se queda en un miembro.
+        self.assertEqual(result.total_net_profit, 900.0)
+        self.assertEqual(result.active_strategies, 3)
+
+    def test_antifiller_retries_are_bounded(self) -> None:
+        strategies = [strategy(index) for index in range(12)]
+        calls: list[int] = []
+
+        def always_leaves_fillers(pool, **_kwargs):
+            calls.append(len(pool))
+            items = list(pool)
+            return built_result(
+                [allocation(items[0].set_id, units=10, recent=100.0, contribution=1000.0)]
+                + [
+                    allocation(item.set_id, units=1, recent=0.1, contribution=5.0)
+                    for item in items[1:3]
+                ]
+            )
+
+        with patch(
+            "mt5_manager.portfolio_full_experimental.filter_eligible_sets",
+            return_value=strategies,
+        ), patch(
+            "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
+            side_effect=always_leaves_fillers,
+        ):
+            optimize_experimental_full_portfolio(
+                raw_sets=strategies,
+                use_deep_refinement=True,
+                recent_filler_ids=recent_fillers,
+                min_trades_2020_2026=100,
+                max_total_candidates=20,
+                top_k_per_symbol=3,
+            )
+
+        # Cada reintento reoptimiza un lote, no el torneo, y esta acotado: es lo
+        # que impide volver al bucle de torneos repetidos.
+        self.assertLessEqual(
+            len(calls), 1 + EXPERIMENTAL_FULL_ANTIFILLER_RETRIES
+        )
+
+    def test_result_rank_still_rewards_breadth_over_concentration(self) -> None:
+        # Guarda del objetivo del modo: a igual beneficio gana la composicion
+        # amplia. Meter la cuota de aporte reciente en el rango invertiria esto
+        # y convertiria la busqueda experimental en la estandar.
+        broad = built_result([
+            allocation(f"set-{index}", units=2, recent=10.0, contribution=100.0)
+            for index in range(6)
+        ], profit=600.0)
+        narrow = built_result([
+            allocation("set-0", units=12, recent=60.0, contribution=600.0)
+        ], profit=600.0)
+
+        self.assertGreater(_result_rank(broad), _result_rank(narrow))
+
+    def test_the_tournament_record_survives_a_survivor_rerun(self) -> None:
+        strategies = [strategy(index) for index in range(4)]
+        inputs = normalize_settings(
+            "full_history",
+            {
+                "allowed_asset_groups": ["Forex"],
+                "experimental_full_search": True,
+            },
+            "ICTRADING",
+        )
+        locked = strategies[:2]
+
+        def tournament_result(warning: str, audit_active: int) -> SimpleNamespace:
+            result = result_for(strategies)
+            result.allocations = result_for(locked).allocations
+            result.active_strategies = len(locked)
+            result.warnings = [warning]
+            result.seasonal_validation = {
+                "experimental_full_history_stability": {
+                    "status": "completed",
+                    "passed": True,
+                    "active_strategies": audit_active,
+                }
+            }
+            return result
+
+        engine_results = [
+            tournament_result(
+                "Búsqueda UBS experimental: 486/486 candidatos examinados; "
+                "3 ronda(s).",
+                8,
+            ),
+            tournament_result(
+                "Búsqueda UBS experimental: 4/4 candidatos examinados; "
+                "0 ronda(s).",
+                4,
+            ),
+        ]
+
+        def refine_over_survivors(
+            candidate_sets, _minimum_recent, optimize, *, progress=None
+        ):
+            optimize(candidate_sets)
+            return optimize(candidate_sets[:2]), {"set-2", "set-3"}
+
+        with patch(
+            "mt5_manager.portfolio_service._optimize_without_recent_fillers",
+            side_effect=refine_over_survivors,
+        ), patch(
+            "mt5_manager.portfolio_service.optimize_experimental_full_portfolio",
+            side_effect=engine_results,
+        ), patch(
+            "mt5_manager.portfolio_service.optimize_portfolio",
+            side_effect=lambda **_kwargs: result_for(locked),
+        ):
+            proposals = _locked_full_proposals(
+                strategies,
+                inputs,
+                {kind: [] for kind in PORTFOLIO_TYPES.values()},
+            )
+
+        self.assertEqual(len(proposals), 3)
+        for proposal in proposals:
+            warnings = proposal["result"].warnings
+            self.assertTrue(
+                any("486/486 candidatos examinados" in item for item in warnings)
+            )
+            self.assertFalse(any("0 ronda(s)" in item for item in warnings))
+            self.assertEqual(
+                proposal["result"].seasonal_validation[
+                    "experimental_full_history_stability"
+                ]["active_strategies"],
+                8,
             )
 
 

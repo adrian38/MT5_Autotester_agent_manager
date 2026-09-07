@@ -79,6 +79,14 @@ LOCKED_VARIANTS = (
     ("balanced", "Moderado", PortfolioType.BALANCED),
     ("conservative", "Conservador", PortfolioType.CONSERVATIVE),
 )
+# Avisos que describen el torneo experimental y viajan a las tres variantes
+# bloqueadas. Se capturan de la primera pasada: es la unica que tiene rondas.
+EXPERIMENTAL_WARNING_PREFIXES = (
+    "Búsqueda UBS experimental:",
+    "Estabilidad UBS experimental IS/OOS/6M:",
+    "Advertencia experimental UBS:",
+    "Regla antirrelleno 6M en la búsqueda experimental:",
+)
 
 COMMON_DEFAULTS: dict[str, Any] = {
     "capital": 10000.0,
@@ -2276,16 +2284,38 @@ def _locked_full_proposals(
         base_reserve,
     )
 
+    def recent_filler_ids(result: PortfolioResult) -> set[str]:
+        # La regla tiene una sola definicion. Se inyecta en el motor
+        # experimental para que aplique el mismo criterio que este llamador, en
+        # lugar de reimplementarlo y arriesgar que los dos se separen.
+        return _underrepresented_recent_allocation_ids(result, minimum_recent_pct)
+
+    # El torneo corre una vez. Si la regla compartida vuelve a entrar en este
+    # callback con los supervivientes, esa segunda pasada no tiene rondas y
+    # sobreescribiria el registro de la busqueda real con «0 ronda(s)».
+    experimental_telemetry: dict[str, Any] = {}
+
     def optimize_base(candidate_sets: list[Any]) -> PortfolioResult:
         if base_inputs.get("experimental_full_search"):
-            return optimize_experimental_full_portfolio(
+            result = optimize_experimental_full_portfolio(
                 raw_sets=candidate_sets,
                 use_deep_refinement=bool(
                     base_inputs.get("deep_optimization")
                 ),
                 progress=progress,
+                recent_filler_ids=recent_filler_ids,
                 **base_kwargs,
             )
+            if "warnings" not in experimental_telemetry:
+                experimental_telemetry["warnings"] = [
+                    warning
+                    for warning in result.warnings
+                    if warning.startswith(EXPERIMENTAL_WARNING_PREFIXES)
+                ]
+                experimental_telemetry["audit"] = (
+                    result.seasonal_validation or {}
+                ).get("experimental_full_history_stability")
+            return result
         return optimize_portfolio(
             raw_sets=candidate_sets,
             use_deep_refinement=bool(
@@ -2308,22 +2338,15 @@ def _locked_full_proposals(
     if missing:
         raise ValueError("Faltan sets de la composicion base: " + ", ".join(Path(value).name for value in missing))
     locked_sets = [raw_by_id[set_id] for set_id in locked_ids]
+    # Del torneo real, no de una reejecucion sobre los supervivientes: esa no
+    # tiene rondas y declararia «0 ronda(s)» con la auditoria calculada sobre la
+    # composicion ya recortada.
     experimental_audit = (
-        base.seasonal_validation.get(
-            "experimental_full_history_stability"
-        )
+        experimental_telemetry.get("audit")
         if base_inputs.get("experimental_full_search")
         else None
     )
-    experimental_warnings = [
-        warning
-        for warning in base.warnings
-        if warning.startswith("Búsqueda UBS experimental:")
-        or warning.startswith(
-            "Estabilidad UBS experimental IS/OOS/6M:"
-        )
-        or warning.startswith("Advertencia experimental UBS:")
-    ]
+    experimental_warnings = list(experimental_telemetry.get("warnings") or [])
     while True:
         locked_count = len(locked_sets)
         if inputs.get("max_total_units") is not None and int(inputs["max_total_units"]) < locked_count:
