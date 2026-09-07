@@ -30,3 +30,13 @@ changes from -40 to -140; it is not the active selection signal. Technical and
 broker-block states remain neutral. No scoring coefficients or data changed in
 this review. Full findings and 65 passing focused tests are documented in the
 IC context file referenced above.
+
+
+2026-09-08: added incompatible-volume detection in IC (run 448, 82403/82404).
+The node snapshot now supplies `execution_failures` for generation/robustness,
+separate from status counts. app.js splits known reasons out of rejected chips
+without double-counting totals: “Lotaje incompatible” / “Invalid stops”. Both
+the IC runtime and manager node copy expose the contract. Old-node snapshots
+remain supported. Detailed evidence, repair backup and tests live in IC's
+`ai_context/invalid_stops_diagnostics.md`. Reload agent Python when idle and
+serve/reload the updated manager static asset for the display to take effect.

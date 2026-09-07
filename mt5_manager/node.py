@@ -540,6 +540,31 @@ def _counts(conn: sqlite3.Connection, table: str, run_id: int) -> dict[str, int]
     return {str(row[0] or "unknown"): int(row[1]) for row in rows}
 
 
+def _execution_failure_counts(conn: sqlite3.Connection, table: str, run_id: int) -> dict[str, int]:
+    if not _table_exists(conn, table):
+        return {}
+    columns = {row[1] for row in conn.execute(f"pragma table_info({table})")}
+    if "metrics_json" not in columns:
+        return {}
+    counts: dict[str, int] = {}
+    audit_column = ", degradation_json" if "degradation_json" in columns else ""
+    for row in conn.execute(f"select metrics_json{audit_column} from {table} where run_id=? and status='rejected'", (run_id,)):
+        try:
+            payload = json.loads(row[0] or "{}")
+        except (TypeError, ValueError):
+            continue
+        reason = payload.get("failure_type") if isinstance(payload, dict) else None
+        if not reason and audit_column:
+            try:
+                audit = json.loads(row[1] or "{}")
+                reason = audit.get("failure_type") if isinstance(audit, dict) else None
+            except (TypeError, ValueError):
+                pass
+        if reason in {"invalid_stops", "incompatible_volume"}:
+            counts[reason] = counts.get(reason, 0) + 1
+    return counts
+
+
 def database_snapshot(path: Path) -> dict[str, Any]:
     empty = {"available": False, "path": str(path), "latest_run": None, "stages": {}}
     if not path.is_file():
@@ -568,6 +593,10 @@ def database_snapshot(path: Path) -> dict[str, Any]:
                 "latest_run": run_dict,
                 "max_generation": int(max_generation or 0),
                 "stages": stages,
+                "execution_failures": {
+                    "generation": _execution_failure_counts(conn, "candidates", run_id),
+                    "robustness": _execution_failure_counts(conn, "candidate_robustness", run_id),
+                },
             }
     except (sqlite3.Error, OSError) as exc:
         return {**empty, "error": str(exc)}
