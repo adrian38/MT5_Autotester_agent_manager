@@ -154,7 +154,17 @@ def validate_package(package, broker, account):
             raise ValueError('Mutación inválida')
         key = change['key']
         symbol_exploration = item['mode']=='symbol_exploration'
-        if symbol_exploration:
+        # Symbol Discovery has two shapes. Retargeting moves a proven set to a new
+        # instrument; recovery adapts one numeric parameter of an attempt that
+        # already made partial progress on that same instrument, so it is checked
+        # like any other numeric mutation and must never touch the identity.
+        recovery = symbol_exploration and change.get('kind')=='symbol_recovery'
+        if recovery:
+            if key=='ForceSymbol' or set(change)-{'kind','parent_stage'}!={'key','old','new','step','direction','minimum','maximum'}:
+                raise ValueError('Recuperación de símbolo inválida')
+            if type(change.get('parent_stage')) is not int or not 1<=change['parent_stage']<=4:
+                raise ValueError('Etapa alcanzada por el padre inválida')
+        if symbol_exploration and not recovery:
             if set(change)!={'kind','key','old','new'} or change.get('kind')!='symbol_exploration' or key!='ForceSymbol':
                 raise ValueError('Retargeting de símbolo inválido')
             if not all(isinstance(change.get(k),str) and change[k] for k in ('old','new')) or change['old'].upper()==change['new'].upper():
