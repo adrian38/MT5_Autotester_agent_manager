@@ -119,6 +119,7 @@ def _monthly_proposals(
                 monthly_sets,
                 float(inputs.get("min_strategy_recent_contribution_pct") or 0.0),
                 optimize,
+                progress=progress,
             )
         except Exception as exc:
             errors.append(f"{label}: {exc}")

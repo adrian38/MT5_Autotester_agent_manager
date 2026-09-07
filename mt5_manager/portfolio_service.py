@@ -2147,12 +2147,15 @@ def _optimize_without_recent_fillers(
     raw_sets: list[Any],
     minimum_pct: float,
     optimize: Callable[[list[Any]], PortfolioResult],
+    *,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[PortfolioResult, set[str]]:
-    """Re-optimize after removing allocations with immaterial recent contribution.
+    """Select globally once, then refine a strictly shrinking active composition.
 
-    Remove all fillers found in one result as a batch.  Running a complete deep
-    optimization once per active strategy made a single proposal grow from a
-    handful of optimizer runs to potentially dozens.
+    Reopening the whole candidate pool after every removal admits new fillers
+    and can repeat the experimental tournament hundreds of times. Re-optimize
+    only active survivors, retaining the caller's risk and validation policy.
+    Each retry removes at least one active set; inactive candidates cannot enter.
     """
     pool = list(raw_sets)
     removed: set[str] = set()
@@ -2185,9 +2188,19 @@ def _optimize_without_recent_fillers(
             if not underrepresented:
                 return result, removed
         removed.update(underrepresented)
-        pool = [strategy for strategy in pool if strategy.set_id not in removed]
+        pool = [
+            strategy for strategy in pool
+            if strategy.set_id in active_ids and strategy.set_id not in removed
+        ]
         if not pool:
-            return result, removed
+            raise ValueError("La regla antirrelleno 6M no dejó una composición reoptimizable")
+        if progress:
+            progress(
+                "Regla antirrelleno 6M: "
+                f"{len(underrepresented)} estrategia(s) bajo el aporte mínimo "
+                f"{float(minimum_pct):.1f}%; refinando {len(pool)} superviviente(s) "
+                "de la composición seleccionada, sin reabrir el pool global."
+            )
 
 
 def _normal_proposals(
@@ -2230,6 +2243,7 @@ def _normal_proposals(
                 raw_sets,
                 float(inputs.get("min_strategy_recent_contribution_pct") or 0.0),
                 optimize,
+                progress=progress,
             )
         except Exception as exc:
             errors.append(f"{label}: {exc}")
@@ -2284,6 +2298,7 @@ def _locked_full_proposals(
         raw_sets,
         minimum_recent_pct,
         optimize_base,
+        progress=progress,
     )
     locked_ids = [allocation.set_id for allocation in base.allocations if allocation.units > 0]
     if not locked_ids:

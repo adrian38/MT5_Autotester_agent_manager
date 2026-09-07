@@ -21,3 +21,12 @@ The two reported rows were repaired with `assert_writable` and a before-image
 backup at `runtime/invalid_stops_run445_before_20260906_235029.json`.
 Other historical runs were not bulk-reclassified. AXI and RoboForex were not
 modified. The fix does not alter strategy SL/TP parameters or rerun MT5.
+
+Follow-up score/weight audit (2026-09-07): the two rows retain score -75,
+confirmed by recomputing their stored metrics. Current probabilistic selection
+treats both former `no_trades` and current `rejected` as negative base outcomes,
+so their selection signals are unchanged. The legacy additive audit utility
+changes from -40 to -140; it is not the active selection signal. Technical and
+broker-block states remain neutral. No scoring coefficients or data changed in
+this review. Full findings and 65 passing focused tests are documented in the
+IC context file referenced above.

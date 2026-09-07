@@ -62,7 +62,7 @@ class ExperimentalMonthlySearchTests(unittest.TestCase):
         )
         marker = SimpleNamespace()
 
-        def run_optimizer(candidate_sets, _minimum_recent, optimize):
+        def run_optimizer(candidate_sets, _minimum_recent, optimize, *, progress=None):
             return optimize(candidate_sets), []
 
         with patch(

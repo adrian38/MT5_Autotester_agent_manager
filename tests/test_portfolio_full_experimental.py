@@ -263,7 +263,7 @@ class ExperimentalFullSearchTests(unittest.TestCase):
             "Búsqueda UBS experimental: 4/4 candidatos examinados;"
         ]
 
-        def run_once(candidate_sets, _minimum_recent, optimize):
+        def run_once(candidate_sets, _minimum_recent, optimize, *, progress=None):
             return optimize(candidate_sets), set()
 
         with patch(

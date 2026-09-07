@@ -43,3 +43,23 @@ Revisión sin modificar código ejecutable, configuración ni ejecución activa.
 Una corrección debe evitar relanzar ilimitadamente la búsqueda global, mantener
 las restricciones al refinar la composición y explicar los reintentos en vivo.
 Reducir solamente el presupuesto profundo no elimina la causa.
+
+## Corrección (2026-09-07)
+
+`_optimize_without_recent_fillers` ahora busca sobre el pool global una vez.
+Si aparecen fillers, reoptimiza solamente las asignaciones activas supervivientes.
+Cada vuelta reduce estrictamente esa composición: ya no entran candidatos que
+el resultado anterior no seleccionó. Se vuelve a medir el aporte al lote final
+en cada vuelta y el callback conserva sus parámetros de riesgo y validación.
+Esto prioriza terminar de refinar la composición elegida; no intenta sustituir
+cada descarte con otro candidato de todo el universo.
+
+La primitiva se comparte con mensual, cuyas reglas estacionales y auditorías
+siguen en su propio callback. Ambos ámbitos propagan mensajes de refinamiento
+al log. No se cambia la configuración del usuario ni los umbrales de riesgo.
+
+Regresiones: 482 fillers sucesivos ya no provocan 483 optimizaciones (solo dos);
+una segunda caída de aporte tras cambiar lotes vuelve a validarse; los
+orquestadores completo y mensual conservan los mismos kwargs de riesgo al
+refinar. La ejecución en curso no se actualiza editando el archivo: requiere
+cargar la imagen corregida y relanzar el cálculo.
