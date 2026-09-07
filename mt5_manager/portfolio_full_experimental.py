@@ -17,6 +17,7 @@ from portfolio_manager.ubs_portfolio import (
 
 Progress = Callable[[str], None]
 EXPERIMENTAL_FULL_POOL_ROTATIONS = 3
+EXPERIMENTAL_FULL_ANTIFILLER_RETRIES = 8
 
 
 def _strategy_id(strategy: RobustStrategySet) -> str:
@@ -301,7 +302,6 @@ def _refined_without_recent_fillers(
     candidate_pool: Sequence[RobustStrategySet],
     recent_filler_ids: Callable[[PortfolioResult], set[str]] | None,
     *,
-    use_deep_refinement: bool,
     optimizer_kwargs: dict[str, Any],
     progress: Progress | None = None,
 ) -> tuple[PortfolioResult, set[str]]:
@@ -317,15 +317,20 @@ def _refined_without_recent_fillers(
     ranking by recent contribution share would bias the tournament towards
     concentrated compositions and defeat the diversification it exists for.
     Each retry reoptimises a single, strictly smaller pool, never the tournament.
-    The original pool size is therefore a hard upper bound without returning a
-    composition that still violates the recent-contribution rule.
+    Replacement passes deliberately skip multi-start and deep refinement: the
+    locked A/M/C variants perform the expensive final optimisation afterwards.
+    A fixed retry budget keeps the experimental route predictably bounded; an
+    unresolved finalist is rejected instead of being returned with fillers.
     """
     if recent_filler_ids is None:
         return result, set()
     pool = list(candidate_pool)
     removed: set[str] = set()
     current = result
-    retry_budget = len(pool)
+    retry_budget = min(len(pool), EXPERIMENTAL_FULL_ANTIFILLER_RETRIES)
+    refinement_kwargs = dict(optimizer_kwargs)
+    refinement_kwargs["search_restarts"] = 0
+    refinement_kwargs["run_local_search"] = False
     for _attempt in range(retry_budget):
         fillers = set(recent_filler_ids(current))
         if not fillers:
@@ -351,8 +356,8 @@ def _refined_without_recent_fillers(
         try:
             refreshed = _optimize_exact_pool(
                 candidates,
-                use_deep_refinement=use_deep_refinement,
-                optimizer_kwargs=optimizer_kwargs,
+                use_deep_refinement=False,
+                optimizer_kwargs=refinement_kwargs,
             )
         except Exception as exc:
             raise ValueError(
@@ -554,10 +559,10 @@ def optimize_experimental_full_portfolio(
                 f"{EXPERIMENTAL_FULL_POOL_ROTATIONS} rotaciones"
             )
         qualifying_kwargs = dict(optimizer_kwargs)
-        qualifying_kwargs["search_restarts"] = min(
-            int(qualifying_kwargs.get("search_restarts") or 0),
-            1,
-        )
+        # Three rotations already expose every candidate to different peers.
+        # Multi-start inside every qualifying pool multiplies runtime without
+        # adding coverage; reserve it for the complete final optimisation.
+        qualifying_kwargs["search_restarts"] = 0
         qualifying_kwargs["run_local_search"] = False
         for rotation, pools in enumerate(rotation_pools, 1):
             for pool_index, pool in enumerate(pools, 1):
@@ -675,7 +680,6 @@ def optimize_experimental_full_portfolio(
                 candidate_result,
                 candidate_pool,
                 recent_filler_ids,
-                use_deep_refinement=use_deep_refinement,
                 optimizer_kwargs=optimizer_kwargs,
                 progress=progress,
             )

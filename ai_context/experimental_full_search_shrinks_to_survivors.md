@@ -204,3 +204,33 @@ de los tres intentos antiguos, comprueba la secuencia estrictamente decreciente
 10 pruebas del módulo, las 69 de integración full/mensual y las 474 del suite
 completo. No se modifica el mensual ni el fork del nodo: este cálculo lo ejecuta
 el manager Docker.
+
+## Incidente de duración y límite operativo (2026-09-07)
+
+La siguiente generación, log
+`manager_full_history_generate_20260907_163635.log`, parecía no terminar. No
+había llegado aún al refinamiento antirrelleno: tras cargar 852 sets y aceptar
+555, la primera ronda del torneo tardó unos 22 minutos (16:55:49–17:18:06 UTC)
+y entonces inició la segunda con 278 candidatos. El proceso seguía avanzando;
+el coste estaba dentro de los lotes clasificatorios.
+
+Cada candidato ya participa en tres rotaciones con compañeros distintos, pero
+cada lote clasificatorio heredaba además un `search_restarts` de hasta 1. Eso
+duplicaba el trabajo de todas las rotaciones y rondas sin ampliar la cobertura
+de candidatos. La ruta experimental ahora fuerza `search_restarts=0` y mantiene
+`run_local_search=False` en los lotes clasificatorios. Los reinicios y el
+refinamiento profundo quedan reservados para la optimización final completa.
+
+También se sustituye el límite antirrelleno dependiente del tamaño del pool por
+`EXPERIMENTAL_FULL_ANTIFILLER_RETRIES = 8`. Esas pasadas de reposición se hacen
+sin reinicios ni refinamiento profundo. Si ocho reducciones no bastan, el
+finalista se rechaza explícitamente: nunca se guarda una cartera con rellenos ni
+se agota silenciosamente un pool grande.
+
+La prueba del torneo exige ahora cero reinicios y ausencia de refinamiento
+profundo en cada clasificación, conservándolos en la final. Una regresión con
+30 candidatos y un relleno permanente exige fallo tras exactamente ocho
+reposiciones. Pasan 11 pruebas focalizadas, 69 de integración full/mensual y
+475 pruebas del suite completo. La ejecución que ya estaba dentro del
+contenedor conserva el código de su imagen y no recibe este cambio hasta
+reconstruir/reiniciar el manager.

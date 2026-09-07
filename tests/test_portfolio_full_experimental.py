@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from mt5_manager.portfolio_full_experimental import (
+    EXPERIMENTAL_FULL_ANTIFILLER_RETRIES,
     _result_rank,
     build_experimental_full_candidate_pools,
     optimize_experimental_full_portfolio,
@@ -229,9 +230,11 @@ class ExperimentalFullSearchTests(unittest.TestCase):
     def test_tournament_examines_every_candidate_and_records_audit(self) -> None:
         strategies = [strategy(index) for index in range(35)]
         evaluated: list[list[str]] = []
+        settings_seen: list[dict[str, object]] = []
 
-        def fake_optimize(pool, **_kwargs):
+        def fake_optimize(pool, **kwargs):
             evaluated.append([item.set_id for item in pool])
+            settings_seen.append(kwargs)
             return result_for(pool)
 
         with patch(
@@ -267,6 +270,12 @@ class ExperimentalFullSearchTests(unittest.TestCase):
             }
         }
         self.assertEqual(set(appearances.values()), {3})
+        for settings in settings_seen[:-1]:
+            self.assertEqual(
+                settings["optimizer_kwargs"]["search_restarts"], 0
+            )
+            self.assertFalse(settings["use_deep_refinement"])
+        self.assertTrue(settings_seen[-1]["use_deep_refinement"])
         self.assertTrue(
             any(
                 "35/35 candidatos examinados" in warning
@@ -486,6 +495,39 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
         # por lo que termina sin relanzar el torneo ni devolver rellenos.
         self.assertEqual(calls, [12, 10, 8, 6, 4, 2, 1])
         self.assertEqual(recent_fillers(result), set())
+
+    def test_antifiller_retries_stop_at_budget(self) -> None:
+        strategies = [strategy(index) for index in range(30)]
+        calls: list[int] = []
+
+        def always_leaves_fillers(pool, **_kwargs):
+            calls.append(len(pool))
+            items = list(pool)
+            return built_result(
+                [allocation(items[0].set_id, units=10, recent=100.0)]
+                + [allocation(items[1].set_id, units=1, recent=0.1)]
+            )
+
+        with patch(
+            "mt5_manager.portfolio_full_experimental.filter_eligible_sets",
+            return_value=strategies,
+        ), patch(
+            "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
+            side_effect=always_leaves_fillers,
+        ):
+            with self.assertRaisesRegex(ValueError, "sin rellenos 6M"):
+                optimize_experimental_full_portfolio(
+                    raw_sets=strategies,
+                    use_deep_refinement=True,
+                    recent_filler_ids=recent_fillers,
+                    min_trades_2020_2026=100,
+                    max_total_candidates=40,
+                    top_k_per_symbol=3,
+                )
+
+        self.assertEqual(
+            len(calls), 1 + EXPERIMENTAL_FULL_ANTIFILLER_RETRIES
+        )
 
     def test_result_rank_still_rewards_breadth_over_concentration(self) -> None:
         # Guarda del objetivo del modo: a igual beneficio gana la composicion
