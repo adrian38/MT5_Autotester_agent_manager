@@ -549,6 +549,95 @@ class AccountLeverageSettingTests(unittest.TestCase):
             DEFAULT_ACCOUNT_LEVERAGE,
         )
 
+    def test_ttp_tiers_apply_through_the_model_not_only_by_name(self) -> None:
+        # El tramo vivía sólo en `margin_leverage_for_profile`. Al pasar el
+        # cálculo a `MarginModel`, TTP se quedó en `default_leverage` y el
+        # margen del #27 salió en 51.29 donde la tabla publicada pide 4973.51.
+        from portfolio_manager.ubs_portfolio import margin_leverage_for_profile
+
+        models = (
+            margin_model_for_profile("ttp"),
+            resolve_margin_model("ttp"),
+            # El tramo ES el requisito: el apalancamiento de cuenta no lo mueve.
+            margin_model_for_profile("ttp", account_leverage=1000.0),
+        )
+        for model in models:
+            self.assertEqual(model.leverage_for("EURUSD"), 50.0)
+            self.assertEqual(model.leverage_for("US500"), 15.0)
+            self.assertEqual(model.leverage_for("XAUUSD"), 10.0)
+            self.assertEqual(model.leverage_for("BRENT"), 10.0)
+            self.assertEqual(model.leverage_for("BTCUSD"), 2.0)
+            self.assertEqual(model.leverage_for("Airbus+"), 2.0)
+            # Una sola implementación: el modelo y la función por nombre no
+            # pueden volver a discrepar.
+            for symbol in ("EURUSD", "US500", "XAUUSD", "BRENT", "BTCUSD", "Airbus+"):
+                self.assertEqual(
+                    model.leverage_for(symbol),
+                    margin_leverage_for_profile(symbol, margin_profile="ttp"),
+                    symbol,
+                )
+
+    def test_measured_contract_size_reaches_every_profile(self) -> None:
+        # El tamaño de contrato es del instrumento, no del perfil financiero.
+        for profile in ("ttp", "ictrading", "roboforex", "axi"):
+            model = margin_model_for_profile(
+                profile, symbol_contract_size={"EURUSD": 100000.0, "XAUUSD": 100.0},
+            )
+            self.assertEqual(model.contract_size_for("EURUSD"), 100000.0, profile)
+            self.assertEqual(model.contract_size_for("XAUUSD"), 100.0, profile)
+            # Lo no medido sigue cayendo a la aproximación por grupo.
+            self.assertEqual(model.contract_size_for("US500"), 1.0, profile)
+
+    def test_ttp_forex_margin_stops_being_a_millionth_of_the_real_one(self) -> None:
+        eurusd = strategy("EURUSD", 1.10)
+        blind = margin_model_for_profile("ttp")
+        real = margin_model_for_profile("ttp", symbol_contract_size={"EURUSD": 100000.0})
+
+        # 0.01 lotes x 100.000 x 1.10 / 50 = 22.00
+        self.assertAlmostEqual(allocation_margin_required(eurusd, 1, margin_profile=real), 22.0)
+        # Sin tamaño de contrato medido queda en 0.01 x 1 x 1.10 / 50.
+        self.assertAlmostEqual(
+            allocation_margin_required(eurusd, 1, margin_profile=blind), 0.01 * 1.10 / 50,
+        )
+
+        summary = portfolio_margin_summary(
+            [eurusd], {"EURUSD.set": 1},
+            balance=5000.0, max_margin_pct=100.0, margin_profile=real,
+        )
+        # El aviso al usuario se redacta con estos campos, no con un texto
+        # paralelo que pueda prometer una tabla que el modelo no aplica.
+        self.assertEqual(summary["group_leverage_applied"], {"Forex": 50.0})
+        self.assertEqual(summary["contract_size_measured"], 1)
+        self.assertEqual(summary["symbol_count"], 1)
+        self.assertAlmostEqual(float(summary["total"]), 22.0)
+        self.assertAlmostEqual(float(summary["notional"]), 1100.0)
+
+    def test_measured_notional_keeps_a_foreign_quote_out_of_the_margin(self) -> None:
+        # USDJPY cotiza en JPY: `lote x contrato x precio` da yenes. Con el
+        # contrato real eso multiplicaba el margen por el tipo de cambio.
+        usdjpy = strategy("USDJPY", 161.677)
+        blind = margin_model_for_profile("ttp", symbol_contract_size={"USDJPY": 100000.0})
+        measured = margin_model_for_profile(
+            "ttp",
+            symbol_contract_size={"USDJPY": 100000.0},
+            symbol_notional={"USDJPY": 865.91},
+            notional_source="ictrading_symbol_specs.json",
+        )
+
+        self.assertAlmostEqual(
+            allocation_margin_required(usdjpy, 3, margin_profile=blind),
+            0.03 * 100000.0 * 161.677 / 50,
+        )
+        self.assertAlmostEqual(
+            allocation_margin_required(usdjpy, 3, margin_profile=measured),
+            3 * 865.91 / 50,
+        )
+        # Tres ordenes de magnitud entre una cifra y la otra.
+        self.assertGreater(
+            allocation_margin_required(usdjpy, 3, margin_profile=blind),
+            allocation_margin_required(usdjpy, 3, margin_profile=measured) * 100,
+        )
+
     def test_build_margin_model_only_measures_notional_for_axi(self) -> None:
         import sqlite3
         import contextlib
@@ -614,7 +703,16 @@ class AccountLeverageSettingTests(unittest.TestCase):
                 json.dumps({"symbols": {"USTEC": {
                     "volume_min": 0.1, "volume_step": 0.1,
                     "margin_min_lot": 12.86, "contract_size": 1.0,
-                }, "JP225": {"volume_min": 1.0, "volume_step": 1.0}}}), encoding="utf-8",
+                }, "JP225": {"volume_min": 1.0, "volume_step": 1.0},
+                    # Sin `volume_min`: sólo aporta tamaño de contrato, que es
+                    # del instrumento y debe llegar con cualquier perfil.
+                    "GBPUSD": {"contract_size": 100000.0},
+                    # Cotizado en JPY: el nocional medido viene ya en divisa de
+                    # cuenta, la fórmula por precio no.
+                    "USDJPY": {
+                        "volume_min": 0.01, "contract_size": 100000.0,
+                        "notional_min_lot": 865.91,
+                    }}}), encoding="utf-8",
             )
             source = PortfolioSource({
                 "portfolio_project_dir": str(project),
@@ -643,6 +741,15 @@ class AccountLeverageSettingTests(unittest.TestCase):
                         self.assertEqual(model.lot_increments_for("USTEC"), 10)
                         self.assertEqual(model.lot_size_for("JP225", 2), 2.0)
                         self.assertIsNone(model.margin_for_one("USTEC"))
+                        self.assertIsNone(model.notional_for("USTEC"))
+                        # El tamaño de contrato medido sí llega, en los dos
+                        # ámbitos y con cualquier perfil: es del instrumento.
+                        # Sin esto un lote de forex valía `0.01 x 1 x precio`.
+                        self.assertEqual(model.contract_size_for("GBPUSD"), 100000.0)
+                        self.assertEqual(model.contract_size_for("USTEC"), 1.0)
+                        # Y el nocional medido, ya en divisa de cuenta. Un
+                        # símbolo sin él sigue cayendo a la estimación.
+                        self.assertAlmostEqual(model.notional_for("USDJPY"), 865.91)
                         self.assertIsNone(model.notional_for("USTEC"))
                         sets = [strategy("USTEC", 20000), strategy("EURUSD", 1.1), strategy("JP225", 40000)]
                         units, steps = _execution_plan_allocations(

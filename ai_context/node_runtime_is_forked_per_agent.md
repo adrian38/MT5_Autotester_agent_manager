@@ -201,6 +201,41 @@ caber en las dataclasses del agente).
 quitar el reintento del manager: es la red para las copias sin portar y para
 cualquier campo que se añada mañana.
 
+### Recortarlos no es inocuo: la tarjeta guardada se contradice (2026-09-08)
+
+«Esos campos no tienen dónde caber» describe bien el filtro, pero no que el
+recorte se vea. La tarjeta del #25 muestra en cabecera:
+
+```
+261,40  DD riesgo máx.
+máx(cerrado 0,00, flotante 0,00) · límite 270,00 · 96,8%
+```
+
+`máx(0,00, 0,00)` no da 261,40. Las columnas FLOTANTE MÁX. y APORTE 6M salen a
+`0,00` en las 12 filas por el mismo motivo. Lo pinta
+[`static/portfolios.js:250`](../mt5_manager/static/portfolios.js) con
+`actual_closed_valley_dd` y `floating_dd_buffer`, que el manager relee a 0.
+
+No es un fallo de cálculo: el aviso guardado en ese mismo registro dice
+«max(DD cerrado 261.40, flotante maximo individual 254.34) = 261.40». Se pierde
+al guardar, y en tres sitios encadenados:
+
+1. `_supported_dataclass_values` descarta los campos porque el
+   `portfolio_manager/ubs_portfolio.py` del agente no los declara
+   (`PortfolioResult:343`, `StrategyAllocation:284`).
+2. El `insert into portfolios` del agente (`ui/ubs_portfolio_logic.py:812` y
+   `:985`) no nombra esas dos columnas; existen solo porque las añade la
+   migración del manager (`portfolio_service.py:305`) con `default 0`.
+3. `metrics_json` se rehace con `asdict()` de la dataclass recortada, así que
+   las asignaciones guardadas tampoco llevan la tanda por equity ni el 6M.
+
+Comprobado leyendo la fila directamente: `actual_valley_dd = 261.4`,
+`actual_closed_valley_dd = 0.0`, `floating_dd_buffer = 0.0`. Afecta a **todos**
+los portafolios que guarda este nodo (verificado en #16, #17, #19, #24 y #25).
+Arreglarlo es declarar los campos en las dataclasses del agente y añadirlos a
+los dos `insert`; la escritura la hace el nodo, así que un cambio en el manager
+no sirve. **Pendiente**, no hecho.
+
 ## Reinicio completo de la aplicacion desde el manager
 
 El boton `Reiniciar app` de la tarjeta usa

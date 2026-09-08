@@ -39,6 +39,7 @@ from portfolio_manager.ubs_portfolio import (
     filter_eligible_sets,
     load_max_product_leverage,
     load_symbol_notional,
+    load_symbol_notional_from_specs,
     load_symbol_specs,
     load_unmeasured_symbols,
     margin_model_for_profile,
@@ -87,6 +88,11 @@ EXPERIMENTAL_WARNING_PREFIXES = (
     "Advertencia experimental UBS:",
     "Regla antirrelleno 6M en la búsqueda experimental:",
 )
+# Pasadas de reposicion de la ruta estandar. Cada una vuelve a seleccionar sobre
+# el pool completo menos los rellenos ya descartados, asi que cuesta una
+# optimizacion entera: el presupuesto acota el peor caso a minutos. Sin cota
+# vuelve el bucle de `ai_context/ubs_generation_repeated_tournaments.md`.
+STANDARD_ANTIFILLER_REFILL_PASSES = 8
 
 COMMON_DEFAULTS: dict[str, Any] = {
     "capital": 10000.0,
@@ -2157,6 +2163,7 @@ def _optimize_without_recent_fillers(
     optimize: Callable[[list[Any]], PortfolioResult],
     *,
     progress: Callable[[str], None] | None = None,
+    refill_from_pool: bool = False,
 ) -> tuple[PortfolioResult, set[str]]:
     """Select globally once, then refine a strictly shrinking active composition.
 
@@ -2164,9 +2171,26 @@ def _optimize_without_recent_fillers(
     and can repeat the experimental tournament hundreds of times. Re-optimize
     only active survivors, retaining the caller's risk and validation policy.
     Each retry removes at least one active set; inactive candidates cannot enter.
+
+    `refill_from_pool` opts into replacing the removals instead: every retry
+    keeps the whole pool minus the fillers already dropped, so the released DD
+    budget can be spent again and breadth survives the quota rule rather than
+    being traded for it. The quota is a share of the total recent profit, so a
+    wide composition puts more members under the minimum; refining only the
+    survivors then ships a portfolio smaller than the pool allows.
+
+    Only for callers whose `optimize` is a single optimization. With the
+    experimental tournament as the callback this is the twelve-hour loop of
+    `ai_context/ubs_generation_repeated_tournaments.md` -- and that engine
+    already replaces fillers inside the tournament, where the winning batch is
+    known. Bounded by `STANDARD_ANTIFILLER_REFILL_PASSES`: once the budget runs
+    out the shrink-only refinement finishes the job, so the delivered result is
+    never dirtier, nor slower by more than that budget, than without the option.
     """
     pool = list(raw_sets)
     removed: set[str] = set()
+    refill_budget = STANDARD_ANTIFILLER_REFILL_PASSES if refill_from_pool else 0
+    refilled = False
     while True:
         result = optimize(pool)
         underrepresented = _underrepresented_recent_allocation_ids(result, minimum_pct)
@@ -2177,7 +2201,11 @@ def _optimize_without_recent_fillers(
                     0,
                     "Regla antirrelleno 6M: aporte minimo "
                     f"{float(minimum_pct):.1f}% por estrategia; "
-                    f"{len(removed)} estrategia(s) eliminada(s) y portafolio reoptimizado.",
+                    f"{len(removed)} estrategia(s) eliminada(s) y portafolio "
+                    + (
+                        "reoptimizado reponiendo desde el pool."
+                        if refilled else "reoptimizado."
+                    ),
                 )
             return result, removed
         active_ids = {allocation.set_id for allocation in result.allocations if allocation.units > 0}
@@ -2196,19 +2224,31 @@ def _optimize_without_recent_fillers(
             if not underrepresented:
                 return result, removed
         removed.update(underrepresented)
-        pool = [
-            strategy for strategy in pool
-            if strategy.set_id in active_ids and strategy.set_id not in removed
-        ]
-        if not pool:
-            raise ValueError("La regla antirrelleno 6M no dejó una composición reoptimizable")
-        if progress:
-            progress(
+        if refill_budget > 0:
+            refill_budget -= 1
+            refilled = True
+            pool = [strategy for strategy in pool if strategy.set_id not in removed]
+            message = (
+                "Regla antirrelleno 6M: "
+                f"{len(underrepresented)} relleno(s) fuera del aporte mínimo "
+                f"{float(minimum_pct):.1f}%; reponiendo sobre {len(pool)} "
+                "candidato(s) del pool para reutilizar el DD liberado."
+            )
+        else:
+            pool = [
+                strategy for strategy in pool
+                if strategy.set_id in active_ids and strategy.set_id not in removed
+            ]
+            message = (
                 "Regla antirrelleno 6M: "
                 f"{len(underrepresented)} estrategia(s) bajo el aporte mínimo "
                 f"{float(minimum_pct):.1f}%; refinando {len(pool)} superviviente(s) "
                 "de la composición seleccionada, sin reabrir el pool global."
             )
+        if not pool:
+            raise ValueError("La regla antirrelleno 6M no dejó una composición reoptimizable")
+        if progress:
+            progress(message)
 
 
 def _normal_proposals(
@@ -2324,11 +2364,20 @@ def _locked_full_proposals(
             **base_kwargs,
         )
 
+    # El motor experimental repone los rellenos dentro del torneo, donde conoce
+    # el lote ganador; reabrir el pool aqui con el torneo como callback es el
+    # bucle de doce horas de `ubs_generation_repeated_tournaments.md`. Sin el
+    # motor nadie reponia: la cuota dejaba la composicion en los supervivientes
+    # y el DD liberado ya no se podia gastar. El #25 del 2026-09-08 cerro con
+    # 4 sets de los 8 elegidos y 7.959 de neto teniendo 748 candidatos
+    # disponibles, frente a los 21.886 del #21 con 7 sets el dia anterior.
+    refill_base = not bool(base_inputs.get("experimental_full_search"))
     base, removed_ids = _optimize_without_recent_fillers(
         raw_sets,
         minimum_recent_pct,
         optimize_base,
         progress=progress,
+        refill_from_pool=refill_base,
     )
     locked_ids = [allocation.set_id for allocation in base.allocations if allocation.units > 0]
     if not locked_ids:
@@ -2412,7 +2461,9 @@ def _locked_full_proposals(
                 result.warnings.insert(
                     1,
                     "Regla antirrelleno 6M: "
-                    f"{len(removed_ids)} estrategia(s) eliminada(s) antes de fijar la composicion A/M/C.",
+                    f"{len(removed_ids)} estrategia(s) eliminada(s) "
+                    + ("y repuestas desde el pool " if refill_base else "")
+                    + "antes de fijar la composicion A/M/C.",
                 )
             # Una variante inviable no anula a las demas: el redondeo ejecutable
             # puede dejar fuera solo a la mas restrictiva. Se entregan las
@@ -2478,9 +2529,22 @@ def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
     ) = load_symbol_specs(symbol_specs_path)
     if profile != "axi":
         # PortfolioSource resuelve las especificaciones del broker real.
-        # Cambiar el perfil financiero no cambia sus restricciones de lotaje.
+        # Cambiar el perfil financiero no cambia sus restricciones de lotaje ni
+        # el tamano de contrato del instrumento: ambos son del simbolo. Lo que
+        # no se propaga es `symbol_margin`, medido con los tramos y el
+        # apalancamiento del broker de origen.
+        specs_notional, specs_notional_source = load_symbol_notional_from_specs(
+            symbol_specs_path
+        )
         return margin_model_for_profile(
-            inputs.get("margin_profile"), symbol_min_lot=symbol_min_lot,
+            inputs.get("margin_profile"),
+            symbol_min_lot=symbol_min_lot,
+            symbol_contract_size=symbol_contract_size,
+            # Ya convertido a divisa de cuenta por el volcado. Sin el, el
+            # tamano de contrato real convierte el fallo de moneda de
+            # `lote x contrato x precio` en un error de un orden de magnitud.
+            symbol_notional=specs_notional,
+            notional_source=specs_notional_source,
         )
     symbol_notional, group_notional, notional_source = load_symbol_notional(source.normalization)
     unmeasured_symbols = load_unmeasured_symbols(source.normalization)

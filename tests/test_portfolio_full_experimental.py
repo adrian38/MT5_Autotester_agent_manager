@@ -314,7 +314,17 @@ class ExperimentalFullSearchTests(unittest.TestCase):
             "Búsqueda UBS experimental: 4/4 candidatos examinados;"
         ]
 
-        def run_once(candidate_sets, _minimum_recent, optimize, *, progress=None):
+        refill_flags: list[bool] = []
+
+        def run_once(
+            candidate_sets,
+            _minimum_recent,
+            optimize,
+            *,
+            progress=None,
+            refill_from_pool=False,
+        ):
+            refill_flags.append(refill_from_pool)
             return optimize(candidate_sets), set()
 
         with patch(
@@ -336,6 +346,9 @@ class ExperimentalFullSearchTests(unittest.TestCase):
         self.assertEqual(len(proposals), 3)
         experimental.assert_called_once()
         self.assertEqual(stable.call_count, 3)
+        # El motor repone dentro del torneo: reabrir el pool en la primitiva
+        # compartida relanzaria el torneo entero por cada relleno.
+        self.assertEqual(refill_flags, [False])
         for proposal in proposals:
             self.assertEqual(
                 proposal["result"].seasonal_validation[
@@ -582,9 +595,17 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
             ),
         ]
 
+        refill_flags: list[bool] = []
+
         def refine_over_survivors(
-            candidate_sets, _minimum_recent, optimize, *, progress=None
+            candidate_sets,
+            _minimum_recent,
+            optimize,
+            *,
+            progress=None,
+            refill_from_pool=False,
         ):
+            refill_flags.append(refill_from_pool)
             optimize(candidate_sets)
             return optimize(candidate_sets[:2]), {"set-2", "set-3"}
 
@@ -605,6 +626,7 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
             )
 
         self.assertEqual(len(proposals), 3)
+        self.assertEqual(refill_flags, [False])
         for proposal in proposals:
             warnings = proposal["result"].warnings
             self.assertTrue(

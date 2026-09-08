@@ -234,3 +234,78 @@ reposiciones. Pasan 11 pruebas focalizadas, 69 de integración full/mensual y
 475 pruebas del suite completo. La ejecución que ya estaba dentro del
 contenedor conserva el código de su imagen y no recibe este cambio hasta
 reconstruir/reiniciar el manager.
+
+## La ruta estándar cayó en el mismo encogimiento (2026-09-08)
+
+La premisa del apartado «Corrección aplicada» —«con 1 relleno (ruta estándar) el
+recorte es inocuo»— caducó al día siguiente. Con la búsqueda experimental
+**apagada**, tres generaciones consecutivas cortaron **4 de 8**:
+
+| Generación (log) | Elegibles | Antirrelleno | Sets | Neto |
+| --- | --- | --- | --- | --- |
+| `..._20260907_094053` → #21 | 495 | 1 de 8 | 7 | 21.886 |
+| `..._20260908_093847` | 514 | 4 de 8 | 4 | no guardada |
+| `..._20260908_095547` | 514 | 4 de 8 | 4 | no guardada |
+| `..._20260908_122006` → #25 | 514 | 4 de 8 | 4 | **7.959** |
+
+No fue el pool: creció de 495 a 514 elegibles, y contando directamente en la
+memoria hay 826 sets con Final Tick y Final Tick 6M aceptados sin cuarentena,
+748 de ellos en los grupos permitidos (Forex/Indices/Metals) repartidos en 13
+símbolos, de sobra para las 13 estrategias que admite `max_sets_per_symbol: 1`.
+Tampoco fueron las cuatro exclusiones por OHLC de ese día: a esa escala son
+ruido, y el #12 (23-08, 4 sets) ya había hecho 8.911 semanas antes.
+
+El neto es función de la amplitud, no del azar. Con el mismo presupuesto de DD,
+el neto por punto de valle sale 89,2 con 8 sets (#17), 81,9 con 7 (#21), 51,4 y
+48,3 con 6 (#24, #14), 41,4 con 5 (#13) y 34,6 y 30,5 con 4 (#12, #25). Es la
+diversificación la que compra margen de DD, y la cuota se come precisamente eso:
+al medirse como fracción del total reciente, cuanta más amplitud tiene la
+composición más miembros caen bajo el mínimo.
+
+El registro de decisiones del #25 lo cierra: diez `add_unit` sobre los mismos
+cuatro símbolos hasta agotar el valle en 261,40 de 270. El optimizador final
+nunca vio otro candidato («no encontro mejora valida tras 16 intento(s), pool 4
+candidato(s)»).
+
+## Corrección aplicada a la ruta estándar (2026-09-08)
+
+`_optimize_without_recent_fillers` recibe `refill_from_pool`, apagado por
+defecto. Encendido, cada vuelta conserva **todo el pool menos los rellenos ya
+descartados** en lugar de solo los supervivientes, así que el DD liberado se
+puede volver a gastar y la amplitud sobrevive a la regla.
+
+- Lo enciende `_locked_full_proposals` **solo cuando `experimental_full_search`
+  está apagado**. Con el motor encendido el callback es el torneo completo:
+  reabrir el pool ahí es el bucle de doce horas de
+  `ubs_generation_repeated_tournaments.md`, y además el motor ya repone dentro,
+  donde conoce el lote ganador.
+- `_monthly_proposals` no pasa el parámetro: el mensual congelado conserva el
+  refinamiento por supervivientes, bit a bit.
+- Acotado por `STANDARD_ANTIFILLER_REFILL_PASSES = 8`. Agotado el presupuesto
+  con rellenos todavía dentro, termina el refinamiento por supervivientes de
+  siempre: el resultado entregado nunca sale más sucio, ni más lento de esas
+  ocho pasadas, que sin la opción. No se rechaza la generación —es la ruta por
+  defecto— a diferencia del motor experimental.
+- El aviso guardado distingue las dos rutas: «eliminada(s) **y repuestas desde
+  el pool** antes de fijar la composicion A/M/C».
+
+Verificación: 478 pruebas de `python -m unittest discover -s tests` en verde.
+Tres regresiones nuevas en `tests/test_portfolio_service.py`, las dos primeras
+validadas por mutación:
+
+| Prueba | Mutación que la hace fallar |
+| --- | --- |
+| `test_recent_fillers_are_replaced_from_the_pool_when_refill_is_on` | filtrar por `active_ids` en la rama de reposición → el segundo pool es `['core']` y `spare` no entra |
+| `test_the_standard_bundle_reopens_the_pool_and_the_experimental_one_does_not` | `refill_base = False` → mismo síntoma del #25 |
+| `test_refill_is_bounded_and_the_shrink_refinement_still_closes_it` | — acota a 8 reposiciones + cierre por supervivientes, y exige cero rellenos |
+
+Las dos pruebas experimentales que doblaban la primitiva (`run_once`,
+`refine_over_survivors`) aceptan ahora el parámetro y **afirman que llega en
+`False`**: la ruta experimental no puede acabar reabriendo el pool por descuido.
+
+Nada que portar al fork del nodo: buscando por el texto del mensaje
+(`antirrelleno`, `aporte mínimo`, `reabrir el pool`) en la copia ICTrading solo
+aparece `requirements.md`, y `tests.test_node_runtime_fork_parity` sigue en
+verde (17 pruebas). Este cálculo lo ejecuta el manager Docker, así que
+**el cambio no surte efecto hasta reconstruir la imagen y reiniciar el
+manager**; editar el fichero no altera una generación en curso.
