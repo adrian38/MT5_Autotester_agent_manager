@@ -30,6 +30,11 @@ const number = (value, digits = 0) => value == null || Number.isNaN(Number(value
 const recentContribution = member => Math.max(Number(member.recent_net_profit_001 || 0), 0) * Number(member.units || 0);
 const recentContributionText = (member, total) => `${number(recentContribution(member), 2)} (${number(total > 0 ? recentContribution(member) / total * 100 : 0, 1)}%)`;
 const metric = (value, label, note = '', alert = false) => `<div class="detail-metric ${alert ? 'metric-alert' : ''}"><strong>${esc(value)}</strong><span>${esc(label)}</span>${note ? `<small>${esc(note)}</small>` : ''}</div>`;
+const friendlyReason = value => String(value || '')
+  .replace('No valid +0.01 increment found without breaking DD constraints', 'No existe otro incremento de 0,01 que respete el DD');
+const improvementStressText = comparison => comparison?.status === 'completed'
+  ? `Estrés vs base: P95 ${number(comparison.baseline?.valley_dd_p95, 2)} → ${number(comparison.improved?.valley_dd_p95, 2)} (${Number(comparison.valley_dd_p95_delta) >= 0 ? '+' : ''}${number(comparison.valley_dd_p95_delta, 2)}); P>DD efectivo ${Number(comparison.probability_exceed_effective_delta_pp) >= 0 ? '+' : ''}${number(comparison.probability_exceed_effective_delta_pp, 1)} pp`
+  : '';
 
 async function jsonResponse(response) {
   const text = await response.text();
@@ -242,6 +247,7 @@ function renderProposals() {
     const stress = result.stress_bootstrap || {};
     const margin = result.margin_summary || {};
     const improvement = result.seasonal_validation?.portfolio_improvement || {};
+    const stressComparison = improvement.stress_comparison || {};
     const changed = result.changed_allocations ?? (proposal.diff || []).filter(row => row.state !== 'SIN CAMBIO').length;
     const adjusted = proposal.auto_adjusted_valley ? ` · objetivo ajustado ${number(proposal.requested_valley_dd_pct, 2)}% → ${number(proposal.adjusted_valley_dd_pct, 2)}%` : '';
     return `<button type="button" class="proposal-card ${proposal.key === selectedProposal ? 'selected' : ''} ${stress.alert ? 'stress-alert' : ''}" onclick="selectProposal('${esc(proposal.key)}')">
@@ -255,6 +261,7 @@ function renderProposals() {
       <small>P&gt;nominal ${number(stress.probability_exceed_nominal_pct, 1)}% · P&gt;efectivo ${number(stress.probability_exceed_effective_pct, 1)}%</small>
       <small>Margen ${number(margin.total, 2)} / ${number(margin.limit, 2)} (${number(margin.usage_pct, 1)}%) · reserva ${number(proposal.reserve_pct, 1)}%</small>
       ${improvement.verdict ? `<small>Base original: ${number(improvement.original_count)} intactas · +${number(improvement.added_count)} · beneficio/DD ${Number(improvement.efficiency_gain_pct) >= 0 ? '+' : ''}${number(improvement.efficiency_gain_pct, 2)}%</small>` : ''}
+      ${improvementStressText(stressComparison) ? `<small>${esc(improvementStressText(stressComparison))}</small>` : ''}
       ${improvement.target_portfolio_type_label ? `<small>Mejora solicitada: ${esc(improvement.target_portfolio_type_label)} · origen #${number(improvement.source_portfolio_id)} · nuevo portafolio</small>` : ''}
       <small>${changed} asignaciones modificadas</small>
     </button>`;
@@ -518,6 +525,7 @@ function renderAudit(portfolio) {
   const margin = metrics.margin_summary || {};
   const strict = metrics.seasonal_validation || {};
   const improvement = strict.portfolio_improvement || {};
+  const stressComparison = improvement.stress_comparison || {};
   document.querySelector('#detail-audit').innerHTML = [
     metric(number(stress.valley_dd_p50, 2), 'Bootstrap P50'),
     metric(number(stress.valley_dd_p95, 2), 'Bootstrap P95', stress.alert ? 'ALERTA DE ESTRÉS' : '', stress.alert),
@@ -527,6 +535,7 @@ function renderAudit(portfolio) {
     metric(largestGroup(metrics.group_summary), 'Mayor grupo'),
     metric(strict.passed != null ? (strict.passed ? 'OK' : 'FAIL') : '—', 'Validación estricta', strict.best_month ? `mejor mes ${String(strict.best_month).padStart(2, '0')}` : ''),
     metric(improvement.verdict || '—', 'Mejora de base', improvement.verdict ? `${number(improvement.original_count)} originales intactas · +${number(improvement.added_count)} · beneficio/DD ${Number(improvement.efficiency_gain_pct) >= 0 ? '+' : ''}${number(improvement.efficiency_gain_pct, 2)}%` : ''),
+    metric(stressComparison.status === 'completed' ? `${Number(stressComparison.probability_exceed_effective_delta_pp) >= 0 ? '+' : ''}${number(stressComparison.probability_exceed_effective_delta_pp, 1)} pp` : '—', 'Δ P exceder DD efectivo', stressComparison.status === 'completed' ? `P95 ${number(stressComparison.baseline?.valley_dd_p95, 2)} → ${number(stressComparison.improved?.valley_dd_p95, 2)} · criterio ${stressComparison.selection_priority || '—'}` : ''),
     ...(improvement.target_portfolio_type_label ? [metric(improvement.target_portfolio_type_label, 'Variante elegida para mejorar')] : []),
   ].join('');
   const decisions = portfolio.decisions || [];
@@ -563,7 +572,7 @@ async function loadDetail(id) {
     document.querySelector('#detail-meta').textContent = portfolio.created_at;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
     document.querySelector('#detail-metrics').innerHTML = [metric(number(portfolio.capital), 'Capital'), metric(number(portfolio.total_net_profit), 'Net total'), metric(number(portfolio.actual_valley_dd, 2), 'DD riesgo máx.', `máx(cerrado ${number(portfolio.actual_closed_valley_dd, 2)}, flotante ${number(portfolio.floating_dd_buffer, 2)}) · límite ${number(portfolio.target_valley_dd, 2)} · ${number(portfolio.valley_usage_pct, 1)}%`), metric(number(portfolio.actual_point_dd, 2), 'DD puntual', portfolio.metrics?.enforce_point_dd ? `límite ${number(portfolio.target_point_dd, 2)}` : 'informativo'), metric(number(portfolio.total_lot, 2), 'Lote total'), metric(number(portfolio.total_units), 'Unidades'), metric(`${number(portfolio.active_strategies)}/${number(portfolio.target_strategies || portfolio.active_strategies)}`, 'Estrategias'), metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert)].join('');
-    document.querySelector('#detail-note').textContent = [portfolio.stop_reason, portfolio.binding_constraint].filter(Boolean).join(' · ');
+    document.querySelector('#detail-note').textContent = [friendlyReason(portfolio.stop_reason), portfolio.binding_constraint].filter(Boolean).join(' · ');
     document.querySelector('#detail-complete').disabled = isBundle || Number(portfolio.active_strategies) >= Number(portfolio.target_strategies || portfolio.active_strategies);
     document.querySelector('#detail-undo').disabled = !(portfolio.versions || []).length;
     detailMembers = portfolio.members || [];

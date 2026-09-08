@@ -44,7 +44,7 @@ El proceso que ejecuta la escritura real es `app_ui.py` con su nodo embebido.
 UBS normal exige el **mínimo** de incorporaciones elegido por el usuario
 (`improvement_min_additions`, dos por defecto). Compara desde ese mínimo hasta
 el límite existente de cinco incorporaciones por búsqueda, explícito en la UI,
-y elige mayor mejora beneficio/DD (menos incorporaciones en empate). No baja
+y ordena las propuestas válidas según la prioridad elegida. No baja
 del mínimo cuando no encuentra suficientes candidatas válidas. La clave antigua
 `improvement_additions` sigue aceptándose como mínimo para peticiones antiguas;
 internamente cada intento usa esa clave como cantidad exacta. La auditoría y
@@ -54,6 +54,25 @@ lotaje final, sin eliminar originales. El umbral explícito de 0 % se respeta.
 Estas correcciones viven en la orquestación normal, sin alterar el mensual.
 La búsqueda sigue siendo heurística: un rechazo no prueba que todas las
 combinaciones posibles sean inviables.
+
+Desde 2026-09-09 la comparación bootstrap base/mejora se guarda dentro de
+`seasonal_validation.portfolio_improvement.stress_comparison`, usando los mismos
+parámetros de simulación, semilla y límites. Es información comparativa: si la
+propuesta respeta los parámetros declarados al generar el portafolio, una subida
+de P95 o de probabilidad estimada no cambia `verdict=ACEPTADA`, no crea un veto
+oculto y no debe presentarse como rechazo categórico.
+
+La UI permite elegir cómo ordenar las propuestas válidas encontradas:
+
+- `balanced`: prefiere probabilidad de excedencia no creciente y, si todas
+  suben, el menor incremento; beneficio/DD desempata.
+- `efficiency`: prioriza la mejora histórica de beneficio/DD.
+- `stress`: prioriza menor probabilidad y P95 bootstrap.
+
+Los tres criterios actúan únicamente después de aplicar las reglas declaradas
+de aceptación. No modifican DD, reserva, margen, dependencia, Final Tick 6M ni
+el resto de restricciones. La prioridad, la base y la mejora quedan guardadas
+para que la selección sea reproducible y visible en el detalle y la comparación.
 
 «Portafolio» sin especificar ámbito significa UBS normal. El mensual permanece
 congelado hasta petición explícita; ver `monthly_portfolio_frozen.md`.
@@ -187,9 +206,13 @@ compatible `complete`: ambos realizan la misma mutación transaccional,
 `replace_saved_proposal`, que fotografía una versión para deshacer y reemplaza
 el portafolio sólo después de la confirmación del usuario.
 
-Por eso esta función no requiere portar código a las copias bifurcadas del nodo.
-Si se cambia la forma de persistirla y se introduce un verbo nuevo en el wire,
-entonces sí habrá que modificar y probar cada `manager_node_runtime/` autorizado.
+El criterio de selección no requiere un verbo nuevo en el wire: viaja dentro de
+los inputs y de la auditoría ya serializada. Sin embargo, los campos actuales de
+riesgo cerrado/flotante y de rendimiento reciente sí deben estar declarados en
+las dataclasses, migraciones e inserts de cada nodo bifurcado; de lo contrario
+el filtro de compatibilidad los acepta pero los descarta antes de escribir. En
+`dev` se portó esa persistencia únicamente al nodo ICTrading autorizado. AXI y
+RoboForex siguen pendientes de port explícito.
 
 ## Fundamento cuantitativo consultado
 

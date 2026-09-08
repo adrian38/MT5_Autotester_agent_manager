@@ -7,8 +7,11 @@ from typing import Any, Callable
 
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.ubs_portfolio import (
+    BootstrapDrawdownAnalysis,
+    PortfolioEvaluation,
     PortfolioResult,
     PortfolioType,
+    bootstrap_valley_drawdown,
     evaluate_portfolio,
     filter_rows_by_recent_positive_months,
     load_robust_sets_from_rows,
@@ -45,6 +48,7 @@ from .portfolio_service import (
 
 Progress = Callable[[str], None]
 MAX_IMPROVEMENT_ADDITIONS = 5
+IMPROVEMENT_SELECTION_PRIORITIES = {"balanced", "efficiency", "stress"}
 
 
 def minimum_additions(inputs: dict[str, Any]) -> int:
@@ -65,6 +69,108 @@ def improvement_options(inputs: dict[str, Any]):
     if inputs.get("improvement_min_efficiency_gain_pct") == 0:
         options = replace(options, min_efficiency_gain_pct=0.0)
     return options
+
+
+def improvement_selection_priority(inputs: dict[str, Any]) -> str:
+    value = str(inputs.get("improvement_selection_priority") or "balanced").strip().lower()
+    if value not in IMPROVEMENT_SELECTION_PRIORITIES:
+        raise ValueError(
+            "La prioridad de mejora debe ser equilibrada, máxima eficiencia o menor estrés"
+        )
+    return value
+
+
+def _attach_stress_comparison(
+    *,
+    result: PortfolioResult,
+    baseline: PortfolioEvaluation,
+    priority: str,
+    baseline_stress: BootstrapDrawdownAnalysis | None = None,
+) -> BootstrapDrawdownAnalysis | None:
+    """Record a like-for-like bootstrap comparison without changing validity."""
+    audit = (result.seasonal_validation or {}).get("portfolio_improvement")
+    if not isinstance(audit, dict):
+        return baseline_stress
+    improved = result.stress_bootstrap
+    curve = getattr(baseline, "equity_curve_2020_2026", None)
+    if improved is None or not curve:
+        audit["selection_priority"] = priority
+        audit["stress_comparison"] = {
+            "status": "unavailable",
+            "selection_priority": priority,
+        }
+        return baseline_stress
+    if baseline_stress is None:
+        baseline_stress = bootstrap_valley_drawdown(
+            curve,
+            nominal_valley_dd_limit=improved.nominal_valley_dd_limit,
+            effective_valley_dd_limit=improved.effective_valley_dd_limit,
+            simulations=improved.simulations,
+            block_size=improved.block_size,
+            seed=improved.seed,
+        )
+    p95_delta = improved.valley_dd_p95 - baseline_stress.valley_dd_p95
+    probability_delta = (
+        improved.probability_exceed_effective_pct
+        - baseline_stress.probability_exceed_effective_pct
+    )
+    if probability_delta > 1e-9:
+        direction = "higher"
+    elif probability_delta < -1e-9:
+        direction = "lower"
+    else:
+        direction = "unchanged"
+    audit["selection_priority"] = priority
+    audit["stress_comparison"] = {
+        "status": "completed",
+        "selection_priority": priority,
+        "direction": direction,
+        "baseline": asdict(baseline_stress),
+        "improved": asdict(improved),
+        "valley_dd_p95_delta": round(float(p95_delta), 6),
+        "valley_dd_p95_delta_pct": (
+            round(float(p95_delta / baseline_stress.valley_dd_p95 * 100.0), 6)
+            if baseline_stress.valley_dd_p95 > 0
+            else None
+        ),
+        "probability_exceed_effective_delta_pp": round(float(probability_delta), 6),
+    }
+    result.warnings.insert(
+        1,
+        "Comparativa de estrés frente a la base: "
+        f"P95 {baseline_stress.valley_dd_p95:.2f} -> {improved.valley_dd_p95:.2f}; "
+        "probabilidad de exceder el DD efectivo "
+        f"{baseline_stress.probability_exceed_effective_pct:.1f}% -> "
+        f"{improved.probability_exceed_effective_pct:.1f}%. "
+        "Dato informativo; la validez sigue determinada por los límites declarados.",
+    )
+    return baseline_stress
+
+
+def _improvement_rank(
+    proposal: dict[str, Any], additions: int, priority: str
+) -> tuple[float, ...]:
+    audit = (proposal["result"].seasonal_validation or {}).get(
+        "portfolio_improvement", {}
+    )
+    gain = float(audit.get("efficiency_gain_pct", 0))
+    comparison = audit.get("stress_comparison") or {}
+    if comparison.get("status") != "completed":
+        return (gain, -float(additions))
+    improved = comparison.get("improved") or {}
+    probability = float(improved.get("probability_exceed_effective_pct") or 0)
+    p95 = float(improved.get("valley_dd_p95") or 0)
+    delta = float(comparison.get("probability_exceed_effective_delta_pp") or 0)
+    if priority == "efficiency":
+        return (gain, -probability, -p95, -float(additions))
+    if priority == "stress":
+        return (-probability, -p95, gain, -float(additions))
+    # Balanced is a preference, not a hidden risk limit: first prefer a result
+    # whose estimated exceedance probability does not rise; if none exists,
+    # choose the smallest increase. Historical efficiency breaks ties.
+    if delta <= 1e-9:
+        return (1.0, gain, -probability, -float(additions))
+    return (0.0, -delta, gain, -float(additions))
 
 
 def _selected_variant_detail(detail: dict[str, Any], target: str) -> dict[str, Any]:
@@ -341,6 +447,9 @@ def _generate_full_history_improvement_attempt(
             "reserve_pct": reserve,
             "inputs": proposal_inputs,
             "result": result,
+            # Consumed by the outer comparison across addition counts. It never
+            # crosses the HTTP boundary or reaches persisted proposal inputs.
+            "_improvement_baseline": baseline,
         }
     )
 
@@ -382,10 +491,12 @@ def generate_full_history_improvement(
         "improvement_portfolio_type": target_type,
     }
     requested = minimum_additions(inputs)
+    priority = improvement_selection_priority(inputs)
     inputs["improvement_min_additions"] = requested
     failures: list[str] = []
     best = None
-    best_rank = (float("-inf"), 0)
+    best_rank: tuple[float, ...] | None = None
+    baseline_stress: BootstrapDrawdownAnalysis | None = None
     for additions in range(requested, MAX_IMPROVEMENT_ADDITIONS + 1):
         if progress:
             progress(
@@ -407,22 +518,32 @@ def generate_full_history_improvement(
         improvement = availability.setdefault("improvement", {})
         improvement["minimum_additions"] = requested
         improvement["maximum_additions"] = MAX_IMPROVEMENT_ADDITIONS
+        improvement["selection_priority"] = priority
         for proposal in proposals:
             proposal.setdefault("inputs", {}).update({
                 "improvement_min_additions": requested,
                 "improvement_max_additions": MAX_IMPROVEMENT_ADDITIONS,
+                "improvement_selection_priority": priority,
             })
+            baseline = proposal.pop("_improvement_baseline", None)
+            if baseline is not None:
+                baseline_stress = _attach_stress_comparison(
+                    result=proposal["result"],
+                    baseline=baseline,
+                    priority=priority,
+                    baseline_stress=baseline_stress,
+                )
             audit = (proposal["result"].seasonal_validation or {}).get(
                 "portfolio_improvement"
             )
             if isinstance(audit, dict):
                 audit["minimum_additions"] = requested
                 audit["maximum_additions"] = MAX_IMPROVEMENT_ADDITIONS
-        gain = float((proposals[0]["result"].seasonal_validation or {}).get(
-            "portfolio_improvement", {}
-        ).get("efficiency_gain_pct", 0)) if proposals else 0.0
-        rank = (gain, -additions)
-        if best is None or rank > best_rank:
+        rank = (
+            _improvement_rank(proposals[0], additions, priority)
+            if proposals else (float("-inf"),)
+        )
+        if best is None or best_rank is None or rank > best_rank:
             best, best_rank = (availability, proposals), rank
     if best is not None:
         return best

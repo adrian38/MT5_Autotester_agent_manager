@@ -271,8 +271,11 @@ class ImprovementScreenTests(unittest.TestCase):
     def test_normal_dialog_sends_a_minimum_and_explains_acceptance(self) -> None:
         script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
         self.assertIn("improvement_min_additions: Number(fields.improvement_min_additions.value)", script)
+        self.assertIn("improvement_selection_priority: fields.improvement_selection_priority.value", script)
+        self.assertIn('<option value="balanced" selected>Equilibrada</option>', script)
         self.assertIn("Si no se alcanza el mínimo con candidatas válidas, no habrá propuesta", script)
         self.assertIn("límite de cinco incorporaciones por búsqueda", script)
+        self.assertIn("es una preferencia de selección, no una restricción adicional", script)
 
     def test_manager_serves_both_new_static_assets(self) -> None:
         manager = (self.ROOT.parent / "manager.py").read_text(encoding="utf-8")

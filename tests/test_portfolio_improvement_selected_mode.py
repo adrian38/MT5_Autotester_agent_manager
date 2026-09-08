@@ -8,7 +8,11 @@ from mt5_manager import portfolio_improvement_service as full
 from mt5_manager.portfolio_service import (
     PortfolioCoordinator, PortfolioSource, normalize_settings, save_portfolio_payload,
 )
-from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
+from portfolio_manager.ubs_portfolio import (
+    BootstrapDrawdownAnalysis,
+    PortfolioResult,
+    StrategyAllocation,
+)
 
 
 def proposal(mode="balanced", source_id=1, gain=30):
@@ -26,6 +30,23 @@ def proposal(mode="balanced", source_id=1, gain=30):
     inputs["improvement_source_portfolio_id"] = source_id
     return {"key": mode, "label": full.TYPE_LABELS[mode], "reserve_pct": 0,
             "inputs": inputs, "result": result}
+
+
+def stress(*, p95, probability):
+    return BootstrapDrawdownAnalysis(
+        method="moving_block_bootstrap",
+        simulations=1000,
+        seed=17,
+        observations=24,
+        block_size=4,
+        valley_dd_p50=p95 / 2,
+        valley_dd_p95=p95,
+        nominal_valley_dd_limit=100,
+        effective_valley_dd_limit=90,
+        probability_exceed_nominal_pct=max(probability - 2, 0),
+        probability_exceed_effective_pct=probability,
+        alert=probability > 10,
+    )
 
 
 class SelectedModeTests(unittest.TestCase):
@@ -110,6 +131,64 @@ class SelectedModeTests(unittest.TestCase):
         self.assertEqual(full.improvement_options({"improvement_min_efficiency_gain_pct": 0}).min_efficiency_gain_pct, 0)
         with self.assertRaisesRegex(ValueError, "Elige la variante"):
             full.generate_full_history_improvement(object(), 1, {"improvement_portfolio_type": "other"})
+
+    def test_invalid_selection_priority_is_rejected_before_searching(self):
+        with self.assertRaisesRegex(ValueError, "prioridad de mejora"):
+            full.generate_full_history_improvement(
+                object(), 1, {"improvement_selection_priority": "hidden-limit"}
+            )
+
+    def test_stress_comparison_is_informative_and_keeps_acceptance(self):
+        output = proposal()
+        result = output["result"]
+        result.stress_bootstrap = stress(p95=85, probability=32)
+        audit = result.seasonal_validation["portfolio_improvement"]
+        audit["verdict"] = "ACEPTADA"
+        baseline = NS(equity_curve_2020_2026=[0, 5, 2, 8])
+
+        with patch.object(
+            full, "bootstrap_valley_drawdown", return_value=stress(p95=66, probability=7)
+        ):
+            full._attach_stress_comparison(
+                result=result, baseline=baseline, priority="balanced"
+            )
+
+        comparison = audit["stress_comparison"]
+        self.assertEqual(comparison["direction"], "higher")
+        self.assertEqual(comparison["valley_dd_p95_delta"], 19)
+        self.assertEqual(comparison["probability_exceed_effective_delta_pp"], 25)
+        self.assertEqual(audit["verdict"], "ACEPTADA")
+        self.assertIn("Dato informativo", result.warnings[-1])
+        self.assertIn("validez sigue determinada por los límites declarados", result.warnings[-1])
+
+    def test_selection_priorities_rank_valid_proposals_without_new_rejections(self):
+        calm = proposal(gain=8)
+        efficient = proposal(gain=25)
+        for item, probability, delta, p95 in (
+            (calm, 6, -1, 60),
+            (efficient, 30, 23, 85),
+        ):
+            item["result"].seasonal_validation["portfolio_improvement"]["stress_comparison"] = {
+                "status": "completed",
+                "improved": {
+                    "probability_exceed_effective_pct": probability,
+                    "valley_dd_p95": p95,
+                },
+                "probability_exceed_effective_delta_pp": delta,
+            }
+
+        self.assertGreater(
+            full._improvement_rank(calm, 2, "balanced"),
+            full._improvement_rank(efficient, 2, "balanced"),
+        )
+        self.assertGreater(
+            full._improvement_rank(calm, 2, "stress"),
+            full._improvement_rank(efficient, 2, "stress"),
+        )
+        self.assertGreater(
+            full._improvement_rank(efficient, 2, "efficiency"),
+            full._improvement_rank(calm, 2, "efficiency"),
+        )
 
     def test_missing_variant_never_falls_back_to_other_members(self):
         with self.assertRaisesRegex(ValueError, "No hay estrategias"):
