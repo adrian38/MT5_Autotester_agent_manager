@@ -39,6 +39,7 @@ from portfolio_manager.ubs_portfolio import (
     filter_eligible_sets,
     load_max_product_leverage,
     load_symbol_notional,
+    load_symbol_notional_from_specs,
     load_symbol_specs,
     load_unmeasured_symbols,
     margin_model_for_profile,
@@ -2528,9 +2529,22 @@ def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
     ) = load_symbol_specs(symbol_specs_path)
     if profile != "axi":
         # PortfolioSource resuelve las especificaciones del broker real.
-        # Cambiar el perfil financiero no cambia sus restricciones de lotaje.
+        # Cambiar el perfil financiero no cambia sus restricciones de lotaje ni
+        # el tamano de contrato del instrumento: ambos son del simbolo. Lo que
+        # no se propaga es `symbol_margin`, medido con los tramos y el
+        # apalancamiento del broker de origen.
+        specs_notional, specs_notional_source = load_symbol_notional_from_specs(
+            symbol_specs_path
+        )
         return margin_model_for_profile(
-            inputs.get("margin_profile"), symbol_min_lot=symbol_min_lot,
+            inputs.get("margin_profile"),
+            symbol_min_lot=symbol_min_lot,
+            symbol_contract_size=symbol_contract_size,
+            # Ya convertido a divisa de cuenta por el volcado. Sin el, el
+            # tamano de contrato real convierte el fallo de moneda de
+            # `lote x contrato x precio` en un error de un orden de magnitud.
+            symbol_notional=specs_notional,
+            notional_source=specs_notional_source,
         )
     symbol_notional, group_notional, notional_source = load_symbol_notional(source.normalization)
     unmeasured_symbols = load_unmeasured_symbols(source.normalization)

@@ -2085,6 +2085,32 @@ ACCOUNT_LEVERAGE_CHOICES: tuple[float, ...] = (1000.0, 500.0, 100.0)
 DEFAULT_ACCOUNT_LEVERAGE = 1000.0
 
 
+def ttp_leverage_for(symbol: str) -> float:
+    """Tramo de margen de The Trading Pit para un simbolo.
+
+    Unica implementacion del tramo: la llaman
+    ``margin_leverage_for_profile`` y ``MarginModel.leverage_for``. Vivia solo
+    en la primera, asi que cuando el calculo paso a ``MarginModel`` el perfil
+    TTP se quedo sin tramos y todo caia a ``default_leverage`` (1:500) mientras
+    el aviso al usuario seguia prometiendo la tabla publicada. El #27 del
+    2026-09-08 declaraba 51.29 de margen donde la tabla pide 4973.51.
+
+    TTP es un perfil "y si": el tramo ES el requisito, asi que no lo mueven ni
+    el tope del producto ni el apalancamiento de la cuenta de origen.
+    """
+    group = portfolio_group_key(symbol)
+    symbol_key = portfolio_symbol_key(symbol)
+    if group == "Stocks" or group == "Crypto":
+        return 2.0
+    if group == "Metals":
+        return 10.0
+    if group in {"Indices", "Energies", "IndicesEnergies"}:
+        return 10.0 if group == "Energies" or symbol_key in {"BRENT", "WTI"} else 15.0
+    if group == "Forex":
+        return 50.0
+    return 50.0
+
+
 @dataclass(frozen=True)
 class MarginModel:
     """Reglas de margen de un perfil concreto.
@@ -2189,6 +2215,12 @@ class MarginModel:
             effective = self.effective_leverage_for(symbol, self.account_leverage)
             if effective:
                 return effective
+        if self.profile == "ttp":
+            # El tramo publicado es el requisito completo: no lo recorta el tope
+            # del producto ni el apalancamiento de la cuenta de origen. Sin esta
+            # rama el perfil caia a `default_leverage` y el margen salia dos
+            # ordenes de magnitud por debajo del real.
+            return ttp_leverage_for(symbol)
         group = portfolio_group_key(symbol)
         if self.group_leverage:
             leverage = self.group_leverage.get(
@@ -2263,9 +2295,12 @@ def margin_model_for_profile(
 ) -> MarginModel:
     """Construye el modelo de margen del perfil indicado.
 
-    Solo AXI usa margen medido y apalancamiento de cuenta. ICTrading puede
-    recibir el lote mínimo medido para que una unidad sea ejecutable, pero
-    conserva el cálculo heredado de margen; RoboForex y TTP no cambian.
+    Solo AXI usa margen medido y apalancamiento de cuenta. El resto de perfiles
+    reciben del volcado del terminal las dos cosas que son del **instrumento**
+    y no del perfil financiero: el lote mínimo, que define cuánto representa una
+    unidad ejecutable, y el tamaño de contrato, que define el nocional. El
+    margen medido no viaja: lleva dentro los tramos y el apalancamiento del
+    broker que lo midió, así que sólo vale para su propio perfil.
     """
     normalized = normalize_margin_profile(profile)
     if normalized != "axi":
@@ -2275,9 +2310,17 @@ def margin_model_for_profile(
             default_leverage=default_leverage,
             stock_contract_size=stock_contract_size,
             default_contract_size=default_contract_size,
-            # El lote mínimo no altera el modelo de margen heredado, pero sí
-            # define cuánto representa una unidad ejecutable del portafolio.
             symbol_min_lot=dict(symbol_min_lot or {}),
+            # Sin esto, `contract_size_for` caía a la aproximación por grupo
+            # (acciones 100, resto 1) y un lote de forex se valoraba en
+            # `0.01 x 1 x precio` en vez de sus 100.000 unidades reales.
+            symbol_contract_size=dict(symbol_contract_size or {}),
+            # Y el nocional medido, que además viene convertido a divisa de
+            # cuenta: con el contrato real, la fórmula por precio se descuadra
+            # por el tipo de cambio en todo lo que no cotice en la divisa de
+            # la cuenta.
+            symbol_notional=dict(symbol_notional or {}),
+            notional_source=notional_source,
         )
     return MarginModel(
         profile=normalized,
@@ -2392,6 +2435,41 @@ def load_symbol_specs(
         if contract_size > 0:
             contract_sizes[key] = max(contract_sizes.get(key, 0.0), contract_size)
     return margins, min_lots, contract_sizes, reference_leverage, source
+
+
+def load_symbol_notional_from_specs(path: str | Path) -> tuple[dict[str, float], str]:
+    """Nocional medido de UNA posicion al lote minimo, en divisa de cuenta.
+
+    El volcado lo publica ya convertido (campo ``notional_note``), asi que
+    evita el fallo de moneda de ``lote x contrato x precio``: esa formula
+    multiplica por el precio cotizado sin convertir, y con el tamano de
+    contrato real un simbolo cotizado en otra divisa se descuadra por el tipo de
+    cambio entero. USDJPY con 0.03 lotes daba 485.031 de nocional donde son
+    2.598, y ese solo simbolo triplicaba el margen del portafolio.
+
+    A cambio, el nocional medido usa el precio del dia del volcado, no el
+    maximo visto en los reportes que usa la estimacion conservadora. El error de
+    divisa es de un orden de magnitud y el de precio de un 15%: manda el medido,
+    igual que en el modelo AXI.
+    """
+    data, source = _load_json_dict(path)
+    symbols = data.get("symbols")
+    if not isinstance(symbols, dict):
+        return {}, ""
+    notionals: dict[str, float] = {}
+    for name, spec in symbols.items():
+        if not isinstance(spec, dict):
+            continue
+        try:
+            value = float(spec.get("notional_min_lot") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            key = portfolio_symbol_key(name)
+            # Nombres MT5 distintos colapsan en la misma clave; el mayor,
+            # porque pasarse de margen es el lado seguro.
+            notionals[key] = max(notionals.get(key, 0.0), value)
+    return notionals, source
 
 
 def load_max_product_leverage(path: str | Path) -> dict[str, float]:
@@ -2512,17 +2590,7 @@ def margin_leverage_for_profile(
         return margin_profile.leverage_for(symbol)
     profile = normalize_margin_profile(margin_profile)
     if profile == "ttp":
-        group = portfolio_group_key(symbol)
-        symbol_key = portfolio_symbol_key(symbol)
-        if group == "Stocks" or group == "Crypto":
-            return 2.0
-        if group == "Metals":
-            return 10.0
-        if group in {"Indices", "Energies", "IndicesEnergies"}:
-            return 10.0 if group == "Energies" or symbol_key in {"BRENT", "WTI"} else 15.0
-        if group == "Forex":
-            return 50.0
-        return 50.0
+        return ttp_leverage_for(symbol)
     return stock_leverage if portfolio_group_key(symbol) == "Stocks" else default_leverage
 
 
@@ -2654,6 +2722,17 @@ def portfolio_margin_summary(
             "margin": margin,
         }
     limit = float(balance) * float(max_margin_pct) / 100.0 if balance > 0 else 0.0
+    # Tramos y tamanos de contrato REALMENTE aplicados, para que el aviso al
+    # usuario se redacte con estos numeros en vez de con un texto paralelo que
+    # puede prometer una tabla que el modelo no usa.
+    applied_leverage: dict[str, float] = {}
+    for entry in by_set.values():
+        applied_leverage.setdefault(str(entry["group"]), float(entry["leverage"]))
+    measured_contract_sizes = sum(
+        1 for strategy_symbol in
+        {str(entry["symbol"]) for entry in by_set.values()}
+        if model.symbol_contract_size.get(portfolio_symbol_key(strategy_symbol))
+    )
     return {
         "enabled": True,
         "balance": float(balance),
@@ -2661,6 +2740,9 @@ def portfolio_margin_summary(
         "limit": limit,
         "total": total,
         "notional": total_notional,
+        "group_leverage_applied": applied_leverage,
+        "contract_size_measured": measured_contract_sizes,
+        "symbol_count": len({str(entry["symbol"]) for entry in by_set.values()}),
         "usage_pct": total / limit * 100.0 if limit > 0 else 0.0,
         "profile": model.profile,
         "profile_label": margin_profile_label(model.profile),
@@ -5602,10 +5684,21 @@ def optimize_portfolio(
     if margin_summary:
         profile_label = str(margin_summary.get("profile_label") or margin_profile_label(margin_profile))
         summary_profile = normalize_margin_profile(margin_summary.get("profile") or margin_profile)
+        applied = margin_summary.get("group_leverage_applied") or {}
         if summary_profile == "ttp":
+            # Redactado con los tramos que el modelo ha aplicado de verdad. El
+            # texto fijo anterior prometia la tabla publicada mientras el
+            # calculo usaba 1:500 y contract_size 1 para todo.
+            measured = int(margin_summary.get("contract_size_measured") or 0)
+            symbols = int(margin_summary.get("symbol_count") or 0)
             rule_text = (
-                "Forex 1:50; indices 1:15; commodities/metales/energias 1:10; "
-                "stocks/crypto 1:2; contract_size stocks 100/resto 1."
+                "tramos aplicados "
+                + ", ".join(
+                    f"{group} 1:{float(leverage):.0f}"
+                    for group, leverage in sorted(applied.items())
+                )
+                + f"; contract_size medido en {measured}/{symbols} simbolo(s); "
+                "sin apalancamiento de cuenta (el tramo es el requisito)."
             )
         elif summary_profile == "axi" and margin_summary.get("margin_source"):
             account = float(margin_summary.get("account_leverage") or 0.0)
@@ -5624,7 +5717,14 @@ def optimize_portfolio(
                     + "; usan la estimacion por precio."
                 )
         else:
-            rule_text = "Stocks 1:20 contract_size 100; resto 1:500 contract_size 1."
+            measured = int(margin_summary.get("contract_size_measured") or 0)
+            symbols = int(margin_summary.get("symbol_count") or 0)
+            rule_text = (
+                "Stocks 1:20; resto 1:500. contract_size medido en "
+                f"{measured}/{symbols} simbolo(s)"
+                + ("" if measured >= symbols else ", el resto por grupo (acciones 100/resto 1)")
+                + "."
+            )
         warnings.append(
             f"Margen {profile_label} aplicado: {rule_text} "
             f"Uso estimado {float(margin_summary['total']):.2f}/"
