@@ -32,6 +32,7 @@ from mt5_manager.portfolio_service import (
     scope_stage_count,
 )
 from mt5_manager.portfolio_monthly_service import (
+    _monthly_proposals,
     generate_monthly_proposals,
     monthly_eligibility_counts,
 )
@@ -262,6 +263,85 @@ class PortfolioServiceTests(unittest.TestCase):
         ])
 
         self.assertEqual(_underrepresented_recent_allocation_ids(result, 5.0), {"small.set"})
+
+    def test_recent_fillers_do_not_reopen_hundreds_of_inactive_candidates(self) -> None:
+        pool = [SimpleNamespace(set_id="core")] + [
+            SimpleNamespace(set_id=f"filler-{i}") for i in range(482)
+        ]
+        calls = []
+        messages = []
+
+        def optimize(candidates):
+            calls.append([item.set_id for item in candidates])
+            active = [candidates[0]] + candidates[1:2]
+            return self._recent_result([
+                StrategyAllocation(
+                    item.set_id, "1", "EURUSD", 1, .01, 100, 10, 5,
+                    recent_net_profit_001=100 if item.set_id == "core" else 1,
+                    has_recent_performance=True,
+                ) for item in active
+            ])
+
+        result, removed = _optimize_without_recent_fillers(pool, 5, optimize, progress=messages.append)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1], ["core"])
+        self.assertEqual(removed, {"filler-0"})
+        self.assertFalse(_underrepresented_recent_allocation_ids(result, 5))
+        self.assertIn("sin reabrir el pool global", messages[0])
+
+    def test_recent_refinement_rechecks_contributions_after_lot_changes(self) -> None:
+        pool = [SimpleNamespace(set_id=key) for key in ("a", "b", "c", "unused")]
+        calls = []
+
+        def optimize(candidates):
+            calls.append([item.set_id for item in candidates])
+            profits = {"a": 100, "b": 10 if len(calls) == 1 else 1, "c": 1}
+            return self._recent_result([
+                StrategyAllocation(
+                    item.set_id, "1", "EURUSD", 1, .01, 100, 10, 5,
+                    recent_net_profit_001=profits[item.set_id], has_recent_performance=True,
+                ) for item in candidates if item.set_id in profits
+            ])
+
+        result, removed = _optimize_without_recent_fillers(pool, 5, optimize)
+        self.assertEqual(calls, [["a", "b", "c", "unused"], ["a", "b"], ["a"]])
+        self.assertEqual(removed, {"b", "c"})
+        self.assertFalse(_underrepresented_recent_allocation_ids(result, 5))
+
+    def test_full_and_monthly_refine_only_selected_sets_with_same_risk_settings(self) -> None:
+        pool = [SimpleNamespace(set_id=key, target_month=None) for key in ("core", "filler", "unused")]
+        for scope in ("full_history", "monthly"):
+            with self.subTest(scope=scope):
+                calls = []
+                messages = []
+                settings = normalize_settings(scope, {"allowed_asset_groups": ["Forex"]})
+
+                def optimize(*, raw_sets, **kwargs):
+                    calls.append(([item.set_id for item in raw_sets], kwargs))
+                    return self._recent_result([
+                        StrategyAllocation(
+                            item.set_id, "1", "EURUSD", 1, .01, 100, 10, 5,
+                            recent_net_profit_001=100 if item.set_id == "core" else 1,
+                            has_recent_performance=True,
+                        ) for item in raw_sets if item.set_id != "unused"
+                    ])
+
+                if scope == "full_history":
+                    settings["experimental_full_search"] = True
+                    with patch("mt5_manager.portfolio_service.optimize_experimental_full_portfolio", side_effect=optimize), patch(
+                        "mt5_manager.portfolio_service.optimize_portfolio", side_effect=optimize,
+                    ):
+                        proposals = _locked_full_proposals(pool, settings, {}, messages.append)
+                else:
+                    with patch("mt5_manager.portfolio_monthly_service.optimize_portfolio", side_effect=optimize):
+                        proposals = _monthly_proposals(pool, pool, settings, [], messages.append)
+                self.assertEqual(len(proposals), 3)
+                self.assertEqual(calls[0][0], ["core", "filler", "unused"])
+                self.assertEqual(calls[1][0], ["core"])
+                self.assertEqual(calls[0][1], calls[1][1])
+                self.assertTrue(any("sin reabrir el pool global" in message for message in messages))
+                for proposal in proposals:
+                    self.assertFalse(_underrepresented_recent_allocation_ids(proposal["result"], 5))
 
     def test_recent_contribution_default_is_five_percent(self) -> None:
         settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]})

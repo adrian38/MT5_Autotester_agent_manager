@@ -71,9 +71,10 @@ function total(counts) {
 }
 
 function chips(counts) {
+  const labels = {invalid_stops: 'Invalid stops', incompatible_volume: 'Lotaje incompatible'};
   const entries = Object.entries(counts || {});
   return entries.length
-    ? entries.map(([key, value]) => `<span class="chip ${esc(key)}">${esc(key)} · ${value}</span>`).join('')
+    ? entries.map(([key, value]) => `<span class="chip ${labels[key] ? 'rejected' : esc(key)}">${esc(labels[key] || key)} · ${value}</span>`).join('')
     : '<span class="chip">Sin datos</span>';
 }
 
@@ -172,7 +173,21 @@ function stageBlock(node, state, title, data, stageIndex, stageKey) {
   const waiting = state === 'running' && currentIndex != null && stageIndex > currentIndex;
   const pending = running ? Number((job.stage_pending_counts || {})[pipelineStepLabel(job)] || 0) : 0;
   let counter = String(saved);
-  let body = chips(data);
+  const displayCounts = {...(data || {})};
+  const failures = node.database?.execution_failures?.[stageKey] || {};
+  let remainingRejected = Number(displayCounts.rejected || 0);
+  for (const reason of ['invalid_stops', 'incompatible_volume']) {
+    const count = Math.min(remainingRejected, Math.max(0, Number(failures[reason]) || 0));
+    if (count > 0) {
+      displayCounts[reason] = count;
+      remainingRejected -= count;
+    }
+  }
+  if (displayCounts.rejected) {
+    if (remainingRejected) displayCounts.rejected = remainingRejected;
+    else delete displayCounts.rejected;
+  }
+  let body = chips(displayCounts);
   if (running && pending > 0) {
     counter = saved > 0 ? `${saved} guardados · ${pending} en proceso` : `${pending} en proceso`;
     const processing = `<span class="chip running">procesando · ${pending}</span>`;

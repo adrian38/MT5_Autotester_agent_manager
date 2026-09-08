@@ -79,6 +79,14 @@ LOCKED_VARIANTS = (
     ("balanced", "Moderado", PortfolioType.BALANCED),
     ("conservative", "Conservador", PortfolioType.CONSERVATIVE),
 )
+# Avisos que describen el torneo experimental y viajan a las tres variantes
+# bloqueadas. Se capturan de la primera pasada: es la unica que tiene rondas.
+EXPERIMENTAL_WARNING_PREFIXES = (
+    "Búsqueda UBS experimental:",
+    "Estabilidad UBS experimental IS/OOS/6M:",
+    "Advertencia experimental UBS:",
+    "Regla antirrelleno 6M en la búsqueda experimental:",
+)
 
 COMMON_DEFAULTS: dict[str, Any] = {
     "capital": 10000.0,
@@ -1285,6 +1293,22 @@ class PortfolioSource:
             "stop_reason": str(value(row, "stop_reason", "") or ""),
             "binding_constraint": str(value(row, "binding_constraint", "") or ""),
         } for row in rows]
+        if portfolio_scope == "full_history":
+            # Older embedded nodes saved a single-mode improvement under a
+            # generic bundle name. Recover its explicit lineage from metadata
+            # without rewriting the broker's memory.
+            for portfolio, row in zip(portfolios, rows):
+                try:
+                    metrics = json.loads(value(row, "metrics_json", "{}") or "{}")
+                    inputs = metrics.get("inputs") or {}
+                    audit = (metrics.get("seasonal_validation") or {}).get("portfolio_improvement") or {}
+                    source_id = int(inputs.get("improvement_source_portfolio_id") or audit.get("source_portfolio_id") or 0)
+                    mode = inputs.get("improvement_portfolio_type") or audit.get("target_portfolio_type") or inputs.get("portfolio_type")
+                    if source_id > 0 and mode in TYPE_LABELS:
+                        portfolio["improvement_origin"] = {"source_id": source_id, "mode": mode}
+                        portfolio["name"] = f"Mejora del portafolio #{source_id} | modo {TYPE_LABELS[mode]}"
+                except (ValueError, TypeError, AttributeError):
+                    pass
         return {
             "node": {"id": self.node.get("id"), "name": self.node.get("name") or self.node.get("id"), "broker": self.broker, "account_type": self.account},
             "scope": portfolio_scope,
@@ -2131,12 +2155,15 @@ def _optimize_without_recent_fillers(
     raw_sets: list[Any],
     minimum_pct: float,
     optimize: Callable[[list[Any]], PortfolioResult],
+    *,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[PortfolioResult, set[str]]:
-    """Re-optimize after removing allocations with immaterial recent contribution.
+    """Select globally once, then refine a strictly shrinking active composition.
 
-    Remove all fillers found in one result as a batch.  Running a complete deep
-    optimization once per active strategy made a single proposal grow from a
-    handful of optimizer runs to potentially dozens.
+    Reopening the whole candidate pool after every removal admits new fillers
+    and can repeat the experimental tournament hundreds of times. Re-optimize
+    only active survivors, retaining the caller's risk and validation policy.
+    Each retry removes at least one active set; inactive candidates cannot enter.
     """
     pool = list(raw_sets)
     removed: set[str] = set()
@@ -2169,9 +2196,19 @@ def _optimize_without_recent_fillers(
             if not underrepresented:
                 return result, removed
         removed.update(underrepresented)
-        pool = [strategy for strategy in pool if strategy.set_id not in removed]
+        pool = [
+            strategy for strategy in pool
+            if strategy.set_id in active_ids and strategy.set_id not in removed
+        ]
         if not pool:
-            return result, removed
+            raise ValueError("La regla antirrelleno 6M no dejó una composición reoptimizable")
+        if progress:
+            progress(
+                "Regla antirrelleno 6M: "
+                f"{len(underrepresented)} estrategia(s) bajo el aporte mínimo "
+                f"{float(minimum_pct):.1f}%; refinando {len(pool)} superviviente(s) "
+                "de la composición seleccionada, sin reabrir el pool global."
+            )
 
 
 def _normal_proposals(
@@ -2214,6 +2251,7 @@ def _normal_proposals(
                 raw_sets,
                 float(inputs.get("min_strategy_recent_contribution_pct") or 0.0),
                 optimize,
+                progress=progress,
             )
         except Exception as exc:
             errors.append(f"{label}: {exc}")
@@ -2246,16 +2284,38 @@ def _locked_full_proposals(
         base_reserve,
     )
 
+    def recent_filler_ids(result: PortfolioResult) -> set[str]:
+        # La regla tiene una sola definicion. Se inyecta en el motor
+        # experimental para que aplique el mismo criterio que este llamador, en
+        # lugar de reimplementarlo y arriesgar que los dos se separen.
+        return _underrepresented_recent_allocation_ids(result, minimum_recent_pct)
+
+    # El torneo corre una vez. Si la regla compartida vuelve a entrar en este
+    # callback con los supervivientes, esa segunda pasada no tiene rondas y
+    # sobreescribiria el registro de la busqueda real con «0 ronda(s)».
+    experimental_telemetry: dict[str, Any] = {}
+
     def optimize_base(candidate_sets: list[Any]) -> PortfolioResult:
         if base_inputs.get("experimental_full_search"):
-            return optimize_experimental_full_portfolio(
+            result = optimize_experimental_full_portfolio(
                 raw_sets=candidate_sets,
                 use_deep_refinement=bool(
                     base_inputs.get("deep_optimization")
                 ),
                 progress=progress,
+                recent_filler_ids=recent_filler_ids,
                 **base_kwargs,
             )
+            if "warnings" not in experimental_telemetry:
+                experimental_telemetry["warnings"] = [
+                    warning
+                    for warning in result.warnings
+                    if warning.startswith(EXPERIMENTAL_WARNING_PREFIXES)
+                ]
+                experimental_telemetry["audit"] = (
+                    result.seasonal_validation or {}
+                ).get("experimental_full_history_stability")
+            return result
         return optimize_portfolio(
             raw_sets=candidate_sets,
             use_deep_refinement=bool(
@@ -2268,6 +2328,7 @@ def _locked_full_proposals(
         raw_sets,
         minimum_recent_pct,
         optimize_base,
+        progress=progress,
     )
     locked_ids = [allocation.set_id for allocation in base.allocations if allocation.units > 0]
     if not locked_ids:
@@ -2277,22 +2338,15 @@ def _locked_full_proposals(
     if missing:
         raise ValueError("Faltan sets de la composicion base: " + ", ".join(Path(value).name for value in missing))
     locked_sets = [raw_by_id[set_id] for set_id in locked_ids]
+    # Del torneo real, no de una reejecucion sobre los supervivientes: esa no
+    # tiene rondas y declararia «0 ronda(s)» con la auditoria calculada sobre la
+    # composicion ya recortada.
     experimental_audit = (
-        base.seasonal_validation.get(
-            "experimental_full_history_stability"
-        )
+        experimental_telemetry.get("audit")
         if base_inputs.get("experimental_full_search")
         else None
     )
-    experimental_warnings = [
-        warning
-        for warning in base.warnings
-        if warning.startswith("Búsqueda UBS experimental:")
-        or warning.startswith(
-            "Estabilidad UBS experimental IS/OOS/6M:"
-        )
-        or warning.startswith("Advertencia experimental UBS:")
-    ]
+    experimental_warnings = list(experimental_telemetry.get("warnings") or [])
     while True:
         locked_count = len(locked_sets)
         if inputs.get("max_total_units") is not None and int(inputs["max_total_units"]) < locked_count:
@@ -3248,7 +3302,11 @@ def save_proposal(
         raise ValueError("La propuesta mensual no pasó la validación estricta")
     created_at = datetime.now().isoformat(timespec="seconds")
     target_month = int(selected_inputs.get("target_month") or 0) or None
-    bundle = scope in {"full_history", "grid"}
+    standalone_improvement = (
+        scope == "full_history" and len(proposals) == 1
+        and int(selected_inputs.get("improvement_source_portfolio_id") or 0) > 0
+    )
+    bundle = scope in {"full_history", "grid"} and not standalone_improvement
     if bundle:
         common = [allocation.set_id for allocation in selected_result.allocations if allocation.units > 0]
         common_set = set(common)
@@ -3287,6 +3345,10 @@ def save_proposal(
         else:
             row_type = "bundle"
             name = f"A/M/C | Base {TYPE_LABELS.get(str(selected_inputs.get('composition_portfolio_type')), 'Moderado')} | {len(common)} sets | {datetime.now():%d.%m.%Y %H:%M}"
+    elif standalone_improvement:
+        metrics = _result_metrics(selected_inputs, selected_result)
+        row_type = str(selected_inputs["portfolio_type"])
+        name = f"Mejora de #{int(selected_inputs['improvement_source_portfolio_id'])} | {TYPE_LABELS[row_type]} | {datetime.now():%d.%m.%Y %H:%M}"
     elif scope == "monthly":
         metrics = _result_metrics(selected_inputs, selected_result)
         row_type = str(selected_inputs["portfolio_type"])
@@ -3875,6 +3937,10 @@ class PortfolioCoordinator:
             raise ValueError("Genera una propuesta antes de guardar")
         if not any(str(proposal.get("key") or "") == selected_key for proposal in proposals):
             raise ValueError("La propuesta seleccionada ya no está disponible")
+        operation = str(job.get("operation") or "generate")
+        standalone_improvement = operation == "improve" and normalize_portfolio_scope(scope) == "full_history"
+        if standalone_improvement and (len(proposals) != 1 or selected_key not in PORTFOLIO_TYPES):
+            raise ValueError("Recalcula la mejora para una sola variante antes de guardar")
         # Un paquete A/M/C incompleto se muestra para poder mirarlo, pero no se
         # guarda: la fila guardada representa las tres variantes de una misma
         # composicion y media fila no es reoptimizable ni comparable.
@@ -3883,7 +3949,7 @@ class PortfolioCoordinator:
         # Solo UBS full y Grid nombran sus variantes A/M/C; el mensual usa
         # profit/balanced/margin y comparte el nombre «balanced» por accidente.
         bundle_scope = normalize_portfolio_scope(scope) in {"full_history", "grid"}
-        if bundle_scope and keys and keys < locked_keys:
+        if bundle_scope and keys and keys < locked_keys and not standalone_improvement:
             raise ValueError(
                 f"El paquete A/M/C esta incompleto ({len(keys)}/3 variantes viables: "
                 f"{', '.join(sorted(keys))}). Ajusta los limites y recalcula antes de guardar."
@@ -3900,17 +3966,15 @@ class PortfolioCoordinator:
                 self.jobs[key] = job
             self.jobs[key]["save_request_id"] = request_id
             self.jobs[key]["save_selected_key"] = selected_key
-        # La escritura pertenece al nodo del agente. "complete" ya expresa en
-        # el protocolo antiguo la misma mutación transaccional (reemplazar el
-        # portafolio guardando una versión previa), por lo que la mejora viaja
-        # con ese verbo y conserva compatibilidad con las copias bifurcadas.
-        wire_operation = "complete" if operation == "improve" else operation
+        # UBS normal guarda la mejora como un portafolio nuevo de un solo modo.
+        # El mensual conserva su protocolo anterior mientras siga congelado.
+        wire_operation = "generate" if standalone_improvement else "complete" if operation == "improve" else operation
         return {
             "scope": scope,
             "selected_key": selected_key,
             "operation": wire_operation,
             "manager_operation": operation,
-            "portfolio_id": target_id or None,
+            "portfolio_id": None if standalone_improvement else target_id or None,
             "request_id": request_id,
             "proposals": serialize_portfolio_proposals(proposals, request_id),
         }

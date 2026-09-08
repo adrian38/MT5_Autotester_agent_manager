@@ -156,7 +156,7 @@ function jobBadge(job, task = {}) {
   document.querySelector('#portfolio-log').disabled = !(job?.log_path || job?.last_log_path);
   const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : operation === 'improve' ? `Mejora de la base #${job.portfolio_id}` : '';
   document.querySelector('#proposal-operation').textContent = opText;
-  document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : operation === 'improve' ? 'Aplicar mejora' : 'Guardar seleccionada';
+  document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : operation === 'improve' ? 'Guardar mejora como otro portafolio' : 'Guardar seleccionada';
   renderCalculationMonitor(job || {});
   refreshCalculationLog(true);
   if (active && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadTaskState(); }, 1800);
@@ -255,6 +255,7 @@ function renderProposals() {
       <small>P&gt;nominal ${number(stress.probability_exceed_nominal_pct, 1)}% · P&gt;efectivo ${number(stress.probability_exceed_effective_pct, 1)}%</small>
       <small>Margen ${number(margin.total, 2)} / ${number(margin.limit, 2)} (${number(margin.usage_pct, 1)}%) · reserva ${number(proposal.reserve_pct, 1)}%</small>
       ${improvement.verdict ? `<small>Base original: ${number(improvement.original_count)} intactas · +${number(improvement.added_count)} · beneficio/DD ${Number(improvement.efficiency_gain_pct) >= 0 ? '+' : ''}${number(improvement.efficiency_gain_pct, 2)}%</small>` : ''}
+      ${improvement.target_portfolio_type_label ? `<small>Mejora solicitada: ${esc(improvement.target_portfolio_type_label)} · origen #${number(improvement.source_portfolio_id)} · nuevo portafolio</small>` : ''}
       <small>${changed} asignaciones modificadas</small>
     </button>`;
   }).join('');
@@ -409,8 +410,8 @@ document.querySelector('#reset-settings').addEventListener('click', () => {
 document.querySelector('#save-proposal').addEventListener('click', async () => {
   if (!selectedProposal) return;
   const operation = managerState.job?.operation || 'generate';
-  const title = operation === 'reoptimize' ? 'Aplicando reoptimización' : operation === 'complete' ? 'Aplicando sustitución' : operation === 'improve' ? 'Aplicando mejora de la base' : 'Guardando portafolio';
-  const detail = operation === 'generate' ? 'Guardando la propuesta seleccionada y sus estrategias…' : `Actualizando el portafolio #${managerState.job?.portfolio_id || selectedId}…`;
+  const title = operation === 'reoptimize' ? 'Aplicando reoptimización' : operation === 'complete' ? 'Aplicando sustitución' : operation === 'improve' ? 'Guardando mejora como otro portafolio' : 'Guardando portafolio';
+  const detail = operation === 'improve' ? `Creando una mejora del portafolio #${managerState.job?.portfolio_id} en el modo elegido…` : operation === 'generate' ? 'Guardando la propuesta seleccionada y sus estrategias…' : `Actualizando el portafolio #${managerState.job?.portfolio_id || selectedId}…`;
   try {
     const data = await withSaveOverlay(title, detail, () => postManager('save', {scope, proposal_key: selectedProposal}));
     selectedProposal = null;
@@ -507,7 +508,7 @@ function renderList() {
   document.querySelector('#portfolio-count').textContent = `${rows.length} portafolios`;
   listEl.innerHTML = rows.length ? rows.map(row => {
     const month = '';
-    return `<button class="portfolio-list-item ${row.id === selectedId ? 'selected' : ''}" onclick="loadDetail(${row.id})"><span><strong>#${row.id}${month}</strong><small>${esc(row.created_at)} · ${esc(row.portfolio_type || 'Sin tipo')}</small></span><span><strong>${number(row.total_net_profit)}</strong><small>${row.active_strategies}/${row.target_strategies || row.active_strategies} estrategias</small></span></button>`;
+    return `<button class="portfolio-list-item ${row.id === selectedId ? 'selected' : ''}" onclick="loadDetail(${row.id})"><span><strong>#${row.id}${month}</strong>${PortfolioComparison.label(row) ? `<small class="improvement-label">${esc(PortfolioComparison.label(row))}</small>` : ''}<small>${esc(row.created_at)} · ${esc(row.portfolio_type || 'Sin tipo')}</small></span><span><strong>${number(row.total_net_profit)}</strong><small>${row.active_strategies}/${row.target_strategies || row.active_strategies} estrategias</small></span></button>`;
   }).join('') : '<div class="portfolio-empty">No hay portafolios guardados en esta sección.</div>';
 }
 
@@ -526,6 +527,7 @@ function renderAudit(portfolio) {
     metric(largestGroup(metrics.group_summary), 'Mayor grupo'),
     metric(strict.passed != null ? (strict.passed ? 'OK' : 'FAIL') : '—', 'Validación estricta', strict.best_month ? `mejor mes ${String(strict.best_month).padStart(2, '0')}` : ''),
     metric(improvement.verdict || '—', 'Mejora de base', improvement.verdict ? `${number(improvement.original_count)} originales intactas · +${number(improvement.added_count)} · beneficio/DD ${Number(improvement.efficiency_gain_pct) >= 0 ? '+' : ''}${number(improvement.efficiency_gain_pct, 2)}%` : ''),
+    ...(improvement.target_portfolio_type_label ? [metric(improvement.target_portfolio_type_label, 'Variante elegida para mejorar')] : []),
   ].join('');
   const decisions = portfolio.decisions || [];
   document.querySelector('#detail-decisions').innerHTML = decisions.length ? decisions.map(row => `<tr><td>${number(row.step)}</td><td>${esc(row.action)}</td><td>${esc((row.set_id || row.to_set_id || '').split(/[\\/]/).pop())}</td><td>${number(row.gain, 2)}</td><td>${number(row.valley_cost, 2)}</td><td>${number(row.score, 3)}</td><td>${esc(row.reason || '')}</td></tr>`).join('') : '<tr><td colspan="7">No hay decisiones guardadas.</td></tr>';
@@ -533,6 +535,9 @@ function renderAudit(portfolio) {
 
 async function loadDetail(id) {
   selectedId = id;
+  currentDetail = null;
+  document.querySelector('#detail-compare-original').hidden = true;
+  document.querySelector('#detail-improvement-origin').hidden = true;
   selectedDetailMembers.clear();
   renderList();
   emptyEl.hidden = true;
@@ -544,6 +549,12 @@ async function loadDetail(id) {
     if (!response.ok) throw new Error(data.error || response.statusText);
     const portfolio = data.portfolio;
     currentDetail = portfolio;
+    const improvementLabel = PortfolioComparison.label(portfolio);
+    const originBanner = document.querySelector('#detail-improvement-origin');
+    originBanner.textContent = improvementLabel;
+    originBanner.hidden = !improvementLabel;
+    document.querySelector('#detail-compare-original').hidden = !PortfolioComparison.lineage(portfolio);
+    document.querySelector('#detail-compare-original').disabled = false;
     const stress = portfolio.metrics?.stress_bootstrap || {};
     const isBundle = portfolio.portfolio_type === 'bundle' || portfolio.metrics?.portfolio_bundle;
     document.querySelector('#detail-select-column').hidden = !isBundle;

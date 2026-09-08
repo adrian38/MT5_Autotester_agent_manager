@@ -37,6 +37,17 @@ def symbol_package():
 
 
 class GuidedNodeTests(unittest.TestCase):
+    def test_launch_options_are_strict_and_bounded(self):
+        options={'max_workers':5,'repair_after_generation':True,'repair_max_workers':4,
+                 'repair_phase2_max_workers':1,'repair_attempts':3}
+        package_value, normalized = protocol.unpack_submission({'package':package(),'launch_options':options})
+        self.assertEqual(package_value['broker'],'ICTRADING')
+        self.assertEqual(normalized,options)
+        with self.assertRaisesRegex(ValueError,'incompletas'):
+            protocol.unpack_submission({'package':package(),'launch_options':{**options,'extra':1}})
+        with self.assertRaisesRegex(ValueError,'fuera de rango'):
+            protocol.unpack_submission({'package':package(),'launch_options':{**options,'repair_attempts':21}})
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)

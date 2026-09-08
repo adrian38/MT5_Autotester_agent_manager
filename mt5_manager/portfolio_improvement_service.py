@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -18,7 +19,7 @@ from portfolio_manager.ubs_portfolio import (
 
 from .portfolio_improvement_common import (
     allocation_units,
-    improvement_options,
+    improvement_options as _shared_improvement_options,
     member_rows,
     recent_positive_candidates,
     unique_original_members,
@@ -27,7 +28,6 @@ from .portfolio_improvement_common import (
 )
 from .portfolio_service import (
     ASSET_GROUPS,
-    LOCKED_VARIANTS,
     PORTFOLIO_TYPES,
     TYPE_LABELS,
     PortfolioSource,
@@ -36,6 +36,7 @@ from .portfolio_service import (
     _resolve_source_path,
     _reserve_pct,
     _seasonal_coverage,
+    _underrepresented_recent_allocation_ids,
     build_margin_model,
     cached_report,
     settings_inputs,
@@ -43,6 +44,38 @@ from .portfolio_service import (
 
 
 Progress = Callable[[str], None]
+MAX_IMPROVEMENT_ADDITIONS = 5
+
+
+def minimum_additions(inputs: dict[str, Any]) -> int:
+    # Keep the old request key usable for an already-open normal UBS page.
+    value = inputs.get("improvement_min_additions", inputs.get("improvement_additions", 2))
+    try:
+        count = int(value)
+        valid = not isinstance(value, bool) and float(value) == count
+    except (TypeError, ValueError, OverflowError):
+        valid, count = False, 0
+    if not valid or not 1 <= count <= MAX_IMPROVEMENT_ADDITIONS:
+        raise ValueError("El mínimo de estrategias a añadir debe ser un entero entre 1 y 5")
+    return count
+
+
+def improvement_options(inputs: dict[str, Any]):
+    options = _shared_improvement_options(inputs)
+    if inputs.get("improvement_min_efficiency_gain_pct") == 0:
+        options = replace(options, min_efficiency_gain_pct=0.0)
+    return options
+
+
+def _selected_variant_detail(detail: dict[str, Any], target: str) -> dict[str, Any]:
+    members = list(detail.get("members") or [])
+    if _is_bundle_portfolio(detail):
+        members = [row for row in members if row.get("variant_key") == target]
+    elif str(detail.get("portfolio_type") or "") != target:
+        raise ValueError("El portafolio no contiene la variante elegida")
+    if not members:
+        raise ValueError("No hay estrategias guardadas para la variante elegida")
+    return {**detail, "members": members}
 
 
 def _load_full_history_improvement_pool(
@@ -118,16 +151,21 @@ def _generate_full_history_improvement_attempt(
     inputs: dict[str, Any],
     progress: Progress | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Add strategies to a saved A/M/C base without ever removing an original."""
-    options = improvement_options(inputs)
+    """Improve only the selected saved variant and propose a new portfolio."""
+    target = str(inputs["portfolio_type"])
+    detail = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+    variant = (detail.get("metrics") or {}).get("variants", {}).get(target, {})
+    saved_inputs = variant.get("inputs") or {}
     inputs = {
         **inputs,
+        **saved_inputs,
+        **{key: value for key, value in inputs.items() if key.startswith("improvement_") or key.startswith("_improvement_")},
+        "portfolio_type": target,
         "use_correlation": True,
-        "margin_model": build_margin_model(source, inputs),
     }
-    detail = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
-    if not _is_bundle_portfolio(detail):
-        raise ValueError("Mejorar la base UBS requiere un portafolio A/M/C guardado")
+    inputs["margin_model"] = build_margin_model(source, inputs)
+    options = improvement_options(inputs)
+    detail = _selected_variant_detail(detail, target)
     original_sets, raw_sets, rows, used, warnings = _load_full_history_improvement_pool(
         source, detail, portfolio_id, inputs, progress,
     )
@@ -141,16 +179,13 @@ def _generate_full_history_improvement_attempt(
     maximum_target = len(original_ids) + options.max_additions
     if len(raw_sets) < minimum_target:
         raise ValueError(
-            "No hay ninguna estrategia nueva con aporte Final Tick 6M positivo "
-            "que pueda mejorar la base"
+            f"Solo hay {len(raw_sets) - len(original_ids)} candidatas nuevas con aporte "
+            f"Final Tick 6M positivo; se necesitan {minimum_target - len(original_ids)}"
         )
 
     base_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
     configured_reserve = float(inputs.get("dd_reserve_pct") or 0)
-    selection_reserve = max(
-        _reserve_pct(configured_reserve, portfolio_type)
-        for _key, _label, portfolio_type in LOCKED_VARIANTS
-    )
+    selection_reserve = float(saved_inputs["dd_reserve_pct"]) if "dd_reserve_pct" in saved_inputs else _reserve_pct(configured_reserve, base_type)
     existing = source.saved_curves(
         monthly=False,
         portfolio_type=base_type,
@@ -178,7 +213,7 @@ def _generate_full_history_improvement_attempt(
     )
     if progress:
         progress(
-            f"4/5 · Buscando hasta {options.max_additions} incorporación(es) con baja dependencia"
+            f"4/5 · Buscando {options.max_additions} incorporación(es) con baja dependencia"
         )
     selected_base = optimize_portfolio(
         raw_sets=raw_sets,
@@ -193,95 +228,121 @@ def _generate_full_history_improvement_attempt(
     if not set(original_ids).issubset(selected_ids):
         raise ValueError("El selector intentó retirar una estrategia original")
     actual_additions = len(selected_ids) - len(original_ids)
-    if not 1 <= actual_additions <= options.max_additions:
+    if not minimum_target <= len(selected_ids) <= maximum_target:
         raise ValueError(
-            "No se encontró ninguna incorporación que mejorase la base dentro "
-            f"del máximo de {options.max_additions}"
+            f"El selector añadió {actual_additions} estrategias; este intento requiere "
+            f"{minimum_target - len(original_ids)}"
         )
     selected_target = len(selected_ids)
     raw_by_id = {strategy.set_id: strategy for strategy in raw_sets}
     selected_sets = [raw_by_id[set_id] for set_id in selected_ids]
 
     if progress:
-        progress("5/5 · Validando beneficio/DD y recalculando las variantes A/M/C")
+        progress("5/5 · Validando beneficio/DD de la variante elegida")
     proposals: list[dict[str, Any]] = []
-    for key, label, portfolio_type in LOCKED_VARIANTS:
-        reserve = _reserve_pct(configured_reserve, portfolio_type)
-        variant_existing = source.saved_curves(
-            monthly=False,
-            portfolio_type=portfolio_type,
-            exclude_portfolio_id=portfolio_id,
-        )
-        kwargs = _optimizer_kwargs(inputs, portfolio_type, variant_existing, reserve)
-        kwargs.update(
-            {
-                "required_set_ids": selected_ids,
-                "preserve_required_allocations": False,
-                "minimum_active_strategies": selected_target,
-                "maximum_active_strategies": selected_target,
-                "top_k_per_symbol": selected_target,
-                "max_total_candidates": None,
-                "max_sets_per_symbol": (
-                    selected_target
-                    if options.allow_same_symbol
-                    else int(inputs["max_sets_per_symbol"])
-                ),
-                "max_sets_per_group": selected_target,
-                "group_unit_cap_bootstrap": max(selected_target, 1),
-            }
-        )
-        result: PortfolioResult = optimize_portfolio(
-            raw_sets=selected_sets,
-            use_deep_refinement=bool(inputs.get("deep_optimization")),
-            **kwargs,
-        )
-        baseline = evaluate_portfolio(
-            original_sets,
-            allocation_units(detail, key, resolve_path=resolve_saved_path),
-            result.target_valley_dd,
-            result.target_point_dd,
-            enforce_point_dd=False,
-        )
-        validate_and_attach_improvement_audit(
-            result=result,
-            baseline=baseline,
-            all_sets=selected_sets,
-            original_ids=original_ids,
-            options=options,
-            inputs=inputs,
-            scope="full_history",
-            minimum_gain_pct=(
-                options.min_efficiency_gain_pct
-                if portfolio_type == base_type
-                else -1.0
+    key, label, portfolio_type = target, TYPE_LABELS[target], base_type
+    reserve = selection_reserve
+    variant_existing = source.saved_curves(
+        monthly=False,
+        portfolio_type=portfolio_type,
+        exclude_portfolio_id=portfolio_id,
+    )
+    kwargs = _optimizer_kwargs(inputs, portfolio_type, variant_existing, reserve)
+    kwargs.update(
+        {
+            "required_set_ids": selected_ids,
+            "preserve_required_allocations": False,
+            "minimum_active_strategies": selected_target,
+            "maximum_active_strategies": selected_target,
+            "top_k_per_symbol": selected_target,
+            "max_total_candidates": None,
+            "max_sets_per_symbol": (
+                selected_target
+                if options.allow_same_symbol
+                else int(inputs["max_sets_per_symbol"])
             ),
+            "max_sets_per_group": selected_target,
+            "group_unit_cap_bootstrap": max(selected_target, 1),
+        }
+    )
+    result: PortfolioResult = optimize_portfolio(
+        raw_sets=selected_sets,
+        use_deep_refinement=bool(inputs.get("deep_optimization")),
+        **kwargs,
+    )
+    fillers = _underrepresented_recent_allocation_ids(
+        result, float(inputs.get("min_strategy_recent_contribution_pct") or 0),
+    ) - set(original_ids)
+    if fillers:
+        raise ValueError(
+            "Las incorporaciones no alcanzan el aporte mínimo Final Tick 6M: "
+            + ", ".join(Path(value).name for value in sorted(fillers))
         )
-        _seasonal_coverage(result, selected_sets)
-        result.warnings.extend(warnings)
-        proposal_inputs = settings_inputs(inputs)
-        proposal_inputs.update(
-            {
-                "optimization_profile": key,
-                "optimization_profile_label": label,
-                "portfolio_type": portfolio_type.value,
-                "portfolio_type_label": TYPE_LABELS[portfolio_type.value],
-                "composition_portfolio_type": base_type.value,
-                "composition_portfolio_type_label": TYPE_LABELS[base_type.value],
-                "dd_reserve_pct": reserve,
-                "improvement_original_count": len(original_ids),
-                "improvement_added_count": actual_additions,
-                "improvement_max_additions": options.max_additions,
-            }
-        )
-        proposals.append(
-            {
-                "key": key,
-                "label": label,
-                "reserve_pct": reserve,
-                "inputs": proposal_inputs,
-                "result": result,
-            }
-        )
+    baseline = evaluate_portfolio(
+        original_sets,
+        allocation_units(detail, key, resolve_path=resolve_saved_path),
+        result.target_valley_dd,
+        result.target_point_dd,
+        enforce_point_dd=False,
+    )
+    audit = validate_and_attach_improvement_audit(
+        result=result,
+        baseline=baseline,
+        all_sets=selected_sets,
+        original_ids=original_ids,
+        options=options,
+        inputs=inputs,
+        scope="full_history",
+        minimum_gain_pct=options.min_efficiency_gain_pct,
+    )
+    if audit["added_count"] != actual_additions:
+        raise ValueError("El ajuste final no conservó las incorporaciones seleccionadas")
+    audit["target_portfolio_type"] = base_type.value
+    audit["target_portfolio_type_label"] = TYPE_LABELS[base_type.value]
+    audit["source_portfolio_id"] = portfolio_id
+    audit["save_as_new"] = True
+    # Preserve the exact selected-mode baseline for the saved comparison, even
+    # if the original portfolio is later changed or deleted.
+    audit["source_snapshot"] = {
+        "id": portfolio_id,
+        "portfolio_type": target,
+        "captured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "capital": float(inputs["capital"]),
+        "total_net_profit": float(baseline.total_net_profit),
+        "actual_valley_dd": float(baseline.valley_dd),
+        "total_units": sum(int(member.get("units") or 0) for member in detail["members"]),
+        "total_lot": sum(float(member.get("lot") or 0) for member in detail["members"]),
+        "active_strategies": len(original_ids),
+        "members": [dict(member) for member in detail["members"]],
+    }
+    _seasonal_coverage(result, selected_sets)
+    result.warnings.extend(warnings)
+    proposal_inputs = settings_inputs(inputs)
+    proposal_inputs.update(
+        {
+            "optimization_profile": key,
+            "optimization_profile_label": label,
+            "portfolio_type": portfolio_type.value,
+            "portfolio_type_label": TYPE_LABELS[portfolio_type.value],
+            "composition_portfolio_type": base_type.value,
+            "composition_portfolio_type_label": TYPE_LABELS[base_type.value],
+            "dd_reserve_pct": reserve,
+            "improvement_source_portfolio_id": portfolio_id,
+            "improvement_portfolio_type": target,
+            "improvement_original_count": len(original_ids),
+            "improvement_added_count": actual_additions,
+            "improvement_max_additions": options.max_additions,
+        }
+    )
+    proposals.append(
+        {
+            "key": key,
+            "label": label,
+            "reserve_pct": reserve,
+            "inputs": proposal_inputs,
+            "result": result,
+        }
+    )
 
     availability = asdict(summarize_robust_rows(rows, used))
     availability.update(
@@ -305,14 +366,31 @@ def generate_full_history_improvement(
     inputs: dict[str, Any],
     progress: Progress | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Try the requested maximum first, then fewer additions without using fillers."""
-    requested = improvement_options(inputs).max_additions
+    """Compare valid addition counts for the selected mode; prefer fewer on ties."""
+    target_type = str(
+        inputs.get("improvement_portfolio_type")
+        or inputs.get("portfolio_type")
+        or "balanced"
+    ).strip().lower()
+    if target_type not in PORTFOLIO_TYPES:
+        raise ValueError("Elige la variante a mejorar: Agresivo, Moderado o Conservador")
+    # Only this operation overrides the saved composition objective. The chosen
+    # variant drives selection and its own saved lots define the comparison.
+    inputs = {
+        **inputs,
+        "portfolio_type": target_type,
+        "improvement_portfolio_type": target_type,
+    }
+    requested = minimum_additions(inputs)
+    inputs["improvement_min_additions"] = requested
     failures: list[str] = []
-    for additions in range(requested, 0, -1):
+    best = None
+    best_rank = (float("-inf"), 0)
+    for additions in range(requested, MAX_IMPROVEMENT_ADDITIONS + 1):
         if progress:
             progress(
-                f"Mejora controlada · probando {additions} incorporación(es) "
-                f"del máximo {requested}"
+                f"Mejora {TYPE_LABELS[target_type]} · probando {additions} incorporación(es) "
+                f"con mínimo {requested} y límite de búsqueda {MAX_IMPROVEMENT_ADDITIONS}"
             )
         attempt_inputs = {
             **inputs,
@@ -327,18 +405,30 @@ def generate_full_history_improvement(
             failures.append(f"{additions}: {exc}")
             continue
         improvement = availability.setdefault("improvement", {})
-        improvement["maximum_additions"] = requested
-        improvement["actual_additions"] = additions
+        improvement["minimum_additions"] = requested
+        improvement["maximum_additions"] = MAX_IMPROVEMENT_ADDITIONS
         for proposal in proposals:
-            proposal.setdefault("inputs", {})["improvement_max_additions"] = requested
+            proposal.setdefault("inputs", {}).update({
+                "improvement_min_additions": requested,
+                "improvement_max_additions": MAX_IMPROVEMENT_ADDITIONS,
+            })
             audit = (proposal["result"].seasonal_validation or {}).get(
                 "portfolio_improvement"
             )
             if isinstance(audit, dict):
-                audit["maximum_additions"] = requested
-        return availability, proposals
-    detail = failures[-1] if failures else "sin candidatas válidas"
+                audit["minimum_additions"] = requested
+                audit["maximum_additions"] = MAX_IMPROVEMENT_ADDITIONS
+        gain = float((proposals[0]["result"].seasonal_validation or {}).get(
+            "portfolio_improvement", {}
+        ).get("efficiency_gain_pct", 0)) if proposals else 0.0
+        rank = (gain, -additions)
+        if best is None or rank > best_rank:
+            best, best_rank = (availability, proposals), rank
+    if best is not None:
+        return best
+    detail = "; ".join(failures) if failures else "sin candidatas válidas"
     raise ValueError(
-        "No se encontró una mejora válida entre una estrategia y el máximo "
-        f"de {requested}. Último intento: {detail}"
+        f"No se encontró una mejora válida con al menos {requested} estrategias nuevas "
+        f"(límite de búsqueda: {MAX_IMPROVEMENT_ADDITIONS}). No se rebaja el mínimo. "
+        f"Intentos: {detail}"
     )

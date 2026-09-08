@@ -17,6 +17,7 @@ from portfolio_manager.ubs_portfolio import (
 
 Progress = Callable[[str], None]
 EXPERIMENTAL_FULL_POOL_ROTATIONS = 3
+EXPERIMENTAL_FULL_ANTIFILLER_RETRIES = 8
 
 
 def _strategy_id(strategy: RobustStrategySet) -> str:
@@ -296,6 +297,85 @@ def _optimize_exact_pool(
     )
 
 
+def _refined_without_recent_fillers(
+    result: PortfolioResult,
+    candidate_pool: Sequence[RobustStrategySet],
+    recent_filler_ids: Callable[[PortfolioResult], set[str]] | None,
+    *,
+    optimizer_kwargs: dict[str, Any],
+    progress: Progress | None = None,
+) -> tuple[PortfolioResult, set[str]]:
+    """Drop recent fillers while the freed risk budget can still be refilled.
+
+    The caller-level rule refines only surviving allocations, so a broad
+    composition that loses half its members can never use the released DD
+    budget again: it ships smaller than the pool allows. Here the pool that
+    produced the composition is known, so each removal is replaced from it and
+    breadth survives the rule instead of being traded for it.
+
+    The rule itself is not reimplemented and not folded into `_result_rank`:
+    ranking by recent contribution share would bias the tournament towards
+    concentrated compositions and defeat the diversification it exists for.
+    Each retry reoptimises a single, strictly smaller pool, never the tournament.
+    Replacement passes deliberately skip multi-start and deep refinement: the
+    locked A/M/C variants perform the expensive final optimisation afterwards.
+    A fixed retry budget keeps the experimental route predictably bounded; an
+    unresolved finalist is rejected instead of being returned with fillers.
+    """
+    if recent_filler_ids is None:
+        return result, set()
+    pool = list(candidate_pool)
+    removed: set[str] = set()
+    current = result
+    retry_budget = min(len(pool), EXPERIMENTAL_FULL_ANTIFILLER_RETRIES)
+    refinement_kwargs = dict(optimizer_kwargs)
+    refinement_kwargs["search_restarts"] = 0
+    refinement_kwargs["run_local_search"] = False
+    for _attempt in range(retry_budget):
+        fillers = set(recent_filler_ids(current))
+        if not fillers:
+            return current, removed
+        candidates = [
+            strategy for strategy in pool
+            if _strategy_id(strategy) not in removed | fillers
+        ]
+        if len(candidates) >= len(pool):
+            raise ValueError(
+                "La regla antirrelleno experimental no redujo el lote ganador."
+            )
+        if not candidates:
+            raise ValueError(
+                "La regla antirrelleno experimental agotó el lote ganador."
+            )
+        if progress:
+            progress(
+                "Búsqueda experimental UBS: "
+                f"{len(fillers)} relleno(s) 6M fuera; reoptimizando "
+                f"{len(candidates)} candidato(s) del lote ganador"
+            )
+        try:
+            refreshed = _optimize_exact_pool(
+                candidates,
+                use_deep_refinement=False,
+                optimizer_kwargs=refinement_kwargs,
+            )
+        except Exception as exc:
+            raise ValueError(
+                "La búsqueda experimental no encontró una reposición viable "
+                "para los rellenos 6M."
+            ) from exc
+        removed |= fillers
+        pool = candidates
+        current = refreshed
+    remaining = set(recent_filler_ids(current))
+    if remaining:
+        raise ValueError(
+            "La búsqueda experimental agotó su lote sin eliminar todos los "
+            "rellenos 6M."
+        )
+    return current, removed
+
+
 def _segment_stability_audit(
     result: PortfolioResult,
     candidate_pool: Sequence[RobustStrategySet],
@@ -421,6 +501,7 @@ def optimize_experimental_full_portfolio(
     raw_sets: list[RobustStrategySet],
     use_deep_refinement: bool,
     progress: Progress | None = None,
+    recent_filler_ids: Callable[[PortfolioResult], set[str]] | None = None,
     **optimizer_kwargs: Any,
 ) -> PortfolioResult:
     """Evaluate every eligible full-history strategy before fixing A/M/C sets."""
@@ -478,10 +559,10 @@ def optimize_experimental_full_portfolio(
                 f"{EXPERIMENTAL_FULL_POOL_ROTATIONS} rotaciones"
             )
         qualifying_kwargs = dict(optimizer_kwargs)
-        qualifying_kwargs["search_restarts"] = min(
-            int(qualifying_kwargs.get("search_restarts") or 0),
-            1,
-        )
+        # Three rotations already expose every candidate to different peers.
+        # Multi-start inside every qualifying pool multiplies runtime without
+        # adding coverage; reserve it for the complete final optimisation.
+        qualifying_kwargs["search_restarts"] = 0
         qualifying_kwargs["run_local_search"] = False
         for rotation, pools in enumerate(rotation_pools, 1):
             for pool_index, pool in enumerate(pools, 1):
@@ -581,23 +662,49 @@ def optimize_experimental_full_portfolio(
         failed_pools += 1
         final_error = exc
 
-    if final_result is not None and (
-        best_result is None
-        or _result_rank(final_result) >= _result_rank(best_result)
+    # Se compara lo que se va a entregar, no lo que el optimizador propuso: la
+    # regla de aporte reciente ya esta aplicada en ambos finalistas. Asi la
+    # amplitud que sobrevive a la regla gana, y la que la regla destruiria deja
+    # de ganar el torneo sobre el papel. El orden conserva el desempate a favor
+    # de la final completa.
+    finalists: list[tuple[PortfolioResult, list[RobustStrategySet], set[str]]] = []
+    refinement_errors: list[str] = []
+    for candidate_result, candidate_pool in (
+        (final_result, current),
+        (best_result, best_result_pool),
     ):
-        selected_result = final_result
-        selected_pool = current
-    elif best_result is not None:
-        selected_result = best_result
-        selected_pool = best_result_pool
-    elif final_error is not None:
-        raise ValueError(
-            "La búsqueda UBS experimental no encontró ningún lote viable."
-        ) from final_error
-    else:
-        raise ValueError(
-            "La búsqueda UBS experimental no produjo resultados."
+        if candidate_result is None:
+            continue
+        try:
+            refined, dropped = _refined_without_recent_fillers(
+                candidate_result,
+                candidate_pool,
+                recent_filler_ids,
+                optimizer_kwargs=optimizer_kwargs,
+                progress=progress,
+            )
+        except ValueError as exc:
+            refinement_errors.append(str(exc))
+            continue
+        finalists.append((refined, list(candidate_pool), dropped))
+
+    if not finalists:
+        if final_error is not None:
+            raise ValueError(
+                "La búsqueda UBS experimental no encontró ningún lote viable."
+            ) from final_error
+        detail = " | ".join(refinement_errors)
+        message = (
+            "La búsqueda UBS experimental no produjo resultados sin "
+            "rellenos 6M."
         )
+        if detail:
+            message += " " + detail
+        raise ValueError(message)
+
+    selected_result, selected_pool, removed_recent = max(
+        finalists, key=lambda item: _result_rank(item[0])
+    )
 
     stability = _segment_stability_audit(
         selected_result, selected_pool
@@ -622,6 +729,13 @@ def optimize_experimental_full_portfolio(
         f"{failed_pools} no viables; "
         f"{round_number} ronda(s)."
     )
+    if removed_recent:
+        selected_result.warnings.append(
+            "Regla antirrelleno 6M en la búsqueda experimental: "
+            f"{len(removed_recent)} relleno(s) sustituido(s) desde el lote "
+            "ganador; la composición conserva su amplitud en vez de encogerse "
+            "a los supervivientes."
+        )
     if stability.get("status") == "completed":
         segments = stability["segments"]
         selected_result.warnings.append(
