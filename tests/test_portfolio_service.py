@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from mt5_manager.portfolio_service import (
+    STANDARD_ANTIFILLER_REFILL_PASSES,
     PortfolioCoordinator,
     PortfolioSource,
     _linux_path_needs_snapshot,
@@ -342,6 +343,110 @@ class PortfolioServiceTests(unittest.TestCase):
                 self.assertTrue(any("sin reabrir el pool global" in message for message in messages))
                 for proposal in proposals:
                     self.assertFalse(_underrepresented_recent_allocation_ids(proposal["result"], 5))
+
+    def test_recent_fillers_are_replaced_from_the_pool_when_refill_is_on(self) -> None:
+        pool = [SimpleNamespace(set_id=key) for key in ("core", "filler", "spare")]
+        calls: list[list[str]] = []
+        messages: list[str] = []
+
+        def optimize(candidates):
+            available = [item.set_id for item in candidates]
+            calls.append(available)
+            # `spare` solo puede entrar si el hueco del relleno sigue abierto:
+            # es la reposicion que la ruta estandar nunca hacia.
+            chosen = ["core", "filler"] if "filler" in available else available
+            return self._recent_result([
+                StrategyAllocation(
+                    set_id, "1", "EURUSD", 1, .01, 100, 10, 5,
+                    recent_net_profit_001=1 if set_id == "filler" else 100,
+                    has_recent_performance=True,
+                ) for set_id in chosen
+            ])
+
+        result, removed = _optimize_without_recent_fillers(
+            pool, 5, optimize, progress=messages.append, refill_from_pool=True,
+        )
+
+        self.assertEqual(calls, [["core", "filler", "spare"], ["core", "spare"]])
+        self.assertEqual(removed, {"filler"})
+        self.assertEqual({item.set_id for item in result.allocations}, {"core", "spare"})
+        self.assertIn("reponiendo sobre 2 candidato(s)", messages[0])
+        self.assertIn("reponiendo desde el pool", result.warnings[0])
+
+    def test_refill_is_bounded_and_the_shrink_refinement_still_closes_it(self) -> None:
+        pool = [SimpleNamespace(set_id="core")] + [
+            SimpleNamespace(set_id=f"filler-{index}") for index in range(30)
+        ]
+        calls: list[list[str]] = []
+
+        def optimize(candidates):
+            available = [item.set_id for item in candidates]
+            calls.append(available)
+            return self._recent_result([
+                StrategyAllocation(
+                    set_id, "1", "EURUSD", 1, .01, 100, 10, 5,
+                    recent_net_profit_001=100 if set_id == "core" else 1,
+                    has_recent_performance=True,
+                ) for set_id in available[:2]
+            ])
+
+        result, removed = _optimize_without_recent_fillers(
+            pool, 5, optimize, refill_from_pool=True,
+        )
+
+        # Un relleno nuevo por pasada no puede reabrir el pool indefinidamente:
+        # agotado el presupuesto cierra el refinamiento por supervivientes.
+        self.assertEqual(len(calls), STANDARD_ANTIFILLER_REFILL_PASSES + 2)
+        self.assertEqual(len(removed), STANDARD_ANTIFILLER_REFILL_PASSES + 1)
+        self.assertEqual(calls[-1], ["core"])
+        self.assertFalse(_underrepresented_recent_allocation_ids(result, 5))
+
+    def test_the_standard_bundle_reopens_the_pool_and_the_experimental_one_does_not(self) -> None:
+        cases = (
+            (False, ["core", "spare"], "eliminada(s) y repuestas desde el pool antes"),
+            (True, ["core"], "eliminada(s) antes de fijar"),
+        )
+        for experimental, refined_pool, warning_text in cases:
+            with self.subTest(experimental=experimental):
+                pool = [
+                    SimpleNamespace(set_id=key, target_month=None)
+                    for key in ("core", "filler", "spare")
+                ]
+                calls: list[list[str]] = []
+                settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]})
+                settings["experimental_full_search"] = experimental
+
+                def optimize(*, raw_sets, **kwargs):
+                    available = [item.set_id for item in raw_sets]
+                    calls.append(available)
+                    chosen = ["core", "filler"] if "filler" in available else available
+                    return self._recent_result([
+                        StrategyAllocation(
+                            set_id, "1", "EURUSD", 1, .01, 100, 10, 5,
+                            recent_net_profit_001=1 if set_id == "filler" else 100,
+                            has_recent_performance=True,
+                        ) for set_id in chosen
+                    ])
+
+                with patch(
+                    "mt5_manager.portfolio_service.optimize_experimental_full_portfolio",
+                    side_effect=optimize,
+                ), patch(
+                    "mt5_manager.portfolio_service.optimize_portfolio", side_effect=optimize,
+                ):
+                    proposals = _locked_full_proposals(pool, settings, {}, None)
+
+                self.assertEqual(calls[0], ["core", "filler", "spare"])
+                self.assertEqual(calls[1], refined_pool)
+                self.assertEqual(len(proposals), 3)
+                for proposal in proposals:
+                    self.assertFalse(
+                        _underrepresented_recent_allocation_ids(proposal["result"], 5)
+                    )
+                    self.assertTrue(
+                        any(warning_text in warning for warning in proposal["result"].warnings),
+                        proposal["result"].warnings,
+                    )
 
     def test_recent_contribution_default_is_five_percent(self) -> None:
         settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]})
