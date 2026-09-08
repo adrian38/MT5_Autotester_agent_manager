@@ -19,6 +19,17 @@ test('compares only the saved mode, never top-level bundle totals', () => {
   assert.deepEqual(result.changes.map(x=>x.status).sort(), ['AJUSTADA','AÑADIDA']);
   assert.equal(result.changes.some(x=>x.name==='other.set'),false);
 });
+test('shows like-for-like stress without treating it as a validity gate', () => {
+  const p = improved();
+  p.metrics.seasonal_validation.portfolio_improvement.stress_comparison = {
+    status: 'completed',
+    baseline: {valley_dd_p95: 66, probability_exceed_effective_pct: 7},
+    improved: {valley_dd_p95: 85, probability_exceed_effective_pct: 32},
+  };
+  const result = api.comparison(p, original());
+  assert.equal(result.metrics.find(x=>x.name==='Estrés P95').delta, 19);
+  assert.equal(result.metrics.find(x=>x.name==='P exceder DD efectivo %').delta, 25);
+});
 test('new snapshots survive changed or deleted originals', () => {
   const p = improved();
   p.metrics.seasonal_validation.portfolio_improvement.source_snapshot = {id:9,portfolio_type:'balanced',total_net_profit:80,actual_valley_dd:8,members:[member('1')]};

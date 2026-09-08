@@ -83,7 +83,7 @@
     }
     const after = selectedMode(improved, origin.mode);
     const efficiency = values => numeric(values.total_net_profit) != null && numeric(values.actual_valley_dd) > 0 ? Number(values.total_net_profit) / Number(values.actual_valley_dd) : null;
-    const metrics = [
+    const metricRows = [
       ['Beneficio neto histórico', before.total_net_profit, after.total_net_profit, 2],
       ['DD riesgo máximo', before.actual_valley_dd, after.actual_valley_dd, 2],
       ['Beneficio / DD', efficiency(before), efficiency(after), 3],
@@ -91,7 +91,15 @@
       ['Estrategias activas', before.active_strategies, after.active_strategies, 0],
       ['Unidades', before.total_units, after.total_units, 0],
       ['Lote total', before.total_lot, after.total_lot, 3],
-    ].map(([name, a, b, digits]) => {
+    ];
+    const stress = audit.stress_comparison || {};
+    if (stress.status === 'completed') {
+      metricRows.push(
+        ['Estrés P95', stress.baseline?.valley_dd_p95, stress.improved?.valley_dd_p95, 2],
+        ['P exceder DD efectivo %', stress.baseline?.probability_exceed_effective_pct, stress.improved?.probability_exceed_effective_pct, 1],
+      );
+    }
+    const metrics = metricRows.map(([name, a, b, digits]) => {
       a = numeric(a); b = numeric(b);
       return {name, before: a, after: b, delta: a == null || b == null ? null : b - a, digits};
     });
