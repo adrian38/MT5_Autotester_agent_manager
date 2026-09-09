@@ -304,6 +304,14 @@ def _generate_full_history_improvement_attempt(
             "preserve_required_allocations": False,
             "minimum_active_strategies": minimum_target,
             "maximum_active_strategies": maximum_target,
+            # Aquí el objetivo es colocar el número pedido de incorporaciones,
+            # no sacar el máximo de la siguiente. Sin esto la holgura se gasta
+            # en la candidata más rentable y las demás no entran: el selector
+            # devolvía 1 y el intento se descartaba, y encima el resultado
+            # dependía del pool —excluir las usadas, que son las gordas, daba
+            # MÁS incorporaciones que no excluirlas—. Las originales no ceden
+            # unidades: eso está reservado a la reparación.
+            "prefer_breadth_below_minimum": True,
             "top_k_per_symbol": max(int(inputs["top_k_per_symbol"]), maximum_target),
             "max_sets_per_symbol": (
                 maximum_target

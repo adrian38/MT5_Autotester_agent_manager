@@ -3069,6 +3069,7 @@ def build_portfolio_greedy(
     initial_allocations: dict[str, int] | None = None,
     minimum_active_strategies: int | None = None,
     maximum_active_strategies: int | None = None,
+    prefer_breadth_below_minimum: bool = False,
     fixed_set_ids: Sequence[str] | None = None,
     allow_fixed_reductions_for_repair: bool = False,
     margin_balance: float | None = None,
@@ -3127,6 +3128,16 @@ def build_portfolio_greedy(
         best_candidate: dict[str, object] | None = None
         best_repair_candidate: dict[str, object] | None = None
         blocked_by_risk = False
+        # Mientras faltan huecos por abrir, el objetivo es cuantas caben, no
+        # cuanto rinde la siguiente. Eligiendo por rentabilidad se gasta la
+        # holgura en la mejor candidata y las demas ya no entran, asi que el
+        # resultado depende de lo gordo que sea el pool: darle mas candidatas
+        # producia MENOS incorporaciones.
+        opening_slots = bool(
+            prefer_breadth_below_minimum
+            and minimum_active_strategies is not None
+            and current.active_strategies < minimum_active_strategies
+        )
         for strategy in sets:
             if strategy.set_id in fixed_ids:
                 continue
@@ -3252,13 +3263,25 @@ def build_portfolio_greedy(
             score = score_increment(current, temp, allocations[strategy.set_id], portfolio_type)
             if score == float("-inf"):
                 continue
-            if best_candidate is None or score > float(best_candidate["score"]):
+            selection_key = (
+                (-(temp.valley_dd - current.valley_dd), score)
+                if opening_slots else (score,)
+            )
+            previous_key = (
+                best_candidate.get("selection_key", (float(best_candidate["score"]),))
+                if best_candidate is not None else None
+            )
+            if previous_key is None or selection_key > previous_key:
                 best_candidate = {
                     "set": strategy,
                     "allocations": temp_allocations,
                     "evaluation": temp,
                     "score": score,
-                    "reason": "Best valid +0.01 increment",
+                    "selection_key": selection_key,
+                    "reason": (
+                        "Cheapest valid +0.01 increment while opening required slots"
+                        if opening_slots else "Best valid +0.01 increment"
+                    ),
                 }
 
         if best_candidate is None and best_repair_candidate is not None:
@@ -5121,6 +5144,7 @@ def optimize_portfolio(
     required_set_ids: Sequence[str] | None = None,
     minimum_active_strategies: int | None = None,
     maximum_active_strategies: int | None = None,
+    prefer_breadth_below_minimum: bool = False,
     required_initial_allocations: dict[str, int] | None = None,
     preserve_required_allocations: bool = False,
     dd_reserve_pct: float = 0.0,
@@ -5212,6 +5236,7 @@ def optimize_portfolio(
         initial_allocations=initial_allocations,
         minimum_active_strategies=minimum_active_strategies,
         maximum_active_strategies=maximum_active_strategies,
+        prefer_breadth_below_minimum=prefer_breadth_below_minimum,
         fixed_set_ids=fixed_set_ids,
         allow_fixed_reductions_for_repair=preserve_required_allocations,
         margin_balance=margin_balance,
