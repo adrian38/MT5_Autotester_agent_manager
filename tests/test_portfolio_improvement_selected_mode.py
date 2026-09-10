@@ -156,6 +156,12 @@ class SelectedModeTests(unittest.TestCase):
                 self.assertTrue(
                     optimize.call_args_list[0].kwargs["prefer_breadth_below_minimum"]
                 )
+                # Y no hereda el tope de sets por grupo del perfil (Moderado 3),
+                # que una cartera de 8 ya agota: cabría una sola incorporación.
+                selector = optimize.call_args_list[0].kwargs
+                self.assertEqual(
+                    selector["max_sets_per_group"], selector["maximum_active_strategies"]
+                )
                 self.assertFalse(
                     optimize.call_args_list[1].kwargs.get("prefer_breadth_below_minimum", False)
                 )

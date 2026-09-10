@@ -31,7 +31,14 @@ const recentContribution = member => Math.max(Number(member.recent_net_profit_00
 const recentContributionText = (member, total) => `${number(recentContribution(member), 2)} (${number(total > 0 ? recentContribution(member) / total * 100 : 0, 1)}%)`;
 const metric = (value, label, note = '', alert = false) => `<div class="detail-metric ${alert ? 'metric-alert' : ''}"><strong>${esc(value)}</strong><span>${esc(label)}</span>${note ? `<small>${esc(note)}</small>` : ''}</div>`;
 const friendlyReason = value => String(value || '')
-  .replace('No valid +0.01 increment found without breaking DD constraints', 'No existe otro incremento de 0,01 que respete el DD');
+  // El texto viejo sigue traducido: los portafolios ya guardados lo llevan dentro.
+  .replace('No valid +0.01 increment found without breaking DD constraints', 'No existe otro incremento de 0,01 que respete el DD')
+  .replace('No valid +0.01 increment left in the candidate pool', 'No queda ningún incremento de 0,01 en el pool')
+  .replace('No valid +0.01 increment:', 'No existe otro incremento de 0,01. Bloqueado por:')
+  .replace('DD limits', 'límite de DD')
+  .replace('correlation limits', 'correlación entre pares')
+  .replace('portfolio correlation', 'correlación con otros portafolios')
+  .replace('unit/group/margin caps', 'topes de unidades/grupo/margen');
 const improvementStressText = comparison => comparison?.status === 'completed'
   ? `Estrés vs base: P95 ${number(comparison.baseline?.valley_dd_p95, 2)} → ${number(comparison.improved?.valley_dd_p95, 2)} (${Number(comparison.valley_dd_p95_delta) >= 0 ? '+' : ''}${number(comparison.valley_dd_p95_delta, 2)}); P>DD efectivo ${Number(comparison.probability_exceed_effective_delta_pp) >= 0 ? '+' : ''}${number(comparison.probability_exceed_effective_delta_pp, 1)} pp`
   : '';

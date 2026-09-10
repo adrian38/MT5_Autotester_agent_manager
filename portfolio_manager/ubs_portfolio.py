@@ -3128,6 +3128,11 @@ def build_portfolio_greedy(
         best_candidate: dict[str, object] | None = None
         best_repair_candidate: dict[str, object] | None = None
         blocked_by_risk = False
+        # Por que se quedo sin incrementos en ESTE paso. El motivo lo decide el
+        # recuento, no una cadena fija: el `stop_reason` culpaba siempre al DD y
+        # mando dos veces la investigacion al sitio equivocado cuando quien
+        # bloqueaba era la correlacion con el DD al 30% del presupuesto.
+        step_blocks = {"dd": 0, "pair_corr": 0, "portfolio_corr": 0, "caps": 0}
         # Mientras faltan huecos por abrir, el objetivo es cuantas caben, no
         # cuanto rinde la siguiente. Eligiendo por rentabilidad se gasta la
         # holgura en la mejor candidata y las demas ya no entran, asi que el
@@ -3174,6 +3179,7 @@ def build_portfolio_greedy(
                 stock_contract_size=stock_contract_size,
                 default_contract_size=default_contract_size,
             ):
+                step_blocks["caps"] += 1
                 continue
             rejected_by_corr, corr_reason = violates_correlation_limits(
                 strategy,
@@ -3185,6 +3191,7 @@ def build_portfolio_greedy(
             )
             if rejected_by_corr:
                 correlation_rejections += 1
+                step_blocks["pair_corr"] += 1
                 decision_log.append(
                     OptimizationDecision(
                         step=step + 1,
@@ -3216,6 +3223,7 @@ def build_portfolio_greedy(
             )
             if _evaluation_violates_dd_limits(temp):
                 blocked_by_risk = True
+                step_blocks["dd"] += 1
                 if allow_fixed_reductions_for_repair:
                     current_violation = _evaluation_violation_ratio(current)
                     temp_violation = _evaluation_violation_ratio(temp)
@@ -3242,6 +3250,7 @@ def build_portfolio_greedy(
                 if worst_portfolio_corr > max_portfolio_corr:
                     blocked_by_risk = True
                     correlation_rejections += 1
+                    step_blocks["portfolio_corr"] += 1
                     decision_log.append(
                         OptimizationDecision(
                             step=step + 1,
@@ -3338,7 +3347,21 @@ def build_portfolio_greedy(
                     continue
 
         if best_candidate is None:
-            stop_reason = "No valid +0.01 increment found without breaking DD constraints"
+            blocks = [
+                f"{label} ({step_blocks[key]})"
+                for key, label in (
+                    ("dd", "DD limits"),
+                    ("pair_corr", "correlation limits"),
+                    ("portfolio_corr", "portfolio correlation"),
+                    ("caps", "unit/group/margin caps"),
+                )
+                if step_blocks[key]
+            ]
+            stop_reason = (
+                "No valid +0.01 increment: " + "; ".join(blocks)
+                if blocks
+                else "No valid +0.01 increment left in the candidate pool"
+            )
             break
 
         selected_set = best_candidate["set"]

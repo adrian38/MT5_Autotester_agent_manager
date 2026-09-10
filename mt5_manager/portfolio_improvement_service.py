@@ -312,6 +312,16 @@ def _generate_full_history_improvement_attempt(
             # MÁS incorporaciones que no excluirlas—. Las originales no ceden
             # unidades: eso está reservado a la reparación.
             "prefer_breadth_below_minimum": True,
+            # Sin esto la mejora hereda el tope de sets por grupo del perfil
+            # (`DEFAULT_GROUP_LIMITS`: Moderado 3), pensado para construir de
+            # cero, no para ampliar una cartera que ya lo agota: el #30 tenía
+            # Forex 3, Indices 3 y Metals 2, así que sólo cabía UNA
+            # incorporación —en Metals— por mucho pool, correlación o DD que
+            # hubiera. Medido: 294 de 294 rechazos se desbloquean relajando
+            # sólo este tope. El generador ya hace lo mismo para las variantes
+            # A/M/C (`max_sets_per_group = locked_count`), y la concentración
+            # sigue acotada por `max_units_per_group_pct`, que no se toca.
+            "max_sets_per_group": maximum_target,
             "top_k_per_symbol": max(int(inputs["top_k_per_symbol"]), maximum_target),
             "max_sets_per_symbol": (
                 maximum_target
