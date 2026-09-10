@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -364,6 +365,26 @@ class SelectedModeTests(unittest.TestCase):
             self.assertIn(f"Mejora del portafolio #{original_id} | modo Conservador", new["name"])
             self.assertEqual(new["improvement_origin"], {"source_id": original_id, "mode": "conservative"})
             self.assertEqual(new["portfolio_type"], "conservative")
+            # Dos mejoras del mismo portafolio y modo son indistinguibles en la
+            # lista si no se publica con qué criterio se eligió cada una.
+            with source.connect(write=True) as conn:
+                metrics = json.loads(conn.execute(
+                    "select metrics_json from portfolios where id=?", (saved["portfolio_id"],)
+                ).fetchone()[0])
+                metrics["inputs"]["improvement_selection_priority"] = "stress"
+                metrics.setdefault("seasonal_validation", {}).setdefault(
+                    "portfolio_improvement", {}
+                )["added_count"] = 3
+                conn.execute(
+                    "update portfolios set metrics_json=? where id=?",
+                    (json.dumps(metrics), saved["portfolio_id"]),
+                )
+                conn.commit()
+            enriched = source.saved_portfolio_detail(saved["portfolio_id"], "full_history")["portfolio"]
+            self.assertEqual(enriched["improvement_origin"], {
+                "source_id": original_id, "mode": "conservative",
+                "priority": "stress", "priority_label": "Menor estrés", "added_count": 3,
+            })
             self.assertFalse(new["metrics"].get("portfolio_bundle", False))
             self.assertEqual(new["metrics"]["inputs"]["improvement_source_portfolio_id"], original_id)
             with source.connect() as conn:

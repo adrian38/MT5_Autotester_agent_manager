@@ -75,6 +75,16 @@ PORTFOLIO_TYPES = {
     "conservative": PortfolioType.CONSERVATIVE,
 }
 TYPE_LABELS = {"aggressive": "Agresivo", "balanced": "Moderado", "conservative": "Conservador"}
+# Etiquetas de la prioridad de seleccion de la mejora. Viven aqui, y no en
+# `portfolio_improvement_service`, porque las necesita tambien el listado de
+# portafolios guardados; ese modulo importa de este, no al reves. Un solo sitio
+# para el nombre visible: el desplegable, la auditoria y la lista no pueden
+# llamar distinto a lo mismo.
+IMPROVEMENT_PRIORITY_LABELS = {
+    "balanced": "Equilibrada",
+    "efficiency": "Máxima eficiencia",
+    "stress": "Menor estrés",
+}
 LOCKED_VARIANTS = (
     ("aggressive", "Agresivo", PortfolioType.AGGRESSIVE),
     ("balanced", "Moderado", PortfolioType.BALANCED),
@@ -1311,7 +1321,23 @@ class PortfolioSource:
                     source_id = int(inputs.get("improvement_source_portfolio_id") or audit.get("source_portfolio_id") or 0)
                     mode = inputs.get("improvement_portfolio_type") or audit.get("target_portfolio_type") or inputs.get("portfolio_type")
                     if source_id > 0 and mode in TYPE_LABELS:
-                        portfolio["improvement_origin"] = {"source_id": source_id, "mode": mode}
+                        origin = {"source_id": source_id, "mode": mode}
+                        # Con qué criterio se eligió esta mejora. Sin él, dos
+                        # mejoras del mismo portafolio y modo son idénticas en
+                        # la lista aunque una venga de maximizar beneficio/DD y
+                        # la otra de minimizar estrés.
+                        priority = str(
+                            inputs.get("improvement_selection_priority")
+                            or audit.get("selection_priority")
+                            or ""
+                        )
+                        if priority in IMPROVEMENT_PRIORITY_LABELS:
+                            origin["priority"] = priority
+                            origin["priority_label"] = IMPROVEMENT_PRIORITY_LABELS[priority]
+                        added = audit.get("added_count")
+                        if added is not None:
+                            origin["added_count"] = int(added)
+                        portfolio["improvement_origin"] = origin
                         portfolio["name"] = f"Mejora del portafolio #{source_id} | modo {TYPE_LABELS[mode]}"
                 except (ValueError, TypeError, AttributeError):
                     pass

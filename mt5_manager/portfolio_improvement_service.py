@@ -31,6 +31,7 @@ from .portfolio_improvement_common import (
 )
 from .portfolio_service import (
     ASSET_GROUPS,
+    IMPROVEMENT_PRIORITY_LABELS,
     PORTFOLIO_TYPES,
     TYPE_LABELS,
     PortfolioSource,
@@ -48,7 +49,9 @@ from .portfolio_service import (
 
 Progress = Callable[[str], None]
 MAX_IMPROVEMENT_ADDITIONS = 5
-IMPROVEMENT_SELECTION_PRIORITIES = {"balanced", "efficiency", "stress"}
+#: Las claves validas y su etiqueta visible, en un solo sitio: el formulario,
+#: la auditoria guardada y el listado tienen que llamar igual a lo mismo.
+IMPROVEMENT_SELECTION_PRIORITIES = IMPROVEMENT_PRIORITY_LABELS
 
 
 def minimum_additions(inputs: dict[str, Any]) -> int:
