@@ -74,6 +74,29 @@ def improvement_options(inputs: dict[str, Any]):
     return options
 
 
+def improvement_allowed_groups(inputs: dict[str, Any]) -> list[str]:
+    """Grupos de activos de los que puede salir una incorporación.
+
+    Viaja como ``improvement_allowed_asset_groups`` porque el atajo de la
+    mejora conserva del formulario **sólo** las claves ``improvement_*``: todo
+    lo demás lo impone el portafolio guardado. Sin esta clave propia, la
+    selección quedaba congelada a los grupos con los que se generó la base y no
+    había forma de abrir uno nuevo desde el diálogo.
+
+    Sólo afecta a las candidatas. Las originales se reincorporan aparte, así
+    que quitar un grupo nunca expulsa a un miembro que ya está dentro.
+    """
+    raw = inputs.get("improvement_allowed_asset_groups")
+    if raw is None:
+        return sorted(set(inputs.get("allowed_asset_groups") or ASSET_GROUPS))
+    if isinstance(raw, str) or not isinstance(raw, (list, tuple, set)):
+        raise ValueError("Los grupos permitidos de la mejora deben ser una lista")
+    groups = sorted({str(value) for value in raw if str(value) in ASSET_GROUPS})
+    if not groups:
+        raise ValueError("Selecciona al menos un grupo de activos para la mejora")
+    return groups
+
+
 def improvement_selection_priority(inputs: dict[str, Any]) -> str:
     value = str(inputs.get("improvement_selection_priority") or "balanced").strip().lower()
     if value not in IMPROVEMENT_SELECTION_PRIORITIES:
@@ -225,7 +248,7 @@ def _load_full_history_improvement_pool(
     if inputs.get("grid_off"):
         rows, found = filter_rows_grid_off(rows)
         warnings.extend(found)
-    allowed = set(inputs.get("allowed_asset_groups") or ASSET_GROUPS)
+    allowed = set(improvement_allowed_groups(inputs))
     rows = [
         row
         for row in rows
@@ -513,7 +536,11 @@ def generate_full_history_improvement(
     }
     requested = minimum_additions(inputs)
     priority = improvement_selection_priority(inputs)
+    # Se valida y se fija aqui, antes del bucle: una lista mal formada tiene
+    # que fallar con su mensaje, no repetido cinco veces por intento.
+    allowed_groups = improvement_allowed_groups(inputs)
     inputs["improvement_min_additions"] = requested
+    inputs["improvement_allowed_asset_groups"] = allowed_groups
     failures: list[str] = []
     best = None
     best_rank: tuple[float, ...] | None = None
@@ -540,11 +567,13 @@ def generate_full_history_improvement(
         improvement["minimum_additions"] = requested
         improvement["maximum_additions"] = MAX_IMPROVEMENT_ADDITIONS
         improvement["selection_priority"] = priority
+        improvement["allowed_asset_groups"] = list(allowed_groups)
         for proposal in proposals:
             proposal.setdefault("inputs", {}).update({
                 "improvement_min_additions": requested,
                 "improvement_max_additions": MAX_IMPROVEMENT_ADDITIONS,
                 "improvement_selection_priority": priority,
+                "improvement_allowed_asset_groups": list(allowed_groups),
             })
             baseline = proposal.pop("_improvement_baseline", None)
             if baseline is not None:

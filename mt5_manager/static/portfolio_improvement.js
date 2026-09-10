@@ -23,10 +23,20 @@
         <label title="No usa como candidatas estrategias presentes en ningún otro Portafolio UBS completo o mensual."><input name="improvement_exclude_used_sets" type="checkbox" checked> Excluir estrategias ya usadas en otros portafolios</label>
         <label title="Sólo se aceptan si respetan correlación Pearson, correlación en pérdidas y solapamiento de drawdown."><input name="improvement_allow_same_symbol" type="checkbox" checked> Permitir el mismo símbolo cuando la baja relación lo justifique</label>
       </div></fieldset>
+      <fieldset><legend>Grupos permitidos para las incorporaciones</legend>
+        <div class="portfolio-checks" id="improvement-groups"></div>
+        <p class="portfolio-note">Sólo limita de dónde pueden salir las estrategias nuevas. Las originales quedan bloqueadas y no se ven afectadas, aunque su grupo esté desmarcado.</p>
+      </fieldset>
       <p class="portfolio-note">Se añadirán al menos las estrategias indicadas, con un límite de cinco incorporaciones por búsqueda. Si no se alcanza el mínimo con candidatas válidas, no habrá propuesta. Cada candidata debe seguir aceptada en las cuatro etapas, aportar beneficio positivo en Final Tick 6M y respetar los límites de dependencia. La cartera debe respetar el DD y mejorar beneficio/DD; esto puede reducir el beneficio total si el DD baja en mayor proporción. «Equilibrada» prefiere no aumentar la probabilidad bootstrap frente a la base y, si todas la aumentan, elige el menor aumento; es una preferencia de selección, no una restricción adicional. Revisarás la propuesta antes de guardarla como otro portafolio.</p>
       <div class="builder-actions"><button type="button" class="secondary" data-close>Cancelar</button><button type="submit">Buscar mejora</button></div>
     </form>`;
   document.body.appendChild(dialog);
+
+  // La lista de grupos es la del formulario central: una sola definición.
+  const groupNames = typeof groups === 'undefined' ? [] : groups;
+  dialog.querySelector('#improvement-groups').innerHTML = groupNames
+    .map(group => `<label><input name="improvement_group_${group}" type="checkbox" value="${group}"> ${group}</label>`)
+    .join('');
 
   dialog.querySelectorAll('[data-close]').forEach(element => {
     element.addEventListener('click', () => dialog.close());
@@ -40,6 +50,20 @@
     const bundle = currentDetail.portfolio_type === 'bundle' || currentDetail.metrics?.portfolio_bundle;
     for (const option of selector.options) option.disabled = !bundle && option.value !== currentDetail.portfolio_type;
     selector.value = bundle ? (['aggressive', 'balanced', 'conservative'].includes(target) ? target : 'balanced') : currentDetail.portfolio_type;
+    // Se parte de los grupos con que se generó la base —el statu quo— y si no
+    // los guardó, de los del formulario central. Desde ahí se puede abrir uno
+    // nuevo sin tocar la configuración de generación.
+    const savedGroups = Array.isArray(saved.improvement_allowed_asset_groups)
+      ? saved.improvement_allowed_asset_groups
+      : (Array.isArray(saved.allowed_asset_groups) ? saved.allowed_asset_groups : null);
+    const active = new Set(savedGroups || groupNames.filter(group => {
+      const field = typeof form === 'undefined' ? null : form.elements[`group_${group}`];
+      return field ? field.checked : true;
+    }));
+    groupNames.forEach(group => {
+      const field = dialog.querySelector(`[name="improvement_group_${group}"]`);
+      if (field) field.checked = active.has(group);
+    });
     const originals = new Set((currentDetail.members || []).filter(member => !bundle || member.variant_key === selector.value).map(member => String(member.set_path || member.set_id || '').replaceAll('\\', '/').toLowerCase()).filter(Boolean));
     dialog.querySelector('#improvement-original-count').textContent = `${originals.size} estrategia(s) originales quedarán bloqueadas.`;
     selector.onchange = () => {
@@ -54,6 +78,11 @@
     if (!selectedId) return;
     const submit = event.currentTarget.querySelector('button[type="submit"]');
     const fields = event.currentTarget.elements;
+    const chosenGroups = groupNames.filter(group => fields[`improvement_group_${group}`]?.checked);
+    if (!chosenGroups.length) {
+      toast('Selecciona al menos un grupo de activos para las incorporaciones.', true);
+      return;
+    }
     submit.disabled = true;
     try {
       await postManager('improve', {
@@ -65,6 +94,7 @@
         improvement_selection_priority: fields.improvement_selection_priority.value,
         improvement_exclude_used_sets: fields.improvement_exclude_used_sets.checked,
         improvement_allow_same_symbol: fields.improvement_allow_same_symbol.checked,
+        improvement_allowed_asset_groups: chosenGroups,
       });
       selectedProposal = fields.improvement_portfolio_type.value;
       dialog.close();
