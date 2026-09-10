@@ -223,6 +223,20 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="reset-settings"', page)
         self.assertIn("#reset-settings", script)
 
+    def test_the_improvement_dialog_chooses_its_own_asset_groups(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "portfolio_improvement.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="improvement-groups"', script)
+        self.assertIn("improvement_group_", script)
+        # Viaja con prefijo `improvement_`: es lo único que sobrevive al merge
+        # que impone los ajustes del portafolio guardado.
+        self.assertIn("improvement_allowed_asset_groups: chosenGroups", script)
+        # La lista de grupos es la del formulario central, no una copia.
+        self.assertIn("typeof groups === 'undefined'", script)
+        for group in ("Forex", "Metals", "Crypto"):
+            self.assertNotIn(f"'{group}'", script, group)
+
     def test_the_saved_list_names_the_priority_each_improvement_was_chosen_with(self) -> None:
         # Dos mejoras del mismo portafolio y modo se ven idénticas en la lista
         # si no se dice con qué criterio se eligió cada una.

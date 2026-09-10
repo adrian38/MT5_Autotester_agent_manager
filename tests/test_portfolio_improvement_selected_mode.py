@@ -127,6 +127,62 @@ class BreadthBelowMinimumTests(unittest.TestCase):
         )
 
 
+class ImprovementAllowedGroupsTests(unittest.TestCase):
+    """Los grupos de la mejora son suyos, no los heredados del portafolio."""
+
+    def test_the_dialog_choice_wins_over_the_saved_groups(self) -> None:
+        saved = {"allowed_asset_groups": ["Forex"]}
+        self.assertEqual(full.improvement_allowed_groups(saved), ["Forex"])
+        # La clave `improvement_*` es la unica que sobrevive al merge de
+        # `_generate_full_history_improvement_attempt`.
+        widened = {**saved, "improvement_allowed_asset_groups": ["Crypto", "Forex"]}
+        self.assertEqual(full.improvement_allowed_groups(widened), ["Crypto", "Forex"])
+
+    def test_an_empty_or_bogus_selection_is_rejected_with_its_reason(self) -> None:
+        with self.assertRaisesRegex(ValueError, "al menos un grupo"):
+            full.improvement_allowed_groups({"improvement_allowed_asset_groups": []})
+        with self.assertRaisesRegex(ValueError, "al menos un grupo"):
+            full.improvement_allowed_groups({"improvement_allowed_asset_groups": ["Ninguno"]})
+        with self.assertRaisesRegex(ValueError, "una lista"):
+            full.improvement_allowed_groups({"improvement_allowed_asset_groups": "Forex"})
+
+    def test_the_group_filter_only_touches_candidates_never_the_originals(self) -> None:
+        # Un original de un grupo desmarcado sigue dentro: se reincorpora
+        # despues del filtro, que solo decide de donde salen las nuevas.
+        original = NS(set_id="btc.set", symbol="BTCUSD", target_symbol="BTCUSD")
+        rows = [
+            {"set_path": "btc.set", "symbol": "BTCUSD"},
+            {"set_path": "eur.set", "symbol": "EURUSD"},
+        ]
+        detail = {"portfolio_type": "balanced", "members": [
+            {"variant_key": "balanced", "set_path": "btc.set", "units": 1},
+        ]}
+        source = NS(project=Path.cwd(), universe=Path("universe.ini"),
+                    candidate_rows=Mock(return_value=rows),
+                    used_set_paths=Mock(return_value=[]),
+                    saved_curves=Mock(return_value=[]))
+        inputs = {
+            "portfolio_type": "balanced",
+            "improvement_allowed_asset_groups": ["Forex"],
+            "improvement_additions": 1,
+        }
+        with patch.object(full, "load_robust_sets_from_rows") as loader, \
+                patch.object(full, "recent_positive_candidates", side_effect=lambda sets, ids: sets), \
+                patch.object(full, "member_rows", return_value=[{"set_path": "btc.set"}]):
+            loader.side_effect = [
+                ([original], []),
+                ([NS(set_id="eur.set", symbol="EURUSD")], []),
+            ]
+            originals, pool, kept_rows, _used, _warnings = full._load_full_history_improvement_pool(
+                source, detail, 1, inputs, None,
+            )
+
+        self.assertEqual([item.set_id for item in originals], ["btc.set"])
+        # El pool ofrece la candidata Forex y conserva el original Crypto.
+        self.assertEqual(sorted(item.set_id for item in pool), ["btc.set", "eur.set"])
+        self.assertEqual([row["set_path"] for row in kept_rows], ["eur.set"])
+
+
 class RequiredSetsSurviveTheFunnelTests(unittest.TestCase):
     """Lo obligatorio no se filtra: ya pertenece al portafolio que se mejora."""
 
