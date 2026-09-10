@@ -88,6 +88,20 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("if (!form.checkValidity()) return", script)
         self.assertIn("if (!form.reportValidity()) return", script)
 
+    def test_changing_a_filter_repaints_the_available_sets_table(self) -> None:
+        # El inventario lo filtran los grupos permitidos y la exclusión de sets
+        # usados, y el guardado automático no recarga el estado (rehidrataría el
+        # formulario que se está tocando): repinta con lo que devuelve el guardado.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+
+        for name in ("portfolios.js", "portfolios_grid.js"):
+            with self.subTest(script=name):
+                script = (static_dir / name).read_text(encoding="utf-8")
+                self.assertIn(
+                    "if (data.inventory) { managerState.inventory = data.inventory; renderInventory(); }",
+                    script,
+                )
+
     def test_completed_calculation_reloads_and_reveals_proposals(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")

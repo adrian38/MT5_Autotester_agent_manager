@@ -512,7 +512,10 @@ async function downloadPortfolioExport(portfolioId) {
 }
 
 async function saveSettings(notify = true) {
-  await postManager('settings', formPayload());
+  const data = await postManager('settings', formPayload());
+  // Los filtros del formulario deciden qué cuenta el inventario: el guardado lo
+  // devuelve recalculado para que la tabla siga a las casillas al marcarlas.
+  if (data.inventory) { managerState.inventory = data.inventory; renderInventory(); }
   if (notify) toast('Configuración Grid guardada.');
 }
 

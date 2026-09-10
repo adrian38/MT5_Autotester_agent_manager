@@ -5213,10 +5213,23 @@ def optimize_portfolio(
     required_ids = {str(set_id) for set_id in (required_set_ids or ())}
     required_ids.update(str(set_id) for set_id in (required_initial_allocations or {}))
     eligible_by_id = {strategy.set_id: strategy for strategy in eligible}
+    # Una estrategia obligatoria no es una candidata: ya pertenece al
+    # portafolio que se esta ampliando, y el llamante la bloquea. El embudo
+    # decide a quien se INVITA, no a quien se expulsa de lo ya guardado, asi
+    # que las obligatorias vuelven aunque hoy no lo pasen -por cuarentena, por
+    # aporte reciente o por lo que sea-. Sin esto, cualquier miembro que se
+    # degradase convertia su portafolio en inmejorable.
+    reinstated = [
+        strategy for strategy in raw_sets
+        if strategy.set_id in required_ids and strategy.set_id not in eligible_by_id
+    ]
+    if reinstated:
+        eligible = list(eligible) + reinstated
+        eligible_by_id.update({strategy.set_id: strategy for strategy in reinstated})
     missing_required = sorted(required_ids - set(eligible_by_id))
     if missing_required:
         raise ValueError(
-            "Required portfolio sets are no longer eligible: "
+            "Required portfolio sets are no longer in the candidate pool: "
             + ", ".join(Path(set_id).name for set_id in missing_required)
         )
     selected_ids = {strategy.set_id for strategy in selected}

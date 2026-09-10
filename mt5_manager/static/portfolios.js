@@ -347,6 +347,10 @@ function persistSettings(notify = false) {
   const payload = formPayload();
   settingsSaveQueue = settingsSaveQueue.catch(() => {}).then(() => postManager('settings', payload));
   return settingsSaveQueue.then(data => {
+    // Los grupos permitidos y la exclusión de sets usados filtran el inventario:
+    // el guardado devuelve la tabla ya recalculada para que marcar una casilla la
+    // actualice sin recargar el estado entero, que rehidrataría el formulario.
+    if (data.inventory) { managerState.inventory = data.inventory; renderInventory(); }
     if (notify) toast('Configuración guardada.');
     return data;
   });

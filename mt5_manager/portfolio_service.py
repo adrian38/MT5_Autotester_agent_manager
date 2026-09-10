@@ -3673,6 +3673,37 @@ class PortfolioCoordinator:
             save_json(self.settings_path, self.settings)
         return normalized
 
+    def inventory(self, node_id: str, scope: str, settings: dict[str, Any]) -> dict[str, Any]:
+        """Sets disponibles por símbolo con los filtros de `settings` aplicados."""
+        source = self._calculation_source(node_id, scope)
+        if normalize_portfolio_scope(scope) == "grid":
+            from .portfolio_grid_service import grid_inventory
+
+            return grid_inventory(source, settings)
+        return source.inventory(scope, settings)
+
+    def apply_settings(self, node_id: str, scope: str, changes: dict[str, Any]) -> dict[str, Any]:
+        """Guarda el formulario y devuelve el inventario que esos ajustes filtran.
+
+        Los grupos permitidos, `grid_off` y la exclusión de sets ya usados deciden
+        qué filas cuenta el inventario, así que la tabla «Sets disponibles por
+        símbolo» quedaba obsoleta en cuanto se marcaba una casilla y solo se
+        repintaba al pulsar Guardar o Refrescar. Viaja con el guardado para que la
+        pantalla no tenga que pedir el estado entero, que rehidrataría el
+        formulario que el usuario sigue tocando.
+
+        La lectura va a la memoria del agente y puede fallar (proyecto no montado,
+        memoria inexistente). Los ajustes ya están guardados en ese punto: la
+        respuesta sale sin inventario y la pantalla conserva el que tenía, en vez
+        de convertir un guardado correcto en un error de guardado.
+        """
+        settings = self.update_settings(node_id, scope, changes)
+        try:
+            inventory = self.inventory(node_id, scope, settings)
+        except (ValueError, OSError, sqlite3.Error):
+            return {"settings": settings}
+        return {"settings": settings, "inventory": inventory}
+
     def start(self, node_id: str, scope: str, changes: dict[str, Any]) -> dict[str, Any]:
         settings = self.update_settings(node_id, scope, changes)
         return self._start_job(node_id, scope, settings, "generate", None, [])
@@ -3963,13 +3994,7 @@ class PortfolioCoordinator:
                 ),
                 "result": result_data, "diff": diff,
             })
-        source = self._calculation_source(node_id, scope)
-        if scope == "grid":
-            from .portfolio_grid_service import grid_inventory
-
-            inventory = grid_inventory(source, settings)
-        else:
-            inventory = source.inventory(scope, settings)
+        inventory = self.inventory(node_id, scope, settings)
         return {
             "settings": settings,
             "job": job,

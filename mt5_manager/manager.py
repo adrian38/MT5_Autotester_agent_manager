@@ -756,7 +756,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 scope = normalize_portfolio_scope(body.pop("scope", "full_history"))
                 action = parts[4]
                 if action == "settings":
-                    self._send_json(200, {"settings": self.server.portfolios.update_settings(node_id, scope, body)})
+                    self._send_json(200, self.server.portfolios.apply_settings(node_id, scope, body))
                 elif action == "generate":
                     self._send_json(202, {"job": self.server.portfolios.start(node_id, scope, body)})
                 elif action == "stop":

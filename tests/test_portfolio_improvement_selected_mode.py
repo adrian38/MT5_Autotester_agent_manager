@@ -126,6 +126,54 @@ class BreadthBelowMinimumTests(unittest.TestCase):
         )
 
 
+class RequiredSetsSurviveTheFunnelTests(unittest.TestCase):
+    """Lo obligatorio no se filtra: ya pertenece al portafolio que se mejora."""
+
+    def sets(self):
+        from dataclasses import replace as dc_replace
+
+        original = curve_set("original.set", "XAUUSD", dip=20.0, net=200.0)
+        # Degradada: el embudo la descarta por recuperación reciente < 1.
+        degraded = dc_replace(
+            curve_set("degraded.set", "EURUSD", dip=20.0, net=200.0),
+            recent_net_profit_001=1.0,
+            recent_equity_dd_001=500.0,
+            has_recent_performance=True,
+        )
+        return [original, degraded, curve_set("fresh.set", "USDJPY", dip=20.0, net=90.0)]
+
+    def test_a_degraded_member_does_not_make_its_portfolio_unimprovable(self) -> None:
+        from portfolio_manager.ubs_portfolio import (
+            PortfolioType, filter_eligible_sets, optimize_portfolio,
+        )
+
+        pool = self.sets()
+        # Premisa: el embudo sí la expulsa cuando es una candidata cualquiera.
+        self.assertNotIn(
+            "degraded.set", {item.set_id for item in filter_eligible_sets(pool, 1)},
+        )
+
+        result = optimize_portfolio(
+            raw_sets=pool,
+            capital=5000.0,
+            valley_dd_pct=2.0,
+            point_dd_pct=100.0,
+            portfolio_type=PortfolioType.BALANCED,
+            top_k_per_symbol=5,
+            max_total_candidates=10,
+            min_trades_2020_2026=1,
+            required_set_ids=["original.set", "degraded.set"],
+            enforce_point_dd=False,
+            use_deep_refinement=False,
+            run_local_search=False,
+            search_restarts=0,
+        )
+
+        active = {item.set_id for item in result.allocations if item.units > 0}
+        self.assertIn("degraded.set", active)
+        self.assertIn("original.set", active)
+
+
 class SelectedModeTests(unittest.TestCase):
     def test_only_selected_mode_is_loaded_optimized_and_compared(self):
         for mode in full.PORTFOLIO_TYPES:
