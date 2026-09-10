@@ -1198,6 +1198,53 @@ enabled=0
         self.assertEqual(state["inventory"]["scope"], "grid")
         self.assertNotIn(state_key, coordinator.proposals)
 
+    def test_settings_save_answers_with_the_inventory_its_filters_produce(self) -> None:
+        # La tabla «Sets disponibles por símbolo» tiene que seguir a las casillas
+        # de grupos permitidos sin recargar la pantalla, así que el guardado del
+        # formulario responde con el inventario ya filtrado.
+        memory = self.root / "outputs" / "ubs_memory_TEST_DEMO.sqlite"
+        memory.parent.mkdir(parents=True, exist_ok=True)
+        with closing(sqlite3.connect(memory)) as conn:
+            conn.executescript("""
+                create table candidates(id integer primary key,set_path text,symbol text,target_symbol text,period text,family text,report_path text,status text);
+                create table candidate_robustness(candidate_id integer,report_path text,status text);
+                create table candidate_final_tick(candidate_id integer,real_tick_report_path text,from_date text,to_date text,status text);
+                create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text);
+                insert into candidates values(1,'sets/a.set','EURUSD','EURUSD','H1','f','reports/a.html','accepted');
+                insert into candidates values(2,'sets/b.set','XAUUSD','XAUUSD','H1','f','reports/b.html','accepted');
+                insert into candidate_robustness values(1,'reports/a_oos.html','accepted');
+                insert into candidate_robustness values(2,'reports/b_oos.html','accepted');
+                insert into candidate_final_tick values(1,'reports/a_full.html','2020.01.01','2026.06.30','accepted');
+                insert into candidate_final_tick values(2,'reports/b_full.html','2020.01.01','2026.06.30','accepted');
+                insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted');
+                insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted');
+            """)
+            conn.commit()
+        self.manager.nodes[0].update({
+            "portfolio_project_dir": str(self.root),
+            "portfolio_broker": "TEST",
+            "portfolio_account_type": "DEMO",
+        })
+        self.manager.portfolios.settings_path = self.root / "portfolio_settings.json"
+
+        status, both = self.request(
+            "/api/nodes/test-node/portfolio-manager/settings",
+            {"scope": "full_history", "allowed_asset_groups": ["Forex", "Metals"]},
+        )
+        forex_status, forex_only = self.request(
+            "/api/nodes/test-node/portfolio-manager/settings",
+            {"scope": "full_history", "allowed_asset_groups": ["Forex"]},
+        )
+
+        self.assertEqual((status, forex_status), (200, 200))
+        self.assertEqual(
+            [row["symbol"] for row in both["inventory"]["by_symbol"]], ["EURUSD", "XAUUSD"]
+        )
+        self.assertEqual(
+            [row["symbol"] for row in forex_only["inventory"]["by_symbol"]], ["EURUSD"]
+        )
+        self.assertEqual(forex_only["settings"]["allowed_asset_groups"], ["Forex"])
+
     def test_controller_runs_selected_pipeline_in_order(self) -> None:
         memory = self.root / "pipeline.sqlite"
         with closing(sqlite3.connect(memory)) as conn:

@@ -3069,6 +3069,7 @@ def build_portfolio_greedy(
     initial_allocations: dict[str, int] | None = None,
     minimum_active_strategies: int | None = None,
     maximum_active_strategies: int | None = None,
+    prefer_breadth_below_minimum: bool = False,
     fixed_set_ids: Sequence[str] | None = None,
     allow_fixed_reductions_for_repair: bool = False,
     margin_balance: float | None = None,
@@ -3127,6 +3128,21 @@ def build_portfolio_greedy(
         best_candidate: dict[str, object] | None = None
         best_repair_candidate: dict[str, object] | None = None
         blocked_by_risk = False
+        # Por que se quedo sin incrementos en ESTE paso. El motivo lo decide el
+        # recuento, no una cadena fija: el `stop_reason` culpaba siempre al DD y
+        # mando dos veces la investigacion al sitio equivocado cuando quien
+        # bloqueaba era la correlacion con el DD al 30% del presupuesto.
+        step_blocks = {"dd": 0, "pair_corr": 0, "portfolio_corr": 0, "caps": 0}
+        # Mientras faltan huecos por abrir, el objetivo es cuantas caben, no
+        # cuanto rinde la siguiente. Eligiendo por rentabilidad se gasta la
+        # holgura en la mejor candidata y las demas ya no entran, asi que el
+        # resultado depende de lo gordo que sea el pool: darle mas candidatas
+        # producia MENOS incorporaciones.
+        opening_slots = bool(
+            prefer_breadth_below_minimum
+            and minimum_active_strategies is not None
+            and current.active_strategies < minimum_active_strategies
+        )
         for strategy in sets:
             if strategy.set_id in fixed_ids:
                 continue
@@ -3163,6 +3179,7 @@ def build_portfolio_greedy(
                 stock_contract_size=stock_contract_size,
                 default_contract_size=default_contract_size,
             ):
+                step_blocks["caps"] += 1
                 continue
             rejected_by_corr, corr_reason = violates_correlation_limits(
                 strategy,
@@ -3174,6 +3191,7 @@ def build_portfolio_greedy(
             )
             if rejected_by_corr:
                 correlation_rejections += 1
+                step_blocks["pair_corr"] += 1
                 decision_log.append(
                     OptimizationDecision(
                         step=step + 1,
@@ -3205,6 +3223,7 @@ def build_portfolio_greedy(
             )
             if _evaluation_violates_dd_limits(temp):
                 blocked_by_risk = True
+                step_blocks["dd"] += 1
                 if allow_fixed_reductions_for_repair:
                     current_violation = _evaluation_violation_ratio(current)
                     temp_violation = _evaluation_violation_ratio(temp)
@@ -3231,6 +3250,7 @@ def build_portfolio_greedy(
                 if worst_portfolio_corr > max_portfolio_corr:
                     blocked_by_risk = True
                     correlation_rejections += 1
+                    step_blocks["portfolio_corr"] += 1
                     decision_log.append(
                         OptimizationDecision(
                             step=step + 1,
@@ -3252,13 +3272,25 @@ def build_portfolio_greedy(
             score = score_increment(current, temp, allocations[strategy.set_id], portfolio_type)
             if score == float("-inf"):
                 continue
-            if best_candidate is None or score > float(best_candidate["score"]):
+            selection_key = (
+                (-(temp.valley_dd - current.valley_dd), score)
+                if opening_slots else (score,)
+            )
+            previous_key = (
+                best_candidate.get("selection_key", (float(best_candidate["score"]),))
+                if best_candidate is not None else None
+            )
+            if previous_key is None or selection_key > previous_key:
                 best_candidate = {
                     "set": strategy,
                     "allocations": temp_allocations,
                     "evaluation": temp,
                     "score": score,
-                    "reason": "Best valid +0.01 increment",
+                    "selection_key": selection_key,
+                    "reason": (
+                        "Cheapest valid +0.01 increment while opening required slots"
+                        if opening_slots else "Best valid +0.01 increment"
+                    ),
                 }
 
         if best_candidate is None and best_repair_candidate is not None:
@@ -3315,7 +3347,21 @@ def build_portfolio_greedy(
                     continue
 
         if best_candidate is None:
-            stop_reason = "No valid +0.01 increment found without breaking DD constraints"
+            blocks = [
+                f"{label} ({step_blocks[key]})"
+                for key, label in (
+                    ("dd", "DD limits"),
+                    ("pair_corr", "correlation limits"),
+                    ("portfolio_corr", "portfolio correlation"),
+                    ("caps", "unit/group/margin caps"),
+                )
+                if step_blocks[key]
+            ]
+            stop_reason = (
+                "No valid +0.01 increment: " + "; ".join(blocks)
+                if blocks
+                else "No valid +0.01 increment left in the candidate pool"
+            )
             break
 
         selected_set = best_candidate["set"]
@@ -5121,6 +5167,7 @@ def optimize_portfolio(
     required_set_ids: Sequence[str] | None = None,
     minimum_active_strategies: int | None = None,
     maximum_active_strategies: int | None = None,
+    prefer_breadth_below_minimum: bool = False,
     required_initial_allocations: dict[str, int] | None = None,
     preserve_required_allocations: bool = False,
     dd_reserve_pct: float = 0.0,
@@ -5166,10 +5213,23 @@ def optimize_portfolio(
     required_ids = {str(set_id) for set_id in (required_set_ids or ())}
     required_ids.update(str(set_id) for set_id in (required_initial_allocations or {}))
     eligible_by_id = {strategy.set_id: strategy for strategy in eligible}
+    # Una estrategia obligatoria no es una candidata: ya pertenece al
+    # portafolio que se esta ampliando, y el llamante la bloquea. El embudo
+    # decide a quien se INVITA, no a quien se expulsa de lo ya guardado, asi
+    # que las obligatorias vuelven aunque hoy no lo pasen -por cuarentena, por
+    # aporte reciente o por lo que sea-. Sin esto, cualquier miembro que se
+    # degradase convertia su portafolio en inmejorable.
+    reinstated = [
+        strategy for strategy in raw_sets
+        if strategy.set_id in required_ids and strategy.set_id not in eligible_by_id
+    ]
+    if reinstated:
+        eligible = list(eligible) + reinstated
+        eligible_by_id.update({strategy.set_id: strategy for strategy in reinstated})
     missing_required = sorted(required_ids - set(eligible_by_id))
     if missing_required:
         raise ValueError(
-            "Required portfolio sets are no longer eligible: "
+            "Required portfolio sets are no longer in the candidate pool: "
             + ", ".join(Path(set_id).name for set_id in missing_required)
         )
     selected_ids = {strategy.set_id for strategy in selected}
@@ -5212,6 +5272,7 @@ def optimize_portfolio(
         initial_allocations=initial_allocations,
         minimum_active_strategies=minimum_active_strategies,
         maximum_active_strategies=maximum_active_strategies,
+        prefer_breadth_below_minimum=prefer_breadth_below_minimum,
         fixed_set_ids=fixed_set_ids,
         allow_fixed_reductions_for_repair=preserve_required_allocations,
         margin_balance=margin_balance,

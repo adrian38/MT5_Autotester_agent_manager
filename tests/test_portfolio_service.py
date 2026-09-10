@@ -974,6 +974,76 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(reloaded["capital"], 5000)
             self.assertFalse(reloaded["exclude_used_sets"])
 
+    def test_saving_the_form_returns_the_inventory_that_its_filters_produce(self) -> None:
+        # Marcar o desmarcar un grupo permitido cambia lo que cuenta la tabla
+        # «Sets disponibles por símbolo», y la pantalla no vuelve a pedir el
+        # estado entero al guardar: si la respuesta no trae el inventario, la
+        # tabla se queda con los grupos anteriores hasta pulsar Guardar.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir) / "project"
+            (project / "outputs").mkdir(parents=True)
+            (project / "assets").mkdir()
+            memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+            with contextlib.closing(sqlite3.connect(memory)) as conn:
+                conn.executescript(
+                    """
+                    create table candidates(id integer primary key,set_path text,symbol text,target_symbol text,period text,family text,report_path text,status text);
+                    create table candidate_robustness(candidate_id integer,report_path text,status text);
+                    create table candidate_final_tick(candidate_id integer,real_tick_report_path text,from_date text,to_date text,status text);
+                    create table candidate_final_tick_6m(candidate_id integer,ohlc_report_path text,real_tick_report_path text,from_date text,to_date text,status text);
+                    insert into candidates values(1,'sets/a.set','EURUSD','EURUSD','H1','f','reports/a.html','accepted');
+                    insert into candidates values(2,'sets/b.set','XAUUSD','XAUUSD','H1','f','reports/b.html','accepted');
+                    insert into candidate_robustness values(1,'reports/a_oos.html','accepted');
+                    insert into candidate_robustness values(2,'reports/b_oos.html','accepted');
+                    insert into candidate_final_tick values(1,'reports/a_full.html','2020.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick values(2,'reports/b_full.html','2020.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick_6m values(1,'','','2026.01.01','2026.06.30','accepted');
+                    insert into candidate_final_tick_6m values(2,'','','2026.01.01','2026.06.30','accepted');
+                    """
+                )
+                conn.commit()
+            node = {
+                "id": "ic",
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], Path(temp_dir) / "settings.json")
+
+            both = coordinator.apply_settings(
+                "ic", "full_history", {"allowed_asset_groups": ["Forex", "Metals"]}
+            )
+            forex_only = coordinator.apply_settings(
+                "ic", "full_history", {"allowed_asset_groups": ["Forex"]}
+            )
+
+            self.assertEqual(
+                [row["symbol"] for row in both["inventory"]["by_symbol"]], ["EURUSD", "XAUUSD"]
+            )
+            self.assertEqual(both["inventory"]["available"], 2)
+            self.assertEqual(
+                [row["symbol"] for row in forex_only["inventory"]["by_symbol"]], ["EURUSD"]
+            )
+            self.assertEqual(forex_only["inventory"]["available"], 1)
+            self.assertEqual(forex_only["settings"]["allowed_asset_groups"], ["Forex"])
+
+    def test_saving_the_form_survives_an_inventory_that_cannot_be_read(self) -> None:
+        # El proyecto del agente puede no estar montado. Los ajustes se guardan en
+        # el manager y ya están escritos cuando falla la lectura remota: la
+        # respuesta sale sin inventario en lugar de convertir un guardado correcto
+        # en un error de guardado.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            coordinator = PortfolioCoordinator(
+                [{"id": "ic", "portfolio_broker": "ICTRADING"}],
+                Path(temp_dir) / "settings.json",
+            )
+
+            saved = coordinator.apply_settings("ic", "full_history", {"capital": 5000})
+
+            self.assertEqual(saved["settings"]["capital"], 5000)
+            self.assertNotIn("inventory", saved)
+            self.assertEqual(coordinator.settings_for("ic", "full_history")["capital"], 5000)
+
     def test_monthly_job_exposes_its_log_before_the_worker_starts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

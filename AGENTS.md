@@ -12,6 +12,9 @@
 - En `dev` no modificar AXI, RoboForex ni la copia genérica
   `MT5_Autotester_agent`. Fuera de `dev`, no inferir permiso sobre otra copia:
   debe estar autorizada explícitamente para la tarea.
+- El usuario es quien porta los commits de la rama `IC` hacia AXI y RoboForex
+  y quien reinicia esos agentes. El asistente sólo comunica el commit preparado
+  en `IC`; nunca realiza ese porting ni toca directamente esos checkouts.
 - Preservar cambios ajenos y limitar cada modificación al objetivo solicitado.
 
 ## El nodo NO ejecuta este repositorio

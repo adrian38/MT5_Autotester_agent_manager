@@ -31,7 +31,23 @@ const recentContribution = member => Math.max(Number(member.recent_net_profit_00
 const recentContributionText = (member, total) => `${number(recentContribution(member), 2)} (${number(total > 0 ? recentContribution(member) / total * 100 : 0, 1)}%)`;
 const metric = (value, label, note = '', alert = false) => `<div class="detail-metric ${alert ? 'metric-alert' : ''}"><strong>${esc(value)}</strong><span>${esc(label)}</span>${note ? `<small>${esc(note)}</small>` : ''}</div>`;
 const friendlyReason = value => String(value || '')
-  .replace('No valid +0.01 increment found without breaking DD constraints', 'No existe otro incremento de 0,01 que respete el DD');
+  // El texto viejo sigue traducido: los portafolios ya guardados lo llevan dentro.
+  .replace('No valid +0.01 increment found without breaking DD constraints', 'No existe otro incremento de 0,01 que respete el DD')
+  .replace('No valid +0.01 increment left in the candidate pool', 'No queda ningún incremento de 0,01 en el pool')
+  .replace('No valid +0.01 increment:', 'No existe otro incremento de 0,01. Bloqueado por:')
+  .replace('DD limits', 'límite de DD')
+  .replace('correlation limits', 'correlación entre pares')
+  .replace('portfolio correlation', 'correlación con otros portafolios')
+  .replace('unit/group/margin caps', 'topes de unidades/grupo/margen');
+// Dos mejoras del mismo portafolio y modo sólo se distinguen por el criterio
+// con que se eligieron. El servidor manda la etiqueta ya resuelta; aquí no se
+// reimplementa el diccionario para que no puedan divergir.
+const improvementPriorityText = row => {
+  const origin = row?.improvement_origin || {};
+  if (!origin.priority_label) return '';
+  const added = origin.added_count == null ? '' : ` · +${number(origin.added_count)}`;
+  return ` · prioridad ${esc(origin.priority_label)}${added}`;
+};
 const improvementStressText = comparison => comparison?.status === 'completed'
   ? `Estrés vs base: P95 ${number(comparison.baseline?.valley_dd_p95, 2)} → ${number(comparison.improved?.valley_dd_p95, 2)} (${Number(comparison.valley_dd_p95_delta) >= 0 ? '+' : ''}${number(comparison.valley_dd_p95_delta, 2)}); P>DD efectivo ${Number(comparison.probability_exceed_effective_delta_pp) >= 0 ? '+' : ''}${number(comparison.probability_exceed_effective_delta_pp, 1)} pp`
   : '';
@@ -340,6 +356,10 @@ function persistSettings(notify = false) {
   const payload = formPayload();
   settingsSaveQueue = settingsSaveQueue.catch(() => {}).then(() => postManager('settings', payload));
   return settingsSaveQueue.then(data => {
+    // Los grupos permitidos y la exclusión de sets usados filtran el inventario:
+    // el guardado devuelve la tabla ya recalculada para que marcar una casilla la
+    // actualice sin recargar el estado entero, que rehidrataría el formulario.
+    if (data.inventory) { managerState.inventory = data.inventory; renderInventory(); }
     if (notify) toast('Configuración guardada.');
     return data;
   });
@@ -515,7 +535,7 @@ function renderList() {
   document.querySelector('#portfolio-count').textContent = `${rows.length} portafolios`;
   listEl.innerHTML = rows.length ? rows.map(row => {
     const month = '';
-    return `<button class="portfolio-list-item ${row.id === selectedId ? 'selected' : ''}" onclick="loadDetail(${row.id})"><span><strong>#${row.id}${month}</strong>${PortfolioComparison.label(row) ? `<small class="improvement-label">${esc(PortfolioComparison.label(row))}</small>` : ''}<small>${esc(row.created_at)} · ${esc(row.portfolio_type || 'Sin tipo')}</small></span><span><strong>${number(row.total_net_profit)}</strong><small>${row.active_strategies}/${row.target_strategies || row.active_strategies} estrategias</small></span></button>`;
+    return `<button class="portfolio-list-item ${row.id === selectedId ? 'selected' : ''}" onclick="loadDetail(${row.id})"><span><strong>#${row.id}${month}</strong>${PortfolioComparison.label(row) ? `<small class="improvement-label">${esc(PortfolioComparison.label(row))}</small>` : ''}<small>${esc(row.created_at)} · ${esc(row.portfolio_type || 'Sin tipo')}${improvementPriorityText(row)}</small></span><span><strong>${number(row.total_net_profit)}</strong><small>${row.active_strategies}/${row.target_strategies || row.active_strategies} estrategias</small></span></button>`;
   }).join('') : '<div class="portfolio-empty">No hay portafolios guardados en esta sección.</div>';
 }
 
@@ -535,7 +555,12 @@ function renderAudit(portfolio) {
     metric(largestGroup(metrics.group_summary), 'Mayor grupo'),
     metric(strict.passed != null ? (strict.passed ? 'OK' : 'FAIL') : '—', 'Validación estricta', strict.best_month ? `mejor mes ${String(strict.best_month).padStart(2, '0')}` : ''),
     metric(improvement.verdict || '—', 'Mejora de base', improvement.verdict ? `${number(improvement.original_count)} originales intactas · +${number(improvement.added_count)} · beneficio/DD ${Number(improvement.efficiency_gain_pct) >= 0 ? '+' : ''}${number(improvement.efficiency_gain_pct, 2)}%` : ''),
-    metric(stressComparison.status === 'completed' ? `${Number(stressComparison.probability_exceed_effective_delta_pp) >= 0 ? '+' : ''}${number(stressComparison.probability_exceed_effective_delta_pp, 1)} pp` : '—', 'Δ P exceder DD efectivo', stressComparison.status === 'completed' ? `P95 ${number(stressComparison.baseline?.valley_dd_p95, 2)} → ${number(stressComparison.improved?.valley_dd_p95, 2)} · criterio ${stressComparison.selection_priority || '—'}` : ''),
+    ...(portfolio.improvement_origin?.priority_label ? [metric(
+      portfolio.improvement_origin.priority_label,
+      'Prioridad de selección',
+      `origen #${number(portfolio.improvement_origin.source_id)}${portfolio.improvement_origin.added_count == null ? '' : ` · +${number(portfolio.improvement_origin.added_count)} incorporadas`}`,
+    )] : []),
+    metric(stressComparison.status === 'completed' ? `${Number(stressComparison.probability_exceed_effective_delta_pp) >= 0 ? '+' : ''}${number(stressComparison.probability_exceed_effective_delta_pp, 1)} pp` : '—', 'Δ P exceder DD efectivo', stressComparison.status === 'completed' ? `P95 ${number(stressComparison.baseline?.valley_dd_p95, 2)} → ${number(stressComparison.improved?.valley_dd_p95, 2)}` : ''),
     ...(improvement.target_portfolio_type_label ? [metric(improvement.target_portfolio_type_label, 'Variante elegida para mejorar')] : []),
   ].join('');
   const decisions = portfolio.decisions || [];

@@ -26,6 +26,12 @@ const setName = member => String(member?.set_name || member?.set_path || member?
 const metric = (value, label, note = '', alert = false) => `<div class="detail-metric ${alert ? 'metric-alert' : ''}"><strong>${esc(value)}</strong><span>${esc(label)}</span>${note ? `<small>${esc(note)}</small>` : ''}</div>`;
 const friendlyReason = value => String(value || '')
   .replace('No valid +0.01 increment found without breaking DD constraints', 'No existe otro incremento de 0,01 que respete el DD')
+  .replace('No valid +0.01 increment left in the candidate pool', 'No queda ningún incremento de 0,01 en el pool')
+  .replace('No valid +0.01 increment:', 'No existe otro incremento de 0,01. Bloqueado por:')
+  .replace('DD limits', 'límite de DD')
+  .replace('correlation limits', 'correlación entre pares')
+  .replace('portfolio correlation', 'correlación con otros portafolios')
+  .replace('unit/group/margin caps', 'topes de unidades/grupo/margen')
   .replace('multi-start search improved the local solution', 'la búsqueda multiarranque mejoró la combinación');
 
 async function jsonResponse(response) {
@@ -506,7 +512,10 @@ async function downloadPortfolioExport(portfolioId) {
 }
 
 async function saveSettings(notify = true) {
-  await postManager('settings', formPayload());
+  const data = await postManager('settings', formPayload());
+  // Los filtros del formulario deciden qué cuenta el inventario: el guardado lo
+  // devuelve recalculado para que la tabla siga a las casillas al marcarlas.
+  if (data.inventory) { managerState.inventory = data.inventory; renderInventory(); }
   if (notify) toast('Configuración Grid guardada.');
 }
 

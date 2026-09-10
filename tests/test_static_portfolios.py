@@ -88,6 +88,20 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("if (!form.checkValidity()) return", script)
         self.assertIn("if (!form.reportValidity()) return", script)
 
+    def test_changing_a_filter_repaints_the_available_sets_table(self) -> None:
+        # El inventario lo filtran los grupos permitidos y la exclusión de sets
+        # usados, y el guardado automático no recarga el estado (rehidrataría el
+        # formulario que se está tocando): repinta con lo que devuelve el guardado.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+
+        for name in ("portfolios.js", "portfolios_grid.js"):
+            with self.subTest(script=name):
+                script = (static_dir / name).read_text(encoding="utf-8")
+                self.assertIn(
+                    "if (data.inventory) { managerState.inventory = data.inventory; renderInventory(); }",
+                    script,
+                )
+
     def test_completed_calculation_reloads_and_reveals_proposals(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
@@ -208,6 +222,21 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("proposal.diff || []", script)
         self.assertIn('id="reset-settings"', page)
         self.assertIn("#reset-settings", script)
+
+    def test_the_saved_list_names_the_priority_each_improvement_was_chosen_with(self) -> None:
+        # Dos mejoras del mismo portafolio y modo se ven idénticas en la lista
+        # si no se dice con qué criterio se eligió cada una.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertIn("const improvementPriorityText", script)
+        self.assertIn("origin.priority_label", script)
+        self.assertIn("improvementPriorityText(row)", script)
+        self.assertIn("'Prioridad de selección'", script)
+        # La etiqueta la resuelve el servidor: aquí no se reimplementa el
+        # diccionario de prioridades.
+        for label in ("Equilibrada", "Máxima eficiencia", "Menor estrés"):
+            self.assertNotIn(f"'{label}'", script, label)
 
     def test_the_open_exposure_overlap_is_reported_without_changing_the_risk(self) -> None:
         # La medida agregada es informativa: la tarjeta sigue enseñando

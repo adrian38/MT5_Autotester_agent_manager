@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -49,6 +50,131 @@ def stress(*, p95, probability):
     )
 
 
+def curve_set(set_id: str, symbol: str, dip: float, net: float):
+    from portfolio_manager.ubs_portfolio import PeriodReport, build_robust_strategy_set
+
+    def report(name: str, start: int, end: int) -> PeriodReport:
+        return PeriodReport(
+            period_name=name, start_year=start, end_year=end, symbol=symbol,
+            timeframe="H1", pnl_curve_001=[0.0, -dip, net], net_profit_001=net,
+            valley_dd_001=dip, point_dd_001=dip, profit_factor=2.0,
+            return_dd_ratio=net / max(dip, 1.0), trades=100,
+            balance_dd_metric_001=dip, equity_dd_metric_001=dip,
+        )
+
+    return build_robust_strategy_set(
+        set_id, set_id, symbol, "H1", None, "accepted", False,
+        report("2020_2024", 2020, 2024), report("2025_2026", 2025, 2026),
+        set_path=set_id, has_final_tick_performance=True,
+        final_tick_net_profit_001=net, final_tick_equity_dd_001=dip,
+    )
+
+
+class BreadthBelowMinimumTests(unittest.TestCase):
+    """Abrir huecos busca cuántas caben, no cuánto rinde la siguiente."""
+
+    def sets(self):
+        # La gorda rinde más por unidad pero se come el presupuesto de DD; las
+        # dos flacas caben juntas. Son las candidatas del selector de mejora.
+        # Presupuesto de valle 50. La gorda cabe sola (35) y rinde mucho más
+        # por punto de DD, pero con ella dentro no cabe ninguna otra: 35+20>50.
+        # Las dos flacas juntas suman 40 y sí caben.
+        return [
+            curve_set("fat.set", "XAUUSD", dip=35.0, net=400.0),
+            curve_set("thin-a.set", "EURUSD", dip=20.0, net=90.0),
+            curve_set("thin-b.set", "USDJPY", dip=20.0, net=90.0),
+        ]
+
+    def optimize(self, *, prefer_breadth: bool):
+        from portfolio_manager.ubs_portfolio import PortfolioType, optimize_portfolio
+
+        return optimize_portfolio(
+            raw_sets=self.sets(),
+            capital=5000.0,
+            valley_dd_pct=1.0,
+            point_dd_pct=100.0,
+            portfolio_type=PortfolioType.BALANCED,
+            top_k_per_symbol=5,
+            max_total_candidates=10,
+            min_trades_2020_2026=1,
+            minimum_active_strategies=2,
+            maximum_active_strategies=2,
+            prefer_breadth_below_minimum=prefer_breadth,
+            enforce_point_dd=False,
+            use_deep_refinement=False,
+            run_local_search=False,
+            search_restarts=0,
+        )
+
+    def test_the_cheapest_increment_opens_the_slots_the_richest_one_blocks(self) -> None:
+        greedy = self.optimize(prefer_breadth=False)
+        breadth = self.optimize(prefer_breadth=True)
+
+        # Por rentabilidad entra la gorda y ya no cabe una segunda.
+        self.assertEqual(
+            [item.set_id for item in greedy.allocations if item.units > 0], ["fat.set"]
+        )
+        self.assertEqual(greedy.active_strategies, 1)
+        # Por coste de riesgo entran las dos flacas y se alcanza el mínimo.
+        self.assertEqual(breadth.active_strategies, 2)
+        self.assertEqual(
+            sorted(item.set_id for item in breadth.allocations if item.units > 0),
+            ["thin-a.set", "thin-b.set"],
+        )
+        self.assertIn(
+            "Cheapest valid +0.01 increment while opening required slots",
+            [decision.reason for decision in breadth.decision_log],
+        )
+
+
+class RequiredSetsSurviveTheFunnelTests(unittest.TestCase):
+    """Lo obligatorio no se filtra: ya pertenece al portafolio que se mejora."""
+
+    def sets(self):
+        from dataclasses import replace as dc_replace
+
+        original = curve_set("original.set", "XAUUSD", dip=20.0, net=200.0)
+        # Degradada: el embudo la descarta por recuperación reciente < 1.
+        degraded = dc_replace(
+            curve_set("degraded.set", "EURUSD", dip=20.0, net=200.0),
+            recent_net_profit_001=1.0,
+            recent_equity_dd_001=500.0,
+            has_recent_performance=True,
+        )
+        return [original, degraded, curve_set("fresh.set", "USDJPY", dip=20.0, net=90.0)]
+
+    def test_a_degraded_member_does_not_make_its_portfolio_unimprovable(self) -> None:
+        from portfolio_manager.ubs_portfolio import (
+            PortfolioType, filter_eligible_sets, optimize_portfolio,
+        )
+
+        pool = self.sets()
+        # Premisa: el embudo sí la expulsa cuando es una candidata cualquiera.
+        self.assertNotIn(
+            "degraded.set", {item.set_id for item in filter_eligible_sets(pool, 1)},
+        )
+
+        result = optimize_portfolio(
+            raw_sets=pool,
+            capital=5000.0,
+            valley_dd_pct=2.0,
+            point_dd_pct=100.0,
+            portfolio_type=PortfolioType.BALANCED,
+            top_k_per_symbol=5,
+            max_total_candidates=10,
+            min_trades_2020_2026=1,
+            required_set_ids=["original.set", "degraded.set"],
+            enforce_point_dd=False,
+            use_deep_refinement=False,
+            run_local_search=False,
+            search_restarts=0,
+        )
+
+        active = {item.set_id for item in result.allocations if item.units > 0}
+        self.assertIn("degraded.set", active)
+        self.assertIn("original.set", active)
+
+
 class SelectedModeTests(unittest.TestCase):
     def test_only_selected_mode_is_loaded_optimized_and_compared(self):
         for mode in full.PORTFOLIO_TYPES:
@@ -74,6 +200,20 @@ class SelectedModeTests(unittest.TestCase):
                 for call in optimize.call_args_list:
                     self.assertEqual(call.kwargs["portfolio_type"], full.PORTFOLIO_TYPES[mode])
                     self.assertEqual(call.kwargs["dd_reserve_pct"], 17)
+                # La pasada que elige la composición busca cuántas caben; la
+                # que reparte lotes después no lleva esa preferencia.
+                self.assertTrue(
+                    optimize.call_args_list[0].kwargs["prefer_breadth_below_minimum"]
+                )
+                # Y no hereda el tope de sets por grupo del perfil (Moderado 3),
+                # que una cartera de 8 ya agota: cabría una sola incorporación.
+                selector = optimize.call_args_list[0].kwargs
+                self.assertEqual(
+                    selector["max_sets_per_group"], selector["maximum_active_strategies"]
+                )
+                self.assertFalse(
+                    optimize.call_args_list[1].kwargs.get("prefer_breadth_below_minimum", False)
+                )
                 baseline.assert_called_once()
                 self.assertEqual(baseline.call_args.args[1], {old_id: 7})
                 audit = proposals[0]["result"].seasonal_validation["portfolio_improvement"]
@@ -225,6 +365,26 @@ class SelectedModeTests(unittest.TestCase):
             self.assertIn(f"Mejora del portafolio #{original_id} | modo Conservador", new["name"])
             self.assertEqual(new["improvement_origin"], {"source_id": original_id, "mode": "conservative"})
             self.assertEqual(new["portfolio_type"], "conservative")
+            # Dos mejoras del mismo portafolio y modo son indistinguibles en la
+            # lista si no se publica con qué criterio se eligió cada una.
+            with source.connect(write=True) as conn:
+                metrics = json.loads(conn.execute(
+                    "select metrics_json from portfolios where id=?", (saved["portfolio_id"],)
+                ).fetchone()[0])
+                metrics["inputs"]["improvement_selection_priority"] = "stress"
+                metrics.setdefault("seasonal_validation", {}).setdefault(
+                    "portfolio_improvement", {}
+                )["added_count"] = 3
+                conn.execute(
+                    "update portfolios set metrics_json=? where id=?",
+                    (json.dumps(metrics), saved["portfolio_id"]),
+                )
+                conn.commit()
+            enriched = source.saved_portfolio_detail(saved["portfolio_id"], "full_history")["portfolio"]
+            self.assertEqual(enriched["improvement_origin"], {
+                "source_id": original_id, "mode": "conservative",
+                "priority": "stress", "priority_label": "Menor estrés", "added_count": 3,
+            })
             self.assertFalse(new["metrics"].get("portfolio_bundle", False))
             self.assertEqual(new["metrics"]["inputs"]["improvement_source_portfolio_id"], original_id)
             with source.connect() as conn:
