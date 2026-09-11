@@ -44,6 +44,12 @@ forma fiable los terminales gráficos del usuario.
 - Log remoto de las últimas líneas y detención del proceso.
 - Actualización automática del panel cada 5 segundos.
 - Autenticación con un token distinto por nodo.
+- Botón **Experimenta** en la cabecera: laboratorio aparte (`/experiment.html`)
+  que mezcla el pool ya validado de los tres brokers en **una sola cuenta**,
+  simula doce meses con los lotes recompuestos por balance y responde a cuánto
+  llega, con qué drawdown y qué capital de partida haría falta para terminar en
+  el objetivo. No guarda nada en la memoria de ningún agente. Contrato y
+  límites en `ai_context/experiment_million_lab.md`.
 - Solo biblioteca estándar de Python; no requiere instalar FastAPI/Flask.
 
 ## Integración con la aplicación de cada broker

@@ -31,6 +31,9 @@ Contexto persistente para agentes que trabajan en `MT5_Autotester_agent_manager`
   endpoint nuevo sin romper ninguna de las dos copias.
 - `reproducible_generation.md`: contrato del reintento cuando MT5 termina sin
   informe y de la semilla reproducible desde el manager hasta los tres agentes.
+- `experiment_million_lab.md`: laboratorio «Experimenta» —pool cruzado de los
+  tres brokers en una cuenta, simulación a doce meses con recomposición de
+  lotes, drawdown relativo a la equity y por qué vive en ficheros aparte.
 - `dev_branch_test_paths.md`: por qué en la rama `dev` la ruta del nodo ICTrading
   se fuerza al agente local sin quitar las demás tarjetas, y cómo se garantiza
   que el merge a `main` no toque las rutas de producción.

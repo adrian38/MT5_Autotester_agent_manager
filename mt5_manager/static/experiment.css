@@ -1,0 +1,62 @@
+/* Laboratorio «Experimenta». Estilos propios de la pantalla: hereda las
+   variables, los paneles y las tablas de styles.css y solo añade lo que aquí
+   no existía. Ninguna regla de este fichero se aplica a otra pantalla: el
+   documento es el único que lo carga. */
+
+.experiment-page .notice-body{padding:18px 20px;display:grid;gap:12px}
+.experiment-page .notice-body p{color:var(--muted);font-size:13px;line-height:1.6}
+.experiment-page .notice-body strong{color:var(--text)}
+.experiment-page .notice-body code{color:var(--accent2);font:12px Consolas,monospace}
+.experiment-page .notice-warning{padding:12px 14px;border-left:3px solid var(--warn);border-radius:8px;background:#1b1512}
+
+.experiment-nodes{display:grid;grid-template-columns:minmax(260px,1fr) minmax(0,2fr);gap:18px;padding:20px}
+.experiment-nodes .target-select small{display:block;margin-top:6px;color:var(--muted);font-size:11px;line-height:1.45}
+.source-nodes .eyebrow{margin-bottom:10px}
+.source-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.source-node{display:flex;align-items:start;gap:10px;margin:0;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:#0a141d;cursor:pointer}
+.source-node:has(input:checked){border-color:var(--accent);background:#0b2026}
+.source-node.unavailable{border-color:#6b5330;cursor:not-allowed}
+.source-node input{width:auto;flex:0 0 auto;margin-top:3px;accent-color:var(--accent)}
+.source-node span{display:grid;gap:4px;min-width:0}
+.source-node strong{color:var(--text);font-size:13px}
+.source-node small{color:var(--muted);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
+.source-node.unavailable small{color:var(--warn)}
+
+.experiment-page form{padding:20px}
+.experiment-form-grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:14px}
+.experiment-checks{display:flex;gap:18px;flex-wrap:wrap;margin-top:16px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#0b141e}
+.experiment-checks label{display:flex;align-items:center;gap:8px;color:var(--text)}
+.experiment-checks input{width:auto;accent-color:var(--accent)}
+
+.verdict-card.reached{border-color:#2d8c77}
+.verdict-card.missed{border-color:#6b5330}
+.verdict-card.failed{border-color:#63353a}
+.verdict-note{margin:0;padding:16px 20px;color:var(--text);font-size:14px;line-height:1.6;border-bottom:1px solid var(--line)}
+.experiment-summary{grid-template-columns:repeat(4,minmax(150px,1fr));gap:1px;margin:0;background:var(--line)}
+.experiment-summary .metric{border:0;border-radius:0;background:var(--panel)}
+.experiment-summary .metric strong{font-size:21px;font-variant-numeric:tabular-nums}
+.experiment-summary .metric.alert strong{color:var(--warn)}
+.experiment-summary .metric.good strong{color:var(--accent2)}
+
+.equity-curve{padding:18px 20px 6px}
+.equity-curve svg{width:100%;height:220px;display:block}
+.equity-curve .plot-line{fill:none;stroke:var(--accent2);stroke-width:2}
+.equity-curve .plot-area{fill:url(#equity-fill);stroke:none}
+.equity-curve .plot-axis{stroke:var(--line);stroke-width:1}
+.equity-curve .plot-target{stroke:var(--warn);stroke-width:1;stroke-dasharray:5 4}
+.equity-curve .plot-label{fill:var(--muted);font-size:10px}
+.equity-curve .plot-empty{fill:var(--muted);font-size:12px}
+
+.monthly-wrap,.members-wrap{max-height:340px}
+.monthly-wrap th,.monthly-wrap td,.experiment-members th,.experiment-members td{padding:9px 14px;font-size:12px}
+.monthly-wrap td:not(:first-child),.monthly-wrap th:not(:first-child){text-align:right}
+.experiment-members td:nth-child(n+4),.experiment-members th:nth-child(n+4){text-align:right}
+.experiment-members td:last-child,.experiment-members th:last-child{text-align:center}
+.experiment-members .origin-tag{display:inline-block;padding:3px 7px;border-radius:6px;background:var(--panel2);color:var(--accent2);font-size:10px;letter-spacing:.04em}
+.experiment-members .not-portable{color:var(--warn)}
+.negative{color:#ff9d9d}
+.positive{color:var(--accent2)}
+
+@media(max-width:1150px){.experiment-form-grid{grid-template-columns:repeat(3,1fr)}.experiment-summary{grid-template-columns:repeat(2,minmax(140px,1fr))}}
+@media(max-width:900px){.experiment-nodes{grid-template-columns:1fr}}
+@media(max-width:700px){.experiment-form-grid{grid-template-columns:1fr}.builder-actions{flex-direction:column}.builder-actions button{width:100%}}

@@ -62,6 +62,37 @@ propuesta respeta los parámetros declarados al generar el portafolio, una subid
 de P95 o de probabilidad estimada no cambia `verdict=ACEPTADA`, no crea un veto
 oculto y no debe presentarse como rechazo categórico.
 
+### Perfil de margen en el diálogo de mejora (2026-09-11)
+
+Antes se heredaba y punto: `start_saved_operation` parte de `saved_inputs` y
+`_generate_full_history_improvement_attempt` reimpone los `inputs` de la
+variante guardada sobre los de la petición, así que el perfil del portafolio
+base (TTP, RoboForex, ICTrading o AXI) mandaba aunque el formulario central
+dijese otra cosa. Eso sigue siendo el comportamiento por defecto.
+
+Ahora el diálogo lo enseña y permite cambiarlo. Viaja como
+`improvement_margin_profile` por lo mismo que los grupos: de las claves de la
+petición sólo sobreviven a ese merge las `improvement_*`. Un `margin_profile`
+a secas se lo comía el merge sin avisar, que es justamente lo que hacía
+inofensivo —e invisible— al selector antes de existir esta clave.
+
+- `improvement_margin_profile(inputs)` resuelve el efectivo: ausente o vacío
+  significa heredar. Valida contra `MARGIN_PROFILES` en vez de
+  `normalize_margin_profile`, que devuelve «roboforex» para cualquier texto
+  desconocido: una errata cambiaría el apalancamiento en silencio.
+- El diálogo precarga el perfil de la variante guardada, luego el del
+  portafolio y luego el broker del nodo —el mismo orden de respaldo que
+  `_saved_inputs_from_detail`—, y lo manda siempre: lo que se ve es lo que se
+  calcula, también en portafolios antiguos sin perfil guardado.
+- Queda registrado en `seasonal_validation.portfolio_improvement.margin_profile`
+  y, como ya ocurría, en `inputs.margin_profile` del portafolio guardado.
+- El perfil es sólo política de margen. El lote mínimo y el tamaño de contrato
+  siguen siendo del broker de origen; ver
+  `portfolio_broker_min_lot_vs_margin_profile.md`.
+- Lo ejecuta el manager: la mejora se calcula en `PortfolioCoordinator._worker`
+  y `margin_profile` es una clave ya persistida. **No necesita port al nodo.**
+- El mensual sigue congelado y sin selector.
+
 La UI permite elegir cómo ordenar las propuestas válidas encontradas:
 
 - `balanced`: prefiere probabilidad de excedencia no creciente y, si todas

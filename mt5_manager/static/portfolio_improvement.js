@@ -17,8 +17,9 @@
         <label>Mínimo de estrategias a añadir<input name="improvement_min_additions" type="number" min="1" max="5" step="1" value="2" required></label>
         <label>Mejora mínima beneficio/DD %<input name="improvement_min_efficiency_gain_pct" type="number" min="0" max="25" step="0.1" value="3" required></label>
         <label>Prioridad de selección<select name="improvement_selection_priority" required><option value="balanced" selected>Equilibrada</option><option value="efficiency">Máxima eficiencia</option><option value="stress">Menor estrés</option></select></label>
+        <label>Perfil de margen<select name="improvement_margin_profile" required><option value="ictrading">ICTRADING</option><option value="axi">AXI</option><option value="roboforex">ROBOFOREX</option><option value="ttp">TTP</option></select></label>
       </div>
-      <p class="portfolio-note">Solo se calcula y compara el modo elegido, con sus límites y lotajes guardados. Al guardar se creará otro portafolio, identificado como mejora del original y de ese modo.</p>
+      <p class="portfolio-note">Solo se calcula y compara el modo elegido, con sus límites y lotajes guardados. Al guardar se creará otro portafolio, identificado como mejora del original y de ese modo. El perfil de margen llega ya puesto con el del portafolio base; cámbialo sólo si quieres recalcular la mejora con otra política de margen, y ten en cuenta que uno más estricto puede dejar sin sitio a las incorporaciones. El lote mínimo y el tamaño de contrato no dependen del perfil: son siempre los del broker de origen.</p>
       <fieldset><legend>Diversificación</legend><div class="portfolio-checks">
         <label title="No usa como candidatas estrategias presentes en ningún otro Portafolio UBS completo o mensual."><input name="improvement_exclude_used_sets" type="checkbox" checked> Excluir estrategias ya usadas en otros portafolios</label>
         <label title="Sólo se aceptan si respetan correlación Pearson, correlación en pérdidas y solapamiento de drawdown."><input name="improvement_allow_same_symbol" type="checkbox" checked> Permitir el mismo símbolo cuando la baja relación lo justifique</label>
@@ -64,6 +65,18 @@
       const field = dialog.querySelector(`[name="improvement_group_${group}"]`);
       if (field) field.checked = active.has(group);
     });
+    // El perfil de margen llega ya heredado, en el mismo orden de respaldo que
+    // usa el backend: el de la variante guardada —que es la que el motor
+    // reimpone—, el del portafolio, y el broker del nodo para las carteras tan
+    // antiguas que no guardaron perfil. Se manda siempre, así que lo que se ve
+    // es lo que se calcula; mientras nadie lo toque es el que ya heredaría.
+    const profileField = dialog.querySelector('[name="improvement_margin_profile"]');
+    const variantSaved = bundle ? (currentDetail.metrics?.variants?.[selector.value]?.inputs || {}) : {};
+    const inherited = String(variantSaved.margin_profile || saved.margin_profile
+      || (typeof portfolioData === 'undefined' ? '' : portfolioData.node?.broker)
+      || (typeof form === 'undefined' ? '' : form.elements.margin_profile?.value) || '').toLowerCase();
+    const profiles = [...profileField.options].map(option => option.value);
+    profileField.value = profiles.includes(inherited) ? inherited : 'ictrading';
     const originals = new Set((currentDetail.members || []).filter(member => !bundle || member.variant_key === selector.value).map(member => String(member.set_path || member.set_id || '').replaceAll('\\', '/').toLowerCase()).filter(Boolean));
     dialog.querySelector('#improvement-original-count').textContent = `${originals.size} estrategia(s) originales quedarán bloqueadas.`;
     selector.onchange = () => {
@@ -92,6 +105,7 @@
         improvement_min_additions: Number(fields.improvement_min_additions.value),
         improvement_min_efficiency_gain_pct: Number(fields.improvement_min_efficiency_gain_pct.value),
         improvement_selection_priority: fields.improvement_selection_priority.value,
+        improvement_margin_profile: fields.improvement_margin_profile.value,
         improvement_exclude_used_sets: fields.improvement_exclude_used_sets.checked,
         improvement_allow_same_symbol: fields.improvement_allow_same_symbol.checked,
         improvement_allowed_asset_groups: chosenGroups,
