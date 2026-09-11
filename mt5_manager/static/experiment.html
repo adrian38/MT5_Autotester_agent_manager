@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Experimenta · MT5 Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/experiment.css">
+</head>
+<body class="experiment-page">
+  <header>
+    <div>
+      <p class="eyebrow">LABORATORIO</p>
+      <h1>Experimenta</h1>
+      <p class="subtitle">Tres demos generando, una cuenta real ejecutando: qué haría falta para un millón en un año</p>
+    </div>
+    <div class="header-actions">
+      <span id="refresh-state">Cargando…</span>
+      <a class="button secondary" href="/">Volver al manager</a>
+      <button id="reload" class="secondary">Actualizar</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="experiment-notice panel-card">
+      <div class="panel-title">
+        <div><p class="eyebrow">QUÉ MIDE ESTA PANTALLA</p><h2>Y qué no puede medir</h2></div>
+      </div>
+      <div class="notice-body">
+        <p>Toma el pool de estrategias que ya superó las cuatro etapas en cada broker
+        (candidato, robustez, Final Tick continuo y Final Tick 6M), lo mezcla en una sola
+        cuenta y simula los últimos meses de historia <strong>real</strong> de esas
+        estrategias como si se hubieran operado juntas. Los lotes se recomponen con el
+        balance, que es lo que el EA ya hace por sí solo (<code>LotPerBalance</code>), así
+        que la capitalización no es una capa nueva sino el comportamiento nativo del robot.</p>
+        <p class="notice-warning">Tres avisos que no se pueden saltar:
+        <strong>uno</strong>, cada estrategia se validó con el spread, la comisión y el swap
+        de <em>su</em> broker; ejecutarla en otro cambia el resultado y esta pantalla no
+        puede cuantificar cuánto. <strong>Dos</strong>, la simulación reproduce un año que ya
+        pasó: no es una previsión. <strong>Tres</strong>, la ventana usa el drawdown de cierre
+        más el peor flotante conocido de los reportes; una cuenta real puede ver algo peor.</p>
+        <p>Nada de lo que se calcula aquí se guarda en la memoria de ningún agente.</p>
+      </div>
+    </section>
+
+    <section class="panel-card">
+      <div class="panel-title">
+        <div><p class="eyebrow">CUENTA ÚNICA</p><h2>Destino y orígenes</h2></div>
+        <span id="target-note"></span>
+      </div>
+      <div class="experiment-nodes">
+        <label class="target-select">Cuenta real de destino
+          <select id="target-node"></select>
+          <small>Decide el perfil de margen, el lote mínimo por símbolo y qué símbolos son ejecutables.</small>
+        </label>
+        <div class="source-nodes">
+          <p class="eyebrow">DEMOS QUE APORTAN ESTRATEGIAS</p>
+          <div id="source-nodes" class="source-list">Cargando nodos…</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel-card">
+      <div class="panel-title">
+        <div><p class="eyebrow">OBJETIVO Y LÍMITES</p><h2>Configuración del experimento</h2></div>
+        <span id="run-badge" class="badge idle">IDLE</span>
+      </div>
+      <form id="experiment-form">
+        <div class="experiment-form-grid">
+          <label>Capital inicial<input name="capital" type="number" step="any"></label>
+          <label>Objetivo a 1 año<input name="target_equity" type="number" step="any" min="1"></label>
+          <label>Meses de ventana<input name="horizon_months" type="number" min="1" max="72"></label>
+          <label>DD máx. % de equity<input name="max_dd_pct" type="number" step="any" min="1" max="95"></label>
+          <label>Margen máx. %<input name="max_margin_pct" type="number" step="any"></label>
+          <label>Recomponer lotes cada
+            <select name="rebalance_months">
+              <option value="0">Nunca (lote fijo)</option>
+              <option value="1">1 mes</option>
+              <option value="2">2 meses</option>
+              <option value="3">3 meses</option>
+              <option value="6">6 meses</option>
+            </select>
+          </label>
+          <label>Máx. unidades/estrategia<input name="max_units_per_strategy" type="number" min="1" max="200"></label>
+          <label>Máx. unidades/símbolo<input name="max_units_per_symbol" type="number" min="1" max="2000"></label>
+          <label>Máx. unidades total<input name="max_units_total" type="number" min="1" max="20000"></label>
+          <label>Correlación par máx.<input name="max_pair_corr" type="number" step="any" min="0" max="1"></label>
+          <label>Estrategias en la búsqueda<input name="pool_limit" type="number" min="1" max="300"></label>
+          <label>Pasos de ajuste fino<input name="greedy_steps" type="number" min="0" max="2000"></label>
+          <label title="Lo que tarda el experimento es leer los HTML de MT5: cerca de un segundo por candidata. 0 lee todas.">Máx. candidatas/broker<input name="max_candidates_per_node" type="number" min="0" max="100000"></label>
+        </div>
+        <div class="experiment-checks">
+          <label><input name="require_portable" type="checkbox"> Exigir que el símbolo exista medido en el broker de destino</label>
+        </div>
+        <div class="builder-actions">
+          <button id="toggle-log" type="button" class="secondary">Ver log</button>
+          <button id="stop-run" type="button" class="danger" disabled>Detener</button>
+          <button id="save-settings" type="button" class="secondary">Guardar configuración</button>
+          <button id="start-run" type="submit">Ejecutar experimento</button>
+        </div>
+      </form>
+      <section id="monitor" class="calculation-monitor" hidden aria-live="polite">
+        <div class="monitor-head">
+          <div><p class="eyebrow">PROGRESO</p><h3 id="monitor-title">Preparando</h3></div>
+          <span id="monitor-status">—</span>
+        </div>
+        <pre id="live-log" class="live-log">El log aparecerá al iniciar un experimento.</pre>
+      </section>
+    </section>
+
+    <section id="result-area" hidden>
+      <section id="verdict-card" class="panel-card verdict-card">
+        <div class="panel-title">
+          <div><p class="eyebrow">VEREDICTO</p><h2 id="verdict-title">—</h2></div>
+          <span id="verdict-badge" class="badge idle">—</span>
+        </div>
+        <p id="verdict-note" class="verdict-note"></p>
+        <div id="verdict-metrics" class="summary experiment-summary"></div>
+      </section>
+
+      <section class="panel-card">
+        <div class="panel-title">
+          <div><p class="eyebrow">CURVA SIMULADA</p><h2 id="curve-title">Equity de la cuenta única</h2></div>
+          <span id="curve-window"></span>
+        </div>
+        <div id="equity-curve" class="equity-curve"></div>
+        <div class="universe-table-wrap monthly-wrap">
+          <table class="universe-table">
+            <thead><tr><th>Mes</th><th>Resultado</th><th>Equity al cierre</th><th>Multiplicador de lotes</th></tr></thead>
+            <tbody id="monthly-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel-card">
+        <div class="panel-title">
+          <div><p class="eyebrow">COMPOSICIÓN</p><h2 id="members-title">Estrategias de la cuenta única</h2></div>
+          <span id="members-note"></span>
+        </div>
+        <div class="universe-table-wrap members-wrap">
+          <table class="universe-table experiment-members">
+            <thead><tr><th>Origen</th><th>Símbolo</th><th>TF</th><th>Unid.</th><th>Aporte ventana</th><th>Neto/unidad</th><th>Valle/unidad</th><th>Margen</th><th>Portable</th></tr></thead>
+            <tbody id="member-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel-card">
+        <div class="panel-title"><div><p class="eyebrow">POOL CRUZADO</p><h2>Qué aportó cada broker</h2></div></div>
+        <div class="universe-table-wrap">
+          <table class="universe-table">
+            <thead><tr><th>Origen</th><th>Aceptadas</th><th>Leídas</th><th>En el pool</th><th>Neto positivo</th><th>Ejecutables en destino</th><th>Símbolos</th></tr></thead>
+            <tbody id="pool-rows"></tbody>
+          </table>
+        </div>
+        <div id="warnings" class="portfolio-note"></div>
+      </section>
+    </section>
+  </main>
+
+  <div id="toast" role="status"></div>
+  <script src="/experiment.js"></script>
+</body>
+</html>

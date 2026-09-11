@@ -605,6 +605,16 @@ class PortfolioFormTests(unittest.TestCase):
             "pnl_deviation_warning_pct": (0, 10, 10.5, 10000),
             "drawdown_deviation_warning_pct": (0, 15, 15.5, 10000),
             "scheduler-interval-days": (1, 30, 3650),
+            # Laboratorio «Experimenta». Los topes de la pantalla son los que
+            # `experiment_service.normalize_settings` recorta al recibirlos.
+            "target_equity": (1, 250000, 1000000.5),
+            "horizon_months": (1, 12, 72),
+            "max_dd_pct": (1, 35, 35.5, 95),
+            "max_units_per_strategy": (1, 8, 200),
+            "max_units_total": (1, 400, 20000),
+            "pool_limit": (1, 60, 300),
+            "greedy_steps": (0, 240, 2000),
+            "max_candidates_per_node": (0, 300, 100000),
         }
         self.assertEqual(set(fields), set(valid_values), "Actualiza la auditoría para los inputs numéricos")
 

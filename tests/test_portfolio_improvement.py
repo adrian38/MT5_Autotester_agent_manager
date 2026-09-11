@@ -277,6 +277,17 @@ class ImprovementScreenTests(unittest.TestCase):
         self.assertIn("límite de cinco incorporaciones por búsqueda", script)
         self.assertIn("es una preferencia de selección, no una restricción adicional", script)
 
+    def test_normal_dialog_offers_the_margin_profile_already_inherited(self) -> None:
+        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+        self.assertIn('name="improvement_margin_profile"', script)
+        self.assertIn("improvement_margin_profile: fields.improvement_margin_profile.value", script)
+        # Llega puesto con el de la base, no con el del formulario central.
+        self.assertIn("variantSaved.margin_profile || saved.margin_profile", script)
+        self.assertIn("son siempre los del broker de origen", script)
+        # El mensual sigue congelado: no gana selector.
+        monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
+        self.assertNotIn("improvement_margin_profile", monthly)
+
     def test_manager_serves_both_new_static_assets(self) -> None:
         manager = (self.ROOT.parent / "manager.py").read_text(encoding="utf-8")
         self.assertIn('"portfolio_improvement.js"', manager)

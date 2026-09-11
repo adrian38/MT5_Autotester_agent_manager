@@ -19,8 +19,10 @@ from pathlib import Path
 from typing import Any
 
 from . import dev_branch
+from . import experiment_routes
 from . import guided_batches
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
+from .experiment_service import ExperimentCoordinator
 from .live_audit_settings import LiveAuditSettingsStore
 from .manager_restart import ManagerRestartController, RestartAlreadyRunning
 from .portfolio_service import (
@@ -476,6 +478,9 @@ class ManagerHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
+        # Laboratorio «Experimenta»: pantalla y endpoints propios, en su módulo.
+        if experiment_routes.handle_get(self, parsed):
+            return
         if len(parts)==5 and parts[:2]==["api","nodes"] and parts[3]=="guided-batches":
             try:
                 batch_id = parts[4]
@@ -640,6 +645,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
+        if experiment_routes.handle_post(self, parsed):
+            return
         if len(parts)==4 and parts[:2]==["api","nodes"] and parts[3]=="guided-batches":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -1066,6 +1073,11 @@ class ManagerServer(ThreadingHTTPServer):
             else Path.cwd() / "runtime" / "portfolio_settings.json"
         )
         self.portfolios = PortfolioCoordinator(nodes, portfolio_settings_path)
+        # Laboratorio «Experimenta»: vive aparte del coordinador de portafolios
+        # a propósito, porque no guarda nada en la memoria de ningún agente.
+        self.experiments = ExperimentCoordinator(
+            nodes, portfolio_settings_path.with_name("experiment_settings.json"),
+        )
         repo_dir = str(
             os.environ.get("MT5_MANAGER_RESTART_REPO")
             or config.get("manager_repo_dir")

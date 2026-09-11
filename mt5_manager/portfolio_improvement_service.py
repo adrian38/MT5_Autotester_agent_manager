@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.ubs_portfolio import (
+    MARGIN_PROFILES,
     BootstrapDrawdownAnalysis,
     PortfolioEvaluation,
     PortfolioResult,
@@ -102,6 +103,34 @@ def improvement_selection_priority(inputs: dict[str, Any]) -> str:
     if value not in IMPROVEMENT_SELECTION_PRIORITIES:
         raise ValueError(
             "La prioridad de mejora debe ser equilibrada, máxima eficiencia o menor estrés"
+        )
+    return value
+
+
+def improvement_margin_profile(inputs: dict[str, Any]) -> str:
+    """Perfil financiero con el que se calcula la mejora.
+
+    Viaja como ``improvement_margin_profile`` por lo mismo que los grupos: el
+    motor reimpone los ``inputs`` guardados de la base sobre los de la petición
+    y de éstos sólo sobreviven las claves ``improvement_*``. Sin clave propia,
+    el diálogo podía enseñar el perfil pero no cambiarlo.
+
+    Ausente significa heredar el de la base, que es el comportamiento anterior.
+    El perfil decide sólo la política de margen: el lote mínimo y el tamaño de
+    contrato siguen siendo los del broker de origen, ver
+    ``ai_context/portfolio_broker_min_lot_vs_margin_profile.md``.
+
+    La validación es explícita y no usa ``normalize_margin_profile``, que
+    devuelve «roboforex» para cualquier texto que no reconoce: una errata en el
+    formulario cambiaría el apalancamiento de la mejora en silencio.
+    """
+    raw = inputs.get("improvement_margin_profile")
+    if raw in (None, ""):
+        return str(inputs.get("margin_profile") or "").strip().lower()
+    value = str(raw).strip().lower()
+    if value not in MARGIN_PROFILES:
+        raise ValueError(
+            "El perfil de margen de la mejora debe ser ICTRADING, AXI, ROBOFOREX o TTP"
         )
     return value
 
@@ -295,6 +324,12 @@ def _generate_full_history_improvement_attempt(
         "portfolio_type": target,
         "use_correlation": True,
     }
+    # Único ajuste de la base que el diálogo puede cambiar. Se resuelve después
+    # del merge: sin clave propia hereda el perfil guardado, con ella manda el
+    # elegido, y en los dos casos el modelo de margen se construye ya con él.
+    profile = improvement_margin_profile(inputs)
+    if profile:
+        inputs["margin_profile"] = profile
     inputs["margin_model"] = build_margin_model(source, inputs)
     options = improvement_options(inputs)
     detail = _selected_variant_detail(detail, target)
@@ -449,6 +484,7 @@ def _generate_full_history_improvement_attempt(
         raise ValueError("El ajuste final no conservó las incorporaciones seleccionadas")
     audit["target_portfolio_type"] = base_type.value
     audit["target_portfolio_type_label"] = TYPE_LABELS[base_type.value]
+    audit["margin_profile"] = str(inputs.get("margin_profile") or "")
     audit["source_portfolio_id"] = portfolio_id
     audit["save_as_new"] = True
     # Preserve the exact selected-mode baseline for the saved comparison, even
@@ -506,6 +542,7 @@ def _generate_full_history_improvement_attempt(
                 "originals_locked": len(original_ids),
                 "maximum_additions": options.max_additions,
                 "actual_additions": actual_additions,
+                "margin_profile": str(inputs.get("margin_profile") or ""),
                 "selected_set_names": [Path(value).name for value in selected_ids],
             },
         }
@@ -539,8 +576,14 @@ def generate_full_history_improvement(
     # Se valida y se fija aqui, antes del bucle: una lista mal formada tiene
     # que fallar con su mensaje, no repetido cinco veces por intento.
     allowed_groups = improvement_allowed_groups(inputs)
+    margin_profile = improvement_margin_profile(inputs)
     inputs["improvement_min_additions"] = requested
     inputs["improvement_allowed_asset_groups"] = allowed_groups
+    # Sólo se reescribe cuando el diálogo lo mandó. Fijarlo siempre impondría el
+    # perfil del portafolio sobre el de la variante guardada, que es el que
+    # reimpone el intento cuando nadie elige nada.
+    if inputs.get("improvement_margin_profile"):
+        inputs["improvement_margin_profile"] = margin_profile
     failures: list[str] = []
     best = None
     best_rank: tuple[float, ...] | None = None

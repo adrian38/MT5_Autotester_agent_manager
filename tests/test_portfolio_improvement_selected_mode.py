@@ -183,6 +183,53 @@ class ImprovementAllowedGroupsTests(unittest.TestCase):
         self.assertEqual([row["set_path"] for row in kept_rows], ["eur.set"])
 
 
+class ImprovementMarginProfileTests(unittest.TestCase):
+    """El perfil se hereda de la base y el diálogo puede cambiarlo."""
+
+    def profile_reaching_the_margin_model(self, request: dict) -> str:
+        # Se corta en cuanto el perfil ya está decidido: lo que importa es con
+        # qué se construye el modelo de margen, no que la búsqueda prospere.
+        detail = {"portfolio_type": "bundle", "members": [{"variant_key": "balanced", "units": 1}],
+                  "metrics": {"variants": {"balanced": {"inputs": {"margin_profile": "ictrading"}}}}}
+        source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
+        with patch.object(full, "build_margin_model", return_value=None) as model, \
+                patch.object(full, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
+            with self.assertRaisesRegex(ValueError, "No se encontró una mejora válida"):
+                full.generate_full_history_improvement(source, 7, {
+                    "portfolio_type": "balanced", "improvement_min_additions": 1, **request,
+                })
+        return model.call_args.args[1]["margin_profile"]
+
+    def test_absent_key_keeps_the_profile_of_the_base(self) -> None:
+        self.assertEqual(full.improvement_margin_profile({"margin_profile": "ttp"}), "ttp")
+        # La petición trae el perfil del formulario central; manda el guardado.
+        self.assertEqual(self.profile_reaching_the_margin_model({"margin_profile": "axi"}), "ictrading")
+
+    def test_the_dialog_choice_wins_over_the_saved_profile(self) -> None:
+        self.assertEqual(
+            full.improvement_margin_profile(
+                {"margin_profile": "ttp", "improvement_margin_profile": "AXI "}
+            ),
+            "axi",
+        )
+        # La clave `improvement_*` es la única que sobrevive al merge de
+        # `_generate_full_history_improvement_attempt`.
+        self.assertEqual(
+            self.profile_reaching_the_margin_model({"improvement_margin_profile": "ttp"}), "ttp",
+        )
+
+    def test_an_unknown_profile_is_rejected_before_searching(self) -> None:
+        from portfolio_manager.ubs_portfolio import normalize_margin_profile
+
+        # Premisa: la normalización compartida lo aceptaría en silencio y la
+        # mejora saldría con el apalancamiento de otro broker.
+        self.assertEqual(normalize_margin_profile("ic-trading"), "roboforex")
+        with self.assertRaisesRegex(ValueError, "perfil de margen"):
+            full.generate_full_history_improvement(
+                object(), 1, {"improvement_margin_profile": "ic-trading"},
+            )
+
+
 class RequiredSetsSurviveTheFunnelTests(unittest.TestCase):
     """Lo obligatorio no se filtra: ya pertenece al portafolio que se mejora."""
 

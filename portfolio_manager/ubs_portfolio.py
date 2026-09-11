@@ -2570,13 +2570,20 @@ def normalize_margin_profile(profile: str | MarginModel | None) -> str:
     return "roboforex"
 
 
+#: Perfiles financieros que ofrece el formulario, con su nombre visible. Un
+#: solo sitio para los cuatro: el selector de generacion, el de la mejora y la
+#: etiqueta de la auditoria no pueden discrepar sobre cuales existen.
+MARGIN_PROFILE_LABELS: dict[str, str] = {
+    "ictrading": "ICTrading",
+    "axi": "AXI",
+    "roboforex": "RoboForex",
+    "ttp": "TTP",
+}
+MARGIN_PROFILES: tuple[str, ...] = tuple(MARGIN_PROFILE_LABELS)
+
+
 def margin_profile_label(profile: str | MarginModel | None) -> str:
-    return {
-        "ttp": "TTP",
-        "axi": "AXI",
-        "ictrading": "ICTrading",
-        "roboforex": "RoboForex",
-    }.get(normalize_margin_profile(profile), "RoboForex")
+    return MARGIN_PROFILE_LABELS.get(normalize_margin_profile(profile), "RoboForex")
 
 
 def margin_leverage_for_profile(
