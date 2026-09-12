@@ -71,6 +71,19 @@ class GuidedNodeTests(unittest.TestCase):
         p['candidates'][0]['mode']='unknown';p['batch_id']=protocol.batch_identity(p)
         with self.assertRaisesRegex(ValueError,'Modo'):protocol.validate_package(p,'ICTRADING','STANDARD')
 
+    def test_rebuild_retargeting_is_accepted_and_other_kinds_are_not(self):
+        # The laboratory reopens an enabled destination that is already proven
+        # but has no usable parent left. It is the retargeting shape with its
+        # own kind, so the manager must route it instead of rejecting the batch.
+        p=symbol_package();p['candidates'][0]['mutation']['kind']='symbol_retarget'
+        p['batch_id']=protocol.batch_identity(p)
+        protocol.validate_package(p,'ICTRADING','STANDARD')
+
+        p['candidates'][0]['mutation']['kind']='symbol_whatever'
+        p['batch_id']=protocol.batch_identity(p)
+        with self.assertRaisesRegex(ValueError,'Retargeting'):
+            protocol.validate_package(p,'ICTRADING','STANDARD')
+
     def test_metadata_only_range_change_is_rejected(self):
         p=package();item=p['candidates'][0]
         raw=base64.b64decode(item['set_b64']).replace(b'||50||N',b'||500||Y')

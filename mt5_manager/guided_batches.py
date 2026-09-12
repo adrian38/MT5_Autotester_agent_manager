@@ -165,7 +165,14 @@ def validate_package(package, broker, account):
             if type(change.get('parent_stage')) is not int or not 1<=change['parent_stage']<=4:
                 raise ValueError('Etapa alcanzada por el padre inválida')
         if symbol_exploration and not recovery:
-            if set(change)!={'kind','key','old','new'} or change.get('kind')!='symbol_exploration' or key!='ForceSymbol':
+            # Retargeting serves two purposes with one shape. ``symbol_exploration``
+            # reaches an instrument with no final positive yet. ``symbol_retarget``
+            # rebuilds a usable parent on an enabled destination that is already
+            # proven but whose own local sets no longer pass today's safety rules,
+            # so Discovery can keep working there instead of abandoning it.
+            if (set(change)!={'kind','key','old','new'}
+                    or change.get('kind') not in {'symbol_exploration','symbol_retarget'}
+                    or key!='ForceSymbol'):
                 raise ValueError('Retargeting de símbolo inválido')
             if not all(isinstance(change.get(k),str) and change[k] for k in ('old','new')) or change['old'].upper()==change['new'].upper():
                 raise ValueError('Símbolo anterior/nuevo inválido')
