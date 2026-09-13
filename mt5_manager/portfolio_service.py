@@ -1836,6 +1836,24 @@ class PortfolioSource:
             "UNID. y LOTE son la asignación informativa calculada por el portafolio.", "",
             f"{'PERFIL':12s} {'CUENTA':12s} {'SIMBOLO':12s} {'TF':5s} {'UNID.':>7s} {'LOTE':>7s}   SET",
         ]
+        origin = detail.get("improvement_origin") or {}
+        source_id = safe_int(origin.get("source_id"), 0)
+        mode = str(origin.get("mode") or "")
+        if scope == "full_history" and source_id > 0 and mode in TYPE_LABELS:
+            improvement_lines = [
+                f"Mejora origen: {source_id}",
+                f"Mejora modo: {mode}",
+            ]
+            priority = str(origin.get("priority") or "")
+            if priority in IMPROVEMENT_PRIORITY_LABELS:
+                improvement_lines.append(f"Mejora prioridad: {priority}")
+            if origin.get("added_count") is not None:
+                improvement_lines.append(
+                    f"Mejora incorporaciones: {safe_int(origin.get('added_count'), 0)}"
+                )
+            # Mantener estos campos junto a la cabecera: ``parse_summary`` deja
+            # de interpretar metadatos en cuanto empieza la tabla de sets.
+            lines[2:2] = improvement_lines
         for item in exported:
             lines.append(f"{str(item['variant'])[:12]:12s} {str(item['account'])[:12]:12s} {str(item['symbol']):12s} {str(item['timeframe']):5s} {item['units']:7d} {item['lot']:7.2f}   {item['set']}")
         if missing:
@@ -3327,6 +3345,70 @@ def build_import_proposals(
         proposals.append({"key": key, "label": label.strip() or key, "inputs": inputs, "result": result})
     if not proposals:
         raise ValueError("El resumen no dejó ninguna variante reconstruible")
+    improvement_source_id = safe_int(header.get("improvement_source_portfolio_id"), 0)
+    improvement_mode = str(header.get("improvement_portfolio_type") or "").strip().lower()
+    if scope == "full_history" and improvement_source_id > 0:
+        if improvement_mode not in TYPE_LABELS:
+            raise ValueError("La exportación identifica una mejora, pero no conserva un modo válido")
+        if len(proposals) != 1 or str(proposals[0]["key"]) != improvement_mode:
+            raise ValueError(
+                "La identidad de mejora de la exportación no coincide con su composición: "
+                f"esperaba solo el modo {TYPE_LABELS[improvement_mode]}"
+            )
+        proposal = proposals[0]
+        proposal_inputs = proposal["inputs"]
+        proposal_inputs["portfolio_type"] = improvement_mode
+        proposal_inputs["composition_portfolio_type"] = improvement_mode
+        proposal_inputs["improvement_source_portfolio_id"] = improvement_source_id
+        proposal_inputs["improvement_portfolio_type"] = improvement_mode
+        priority = str(header.get("improvement_selection_priority") or "").strip().lower()
+        if priority:
+            if priority not in IMPROVEMENT_PRIORITY_LABELS:
+                raise ValueError("La exportación conserva una prioridad de mejora desconocida")
+            proposal_inputs["improvement_selection_priority"] = priority
+        added_value = header.get("improvement_added_count")
+        added_count = safe_int(added_value, -1) if added_value is not None else -1
+        if added_count < 0:
+            # Formato antiguo: origen y modo podían estar en el nombre, pero no
+            # el número de incorporaciones. Si la base sigue guardada se puede
+            # reconstruir sin inferir ninguna decisión del optimizador.
+            try:
+                base = source.saved_portfolio_detail(
+                    improvement_source_id, "full_history"
+                )["portfolio"]
+                base_members = base.get("members") or []
+                if str(base.get("portfolio_type") or "") == "bundle":
+                    base_members = [
+                        member for member in base_members
+                        if str(member.get("variant_key") or "") == improvement_mode
+                    ]
+                base_names = {
+                    Path(str(member.get("set_path") or member.get("set_id") or "")).name.casefold()
+                    for member in base_members
+                    if int(member.get("units") or 0) > 0
+                }
+                improved_names = {
+                    Path(str(allocation.set_path or allocation.set_id)).name.casefold()
+                    for allocation in proposal["result"].allocations
+                    if allocation.units > 0
+                }
+                if base_names and base_names <= improved_names:
+                    added_count = len(improved_names - base_names)
+            except (ValueError, TypeError, OSError):
+                pass
+        audit: dict[str, Any] = {
+            "source_portfolio_id": improvement_source_id,
+            "target_portfolio_type": improvement_mode,
+            "imported_lineage": True,
+        }
+        if priority:
+            audit["selection_priority"] = priority
+        if added_count >= 0:
+            audit["added_count"] = added_count
+        proposal["result"].seasonal_validation = {
+            **(proposal["result"].seasonal_validation or {}),
+            "portfolio_improvement": audit,
+        }
     if scope == "full_history" and len(proposals) > 1:
         # `save_proposal` exige que las tres variantes A/M/C compartan
         # composición, y un paquete guardado siempre la comparte: solo cambian
@@ -3356,6 +3438,10 @@ def build_import_proposals(
         "skipped": skipped,
         "warnings": warnings,
         "target_month": target_month,
+        "improvement_origin": {
+            "source_id": improvement_source_id,
+            "mode": improvement_mode,
+        } if improvement_source_id > 0 and improvement_mode in TYPE_LABELS else None,
     }
     return proposals, selected_key, report
 

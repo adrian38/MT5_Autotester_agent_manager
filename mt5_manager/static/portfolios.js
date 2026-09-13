@@ -44,9 +44,10 @@ const friendlyReason = value => String(value || '')
 // reimplementa el diccionario para que no puedan divergir.
 const improvementPriorityText = row => {
   const origin = row?.improvement_origin || {};
-  if (!origin.priority_label) return '';
+  if (!origin.priority_label && origin.added_count == null) return '';
+  const priority = origin.priority_label ? ` · prioridad ${esc(origin.priority_label)}` : '';
   const added = origin.added_count == null ? '' : ` · +${number(origin.added_count)}`;
-  return ` · prioridad ${esc(origin.priority_label)}${added}`;
+  return `${priority}${added}`;
 };
 const improvementStressText = comparison => comparison?.status === 'completed'
   ? `Estrés vs base: P95 ${number(comparison.baseline?.valley_dd_p95, 2)} → ${number(comparison.improved?.valley_dd_p95, 2)} (${Number(comparison.valley_dd_p95_delta) >= 0 ? '+' : ''}${number(comparison.valley_dd_p95_delta, 2)}); P>DD efectivo ${Number(comparison.probability_exceed_effective_delta_pp) >= 0 ? '+' : ''}${number(comparison.probability_exceed_effective_delta_pp, 1)} pp`

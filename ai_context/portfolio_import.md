@@ -45,6 +45,21 @@ texto, el número coincidiría y la prueba fallaría.
 | Sets cuyo candidato ya no existe | Sin informes no hay nada que reconstruir. Se nombran en el resultado (`unresolved`) en vez de desaparecer. |
 | Mes objetivo, si el nombre no lo lleva | No es un campo del resumen: viaja en el nombre («Moderado \| Mes 08 \| …»). Sin él, un mensual se evaluaría sobre la curva completa; `_imported_target_month` lo extrae de ahí. |
 
+## Identidad de una mejora exportada
+
+Desde 2026-09-13 la cabecera del resumen conserva explícitamente el portafolio
+origen, el modo, la prioridad de selección y el número de incorporaciones. Al
+importar UBS normal, esos campos vuelven a `metrics.inputs` y a
+`seasonal_validation.portfolio_improvement`; por eso la fila se guarda como una
+mejora independiente y la interfaz recupera el nombre, la prioridad, el `+N` y
+la comparación con el original.
+
+Las exportaciones anteriores pueden recuperar origen y modo si su línea
+`Portafolio:` ya decía «Mejora de #X | Modo»; si el original aún existe, también
+se reconstruye `added_count` comparando composiciones. La prioridad no se deduce
+de la composición porque varias prioridades pueden producir el mismo resultado.
+Este comportamiento se limita a `full_history`; mensual continúa sin cambios.
+
 Un nombre de set que aparece en dos candidatos distintos se marca `ambiguous` y
 se deja fuera: elegir uno al azar comprometería el set equivocado.
 

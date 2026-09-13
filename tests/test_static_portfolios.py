@@ -245,6 +245,7 @@ class PortfolioFormTests(unittest.TestCase):
 
         self.assertIn("const improvementPriorityText", script)
         self.assertIn("origin.priority_label", script)
+        self.assertIn("origin.added_count == null", script)
         self.assertIn("improvementPriorityText(row)", script)
         self.assertIn("'Prioridad de selección'", script)
         # La etiqueta la resuelve el servidor: aquí no se reimplementa el

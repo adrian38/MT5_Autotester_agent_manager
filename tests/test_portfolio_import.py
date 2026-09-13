@@ -55,6 +55,20 @@ Conservador  ICTRADING    EURUSD       H1          1    0.01   alpha.set
 Conservador  ICTRADING    GBPUSD       H1          1    0.01   beta.set
 """
 
+IMPROVEMENT_SUMMARY = """Portafolio: Mejora del portafolio #73 | modo Moderado
+Tipo: balanced   Capital: 10,000
+Mejora origen: 73
+Mejora modo: balanced
+Mejora prioridad: stress
+Mejora incorporaciones: 1
+DD valle objetivo: 300.00
+DD puntual objetivo: 300.00
+
+PERFIL       CUENTA       SIMBOLO      TF      UNID.    LOTE   SET
+Moderado     ICTRADING    EURUSD       H1          2    0.02   alpha.set
+Moderado     ICTRADING    GBPUSD       H1          1    0.01   beta.set
+"""
+
 
 class SummaryParsingTests(unittest.TestCase):
     def test_the_header_and_every_row_are_read_from_the_exported_summary(self) -> None:
@@ -77,6 +91,26 @@ class SummaryParsingTests(unittest.TestCase):
         self.assertEqual(portfolio_import.variant_key_for("Moderado Gri", order), "balanced")
         self.assertEqual(portfolio_import.variant_key_for("Agresivo", order), "aggressive")
         self.assertEqual(portfolio_import.variant_key_for("Conservador", order), "conservative")
+
+    def test_improvement_identity_is_read_from_explicit_headers(self) -> None:
+        header, _members = portfolio_import.parse_summary(IMPROVEMENT_SUMMARY)
+
+        self.assertEqual(header["improvement_source_portfolio_id"], 73.0)
+        self.assertEqual(header["improvement_portfolio_type"], "balanced")
+        self.assertEqual(header["improvement_selection_priority"], "stress")
+        self.assertEqual(header["improvement_added_count"], 1.0)
+
+    def test_an_old_improvement_export_recovers_origin_and_mode_from_its_name(self) -> None:
+        old = IMPROVEMENT_SUMMARY.replace(
+            "Mejora origen: 73\nMejora modo: balanced\nMejora prioridad: stress\nMejora incorporaciones: 1\n",
+            "",
+        )
+
+        header, _members = portfolio_import.parse_summary(old)
+
+        self.assertEqual(header["improvement_source_portfolio_id"], 73.0)
+        self.assertEqual(header["improvement_portfolio_type"], "balanced")
+        self.assertNotIn("improvement_selection_priority", header)
 
     def test_a_set_name_with_spaces_survives_the_fixed_width_columns(self) -> None:
         line = "Moderado     ICTRADING    EURUSD       H1          2    0.02   nombre con espacios.set"
@@ -270,6 +304,99 @@ class ImportRoundTripTests(unittest.TestCase):
             # Y lo que motivaba todo esto: sus sets vuelven a estar comprometidos.
             used = {Path(path).name for path in source.used_set_paths("full_history")}
             self.assertEqual(used, {"alpha.set", "beta.set"})
+
+    def test_an_exported_improvement_keeps_all_its_visible_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            strategies = [
+                strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0),
+                strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+            ]
+            header, members = portfolio_import.parse_summary(IMPROVEMENT_SUMMARY)
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                return_value=(strategies, []),
+            ):
+                proposals, selected_key, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+                portfolio_id = save_proposal(source, proposals, selected_key, "full_history")
+
+            saved = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+            self.assertEqual(selected_key, "balanced")
+            self.assertEqual(saved["portfolio_type"], "balanced")
+            self.assertEqual(saved["improvement_origin"], {
+                "source_id": 73,
+                "mode": "balanced",
+                "priority": "stress",
+                "priority_label": "Menor estrés",
+                "added_count": 1,
+            })
+            self.assertFalse(saved["metrics"].get("portfolio_bundle", False))
+            self.assertEqual(report["improvement_origin"], {
+                "source_id": 73, "mode": "balanced",
+            })
+            for set_name in ("alpha.set", "beta.set"):
+                (project / set_name).write_text("Risk=1\n", encoding="utf-8")
+            exported = source.export_portfolio(
+                portfolio_id, "full_history", str(project / "exported")
+            )
+            exported_header, _members, _sets = portfolio_import.read_export(
+                exported["folder"]
+            )
+            self.assertEqual(exported_header["improvement_source_portfolio_id"], 73.0)
+            self.assertEqual(exported_header["improvement_portfolio_type"], "balanced")
+            self.assertEqual(exported_header["improvement_selection_priority"], "stress")
+            self.assertEqual(exported_header["improvement_added_count"], 1.0)
+
+    def test_an_old_improvement_export_recovers_added_count_from_its_base(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            with source.connect(write=True) as conn:
+                source_id = int(conn.execute(
+                    "insert into portfolios(created_at,name,type,portfolio_type,portfolio_scope,metrics_json) "
+                    "values(?,?,?,?,?,?)",
+                    ("2026-09-09", "Base", "bundle", "bundle", "full_history", "{}"),
+                ).lastrowid)
+                conn.execute(
+                    "insert into portfolio_allocations(portfolio_id,variant_key,variant_label,set_id,"
+                    "candidate_id,symbol,set_path,units,lot,net_profit_contribution,"
+                    "standalone_valley_dd,standalone_point_dd) values(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (source_id, "balanced", "Moderado", str(project / "alpha.set"),
+                     "ICTRADING/STANDARD:1", "EURUSD", str(project / "alpha.set"), 2, .02,
+                     100.0, 10.0, 5.0),
+                )
+                conn.commit()
+            old = IMPROVEMENT_SUMMARY.replace("#73", f"#{source_id}").replace(
+                "Mejora origen: 73\nMejora modo: balanced\nMejora prioridad: stress\nMejora incorporaciones: 1\n",
+                "",
+            )
+            header, members = portfolio_import.parse_summary(old)
+            strategies = [
+                strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0),
+                strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+            ]
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                return_value=(strategies, []),
+            ):
+                proposals, _selected_key, _report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+
+            audit = proposals[0]["result"].seasonal_validation["portfolio_improvement"]
+            self.assertEqual(audit["source_portfolio_id"], source_id)
+            self.assertEqual(audit["target_portfolio_type"], "balanced")
+            self.assertEqual(audit["added_count"], 1)
+            self.assertNotIn("selection_priority", audit)
 
     def test_the_numbers_are_recalculated_from_the_reports_not_copied_from_the_text(self) -> None:
         # El resumen dice net 4.120,55; las estrategias inyectadas dan otro

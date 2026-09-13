@@ -63,6 +63,21 @@ HEADER_KEYS = {
     "dd valle usado": "actual_valley_dd",
     "dd puntual usado": "actual_point_dd",
     "net profit total 2020-2026": "total_net_profit",
+    "mejora origen": "improvement_source_portfolio_id",
+    "mejora modo": "improvement_portfolio_type",
+    "mejora prioridad": "improvement_selection_priority",
+    "mejora incorporaciones": "improvement_added_count",
+}
+
+STRING_HEADER_KEYS = {
+    "name", "portfolio_type", "improvement_portfolio_type",
+    "improvement_selection_priority",
+}
+
+IMPROVEMENT_MODE_BY_LABEL = {
+    "agresivo": "aggressive",
+    "moderado": "balanced",
+    "conservador": "conservative",
 }
 
 
@@ -147,7 +162,23 @@ def parse_summary(text: str) -> tuple[dict[str, Any], list[ImportedMember]]:
             key = HEADER_KEYS.get(label.strip().lower())
             if not key:
                 continue
-            header[key] = value.strip() if key in {"name", "portfolio_type"} else _number(value)
+            header[key] = value.strip() if key in STRING_HEADER_KEYS else _number(value)
+    # Las exportaciones anteriores a la cabecera explicita ya llevaban el
+    # nombre visible resuelto por ``saved_portfolio_detail``. Esto permite
+    # recuperar origen y modo al reimportarlas, aunque la prioridad de
+    # seleccion no puede deducirse honestamente de la composicion final.
+    match = re.search(
+        r"^Mejora (?:de |del portafolio )#(\d+)\s*\|\s*(?:modo )?"
+        r"(Agresivo|Moderado|Conservador)\b",
+        str(header.get("name") or ""),
+        re.IGNORECASE,
+    )
+    if match:
+        header.setdefault("improvement_source_portfolio_id", float(match.group(1)))
+        header.setdefault(
+            "improvement_portfolio_type",
+            IMPROVEMENT_MODE_BY_LABEL[match.group(2).casefold()],
+        )
     return header, members
 
 
