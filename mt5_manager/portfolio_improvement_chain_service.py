@@ -13,25 +13,22 @@ Corregir eso dentro del motor base habría cambiado el comportamiento de la mejo
 que ya funciona. Por petición explícita del usuario, la cadena vive aquí, con su
 propia copia de la orquestación; el motor base queda intacto.
 
-Diferencias respecto al motor base — y **sólo** estas:
+Estado actual: el usuario pidió después llevar también al motor base el umbral
+elegible (`improvement_min_recent_contribution_pct`) y el reintento vetando la
+candidata de relleno. Así que **hoy los dos intentos son el mismo algoritmo** y
+esta copia no aporta ninguna diferencia de comportamiento; lo único que cambia es
+la etiqueta `engine`.
 
-1. `improvement_min_recent_contribution_pct` es una clave propia del diálogo. Sin
-   ella el umbral se heredaba en silencio de la variante guardada y no había
-   forma de tocarlo (de las claves de la petición sólo sobreviven al merge las
-   `improvement_*`). Ausente significa heredar, que es el comportamiento
-   anterior; `0` desactiva la puerta de forma explícita.
-2. Una incorporación por debajo del umbral ya no aborta el intento: se veta esa
-   candidata y se vuelve a seleccionar, hasta `MAX_FILLER_RETRIES` veces. El
-   motor base lanza `ValueError` a la primera y tira el tamaño entero sin probar
-   otra composición. La generación normal tampoco aborta: `_optimize_without_recent_fillers`
-   quita el relleno y reoptimiza.
-3. La auditoría, la disponibilidad y los inputs guardados conservan el umbral
-   efectivo y la lista de candidatas vetadas por esta razón.
-
-Lo demás es la misma orquestación: originales bloqueadas, búsqueda desde el
-mínimo de incorporaciones hasta el límite, prioridad de selección, comparación de
-estrés y persistencia como otro portafolio. Ver
+Eso no la hace inútil: es el sitio donde cambiar la cadena sin tocar la base. Pero
+mientras no diverja de verdad, cualquier arreglo tiene que entrar en las dos, y lo
+vigila `ChainForkParityTests` en `tests/test_portfolio_improvement_chain.py`,
+que compara por AST las funciones copiadas y el intento completo. El día que esta
+copia se separe a conciencia, se quita esa prueba y se documenta el porqué en
 `ai_context/portfolio_saved_base_improvement.md`.
+
+La orquestación es la de siempre: originales bloqueadas, búsqueda desde el mínimo
+de incorporaciones hasta el límite, prioridad de selección, comparación de estrés
+y persistencia como otro portafolio.
 
 El cálculo lo ejecuta el proceso manager; el nodo sólo persiste los inputs ya
 serializados, así que este fichero **no requiere port a `manager_node_runtime/`**.
@@ -533,13 +530,23 @@ def _generate_full_history_improvement_attempt(
     for retry in range(MAX_FILLER_RETRIES + 1):
         pool = [strategy for strategy in raw_sets if strategy.set_id not in banned]
         if len(pool) < minimum_target:
+            # Quedarse sin pool *por haber vetado* no es escasez de candidatas:
+            # la causa es el umbral, y el mensaje tiene que decir eso y no
+            # «solo hay 0 candidatas», que manda a buscar donde no está.
+            if banned:
+                raise ValueError(
+                    "Las incorporaciones no alcanzan el aporte mínimo Final Tick 6M "
+                    f"de {minimum_recent_pct:.1f}%: "
+                    + ", ".join(
+                        Path(value).name for value in sorted(set(rejected_fillers))
+                    )
+                    + f". Se agotaron las candidatas tras vetar {len(banned)}. Baja "
+                    "ese mínimo en el diálogo si quieres admitir aportaciones más "
+                    "pequeñas"
+                )
             raise ValueError(
                 f"Solo hay {len(pool) - len(original_ids)} candidatas nuevas con aporte "
                 f"Final Tick 6M positivo; se necesitan {minimum_target - len(original_ids)}"
-                + (
-                    f" (tras vetar {len(banned)} por aporte insuficiente)"
-                    if banned else ""
-                )
             )
 
         selector_kwargs = _optimizer_kwargs(inputs, base_type, existing, selection_reserve)

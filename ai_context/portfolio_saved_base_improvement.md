@@ -250,25 +250,42 @@ Tres causas encadenadas:
    las claves `improvement_*`, así que se heredaba en silencio de la variante
    guardada y no había forma de bajarlo.
 
-Las tres correcciones viven **sólo** en el motor de cadena:
+Las dos correcciones están en **los dos motores**. El usuario las pidió primero
+sólo para la cadena y después para la base: el umbral el 2026-09-13 y, a
+continuación, el reintento —«si es algo positivo»—. Lo es: explorar la
+composición siguiente del mismo tamaño no relaja ninguna restricción declarada.
 
-- `improvement_min_recent_contribution_pct`: clave propia del diálogo, visible
-  únicamente cuando el destino ya es una mejora. Ausente significa heredar —el
-  comportamiento del motor de base—; `0` desactiva la puerta explícitamente. Se
-  valida entre 0 y 100 antes del bucle de tamaños.
+- `improvement_min_recent_contribution_pct` es clave propia porque de la petición
+  sólo sobreviven al merge las `improvement_*`. Ausente significa heredar, que es
+  el comportamiento anterior; `0` desactiva la puerta explícitamente. Se valida
+  entre 0 y 100 antes del bucle de tamaños, no una vez por intento. El campo del
+  diálogo es el mismo para los dos motores: el usuario no tiene que saber cuál se
+  va a ejecutar.
 - Una incorporación por debajo del umbral se **veta y se vuelve a seleccionar**,
-  hasta `MAX_FILLER_RETRIES` (3). El error final nombra el umbral efectivo y
-  dice dónde bajarlo, en vez de afirmar que no hay mejora posible.
-- El umbral efectivo y las candidatas vetadas quedan en la auditoría
-  (`min_recent_contribution_pct`, `recent_contribution_rejections`, `engine`), en
-  la disponibilidad y en los inputs guardados.
+  hasta `MAX_FILLER_RETRIES` (3). Antes era un `raise` que tiraba el tamaño
+  entero, y su error se leía como «no hay mejora posible» cuando sólo significaba
+  «la primera composición que probé no vale».
+- Agotar el pool **a base de vetos** se comunica como fallo del umbral, no como
+  escasez de candidatas: el mensaje nombra las vetadas y dice dónde bajar el
+  mínimo. Decir «solo hay 0 candidatas» mandaba a buscar donde no estaba el
+  problema.
+- Los dos motores registran `min_recent_contribution_pct`,
+  `recent_contribution_rejections` y `engine` en auditoría, disponibilidad e
+  inputs guardados.
 
-Una mejora sobre base envía exactamente el mismo cuerpo que antes: el campo ni se
-enseña ni se manda. Lo comprueba `tests/test_portfolio_improvement_chain.py`, que
-además incluye `ChainForkParityTests`: compara por AST —ignorando docstrings— las
-doce funciones que son copia literal, para que una corrección en el motor de base
-obligue a decidir si se porta, en vez de descubrir la deriva meses después. Es la
-misma guarda mecánica que `test_node_runtime_fork_parity.py`, por la misma razón.
+Con esto los dos intentos son hoy **el mismo algoritmo**, y la bifurcación sólo
+conserva su propósito declarado: poder cambiar la cadena mañana sin tocar la
+base. Mientras no diverjan de verdad, cualquier arreglo entra en las dos, y eso
+lo vigila `tests/test_portfolio_improvement_chain.py`:
+
+- `ChainForkParityTests.test_shared_helpers_are_identical_in_both_engines` compara
+  por AST —ignorando docstrings— las trece funciones auxiliares copiadas.
+- `test_the_attempt_differs_only_in_the_engine_label` compara el intento completo
+  normalizando el literal `'base'`/`'chain'`. El día que una se separe a
+  conciencia, se quita esa prueba y se documenta aquí por qué.
+
+Es la misma guarda mecánica que `test_node_runtime_fork_parity.py`, por la misma
+razón: un fork sin guarda deriva en silencio.
 
 Coste asumido: ~800 líneas duplicadas. La alternativa era tocar el motor que ya
 funciona.
