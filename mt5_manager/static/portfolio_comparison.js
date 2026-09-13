@@ -10,12 +10,17 @@
     const sourceId = Number(portfolio.improvement_origin?.source_id || inputs.improvement_source_portfolio_id || audit.source_portfolio_id || match?.[1]);
     const namedMode = match && Object.keys(labels).find(key => labels[key].toLowerCase() === match[2].toLowerCase());
     const mode = portfolio.improvement_origin?.mode || inputs.improvement_portfolio_type || audit.target_portfolio_type || namedMode || portfolio.portfolio_type;
-    return Number.isInteger(sourceId) && sourceId > 0 && labels[mode] ? {sourceId, mode} : null;
+    const rootId = Number(portfolio.improvement_origin?.root_id || inputs.improvement_root_portfolio_id || audit.root_portfolio_id || sourceId);
+    const depth = Number(portfolio.improvement_origin?.depth || inputs.improvement_depth || audit.depth || 1);
+    const label = portfolio.improvement_origin?.label || inputs.improvement_label || audit.label || '';
+    return Number.isInteger(sourceId) && sourceId > 0 && labels[mode]
+      ? {sourceId, mode, rootId: Number.isInteger(rootId) && rootId > 0 ? rootId : sourceId, depth: Number.isInteger(depth) && depth > 0 ? depth : 1, label}
+      : null;
   }
 
   function label(portfolio) {
     const origin = lineage(portfolio);
-    return origin ? `Mejora del portafolio #${origin.sourceId} · modo ${labels[origin.mode]}` : '';
+    return origin ? (origin.label || `Mejora del portafolio #${origin.sourceId} · modo ${labels[origin.mode]}`) : '';
   }
 
   function selectedMode(portfolio, mode) {

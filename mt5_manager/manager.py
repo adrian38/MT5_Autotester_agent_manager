@@ -834,6 +834,12 @@ class ManagerHandler(BaseHTTPRequestHandler):
                     self._send_json(202, {"job": self.server.portfolios.start_saved_operation(
                         node_id, scope, portfolio_id, action, body or None
                     )})
+                elif action == "alias":
+                    portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=1)
+                    alias = self.server.portfolios.set_alias(
+                        node_id, scope, portfolio_id, body.get("alias")
+                    )
+                    self._send_json(200, {"portfolio_id": portfolio_id, "alias": alias})
                 elif action == "exclude":
                     if scope == "grid":
                         # El paquete Grid vive en la base del manager y la

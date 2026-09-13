@@ -85,6 +85,75 @@ IMPROVEMENT_PRIORITY_LABELS = {
     "efficiency": "Máxima eficiencia",
     "stress": "Menor estrés",
 }
+
+
+def _valid_portfolio_uid(value: Any) -> str:
+    """Return a canonical portable UUID or an empty string for legacy data."""
+    try:
+        return str(uuid.UUID(str(value or "")))
+    except (ValueError, TypeError, AttributeError):
+        return ""
+
+
+def _normalized_improvement_lineage(value: Any) -> list[dict[str, Any]]:
+    """Keep the portable, display-safe subset of an improvement ancestry."""
+    if not isinstance(value, list):
+        return []
+    lineage: list[dict[str, Any]] = []
+    seen: set[tuple[int, str]] = set()
+    for raw in value[:32]:
+        if not isinstance(raw, dict):
+            continue
+        portfolio_id = safe_int(raw.get("portfolio_id") or raw.get("id"), 0)
+        portfolio_uid = _valid_portfolio_uid(raw.get("portfolio_uid") or raw.get("uid"))
+        if portfolio_id <= 0 and not portfolio_uid:
+            continue
+        marker = (portfolio_id, portfolio_uid)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        row: dict[str, Any] = {"portfolio_id": portfolio_id}
+        if portfolio_uid:
+            row["portfolio_uid"] = portfolio_uid
+        label = str(raw.get("label") or "").strip()
+        if label:
+            row["label"] = label[:240]
+        mode = str(raw.get("mode") or "").strip().lower()
+        if mode in TYPE_LABELS:
+            row["mode"] = mode
+        lineage.append(row)
+    return lineage
+
+
+def _portable_portfolio_uid(detail: dict[str, Any]) -> str:
+    """Identify a portfolio across exports even when its local numeric id changes."""
+    metrics = detail.get("metrics") if isinstance(detail.get("metrics"), dict) else {}
+    inputs = metrics.get("inputs") if isinstance(metrics.get("inputs"), dict) else {}
+    audit = (metrics.get("seasonal_validation") or {}).get("portfolio_improvement") or {}
+    stored = _valid_portfolio_uid(inputs.get("portfolio_uid") or audit.get("portfolio_uid"))
+    if stored:
+        return stored
+    members = sorted(
+        (
+            Path(str(member.get("set_path") or member.get("set_id") or "")).name.casefold(),
+            str(member.get("variant_key") or ""),
+            safe_int(member.get("units"), 0),
+        )
+        for member in detail.get("members") or []
+    )
+    identity = json.dumps(
+        {
+            "legacy_id": safe_int(detail.get("id"), 0),
+            "created_at": str(detail.get("created_at") or ""),
+            "name": str(detail.get("name") or ""),
+            "portfolio_type": str(detail.get("portfolio_type") or ""),
+            "members": members,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"mt5-ubs-portfolio:{identity}"))
 LOCKED_VARIANTS = (
     ("aggressive", "Agresivo", PortfolioType.AGGRESSIVE),
     ("balanced", "Moderado", PortfolioType.BALANCED),
@@ -281,6 +350,18 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     return conn.execute("select 1 from sqlite_master where type='table' and name=?", (table,)).fetchone() is not None
+
+
+def normalize_portfolio_alias(value: Any) -> str:
+    """Normalize the optional human label without changing portfolio identity."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("El alias del portafolio debe ser texto")
+    alias = " ".join(value.split())
+    if len(alias) > 80:
+        raise ValueError("El alias del portafolio no puede superar 80 caracteres")
+    return alias
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -1317,11 +1398,37 @@ class PortfolioSource:
                 try:
                     metrics = json.loads(value(row, "metrics_json", "{}") or "{}")
                     inputs = metrics.get("inputs") or {}
+                    portfolio["alias"] = normalize_portfolio_alias(inputs.get("portfolio_alias"))
                     audit = (metrics.get("seasonal_validation") or {}).get("portfolio_improvement") or {}
                     source_id = int(inputs.get("improvement_source_portfolio_id") or audit.get("source_portfolio_id") or 0)
                     mode = inputs.get("improvement_portfolio_type") or audit.get("target_portfolio_type") or inputs.get("portfolio_type")
                     if source_id > 0 and mode in TYPE_LABELS:
                         origin = {"source_id": source_id, "mode": mode}
+                        source_uid = _valid_portfolio_uid(
+                            inputs.get("improvement_parent_uid") or audit.get("parent_uid")
+                        )
+                        if source_uid:
+                            origin["source_uid"] = source_uid
+                        root_id = safe_int(
+                            inputs.get("improvement_root_portfolio_id")
+                            or audit.get("root_portfolio_id")
+                            or source_id,
+                            source_id,
+                        )
+                        origin["root_id"] = root_id
+                        root_uid = _valid_portfolio_uid(
+                            inputs.get("improvement_root_uid") or audit.get("root_uid")
+                        )
+                        if root_uid:
+                            origin["root_uid"] = root_uid
+                        origin["depth"] = max(
+                            1, safe_int(inputs.get("improvement_depth") or audit.get("depth"), 1)
+                        )
+                        lineage = _normalized_improvement_lineage(
+                            inputs.get("improvement_lineage") or audit.get("lineage")
+                        )
+                        if lineage:
+                            origin["lineage"] = lineage
                         # Con qué criterio se eligió esta mejora. Sin él, dos
                         # mejoras del mismo portafolio y modo son idénticas en
                         # la lista aunque una venga de maximizar beneficio/DD y
@@ -1338,7 +1445,13 @@ class PortfolioSource:
                         if added is not None:
                             origin["added_count"] = int(added)
                         portfolio["improvement_origin"] = origin
-                        portfolio["name"] = f"Mejora del portafolio #{source_id} | modo {TYPE_LABELS[mode]}"
+                        visible_label = str(
+                            inputs.get("improvement_label")
+                            or audit.get("label")
+                            or f"Mejora del portafolio #{source_id} | modo {TYPE_LABELS[mode]}"
+                        ).strip()
+                        origin["label"] = visible_label
+                        portfolio["name"] = visible_label
                 except (ValueError, TypeError, AttributeError):
                     pass
         return {
@@ -1406,6 +1519,38 @@ class PortfolioSource:
         selected["versions"] = versions
         selected["decisions"] = decisions
         return {"node": listing["node"], "scope": listing["scope"], "portfolio": selected, "observed_at": utc_now()}
+
+    def set_portfolio_alias(self, portfolio_id: int, scope: str, alias: Any) -> str:
+        """Persist an optional display alias inside metrics.inputs."""
+        portfolio_scope = normalize_portfolio_scope(scope)
+        if portfolio_scope != "full_history":
+            raise ValueError("El alias solo está disponible en Portafolio UBS")
+        normalized = normalize_portfolio_alias(alias)
+        with self.connect(write=True) as conn:
+            row = conn.execute(
+                "select metrics_json from portfolios where id=? and "
+                "coalesce(nullif(portfolio_scope,''),'full_history')=?",
+                (portfolio_id, portfolio_scope),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"No existe el portafolio #{portfolio_id} en este ámbito")
+            try:
+                parsed = json.loads(row["metrics_json"] or "{}")
+                metrics = parsed if isinstance(parsed, dict) else {}
+            except (TypeError, json.JSONDecodeError):
+                metrics = {}
+            inputs = metrics.get("inputs") if isinstance(metrics.get("inputs"), dict) else {}
+            metrics["inputs"] = inputs
+            if normalized:
+                inputs["portfolio_alias"] = normalized
+            else:
+                inputs.pop("portfolio_alias", None)
+            conn.execute(
+                "update portfolios set metrics_json=? where id=?",
+                (json.dumps(metrics, ensure_ascii=True, separators=(",", ":")), portfolio_id),
+            )
+            conn.commit()
+        return normalized
 
     def saved_inputs(self, portfolio_id: int, scope: str) -> dict[str, Any]:
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
@@ -1836,6 +1981,53 @@ class PortfolioSource:
             "UNID. y LOTE son la asignación informativa calculada por el portafolio.", "",
             f"{'PERFIL':12s} {'CUENTA':12s} {'SIMBOLO':12s} {'TF':5s} {'UNID.':>7s} {'LOTE':>7s}   SET",
         ]
+        if scope == "full_history":
+            lines[2:2] = [f"Portafolio UID: {_portable_portfolio_uid(detail)}"]
+            alias = normalize_portfolio_alias(detail.get("alias"))
+            if alias:
+                lines[2:2] = [f"Alias: {alias}"]
+        origin = detail.get("improvement_origin") or {}
+        source_id = safe_int(origin.get("source_id"), 0)
+        mode = str(origin.get("mode") or "")
+        if scope == "full_history" and source_id > 0 and mode in TYPE_LABELS:
+            improvement_lines = [
+                f"Mejora etiqueta: {str(origin.get('label') or detail.get('name') or '')}",
+                f"Mejora origen: {source_id}",
+                f"Mejora modo: {mode}",
+            ]
+            source_uid = _valid_portfolio_uid(origin.get("source_uid"))
+            if source_uid:
+                improvement_lines.append(f"Mejora origen UID: {source_uid}")
+            improvement_lines.extend([
+                f"Mejora raiz: {safe_int(origin.get('root_id'), source_id)}",
+                f"Mejora nivel: {max(1, safe_int(origin.get('depth'), 1))}",
+            ])
+            root_uid = _valid_portfolio_uid(origin.get("root_uid"))
+            if root_uid:
+                improvement_lines.append(f"Mejora raiz UID: {root_uid}")
+            lineage = _normalized_improvement_lineage(origin.get("lineage"))
+            if lineage:
+                improvement_lines.append(
+                    "Mejora linaje JSON: "
+                    + json.dumps(lineage, ensure_ascii=True, separators=(",", ":"))
+                )
+            audit = ((detail.get("metrics") or {}).get("seasonal_validation") or {}).get("portfolio_improvement") or {}
+            snapshot = audit.get("source_snapshot")
+            if isinstance(snapshot, dict):
+                improvement_lines.append(
+                    "Mejora snapshot JSON: "
+                    + json.dumps(snapshot, ensure_ascii=True, separators=(",", ":"))
+                )
+            priority = str(origin.get("priority") or "")
+            if priority in IMPROVEMENT_PRIORITY_LABELS:
+                improvement_lines.append(f"Mejora prioridad: {priority}")
+            if origin.get("added_count") is not None:
+                improvement_lines.append(
+                    f"Mejora incorporaciones: {safe_int(origin.get('added_count'), 0)}"
+                )
+            # Mantener estos campos junto a la cabecera: ``parse_summary`` deja
+            # de interpretar metadatos en cuanto empieza la tabla de sets.
+            lines[2:2] = improvement_lines
         for item in exported:
             lines.append(f"{str(item['variant'])[:12]:12s} {str(item['account'])[:12]:12s} {str(item['symbol']):12s} {str(item['timeframe']):5s} {item['units']:7d} {item['lot']:7.2f}   {item['set']}")
         if missing:
@@ -3327,6 +3519,107 @@ def build_import_proposals(
         proposals.append({"key": key, "label": label.strip() or key, "inputs": inputs, "result": result})
     if not proposals:
         raise ValueError("El resumen no dejó ninguna variante reconstruible")
+    exported_uid = _valid_portfolio_uid(header.get("portfolio_uid"))
+    if exported_uid:
+        for proposal in proposals:
+            proposal.setdefault("inputs", {})["portfolio_uid"] = exported_uid
+    imported_alias = normalize_portfolio_alias(header.get("portfolio_alias"))
+    if scope == "full_history" and imported_alias:
+        for proposal in proposals:
+            proposal.setdefault("inputs", {})["portfolio_alias"] = imported_alias
+    improvement_source_id = safe_int(header.get("improvement_source_portfolio_id"), 0)
+    improvement_mode = str(header.get("improvement_portfolio_type") or "").strip().lower()
+    if scope == "full_history" and improvement_source_id > 0:
+        if improvement_mode not in TYPE_LABELS:
+            raise ValueError("La exportación identifica una mejora, pero no conserva un modo válido")
+        if len(proposals) != 1 or str(proposals[0]["key"]) != improvement_mode:
+            raise ValueError(
+                "La identidad de mejora de la exportación no coincide con su composición: "
+                f"esperaba solo el modo {TYPE_LABELS[improvement_mode]}"
+            )
+        proposal = proposals[0]
+        proposal_inputs = proposal["inputs"]
+        proposal_inputs["portfolio_type"] = improvement_mode
+        proposal_inputs["composition_portfolio_type"] = improvement_mode
+        proposal_inputs["improvement_source_portfolio_id"] = improvement_source_id
+        proposal_inputs["improvement_portfolio_type"] = improvement_mode
+        portfolio_uid = exported_uid
+        if portfolio_uid:
+            proposal_inputs["portfolio_uid"] = portfolio_uid
+        label = str(header.get("improvement_label") or "").strip()
+        if label:
+            proposal_inputs["improvement_label"] = label[:240]
+        parent_uid = _valid_portfolio_uid(header.get("improvement_parent_uid"))
+        if parent_uid:
+            proposal_inputs["improvement_parent_uid"] = parent_uid
+        root_id = safe_int(header.get("improvement_root_portfolio_id"), improvement_source_id)
+        proposal_inputs["improvement_root_portfolio_id"] = root_id or improvement_source_id
+        root_uid = _valid_portfolio_uid(header.get("improvement_root_uid"))
+        if root_uid:
+            proposal_inputs["improvement_root_uid"] = root_uid
+        depth = max(1, safe_int(header.get("improvement_depth"), 1))
+        proposal_inputs["improvement_depth"] = depth
+        lineage = _normalized_improvement_lineage(header.get("improvement_lineage"))
+        if lineage:
+            proposal_inputs["improvement_lineage"] = lineage
+        priority = str(header.get("improvement_selection_priority") or "").strip().lower()
+        if priority:
+            if priority not in IMPROVEMENT_PRIORITY_LABELS:
+                raise ValueError("La exportación conserva una prioridad de mejora desconocida")
+            proposal_inputs["improvement_selection_priority"] = priority
+        added_value = header.get("improvement_added_count")
+        added_count = safe_int(added_value, -1) if added_value is not None else -1
+        if added_count < 0:
+            # Formato antiguo: origen y modo podían estar en el nombre, pero no
+            # el número de incorporaciones. Si la base sigue guardada se puede
+            # reconstruir sin inferir ninguna decisión del optimizador.
+            try:
+                base = source.saved_portfolio_detail(
+                    improvement_source_id, "full_history"
+                )["portfolio"]
+                base_members = base.get("members") or []
+                if str(base.get("portfolio_type") or "") == "bundle":
+                    base_members = [
+                        member for member in base_members
+                        if str(member.get("variant_key") or "") == improvement_mode
+                    ]
+                base_names = {
+                    Path(str(member.get("set_path") or member.get("set_id") or "")).name.casefold()
+                    for member in base_members
+                    if int(member.get("units") or 0) > 0
+                }
+                improved_names = {
+                    Path(str(allocation.set_path or allocation.set_id)).name.casefold()
+                    for allocation in proposal["result"].allocations
+                    if allocation.units > 0
+                }
+                if base_names and base_names <= improved_names:
+                    added_count = len(improved_names - base_names)
+            except (ValueError, TypeError, OSError):
+                pass
+        audit: dict[str, Any] = {
+            "source_portfolio_id": improvement_source_id,
+            "target_portfolio_type": improvement_mode,
+            "imported_lineage": True,
+            "portfolio_uid": portfolio_uid,
+            "label": label,
+            "parent_uid": parent_uid,
+            "root_portfolio_id": root_id or improvement_source_id,
+            "root_uid": root_uid,
+            "depth": depth,
+            "lineage": lineage,
+        }
+        snapshot = header.get("improvement_source_snapshot")
+        if isinstance(snapshot, dict):
+            audit["source_snapshot"] = snapshot
+        if priority:
+            audit["selection_priority"] = priority
+        if added_count >= 0:
+            audit["added_count"] = added_count
+        proposal["result"].seasonal_validation = {
+            **(proposal["result"].seasonal_validation or {}),
+            "portfolio_improvement": audit,
+        }
     if scope == "full_history" and len(proposals) > 1:
         # `save_proposal` exige que las tres variantes A/M/C compartan
         # composición, y un paquete guardado siempre la comparte: solo cambian
@@ -3356,6 +3649,10 @@ def build_import_proposals(
         "skipped": skipped,
         "warnings": warnings,
         "target_month": target_month,
+        "improvement_origin": {
+            "source_id": improvement_source_id,
+            "mode": improvement_mode,
+        } if improvement_source_id > 0 and improvement_mode in TYPE_LABELS else None,
     }
     return proposals, selected_key, report
 
@@ -3438,7 +3735,7 @@ def save_proposal(
     elif standalone_improvement:
         metrics = _result_metrics(selected_inputs, selected_result)
         row_type = str(selected_inputs["portfolio_type"])
-        name = f"Mejora de #{int(selected_inputs['improvement_source_portfolio_id'])} | {TYPE_LABELS[row_type]} | {datetime.now():%d.%m.%Y %H:%M}"
+        name = str(selected_inputs.get("improvement_label") or "").strip() or f"Mejora de #{int(selected_inputs['improvement_source_portfolio_id'])} | {TYPE_LABELS[row_type]} | {datetime.now():%d.%m.%Y %H:%M}"
     elif scope == "monthly":
         metrics = _result_metrics(selected_inputs, selected_result)
         row_type = str(selected_inputs["portfolio_type"])
@@ -4112,6 +4409,34 @@ class PortfolioCoordinator:
     def saved(self, node_id: str, scope: str, portfolio_id: int | None = None) -> dict[str, Any]:
         source = self._persistence_source(node_id, scope)
         return source.saved_portfolio_detail(portfolio_id, scope) if portfolio_id is not None else source.saved_portfolios(scope)
+
+    def set_alias(self, node_id: str, scope: str, portfolio_id: int, alias: Any) -> str:
+        """Write the alias where the portfolio DB is locally owned."""
+        scope = normalize_portfolio_scope(scope)
+        if scope != "full_history":
+            raise ValueError("El alias solo está disponible en Portafolio UBS")
+        normalized = normalize_portfolio_alias(alias)
+        node = self._node(node_id)
+        base_url = str(node.get("url") or "").rstrip("/")
+        if base_url.startswith(("http://", "https://")):
+            status, value = self._post_to_node(
+                node,
+                "/api/v1/portfolios/alias",
+                {"scope": scope, "portfolio_id": portfolio_id, "alias": normalized},
+            )
+            if status == 404:
+                raise ValueError(
+                    "El nodo todavía no admite alias de portafolio; actualiza su código y reinícialo."
+                )
+            if status >= 400 or not isinstance(value, dict):
+                error = value.get("error") if isinstance(value, dict) else value
+                raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+            if safe_int(value.get("portfolio_id"), 0) != portfolio_id or value.get("alias") != normalized:
+                raise ValueError("El nodo no confirmó correctamente el alias del portafolio")
+        else:
+            normalized = PortfolioSource(node).set_portfolio_alias(portfolio_id, scope, normalized)
+        self._invalidate_node_snapshots(node_id)
+        return normalized
 
     def _quarantine_grid_set(self, node_id: str, set_path: str, reason: str, reason_code: str = "manual") -> int:
         """Quarantine one set in the manager's own Grid database.

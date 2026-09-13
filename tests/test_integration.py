@@ -771,6 +771,21 @@ enabled=0
         self.assertEqual(body, archive["content"])
         export_archive.assert_called_once_with("test-node", "full_history", 9)
 
+    def test_portfolio_alias_is_saved_through_the_coordinator(self) -> None:
+        with mock.patch.object(
+            self.manager.portfolios, "set_alias", return_value="Londres estable"
+        ) as set_alias:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/alias",
+                {"scope": "full_history", "portfolio_id": 36, "alias": "Londres estable"},
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, {"portfolio_id": 36, "alias": "Londres estable"})
+        set_alias.assert_called_once_with(
+            "test-node", "full_history", 36, "Londres estable"
+        )
+
     def test_batch_exclusion_is_forwarded_to_the_node_api(self) -> None:
         node_result = {
             "quarantine_ids": [4, 7],

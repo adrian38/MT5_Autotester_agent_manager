@@ -7,12 +7,13 @@ optimizador vuelve a proponer las mismas estrategias.
 
 ## De dónde sale la información
 
-De la carpeta de exportación tal y como la escribe hoy `export_portfolio`, sin
-formato nuevo: los `.set` copiados y el `PORTAFOLIO_<id>_resumen.txt`, que trae
-capital, DD objetivo y usado, net total y una fila por estrategia con perfil,
-cuenta, símbolo, timeframe, unidades, lote y nombre del set. Eso vale para
-exportaciones **ya hechas**, que es justo lo que hay cuando el portafolio ya se
-borró.
+De la carpeta de exportación tal y como la escribe `export_portfolio`: los
+`.set` copiados y el `PORTAFOLIO_<id>_resumen.txt`, que trae capital, DD objetivo
+y usado, net total y una fila por estrategia con perfil, cuenta, símbolo,
+timeframe, unidades, lote y nombre del set. Las cabeceras opcionales nuevas
+transportan identidad y linaje; su ausencia mantiene compatibles las
+exportaciones antiguas, que es justo lo que puede quedar cuando el portafolio ya
+se borró.
 
 ## Por qué el resultado es un portafolio normal y no una copia degradada
 
@@ -42,6 +43,7 @@ una guardada de forma normal, con sus variantes A/M/C, sus métricas y su
 """
 from __future__ import annotations
 
+import json
 import re
 import tempfile
 import zipfile
@@ -56,6 +58,7 @@ TABLE_HEADER = "PERFIL"
 #: Cabecera del resumen -> clave interna. El texto lo escribe `export_portfolio`.
 HEADER_KEYS = {
     "portafolio": "name",
+    "alias": "portfolio_alias",
     "tipo": "portfolio_type",
     "capital": "capital",
     "dd valle objetivo": "target_valley_dd",
@@ -63,6 +66,31 @@ HEADER_KEYS = {
     "dd valle usado": "actual_valley_dd",
     "dd puntual usado": "actual_point_dd",
     "net profit total 2020-2026": "total_net_profit",
+    "mejora origen": "improvement_source_portfolio_id",
+    "mejora modo": "improvement_portfolio_type",
+    "mejora prioridad": "improvement_selection_priority",
+    "mejora incorporaciones": "improvement_added_count",
+    "portafolio uid": "portfolio_uid",
+    "mejora etiqueta": "improvement_label",
+    "mejora origen uid": "improvement_parent_uid",
+    "mejora raiz": "improvement_root_portfolio_id",
+    "mejora raiz uid": "improvement_root_uid",
+    "mejora nivel": "improvement_depth",
+    "mejora linaje json": "improvement_lineage",
+    "mejora snapshot json": "improvement_source_snapshot",
+}
+
+STRING_HEADER_KEYS = {
+    "name", "portfolio_alias", "portfolio_type", "improvement_portfolio_type",
+    "improvement_selection_priority", "portfolio_uid", "improvement_label",
+    "improvement_parent_uid", "improvement_root_uid", "improvement_lineage",
+    "improvement_source_snapshot",
+}
+
+IMPROVEMENT_MODE_BY_LABEL = {
+    "agresivo": "aggressive",
+    "moderado": "balanced",
+    "conservador": "conservative",
 }
 
 
@@ -147,7 +175,36 @@ def parse_summary(text: str) -> tuple[dict[str, Any], list[ImportedMember]]:
             key = HEADER_KEYS.get(label.strip().lower())
             if not key:
                 continue
-            header[key] = value.strip() if key in {"name", "portfolio_type"} else _number(value)
+            header[key] = value.strip() if key in STRING_HEADER_KEYS else _number(value)
+    # Las exportaciones anteriores a la cabecera explicita ya llevaban el
+    # nombre visible resuelto por ``saved_portfolio_detail``. Esto permite
+    # recuperar origen y modo al reimportarlas, aunque la prioridad de
+    # seleccion no puede deducirse honestamente de la composicion final.
+    match = re.search(
+        r"^Mejora (?:de |del portafolio )#(\d+)\s*\|\s*(?:modo )?"
+        r"(Agresivo|Moderado|Conservador)\b",
+        str(header.get("name") or ""),
+        re.IGNORECASE,
+    )
+    if match:
+        header.setdefault("improvement_source_portfolio_id", float(match.group(1)))
+        header.setdefault(
+            "improvement_portfolio_type",
+            IMPROVEMENT_MODE_BY_LABEL[match.group(2).casefold()],
+        )
+    for key, expected in (
+        ("improvement_lineage", list),
+        ("improvement_source_snapshot", dict),
+    ):
+        if key not in header:
+            continue
+        try:
+            value = json.loads(str(header[key]))
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ImportError_(f"El resumen contiene {key} no válido") from exc
+        if not isinstance(value, expected):
+            raise ImportError_(f"El resumen contiene {key} con un tipo no válido")
+        header[key] = value
     return header, members
 
 

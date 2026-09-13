@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +38,10 @@ from .portfolio_service import (
     TYPE_LABELS,
     PortfolioSource,
     _is_bundle_portfolio,
+    _normalized_improvement_lineage,
     _optimizer_kwargs,
+    _portable_portfolio_uid,
+    _valid_portfolio_uid,
     _resolve_source_path,
     _reserve_pct,
     _seasonal_coverage,
@@ -53,6 +57,61 @@ MAX_IMPROVEMENT_ADDITIONS = 5
 #: Las claves validas y su etiqueta visible, en un solo sitio: el formulario,
 #: la auditoria guardada y el listado tienen que llamar igual a lo mismo.
 IMPROVEMENT_SELECTION_PRIORITIES = IMPROVEMENT_PRIORITY_LABELS
+
+
+def _lineage_from_parent(
+    detail: dict[str, Any], portfolio_id: int, target: str,
+) -> dict[str, Any]:
+    """Build root -> immediate-parent ancestry without trusting local ids alone."""
+    metrics = detail.get("metrics") if isinstance(detail.get("metrics"), dict) else {}
+    saved = metrics.get("inputs") if isinstance(metrics.get("inputs"), dict) else {}
+    audit = (metrics.get("seasonal_validation") or {}).get("portfolio_improvement") or {}
+    origin = detail.get("improvement_origin") if isinstance(detail.get("improvement_origin"), dict) else {}
+    parent_source_id = int(
+        saved.get("improvement_source_portfolio_id")
+        or audit.get("source_portfolio_id")
+        or origin.get("source_id")
+        or 0
+    )
+    parent_depth = int(saved.get("improvement_depth") or audit.get("depth") or (1 if parent_source_id else 0))
+    root_id = int(
+        saved.get("improvement_root_portfolio_id")
+        or audit.get("root_portfolio_id")
+        or origin.get("root_id")
+        or parent_source_id
+        or portfolio_id
+    )
+    parent_uid = _portable_portfolio_uid(detail)
+    root_uid = _valid_portfolio_uid(
+        saved.get("improvement_root_uid")
+        or audit.get("root_uid")
+        or origin.get("root_uid")
+        or ""
+    )
+    if not root_uid and root_id == portfolio_id:
+        root_uid = parent_uid
+    lineage = _normalized_improvement_lineage(
+        saved.get("improvement_lineage") or audit.get("lineage") or origin.get("lineage")
+    )
+    if not lineage and parent_source_id > 0:
+        lineage.append({"portfolio_id": parent_source_id, "label": f"Portafolio #{parent_source_id}"})
+    if not root_uid and lineage and int(lineage[0].get("portfolio_id") or 0) == root_id:
+        root_uid = str(lineage[0].get("portfolio_uid") or "")
+    parent_entry = {
+        "portfolio_id": portfolio_id,
+        "portfolio_uid": parent_uid,
+        "label": str(detail.get("name") or f"Portafolio #{portfolio_id}"),
+        "mode": target,
+    }
+    if not lineage or int(lineage[-1].get("portfolio_id") or 0) != portfolio_id:
+        lineage.append(parent_entry)
+    return {
+        "improvement_parent_uid": parent_uid,
+        "improvement_root_portfolio_id": root_id,
+        "improvement_root_uid": root_uid,
+        "improvement_depth": parent_depth + 1,
+        "improvement_lineage": lineage,
+    }
 
 
 def minimum_additions(inputs: dict[str, Any]) -> int:
@@ -315,6 +374,7 @@ def _generate_full_history_improvement_attempt(
     """Improve only the selected saved variant and propose a new portfolio."""
     target = str(inputs["portfolio_type"])
     detail = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+    lineage = _lineage_from_parent(detail, portfolio_id, target)
     variant = (detail.get("metrics") or {}).get("variants", {}).get(target, {})
     saved_inputs = variant.get("inputs") or {}
     inputs = {
@@ -487,11 +547,23 @@ def _generate_full_history_improvement_attempt(
     audit["margin_profile"] = str(inputs.get("margin_profile") or "")
     audit["source_portfolio_id"] = portfolio_id
     audit["save_as_new"] = True
+    audit.update({
+        "portfolio_uid": str(inputs["_improvement_portfolio_uid"]),
+        "label": f"Mejora del portafolio #{portfolio_id} | modo {TYPE_LABELS[target]}",
+        "parent_uid": lineage["improvement_parent_uid"],
+        "root_portfolio_id": lineage["improvement_root_portfolio_id"],
+        "root_uid": lineage["improvement_root_uid"],
+        "depth": lineage["improvement_depth"],
+        "lineage": lineage["improvement_lineage"],
+    })
     # Preserve the exact selected-mode baseline for the saved comparison, even
     # if the original portfolio is later changed or deleted.
     audit["source_snapshot"] = {
         "id": portfolio_id,
+        "portfolio_uid": lineage["improvement_parent_uid"],
         "portfolio_type": target,
+        "label": str(detail.get("name") or f"Portafolio #{portfolio_id}"),
+        "improvement_origin": dict(detail.get("improvement_origin") or {}),
         "captured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "capital": float(inputs["capital"]),
         "total_net_profit": float(baseline.total_net_profit),
@@ -518,6 +590,9 @@ def _generate_full_history_improvement_attempt(
             "improvement_original_count": len(original_ids),
             "improvement_added_count": actual_additions,
             "improvement_max_additions": options.max_additions,
+            "portfolio_uid": str(inputs["_improvement_portfolio_uid"]),
+            "improvement_label": audit["label"],
+            **lineage,
         }
     )
     proposals.append(
@@ -584,6 +659,7 @@ def generate_full_history_improvement(
     # reimpone el intento cuando nadie elige nada.
     if inputs.get("improvement_margin_profile"):
         inputs["improvement_margin_profile"] = margin_profile
+    inputs.setdefault("_improvement_portfolio_uid", str(uuid.uuid4()))
     failures: list[str] = []
     best = None
     best_rank: tuple[float, ...] | None = None

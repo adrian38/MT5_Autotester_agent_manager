@@ -43,3 +43,5 @@
    abre el laboratorio en otra pestaña y no dispara ninguna acción aquí. */
 .experiment-link{background:linear-gradient(135deg,#2b1a4d,#123c33);color:var(--accent2);border:1px solid #4b3a7a}
 .experiment-link:hover{filter:brightness(1.25)}
+
+.portfolio-alias{margin:5px 0 3px;color:var(--accent2);font-size:16px;font-weight:700;letter-spacing:.01em}

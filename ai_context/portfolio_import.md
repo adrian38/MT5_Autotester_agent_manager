@@ -45,6 +45,42 @@ texto, el número coincidiría y la prueba fallaría.
 | Sets cuyo candidato ya no existe | Sin informes no hay nada que reconstruir. Se nombran en el resultado (`unresolved`) en vez de desaparecer. |
 | Mes objetivo, si el nombre no lo lleva | No es un campo del resumen: viaja en el nombre («Moderado \| Mes 08 \| …»). Sin él, un mensual se evaluaría sobre la curva completa; `_imported_target_month` lo extrae de ahí. |
 
+## Identidad de una mejora exportada
+
+Desde 2026-09-13 la cabecera del resumen conserva explícitamente el portafolio
+origen, el modo, la prioridad de selección y el número de incorporaciones. Al
+importar UBS normal, esos campos vuelven a `metrics.inputs` y a
+`seasonal_validation.portfolio_improvement`; por eso la fila se guarda como una
+mejora independiente y la interfaz recupera el nombre, la prioridad, el `+N` y
+la comparación con el original.
+
+Las exportaciones anteriores pueden recuperar origen y modo si su línea
+`Portafolio:` ya decía «Mejora de #X | Modo»; si el original aún existe, también
+se reconstruye `added_count` comparando composiciones. La prioridad no se deduce
+de la composición porque varias prioridades pueden producir el mismo resultado.
+Este comportamiento se limita a `full_history`; mensual continúa sin cambios.
+
+### Mejora de una mejora y etiquetas portables (2026-09-13)
+
+Una mejora de segundo nivel ya no pierde su historia al viajar. El resumen
+conserva la etiqueta visible, un UUID portable de la cartera, UUID del padre y
+de la raíz, profundidad, cadena ordenada de ancestros y el snapshot completo del
+padre inmediato. La importación vuelve a guardar esos campos tanto en `inputs`
+como en la auditoría; por ello una cadena `#14 -> #36 -> nueva` sigue mostrando
+«Mejora del portafolio #36 | modo Moderado», raíz `#14` y nivel 2 aunque el
+destino le asigne otro id local o no tenga guardado el #36.
+
+Los ids `#N` se conservan como etiquetas históricas, pero la identidad entre
+memorias se apoya en UUID. Para carteras antiguas sin UUID, la primera
+exportación calcula uno determinista a partir de la fila y su composición. Los
+resúmenes antiguos, sin estos campos, siguen entrando con origen/modo como
+antes. El snapshot exportado permite comparar contra el padre sin consultar una
+fila local que casualmente tenga el mismo número.
+
+La escritura del nombre real ocurre en el nodo embebido. En `dev` se actualizó
+la copia ICTrading autorizada para usar `improvement_label` cuando existe; AXI y
+RoboForex quedan pendientes del port que realiza el usuario.
+
 Un nombre de set que aparece en dos candidatos distintos se marca `ambiguous` y
 se deja fuera: elegir uno al azar comprometería el set equivocado.
 
@@ -99,8 +135,9 @@ conserva su base propia en el manager mediante `_persistence_source`.
 
 ## Pruebas
 
-`tests/test_portfolio_import.py` (12): parseo del resumen, carpeta y ZIP leyendo
+`tests/test_portfolio_import.py`: parseo del resumen, carpeta y ZIP leyendo
 lo mismo, ida y vuelta completa hasta `save_proposal`, sets comprometidos después
-de importar, números recalculados y no copiados, y los errores con mensaje.
+de importar, números recalculados y no copiados, errores con mensaje, y una ida
+y vuelta de mejora encadenada que conserva etiqueta, raíz, nivel y snapshot.
 `tests/test_static_portfolios.py::PortfolioImportScreenTests` fija el botón y el
 transporte en los tres ámbitos.
