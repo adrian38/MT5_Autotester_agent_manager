@@ -301,6 +301,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("member.variant_key === selectedDetailVariant", script)
         self.assertIn("metrics: selectedDetailVariant ? variant : metrics", script)
         self.assertIn("display_variant_label: shownLabel", script)
+        self.assertIn("'Apalancamiento de cuenta'", script)
+        self.assertIn("shownInputs.account_leverage || shownMargin.account_leverage", script)
+        self.assertIn("portfolioData.node?.broker", script)
         self.assertNotIn("function renderSavedVariant", monthly)
 
     def test_monthly_members_support_batch_selection_like_the_ubs_ones(self) -> None:

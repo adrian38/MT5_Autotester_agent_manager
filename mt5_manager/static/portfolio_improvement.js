@@ -18,8 +18,9 @@
         <label>Mejora mínima beneficio/DD %<input name="improvement_min_efficiency_gain_pct" type="number" min="0" max="25" step="0.1" value="3" required></label>
         <label>Prioridad de selección<select name="improvement_selection_priority" required><option value="balanced" selected>Equilibrada</option><option value="efficiency">Máxima eficiencia</option><option value="stress">Menor estrés</option></select></label>
         <label>Perfil de margen<select name="improvement_margin_profile" required><option value="ictrading">ICTRADING</option><option value="axi">AXI</option><option value="roboforex">ROBOFOREX</option><option value="ttp">TTP</option></select></label>
+        <label>Apalancamiento de cuenta (AXI)<select name="improvement_account_leverage" required><option value="1000">1:1000</option><option value="500">1:500</option><option value="100">1:100</option></select></label>
       </div>
-      <p class="portfolio-note">Solo se calcula y compara el modo elegido, con sus límites y lotajes guardados. Al guardar se creará otro portafolio, identificado como mejora del original y de ese modo. El perfil de margen llega ya puesto con el del portafolio base; cámbialo sólo si quieres recalcular la mejora con otra política de margen, y ten en cuenta que uno más estricto puede dejar sin sitio a las incorporaciones. El lote mínimo y el tamaño de contrato no dependen del perfil: son siempre los del broker de origen.</p>
+      <p class="portfolio-note">Solo se calcula y compara el modo elegido, con sus límites y lotajes guardados. Al guardar se creará otro portafolio, identificado como mejora del original y de ese modo. El perfil de margen y, para AXI, el apalancamiento llegan ya puestos con los datos guardados; confírmalos antes de calcular porque las carteras antiguas pueden no conservar la elección original. Un margen más estricto puede dejar sin sitio a las incorporaciones. El lote mínimo y el tamaño de contrato no dependen del perfil: son siempre los del broker de origen.</p>
       <fieldset><legend>Diversificación</legend><div class="portfolio-checks">
         <label title="Las incorporaciones deben tener desactivado EnableGrid en su archivo .set. Las estrategias originales no se retiran."><input name="improvement_grid_off" type="checkbox"> Grid OFF para candidatas nuevas</label>
         <label title="No usa como candidatas estrategias presentes en ningún otro Portafolio UBS completo o mensual."><input name="improvement_exclude_used_sets" type="checkbox" checked> Excluir estrategias ya usadas en otros portafolios</label>
@@ -105,6 +106,17 @@
       || (typeof form === 'undefined' ? '' : form.elements.margin_profile?.value) || '').toLowerCase();
     const profiles = [...profileField.options].map(option => option.value);
     profileField.value = profiles.includes(inherited) ? inherited : 'ictrading';
+    const leverageField = dialog.querySelector('[name="improvement_account_leverage"]');
+    const centralLeverage = typeof form === 'undefined' ? null : Number(form.elements.account_leverage?.value);
+    const savedLeverage = [
+      variantSaved.account_leverage,
+      saved.account_leverage,
+      currentDetail.metrics?.variants?.[selector.value]?.margin_summary?.account_leverage,
+      currentDetail.metrics?.margin_summary?.account_leverage,
+      centralLeverage,
+      1000,
+    ].map(Number).find(value => [1000, 500, 100].includes(value));
+    leverageField.value = String(savedLeverage || 1000);
     const originals = new Set((currentDetail.members || []).filter(member => !bundle || member.variant_key === selector.value).map(member => String(member.set_path || member.set_id || '').replaceAll('\\', '/').toLowerCase()).filter(Boolean));
     dialog.querySelector('#improvement-original-count').textContent = `${originals.size} estrategia(s) originales quedarán bloqueadas.`;
     selector.onchange = () => {
@@ -134,6 +146,7 @@
         improvement_min_efficiency_gain_pct: Number(fields.improvement_min_efficiency_gain_pct.value),
         improvement_selection_priority: fields.improvement_selection_priority.value,
         improvement_margin_profile: fields.improvement_margin_profile.value,
+        improvement_account_leverage: Number(fields.improvement_account_leverage.value),
         improvement_grid_off: fields.improvement_grid_off.checked,
         improvement_exclude_used_sets: fields.improvement_exclude_used_sets.checked,
         improvement_allow_same_symbol: fields.improvement_allow_same_symbol.checked,

@@ -1607,6 +1607,11 @@ class PortfolioSource:
             "max_portfolio_corr": 0.50,
             "allowed_asset_groups": list(ASSET_GROUPS),
             "margin_profile": self.broker.lower(),
+            # Las carteras anteriores a este campo no pueden reconstruir la
+            # elección original. Usamos el mismo valor inicial que ofrece AXI
+            # en el formulario y dejamos que el diálogo de mejora lo muestre y
+            # permita corregirlo antes de recalcular.
+            "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
             "max_margin_pct": 100.0,
             "validate_margin": True,
             "portfolio_scope": scope,

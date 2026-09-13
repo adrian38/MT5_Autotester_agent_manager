@@ -126,6 +126,32 @@ El backend aplica la misma resolución antes de reconstruir miembros y rechaza
 una petición que intente cambiar de modo. Esto conserva toda la cadena de
 mejoras y no requiere cambios de persistencia ni port al nodo.
 
+### Apalancamiento AXI visible y corregible (2026-09-13)
+
+`account_leverage` forma parte de los inputs serializables y las carteras nuevas
+lo conservan por variante. Sin embargo, la memoria AXI mostró dos clases de
+histórico que impiden confiar ciegamente en él: #67 declara 1:1000 aunque fue
+calculado a 1:100, mientras #73 y su mejora #82 no guardan el campo aunque
+corresponden a 1:1000. La ausencia hacía que el modelo usara sin reescalado el
+apalancamiento de referencia del volcado; un valor incorrecto sí se heredaba.
+
+El detalle UBS normal muestra ahora el apalancamiento guardado de la variante
+AXI o `Sin registrar`. El diálogo de mejora añade un selector 1:1000/1:500/1:100,
+precargado desde variante, portafolio, resumen de margen, formulario central y
+por último el default 1:1000. Viaja como `improvement_account_leverage`, porque
+esa clave debe sobrevivir al merge que reimpone los inputs guardados. El backend
+la valida, la convierte en el `account_leverage` efectivo antes de construir el
+modelo y la conserva en inputs, disponibilidad y auditoría; una mejora posterior
+la hereda de la anterior. Para históricos sin campo, `_saved_inputs_from_detail`
+usa el mismo default 1:1000, pero la UI exige una elección visible antes de
+calcular, que es donde puede corregirse un metadato falso como el de #67.
+
+El campo ya viajaba correctamente desde los tres formularios de generación;
+este cambio no reescribe carteras existentes ni pretende adivinar su valor real.
+El cálculo ocurre en el manager y el nodo sólo persiste los inputs serializados,
+por lo que no requiere cambios en `manager_node_runtime/`. El mensual permanece
+con su interfaz separada y no gana el control de mejora.
+
 La UI permite elegir cómo ordenar las propuestas válidas encontradas:
 
 - `balanced`: prefiere probabilidad de excedencia no creciente y, si todas

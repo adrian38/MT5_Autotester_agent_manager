@@ -32,7 +32,9 @@ from .portfolio_improvement_common import (
     validate_and_attach_improvement_audit,
 )
 from .portfolio_service import (
+    ACCOUNT_LEVERAGE_CHOICES,
     ASSET_GROUPS,
+    DEFAULT_ACCOUNT_LEVERAGE,
     IMPROVEMENT_PRIORITY_LABELS,
     PORTFOLIO_TYPES,
     TYPE_LABELS,
@@ -191,6 +193,21 @@ def improvement_margin_profile(inputs: dict[str, Any]) -> str:
         raise ValueError(
             "El perfil de margen de la mejora debe ser ICTRADING, AXI, ROBOFOREX o TTP"
         )
+    return value
+
+
+def improvement_account_leverage(inputs: dict[str, Any]) -> float:
+    """Resolve and validate the AXI account leverage used by an improvement."""
+    raw = inputs.get("improvement_account_leverage")
+    if raw in (None, ""):
+        raw = inputs.get("account_leverage", DEFAULT_ACCOUNT_LEVERAGE)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        value = 0.0
+    if isinstance(raw, bool) or value not in ACCOUNT_LEVERAGE_CHOICES:
+        choices = ", ".join(f"1:{int(item)}" for item in ACCOUNT_LEVERAGE_CHOICES)
+        raise ValueError(f"El apalancamiento de la mejora debe ser {choices}")
     return value
 
 
@@ -419,6 +436,10 @@ def _generate_full_history_improvement_attempt(
     profile = improvement_margin_profile(inputs)
     if profile:
         inputs["margin_profile"] = profile
+    # Tiene clave propia porque `saved_inputs` se reimpone sobre la petición.
+    # Así el valor visible en el diálogo gana también sobre una cartera antigua
+    # con metadatos ausentes o incorrectos.
+    inputs["account_leverage"] = improvement_account_leverage(inputs)
     # Igual que el perfil y los grupos, la clave propia del diálogo sobrevive
     # al merge con los inputs de la variante guardada. Sólo cambia el pool de
     # candidatas; las originales se reconstruyen y bloquean antes del filtro.
@@ -578,6 +599,7 @@ def _generate_full_history_improvement_attempt(
     audit["target_portfolio_type"] = base_type.value
     audit["target_portfolio_type_label"] = TYPE_LABELS[base_type.value]
     audit["margin_profile"] = str(inputs.get("margin_profile") or "")
+    audit["account_leverage"] = float(inputs.get("account_leverage") or 0)
     audit["grid_off"] = bool(inputs.get("grid_off"))
     audit["source_portfolio_id"] = portfolio_id
     audit["save_as_new"] = True
@@ -652,6 +674,7 @@ def _generate_full_history_improvement_attempt(
                 "maximum_additions": options.max_additions,
                 "actual_additions": actual_additions,
                 "margin_profile": str(inputs.get("margin_profile") or ""),
+                "account_leverage": float(inputs.get("account_leverage") or 0),
                 "grid_off": bool(inputs.get("grid_off")),
                 "selected_set_names": [Path(value).name for value in selected_ids],
             },
@@ -687,6 +710,7 @@ def generate_full_history_improvement(
     # que fallar con su mensaje, no repetido cinco veces por intento.
     allowed_groups = improvement_allowed_groups(inputs)
     margin_profile = improvement_margin_profile(inputs)
+    account_leverage = improvement_account_leverage(inputs)
     grid_off = improvement_grid_off(inputs)
     inputs["improvement_min_additions"] = requested
     inputs["improvement_allowed_asset_groups"] = allowed_groups
@@ -695,6 +719,8 @@ def generate_full_history_improvement(
     # reimpone el intento cuando nadie elige nada.
     if inputs.get("improvement_margin_profile"):
         inputs["improvement_margin_profile"] = margin_profile
+    if "improvement_account_leverage" in inputs:
+        inputs["improvement_account_leverage"] = account_leverage
     if "improvement_grid_off" in inputs:
         inputs["improvement_grid_off"] = grid_off
     inputs.setdefault("_improvement_portfolio_uid", str(uuid.uuid4()))

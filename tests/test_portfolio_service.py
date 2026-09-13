@@ -890,7 +890,9 @@ class PortfolioServiceTests(unittest.TestCase):
             }
             coordinator = PortfolioCoordinator([node], project / "settings.json")
             base_inputs = normalize_settings(
-                "full_history", {"capital": 5000, "valley_dd_pct": 6}, "ICTRADING"
+                "full_history", {
+                    "capital": 5000, "valley_dd_pct": 6, "account_leverage": 100,
+                }, "ICTRADING"
             )
 
             def proposal(key: str, label: str, units: int) -> dict[str, object]:
@@ -931,6 +933,11 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(saved["id"], portfolio_id)
             self.assertEqual(saved["capital"], 5000)
             self.assertEqual(saved["portfolio_type"], "bundle")
+            self.assertEqual(saved["metrics"]["inputs"]["account_leverage"], 100.0)
+            self.assertEqual(
+                {variant["inputs"]["account_leverage"] for variant in saved["metrics"]["variants"].values()},
+                {100.0},
+            )
             self.assertEqual(len(saved["members"]), 3)
             self.assertEqual({row["variant_key"] for row in saved["members"]}, {
                 "aggressive", "balanced", "conservative",
@@ -1533,6 +1540,7 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(settings["dd_reserve_pct"], 0.0)
             self.assertEqual(settings["search_restarts"], 0)
             self.assertFalse(settings["deep_optimization"])
+            self.assertEqual(settings["account_leverage"], 1000.0)
             self.assertEqual(set(settings["allowed_asset_groups"]), {
                 "Forex", "Metals", "Indices", "Energies", "Crypto", "Stocks", "Bonds", "Softs",
             })

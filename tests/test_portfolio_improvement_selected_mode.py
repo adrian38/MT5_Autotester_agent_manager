@@ -229,6 +229,34 @@ class ImprovementMarginProfileTests(unittest.TestCase):
                 object(), 1, {"improvement_margin_profile": "ic-trading"},
             )
 
+    def test_axi_leverage_is_inherited_and_the_dialog_can_correct_it(self) -> None:
+        detail = {
+            "portfolio_type": "bundle",
+            "members": [{"variant_key": "balanced", "units": 1}],
+            "metrics": {"variants": {"balanced": {"inputs": {
+                "margin_profile": "axi", "account_leverage": 1000.0,
+            }}}},
+        }
+        source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
+
+        def reaching_model(request: dict) -> float:
+            with patch.object(full, "build_margin_model", return_value=None) as model, \
+                    patch.object(full, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
+                with self.assertRaisesRegex(ValueError, "No se encontró una mejora válida"):
+                    full.generate_full_history_improvement(source, 7, {
+                        "portfolio_type": "balanced", "improvement_min_additions": 1, **request,
+                    })
+            return model.call_args.args[1]["account_leverage"]
+
+        self.assertEqual(reaching_model({}), 1000.0)
+        self.assertEqual(reaching_model({"improvement_account_leverage": 100.0}), 100.0)
+
+    def test_unknown_axi_leverage_is_rejected_before_searching(self) -> None:
+        with self.assertRaisesRegex(ValueError, "apalancamiento de la mejora"):
+            full.generate_full_history_improvement(
+                object(), 1, {"improvement_account_leverage": 777},
+            )
+
 
 class ImprovementGridOffTests(unittest.TestCase):
     """Grid OFF is inherited visibly and can be overridden by the dialog."""
