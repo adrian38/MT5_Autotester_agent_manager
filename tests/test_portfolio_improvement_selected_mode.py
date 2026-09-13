@@ -230,6 +230,42 @@ class ImprovementMarginProfileTests(unittest.TestCase):
             )
 
 
+class ImprovementGridOffTests(unittest.TestCase):
+    """Grid OFF is inherited visibly and can be overridden by the dialog."""
+
+    def grid_off_reaching_the_pool(self, request: dict) -> bool:
+        detail = {
+            "portfolio_type": "bundle",
+            "members": [{"variant_key": "balanced", "units": 1}],
+            "metrics": {"variants": {"balanced": {"inputs": {"grid_off": True}}}},
+        }
+        source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
+        with patch.object(full, "build_margin_model", return_value=None) as model, \
+                patch.object(full, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
+            with self.assertRaisesRegex(ValueError, "No se encontró una mejora válida"):
+                full.generate_full_history_improvement(source, 7, {
+                    "portfolio_type": "balanced",
+                    "grid_off": False,
+                    "improvement_min_additions": 1,
+                    **request,
+                })
+        return bool(model.call_args.args[1]["grid_off"])
+
+    def test_absent_dialog_value_inherits_the_saved_variant(self) -> None:
+        self.assertTrue(self.grid_off_reaching_the_pool({}))
+
+    def test_dialog_value_wins_over_the_saved_variant(self) -> None:
+        self.assertFalse(
+            self.grid_off_reaching_the_pool({"improvement_grid_off": False})
+        )
+
+    def test_non_boolean_value_is_rejected_before_searching(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Grid OFF"):
+            full.generate_full_history_improvement(
+                object(), 1, {"improvement_grid_off": "false"},
+            )
+
+
 class RequiredSetsSurviveTheFunnelTests(unittest.TestCase):
     """Lo obligatorio no se filtra: ya pertenece al portafolio que se mejora."""
 
@@ -355,6 +391,8 @@ class SelectedModeTests(unittest.TestCase):
                 self.assertEqual(baseline.call_args.args[1], {old_id: 7})
                 audit = proposals[0]["result"].seasonal_validation["portfolio_improvement"]
                 self.assertEqual(audit["source_portfolio_id"], 42)
+                self.assertFalse(audit["grid_off"])
+                self.assertFalse(proposals[0]["inputs"]["grid_off"])
                 self.assertEqual(audit["minimum_efficiency_gain_pct"], 3)
                 self.assertTrue(audit["save_as_new"])
                 self.assertEqual(audit["source_snapshot"]["id"], 42)

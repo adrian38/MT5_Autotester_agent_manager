@@ -93,6 +93,25 @@ inofensivo —e invisible— al selector antes de existir esta clave.
   y `margin_profile` es una clave ya persistida. **No necesita port al nodo.**
 - El mensual sigue congelado y sin selector.
 
+### Grid OFF en el diálogo de mejora (2026-09-13)
+
+El motor ya filtraba las candidatas con `filter_rows_grid_off` cuando el input
+efectivo `grid_off` estaba activo, pero el diálogo no mostraba ni enviaba esa
+decisión. Por tanto heredaba silenciosamente el valor guardado en la variante;
+marcar el checkbox del formulario central después no cambiaba una mejora.
+
+Ahora el diálogo UBS normal muestra `Grid OFF para candidatas nuevas`, lo
+precarga desde los inputs de la variante guardada (después desde el portafolio y,
+solo para datos antiguos, desde el formulario central) y envía el booleano
+`improvement_grid_off`. La clave propia sobrevive al merge que reimpone los
+inputs guardados y se convierte en el `grid_off` efectivo antes de cargar el
+pool. El filtro sigue afectando únicamente a incorporaciones: ninguna estrategia
+original se retira. El valor efectivo queda en los inputs, la disponibilidad y
+la auditoría de la mejora. El mensual permanece congelado y sin este control.
+
+El cálculo lo ejecuta el manager; el nodo solo persiste los inputs serializados,
+así que este cambio no requiere modificar `manager_node_runtime/`.
+
 La UI permite elegir cómo ordenar las propuestas válidas encontradas:
 
 - `balanced`: prefiere probabilidad de excedencia no creciente y, si todas

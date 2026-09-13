@@ -194,6 +194,16 @@ def improvement_margin_profile(inputs: dict[str, Any]) -> str:
     return value
 
 
+def improvement_grid_off(inputs: dict[str, Any]) -> bool:
+    """Resolve the dialog override, or inherit Grid OFF from the saved base."""
+    raw = inputs.get("improvement_grid_off")
+    if raw is None:
+        return bool(inputs.get("grid_off"))
+    if not isinstance(raw, bool):
+        raise ValueError("Grid OFF de la mejora debe ser verdadero o falso")
+    return raw
+
+
 def _attach_stress_comparison(
     *,
     result: PortfolioResult,
@@ -390,6 +400,10 @@ def _generate_full_history_improvement_attempt(
     profile = improvement_margin_profile(inputs)
     if profile:
         inputs["margin_profile"] = profile
+    # Igual que el perfil y los grupos, la clave propia del diálogo sobrevive
+    # al merge con los inputs de la variante guardada. Sólo cambia el pool de
+    # candidatas; las originales se reconstruyen y bloquean antes del filtro.
+    inputs["grid_off"] = improvement_grid_off(inputs)
     inputs["margin_model"] = build_margin_model(source, inputs)
     options = improvement_options(inputs)
     detail = _selected_variant_detail(detail, target)
@@ -545,6 +559,7 @@ def _generate_full_history_improvement_attempt(
     audit["target_portfolio_type"] = base_type.value
     audit["target_portfolio_type_label"] = TYPE_LABELS[base_type.value]
     audit["margin_profile"] = str(inputs.get("margin_profile") or "")
+    audit["grid_off"] = bool(inputs.get("grid_off"))
     audit["source_portfolio_id"] = portfolio_id
     audit["save_as_new"] = True
     audit.update({
@@ -618,6 +633,7 @@ def _generate_full_history_improvement_attempt(
                 "maximum_additions": options.max_additions,
                 "actual_additions": actual_additions,
                 "margin_profile": str(inputs.get("margin_profile") or ""),
+                "grid_off": bool(inputs.get("grid_off")),
                 "selected_set_names": [Path(value).name for value in selected_ids],
             },
         }
@@ -652,6 +668,7 @@ def generate_full_history_improvement(
     # que fallar con su mensaje, no repetido cinco veces por intento.
     allowed_groups = improvement_allowed_groups(inputs)
     margin_profile = improvement_margin_profile(inputs)
+    grid_off = improvement_grid_off(inputs)
     inputs["improvement_min_additions"] = requested
     inputs["improvement_allowed_asset_groups"] = allowed_groups
     # Sólo se reescribe cuando el diálogo lo mandó. Fijarlo siempre impondría el
@@ -659,6 +676,8 @@ def generate_full_history_improvement(
     # reimpone el intento cuando nadie elige nada.
     if inputs.get("improvement_margin_profile"):
         inputs["improvement_margin_profile"] = margin_profile
+    if "improvement_grid_off" in inputs:
+        inputs["improvement_grid_off"] = grid_off
     inputs.setdefault("_improvement_portfolio_uid", str(uuid.uuid4()))
     failures: list[str] = []
     best = None
@@ -688,12 +707,16 @@ def generate_full_history_improvement(
         improvement["selection_priority"] = priority
         improvement["allowed_asset_groups"] = list(allowed_groups)
         for proposal in proposals:
-            proposal.setdefault("inputs", {}).update({
+            proposal_inputs = proposal.setdefault("inputs", {})
+            proposal_inputs.update({
                 "improvement_min_additions": requested,
                 "improvement_max_additions": MAX_IMPROVEMENT_ADDITIONS,
                 "improvement_selection_priority": priority,
                 "improvement_allowed_asset_groups": list(allowed_groups),
             })
+            effective_grid_off = bool(proposal_inputs.get("grid_off"))
+            if "improvement_grid_off" in inputs:
+                proposal_inputs["improvement_grid_off"] = effective_grid_off
             baseline = proposal.pop("_improvement_baseline", None)
             if baseline is not None:
                 baseline_stress = _attach_stress_comparison(
@@ -708,6 +731,7 @@ def generate_full_history_improvement(
             if isinstance(audit, dict):
                 audit["minimum_additions"] = requested
                 audit["maximum_additions"] = MAX_IMPROVEMENT_ADDITIONS
+                audit["grid_off"] = effective_grid_off
         rank = (
             _improvement_rank(proposals[0], additions, priority)
             if proposals else (float("-inf"),)
