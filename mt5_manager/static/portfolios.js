@@ -598,6 +598,12 @@ function renderSavedVariant(portfolio, requestedKey = '') {
     ? {...portfolio, ...variant, ...(variant.summary || {})}
     : portfolio;
   const stress = selectedDetailVariant ? variant.stress_bootstrap || {} : metrics.stress_bootstrap || {};
+  const shownMetrics = selectedDetailVariant ? variant : metrics;
+  const shownInputs = shownMetrics.inputs || {};
+  const shownMargin = shownMetrics.margin_summary || {};
+  const shownMarginProfile = String(shownInputs.margin_profile || shownMargin.profile
+    || portfolioData.node?.broker || '').toLowerCase();
+  const shownAccountLeverage = Number(shownInputs.account_leverage || shownMargin.account_leverage || 0);
   const shownLabel = selectedDetailVariant ? String(variant.label || selectedDetailVariant) : '';
   const listRow = (portfolioData.portfolios || []).find(row => Number(row.id) === Number(portfolio.id));
   if (listRow) Object.assign(listRow, {
@@ -608,7 +614,21 @@ function renderSavedVariant(portfolio, requestedKey = '') {
   });
   renderList();
 
-  document.querySelector('#detail-metrics').innerHTML = [metric(number(portfolio.capital), 'Capital'), metric(number(shown.total_net_profit), 'Net total'), metric(number(shown.actual_valley_dd, 2), 'DD riesgo máx.', `máx(cerrado ${number(shown.actual_closed_valley_dd, 2)}, flotante ${number(shown.floating_dd_buffer, 2)}) · límite ${number(shown.target_valley_dd, 2)} · ${number(shown.valley_usage_pct, 1)}%`), metric(number(shown.actual_point_dd, 2), 'DD puntual', shown.enforce_point_dd ? `límite ${number(shown.target_point_dd, 2)}` : 'informativo'), metric(number(shown.total_lot, 2), 'Lote total'), metric(number(shown.total_units), 'Unidades'), metric(`${number(shown.active_strategies)}/${number(shown.target_strategies || shown.active_strategies)}`, 'Estrategias'), metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert)].join('');
+  document.querySelector('#detail-metrics').innerHTML = [
+    metric(number(portfolio.capital), 'Capital'),
+    metric(number(shown.total_net_profit), 'Net total'),
+    metric(number(shown.actual_valley_dd, 2), 'DD riesgo máx.', `máx(cerrado ${number(shown.actual_closed_valley_dd, 2)}, flotante ${number(shown.floating_dd_buffer, 2)}) · límite ${number(shown.target_valley_dd, 2)} · ${number(shown.valley_usage_pct, 1)}%`),
+    metric(number(shown.actual_point_dd, 2), 'DD puntual', shown.enforce_point_dd ? `límite ${number(shown.target_point_dd, 2)}` : 'informativo'),
+    metric(number(shown.total_lot, 2), 'Lote total'),
+    metric(number(shown.total_units), 'Unidades'),
+    metric(`${number(shown.active_strategies)}/${number(shown.target_strategies || shown.active_strategies)}`, 'Estrategias'),
+    ...(shownMarginProfile === 'axi' ? [metric(
+      shownAccountLeverage ? `1:${number(shownAccountLeverage)}` : 'Sin registrar',
+      'Apalancamiento de cuenta',
+      shownAccountLeverage ? 'Usado por el modelo de margen AXI' : 'Confírmalo al mejorar',
+    )] : []),
+    metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert),
+  ].join('');
   const showing = shownLabel ? `Mostrando ${shownLabel}` : '';
   document.querySelector('#detail-note').textContent = [showing, friendlyReason(portfolio.stop_reason), shown.binding_constraint].filter(Boolean).join(' · ');
   detailMembers = selectedDetailVariant
