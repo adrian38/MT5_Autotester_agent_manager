@@ -47,7 +47,8 @@
   button.addEventListener('click', () => {
     if (!selectedId || !currentDetail) return;
     const saved = currentDetail.metrics?.inputs || {};
-    const target = saved.improvement_portfolio_type || saved.composition_portfolio_type || currentDetail.metrics?.composition_portfolio_type || saved.portfolio_type || 'balanced';
+    const displayed = typeof selectedDetailVariant === 'undefined' ? '' : selectedDetailVariant;
+    const target = displayed || saved.improvement_portfolio_type || saved.composition_portfolio_type || currentDetail.metrics?.composition_portfolio_type || saved.portfolio_type || 'balanced';
     const selector = dialog.querySelector('[name="improvement_portfolio_type"]');
     const bundle = currentDetail.portfolio_type === 'bundle' || currentDetail.metrics?.portfolio_bundle;
     for (const option of selector.options) option.disabled = !bundle && option.value !== currentDetail.portfolio_type;

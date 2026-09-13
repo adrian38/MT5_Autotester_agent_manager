@@ -141,3 +141,21 @@ de importar, números recalculados y no copiados, errores con mensaje, y una ida
 y vuelta de mejora encadenada que conserva etiqueta, raíz, nivel y snapshot.
 `tests/test_static_portfolios.py::PortfolioImportScreenTests` fija el botón y el
 transporte en los tres ámbitos.
+
+## Variante mostrada en un bundle importado (2026-09-13)
+
+La fila principal de un bundle conserva `selected_variant`, pero esa clave dice
+qué modo se usó como base para fijar la composición común A/M/C; no identifica
+qué modo tiene desplegado el usuario. El detalle UBS normal ya no presenta esa
+base como si fuese la variante en uso. Muestra tarjetas Agresivo/Moderado/
+Conservador, repinta métricas, estrés, auditoría y miembros con la elegida, y
+recuerda la preferencia en el navegador por nodo y portafolio. Si aún no existe
+preferencia comienza por Agresivo, la primera variante del bundle. La lista se
+actualiza con el mismo neto y deja escrito qué variante está mostrando. Abrir
+`Mejorar base` parte de esa misma variante visible, aunque el diálogo permite
+cambiarla antes de calcular.
+
+Es una elección de visualización: no reescribe el bundle ni cambia la base de
+composición guardada. Sólo afecta a UBS normal; mensual y Grid conservan sus
+interfaces independientes. El cálculo y la persistencia no cambian, por lo que
+no requiere port a `manager_node_runtime/`.

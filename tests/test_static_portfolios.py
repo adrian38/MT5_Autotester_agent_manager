@@ -286,6 +286,23 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("waitForPortfolioRemoval", script)
         self.assertIn("El portafolio A/M/C #${selectedId} no se modifica", script)
 
+    def test_saved_bundle_detail_selects_and_remembers_the_variant_being_shown(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        monthly = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="detail-variants"', page)
+        self.assertIn("function renderSavedVariant", script)
+        self.assertIn("metrics.variant_order", script)
+        self.assertIn("order.includes('aggressive') ? 'aggressive' : order[0]", script)
+        self.assertIn("ubs-detail-variant:${nodeId}:${portfolioId}", script)
+        self.assertIn("localStorage.setItem", script)
+        self.assertIn("member.variant_key === selectedDetailVariant", script)
+        self.assertIn("metrics: selectedDetailVariant ? variant : metrics", script)
+        self.assertIn("display_variant_label: shownLabel", script)
+        self.assertNotIn("function renderSavedVariant", monthly)
+
     def test_monthly_members_support_batch_selection_like_the_ubs_ones(self) -> None:
         # Las casillas no dependen de que el portafolio sea un bundle: un mes
         # guardado nunca lo es.

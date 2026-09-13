@@ -297,6 +297,12 @@ class ImprovementScreenTests(unittest.TestCase):
         monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
         self.assertNotIn("improvement_grid_off", monthly)
 
+    def test_bundle_improvement_starts_from_the_variant_shown_in_the_detail(self) -> None:
+        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+
+        self.assertIn("const displayed = typeof selectedDetailVariant", script)
+        self.assertIn("const target = displayed || saved.improvement_portfolio_type", script)
+
     def test_manager_serves_both_new_static_assets(self) -> None:
         manager = (self.ROOT.parent / "manager.py").read_text(encoding="utf-8")
         self.assertIn('"portfolio_improvement.js"', manager)

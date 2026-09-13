@@ -45,3 +45,4 @@
 .experiment-link:hover{filter:brightness(1.25)}
 
 .portfolio-alias{margin:5px 0 3px;color:var(--accent2);font-size:16px;font-weight:700;letter-spacing:.01em}
+.saved-variant-cards{border-bottom:1px solid var(--line)}
