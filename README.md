@@ -45,6 +45,7 @@ forma fiable los terminales gráficos del usuario.
 - Actualización automática del panel cada 5 segundos.
 - Autenticación con un token distinto por nodo.
 - Botón **Experimenta** en la cabecera: laboratorio aparte (`/experiment.html`)
+- Botón **Correlación** junto a Experimenta: compara mediante matriz de calor los incrementos de PnL de portafolios UBS, mensuales y Grid guardados en los brokers (`/correlation.html`).
   que mezcla el pool ya validado de los tres brokers en **una sola cuenta**,
   simula doce meses con los lotes recompuestos por balance y responde a cuánto
   llega, con qué drawdown y qué capital de partida haría falta para terminar en

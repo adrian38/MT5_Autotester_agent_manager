@@ -628,6 +628,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
             "portfolio_improvement.js", "portfolio_monthly_improvement.js",
             "portfolio_comparison.js",
             "portfolios_grid.html", "portfolios_grid.js",
+            "correlation.html", "correlation.js", "correlation.css",
             # Primitiva compartida por los tres ámbitos: el diálogo del motivo de
             # exclusión y las etiquetas de sus tres códigos. La interfaz de cada
             # ámbito sigue siendo suya; lo que no puede divergir es el código que
