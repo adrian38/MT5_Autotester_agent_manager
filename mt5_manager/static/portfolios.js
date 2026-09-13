@@ -44,10 +44,11 @@ const friendlyReason = value => String(value || '')
 // reimplementa el diccionario para que no puedan divergir.
 const improvementPriorityText = row => {
   const origin = row?.improvement_origin || {};
-  if (!origin.priority_label && origin.added_count == null) return '';
+  if (!origin.priority_label && origin.added_count == null && Number(origin.depth) <= 1) return '';
   const priority = origin.priority_label ? ` · prioridad ${esc(origin.priority_label)}` : '';
   const added = origin.added_count == null ? '' : ` · +${number(origin.added_count)}`;
-  return `${priority}${added}`;
+  const ancestry = Number(origin.depth) > 1 ? ` · raíz #${number(origin.root_id)} · nivel ${number(origin.depth)}` : '';
+  return `${priority}${added}${ancestry}`;
 };
 const improvementStressText = comparison => comparison?.status === 'completed'
   ? `Estrés vs base: P95 ${number(comparison.baseline?.valley_dd_p95, 2)} → ${number(comparison.improved?.valley_dd_p95, 2)} (${Number(comparison.valley_dd_p95_delta) >= 0 ? '+' : ''}${number(comparison.valley_dd_p95_delta, 2)}); P>DD efectivo ${Number(comparison.probability_exceed_effective_delta_pp) >= 0 ? '+' : ''}${number(comparison.probability_exceed_effective_delta_pp, 1)} pp`
@@ -586,7 +587,9 @@ async function loadDetail(id) {
     currentDetail = portfolio;
     const improvementLabel = PortfolioComparison.label(portfolio);
     const originBanner = document.querySelector('#detail-improvement-origin');
-    originBanner.textContent = improvementLabel;
+    const origin = portfolio.improvement_origin || {};
+    const ancestry = Number(origin.depth) > 1 ? ` · raíz #${number(origin.root_id)} · nivel ${number(origin.depth)}` : '';
+    originBanner.textContent = `${improvementLabel}${ancestry}`;
     originBanner.hidden = !improvementLabel;
     document.querySelector('#detail-compare-original').hidden = !PortfolioComparison.lineage(portfolio);
     document.querySelector('#detail-compare-original').disabled = false;

@@ -12,6 +12,16 @@ test('lineage recognizes metadata, legacy names and enriched list rows', () => {
   assert.equal(api.lineage({name:'ordinary',portfolio_type:'balanced'}),null);
   assert.equal(api.lineage({improvement_origin:{source_id:9,mode:'unknown'}}),null);
 });
+test('portable chained lineage keeps its historical label and ancestry', () => {
+  const p = improved();
+  p.improvement_origin = {source_id:36, mode:'balanced', root_id:14, depth:2, label:'Mejora del portafolio #36 | modo Moderado'};
+  p.metrics.inputs = {improvement_source_portfolio_id:36, improvement_portfolio_type:'balanced', improvement_root_portfolio_id:14, improvement_depth:2};
+  assert.equal(api.label(p), 'Mejora del portafolio #36 | modo Moderado');
+  const lineage = api.lineage(p);
+  assert.equal(lineage.sourceId, 36);
+  assert.equal(lineage.rootId, 14);
+  assert.equal(lineage.depth, 2);
+});
 test('compares only the saved mode, never top-level bundle totals', () => {
   const result = api.comparison(improved(), original());
   assert.equal(result.metrics[0].before,100);

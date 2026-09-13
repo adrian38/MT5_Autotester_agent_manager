@@ -7,12 +7,13 @@ optimizador vuelve a proponer las mismas estrategias.
 
 ## De dónde sale la información
 
-De la carpeta de exportación tal y como la escribe hoy `export_portfolio`, sin
-formato nuevo: los `.set` copiados y el `PORTAFOLIO_<id>_resumen.txt`, que trae
-capital, DD objetivo y usado, net total y una fila por estrategia con perfil,
-cuenta, símbolo, timeframe, unidades, lote y nombre del set. Eso vale para
-exportaciones **ya hechas**, que es justo lo que hay cuando el portafolio ya se
-borró.
+De la carpeta de exportación tal y como la escribe `export_portfolio`: los
+`.set` copiados y el `PORTAFOLIO_<id>_resumen.txt`, que trae capital, DD objetivo
+y usado, net total y una fila por estrategia con perfil, cuenta, símbolo,
+timeframe, unidades, lote y nombre del set. Las cabeceras opcionales nuevas
+transportan identidad y linaje; su ausencia mantiene compatibles las
+exportaciones antiguas, que es justo lo que puede quedar cuando el portafolio ya
+se borró.
 
 ## Por qué el resultado es un portafolio normal y no una copia degradada
 
@@ -42,6 +43,7 @@ una guardada de forma normal, con sus variantes A/M/C, sus métricas y su
 """
 from __future__ import annotations
 
+import json
 import re
 import tempfile
 import zipfile
@@ -67,11 +69,21 @@ HEADER_KEYS = {
     "mejora modo": "improvement_portfolio_type",
     "mejora prioridad": "improvement_selection_priority",
     "mejora incorporaciones": "improvement_added_count",
+    "portafolio uid": "portfolio_uid",
+    "mejora etiqueta": "improvement_label",
+    "mejora origen uid": "improvement_parent_uid",
+    "mejora raiz": "improvement_root_portfolio_id",
+    "mejora raiz uid": "improvement_root_uid",
+    "mejora nivel": "improvement_depth",
+    "mejora linaje json": "improvement_lineage",
+    "mejora snapshot json": "improvement_source_snapshot",
 }
 
 STRING_HEADER_KEYS = {
     "name", "portfolio_type", "improvement_portfolio_type",
-    "improvement_selection_priority",
+    "improvement_selection_priority", "portfolio_uid", "improvement_label",
+    "improvement_parent_uid", "improvement_root_uid", "improvement_lineage",
+    "improvement_source_snapshot",
 }
 
 IMPROVEMENT_MODE_BY_LABEL = {
@@ -179,6 +191,19 @@ def parse_summary(text: str) -> tuple[dict[str, Any], list[ImportedMember]]:
             "improvement_portfolio_type",
             IMPROVEMENT_MODE_BY_LABEL[match.group(2).casefold()],
         )
+    for key, expected in (
+        ("improvement_lineage", list),
+        ("improvement_source_snapshot", dict),
+    ):
+        if key not in header:
+            continue
+        try:
+            value = json.loads(str(header[key]))
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ImportError_(f"El resumen contiene {key} no válido") from exc
+        if not isinstance(value, expected):
+            raise ImportError_(f"El resumen contiene {key} con un tipo no válido")
+        header[key] = value
     return header, members
 
 

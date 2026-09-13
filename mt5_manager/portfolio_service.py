@@ -85,6 +85,75 @@ IMPROVEMENT_PRIORITY_LABELS = {
     "efficiency": "Máxima eficiencia",
     "stress": "Menor estrés",
 }
+
+
+def _valid_portfolio_uid(value: Any) -> str:
+    """Return a canonical portable UUID or an empty string for legacy data."""
+    try:
+        return str(uuid.UUID(str(value or "")))
+    except (ValueError, TypeError, AttributeError):
+        return ""
+
+
+def _normalized_improvement_lineage(value: Any) -> list[dict[str, Any]]:
+    """Keep the portable, display-safe subset of an improvement ancestry."""
+    if not isinstance(value, list):
+        return []
+    lineage: list[dict[str, Any]] = []
+    seen: set[tuple[int, str]] = set()
+    for raw in value[:32]:
+        if not isinstance(raw, dict):
+            continue
+        portfolio_id = safe_int(raw.get("portfolio_id") or raw.get("id"), 0)
+        portfolio_uid = _valid_portfolio_uid(raw.get("portfolio_uid") or raw.get("uid"))
+        if portfolio_id <= 0 and not portfolio_uid:
+            continue
+        marker = (portfolio_id, portfolio_uid)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        row: dict[str, Any] = {"portfolio_id": portfolio_id}
+        if portfolio_uid:
+            row["portfolio_uid"] = portfolio_uid
+        label = str(raw.get("label") or "").strip()
+        if label:
+            row["label"] = label[:240]
+        mode = str(raw.get("mode") or "").strip().lower()
+        if mode in TYPE_LABELS:
+            row["mode"] = mode
+        lineage.append(row)
+    return lineage
+
+
+def _portable_portfolio_uid(detail: dict[str, Any]) -> str:
+    """Identify a portfolio across exports even when its local numeric id changes."""
+    metrics = detail.get("metrics") if isinstance(detail.get("metrics"), dict) else {}
+    inputs = metrics.get("inputs") if isinstance(metrics.get("inputs"), dict) else {}
+    audit = (metrics.get("seasonal_validation") or {}).get("portfolio_improvement") or {}
+    stored = _valid_portfolio_uid(inputs.get("portfolio_uid") or audit.get("portfolio_uid"))
+    if stored:
+        return stored
+    members = sorted(
+        (
+            Path(str(member.get("set_path") or member.get("set_id") or "")).name.casefold(),
+            str(member.get("variant_key") or ""),
+            safe_int(member.get("units"), 0),
+        )
+        for member in detail.get("members") or []
+    )
+    identity = json.dumps(
+        {
+            "legacy_id": safe_int(detail.get("id"), 0),
+            "created_at": str(detail.get("created_at") or ""),
+            "name": str(detail.get("name") or ""),
+            "portfolio_type": str(detail.get("portfolio_type") or ""),
+            "members": members,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"mt5-ubs-portfolio:{identity}"))
 LOCKED_VARIANTS = (
     ("aggressive", "Agresivo", PortfolioType.AGGRESSIVE),
     ("balanced", "Moderado", PortfolioType.BALANCED),
@@ -1322,6 +1391,31 @@ class PortfolioSource:
                     mode = inputs.get("improvement_portfolio_type") or audit.get("target_portfolio_type") or inputs.get("portfolio_type")
                     if source_id > 0 and mode in TYPE_LABELS:
                         origin = {"source_id": source_id, "mode": mode}
+                        source_uid = _valid_portfolio_uid(
+                            inputs.get("improvement_parent_uid") or audit.get("parent_uid")
+                        )
+                        if source_uid:
+                            origin["source_uid"] = source_uid
+                        root_id = safe_int(
+                            inputs.get("improvement_root_portfolio_id")
+                            or audit.get("root_portfolio_id")
+                            or source_id,
+                            source_id,
+                        )
+                        origin["root_id"] = root_id
+                        root_uid = _valid_portfolio_uid(
+                            inputs.get("improvement_root_uid") or audit.get("root_uid")
+                        )
+                        if root_uid:
+                            origin["root_uid"] = root_uid
+                        origin["depth"] = max(
+                            1, safe_int(inputs.get("improvement_depth") or audit.get("depth"), 1)
+                        )
+                        lineage = _normalized_improvement_lineage(
+                            inputs.get("improvement_lineage") or audit.get("lineage")
+                        )
+                        if lineage:
+                            origin["lineage"] = lineage
                         # Con qué criterio se eligió esta mejora. Sin él, dos
                         # mejoras del mismo portafolio y modo son idénticas en
                         # la lista aunque una venga de maximizar beneficio/DD y
@@ -1338,7 +1432,13 @@ class PortfolioSource:
                         if added is not None:
                             origin["added_count"] = int(added)
                         portfolio["improvement_origin"] = origin
-                        portfolio["name"] = f"Mejora del portafolio #{source_id} | modo {TYPE_LABELS[mode]}"
+                        visible_label = str(
+                            inputs.get("improvement_label")
+                            or audit.get("label")
+                            or f"Mejora del portafolio #{source_id} | modo {TYPE_LABELS[mode]}"
+                        ).strip()
+                        origin["label"] = visible_label
+                        portfolio["name"] = visible_label
                 except (ValueError, TypeError, AttributeError):
                     pass
         return {
@@ -1836,14 +1936,40 @@ class PortfolioSource:
             "UNID. y LOTE son la asignación informativa calculada por el portafolio.", "",
             f"{'PERFIL':12s} {'CUENTA':12s} {'SIMBOLO':12s} {'TF':5s} {'UNID.':>7s} {'LOTE':>7s}   SET",
         ]
+        if scope == "full_history":
+            lines[2:2] = [f"Portafolio UID: {_portable_portfolio_uid(detail)}"]
         origin = detail.get("improvement_origin") or {}
         source_id = safe_int(origin.get("source_id"), 0)
         mode = str(origin.get("mode") or "")
         if scope == "full_history" and source_id > 0 and mode in TYPE_LABELS:
             improvement_lines = [
+                f"Mejora etiqueta: {str(origin.get('label') or detail.get('name') or '')}",
                 f"Mejora origen: {source_id}",
                 f"Mejora modo: {mode}",
             ]
+            source_uid = _valid_portfolio_uid(origin.get("source_uid"))
+            if source_uid:
+                improvement_lines.append(f"Mejora origen UID: {source_uid}")
+            improvement_lines.extend([
+                f"Mejora raiz: {safe_int(origin.get('root_id'), source_id)}",
+                f"Mejora nivel: {max(1, safe_int(origin.get('depth'), 1))}",
+            ])
+            root_uid = _valid_portfolio_uid(origin.get("root_uid"))
+            if root_uid:
+                improvement_lines.append(f"Mejora raiz UID: {root_uid}")
+            lineage = _normalized_improvement_lineage(origin.get("lineage"))
+            if lineage:
+                improvement_lines.append(
+                    "Mejora linaje JSON: "
+                    + json.dumps(lineage, ensure_ascii=True, separators=(",", ":"))
+                )
+            audit = ((detail.get("metrics") or {}).get("seasonal_validation") or {}).get("portfolio_improvement") or {}
+            snapshot = audit.get("source_snapshot")
+            if isinstance(snapshot, dict):
+                improvement_lines.append(
+                    "Mejora snapshot JSON: "
+                    + json.dumps(snapshot, ensure_ascii=True, separators=(",", ":"))
+                )
             priority = str(origin.get("priority") or "")
             if priority in IMPROVEMENT_PRIORITY_LABELS:
                 improvement_lines.append(f"Mejora prioridad: {priority}")
@@ -3345,6 +3471,10 @@ def build_import_proposals(
         proposals.append({"key": key, "label": label.strip() or key, "inputs": inputs, "result": result})
     if not proposals:
         raise ValueError("El resumen no dejó ninguna variante reconstruible")
+    exported_uid = _valid_portfolio_uid(header.get("portfolio_uid"))
+    if exported_uid:
+        for proposal in proposals:
+            proposal.setdefault("inputs", {})["portfolio_uid"] = exported_uid
     improvement_source_id = safe_int(header.get("improvement_source_portfolio_id"), 0)
     improvement_mode = str(header.get("improvement_portfolio_type") or "").strip().lower()
     if scope == "full_history" and improvement_source_id > 0:
@@ -3361,6 +3491,25 @@ def build_import_proposals(
         proposal_inputs["composition_portfolio_type"] = improvement_mode
         proposal_inputs["improvement_source_portfolio_id"] = improvement_source_id
         proposal_inputs["improvement_portfolio_type"] = improvement_mode
+        portfolio_uid = exported_uid
+        if portfolio_uid:
+            proposal_inputs["portfolio_uid"] = portfolio_uid
+        label = str(header.get("improvement_label") or "").strip()
+        if label:
+            proposal_inputs["improvement_label"] = label[:240]
+        parent_uid = _valid_portfolio_uid(header.get("improvement_parent_uid"))
+        if parent_uid:
+            proposal_inputs["improvement_parent_uid"] = parent_uid
+        root_id = safe_int(header.get("improvement_root_portfolio_id"), improvement_source_id)
+        proposal_inputs["improvement_root_portfolio_id"] = root_id or improvement_source_id
+        root_uid = _valid_portfolio_uid(header.get("improvement_root_uid"))
+        if root_uid:
+            proposal_inputs["improvement_root_uid"] = root_uid
+        depth = max(1, safe_int(header.get("improvement_depth"), 1))
+        proposal_inputs["improvement_depth"] = depth
+        lineage = _normalized_improvement_lineage(header.get("improvement_lineage"))
+        if lineage:
+            proposal_inputs["improvement_lineage"] = lineage
         priority = str(header.get("improvement_selection_priority") or "").strip().lower()
         if priority:
             if priority not in IMPROVEMENT_PRIORITY_LABELS:
@@ -3400,7 +3549,17 @@ def build_import_proposals(
             "source_portfolio_id": improvement_source_id,
             "target_portfolio_type": improvement_mode,
             "imported_lineage": True,
+            "portfolio_uid": portfolio_uid,
+            "label": label,
+            "parent_uid": parent_uid,
+            "root_portfolio_id": root_id or improvement_source_id,
+            "root_uid": root_uid,
+            "depth": depth,
+            "lineage": lineage,
         }
+        snapshot = header.get("improvement_source_snapshot")
+        if isinstance(snapshot, dict):
+            audit["source_snapshot"] = snapshot
         if priority:
             audit["selection_priority"] = priority
         if added_count >= 0:
@@ -3524,7 +3683,7 @@ def save_proposal(
     elif standalone_improvement:
         metrics = _result_metrics(selected_inputs, selected_result)
         row_type = str(selected_inputs["portfolio_type"])
-        name = f"Mejora de #{int(selected_inputs['improvement_source_portfolio_id'])} | {TYPE_LABELS[row_type]} | {datetime.now():%d.%m.%Y %H:%M}"
+        name = str(selected_inputs.get("improvement_label") or "").strip() or f"Mejora de #{int(selected_inputs['improvement_source_portfolio_id'])} | {TYPE_LABELS[row_type]} | {datetime.now():%d.%m.%Y %H:%M}"
     elif scope == "monthly":
         metrics = _result_metrics(selected_inputs, selected_result)
         row_type = str(selected_inputs["portfolio_type"])

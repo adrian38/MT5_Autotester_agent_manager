@@ -279,6 +279,40 @@ class RequiredSetsSurviveTheFunnelTests(unittest.TestCase):
 
 
 class SelectedModeTests(unittest.TestCase):
+    def test_improving_an_improvement_extends_its_portable_lineage(self) -> None:
+        parent_uid = "22222222-2222-4222-8222-222222222222"
+        root_uid = "11111111-1111-4111-8111-111111111111"
+        detail = {
+            "id": 36,
+            "created_at": "2026-09-11T13:09:45",
+            "name": "Mejora del portafolio #14 | modo Moderado",
+            "portfolio_type": "balanced",
+            "members": [{"set_path": "alpha.set", "variant_key": "balanced", "units": 1}],
+            "metrics": {"inputs": {
+                "portfolio_uid": parent_uid,
+                "improvement_source_portfolio_id": 14,
+                "improvement_portfolio_type": "balanced",
+                "improvement_root_portfolio_id": 14,
+                "improvement_root_uid": root_uid,
+                "improvement_depth": 1,
+                "improvement_lineage": [{
+                    "portfolio_id": 14, "portfolio_uid": root_uid,
+                    "label": "Portafolio #14", "mode": "balanced",
+                }],
+            }},
+        }
+
+        lineage = full._lineage_from_parent(detail, 36, "balanced")
+
+        self.assertEqual(lineage["improvement_parent_uid"], parent_uid)
+        self.assertEqual(lineage["improvement_root_portfolio_id"], 14)
+        self.assertEqual(lineage["improvement_root_uid"], root_uid)
+        self.assertEqual(lineage["improvement_depth"], 2)
+        self.assertEqual(
+            [row["portfolio_id"] for row in lineage["improvement_lineage"]],
+            [14, 36],
+        )
+
     def test_only_selected_mode_is_loaded_optimized_and_compared(self):
         for mode in full.PORTFOLIO_TYPES:
             with self.subTest(mode=mode):
@@ -466,7 +500,13 @@ class SelectedModeTests(unittest.TestCase):
                 conn.commit()
             new = source.saved_portfolio_detail(saved["portfolio_id"], "full_history")["portfolio"]
             self.assertIn(f"Mejora del portafolio #{original_id} | modo Conservador", new["name"])
-            self.assertEqual(new["improvement_origin"], {"source_id": original_id, "mode": "conservative"})
+            self.assertEqual(new["improvement_origin"], {
+                "source_id": original_id,
+                "mode": "conservative",
+                "root_id": original_id,
+                "depth": 1,
+                "label": f"Mejora del portafolio #{original_id} | modo Conservador",
+            })
             self.assertEqual(new["portfolio_type"], "conservative")
             # Dos mejoras del mismo portafolio y modo son indistinguibles en la
             # lista si no se publica con qué criterio se eligió cada una.
@@ -486,7 +526,9 @@ class SelectedModeTests(unittest.TestCase):
             enriched = source.saved_portfolio_detail(saved["portfolio_id"], "full_history")["portfolio"]
             self.assertEqual(enriched["improvement_origin"], {
                 "source_id": original_id, "mode": "conservative",
+                "root_id": original_id, "depth": 1,
                 "priority": "stress", "priority_label": "Menor estrés", "added_count": 3,
+                "label": f"Mejora del portafolio #{original_id} | modo Conservador",
             })
             self.assertFalse(new["metrics"].get("portfolio_bundle", False))
             self.assertEqual(new["metrics"]["inputs"]["improvement_source_portfolio_id"], original_id)

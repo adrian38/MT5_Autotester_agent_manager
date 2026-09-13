@@ -69,6 +69,28 @@ Moderado     ICTRADING    EURUSD       H1          2    0.02   alpha.set
 Moderado     ICTRADING    GBPUSD       H1          1    0.01   beta.set
 """
 
+CHAINED_IMPROVEMENT_SUMMARY = """Portafolio: Mejora del portafolio #36 | modo Moderado
+Tipo: balanced   Capital: 10,000
+Portafolio UID: 33333333-3333-4333-8333-333333333333
+Mejora etiqueta: Mejora del portafolio #36 | modo Moderado
+Mejora origen: 36
+Mejora modo: balanced
+Mejora origen UID: 22222222-2222-4222-8222-222222222222
+Mejora raiz: 14
+Mejora raiz UID: 11111111-1111-4111-8111-111111111111
+Mejora nivel: 2
+Mejora linaje JSON: [{"portfolio_id":14,"portfolio_uid":"11111111-1111-4111-8111-111111111111","label":"Portafolio #14","mode":"balanced"},{"portfolio_id":36,"portfolio_uid":"22222222-2222-4222-8222-222222222222","label":"Mejora del portafolio #14 | modo Moderado","mode":"balanced"}]
+Mejora snapshot JSON: {"id":36,"portfolio_uid":"22222222-2222-4222-8222-222222222222","portfolio_type":"balanced","label":"Mejora del portafolio #14 | modo Moderado","total_net_profit":100,"actual_valley_dd":12,"active_strategies":1,"total_units":2,"total_lot":0.02,"members":[]}
+Mejora prioridad: balanced
+Mejora incorporaciones: 1
+DD valle objetivo: 300.00
+DD puntual objetivo: 300.00
+
+PERFIL       CUENTA       SIMBOLO      TF      UNID.    LOTE   SET
+Moderado     ICTRADING    EURUSD       H1          2    0.02   alpha.set
+Moderado     ICTRADING    GBPUSD       H1          1    0.01   beta.set
+"""
+
 
 class SummaryParsingTests(unittest.TestCase):
     def test_the_header_and_every_row_are_read_from_the_exported_summary(self) -> None:
@@ -111,6 +133,15 @@ class SummaryParsingTests(unittest.TestCase):
         self.assertEqual(header["improvement_source_portfolio_id"], 73.0)
         self.assertEqual(header["improvement_portfolio_type"], "balanced")
         self.assertNotIn("improvement_selection_priority", header)
+
+    def test_a_chained_improvement_reads_portable_lineage_and_parent_snapshot(self) -> None:
+        header, _members = portfolio_import.parse_summary(CHAINED_IMPROVEMENT_SUMMARY)
+
+        self.assertEqual(header["portfolio_uid"], "33333333-3333-4333-8333-333333333333")
+        self.assertEqual(header["improvement_root_portfolio_id"], 14.0)
+        self.assertEqual(header["improvement_depth"], 2.0)
+        self.assertEqual([row["portfolio_id"] for row in header["improvement_lineage"]], [14, 36])
+        self.assertEqual(header["improvement_source_snapshot"]["id"], 36)
 
     def test_a_set_name_with_spaces_survives_the_fixed_width_columns(self) -> None:
         line = "Moderado     ICTRADING    EURUSD       H1          2    0.02   nombre con espacios.set"
@@ -332,9 +363,12 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(saved["improvement_origin"], {
                 "source_id": 73,
                 "mode": "balanced",
+                "root_id": 73,
+                "depth": 1,
                 "priority": "stress",
                 "priority_label": "Menor estrés",
                 "added_count": 1,
+                "label": "Mejora del portafolio #73 | modo Moderado",
             })
             self.assertFalse(saved["metrics"].get("portfolio_bundle", False))
             self.assertEqual(report["improvement_origin"], {
@@ -352,6 +386,71 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(exported_header["improvement_portfolio_type"], "balanced")
             self.assertEqual(exported_header["improvement_selection_priority"], "stress")
             self.assertEqual(exported_header["improvement_added_count"], 1.0)
+
+    def test_a_chained_improvement_round_trip_keeps_label_lineage_and_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            strategies = [
+                strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0),
+                strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+            ]
+            header, members = portfolio_import.parse_summary(CHAINED_IMPROVEMENT_SUMMARY)
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+            ):
+                proposals, selected_key, _report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+                portfolio_id = save_proposal(source, proposals, selected_key, "full_history")
+
+            saved = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+            self.assertEqual(saved["name"], "Mejora del portafolio #36 | modo Moderado")
+            self.assertEqual(saved["improvement_origin"]["root_id"], 14)
+            self.assertEqual(saved["improvement_origin"]["depth"], 2)
+            self.assertEqual(len(saved["improvement_origin"]["lineage"]), 2)
+            audit = saved["metrics"]["seasonal_validation"]["portfolio_improvement"]
+            self.assertEqual(audit["source_snapshot"]["id"], 36)
+
+            for set_name in ("alpha.set", "beta.set"):
+                (project / set_name).write_text("Risk=1\n", encoding="utf-8")
+            exported = source.export_portfolio(portfolio_id, "full_history", str(project / "exported"))
+            exported_header, _members, _sets = portfolio_import.read_export(exported["folder"])
+            self.assertEqual(exported_header["improvement_label"], saved["name"])
+            self.assertEqual(exported_header["improvement_root_portfolio_id"], 14.0)
+            self.assertEqual(exported_header["improvement_depth"], 2.0)
+            self.assertEqual(exported_header["improvement_source_snapshot"]["id"], 36)
+
+    def test_a_regular_export_also_carries_a_portable_uid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            strategies = [
+                strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0),
+                strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+            ]
+            header, members = portfolio_import.parse_summary(SUMMARY)
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+            ):
+                proposals, selected_key, _report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+                portfolio_id = save_proposal(source, proposals, selected_key, "full_history")
+            for set_name in ("alpha.set", "beta.set"):
+                (project / set_name).write_text("Risk=1\n", encoding="utf-8")
+
+            exported = source.export_portfolio(portfolio_id, "full_history", str(project / "exported"))
+            exported_header, _members, _sets = portfolio_import.read_export(exported["folder"])
+
+            self.assertRegex(
+                exported_header["portfolio_uid"],
+                r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            )
 
     def test_an_old_improvement_export_recovers_added_count_from_its_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
