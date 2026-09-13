@@ -42,11 +42,7 @@ def period(
 
 
 class PortfolioEquityRiskTests(unittest.TestCase):
-    def test_final_tick_never_extends_the_closed_curve(self) -> None:
-        # La curva se construye solo con los backtests OHLC IS + OOS. El Final
-        # Tick es real tick: pegarle la cola mezclaba dos calidades de modelado
-        # y hacia que el mismo portafolio valiese distinto segun quien lo
-        # recalculase. Sigue midiendo riesgo y aporte reciente, no la curva.
+    def test_final_tick_extends_closed_curve_only_after_oos_cutoff(self) -> None:
         base_trade = ClosedTrade(
             datetime(2024, 12, 1), datetime(2024, 12, 2), "XAGUSD", 0.01, 10.0
         )
@@ -86,14 +82,11 @@ class PortfolioEquityRiskTests(unittest.TestCase):
             final_tick_report_path="recent.htm",
         )
 
-        self.assertEqual(strategy.closed_trades_2020_2026, [base_trade, oos_trade])
-        self.assertEqual(strategy.trades_2020_2026, 2)
-        self.assertAlmostEqual(strategy.net_profit_2020_2026_001, 110.0)
-        self.assertAlmostEqual(strategy.valley_dd_2020_2026_001, 0.0)
-        self.assertEqual(strategy.curve_points_2020_2026_001[-1][0], datetime(2026, 5, 29))
-        # El informe sigue disponible para riesgo y para el aporte reciente.
-        self.assertEqual(strategy.final_tick_report_path, "recent.htm")
-        self.assertAlmostEqual(strategy.max_floating_dd_001, 25.0)
+        self.assertEqual(strategy.final_tick_tail_trades, 1)
+        self.assertEqual(strategy.trades_2020_2026, 3)
+        self.assertAlmostEqual(strategy.net_profit_2020_2026_001, 60.0)
+        self.assertAlmostEqual(strategy.valley_dd_2020_2026_001, 50.0)
+        self.assertEqual(strategy.curve_points_2020_2026_001[-1][0], datetime(2026, 6, 17))
 
     def test_worst_floating_gap_is_searched_across_full_history_and_recent_report(self) -> None:
         strategy = build_robust_strategy_set(
@@ -125,7 +118,7 @@ class PortfolioEquityRiskTests(unittest.TestCase):
         self.assertAlmostEqual(evaluation.floating_dd_buffer, 986.53)
         self.assertGreater(evaluation.valley_dd, evaluation.target_valley_dd)
 
-    def test_continuous_report_is_authoritative_for_equity_dd_but_not_for_the_curve(self) -> None:
+    def test_continuous_report_replaces_segmented_curve_and_is_authoritative_for_equity_dd(self) -> None:
         continuous_trades = [
             ClosedTrade(datetime(2020, 1, 2), datetime(2020, 1, 3), "XAGUSD", 0.01, 200.0),
             ClosedTrade(datetime(2026, 6, 1), datetime(2026, 6, 2), "XAGUSD", 0.01, -150.0),
@@ -148,10 +141,8 @@ class PortfolioEquityRiskTests(unittest.TestCase):
             full_history_report_path="continuous.htm",
         )
 
-        # La curva sigue siendo la de IS + OOS (2 x 100), no la del continuo.
-        self.assertAlmostEqual(strategy.net_profit_2020_2026_001, 200.0)
-        self.assertEqual(strategy.closed_trades_2020_2026, [])
-        # El continuo sí manda como observación de riesgo flotante.
+        self.assertAlmostEqual(strategy.net_profit_2020_2026_001, 50.0)
+        self.assertAlmostEqual(strategy.valley_dd_2020_2026_001, 150.0)
         self.assertAlmostEqual(strategy.max_floating_dd_001, 986.53)
         self.assertEqual(strategy.floating_dd_source, "Final Tick continuo 2020-hoy")
         self.assertEqual(strategy.full_history_report_path, "continuous.htm")
@@ -208,8 +199,6 @@ class PortfolioEquityRiskTests(unittest.TestCase):
         february_trade = ClosedTrade(
             datetime(2026, 2, 2), datetime(2026, 2, 3), "XAGUSD", 0.01, -10.0
         )
-        # Las operaciones que se recortan por mes salen de IS + OOS, que es de
-        # donde sale la curva. El continuo solo aporta la lectura de riesgo.
         continuous = replace(
             period("continuous", 2020, 2026, balance_dd=25.0, equity_dd=80.0),
             closed_trades=[january_trade, february_trade],
@@ -223,10 +212,7 @@ class PortfolioEquityRiskTests(unittest.TestCase):
             robustness_status="accepted",
             already_used=False,
             report_2020_2024=period("2020_2024", 2020, 2024, balance_dd=1.0, equity_dd=2.0),
-            report_2025_2026=replace(
-                period("2025_2026", 2025, 2026, balance_dd=2.0, equity_dd=3.0),
-                closed_trades=[january_trade, february_trade],
-            ),
+            report_2025_2026=period("2025_2026", 2025, 2026, balance_dd=2.0, equity_dd=3.0),
             full_history_report=continuous,
             full_history_report_path="continuous.htm",
             final_tick_report_path="recent.htm",

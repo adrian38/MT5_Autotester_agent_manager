@@ -332,6 +332,7 @@ class RobustStrategySet:
     final_tick_report_path: str = ""
     full_history_report_path: str = ""
     closed_trades_2020_2026: list[ClosedTrade] = field(default_factory=list)
+    final_tick_tail_trades: int = 0
 
 
 @dataclass
@@ -1023,30 +1024,32 @@ def _full_history_report_covers_segmented_history(
     return continuous[0] <= primary_start[0] and continuous[1] >= primary_end[1]
 
 
-def _segmented_closed_trade_history(
+def _chronological_closed_trade_history(
     report_2020_2024: PeriodReport,
     report_2025_2026: PeriodReport,
-) -> list[ClosedTrade]:
-    """La curva sale solo de los backtests OHLC IS + OOS. No se injerta nada mas.
+    final_tick_report: PeriodReport | None = None,
+    full_history_report: PeriodReport | None = None,
+) -> tuple[list[ClosedTrade], int]:
+    """Use a continuous history when available, otherwise append a non-overlapping tail."""
+    if _full_history_report_covers_segmented_history(
+        report_2020_2024, report_2025_2026, full_history_report
+    ):
+        return sorted(full_history_report.closed_trades, key=lambda trade: trade.close_time), 0
 
-    Antes se pegaba la cola del Final Tick: se tomaba la ultima operacion de
-    IS + OOS como corte y se anadian las operaciones del informe Final Tick 6M
-    posteriores a ese corte. Eso mezclaba dos calidades de modelado en la misma
-    curva, porque el Final Tick es **real tick** y el historico es OHLC. Medido
-    en la memoria ICTrading: el OHLC de una estrategia llegaba al 29.05.2026 y
-    se le pegaban 9 operaciones real tick hasta el 23.06.2026; esas mismas 9
-    operaciones en su informe OHLC sumaban otra cifra, asi que el resultado
-    dependia de que fuente sobresalia, no de la estrategia.
-
-    Tambien se descarta el informe "continuo": el que llega por
-    ``full_history_report`` es el real tick de ``candidate_final_tick``, que en
-    la practica cubre un mes. Sigue valiendo como observacion de riesgo
-    flotante; no como fuente de la curva.
-    """
-    return sorted(
+    primary = sorted(
         list(report_2020_2024.closed_trades) + list(report_2025_2026.closed_trades),
         key=lambda trade: trade.close_time,
     )
+    if not primary or final_tick_report is None or not final_tick_report.closed_trades:
+        return primary, 0
+
+    cutoff = primary[-1].close_time
+    tail = [
+        trade
+        for trade in final_tick_report.closed_trades
+        if trade.close_time > cutoff
+    ]
+    return sorted(primary + tail, key=lambda trade: trade.close_time), len(tail)
 
 
 def build_robust_strategy_set(
@@ -1087,8 +1090,6 @@ def build_robust_strategy_set(
     ):
         raise ValueError("Cannot use a continuous Final Tick report with a different symbol")
 
-    # El informe continuo ya no construye la curva: sigue aqui unicamente como
-    # observacion de drawdown mas abajo. Ver ``_segmented_closed_trade_history``.
     continuous_history = (
         full_history_report
         if _full_history_report_covers_segmented_history(
@@ -1096,7 +1097,12 @@ def build_robust_strategy_set(
         )
         else None
     )
-    closed_history = _segmented_closed_trade_history(report_2020_2024, report_2025_2026)
+    closed_history, final_tick_tail_trades = _chronological_closed_trade_history(
+        report_2020_2024,
+        report_2025_2026,
+        final_tick_report,
+        continuous_history,
+    )
     if closed_history:
         curve_points = _curve_points_from_closed_trades(closed_history)
         curve_2020_2026_001 = [0.0] + [value for _time, value in curve_points]
@@ -1184,6 +1190,7 @@ def build_robust_strategy_set(
         final_tick_report_path=str(final_tick_report_path),
         full_history_report_path=str(full_history_report_path if continuous_history is not None else ""),
         closed_trades_2020_2026=closed_history,
+        final_tick_tail_trades=final_tick_tail_trades,
     )
 
 
@@ -1276,6 +1283,7 @@ def slice_strategy_set_to_month(
             for trade in strategy.closed_trades_2020_2026
             if trade.close_time.month == int(target_month)
         ],
+        final_tick_tail_trades=strategy.final_tick_tail_trades,
     )
 
 
@@ -1705,9 +1713,8 @@ def load_robust_sets_from_rows(
         warnings.append("Ejemplos de errores de carga: " + " | ".join(parse_examples))
     if continuous_fallbacks:
         warnings.append(
-            f"{continuous_fallbacks} reporte(s) Final Tick no cubren el histórico "
-            "completo: valen como riesgo del tramo reciente. La curva es siempre "
-            "IS + OOS (OHLC); ningún informe Final Tick la extiende."
+            f"{continuous_fallbacks} reporte(s) Final Tick no eran continuos; "
+            "se conservó la curva IS + OOS y Final Tick 6M sólo extendió la cola/riesgo."
         )
         warnings.append(
             "Ejemplos de coberturas no continuas: " + " | ".join(continuous_fallback_examples)

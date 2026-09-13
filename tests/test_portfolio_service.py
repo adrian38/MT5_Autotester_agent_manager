@@ -197,7 +197,7 @@ class PortfolioServiceTests(unittest.TestCase):
         self.assertEqual(len(loaded), 1)
         self.assertEqual(loaded[0].closed_trades_2020_2026, [base_trade, oos_trade])
         self.assertEqual(loaded[0].full_history_report_path, "")
-        self.assertTrue(any("no cubren el histórico completo" in warning for warning in warnings))
+        self.assertTrue(any("no eran continuos" in warning for warning in warnings))
 
     def test_windows_source_paths_are_relocated_for_a_container_project(self) -> None:
         project = Path("/data/roboforex/TRADING/MT5_Autotester_agent")
