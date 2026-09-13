@@ -301,11 +301,30 @@ def _selected_variant_detail(detail: dict[str, Any], target: str) -> dict[str, A
     members = list(detail.get("members") or [])
     if _is_bundle_portfolio(detail):
         members = [row for row in members if row.get("variant_key") == target]
-    elif str(detail.get("portfolio_type") or "") != target:
+    elif _saved_single_mode(detail) != target:
         raise ValueError("El portafolio no contiene la variante elegida")
     if not members:
         raise ValueError("No hay estrategias guardadas para la variante elegida")
     return {**detail, "members": members}
+
+
+def _saved_single_mode(detail: dict[str, Any]) -> str:
+    """Resolve the A/M/C mode behind a saved single-mode improvement."""
+    metrics = detail.get("metrics") or {}
+    inputs = metrics.get("inputs") or {}
+    audit = (metrics.get("seasonal_validation") or {}).get("portfolio_improvement") or {}
+    origin = detail.get("improvement_origin") or {}
+    for raw in (
+        origin.get("mode"),
+        inputs.get("improvement_portfolio_type"),
+        audit.get("target_portfolio_type"),
+        detail.get("portfolio_type"),
+        inputs.get("portfolio_type"),
+    ):
+        mode = str(raw or "").strip().lower()
+        if mode in PORTFOLIO_TYPES:
+            return mode
+    return ""
 
 
 def _load_full_history_improvement_pool(

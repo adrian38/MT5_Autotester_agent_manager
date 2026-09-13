@@ -301,7 +301,16 @@ class ImprovementScreenTests(unittest.TestCase):
         script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
 
         self.assertIn("const displayed = typeof selectedDetailVariant", script)
-        self.assertIn("const target = displayed || saved.improvement_portfolio_type", script)
+        self.assertIn("bundle && portfolioModes.includes(displayed)", script)
+
+    def test_improving_an_improvement_locks_its_original_mode(self) -> None:
+        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+
+        self.assertIn("const inheritedImprovementMode", script)
+        self.assertIn("lineage?.mode", script)
+        self.assertIn("saved.improvement_portfolio_type", script)
+        self.assertIn("option.value !== target", script)
+        self.assertNotIn("option.value !== currentDetail.portfolio_type", script)
 
     def test_manager_serves_both_new_static_assets(self) -> None:
         manager = (self.ROOT.parent / "manager.py").read_text(encoding="utf-8")

@@ -509,6 +509,25 @@ class SelectedModeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "No hay estrategias"):
             full._selected_variant_detail({"portfolio_type": "bundle", "members": [{"variant_key": "aggressive", "units": 1}]}, "balanced")
 
+    def test_a_technical_improved_type_keeps_the_mode_of_its_first_improvement(self):
+        detail = {
+            "portfolio_type": "improved",
+            "improvement_origin": {"mode": "aggressive"},
+            "metrics": {
+                "inputs": {"improvement_portfolio_type": "balanced"},
+                "seasonal_validation": {
+                    "portfolio_improvement": {"target_portfolio_type": "conservative"},
+                },
+            },
+            "members": [{"set_id": "original.set", "units": 1}],
+        }
+
+        selected = full._selected_variant_detail(detail, "aggressive")
+
+        self.assertEqual(selected["members"], detail["members"])
+        with self.assertRaisesRegex(ValueError, "no contiene la variante"):
+            full._selected_variant_detail(detail, "balanced")
+
     def test_save_creates_an_identified_portfolio_and_retry_is_idempotent(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
