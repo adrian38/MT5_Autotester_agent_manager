@@ -231,7 +231,7 @@ class ChainFillerRetryTests(unittest.TestCase):
         self.assertEqual(availability["improvement"]["min_recent_contribution_pct"], 0.0)
         self.assertEqual(availability["improvement"]["recent_contribution_rejections"], [])
 
-    def test_banning_everything_reports_the_exhausted_pool(self):
+    def test_exhausting_the_pool_by_banning_blames_the_threshold(self):
         old, bad = allocation(OLD, "EURUSD", 1000), allocation(BAD, "USDJPY", 1)
         source = single_mode_source()
         sets = [NS(set_id=OLD), NS(set_id=BAD)]
@@ -240,34 +240,84 @@ class ChainFillerRetryTests(unittest.TestCase):
              patch.object(chain, "build_margin_model", return_value=None), \
              patch.object(chain, "optimize_portfolio", return_value=result_for([old, bad])), \
              patch.object(chain, "evaluate_portfolio"):
-            with self.assertRaisesRegex(ValueError, "tras vetar 1 por aporte insuficiente"):
+            # La causa es el umbral, no que falten candidatas en el pool.
+            with self.assertRaisesRegex(
+                ValueError, "aporte mínimo Final Tick 6M de 5.0%.*agotaron.*tras vetar 1"
+            ):
                 chain._generate_full_history_improvement_attempt(
                     source, 82, chain_inputs(min_strategy_recent_contribution_pct=5),
                 )
 
 
-class BaseEngineIsUntouchedTests(unittest.TestCase):
-    """El motor de base sigue abortando al primer relleno: no se contaminó."""
+class BaseEngineThresholdTests(unittest.TestCase):
+    """El motor de base tiene el mismo umbral elegible y el mismo reintento."""
 
-    def test_base_still_raises_without_retrying(self):
-        old, bad = allocation(OLD, "EURUSD", 1000), allocation(BAD, "USDJPY", 1)
+    def base_source(self):
         detail = {"portfolio_type": "balanced", "members": [{"set_path": OLD, "units": 1}]}
-        source = NS(project=Path.cwd(),
-                    saved_portfolio_detail=Mock(return_value={"portfolio": detail}),
-                    saved_curves=Mock(return_value=[]))
-        sets = [NS(set_id=OLD), NS(set_id=BAD)]
-        inputs = chain_inputs(min_strategy_recent_contribution_pct=5)
+        return NS(project=Path.cwd(),
+                  saved_portfolio_detail=Mock(return_value={"portfolio": detail}),
+                  saved_curves=Mock(return_value=[]))
+
+    def run_attempt(self, optimize_results, sets, **extra):
         with patch.object(base, "_load_full_history_improvement_pool",
                           return_value=(sets[:1], sets, [], [], [])), \
              patch.object(base, "build_margin_model", return_value=None), \
-             patch.object(base, "optimize_portfolio", return_value=result_for([old, bad])) as optimize, \
-             patch.object(base, "evaluate_portfolio") as baseline:
-            with self.assertRaisesRegex(ValueError, "aporte mínimo Final Tick 6M"):
-                base._generate_full_history_improvement_attempt(source, 9, inputs)
+             patch.object(base, "optimize_portfolio", side_effect=optimize_results) as optimize, \
+             patch.object(base, "evaluate_portfolio") as baseline, \
+             patch.object(base, "validate_and_attach_improvement_audit",
+                          return_value={"added_count": 1}), \
+             patch.object(base, "_seasonal_coverage"):
+            availability, proposals = base._generate_full_history_improvement_attempt(
+                self.base_source(), 9, chain_inputs(**extra),
+            )
+        return availability, proposals, optimize, baseline
+
+    def test_the_dialog_value_is_honoured_and_recorded(self):
+        old, bad = allocation(OLD, "EURUSD", 1000), allocation(BAD, "USDJPY", 1)
+        availability, proposals, optimize, baseline = self.run_attempt(
+            [result_for([old, bad]), result_for([old, bad])],
+            [NS(set_id=OLD), NS(set_id=BAD)],
+            improvement_min_recent_contribution_pct=0,
+            min_strategy_recent_contribution_pct=5,
+        )
         self.assertEqual(optimize.call_count, 2)
-        baseline.assert_not_called()
-        self.assertFalse(hasattr(base, "improvement_min_recent_contribution_pct"))
-        self.assertFalse(hasattr(base, "MAX_FILLER_RETRIES"))
+        baseline.assert_called_once()
+        self.assertEqual(availability["improvement"]["min_recent_contribution_pct"], 0.0)
+        self.assertEqual(availability["improvement"]["engine"], "base")
+        self.assertEqual(availability["improvement"]["recent_contribution_rejections"], [])
+        self.assertEqual(
+            proposals[0]["inputs"]["improvement_min_recent_contribution_pct"], 0.0
+        )
+
+    def test_absent_key_still_inherits_the_saved_threshold(self):
+        old, bad = allocation(OLD, "EURUSD", 1000), allocation(BAD, "USDJPY", 1)
+        with self.assertRaisesRegex(ValueError, "Final Tick 6M de 5.0%"):
+            self.run_attempt(
+                [result_for([old, bad]) for _ in range(2)],
+                [NS(set_id=OLD), NS(set_id=BAD)],
+                min_strategy_recent_contribution_pct=5,
+            )
+
+    def test_a_filler_is_banned_and_the_next_composition_is_tried(self):
+        old = allocation(OLD, "EURUSD", 1000)
+        bad, good = allocation(BAD, "USDJPY", 1), allocation(GOOD, "GBPUSD", 900)
+        availability, _proposals, optimize, baseline = self.run_attempt(
+            [result_for([old, bad]), result_for([old, bad]),
+             result_for([old, good]), result_for([old, good])],
+            [NS(set_id=OLD), NS(set_id=BAD), NS(set_id=GOOD)],
+            min_strategy_recent_contribution_pct=5,
+        )
+        self.assertEqual(optimize.call_count, 4)
+        baseline.assert_called_once()
+        improvement = availability["improvement"]
+        self.assertEqual(improvement["recent_contribution_rejections"], ["new_bad.set"])
+        self.assertEqual(improvement["selected_set_names"], ["old.set", "new_good.set"])
+
+    def test_the_outer_search_validates_before_looping(self):
+        with self.assertRaisesRegex(ValueError, "entre 0 y 100"):
+            base.generate_full_history_improvement(
+                object(), 9, {"improvement_min_recent_contribution_pct": 200},
+            )
 
 
 class ChainForkParityTests(unittest.TestCase):
@@ -286,6 +336,7 @@ class ChainForkParityTests(unittest.TestCase):
         "improvement_selection_priority",
         "improvement_account_leverage",
         "improvement_grid_off",
+        "improvement_min_recent_contribution_pct",
         "_attach_stress_comparison",
         "_improvement_rank",
         "_selected_variant_detail",
@@ -327,8 +378,27 @@ class ChainForkParityTests(unittest.TestCase):
                     "decide si el cambio debe portarse o si deja de ser compartida",
                 )
 
-    def test_the_constant_search_limit_matches(self):
+    def test_the_attempt_differs_only_in_the_engine_label(self):
+        """Hoy los dos intentos son el mismo algoritmo.
+
+        La bifurcación existe para poder cambiar la cadena sin tocar la base, no
+        porque ya diverjan. Mientras no diverjan, cualquier arreglo tiene que
+        entrar en las dos; el día que una se separe de verdad, esta prueba se
+        quita a conciencia y se documenta por qué.
+        """
+        root = Path(__file__).resolve().parents[1] / "mt5_manager"
+        name = "_generate_full_history_improvement_attempt"
+        left = self.bodies(root / "portfolio_improvement_service.py")[name]
+        right = self.bodies(root / "portfolio_improvement_chain_service.py")[name]
+        self.assertEqual(
+            left.replace("'base'", "'engine'"),
+            right.replace("'chain'", "'engine'"),
+            "los dos intentos divergieron; porta el arreglo o documenta la separación",
+        )
+
+    def test_the_constants_match(self):
         self.assertEqual(base.MAX_IMPROVEMENT_ADDITIONS, chain.MAX_IMPROVEMENT_ADDITIONS)
+        self.assertEqual(base.MAX_FILLER_RETRIES, chain.MAX_FILLER_RETRIES)
 
 
 if __name__ == "__main__":

@@ -56,6 +56,10 @@ from .portfolio_service import (
 
 Progress = Callable[[str], None]
 MAX_IMPROVEMENT_ADDITIONS = 5
+#: Cuántas veces se veta la candidata de relleno y se vuelve a seleccionar antes
+#: de darse por vencido con ese tamaño. Cada reintento es una optimización
+#: completa; sin tope, un pool grande podría recorrerlo entero.
+MAX_FILLER_RETRIES = 3
 #: Las claves validas y su etiqueta visible, en un solo sitio: el formulario,
 #: la auditoria guardada y el listado tienen que llamar igual a lo mismo.
 IMPROVEMENT_SELECTION_PRIORITIES = IMPROVEMENT_PRIORITY_LABELS
@@ -219,6 +223,34 @@ def improvement_grid_off(inputs: dict[str, Any]) -> bool:
     if not isinstance(raw, bool):
         raise ValueError("Grid OFF de la mejora debe ser verdadero o falso")
     return raw
+
+
+def improvement_min_recent_contribution_pct(inputs: dict[str, Any]) -> float:
+    """Aporte mínimo Final Tick 6M exigido a **cada incorporación**.
+
+    Clave propia del diálogo por lo mismo que el perfil de margen y Grid OFF: de
+    la petición sólo sobreviven al merge las `improvement_*`, así que antes el
+    umbral se heredaba en silencio de la variante guardada —5 % por defecto de la
+    generación— y no había forma de tocarlo pese a ser la puerta que más rechaza.
+
+    Ausente significa heredar, que es el comportamiento anterior. Un `0`
+    explícito desactiva la puerta y queda registrado como tal en la auditoría.
+
+    Incumplirlo no aborta el intento: se veta esa candidata y se vuelve a
+    seleccionar, hasta `MAX_FILLER_RETRIES`.
+    """
+    raw = inputs.get("improvement_min_recent_contribution_pct")
+    if raw in (None, ""):
+        raw = inputs.get("min_strategy_recent_contribution_pct", 0.0)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        value = -1.0
+    if isinstance(raw, bool) or not 0.0 <= value <= 100.0:
+        raise ValueError(
+            "El aporte mínimo Final Tick 6M de la mejora debe estar entre 0 y 100"
+        )
+    return value
 
 
 def _attach_stress_comparison(
@@ -444,6 +476,11 @@ def _generate_full_history_improvement_attempt(
     # al merge con los inputs de la variante guardada. Sólo cambia el pool de
     # candidatas; las originales se reconstruyen y bloquean antes del filtro.
     inputs["grid_off"] = improvement_grid_off(inputs)
+    # Se resuelve aquí, después del merge, por lo mismo que el perfil: la clave
+    # `improvement_*` es la única que sobrevive a que se reimpongan los inputs
+    # de la variante guardada.
+    minimum_recent_pct = improvement_min_recent_contribution_pct(inputs)
+    inputs["min_strategy_recent_contribution_pct"] = minimum_recent_pct
     inputs["margin_model"] = build_margin_model(source, inputs)
     options = improvement_options(inputs)
     detail = _selected_variant_detail(detail, target)
@@ -458,11 +495,6 @@ def _generate_full_history_improvement_attempt(
         else len(original_ids) + 1
     )
     maximum_target = len(original_ids) + options.max_additions
-    if len(raw_sets) < minimum_target:
-        raise ValueError(
-            f"Solo hay {len(raw_sets) - len(original_ids)} candidatas nuevas con aporte "
-            f"Final Tick 6M positivo; se necesitan {minimum_target - len(original_ids)}"
-        )
 
     base_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
     configured_reserve = float(inputs.get("dd_reserve_pct") or 0)
@@ -472,73 +504,6 @@ def _generate_full_history_improvement_attempt(
         portfolio_type=base_type,
         exclude_portfolio_id=portfolio_id,
     )
-    selector_kwargs = _optimizer_kwargs(inputs, base_type, existing, selection_reserve)
-    selector_kwargs.update(
-        {
-            "required_set_ids": original_ids,
-            "preserve_required_allocations": False,
-            "minimum_active_strategies": minimum_target,
-            "maximum_active_strategies": maximum_target,
-            # Aquí el objetivo es colocar el número pedido de incorporaciones,
-            # no sacar el máximo de la siguiente. Sin esto la holgura se gasta
-            # en la candidata más rentable y las demás no entran: el selector
-            # devolvía 1 y el intento se descartaba, y encima el resultado
-            # dependía del pool —excluir las usadas, que son las gordas, daba
-            # MÁS incorporaciones que no excluirlas—. Las originales no ceden
-            # unidades: eso está reservado a la reparación.
-            "prefer_breadth_below_minimum": True,
-            # Sin esto la mejora hereda el tope de sets por grupo del perfil
-            # (`DEFAULT_GROUP_LIMITS`: Moderado 3), pensado para construir de
-            # cero, no para ampliar una cartera que ya lo agota: el #30 tenía
-            # Forex 3, Indices 3 y Metals 2, así que sólo cabía UNA
-            # incorporación —en Metals— por mucho pool, correlación o DD que
-            # hubiera. Medido: 294 de 294 rechazos se desbloquean relajando
-            # sólo este tope. El generador ya hace lo mismo para las variantes
-            # A/M/C (`max_sets_per_group = locked_count`), y la concentración
-            # sigue acotada por `max_units_per_group_pct`, que no se toca.
-            "max_sets_per_group": maximum_target,
-            "top_k_per_symbol": max(int(inputs["top_k_per_symbol"]), maximum_target),
-            "max_sets_per_symbol": (
-                maximum_target
-                if options.allow_same_symbol
-                else int(inputs["max_sets_per_symbol"])
-            ),
-            # This pass chooses only the composition. Local/deep searches can
-            # activate extra sets after the greedy maximum; lot refinement is
-            # performed below once the selected composition is fixed.
-            "run_local_search": False,
-            "search_restarts": 0,
-        }
-    )
-    if progress:
-        progress(
-            f"4/5 · Buscando {options.max_additions} incorporación(es) con baja dependencia"
-        )
-    selected_base = optimize_portfolio(
-        raw_sets=raw_sets,
-        use_deep_refinement=False,
-        **selector_kwargs,
-    )
-    selected_ids = [
-        allocation.set_id
-        for allocation in selected_base.allocations
-        if allocation.units > 0
-    ]
-    if not set(original_ids).issubset(selected_ids):
-        raise ValueError("El selector intentó retirar una estrategia original")
-    actual_additions = len(selected_ids) - len(original_ids)
-    if not minimum_target <= len(selected_ids) <= maximum_target:
-        raise ValueError(
-            f"El selector añadió {actual_additions} estrategias; este intento requiere "
-            f"{minimum_target - len(original_ids)}"
-        )
-    selected_target = len(selected_ids)
-    raw_by_id = {strategy.set_id: strategy for strategy in raw_sets}
-    selected_sets = [raw_by_id[set_id] for set_id in selected_ids]
-
-    if progress:
-        progress("5/5 · Validando beneficio/DD de la variante elegida")
-    proposals: list[dict[str, Any]] = []
     key, label, portfolio_type = target, TYPE_LABELS[target], base_type
     reserve = selection_reserve
     variant_existing = source.saved_curves(
@@ -546,37 +511,142 @@ def _generate_full_history_improvement_attempt(
         portfolio_type=portfolio_type,
         exclude_portfolio_id=portfolio_id,
     )
-    kwargs = _optimizer_kwargs(inputs, portfolio_type, variant_existing, reserve)
-    kwargs.update(
-        {
-            "required_set_ids": selected_ids,
-            "preserve_required_allocations": False,
-            "minimum_active_strategies": selected_target,
-            "maximum_active_strategies": selected_target,
-            "top_k_per_symbol": selected_target,
-            "max_total_candidates": None,
-            "max_sets_per_symbol": (
-                selected_target
-                if options.allow_same_symbol
-                else int(inputs["max_sets_per_symbol"])
-            ),
-            "max_sets_per_group": selected_target,
-            "group_unit_cap_bootstrap": max(selected_target, 1),
-        }
-    )
-    result: PortfolioResult = optimize_portfolio(
-        raw_sets=selected_sets,
-        use_deep_refinement=bool(inputs.get("deep_optimization")),
-        **kwargs,
-    )
-    fillers = _underrepresented_recent_allocation_ids(
-        result, float(inputs.get("min_strategy_recent_contribution_pct") or 0),
-    ) - set(original_ids)
-    if fillers:
-        raise ValueError(
-            "Las incorporaciones no alcanzan el aporte mínimo Final Tick 6M: "
-            + ", ".join(Path(value).name for value in sorted(fillers))
+
+    # Vetar la candidata de relleno y volver a seleccionar. Antes un rechazo de
+    # aporte 6M tiraba el tamaño entero sin probar la composición siguiente, y el
+    # error se leía como «no hay mejora posible» cuando sólo significaba «la
+    # primera que probé no vale». La generación normal tampoco aborta:
+    # `_optimize_without_recent_fillers` quita el relleno y reoptimiza.
+    banned: set[str] = set()
+    rejected_fillers: list[str] = []
+    for retry in range(MAX_FILLER_RETRIES + 1):
+        pool = [strategy for strategy in raw_sets if strategy.set_id not in banned]
+        if len(pool) < minimum_target:
+            # Quedarse sin pool *por haber vetado* no es escasez de candidatas:
+            # la causa es el umbral, y el mensaje tiene que decir eso y no
+            # «solo hay 0 candidatas», que manda a buscar donde no está.
+            if banned:
+                raise ValueError(
+                    "Las incorporaciones no alcanzan el aporte mínimo Final Tick 6M "
+                    f"de {minimum_recent_pct:.1f}%: "
+                    + ", ".join(
+                        Path(value).name for value in sorted(set(rejected_fillers))
+                    )
+                    + f". Se agotaron las candidatas tras vetar {len(banned)}. Baja "
+                    "ese mínimo en el diálogo si quieres admitir aportaciones más "
+                    "pequeñas"
+                )
+            raise ValueError(
+                f"Solo hay {len(pool) - len(original_ids)} candidatas nuevas con aporte "
+                f"Final Tick 6M positivo; se necesitan {minimum_target - len(original_ids)}"
+            )
+
+        selector_kwargs = _optimizer_kwargs(inputs, base_type, existing, selection_reserve)
+        selector_kwargs.update(
+            {
+                "required_set_ids": original_ids,
+                "preserve_required_allocations": False,
+                "minimum_active_strategies": minimum_target,
+                "maximum_active_strategies": maximum_target,
+                # Aquí el objetivo es colocar el número pedido de incorporaciones,
+                # no sacar el máximo de la siguiente. Sin esto la holgura se gasta
+                # en la candidata más rentable y las demás no entran: el selector
+                # devolvía 1 y el intento se descartaba, y encima el resultado
+                # dependía del pool —excluir las usadas, que son las gordas, daba
+                # MÁS incorporaciones que no excluirlas—. Las originales no ceden
+                # unidades: eso está reservado a la reparación.
+                "prefer_breadth_below_minimum": True,
+                # Sin esto la mejora hereda el tope de sets por grupo del perfil
+                # (`DEFAULT_GROUP_LIMITS`: Moderado 3), pensado para construir de
+                # cero, no para ampliar una cartera que ya lo agota: el #30 tenía
+                # Forex 3, Indices 3 y Metals 2, así que sólo cabía UNA
+                # incorporación —en Metals— por mucho pool, correlación o DD que
+                # hubiera. Medido: 294 de 294 rechazos se desbloquean relajando
+                # sólo este tope. El generador ya hace lo mismo para las variantes
+                # A/M/C (`max_sets_per_group = locked_count`), y la concentración
+                # sigue acotada por `max_units_per_group_pct`, que no se toca.
+                "max_sets_per_group": maximum_target,
+                "top_k_per_symbol": max(int(inputs["top_k_per_symbol"]), maximum_target),
+                "max_sets_per_symbol": (
+                    maximum_target
+                    if options.allow_same_symbol
+                    else int(inputs["max_sets_per_symbol"])
+                ),
+                # This pass chooses only the composition. Local/deep searches can
+                # activate extra sets after the greedy maximum; lot refinement is
+                # performed below once the selected composition is fixed.
+                "run_local_search": False,
+                "search_restarts": 0,
+            }
         )
+        if progress:
+            progress(
+                f"4/5 · Buscando {options.max_additions} incorporación(es) con baja dependencia"
+                + (f" · reintento {retry} tras vetar {len(banned)}" if banned else "")
+            )
+        selected_base = optimize_portfolio(
+            raw_sets=pool,
+            use_deep_refinement=False,
+            **selector_kwargs,
+        )
+        selected_ids = [
+            allocation.set_id
+            for allocation in selected_base.allocations
+            if allocation.units > 0
+        ]
+        if not set(original_ids).issubset(selected_ids):
+            raise ValueError("El selector intentó retirar una estrategia original")
+        actual_additions = len(selected_ids) - len(original_ids)
+        if not minimum_target <= len(selected_ids) <= maximum_target:
+            raise ValueError(
+                f"El selector añadió {actual_additions} estrategias; este intento requiere "
+                f"{minimum_target - len(original_ids)}"
+            )
+        selected_target = len(selected_ids)
+        raw_by_id = {strategy.set_id: strategy for strategy in pool}
+        selected_sets = [raw_by_id[set_id] for set_id in selected_ids]
+
+        if progress:
+            progress("5/5 · Validando beneficio/DD de la variante elegida")
+        kwargs = _optimizer_kwargs(inputs, portfolio_type, variant_existing, reserve)
+        kwargs.update(
+            {
+                "required_set_ids": selected_ids,
+                "preserve_required_allocations": False,
+                "minimum_active_strategies": selected_target,
+                "maximum_active_strategies": selected_target,
+                "top_k_per_symbol": selected_target,
+                "max_total_candidates": None,
+                "max_sets_per_symbol": (
+                    selected_target
+                    if options.allow_same_symbol
+                    else int(inputs["max_sets_per_symbol"])
+                ),
+                "max_sets_per_group": selected_target,
+                "group_unit_cap_bootstrap": max(selected_target, 1),
+            }
+        )
+        result: PortfolioResult = optimize_portfolio(
+            raw_sets=selected_sets,
+            use_deep_refinement=bool(inputs.get("deep_optimization")),
+            **kwargs,
+        )
+        fillers = _underrepresented_recent_allocation_ids(
+            result, minimum_recent_pct,
+        ) - set(original_ids)
+        if not fillers:
+            break
+        names = ", ".join(Path(value).name for value in sorted(fillers))
+        rejected_fillers.extend(sorted(fillers))
+        banned |= fillers
+        if retry >= MAX_FILLER_RETRIES:
+            raise ValueError(
+                "Las incorporaciones no alcanzan el aporte mínimo Final Tick 6M "
+                f"de {minimum_recent_pct:.1f}% tras {MAX_FILLER_RETRIES} reintento(s) "
+                f"vetando candidatas: {names}. Baja ese mínimo en el diálogo si "
+                "quieres admitir aportaciones más pequeñas"
+            )
+
     baseline = evaluate_portfolio(
         original_sets,
         allocation_units(detail, key, resolve_path=resolve_saved_path),
@@ -601,6 +671,11 @@ def _generate_full_history_improvement_attempt(
     audit["margin_profile"] = str(inputs.get("margin_profile") or "")
     audit["account_leverage"] = float(inputs.get("account_leverage") or 0)
     audit["grid_off"] = bool(inputs.get("grid_off"))
+    audit["min_recent_contribution_pct"] = minimum_recent_pct
+    audit["recent_contribution_rejections"] = [
+        Path(value).name for value in rejected_fillers
+    ]
+    audit["engine"] = "base"
     audit["source_portfolio_id"] = portfolio_id
     audit["save_as_new"] = True
     audit.update({
@@ -646,12 +721,13 @@ def _generate_full_history_improvement_attempt(
             "improvement_original_count": len(original_ids),
             "improvement_added_count": actual_additions,
             "improvement_max_additions": options.max_additions,
+            "improvement_min_recent_contribution_pct": minimum_recent_pct,
             "portfolio_uid": str(inputs["_improvement_portfolio_uid"]),
             "improvement_label": audit["label"],
             **lineage,
         }
     )
-    proposals.append(
+    proposals = [
         {
             "key": key,
             "label": label,
@@ -662,7 +738,7 @@ def _generate_full_history_improvement_attempt(
             # crosses the HTTP boundary or reaches persisted proposal inputs.
             "_improvement_baseline": baseline,
         }
-    )
+    ]
 
     availability = asdict(summarize_robust_rows(rows, used))
     availability.update(
@@ -670,12 +746,17 @@ def _generate_full_history_improvement_attempt(
             "loaded_sets": len(raw_sets),
             "warnings": warnings,
             "improvement": {
+                "engine": "base",
                 "originals_locked": len(original_ids),
                 "maximum_additions": options.max_additions,
                 "actual_additions": actual_additions,
                 "margin_profile": str(inputs.get("margin_profile") or ""),
                 "account_leverage": float(inputs.get("account_leverage") or 0),
                 "grid_off": bool(inputs.get("grid_off")),
+                "min_recent_contribution_pct": minimum_recent_pct,
+                "recent_contribution_rejections": [
+                    Path(value).name for value in rejected_fillers
+                ],
                 "selected_set_names": [Path(value).name for value in selected_ids],
             },
         }
@@ -712,6 +793,10 @@ def generate_full_history_improvement(
     margin_profile = improvement_margin_profile(inputs)
     account_leverage = improvement_account_leverage(inputs)
     grid_off = improvement_grid_off(inputs)
+    if "improvement_min_recent_contribution_pct" in inputs:
+        inputs["improvement_min_recent_contribution_pct"] = (
+            improvement_min_recent_contribution_pct(inputs)
+        )
     inputs["improvement_min_additions"] = requested
     inputs["improvement_allowed_asset_groups"] = allowed_groups
     # Sólo se reescribe cuando el diálogo lo mandó. Fijarlo siempre impondría el
