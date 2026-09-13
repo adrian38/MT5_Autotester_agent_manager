@@ -44,15 +44,37 @@
     element.addEventListener('click', () => dialog.close());
   });
 
+  const portfolioModes = ['aggressive', 'balanced', 'conservative'];
+  const inheritedImprovementMode = portfolio => {
+    const saved = portfolio.metrics?.inputs || {};
+    const audit = portfolio.metrics?.seasonal_validation?.portfolio_improvement || {};
+    const lineage = typeof PortfolioComparison === 'undefined'
+      ? null
+      : PortfolioComparison.lineage(portfolio);
+    return [
+      lineage?.mode,
+      portfolio.improvement_origin?.mode,
+      saved.improvement_portfolio_type,
+      audit.target_portfolio_type,
+      portfolio.portfolio_type,
+      saved.portfolio_type,
+    ].find(mode => portfolioModes.includes(mode)) || 'balanced';
+  };
+
   button.addEventListener('click', () => {
     if (!selectedId || !currentDetail) return;
     const saved = currentDetail.metrics?.inputs || {};
     const displayed = typeof selectedDetailVariant === 'undefined' ? '' : selectedDetailVariant;
-    const target = displayed || saved.improvement_portfolio_type || saved.composition_portfolio_type || currentDetail.metrics?.composition_portfolio_type || saved.portfolio_type || 'balanced';
-    const selector = dialog.querySelector('[name="improvement_portfolio_type"]');
     const bundle = currentDetail.portfolio_type === 'bundle' || currentDetail.metrics?.portfolio_bundle;
-    for (const option of selector.options) option.disabled = !bundle && option.value !== currentDetail.portfolio_type;
-    selector.value = bundle ? (['aggressive', 'balanced', 'conservative'].includes(target) ? target : 'balanced') : currentDetail.portfolio_type;
+    const target = bundle && portfolioModes.includes(displayed)
+      ? displayed
+      : inheritedImprovementMode(currentDetail);
+    const selector = dialog.querySelector('[name="improvement_portfolio_type"]');
+    // Un bundle deja elegir cualquiera. Una mejora de un solo modo conserva y
+    // bloquea el modo de su cadena, aunque la fila antigua diga `improved` u
+    // otro tipo técnico que no pertenece a A/M/C.
+    for (const option of selector.options) option.disabled = !bundle && option.value !== target;
+    selector.value = target;
     const variantSaved = bundle ? (currentDetail.metrics?.variants?.[selector.value]?.inputs || {}) : {};
     const centralGridOff = typeof form === 'undefined' ? false : Boolean(form.elements.grid_off?.checked);
     dialog.querySelector('[name="improvement_grid_off"]').checked = Boolean(

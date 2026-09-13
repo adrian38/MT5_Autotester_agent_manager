@@ -112,6 +112,20 @@ la auditoría de la mejora. El mensual permanece congelado y sin este control.
 El cálculo lo ejecuta el manager; el nodo solo persiste los inputs serializados,
 así que este cambio no requiere modificar `manager_node_runtime/`.
 
+### El modo no cambia al mejorar una mejora (2026-09-13)
+
+Una cartera de un solo modo creada por `Mejorar base` sólo puede volver a
+mejorarse en ese mismo modo. El diálogo resuelve primero la genealogía
+(`improvement_origin.mode`), después `improvement_portfolio_type` y la auditoría,
+y sólo usa `portfolio_type` como respaldo. Así, una fila antigua o importada con
+el tipo técnico `improved` sigue abriendo Agresivo si la primera mejora fue
+Agresivo; no cae en Moderado ni deja el selector sin una opción A/M/C válida.
+El selector queda bloqueado porque la cartera no contiene las otras variantes.
+
+El backend aplica la misma resolución antes de reconstruir miembros y rechaza
+una petición que intente cambiar de modo. Esto conserva toda la cadena de
+mejoras y no requiere cambios de persistencia ni port al nodo.
+
 La UI permite elegir cómo ordenar las propuestas válidas encontradas:
 
 - `balanced`: prefiere probabilidad de excedencia no creciente y, si todas
