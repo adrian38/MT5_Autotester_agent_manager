@@ -1,0 +1,33 @@
+# Acceso exclusivo de Experimenta en la rama dev.
+#
+# Las pantallas normales siguen apuntando a /data/axi y /data/roboforex, que en
+# este equipo no contienen los proyectos de los agentes. Los shares remotos se
+# montan aparte y en solo lectura; solo ExperimentCoordinator conoce estas rutas.
+services:
+  manager:
+    environment:
+      MT5_MANAGER_EXPERIMENT_AXI_PROJECT_DIR: /experiment-data/axi/TRADING/MT5_Autotester_agent_AXI
+      MT5_MANAGER_EXPERIMENT_ROBOFOREX_PROJECT_DIR: /experiment-data/roboforex/TRADING/MT5_Autotester_agent
+    volumes:
+      - type: volume
+        source: experiment-axi-readonly
+        target: /experiment-data/axi
+        read_only: true
+      - type: volume
+        source: experiment-roboforex-readonly
+        target: /experiment-data/roboforex
+        read_only: true
+
+volumes:
+  experiment-axi-readonly:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//${SMB_SERVER}/F"
+      o: "username=${SMB_USERNAME},password=${SMB_PASSWORD},domain=${SMB_DOMAIN},vers=3.0,ro,noperm"
+  experiment-roboforex-readonly:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//${SMB_SERVER}/G"
+      o: "username=${SMB_USERNAME},password=${SMB_PASSWORD},domain=${SMB_DOMAIN},vers=3.0,ro,noperm"

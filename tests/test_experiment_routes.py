@@ -8,6 +8,8 @@ que las rutas nuevas contestan y que las de siempre siguen contestando.
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
 import tempfile
 import threading
 import time
@@ -15,6 +17,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 from mt5_manager.manager import ManagerServer
 
@@ -81,6 +84,38 @@ class ExperimentRouteTests(unittest.TestCase):
         self.assertIn("portfolio_project_dir", node["reason"])
         self.assertEqual(config["settings"]["target_equity"], 1000000.0)
         self.assertEqual(config["settings"]["horizon_months"], 12)
+
+    def test_experiment_only_read_mount_can_supply_a_remote_broker(self) -> None:
+        project = Path(self.temp.name) / "remote-axi"
+        memory = project / "outputs" / "ubs_memory_AXI_STANDARD.sqlite"
+        memory.parent.mkdir(parents=True)
+        sqlite3.connect(memory).close()
+        self.manager.experiments.nodes["test-node"].update({
+            "portfolio_broker": "AXI",
+            "portfolio_account_type": "STANDARD",
+        })
+        with mock.patch.dict(os.environ, {
+            "MT5_MANAGER_EXPERIMENT_AXI_PROJECT_DIR": str(project),
+        }):
+            available = self.manager.experiments._availability("test-node")
+        self.assertTrue(available["available"])
+        self.assertEqual(available["broker"], "AXI")
+
+    def test_experiment_mount_does_not_change_the_regular_node_configuration(self) -> None:
+        configured = dict(self.manager.experiments.nodes["test-node"])
+        self.manager.experiments.nodes["test-node"].update({
+            "portfolio_broker": "AXI",
+            "portfolio_account_type": "STANDARD",
+        })
+        with mock.patch.dict(os.environ, {
+            "MT5_MANAGER_EXPERIMENT_AXI_PROJECT_DIR": str(Path(self.temp.name) / "elsewhere"),
+        }):
+            with self.assertRaises(ValueError):
+                self.manager.experiments._source("test-node")
+        self.assertEqual(
+            self.manager.experiments.nodes["test-node"].get("portfolio_project_dir"),
+            configured.get("portfolio_project_dir"),
+        )
 
     def test_settings_round_trip_and_reject_unknown_fields(self) -> None:
         status, saved = self.request("/api/experiment/settings", {

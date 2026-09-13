@@ -44,6 +44,16 @@ class ManagerRestartWorkerTests(unittest.TestCase):
                         calls.index(["git", "pull"]))
         self.assertEqual(load_json(self.state_path)["status"], "completed")
 
+    def test_dev_restart_keeps_the_experiment_read_only_compose_override(self) -> None:
+        (self.root / ".git" / "HEAD").write_text("ref: refs/heads/dev\n", encoding="utf-8")
+        (self.root / "docker-compose.dev.yml").write_text("services: {}\n", encoding="utf-8")
+        worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
+
+        self.assertEqual(worker._compose_command(), (
+            "docker", "compose", "-f", "docker-compose.yml", "-f",
+            "docker-compose.dev.yml", "up", "-d", "--build", "manager",
+        ))
+
     def test_git_commands_normalize_the_windows_bind_mount_line_endings(self) -> None:
         worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
 
