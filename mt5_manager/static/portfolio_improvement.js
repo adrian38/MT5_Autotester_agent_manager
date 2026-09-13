@@ -21,6 +21,7 @@
       </div>
       <p class="portfolio-note">Solo se calcula y compara el modo elegido, con sus límites y lotajes guardados. Al guardar se creará otro portafolio, identificado como mejora del original y de ese modo. El perfil de margen llega ya puesto con el del portafolio base; cámbialo sólo si quieres recalcular la mejora con otra política de margen, y ten en cuenta que uno más estricto puede dejar sin sitio a las incorporaciones. El lote mínimo y el tamaño de contrato no dependen del perfil: son siempre los del broker de origen.</p>
       <fieldset><legend>Diversificación</legend><div class="portfolio-checks">
+        <label title="Las incorporaciones deben tener desactivado EnableGrid en su archivo .set. Las estrategias originales no se retiran."><input name="improvement_grid_off" type="checkbox"> Grid OFF para candidatas nuevas</label>
         <label title="No usa como candidatas estrategias presentes en ningún otro Portafolio UBS completo o mensual."><input name="improvement_exclude_used_sets" type="checkbox" checked> Excluir estrategias ya usadas en otros portafolios</label>
         <label title="Sólo se aceptan si respetan correlación Pearson, correlación en pérdidas y solapamiento de drawdown."><input name="improvement_allow_same_symbol" type="checkbox" checked> Permitir el mismo símbolo cuando la baja relación lo justifique</label>
       </div></fieldset>
@@ -51,6 +52,11 @@
     const bundle = currentDetail.portfolio_type === 'bundle' || currentDetail.metrics?.portfolio_bundle;
     for (const option of selector.options) option.disabled = !bundle && option.value !== currentDetail.portfolio_type;
     selector.value = bundle ? (['aggressive', 'balanced', 'conservative'].includes(target) ? target : 'balanced') : currentDetail.portfolio_type;
+    const variantSaved = bundle ? (currentDetail.metrics?.variants?.[selector.value]?.inputs || {}) : {};
+    const centralGridOff = typeof form === 'undefined' ? false : Boolean(form.elements.grid_off?.checked);
+    dialog.querySelector('[name="improvement_grid_off"]').checked = Boolean(
+      variantSaved.grid_off ?? saved.grid_off ?? centralGridOff
+    );
     // Se parte de los grupos con que se generó la base —el statu quo— y si no
     // los guardó, de los del formulario central. Desde ahí se puede abrir uno
     // nuevo sin tocar la configuración de generación.
@@ -71,7 +77,6 @@
     // antiguas que no guardaron perfil. Se manda siempre, así que lo que se ve
     // es lo que se calcula; mientras nadie lo toque es el que ya heredaría.
     const profileField = dialog.querySelector('[name="improvement_margin_profile"]');
-    const variantSaved = bundle ? (currentDetail.metrics?.variants?.[selector.value]?.inputs || {}) : {};
     const inherited = String(variantSaved.margin_profile || saved.margin_profile
       || (typeof portfolioData === 'undefined' ? '' : portfolioData.node?.broker)
       || (typeof form === 'undefined' ? '' : form.elements.margin_profile?.value) || '').toLowerCase();
@@ -106,6 +111,7 @@
         improvement_min_efficiency_gain_pct: Number(fields.improvement_min_efficiency_gain_pct.value),
         improvement_selection_priority: fields.improvement_selection_priority.value,
         improvement_margin_profile: fields.improvement_margin_profile.value,
+        improvement_grid_off: fields.improvement_grid_off.checked,
         improvement_exclude_used_sets: fields.improvement_exclude_used_sets.checked,
         improvement_allow_same_symbol: fields.improvement_allow_same_symbol.checked,
         improvement_allowed_asset_groups: chosenGroups,

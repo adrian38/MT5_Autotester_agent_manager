@@ -288,6 +288,15 @@ class ImprovementScreenTests(unittest.TestCase):
         monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
         self.assertNotIn("improvement_margin_profile", monthly)
 
+    def test_normal_dialog_controls_grid_off_for_new_candidates(self) -> None:
+        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+        self.assertIn('name="improvement_grid_off" type="checkbox"', script)
+        self.assertIn("variantSaved.grid_off ?? saved.grid_off", script)
+        self.assertIn("improvement_grid_off: fields.improvement_grid_off.checked", script)
+        self.assertIn("Las estrategias originales no se retiran", script)
+        monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
+        self.assertNotIn("improvement_grid_off", monthly)
+
     def test_manager_serves_both_new_static_assets(self) -> None:
         manager = (self.ROOT.parent / "manager.py").read_text(encoding="utf-8")
         self.assertIn('"portfolio_improvement.js"', manager)
