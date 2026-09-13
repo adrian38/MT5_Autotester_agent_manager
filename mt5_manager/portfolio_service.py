@@ -352,6 +352,18 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     return conn.execute("select 1 from sqlite_master where type='table' and name=?", (table,)).fetchone() is not None
 
 
+def normalize_portfolio_alias(value: Any) -> str:
+    """Normalize the optional human label without changing portfolio identity."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("El alias del portafolio debe ser texto")
+    alias = " ".join(value.split())
+    if len(alias) > 80:
+        raise ValueError("El alias del portafolio no puede superar 80 caracteres")
+    return alias
+
+
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     columns = {str(row[1]) for row in conn.execute(f"pragma table_info({table})")}
     if column not in columns:
@@ -1386,6 +1398,7 @@ class PortfolioSource:
                 try:
                     metrics = json.loads(value(row, "metrics_json", "{}") or "{}")
                     inputs = metrics.get("inputs") or {}
+                    portfolio["alias"] = normalize_portfolio_alias(inputs.get("portfolio_alias"))
                     audit = (metrics.get("seasonal_validation") or {}).get("portfolio_improvement") or {}
                     source_id = int(inputs.get("improvement_source_portfolio_id") or audit.get("source_portfolio_id") or 0)
                     mode = inputs.get("improvement_portfolio_type") or audit.get("target_portfolio_type") or inputs.get("portfolio_type")
@@ -1506,6 +1519,38 @@ class PortfolioSource:
         selected["versions"] = versions
         selected["decisions"] = decisions
         return {"node": listing["node"], "scope": listing["scope"], "portfolio": selected, "observed_at": utc_now()}
+
+    def set_portfolio_alias(self, portfolio_id: int, scope: str, alias: Any) -> str:
+        """Persist an optional display alias inside metrics.inputs."""
+        portfolio_scope = normalize_portfolio_scope(scope)
+        if portfolio_scope != "full_history":
+            raise ValueError("El alias solo está disponible en Portafolio UBS")
+        normalized = normalize_portfolio_alias(alias)
+        with self.connect(write=True) as conn:
+            row = conn.execute(
+                "select metrics_json from portfolios where id=? and "
+                "coalesce(nullif(portfolio_scope,''),'full_history')=?",
+                (portfolio_id, portfolio_scope),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"No existe el portafolio #{portfolio_id} en este ámbito")
+            try:
+                parsed = json.loads(row["metrics_json"] or "{}")
+                metrics = parsed if isinstance(parsed, dict) else {}
+            except (TypeError, json.JSONDecodeError):
+                metrics = {}
+            inputs = metrics.get("inputs") if isinstance(metrics.get("inputs"), dict) else {}
+            metrics["inputs"] = inputs
+            if normalized:
+                inputs["portfolio_alias"] = normalized
+            else:
+                inputs.pop("portfolio_alias", None)
+            conn.execute(
+                "update portfolios set metrics_json=? where id=?",
+                (json.dumps(metrics, ensure_ascii=True, separators=(",", ":")), portfolio_id),
+            )
+            conn.commit()
+        return normalized
 
     def saved_inputs(self, portfolio_id: int, scope: str) -> dict[str, Any]:
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
@@ -1938,6 +1983,9 @@ class PortfolioSource:
         ]
         if scope == "full_history":
             lines[2:2] = [f"Portafolio UID: {_portable_portfolio_uid(detail)}"]
+            alias = normalize_portfolio_alias(detail.get("alias"))
+            if alias:
+                lines[2:2] = [f"Alias: {alias}"]
         origin = detail.get("improvement_origin") or {}
         source_id = safe_int(origin.get("source_id"), 0)
         mode = str(origin.get("mode") or "")
@@ -3475,6 +3523,10 @@ def build_import_proposals(
     if exported_uid:
         for proposal in proposals:
             proposal.setdefault("inputs", {})["portfolio_uid"] = exported_uid
+    imported_alias = normalize_portfolio_alias(header.get("portfolio_alias"))
+    if scope == "full_history" and imported_alias:
+        for proposal in proposals:
+            proposal.setdefault("inputs", {})["portfolio_alias"] = imported_alias
     improvement_source_id = safe_int(header.get("improvement_source_portfolio_id"), 0)
     improvement_mode = str(header.get("improvement_portfolio_type") or "").strip().lower()
     if scope == "full_history" and improvement_source_id > 0:
@@ -4357,6 +4409,34 @@ class PortfolioCoordinator:
     def saved(self, node_id: str, scope: str, portfolio_id: int | None = None) -> dict[str, Any]:
         source = self._persistence_source(node_id, scope)
         return source.saved_portfolio_detail(portfolio_id, scope) if portfolio_id is not None else source.saved_portfolios(scope)
+
+    def set_alias(self, node_id: str, scope: str, portfolio_id: int, alias: Any) -> str:
+        """Write the alias where the portfolio DB is locally owned."""
+        scope = normalize_portfolio_scope(scope)
+        if scope != "full_history":
+            raise ValueError("El alias solo está disponible en Portafolio UBS")
+        normalized = normalize_portfolio_alias(alias)
+        node = self._node(node_id)
+        base_url = str(node.get("url") or "").rstrip("/")
+        if base_url.startswith(("http://", "https://")):
+            status, value = self._post_to_node(
+                node,
+                "/api/v1/portfolios/alias",
+                {"scope": scope, "portfolio_id": portfolio_id, "alias": normalized},
+            )
+            if status == 404:
+                raise ValueError(
+                    "El nodo todavía no admite alias de portafolio; actualiza su código y reinícialo."
+                )
+            if status >= 400 or not isinstance(value, dict):
+                error = value.get("error") if isinstance(value, dict) else value
+                raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+            if safe_int(value.get("portfolio_id"), 0) != portfolio_id or value.get("alias") != normalized:
+                raise ValueError("El nodo no confirmó correctamente el alias del portafolio")
+        else:
+            normalized = PortfolioSource(node).set_portfolio_alias(portfolio_id, scope, normalized)
+        self._invalidate_node_snapshots(node_id)
+        return normalized
 
     def _quarantine_grid_set(self, node_id: str, set_path: str, reason: str, reason_code: str = "manual") -> int:
         """Quarantine one set in the manager's own Grid database.

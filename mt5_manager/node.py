@@ -43,7 +43,7 @@ from . import guided_batches
 
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
 from .live_audit_engine import LiveAuditController
-from .portfolio_service import PortfolioSource, save_portfolio_payload
+from .portfolio_service import PortfolioSource, normalize_portfolio_alias, save_portfolio_payload
 from .portfolio_scope import normalize_portfolio_scope
 
 
@@ -1747,6 +1747,14 @@ class JobController(GuidedControllerMixin):
     def save_portfolio(self, payload: dict[str, Any]) -> dict[str, Any]:
         return save_portfolio_payload(self._portfolio_source(), payload)
 
+    def set_portfolio_alias(self, payload: dict[str, Any]) -> dict[str, Any]:
+        portfolio_id = safe_int(payload.get("portfolio_id"), 0, minimum=1)
+        scope = normalize_portfolio_scope(payload.get("scope"))
+        alias = self._portfolio_source().set_portfolio_alias(
+            portfolio_id, scope, normalize_portfolio_alias(payload.get("alias"))
+        )
+        return {"portfolio_id": portfolio_id, "scope": scope, "alias": alias}
+
     def exclude_portfolio_members(self, payload: dict[str, Any]) -> dict[str, Any]:
         scope = normalize_portfolio_scope(payload.get("scope"))
         source = self._portfolio_source()
@@ -1856,6 +1864,16 @@ class JobController(GuidedControllerMixin):
             "stop_reason": str(value(row, "stop_reason", "") or ""),
             "binding_constraint": str(value(row, "binding_constraint", "") or ""),
         } for row in rows]
+        if portfolio_scope == "full_history":
+            for portfolio, row in zip(portfolios, rows):
+                try:
+                    metrics = json.loads(value(row, "metrics_json", "{}") or "{}")
+                    inputs = metrics.get("inputs") if isinstance(metrics, dict) else {}
+                    portfolio["alias"] = normalize_portfolio_alias(
+                        inputs.get("portfolio_alias") if isinstance(inputs, dict) else ""
+                    )
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    portfolio["alias"] = ""
         return {
             "node": {"id": self.config.get("node_id"), "name": self.config.get("display_name") or self.config.get("node_id"), "broker": self.config.get("broker"), "account_type": self.config.get("account_type")},
             "scope": portfolio_scope, "portfolios": portfolios,
@@ -2082,6 +2100,8 @@ class NodeHandler(BaseHTTPRequestHandler):
                 self._send(200, self.server.controller.update_universe(self._body()))
             elif self.path == "/api/v1/portfolios/save":
                 self._send(201, self.server.controller.save_portfolio(self._body(50_000_000)))
+            elif self.path == "/api/v1/portfolios/alias":
+                self._send(200, self.server.controller.set_portfolio_alias(self._body()))
             elif self.path == "/api/v1/portfolios/exclude":
                 self._send(200, self.server.controller.exclude_portfolio_members(self._body()))
             elif self.path == "/api/v1/portfolios/requalify":

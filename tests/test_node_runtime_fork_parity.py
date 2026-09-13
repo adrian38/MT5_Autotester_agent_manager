@@ -44,6 +44,25 @@ def _reachable_forks() -> list[tuple[Path, str]]:
 
 
 class NodeRuntimeForkParityTests(unittest.TestCase):
+    def test_ictrading_executes_portfolio_alias_writes_in_its_real_runtime(self) -> None:
+        """The manager endpoint is insufficient: IC owns and writes its SQLite DB."""
+        ic_project = FORK_CANDIDATES[0]
+        ic_rules_path = ic_project / "manager_node_runtime" / "portfolio_save.py"
+        ic_node_path = ic_project / "manager_node_runtime" / "node.py"
+        if not ic_rules_path.is_file() or not ic_node_path.is_file():
+            self.skipTest(f"La copia ICTrading no está montada: {ic_project}")
+        manager_routes = (MANAGER_ROOT / "mt5_manager" / "manager.py").read_text(encoding="utf-8")
+        ic_rules = ic_rules_path.read_text(encoding="utf-8", errors="replace")
+        ic_node = ic_node_path.read_text(encoding="utf-8", errors="replace")
+        ic_tests = (ic_project / "tests" / "test_manager_node_portfolio_save.py").read_text(
+            encoding="utf-8", errors="replace"
+        )
+
+        self.assertIn('action == "alias"', manager_routes)
+        self.assertIn("def set_portfolio_alias_payload", ic_rules)
+        self.assertIn('"/api/v1/portfolios/alias"', ic_node)
+        self.assertIn("test_alias_is_additional_editable_and_removable", ic_tests)
+
     """Cada prueba compara una regla concreta, no el fichero entero.
 
     Las copias divergen a propósito (el agente notifica por Telegram, el manager

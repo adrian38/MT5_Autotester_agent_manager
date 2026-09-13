@@ -54,6 +54,42 @@ from portfolio_manager.ubs_portfolio import (
 
 
 class PortfolioServiceTests(unittest.TestCase):
+    def test_portfolio_alias_preserves_identity_and_other_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            memory = root / "memory.sqlite"
+            memory.touch()
+            source = PortfolioSource({
+                "id": "local",
+                "portfolio_project_dir": str(root),
+                "portfolio_memory_path": str(memory),
+                "portfolio_broker": "TEST",
+                "portfolio_account_type": "DEMO",
+            })
+            with source.connect(write=True) as conn:
+                portfolio_id = int(conn.execute(
+                    "insert into portfolios(created_at,name,type,portfolio_type,portfolio_scope,metrics_json) "
+                    "values(?,?,?,?,?,?)",
+                    ("2026-09-13", "A/M/C original", "bundle", "bundle", "full_history",
+                     json.dumps({"inputs": {"capital": 10000}, "audit": {"ok": True}})),
+                ).lastrowid)
+                conn.commit()
+
+            self.assertEqual(
+                source.set_portfolio_alias(portfolio_id, "full_history", "  Londres   estable "),
+                "Londres estable",
+            )
+            detail = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+            self.assertEqual(detail["name"], "A/M/C original")
+            self.assertEqual(detail["alias"], "Londres estable")
+            self.assertEqual(detail["metrics"]["inputs"]["capital"], 10000)
+            self.assertTrue(detail["metrics"]["audit"]["ok"])
+
+            self.assertEqual(source.set_portfolio_alias(portfolio_id, "full_history", ""), "")
+            self.assertEqual(
+                source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]["alias"], ""
+            )
+
     def test_decision_audit_converts_non_finite_scores_before_sqlite(self) -> None:
         with sqlite3.connect(":memory:") as conn:
             ensure_portfolio_schema(conn)

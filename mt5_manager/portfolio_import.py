@@ -58,6 +58,7 @@ TABLE_HEADER = "PERFIL"
 #: Cabecera del resumen -> clave interna. El texto lo escribe `export_portfolio`.
 HEADER_KEYS = {
     "portafolio": "name",
+    "alias": "portfolio_alias",
     "tipo": "portfolio_type",
     "capital": "capital",
     "dd valle objetivo": "target_valley_dd",
@@ -80,7 +81,7 @@ HEADER_KEYS = {
 }
 
 STRING_HEADER_KEYS = {
-    "name", "portfolio_type", "improvement_portfolio_type",
+    "name", "portfolio_alias", "portfolio_type", "improvement_portfolio_type",
     "improvement_selection_priority", "portfolio_uid", "improvement_label",
     "improvement_parent_uid", "improvement_root_uid", "improvement_lineage",
     "improvement_source_snapshot",

@@ -375,6 +375,16 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn(".save-overlay{", styles)
         self.assertIn(".save-spinner{", styles)
 
+    def test_saved_portfolio_alias_is_editable_and_shown_in_the_header(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = html.fromstring((static_dir / "portfolios.html").read_text(encoding="utf-8"))
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertEqual(len(page.xpath('//*[@id="detail-alias"]')), 1)
+        self.assertEqual(len(page.xpath('//*[@id="detail-alias-edit"]')), 1)
+        self.assertIn("postManager('alias'", script)
+        self.assertIn("alias.textContent = portfolio.alias || ''", script)
+
     def test_delete_overlay_only_waits_for_background_task_submission(self) -> None:
         script = (
             Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.js"

@@ -537,7 +537,7 @@ function renderList() {
   document.querySelector('#portfolio-count').textContent = `${rows.length} portafolios`;
   listEl.innerHTML = rows.length ? rows.map(row => {
     const month = '';
-    return `<button class="portfolio-list-item ${row.id === selectedId ? 'selected' : ''}" onclick="loadDetail(${row.id})"><span><strong>#${row.id}${month}</strong>${PortfolioComparison.label(row) ? `<small class="improvement-label">${esc(PortfolioComparison.label(row))}</small>` : ''}<small>${esc(row.created_at)} · ${esc(row.portfolio_type || 'Sin tipo')}${improvementPriorityText(row)}</small></span><span><strong>${number(row.total_net_profit)}</strong><small>${row.active_strategies}/${row.target_strategies || row.active_strategies} estrategias</small></span></button>`;
+    return `<button class="portfolio-list-item ${row.id === selectedId ? 'selected' : ''}" onclick="loadDetail(${row.id})"><span><strong>#${row.id}${month}</strong>${row.alias ? `<small class="portfolio-alias">${esc(row.alias)}</small>` : ''}${PortfolioComparison.label(row) ? `<small class="improvement-label">${esc(PortfolioComparison.label(row))}</small>` : ''}<small>${esc(row.created_at)} · ${esc(row.portfolio_type || 'Sin tipo')}${improvementPriorityText(row)}</small></span><span><strong>${number(row.total_net_profit)}</strong><small>${row.active_strategies}/${row.target_strategies || row.active_strategies} estrategias</small></span></button>`;
   }).join('') : '<div class="portfolio-empty">No hay portafolios guardados en esta sección.</div>';
 }
 
@@ -598,6 +598,10 @@ async function loadDetail(id) {
     document.querySelector('#detail-select-column').hidden = !isBundle;
     document.querySelector('#detail-exclude-selected').hidden = !isBundle;
     document.querySelector('#detail-title').textContent = `Portafolio #${portfolio.id}`;
+    const alias = document.querySelector('#detail-alias');
+    alias.textContent = portfolio.alias || '';
+    alias.hidden = !portfolio.alias;
+    document.querySelector('#detail-alias-edit').textContent = portfolio.alias ? 'Editar alias' : 'Añadir alias';
     document.querySelector('#detail-meta').textContent = portfolio.created_at;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
     document.querySelector('#detail-metrics').innerHTML = [metric(number(portfolio.capital), 'Capital'), metric(number(portfolio.total_net_profit), 'Net total'), metric(number(portfolio.actual_valley_dd, 2), 'DD riesgo máx.', `máx(cerrado ${number(portfolio.actual_closed_valley_dd, 2)}, flotante ${number(portfolio.floating_dd_buffer, 2)}) · límite ${number(portfolio.target_valley_dd, 2)} · ${number(portfolio.valley_usage_pct, 1)}%`), metric(number(portfolio.actual_point_dd, 2), 'DD puntual', portfolio.metrics?.enforce_point_dd ? `límite ${number(portfolio.target_point_dd, 2)}` : 'informativo'), metric(number(portfolio.total_lot, 2), 'Lote total'), metric(number(portfolio.total_units), 'Unidades'), metric(`${number(portfolio.active_strategies)}/${number(portfolio.target_strategies || portfolio.active_strategies)}`, 'Estrategias'), metric(stress.valley_dd_p95 != null ? number(stress.valley_dd_p95, 2) : '—', 'Stress P95', stress.alert ? 'ALERTA' : '', stress.alert)].join('');
@@ -662,6 +666,26 @@ async function openReport(index) {
   try { const data = await postManager('open-report', {scope, portfolio_id: selectedId, set_path: member.set_path}); toast(`Reporte abierto: ${data.report}`); }
   catch (error) { toast(error.message, true); }
 }
+
+document.querySelector('#detail-alias-edit').addEventListener('click', async () => {
+  if (!selectedId || !currentDetail) return;
+  const entered = prompt(
+    'Alias del portafolio (déjalo vacío para quitarlo):',
+    currentDetail.alias || '',
+  );
+  if (entered === null) return;
+  const alias = entered.trim().replace(/\s+/g, ' ');
+  if (alias.length > 80) {
+    toast('El alias no puede superar 80 caracteres.', true);
+    return;
+  }
+  try {
+    const portfolioId = selectedId;
+    await postManager('alias', {scope, portfolio_id: portfolioId, alias});
+    await loadPortfolios(portfolioId);
+    toast(alias ? 'Alias guardado.' : 'Alias eliminado.');
+  } catch (error) { toast(error.message, true); }
+});
 
 document.querySelector('#detail-complete').addEventListener('click', () => startSavedOperation('complete'));
 document.querySelector('#detail-exclude-selected').addEventListener('click', excludeSelectedStrategies);

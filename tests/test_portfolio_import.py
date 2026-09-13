@@ -35,6 +35,7 @@ from portfolio_manager.ubs_portfolio import (
 
 
 SUMMARY = """Portafolio: A/M/C | Base Moderado | 2 sets | 09.08.2026 13:01
+Alias: Londres estable
 Tipo: bundle   Capital: 10,000
 DD valle objetivo: 300.00
 DD puntual objetivo: 300.00
@@ -97,6 +98,7 @@ class SummaryParsingTests(unittest.TestCase):
         header, members = portfolio_import.parse_summary(SUMMARY)
 
         self.assertEqual(header["portfolio_type"], "bundle")
+        self.assertEqual(header["portfolio_alias"], "Londres estable")
         self.assertEqual(header["capital"], 10000.0)
         self.assertEqual(header["target_valley_dd"], 300.0)
         self.assertEqual(header["total_net_profit"], 4120.55)
@@ -290,6 +292,8 @@ class ImportRoundTripTests(unittest.TestCase):
     def test_an_exported_bundle_comes_back_as_a_normal_saved_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
+            (project / "alpha.set").write_text("Risk=1\n", encoding="utf-8")
+            (project / "beta.set").write_text("Risk=1\n", encoding="utf-8")
             source = self._source(project)
             candidates = self._candidates(project)
             strategies = [
@@ -305,6 +309,10 @@ class ImportRoundTripTests(unittest.TestCase):
                 proposals, selected_key, report = build_import_proposals(
                     source, "full_history", header, members
                 )
+                self.assertTrue(all(
+                    proposal["inputs"]["portfolio_alias"] == "Londres estable"
+                    for proposal in proposals
+                ))
                 portfolio_id = save_proposal(source, proposals, selected_key, "full_history")
 
             # Las tres variantes del resumen, con sus unidades propias.
@@ -323,6 +331,17 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(row["portfolio_type"], "bundle")
             self.assertEqual(row["capital"], 10000.0)
             self.assertTrue(json.loads(row["metrics_json"])["portfolio_bundle"])
+            self.assertEqual(
+                source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]["alias"],
+                "Londres estable",
+            )
+            exported = source.export_portfolio(
+                portfolio_id, "full_history", str(project / "exported")
+            )
+            exported_header, _exported_members, _set_files = portfolio_import.read_export(
+                exported["folder"]
+            )
+            self.assertEqual(exported_header["portfolio_alias"], "Londres estable")
             self.assertEqual(
                 [(item["variant_key"], Path(item["set_path"]).name, item["units"]) for item in variants],
                 [
