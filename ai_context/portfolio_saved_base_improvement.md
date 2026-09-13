@@ -215,6 +215,72 @@ primitivas y la orquestación mensual conservan su máximo anterior. Durante
 esta revisión codebase-memory-mcp devolvió `Transport closed` al indexar,
 buscar y trazar; se verificó el flujo directamente en código y con pruebas.
 
+### Motor de cadena separado del motor de base (2026-09-13)
+
+Mejorar una mejora ya no usa el mismo código que mejorar una base. Petición
+explícita del usuario: no contaminar lo que funciona.
+
+| Fichero | Qué mejora |
+| --- | --- |
+| `mt5_manager/portfolio_improvement_service.py` | Una **base** (profundidad 1). Intacto. |
+| `mt5_manager/portfolio_improvement_chain_service.py` | Una **mejora** (profundidad >= 2). |
+| `mt5_manager/portfolio_improvement_dispatch.py` | Elige uno u otro. Único punto de decisión. |
+
+El despachador mira la **genealogía persistida**, nunca el nombre:
+`improvement_source_portfolio_id` / `improvement_depth` en los inputs guardados,
+`source_portfolio_id` / `depth` en la auditoría, o `improvement_origin.source_id`.
+Basta una huella, porque cada cambio de persistencia dejó carteras que sólo
+conservan algunas. `PortfolioCoordinator._worker` ya no importa un motor
+concreto.
+
+El diagnóstico que motivó la separación, medido sobre el #82 de AXI (mejora
+Agresiva del #73, 8 estrategias): los cuatro intentos —2, 3, 4 y 5
+incorporaciones— morían en la **misma** puerta, `_underrepresented_recent_allocation_ids`
+con `min_strategy_recent_contribution_pct` al 5 %. No era falta de candidatas.
+Tres causas encadenadas:
+
+1. **El umbral es relativo al total del portafolio.** Cada generación sube el
+   beneficio 6M acumulado y consume hueco de DD, así que la incorporación N+1
+   entra con pocas unidades y no llega al 5 % de un total que no deja de crecer.
+   En el intento de 5 fallaban **las tres** incorporaciones, no una.
+2. **En la mejora era un veto; en la generación normal no.** Generando,
+   `_optimize_without_recent_fillers` quita el relleno y reoptimiza. El motor de
+   mejora hacía `raise` y tiraba el tamaño entero sin probar otra composición.
+3. **El diálogo no exponía el umbral.** De la petición sólo sobreviven al merge
+   las claves `improvement_*`, así que se heredaba en silencio de la variante
+   guardada y no había forma de bajarlo.
+
+Las tres correcciones viven **sólo** en el motor de cadena:
+
+- `improvement_min_recent_contribution_pct`: clave propia del diálogo, visible
+  únicamente cuando el destino ya es una mejora. Ausente significa heredar —el
+  comportamiento del motor de base—; `0` desactiva la puerta explícitamente. Se
+  valida entre 0 y 100 antes del bucle de tamaños.
+- Una incorporación por debajo del umbral se **veta y se vuelve a seleccionar**,
+  hasta `MAX_FILLER_RETRIES` (3). El error final nombra el umbral efectivo y
+  dice dónde bajarlo, en vez de afirmar que no hay mejora posible.
+- El umbral efectivo y las candidatas vetadas quedan en la auditoría
+  (`min_recent_contribution_pct`, `recent_contribution_rejections`, `engine`), en
+  la disponibilidad y en los inputs guardados.
+
+Una mejora sobre base envía exactamente el mismo cuerpo que antes: el campo ni se
+enseña ni se manda. Lo comprueba `tests/test_portfolio_improvement_chain.py`, que
+además incluye `ChainForkParityTests`: compara por AST —ignorando docstrings— las
+doce funciones que son copia literal, para que una corrección en el motor de base
+obligue a decidir si se porta, en vez de descubrir la deriva meses después. Es la
+misma guarda mecánica que `test_node_runtime_fork_parity.py`, por la misma razón.
+
+Coste asumido: ~800 líneas duplicadas. La alternativa era tocar el motor que ya
+funciona.
+
+Lo ejecuta el manager; el nodo sólo persiste los inputs serializados, así que
+**no requiere port a `manager_node_runtime/`**. El mensual sigue congelado y no
+pasa por el despachador.
+
+Sigue siendo cierto lo que ya decía la revisión de 2026-09-05: la búsqueda es
+heurística. El reintento explora más composiciones del mismo tamaño, pero un
+rechazo sigue sin ser prueba de que no exista una mejora.
+
 ## Comportamiento anterior y reglas comunes
 
 ## Invariante de la base original

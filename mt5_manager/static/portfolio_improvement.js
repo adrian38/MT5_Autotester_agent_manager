@@ -19,6 +19,7 @@
         <label>Prioridad de selección<select name="improvement_selection_priority" required><option value="balanced" selected>Equilibrada</option><option value="efficiency">Máxima eficiencia</option><option value="stress">Menor estrés</option></select></label>
         <label>Perfil de margen<select name="improvement_margin_profile" required><option value="ictrading">ICTRADING</option><option value="axi">AXI</option><option value="roboforex">ROBOFOREX</option><option value="ttp">TTP</option></select></label>
         <label>Apalancamiento de cuenta (AXI)<select name="improvement_account_leverage" required><option value="1000">1:1000</option><option value="500">1:500</option><option value="100">1:100</option></select></label>
+        <label id="improvement-recent-field" hidden title="Cada estrategia nueva debe aportar al menos este porcentaje del beneficio Final Tick 6M del portafolio completo. El umbral se mide contra el total, que crece con cada mejora: en una cadena larga un 5% puede ser inalcanzable. 0 desactiva la comprobación.">Aporte mín. 6M/incorporación %<input name="improvement_min_recent_contribution_pct" type="number" min="0" max="100" step="any"></label>
       </div>
       <p class="portfolio-note">Solo se calcula y compara el modo elegido, con sus límites y lotajes guardados. Al guardar se creará otro portafolio, identificado como mejora del original y de ese modo. El perfil de margen y, para AXI, el apalancamiento llegan ya puestos con los datos guardados; confírmalos antes de calcular porque las carteras antiguas pueden no conservar la elección original. Un margen más estricto puede dejar sin sitio a las incorporaciones. El lote mínimo y el tamaño de contrato no dependen del perfil: son siempre los del broker de origen.</p>
       <fieldset><legend>Diversificación</legend><div class="portfolio-checks">
@@ -46,6 +47,21 @@
   });
 
   const portfolioModes = ['aggressive', 'balanced', 'conservative'];
+  // Mejorar una mejora lo resuelve otro motor
+  // (`portfolio_improvement_chain_service.py`). La misma genealogía que usa el
+  // despachador del backend decide aquí si se enseña su control propio; nunca el
+  // nombre del portafolio, que en carteras antiguas es el genérico A/M/C.
+  const isChainImprovement = portfolio => {
+    const saved = portfolio.metrics?.inputs || {};
+    const audit = portfolio.metrics?.seasonal_validation?.portfolio_improvement || {};
+    return [
+      saved.improvement_source_portfolio_id,
+      audit.source_portfolio_id,
+      portfolio.improvement_origin?.source_id,
+      saved.improvement_depth,
+      audit.depth,
+    ].some(value => Number(value) > 0);
+  };
   const inheritedImprovementMode = portfolio => {
     const saved = portfolio.metrics?.inputs || {};
     const audit = portfolio.metrics?.seasonal_validation?.portfolio_improvement || {};
@@ -117,6 +133,28 @@
       1000,
     ].map(Number).find(value => [1000, 500, 100].includes(value));
     leverageField.value = String(savedLeverage || 1000);
+    // Sólo la cadena expone el umbral 6M: es su motor el que sabe reintentar
+    // vetando la candidata de relleno. En una mejora sobre base el campo ni se
+    // enseña ni se envía, así que esa petición viaja exactamente igual que antes.
+    const chain = isChainImprovement(currentDetail);
+    const recentField = dialog.querySelector('#improvement-recent-field');
+    const recentInput = recentField.querySelector('input');
+    recentField.hidden = !chain;
+    recentInput.disabled = !chain;
+    if (chain) {
+      // El mismo orden de respaldo que aplica el backend: la elección de la
+      // mejora anterior, el valor con que se generó la variante, el del
+      // portafolio, el formulario central y por último el 5 % por defecto.
+      const inheritedRecent = [
+        variantSaved.improvement_min_recent_contribution_pct,
+        saved.improvement_min_recent_contribution_pct,
+        variantSaved.min_strategy_recent_contribution_pct,
+        saved.min_strategy_recent_contribution_pct,
+        typeof form === 'undefined' ? null : form.elements.min_strategy_recent_contribution_pct?.value,
+        5,
+      ].map(Number).find(value => Number.isFinite(value) && value >= 0 && value <= 100);
+      recentInput.value = String(inheritedRecent ?? 5);
+    }
     const originals = new Set((currentDetail.members || []).filter(member => !bundle || member.variant_key === selector.value).map(member => String(member.set_path || member.set_id || '').replaceAll('\\', '/').toLowerCase()).filter(Boolean));
     dialog.querySelector('#improvement-original-count').textContent = `${originals.size} estrategia(s) originales quedarán bloqueadas.`;
     selector.onchange = () => {
@@ -137,9 +175,14 @@
       return;
     }
     submit.disabled = true;
+    const recentInput = fields.improvement_min_recent_contribution_pct;
+    const chainOnly = recentInput && !recentInput.disabled
+      ? { improvement_min_recent_contribution_pct: Number(recentInput.value) }
+      : {};
     try {
       await postManager('improve', {
         scope,
+        ...chainOnly,
         portfolio_id: selectedId,
         improvement_portfolio_type: fields.improvement_portfolio_type.value,
         improvement_min_additions: Number(fields.improvement_min_additions.value),
