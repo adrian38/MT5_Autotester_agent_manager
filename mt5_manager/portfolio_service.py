@@ -4186,9 +4186,11 @@ class PortfolioCoordinator:
             elif operation == "improve":
                 if portfolio_id is None:
                     raise ValueError("Falta el portafolio cuya base se quiere mejorar")
-                from .portfolio_improvement_service import generate_full_history_improvement
+                # Dos motores en dos ficheros: base y cadena. La decisión la
+                # toma la genealogía del destino, no el nombre ni esta rama.
+                from .portfolio_improvement_dispatch import run_full_history_improvement
 
-                availability, proposals = generate_full_history_improvement(
+                availability, proposals = run_full_history_improvement(
                     source, portfolio_id, settings, logged_progress,
                 )
             elif operation == "complete":

@@ -105,6 +105,18 @@ class ManagerRestartWorker:
             check=False,
         )
 
+    def _compose_command(self) -> tuple[str, ...]:
+        command = ["docker", "compose"]
+        dev_override = self.repo_dir / "docker-compose.dev.yml"
+        # El override contiene los shares SMB de solo lectura que usa únicamente
+        # Experimenta. En main no se carga y Compose conserva sus mounts normales.
+        from .dev_branch import DEV_BRANCH, current_branch
+
+        if dev_override.is_file() and current_branch(self.repo_dir) == DEV_BRANCH:
+            command.extend(["-f", "docker-compose.yml", "-f", dev_override.name])
+        command.extend(["up", "-d", "--build", "manager"])
+        return tuple(command)
+
     def _ensure_github_auth(self, log: Any, environment: dict[str, str]) -> None:
         status = self._run_command(
             ["gh", "auth", "status", "--hostname", "github.com"],
@@ -167,6 +179,8 @@ class ManagerRestartWorker:
                 # needs its own Git credential-helper configuration.
                 self._ensure_github_auth(log, environment)
                 for step, command in RESTART_COMMANDS:
+                    if step == "docker_compose":
+                        command = self._compose_command()
                     status = "restarting" if step == "docker_compose" else "running"
                     self._transition(status=status, step=step, error=None)
                     completed = self._run_command(
