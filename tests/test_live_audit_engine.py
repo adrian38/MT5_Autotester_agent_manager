@@ -719,7 +719,12 @@ class LiveAuditEngineTests(unittest.TestCase):
 
         self.assertEqual(state["status"], "completed")
         self.assertEqual(len(initialize_calls), 2)
-        self.assertTrue(all(set(call) == {"path", "timeout"} for call in initialize_calls))
+        self.assertEqual(set(initialize_calls[0]), {"path", "timeout"})
+        self.assertEqual(set(initialize_calls[1]), {"path", "timeout", "login", "server"})
+        self.assertEqual(initialize_calls[1]["path"], "C:\\IC\\terminal64.exe")
+        self.assertEqual(initialize_calls[1]["login"], 333)
+        self.assertEqual(initialize_calls[1]["server"], "CapitalPoint-Live")
+        self.assertNotIn("password", initialize_calls[1])
         # Solo el arranque con el INI es manual. La reapertura normal la hace
         # initialize(path=...) para no competir con una segunda instancia MT5.
         self.assertEqual(len(launches), 1)

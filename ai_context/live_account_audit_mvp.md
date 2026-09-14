@@ -548,6 +548,13 @@ already started` en el Journal y después `(-10005, 'IPC timeout')` en los cuatr
 terminales de la auditoría del 2026-09-14. El arranque manual se conserva solo
 para la primera fase, porque ahí es necesario pasar el INI con `KeepPrivate=1`.
 
+Además, esa reapertura debe pasar `login` y `server` explícitos a `initialize`,
+pero nunca `password`. El INI personalizado es de solo lectura: aunque autentica
+y guarda el secreto, no sustituye necesariamente el login del `common.ini`. Si
+se omite también el login, MT5 reabre la cuenta auditada anterior y muestra su
+diálogo de contraseña; indicar la cuenta obliga a recuperar su secreto desde
+`accounts.dat` y mantiene verificable la persistencia.
+
 Referencia oficial: `KeepPrivate=1` significa guardar la contraseña entre
 conexiones y una contraseña omitida en `initialize()` solo funciona si ya está
 guardada en la base del terminal:

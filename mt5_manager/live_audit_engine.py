@@ -879,9 +879,17 @@ class LiveAuditController:
         raise RuntimeError(f"MT5 no abrió el proceso de {Path(terminal_path).parent.name}")
 
     @staticmethod
-    def _connect_saved_account(mt5: Any, terminal_path: str, login: str, server: str) -> Any:
+    def _connect_saved_account(
+        mt5: Any, terminal_path: str, login: str, server: str, *, select_account: bool = True,
+    ) -> Any:
         """Confirma la cuenta sin suministrar contraseña: prueba la persistencia real."""
-        if not mt5.initialize(path=terminal_path, timeout=60000):
+        initialize_args: dict[str, Any] = {"path": terminal_path, "timeout": 60000}
+        if select_account:
+            # El INI de arranque es de solo lectura y no cambia necesariamente la
+            # última cuenta del common.ini. Elegimos la cuenta guardada de forma
+            # explícita, pero omitimos la contraseña para probar la base cifrada.
+            initialize_args.update(login=int(login), server=server)
+        if not mt5.initialize(**initialize_args):
             raise RuntimeError(f"MT5 no abrió la cuenta guardada sin contraseña: {mt5.last_error()}")
         deadline = time.monotonic() + 15.0
         info = None
@@ -938,7 +946,9 @@ class LiveAuditController:
                 pass
             self._launch_terminal(terminal_path, config_path)
             try:
-                self._connect_saved_account(mt5, terminal_path, login, server)
+                self._connect_saved_account(
+                    mt5, terminal_path, login, server, select_account=False,
+                )
             finally:
                 try:
                     mt5.shutdown()
