@@ -201,6 +201,8 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "max_portfolio_corr": 0.50,
     "allowed_asset_groups": list(ASSET_GROUPS),
     "disabled_symbols": [],
+    "improvement_disabled_symbols": [],
+    "chain_improvement_disabled_symbols": [],
     "margin_profile": "ictrading",
     "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
     "max_margin_pct": 100.0,
@@ -339,26 +341,45 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
     if not groups:
         raise ValueError("Selecciona al menos un grupo de activos")
     values["allowed_asset_groups"] = sorted(set(groups))
-    disabled_symbols = values.get("disabled_symbols")
-    if disabled_symbols is None:
-        disabled_symbols = []
-    if not isinstance(disabled_symbols, (list, tuple, set)):
-        raise ValueError("disabled_symbols debe ser una lista de símbolos")
-    normalized_disabled: dict[str, str] = {}
-    for raw_symbol in disabled_symbols:
-        if not isinstance(raw_symbol, str):
-            raise ValueError("Cada símbolo deshabilitado debe ser texto")
-        symbol = raw_symbol.strip()
-        if not symbol:
-            continue
-        if len(symbol) > 64:
-            raise ValueError("Un símbolo deshabilitado no puede superar 64 caracteres")
-        normalized_disabled.setdefault(symbol.casefold(), symbol)
+    def normalized_disabled_symbols(raw_symbols: Any, key: str) -> list[str]:
+        if raw_symbols is None:
+            raw_symbols = []
+        if not isinstance(raw_symbols, (list, tuple, set)):
+            raise ValueError(f"{key} debe ser una lista de símbolos")
+        normalized: dict[str, str] = {}
+        for raw_symbol in raw_symbols:
+            if not isinstance(raw_symbol, str):
+                raise ValueError("Cada símbolo deshabilitado debe ser texto")
+            symbol = raw_symbol.strip()
+            if not symbol:
+                continue
+            if len(symbol) > 64:
+                raise ValueError("Un símbolo deshabilitado no puede superar 64 caracteres")
+            normalized.setdefault(symbol.casefold(), symbol)
+        return sorted(normalized.values(), key=str.casefold)
+
+    # Compatibilidad con la primera versión del control: una única lista se
+    # aplicaba a construcción y a los dos motores de mejora. Cuando todavía no
+    # existen las claves nuevas, se hereda esa lista; el primer guardado desde la
+    # ventana nueva ya persiste las tres decisiones por separado.
+    generation_disabled = normalized_disabled_symbols(
+        values.get("disabled_symbols"), "disabled_symbols"
+    )
+    improvement_disabled = normalized_disabled_symbols(
+        values.get("improvement_disabled_symbols")
+        if "improvement_disabled_symbols" in raw else generation_disabled,
+        "improvement_disabled_symbols",
+    )
+    chain_disabled = normalized_disabled_symbols(
+        values.get("chain_improvement_disabled_symbols")
+        if "chain_improvement_disabled_symbols" in raw else improvement_disabled,
+        "chain_improvement_disabled_symbols",
+    )
     # El control pertenece exclusivamente a UBS normal. El mensual tiene su
     # propia interfaz y orquestación, y no debe heredar silenciosamente el filtro.
-    values["disabled_symbols"] = (
-        [] if monthly else sorted(normalized_disabled.values(), key=str.casefold)
-    )
+    values["disabled_symbols"] = [] if monthly else generation_disabled
+    values["improvement_disabled_symbols"] = [] if monthly else improvement_disabled
+    values["chain_improvement_disabled_symbols"] = [] if monthly else chain_disabled
     if monthly:
         values["target_month"] = safe_int(values.get("target_month"), 0)
         if not 1 <= values["target_month"] <= 12:
@@ -954,7 +975,7 @@ class PortfolioSource:
                 result = [row for row in result if self._path_key(row.get("set_path")) not in quarantined]
         return result
 
-    def import_candidate_rows(self) -> list[dict[str, Any]]:
+    def import_candidate_rows(self, *, include_without_robustness: bool = False) -> list[dict[str, Any]]:
         """Devuelve candidatos reconstruibles sin volver a filtrar su veredicto.
 
         Un cálculo nuevo solo puede usar el pool que superó las cuatro etapas,
@@ -966,13 +987,25 @@ class PortfolioSource:
 
         Siguen siendo imprescindibles el candidato y sus informes base/OOS;
         ``load_robust_sets_from_rows`` nombrará cualquier informe ausente o
-        ilegible en vez de inventar métricas.
+        ilegible en vez de inventar métricas. La ventana de familia activa
+        ``include_without_robustness`` para inventariar además los sets que aún
+        no llegaron a esa etapa; nunca se usa esa ampliación para reconstruir.
         """
         result: list[dict[str, Any]] = []
         for account_label, memory in self.memory_sources:
             with self.connect_memory(memory) as conn:
-                if not all(_table_exists(conn, table) for table in ("candidates", "candidate_robustness")):
+                if not _table_exists(conn, "candidates"):
                     continue
+                has_robustness = _table_exists(conn, "candidate_robustness")
+                if not has_robustness and not include_without_robustness:
+                    continue
+                robustness_join = (
+                    ("left join" if include_without_robustness else "join")
+                    + " candidate_robustness cr on cr.candidate_id=c.id"
+                    if has_robustness else ""
+                )
+                oos_report_sql = "cr.report_path" if has_robustness else "null"
+                robustness_status_sql = "cr.status" if has_robustness else "null"
                 has_final_tick = _table_exists(conn, "candidate_final_tick")
                 has_final_tick_6m = _table_exists(conn, "candidate_final_tick_6m")
                 final_tick_join = (
@@ -1003,18 +1036,18 @@ class PortfolioSource:
                     select ? as account_type, ? || ':' || c.id as candidate_id,
                            c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
                            c.period, c.family, c.report_path as is_report_path,
-                           cr.report_path as oos_report_path,
+                           {oos_report_sql} as oos_report_path,
                            {full_history_sql} as full_history_report_path,
                            {final_ohlc_sql} as final_ohlc_report_path,
                            {final_real_sql} as final_tick_report_path,
                            {final_from_sql} as final_tick_from_date,
                            {final_to_sql} as final_tick_to_date,
                            {final_tick_metrics_sql} as final_tick_metrics_json,
-                           c.status as base_status, cr.status as robustness_status,
+                           c.status as base_status, {robustness_status_sql} as robustness_status,
                            {final_tick_status_sql} as final_tick_status,
                            {final_tick_6m_status_sql} as final_tick_6m_status
                     from candidates c
-                    join candidate_robustness cr on cr.candidate_id=c.id
+                    {robustness_join}
                     {final_tick_join}
                     {final_tick_6m_join}
                     order by c.id
@@ -1110,6 +1143,18 @@ class PortfolioSource:
             )
             for symbol in settings.get("disabled_symbols") or []
         } if not monthly else set()
+        improvement_disabled_keys = {
+            portfolio_symbol_key(
+                portfolio_display_symbol(str(symbol), universe_files=[self.universe])
+            )
+            for symbol in settings.get("improvement_disabled_symbols") or []
+        } if not monthly else set()
+        chain_disabled_keys = {
+            portfolio_symbol_key(
+                portfolio_display_symbol(str(symbol), universe_files=[self.universe])
+            )
+            for symbol in settings.get("chain_improvement_disabled_symbols") or []
+        } if not monthly else set()
         by_symbol: dict[str, dict[str, Any]] = {}
         for row in rows:
             symbol = portfolio_display_symbol(
@@ -1124,6 +1169,11 @@ class PortfolioSource:
                 "used": 0,
                 "available": 0,
                 **({"disabled": symbol_key in disabled_keys} if not monthly else {}),
+                **({
+                    "generation_disabled": symbol_key in disabled_keys,
+                    "improvement_disabled": symbol_key in improvement_disabled_keys,
+                    "chain_improvement_disabled": symbol_key in chain_disabled_keys,
+                } if not monthly else {}),
             })
             counts["total"] += 1
             key = self._path_key(row.get("set_path"))
@@ -1147,6 +1197,133 @@ class PortfolioSource:
             "quarantine": quarantine,
             "quarantine_excludes": True,
             "warnings": warnings,
+        }
+
+    def symbol_sets(self, symbol: str, scope: str = "full_history") -> dict[str, Any]:
+        """Lista toda la familia de un símbolo, incluso veredictos excluidos."""
+        if normalize_portfolio_scope(scope) != "full_history":
+            raise ValueError("La gestión por símbolo solo está disponible en Portafolio UBS")
+        requested = portfolio_display_symbol(str(symbol or "").strip(), universe_files=[self.universe])
+        requested_key = portfolio_symbol_key(requested)
+        if not requested_key:
+            raise ValueError("Falta el símbolo que se quiere gestionar")
+
+        quarantine = {
+            self._path_key(row.get("set_path")): row
+            for row in self.quarantine_rows()
+        }
+        used = {self._path_key(path) for path in self.used_set_paths("full_history")}
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in self.import_candidate_rows(include_without_robustness=True):
+            display_symbol = portfolio_display_symbol(
+                str(row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""),
+                universe_files=[self.universe],
+            )
+            if portfolio_symbol_key(display_symbol) != requested_key:
+                continue
+            path = str(row.get("set_path") or "")
+            if not path.strip():
+                continue
+            path_key = self._path_key(path)
+            if not path_key or path_key in seen:
+                continue
+            seen.add(path_key)
+            quarantined = quarantine.get(path_key)
+            statuses = {
+                "base": str(row.get("base_status") or "").lower(),
+                "robustness": str(row.get("robustness_status") or "").lower(),
+                "final_tick": str(row.get("final_tick_status") or "").lower(),
+                "final_tick_6m": str(row.get("final_tick_6m_status") or "").lower(),
+            }
+            accepted = (
+                statuses["base"] == "accepted"
+                and statuses["robustness"] == "accepted"
+                and statuses["final_tick"] in {"accepted", "pending_ohlc_trades"}
+                and statuses["final_tick_6m"] == "accepted"
+            )
+            if quarantined:
+                state = "excluded"
+                state_label = str(quarantined.get("reason_label") or "Excluido")
+            elif not accepted:
+                state = "excluded"
+                if statuses["robustness"] and statuses["robustness"] != "accepted":
+                    state_label = "Excluido por degradación"
+                elif statuses["final_tick_6m"] and statuses["final_tick_6m"] != "accepted":
+                    state_label = "Excluido por OHLC ≠ every tick"
+                else:
+                    state_label = "Fuera del pool aceptado"
+            elif path_key in used:
+                state = "used"
+                state_label = "Usado en portafolio"
+            else:
+                state = "available"
+                state_label = "Disponible"
+            result.append({
+                "candidate_id": row.get("candidate_id"),
+                "set_path": path,
+                "set_name": Path(path).name,
+                "symbol": display_symbol,
+                "timeframe": row.get("period") or "",
+                "family": row.get("family") or "",
+                "account": row.get("account_type") or "",
+                "state": state,
+                "state_label": state_label,
+                "exists": Path(path).is_file(),
+            })
+        if not result:
+            raise ValueError(f"No se encontraron sets de la familia {requested}")
+        result.sort(key=lambda item: (str(item["set_name"]).casefold(), str(item["account"]).casefold()))
+        return {"symbol": requested, "sets": result, "total": len(result)}
+
+    def export_symbol_sets(
+        self,
+        symbol: str,
+        selected_paths: Any,
+        destination: str | None = None,
+    ) -> dict[str, Any]:
+        """Copia la selección validada de una familia de símbolo."""
+        if not isinstance(selected_paths, list) or any(not isinstance(path, str) for path in selected_paths):
+            raise ValueError("La selección de sets no es válida")
+        family = self.symbol_sets(symbol)
+        allowed = {self._path_key(row["set_path"]): row for row in family["sets"]}
+        selected_keys = {self._path_key(path) for path in selected_paths if str(path).strip()}
+        if not selected_keys:
+            raise ValueError("Selecciona al menos un set para exportar")
+        if selected_keys - set(allowed):
+            raise ValueError("La selección contiene sets que no pertenecen a este símbolo")
+
+        safe_symbol = re.sub(r"[^A-Za-z0-9_.-]+", "_", family["symbol"]).strip("._") or "SIMBOLO"
+        root = Path(destination).expanduser() if destination else self.project / "exports"
+        output = root.resolve() / f"SETS_{safe_symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        dev_branch.assert_export_destination(output, self.project)
+        output.mkdir(parents=True, exist_ok=True)
+        exported: list[str] = []
+        missing: list[str] = []
+        destination_names: set[str] = set()
+        for key in sorted(selected_keys):
+            row = allowed[key]
+            source_path = Path(str(row["set_path"]))
+            if not source_path.is_file():
+                missing.append(source_path.name)
+                continue
+            name = source_path.name
+            if name.casefold() in destination_names:
+                stem, suffix = source_path.stem, source_path.suffix
+                account = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(row.get("account") or "cuenta")).strip("._")
+                name = f"{stem}_{account}{suffix}"
+                index = 2
+                while name.casefold() in destination_names:
+                    name = f"{stem}_{account}_{index}{suffix}"
+                    index += 1
+            shutil.copy2(source_path, output / name)
+            destination_names.add(name.casefold())
+            exported.append(name)
+        if not exported:
+            raise ValueError("Ninguno de los sets seleccionados existe en disco")
+        return {
+            "folder": str(output), "symbol": family["symbol"],
+            "exported": len(exported), "sets": exported, "missing": missing,
         }
 
     def exclude_strategy(self, payload: dict[str, Any], *, memory: Path | None = None) -> int:
@@ -4983,6 +5160,37 @@ class PortfolioCoordinator:
                 for path in sorted(output.rglob("*")):
                     if path.is_file():
                         archive.write(path, Path(output.name) / path.relative_to(output))
+            return {
+                "filename": f"{output.name}.zip",
+                "content": buffer.getvalue(),
+                "exported": int(result.get("exported") or 0),
+                "missing": list(result.get("missing") or []),
+            }
+
+    def symbol_sets(self, node_id: str, scope: str, symbol: str) -> dict[str, Any]:
+        return self._calculation_source(node_id, scope).symbol_sets(symbol, scope)
+
+    def export_symbol(
+        self, node_id: str, scope: str, symbol: str, selected_paths: Any, destination: str | None
+    ) -> dict[str, Any]:
+        if normalize_portfolio_scope(scope) != "full_history":
+            raise ValueError("La exportación por símbolo solo está disponible en Portafolio UBS")
+        return self._calculation_source(node_id, scope).export_symbol_sets(
+            symbol, selected_paths, destination,
+        )
+
+    def export_symbol_archive(
+        self, node_id: str, scope: str, symbol: str, selected_paths: Any
+    ) -> dict[str, Any]:
+        source = self._calculation_source(node_id, scope)
+        with tempfile.TemporaryDirectory(prefix="mt5-symbol-export-") as temp_dir:
+            result = source.export_symbol_sets(symbol, selected_paths, temp_dir)
+            output = Path(str(result["folder"]))
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for path in sorted(output.iterdir()):
+                    if path.is_file():
+                        archive.write(path, Path(output.name) / path.name)
             return {
                 "filename": f"{output.name}.zip",
                 "content": buffer.getvalue(),

@@ -917,6 +917,21 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         str(body.get("initial_directory") or "").strip() or None
                     )
                     self._send_json(200, {"folder": folder, "cancelled": folder is None})
+                elif action == "symbol-sets":
+                    self._send_json(200, self.server.portfolios.symbol_sets(
+                        node_id, scope, str(body.get("symbol") or "")
+                    ))
+                elif action == "export-symbol-download":
+                    result = self.server.portfolios.export_symbol_archive(
+                        node_id, scope, str(body.get("symbol") or ""), body.get("set_paths")
+                    )
+                    self._send_download(result)
+                elif action == "export-symbol":
+                    result = self.server.portfolios.export_symbol(
+                        node_id, scope, str(body.get("symbol") or ""), body.get("set_paths"),
+                        str(body.get("destination") or "").strip() or None,
+                    )
+                    self._send_json(200, result)
                 elif action == "export-download":
                     result = self.server.portfolios.export_archive(
                         node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)

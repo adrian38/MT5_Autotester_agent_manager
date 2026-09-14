@@ -771,6 +771,46 @@ enabled=0
         self.assertEqual(body, archive["content"])
         export_archive.assert_called_once_with("test-node", "full_history", 9)
 
+    def test_symbol_family_can_be_listed_and_downloaded_as_a_selected_zip(self) -> None:
+        family = {"symbol": "NFLX", "total": 2, "sets": [{"set_path": "a.set"}, {"set_path": "b.set"}]}
+        with mock.patch.object(
+            self.manager.portfolios, "symbol_sets", return_value=family
+        ) as symbol_sets:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/symbol-sets",
+                {"scope": "full_history", "symbol": "NFLX"},
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, family)
+        symbol_sets.assert_called_once_with("test-node", "full_history", "NFLX")
+
+        archive = {
+            "filename": "SETS_NFLX.zip", "content": b"PK\x03\x04sets",
+            "exported": 2, "missing": [],
+        }
+        with mock.patch.object(
+            self.manager.portfolios, "export_symbol_archive", return_value=archive
+        ) as export_symbol_archive:
+            request = urllib.request.Request(
+                self.base + "/api/nodes/test-node/portfolio-manager/export-symbol-download",
+                data=json.dumps({
+                    "scope": "full_history", "symbol": "NFLX",
+                    "set_paths": ["a.set", "b.set"],
+                }).encode(),
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=3) as response:
+                body = response.read()
+                self.assertEqual(response.status, 200)
+                self.assertIn("SETS_NFLX.zip", response.headers["Content-Disposition"])
+                self.assertEqual(response.headers["X-Exported-Sets"], "2")
+
+        self.assertEqual(body, archive["content"])
+        export_symbol_archive.assert_called_once_with(
+            "test-node", "full_history", "NFLX", ["a.set", "b.set"]
+        )
+
     def test_portfolio_alias_is_saved_through_the_coordinator(self) -> None:
         with mock.patch.object(
             self.manager.portfolios, "set_alias", return_value="Londres estable"
