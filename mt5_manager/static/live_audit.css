@@ -108,6 +108,67 @@
   line-height: 1.45;
 }
 
+.live-audit-lots-table {
+  margin: 12px 20px 0;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.live-audit-lots-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.live-audit-lots-table th,
+.live-audit-lots-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.live-audit-lots-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.live-audit-lots-table th {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.live-audit-lots-table td {
+  font-size: 12px;
+}
+
+.live-audit-lots-table td:first-child,
+.live-audit-lots-table td:nth-child(2) {
+  min-width: 150px;
+}
+
+.live-audit-lots-table td > small,
+.live-audit-lots-table td > span {
+  display: block;
+}
+
+.live-audit-lots-table td > small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.live-audit-lots-table input {
+  min-width: 120px;
+}
+
+.live-audit-lots-empty {
+  margin: 12px 20px 0;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .live-audit-operation {
   margin: 18px 20px 0;
   padding: 16px;

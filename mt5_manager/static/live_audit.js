@@ -6,6 +6,7 @@ const portfolioList = document.querySelector('#portfolio-list');
 const configsEl = document.querySelector('#portfolio-configs');
 let defaults = {};
 let portfolios = [];
+let portfolioDetails = {};
 let profiles = {};
 let credentialState = {};
 let savedAccounts = [];
@@ -85,6 +86,47 @@ function renderPortfolios() {
 
 function option(value, label, current) {
   return `<option value="${value}"${current === value ? ' selected' : ''}>${label}</option>`;
+}
+
+function strategyKey(member) {
+  const candidate = String(member?.candidate_id || '').trim();
+  if (candidate) return candidate;
+  const source = String(member?.set_id || member?.set_path || '').trim();
+  const filename = source.split(/[\\/]/).pop() || '';
+  return filename.replace(/\.[^.]+$/, '');
+}
+
+function strategyLotsMarkup(profile) {
+  if (!profile.portfolio_type) {
+    return '<p class="live-audit-lots-empty">Selecciona un modo para ver sus estrategias.</p>';
+  }
+  const detail = portfolioDetails[String(profile.portfolio_id)];
+  if (!detail) {
+    return '<p class="live-audit-lots-empty">Cargando estrategias del portafolio…</p>';
+  }
+  const members = (detail.members || []).filter(member => member.variant_key === profile.portfolio_type);
+  if (!members.length) {
+    return '<p class="live-audit-lots-empty">Este portafolio no contiene estrategias para el modo seleccionado.</p>';
+  }
+  const configured = profile.real_strategy_lots || {};
+  const rows = members.map(member => {
+    const strategy = strategyKey(member);
+    const portfolioLot = Number(member.lot);
+    const realLot = Object.prototype.hasOwnProperty.call(configured, strategy)
+      ? Number(configured[strategy]) : portfolioLot;
+    const identity = member.set_name || strategy;
+    return `<tr><td><strong>${escapeHtml(member.symbol || '?')}</strong><small>${escapeHtml(member.timeframe || '')}</small></td><td><span>${escapeHtml(identity)}</span><small>${escapeHtml(strategy)}</small></td><td>${escapeHtml(portfolioLot)}</td><td><input data-strategy-lot="${escapeHtml(strategy)}" type="number" min="0.00000001" max="1000000" step="any" value="${escapeHtml(realLot)}" required aria-label="Lote real de ${escapeHtml(identity)}"></td></tr>`;
+  }).join('');
+  return `<div class="live-audit-lots-table"><table><thead><tr><th>Símbolo</th><th>Estrategia</th><th>Lote del portafolio</th><th>Lote en cuenta real</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function ensurePortfolioDetail(portfolioId) {
+  const key = String(portfolioId || '');
+  if (!key || portfolioDetails[key]) return;
+  const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolios/${encodeURIComponent(key)}?scope=full_history`, {cache: 'no-store'});
+  const data = await jsonResponse(response);
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  portfolioDetails[key] = data.portfolio || {};
 }
 
 function savedAccountOptions(current = '', hasCurrent = false) {
@@ -174,6 +216,8 @@ function profileMarkup(auditId) {
       <label>Nombre descriptivo<input data-field="deployment_name" maxlength="120" value="${escapeHtml(profile.deployment_name)}" placeholder="Ej.: Moderado cuenta principal"></label>
       <label>Modo del portafolio<select data-field="portfolio_type" required>${option('', 'Selecciona Agresivo / Moderado / Conservador', profile.portfolio_type)}${option('aggressive', 'Agresivo', profile.portfolio_type)}${option('balanced', 'Moderado', profile.portfolio_type)}${option('conservative', 'Conservador', profile.portfolio_type)}</select></label>
     </div>
+    <div class="live-audit-subtitle"><strong>Lotes usados en la cuenta real</strong><span>Por defecto coinciden con el portafolio. Edítalos sólo cuando el EA opere otro lote en real.</span></div>
+    ${strategyLotsMarkup(profile)}
     <div class="live-audit-subtitle"><strong>Cuentas de esta prueba</strong><span>Puedes reutilizar cualquier cuenta cifrada del nodo en otro portafolio; los logins pueden coincidir.</span></div>
     <div class="live-audit-account-grid">
       <fieldset class="live-audit-account">
@@ -249,9 +293,14 @@ function renderAuditOperations(ids = selectedAuditIds) {
 function readCard(card) {
   const field = name => card.querySelector(`[data-field="${name}"]`);
   const number = name => Number(field(name).value);
+  const realStrategyLots = {...(profiles[String(card.dataset.profileId)]?.real_strategy_lots || {})};
+  card.querySelectorAll('[data-strategy-lot]').forEach(input => {
+    realStrategyLots[input.dataset.strategyLot] = Number(input.value);
+  });
   return {
     portfolio_id: portfolioForAudit(card.dataset.profileId),
     portfolio_type: field('portfolio_type').value,
+    real_strategy_lots: realStrategyLots,
     deployment_name: field('deployment_name').value.trim(),
     source_saved_account_id: card.querySelector('[data-saved-account-role="source"]').value,
     source_login: field('source_login').value.trim(),
@@ -482,6 +531,12 @@ async function loadSettings() {
     if (!portfoliosResponse.ok) throw new Error(portfolioData.error || portfoliosResponse.statusText);
     if (!schedulerResponse.ok) throw new Error(schedulerData.error || schedulerResponse.statusText);
     portfolios = portfolioData.portfolios || [];
+    portfolioDetails = {};
+    const detailIds = [...new Set(Object.values(data.profiles || {})
+      .filter(profile => profile?.portfolio_type)
+      .map(profile => Number(profile.portfolio_id || 0))
+      .filter(Boolean))];
+    await Promise.all(detailIds.map(id => ensurePortfolioDetail(id).catch(() => {})));
     document.querySelector('#audit-title').textContent = data.node?.name || nodeId;
     applyState(data);
     applySchedulerState(schedulerData);
@@ -510,11 +565,20 @@ portfolioList.addEventListener('change', event => {
   setState('CAMBIOS SIN GUARDAR', 'pending');
 });
 
-form.addEventListener('change', event => {
+form.addEventListener('change', async event => {
   if (event.target.dataset.savedAccountRole) {
     applySavedAccount(event.target.closest('[data-profile-id]'), event.target.dataset.savedAccountRole);
   }
   if (['execution_delay_mode', 'use_calendar_period'].includes(event.target.dataset.field)) updateProfileControls();
+  if (event.target.dataset.field === 'portfolio_type') {
+    captureDrafts();
+    try {
+      await ensurePortfolioDetail(portfolioForAudit(event.target.closest('[data-profile-id]').dataset.profileId));
+      renderProfiles();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
   setState('CAMBIOS SIN GUARDAR', 'pending');
 });
 

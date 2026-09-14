@@ -72,6 +72,32 @@ def _as_float(value: Any, name: str, minimum: float = 0.0, maximum: float | None
     return result
 
 
+def _normalize_real_strategy_lots(value: Any) -> dict[str, float]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("real_strategy_lots debe ser un objeto JSON")
+    if len(value) > 500:
+        raise ValueError("No se pueden configurar más de 500 lotes de estrategias")
+    result: dict[str, float] = {}
+    for raw_strategy, raw_lot in value.items():
+        strategy = str(raw_strategy or "").strip()
+        if not strategy or len(strategy) > 512 or "\n" in strategy or "\r" in strategy:
+            raise ValueError("Cada lote real debe tener un identificador de estrategia válido")
+        result[strategy] = _as_float(
+            raw_lot, f"real_strategy_lots[{strategy}]", 0.00000001, 1_000_000.0,
+        )
+    return result
+
+
+def _member_strategy_id(member: dict[str, Any], fallback: str = "") -> str:
+    candidate_id = str(member.get("candidate_id") or "").strip()
+    if candidate_id:
+        return candidate_id
+    source = str(member.get("set_id") or member.get("set_path") or "").strip()
+    return Path(source).stem if source else fallback
+
+
 def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:
     """Devuelve el piso absoluto validado para la familia del instrumento."""
     root = re.split(r"[^A-Z0-9]", str(symbol or "").upper(), maxsplit=1)[0]
@@ -170,6 +196,7 @@ def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
         "audit_key": audit_key,
         "portfolio_id": _as_int(value.get("portfolio_id"), "portfolio_id", 1),
         "portfolio_type": portfolio_type,
+        "real_strategy_lots": _normalize_real_strategy_lots(value.get("real_strategy_lots")),
         "deployment_name": str(value.get("deployment_name") or "").strip()[:120],
         "source_login": str(value.get("source_login") or "").strip(),
         "source_server": str(value.get("source_server") or "").strip(),
@@ -511,19 +538,43 @@ class LiveAuditController:
                 f"{real_account_report.get('bytes', 0)} bytes, sha256 "
                 f"{str(real_account_report.get('sha256') or '')[:16]}...",
             )
+            self._update(
+                audit_key, "testing", "Ejecutando el portafolio con ticks reales en el nodo.",
+                f"{len(real_trades)} cierres reales reconstruidos antes del filtro del portafolio.",
+            )
+            tester_trades, qualities, strategies, strategy_artifacts, tester_execution = self._run_tester(
+                request, audit_id, period_start, period_end
+            )
             _detail, selected_members = self._portfolio_members(portfolio_id, request["portfolio_type"])
             volume_rules = self._broker_volume_rules()
+            symbols_by_strategy: dict[str, set[str]] = {}
+            for trade in tester_trades:
+                strategy = str(trade.get("strategy") or "")
+                symbol = str(trade.get("symbol") or "").casefold()
+                if strategy and symbol:
+                    symbols_by_strategy.setdefault(strategy, set()).add(symbol)
+            for artifact in strategy_artifacts:
+                strategy = str(artifact.get("strategy") or "")
+                symbol = str(artifact.get("report_symbol") or "").casefold()
+                if strategy and symbol:
+                    symbols_by_strategy.setdefault(strategy, set()).add(symbol)
+            real_strategy_lots = request.get("real_strategy_lots") or {}
             signatures: set[tuple[str, float]] = set()
             for member in selected_members:
-                symbol = str(member.get("symbol") or "").casefold()
+                strategy = _member_strategy_id(member)
                 try:
                     _configured_lot, effective_lot, _volume_min, _volume_step, _units = self._tester_lot(
                         member, volume_rules,
                     )
                 except (TypeError, ValueError):
                     continue
-                if symbol and effective_lot > 0:
-                    signatures.add((symbol, round(effective_lot, 8)))
+                real_lot = float(real_strategy_lots.get(strategy, effective_lot))
+                symbols = symbols_by_strategy.get(strategy) or {
+                    str(member.get("symbol") or "").casefold()
+                }
+                signatures.update(
+                    (symbol, round(real_lot, 8)) for symbol in symbols if symbol and real_lot > 0
+                )
             if signatures:
                 before_filter = len(real_trades)
                 real_trades = [
@@ -536,7 +587,7 @@ class LiveAuditController:
                 ignored = before_filter - len(real_trades)
                 self._update(
                     audit_key, "extracting", "Filtrando operaciones de la variante seleccionada.",
-                    f"Filtro por símbolo/lote: {len(real_trades)} cierres del portafolio, "
+                    f"Filtro por símbolo/lote real configurado: {len(real_trades)} cierres del portafolio, "
                     f"{ignored} cierres ajenos ignorados; firmas {sorted(signatures)}",
                 )
                 real_history_detail["portfolio_closures"] = len(real_trades)
@@ -546,13 +597,6 @@ class LiveAuditController:
                 key = f"{trade.get('symbol') or '?'} / lote {float(trade.get('volume') or 0):g}"
                 real_groups[key] = real_groups.get(key, 0) + 1
             real_summary = ", ".join(f"{key}: {count}" for key, count in sorted(real_groups.items())) or "sin cierres"
-            self._update(
-                audit_key, "testing", "Ejecutando el portafolio con ticks reales en el nodo.",
-                f"{len(real_trades)} operaciones reales extraídas ({real_summary})",
-            )
-            tester_trades, qualities, strategies, strategy_artifacts, tester_execution = self._run_tester(
-                request, audit_id, period_start, period_end
-            )
             tester_groups: dict[str, int] = {}
             for trade in tester_trades:
                 key = f"{trade.get('symbol') or '?'} / {trade.get('strategy') or '?'}"
@@ -1516,13 +1560,20 @@ class LiveAuditController:
             except (TypeError, ValueError):
                 runtime_lot = None
             set_files.append(target)
+            strategy = _member_strategy_id(member, target.stem)
+            configured_real_lots = request.get("real_strategy_lots") or {}
+            real_account_lot = float(configured_real_lots.get(strategy, tester_lot))
             member_by_stem[target.stem] = {
                 "member": member,
                 "artifact": {
-                    "strategy": str(member.get("candidate_id") or target.stem),
+                    "strategy": strategy,
                     "symbol": str(member.get("symbol") or ""),
                     "configured_lot": portfolio_lot,
                     "tester_lot": tester_lot,
+                    "real_account_lot": real_account_lot,
+                    "real_account_lot_source": (
+                        "configured" if strategy in configured_real_lots else "tester_default"
+                    ),
                     "portfolio_units": units,
                     "broker_volume_min": volume_min,
                     "broker_volume_step": volume_step,
@@ -1545,7 +1596,7 @@ class LiveAuditController:
                 },
             }
         selected_summary = ", ".join(
-            f"{member.get('symbol') or '?'}:{member.get('candidate_id') or Path(str(member.get('set_path') or '')).stem}"
+            f"{member.get('symbol') or '?'}:{_member_strategy_id(member)}"
             for member in members
         )
         self._update(
@@ -1685,13 +1736,14 @@ class LiveAuditController:
             quality = _metric_number(report.metrics, "History Quality", "Calidad del historial")
             if quality is not None:
                 qualities.append(quality)
-            strategy = str(member.get("candidate_id") or stem)
+            strategy = _member_strategy_id(member, stem)
             strategies[strategy] = len(report.trades)
             observed_trade_volumes = sorted({round(float(trade.size), 8) for trade in report.trades})
             runtime_lot = prepared["artifact"].get("runtime_start_lots")
             artifact = dict(prepared["artifact"])
             artifact.update(
                 report_file=report_path.name,
+                report_symbol=report.symbol,
                 tester_trades=len(report.trades),
                 history_quality_pct=quality,
                 observed_trade_volumes=observed_trade_volumes,

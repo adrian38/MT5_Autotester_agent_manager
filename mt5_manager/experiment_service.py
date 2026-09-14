@@ -202,14 +202,15 @@ class ExperimentCoordinator:
         save_json(self.settings_path, normalized)
         return normalized
 
-    def _source(self, node_id: str) -> PortfolioSource:
-        """Fuente de solo lectura del laboratorio, con su montaje opcional.
+    def readonly_source(self, node_id: str) -> PortfolioSource:
+        """Fuente de solo lectura de los laboratorios, con su montaje opcional.
 
         En ``dev`` el manager Docker no monta AXI ni RoboForex en las rutas que
         usan las pantallas normales. El override de Compose expone sus recursos
         SMB en rutas distintas y de solo lectura; estas variables se consumen
-        exclusivamente aquí para que Experimenta pueda mezclar los tres brokers
-        sin abrir las operaciones normales sobre los agentes de la otra cuenta.
+        exclusivamente en las pantallas de análisis para que Experimenta y
+        Correlación puedan leer los tres brokers sin abrir las operaciones
+        normales sobre los agentes de la otra cuenta.
         Fuera de ese override se conserva exactamente la configuración del nodo.
         """
         node = self.nodes.get(node_id)
@@ -226,6 +227,10 @@ class ExperimentCoordinator:
         experiment_node.pop("portfolio_memory_paths", None)
         return PortfolioSource(experiment_node)
 
+    def _source(self, node_id: str) -> PortfolioSource:
+        """Alias interno conservado para las llamadas históricas de Experimenta."""
+        return self.readonly_source(node_id)
+
     def _availability(self, node_id: str) -> dict[str, Any]:
         """¿Se puede leer hoy la memoria de este nodo desde el manager?
 
@@ -236,7 +241,7 @@ class ExperimentCoordinator:
         """
         node = self.nodes.get(node_id) or {}
         try:
-            source = self._source(node_id)
+            source = self.readonly_source(node_id)
         except (ValueError, OSError) as exc:
             return {"available": False, "reason": str(exc)}
         return {
@@ -379,7 +384,7 @@ class ExperimentCoordinator:
     def _load_pool(
         self, settings: dict[str, Any],
     ) -> tuple[list[lab.LabStrategy], lab.LabAxis, list[str], dict[str, Any]]:
-        target_source = self._source(settings["target_node"])
+        target_source = self.readonly_source(settings["target_node"])
         # El perfil de margen es siempre el del broker de destino: la cuenta
         # única es suya. `account_leverage` solo lo usa el modelo AXI, y se pasa
         # el mismo valor por defecto que la pantalla UBS para no cambiar de
@@ -403,7 +408,7 @@ class ExperimentCoordinator:
                 warnings.append(f"{node_id}: nodo desconocido, fuera del experimento")
                 continue
             try:
-                source = self._source(node_id)
+                source = self.readonly_source(node_id)
                 rows = source.candidate_rows(include_quarantined=False)
             except (ValueError, OSError, sqlite3.Error) as exc:
                 warnings.append(f"{node_id}: {exc}")

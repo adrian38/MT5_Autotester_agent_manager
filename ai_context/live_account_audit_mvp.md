@@ -704,3 +704,20 @@ campos se entrecomillan, se escapan y los valores que podrían interpretarse
 como fórmulas se neutralizan. El botón queda deshabilitado en resultados
 antiguos sin detalle por operación. Es una descarga enteramente cliente: no
 añade endpoint ni modifica el runtime del nodo ICTrading.
+
+## Lote real independiente por estrategia (2026-09-14)
+
+El lote guardado en el portafolio describe la ejecución del Strategy Tester,
+pero un EA puede usar otro lote en la cuenta real. Cada perfil de auditoría
+guarda ahora `real_strategy_lots`, indexado por `candidate_id`. La pantalla
+muestra únicamente las estrategias del modo seleccionado y propone como valor
+inicial el lote del portafolio; el usuario puede editar cada lote real sin
+cambiar `StartLots` del tester.
+
+El runtime ejecutado en el agente filtra el historial real después de leer los
+reportes del tester. Esto permite combinar el lote real configurado con el
+símbolo efectivo del broker que aparece en el reporte (por ejemplo
+`NAS100.fs` aunque el portafolio guarde `NAS100`). Los perfiles antiguos sin el
+nuevo mapa conservan el lote efectivo del tester como fallback. La evidencia
+por estrategia registra por separado `configured_lot`, `tester_lot` y
+`real_account_lot`.
