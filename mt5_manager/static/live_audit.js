@@ -7,6 +7,7 @@ const configsEl = document.querySelector('#portfolio-configs');
 let defaults = {};
 let portfolios = [];
 let portfolioDetails = {};
+let portfolioDetailErrors = {};
 let profiles = {};
 let credentialState = {};
 let savedAccounts = [];
@@ -101,6 +102,10 @@ function strategyLotsMarkup(profile) {
     return '<p class="live-audit-lots-empty">Selecciona un modo para ver sus estrategias.</p>';
   }
   const detail = portfolioDetails[String(profile.portfolio_id)];
+  const loadError = portfolioDetailErrors[String(profile.portfolio_id)];
+  if (loadError) {
+    return `<p class="live-audit-lots-empty live-audit-lots-error"><strong>No se pueden mostrar los lotes.</strong> El portafolio #${escapeHtml(profile.portfolio_id)} no está disponible. Desmárcalo arriba y selecciona un portafolio existente.</p>`;
+  }
   if (!detail) {
     return '<p class="live-audit-lots-empty">Cargando estrategias del portafolio…</p>';
   }
@@ -123,9 +128,14 @@ function strategyLotsMarkup(profile) {
 async function ensurePortfolioDetail(portfolioId) {
   const key = String(portfolioId || '');
   if (!key || portfolioDetails[key]) return;
+  delete portfolioDetailErrors[key];
   const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolios/${encodeURIComponent(key)}?scope=full_history`, {cache: 'no-store'});
   const data = await jsonResponse(response);
-  if (!response.ok) throw new Error(data.error || response.statusText);
+  if (!response.ok) {
+    const message = data.error || response.statusText || `Portafolio #${key} no disponible`;
+    portfolioDetailErrors[key] = message;
+    throw new Error(message);
+  }
   portfolioDetails[key] = data.portfolio || {};
 }
 
@@ -532,6 +542,7 @@ async function loadSettings() {
     if (!schedulerResponse.ok) throw new Error(schedulerData.error || schedulerResponse.statusText);
     portfolios = portfolioData.portfolios || [];
     portfolioDetails = {};
+    portfolioDetailErrors = {};
     const detailIds = [...new Set(Object.values(data.profiles || {})
       .filter(profile => profile?.portfolio_type)
       .map(profile => Number(profile.portfolio_id || 0))
@@ -574,9 +585,10 @@ form.addEventListener('change', async event => {
     captureDrafts();
     try {
       await ensurePortfolioDetail(portfolioForAudit(event.target.closest('[data-profile-id]').dataset.profileId));
-      renderProfiles();
     } catch (error) {
       toast(error.message, true);
+    } finally {
+      renderProfiles();
     }
   }
   setState('CAMBIOS SIN GUARDAR', 'pending');
