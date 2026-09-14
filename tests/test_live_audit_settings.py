@@ -493,6 +493,9 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("real_strategy_lots", self.script)
         self.assertIn("member.variant_key === profile.portfolio_type", self.script)
         self.assertIn("/portfolios/${encodeURIComponent(key)}?scope=full_history", self.script)
+        self.assertIn("No se pueden mostrar los lotes.", self.script)
+        self.assertIn("Desmárcalo arriba y selecciona un portafolio existente.", self.script)
+        self.assertIn("portfolioDetailErrors[key] = message", self.script)
 
     def test_period_can_be_selected_with_native_calendar_inputs(self) -> None:
         self.assertIn('type="date"', self.script)

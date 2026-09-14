@@ -169,6 +169,16 @@
   font-size: 12px;
 }
 
+.live-audit-lots-error {
+  border-color: #7c3840;
+  color: #ffb4ba;
+  background: #2a1115;
+}
+
+.live-audit-lots-error strong {
+  color: #ffd6da;
+}
+
 .live-audit-operation {
   margin: 18px 20px 0;
   padding: 16px;
