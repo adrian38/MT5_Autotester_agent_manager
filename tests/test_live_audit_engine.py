@@ -504,6 +504,8 @@ class LiveAuditEngineTests(unittest.TestCase):
             ("US30", 53462.0, 53472.5, .01, 10.5, "adaptive_indices"),
             ("DE40", 20000.0, 20010.5, .1, 10.5, "adaptive_indices"),
             ("USTECH", 25000.0, 25010.5, .01, 10.5, "adaptive_indices"),
+            ("NAS100.fs", 29570.0, 29575.0, .01, 5.0, "adaptive_nasdaq"),
+            ("BTCUSD", 77010.0, 77020.0, .01, 10.0, "adaptive_crypto_btc"),
             ("USDJPY", 159.650, 159.700, .001, .05, "adaptive_jpy_fx"),
             ("XAUUSD", 4807.16, 4809.21, .01, 2.05, "adaptive_gold"),
             ("XAGUSD", 67.454, 67.474, .001, .02, "adaptive_silver"),

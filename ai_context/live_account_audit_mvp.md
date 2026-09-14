@@ -735,3 +735,30 @@ símbolo efectivo del broker que aparece en el reporte (por ejemplo
 nuevo mapa conservan el lote efectivo del tester como fallback. La evidencia
 por estrategia registra por separado `configured_lot`, `tester_lot` y
 `real_account_lot`.
+
+## Validación p54: NAS100/BTCUSD y cierres solapados (2026-09-14)
+
+La revisión `auditor_v1_p54_antes.xlsx` / `auditor_v1_p54_despues.xlsx` no
+comparaba dos ejecuciones: ambas contenían las mismas 11 parejas y el segundo
+archivo añadía observaciones manuales. Esas observaciones validaron dos pisos
+absolutos nuevos para el precio de apertura: NAS100/US100 ±5 unidades y BTC
+±10 unidades. El límite configurado en puntos puede ampliarlos, pero no
+reducirlos. Así, NAS100.fs con una diferencia de 0,66 deja de ser una falsa
+desviación; BTCUSD con diferencias de 13,65 o 35,68 sigue correctamente fuera
+del límite.
+
+Las dos ventas BTCUSD del 1 de septiembre se solapaban. El lector del HTML de
+MT5 ordenaba los deals por fecha, pero consumía cierres FIFO y produjo dos
+operaciones imposibles: asignó el cierre `sl 77006.22` a la entrada cuya orden
+tenía otro SL, y el `tp 76466.87` a la otra entrada. La tabla `Órdenes` del mismo
+reporte contiene el SL/TP de cada orden de entrada. `mt5_report.parse_report`
+ahora extrae esos niveles y `_build_trades` usa el comentario `sl`/`tp` del deal
+de salida para enlazarlo con la entrada correcta; si esa evidencia no existe,
+conserva el fallback FIFO anterior. En el reporte real
+`20260914_165719_908377`, el ticket 2 queda 21:27:18→21:45:34 con +75,28 y el
+ticket 3 queda 21:28:01→21:29:48 con -17,03.
+
+Este arreglo necesita dos piezas al portarlo al agente: el lector compartido
+`portfolio_manager/mt5_report.py` y los nuevos pisos de
+`manager_node_runtime/live_audit.py`. Cambiar solo el motor de referencia del
+manager no altera la auditoría que ejecuta el nodo broker.

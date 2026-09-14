@@ -43,6 +43,8 @@ PROGRESS = {
 # metales e índices con escalas de cotización distintas.
 ADAPTIVE_PRICE_TOLERANCE_FLOORS = {
     "indices": 10.5,
+    "nasdaq": 5.0,
+    "crypto_btc": 10.0,
     "gold": 2.05,
     "silver": 0.02,
     "jpy_fx": 0.05,
@@ -101,6 +103,10 @@ def _member_strategy_id(member: dict[str, Any], fallback: str = "") -> str:
 def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:
     """Devuelve el piso absoluto validado para la familia del instrumento."""
     root = re.split(r"[^A-Z0-9]", str(symbol or "").upper(), maxsplit=1)[0]
+    if root.startswith(("NAS100", "US100")):
+        return ADAPTIVE_PRICE_TOLERANCE_FLOORS["nasdaq"], "adaptive_nasdaq"
+    if root.startswith("BTC"):
+        return ADAPTIVE_PRICE_TOLERANCE_FLOORS["crypto_btc"], "adaptive_crypto_btc"
     if root.startswith(_INDEX_SYMBOL_PREFIXES):
         return ADAPTIVE_PRICE_TOLERANCE_FLOORS["indices"], "adaptive_indices"
     if root.startswith("XAU"):
