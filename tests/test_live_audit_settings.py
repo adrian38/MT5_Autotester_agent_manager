@@ -97,6 +97,33 @@ class LiveAuditSettingsTests(unittest.TestCase):
         for obsolete in ("sync_interval_minutes", "daily_audit_time", "heartbeat_timeout_minutes"):
             self.assertNotIn(obsolete, DEFAULT_LIVE_AUDIT_PROFILE)
 
+    def test_real_lot_per_strategy_defaults_empty_and_is_validated(self) -> None:
+        self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["real_strategy_lots"], {})
+        normalized = normalize_live_audit_settings({
+            "real_strategy_lots": {"AXI/STANDARD:34173": "0.6", "nas-one": 0.01},
+        })
+        self.assertEqual(normalized["real_strategy_lots"], {
+            "AXI/STANDARD:34173": 0.6, "nas-one": 0.01,
+        })
+        with self.assertRaisesRegex(ValueError, "objeto JSON"):
+            normalize_live_audit_settings({"real_strategy_lots": []})
+        with self.assertRaisesRegex(ValueError, "fuera|entre"):
+            normalize_live_audit_settings({"real_strategy_lots": {"bad": 0}})
+
+    def test_real_lots_are_saved_independently_for_each_portfolio_use(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
+            saved = store.update("node-a", {
+                "selected_audit_ids": ["real-a"],
+                "profiles": {"real-a": {
+                    **profile("111", "911"), "portfolio_id": 11, "portfolio_type": "balanced",
+                    "real_strategy_lots": {"eth-grid": 0.6},
+                    "source_password": "real", "tester_password": "test",
+                }},
+            })
+
+        self.assertEqual(saved["profiles"]["real-a"]["real_strategy_lots"], {"eth-grid": 0.6})
+
     def test_profile_logins_must_be_numeric_but_may_match(self) -> None:
         normalized = normalize_live_audit_settings({"source_login": "123", "tester_login": "123"})
         self.assertEqual(normalized["source_login"], "123")
@@ -458,6 +485,15 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("los logins pueden coincidir", self.script)
         self.assertNotIn("deben ser diferentes", self.script)
 
+    def test_each_mode_exposes_editable_real_lots_per_strategy(self) -> None:
+        self.assertIn("Lotes usados en la cuenta real", self.script)
+        self.assertIn("Lote del portafolio", self.script)
+        self.assertIn("Lote en cuenta real", self.script)
+        self.assertIn("data-strategy-lot", self.script)
+        self.assertIn("real_strategy_lots", self.script)
+        self.assertIn("member.variant_key === profile.portfolio_type", self.script)
+        self.assertIn("/portfolios/${encodeURIComponent(key)}?scope=full_history", self.script)
+
     def test_period_can_be_selected_with_native_calendar_inputs(self) -> None:
         self.assertIn('type="date"', self.script)
         self.assertIn("Usar calendario para elegir el periodo", self.script)
@@ -527,7 +563,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         for field in (
             "operation_comparisons", "nearest_unused_real", "open_time_delta_seconds",
             "open_price_delta_points", "volume_delta_pct", "pnl_delta_pct", "strategy_summary",
-            "strategy_artifacts", "real_account_report", "lot_matches_portfolio",
+            "strategy_artifacts", "real_account_report", "lot_matches_portfolio", "real_account_lot",
             "observed_trade_volumes", "report_volumes_match_start_lots", "tester_execution",
         ):
             self.assertIn(field, self.result_script)

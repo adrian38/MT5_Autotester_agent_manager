@@ -334,7 +334,7 @@ function renderArtifacts(result) {
   if (!rows.length || !result.audit_id) {
     warning.hidden = false;
     warning.innerHTML = '<strong>Ejecución antigua sin evidencia de archivos y lotes.</strong><span>Vuelve a ejecutar la auditoría para conservar los reportes MT5 y comprobar el StartLots exacto de cada copia.</span>';
-    document.querySelector('#artifact-body').innerHTML = '<tr><td colspan="7" class="audit-empty">No hay artefactos auditables guardados para esta ejecución.</td></tr>';
+    document.querySelector('#artifact-body').innerHTML = '<tr><td colspan="8" class="audit-empty">No hay artefactos auditables guardados para esta ejecución.</td></tr>';
     return;
   }
   const enrichedRows = rows.map(row => {
@@ -367,6 +367,7 @@ function renderArtifacts(result) {
     return `<tr>
       <th><strong>${escapeHtml(row.symbol)}</strong><small>${escapeHtml(row.strategy)}</small><details><summary>Archivos y magic</summary><small>Magic: ${escapeHtml(row.magic || '—')}</small><small>Origen: ${escapeHtml(row.source_set)}</small><small>Copia: ${escapeHtml(row.runtime_set)}</small></details></th>
       <td>${escapeHtml(number(row.configured_lot, 8))}<small>${escapeHtml(row.portfolio_units ?? '—')} unidad(es) informativa(s)</small></td>
+      <td>${escapeHtml(number(row.real_account_lot ?? row.tester_lot, 8))}<small>${row.real_account_lot_source === 'configured' ? 'configurado para la cuenta real' : 'valor heredado'}</small></td>
       <td>${escapeHtml(number(row.runtime_start_lots, 8))}<small>efectivo ${escapeHtml(number(row.tester_lot, 8))} · ${row.broker_volume_min == null ? 'sin regla publicada' : `mín. ${escapeHtml(number(row.broker_volume_min, 8))} · paso ${escapeHtml(number(row.broker_volume_step, 8))}`}</small></td>
       <td>${escapeHtml(row.observedVolumes.length ? row.observedVolumes.map(value => number(value, 8)).join(' · ') : '—')}</td>
       <td><span class="audit-status ${setTone}">${setLabel}</span><small><span class="audit-status ${reportVolumeTone}">${reportVolumeLabel}</span></small></td>
@@ -385,7 +386,7 @@ function renderStrategies(result) {
       const artifact = artifacts.get(String(row.strategy)) || {};
       const diagnosis = Number(row.missing_real) === Number(row.tester_trades) ? ['SIN CONTINUIDAD', 'bad']
         : Number(row.with_deviations) || Number(row.missing_real) ? ['REVISAR', 'warn'] : ['CORRECTA', 'good'];
-      return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote efectivo ${escapeHtml(number(artifact.tester_lot ?? artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy)}</small></th>
+      return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote real ${escapeHtml(number(artifact.real_account_lot ?? artifact.tester_lot ?? artifact.configured_lot, 8))} · tester ${escapeHtml(number(artifact.tester_lot ?? artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy)}</small></th>
         <td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
         <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
         <td><span class="audit-status ${diagnosis[1]}">${diagnosis[0]}</span></td>`;

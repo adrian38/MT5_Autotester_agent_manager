@@ -154,6 +154,16 @@ class LiveAuditEngineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "posterior"):
             normalize_request({**payload, "period_start_date": "2026-08-31"})
 
+    def test_request_validates_real_lots_per_strategy(self) -> None:
+        normalized = normalize_request({
+            **request(), "real_strategy_lots": {"AXI/STANDARD:34173": "0.6"},
+        })
+        self.assertEqual(normalized["real_strategy_lots"], {"AXI/STANDARD:34173": 0.6})
+        with self.assertRaisesRegex(ValueError, "objeto JSON"):
+            normalize_request({**request(), "real_strategy_lots": []})
+        with self.assertRaisesRegex(ValueError, "fuera"):
+            normalize_request({**request(), "real_strategy_lots": {"bad": 0}})
+
     def test_runner_output_redacts_ini_and_incidental_secret_copies(self) -> None:
         text = "[Common]\nPassword=tester-secret\nerror tester-secret\nPassword=another-value\n"
         redacted = _redact_runner_output(text, "tester-secret")
@@ -607,6 +617,56 @@ class LiveAuditEngineTests(unittest.TestCase):
 
         self.assertEqual(state["last_result"]["real_trades"], 1)
         self.assertEqual(state["last_result"]["real_history_detail"]["portfolio_closures"], 1)
+
+    def test_real_account_filter_uses_the_configured_lot_for_each_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            owner, controller = self._controller(Path(temp), "idle")
+            owner.portfolio_detail = lambda *_args: {"portfolio": {"id": 9, "members": [{
+                "variant_key": "balanced", "candidate_id": "eth-grid", "symbol": "ETHUSD", "lot": .7,
+            }]}}
+            now = datetime.now(timezone.utc)
+            base = {
+                "strategy": "real", "symbol": "ETHUSD", "side": "buy", "open_time": now,
+                "close_time": now, "open_price": 100.0, "close_price": 100.0, "profit": 1.0,
+            }
+            controller._extract_real = lambda *_args: (
+                [{**base, "volume": .6}, {**base, "volume": .7}], {"ETHUSD": .01},
+                {"login": "111", "native_report": {"filename": "real.html", "native_terminal_report": True},
+                 "history_detail": {}},
+            )
+            controller._run_tester = lambda *_args: (
+                [{**base, "strategy": "eth-grid", "volume": .6}], [99.0], {"eth-grid": 1}, [], {},
+            )
+            controller.start({**request(), "real_strategy_lots": {"eth-grid": .6}})
+            state = self._wait(controller)
+
+        self.assertEqual(state["last_result"]["real_trades"], 1)
+        self.assertEqual(state["last_result"]["matched_trades"], 1)
+        self.assertEqual(state["last_result"]["real_history_detail"]["foreign_closures_ignored"], 1)
+
+    def test_real_account_filter_uses_the_symbol_reported_by_the_tester(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            owner, controller = self._controller(Path(temp), "idle")
+            owner.portfolio_detail = lambda *_args: {"portfolio": {"id": 9, "members": [{
+                "variant_key": "balanced", "candidate_id": "nas-one", "symbol": "NAS100", "lot": .01,
+            }]}}
+            now = datetime.now(timezone.utc)
+            trade = {
+                "strategy": "nas-one", "symbol": "NAS100.fs", "side": "buy", "open_time": now,
+                "close_time": now, "open_price": 100.0, "close_price": 100.0,
+                "volume": .01, "profit": 1.0,
+            }
+            controller._extract_real = lambda *_args: (
+                [dict(trade)], {"NAS100.fs": .01},
+                {"login": "111", "native_report": {"filename": "real.html", "native_terminal_report": True},
+                 "history_detail": {}},
+            )
+            controller._run_tester = lambda *_args: ([dict(trade)], [99.0], {"nas-one": 1}, [], {})
+            controller.start(request())
+            state = self._wait(controller)
+
+        self.assertEqual(state["last_result"]["real_trades"], 1)
+        self.assertEqual(state["last_result"]["matched_trades"], 1)
 
     def test_pipeline_already_paused_by_user_stays_paused(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

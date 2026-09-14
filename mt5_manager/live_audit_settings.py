@@ -15,6 +15,7 @@ from .common import load_json, save_json, utc_now
 DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "portfolio_id": 0,
     "portfolio_type": "",
+    "real_strategy_lots": {},
     "deployment_name": "",
     "source_login": "",
     "source_server": "",
@@ -116,6 +117,24 @@ def _number(value: Any, key: str, minimum: float, maximum: float) -> float:
     return result
 
 
+def _real_strategy_lots(value: Any) -> dict[str, float]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("real_strategy_lots debe ser un objeto JSON")
+    if len(value) > 500:
+        raise ValueError("No se pueden configurar más de 500 lotes de estrategias")
+    result: dict[str, float] = {}
+    for raw_strategy, raw_lot in value.items():
+        strategy = _text(raw_strategy, "identificador de estrategia", 512)
+        if not strategy:
+            raise ValueError("Cada lote real debe tener un identificador de estrategia")
+        result[strategy] = _number(
+            raw_lot, f"real_strategy_lots[{strategy}]", 0.00000001, 1_000_000.0,
+        )
+    return result
+
+
 def _portfolio_ids(value: Any) -> list[int]:
     if not isinstance(value, list):
         raise ValueError("selected_portfolio_ids debe ser una lista")
@@ -190,6 +209,8 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
     for key, (minimum, maximum) in _FLOAT_LIMITS.items():
         if key in value:
             normalized[key] = _number(value[key], key, minimum, maximum)
+    if "real_strategy_lots" in value:
+        normalized["real_strategy_lots"] = _real_strategy_lots(value["real_strategy_lots"])
     if legacy_period_contract and normalized["trade_time_tolerance_seconds"] == 60:
         # 60 s era el valor heredado y convertía diferencias admisibles de 82 s
         # en falsos "SIN REAL". Los perfiles nuevos conservan cualquier valor
