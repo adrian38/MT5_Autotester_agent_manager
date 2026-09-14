@@ -720,11 +720,12 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertEqual(state["status"], "completed")
         self.assertEqual(len(initialize_calls), 2)
         self.assertTrue(all(set(call) == {"path", "timeout"} for call in initialize_calls))
-        self.assertEqual(len(launches), 2)
+        # Solo el arranque con el INI es manual. La reapertura normal la hace
+        # initialize(path=...) para no competir con una segunda instancia MT5.
+        self.assertEqual(len(launches), 1)
         self.assertIn("KeepPrivate = 1", launches[0][1] or "")
         self.assertIn("Login = 333", launches[0][1] or "")
         self.assertIn("Password = restore-secret", launches[0][1] or "")
-        self.assertIsNone(launches[1][1])
         self.assertEqual(closed_gracefully, [set(), set(), set()])
         restore = state["terminal_restore"]
         self.assertEqual(len(restore), 1)

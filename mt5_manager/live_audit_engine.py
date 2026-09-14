@@ -949,8 +949,11 @@ class LiveAuditController:
                 )
 
         persisted = False
-        self._launch_terminal(terminal_path)
         try:
+            # `initialize(path=...)` ya arranca el terminal cuando está cerrado.
+            # Lanzarlo antes con Popen crea una carrera: initialize puede intentar
+            # abrir una segunda instancia mientras la primera aún prepara su IPC,
+            # y MT5 termina devolviendo (-10005, "IPC timeout").
             info = self._connect_saved_account(mt5, terminal_path, login, server)
             persisted = True
             return info

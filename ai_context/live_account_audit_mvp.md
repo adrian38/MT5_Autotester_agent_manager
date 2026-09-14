@@ -541,6 +541,13 @@ abierta tras la comprobación. Una instancia creada solo para auditar se cierra
 limpiamente después de verificarla. Nunca se fuerza el cierre de procesos de
 otra instalación y el secreto temporal continúa sujeto a borrado en `finally`.
 
+La reapertura de comprobación no debe llamar a `_launch_terminal` antes de
+`MetaTrader5.initialize(path=...)`: `initialize` ya arranca el ejecutable si
+está cerrado. En AXI build 6182, el doble arranque produjo `terminal process
+already started` en el Journal y después `(-10005, 'IPC timeout')` en los cuatro
+terminales de la auditoría del 2026-09-14. El arranque manual se conserva solo
+para la primera fase, porque ahí es necesario pasar el INI con `KeepPrivate=1`.
+
 Referencia oficial: `KeepPrivate=1` significa guardar la contraseña entre
 conexiones y una contraseña omitida en `initialize()` solo funciona si ya está
 guardada en la base del terminal:
