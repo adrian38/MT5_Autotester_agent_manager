@@ -344,6 +344,43 @@ class ChainForkParityTests(unittest.TestCase):
         "_load_full_history_improvement_pool",
     )
 
+    def test_both_engines_filter_disabled_symbols_only_from_new_candidates(self):
+        original = NS(set_id=OLD, symbol="EURUSD", target_symbol="EURUSD")
+        candidate = NS(set_id=GOOD, symbol="USDJPY", target_symbol="USDJPY")
+        rows = [
+            {"set_path": OLD, "symbol": "EURUSD", "target_symbol": "EURUSD"},
+            {"set_path": BAD, "symbol": "GBPUSD", "target_symbol": "GBPUSD"},
+            {"set_path": GOOD, "symbol": "USDJPY", "target_symbol": "USDJPY"},
+        ]
+        detail = {"portfolio_type": "balanced", "members": [
+            {"variant_key": "balanced", "set_path": OLD, "units": 1},
+        ]}
+        source = NS(
+            project=Path.cwd(), universe=Path("universe.ini"),
+            candidate_rows=Mock(return_value=rows), used_set_paths=Mock(return_value=[]),
+        )
+        inputs = {
+            "portfolio_type": "balanced",
+            "improvement_allowed_asset_groups": ["Forex"],
+            "improvement_disabled_symbols": ["EURUSD", "GBPUSD"],
+        }
+
+        for engine in (base, chain):
+            with self.subTest(engine=engine.__name__), \
+                    patch.object(engine, "load_robust_sets_from_rows") as loader, \
+                    patch.object(engine, "recent_positive_candidates", side_effect=lambda sets, ids: sets), \
+                    patch.object(engine, "member_rows", return_value=[{"set_path": OLD}]):
+                loader.side_effect = [([original], []), ([candidate], [])]
+                originals, pool, kept_rows, _used, _warnings = (
+                    engine._load_full_history_improvement_pool(
+                        source, detail, 1, inputs, None,
+                    )
+                )
+
+            self.assertEqual([row["symbol"] for row in kept_rows], ["USDJPY"])
+            self.assertEqual([item.set_id for item in originals], [OLD])
+            self.assertEqual({item.set_id for item in pool}, {OLD, GOOD})
+
     @staticmethod
     def bodies(path: Path) -> dict[str, str]:
         """Código normalizado, sin docstrings.

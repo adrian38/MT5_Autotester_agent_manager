@@ -50,6 +50,7 @@ from .portfolio_service import (
     _underrepresented_recent_allocation_ids,
     build_margin_model,
     cached_report,
+    filter_rows_by_disabled_symbols,
     settings_inputs,
 )
 
@@ -424,6 +425,11 @@ def _load_full_history_improvement_pool(
         )
         in allowed
     ]
+    rows = filter_rows_by_disabled_symbols(
+        rows,
+        inputs.get("improvement_disabled_symbols", inputs.get("disabled_symbols")),
+        universe_files=[source.universe],
+    )
     options = improvement_options(inputs)
     used = (
         used_paths_for_improvement(source, "full_history", portfolio_id)

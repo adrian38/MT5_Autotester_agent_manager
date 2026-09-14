@@ -169,6 +169,7 @@
         improvement_exclude_used_sets: fields.improvement_exclude_used_sets.checked,
         improvement_allow_same_symbol: fields.improvement_allow_same_symbol.checked,
         improvement_allowed_asset_groups: chosenGroups,
+        improvement_disabled_symbols: typeof formPayload === 'function' ? formPayload().disabled_symbols : [],
       });
       selectedProposal = fields.improvement_portfolio_type.value;
       dialog.close();

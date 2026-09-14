@@ -99,6 +99,15 @@ function formPayload() {
     payload[key] = field.value === '' ? null : Number(field.value);
   });
   booleanFields.forEach(key => { const field = form.elements[key]; if (field) payload[key] = field.checked; });
+  const disabled = new Map(
+    (managerState.settings?.disabled_symbols || []).map(symbol => [String(symbol).toLowerCase(), String(symbol)])
+  );
+  document.querySelectorAll('[data-symbol-enabled]').forEach(field => {
+    const symbol = String(field.dataset.symbol || '');
+    if (field.checked) disabled.delete(symbol.toLowerCase());
+    else disabled.set(symbol.toLowerCase(), symbol);
+  });
+  payload.disabled_symbols = [...disabled.values()];
   return payload;
 }
 
@@ -235,11 +244,16 @@ function renderInventory() {
   const rows = inventory.by_symbol || [];
   const quarantine = inventory.quarantine || [];
   document.querySelector('#inventory-summary').textContent = `${number(inventory.available)} disponibles de ${number(inventory.total)} sets · ${number(inventory.symbols)} símbolos`;
-  document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.symbol)}</strong></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td></tr>`).join('') : '<tr><td colspan="5">No hay sets para los filtros actuales.</td></tr>';
+  document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.symbol)}</strong></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td><td><label class="switch"><input type="checkbox" data-symbol-enabled data-symbol="${esc(row.symbol)}" aria-label="Habilitar ${esc(row.symbol)}" ${row.disabled ? '' : 'checked'}></label></td></tr>`).join('') : '<tr><td colspan="6">No hay sets para los filtros actuales.</td></tr>';
   document.querySelector('#quarantine-title').textContent = 'Estrategias excluidas';
   document.querySelector('#quarantine-note').textContent = 'No participan en futuras generaciones de Portafolio UBS.';
   renderQuarantineTables(quarantine);
 }
+
+document.querySelector('#inventory-symbols').addEventListener('change', event => {
+  if (!event.target.matches('[data-symbol-enabled]')) return;
+  persistSettings().catch(error => toast(`No se pudo guardar el símbolo: ${error.message}`, true));
+});
 
 function largestGroup(summary) {
   const entries = Object.entries(summary || {});
@@ -363,6 +377,7 @@ function persistSettings(notify = false) {
     // Los grupos permitidos y la exclusión de sets usados filtran el inventario:
     // el guardado devuelve la tabla ya recalculada para que marcar una casilla la
     // actualice sin recargar el estado entero, que rehidrataría el formulario.
+    if (data.settings) managerState.settings = data.settings;
     if (data.inventory) { managerState.inventory = data.inventory; renderInventory(); }
     if (notify) toast('Configuración guardada.');
     return data;
@@ -435,6 +450,8 @@ document.querySelector('#portfolio-log').addEventListener('click', async () => {
 
 document.querySelector('#reset-settings').addEventListener('click', () => {
   hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 100, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', account_leverage: 1000, max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: true, experimental_full_search: false, use_correlation: true, exclude_used_sets: true, allowed_asset_groups: groups});
+  document.querySelectorAll('[data-symbol-enabled]').forEach(field => { field.checked = true; });
+  if (managerState.settings) managerState.settings.disabled_symbols = [];
   toast('Valores restablecidos; pulsa Guardar configuración para persistirlos.');
 });
 

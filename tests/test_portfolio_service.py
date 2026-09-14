@@ -1006,7 +1006,11 @@ class PortfolioServiceTests(unittest.TestCase):
             saved = coordinator.update_settings(
                 "test-node",
                 "full_history",
-                {"capital": 5000, "exclude_used_sets": False},
+                {
+                    "capital": 5000,
+                    "exclude_used_sets": False,
+                    "disabled_symbols": ["EURUSD", "XAUUSD"],
+                },
             )
             reloaded = PortfolioCoordinator(nodes, settings_path).settings_for(
                 "test-node", "full_history"
@@ -1014,8 +1018,10 @@ class PortfolioServiceTests(unittest.TestCase):
 
             self.assertEqual(saved["capital"], 5000)
             self.assertFalse(saved["exclude_used_sets"])
+            self.assertEqual(saved["disabled_symbols"], ["EURUSD", "XAUUSD"])
             self.assertEqual(reloaded["capital"], 5000)
             self.assertFalse(reloaded["exclude_used_sets"])
+            self.assertEqual(reloaded["disabled_symbols"], ["EURUSD", "XAUUSD"])
 
     def test_saving_the_form_returns_the_inventory_that_its_filters_produce(self) -> None:
         # Marcar o desmarcar un grupo permitido cambia lo que cuenta la tabla
@@ -1281,6 +1287,21 @@ class PortfolioServiceTests(unittest.TestCase):
         self.assertTrue(settings["strict_yearly_month_validation"])
         self.assertFalse(settings["enforce_point_dd"])
 
+    def test_disabled_symbols_are_normalized_only_for_full_history(self) -> None:
+        full = normalize_settings(
+            "full_history",
+            {"disabled_symbols": [" EURUSD ", "eurusd", "XAUUSD"]},
+            "ICTRADING",
+        )
+        monthly = normalize_settings(
+            "monthly",
+            {"target_month": 7, "disabled_symbols": ["EURUSD"]},
+            "ICTRADING",
+        )
+
+        self.assertEqual(full["disabled_symbols"], ["EURUSD", "XAUUSD"])
+        self.assertEqual(monthly["disabled_symbols"], [])
+
     def test_portfolio_source_reads_only_full_pipeline_accepted_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
@@ -1327,6 +1348,16 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(rows[0]["full_history_report_path"], str(full_history_report))
             settings = normalize_settings("full_history", {"allowed_asset_groups": ["Forex"]}, "ICTRADING")
             self.assertEqual(source.inventory("full_history", settings)["available"], 1)
+            disabled = source.inventory(
+                "full_history",
+                normalize_settings(
+                    "full_history",
+                    {"allowed_asset_groups": ["Forex"], "disabled_symbols": ["EURUSD"]},
+                    "ICTRADING",
+                ),
+            )
+            self.assertEqual(disabled["available"], 0)
+            self.assertTrue(disabled["by_symbol"][0]["disabled"])
             quarantine_id = source.exclude_strategy({"set_path": rows[0]["set_path"]})
             self.assertEqual(source.candidate_rows(include_quarantined=False), [])
             self.assertEqual(
@@ -1334,7 +1365,7 @@ class PortfolioServiceTests(unittest.TestCase):
             )
             excluded = source.inventory("full_history", settings)
             monthly = source.inventory("monthly", normalize_settings("monthly", {"allowed_asset_groups": ["Forex"]}, "ICTRADING"))
-            self.assertEqual(excluded["by_symbol"], [{"symbol": "EURUSD", "total": 1, "quarantined": 1, "used": 0, "available": 0}])
+            self.assertEqual(excluded["by_symbol"], [{"symbol": "EURUSD", "total": 1, "quarantined": 1, "used": 0, "available": 0, "disabled": False}])
             self.assertEqual(monthly["available"], 0)
             self.assertTrue(monthly["quarantine_excludes"])
             source.release_strategy(quarantine_id)
@@ -1393,6 +1424,7 @@ class PortfolioServiceTests(unittest.TestCase):
                     "quarantined": 0,
                     "used": 0,
                     "available": 2,
+                    "disabled": False,
                 },
                 {
                     "symbol": "NAS100.fs",
@@ -1400,6 +1432,7 @@ class PortfolioServiceTests(unittest.TestCase):
                     "quarantined": 0,
                     "used": 0,
                     "available": 1,
+                    "disabled": False,
                 },
                 {
                     "symbol": "USTECH.sa",
@@ -1407,6 +1440,7 @@ class PortfolioServiceTests(unittest.TestCase):
                     "quarantined": 0,
                     "used": 0,
                     "available": 2,
+                    "disabled": False,
                 },
             ]
 
@@ -1429,7 +1463,10 @@ class PortfolioServiceTests(unittest.TestCase):
 
             self.assertEqual(full_history["by_symbol"], expected)
             self.assertEqual(full_history["symbols"], 3)
-            self.assertEqual(monthly["by_symbol"], expected)
+            self.assertEqual(
+                monthly["by_symbol"],
+                [{key: value for key, value in row.items() if key != "disabled"} for row in expected],
+            )
             self.assertEqual(monthly["symbols"], 3)
 
     def test_portfolio_source_accepts_pending_ohlc_trades_on_the_short_final_tick(self) -> None:
@@ -1984,6 +2021,48 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             recent_net_profit_001=0.0, recent_equity_dd_001=0.0,
             max_floating_dd_001=floating, valley_dd_2020_2026_001=valley,
         )
+
+    def test_generation_removes_every_set_of_a_disabled_symbol_before_loading(self) -> None:
+        strategy = self.strategy("eur.set", 30.0, 10.0)
+        settings = normalize_settings(
+            "full_history",
+            {
+                "capital": 1000,
+                "valley_dd_pct": 10,
+                "allowed_asset_groups": ["Forex"],
+                "disabled_symbols": ["GBPUSD"],
+            },
+            "ICTRADING",
+        )
+
+        class Source:
+            universe = Path("assets.ini")
+            broker = "ICTRADING"
+
+            def candidate_rows(self, *, include_quarantined):
+                return [
+                    {"set_path": "eur.set", "symbol": "EURUSD", "target_symbol": "EURUSD"},
+                    {"set_path": "gbp.set", "symbol": "GBPUSD", "target_symbol": "GBPUSD"},
+                ]
+
+            def used_set_paths(self, *_args, **_kwargs):
+                return []
+
+            def saved_curves(self, **_kwargs):
+                return []
+
+        result = SimpleNamespace(warnings=[], active_strategies=1)
+        proposal = {
+            "key": "balanced", "label": "Moderado", "reserve_pct": 15,
+            "inputs": settings, "result": result,
+        }
+        with patch("mt5_manager.portfolio_service.build_margin_model", return_value=None), \
+                patch("mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=([strategy], [])) as loader, \
+                patch("mt5_manager.portfolio_service._locked_full_proposals", return_value=[proposal]):
+            generate_proposals(Source(), settings)
+
+        loaded_rows = loader.call_args.args[0]
+        self.assertEqual([row["symbol"] for row in loaded_rows], ["EURUSD"])
 
     def test_floors_are_the_executable_valleys_above_the_request(self) -> None:
         # Capital 1000 y reserva 25% dejan un limite efectivo del 0,75%; con la

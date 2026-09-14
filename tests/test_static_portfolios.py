@@ -102,6 +102,18 @@ class PortfolioFormTests(unittest.TestCase):
                     script,
                 )
 
+    def test_full_history_inventory_can_disable_symbols_for_every_improvement(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        improvement = (static_dir / "portfolio_improvement.js").read_text(encoding="utf-8")
+
+        self.assertIn("<th>Habilitado</th>", page)
+        self.assertIn("data-symbol-enabled", script)
+        self.assertIn("payload.disabled_symbols", script)
+        self.assertIn("postManager('settings', payload)", script)
+        self.assertIn("improvement_disabled_symbols", improvement)
+
     def test_completed_calculation_reloads_and_reveals_proposals(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")

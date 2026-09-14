@@ -200,6 +200,7 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "max_dd_overlap": 0.35,
     "max_portfolio_corr": 0.50,
     "allowed_asset_groups": list(ASSET_GROUPS),
+    "disabled_symbols": [],
     "margin_profile": "ictrading",
     "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
     "max_margin_pct": 100.0,
@@ -338,6 +339,26 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
     if not groups:
         raise ValueError("Selecciona al menos un grupo de activos")
     values["allowed_asset_groups"] = sorted(set(groups))
+    disabled_symbols = values.get("disabled_symbols")
+    if disabled_symbols is None:
+        disabled_symbols = []
+    if not isinstance(disabled_symbols, (list, tuple, set)):
+        raise ValueError("disabled_symbols debe ser una lista de símbolos")
+    normalized_disabled: dict[str, str] = {}
+    for raw_symbol in disabled_symbols:
+        if not isinstance(raw_symbol, str):
+            raise ValueError("Cada símbolo deshabilitado debe ser texto")
+        symbol = raw_symbol.strip()
+        if not symbol:
+            continue
+        if len(symbol) > 64:
+            raise ValueError("Un símbolo deshabilitado no puede superar 64 caracteres")
+        normalized_disabled.setdefault(symbol.casefold(), symbol)
+    # El control pertenece exclusivamente a UBS normal. El mensual tiene su
+    # propia interfaz y orquestación, y no debe heredar silenciosamente el filtro.
+    values["disabled_symbols"] = (
+        [] if monthly else sorted(normalized_disabled.values(), key=str.casefold)
+    )
     if monthly:
         values["target_month"] = safe_int(values.get("target_month"), 0)
         if not 1 <= values["target_month"] <= 12:
@@ -346,6 +367,46 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
         if values["max_daily_dd"] <= 0:
             raise ValueError("max_daily_dd debe ser mayor que 0")
     return values
+
+
+def filter_rows_by_disabled_symbols(
+    rows: list[dict[str, Any]],
+    disabled_symbols: Any,
+    *,
+    universe_files: list[Path],
+) -> list[dict[str, Any]]:
+    """Exclude candidate symbols selected in the UBS inventory table."""
+    if disabled_symbols is None:
+        return list(rows)
+    if not isinstance(disabled_symbols, (list, tuple, set)):
+        raise ValueError("Los símbolos deshabilitados deben ser una lista")
+    if any(not isinstance(symbol, str) for symbol in disabled_symbols):
+        raise ValueError("Cada símbolo deshabilitado debe ser texto")
+    disabled_keys = {
+        portfolio_symbol_key(
+            portfolio_display_symbol(str(symbol), universe_files=universe_files)
+        )
+        for symbol in disabled_symbols
+        if str(symbol).strip()
+    }
+    if not disabled_keys:
+        return list(rows)
+    return [
+        row
+        for row in rows
+        if portfolio_symbol_key(
+            portfolio_display_symbol(
+                str(
+                    row.get("executable_symbol")
+                    or row.get("target_symbol")
+                    or row.get("symbol")
+                    or ""
+                ),
+                universe_files=universe_files,
+            )
+        )
+        not in disabled_keys
+    ]
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
@@ -1043,6 +1104,12 @@ class PortfolioSource:
         elif not monthly and settings.get("exclude_used_sets", True):
             used_paths = self.used_set_paths("full_history")
         used = {self._path_key(path) for path in used_paths}
+        disabled_keys = {
+            portfolio_symbol_key(
+                portfolio_display_symbol(str(symbol), universe_files=[self.universe])
+            )
+            for symbol in settings.get("disabled_symbols") or []
+        } if not monthly else set()
         by_symbol: dict[str, dict[str, Any]] = {}
         for row in rows:
             symbol = portfolio_display_symbol(
@@ -1056,6 +1123,7 @@ class PortfolioSource:
                 "quarantined": 0,
                 "used": 0,
                 "available": 0,
+                **({"disabled": symbol_key in disabled_keys} if not monthly else {}),
             })
             counts["total"] += 1
             key = self._path_key(row.get("set_path"))
@@ -1065,7 +1133,7 @@ class PortfolioSource:
                 counts["quarantined"] += 1
             if is_used:
                 counts["used"] += 1
-            if not is_quarantined and not is_used:
+            if not is_quarantined and not is_used and symbol_key not in disabled_keys:
                 counts["available"] += 1
         symbol_rows = sorted(by_symbol.values(), key=lambda item: str(item["symbol"]).upper())
         return {
@@ -2827,6 +2895,13 @@ def generate_proposals(
     rows = filtered
     if not rows:
         raise ValueError("No quedan candidatos tras aplicar los grupos permitidos")
+    rows = filter_rows_by_disabled_symbols(
+        rows,
+        inputs.get("disabled_symbols"),
+        universe_files=[source.universe],
+    )
+    if not rows:
+        raise ValueError("No quedan candidatos tras deshabilitar los símbolos seleccionados")
     used = (
         source.used_set_paths(
             "full_history",
