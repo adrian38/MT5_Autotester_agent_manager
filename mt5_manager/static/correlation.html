@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Correlación de portafolios · MT5 Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/correlation.css">
+</head>
+<body class="correlation-page">
+  <header>
+    <div>
+      <p class="eyebrow">ANÁLISIS CRUZADO · IC TRADING · AXI · ROBOFOREX</p>
+      <h1>Correlación de portafolios</h1>
+      <p class="subtitle">Selecciona carteras guardadas y compara cómo se mueven sus resultados, sin modificar ninguna memoria.</p>
+    </div>
+    <div class="header-actions">
+      <span id="catalog-state">Cargando…</span>
+      <button id="reload" class="secondary" type="button">Actualizar</button>
+      <a class="button secondary" href="/">Volver al manager</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="correlation-intro" aria-labelledby="method-title">
+      <div>
+        <p class="eyebrow">MÉTODO</p>
+        <h2 id="method-title">Pearson sobre cambios de PnL</h2>
+        <p>Se correlacionan los incrementos entre puntos consecutivos, no las curvas acumuladas. Es el mismo convenio que utiliza el motor UBS al limitar dependencia entre portafolios. Las series se completan con ceros hasta la longitud de la más larga porque los históricos guardados no conservan un calendario común.</p>
+      </div>
+      <div class="method-scale" aria-label="Escala de correlación">
+        <span><i class="negative"></i>−1 se mueven al contrario</span>
+        <span><i class="neutral"></i>0 sin relación lineal</span>
+        <span><i class="positive"></i>+1 se mueven juntos</span>
+      </div>
+    </section>
+
+    <section class="correlation-layout">
+      <aside class="catalog-panel">
+        <div class="panel-head">
+          <div><p class="eyebrow">1 · SELECCIÓN</p><h2>Portafolios guardados</h2></div>
+          <strong id="selected-count">0 / 12</strong>
+        </div>
+        <div class="scope-filter" role="group" aria-label="Ámbitos de portafolio">
+          <label><input type="checkbox" value="full_history" checked> UBS</label>
+          <label><input type="checkbox" value="monthly" checked> Mensual</label>
+          <label><input type="checkbox" value="grid" checked> Grid</label>
+        </div>
+        <div id="catalog" aria-live="polite"><p class="empty">Consultando los tres brokers…</p></div>
+      </aside>
+
+      <section class="results-panel">
+        <div class="compare-bar">
+          <div><p class="eyebrow">2 · COMPARACIÓN</p><h2>Matriz y diagnóstico</h2></div>
+          <button id="compare" type="button" disabled>Comparar seleccionados</button>
+        </div>
+        <div id="results" class="empty-results">
+          <div class="empty-card"><strong>Selecciona al menos dos portafolios</strong><span>Si una fila A/M/C contiene varias variantes, podrás escoger cuál comparar al marcarla.</span></div>
+        </div>
+      </section>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/correlation.js"></script>
+</body>
+</html>

@@ -1,8 +1,9 @@
 # Acceso exclusivo de Experimenta en la rama dev.
 #
-# Las pantallas normales siguen apuntando a /data/axi y /data/roboforex, que en
-# este equipo no contienen los proyectos de los agentes. Los shares remotos se
-# montan aparte y en solo lectura; solo ExperimentCoordinator conoce estas rutas.
+# Las pantallas operativas siguen apuntando a /data/axi y /data/roboforex, que
+# en este equipo no contienen los proyectos de los agentes. Los shares remotos
+# se montan aparte y en solo lectura; solo las pantallas de análisis Experimenta
+# y Correlación los consumen mediante ExperimentCoordinator.readonly_source.
 services:
   manager:
     environment:
