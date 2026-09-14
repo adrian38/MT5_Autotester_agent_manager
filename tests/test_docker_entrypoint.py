@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from mt5_manager.docker_entrypoint import docker_config
 
@@ -47,6 +48,36 @@ class DockerEntrypointTests(unittest.TestCase):
         self.assertEqual(result["nodes"][1]["url"], "http://192.168.1.152:8761")
         self.assertEqual(result["nodes"][1]["portfolio_project_dir"], "/data/roboforex")
         self.assertEqual(source["host"], "127.0.0.1", "La configuración original no debe mutar")
+
+    def test_proxy_broker_does_not_require_a_container_project_mount(self) -> None:
+        source = {
+            "host": "127.0.0.1",
+            "nodes": [{
+                "id": "ic",
+                "url": "http://192.168.1.146:8761",
+                "token": "secret",
+                "portfolio_project_dir": r"Z:\remote\ic",
+                "portfolio_broker": "ICTRADING",
+                "portfolio_memory_path": r"Z:\remote\ic\outputs\memory.sqlite",
+                "portfolio_memory_paths": [
+                    {"account_type": "STANDARD", "path": r"Z:\remote\ic\outputs\other.sqlite"}
+                ],
+            }],
+        }
+
+        with mock.patch.dict(
+            "mt5_manager.docker_entrypoint.os.environ",
+            {"MT5_MANAGER_PROXY_BROKERS": " ictrading "},
+            clear=False,
+        ):
+            result = docker_config(source)
+
+        node = result["nodes"][0]
+        self.assertNotIn("portfolio_project_dir", node)
+        self.assertNotIn("portfolio_memory_path", node)
+        self.assertNotIn("portfolio_memory_paths", node)
+        self.assertEqual(node["url"], "http://192.168.1.146:8761")
+        self.assertIn("portfolio_project_dir", source["nodes"][0])
 
 
 if __name__ == "__main__":

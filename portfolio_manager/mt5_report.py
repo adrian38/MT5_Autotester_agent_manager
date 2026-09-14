@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import math
 import re
 
 from lxml import html
@@ -85,7 +86,7 @@ def parse_report(path: Path) -> StrategyReport:
     metrics = _parse_results(rows)
     raw_deals = _parse_raw_deals(rows)
     deals = _raw_to_deals(raw_deals)
-    trades = _build_trades(raw_deals)
+    trades = _build_trades(raw_deals, _parse_order_stops(rows))
 
     monthly: dict[int, dict[int, float]] = defaultdict(lambda: defaultdict(float))
     for deal in deals:
@@ -157,6 +158,36 @@ def _parse_deals(rows: list[list[str]]) -> list[Deal]:
     return _raw_to_deals(_parse_raw_deals(rows))
 
 
+def _parse_order_stops(rows: list[list[str]]) -> dict[str, dict[str, float]]:
+    """Relaciona la orden de entrada con sus niveles SL/TP del reporte MT5."""
+    stops: dict[str, dict[str, float]] = {}
+    headers: list[str] | None = None
+    in_orders = False
+    for cells in rows:
+        if cells in (["Orders"], ["Órdenes"]):
+            in_orders = True
+            headers = None
+            continue
+        if in_orders and cells in (["Deals"], ["Transacciones"]):
+            break
+        if not in_orders:
+            continue
+        if headers is None:
+            headers = cells
+            continue
+        if not cells or not _looks_like_datetime(cells[0]):
+            continue
+        row = dict(zip(headers, cells))
+        order = _first_value(row, "Order", "Orden", default="").strip()
+        if not order:
+            continue
+        stop_loss = _to_float(_first_value(row, "S / L", "S/L", default="0"))
+        take_profit = _to_float(_first_value(row, "T / P", "T/P", default="0"))
+        if stop_loss or take_profit:
+            stops[order] = {"sl": stop_loss, "tp": take_profit}
+    return stops
+
+
 def _parse_raw_deals(rows: list[list[str]]) -> list[RawDeal]:
     deals: list[RawDeal] = []
     headers: list[str] | None = None
@@ -226,13 +257,36 @@ def _raw_to_deals(raw_deals: list[RawDeal]) -> list[Deal]:
     return deals
 
 
-def _build_trades(raw_deals: list[RawDeal]) -> list[Trade]:
+def _matching_stop_slot(
+    queue: list[dict[str, object]], close_deal: RawDeal,
+    order_stops: dict[str, dict[str, float]],
+) -> int | None:
+    """Busca la posición cuyo SL/TP originó el cierre descrito por MT5."""
+    match = re.search(r"(?:^|\s)(sl|tp)\s+([-+]?\d+(?:[.,]\d+)?)", close_deal.comment, re.IGNORECASE)
+    if match is None:
+        return None
+    kind = match.group(1).lower()
+    trigger = _to_float(match.group(2))
+    for index, slot in enumerate(queue):
+        opened = slot.get("deal")
+        if not isinstance(opened, RawDeal):
+            continue
+        configured = (order_stops.get(opened.order) or {}).get(kind)
+        if configured and math.isclose(configured, trigger, rel_tol=1e-9, abs_tol=1e-6):
+            return index
+    return None
+
+
+def _build_trades(
+    raw_deals: list[RawDeal], order_stops: dict[str, dict[str, float]] | None = None,
+) -> list[Trade]:
     open_positions: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
     trades: list[Trade] = []
+    order_stops = order_stops or {}
 
     # El HTML de MT5 no garantiza que la tabla quede ordenada por fecha. Si dos
-    # posiciones del mismo símbolo y lado se solapan, consumir el orden visual
-    # puede cruzar sus cierres e incluso fabricar close_time < open_time.
+    # posiciones del mismo símbolo y lado se solapan, el SL/TP identifica la
+    # entrada correcta; sin esa evidencia conservamos el emparejamiento FIFO.
     # `sorted` es estable, por lo que conserva el orden original entre deals que
     # comparten exactamente el mismo timestamp.
     for deal in sorted(raw_deals, key=lambda item: item.timestamp):
@@ -259,14 +313,16 @@ def _build_trades(raw_deals: list[RawDeal]) -> list[Trade]:
         ticket = ""
 
         while queue and remaining_close > 1e-9:
-            slot = queue[0]
+            preferred_index = _matching_stop_slot(queue, deal, order_stops)
+            slot_index = preferred_index if preferred_index is not None else 0
+            slot = queue[slot_index]
             opened = slot["deal"]
             if not isinstance(opened, RawDeal):
-                queue.pop(0)
+                queue.pop(slot_index)
                 continue
             available = max(float(slot.get("remaining") or 0.0), 0.0)
             if available <= 1e-9:
-                queue.pop(0)
+                queue.pop(slot_index)
                 continue
             volume = min(available, remaining_close)
             entry_ratio = volume / opened.volume if opened.volume else 0.0
@@ -282,7 +338,7 @@ def _build_trades(raw_deals: list[RawDeal]) -> list[Trade]:
             slot["remaining"] = available - volume
             remaining_close -= volume
             if float(slot["remaining"]) <= 1e-9:
-                queue.pop(0)
+                queue.pop(slot_index)
 
         if matched_volume <= 0.0 or open_time is None:
             continue

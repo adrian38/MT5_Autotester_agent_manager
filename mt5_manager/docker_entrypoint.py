@@ -16,6 +16,8 @@ CONTAINER_PROJECTS = {
     "ROBOFOREX": "/data/roboforex",
 }
 
+PROXY_BROKERS_ENV = "MT5_MANAGER_PROXY_BROKERS"
+
 
 def _container_url(value: Any) -> str:
     text = str(value or "").strip()
@@ -43,11 +45,24 @@ def docker_config(source: dict[str, Any]) -> dict[str, Any]:
     config["export_mode"] = "download"
     config["preferences_file"] = "/app/runtime/launch_preferences.json"
     config["portfolio_settings_file"] = "/app/runtime/portfolio_settings.json"
+    proxy_brokers = {
+        item.strip().upper()
+        for item in os.environ.get(PROXY_BROKERS_ENV, "").split(",")
+        if item.strip()
+    }
     for node in config.get("nodes") or []:
         if not isinstance(node, dict):
             continue
         node["url"] = _container_url(node.get("url"))
         broker = str(node.get("portfolio_broker") or "").strip().upper()
+        if broker in proxy_brokers:
+            # Docker Desktop cannot bind a Windows mapped network drive.  When
+            # the agent only exists on such a drive, leave the project unset so
+            # portfolio reads and writes use the node HTTP API instead.
+            node.pop("portfolio_project_dir", None)
+            node.pop("portfolio_memory_path", None)
+            node.pop("portfolio_memory_paths", None)
+            continue
         project = CONTAINER_PROJECTS.get(broker)
         if not project:
             continue

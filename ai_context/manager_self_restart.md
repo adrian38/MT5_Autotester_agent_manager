@@ -63,3 +63,19 @@ botón para obtener un código nuevo.
 Este flujo solo actualiza el repositorio y el contenedor del manager. No llama a
 los endpoints de reinicio de aplicaciones de los agentes ni modifica sus forks
 en `manager_node_runtime/`.
+
+## Agentes accesibles solo por una unidad de red de Windows
+
+Docker Desktop no puede usar como bind mount una unidad SMB mapeada como `Z:`.
+Si el proyecto de un broker solo esta disponible de esa forma, `.env` declara el
+broker en `MT5_MANAGER_PROXY_BROKERS` y usa como `*_PROJECT_DIR` cualquier ruta
+local estable que permita a Compose crear el contenedor. `docker_entrypoint`
+elimina para ese broker las rutas locales de portafolio de la configuracion
+efectiva; asi las lecturas y escrituras se delegan al nodo HTTP en lugar de
+intentar abrir una memoria inexistente dentro del contenedor.
+
+En este equipo ICTrading vive en
+`Z:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent`,
+por lo que `ICTRADING` esta en modo proxy. Esto evita que `Reiniciar manager`
+herede el bind obsoleto `I:\TRADING\MT5_Autotester_agent_IC` y falle antes de
+ejecutar Git.
