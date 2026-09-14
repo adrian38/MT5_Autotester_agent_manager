@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import correlation_routes
 from . import dev_branch
 from . import experiment_routes
 from . import guided_batches
@@ -478,6 +479,10 @@ class ManagerHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
+        # Comparador de correlación: GET de solo lectura, aislado de las rutas
+        # operativas y capaz de usar los mounts especiales de dev.
+        if correlation_routes.handle_get(self, parsed):
+            return
         # Laboratorio «Experimenta»: pantalla y endpoints propios, en su módulo.
         if experiment_routes.handle_get(self, parsed):
             return
@@ -628,7 +633,6 @@ class ManagerHandler(BaseHTTPRequestHandler):
             "portfolio_improvement.js", "portfolio_monthly_improvement.js",
             "portfolio_comparison.js",
             "portfolios_grid.html", "portfolios_grid.js",
-            "correlation.html", "correlation.js", "correlation.css",
             # Primitiva compartida por los tres ámbitos: el diálogo del motivo de
             # exclusión y las etiquetas de sus tres códigos. La interfaz de cada
             # ámbito sigue siendo suya; lo que no puede divergir es el código que

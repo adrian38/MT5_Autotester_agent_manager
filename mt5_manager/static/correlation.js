@@ -103,7 +103,7 @@
       })).filter(node => node.id);
       const requests = nodes.flatMap(node => Object.keys(SCOPES).map(async scope => {
         try {
-          const data = await json(`/api/nodes/${encodeURIComponent(node.id)}/portfolios?scope=${scope}`);
+          const data = await json(`/api/correlation/nodes/${encodeURIComponent(node.id)}/portfolios?scope=${scope}`);
           return {node, scope, data};
         } catch (error) { return {node, scope, error: error.message}; }
       }));
@@ -164,7 +164,7 @@
     const selection = {loading: true, detail: null, variant: null, error: null};
     state.selected.set(entry.key, selection); renderCatalog(); updateControls();
     try {
-      selection.detail = await json(`/api/nodes/${encodeURIComponent(entry.nodeId)}/portfolios/${entry.id}?scope=${entry.scope}`);
+      selection.detail = await json(`/api/correlation/nodes/${encodeURIComponent(entry.nodeId)}/portfolios/${entry.id}?scope=${entry.scope}`);
       const variants = availableSeries(selection.detail);
       if (!variants.length) throw new Error('No conserva una curva de PnL con al menos dos puntos.');
       selection.variant = variants.some(item => item.key === 'balanced') ? 'balanced' : variants[0].key;
