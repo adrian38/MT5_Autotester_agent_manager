@@ -289,6 +289,37 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(rows[0]["robustness_status"], "rejected")
             self.assertEqual(rows[0]["final_tick_6m_status"], "rejected")
 
+    def test_import_inventory_recovers_a_deleted_robustness_row_from_its_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            reports = project / "reports"
+            reports.mkdir()
+            recovered = reports / "robust_000001_alpha.htm"
+            recovered.write_text("informe histórico", encoding="utf-8")
+            with sqlite3.connect(source.memory) as conn:
+                conn.executescript("""
+                    create table candidates (
+                        id integer primary key,set_path text,symbol text,target_symbol text,
+                        period text,family text,report_path text,status text
+                    );
+                    create table candidate_robustness (
+                        candidate_id integer,report_path text,status text
+                    );
+                """)
+                conn.execute(
+                    "insert into candidates values (1,?,?,?,?,?,?,?)",
+                    (str(project / "alpha.set"), "XAUUSD", "XAUUSD", "H4", "", "base.htm", "rejected"),
+                )
+                conn.commit()
+            conn.close()
+
+            rows = source.import_candidate_rows()
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["oos_report_path"], str(recovered))
+            self.assertTrue(rows[0]["historical_robustness_report_recovered"])
+
     def test_an_exported_bundle_comes_back_as_a_normal_saved_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
@@ -548,7 +579,7 @@ class ImportRoundTripTests(unittest.TestCase):
             # La curva viene del cálculo, no del resumen, que no la lleva.
             self.assertGreater(len(json.loads(saved["metrics_json"])["equity_curve_2020_2026"]), 1)
 
-    def test_a_set_that_is_no_longer_a_candidate_is_named_not_dropped(self) -> None:
+    def test_a_set_without_any_reports_is_kept_and_marks_the_calculation_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             source = self._source(project)
@@ -565,24 +596,62 @@ class ImportRoundTripTests(unittest.TestCase):
                 )
 
             self.assertEqual(report["unresolved"], ["beta.set"])
-            self.assertEqual(report["strategies"], 1)
+            self.assertEqual(report["unmeasured"], ["beta.set"])
+            self.assertFalse(report["calculation_complete"])
+            self.assertEqual(report["strategies"], 2)
             self.assertTrue(all(
                 {allocation.set_id for allocation in proposal["result"].allocations}
-                == {str(project / "alpha.set")}
+                == {str(project / "alpha.set"), "beta.set"}
                 for proposal in proposals
             ))
+            placeholder = next(
+                allocation
+                for allocation in proposals[0]["result"].allocations
+                if allocation.set_id == "beta.set"
+            )
+            self.assertEqual(placeholder.units, 2)
+            self.assertEqual(placeholder.lot, 0.02)
+            self.assertIn("No reconstruido", placeholder.floating_dd_source)
+            self.assertTrue(any("Cálculo incompleto" in warning for warning in report["warnings"]))
 
-    def test_nothing_reconstructible_is_a_clear_error(self) -> None:
+    def test_a_portfolio_without_any_reports_still_preserves_its_composition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             source = self._source(project)
             header, members = portfolio_import.parse_summary(SUMMARY)
 
             with patch.object(PortfolioSource, "import_candidate_rows", return_value=[]):
-                with self.assertRaises(ValueError) as raised:
-                    build_import_proposals(source, "full_history", header, members)
+                proposals, _selected, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
 
-            self.assertIn("candidato", str(raised.exception))
+            self.assertEqual(report["strategies"], 2)
+            self.assertEqual(report["unmeasured"], ["alpha.set", "beta.set"])
+            self.assertFalse(report["calculation_complete"])
+            self.assertTrue(all(len(proposal["result"].allocations) == 2 for proposal in proposals))
+            self.assertTrue(all(proposal["result"].total_net_profit == 0 for proposal in proposals))
+
+    def test_a_matched_candidate_with_an_unreadable_report_is_kept_unmeasured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            candidates = self._candidates(project)
+            only_alpha = [strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0)]
+            header, members = portfolio_import.parse_summary(SUMMARY)
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=candidates
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                return_value=(only_alpha, ["1 candidato omitido: reporte ilegible"]),
+            ):
+                proposals, _selected, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+
+            self.assertEqual(report["unmeasured"], ["beta.set"])
+            self.assertTrue(any("reporte ilegible" in warning for warning in report["warnings"]))
+            self.assertTrue(all(len(proposal["result"].allocations) == 2 for proposal in proposals))
 
     def test_a_changed_current_verdict_warns_but_does_not_remove_the_exported_set(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -590,8 +659,9 @@ class ImportRoundTripTests(unittest.TestCase):
             source = self._source(project)
             candidates = self._candidates(project)
             candidates[0].update({
-                "base_status": "accepted", "robustness_status": "rejected",
+                "base_status": "rejected", "robustness_status": "",
                 "final_tick_status": "", "final_tick_6m_status": "",
+                "historical_robustness_report_recovered": True,
             })
             candidates[1].update({
                 "base_status": "accepted", "robustness_status": "accepted",
@@ -616,7 +686,8 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(report["strategies"], 2)
             self.assertTrue(all(len(proposal["result"].allocations) == 2 for proposal in proposals))
             self.assertTrue(any("exactamente desde el ZIP" in warning for warning in report["warnings"]))
-            self.assertTrue(any("robustez=rejected" in warning for warning in report["warnings"]))
+            self.assertTrue(any("base=rejected" in warning for warning in report["warnings"]))
+            self.assertTrue(any("informe histórico recuperado" in warning for warning in report["warnings"]))
             self.assertTrue(any("Final Tick 6M=rejected" in warning for warning in report["warnings"]))
 
     def test_a_monthly_export_recovers_its_target_month_from_the_name(self) -> None:

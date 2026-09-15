@@ -42,7 +42,7 @@ texto, el número coincidiría y la prueba fallaría.
 | --- | --- |
 | Margen por estrategia | La exportación no lo lleva y depende de la cuenta y de las specs del símbolo en el momento del cálculo. Queda a 0. |
 | Registro de decisiones del optimizador | Es la historia de una búsqueda que aquí no ocurrió: la composición viene dada, no elegida. |
-| Sets cuyo candidato ya no existe | Sin informes no hay nada que reconstruir. Se nombran en el resultado (`unresolved`) en vez de desaparecer. |
+| Sets cuyo candidato o informes ya no existen | La composición, unidades y lotes se conservan. La estrategia queda marcada sin métricas y el cálculo global avisa que beneficio/DD son incompletos. |
 | Mes objetivo, si el nombre no lo lleva | No es un campo del resumen: viaja en el nombre («Moderado \| Mes 08 \| …»). Sin él, un mensual se evaluaría sobre la curva completa; `_imported_target_month` lo extrae de ahí. |
 
 ## Identidad de una mejora exportada
@@ -81,8 +81,8 @@ La escritura del nombre real ocurre en el nodo embebido. En `dev` se actualizó
 la copia ICTrading autorizada para usar `improvement_label` cuando existe; AXI y
 RoboForex quedan pendientes del port que realiza el usuario.
 
-Un nombre de set que aparece en dos candidatos distintos se marca `ambiguous` y
-se deja fuera: elegir uno al azar comprometería el set equivocado.
+Un nombre de set que aparece en dos candidatos distintos se conserva sin
+métricas y se marca `ambiguous`: no se elige uno al azar.
 
 ## La composición exportada es autoritativa
 
@@ -99,6 +99,42 @@ para cálculos nuevos. La separación corrigió el caso real del
 restaurado como portafolio #15 de solo 4 porque XAUCHF estaba rechazado en Final
 Tick 6M y USDJPY/XAGUSD en robustez. Con el inventario de importación se
 reconstruyen los 7 en las tres variantes, sin unresolved, ambiguous ni skipped.
+
+## Composición exacta aunque falten filas o informes (2026-09-15)
+
+La importación no puede guardar un subconjunto del ZIP. El caso real fue
+`PORTAFOLIO_46_resumen.zip`: contenía 10 sets, incluido
+`XAUUSD_H4_GOLD_XAUUSD_H4_GOLD_5e988f6b_g002_s013_v008.set`, pero la memoria
+actual de RoboForex ya no tenía su fila de robustez. El importador creó el #122
+con 9 sets y omitió XAUUSD. El mismo riesgo existía en AXI e ICTrading para
+cualquier candidato o informe ausente/ilegible.
+
+La ausencia de robustez de ese XAUUSD no fue pérdida del fichero. Antes de la
+corrección de contrato de normalización de RoboForex del 2026-08-10, el candidato
+#4348 tenía net normalizado 411,98, estado base `accepted` y robustez `accepted`.
+La normalización correcta de metales aplicó factor 0,227753: el net normalizado
+quedó en 93,83, por debajo del mínimo 100, y el estado base pasó a `rejected`
+con motivo `net_profit`. La limpieza coherente de etapas borró entonces sus
+filas de robustez, Final Tick y posteriores; el HTML de robustez
+`robust_004348_...htm` permanece en disco y la memoria previa a la corrección
+conserva la fila antigua. Por tanto, la rareza es histórica pero explicable: el
+portafolio se creó con el criterio de normalización antiguo y se importó contra
+el veredicto vigente corregido.
+
+La composición del ZIP siempre se conserva. La reconstrucción sigue este orden:
+
+1. usa la fila de robustez vigente cuando existe;
+2. si la fila fue limpiada, busca el HTML histórico determinista
+   `reports/robust_<candidate_id>_<set>.htm` y recalcula con él;
+3. si tampoco existe un informe legible, guarda de todos modos el miembro con
+   símbolo, timeframe, unidades, lote y set del resumen, pero con métricas a 0 y
+   `floating_dd_source="No reconstruido al importar: ..."`.
+
+El tercer caso añade `import_calculation_complete=false`, enumera los sets en
+`import_unmeasured_sets` y avisa que el beneficio y DD globales sólo representan
+las estrategias medibles. No se atribuyen métricas inventadas. La recuperación
+y las marcas viven en el manager antes de `/api/v1/portfolios/save`; protegen
+todos los nodos sin cambios en sus `manager_node_runtime/`.
 
 ## Transporte: el reflejo de la exportación
 

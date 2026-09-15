@@ -1014,7 +1014,7 @@ class PortfolioSource:
                            {final_tick_status_sql} as final_tick_status,
                            {final_tick_6m_status_sql} as final_tick_6m_status
                     from candidates c
-                    join candidate_robustness cr on cr.candidate_id=c.id
+                    left join candidate_robustness cr on cr.candidate_id=c.id
                     {final_tick_join}
                     {final_tick_6m_join}
                     order by c.id
@@ -1023,6 +1023,19 @@ class PortfolioSource:
                 ).fetchall()
             for db_row in rows:
                 item = dict(db_row)
+                if not str(item.get("oos_report_path") or "").strip():
+                    candidate_id = safe_int(item.get("source_candidate_id"), 0)
+                    set_stem = Path(str(item.get("set_path") or "")).stem
+                    for extension in (".htm", ".html"):
+                        historical_report = (
+                            self.project
+                            / "reports"
+                            / f"robust_{candidate_id:06d}_{set_stem}{extension}"
+                        )
+                        if candidate_id > 0 and historical_report.is_file():
+                            item["oos_report_path"] = str(historical_report)
+                            item["historical_robustness_report_recovered"] = True
+                            break
                 final_tick_metrics = item.pop("final_tick_metrics_json", None)
                 if final_tick_metrics:
                     try:
@@ -3473,17 +3486,15 @@ def build_import_proposals(
             ambiguous.append(name)
         else:
             resolved[key] = matches[0]
-    if not resolved:
-        raise ValueError(
-            "Ninguno de los sets del portafolio exportado sigue siendo un candidato de "
-            "este nodo: no hay informes con los que reconstruirlo"
-        )
     rows = list(resolved.values())
     changed_verdicts = []
     for row in rows:
+        robustness_status = str(row.get("robustness_status") or "")
+        if row.get("historical_robustness_report_recovered"):
+            robustness_status = "sin fila vigente; informe histórico recuperado"
         statuses = {
             "base": str(row.get("base_status") or ""),
-            "robustez": str(row.get("robustness_status") or ""),
+            "robustez": robustness_status,
             "Final Tick": str(row.get("final_tick_status") or ""),
             "Final Tick 6M": str(row.get("final_tick_6m_status") or ""),
         }
@@ -3499,9 +3510,11 @@ def build_import_proposals(
             "veredictos actuales hayan cambiado."
         )
         warnings.append("Veredictos actuales: " + " | ".join(changed_verdicts))
-    if not strategies:
-        raise ValueError("No se pudo reconstruir ninguna estrategia desde sus informes")
     path_by_name = {Path(str(row.get("set_path") or "")).name.casefold(): str(row.get("set_path") or "") for row in rows}
+    row_by_name = {
+        Path(str(row.get("set_path") or "")).name.casefold(): row
+        for row in rows
+    }
     capital = float(header.get("capital") or 0)
     target_valley = float(header.get("target_valley_dd") or 0)
     target_point = float(header.get("target_point_dd") or 0) or target_valley
@@ -3509,6 +3522,30 @@ def build_import_proposals(
     if scope == "monthly" and target_month:
         strategies, monthly_warnings = slice_strategy_sets_to_month(strategies, int(target_month))
         warnings.extend(monthly_warnings)
+    loaded_paths = {str(strategy.set_id) for strategy in strategies}
+    unmeasured: list[str] = []
+    for member in members:
+        name = str(member.set_name)
+        key = name.casefold()
+        set_path = path_by_name.get(key)
+        if (not set_path or set_path not in loaded_paths) and name not in unmeasured:
+            unmeasured.append(name)
+    if unresolved:
+        warnings.append(
+            "Sin candidato actual ni informes localizables; se conservaron sin métricas: "
+            + ", ".join(unresolved)
+        )
+    if ambiguous:
+        warnings.append(
+            "Nombre con varios candidatos posibles; se conservó sin elegir métricas al azar: "
+            + ", ".join(ambiguous)
+        )
+    if unmeasured:
+        warnings.append(
+            "Cálculo incompleto al importar: se conservaron composición, unidades y lotes, "
+            "pero beneficio y drawdown no incluyen las estrategias sin informes: "
+            + ", ".join(unmeasured)
+        )
     by_set = {strategy.set_id: strategy for strategy in strategies}
     order: list[str] = []
     grouped: dict[str, list[Any]] = {}
@@ -3521,15 +3558,16 @@ def build_import_proposals(
     for label in order:
         units: dict[str, int] = {}
         lots: dict[str, float] = {}
+        unmeasured_members: dict[str, Any] = {}
         for member in grouped[label]:
             set_path = path_by_name.get(str(member.set_name).casefold())
             if not set_path or set_path not in by_set:
-                if member.set_name not in skipped:
-                    skipped.append(member.set_name)
+                name = str(member.set_name)
+                unmeasured_members[name.casefold()] = member
                 continue
             units[set_path] = units.get(set_path, 0) + int(member.units)
             lots[set_path] = float(member.lot)
-        if not units:
+        if not units and not unmeasured_members:
             continue
         key = portfolio_import.variant_key_for(label, order)
         inputs: dict[str, Any] = {
@@ -3564,6 +3602,38 @@ def build_import_proposals(
             )
             for strategy in strategies if units.get(strategy.set_id, 0) > 0
         ]
+        for member in unmeasured_members.values():
+            name = str(member.set_name)
+            row = row_by_name.get(name.casefold()) or {}
+            set_path = str(row.get("set_path") or name)
+            if name in unresolved:
+                missing_reason = "No reconstruido al importar: no existe candidato ni informe"
+            elif name in ambiguous:
+                missing_reason = "No reconstruido al importar: varios candidatos posibles"
+            else:
+                missing_reason = "No reconstruido al importar: faltan informes legibles"
+            allocations.append(StrategyAllocation(
+                set_id=set_path,
+                candidate_id=str(row.get("candidate_id") or f"importado-sin-informes:{name}"),
+                symbol=str(member.symbol),
+                units=int(member.units),
+                lot=float(member.lot),
+                net_profit_contribution=0.0,
+                standalone_valley_dd=0.0,
+                standalone_point_dd=0.0,
+                timeframe=str(member.timeframe),
+                set_path=set_path,
+                is_report_path=str(row.get("is_report_path") or ""),
+                oos_report_path=str(row.get("oos_report_path") or ""),
+                floating_dd_source=missing_reason,
+            ))
+        if unmeasured_members:
+            inputs["import_calculation_complete"] = False
+            inputs["import_unmeasured_sets"] = [
+                str(member.set_name) for member in unmeasured_members.values()
+            ]
+        else:
+            inputs["import_calculation_complete"] = True
         result = PortfolioResult(
             allocations=allocations,
             equity_curve_2020_2026=evaluation.equity_curve_2020_2026,
@@ -3571,9 +3641,14 @@ def build_import_proposals(
             actual_valley_dd=evaluation.valley_dd, actual_point_dd=evaluation.point_dd,
             target_valley_dd=target_valley, target_point_dd=target_point,
             valley_usage_pct=evaluation.valley_usage_pct, point_usage_pct=evaluation.point_usage_pct,
-            total_lot=evaluation.total_lot, total_units=evaluation.total_units,
-            active_strategies=evaluation.active_strategies,
-            stop_reason="Composición importada de una exportación previa",
+            total_lot=sum(allocation.lot for allocation in allocations),
+            total_units=sum(allocation.units for allocation in allocations),
+            active_strategies=len(allocations),
+            stop_reason=(
+                "Composición importada; cálculo incompleto por informes ausentes"
+                if unmeasured_members
+                else "Composición importada de una exportación previa"
+            ),
             warnings=list(warnings), decision_log=[],
             group_summary=portfolio_group_summary(strategies, units),
             stress_bootstrap=bootstrap_valley_drawdown(
@@ -3727,6 +3802,8 @@ def build_import_proposals(
         "unresolved": unresolved,
         "ambiguous": ambiguous,
         "skipped": skipped,
+        "calculation_complete": not unmeasured,
+        "unmeasured": unmeasured,
         "warnings": warnings,
         "target_month": target_month,
         "improvement_origin": {
