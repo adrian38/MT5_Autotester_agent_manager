@@ -19,6 +19,7 @@ import urllib.request
 import uuid
 import zlib
 import zipfile
+from collections.abc import Iterable
 from dataclasses import asdict, fields
 from datetime import datetime
 from pathlib import Path
@@ -567,6 +568,17 @@ def _is_bundle_portfolio(detail: dict[str, Any]) -> bool:
     )
 
 
+def _stored_path_name(value: Any) -> str:
+    """Nombre de fichero de una ruta guardada, venga del SO que venga.
+
+    Las rutas de la memoria las escribió un nodo Windows, así que en el manager
+    Linux `Path(...).name` devolvería la ruta entera: aquí hay que cortar por
+    los dos separadores antes de comparar nombres, igual que hace
+    `_resolve_source_path` antes de reubicar.
+    """
+    return str(value or "").strip().replace("\\", "/").rsplit("/", 1)[-1].casefold()
+
+
 def _resolve_source_path(value: Any, project: Path) -> str:
     text = str(value or "").strip()
     if not text:
@@ -954,7 +966,7 @@ class PortfolioSource:
                 result = [row for row in result if self._path_key(row.get("set_path")) not in quarantined]
         return result
 
-    def import_candidate_rows(self) -> list[dict[str, Any]]:
+    def import_candidate_rows(self, set_names: Iterable[str] | None = None) -> list[dict[str, Any]]:
         """Devuelve candidatos reconstruibles sin volver a filtrar su veredicto.
 
         Un cálculo nuevo solo puede usar el pool que superó las cuatro etapas,
@@ -967,7 +979,17 @@ class PortfolioSource:
         Siguen siendo imprescindibles el candidato y sus informes base/OOS;
         ``load_robust_sets_from_rows`` nombrará cualquier informe ausente o
         ilegible en vez de inventar métricas.
+
+        ``set_names`` acota el inventario a los ficheros que el ZIP realmente
+        necesita. Sin él hay que preparar la memoria entera —70.065 candidatos
+        en RoboForex— para resolver las 18 líneas de un resumen: cada fila sin
+        robustez vigente cuesta además hasta dos ``is_file()`` buscando su
+        informe histórico, y son decenas de miles contra el disco del agente.
         """
+        wanted = (
+            {_stored_path_name(name) for name in set_names if str(name or "").strip()}
+            if set_names is not None else None
+        )
         result: list[dict[str, Any]] = []
         for account_label, memory in self.memory_sources:
             with self.connect_memory(memory) as conn:
@@ -1022,6 +1044,8 @@ class PortfolioSource:
                     (account_label, account_label),
                 ).fetchall()
             for db_row in rows:
+                if wanted is not None and _stored_path_name(db_row["set_path"]) not in wanted:
+                    continue
                 item = dict(db_row)
                 if not str(item.get("oos_report_path") or "").strip():
                     candidate_id = safe_int(item.get("source_candidate_id"), 0)
@@ -3474,7 +3498,7 @@ def build_import_proposals(
     # ese inventario pertenece a cálculos nuevos y elimina estrategias cuyo
     # veredicto actual ya no supera las cuatro etapas, que fue precisamente lo
     # que convirtió una exportación real de 7 sets en un portafolio de 4.
-    candidates = source.import_candidate_rows()
+    candidates = source.import_candidate_rows({str(member.set_name) for member in members})
     by_name: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
         by_name.setdefault(Path(str(row.get("set_path") or "")).name.casefold(), []).append(row)

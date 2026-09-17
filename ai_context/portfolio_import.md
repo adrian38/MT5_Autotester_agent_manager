@@ -169,6 +169,34 @@ El origen del UID duplicado está en la creación de la mejora encadenada, no en
 la importación: no se ha podido reproducir porque el usuario ya había borrado
 `#120` y `#121` de la memoria de RoboForex.
 
+## Cuánto cuesta importar y por qué (2026-09-17)
+
+Medido con `PORTAFOLIO_121` (18 sets) contra la memoria real de RoboForex,
+proceso frío:
+
+| Etapa | Antes | Ahora |
+| --- | --- | --- |
+| `import_candidate_rows` | 7,5 s — 70.065 filas | 0,8 s — 18 filas |
+| Parseo de informes MT5 (`cached_report`, 63 ficheros, 55 MB) | 8,5 s | 8,5 s |
+| `bootstrap_valley_drawdown` | 3,1 s | 3,1 s |
+| **Total** | **19,5 s** | **12,3 s** |
+
+El inventario de importación no filtra por veredicto —es su contrato—, así que
+preparaba la memoria **entera** para resolver 18 nombres: además de las 70.065
+filas, cada una sin robustez vigente (51.231) sondea hasta dos `is_file()`
+buscando su informe histórico. Son ~100.000 accesos a disco, y en el manager
+ese disco es el recurso de red del agente. Ahora `build_import_proposals` pasa
+los nombres del resumen y el filtro se aplica antes de resolver rutas y sondear
+informes; las filas relevantes son exactamente las mismas, con una prueba que
+lo fija.
+
+Lo que queda es trabajo real y compartido con cualquier cálculo: parsear los
+informes de los sets (55 MB de HTML para 18 estrategias, cacheados por
+mtime/tamaño mientras viva el proceso del manager) y el bootstrap de la curva.
+Aparte, `invalidate_after_exclusion` invalida el snapshot de la memoria al
+terminar, así que la primera lectura posterior vuelve a copiarla: eso es la
+recarga de la pantalla, no la importación.
+
 ## Transporte: el reflejo de la exportación
 
 | `export_mode` | Exportar | Importar |

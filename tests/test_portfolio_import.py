@@ -344,6 +344,55 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(rows[0]["oos_report_path"], str(recovered))
             self.assertTrue(rows[0]["historical_robustness_report_recovered"])
 
+    def test_the_import_inventory_only_prepares_the_sets_of_the_export(self) -> None:
+        # Preparar la memoria entera para resolver las lineas de un resumen
+        # costaba 7,5 s y decenas de miles de `is_file()` en RoboForex (70.065
+        # candidatos) para acabar usando 18 filas. Acotar no puede cambiar el
+        # resultado: las filas relevantes tienen que ser exactamente las mismas.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            reports = project / "reports"
+            reports.mkdir()
+            (reports / "robust_000002_beta.htm").write_text("histórico", encoding="utf-8")
+            with sqlite3.connect(source.memory) as conn:
+                conn.executescript("""
+                    create table candidates (
+                        id integer primary key,set_path text,symbol text,target_symbol text,
+                        period text,family text,report_path text,status text
+                    );
+                    create table candidate_robustness (
+                        candidate_id integer,report_path text,status text
+                    );
+                """)
+                # Ruta guardada por un nodo Windows: en un manager Linux hay que
+                # cortar por los dos separadores para reconocer el nombre.
+                conn.execute(
+                    "insert into candidates values (1,?,?,?,?,?,?,?)",
+                    (r"C:\Users\nodo\outputs\alpha.set", "EURUSD", "EURUSD", "H1", "", "base.htm", "accepted"),
+                )
+                conn.execute(
+                    "insert into candidates values (2,?,?,?,?,?,?,?)",
+                    (r"C:\Users\nodo\outputs\beta.set", "GBPUSD", "GBPUSD", "H1", "", "base.htm", "accepted"),
+                )
+                conn.execute(
+                    "insert into candidates values (3,?,?,?,?,?,?,?)",
+                    (r"C:\Users\nodo\outputs\gamma.set", "USDJPY", "USDJPY", "H1", "", "base.htm", "accepted"),
+                )
+                conn.commit()
+            conn.close()
+
+            narrow = source.import_candidate_rows({"beta.set"})
+            full = source.import_candidate_rows()
+
+            self.assertEqual(len(full), 3)
+            self.assertEqual([Path(row["set_path"]).name for row in narrow], ["beta.set"])
+            relevant = [row for row in full if Path(row["set_path"]).name == "beta.set"]
+            self.assertEqual(narrow, relevant)
+            # Y el rescate del informe histórico sigue ocurriendo en la fila acotada.
+            self.assertTrue(narrow[0]["historical_robustness_report_recovered"])
+            self.assertEqual(source.import_candidate_rows(set()), [])
+
     def test_an_exported_bundle_comes_back_as_a_normal_saved_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
