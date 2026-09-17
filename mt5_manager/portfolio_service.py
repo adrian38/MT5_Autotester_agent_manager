@@ -65,6 +65,7 @@ from . import candidate_verdict, dev_branch, portfolio_import
 from .common import load_json, safe_float, safe_int, save_json, utc_now
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 from .portfolio_full_experimental import optimize_experimental_full_portfolio
+from .stage_reports import recover_robustness_report
 
 
 ASSET_GROUPS = ("Forex", "Metals", "Indices", "Energies", "Crypto", "Stocks", "Bonds", "Softs")
@@ -1048,18 +1049,14 @@ class PortfolioSource:
                     continue
                 item = dict(db_row)
                 if not str(item.get("oos_report_path") or "").strip():
-                    candidate_id = safe_int(item.get("source_candidate_id"), 0)
-                    set_stem = Path(str(item.get("set_path") or "")).stem
-                    for extension in (".htm", ".html"):
-                        historical_report = (
-                            self.project
-                            / "reports"
-                            / f"robust_{candidate_id:06d}_{set_stem}{extension}"
-                        )
-                        if candidate_id > 0 and historical_report.is_file():
-                            item["oos_report_path"] = str(historical_report)
-                            item["historical_robustness_report_recovered"] = True
-                            break
+                    historical_report = recover_robustness_report(
+                        self.project,
+                        item.get("source_candidate_id"),
+                        item.get("set_path"),
+                    )
+                    if historical_report:
+                        item["oos_report_path"] = historical_report
+                        item["historical_robustness_report_recovered"] = True
                 final_tick_metrics = item.pop("final_tick_metrics_json", None)
                 if final_tick_metrics:
                     try:

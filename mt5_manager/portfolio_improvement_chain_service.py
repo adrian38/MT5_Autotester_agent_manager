@@ -408,14 +408,24 @@ def _load_full_history_improvement_pool(
         raise ValueError("El portafolio guardado no contiene una base reconstruible")
     if progress:
         progress(f"1/5 · Reconstruyendo y bloqueando {len(originals)} estrategias originales")
-    original_sets, warnings = load_robust_sets_from_rows(
-        member_rows(
-            originals,
-            resolve_path=lambda value: _resolve_source_path(value, source.project),
-        ),
-        [],
-        parse=cached_report,
+    original_rows = member_rows(
+        originals,
+        resolve_path=lambda value: _resolve_source_path(value, source.project),
+        project=source.project,
     )
+    original_sets, warnings = load_robust_sets_from_rows(
+        original_rows, [], parse=cached_report,
+    )
+    recovered = [
+        Path(str(row.get("set_path") or "")).name
+        for row in original_rows
+        if row.get("historical_reports_recovered")
+    ]
+    if recovered:
+        warnings.append(
+            "Informes recuperados del disco para originales cuyo veredicto cambió "
+            "tras guardar el portafolio: " + ", ".join(recovered)
+        )
     if len(original_sets) != len(originals):
         raise ValueError(
             "No se pudieron reconstruir todas las estrategias originales; "
