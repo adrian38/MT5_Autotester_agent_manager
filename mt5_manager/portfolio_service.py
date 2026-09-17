@@ -2049,7 +2049,14 @@ class PortfolioSource:
                 shutil.copy2(source_path, destination_path)
                 copied.add(key)
             exported.append({
-                "variant": member.get("variant_label") or member.get("variant_key") or "",
+                # Un portafolio de una sola variante (una mejora, un mensual) se
+                # guarda con `variant_key` y `variant_label` vacios: la variante
+                # es la fila entera. Sin este respaldo la columna PERFIL sale en
+                # blanco y el resumen deja de decir en que modo se guardo.
+                "variant": (
+                    member.get("variant_label") or member.get("variant_key")
+                    or TYPE_LABELS.get(str(detail.get("portfolio_type") or ""), "")
+                ),
                 "account": str(member.get("candidate_id") or "").split(":", 1)[0] or self.account,
                 "symbol": member.get("symbol") or "", "timeframe": member.get("timeframe") or "",
                 "units": int(member.get("units") or 0), "lot": float(member.get("lot") or 0), "set": source_path.name,
@@ -3553,6 +3560,36 @@ def build_import_proposals(
         if member.variant_label not in order:
             order.append(member.variant_label)
         grouped.setdefault(member.variant_label, []).append(member)
+    # La columna PERFIL sale en blanco en todo portafolio de una sola variante
+    # —una mejora o un mensual—, porque `save_proposal` guarda sus miembros con
+    # `variant_key` vacio: la variante es la fila entera, no una de tres. La
+    # cabecera si dice el modo («Tipo:» y, en una mejora, «Mejora modo:»), y sin
+    # ese respaldo la variante caia en `variant_1`, que no es ningun modo
+    # conocido: el guardado perdia el tipo y una mejora fallaba antes, al
+    # comprobar que su composicion corresponde al modo exportado.
+    blank_variant_key = next(
+        (
+            value for value in (
+                str(header.get("improvement_portfolio_type") or "").strip().lower(),
+                str(header.get("portfolio_type") or "").strip().lower(),
+            )
+            if value in TYPE_LABELS
+        ),
+        "",
+    )
+    exported_uid = _valid_portfolio_uid(header.get("portfolio_uid"))
+    exported_parent_uid = _valid_portfolio_uid(header.get("improvement_parent_uid"))
+    if exported_uid and exported_uid == exported_parent_uid:
+        # Una cartera no puede ser su propio origen. Un resumen que repite el UID
+        # del padre —lo hace la exportación de una mejora de una mejora— haría
+        # que las dos importaciones compartieran identidad y que la cadena se
+        # midiera contra sí misma. Se descarta el UID repetido: la fila
+        # importada recibe identidad propia y conserva el enlace al padre.
+        warnings.append(
+            "El resumen traía como UID del portafolio el de su origen "
+            f"({exported_uid}); se descarta y se le asigna identidad propia."
+        )
+        exported_uid = ""
     proposals: list[dict[str, Any]] = []
     skipped: list[str] = []
     for label in order:
@@ -3570,6 +3607,8 @@ def build_import_proposals(
         if not units and not unmeasured_members:
             continue
         key = portfolio_import.variant_key_for(label, order)
+        if not label.strip() and blank_variant_key:
+            key = blank_variant_key
         inputs: dict[str, Any] = {
             "capital": capital,
             "valley_dd_pct": target_valley * 100.0 / capital if capital > 0 else 0.0,
@@ -3671,10 +3710,14 @@ def build_import_proposals(
             floating_dd_buffer=evaluation.floating_dd_buffer,
             enforce_point_dd=False,
         )
-        proposals.append({"key": key, "label": label.strip() or key, "inputs": inputs, "result": result})
+        proposals.append({
+            "key": key,
+            "label": label.strip() or TYPE_LABELS.get(key, key),
+            "inputs": inputs,
+            "result": result,
+        })
     if not proposals:
         raise ValueError("El resumen no dejó ninguna variante reconstruible")
-    exported_uid = _valid_portfolio_uid(header.get("portfolio_uid"))
     if exported_uid:
         for proposal in proposals:
             proposal.setdefault("inputs", {})["portfolio_uid"] = exported_uid
@@ -3704,7 +3747,7 @@ def build_import_proposals(
         label = str(header.get("improvement_label") or "").strip()
         if label:
             proposal_inputs["improvement_label"] = label[:240]
-        parent_uid = _valid_portfolio_uid(header.get("improvement_parent_uid"))
+        parent_uid = exported_parent_uid
         if parent_uid:
             proposal_inputs["improvement_parent_uid"] = parent_uid
         root_id = safe_int(header.get("improvement_root_portfolio_id"), improvement_source_id)

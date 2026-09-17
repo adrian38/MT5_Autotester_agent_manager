@@ -93,6 +93,30 @@ Moderado     ICTRADING    GBPUSD       H1          1    0.01   beta.set
 """
 
 
+# Lo que exporta de verdad una mejora: `save_proposal` guarda sus miembros con
+# `variant_key` vacio —la variante es la fila entera, no una de tres— y la
+# columna PERFIL sale en blanco. Tomado de PORTAFOLIO_120/121 de RoboForex, que
+# no se podian importar. El modo solo esta en la cabecera.
+BLANK_PROFILE_IMPROVEMENT_SUMMARY = """Portafolio: Mejora del portafolio #104 | modo Agresivo
+Tipo: aggressive   Capital: 10,000
+Portafolio UID: 44444444-4444-4444-8444-444444444444
+Mejora etiqueta: Mejora del portafolio #104 | modo Agresivo
+Mejora origen: 104
+Mejora modo: aggressive
+Mejora origen UID: 11111111-1111-4111-8111-111111111111
+Mejora raiz: 104
+Mejora nivel: 1
+Mejora prioridad: balanced
+Mejora incorporaciones: 1
+DD valle objetivo: 300.00
+DD puntual objetivo: 300.00
+
+PERFIL       CUENTA       SIMBOLO      TF      UNID.    LOTE   SET
+             ICTRADING    EURUSD       H1          3    0.03   alpha.set
+             ICTRADING    GBPUSD       H1          2    0.02   beta.set
+"""
+
+
 class SummaryParsingTests(unittest.TestCase):
     def test_the_header_and_every_row_are_read_from_the_exported_summary(self) -> None:
         header, members = portfolio_import.parse_summary(SUMMARY)
@@ -436,6 +460,92 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(exported_header["improvement_portfolio_type"], "balanced")
             self.assertEqual(exported_header["improvement_selection_priority"], "stress")
             self.assertEqual(exported_header["improvement_added_count"], 1.0)
+
+    def test_an_improvement_without_profile_column_takes_its_mode_from_the_header(self) -> None:
+        # El caso real de RoboForex #120 y #121: una mejora se guarda con
+        # `variant_key` vacio, asi que su resumen no tiene perfil. Sin leer el
+        # modo de la cabecera la variante caia en «variant_1» y la importacion
+        # moria con «La identidad de mejora ... no coincide con su composicion».
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            strategies = [
+                strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0),
+                strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+            ]
+            header, members = portfolio_import.parse_summary(BLANK_PROFILE_IMPROVEMENT_SUMMARY)
+            self.assertEqual({member.variant_label for member in members}, {""})
+            self.assertEqual([member.units for member in members], [3, 2])
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+            ):
+                proposals, selected_key, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+                portfolio_id = save_proposal(source, proposals, selected_key, "full_history")
+
+            self.assertEqual(selected_key, "aggressive")
+            self.assertEqual(report["variants"], ["aggressive"])
+            saved = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+            self.assertEqual(saved["portfolio_type"], "aggressive")
+            self.assertEqual(saved["improvement_origin"]["source_id"], 104)
+            self.assertEqual(saved["improvement_origin"]["mode"], "aggressive")
+            self.assertEqual(
+                {Path(member["set_path"]).name for member in saved["members"]},
+                {"alpha.set", "beta.set"},
+            )
+            # Y la reexportacion ya no vuelve a perder el perfil.
+            for set_name in ("alpha.set", "beta.set"):
+                (project / set_name).write_text("Risk=1\n", encoding="utf-8")
+            exported = source.export_portfolio(portfolio_id, "full_history", str(project / "exported"))
+            _header, exported_members, _sets = portfolio_import.read_export(exported["folder"])
+            self.assertEqual({member.variant_label for member in exported_members}, {"Agresivo"})
+
+    def test_an_export_that_repeats_its_parent_uid_gets_its_own_identity(self) -> None:
+        # PORTAFOLIO_121 de RoboForex venia con el UID de su origen #120 como
+        # propio. Conservarlo dejaria dos filas con la misma identidad y una
+        # mejora que se compara consigo misma.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            strategies = [
+                strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0),
+                strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+            ]
+            header, members = portfolio_import.parse_summary(
+                BLANK_PROFILE_IMPROVEMENT_SUMMARY.replace(
+                    "Portafolio UID: 44444444-4444-4444-8444-444444444444",
+                    "Portafolio UID: 11111111-1111-4111-8111-111111111111",
+                )
+            )
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+            ):
+                proposals, selected_key, _report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+                portfolio_id = save_proposal(source, proposals, selected_key, "full_history")
+
+            self.assertNotEqual(
+                proposals[0]["inputs"].get("portfolio_uid"),
+                "11111111-1111-4111-8111-111111111111",
+            )
+            self.assertEqual(
+                proposals[0]["inputs"]["improvement_parent_uid"],
+                "11111111-1111-4111-8111-111111111111",
+            )
+            self.assertTrue(any(
+                "identidad propia" in warning
+                for warning in proposals[0]["result"].warnings
+            ))
+            saved = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+            self.assertEqual(saved["improvement_origin"]["source_uid"], "11111111-1111-4111-8111-111111111111")
 
     def test_a_chained_improvement_round_trip_keeps_label_lineage_and_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

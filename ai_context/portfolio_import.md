@@ -136,6 +136,39 @@ las estrategias medibles. No se atribuyen métricas inventadas. La recuperación
 y las marcas viven en el manager antes de `/api/v1/portfolios/save`; protegen
 todos los nodos sin cambios en sus `manager_node_runtime/`.
 
+## El perfil de una mejora no viaja en la tabla (2026-09-17)
+
+`save_proposal` guarda un portafolio de **una sola variante** —una mejora, o
+cualquier mensual— con `variant_key` y `variant_label` vacíos: la variante es la
+fila entera, no una de tres (`key = str(proposal["key"]) if bundle else ""`).
+La exportación leía el perfil de ese miembro, así que la columna PERFIL del
+resumen salía **en blanco**, y al importar `variant_key_for("")` no reconocía
+ningún modo y devolvía `variant_1`. En una mejora eso chocaba con la
+comprobación de identidad y abortaba:
+
+> La identidad de mejora de la exportación no coincide con su composición:
+> esperaba solo el modo Agresivo
+
+Casos reales: `PORTAFOLIO_120_aggressive` y `PORTAFOLIO_121_aggressive` de
+RoboForex, imposibles de reimportar después de borrar sus filas. Un mensual no
+fallaba, pero se guardaba con `portfolio_type="variant_1"`.
+
+El modo sí está en la cabecera (`Tipo:` y, en una mejora, `Mejora modo:`), que
+es de dónde se toma ahora cuando el perfil viene vacío. Además la exportación
+rellena la columna desde el tipo del portafolio, para que los resúmenes nuevos
+se expliquen solos. Ambos extremos son del manager: ningún nodo cambia.
+
+### Una mejora no puede ser su propio origen
+
+`PORTAFOLIO_121` traía como `Portafolio UID` el de su origen `#120`, el mismo
+valor que su `Mejora origen UID`. Conservarlo dejaría dos filas importadas con
+la misma identidad y una cadena que se compara consigo misma, en silencio. La
+importación descarta ese UID repetido, avisa y deja que la fila reciba
+identidad propia; el enlace al padre se conserva en `improvement_parent_uid`.
+El origen del UID duplicado está en la creación de la mejora encadenada, no en
+la importación: no se ha podido reproducir porque el usuario ya había borrado
+`#120` y `#121` de la memoria de RoboForex.
+
 ## Transporte: el reflejo de la exportación
 
 | `export_mode` | Exportar | Importar |
