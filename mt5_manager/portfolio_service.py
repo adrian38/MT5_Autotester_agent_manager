@@ -1210,13 +1210,33 @@ class PortfolioSource:
         }
 
     def symbol_sets(self, symbol: str, scope: str = "full_history") -> dict[str, Any]:
-        """Lista toda la familia de un símbolo, incluso veredictos excluidos."""
+        """Lista los sets que cuenta el inventario para la familia, más su cuarentena.
+
+        La ventana se abre desde una fila de «Sets disponibles por símbolo», así
+        que tiene que enseñar lo que esa fila cuenta: el pool de las cuatro
+        etapas aceptadas —disponibles, usados y en cuarentena—. El histórico de
+        candidatas de la familia no cabe aquí; con
+        ``import_candidate_rows(include_without_robustness=True)`` la tabla
+        llegaba a ~1000 filas de DE40 frente a los 61 sets anunciados, casi
+        tantas como sets tiene el inventario entero, y parecía estar mostrando
+        la base de datos completa.
+
+        Las excluidas que ya no están en el pool sí entran: el veredicto de
+        degradación u OHLC ≠ every tick las saca de :meth:`candidate_rows`, y
+        esta tabla es desde donde se reintegran.
+        """
         if normalize_portfolio_scope(scope) != "full_history":
             raise ValueError("La gestión por símbolo solo está disponible en Portafolio UBS")
         requested = portfolio_display_symbol(str(symbol or "").strip(), universe_files=[self.universe])
         requested_key = portfolio_symbol_key(requested)
         if not requested_key:
             raise ValueError("Falta el símbolo que se quiere gestionar")
+
+        def belongs_to_family(value: Any) -> bool:
+            display = portfolio_display_symbol(
+                str(value or ""), universe_files=[self.universe]
+            )
+            return portfolio_symbol_key(display) == requested_key
 
         quarantine = {
             self._path_key(row.get("set_path")): row
@@ -1225,12 +1245,10 @@ class PortfolioSource:
         used = {self._path_key(path) for path in self.used_set_paths("full_history")}
         result: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for row in self.import_candidate_rows(include_without_robustness=True):
-            display_symbol = portfolio_display_symbol(
-                str(row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""),
-                universe_files=[self.universe],
-            )
-            if portfolio_symbol_key(display_symbol) != requested_key:
+        for row in self.candidate_rows(include_quarantined=True):
+            if not belongs_to_family(
+                row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol")
+            ):
                 continue
             path = str(row.get("set_path") or "")
             if not path.strip():
@@ -1240,29 +1258,15 @@ class PortfolioSource:
                 continue
             seen.add(path_key)
             quarantined = quarantine.get(path_key)
-            statuses = {
-                "base": str(row.get("base_status") or "").lower(),
-                "robustness": str(row.get("robustness_status") or "").lower(),
-                "final_tick": str(row.get("final_tick_status") or "").lower(),
-                "final_tick_6m": str(row.get("final_tick_6m_status") or "").lower(),
-            }
-            accepted = (
-                statuses["base"] == "accepted"
-                and statuses["robustness"] == "accepted"
-                and statuses["final_tick"] in {"accepted", "pending_ohlc_trades"}
-                and statuses["final_tick_6m"] == "accepted"
+            display_symbol = portfolio_display_symbol(
+                str(row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""),
+                universe_files=[self.universe],
             )
+            # candidate_rows ya exige las cuatro etapas aceptadas: aquí el estado
+            # solo depende de la cuarentena y de si el set está asignado.
             if quarantined:
                 state = "excluded"
                 state_label = str(quarantined.get("reason_label") or "Excluido")
-            elif not accepted:
-                state = "excluded"
-                if statuses["robustness"] and statuses["robustness"] != "accepted":
-                    state_label = "Excluido por degradación"
-                elif statuses["final_tick_6m"] and statuses["final_tick_6m"] != "accepted":
-                    state_label = "Excluido por OHLC ≠ every tick"
-                else:
-                    state_label = "Fuera del pool aceptado"
             elif path_key in used:
                 state = "used"
                 state_label = "Usado en portafolio"
@@ -1284,6 +1288,31 @@ class PortfolioSource:
                     candidate_verdict.normalize_reason_code(quarantined.get("reason_code"))
                     if quarantined else ""
                 ),
+                "exists": Path(path).is_file(),
+            })
+        for path_key, quarantined in quarantine.items():
+            if not path_key or path_key in seen:
+                continue
+            if not belongs_to_family(quarantined.get("symbol")):
+                continue
+            path = str(quarantined.get("set_path") or "")
+            if not path.strip():
+                continue
+            seen.add(path_key)
+            result.append({
+                "candidate_id": quarantined.get("candidate_id"),
+                "set_path": path,
+                "set_name": Path(path).name,
+                "symbol": portfolio_display_symbol(
+                    str(quarantined.get("symbol") or ""), universe_files=[self.universe]
+                ),
+                "timeframe": quarantined.get("timeframe") or "",
+                "family": "",
+                "account": quarantined.get("source_account") or quarantined.get("account_type") or "",
+                "state": "excluded",
+                "state_label": str(quarantined.get("reason_label") or "Excluido"),
+                "quarantine_key": str(quarantined.get("quarantine_key") or ""),
+                "reason_code": candidate_verdict.normalize_reason_code(quarantined.get("reason_code")),
                 "exists": Path(path).is_file(),
             })
         if not result:
