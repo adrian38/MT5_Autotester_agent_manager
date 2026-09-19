@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import math
@@ -2245,6 +2246,7 @@ class PortfolioSource:
         output.mkdir(parents=True, exist_ok=True)
         copied: set[str] = set()
         exported: list[dict[str, Any]] = []
+        exported_members: list[dict[str, Any]] = []
         missing: list[str] = []
         for member in members:
             source_path = Path(_resolve_source_path(member.get("set_path") or member.get("set_id"), self.project))
@@ -2269,6 +2271,11 @@ class PortfolioSource:
                 "symbol": member.get("symbol") or "", "timeframe": member.get("timeframe") or "",
                 "units": int(member.get("units") or 0), "lot": float(member.get("lot") or 0), "set": source_path.name,
             })
+            portable_member = dict(member)
+            portable_member["set_id"] = str(member.get("set_id") or source_path)
+            portable_member["set_path"] = str(source_path)
+            portable_member["set_name"] = source_path.name
+            exported_members.append(portable_member)
         lines = [
             f"Portafolio: {detail.get('name') or portfolio_id}",
             f"Tipo: {detail.get('portfolio_type') or ''}   Capital: {float(detail.get('capital') or 0):,.0f}",
@@ -2329,6 +2336,15 @@ class PortfolioSource:
             # Mantener estos campos junto a la cabecera: ``parse_summary`` deja
             # de interpretar metadatos en cuanto empieza la tabla de sets.
             lines[2:2] = improvement_lines
+        # La tabla histórica trunca CUENTA y solo conserva el nombre del set.
+        # Eso no basta cuando la memoria contiene varios candidatos con el mismo
+        # nombre: se perdería el id que identifica qué informe de robustez usar.
+        # La tabla sigue siendo legible y compatible; esta cabecera da a las
+        # importaciones nuevas la identidad exacta de cada miembro.
+        lines[2:2] = [
+            "Miembros JSON: "
+            + json.dumps(exported_members, ensure_ascii=True, separators=(",", ":"))
+        ]
         for item in exported:
             lines.append(f"{str(item['variant'])[:12]:12s} {str(item['account'])[:12]:12s} {str(item['symbol']):12s} {str(item['timeframe']):5s} {item['units']:7d} {item['lot']:7.2f}   {item['set']}")
         if missing:
@@ -3683,6 +3699,13 @@ def build_import_proposals(
     # veredicto actual ya no supera las cuatro etapas, que fue precisamente lo
     # que convirtió una exportación real de 7 sets en un portafolio de 4.
     candidates = source.import_candidate_rows({str(member.set_name) for member in members})
+    portable_by_name: dict[str, list[dict[str, Any]]] = {}
+    for raw in header.get("portfolio_members") or []:
+        if not isinstance(raw, dict):
+            continue
+        name = Path(str(raw.get("set_name") or raw.get("set_path") or raw.get("set_id") or "")).name.casefold()
+        if name:
+            portable_by_name.setdefault(name, []).append(raw)
     by_name: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
         by_name.setdefault(Path(str(row.get("set_path") or "")).name.casefold(), []).append(row)
@@ -3695,6 +3718,61 @@ def build_import_proposals(
         if key in resolved or key in {value.casefold() for value in unresolved + ambiguous}:
             continue
         matches = by_name.get(key) or []
+        portable = portable_by_name.get(key) or []
+        exact_candidate_ids = {
+            str(row.get("candidate_id") or "").strip()
+            for row in portable
+            if str(row.get("candidate_id") or "").strip()
+            and not str(row.get("candidate_id") or "").startswith("importado-sin-informes:")
+        }
+        if len(matches) > 1 and len(exact_candidate_ids) == 1:
+            exact_id = next(iter(exact_candidate_ids))
+            exact = [
+                row for row in matches
+                if str(row.get("candidate_id") or "").strip() == exact_id
+            ]
+            if len(exact) == 1:
+                matches = exact
+        if len(matches) > 1:
+            exported_hashes = {
+                str(value).strip().lower()
+                for value in (
+                    (header.get("_set_sha256_by_name") or {}).get(key) or []
+                )
+                if str(value).strip()
+            }
+            if len(exported_hashes) == 1:
+                matching_content: list[dict[str, Any]] = []
+                for row in matches:
+                    candidate_path = Path(str(row.get("set_path") or ""))
+                    try:
+                        digest = hashlib.sha256(candidate_path.read_bytes()).hexdigest()
+                    except OSError:
+                        continue
+                    if digest in exported_hashes:
+                        matching_content.append(row)
+                if len(matching_content) == 1:
+                    matches = matching_content
+        if not matches and len(exact_candidate_ids) == 1 and portable:
+            # La fila puede haber desaparecido de la memoria tras un cambio de
+            # veredicto. Las exportaciones nuevas conservan las rutas exactas
+            # que tenía la asignación; se reconstruye desde ellas igual que al
+            # mejorar un portafolio guardado, sin elegir otro candidato.
+            saved = dict(portable[0])
+            saved.update({
+                "candidate_id": next(iter(exact_candidate_ids)),
+                "set_path": _resolve_source_path(
+                    saved.get("set_path") or saved.get("set_id") or name,
+                    source.project,
+                ),
+                "is_report_path": _resolve_source_path(saved.get("is_report_path"), source.project),
+                "oos_report_path": _resolve_source_path(saved.get("oos_report_path"), source.project),
+                "full_history_report_path": _resolve_source_path(saved.get("full_history_report_path"), source.project),
+                "final_tick_report_path": _resolve_source_path(saved.get("final_tick_report_path"), source.project),
+                "target_symbol": saved.get("target_symbol") or saved.get("symbol"),
+                "period": saved.get("period") or saved.get("timeframe"),
+            })
+            matches = [saved]
         if not matches:
             unresolved.append(name)
         elif len(matches) > 1:

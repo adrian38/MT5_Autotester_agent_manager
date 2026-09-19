@@ -44,6 +44,7 @@ una guardada de forma normal, con sus variantes A/M/C, sus métricas y su
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import tempfile
@@ -79,13 +80,14 @@ HEADER_KEYS = {
     "mejora nivel": "improvement_depth",
     "mejora linaje json": "improvement_lineage",
     "mejora snapshot json": "improvement_source_snapshot",
+    "miembros json": "portfolio_members",
 }
 
 STRING_HEADER_KEYS = {
     "name", "portfolio_alias", "portfolio_type", "improvement_portfolio_type",
     "improvement_selection_priority", "portfolio_uid", "improvement_label",
     "improvement_parent_uid", "improvement_root_uid", "improvement_lineage",
-    "improvement_source_snapshot",
+    "improvement_source_snapshot", "portfolio_members",
 }
 
 IMPROVEMENT_MODE_BY_LABEL = {
@@ -196,6 +198,7 @@ def parse_summary(text: str) -> tuple[dict[str, Any], list[ImportedMember]]:
     for key, expected in (
         ("improvement_lineage", list),
         ("improvement_source_snapshot", dict),
+        ("portfolio_members", list),
     ):
         if key not in header:
             continue
@@ -205,6 +208,10 @@ def parse_summary(text: str) -> tuple[dict[str, Any], list[ImportedMember]]:
             raise ImportError_(f"El resumen contiene {key} no válido") from exc
         if not isinstance(value, expected):
             raise ImportError_(f"El resumen contiene {key} con un tipo no válido")
+        if key == "portfolio_members" and not all(
+            isinstance(item, dict) for item in value
+        ):
+            raise ImportError_("El resumen contiene portfolio_members con filas no válidas")
         header[key] = value
     return header, members
 
@@ -226,7 +233,8 @@ def read_export(path: str | Path) -> tuple[dict[str, Any], list[ImportedMember],
 
 def _read_folder(root: Path) -> tuple[dict[str, Any], list[ImportedMember], list[str]]:
     summaries = sorted(root.rglob(SUMMARY_PATTERN))
-    set_files = sorted({path.name for path in root.rglob("*.set")})
+    set_paths = sorted(root.rglob("*.set"))
+    set_files = sorted({path.name for path in set_paths})
     if not summaries:
         raise ImportError_(
             "La carpeta no contiene ningún PORTAFOLIO_*_resumen.txt: no parece una "
@@ -240,6 +248,16 @@ def _read_folder(root: Path) -> tuple[dict[str, Any], list[ImportedMember], list
     header, members = parse_summary(summaries[0].read_text(encoding="utf-8", errors="replace"))
     if not members:
         raise ImportError_("El resumen no lista ninguna estrategia")
+    # Las exportaciones antiguas no transportaban candidate_id, pero sí una
+    # copia exacta del .set. Su contenido permite distinguir candidatos que
+    # comparten nombre sin adivinar cuál fue el elegido.
+    set_hashes: dict[str, set[str]] = {}
+    for path in set_paths:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        set_hashes.setdefault(path.name.casefold(), set()).add(digest)
+    header["_set_sha256_by_name"] = {
+        name: sorted(values) for name, values in set_hashes.items()
+    }
     return header, members, set_files
 
 
