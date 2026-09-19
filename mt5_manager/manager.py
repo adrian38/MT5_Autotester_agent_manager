@@ -313,7 +313,19 @@ class ManagerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Exported-Sets", str(safe_int(value.get("exported"), 0, minimum=0)))
+        self.send_header("X-Exported-Files", str(safe_int(value.get("exported"), 0, minimum=0)))
         self.send_header("X-Missing-Sets", str(len(value.get("missing") or [])))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_inline_content(self, value: dict[str, Any]) -> None:
+        body = bytes(value.get("content") or b"")
+        filename = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value.get("filename") or "reporte.html"))
+        self.send_response(200)
+        self.send_header("Content-Type", str(value.get("content_type") or "application/octet-stream"))
+        self.send_header("Content-Disposition", f'inline; filename="{filename}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
@@ -948,7 +960,13 @@ class ManagerHandler(BaseHTTPRequestHandler):
                         node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
                         str(body.get("set_path") or ""),
                     )
-                    self._send_json(200, {"report": report})
+                    self._send_inline_content(report)
+                elif action == "export-member-reports":
+                    result = self.server.portfolios.export_member_reports_archive(
+                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
+                        str(body.get("set_path") or ""),
+                    )
+                    self._send_download(result)
                 elif action == "log":
                     self._send_json(200, self.server.portfolios.log(
                         node_id, scope, safe_int(body.get("lines"), 500, minimum=1, maximum=5000)

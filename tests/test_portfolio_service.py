@@ -1293,35 +1293,17 @@ class PortfolioServiceTests(unittest.TestCase):
             {"disabled_symbols": [" EURUSD ", "eurusd", "XAUUSD"]},
             "ICTRADING",
         )
-        split = normalize_settings(
-            "full_history",
-            {
-                "disabled_symbols": ["EURUSD"],
-                "improvement_disabled_symbols": ["GBPUSD"],
-                "chain_improvement_disabled_symbols": ["NFLX"],
-            },
-            "ICTRADING",
-        )
         monthly = normalize_settings(
             "monthly",
             {
                 "target_month": 7,
                 "disabled_symbols": ["EURUSD"],
-                "improvement_disabled_symbols": ["GBPUSD"],
-                "chain_improvement_disabled_symbols": ["NFLX"],
             },
             "ICTRADING",
         )
 
         self.assertEqual(full["disabled_symbols"], ["EURUSD", "XAUUSD"])
-        self.assertEqual(full["improvement_disabled_symbols"], ["EURUSD", "XAUUSD"])
-        self.assertEqual(full["chain_improvement_disabled_symbols"], ["EURUSD", "XAUUSD"])
-        self.assertEqual(split["disabled_symbols"], ["EURUSD"])
-        self.assertEqual(split["improvement_disabled_symbols"], ["GBPUSD"])
-        self.assertEqual(split["chain_improvement_disabled_symbols"], ["NFLX"])
         self.assertEqual(monthly["disabled_symbols"], [])
-        self.assertEqual(monthly["improvement_disabled_symbols"], [])
-        self.assertEqual(monthly["chain_improvement_disabled_symbols"], [])
 
     def test_symbol_family_lists_excluded_sets_and_exports_only_the_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1362,8 +1344,12 @@ class PortfolioServiceTests(unittest.TestCase):
                     "final_tick_6m_status": "accepted",
                 },
             ]
+            quarantine = [{
+                "set_path": str(excluded), "quarantine_key": "ICTRADING/STANDARD|7",
+                "reason_code": "degradation", "reason_label": "Excluido por degradación",
+            }]
             with patch.object(source, "import_candidate_rows", return_value=rows), patch.object(
-                source, "quarantine_rows", return_value=[]
+                source, "quarantine_rows", return_value=quarantine
             ), patch.object(source, "used_set_paths", return_value=[str(accepted)]):
                 family = source.symbol_sets("NFLX")
                 exported = source.export_symbol_sets(
@@ -1377,6 +1363,9 @@ class PortfolioServiceTests(unittest.TestCase):
                 {row["set_name"]: row["state"] for row in family["sets"]},
                 {"NFLX_accepted.set": "used", "NFLX_excluded.set": "excluded"},
             )
+            excluded_row = next(row for row in family["sets"] if row["set_name"] == excluded.name)
+            self.assertEqual(excluded_row["quarantine_key"], "ICTRADING/STANDARD|7")
+            self.assertEqual(excluded_row["reason_code"], "degradation")
             self.assertEqual(exported["exported"], 2)
             output = Path(exported["folder"])
             self.assertEqual(
@@ -1484,8 +1473,7 @@ class PortfolioServiceTests(unittest.TestCase):
             monthly = source.inventory("monthly", normalize_settings("monthly", {"allowed_asset_groups": ["Forex"]}, "ICTRADING"))
             self.assertEqual(excluded["by_symbol"], [{
                 "symbol": "EURUSD", "total": 1, "quarantined": 1, "used": 0,
-                "available": 0, "disabled": False, "generation_disabled": False,
-                "improvement_disabled": False, "chain_improvement_disabled": False,
+                "available": 0, "disabled": False,
             }])
             self.assertEqual(monthly["available"], 0)
             self.assertTrue(monthly["quarantine_excludes"])
@@ -1546,9 +1534,6 @@ class PortfolioServiceTests(unittest.TestCase):
                     "used": 0,
                     "available": 2,
                     "disabled": False,
-                    "generation_disabled": False,
-                    "improvement_disabled": False,
-                    "chain_improvement_disabled": False,
                 },
                 {
                     "symbol": "NAS100.fs",
@@ -1557,9 +1542,6 @@ class PortfolioServiceTests(unittest.TestCase):
                     "used": 0,
                     "available": 1,
                     "disabled": False,
-                    "generation_disabled": False,
-                    "improvement_disabled": False,
-                    "chain_improvement_disabled": False,
                 },
                 {
                     "symbol": "USTECH.sa",
@@ -1568,9 +1550,6 @@ class PortfolioServiceTests(unittest.TestCase):
                     "used": 0,
                     "available": 2,
                     "disabled": False,
-                    "generation_disabled": False,
-                    "improvement_disabled": False,
-                    "chain_improvement_disabled": False,
                 },
             ]
 
@@ -1597,10 +1576,7 @@ class PortfolioServiceTests(unittest.TestCase):
                 monthly["by_symbol"],
                 [{
                     key: value for key, value in row.items()
-                    if key not in {
-                        "disabled", "generation_disabled", "improvement_disabled",
-                        "chain_improvement_disabled",
-                    }
+                    if key != "disabled"
                 } for row in expected],
             )
             self.assertEqual(monthly["symbols"], 3)

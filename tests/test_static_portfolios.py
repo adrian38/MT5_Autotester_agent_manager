@@ -102,23 +102,22 @@ class PortfolioFormTests(unittest.TestCase):
                     script,
                 )
 
-    def test_symbol_dialog_can_manage_each_exclusion_stage_independently(self) -> None:
+    def test_symbol_dialog_uses_one_disable_control_for_all_three_flows(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
         script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
         improvement = (static_dir / "portfolio_improvement.js").read_text(encoding="utf-8")
 
         self.assertIn('id="symbol-manager-dialog"', page)
-        self.assertIn('id="symbol-disable-generation"', page)
-        self.assertIn('id="symbol-disable-improvement"', page)
-        self.assertIn('id="symbol-disable-chain"', page)
+        self.assertIn('id="symbol-disabled"', page)
+        self.assertIn('Deshabilitar en construcción UBS, mejora y mejora de la mejora', page)
         self.assertIn("data-manage-symbol", script)
         self.assertIn("payload.disabled_symbols", script)
-        self.assertIn("payload.improvement_disabled_symbols", script)
-        self.assertIn("payload.chain_improvement_disabled_symbols", script)
+        self.assertNotIn("payload.improvement_disabled_symbols", script)
+        self.assertNotIn("chain_improvement_disabled_symbols", script)
         self.assertIn("postManager('settings', payload)", script)
         self.assertIn("improvement_disabled_symbols", improvement)
-        self.assertIn("chain_improvement_disabled_symbols", improvement)
+        self.assertIn("formPayload().disabled_symbols", improvement)
 
     def test_symbol_dialog_lists_and_exports_selected_family_sets(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -129,6 +128,11 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="symbol-select-all"', page)
         self.assertIn("postManager('symbol-sets'", script)
         self.assertIn("data-symbol-set", script)
+        self.assertIn("data-symbol-change-state", script)
+        self.assertIn("await askExclusionReason(", script)
+        self.assertIn("await askQuarantineTarget(", script)
+        self.assertIn("postManager('exclude'", script)
+        self.assertIn("postManager('requalify'", script)
         self.assertIn("'export-symbol-download'", script)
         self.assertIn("postManager('export-symbol'", script)
 
@@ -799,10 +803,11 @@ class ExclusionReasonScreenTests(unittest.TestCase):
         for name in self.PAGES:
             script = self.static(f"{name}.js")
             with self.subTest(script=name):
-                # Sin `reason_code` en las dos llamadas, la pantalla excluiría sin
-                # veredicto: el nodo escribiría solo la cuarentena.
-                self.assertEqual(script.count("reason_code: reasonCode"), 2)
-                self.assertEqual(script.count("await askExclusionReason("), 2)
+                # UBS normal añade la acción por set de la ventana de símbolo;
+                # las otras pantallas conservan las dos exclusiones históricas.
+                expected = 3 if name == "portfolios" else 2
+                self.assertEqual(script.count("reason_code: reasonCode"), expected)
+                self.assertEqual(script.count("await askExclusionReason("), expected)
                 self.assertIn("renderQuarantineTables(quarantine);", script)
 
     def test_the_three_reason_codes_match_the_python_side(self) -> None:

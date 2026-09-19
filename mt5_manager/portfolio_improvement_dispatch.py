@@ -76,13 +76,8 @@ def run_full_history_improvement(
             progress(
                 "Motor de mejora en cadena: el portafolio de partida ya es una mejora"
             )
-        chain_inputs = dict(inputs)
-        chain_inputs["improvement_disabled_symbols"] = inputs.get(
-            "chain_improvement_disabled_symbols",
-            inputs.get("improvement_disabled_symbols", inputs.get("disabled_symbols", [])),
-        )
         return generate_full_history_chain_improvement(
-            source, portfolio_id, chain_inputs, progress,
+            source, portfolio_id, inputs, progress,
         )
     from .portfolio_improvement_service import generate_full_history_improvement
 
