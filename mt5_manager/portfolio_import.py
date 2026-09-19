@@ -37,9 +37,10 @@ una guardada de forma normal, con sus variantes A/M/C, sus métricas y su
   guardado por un nodo sin modelo de margen.
 - **Registro de decisiones del optimizador**: es la historia de una búsqueda que
   aquí no ha ocurrido. La composición viene dada, no elegida.
-- **Sets cuyo candidato ya no existe** en la memoria del agente (rechazado o
-  borrado): no hay informes con los que reconstruirlos. Se nombran en el informe
-  de importación en vez de desaparecer en silencio.
+- **Sets cuyo candidato ya no existe** en la memoria del agente: se conserva su
+  composición desde el resumen. Si el HTML histórico de robustez sigue en
+  `reports/`, se recupera y se recalcula; si tampoco existe, sus métricas quedan
+  a 0 y el portafolio se marca claramente como cálculo incompleto.
 """
 from __future__ import annotations
 

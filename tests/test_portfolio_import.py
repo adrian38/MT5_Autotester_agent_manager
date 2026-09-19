@@ -93,6 +93,30 @@ Moderado     ICTRADING    GBPUSD       H1          1    0.01   beta.set
 """
 
 
+# Lo que exporta de verdad una mejora: `save_proposal` guarda sus miembros con
+# `variant_key` vacio —la variante es la fila entera, no una de tres— y la
+# columna PERFIL sale en blanco. Tomado de PORTAFOLIO_120/121 de RoboForex, que
+# no se podian importar. El modo solo esta en la cabecera.
+BLANK_PROFILE_IMPROVEMENT_SUMMARY = """Portafolio: Mejora del portafolio #104 | modo Agresivo
+Tipo: aggressive   Capital: 10,000
+Portafolio UID: 44444444-4444-4444-8444-444444444444
+Mejora etiqueta: Mejora del portafolio #104 | modo Agresivo
+Mejora origen: 104
+Mejora modo: aggressive
+Mejora origen UID: 11111111-1111-4111-8111-111111111111
+Mejora raiz: 104
+Mejora nivel: 1
+Mejora prioridad: balanced
+Mejora incorporaciones: 1
+DD valle objetivo: 300.00
+DD puntual objetivo: 300.00
+
+PERFIL       CUENTA       SIMBOLO      TF      UNID.    LOTE   SET
+             ICTRADING    EURUSD       H1          3    0.03   alpha.set
+             ICTRADING    GBPUSD       H1          2    0.02   beta.set
+"""
+
+
 class SummaryParsingTests(unittest.TestCase):
     def test_the_header_and_every_row_are_read_from_the_exported_summary(self) -> None:
         header, members = portfolio_import.parse_summary(SUMMARY)
@@ -289,6 +313,86 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(rows[0]["robustness_status"], "rejected")
             self.assertEqual(rows[0]["final_tick_6m_status"], "rejected")
 
+    def test_import_inventory_recovers_a_deleted_robustness_row_from_its_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            reports = project / "reports"
+            reports.mkdir()
+            recovered = reports / "robust_000001_alpha.htm"
+            recovered.write_text("informe histórico", encoding="utf-8")
+            with sqlite3.connect(source.memory) as conn:
+                conn.executescript("""
+                    create table candidates (
+                        id integer primary key,set_path text,symbol text,target_symbol text,
+                        period text,family text,report_path text,status text
+                    );
+                    create table candidate_robustness (
+                        candidate_id integer,report_path text,status text
+                    );
+                """)
+                conn.execute(
+                    "insert into candidates values (1,?,?,?,?,?,?,?)",
+                    (str(project / "alpha.set"), "XAUUSD", "XAUUSD", "H4", "", "base.htm", "rejected"),
+                )
+                conn.commit()
+            conn.close()
+
+            rows = source.import_candidate_rows()
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["oos_report_path"], str(recovered))
+            self.assertTrue(rows[0]["historical_robustness_report_recovered"])
+
+    def test_the_import_inventory_only_prepares_the_sets_of_the_export(self) -> None:
+        # Preparar la memoria entera para resolver las lineas de un resumen
+        # costaba 7,5 s y decenas de miles de `is_file()` en RoboForex (70.065
+        # candidatos) para acabar usando 18 filas. Acotar no puede cambiar el
+        # resultado: las filas relevantes tienen que ser exactamente las mismas.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            reports = project / "reports"
+            reports.mkdir()
+            (reports / "robust_000002_beta.htm").write_text("histórico", encoding="utf-8")
+            with sqlite3.connect(source.memory) as conn:
+                conn.executescript("""
+                    create table candidates (
+                        id integer primary key,set_path text,symbol text,target_symbol text,
+                        period text,family text,report_path text,status text
+                    );
+                    create table candidate_robustness (
+                        candidate_id integer,report_path text,status text
+                    );
+                """)
+                # Ruta guardada por un nodo Windows: en un manager Linux hay que
+                # cortar por los dos separadores para reconocer el nombre.
+                conn.execute(
+                    "insert into candidates values (1,?,?,?,?,?,?,?)",
+                    (r"C:\Users\nodo\outputs\alpha.set", "EURUSD", "EURUSD", "H1", "", "base.htm", "accepted"),
+                )
+                conn.execute(
+                    "insert into candidates values (2,?,?,?,?,?,?,?)",
+                    (r"C:\Users\nodo\outputs\beta.set", "GBPUSD", "GBPUSD", "H1", "", "base.htm", "accepted"),
+                )
+                conn.execute(
+                    "insert into candidates values (3,?,?,?,?,?,?,?)",
+                    (r"C:\Users\nodo\outputs\gamma.set", "USDJPY", "USDJPY", "H1", "", "base.htm", "accepted"),
+                )
+                conn.commit()
+            conn.close()
+
+            narrow = source.import_candidate_rows({"beta.set"})
+            full = source.import_candidate_rows()
+
+            self.assertEqual(len(full), 3)
+            self.assertEqual([Path(row["set_path"]).name for row in narrow], ["beta.set"])
+            relevant = [row for row in full if Path(row["set_path"]).name == "beta.set"]
+            self.assertEqual(narrow, relevant)
+            # Y el rescate del informe histórico sigue ocurriendo en la fila acotada.
+            self.assertTrue(narrow[0]["historical_robustness_report_recovered"])
+            self.assertEqual(source.import_candidate_rows(set()), [])
+
     def test_an_exported_bundle_comes_back_as_a_normal_saved_portfolio(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
@@ -405,6 +509,92 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(exported_header["improvement_portfolio_type"], "balanced")
             self.assertEqual(exported_header["improvement_selection_priority"], "stress")
             self.assertEqual(exported_header["improvement_added_count"], 1.0)
+
+    def test_an_improvement_without_profile_column_takes_its_mode_from_the_header(self) -> None:
+        # El caso real de RoboForex #120 y #121: una mejora se guarda con
+        # `variant_key` vacio, asi que su resumen no tiene perfil. Sin leer el
+        # modo de la cabecera la variante caia en «variant_1» y la importacion
+        # moria con «La identidad de mejora ... no coincide con su composicion».
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            strategies = [
+                strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0),
+                strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+            ]
+            header, members = portfolio_import.parse_summary(BLANK_PROFILE_IMPROVEMENT_SUMMARY)
+            self.assertEqual({member.variant_label for member in members}, {""})
+            self.assertEqual([member.units for member in members], [3, 2])
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+            ):
+                proposals, selected_key, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+                portfolio_id = save_proposal(source, proposals, selected_key, "full_history")
+
+            self.assertEqual(selected_key, "aggressive")
+            self.assertEqual(report["variants"], ["aggressive"])
+            saved = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+            self.assertEqual(saved["portfolio_type"], "aggressive")
+            self.assertEqual(saved["improvement_origin"]["source_id"], 104)
+            self.assertEqual(saved["improvement_origin"]["mode"], "aggressive")
+            self.assertEqual(
+                {Path(member["set_path"]).name for member in saved["members"]},
+                {"alpha.set", "beta.set"},
+            )
+            # Y la reexportacion ya no vuelve a perder el perfil.
+            for set_name in ("alpha.set", "beta.set"):
+                (project / set_name).write_text("Risk=1\n", encoding="utf-8")
+            exported = source.export_portfolio(portfolio_id, "full_history", str(project / "exported"))
+            _header, exported_members, _sets = portfolio_import.read_export(exported["folder"])
+            self.assertEqual({member.variant_label for member in exported_members}, {"Agresivo"})
+
+    def test_an_export_that_repeats_its_parent_uid_gets_its_own_identity(self) -> None:
+        # PORTAFOLIO_121 de RoboForex venia con el UID de su origen #120 como
+        # propio. Conservarlo dejaria dos filas con la misma identidad y una
+        # mejora que se compara consigo misma.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            strategies = [
+                strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0),
+                strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+            ]
+            header, members = portfolio_import.parse_summary(
+                BLANK_PROFILE_IMPROVEMENT_SUMMARY.replace(
+                    "Portafolio UID: 44444444-4444-4444-8444-444444444444",
+                    "Portafolio UID: 11111111-1111-4111-8111-111111111111",
+                )
+            )
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+            ):
+                proposals, selected_key, _report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+                portfolio_id = save_proposal(source, proposals, selected_key, "full_history")
+
+            self.assertNotEqual(
+                proposals[0]["inputs"].get("portfolio_uid"),
+                "11111111-1111-4111-8111-111111111111",
+            )
+            self.assertEqual(
+                proposals[0]["inputs"]["improvement_parent_uid"],
+                "11111111-1111-4111-8111-111111111111",
+            )
+            self.assertTrue(any(
+                "identidad propia" in warning
+                for warning in proposals[0]["result"].warnings
+            ))
+            saved = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+            self.assertEqual(saved["improvement_origin"]["source_uid"], "11111111-1111-4111-8111-111111111111")
 
     def test_a_chained_improvement_round_trip_keeps_label_lineage_and_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -548,7 +738,7 @@ class ImportRoundTripTests(unittest.TestCase):
             # La curva viene del cálculo, no del resumen, que no la lleva.
             self.assertGreater(len(json.loads(saved["metrics_json"])["equity_curve_2020_2026"]), 1)
 
-    def test_a_set_that_is_no_longer_a_candidate_is_named_not_dropped(self) -> None:
+    def test_a_set_without_any_reports_is_kept_and_marks_the_calculation_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             source = self._source(project)
@@ -565,24 +755,62 @@ class ImportRoundTripTests(unittest.TestCase):
                 )
 
             self.assertEqual(report["unresolved"], ["beta.set"])
-            self.assertEqual(report["strategies"], 1)
+            self.assertEqual(report["unmeasured"], ["beta.set"])
+            self.assertFalse(report["calculation_complete"])
+            self.assertEqual(report["strategies"], 2)
             self.assertTrue(all(
                 {allocation.set_id for allocation in proposal["result"].allocations}
-                == {str(project / "alpha.set")}
+                == {str(project / "alpha.set"), "beta.set"}
                 for proposal in proposals
             ))
+            placeholder = next(
+                allocation
+                for allocation in proposals[0]["result"].allocations
+                if allocation.set_id == "beta.set"
+            )
+            self.assertEqual(placeholder.units, 2)
+            self.assertEqual(placeholder.lot, 0.02)
+            self.assertIn("No reconstruido", placeholder.floating_dd_source)
+            self.assertTrue(any("Cálculo incompleto" in warning for warning in report["warnings"]))
 
-    def test_nothing_reconstructible_is_a_clear_error(self) -> None:
+    def test_a_portfolio_without_any_reports_still_preserves_its_composition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             source = self._source(project)
             header, members = portfolio_import.parse_summary(SUMMARY)
 
             with patch.object(PortfolioSource, "import_candidate_rows", return_value=[]):
-                with self.assertRaises(ValueError) as raised:
-                    build_import_proposals(source, "full_history", header, members)
+                proposals, _selected, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
 
-            self.assertIn("candidato", str(raised.exception))
+            self.assertEqual(report["strategies"], 2)
+            self.assertEqual(report["unmeasured"], ["alpha.set", "beta.set"])
+            self.assertFalse(report["calculation_complete"])
+            self.assertTrue(all(len(proposal["result"].allocations) == 2 for proposal in proposals))
+            self.assertTrue(all(proposal["result"].total_net_profit == 0 for proposal in proposals))
+
+    def test_a_matched_candidate_with_an_unreadable_report_is_kept_unmeasured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            candidates = self._candidates(project)
+            only_alpha = [strategy(str(project / "alpha.set"), "EURUSD", 1, 900.0)]
+            header, members = portfolio_import.parse_summary(SUMMARY)
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=candidates
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                return_value=(only_alpha, ["1 candidato omitido: reporte ilegible"]),
+            ):
+                proposals, _selected, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+
+            self.assertEqual(report["unmeasured"], ["beta.set"])
+            self.assertTrue(any("reporte ilegible" in warning for warning in report["warnings"]))
+            self.assertTrue(all(len(proposal["result"].allocations) == 2 for proposal in proposals))
 
     def test_a_changed_current_verdict_warns_but_does_not_remove_the_exported_set(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -590,8 +818,9 @@ class ImportRoundTripTests(unittest.TestCase):
             source = self._source(project)
             candidates = self._candidates(project)
             candidates[0].update({
-                "base_status": "accepted", "robustness_status": "rejected",
+                "base_status": "rejected", "robustness_status": "",
                 "final_tick_status": "", "final_tick_6m_status": "",
+                "historical_robustness_report_recovered": True,
             })
             candidates[1].update({
                 "base_status": "accepted", "robustness_status": "accepted",
@@ -616,7 +845,8 @@ class ImportRoundTripTests(unittest.TestCase):
             self.assertEqual(report["strategies"], 2)
             self.assertTrue(all(len(proposal["result"].allocations) == 2 for proposal in proposals))
             self.assertTrue(any("exactamente desde el ZIP" in warning for warning in report["warnings"]))
-            self.assertTrue(any("robustez=rejected" in warning for warning in report["warnings"]))
+            self.assertTrue(any("base=rejected" in warning for warning in report["warnings"]))
+            self.assertTrue(any("informe histórico recuperado" in warning for warning in report["warnings"]))
             self.assertTrue(any("Final Tick 6M=rejected" in warning for warning in report["warnings"]))
 
     def test_a_monthly_export_recovers_its_target_month_from_the_name(self) -> None:

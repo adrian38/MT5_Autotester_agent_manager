@@ -19,6 +19,7 @@ import urllib.request
 import uuid
 import zlib
 import zipfile
+from collections.abc import Iterable
 from dataclasses import asdict, fields
 from datetime import datetime
 from pathlib import Path
@@ -64,6 +65,7 @@ from . import candidate_verdict, dev_branch, portfolio_import
 from .common import load_json, safe_float, safe_int, save_json, utc_now
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 from .portfolio_full_experimental import optimize_experimental_full_portfolio
+from .stage_reports import recover_robustness_report
 
 
 ASSET_GROUPS = ("Forex", "Metals", "Indices", "Energies", "Crypto", "Stocks", "Bonds", "Softs")
@@ -588,6 +590,17 @@ def _is_bundle_portfolio(detail: dict[str, Any]) -> bool:
     )
 
 
+def _stored_path_name(value: Any) -> str:
+    """Nombre de fichero de una ruta guardada, venga del SO que venga.
+
+    Las rutas de la memoria las escribió un nodo Windows, así que en el manager
+    Linux `Path(...).name` devolvería la ruta entera: aquí hay que cortar por
+    los dos separadores antes de comparar nombres, igual que hace
+    `_resolve_source_path` antes de reubicar.
+    """
+    return str(value or "").strip().replace("\\", "/").rsplit("/", 1)[-1].casefold()
+
+
 def _resolve_source_path(value: Any, project: Path) -> str:
     text = str(value or "").strip()
     if not text:
@@ -975,7 +988,12 @@ class PortfolioSource:
                 result = [row for row in result if self._path_key(row.get("set_path")) not in quarantined]
         return result
 
-    def import_candidate_rows(self, *, include_without_robustness: bool = False) -> list[dict[str, Any]]:
+    def import_candidate_rows(
+        self,
+        set_names: Iterable[str] | None = None,
+        *,
+        include_without_robustness: bool = False,
+    ) -> list[dict[str, Any]]:
         """Devuelve candidatos reconstruibles sin volver a filtrar su veredicto.
 
         Un cálculo nuevo solo puede usar el pool que superó las cuatro etapas,
@@ -987,10 +1005,26 @@ class PortfolioSource:
 
         Siguen siendo imprescindibles el candidato y sus informes base/OOS;
         ``load_robust_sets_from_rows`` nombrará cualquier informe ausente o
-        ilegible en vez de inventar métricas. La ventana de familia activa
-        ``include_without_robustness`` para inventariar además los sets que aún
-        no llegaron a esa etapa; nunca se usa esa ampliación para reconstruir.
+        ilegible en vez de inventar métricas.
+
+        ``set_names`` acota el inventario a los ficheros que el ZIP realmente
+        necesita. Sin él hay que preparar la memoria entera —70.065 candidatos
+        en RoboForex— para resolver las 18 líneas de un resumen: cada fila sin
+        robustez vigente cuesta además hasta dos ``is_file()`` buscando su
+        informe histórico, y son decenas de miles contra el disco del agente.
+
+        Una fila sin robustez vigente entra igual —de ahí el ``left join``—
+        porque el agente puede borrar esa fila al degradar el veredicto y el
+        informe sigue en ``reports/``. ``include_without_robustness`` amplía eso
+        un paso más: admite una memoria que aún no tiene siquiera la tabla
+        ``candidate_robustness``, lo que necesita la ventana de familia para
+        listar sets que no han llegado a la etapa. Nunca se usa esa ampliación
+        para reconstruir un portafolio.
         """
+        wanted = (
+            {_stored_path_name(name) for name in set_names if str(name or "").strip()}
+            if set_names is not None else None
+        )
         result: list[dict[str, Any]] = []
         for account_label, memory in self.memory_sources:
             with self.connect_memory(memory) as conn:
@@ -1000,8 +1034,7 @@ class PortfolioSource:
                 if not has_robustness and not include_without_robustness:
                     continue
                 robustness_join = (
-                    ("left join" if include_without_robustness else "join")
-                    + " candidate_robustness cr on cr.candidate_id=c.id"
+                    "left join candidate_robustness cr on cr.candidate_id=c.id"
                     if has_robustness else ""
                 )
                 oos_report_sql = "cr.report_path" if has_robustness else "null"
@@ -1055,7 +1088,18 @@ class PortfolioSource:
                     (account_label, account_label),
                 ).fetchall()
             for db_row in rows:
+                if wanted is not None and _stored_path_name(db_row["set_path"]) not in wanted:
+                    continue
                 item = dict(db_row)
+                if not str(item.get("oos_report_path") or "").strip():
+                    historical_report = recover_robustness_report(
+                        self.project,
+                        item.get("source_candidate_id"),
+                        item.get("set_path"),
+                    )
+                    if historical_report:
+                        item["oos_report_path"] = historical_report
+                        item["historical_robustness_report_recovered"] = True
                 final_tick_metrics = item.pop("final_tick_metrics_json", None)
                 if final_tick_metrics:
                     try:
@@ -2213,7 +2257,14 @@ class PortfolioSource:
                 shutil.copy2(source_path, destination_path)
                 copied.add(key)
             exported.append({
-                "variant": member.get("variant_label") or member.get("variant_key") or "",
+                # Un portafolio de una sola variante (una mejora, un mensual) se
+                # guarda con `variant_key` y `variant_label` vacios: la variante
+                # es la fila entera. Sin este respaldo la columna PERFIL sale en
+                # blanco y el resumen deja de decir en que modo se guardo.
+                "variant": (
+                    member.get("variant_label") or member.get("variant_key")
+                    or TYPE_LABELS.get(str(detail.get("portfolio_type") or ""), "")
+                ),
                 "account": str(member.get("candidate_id") or "").split(":", 1)[0] or self.account,
                 "symbol": member.get("symbol") or "", "timeframe": member.get("timeframe") or "",
                 "units": int(member.get("units") or 0), "lot": float(member.get("lot") or 0), "set": source_path.name,
@@ -3631,7 +3682,7 @@ def build_import_proposals(
     # ese inventario pertenece a cálculos nuevos y elimina estrategias cuyo
     # veredicto actual ya no supera las cuatro etapas, que fue precisamente lo
     # que convirtió una exportación real de 7 sets en un portafolio de 4.
-    candidates = source.import_candidate_rows()
+    candidates = source.import_candidate_rows({str(member.set_name) for member in members})
     by_name: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
         by_name.setdefault(Path(str(row.get("set_path") or "")).name.casefold(), []).append(row)
@@ -3650,17 +3701,15 @@ def build_import_proposals(
             ambiguous.append(name)
         else:
             resolved[key] = matches[0]
-    if not resolved:
-        raise ValueError(
-            "Ninguno de los sets del portafolio exportado sigue siendo un candidato de "
-            "este nodo: no hay informes con los que reconstruirlo"
-        )
     rows = list(resolved.values())
     changed_verdicts = []
     for row in rows:
+        robustness_status = str(row.get("robustness_status") or "")
+        if row.get("historical_robustness_report_recovered"):
+            robustness_status = "sin fila vigente; informe histórico recuperado"
         statuses = {
             "base": str(row.get("base_status") or ""),
-            "robustez": str(row.get("robustness_status") or ""),
+            "robustez": robustness_status,
             "Final Tick": str(row.get("final_tick_status") or ""),
             "Final Tick 6M": str(row.get("final_tick_6m_status") or ""),
         }
@@ -3676,9 +3725,11 @@ def build_import_proposals(
             "veredictos actuales hayan cambiado."
         )
         warnings.append("Veredictos actuales: " + " | ".join(changed_verdicts))
-    if not strategies:
-        raise ValueError("No se pudo reconstruir ninguna estrategia desde sus informes")
     path_by_name = {Path(str(row.get("set_path") or "")).name.casefold(): str(row.get("set_path") or "") for row in rows}
+    row_by_name = {
+        Path(str(row.get("set_path") or "")).name.casefold(): row
+        for row in rows
+    }
     capital = float(header.get("capital") or 0)
     target_valley = float(header.get("target_valley_dd") or 0)
     target_point = float(header.get("target_point_dd") or 0) or target_valley
@@ -3686,6 +3737,30 @@ def build_import_proposals(
     if scope == "monthly" and target_month:
         strategies, monthly_warnings = slice_strategy_sets_to_month(strategies, int(target_month))
         warnings.extend(monthly_warnings)
+    loaded_paths = {str(strategy.set_id) for strategy in strategies}
+    unmeasured: list[str] = []
+    for member in members:
+        name = str(member.set_name)
+        key = name.casefold()
+        set_path = path_by_name.get(key)
+        if (not set_path or set_path not in loaded_paths) and name not in unmeasured:
+            unmeasured.append(name)
+    if unresolved:
+        warnings.append(
+            "Sin candidato actual ni informes localizables; se conservaron sin métricas: "
+            + ", ".join(unresolved)
+        )
+    if ambiguous:
+        warnings.append(
+            "Nombre con varios candidatos posibles; se conservó sin elegir métricas al azar: "
+            + ", ".join(ambiguous)
+        )
+    if unmeasured:
+        warnings.append(
+            "Cálculo incompleto al importar: se conservaron composición, unidades y lotes, "
+            "pero beneficio y drawdown no incluyen las estrategias sin informes: "
+            + ", ".join(unmeasured)
+        )
     by_set = {strategy.set_id: strategy for strategy in strategies}
     order: list[str] = []
     grouped: dict[str, list[Any]] = {}
@@ -3693,22 +3768,55 @@ def build_import_proposals(
         if member.variant_label not in order:
             order.append(member.variant_label)
         grouped.setdefault(member.variant_label, []).append(member)
+    # La columna PERFIL sale en blanco en todo portafolio de una sola variante
+    # —una mejora o un mensual—, porque `save_proposal` guarda sus miembros con
+    # `variant_key` vacio: la variante es la fila entera, no una de tres. La
+    # cabecera si dice el modo («Tipo:» y, en una mejora, «Mejora modo:»), y sin
+    # ese respaldo la variante caia en `variant_1`, que no es ningun modo
+    # conocido: el guardado perdia el tipo y una mejora fallaba antes, al
+    # comprobar que su composicion corresponde al modo exportado.
+    blank_variant_key = next(
+        (
+            value for value in (
+                str(header.get("improvement_portfolio_type") or "").strip().lower(),
+                str(header.get("portfolio_type") or "").strip().lower(),
+            )
+            if value in TYPE_LABELS
+        ),
+        "",
+    )
+    exported_uid = _valid_portfolio_uid(header.get("portfolio_uid"))
+    exported_parent_uid = _valid_portfolio_uid(header.get("improvement_parent_uid"))
+    if exported_uid and exported_uid == exported_parent_uid:
+        # Una cartera no puede ser su propio origen. Un resumen que repite el UID
+        # del padre —lo hace la exportación de una mejora de una mejora— haría
+        # que las dos importaciones compartieran identidad y que la cadena se
+        # midiera contra sí misma. Se descarta el UID repetido: la fila
+        # importada recibe identidad propia y conserva el enlace al padre.
+        warnings.append(
+            "El resumen traía como UID del portafolio el de su origen "
+            f"({exported_uid}); se descarta y se le asigna identidad propia."
+        )
+        exported_uid = ""
     proposals: list[dict[str, Any]] = []
     skipped: list[str] = []
     for label in order:
         units: dict[str, int] = {}
         lots: dict[str, float] = {}
+        unmeasured_members: dict[str, Any] = {}
         for member in grouped[label]:
             set_path = path_by_name.get(str(member.set_name).casefold())
             if not set_path or set_path not in by_set:
-                if member.set_name not in skipped:
-                    skipped.append(member.set_name)
+                name = str(member.set_name)
+                unmeasured_members[name.casefold()] = member
                 continue
             units[set_path] = units.get(set_path, 0) + int(member.units)
             lots[set_path] = float(member.lot)
-        if not units:
+        if not units and not unmeasured_members:
             continue
         key = portfolio_import.variant_key_for(label, order)
+        if not label.strip() and blank_variant_key:
+            key = blank_variant_key
         inputs: dict[str, Any] = {
             "capital": capital,
             "valley_dd_pct": target_valley * 100.0 / capital if capital > 0 else 0.0,
@@ -3741,6 +3849,38 @@ def build_import_proposals(
             )
             for strategy in strategies if units.get(strategy.set_id, 0) > 0
         ]
+        for member in unmeasured_members.values():
+            name = str(member.set_name)
+            row = row_by_name.get(name.casefold()) or {}
+            set_path = str(row.get("set_path") or name)
+            if name in unresolved:
+                missing_reason = "No reconstruido al importar: no existe candidato ni informe"
+            elif name in ambiguous:
+                missing_reason = "No reconstruido al importar: varios candidatos posibles"
+            else:
+                missing_reason = "No reconstruido al importar: faltan informes legibles"
+            allocations.append(StrategyAllocation(
+                set_id=set_path,
+                candidate_id=str(row.get("candidate_id") or f"importado-sin-informes:{name}"),
+                symbol=str(member.symbol),
+                units=int(member.units),
+                lot=float(member.lot),
+                net_profit_contribution=0.0,
+                standalone_valley_dd=0.0,
+                standalone_point_dd=0.0,
+                timeframe=str(member.timeframe),
+                set_path=set_path,
+                is_report_path=str(row.get("is_report_path") or ""),
+                oos_report_path=str(row.get("oos_report_path") or ""),
+                floating_dd_source=missing_reason,
+            ))
+        if unmeasured_members:
+            inputs["import_calculation_complete"] = False
+            inputs["import_unmeasured_sets"] = [
+                str(member.set_name) for member in unmeasured_members.values()
+            ]
+        else:
+            inputs["import_calculation_complete"] = True
         result = PortfolioResult(
             allocations=allocations,
             equity_curve_2020_2026=evaluation.equity_curve_2020_2026,
@@ -3748,9 +3888,14 @@ def build_import_proposals(
             actual_valley_dd=evaluation.valley_dd, actual_point_dd=evaluation.point_dd,
             target_valley_dd=target_valley, target_point_dd=target_point,
             valley_usage_pct=evaluation.valley_usage_pct, point_usage_pct=evaluation.point_usage_pct,
-            total_lot=evaluation.total_lot, total_units=evaluation.total_units,
-            active_strategies=evaluation.active_strategies,
-            stop_reason="Composición importada de una exportación previa",
+            total_lot=sum(allocation.lot for allocation in allocations),
+            total_units=sum(allocation.units for allocation in allocations),
+            active_strategies=len(allocations),
+            stop_reason=(
+                "Composición importada; cálculo incompleto por informes ausentes"
+                if unmeasured_members
+                else "Composición importada de una exportación previa"
+            ),
             warnings=list(warnings), decision_log=[],
             group_summary=portfolio_group_summary(strategies, units),
             stress_bootstrap=bootstrap_valley_drawdown(
@@ -3773,10 +3918,14 @@ def build_import_proposals(
             floating_dd_buffer=evaluation.floating_dd_buffer,
             enforce_point_dd=False,
         )
-        proposals.append({"key": key, "label": label.strip() or key, "inputs": inputs, "result": result})
+        proposals.append({
+            "key": key,
+            "label": label.strip() or TYPE_LABELS.get(key, key),
+            "inputs": inputs,
+            "result": result,
+        })
     if not proposals:
         raise ValueError("El resumen no dejó ninguna variante reconstruible")
-    exported_uid = _valid_portfolio_uid(header.get("portfolio_uid"))
     if exported_uid:
         for proposal in proposals:
             proposal.setdefault("inputs", {})["portfolio_uid"] = exported_uid
@@ -3806,7 +3955,7 @@ def build_import_proposals(
         label = str(header.get("improvement_label") or "").strip()
         if label:
             proposal_inputs["improvement_label"] = label[:240]
-        parent_uid = _valid_portfolio_uid(header.get("improvement_parent_uid"))
+        parent_uid = exported_parent_uid
         if parent_uid:
             proposal_inputs["improvement_parent_uid"] = parent_uid
         root_id = safe_int(header.get("improvement_root_portfolio_id"), improvement_source_id)
@@ -3904,6 +4053,8 @@ def build_import_proposals(
         "unresolved": unresolved,
         "ambiguous": ambiguous,
         "skipped": skipped,
+        "calculation_complete": not unmeasured,
+        "unmeasured": unmeasured,
         "warnings": warnings,
         "target_month": target_month,
         "improvement_origin": {

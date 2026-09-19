@@ -42,7 +42,7 @@ texto, el número coincidiría y la prueba fallaría.
 | --- | --- |
 | Margen por estrategia | La exportación no lo lleva y depende de la cuenta y de las specs del símbolo en el momento del cálculo. Queda a 0. |
 | Registro de decisiones del optimizador | Es la historia de una búsqueda que aquí no ocurrió: la composición viene dada, no elegida. |
-| Sets cuyo candidato ya no existe | Sin informes no hay nada que reconstruir. Se nombran en el resultado (`unresolved`) en vez de desaparecer. |
+| Sets cuyo candidato o informes ya no existen | La composición, unidades y lotes se conservan. La estrategia queda marcada sin métricas y el cálculo global avisa que beneficio/DD son incompletos. |
 | Mes objetivo, si el nombre no lo lleva | No es un campo del resumen: viaja en el nombre («Moderado \| Mes 08 \| …»). Sin él, un mensual se evaluaría sobre la curva completa; `_imported_target_month` lo extrae de ahí. |
 
 ## Identidad de una mejora exportada
@@ -81,8 +81,8 @@ La escritura del nombre real ocurre en el nodo embebido. En `dev` se actualizó
 la copia ICTrading autorizada para usar `improvement_label` cuando existe; AXI y
 RoboForex quedan pendientes del port que realiza el usuario.
 
-Un nombre de set que aparece en dos candidatos distintos se marca `ambiguous` y
-se deja fuera: elegir uno al azar comprometería el set equivocado.
+Un nombre de set que aparece en dos candidatos distintos se conserva sin
+métricas y se marca `ambiguous`: no se elige uno al azar.
 
 ## La composición exportada es autoritativa
 
@@ -99,6 +99,103 @@ para cálculos nuevos. La separación corrigió el caso real del
 restaurado como portafolio #15 de solo 4 porque XAUCHF estaba rechazado en Final
 Tick 6M y USDJPY/XAGUSD en robustez. Con el inventario de importación se
 reconstruyen los 7 en las tres variantes, sin unresolved, ambiguous ni skipped.
+
+## Composición exacta aunque falten filas o informes (2026-09-15)
+
+La importación no puede guardar un subconjunto del ZIP. El caso real fue
+`PORTAFOLIO_46_resumen.zip`: contenía 10 sets, incluido
+`XAUUSD_H4_GOLD_XAUUSD_H4_GOLD_5e988f6b_g002_s013_v008.set`, pero la memoria
+actual de RoboForex ya no tenía su fila de robustez. El importador creó el #122
+con 9 sets y omitió XAUUSD. El mismo riesgo existía en AXI e ICTrading para
+cualquier candidato o informe ausente/ilegible.
+
+La ausencia de robustez de ese XAUUSD no fue pérdida del fichero. Antes de la
+corrección de contrato de normalización de RoboForex del 2026-08-10, el candidato
+#4348 tenía net normalizado 411,98, estado base `accepted` y robustez `accepted`.
+La normalización correcta de metales aplicó factor 0,227753: el net normalizado
+quedó en 93,83, por debajo del mínimo 100, y el estado base pasó a `rejected`
+con motivo `net_profit`. La limpieza coherente de etapas borró entonces sus
+filas de robustez, Final Tick y posteriores; el HTML de robustez
+`robust_004348_...htm` permanece en disco y la memoria previa a la corrección
+conserva la fila antigua. Por tanto, la rareza es histórica pero explicable: el
+portafolio se creó con el criterio de normalización antiguo y se importó contra
+el veredicto vigente corregido.
+
+La composición del ZIP siempre se conserva. La reconstrucción sigue este orden:
+
+1. usa la fila de robustez vigente cuando existe;
+2. si la fila fue limpiada, busca el HTML histórico determinista
+   `reports/robust_<candidate_id>_<set>.htm` y recalcula con él;
+3. si tampoco existe un informe legible, guarda de todos modos el miembro con
+   símbolo, timeframe, unidades, lote y set del resumen, pero con métricas a 0 y
+   `floating_dd_source="No reconstruido al importar: ..."`.
+
+El tercer caso añade `import_calculation_complete=false`, enumera los sets en
+`import_unmeasured_sets` y avisa que el beneficio y DD globales sólo representan
+las estrategias medibles. No se atribuyen métricas inventadas. La recuperación
+y las marcas viven en el manager antes de `/api/v1/portfolios/save`; protegen
+todos los nodos sin cambios en sus `manager_node_runtime/`.
+
+## El perfil de una mejora no viaja en la tabla (2026-09-17)
+
+`save_proposal` guarda un portafolio de **una sola variante** —una mejora, o
+cualquier mensual— con `variant_key` y `variant_label` vacíos: la variante es la
+fila entera, no una de tres (`key = str(proposal["key"]) if bundle else ""`).
+La exportación leía el perfil de ese miembro, así que la columna PERFIL del
+resumen salía **en blanco**, y al importar `variant_key_for("")` no reconocía
+ningún modo y devolvía `variant_1`. En una mejora eso chocaba con la
+comprobación de identidad y abortaba:
+
+> La identidad de mejora de la exportación no coincide con su composición:
+> esperaba solo el modo Agresivo
+
+Casos reales: `PORTAFOLIO_120_aggressive` y `PORTAFOLIO_121_aggressive` de
+RoboForex, imposibles de reimportar después de borrar sus filas. Un mensual no
+fallaba, pero se guardaba con `portfolio_type="variant_1"`.
+
+El modo sí está en la cabecera (`Tipo:` y, en una mejora, `Mejora modo:`), que
+es de dónde se toma ahora cuando el perfil viene vacío. Además la exportación
+rellena la columna desde el tipo del portafolio, para que los resúmenes nuevos
+se expliquen solos. Ambos extremos son del manager: ningún nodo cambia.
+
+### Una mejora no puede ser su propio origen
+
+`PORTAFOLIO_121` traía como `Portafolio UID` el de su origen `#120`, el mismo
+valor que su `Mejora origen UID`. Conservarlo dejaría dos filas importadas con
+la misma identidad y una cadena que se compara consigo misma, en silencio. La
+importación descarta ese UID repetido, avisa y deja que la fila reciba
+identidad propia; el enlace al padre se conserva en `improvement_parent_uid`.
+El origen del UID duplicado está en la creación de la mejora encadenada, no en
+la importación: no se ha podido reproducir porque el usuario ya había borrado
+`#120` y `#121` de la memoria de RoboForex.
+
+## Cuánto cuesta importar y por qué (2026-09-17)
+
+Medido con `PORTAFOLIO_121` (18 sets) contra la memoria real de RoboForex,
+proceso frío:
+
+| Etapa | Antes | Ahora |
+| --- | --- | --- |
+| `import_candidate_rows` | 7,5 s — 70.065 filas | 0,8 s — 18 filas |
+| Parseo de informes MT5 (`cached_report`, 63 ficheros, 55 MB) | 8,5 s | 8,5 s |
+| `bootstrap_valley_drawdown` | 3,1 s | 3,1 s |
+| **Total** | **19,5 s** | **12,3 s** |
+
+El inventario de importación no filtra por veredicto —es su contrato—, así que
+preparaba la memoria **entera** para resolver 18 nombres: además de las 70.065
+filas, cada una sin robustez vigente (51.231) sondea hasta dos `is_file()`
+buscando su informe histórico. Son ~100.000 accesos a disco, y en el manager
+ese disco es el recurso de red del agente. Ahora `build_import_proposals` pasa
+los nombres del resumen y el filtro se aplica antes de resolver rutas y sondear
+informes; las filas relevantes son exactamente las mismas, con una prueba que
+lo fija.
+
+Lo que queda es trabajo real y compartido con cualquier cálculo: parsear los
+informes de los sets (55 MB de HTML para 18 estrategias, cacheados por
+mtime/tamaño mientras viva el proceso del manager) y el bootstrap de la curva.
+Aparte, `invalidate_after_exclusion` invalida el snapshot de la memoria al
+terminar, así que la primera lectura posterior vuelve a copiarla: eso es la
+recarga de la pantalla, no la importación.
 
 ## Transporte: el reflejo de la exportación
 

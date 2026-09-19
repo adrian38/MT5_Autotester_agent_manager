@@ -12,6 +12,8 @@ from portfolio_manager.ubs_portfolio import (
     strategy_correlation_pair,
 )
 
+from .stage_reports import recover_base_report, recover_robustness_report
+
 
 @dataclass(frozen=True)
 class ImprovementOptions:
@@ -61,19 +63,48 @@ def member_rows(
     members: Iterable[dict[str, Any]],
     *,
     resolve_path: Callable[[Any], str] | None = None,
+    project: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Rebuild the accepted-pipeline row shape without querying candidate status again."""
+    """Rebuild the accepted-pipeline row shape without querying candidate status again.
+
+    Con ``project`` se recuperan además del disco los dos informes obligatorios
+    —base y robustez— cuando el miembro guardado no los tiene. Un portafolio
+    guardado antes de que el agente rechazara el candidato puede haber perdido
+    la ruta de robustez junto con la fila de la etapa; el informe sigue en
+    ``reports/``. Sin esta recuperación la estrategia no se reconstruye y la
+    mejora aborta, que es exactamente retirar un original por un cambio de
+    veredicto: lo contrario del invariante de la base original.
+
+    No se recuperan Final Tick continuo ni Final Tick 6M: son opcionales y
+    añadirlos cambiaría el riesgo y el aporte reciente con los que se guardó el
+    portafolio. La fila recuperada queda marcada con
+    ``historical_reports_recovered`` para que el motor pueda avisarlo.
+    """
     resolve = resolve_path or (lambda value: str(value or ""))
-    return [
-        {
+    rows: list[dict[str, Any]] = []
+    for item in members:
+        set_path = resolve(item.get("set_path") or item.get("set_id"))
+        is_report_path = resolve(item.get("is_report_path"))
+        oos_report_path = resolve(item.get("oos_report_path"))
+        recovered = False
+        if project is not None:
+            if not is_report_path:
+                is_report_path = recover_base_report(project, set_path)
+                recovered = recovered or bool(is_report_path)
+            if not oos_report_path:
+                oos_report_path = recover_robustness_report(
+                    project, item.get("candidate_id"), set_path,
+                )
+                recovered = recovered or bool(oos_report_path)
+        rows.append({
             "candidate_id": item.get("candidate_id"),
-            "set_path": resolve(item.get("set_path") or item.get("set_id")),
+            "set_path": set_path,
             "symbol": item.get("symbol"),
             "target_symbol": item.get("symbol"),
             "period": item.get("timeframe"),
             "family": "",
-            "is_report_path": resolve(item.get("is_report_path")),
-            "oos_report_path": resolve(item.get("oos_report_path")),
+            "is_report_path": is_report_path,
+            "oos_report_path": oos_report_path,
             "final_tick_report_path": resolve(item.get("final_tick_report_path")),
             "full_history_report_path": resolve(item.get("full_history_report_path")),
             "max_balance_dd_001": item.get("max_balance_dd_001"),
@@ -82,9 +113,9 @@ def member_rows(
             "recent_net_profit_001": item.get("recent_net_profit_001"),
             "recent_equity_dd_001": item.get("recent_equity_dd_001"),
             "has_recent_performance": item.get("has_recent_performance"),
-        }
-        for item in members
-    ]
+            "historical_reports_recovered": recovered,
+        })
+    return rows
 
 
 def allocation_units(

@@ -70,6 +70,98 @@ class ImprovementOptionsTests(unittest.TestCase):
             rows[0]["oos_report_path"], "/data/agent/reports/robust_one.htm"
         )
 
+    def test_a_changed_verdict_does_not_erase_an_original_with_reports_on_disk(self) -> None:
+        """Reproduce el #123 de RoboForex: XAUUSD sin ruta de robustez guardada.
+
+        El agente rechazó el candidato 4348 después de guardar el portafolio y
+        borró su fila de robustez, así que la asignación quedó con
+        ``oos_report_path`` vacío. El informe sigue en ``reports/``. Sin
+        recuperarlo, la mejora aborta con «no se pudieron reconstruir todas las
+        estrategias originales», que es retirar un original por un cambio de
+        veredicto.
+        """
+        stem = "XAUUSD_H4_GOLD_XAUUSD_H4_GOLD_5e988f6b_g002_s013_v008"
+        with tempfile.TemporaryDirectory() as folder:
+            project = Path(folder)
+            reports = project / "reports"
+            reports.mkdir()
+            (reports / f"{stem}.htm").write_text("base", encoding="utf-8")
+            (reports / f"robust_004348_{stem}.htm").write_text("oos", encoding="utf-8")
+            member = {
+                "candidate_id": "ROBOFOREX/ECN:4348",
+                "set_path": f"/data/roboforex/outputs/ubs_agent/ECN/{stem}.set",
+                "is_report_path": f"/data/roboforex/reports/{stem}.htm",
+                "oos_report_path": "",
+            }
+            resolve = lambda value: str(value or "").replace(
+                "/data/roboforex", str(project)
+            ).replace("/", "\\") if value else ""
+
+            without = member_rows([member], resolve_path=resolve)
+            with_project = member_rows([member], resolve_path=resolve, project=project)
+
+        self.assertEqual(without[0]["oos_report_path"], "")
+        self.assertFalse(without[0]["historical_reports_recovered"])
+        self.assertEqual(
+            with_project[0]["oos_report_path"],
+            str(reports / f"robust_004348_{stem}.htm"),
+        )
+        self.assertTrue(with_project[0]["historical_reports_recovered"])
+
+    def test_recovery_never_invents_the_optional_final_tick_reports(self) -> None:
+        """Final Tick continuo y 6M son opcionales: recuperarlos cambiaría el
+        riesgo y el aporte reciente con los que se evaluó la base guardada."""
+        stem = "EURUSD_M30_Advanced_Scalper_a57fa43e_g002_s010_v007"
+        with tempfile.TemporaryDirectory() as folder:
+            project = Path(folder)
+            reports = project / "reports"
+            reports.mkdir()
+            for name in (
+                f"{stem}.htm",
+                f"robust_019917_{stem}.htm",
+                f"tick_019917_{stem}.htm",
+                f"tick6m_019917_{stem}.htm",
+            ):
+                (reports / name).write_text("report", encoding="utf-8")
+
+            rows = member_rows(
+                [{
+                    "candidate_id": "ROBOFOREX/ECN:19917",
+                    "set_path": f"{project}\\outputs\\{stem}.set",
+                    "is_report_path": "",
+                    "oos_report_path": "",
+                    "final_tick_report_path": "",
+                    "full_history_report_path": "",
+                }],
+                project=project,
+            )
+
+        self.assertTrue(rows[0]["is_report_path"].endswith(f"{stem}.htm"))
+        self.assertTrue(rows[0]["oos_report_path"].endswith(f"robust_019917_{stem}.htm"))
+        self.assertEqual(rows[0]["final_tick_report_path"], "")
+        self.assertEqual(rows[0]["full_history_report_path"], "")
+
+    def test_recovery_keeps_the_saved_paths_when_they_are_present(self) -> None:
+        stem = "AMZN_M30_GOLD_b882b6a6_g002_s014_v009"
+        with tempfile.TemporaryDirectory() as folder:
+            project = Path(folder)
+            (project / "reports").mkdir()
+            (project / "reports" / f"robust_016659_{stem}.htm").write_text("x", encoding="utf-8")
+
+            rows = member_rows(
+                [{
+                    "candidate_id": "ROBOFOREX/ECN:16659",
+                    "set_path": f"{project}\\outputs\\{stem}.set",
+                    "is_report_path": r"X:\saved\base.htm",
+                    "oos_report_path": r"X:\saved\robust.htm",
+                }],
+                project=project,
+            )
+
+        self.assertEqual(rows[0]["is_report_path"], r"X:\saved\base.htm")
+        self.assertEqual(rows[0]["oos_report_path"], r"X:\saved\robust.htm")
+        self.assertFalse(rows[0]["historical_reports_recovered"])
+
     def test_saved_allocation_keys_use_the_same_relocated_ids_as_curves(self) -> None:
         detail = {
             "members": [
