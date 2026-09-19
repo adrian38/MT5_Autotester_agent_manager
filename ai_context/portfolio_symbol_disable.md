@@ -32,6 +32,23 @@ símbolo nunca estuvo roto —las 1023 eran de la familia—, engañaban los nom
 de fichero, que llevan dentro la estrategia semilla
 (`DE40_M5_ORB_Master_US500_M15_a_g001_s005_v002.set` es DE40, no US500).
 
+La ventana recibe además los **mismos ajustes** con los que se dibujó la fila
+(`PortfolioCoordinator.symbol_sets` pasa `settings_for(node_id, scope)`), y
+aplica sus dos descartes: `allowed_asset_groups` y `grid_off`. Sin ellos seguía
+sin cuadrar: RoboForex enseñaba **84 sets de `.DE40Cash` frente a los 61** de la
+fila, porque 22 tienen `EnableGrid=true` y ese nodo trabaja con Grid OFF. Los
+ajustes viajan también a `export_symbol_sets`, que valida la selección contra esa
+misma lista: filtrarla distinto rechazaría una fila que la ventana sí ofrecía.
+
+El total de la ventana puede quedar en uno o dos por encima del de la fila, y es
+correcto: la fila cuenta el pool, y la ventana añade las excluidas de la familia
+que el veredicto ya sacó del pool.
+
+La etiqueta de `reason_code = manual` es **«Cuarentena»**, no «Manual»
+(`candidate_verdict.REASON_LABELS`). El selector de motivos
+(`static/exclusion_reason.js`) siempre la llamó así; la tabla decía «Manual» y
+parecía un cuarto estado.
+
 Consecuencia asumida, decidida el 2026-09-19: desde esta ventana ya **no** se
 pueden exportar sets que nunca llegaron a robustez ni los que perdieron el
 veredicto sin pasar por la cuarentena. El backend sigue validando que cada ruta

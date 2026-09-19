@@ -1365,6 +1365,49 @@ class PortfolioServiceTests(unittest.TestCase):
                 {"NFLX_accepted.set", "NFLX_excluded.set"},
             )
 
+    def test_symbol_family_applies_the_same_filters_as_the_inventory_row(self) -> None:
+        # La ventana se abre desde la fila del inventario, que ya descartó los
+        # sets con EnableGrid=true cuando grid_off está activo. Sin ese filtro la
+        # tabla enseñaba 84 sets de .DE40Cash frente a los 61 de la fila.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            plain = project / "NFLX_plain.set"
+            grid = project / "NFLX_grid.set"
+            plain.write_text("EnableGrid=false\n", encoding="utf-8")
+            grid.write_text("EnableGrid=true\n", encoding="utf-8")
+            source = PortfolioSource({
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            })
+            rows = [
+                {
+                    "candidate_id": "ICTRADING/STANDARD:1", "set_path": str(plain),
+                    "symbol": "NFLX", "target_symbol": "NFLX", "period": "H1", "family": "stock",
+                    "account_type": "ICTRADING/STANDARD",
+                },
+                {
+                    "candidate_id": "ICTRADING/STANDARD:2", "set_path": str(grid),
+                    "symbol": "NFLX", "target_symbol": "NFLX", "period": "H1", "family": "stock",
+                    "account_type": "ICTRADING/STANDARD",
+                },
+            ]
+            with patch.object(source, "candidate_rows", return_value=rows), patch.object(
+                source, "quarantine_rows", return_value=[]
+            ), patch.object(source, "used_set_paths", return_value=[]):
+                everything = source.symbol_sets("NFLX")
+                grid_off = source.symbol_sets("NFLX", settings={"grid_off": True})
+                other_group = source.symbol_sets("NFLX", settings={"allowed_asset_groups": ["Stocks"]})
+                with self.assertRaisesRegex(ValueError, "No se encontraron sets"):
+                    source.symbol_sets("NFLX", settings={"allowed_asset_groups": ["Forex"]})
+
+            self.assertEqual({row["set_name"] for row in everything["sets"]}, {plain.name, grid.name})
+            self.assertEqual({row["set_name"] for row in grid_off["sets"]}, {plain.name})
+            self.assertEqual(other_group["total"], 2)
+
     def test_symbol_family_leaves_out_candidates_that_never_reached_the_pool(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

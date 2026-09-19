@@ -57,9 +57,11 @@ REASON_TEXTS = {
     OHLC_MISMATCH: "Excluida porque el OHLC no se parece al every tick: rechazada en Final Tick 6M",
 }
 
-#: Etiqueta corta para la interfaz.
+#: Etiqueta corta para la interfaz. Tiene que coincidir con la del selector de
+#: motivos (`static/exclusion_reason.js`): la exclusión sin veredicto se llama
+#: «Cuarentena» ahí, y decir «Manual» en la tabla parecía otro estado distinto.
 REASON_LABELS = {
-    MANUAL: "Manual",
+    MANUAL: "Cuarentena",
     DEGRADATION: "Degradación",
     OHLC_MISMATCH: "OHLC ≠ every tick",
 }

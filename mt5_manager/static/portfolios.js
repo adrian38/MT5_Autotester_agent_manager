@@ -266,7 +266,7 @@ function updateSymbolSelectionCount() {
 }
 
 function renderManagedSymbolSets() {
-  document.querySelector('#symbol-set-rows').innerHTML = managedSymbolSets.length ? managedSymbolSets.map((row, index) => `<tr><td><input type="checkbox" data-symbol-set data-index="${index}" ${row.exists ? 'checked' : 'disabled'} aria-label="Exportar ${esc(row.set_name)}"></td><td><strong>${esc(row.set_name)}</strong>${row.family ? `<small>${esc(row.family)}</small>` : ''}${row.exists ? '' : '<small class="error-text">No está en disco</small>'}</td><td>${esc(row.account || '—')}</td><td>${esc(row.timeframe || '—')}</td><td><span class="symbol-set-state ${esc(row.state)}">${esc(row.state_label)}</span></td><td><button type="button" class="secondary table-action" data-symbol-change-state="${index}">Cambiar estado</button></td></tr>`).join('') : '<tr><td colspan="6">No se encontraron sets.</td></tr>';
+  document.querySelector('#symbol-set-rows').innerHTML = managedSymbolSets.length ? managedSymbolSets.map((row, index) => `<tr><td><input type="checkbox" data-symbol-set data-index="${index}" ${row.exists ? 'checked' : 'disabled'} aria-label="Exportar ${esc(row.set_name)}"></td><td><strong class="symbol-set-name" title="${esc(row.set_name)}">${esc(shortSetName(row.set_name))}</strong>${row.family ? `<small>${esc(row.family)}</small>` : ''}${row.exists ? '' : '<small class="error-text">No está en disco</small>'}</td><td>${esc(row.account || '—')}</td><td>${esc(row.timeframe || '—')}</td><td><span class="symbol-set-state ${esc(row.state)}">${esc(row.state_label)}</span></td><td><button type="button" class="secondary table-action" data-symbol-change-state="${index}">Cambiar estado</button></td></tr>`).join('') : '<tr><td colspan="6">No se encontraron sets.</td></tr>';
   updateSymbolSelectionCount();
 }
 
@@ -313,21 +313,21 @@ document.querySelector('#symbol-set-rows').addEventListener('click', async event
   try {
     if (row.quarantine_key) {
       const target = await askQuarantineTarget({
-        title: `Cambiar estado de ${row.set_name}`,
+        title: `Cambiar estado de ${shortSetName(row.set_name)}`,
         detail: 'Elige cuarentena normal, degradación, OHLC ≠ every tick o reintegrar al pool.',
         current: row.reason_code,
       });
       if (!target || target === row.reason_code) return;
       await postManager('requalify', {scope, quarantine_id: row.quarantine_key, reason_code: target});
-      toast(target === 'pool' ? `${row.set_name} reintegrado al pool.` : `${row.set_name} movido a «${exclusionReasonLabel(target)}».`);
+      toast(target === 'pool' ? `${shortSetName(row.set_name)} reintegrado al pool.` : `${shortSetName(row.set_name)} movido a «${exclusionReasonLabel(target)}».`);
     } else {
       const reasonCode = await askExclusionReason({
-        title: `Excluir ${row.set_name}`,
+        title: `Excluir ${shortSetName(row.set_name)}`,
         detail: 'Elige cuarentena normal, degradación u OHLC ≠ every tick.',
       });
       if (!reasonCode) return;
       await postManager('exclude', {scope, set_path: row.set_path, reason_code: reasonCode});
-      toast(`${row.set_name} puesto en «${exclusionReasonLabel(reasonCode)}».`);
+      toast(`${shortSetName(row.set_name)} puesto en «${exclusionReasonLabel(reasonCode)}».`);
     }
     await loadManagerState();
     await loadManagedSymbolSets(managedSymbol);
