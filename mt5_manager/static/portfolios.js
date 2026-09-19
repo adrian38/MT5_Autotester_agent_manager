@@ -24,6 +24,8 @@ let lastTaskMarker = '';
 let logRequestInFlight = false;
 let visualStage = 0;
 let visualJobId = '';
+let managedSymbol = '';
+let managedSymbolSets = [];
 const stageCount = document.querySelectorAll('#stage-list [data-stage]').length;
 
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[c]));
@@ -99,15 +101,9 @@ function formPayload() {
     payload[key] = field.value === '' ? null : Number(field.value);
   });
   booleanFields.forEach(key => { const field = form.elements[key]; if (field) payload[key] = field.checked; });
-  const disabled = new Map(
-    (managerState.settings?.disabled_symbols || []).map(symbol => [String(symbol).toLowerCase(), String(symbol)])
-  );
-  document.querySelectorAll('[data-symbol-enabled]').forEach(field => {
-    const symbol = String(field.dataset.symbol || '');
-    if (field.checked) disabled.delete(symbol.toLowerCase());
-    else disabled.set(symbol.toLowerCase(), symbol);
-  });
-  payload.disabled_symbols = [...disabled.values()];
+  payload.disabled_symbols = [...(managerState.settings?.disabled_symbols || [])];
+  payload.improvement_disabled_symbols = [...(managerState.settings?.improvement_disabled_symbols || [])];
+  payload.chain_improvement_disabled_symbols = [...(managerState.settings?.chain_improvement_disabled_symbols || [])];
   return payload;
 }
 
@@ -244,15 +240,111 @@ function renderInventory() {
   const rows = inventory.by_symbol || [];
   const quarantine = inventory.quarantine || [];
   document.querySelector('#inventory-summary').textContent = `${number(inventory.available)} disponibles de ${number(inventory.total)} sets · ${number(inventory.symbols)} símbolos`;
-  document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.symbol)}</strong></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td><td><label class="switch"><input type="checkbox" data-symbol-enabled data-symbol="${esc(row.symbol)}" aria-label="Habilitar ${esc(row.symbol)}" ${row.disabled ? '' : 'checked'}></label></td></tr>`).join('') : '<tr><td colspan="6">No hay sets para los filtros actuales.</td></tr>';
+  document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => {
+    const disabledCount = [row.generation_disabled, row.improvement_disabled, row.chain_improvement_disabled].filter(Boolean).length;
+    const state = disabledCount ? `Excluido ${disabledCount}/3` : 'Activo 3/3';
+    return `<tr><td><button type="button" class="symbol-manage-link" data-manage-symbol="${esc(row.symbol)}"><strong>${esc(row.symbol)}</strong></button></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td><td><button type="button" class="secondary table-action" data-manage-symbol="${esc(row.symbol)}">${state}</button></td></tr>`;
+  }).join('') : '<tr><td colspan="6">No hay sets para los filtros actuales.</td></tr>';
   document.querySelector('#quarantine-title').textContent = 'Estrategias excluidas';
   document.querySelector('#quarantine-note').textContent = 'No participan en futuras generaciones de Portafolio UBS.';
   renderQuarantineTables(quarantine);
 }
 
-document.querySelector('#inventory-symbols').addEventListener('change', event => {
-  if (!event.target.matches('[data-symbol-enabled]')) return;
-  persistSettings().catch(error => toast(`No se pudo guardar el símbolo: ${error.message}`, true));
+const symbolDialog = document.querySelector('#symbol-manager-dialog');
+
+function setDisabledSymbol(listName, symbol, disabled) {
+  if (!managerState.settings) managerState.settings = {};
+  const values = new Map((managerState.settings?.[listName] || []).map(value => [String(value).toLowerCase(), String(value)]));
+  if (disabled) values.set(symbol.toLowerCase(), symbol); else values.delete(symbol.toLowerCase());
+  managerState.settings[listName] = [...values.values()];
+}
+
+function updateSymbolSelectionCount() {
+  const fields = [...document.querySelectorAll('[data-symbol-set]')];
+  const selected = fields.filter(field => field.checked).length;
+  document.querySelector('#symbol-selected-count').textContent = `${selected} de ${fields.length} seleccionados`;
+  document.querySelector('#symbol-select-all').checked = fields.length > 0 && selected === fields.length;
+  document.querySelector('#symbol-select-all').indeterminate = selected > 0 && selected < fields.length;
+  document.querySelector('#symbol-export-selected').disabled = selected === 0;
+}
+
+function renderManagedSymbolSets() {
+  document.querySelector('#symbol-set-rows').innerHTML = managedSymbolSets.length ? managedSymbolSets.map((row, index) => `<tr><td><input type="checkbox" data-symbol-set data-index="${index}" ${row.exists ? 'checked' : 'disabled'} aria-label="Exportar ${esc(row.set_name)}"></td><td><strong>${esc(row.set_name)}</strong>${row.family ? `<small>${esc(row.family)}</small>` : ''}${row.exists ? '' : '<small class="error-text">No está en disco</small>'}</td><td>${esc(row.account || '—')}</td><td>${esc(row.timeframe || '—')}</td><td><span class="symbol-set-state ${esc(row.state)}">${esc(row.state_label)}</span></td></tr>`).join('') : '<tr><td colspan="5">No se encontraron sets.</td></tr>';
+  updateSymbolSelectionCount();
+}
+
+async function openSymbolManager(symbol) {
+  managedSymbol = symbol;
+  managedSymbolSets = [];
+  const row = (managerState.inventory?.by_symbol || []).find(item => String(item.symbol).toLowerCase() === symbol.toLowerCase()) || {};
+  document.querySelector('#symbol-manager-title').textContent = `Familia ${symbol}`;
+  document.querySelector('#symbol-manager-summary').textContent = 'Cargando todos los sets, incluidos los excluidos…';
+  document.querySelector('#symbol-disable-generation').checked = Boolean(row.generation_disabled ?? row.disabled);
+  document.querySelector('#symbol-disable-improvement').checked = Boolean(row.improvement_disabled ?? row.disabled);
+  document.querySelector('#symbol-disable-chain').checked = Boolean(row.chain_improvement_disabled ?? row.disabled);
+  document.querySelector('#symbol-set-rows').innerHTML = '<tr><td colspan="5">Cargando…</td></tr>';
+  symbolDialog.showModal();
+  try {
+    const data = await postManager('symbol-sets', {scope, symbol});
+    managedSymbol = data.symbol;
+    managedSymbolSets = data.sets || [];
+    document.querySelector('#symbol-manager-title').textContent = `Familia ${data.symbol}`;
+    const excluded = managedSymbolSets.filter(item => item.state === 'excluded').length;
+    document.querySelector('#symbol-manager-summary').textContent = `${number(data.total)} sets encontrados · ${number(excluded)} excluidos`;
+    renderManagedSymbolSets();
+  } catch (error) {
+    document.querySelector('#symbol-set-rows').innerHTML = `<tr><td colspan="5" class="error-text">${esc(error.message)}</td></tr>`;
+    document.querySelector('#symbol-manager-summary').textContent = 'No se pudo cargar la familia.';
+  }
+}
+
+document.querySelector('#inventory-symbols').addEventListener('click', event => {
+  const button = event.target.closest('[data-manage-symbol]');
+  if (button) openSymbolManager(String(button.dataset.manageSymbol || '')).catch(error => toast(error.message, true));
+});
+
+document.querySelectorAll('[data-symbol-close]').forEach(button => button.addEventListener('click', () => symbolDialog.close()));
+document.querySelector('#symbol-set-rows').addEventListener('change', updateSymbolSelectionCount);
+document.querySelector('#symbol-select-all').addEventListener('change', event => {
+  document.querySelectorAll('[data-symbol-set]:not(:disabled)').forEach(field => { field.checked = event.target.checked; });
+  updateSymbolSelectionCount();
+});
+
+document.querySelector('#symbol-save-exclusions').addEventListener('click', async event => {
+  if (!managedSymbol) return;
+  event.currentTarget.disabled = true;
+  try {
+    setDisabledSymbol('disabled_symbols', managedSymbol, document.querySelector('#symbol-disable-generation').checked);
+    setDisabledSymbol('improvement_disabled_symbols', managedSymbol, document.querySelector('#symbol-disable-improvement').checked);
+    setDisabledSymbol('chain_improvement_disabled_symbols', managedSymbol, document.querySelector('#symbol-disable-chain').checked);
+    await persistSettings();
+    toast(`Exclusiones de ${managedSymbol} guardadas.`);
+  } catch (error) { toast(error.message, true); }
+  finally { event.currentTarget.disabled = false; }
+});
+
+document.querySelector('#symbol-export-selected').addEventListener('click', async event => {
+  const setPaths = [...document.querySelectorAll('[data-symbol-set]:checked')]
+    .map(field => managedSymbolSets[Number(field.dataset.index)]?.set_path)
+    .filter(Boolean);
+  if (!setPaths.length) return;
+  event.currentTarget.disabled = true;
+  try {
+    if (managerState.capabilities?.export_mode === 'download') {
+      const data = await downloadManagerExport(
+        'export-symbol-download', {scope, symbol: managedSymbol, set_paths: setPaths}, `SETS_${managedSymbol}.zip`,
+      );
+      toast(`Descargado ZIP con ${data.exported} set(s) de ${managedSymbol}${data.missing ? `; ${data.missing} omitidos` : ''}.`);
+      return;
+    }
+    const selection = await postManager('choose-export-folder', {scope});
+    if (selection.cancelled || !selection.folder) return;
+    const data = await postManager('export-symbol', {
+      scope, symbol: managedSymbol, set_paths: setPaths, destination: selection.folder,
+    });
+    toast(`Exportados ${data.exported} set(s) de ${managedSymbol} a ${data.folder}${data.missing?.length ? `; ${data.missing.length} omitidos` : ''}.`);
+  } catch (error) { toast(error.message, true); }
+  finally { updateSymbolSelectionCount(); }
 });
 
 function largestGroup(summary) {
@@ -344,11 +436,11 @@ async function postManager(action, payload) {
   return data;
 }
 
-async function downloadPortfolioExport(portfolioId) {
-  const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/export-download`, {
+async function downloadManagerExport(action, payload, fallbackName) {
+  const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/${action}`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({scope, portfolio_id: portfolioId}),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     const data = await jsonResponse(response);
@@ -359,7 +451,7 @@ async function downloadPortfolioExport(portfolioId) {
   const match = disposition.match(/filename="?([^";]+)"?/i);
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = match?.[1] || `PORTAFOLIO_${portfolioId}.zip`;
+  link.download = match?.[1] || fallbackName;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -368,6 +460,12 @@ async function downloadPortfolioExport(portfolioId) {
     exported: Number(response.headers.get('X-Exported-Sets') || 0),
     missing: Number(response.headers.get('X-Missing-Sets') || 0),
   };
+}
+
+async function downloadPortfolioExport(portfolioId) {
+  return downloadManagerExport(
+    'export-download', {scope, portfolio_id: portfolioId}, `PORTAFOLIO_${portfolioId}.zip`,
+  );
 }
 
 function persistSettings(notify = false) {
@@ -450,8 +548,11 @@ document.querySelector('#portfolio-log').addEventListener('click', async () => {
 
 document.querySelector('#reset-settings').addEventListener('click', () => {
   hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 100, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', account_leverage: 1000, max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: true, experimental_full_search: false, use_correlation: true, exclude_used_sets: true, allowed_asset_groups: groups});
-  document.querySelectorAll('[data-symbol-enabled]').forEach(field => { field.checked = true; });
-  if (managerState.settings) managerState.settings.disabled_symbols = [];
+  if (managerState.settings) {
+    managerState.settings.disabled_symbols = [];
+    managerState.settings.improvement_disabled_symbols = [];
+    managerState.settings.chain_improvement_disabled_symbols = [];
+  }
   toast('Valores restablecidos; pulsa Guardar configuración para persistirlos.');
 });
 

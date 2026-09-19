@@ -1293,14 +1293,131 @@ class PortfolioServiceTests(unittest.TestCase):
             {"disabled_symbols": [" EURUSD ", "eurusd", "XAUUSD"]},
             "ICTRADING",
         )
+        split = normalize_settings(
+            "full_history",
+            {
+                "disabled_symbols": ["EURUSD"],
+                "improvement_disabled_symbols": ["GBPUSD"],
+                "chain_improvement_disabled_symbols": ["NFLX"],
+            },
+            "ICTRADING",
+        )
         monthly = normalize_settings(
             "monthly",
-            {"target_month": 7, "disabled_symbols": ["EURUSD"]},
+            {
+                "target_month": 7,
+                "disabled_symbols": ["EURUSD"],
+                "improvement_disabled_symbols": ["GBPUSD"],
+                "chain_improvement_disabled_symbols": ["NFLX"],
+            },
             "ICTRADING",
         )
 
         self.assertEqual(full["disabled_symbols"], ["EURUSD", "XAUUSD"])
+        self.assertEqual(full["improvement_disabled_symbols"], ["EURUSD", "XAUUSD"])
+        self.assertEqual(full["chain_improvement_disabled_symbols"], ["EURUSD", "XAUUSD"])
+        self.assertEqual(split["disabled_symbols"], ["EURUSD"])
+        self.assertEqual(split["improvement_disabled_symbols"], ["GBPUSD"])
+        self.assertEqual(split["chain_improvement_disabled_symbols"], ["NFLX"])
         self.assertEqual(monthly["disabled_symbols"], [])
+        self.assertEqual(monthly["improvement_disabled_symbols"], [])
+        self.assertEqual(monthly["chain_improvement_disabled_symbols"], [])
+
+    def test_symbol_family_lists_excluded_sets_and_exports_only_the_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            accepted = project / "NFLX_accepted.set"
+            excluded = project / "NFLX_excluded.set"
+            other = project / "NKE.set"
+            for path in (accepted, excluded, other):
+                path.write_text(f"name={path.stem}\n", encoding="utf-8")
+            source = PortfolioSource({
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            })
+            rows = [
+                {
+                    "candidate_id": "ICTRADING/STANDARD:1", "set_path": str(accepted),
+                    "symbol": "NFLX", "target_symbol": "NFLX", "period": "H1", "family": "stock",
+                    "account_type": "ICTRADING/STANDARD", "base_status": "accepted",
+                    "robustness_status": "accepted", "final_tick_status": "accepted",
+                    "final_tick_6m_status": "accepted",
+                },
+                {
+                    "candidate_id": "ICTRADING/STANDARD:2", "set_path": str(excluded),
+                    "symbol": "NFLX", "target_symbol": "NFLX", "period": "H1", "family": "stock",
+                    "account_type": "ICTRADING/STANDARD", "base_status": "accepted",
+                    "robustness_status": "accepted", "final_tick_status": "accepted",
+                    "final_tick_6m_status": "rejected",
+                },
+                {
+                    "candidate_id": "ICTRADING/STANDARD:3", "set_path": str(other),
+                    "symbol": "NKE", "target_symbol": "NKE", "period": "H1", "family": "stock",
+                    "account_type": "ICTRADING/STANDARD", "base_status": "accepted",
+                    "robustness_status": "accepted", "final_tick_status": "accepted",
+                    "final_tick_6m_status": "accepted",
+                },
+            ]
+            with patch.object(source, "import_candidate_rows", return_value=rows), patch.object(
+                source, "quarantine_rows", return_value=[]
+            ), patch.object(source, "used_set_paths", return_value=[str(accepted)]):
+                family = source.symbol_sets("NFLX")
+                exported = source.export_symbol_sets(
+                    "NFLX", [str(accepted), str(excluded)], str(project / "exported")
+                )
+                with self.assertRaisesRegex(ValueError, "no pertenecen"):
+                    source.export_symbol_sets("NFLX", [str(other)], str(project / "exported"))
+
+            self.assertEqual(family["total"], 2)
+            self.assertEqual(
+                {row["set_name"]: row["state"] for row in family["sets"]},
+                {"NFLX_accepted.set": "used", "NFLX_excluded.set": "excluded"},
+            )
+            self.assertEqual(exported["exported"], 2)
+            output = Path(exported["folder"])
+            self.assertEqual(
+                {path.name for path in output.glob("*.set")},
+                {"NFLX_accepted.set", "NFLX_excluded.set"},
+            )
+
+    def test_complete_symbol_family_includes_a_set_before_robustness(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            set_file = project / "NFLX_pending.set"
+            set_file.write_text("Risk=1\n", encoding="utf-8")
+            memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+            with contextlib.closing(sqlite3.connect(memory)) as conn:
+                conn.execute(
+                    """create table candidates(
+                    id integer primary key,set_path text,symbol text,target_symbol text,
+                    period text,family text,report_path text,status text)"""
+                )
+                conn.execute(
+                    "insert into candidates values(1,?,?,?,?,?,?,?)",
+                    (str(set_file), "NFLX", "NFLX", "H1", "stock", "report.html", "accepted"),
+                )
+                conn.commit()
+            source = PortfolioSource({
+                "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+            })
+
+            self.assertEqual(source.import_candidate_rows(), [])
+            with patch.object(source, "quarantine_rows", return_value=[]), patch.object(
+                source, "used_set_paths", return_value=[]
+            ):
+                family = source.symbol_sets("NFLX")
+
+            self.assertEqual(family["total"], 1)
+            self.assertEqual(family["sets"][0]["set_name"], set_file.name)
+            self.assertEqual(family["sets"][0]["state_label"], "Fuera del pool aceptado")
 
     def test_portfolio_source_reads_only_full_pipeline_accepted_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1365,7 +1482,11 @@ class PortfolioServiceTests(unittest.TestCase):
             )
             excluded = source.inventory("full_history", settings)
             monthly = source.inventory("monthly", normalize_settings("monthly", {"allowed_asset_groups": ["Forex"]}, "ICTRADING"))
-            self.assertEqual(excluded["by_symbol"], [{"symbol": "EURUSD", "total": 1, "quarantined": 1, "used": 0, "available": 0, "disabled": False}])
+            self.assertEqual(excluded["by_symbol"], [{
+                "symbol": "EURUSD", "total": 1, "quarantined": 1, "used": 0,
+                "available": 0, "disabled": False, "generation_disabled": False,
+                "improvement_disabled": False, "chain_improvement_disabled": False,
+            }])
             self.assertEqual(monthly["available"], 0)
             self.assertTrue(monthly["quarantine_excludes"])
             source.release_strategy(quarantine_id)
@@ -1425,6 +1546,9 @@ class PortfolioServiceTests(unittest.TestCase):
                     "used": 0,
                     "available": 2,
                     "disabled": False,
+                    "generation_disabled": False,
+                    "improvement_disabled": False,
+                    "chain_improvement_disabled": False,
                 },
                 {
                     "symbol": "NAS100.fs",
@@ -1433,6 +1557,9 @@ class PortfolioServiceTests(unittest.TestCase):
                     "used": 0,
                     "available": 1,
                     "disabled": False,
+                    "generation_disabled": False,
+                    "improvement_disabled": False,
+                    "chain_improvement_disabled": False,
                 },
                 {
                     "symbol": "USTECH.sa",
@@ -1441,6 +1568,9 @@ class PortfolioServiceTests(unittest.TestCase):
                     "used": 0,
                     "available": 2,
                     "disabled": False,
+                    "generation_disabled": False,
+                    "improvement_disabled": False,
+                    "chain_improvement_disabled": False,
                 },
             ]
 
@@ -1465,7 +1595,13 @@ class PortfolioServiceTests(unittest.TestCase):
             self.assertEqual(full_history["symbols"], 3)
             self.assertEqual(
                 monthly["by_symbol"],
-                [{key: value for key, value in row.items() if key != "disabled"} for row in expected],
+                [{
+                    key: value for key, value in row.items()
+                    if key not in {
+                        "disabled", "generation_disabled", "improvement_disabled",
+                        "chain_improvement_disabled",
+                    }
+                } for row in expected],
             )
             self.assertEqual(monthly["symbols"], 3)
 

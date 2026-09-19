@@ -109,6 +109,22 @@ class ChainDispatchTests(unittest.TestCase):
         chain_engine.assert_called_once()
         engine.assert_not_called()
 
+    def test_chain_uses_its_own_symbol_exclusions(self):
+        detail = {"metrics": {"inputs": {"improvement_source_portfolio_id": 73}}}
+        source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
+        inputs = {
+            "improvement_disabled_symbols": ["EURUSD"],
+            "chain_improvement_disabled_symbols": ["NFLX"],
+        }
+        with patch.object(
+            chain, "generate_full_history_chain_improvement", return_value=("b", [])
+        ) as chain_engine:
+            dispatch.run_full_history_improvement(source, 82, inputs)
+
+        forwarded = chain_engine.call_args.args[2]
+        self.assertEqual(forwarded["improvement_disabled_symbols"], ["NFLX"])
+        self.assertEqual(forwarded["chain_improvement_disabled_symbols"], ["NFLX"])
+
 
 class ChainRecentThresholdTests(unittest.TestCase):
     """La clave propia existe porque el merge sólo respeta `improvement_*`."""

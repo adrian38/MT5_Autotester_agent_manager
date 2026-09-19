@@ -102,17 +102,35 @@ class PortfolioFormTests(unittest.TestCase):
                     script,
                 )
 
-    def test_full_history_inventory_can_disable_symbols_for_every_improvement(self) -> None:
+    def test_symbol_dialog_can_manage_each_exclusion_stage_independently(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
         script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
         improvement = (static_dir / "portfolio_improvement.js").read_text(encoding="utf-8")
 
-        self.assertIn("<th>Habilitado</th>", page)
-        self.assertIn("data-symbol-enabled", script)
+        self.assertIn('id="symbol-manager-dialog"', page)
+        self.assertIn('id="symbol-disable-generation"', page)
+        self.assertIn('id="symbol-disable-improvement"', page)
+        self.assertIn('id="symbol-disable-chain"', page)
+        self.assertIn("data-manage-symbol", script)
         self.assertIn("payload.disabled_symbols", script)
+        self.assertIn("payload.improvement_disabled_symbols", script)
+        self.assertIn("payload.chain_improvement_disabled_symbols", script)
         self.assertIn("postManager('settings', payload)", script)
         self.assertIn("improvement_disabled_symbols", improvement)
+        self.assertIn("chain_improvement_disabled_symbols", improvement)
+
+    def test_symbol_dialog_lists_and_exports_selected_family_sets(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="symbol-set-rows"', page)
+        self.assertIn('id="symbol-select-all"', page)
+        self.assertIn("postManager('symbol-sets'", script)
+        self.assertIn("data-symbol-set", script)
+        self.assertIn("'export-symbol-download'", script)
+        self.assertIn("postManager('export-symbol'", script)
 
     def test_completed_calculation_reloads_and_reveals_proposals(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -450,7 +468,7 @@ class PortfolioFormTests(unittest.TestCase):
 
         self.assertIn("async function downloadPortfolioExport", script)
         self.assertIn("managerState.capabilities?.export_mode === 'download'", script)
-        self.assertIn("portfolio-manager/export-download", script)
+        self.assertIn("'export-download'", script)
         self.assertIn("link.download", script)
 
     def test_regression_card_features_follow_node_capabilities_and_use_their_own_job(self) -> None:
