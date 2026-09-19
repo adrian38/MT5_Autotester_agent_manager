@@ -1209,7 +1209,12 @@ class PortfolioSource:
             "warnings": warnings,
         }
 
-    def symbol_sets(self, symbol: str, scope: str = "full_history") -> dict[str, Any]:
+    def symbol_sets(
+        self,
+        symbol: str,
+        scope: str = "full_history",
+        settings: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Lista los sets que cuenta el inventario para la familia, más su cuarentena.
 
         La ventana se abre desde una fila de «Sets disponibles por símbolo», así
@@ -1224,6 +1229,11 @@ class PortfolioSource:
         Las excluidas que ya no están en el pool sí entran: el veredicto de
         degradación u OHLC ≠ every tick las saca de :meth:`candidate_rows`, y
         esta tabla es desde donde se reintegran.
+
+        ``settings`` son los mismos ajustes con los que se dibujó el inventario,
+        y hay que aplicarlos: sin ellos la ventana enseñaba 84 sets de DE40
+        frente a los 61 de la fila, porque el pool crudo no sabe nada de
+        ``grid_off`` ni de ``allowed_asset_groups``.
         """
         if normalize_portfolio_scope(scope) != "full_history":
             raise ValueError("La gestión por símbolo solo está disponible en Portafolio UBS")
@@ -1238,6 +1248,24 @@ class PortfolioSource:
             )
             return portfolio_symbol_key(display) == requested_key
 
+        values = settings or {}
+        allowed_groups = set(values.get("allowed_asset_groups") or ASSET_GROUPS)
+        grid_off = bool(values.get("grid_off"))
+
+        def inventory_filters(
+            rows: list[dict[str, Any]], symbol_of: Callable[[dict[str, Any]], Any]
+        ) -> list[dict[str, Any]]:
+            """Los mismos descartes que aplica :meth:`inventory` a la fila."""
+            kept = [
+                row for row in rows
+                if portfolio_group_key(
+                    str(symbol_of(row) or ""), universe_files=[self.universe]
+                ) in allowed_groups
+            ]
+            if grid_off:
+                kept, _ = filter_rows_grid_off(kept)
+            return kept
+
         quarantine = {
             self._path_key(row.get("set_path")): row
             for row in self.quarantine_rows()
@@ -1245,11 +1273,14 @@ class PortfolioSource:
         used = {self._path_key(path) for path in self.used_set_paths("full_history")}
         result: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for row in self.candidate_rows(include_quarantined=True):
-            if not belongs_to_family(
-                row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol")
-            ):
-                continue
+        def pool_symbol(row: dict[str, Any]) -> Any:
+            return row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol")
+
+        pool_rows = [
+            row for row in self.candidate_rows(include_quarantined=True)
+            if belongs_to_family(pool_symbol(row))
+        ]
+        for row in inventory_filters(pool_rows, pool_symbol):
             path = str(row.get("set_path") or "")
             if not path.strip():
                 continue
@@ -1290,15 +1321,15 @@ class PortfolioSource:
                 ),
                 "exists": Path(path).is_file(),
             })
-        for path_key, quarantined in quarantine.items():
-            if not path_key or path_key in seen:
-                continue
-            if not belongs_to_family(quarantined.get("symbol")):
-                continue
+        family_quarantine = [
+            row for key, row in quarantine.items()
+            if key and key not in seen and belongs_to_family(row.get("symbol"))
+        ]
+        for quarantined in inventory_filters(family_quarantine, lambda row: row.get("symbol")):
             path = str(quarantined.get("set_path") or "")
             if not path.strip():
                 continue
-            seen.add(path_key)
+            seen.add(self._path_key(path))
             result.append({
                 "candidate_id": quarantined.get("candidate_id"),
                 "set_path": path,
@@ -1325,11 +1356,17 @@ class PortfolioSource:
         symbol: str,
         selected_paths: Any,
         destination: str | None = None,
+        settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Copia la selección validada de una familia de símbolo."""
+        """Copia la selección validada de una familia de símbolo.
+
+        ``settings`` tiene que ser el mismo con el que se listó la familia: la
+        validación se hace contra esa lista, así que filtrarla de otra forma
+        rechazaría una fila que la ventana sí ofrecía.
+        """
         if not isinstance(selected_paths, list) or any(not isinstance(path, str) for path in selected_paths):
             raise ValueError("La selección de sets no es válida")
-        family = self.symbol_sets(symbol)
+        family = self.symbol_sets(symbol, settings=settings)
         allowed = {self._path_key(row["set_path"]): row for row in family["sets"]}
         selected_keys = {self._path_key(path) for path in selected_paths if str(path).strip()}
         if not selected_keys:
@@ -5483,7 +5520,11 @@ class PortfolioCoordinator:
             }
 
     def symbol_sets(self, node_id: str, scope: str, symbol: str) -> dict[str, Any]:
-        return self._calculation_source(node_id, scope).symbol_sets(symbol, scope)
+        # Los ajustes son los que dibujaron la fila del inventario desde la que
+        # se abre la ventana: sin ellos la tabla no cuadra con su propio total.
+        return self._calculation_source(node_id, scope).symbol_sets(
+            symbol, scope, self.settings_for(node_id, scope),
+        )
 
     def export_symbol(
         self, node_id: str, scope: str, symbol: str, selected_paths: Any, destination: str | None
@@ -5491,7 +5532,7 @@ class PortfolioCoordinator:
         if normalize_portfolio_scope(scope) != "full_history":
             raise ValueError("La exportación por símbolo solo está disponible en Portafolio UBS")
         return self._calculation_source(node_id, scope).export_symbol_sets(
-            symbol, selected_paths, destination,
+            symbol, selected_paths, destination, self.settings_for(node_id, scope),
         )
 
     def export_symbol_archive(
@@ -5499,7 +5540,9 @@ class PortfolioCoordinator:
     ) -> dict[str, Any]:
         source = self._calculation_source(node_id, scope)
         with tempfile.TemporaryDirectory(prefix="mt5-symbol-export-") as temp_dir:
-            result = source.export_symbol_sets(symbol, selected_paths, temp_dir)
+            result = source.export_symbol_sets(
+                symbol, selected_paths, temp_dir, self.settings_for(node_id, scope),
+            )
             output = Path(str(result["folder"]))
             buffer = io.BytesIO()
             with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:

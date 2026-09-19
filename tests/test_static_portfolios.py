@@ -136,6 +136,26 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("'export-symbol-download'", script)
         self.assertIn("postManager('export-symbol'", script)
 
+    def test_symbol_dialog_shortens_the_set_name_instead_of_widening_the_table(self) -> None:
+        # El nombre lleva el hash de 64 hex del candidato y desbordaba la columna.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        styles = (static_dir / "styles.css").read_text(encoding="utf-8")
+
+        reason = (static_dir / "exclusion_reason.js").read_text(encoding="utf-8")
+
+        # La primitiva vive con el diálogo de motivo, que cargan las tres pantallas.
+        self.assertIn("function shortSetName(", reason)
+        self.assertNotIn("function shortSetName(", script)
+        self.assertIn("shortSetName(row.set_name)", script)
+        self.assertIn('title="${esc(row.set_name)}"', script)
+        # El título del diálogo de motivo era lo que se iba a scroll horizontal.
+        self.assertIn("title: `Excluir ${shortSetName(row.set_name)}`", script)
+        self.assertIn("title: `Cambiar estado de ${shortSetName(row.set_name)}`", script)
+        self.assertIn(".symbol-set-name{", styles)
+        self.assertIn("text-overflow:ellipsis", styles)
+        self.assertIn(".reason-dialog .dialog-head h2", styles)
+
     def test_completed_calculation_reloads_and_reveals_proposals(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")

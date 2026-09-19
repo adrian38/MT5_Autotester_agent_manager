@@ -52,6 +52,14 @@ function exclusionReasonLabel(code) {
   return EXCLUSION_REASON_LABELS[normalizeExclusionReason(code)];
 }
 
+/* El nombre de un set lleva el hash de 64 hex del candidato y no cabe en
+ * ninguna parte: desbordaba la columna de la tabla de familia y el título del
+ * diálogo de motivo, que se iba a scroll horizontal. Se acorta el hash por el
+ * centro; el nombre entero sigue en el tooltip y es el que viaja al backend. */
+function shortSetName(name) {
+  return String(name ?? '').replace(/[0-9a-f]{16,}/gi, hash => `${hash.slice(0, 8)}…${hash.slice(-4)}`);
+}
+
 function reasonEsc(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
 }
@@ -77,7 +85,7 @@ function renderQuarantineTables(quarantine) {
       const restorable = code === 'manual' || row.restorable;
       const hint = restorable ? '' : ' title="Sin copia del estado anterior: al cambiar de estado no se recuperan las etapas."';
       const mark = restorable ? '' : ' ⚠';
-      return `<tr><td title="${reasonEsc(row.set_path)}">${reasonEsc(row.set_name)}</td>`
+      return `<tr><td title="${reasonEsc(row.set_path)}">${reasonEsc(shortSetName(row.set_name))}</td>`
         + `<td><strong>${reasonEsc(row.symbol || '')}</strong><small>${reasonEsc(row.source_account || '')}</small></td>`
         + `<td>${reasonEsc(row.timeframe || '')}</td>`
         + `<td${hint}>${reasonEsc(row.quarantined_at || '')}${mark}</td>`
