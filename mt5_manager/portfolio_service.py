@@ -204,8 +204,6 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "max_portfolio_corr": 0.50,
     "allowed_asset_groups": list(ASSET_GROUPS),
     "disabled_symbols": [],
-    "improvement_disabled_symbols": [],
-    "chain_improvement_disabled_symbols": [],
     "margin_profile": "ictrading",
     "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
     "max_margin_pct": 100.0,
@@ -361,28 +359,12 @@ def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING
             normalized.setdefault(symbol.casefold(), symbol)
         return sorted(normalized.values(), key=str.casefold)
 
-    # Compatibilidad con la primera versión del control: una única lista se
-    # aplicaba a construcción y a los dos motores de mejora. Cuando todavía no
-    # existen las claves nuevas, se hereda esa lista; el primer guardado desde la
-    # ventana nueva ya persiste las tres decisiones por separado.
     generation_disabled = normalized_disabled_symbols(
         values.get("disabled_symbols"), "disabled_symbols"
-    )
-    improvement_disabled = normalized_disabled_symbols(
-        values.get("improvement_disabled_symbols")
-        if "improvement_disabled_symbols" in raw else generation_disabled,
-        "improvement_disabled_symbols",
-    )
-    chain_disabled = normalized_disabled_symbols(
-        values.get("chain_improvement_disabled_symbols")
-        if "chain_improvement_disabled_symbols" in raw else improvement_disabled,
-        "chain_improvement_disabled_symbols",
     )
     # El control pertenece exclusivamente a UBS normal. El mensual tiene su
     # propia interfaz y orquestación, y no debe heredar silenciosamente el filtro.
     values["disabled_symbols"] = [] if monthly else generation_disabled
-    values["improvement_disabled_symbols"] = [] if monthly else improvement_disabled
-    values["chain_improvement_disabled_symbols"] = [] if monthly else chain_disabled
     if monthly:
         values["target_month"] = safe_int(values.get("target_month"), 0)
         if not 1 <= values["target_month"] <= 12:
@@ -1188,18 +1170,6 @@ class PortfolioSource:
             )
             for symbol in settings.get("disabled_symbols") or []
         } if not monthly else set()
-        improvement_disabled_keys = {
-            portfolio_symbol_key(
-                portfolio_display_symbol(str(symbol), universe_files=[self.universe])
-            )
-            for symbol in settings.get("improvement_disabled_symbols") or []
-        } if not monthly else set()
-        chain_disabled_keys = {
-            portfolio_symbol_key(
-                portfolio_display_symbol(str(symbol), universe_files=[self.universe])
-            )
-            for symbol in settings.get("chain_improvement_disabled_symbols") or []
-        } if not monthly else set()
         by_symbol: dict[str, dict[str, Any]] = {}
         for row in rows:
             symbol = portfolio_display_symbol(
@@ -1214,11 +1184,6 @@ class PortfolioSource:
                 "used": 0,
                 "available": 0,
                 **({"disabled": symbol_key in disabled_keys} if not monthly else {}),
-                **({
-                    "generation_disabled": symbol_key in disabled_keys,
-                    "improvement_disabled": symbol_key in improvement_disabled_keys,
-                    "chain_improvement_disabled": symbol_key in chain_disabled_keys,
-                } if not monthly else {}),
             })
             counts["total"] += 1
             key = self._path_key(row.get("set_path"))
@@ -1314,6 +1279,11 @@ class PortfolioSource:
                 "account": row.get("account_type") or "",
                 "state": state,
                 "state_label": state_label,
+                "quarantine_key": str(quarantined.get("quarantine_key") or "") if quarantined else "",
+                "reason_code": (
+                    candidate_verdict.normalize_reason_code(quarantined.get("reason_code"))
+                    if quarantined else ""
+                ),
                 "exists": Path(path).is_file(),
             })
         if not result:
@@ -2209,19 +2179,106 @@ class PortfolioSource:
             for member in members
         ]
 
-    def open_member_report(self, portfolio_id: int, scope: str, set_path: str) -> str:
+    def member_reports(self, portfolio_id: int, scope: str, set_path: str) -> dict[str, Any]:
+        """Resuelve todos los informes que siguen guardados para un miembro.
+
+        La asignación conserva las rutas usadas al guardar el portafolio. La
+        memoria del candidato puede aportar además el informe OHLC de 6M, que no
+        forma parte del esquema histórico de ``portfolio_allocations``.
+        """
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
         requested = self._match_key(set_path)
         member = next((item for item in detail["members"] if self._match_key(item.get("set_path")) == requested), None)
         if member is None:
             raise ValueError("La estrategia no pertenece al portafolio")
-        report = str(member.get("oos_report_path") or member.get("is_report_path") or "")
-        report = _resolve_source_path(report, self.project)
-        if not report or not Path(report).is_file():
-            raise ValueError("La estrategia no tiene un reporte disponible")
-        if hasattr(os, "startfile"):
-            os.startfile(report)  # type: ignore[attr-defined]
-        return report
+
+        paths = {
+            key: str(member.get(key) or "")
+            for key in (
+                "is_report_path", "oos_report_path", "full_history_report_path",
+                "final_ohlc_report_path", "final_tick_report_path",
+            )
+        }
+        candidate_id = str(member.get("candidate_id") or "")
+        set_name = Path(str(member.get("set_path") or set_path).replace("\\", "/")).name
+        for row in self.import_candidate_rows(
+            [set_name] if set_name else None, include_without_robustness=True
+        ):
+            same_candidate = candidate_id and str(row.get("candidate_id") or "") == candidate_id
+            if not same_candidate and self._match_key(row.get("set_path")) != requested:
+                continue
+            for key in paths:
+                if not paths[key] and row.get(key):
+                    paths[key] = str(row[key])
+            break
+
+        stages = (
+            ("base", "Base", "is_report_path"),
+            ("robustez", "Robustez", "oos_report_path"),
+            ("final_tick_continuo", "Final Tick continuo", "full_history_report_path"),
+            ("final_tick_6m_ohlc", "Final Tick 6M OHLC", "final_ohlc_report_path"),
+            ("final_tick_6m_every_tick", "Final Tick 6M every tick", "final_tick_report_path"),
+        )
+        reports: list[dict[str, Any]] = []
+        missing: list[str] = []
+        seen: set[str] = set()
+        for code, label, key in stages:
+            raw_path = paths.get(key) or ""
+            if not raw_path:
+                continue
+            resolved = Path(_resolve_source_path(raw_path, self.project))
+            path_key = str(resolved).replace("/", "\\").casefold()
+            if path_key in seen:
+                continue
+            if not resolved.is_file():
+                missing.append(label)
+                continue
+            seen.add(path_key)
+            reports.append({
+                "code": code, "label": label, "path": str(resolved),
+                "filename": resolved.name, "content": resolved.read_bytes(),
+            })
+        if not reports:
+            raise ValueError("La estrategia no tiene reportes guardados disponibles")
+        return {
+            "set_name": set_name or Path(str(set_path)).name,
+            "reports": reports,
+            "missing": missing,
+        }
+
+    def open_member_report(self, portfolio_id: int, scope: str, set_path: str) -> dict[str, Any]:
+        family = self.member_reports(portfolio_id, scope, set_path)
+        reports = family["reports"]
+        preferred = next(
+            (item for item in reports if item["code"] == "robustez"),
+            reports[0],
+        )
+        return {
+            "filename": preferred["filename"],
+            "content": preferred["content"],
+            "content_type": "text/html",
+            "stage": preferred["label"],
+        }
+
+    def export_member_reports_archive(
+        self, portfolio_id: int, scope: str, set_path: str
+    ) -> dict[str, Any]:
+        family = self.member_reports(portfolio_id, scope, set_path)
+        safe_stem = re.sub(
+            r"[^A-Za-z0-9_.-]+", "_", Path(str(family["set_name"])).stem
+        ).strip("._") or "estrategia"
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for index, report in enumerate(family["reports"], start=1):
+                extension = Path(str(report["filename"])).suffix or ".html"
+                filename = f"{index:02d}_{report['code']}{extension}"
+                archive.writestr(f"REPORTES_{safe_stem}/{filename}", report["content"])
+        return {
+            "filename": f"REPORTES_{safe_stem}.zip",
+            "content": buffer.getvalue(),
+            "exported": len(family["reports"]),
+            "missing": list(family["missing"]),
+        }
 
     def export_portfolio(self, portfolio_id: int, scope: str, destination: str | None = None) -> dict[str, Any]:
         detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
@@ -5427,8 +5484,15 @@ class PortfolioCoordinator:
                 "missing": list(result.get("missing") or []),
             }
 
-    def open_report(self, node_id: str, scope: str, portfolio_id: int, set_path: str) -> str:
+    def open_report(self, node_id: str, scope: str, portfolio_id: int, set_path: str) -> dict[str, Any]:
         return self._persistence_source(node_id, scope).open_member_report(portfolio_id, scope, set_path)
+
+    def export_member_reports_archive(
+        self, node_id: str, scope: str, portfolio_id: int, set_path: str
+    ) -> dict[str, Any]:
+        return self._persistence_source(node_id, scope).export_member_reports_archive(
+            portfolio_id, scope, set_path
+        )
 
     def log(self, node_id: str, scope: str, lines: int = 500) -> dict[str, Any]:
         key = self._key(node_id, scope)

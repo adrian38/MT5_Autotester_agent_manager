@@ -102,8 +102,6 @@ function formPayload() {
   });
   booleanFields.forEach(key => { const field = form.elements[key]; if (field) payload[key] = field.checked; });
   payload.disabled_symbols = [...(managerState.settings?.disabled_symbols || [])];
-  payload.improvement_disabled_symbols = [...(managerState.settings?.improvement_disabled_symbols || [])];
-  payload.chain_improvement_disabled_symbols = [...(managerState.settings?.chain_improvement_disabled_symbols || [])];
   return payload;
 }
 
@@ -241,8 +239,7 @@ function renderInventory() {
   const quarantine = inventory.quarantine || [];
   document.querySelector('#inventory-summary').textContent = `${number(inventory.available)} disponibles de ${number(inventory.total)} sets · ${number(inventory.symbols)} símbolos`;
   document.querySelector('#inventory-symbols').innerHTML = rows.length ? rows.map(row => {
-    const disabledCount = [row.generation_disabled, row.improvement_disabled, row.chain_improvement_disabled].filter(Boolean).length;
-    const state = disabledCount ? `Excluido ${disabledCount}/3` : 'Activo 3/3';
+    const state = row.disabled ? 'Deshabilitado' : 'Habilitado';
     return `<tr><td><button type="button" class="symbol-manage-link" data-manage-symbol="${esc(row.symbol)}"><strong>${esc(row.symbol)}</strong></button></td><td>${number(row.total)}</td><td>${number(row.quarantined)}</td><td>${number(row.used)}</td><td><strong>${number(row.available)}</strong></td><td><button type="button" class="secondary table-action" data-manage-symbol="${esc(row.symbol)}">${state}</button></td></tr>`;
   }).join('') : '<tr><td colspan="6">No hay sets para los filtros actuales.</td></tr>';
   document.querySelector('#quarantine-title').textContent = 'Estrategias excluidas';
@@ -269,8 +266,18 @@ function updateSymbolSelectionCount() {
 }
 
 function renderManagedSymbolSets() {
-  document.querySelector('#symbol-set-rows').innerHTML = managedSymbolSets.length ? managedSymbolSets.map((row, index) => `<tr><td><input type="checkbox" data-symbol-set data-index="${index}" ${row.exists ? 'checked' : 'disabled'} aria-label="Exportar ${esc(row.set_name)}"></td><td><strong>${esc(row.set_name)}</strong>${row.family ? `<small>${esc(row.family)}</small>` : ''}${row.exists ? '' : '<small class="error-text">No está en disco</small>'}</td><td>${esc(row.account || '—')}</td><td>${esc(row.timeframe || '—')}</td><td><span class="symbol-set-state ${esc(row.state)}">${esc(row.state_label)}</span></td></tr>`).join('') : '<tr><td colspan="5">No se encontraron sets.</td></tr>';
+  document.querySelector('#symbol-set-rows').innerHTML = managedSymbolSets.length ? managedSymbolSets.map((row, index) => `<tr><td><input type="checkbox" data-symbol-set data-index="${index}" ${row.exists ? 'checked' : 'disabled'} aria-label="Exportar ${esc(row.set_name)}"></td><td><strong>${esc(row.set_name)}</strong>${row.family ? `<small>${esc(row.family)}</small>` : ''}${row.exists ? '' : '<small class="error-text">No está en disco</small>'}</td><td>${esc(row.account || '—')}</td><td>${esc(row.timeframe || '—')}</td><td><span class="symbol-set-state ${esc(row.state)}">${esc(row.state_label)}</span></td><td><button type="button" class="secondary table-action" data-symbol-change-state="${index}">Cambiar estado</button></td></tr>`).join('') : '<tr><td colspan="6">No se encontraron sets.</td></tr>';
   updateSymbolSelectionCount();
+}
+
+async function loadManagedSymbolSets(symbol) {
+  const data = await postManager('symbol-sets', {scope, symbol});
+  managedSymbol = data.symbol;
+  managedSymbolSets = data.sets || [];
+  document.querySelector('#symbol-manager-title').textContent = `Familia ${data.symbol}`;
+  const excluded = managedSymbolSets.filter(item => item.state === 'excluded').length;
+  document.querySelector('#symbol-manager-summary').textContent = `${number(data.total)} sets encontrados · ${number(excluded)} excluidos`;
+  renderManagedSymbolSets();
 }
 
 async function openSymbolManager(symbol) {
@@ -279,21 +286,13 @@ async function openSymbolManager(symbol) {
   const row = (managerState.inventory?.by_symbol || []).find(item => String(item.symbol).toLowerCase() === symbol.toLowerCase()) || {};
   document.querySelector('#symbol-manager-title').textContent = `Familia ${symbol}`;
   document.querySelector('#symbol-manager-summary').textContent = 'Cargando todos los sets, incluidos los excluidos…';
-  document.querySelector('#symbol-disable-generation').checked = Boolean(row.generation_disabled ?? row.disabled);
-  document.querySelector('#symbol-disable-improvement').checked = Boolean(row.improvement_disabled ?? row.disabled);
-  document.querySelector('#symbol-disable-chain').checked = Boolean(row.chain_improvement_disabled ?? row.disabled);
-  document.querySelector('#symbol-set-rows').innerHTML = '<tr><td colspan="5">Cargando…</td></tr>';
+  document.querySelector('#symbol-disabled').checked = Boolean(row.disabled);
+  document.querySelector('#symbol-set-rows').innerHTML = '<tr><td colspan="6">Cargando…</td></tr>';
   symbolDialog.showModal();
   try {
-    const data = await postManager('symbol-sets', {scope, symbol});
-    managedSymbol = data.symbol;
-    managedSymbolSets = data.sets || [];
-    document.querySelector('#symbol-manager-title').textContent = `Familia ${data.symbol}`;
-    const excluded = managedSymbolSets.filter(item => item.state === 'excluded').length;
-    document.querySelector('#symbol-manager-summary').textContent = `${number(data.total)} sets encontrados · ${number(excluded)} excluidos`;
-    renderManagedSymbolSets();
+    await loadManagedSymbolSets(symbol);
   } catch (error) {
-    document.querySelector('#symbol-set-rows').innerHTML = `<tr><td colspan="5" class="error-text">${esc(error.message)}</td></tr>`;
+    document.querySelector('#symbol-set-rows').innerHTML = `<tr><td colspan="6" class="error-text">${esc(error.message)}</td></tr>`;
     document.querySelector('#symbol-manager-summary').textContent = 'No se pudo cargar la familia.';
   }
 }
@@ -305,6 +304,36 @@ document.querySelector('#inventory-symbols').addEventListener('click', event => 
 
 document.querySelectorAll('[data-symbol-close]').forEach(button => button.addEventListener('click', () => symbolDialog.close()));
 document.querySelector('#symbol-set-rows').addEventListener('change', updateSymbolSelectionCount);
+document.querySelector('#symbol-set-rows').addEventListener('click', async event => {
+  const button = event.target.closest('[data-symbol-change-state]');
+  if (!button) return;
+  const row = managedSymbolSets[Number(button.dataset.symbolChangeState)];
+  if (!row) return;
+  button.disabled = true;
+  try {
+    if (row.quarantine_key) {
+      const target = await askQuarantineTarget({
+        title: `Cambiar estado de ${row.set_name}`,
+        detail: 'Elige cuarentena normal, degradación, OHLC ≠ every tick o reintegrar al pool.',
+        current: row.reason_code,
+      });
+      if (!target || target === row.reason_code) return;
+      await postManager('requalify', {scope, quarantine_id: row.quarantine_key, reason_code: target});
+      toast(target === 'pool' ? `${row.set_name} reintegrado al pool.` : `${row.set_name} movido a «${exclusionReasonLabel(target)}».`);
+    } else {
+      const reasonCode = await askExclusionReason({
+        title: `Excluir ${row.set_name}`,
+        detail: 'Elige cuarentena normal, degradación u OHLC ≠ every tick.',
+      });
+      if (!reasonCode) return;
+      await postManager('exclude', {scope, set_path: row.set_path, reason_code: reasonCode});
+      toast(`${row.set_name} puesto en «${exclusionReasonLabel(reasonCode)}».`);
+    }
+    await loadManagerState();
+    await loadManagedSymbolSets(managedSymbol);
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
 document.querySelector('#symbol-select-all').addEventListener('change', event => {
   document.querySelectorAll('[data-symbol-set]:not(:disabled)').forEach(field => { field.checked = event.target.checked; });
   updateSymbolSelectionCount();
@@ -314,11 +343,9 @@ document.querySelector('#symbol-save-exclusions').addEventListener('click', asyn
   if (!managedSymbol) return;
   event.currentTarget.disabled = true;
   try {
-    setDisabledSymbol('disabled_symbols', managedSymbol, document.querySelector('#symbol-disable-generation').checked);
-    setDisabledSymbol('improvement_disabled_symbols', managedSymbol, document.querySelector('#symbol-disable-improvement').checked);
-    setDisabledSymbol('chain_improvement_disabled_symbols', managedSymbol, document.querySelector('#symbol-disable-chain').checked);
+    setDisabledSymbol('disabled_symbols', managedSymbol, document.querySelector('#symbol-disabled').checked);
     await persistSettings();
-    toast(`Exclusiones de ${managedSymbol} guardadas.`);
+    toast(`Disponibilidad de ${managedSymbol} guardada para construcción y mejoras.`);
   } catch (error) { toast(error.message, true); }
   finally { event.currentTarget.disabled = false; }
 });
@@ -457,7 +484,7 @@ async function downloadManagerExport(action, payload, fallbackName) {
   link.remove();
   URL.revokeObjectURL(link.href);
   return {
-    exported: Number(response.headers.get('X-Exported-Sets') || 0),
+    exported: Number(response.headers.get('X-Exported-Files') || response.headers.get('X-Exported-Sets') || 0),
     missing: Number(response.headers.get('X-Missing-Sets') || 0),
   };
 }
@@ -550,8 +577,6 @@ document.querySelector('#reset-settings').addEventListener('click', () => {
   hydrate({capital: 10000, valley_dd_pct: 10, portfolio_type: 'balanced', top_k_per_symbol: 3, max_total_candidates: 30, min_trades_2020_2026: 100, min_strategy_recent_contribution_pct: 5, max_sets_per_symbol: 1, dd_reserve_pct: 10, search_restarts: 4, margin_profile: 'ictrading', account_leverage: 1000, max_margin_pct: 100, max_pair_corr: .35, max_downside_corr: .25, max_dd_overlap: .35, max_portfolio_corr: .5, run_local_search: true, deep_optimization: true, experimental_full_search: false, use_correlation: true, exclude_used_sets: true, allowed_asset_groups: groups});
   if (managerState.settings) {
     managerState.settings.disabled_symbols = [];
-    managerState.settings.improvement_disabled_symbols = [];
-    managerState.settings.chain_improvement_disabled_symbols = [];
   }
   toast('Valores restablecidos; pulsa Guardar configuración para persistirlos.');
 });
@@ -764,7 +789,7 @@ function renderSavedVariant(portfolio, requestedKey = '') {
     const memberVariant = member.variant_key || member.variant_label || 'default';
     const selectorCell = isBundle ? `<td><input type="checkbox" aria-label="Seleccionar ${esc(member.set_name || member.set_id)}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
     const excludeAction = isBundle ? '' : `<button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button>`;
-    return `<tr>${selectorCell}<td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, detailRecentTotals[memberVariant] || 0)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button>${excludeAction}</div></td></tr>`;
+    return `<tr>${selectorCell}<td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, detailRecentTotals[memberVariant] || 0)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="secondary table-action" onclick="exportMemberReports(${index})">Exportar reportes</button>${excludeAction}</div></td></tr>`;
   }).join('') : '<tr><td colspan="16">Esta variante no tiene estrategias guardadas.</td></tr>';
   updateDetailSelection();
   const decisions = selectedDetailVariant && variant.label
@@ -884,8 +909,34 @@ async function startSavedOperation(action) {
 async function openReport(index) {
   const member = detailMembers[index];
   if (!member || !selectedId) return;
-  try { const data = await postManager('open-report', {scope, portfolio_id: selectedId, set_path: member.set_path}); toast(`Reporte abierto: ${data.report}`); }
-  catch (error) { toast(error.message, true); }
+  const viewer = window.open('about:blank', '_blank');
+  if (!viewer) { toast('El navegador bloqueó la ventana del reporte.', true); return; }
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/open-report`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scope, portfolio_id: selectedId, set_path: member.set_path}),
+    });
+    if (!response.ok) {
+      const data = await jsonResponse(response);
+      throw new Error(data.error || response.statusText);
+    }
+    const url = URL.createObjectURL(await response.blob());
+    viewer.location.replace(url);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (error) { viewer.close(); toast(error.message, true); }
+}
+
+async function exportMemberReports(index) {
+  const member = detailMembers[index];
+  if (!member || !selectedId) return;
+  try {
+    const data = await downloadManagerExport(
+      'export-member-reports',
+      {scope, portfolio_id: selectedId, set_path: member.set_path},
+      `REPORTES_${member.set_name || member.symbol || selectedId}.zip`,
+    );
+    toast(`Exportados ${data.exported} reporte(s) de ${member.set_name || member.symbol}.`);
+  } catch (error) { toast(error.message, true); }
 }
 
 document.querySelector('#detail-alias-edit').addEventListener('click', async () => {

@@ -1,16 +1,9 @@
 # Deshabilitar símbolos en Portafolio UBS normal
 
 La tabla «Sets disponibles por símbolo» de UBS normal abre una ventana de
-gestión al pulsar el nombre o su estado. La ventana separa tres listas dentro de
-la configuración `full_history` del nodo:
-
-- `disabled_symbols`: construcción A/M/C;
-- `improvement_disabled_symbols`: primera mejora de una base;
-- `chain_improvement_disabled_symbols`: mejora de una mejora.
-
-Una configuración anterior que solo tenga `disabled_symbols` la hereda en las
-tres listas para conservar exactamente el comportamiento que tenía. Al guardar
-desde la ventana nueva quedan persistidas por separado.
+gestión al pulsar el nombre o su estado. Un único interruptor persiste el símbolo
+en `disabled_symbols` y lo excluye de todos los pools de candidatas nuevas:
+construcción A/M/C, mejora de una base y mejora de una mejora.
 
 El filtro se aplica antes de cargar los reportes en los tres recorridos que
 pueden incorporar candidatos:
@@ -19,10 +12,10 @@ pueden incorporar candidatos:
 - mejora de una base (`portfolio_improvement_service`);
 - mejora de una mejora (`portfolio_improvement_chain_service`).
 
-En la primera mejora viaja `improvement_disabled_symbols`. Para una cadena, el
-dispatcher copia `chain_improvement_disabled_symbols` sobre esa clave interna
-antes de entrar al motor bifurcado, manteniendo idéntica la función compartida de
-carga de candidatos de ambos motores.
+Los dos motores de mejora conservan su clave interna
+`improvement_disabled_symbols`; la interfaz la rellena siempre desde la única
+lista `disabled_symbols`. El dispatcher entrega el mismo valor tanto al motor de
+primera mejora como al de mejora encadenada.
 
 La misma ventana obtiene la familia completa mediante
 `PortfolioSource.import_candidate_rows(include_without_robustness=True)`, no
@@ -33,11 +26,19 @@ pool. El backend vuelve a validar que cada ruta seleccionada pertenece al símbo
 antes de copiarla. La exportación se sirve como carpeta en escritorio o como ZIP
 en Docker, igual que la exportación de un portafolio.
 
+Cada fila de set mantiene la acción «Cambiar estado». Para un set todavía no
+puesto en cuarentena abre el selector existente de tres motivos: cuarentena
+normal, degradación u OHLC distinto de every tick. Para un set ya puesto en
+cuarentena abre el selector de reclasificación, que ofrece esos mismos tres
+motivos y además la reintegración al pool. La selección de filas para exportar
+es independiente de esta acción.
+
 Deshabilitar un símbolo afecta sólo al pool de candidatas nuevas. No retira una
 estrategia original de una mejora: las originales siguen bloqueadas por el
 contrato del motor. Tampoco toca UBS mensual, que conserva interfaz y
 orquestación separadas.
 
-El cálculo lo ejecuta el proceso manager. El nodo del agente sólo persiste la
-propuesta serializada, por lo que este cambio no requiere modificar
-`manager_node_runtime/` de ICTrading.
+El cálculo, la interfaz y la exportación los ejecuta el proceso manager. El
+cambio de estado reutiliza las rutas de exclusión/reclasificación que ya existían
+y que delegan en el nodo cuando corresponde. No se añadió ninguna escritura
+nueva ni se requiere modificar `manager_node_runtime/` de ICTrading.
