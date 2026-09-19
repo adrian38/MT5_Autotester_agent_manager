@@ -8,6 +8,7 @@ sets vuelven a bloquear el pool.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import sys
@@ -169,6 +170,25 @@ class SummaryParsingTests(unittest.TestCase):
         self.assertEqual([row["portfolio_id"] for row in header["improvement_lineage"]], [14, 36])
         self.assertEqual(header["improvement_source_snapshot"]["id"], 36)
 
+    def test_exact_exported_members_are_read_without_changing_the_visible_table(self) -> None:
+        exact = [{
+            "set_name": "alpha.set",
+            "candidate_id": "ICTRADING/STANDARD:77",
+            "set_path": "/data/ic/alpha.set",
+            "oos_report_path": "/data/ic/reports/robust_000077_alpha.htm",
+        }]
+        summary = SUMMARY.replace(
+            "Tipo: bundle   Capital: 10,000\n",
+            "Tipo: bundle   Capital: 10,000\nMiembros JSON: "
+            + json.dumps(exact, separators=(",", ":"))
+            + "\n",
+        )
+
+        header, members = portfolio_import.parse_summary(summary)
+
+        self.assertEqual(header["portfolio_members"], exact)
+        self.assertEqual(len(members), 6)
+
     def test_a_set_name_with_spaces_survives_the_fixed_width_columns(self) -> None:
         line = "Moderado     ICTRADING    EURUSD       H1          2    0.02   nombre con espacios.set"
         _header, members = portfolio_import.parse_summary(
@@ -197,6 +217,9 @@ class SummaryParsingTests(unittest.TestCase):
             self.assertEqual(from_folder[1], from_zip[1])
             self.assertEqual(from_folder[2], ["alpha.set", "beta.set"])
             self.assertEqual(from_zip[2], ["alpha.set", "beta.set"])
+            self.assertEqual(
+                len(from_folder[0]["_set_sha256_by_name"]["alpha.set"]), 1
+            )
 
     def test_a_file_that_is_not_a_zip_says_so(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -258,6 +281,7 @@ class ImportRoundTripTests(unittest.TestCase):
     def _candidates(self, project: Path) -> list[dict]:
         return [
             {
+                "candidate_id": f"ICTRADING/STANDARD:{index}",
                 "set_path": str(project / name), "source_memory_path": str(project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"),
                 "account_type": "ICTRADING/STANDARD", "source_candidate_id": index,
                 "target_symbol": symbol, "symbol": symbol, "period": "H1",
@@ -265,6 +289,98 @@ class ImportRoundTripTests(unittest.TestCase):
             }
             for index, (name, symbol) in enumerate((("alpha.set", "EURUSD"), ("beta.set", "GBPUSD")), start=1)
         ]
+
+    def test_exact_exported_candidate_disambiguates_repeated_set_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            header, members = portfolio_import.parse_summary(IMPROVEMENT_SUMMARY)
+            header["portfolio_members"] = [{
+                "set_name": "alpha.set",
+                "candidate_id": "ICTRADING/STANDARD:77",
+                "set_path": str(project / "alpha.set"),
+            }, {
+                "set_name": "beta.set",
+                "candidate_id": "ICTRADING/STANDARD:2",
+                "set_path": str(project / "beta.set"),
+            }]
+            candidates = self._candidates(project)
+            duplicate = dict(candidates[0])
+            duplicate["candidate_id"] = "ICTRADING/STANDARD:77"
+            duplicate["source_candidate_id"] = 77
+            candidates.append(duplicate)
+            loaded_rows: list[dict] = []
+
+            def load(rows, *_args, **_kwargs):
+                loaded_rows.extend(rows)
+                return ([
+                    strategy(str(project / "alpha.set"), "EURUSD", 77, 900.0),
+                    strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+                ], [])
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=candidates
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                side_effect=load,
+            ):
+                _proposals, _selected, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+
+            alpha = [
+                row for row in loaded_rows
+                if Path(str(row.get("set_path") or "")).name == "alpha.set"
+            ]
+            self.assertEqual([row["candidate_id"] for row in alpha], ["ICTRADING/STANDARD:77"])
+            self.assertEqual(report["ambiguous"], [])
+
+    def test_old_exported_set_contents_disambiguate_repeated_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            source = self._source(project)
+            header, members = portfolio_import.parse_summary(IMPROVEMENT_SUMMARY)
+            first_path = project / "run-1" / "alpha.set"
+            second_path = project / "run-2" / "alpha.set"
+            first_path.parent.mkdir()
+            second_path.parent.mkdir()
+            first_path.write_text("Risk=1", encoding="utf-8")
+            second_path.write_text("Risk=2", encoding="utf-8")
+            header["_set_sha256_by_name"] = {
+                "alpha.set": [hashlib.sha256(first_path.read_bytes()).hexdigest()]
+            }
+            candidates = self._candidates(project)
+            candidates[0]["set_path"] = str(first_path)
+            duplicate = dict(candidates[0])
+            duplicate["candidate_id"] = "ICTRADING/STANDARD:77"
+            duplicate["source_candidate_id"] = 77
+            duplicate["set_path"] = str(second_path)
+            candidates.append(duplicate)
+            loaded_rows: list[dict] = []
+
+            def load(rows, *_args, **_kwargs):
+                loaded_rows.extend(rows)
+                return ([
+                    strategy(str(first_path), "EURUSD", 1, 900.0),
+                    strategy(str(project / "beta.set"), "GBPUSD", 2, 600.0),
+                ], [])
+
+            with patch.object(
+                PortfolioSource, "import_candidate_rows", return_value=candidates
+            ), patch(
+                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                side_effect=load,
+            ):
+                _proposals, _selected, report = build_import_proposals(
+                    source, "full_history", header, members
+                )
+
+            alpha = [
+                row for row in loaded_rows
+                if Path(str(row.get("set_path") or "")).name == "alpha.set"
+            ]
+            self.assertEqual([row["candidate_id"] for row in alpha], ["ICTRADING/STANDARD:1"])
+            self.assertEqual(report["ambiguous"], [])
 
     def test_import_inventory_includes_candidates_with_changed_verdicts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

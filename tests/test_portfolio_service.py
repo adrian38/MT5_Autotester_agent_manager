@@ -1811,6 +1811,9 @@ class PortfolioServiceTests(unittest.TestCase):
             exported = source.export_portfolio(portfolio_id, "full_history", str(project / "exported"))
             self.assertEqual(exported["exported"], 1)
             self.assertTrue(Path(exported["summary"]).is_file())
+            summary_text = Path(exported["summary"]).read_text(encoding="utf-8")
+            self.assertIn("Miembros JSON:", summary_text)
+            self.assertIn('"candidate_id":"ICTRADING/STANDARD:1"', summary_text)
             self.assertEqual((Path(exported["folder"]) / set_file.name).read_text(encoding="utf-8"), "Risk=1\n")
             archive = PortfolioCoordinator([node], project / "settings.json").export_archive(
                 "ic", "full_history", portfolio_id

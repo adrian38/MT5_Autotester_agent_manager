@@ -197,6 +197,42 @@ Aparte, `invalidate_after_exclusion` invalida el snapshot de la memoria al
 terminar, así que la primera lectura posterior vuelve a copiarla: eso es la
 recarga de la pantalla, no la importación.
 
+## Identidad exacta de candidatos repetidos (2026-09-19)
+
+La tabla visible del resumen no identifica un candidato: trunca CUENTA a 12
+caracteres y conserva solamente el nombre del `.set`. Dos candidatos distintos
+pueden compartir ambos datos y tener informes/curvas diferentes. Elegir uno por
+nombre sería silencioso y no reproduciría necesariamente el portafolio exportado.
+
+Caso real: la mejora de RoboForex que terminó importada como `#139` contenía
+`EURUSD_H1_Advanced_Scalper_usdjpy_H1_SL22_g001_s027_v010.set` y
+`DE40Cash_M15_live_portfolio_Sets__US100_4_g001_s002_v001.set`. La memoria tenía
+dos candidatos para el primero y ocho para el segundo; la importación antigua
+los guardó como `importado-sin-informes:*`. Los informes sí existían, pero sin el
+`candidate_id` no era posible decidir qué `robust_<id>_*.htm` pertenecía al
+miembro. Por eso una mejora posterior no podía reconstruir su base.
+
+Las exportaciones nuevas añaden `Miembros JSON` antes de la tabla. Conserva el
+`candidate_id` y las rutas exactas de cada asignación; la importación usa ese id
+para desambiguar y también puede reconstruir la fila desde las rutas exportadas
+si el candidato ya no figura en el inventario actual. La tabla y los resúmenes
+anteriores siguen siendo compatibles. Para archivos antiguos, la importación
+calcula el SHA-256 de la copia del `.set` que ya traía la exportación y lo
+compara con los candidatos homónimos: recupera la identidad si hay una única
+coincidencia de contenido. Si tanto el id como esa copia se han perdido, no se
+elige un candidato por nombre porque eso podría asociar otro informe y curva.
+
+Todo este flujo se ejecuta en el manager. El nodo recibe el payload final para
+persistirlo, pero no interpreta el resumen ni elige los informes; no hay cambio
+correspondiente en `manager_node_runtime/`.
+
+Reparación puntual de producción: el `#139` de RoboForex se completó mediante
+el endpoint de guardado del nodo, conservando sus 16 miembros y 85 unidades.
+Las dos identidades recuperadas fueron `ROBOFOREX/ECN:32807` (EURUSD) y
+`ROBOFOREX/ECN:65109` (DE40). La operación dejó una versión previa deshacible;
+la verificación posterior reconstruyó 16/16 estrategias, sin placeholders ni
+avisos de informes ausentes.
+
 ## Transporte: el reflejo de la exportación
 
 | `export_mode` | Exportar | Importar |
