@@ -276,7 +276,7 @@ async function loadManagedSymbolSets(symbol) {
   managedSymbolSets = data.sets || [];
   document.querySelector('#symbol-manager-title').textContent = `Familia ${data.symbol}`;
   const excluded = managedSymbolSets.filter(item => item.state === 'excluded').length;
-  document.querySelector('#symbol-manager-summary').textContent = `${number(data.total)} sets encontrados · ${number(excluded)} excluidos`;
+  document.querySelector('#symbol-manager-summary').textContent = `${number(data.total)} sets de la familia · ${number(excluded)} excluidos`;
   renderManagedSymbolSets();
 }
 
@@ -285,7 +285,7 @@ async function openSymbolManager(symbol) {
   managedSymbolSets = [];
   const row = (managerState.inventory?.by_symbol || []).find(item => String(item.symbol).toLowerCase() === symbol.toLowerCase()) || {};
   document.querySelector('#symbol-manager-title').textContent = `Familia ${symbol}`;
-  document.querySelector('#symbol-manager-summary').textContent = 'Cargando todos los sets, incluidos los excluidos…';
+  document.querySelector('#symbol-manager-summary').textContent = 'Cargando los sets de la familia, incluidos los excluidos…';
   document.querySelector('#symbol-disabled').checked = Boolean(row.disabled);
   document.querySelector('#symbol-set-rows').innerHTML = '<tr><td colspan="6">Cargando…</td></tr>';
   symbolDialog.showModal();

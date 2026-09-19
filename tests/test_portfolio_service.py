@@ -1305,7 +1305,7 @@ class PortfolioServiceTests(unittest.TestCase):
         self.assertEqual(full["disabled_symbols"], ["EURUSD", "XAUUSD"])
         self.assertEqual(monthly["disabled_symbols"], [])
 
-    def test_symbol_family_lists_excluded_sets_and_exports_only_the_selection(self) -> None:
+    def test_symbol_family_lists_the_pool_and_exports_only_the_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             (project / "outputs").mkdir()
@@ -1321,34 +1321,26 @@ class PortfolioServiceTests(unittest.TestCase):
                 "portfolio_broker": "ICTRADING",
                 "portfolio_account_type": "STANDARD",
             })
+            # candidate_rows ya trae solo el pool de las cuatro etapas: la
+            # degradada desapareció de ahí y solo vive en la cuarentena.
             rows = [
                 {
                     "candidate_id": "ICTRADING/STANDARD:1", "set_path": str(accepted),
                     "symbol": "NFLX", "target_symbol": "NFLX", "period": "H1", "family": "stock",
-                    "account_type": "ICTRADING/STANDARD", "base_status": "accepted",
-                    "robustness_status": "accepted", "final_tick_status": "accepted",
-                    "final_tick_6m_status": "accepted",
-                },
-                {
-                    "candidate_id": "ICTRADING/STANDARD:2", "set_path": str(excluded),
-                    "symbol": "NFLX", "target_symbol": "NFLX", "period": "H1", "family": "stock",
-                    "account_type": "ICTRADING/STANDARD", "base_status": "accepted",
-                    "robustness_status": "accepted", "final_tick_status": "accepted",
-                    "final_tick_6m_status": "rejected",
+                    "account_type": "ICTRADING/STANDARD",
                 },
                 {
                     "candidate_id": "ICTRADING/STANDARD:3", "set_path": str(other),
                     "symbol": "NKE", "target_symbol": "NKE", "period": "H1", "family": "stock",
-                    "account_type": "ICTRADING/STANDARD", "base_status": "accepted",
-                    "robustness_status": "accepted", "final_tick_status": "accepted",
-                    "final_tick_6m_status": "accepted",
+                    "account_type": "ICTRADING/STANDARD",
                 },
             ]
             quarantine = [{
                 "set_path": str(excluded), "quarantine_key": "ICTRADING/STANDARD|7",
+                "symbol": "NFLX", "timeframe": "H1", "source_account": "ICTRADING/STANDARD",
                 "reason_code": "degradation", "reason_label": "Excluido por degradación",
             }]
-            with patch.object(source, "import_candidate_rows", return_value=rows), patch.object(
+            with patch.object(source, "candidate_rows", return_value=rows), patch.object(
                 source, "quarantine_rows", return_value=quarantine
             ), patch.object(source, "used_set_paths", return_value=[str(accepted)]):
                 family = source.symbol_sets("NFLX")
@@ -1373,13 +1365,13 @@ class PortfolioServiceTests(unittest.TestCase):
                 {"NFLX_accepted.set", "NFLX_excluded.set"},
             )
 
-    def test_complete_symbol_family_includes_a_set_before_robustness(self) -> None:
+    def test_symbol_family_leaves_out_candidates_that_never_reached_the_pool(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
             (project / "outputs").mkdir()
             (project / "assets").mkdir()
-            set_file = project / "NFLX_pending.set"
-            set_file.write_text("Risk=1\n", encoding="utf-8")
+            pending = project / "NFLX_pending.set"
+            pending.write_text("Risk=1\n", encoding="utf-8")
             memory = project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
             with contextlib.closing(sqlite3.connect(memory)) as conn:
                 conn.execute(
@@ -1389,7 +1381,7 @@ class PortfolioServiceTests(unittest.TestCase):
                 )
                 conn.execute(
                     "insert into candidates values(1,?,?,?,?,?,?,?)",
-                    (str(set_file), "NFLX", "NFLX", "H1", "stock", "report.html", "accepted"),
+                    (str(pending), "NFLX", "NFLX", "H1", "stock", "report.html", "accepted"),
                 )
                 conn.commit()
             source = PortfolioSource({
@@ -1398,15 +1390,14 @@ class PortfolioServiceTests(unittest.TestCase):
                 "portfolio_account_type": "STANDARD",
             })
 
-            self.assertEqual(source.import_candidate_rows(), [])
+            # El candidato existe en la memoria pero no tiene robustez ni Final
+            # Tick: la ventana de familia ya no lo enseña, igual que no lo cuenta
+            # la fila del inventario desde la que se abre.
+            self.assertEqual(source.candidate_rows(include_quarantined=True), [])
             with patch.object(source, "quarantine_rows", return_value=[]), patch.object(
                 source, "used_set_paths", return_value=[]
-            ):
-                family = source.symbol_sets("NFLX")
-
-            self.assertEqual(family["total"], 1)
-            self.assertEqual(family["sets"][0]["set_name"], set_file.name)
-            self.assertEqual(family["sets"][0]["state_label"], "Fuera del pool aceptado")
+            ), self.assertRaisesRegex(ValueError, "No se encontraron sets"):
+                source.symbol_sets("NFLX")
 
     def test_portfolio_source_reads_only_full_pipeline_accepted_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
