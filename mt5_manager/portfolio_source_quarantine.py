@@ -30,6 +30,31 @@ class PortfolioSourceQuarantineMixin:
             raise ValueError("El set no pertenece a los candidatos Final Tick 6M accepted")
         return matches[0]
 
+    def resolve_pool_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Localiza un candidato que no procede de un portafolio guardado."""
+        requested = str(payload.get("set_path") or payload.get("set_id") or "").strip()
+        if not requested:
+            raise ValueError("Falta identificar el set que se quiere excluir")
+        return self._candidate_to_exclude(requested)
+
+    def pool_member_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Reduce el candidato a las cuatro claves que escribe el nodo.
+
+        El nodo no puede resolver la ruta del manager contra su memoria local.
+        Por eso el manager identifica la fila y el runtime del agente sólo la
+        persiste; ver ``exclude_portfolio_members_payload`` en su fork.
+        """
+        row = self.resolve_pool_candidate(payload)
+        return {
+            "set_path": str(row.get("set_path") or ""),
+            "candidate_id": str(row.get("candidate_id") or ""),
+            "symbol": portfolio_display_symbol(
+                str(row.get("target_symbol") or row.get("symbol") or ""),
+                universe_files=[self.universe],
+            ),
+            "timeframe": str(row.get("period") or ""),
+        }
+
     def _stage_restore_snapshot(
         self, candidate_memory: Path, candidate_id: Any, reason_code: str,
     ) -> str | None:
@@ -97,10 +122,7 @@ class PortfolioSourceQuarantineMixin:
         la cuarentena se escriba en otra: en Grid la fila vive en la base del
         manager, pero los estados, el score y los pesos son del agente.
         """
-        requested = str(payload.get("set_path") or payload.get("set_id") or "").strip()
-        if not requested:
-            raise ValueError("Falta identificar el set que se quiere excluir")
-        row = self._candidate_to_exclude(requested)
+        row = self.resolve_pool_candidate(payload)
         candidate_memory = Path(str(row.get("source_memory_path") or self.memory)).absolute()
         source_memory = Path(memory or candidate_memory).absolute()
         account_label = str(row.get("account_type") or f"{self.broker}/{self.account}")

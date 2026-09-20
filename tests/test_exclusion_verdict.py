@@ -384,5 +384,112 @@ class RequalifyRoutingTests(unittest.TestCase):
             self.assertIn("nodo del agente", message)
 
 
+class PoolExclusionRoutingTests(unittest.TestCase):
+    """Excluir un set que no está en ningún portafolio.
+
+    Es lo que hace «Gestión por símbolo», y contra un nodo HTTP devolvía 400
+    «Falta el portafolio que contiene las estrategias»: la copia del agente sólo
+    sabía buscar el miembro en `portfolio_allocations`. El nodo no puede
+    resolverlo por su cuenta —la ruta que manda el manager es la suya, no la de
+    la memoria del agente—, así que el manager resuelve el candidato y se lo
+    manda hecho en `pool_member`.
+    """
+
+    @contextlib.contextmanager
+    def _coordinator(self):
+        with broker_project() as (source, memory):
+            node = {
+                "id": "broker-node",
+                "portfolio_project_dir": str(source.project),
+                "portfolio_broker": "ICTRADING",
+                "portfolio_account_type": "STANDARD",
+                "url": "http://127.0.0.1:9",
+            }
+            yield PortfolioCoordinator([node], source.project / "settings.json"), source, memory
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _node_answers(status: int, body: dict):
+        calls: list[tuple[str, dict]] = []
+
+        def post(self, node, path, payload, timeout=60):
+            calls.append((path, payload))
+            return status, body
+
+        with mock.patch.object(PortfolioCoordinator, "_post_to_node", post):
+            yield calls
+
+    def test_the_manager_resolves_the_candidate_before_asking_the_node(self) -> None:
+        with self._coordinator() as (coordinator, _source, _memory):
+            with self._node_answers(
+                200, {"quarantine_id": 7, "verdict_applied": True, "pool_exclusion": True}
+            ) as calls:
+                quarantine_id = coordinator.exclude(
+                    "broker-node", "full_history",
+                    {"set_path": "sets/a.set", "reason_code": "degradation"},
+                )
+
+            self.assertEqual(quarantine_id, 7)
+            member = calls[0][1]["pool_member"]
+            # Las cuatro claves que el nodo escribe: sin ellas aborta, porque no
+            # tiene dónde buscarlas.
+            self.assertEqual(member["candidate_id"], "ICTRADING/STANDARD:1")
+            self.assertTrue(member["set_path"].endswith("a.set"), member["set_path"])
+            self.assertEqual(member["symbol"], "EURUSD")
+            self.assertEqual(member["timeframe"], "H1")
+
+    def test_an_exclusion_from_a_saved_portfolio_does_not_resolve_the_pool(self) -> None:
+        # Con portafolio el nodo ya sabe encontrar al miembro, y resolverlo aquí
+        # cambiaría qué fila se excluye cuando dos candidatos comparten nombre.
+        with self._coordinator() as (coordinator, _source, _memory):
+            with self._node_answers(200, {"quarantine_id": 3, "verdict_applied": True}) as calls:
+                coordinator.exclude(
+                    "broker-node", "full_history",
+                    {"set_path": "sets/a.set", "portfolio_id": 12, "reason_code": "degradation"},
+                )
+            self.assertNotIn("pool_member", calls[0][1])
+
+    def test_an_unported_node_says_what_to_port_instead_of_asking_for_a_portfolio(self) -> None:
+        with self._coordinator() as (coordinator, source, _memory):
+            with self._node_answers(
+                400, {"error": PortfolioCoordinator.UNPORTED_POOL_EXCLUSION}
+            ):
+                with self.assertRaises(ValueError) as raised:
+                    coordinator.exclude(
+                        "broker-node", "full_history",
+                        {"set_path": "sets/a.set", "reason_code": "degradation"},
+                    )
+
+            message = str(raised.exception)
+            self.assertIn("manager_node_runtime", message)
+            self.assertIn("pool_member", message)
+            # El texto del nodo se conserva: es lo que identifica la copia vieja.
+            self.assertIn(PortfolioCoordinator.UNPORTED_POOL_EXCLUSION, message)
+            self.assertEqual(source.quarantine_rows(), [])
+
+    def test_a_real_error_from_a_ported_node_is_not_rewritten(self) -> None:
+        # Un nodo ya portado puede fallar por motivos legítimos; decirle al
+        # usuario que porte algo que ya tiene manda a arreglar lo que funciona.
+        with self._coordinator() as (coordinator, _source, _memory):
+            with self._node_answers(400, {"error": "database is locked"}):
+                with self.assertRaises(ValueError) as raised:
+                    coordinator.exclude(
+                        "broker-node", "full_history",
+                        {"set_path": "sets/a.set", "reason_code": "degradation"},
+                    )
+            self.assertEqual(str(raised.exception), "database is locked")
+
+    def test_a_set_outside_the_accepted_pool_never_reaches_the_node(self) -> None:
+        with self._coordinator() as (coordinator, _source, _memory):
+            with self._node_answers(200, {"quarantine_id": 1, "verdict_applied": True}) as calls:
+                with self.assertRaises(ValueError) as raised:
+                    coordinator.exclude(
+                        "broker-node", "full_history",
+                        {"set_path": "sets/desconocido.set", "reason_code": "degradation"},
+                    )
+            self.assertIn("Final Tick 6M", str(raised.exception))
+            self.assertEqual(calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

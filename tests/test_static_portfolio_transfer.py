@@ -137,6 +137,17 @@ class ExclusionReasonScreenTests(unittest.TestCase):
                 self.assertIn("reason_code: target", script)
                 self.assertNotIn("postManager('release'", script)
 
+    def test_choosing_the_current_state_reports_that_nothing_changed(self) -> None:
+        helper = self.static("exclusion_reason.js")
+        self.assertIn("function quarantineTargetIsTheSame(", helper)
+        for name in self.PAGES:
+            script = self.static(f"{name}.js")
+            with self.subTest(script=name):
+                expected = 2 if name == "portfolios" else 1
+                self.assertEqual(script.count("quarantineTargetIsTheSame("), expected)
+                self.assertNotIn("target === currentCode) return;", script)
+                self.assertNotIn("target === row.reason_code) return;", script)
+
 
 if __name__ == "__main__":
     unittest.main()

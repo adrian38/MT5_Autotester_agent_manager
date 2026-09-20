@@ -162,6 +162,18 @@ function askExclusionReason({title, detail} = {}) {
   });
 }
 
+/* ¿La elección del diálogo cambia algo?
+ *
+ * El diálogo preselecciona el estado que la fila ya tiene, así que el camino más
+ * corto —abrirlo y pulsar «Aplicar»— elige el estado actual. Los cuatro sitios
+ * que lo usan salían ahí con un `return` mudo: ni petición, ni aviso, ni
+ * recarga. Indistinguible de un botón roto, y así se leyó. Cambiar de estado a
+ * uno mismo no es una operación, pero tiene que decirlo.
+ */
+function quarantineTargetIsTheSame(target, currentCode) {
+  return Boolean(target) && target === normalizeExclusionReason(currentCode);
+}
+
 /* A qué estado se mueve una estrategia ya excluida, el pool incluido. */
 function askQuarantineTarget({title, detail, current} = {}) {
   return openReasonDialog({

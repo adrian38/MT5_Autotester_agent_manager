@@ -19,6 +19,8 @@ from .portfolio_source import PortfolioSource
 
 
 class PortfolioCoordinatorSavedMixin:
+    UNPORTED_POOL_EXCLUSION = "Falta el portafolio que contiene las estrategias"
+
     def prepare_save(self, node_id: str, scope: str, selected_key: str) -> dict[str, Any]:
         self._node(node_id)
         key = self._key(node_id, scope)
@@ -204,12 +206,18 @@ class PortfolioCoordinatorSavedMixin:
             # directly over CIFS is unreliable (SQLite WAL is not coherent across
             # a network share), so a manager-side quarantine/delete silently
             # failed to appear and the excluded portfolio kept showing up.
-            status, value = self._post_to_node(node, "/api/v1/portfolios/exclude", {**payload, "scope": scope})
+            node_payload = {**payload, "scope": scope}
+            pool_exclusion = safe_int(payload.get("portfolio_id"), 0) < 1
+            if pool_exclusion:
+                node_payload["pool_member"] = PortfolioSource(node).pool_member_payload(payload)
+            status, value = self._post_to_node(
+                node, "/api/v1/portfolios/exclude", node_payload,
+            )
             if status == 404:
                 raise ValueError("El nodo todavía no admite exclusión individual local; actualiza su código y reinícialo.")
             if status >= 400 or not isinstance(value, dict):
                 error = value.get("error") if isinstance(value, dict) else value
-                raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+                raise ValueError(self._pool_exclusion_error(error, status, pool_exclusion))
             quarantine_id = safe_int(value.get("quarantine_id"), 0)
             # Only when this manager reads the node's memory locally (via a
             # snapshot) is there a cache to refresh; without portfolio_project_dir
@@ -224,6 +232,20 @@ class PortfolioCoordinatorSavedMixin:
             quarantine_id = source.remove_member_to_quarantine(payload, scope) if safe_int(payload.get("portfolio_id"), 0) else source.exclude_strategy(payload)
         self._drop_cached_proposals(node_id)
         return quarantine_id
+
+    @classmethod
+    def _pool_exclusion_error(cls, error: Any, status: int, pool_exclusion: bool) -> str:
+        """Explica el 400 específico de un runtime sin la rama ``pool_member``."""
+        text = str(error or f"El nodo devolvió HTTP {status}")
+        if not pool_exclusion or cls.UNPORTED_POOL_EXCLUSION not in text:
+            return text
+        return (
+            "Este nodo todavía no sabe excluir un set que no está en ningún portafolio: "
+            "falta portar la rama `pool_member` de exclude_portfolio_members_payload a su "
+            "manager_node_runtime/portfolio_save.py y reiniciar la aplicación del agente. "
+            "Mientras tanto, un set que sí esté en un portafolio guardado se puede excluir "
+            f"desde el detalle de ese portafolio. El nodo respondió: «{text}»."
+        )
 
     @staticmethod
     def _assert_node_applied_verdict(payload: dict[str, Any], value: dict[str, Any]) -> None:
