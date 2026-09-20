@@ -20,6 +20,7 @@ from .evaluation import (
     evaluate_portfolio,
 )
 from .margin import MarginModel
+from .limits import SearchLimits
 from .constraints import (
     _allocations_respect_constraints,
     _portfolio_active_count,
@@ -408,34 +409,13 @@ def build_portfolio_greedy(
     valley_dd_pct: float,
     point_dd_pct: float,
     portfolio_type: PortfolioType,
-    max_units_per_set: int | None = None,
-    max_total_units: int | None = None,
-    max_units_per_symbol: int | None = None,
-    max_sets_per_symbol: int | None = 1,
-    max_pair_corr: float | None = None,
-    max_downside_corr: float | None = None,
-    max_dd_overlap: float | None = None,
-    existing_portfolio_curves: Sequence[Sequence[float]] | None = None,
-    max_portfolio_corr: float | None = None,
-    max_units_per_group_pct: float | None = None,
-    max_sets_per_group: int | None = None,
-    group_unit_cap_bootstrap: int = 10,
     initial_allocations: dict[str, int] | None = None,
     minimum_active_strategies: int | None = None,
     maximum_active_strategies: int | None = None,
     prefer_breadth_below_minimum: bool = False,
     fixed_set_ids: Sequence[str] | None = None,
     allow_fixed_reductions_for_repair: bool = False,
-    margin_balance: float | None = None,
-    max_margin_pct: float | None = None,
-    margin_profile: str | MarginModel | None = "roboforex",
-    stock_leverage: float = 20.0,
-    default_leverage: float = 500.0,
-    stock_contract_size: float = 100.0,
-    default_contract_size: float = 1.0,
-    max_daily_dd: float | None = None,
-    enforce_point_dd: bool = True,
-    daily_dd_full_history: bool = False,
+    limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision], str, int]:
     """Anade unidades de 0.01 una a una, siempre la mejor que cabe.
 
@@ -448,28 +428,28 @@ def build_portfolio_greedy(
         portfolio_type=portfolio_type,
         target_valley_dd=capital * valley_dd_pct / 100.0,
         target_point_dd=capital * point_dd_pct / 100.0,
-        max_units_per_set=max_units_per_set,
-        max_total_units=max_total_units,
-        max_units_per_symbol=max_units_per_symbol,
-        max_sets_per_symbol=max_sets_per_symbol,
-        max_units_per_group_pct=max_units_per_group_pct,
-        max_sets_per_group=max_sets_per_group,
-        group_unit_cap_bootstrap=group_unit_cap_bootstrap,
-        margin_balance=margin_balance,
-        max_margin_pct=max_margin_pct,
-        margin_profile=margin_profile,
-        stock_leverage=stock_leverage,
-        default_leverage=default_leverage,
-        stock_contract_size=stock_contract_size,
-        default_contract_size=default_contract_size,
-        max_pair_corr=max_pair_corr,
-        max_downside_corr=max_downside_corr,
-        max_dd_overlap=max_dd_overlap,
-        max_portfolio_corr=max_portfolio_corr,
-        portfolio_curves=list(existing_portfolio_curves or []),
-        max_daily_dd=max_daily_dd,
-        enforce_point_dd=enforce_point_dd,
-        daily_dd_full_history=daily_dd_full_history,
+        max_units_per_set=limits.max_units_per_set,
+        max_total_units=limits.max_total_units,
+        max_units_per_symbol=limits.max_units_per_symbol,
+        max_sets_per_symbol=limits.max_sets_per_symbol,
+        max_units_per_group_pct=limits.max_units_per_group_pct,
+        max_sets_per_group=limits.max_sets_per_group,
+        group_unit_cap_bootstrap=limits.group_unit_cap_bootstrap,
+        margin_balance=limits.margin_balance,
+        max_margin_pct=limits.max_margin_pct,
+        margin_profile=limits.margin_profile,
+        stock_leverage=limits.stock_leverage,
+        default_leverage=limits.default_leverage,
+        stock_contract_size=limits.stock_contract_size,
+        default_contract_size=limits.default_contract_size,
+        max_pair_corr=limits.max_pair_corr,
+        max_downside_corr=limits.max_downside_corr,
+        max_dd_overlap=limits.max_dd_overlap,
+        max_portfolio_corr=limits.max_portfolio_corr,
+        portfolio_curves=list(limits.existing_portfolio_curves or []),
+        max_daily_dd=limits.max_daily_dd,
+        enforce_point_dd=limits.enforce_point_dd,
+        daily_dd_full_history=limits.daily_dd_full_history,
         minimum_active_strategies=minimum_active_strategies,
         maximum_active_strategies=maximum_active_strategies,
         allow_fixed_reductions_for_repair=allow_fixed_reductions_for_repair,
@@ -482,18 +462,18 @@ def build_portfolio_greedy(
     if not _allocations_respect_constraints(
         sets,
         allocations,
-        max_units_per_set,
-        max_total_units,
-        max_units_per_symbol,
-        max_sets_per_symbol,
-        max_sets_per_group,
-        margin_balance,
-        max_margin_pct,
-        margin_profile,
-        stock_leverage,
-        default_leverage,
-        stock_contract_size,
-        default_contract_size,
+        limits.max_units_per_set,
+        limits.max_total_units,
+        limits.max_units_per_symbol,
+        limits.max_sets_per_symbol,
+        limits.max_sets_per_group,
+        limits.margin_balance,
+        limits.max_margin_pct,
+        limits.margin_profile,
+        limits.stock_leverage,
+        limits.default_leverage,
+        limits.stock_contract_size,
+        limits.default_contract_size,
     ):
         raise ValueError("Initial portfolio allocations violate configured limits")
     current = rules.evaluate(allocations)
@@ -502,7 +482,7 @@ def build_portfolio_greedy(
 
     decision_log: list[OptimizationDecision] = []
     step = sum(allocations.values())
-    max_steps = max_total_units if max_total_units is not None else 10000
+    max_steps = limits.max_total_units if limits.max_total_units is not None else 10000
     correlation_rejections = 0
 
     while step < max_steps:
@@ -562,35 +542,14 @@ def improve_with_local_search(
     current: PortfolioEvaluation,
     target_valley_dd: float,
     target_point_dd: float,
-    max_units_per_set: int | None = None,
-    max_total_units: int | None = None,
-    max_units_per_symbol: int | None = None,
-    max_sets_per_symbol: int | None = None,
-    max_pair_corr: float | None = None,
-    max_downside_corr: float | None = None,
-    max_dd_overlap: float | None = None,
-    existing_portfolio_curves: Sequence[Sequence[float]] | None = None,
-    max_portfolio_corr: float | None = None,
-    max_units_per_group_pct: float | None = None,
-    max_sets_per_group: int | None = None,
-    group_unit_cap_bootstrap: int = 10,
     max_iterations: int = 1000,
     protected_set_ids: Sequence[str] | None = None,
     minimum_active_strategies: int | None = None,
-    margin_balance: float | None = None,
-    max_margin_pct: float | None = None,
-    margin_profile: str | MarginModel | None = "roboforex",
-    stock_leverage: float = 20.0,
-    default_leverage: float = 500.0,
-    stock_contract_size: float = 100.0,
-    default_contract_size: float = 1.0,
-    max_daily_dd: float | None = None,
-    enforce_point_dd: bool = True,
-    daily_dd_full_history: bool = False,
+    limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision]]:
     decision_log: list[OptimizationDecision] = []
     iteration = 0
-    portfolio_curves = list(existing_portfolio_curves or [])
+    portfolio_curves = list(limits.existing_portfolio_curves or [])
     protected_ids = {str(set_id) for set_id in (protected_set_ids or ())}
     while iteration < max_iterations:
         iteration += 1
@@ -613,26 +572,26 @@ def improve_with_local_search(
                 if not _allocations_respect_constraints(
                     sets,
                     temp_allocations,
-                    max_units_per_set,
-                    max_total_units,
-                    max_units_per_symbol,
-                    max_sets_per_symbol,
-                    max_sets_per_group,
-                    margin_balance,
-                    max_margin_pct,
-                    margin_profile,
-                    stock_leverage,
-                    default_leverage,
-                    stock_contract_size,
-                    default_contract_size,
+                    limits.max_units_per_set,
+                    limits.max_total_units,
+                    limits.max_units_per_symbol,
+                    limits.max_sets_per_symbol,
+                    limits.max_sets_per_group,
+                    limits.margin_balance,
+                    limits.max_margin_pct,
+                    limits.margin_profile,
+                    limits.stock_leverage,
+                    limits.default_leverage,
+                    limits.stock_contract_size,
+                    limits.default_contract_size,
                 ):
                     continue
                 if not _target_group_units_pct_allowed(
                     to_set,
                     sets,
                     temp_allocations,
-                    max_units_per_group_pct,
-                    group_unit_cap_bootstrap,
+                    limits.max_units_per_group_pct,
+                    limits.group_unit_cap_bootstrap,
                 ):
                     continue
                 if allocations.get(to_set.set_id, 0) <= 0:
@@ -642,9 +601,9 @@ def improve_with_local_search(
                         to_set,
                         sets,
                         corr_allocations,
-                        max_pair_corr,
-                        max_downside_corr,
-                        max_dd_overlap,
+                        limits.max_pair_corr,
+                        limits.max_downside_corr,
+                        limits.max_dd_overlap,
                     )
                     if rejected_by_corr:
                         continue
@@ -653,18 +612,18 @@ def improve_with_local_search(
                     temp_allocations,
                     target_valley_dd,
                     target_point_dd,
-                    max_daily_dd,
-                    enforce_point_dd,
-                    daily_dd_full_history,
+                    limits.max_daily_dd,
+                    limits.enforce_point_dd,
+                    limits.daily_dd_full_history,
                 )
                 if _evaluation_violates_dd_limits(temp):
                     continue
-                if max_portfolio_corr is not None and portfolio_curves:
+                if limits.max_portfolio_corr is not None and portfolio_curves:
                     worst_portfolio_corr = max(
                         curve_increment_correlation(temp.equity_curve_2020_2026, curve)
                         for curve in portfolio_curves
                     )
-                    if worst_portfolio_corr > max_portfolio_corr:
+                    if worst_portfolio_corr > limits.max_portfolio_corr:
                         continue
                 gain = temp.total_net_profit - current.total_net_profit
                 if gain <= 0:
@@ -717,28 +676,7 @@ def improve_with_multi_start_search(
     *,
     restarts: int,
     perturbations: int = 2,
-    max_units_per_set: int | None = None,
-    max_total_units: int | None = None,
-    max_units_per_symbol: int | None = None,
-    max_sets_per_symbol: int | None = None,
-    max_pair_corr: float | None = None,
-    max_downside_corr: float | None = None,
-    max_dd_overlap: float | None = None,
-    existing_portfolio_curves: Sequence[Sequence[float]] | None = None,
-    max_portfolio_corr: float | None = None,
-    max_units_per_group_pct: float | None = None,
-    max_sets_per_group: int | None = None,
-    group_unit_cap_bootstrap: int = 10,
-    margin_balance: float | None = None,
-    max_margin_pct: float | None = None,
-    margin_profile: str | MarginModel | None = "roboforex",
-    stock_leverage: float = 20.0,
-    default_leverage: float = 500.0,
-    stock_contract_size: float = 100.0,
-    default_contract_size: float = 1.0,
-    max_daily_dd: float | None = None,
-    enforce_point_dd: bool = True,
-    daily_dd_full_history: bool = False,
+    limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision], int]:
     if restarts <= 0 or perturbations <= 0 or len(sets) < 2:
         return allocations, current, [], 0
@@ -747,7 +685,7 @@ def improve_with_multi_start_search(
     best = current
     best_log: list[OptimizationDecision] = []
     valid_restarts = 0
-    portfolio_curves = list(existing_portfolio_curves or [])
+    portfolio_curves = list(limits.existing_portfolio_curves or [])
 
     for restart in range(restarts):
         rng = random.Random(104729 + restart * 7919 + len(sets) * 17)
@@ -768,26 +706,26 @@ def improve_with_multi_start_search(
                 if not _allocations_respect_constraints(
                     sets,
                     temp_allocations,
-                    max_units_per_set,
-                    max_total_units,
-                    max_units_per_symbol,
-                    max_sets_per_symbol,
-                    max_sets_per_group,
-                    margin_balance,
-                    max_margin_pct,
-                    margin_profile,
-                    stock_leverage,
-                    default_leverage,
-                    stock_contract_size,
-                    default_contract_size,
+                    limits.max_units_per_set,
+                    limits.max_total_units,
+                    limits.max_units_per_symbol,
+                    limits.max_sets_per_symbol,
+                    limits.max_sets_per_group,
+                    limits.margin_balance,
+                    limits.max_margin_pct,
+                    limits.margin_profile,
+                    limits.stock_leverage,
+                    limits.default_leverage,
+                    limits.stock_contract_size,
+                    limits.default_contract_size,
                 ):
                     continue
                 if not _target_group_units_pct_allowed(
                     target,
                     sets,
                     temp_allocations,
-                    max_units_per_group_pct,
-                    group_unit_cap_bootstrap,
+                    limits.max_units_per_group_pct,
+                    limits.group_unit_cap_bootstrap,
                 ):
                     continue
                 if trial_allocations.get(target.set_id, 0) <= 0:
@@ -797,9 +735,9 @@ def improve_with_multi_start_search(
                         target,
                         sets,
                         corr_allocations,
-                        max_pair_corr,
-                        max_downside_corr,
-                        max_dd_overlap,
+                        limits.max_pair_corr,
+                        limits.max_downside_corr,
+                        limits.max_dd_overlap,
                     )
                     if rejected:
                         continue
@@ -808,17 +746,17 @@ def improve_with_multi_start_search(
                     temp_allocations,
                     target_valley_dd,
                     target_point_dd,
-                    max_daily_dd,
-                    enforce_point_dd,
-                    daily_dd_full_history,
+                    limits.max_daily_dd,
+                    limits.enforce_point_dd,
+                    limits.daily_dd_full_history,
                 )
                 if _evaluation_violates_dd_limits(temp):
                     continue
-                if max_portfolio_corr is not None and portfolio_curves:
+                if limits.max_portfolio_corr is not None and portfolio_curves:
                     if max(
                         curve_increment_correlation(temp.equity_curve_2020_2026, curve)
                         for curve in portfolio_curves
-                    ) > max_portfolio_corr:
+                    ) > limits.max_portfolio_corr:
                         continue
                 perturb_log.append(
                     OptimizationDecision(
@@ -853,29 +791,9 @@ def improve_with_multi_start_search(
             current=trial,
             target_valley_dd=target_valley_dd,
             target_point_dd=target_point_dd,
-            max_units_per_set=max_units_per_set,
-            max_total_units=max_total_units,
-            max_units_per_symbol=max_units_per_symbol,
-            max_sets_per_symbol=max_sets_per_symbol,
-            max_pair_corr=max_pair_corr,
-            max_downside_corr=max_downside_corr,
-            max_dd_overlap=max_dd_overlap,
-            existing_portfolio_curves=portfolio_curves,
-            max_portfolio_corr=max_portfolio_corr,
-            max_units_per_group_pct=max_units_per_group_pct,
-            max_sets_per_group=max_sets_per_group,
-            group_unit_cap_bootstrap=group_unit_cap_bootstrap,
+            # portfolio_curves solo se lee; el callee lo deriva igual.
+            limits=limits,
             max_iterations=200,
-            margin_balance=margin_balance,
-            max_margin_pct=max_margin_pct,
-            margin_profile=margin_profile,
-            stock_leverage=stock_leverage,
-            default_leverage=default_leverage,
-            stock_contract_size=stock_contract_size,
-            default_contract_size=default_contract_size,
-            max_daily_dd=max_daily_dd,
-            enforce_point_dd=enforce_point_dd,
-            daily_dd_full_history=daily_dd_full_history,
         )
         if trial.total_net_profit > best.total_net_profit + 1e-9:
             best_allocations = trial_allocations
@@ -891,29 +809,8 @@ def _deep_refine_allocations(
     current: PortfolioEvaluation,
     *,
     minimum_active_strategies: int | None,
-    max_units_per_set: int | None,
-    max_total_units: int | None,
-    max_units_per_symbol: int | None,
-    max_sets_per_symbol: int | None,
-    max_sets_per_group: int | None,
-    max_units_per_group_pct: float | None,
-    group_unit_cap_bootstrap: int,
-    max_pair_corr: float | None,
-    max_downside_corr: float | None,
-    max_dd_overlap: float | None,
-    existing_portfolio_curves: Sequence[Sequence[float]] | None,
-    max_portfolio_corr: float | None,
-    margin_balance: float | None,
-    max_margin_pct: float | None,
-    margin_profile: str | MarginModel | None,
-    stock_leverage: float,
-    default_leverage: float,
-    stock_contract_size: float,
-    default_contract_size: float,
-    max_daily_dd: float | None,
-    enforce_point_dd: bool,
-    daily_dd_full_history: bool,
     max_iterations: int = 160,
+    limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision], int]:
     working_sets = list({strategy.set_id: strategy for strategy in sets}.values())
     allocations = {
@@ -937,29 +834,29 @@ def _deep_refine_allocations(
                 target_set=target,
                 sets=working_sets,
                 allocations=allocations,
-                max_units_per_set=max_units_per_set,
-                max_total_units=max_total_units,
-                max_units_per_symbol=max_units_per_symbol,
-                max_sets_per_symbol=max_sets_per_symbol,
-                max_units_per_group_pct=max_units_per_group_pct,
-                max_sets_per_group=max_sets_per_group,
-                group_unit_cap_bootstrap=group_unit_cap_bootstrap,
-                margin_balance=margin_balance,
-                max_margin_pct=max_margin_pct,
-                margin_profile=margin_profile,
-                stock_leverage=stock_leverage,
-                default_leverage=default_leverage,
-                stock_contract_size=stock_contract_size,
-                default_contract_size=default_contract_size,
+                max_units_per_set=limits.max_units_per_set,
+                max_total_units=limits.max_total_units,
+                max_units_per_symbol=limits.max_units_per_symbol,
+                max_sets_per_symbol=limits.max_sets_per_symbol,
+                max_units_per_group_pct=limits.max_units_per_group_pct,
+                max_sets_per_group=limits.max_sets_per_group,
+                group_unit_cap_bootstrap=limits.group_unit_cap_bootstrap,
+                margin_balance=limits.margin_balance,
+                max_margin_pct=limits.max_margin_pct,
+                margin_profile=limits.margin_profile,
+                stock_leverage=limits.stock_leverage,
+                default_leverage=limits.default_leverage,
+                stock_contract_size=limits.stock_contract_size,
+                default_contract_size=limits.default_contract_size,
             ):
                 if allocations.get(target.set_id, 0) <= 0:
                     rejected_by_corr, _reason = violates_correlation_limits(
                         target,
                         working_sets,
                         allocations,
-                        max_pair_corr,
-                        max_downside_corr,
-                        max_dd_overlap,
+                        limits.max_pair_corr,
+                        limits.max_downside_corr,
+                        limits.max_dd_overlap,
                     )
                     if rejected_by_corr:
                         continue
@@ -970,15 +867,15 @@ def _deep_refine_allocations(
                     temp_allocations,
                     current.target_valley_dd,
                     current.target_point_dd,
-                    max_daily_dd,
-                    enforce_point_dd,
-                    daily_dd_full_history,
+                    limits.max_daily_dd,
+                    limits.enforce_point_dd,
+                    limits.daily_dd_full_history,
                 )
                 gain = temp.total_net_profit - current.total_net_profit
                 if (
                     gain > 1e-9
                     and not _evaluation_violates_dd_limits(temp)
-                    and _portfolio_corr_allowed(temp, existing_portfolio_curves, max_portfolio_corr)
+                    and _portfolio_corr_allowed(temp, limits.existing_portfolio_curves, limits.max_portfolio_corr)
                     and (best_move is None or gain > float(best_move["gain"]))
                 ):
                     best_move = {
@@ -1008,26 +905,26 @@ def _deep_refine_allocations(
                 if not _allocations_respect_constraints(
                     working_sets,
                     temp_allocations,
-                    max_units_per_set,
-                    max_total_units,
-                    max_units_per_symbol,
-                    max_sets_per_symbol,
-                    max_sets_per_group,
-                    margin_balance,
-                    max_margin_pct,
-                    margin_profile,
-                    stock_leverage,
-                    default_leverage,
-                    stock_contract_size,
-                    default_contract_size,
+                    limits.max_units_per_set,
+                    limits.max_total_units,
+                    limits.max_units_per_symbol,
+                    limits.max_sets_per_symbol,
+                    limits.max_sets_per_group,
+                    limits.margin_balance,
+                    limits.max_margin_pct,
+                    limits.margin_profile,
+                    limits.stock_leverage,
+                    limits.default_leverage,
+                    limits.stock_contract_size,
+                    limits.default_contract_size,
                 ):
                     continue
                 if not _target_group_units_pct_allowed(
                     target,
                     working_sets,
                     temp_allocations,
-                    max_units_per_group_pct,
-                    group_unit_cap_bootstrap,
+                    limits.max_units_per_group_pct,
+                    limits.group_unit_cap_bootstrap,
                 ):
                     continue
                 if allocations.get(target.set_id, 0) <= 0:
@@ -1037,9 +934,9 @@ def _deep_refine_allocations(
                         target,
                         working_sets,
                         corr_allocations,
-                        max_pair_corr,
-                        max_downside_corr,
-                        max_dd_overlap,
+                        limits.max_pair_corr,
+                        limits.max_downside_corr,
+                        limits.max_dd_overlap,
                     )
                     if rejected_by_corr:
                         continue
@@ -1048,15 +945,15 @@ def _deep_refine_allocations(
                     temp_allocations,
                     current.target_valley_dd,
                     current.target_point_dd,
-                    max_daily_dd,
-                    enforce_point_dd,
-                    daily_dd_full_history,
+                    limits.max_daily_dd,
+                    limits.enforce_point_dd,
+                    limits.daily_dd_full_history,
                 )
                 gain = temp.total_net_profit - current.total_net_profit
                 if (
                     gain > 1e-9
                     and not _evaluation_violates_dd_limits(temp)
-                    and _portfolio_corr_allowed(temp, existing_portfolio_curves, max_portfolio_corr)
+                    and _portfolio_corr_allowed(temp, limits.existing_portfolio_curves, limits.max_portfolio_corr)
                     and (best_move is None or gain > float(best_move["gain"]))
                 ):
                     best_move = {

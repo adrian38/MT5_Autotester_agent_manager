@@ -158,6 +158,9 @@ from .margin import (
     strategy_reference_price,
     ttp_leverage_for,
 )
+from .limits import (
+    SearchLimits,
+)
 from .constraints import (
     _allocations_respect_constraints,
     _candidate_group_count,
@@ -196,7 +199,6 @@ from .optimize import (
     _CandidatePool,
     _DeepRefinement,
     _PassContext,
-    _SearchLimits,
     _SearchPass,
     _allocation_row,
     _apply_deep_refinement,
@@ -241,8 +243,8 @@ from .strict_monthly import (
     _strict_monthly_candidate_validation,
     _strict_monthly_candidate_variants,
     _strict_monthly_deep_refine_allocations,
+    _strict_monthly_limits,
     _strict_monthly_safe_refill_allocations,
-    _strict_monthly_search_kwargs,
     _strict_monthly_variant_result,
     _strict_monthly_violation_score,
     _strict_validation_for_allocations,
@@ -278,6 +280,7 @@ __all__ = [
     "PortfolioType",
     "ProgressCallback",
     "RobustStrategySet",
+    "SearchLimits",
     "StrategyAllocation",
     "UnusedSetInfo",
     "_CANCELLATION_STATE",
@@ -286,7 +289,6 @@ __all__ = [
     "_IncrementRules",
     "_MonthlyOptimizerArgs",
     "_PassContext",
-    "_SearchLimits",
     "_SearchPass",
     "_StepScan",
     "_active_unit_allocations",
@@ -380,8 +382,8 @@ __all__ = [
     "_strict_monthly_candidate_validation",
     "_strict_monthly_candidate_variants",
     "_strict_monthly_deep_refine_allocations",
+    "_strict_monthly_limits",
     "_strict_monthly_safe_refill_allocations",
-    "_strict_monthly_search_kwargs",
     "_strict_monthly_variant_result",
     "_strict_monthly_violation_score",
     "_strict_validation_for_allocations",

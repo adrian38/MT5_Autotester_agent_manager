@@ -15,7 +15,7 @@ PACKAGE = Path(__file__).resolve().parents[1] / "portfolio_manager" / "ubs_portf
 #: De abajo a arriba. Un modulo solo puede importar de los que tiene encima.
 ORDER = [
     "symbols", "models", "rows", "curves", "reports", "selection",
-    "evaluation", "margin", "constraints", "execution", "greedy",
+    "evaluation", "margin", "limits", "constraints", "execution", "greedy",
     "optimize", "strict_monthly",
 ]
 

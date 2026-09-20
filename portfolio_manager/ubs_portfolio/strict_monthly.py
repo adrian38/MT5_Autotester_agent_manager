@@ -25,6 +25,7 @@ from .evaluation import (
     _evaluation_violates_dd_limits,
     evaluate_portfolio,
 )
+from .limits import SearchLimits
 from .margin import MarginModel
 from .constraints import (
     _allocations_respect_constraints,
@@ -166,7 +167,7 @@ def _strict_monthly_candidate_variants(
     min_trades_2020_2026: int,
     top_k_per_symbol: int,
     max_total_candidates: int | None,
-    enforce_point_dd: bool = True,
+    limits: SearchLimits = SearchLimits(),
 ) -> list[tuple[str, list[RobustStrategySet]]]:
     full_by_id = {strategy.set_id: strategy for strategy in full_sets}
     eligible = [
@@ -196,7 +197,7 @@ def _strict_monthly_candidate_variants(
             target_month=target_month,
             target_valley_dd=target_valley_dd,
             target_point_dd=target_point_dd,
-            enforce_point_dd=enforce_point_dd,
+            enforce_point_dd=limits.enforce_point_dd,
         )
         for strategy in eligible
     }
@@ -221,7 +222,7 @@ def _strict_monthly_candidate_variants(
             target_valley_dd=target_valley_dd,
             target_point_dd=target_point_dd,
             min_trades_2020_2026=min_trades_2020_2026,
-            enforce_point_dd=enforce_point_dd,
+            enforce_point_dd=limits.enforce_point_dd,
         ),
         reverse=True,
     )
@@ -302,9 +303,7 @@ def _repair_allocations_to_strict_monthly(
     target_month: int,
     target_valley_dd: float,
     target_point_dd: float,
-    max_daily_dd: float | None = None,
-    enforce_point_dd: bool = True,
-    daily_dd_full_history: bool = False,
+    limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, dict[str, object], list[OptimizationDecision]]:
     current_allocations = {
         strategy.set_id: max(int(allocations.get(strategy.set_id, 0)), 0)
@@ -315,9 +314,9 @@ def _repair_allocations_to_strict_monthly(
         current_allocations,
         target_valley_dd,
         target_point_dd,
-        max_daily_dd,
-        enforce_point_dd,
-        daily_dd_full_history,
+        limits.max_daily_dd,
+        limits.enforce_point_dd,
+        limits.daily_dd_full_history,
     )
     current_validation = _strict_validation_for_allocations(
         full_by_id,
@@ -325,7 +324,7 @@ def _repair_allocations_to_strict_monthly(
         target_month=target_month,
         target_valley_dd=target_valley_dd,
         target_point_dd=target_point_dd,
-        enforce_point_dd=enforce_point_dd,
+        enforce_point_dd=limits.enforce_point_dd,
     )
     decision_log: list[OptimizationDecision] = []
     if bool(current_validation.get("passed")):
@@ -354,9 +353,9 @@ def _repair_allocations_to_strict_monthly(
                 trial_allocations,
                 target_valley_dd,
                 target_point_dd,
-                max_daily_dd,
-                enforce_point_dd,
-                daily_dd_full_history,
+                limits.max_daily_dd,
+                limits.enforce_point_dd,
+                limits.daily_dd_full_history,
             )
             trial_validation = _strict_validation_for_allocations(
                 full_by_id,
@@ -364,7 +363,7 @@ def _repair_allocations_to_strict_monthly(
                 target_month=target_month,
                 target_valley_dd=target_valley_dd,
                 target_point_dd=target_point_dd,
-                enforce_point_dd=enforce_point_dd,
+                enforce_point_dd=limits.enforce_point_dd,
             )
             trial_score = _strict_monthly_violation_score(trial_validation)
             choice = (
@@ -425,29 +424,8 @@ def _strict_monthly_safe_refill_allocations(
     current: PortfolioEvaluation,
     *,
     target_month: int,
-    max_units_per_set: int | None,
-    max_total_units: int | None,
-    max_units_per_symbol: int | None,
-    max_sets_per_symbol: int | None,
-    max_sets_per_group: int | None,
-    max_units_per_group_pct: float | None,
-    group_unit_cap_bootstrap: int,
-    max_pair_corr: float | None,
-    max_downside_corr: float | None,
-    max_dd_overlap: float | None,
-    existing_portfolio_curves: Sequence[Sequence[float]] | None,
-    max_portfolio_corr: float | None,
-    margin_balance: float | None,
-    max_margin_pct: float | None,
-    margin_profile: str | MarginModel | None,
-    stock_leverage: float,
-    default_leverage: float,
-    stock_contract_size: float,
-    default_contract_size: float,
-    max_daily_dd: float | None,
-    enforce_point_dd: bool,
-    daily_dd_full_history: bool,
     max_iterations: int = 160,
+    limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision], int]:
     sets = list({strategy.set_id: strategy for strategy in candidate_pool}.values())
     allocations = {
@@ -470,20 +448,20 @@ def _strict_monthly_safe_refill_allocations(
                 target_set=target,
                 sets=sets,
                 allocations=allocations,
-                max_units_per_set=max_units_per_set,
-                max_total_units=max_total_units,
-                max_units_per_symbol=max_units_per_symbol,
-                max_sets_per_symbol=max_sets_per_symbol,
-                max_units_per_group_pct=max_units_per_group_pct,
-                max_sets_per_group=max_sets_per_group,
-                group_unit_cap_bootstrap=group_unit_cap_bootstrap,
-                margin_balance=margin_balance,
-                max_margin_pct=max_margin_pct,
-                margin_profile=margin_profile,
-                stock_leverage=stock_leverage,
-                default_leverage=default_leverage,
-                stock_contract_size=stock_contract_size,
-                default_contract_size=default_contract_size,
+                max_units_per_set=limits.max_units_per_set,
+                max_total_units=limits.max_total_units,
+                max_units_per_symbol=limits.max_units_per_symbol,
+                max_sets_per_symbol=limits.max_sets_per_symbol,
+                max_units_per_group_pct=limits.max_units_per_group_pct,
+                max_sets_per_group=limits.max_sets_per_group,
+                group_unit_cap_bootstrap=limits.group_unit_cap_bootstrap,
+                margin_balance=limits.margin_balance,
+                max_margin_pct=limits.max_margin_pct,
+                margin_profile=limits.margin_profile,
+                stock_leverage=limits.stock_leverage,
+                default_leverage=limits.default_leverage,
+                stock_contract_size=limits.stock_contract_size,
+                default_contract_size=limits.default_contract_size,
             ):
                 continue
             if allocations.get(target.set_id, 0) <= 0:
@@ -491,9 +469,9 @@ def _strict_monthly_safe_refill_allocations(
                     target,
                     sets,
                     allocations,
-                    max_pair_corr,
-                    max_downside_corr,
-                    max_dd_overlap,
+                    limits.max_pair_corr,
+                    limits.max_downside_corr,
+                    limits.max_dd_overlap,
                 )
                 if rejected_by_corr:
                     continue
@@ -504,13 +482,13 @@ def _strict_monthly_safe_refill_allocations(
                 trial_allocations,
                 current.target_valley_dd,
                 current.target_point_dd,
-                max_daily_dd,
-                enforce_point_dd,
-                daily_dd_full_history,
+                limits.max_daily_dd,
+                limits.enforce_point_dd,
+                limits.daily_dd_full_history,
             )
             if _evaluation_violates_dd_limits(trial):
                 continue
-            if not _portfolio_corr_allowed(trial, existing_portfolio_curves, max_portfolio_corr):
+            if not _portfolio_corr_allowed(trial, limits.existing_portfolio_curves, limits.max_portfolio_corr):
                 continue
             validation = _strict_validation_for_allocations(
                 full_by_id,
@@ -518,7 +496,7 @@ def _strict_monthly_safe_refill_allocations(
                 target_month=target_month,
                 target_valley_dd=current.target_valley_dd,
                 target_point_dd=current.target_point_dd,
-                enforce_point_dd=enforce_point_dd,
+                enforce_point_dd=limits.enforce_point_dd,
             )
             if not bool(validation.get("passed")):
                 continue
@@ -571,29 +549,8 @@ def _strict_monthly_deep_refine_allocations(
     *,
     target_month: int,
     minimum_active_strategies: int,
-    max_units_per_set: int | None,
-    max_total_units: int | None,
-    max_units_per_symbol: int | None,
-    max_sets_per_symbol: int | None,
-    max_sets_per_group: int | None,
-    max_units_per_group_pct: float | None,
-    group_unit_cap_bootstrap: int,
-    max_pair_corr: float | None,
-    max_downside_corr: float | None,
-    max_dd_overlap: float | None,
-    existing_portfolio_curves: Sequence[Sequence[float]] | None,
-    max_portfolio_corr: float | None,
-    margin_balance: float | None,
-    max_margin_pct: float | None,
-    margin_profile: str | MarginModel | None,
-    stock_leverage: float,
-    default_leverage: float,
-    stock_contract_size: float,
-    default_contract_size: float,
-    max_daily_dd: float | None,
-    enforce_point_dd: bool,
-    daily_dd_full_history: bool,
     max_iterations: int = 120,
+    limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision], int]:
     sets = list({strategy.set_id: strategy for strategy in candidate_pool}.values())
     allocations = {
@@ -617,29 +574,29 @@ def _strict_monthly_deep_refine_allocations(
                 target_set=target,
                 sets=sets,
                 allocations=allocations,
-                max_units_per_set=max_units_per_set,
-                max_total_units=max_total_units,
-                max_units_per_symbol=max_units_per_symbol,
-                max_sets_per_symbol=max_sets_per_symbol,
-                max_units_per_group_pct=max_units_per_group_pct,
-                max_sets_per_group=max_sets_per_group,
-                group_unit_cap_bootstrap=group_unit_cap_bootstrap,
-                margin_balance=margin_balance,
-                max_margin_pct=max_margin_pct,
-                margin_profile=margin_profile,
-                stock_leverage=stock_leverage,
-                default_leverage=default_leverage,
-                stock_contract_size=stock_contract_size,
-                default_contract_size=default_contract_size,
+                max_units_per_set=limits.max_units_per_set,
+                max_total_units=limits.max_total_units,
+                max_units_per_symbol=limits.max_units_per_symbol,
+                max_sets_per_symbol=limits.max_sets_per_symbol,
+                max_units_per_group_pct=limits.max_units_per_group_pct,
+                max_sets_per_group=limits.max_sets_per_group,
+                group_unit_cap_bootstrap=limits.group_unit_cap_bootstrap,
+                margin_balance=limits.margin_balance,
+                max_margin_pct=limits.max_margin_pct,
+                margin_profile=limits.margin_profile,
+                stock_leverage=limits.stock_leverage,
+                default_leverage=limits.default_leverage,
+                stock_contract_size=limits.stock_contract_size,
+                default_contract_size=limits.default_contract_size,
             ):
                 if allocations.get(target.set_id, 0) <= 0:
                     rejected_by_corr, _reason = violates_correlation_limits(
                         target,
                         sets,
                         allocations,
-                        max_pair_corr,
-                        max_downside_corr,
-                        max_dd_overlap,
+                        limits.max_pair_corr,
+                        limits.max_downside_corr,
+                        limits.max_dd_overlap,
                     )
                     if rejected_by_corr:
                         continue
@@ -650,9 +607,9 @@ def _strict_monthly_deep_refine_allocations(
                     temp_allocations,
                     current.target_valley_dd,
                     current.target_point_dd,
-                    max_daily_dd,
-                    enforce_point_dd,
-                    daily_dd_full_history,
+                    limits.max_daily_dd,
+                    limits.enforce_point_dd,
+                    limits.daily_dd_full_history,
                 )
                 if not _evaluation_violates_dd_limits(temp):
                     validation = _strict_validation_for_allocations(
@@ -661,13 +618,13 @@ def _strict_monthly_deep_refine_allocations(
                         target_month=target_month,
                         target_valley_dd=current.target_valley_dd,
                         target_point_dd=current.target_point_dd,
-                        enforce_point_dd=enforce_point_dd,
+                        enforce_point_dd=limits.enforce_point_dd,
                     )
                     gain = temp.total_net_profit - current.total_net_profit
                     if (
                         gain > 1e-9
                         and bool(validation.get("passed"))
-                        and _portfolio_corr_allowed(temp, existing_portfolio_curves, max_portfolio_corr)
+                        and _portfolio_corr_allowed(temp, limits.existing_portfolio_curves, limits.max_portfolio_corr)
                         and (best_move is None or gain > float(best_move["gain"]))
                     ):
                         best_move = {
@@ -692,26 +649,26 @@ def _strict_monthly_deep_refine_allocations(
                 if not _allocations_respect_constraints(
                     sets,
                     temp_allocations,
-                    max_units_per_set,
-                    max_total_units,
-                    max_units_per_symbol,
-                    max_sets_per_symbol,
-                    max_sets_per_group,
-                    margin_balance,
-                    max_margin_pct,
-                    margin_profile,
-                    stock_leverage,
-                    default_leverage,
-                    stock_contract_size,
-                    default_contract_size,
+                    limits.max_units_per_set,
+                    limits.max_total_units,
+                    limits.max_units_per_symbol,
+                    limits.max_sets_per_symbol,
+                    limits.max_sets_per_group,
+                    limits.margin_balance,
+                    limits.max_margin_pct,
+                    limits.margin_profile,
+                    limits.stock_leverage,
+                    limits.default_leverage,
+                    limits.stock_contract_size,
+                    limits.default_contract_size,
                 ):
                     continue
                 if not _target_group_units_pct_allowed(
                     target,
                     sets,
                     temp_allocations,
-                    max_units_per_group_pct,
-                    group_unit_cap_bootstrap,
+                    limits.max_units_per_group_pct,
+                    limits.group_unit_cap_bootstrap,
                 ):
                     continue
                 if allocations.get(target.set_id, 0) <= 0:
@@ -721,9 +678,9 @@ def _strict_monthly_deep_refine_allocations(
                         target,
                         sets,
                         corr_allocations,
-                        max_pair_corr,
-                        max_downside_corr,
-                        max_dd_overlap,
+                        limits.max_pair_corr,
+                        limits.max_downside_corr,
+                        limits.max_dd_overlap,
                     )
                     if rejected_by_corr:
                         continue
@@ -732,13 +689,13 @@ def _strict_monthly_deep_refine_allocations(
                     temp_allocations,
                     current.target_valley_dd,
                     current.target_point_dd,
-                    max_daily_dd,
-                    enforce_point_dd,
-                    daily_dd_full_history,
+                    limits.max_daily_dd,
+                    limits.enforce_point_dd,
+                    limits.daily_dd_full_history,
                 )
                 if _evaluation_violates_dd_limits(temp):
                     continue
-                if not _portfolio_corr_allowed(temp, existing_portfolio_curves, max_portfolio_corr):
+                if not _portfolio_corr_allowed(temp, limits.existing_portfolio_curves, limits.max_portfolio_corr):
                     continue
                 validation = _strict_validation_for_allocations(
                     full_by_id,
@@ -746,7 +703,7 @@ def _strict_monthly_deep_refine_allocations(
                     target_month=target_month,
                     target_valley_dd=current.target_valley_dd,
                     target_point_dd=current.target_point_dd,
-                    enforce_point_dd=enforce_point_dd,
+                    enforce_point_dd=limits.enforce_point_dd,
                 )
                 gain = temp.total_net_profit - current.total_net_profit
                 if (
@@ -832,13 +789,13 @@ class _MonthlyOptimizerArgs:
         return {item.name: getattr(self, item.name) for item in fields(self)}
 
 
-def _strict_monthly_search_kwargs(
+def _strict_monthly_limits(
     args: _MonthlyOptimizerArgs,
     group_limits: PortfolioGroupLimits,
     max_total_units: int | None,
-) -> dict[str, object]:
-    """Limites comunes del relleno seguro y del refinamiento profundo."""
-    return dict(
+) -> SearchLimits:
+    """Topes comunes del relleno seguro y del refinamiento profundo."""
+    return SearchLimits(
         max_units_per_set=args.max_units_per_set,
         max_total_units=max_total_units,
         max_units_per_symbol=args.max_units_per_symbol,
@@ -962,9 +919,11 @@ def _strict_monthly_variant_result(
         target_month=month,
         target_valley_dd=base_result.target_valley_dd,
         target_point_dd=base_result.target_point_dd,
-        max_daily_dd=args.max_daily_dd,
-        enforce_point_dd=args.enforce_point_dd,
-        daily_dd_full_history=args.daily_dd_full_history,
+        limits=SearchLimits(
+            max_daily_dd=args.max_daily_dd,
+            enforce_point_dd=args.enforce_point_dd,
+            daily_dd_full_history=args.daily_dd_full_history,
+        ),
     )
     if not bool(validation.get("passed")):
         reasons = validation.get("reasons") or []
@@ -1064,7 +1023,7 @@ def _monthly_safe_refill(
         base_units,
         _monthly_base_evaluation(candidate_pool, base_units, base_result, args),
         target_month=month,
-        **_strict_monthly_search_kwargs(args, group_limits, max_total_units),
+        limits=_strict_monthly_limits(args, group_limits, max_total_units),
     )
     active_safe = _active_unit_allocations(safe_allocations)
     validation = _strict_validation_for_allocations(
@@ -1124,7 +1083,7 @@ def _monthly_deep_refine(
         _monthly_base_evaluation(candidate_pool, base_units, base_result, args),
         target_month=month,
         minimum_active_strategies=base_result.active_strategies,
-        **_strict_monthly_search_kwargs(args, group_limits, max_total_units),
+        limits=_strict_monthly_limits(args, group_limits, max_total_units),
     )
     if refined_eval.total_net_profit <= base_result.total_net_profit + 1e-9:
         base_result.warnings.append(
@@ -1225,7 +1184,7 @@ def optimize_strict_monthly_portfolio(
         min_trades_2020_2026=min_trades_2020_2026,
         top_k_per_symbol=top_k_per_symbol,
         max_total_candidates=max_total_candidates,
-        enforce_point_dd=enforce_point_dd,
+        limits=SearchLimits(enforce_point_dd=enforce_point_dd),
     )
     if not variants:
         raise ValueError("No hay candidatos mensuales elegibles para la busqueda estricta.")

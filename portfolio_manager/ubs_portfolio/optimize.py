@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -32,6 +32,7 @@ from .selection import (
     select_top_k_per_symbol,
 )
 from .evaluation import portfolio_group_summary
+from .limits import SearchLimits
 from .margin import (
     MarginModel,
     margin_profile_label,
@@ -50,50 +51,6 @@ from .greedy import (
     improve_with_local_search,
     improve_with_multi_start_search,
 )
-
-
-@dataclass(frozen=True)
-class _SearchLimits:
-    """Los limites que todas las fases de busqueda reenvian intactos.
-
-    Viajaban como veintidos argumentos repetidos en cinco llamadas casi
-    identicas, y lo unico que de verdad cambiaba entre ellas -el tope por
-    grupo- se perdia en el ruido. Agrupados, cada fase declara con
-    ``kwargs(...)`` solo aquello en lo que se desvia.
-    """
-
-    max_units_per_set: int | None
-    max_total_units: int | None
-    max_units_per_symbol: int | None
-    max_sets_per_symbol: int | None
-    max_pair_corr: float | None
-    max_downside_corr: float | None
-    max_dd_overlap: float | None
-    existing_portfolio_curves: Sequence[Sequence[float]] | None
-    max_portfolio_corr: float | None
-    max_units_per_group_pct: float | None
-    max_sets_per_group: int | None
-    group_unit_cap_bootstrap: int
-    margin_balance: float | None
-    max_margin_pct: float | None
-    margin_profile: str | MarginModel | None
-    stock_leverage: float
-    default_leverage: float
-    stock_contract_size: float
-    default_contract_size: float
-    max_daily_dd: float | None
-    enforce_point_dd: bool
-    daily_dd_full_history: bool
-
-    def kwargs(self, **overrides: object) -> dict[str, object]:
-        """Los limites como kwargs.
-
-        Se copia campo a campo a proposito: ``asdict`` recorre en profundidad y
-        convertiria un ``MarginModel`` en un diccionario.
-        """
-        data = {item.name: getattr(self, item.name) for item in fields(self)}
-        data.update(overrides)
-        return data
 
 
 @dataclass(frozen=True)
@@ -206,7 +163,7 @@ def _feasible_group_units_pct(
 
 def _greedy_then_local_search(
     selected: list[RobustStrategySet],
-    limits: _SearchLimits,
+    limits: SearchLimits,
     ctx: _PassContext,
     *,
     prefer_breadth_below_minimum: bool,
@@ -228,7 +185,7 @@ def _greedy_then_local_search(
         prefer_breadth_below_minimum=prefer_breadth_below_minimum,
         fixed_set_ids=ctx.fixed_set_ids,
         allow_fixed_reductions_for_repair=ctx.preserve_required_allocations,
-        **limits.kwargs(),
+        limits=limits,
     )
     local_log: list[OptimizationDecision] = []
     if ctx.run_local_search and not ctx.preserve_required_allocations:
@@ -240,7 +197,7 @@ def _greedy_then_local_search(
             target_point_dd=ctx.target_point_dd,
             protected_set_ids=ctx.required_ids,
             minimum_active_strategies=ctx.minimum_active_strategies,
-            **limits.kwargs(),
+            limits=limits,
         )
     return _SearchPass(
         allocations, current, greedy_log, local_log, stop_reason, rejections,
@@ -250,7 +207,7 @@ def _greedy_then_local_search(
 def _relaxed_group_cap_pass(
     strict: _SearchPass,
     selected: list[RobustStrategySet],
-    limits: _SearchLimits,
+    limits: SearchLimits,
     ctx: _PassContext,
 ) -> _SearchPass | None:
     """Repite la busqueda sin tope por grupo cuando Balanced dejo el DD ocioso.
@@ -266,7 +223,7 @@ def _relaxed_group_cap_pass(
         return None
     relaxed = _greedy_then_local_search(
         selected,
-        replace(limits, max_units_per_group_pct=None),
+        limits.without_group_cap(),
         ctx,
         # La pasada estricta reenvia el valor del llamante; esta nunca lo hizo y
         # se quedaba con el default. Se mantiene la asimetria a proposito:
@@ -284,7 +241,7 @@ def _multi_start_pass(
     selected: list[RobustStrategySet],
     allocations: dict[str, int],
     current: PortfolioEvaluation,
-    limits: _SearchLimits,
+    limits: SearchLimits,
     ctx: _PassContext,
     *,
     search_restarts: int,
@@ -300,7 +257,7 @@ def _multi_start_pass(
         target_point_dd=ctx.target_point_dd,
         restarts=int(search_restarts),
         # Sin minimum_active_strategies a proposito: esta fase nunca lo recibio.
-        **limits.kwargs(),
+        limits=limits,
     )
 
 
@@ -352,7 +309,7 @@ def _apply_deep_refinement(
     selected: list[RobustStrategySet],
     allocations: dict[str, int],
     current: PortfolioEvaluation,
-    limits: _SearchLimits,
+    limits: SearchLimits,
     ctx: _PassContext,
     *,
     top_k_per_symbol: int,
@@ -372,7 +329,7 @@ def _apply_deep_refinement(
         allocations,
         current,
         minimum_active_strategies=ctx.minimum_active_strategies,
-        **limits.kwargs(),
+        limits=limits,
     )
     outcome = _DeepRefinement(
         log=deep_log,
@@ -434,7 +391,7 @@ def _margin_and_daily_summaries(
     selected: list[RobustStrategySet],
     allocations: dict[str, int],
     current: PortfolioEvaluation,
-    limits: _SearchLimits,
+    limits: SearchLimits,
 ) -> tuple[dict, dict[str, object]]:
     """Resumen de margen y resumen de DD diario, ambos opcionales."""
     margin_summary: dict = {}
@@ -517,7 +474,7 @@ def _result_allocation_rows(
     selected: list[RobustStrategySet],
     allocations: dict[str, int],
     margin_summary: dict,
-    limits: _SearchLimits,
+    limits: SearchLimits,
     *,
     capital: float,
     executable_steps: dict[str, float],
@@ -963,7 +920,7 @@ def optimize_portfolio(
         max_units_per_group_pct, candidate_group_count,
     )
 
-    limits = _SearchLimits(
+    limits = SearchLimits(
         max_units_per_set=max_units_per_set,
         max_total_units=max_total_units,
         max_units_per_symbol=max_units_per_symbol,
@@ -1018,7 +975,7 @@ def optimize_portfolio(
         stop_reason += "; group unit cap relaxed after strict Balanced allocation underused DD"
 
     # A partir de aqui el tope por grupo ya no rige si se relajo.
-    search_limits = replace(limits, max_units_per_group_pct=None) if group_cap_relaxed else limits
+    search_limits = limits.without_group_cap() if group_cap_relaxed else limits
     allocations, current, multi_start_log, valid_restarts = _multi_start_pass(
         selected, allocations, current, search_limits, ctx, search_restarts=search_restarts,
     )
