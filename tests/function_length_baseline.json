@@ -80,7 +80,7 @@
     "portfolio_manager/ubs_portfolio/evaluation.py::evaluate_portfolio": 94,
     "portfolio_manager/ubs_portfolio/execution.py::_repair_executable_allocations": 140,
     "portfolio_manager/ubs_portfolio/greedy.py::_deep_refine_allocations": 211,
-    "portfolio_manager/ubs_portfolio/greedy.py::build_portfolio_greedy": 343,
+    "portfolio_manager/ubs_portfolio/greedy.py::build_portfolio_greedy": 152,
     "portfolio_manager/ubs_portfolio/greedy.py::improve_with_local_search": 150,
     "portfolio_manager/ubs_portfolio/greedy.py::improve_with_multi_start_search": 175,
     "portfolio_manager/ubs_portfolio/margin.py::margin_model_for_profile": 69,
