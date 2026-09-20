@@ -21,7 +21,7 @@ import uuid
 import zlib
 import zipfile
 from collections.abc import Iterable
-from dataclasses import asdict, fields
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -3808,6 +3808,614 @@ def _insert_decisions(
         )
 
 
+def _exported_candidate_ids(portable: list[dict[str, Any]]) -> set[str]:
+    """Ids de candidato que el resumen trae de verdad para un nombre de set.
+
+    Los marcadores ``importado-sin-informes:`` no identifican nada: los escribio
+    una importacion anterior que tampoco supo resolverlo.
+    """
+    return {
+        str(row.get("candidate_id") or "").strip()
+        for row in portable
+        if str(row.get("candidate_id") or "").strip()
+        and not str(row.get("candidate_id") or "").startswith("importado-sin-informes:")
+    }
+
+
+def _narrow_by_exported_set_content(
+    matches: list[dict[str, Any]], header: dict[str, Any], key: str,
+) -> list[dict[str, Any]]:
+    """Desempata candidatos homonimos por el SHA-256 del .set exportado.
+
+    Para archivos antiguos, sin ``Miembros JSON``, la copia del .set que viajo en
+    la exportacion es lo unico que queda para recuperar la identidad. Solo vale
+    si hay una unica coincidencia de contenido.
+    """
+    exported_hashes = {
+        str(value).strip().lower()
+        for value in ((header.get("_set_sha256_by_name") or {}).get(key) or [])
+        if str(value).strip()
+    }
+    if len(exported_hashes) != 1:
+        return matches
+    matching_content: list[dict[str, Any]] = []
+    for row in matches:
+        candidate_path = Path(str(row.get("set_path") or ""))
+        try:
+            digest = hashlib.sha256(candidate_path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        if digest in exported_hashes:
+            matching_content.append(row)
+    return matching_content if len(matching_content) == 1 else matches
+
+
+def _row_from_exported_member(
+    portable: dict[str, Any],
+    candidate_id: str,
+    name: str,
+    source: PortfolioSource,
+) -> dict[str, Any]:
+    """Reconstruye la fila desde las rutas que conservo la exportacion.
+
+    La fila puede haber desaparecido de la memoria tras un cambio de veredicto.
+    Las exportaciones nuevas conservan las rutas exactas que tenia la asignacion;
+    se reconstruye desde ellas igual que al mejorar un portafolio guardado, sin
+    elegir otro candidato.
+    """
+    saved = dict(portable)
+    saved.update({
+        "candidate_id": candidate_id,
+        "set_path": _resolve_source_path(
+            saved.get("set_path") or saved.get("set_id") or name, source.project,
+        ),
+        "is_report_path": _resolve_source_path(saved.get("is_report_path"), source.project),
+        "oos_report_path": _resolve_source_path(saved.get("oos_report_path"), source.project),
+        "full_history_report_path": _resolve_source_path(saved.get("full_history_report_path"), source.project),
+        "final_tick_report_path": _resolve_source_path(saved.get("final_tick_report_path"), source.project),
+        "target_symbol": saved.get("target_symbol") or saved.get("symbol"),
+        "period": saved.get("period") or saved.get("timeframe"),
+    })
+    return saved
+
+
+def _matches_for_member(
+    key: str,
+    name: str,
+    by_name: dict[str, list[dict[str, Any]]],
+    portable_by_name: dict[str, list[dict[str, Any]]],
+    header: dict[str, Any],
+    source: PortfolioSource,
+) -> list[dict[str, Any]]:
+    """Candidatos que corresponden a un miembro del resumen.
+
+    Devuelve cero (irresoluble), uno (resuelto) o varios (ambiguo). Nunca elige
+    por nombre: dos candidatos homonimos pueden tener informes y curvas
+    distintos, y escoger uno seria silencioso.
+    """
+    matches = by_name.get(key) or []
+    portable = portable_by_name.get(key) or []
+    exact_candidate_ids = _exported_candidate_ids(portable)
+    if len(matches) > 1 and len(exact_candidate_ids) == 1:
+        exact_id = next(iter(exact_candidate_ids))
+        exact = [
+            row for row in matches
+            if str(row.get("candidate_id") or "").strip() == exact_id
+        ]
+        if len(exact) == 1:
+            matches = exact
+    if len(matches) > 1:
+        matches = _narrow_by_exported_set_content(matches, header, key)
+    if not matches and len(exact_candidate_ids) == 1 and portable:
+        return [
+            _row_from_exported_member(
+                portable[0], next(iter(exact_candidate_ids)), name, source,
+            )
+        ]
+    return matches
+
+
+def _resolve_import_members(
+    members: list[Any],
+    header: dict[str, Any],
+    source: PortfolioSource,
+) -> tuple[dict[str, dict[str, Any]], list[str], list[str]]:
+    """Empareja cada miembro del resumen con su fila de candidato.
+
+    Devuelve las resueltas, las que no tienen candidato y las ambiguas.
+    """
+    # El ZIP es la autoridad de composicion. No reutilizar ``candidate_rows``:
+    # ese inventario pertenece a calculos nuevos y elimina estrategias cuyo
+    # veredicto actual ya no supera las cuatro etapas, que fue precisamente lo
+    # que convirtio una exportacion real de 7 sets en un portafolio de 4.
+    candidates = source.import_candidate_rows({str(member.set_name) for member in members})
+    portable_by_name: dict[str, list[dict[str, Any]]] = {}
+    for raw in header.get("portfolio_members") or []:
+        if not isinstance(raw, dict):
+            continue
+        name = Path(str(raw.get("set_name") or raw.get("set_path") or raw.get("set_id") or "")).name.casefold()
+        if name:
+            portable_by_name.setdefault(name, []).append(raw)
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for row in candidates:
+        by_name.setdefault(Path(str(row.get("set_path") or "")).name.casefold(), []).append(row)
+
+    resolved: dict[str, dict[str, Any]] = {}
+    unresolved: list[str] = []
+    ambiguous: list[str] = []
+    for member in members:
+        name = str(member.set_name)
+        key = name.casefold()
+        if key in resolved or key in {value.casefold() for value in unresolved + ambiguous}:
+            continue
+        matches = _matches_for_member(key, name, by_name, portable_by_name, header, source)
+        if not matches:
+            unresolved.append(name)
+        elif len(matches) > 1:
+            ambiguous.append(name)
+        else:
+            resolved[key] = matches[0]
+    return resolved, unresolved, ambiguous
+
+
+def _changed_verdict_notes(rows: list[dict[str, Any]]) -> list[str]:
+    """Veredictos actuales que ya no son 'accepted', para avisar sin recortar."""
+    changed_verdicts: list[str] = []
+    for row in rows:
+        robustness_status = str(row.get("robustness_status") or "")
+        if row.get("historical_robustness_report_recovered"):
+            robustness_status = "sin fila vigente; informe histórico recuperado"
+        statuses = {
+            "base": str(row.get("base_status") or ""),
+            "robustez": robustness_status,
+            "Final Tick": str(row.get("final_tick_status") or ""),
+            "Final Tick 6M": str(row.get("final_tick_6m_status") or ""),
+        }
+        changed = [f"{stage}={status or 'sin evaluar'}" for stage, status in statuses.items() if status != "accepted"]
+        if changed:
+            changed_verdicts.append(
+                f"{Path(str(row.get('set_path') or '')).name}: " + ", ".join(changed)
+            )
+    return changed_verdicts
+
+
+def _import_resolution_warnings(
+    unresolved: list[str], ambiguous: list[str], unmeasured: list[str],
+) -> list[str]:
+    """Lo que no se pudo medir, dicho sin inventar metricas."""
+    notes: list[str] = []
+    if unresolved:
+        notes.append(
+            "Sin candidato actual ni informes localizables; se conservaron sin métricas: "
+            + ", ".join(unresolved)
+        )
+    if ambiguous:
+        notes.append(
+            "Nombre con varios candidatos posibles; se conservó sin elegir métricas al azar: "
+            + ", ".join(ambiguous)
+        )
+    if unmeasured:
+        notes.append(
+            "Cálculo incompleto al importar: se conservaron composición, unidades y lotes, "
+            "pero beneficio y drawdown no incluyen las estrategias sin informes: "
+            + ", ".join(unmeasured)
+        )
+    return notes
+
+
+def _imported_variant_key(header: dict[str, Any]) -> str:
+    """Modo tomado de la cabecera cuando la columna PERFIL viene en blanco.
+
+    ``save_proposal`` guarda un portafolio de una sola variante -una mejora, o
+    cualquier mensual- con ``variant_key`` vacio: la variante es la fila entera,
+    no una de tres. Sin este respaldo la variante caia en ``variant_1``, que no
+    es ningun modo conocido, y el guardado perdia el tipo.
+    """
+    return next(
+        (
+            value for value in (
+                str(header.get("improvement_portfolio_type") or "").strip().lower(),
+                str(header.get("portfolio_type") or "").strip().lower(),
+            )
+            if value in TYPE_LABELS
+        ),
+        "",
+    )
+
+
+def _imported_allocation(
+    strategy: Any, units: dict[str, int], lots: dict[str, float],
+) -> StrategyAllocation:
+    """Asignacion de una estrategia que si se pudo medir."""
+    count = units[strategy.set_id]
+    return StrategyAllocation(
+        set_id=strategy.set_id, candidate_id=strategy.candidate_id, symbol=strategy.symbol,
+        units=count, lot=lots.get(strategy.set_id, 0.0),
+        net_profit_contribution=strategy.net_profit_2020_2026_001 * count,
+        standalone_valley_dd=max(strategy.valley_dd_2020_2026_001, strategy.max_floating_dd_001) * count,
+        standalone_point_dd=strategy.point_dd_2020_2026_001 * count,
+        timeframe=strategy.timeframe, set_path=strategy.set_path,
+        is_report_path=strategy.is_report_path, oos_report_path=strategy.oos_report_path,
+        lot_size_step=None,
+        max_balance_dd_001=strategy.max_balance_dd_001, max_equity_dd_001=strategy.max_equity_dd_001,
+        floating_dd_source=strategy.floating_dd_source,
+        standalone_floating_dd=strategy.max_floating_dd_001 * count,
+        recent_net_profit_001=strategy.recent_net_profit_001,
+        recent_equity_dd_001=strategy.recent_equity_dd_001,
+        has_recent_performance=strategy.has_recent_performance,
+        final_tick_report_path=strategy.final_tick_report_path,
+        full_history_report_path=strategy.full_history_report_path,
+    )
+
+
+def _unmeasured_allocation(
+    member: Any,
+    row_by_name: dict[str, dict[str, Any]],
+    unresolved: list[str],
+    ambiguous: list[str],
+) -> StrategyAllocation:
+    """Miembro conservado sin metricas: composicion si, numeros no.
+
+    La composicion del ZIP no se recorta nunca. Cuando no hay candidato ni
+    informe legible se guarda igual, con las metricas a cero y el motivo escrito
+    en ``floating_dd_source``, en vez de atribuir numeros inventados.
+    """
+    name = str(member.set_name)
+    row = row_by_name.get(name.casefold()) or {}
+    set_path = str(row.get("set_path") or name)
+    if name in unresolved:
+        missing_reason = "No reconstruido al importar: no existe candidato ni informe"
+    elif name in ambiguous:
+        missing_reason = "No reconstruido al importar: varios candidatos posibles"
+    else:
+        missing_reason = "No reconstruido al importar: faltan informes legibles"
+    return StrategyAllocation(
+        set_id=set_path,
+        candidate_id=str(row.get("candidate_id") or f"importado-sin-informes:{name}"),
+        symbol=str(member.symbol),
+        units=int(member.units),
+        lot=float(member.lot),
+        net_profit_contribution=0.0,
+        standalone_valley_dd=0.0,
+        standalone_point_dd=0.0,
+        timeframe=str(member.timeframe),
+        set_path=set_path,
+        is_report_path=str(row.get("is_report_path") or ""),
+        oos_report_path=str(row.get("oos_report_path") or ""),
+        floating_dd_source=missing_reason,
+    )
+
+
+def _imported_portfolio_result(
+    strategies: list[Any],
+    units: dict[str, int],
+    allocations: list[StrategyAllocation],
+    evaluation: Any,
+    inputs: dict[str, Any],
+    *,
+    target_valley: float,
+    target_point: float,
+    capital: float,
+    warnings: list[str],
+    incomplete: bool,
+) -> PortfolioResult:
+    """Resultado de una variante importada: medido, no copiado del texto."""
+    return PortfolioResult(
+        allocations=allocations,
+        equity_curve_2020_2026=evaluation.equity_curve_2020_2026,
+        total_net_profit=evaluation.total_net_profit,
+        actual_valley_dd=evaluation.valley_dd, actual_point_dd=evaluation.point_dd,
+        target_valley_dd=target_valley, target_point_dd=target_point,
+        valley_usage_pct=evaluation.valley_usage_pct, point_usage_pct=evaluation.point_usage_pct,
+        total_lot=sum(allocation.lot for allocation in allocations),
+        total_units=sum(allocation.units for allocation in allocations),
+        active_strategies=len(allocations),
+        stop_reason=(
+            "Composición importada; cálculo incompleto por informes ausentes"
+            if incomplete
+            else "Composición importada de una exportación previa"
+        ),
+        warnings=list(warnings), decision_log=[],
+        group_summary=portfolio_group_summary(strategies, units),
+        stress_bootstrap=bootstrap_valley_drawdown(
+            evaluation.equity_curve_2020_2026,
+            nominal_valley_dd_limit=capital * float(inputs["valley_dd_pct"]) / 100.0,
+            effective_valley_dd_limit=target_valley,
+        ),
+        seasonal_coverage={
+            strategy.set_id: {
+                "target_month": strategy.target_month, "years": list(strategy.month_years),
+                "positive_years": list(strategy.positive_month_years),
+                "year_count": len(strategy.month_years),
+                "positive_year_count": len(strategy.positive_month_years),
+                "trades": strategy.trades_2020_2026,
+            }
+            for strategy in strategies
+            if strategy.target_month is not None and units.get(strategy.set_id, 0) > 0
+        },
+        actual_closed_valley_dd=evaluation.closed_valley_dd,
+        floating_dd_buffer=evaluation.floating_dd_buffer,
+        enforce_point_dd=False,
+    )
+
+
+@dataclass(frozen=True)
+class _ImportContext:
+    """Lo que todas las variantes de una importacion comparten."""
+
+    scope: str
+    capital: float
+    target_valley: float
+    target_point: float
+    target_month: int | None
+    strategies: list[Any]
+    by_set: dict[str, Any]
+    path_by_name: dict[str, str]
+    row_by_name: dict[str, dict[str, Any]]
+    unresolved: list[str]
+    ambiguous: list[str]
+    warnings: list[str]
+    blank_variant_key: str
+
+
+def _variant_units(
+    members: list[Any], ctx: _ImportContext,
+) -> tuple[dict[str, int], dict[str, float], dict[str, Any]]:
+    """Unidades y lotes de una variante, y los miembros que no se pudieron medir."""
+    units: dict[str, int] = {}
+    lots: dict[str, float] = {}
+    unmeasured_members: dict[str, Any] = {}
+    for member in members:
+        set_path = ctx.path_by_name.get(str(member.set_name).casefold())
+        if not set_path or set_path not in ctx.by_set:
+            name = str(member.set_name)
+            unmeasured_members[name.casefold()] = member
+            continue
+        units[set_path] = units.get(set_path, 0) + int(member.units)
+        lots[set_path] = float(member.lot)
+    return units, lots, unmeasured_members
+
+
+def _variant_proposal(
+    label: str, order: list[str], members: list[Any], ctx: _ImportContext,
+) -> dict[str, Any] | None:
+    """Propuesta de una variante del resumen, o ``None`` si no tiene miembros."""
+    units, lots, unmeasured_members = _variant_units(members, ctx)
+    if not units and not unmeasured_members:
+        return None
+    key = portfolio_import.variant_key_for(label, order)
+    if not label.strip() and ctx.blank_variant_key:
+        key = ctx.blank_variant_key
+    inputs: dict[str, Any] = {
+        "capital": ctx.capital,
+        "valley_dd_pct": ctx.target_valley * 100.0 / ctx.capital if ctx.capital > 0 else 0.0,
+        "point_dd_pct": ctx.target_point * 100.0 / ctx.capital if ctx.capital > 0 else 0.0,
+        "portfolio_type": key,
+        "composition_portfolio_type": key,
+        "portfolio_scope": ctx.scope,
+    }
+    if ctx.scope == "monthly" and ctx.target_month:
+        inputs["target_month"] = int(ctx.target_month)
+    evaluation = evaluate_portfolio(
+        ctx.strategies, units, ctx.target_valley, ctx.target_point, None, False, False,
+    )
+    allocations = [
+        _imported_allocation(strategy, units, lots)
+        for strategy in ctx.strategies if units.get(strategy.set_id, 0) > 0
+    ]
+    allocations.extend(
+        _unmeasured_allocation(member, ctx.row_by_name, ctx.unresolved, ctx.ambiguous)
+        for member in unmeasured_members.values()
+    )
+    if unmeasured_members:
+        inputs["import_calculation_complete"] = False
+        inputs["import_unmeasured_sets"] = [
+            str(member.set_name) for member in unmeasured_members.values()
+        ]
+    else:
+        inputs["import_calculation_complete"] = True
+    return {
+        "key": key,
+        "label": label.strip() or TYPE_LABELS.get(key, key),
+        "inputs": inputs,
+        "result": _imported_portfolio_result(
+            ctx.strategies, units, allocations, evaluation, inputs,
+            target_valley=ctx.target_valley, target_point=ctx.target_point,
+            capital=ctx.capital, warnings=ctx.warnings, incomplete=bool(unmeasured_members),
+        ),
+    }
+
+
+def _reconstructed_added_count(
+    source: PortfolioSource,
+    improvement_source_id: int,
+    improvement_mode: str,
+    proposal: dict[str, Any],
+) -> int:
+    """Incorporaciones de una mejora cuyo resumen no las traia.
+
+    Formato antiguo: origen y modo podian estar en el nombre, pero no el numero
+    de incorporaciones. Si la base sigue guardada se puede reconstruir sin
+    inferir ninguna decision del optimizador.
+    """
+    try:
+        base = source.saved_portfolio_detail(improvement_source_id, "full_history")["portfolio"]
+        base_members = base.get("members") or []
+        if str(base.get("portfolio_type") or "") == "bundle":
+            base_members = [
+                member for member in base_members
+                if str(member.get("variant_key") or "") == improvement_mode
+            ]
+        base_names = {
+            Path(str(member.get("set_path") or member.get("set_id") or "")).name.casefold()
+            for member in base_members
+            if int(member.get("units") or 0) > 0
+        }
+        improved_names = {
+            Path(str(allocation.set_path or allocation.set_id)).name.casefold()
+            for allocation in proposal["result"].allocations
+            if allocation.units > 0
+        }
+        if base_names and base_names <= improved_names:
+            return len(improved_names - base_names)
+    except (ValueError, TypeError, OSError):
+        pass
+    return -1
+
+
+def _improvement_identity_inputs(
+    proposal_inputs: dict[str, Any],
+    header: dict[str, Any],
+    *,
+    improvement_mode: str,
+    improvement_source_id: int,
+    portfolio_uid: str,
+    parent_uid: str,
+) -> dict[str, Any]:
+    """Escribe la identidad de mejora en los inputs y devuelve sus piezas."""
+    proposal_inputs["portfolio_type"] = improvement_mode
+    proposal_inputs["composition_portfolio_type"] = improvement_mode
+    proposal_inputs["improvement_source_portfolio_id"] = improvement_source_id
+    proposal_inputs["improvement_portfolio_type"] = improvement_mode
+    if portfolio_uid:
+        proposal_inputs["portfolio_uid"] = portfolio_uid
+    label = str(header.get("improvement_label") or "").strip()
+    if label:
+        proposal_inputs["improvement_label"] = label[:240]
+    if parent_uid:
+        proposal_inputs["improvement_parent_uid"] = parent_uid
+    root_id = safe_int(header.get("improvement_root_portfolio_id"), improvement_source_id)
+    proposal_inputs["improvement_root_portfolio_id"] = root_id or improvement_source_id
+    root_uid = _valid_portfolio_uid(header.get("improvement_root_uid"))
+    if root_uid:
+        proposal_inputs["improvement_root_uid"] = root_uid
+    depth = max(1, safe_int(header.get("improvement_depth"), 1))
+    proposal_inputs["improvement_depth"] = depth
+    lineage = _normalized_improvement_lineage(header.get("improvement_lineage"))
+    if lineage:
+        proposal_inputs["improvement_lineage"] = lineage
+    priority = str(header.get("improvement_selection_priority") or "").strip().lower()
+    if priority:
+        if priority not in IMPROVEMENT_PRIORITY_LABELS:
+            raise ValueError("La exportación conserva una prioridad de mejora desconocida")
+        proposal_inputs["improvement_selection_priority"] = priority
+    return {
+        "label": label, "root_id": root_id, "root_uid": root_uid,
+        "depth": depth, "lineage": lineage, "priority": priority,
+    }
+
+
+def _apply_improvement_identity(
+    proposals: list[dict[str, Any]],
+    header: dict[str, Any],
+    source: PortfolioSource,
+    *,
+    improvement_source_id: int,
+    improvement_mode: str,
+    exported_uid: str,
+    exported_parent_uid: str,
+) -> None:
+    """Devuelve a la propuesta su linaje de mejora, o falla si no cuadra."""
+    if improvement_mode not in TYPE_LABELS:
+        raise ValueError("La exportación identifica una mejora, pero no conserva un modo válido")
+    if len(proposals) != 1 or str(proposals[0]["key"]) != improvement_mode:
+        raise ValueError(
+            "La identidad de mejora de la exportación no coincide con su composición: "
+            f"esperaba solo el modo {TYPE_LABELS[improvement_mode]}"
+        )
+    proposal = proposals[0]
+    parts = _improvement_identity_inputs(
+        proposal["inputs"], header,
+        improvement_mode=improvement_mode,
+        improvement_source_id=improvement_source_id,
+        portfolio_uid=exported_uid,
+        parent_uid=exported_parent_uid,
+    )
+    added_value = header.get("improvement_added_count")
+    added_count = safe_int(added_value, -1) if added_value is not None else -1
+    if added_count < 0:
+        added_count = _reconstructed_added_count(
+            source, improvement_source_id, improvement_mode, proposal,
+        )
+    audit: dict[str, Any] = {
+        "source_portfolio_id": improvement_source_id,
+        "target_portfolio_type": improvement_mode,
+        "imported_lineage": True,
+        "portfolio_uid": exported_uid,
+        "label": parts["label"],
+        "parent_uid": exported_parent_uid,
+        "root_portfolio_id": parts["root_id"] or improvement_source_id,
+        "root_uid": parts["root_uid"],
+        "depth": parts["depth"],
+        "lineage": parts["lineage"],
+    }
+    snapshot = header.get("improvement_source_snapshot")
+    if isinstance(snapshot, dict):
+        audit["source_snapshot"] = snapshot
+    if parts["priority"]:
+        audit["selection_priority"] = parts["priority"]
+    if added_count >= 0:
+        audit["added_count"] = added_count
+    proposal["result"].seasonal_validation = {
+        **(proposal["result"].seasonal_validation or {}),
+        "portfolio_improvement": audit,
+    }
+
+
+def _assert_shared_composition(proposals: list[dict[str, Any]]) -> None:
+    """Un paquete A/M/C guardado siempre comparte composicion entre variantes.
+
+    ``save_proposal`` lo exige; solo cambian las unidades. Si el resumen no lo
+    cumple, decirlo aqui evita que el guardado falle mas abajo con un mensaje
+    que no senala al fichero.
+    """
+    compositions = {
+        str(proposal["key"]): frozenset(
+            allocation.set_id for allocation in proposal["result"].allocations
+        )
+        for proposal in proposals
+    }
+    if len(set(compositions.values())) > 1:
+        raise ValueError(
+            "Las variantes del resumen no comparten la misma composición, cosa que "
+            "un paquete A/M/C guardado siempre cumple. Revisa que el resumen esté "
+            "completo: " + "; ".join(
+                f"{key}: {len(sets)} sets" for key, sets in sorted(compositions.items())
+            )
+        )
+
+
+def _import_report(
+    proposals: list[dict[str, Any]],
+    ctx: _ImportContext,
+    unmeasured: list[str],
+    *,
+    improvement_source_id: int,
+    improvement_mode: str,
+) -> dict[str, Any]:
+    """Resumen de lo que la importacion reconstruyo y de lo que no."""
+    keys = [str(proposal["key"]) for proposal in proposals]
+    return {
+        "variants": keys,
+        "strategies": len({
+            allocation.set_id
+            for proposal in proposals
+            for allocation in proposal["result"].allocations
+        }),
+        "unresolved": ctx.unresolved,
+        "ambiguous": ctx.ambiguous,
+        "skipped": [],
+        "calculation_complete": not unmeasured,
+        "unmeasured": unmeasured,
+        "warnings": ctx.warnings,
+        "target_month": ctx.target_month,
+        "improvement_origin": {
+            "source_id": improvement_source_id,
+            "mode": improvement_mode,
+        } if improvement_source_id > 0 and improvement_mode in TYPE_LABELS else None,
+    }
+
+
 def build_import_proposals(
     source: PortfolioSource,
     scope: str,
@@ -3825,108 +4433,9 @@ def build_import_proposals(
     Ver `mt5_manager/portfolio_import.py` para el formato y sus límites.
     """
     scope = normalize_portfolio_scope(scope)
-    # El ZIP es la autoridad de composición. No reutilizar ``candidate_rows``:
-    # ese inventario pertenece a cálculos nuevos y elimina estrategias cuyo
-    # veredicto actual ya no supera las cuatro etapas, que fue precisamente lo
-    # que convirtió una exportación real de 7 sets en un portafolio de 4.
-    candidates = source.import_candidate_rows({str(member.set_name) for member in members})
-    portable_by_name: dict[str, list[dict[str, Any]]] = {}
-    for raw in header.get("portfolio_members") or []:
-        if not isinstance(raw, dict):
-            continue
-        name = Path(str(raw.get("set_name") or raw.get("set_path") or raw.get("set_id") or "")).name.casefold()
-        if name:
-            portable_by_name.setdefault(name, []).append(raw)
-    by_name: dict[str, list[dict[str, Any]]] = {}
-    for row in candidates:
-        by_name.setdefault(Path(str(row.get("set_path") or "")).name.casefold(), []).append(row)
-    resolved: dict[str, dict[str, Any]] = {}
-    unresolved: list[str] = []
-    ambiguous: list[str] = []
-    for member in members:
-        name = str(member.set_name)
-        key = name.casefold()
-        if key in resolved or key in {value.casefold() for value in unresolved + ambiguous}:
-            continue
-        matches = by_name.get(key) or []
-        portable = portable_by_name.get(key) or []
-        exact_candidate_ids = {
-            str(row.get("candidate_id") or "").strip()
-            for row in portable
-            if str(row.get("candidate_id") or "").strip()
-            and not str(row.get("candidate_id") or "").startswith("importado-sin-informes:")
-        }
-        if len(matches) > 1 and len(exact_candidate_ids) == 1:
-            exact_id = next(iter(exact_candidate_ids))
-            exact = [
-                row for row in matches
-                if str(row.get("candidate_id") or "").strip() == exact_id
-            ]
-            if len(exact) == 1:
-                matches = exact
-        if len(matches) > 1:
-            exported_hashes = {
-                str(value).strip().lower()
-                for value in (
-                    (header.get("_set_sha256_by_name") or {}).get(key) or []
-                )
-                if str(value).strip()
-            }
-            if len(exported_hashes) == 1:
-                matching_content: list[dict[str, Any]] = []
-                for row in matches:
-                    candidate_path = Path(str(row.get("set_path") or ""))
-                    try:
-                        digest = hashlib.sha256(candidate_path.read_bytes()).hexdigest()
-                    except OSError:
-                        continue
-                    if digest in exported_hashes:
-                        matching_content.append(row)
-                if len(matching_content) == 1:
-                    matches = matching_content
-        if not matches and len(exact_candidate_ids) == 1 and portable:
-            # La fila puede haber desaparecido de la memoria tras un cambio de
-            # veredicto. Las exportaciones nuevas conservan las rutas exactas
-            # que tenía la asignación; se reconstruye desde ellas igual que al
-            # mejorar un portafolio guardado, sin elegir otro candidato.
-            saved = dict(portable[0])
-            saved.update({
-                "candidate_id": next(iter(exact_candidate_ids)),
-                "set_path": _resolve_source_path(
-                    saved.get("set_path") or saved.get("set_id") or name,
-                    source.project,
-                ),
-                "is_report_path": _resolve_source_path(saved.get("is_report_path"), source.project),
-                "oos_report_path": _resolve_source_path(saved.get("oos_report_path"), source.project),
-                "full_history_report_path": _resolve_source_path(saved.get("full_history_report_path"), source.project),
-                "final_tick_report_path": _resolve_source_path(saved.get("final_tick_report_path"), source.project),
-                "target_symbol": saved.get("target_symbol") or saved.get("symbol"),
-                "period": saved.get("period") or saved.get("timeframe"),
-            })
-            matches = [saved]
-        if not matches:
-            unresolved.append(name)
-        elif len(matches) > 1:
-            ambiguous.append(name)
-        else:
-            resolved[key] = matches[0]
+    resolved, unresolved, ambiguous = _resolve_import_members(members, header, source)
     rows = list(resolved.values())
-    changed_verdicts = []
-    for row in rows:
-        robustness_status = str(row.get("robustness_status") or "")
-        if row.get("historical_robustness_report_recovered"):
-            robustness_status = "sin fila vigente; informe histórico recuperado"
-        statuses = {
-            "base": str(row.get("base_status") or ""),
-            "robustez": robustness_status,
-            "Final Tick": str(row.get("final_tick_status") or ""),
-            "Final Tick 6M": str(row.get("final_tick_6m_status") or ""),
-        }
-        changed = [f"{stage}={status or 'sin evaluar'}" for stage, status in statuses.items() if status != "accepted"]
-        if changed:
-            changed_verdicts.append(
-                f"{Path(str(row.get('set_path') or '')).name}: " + ", ".join(changed)
-            )
+    changed_verdicts = _changed_verdict_notes(rows)
     strategies, warnings = load_robust_sets_from_rows(rows, [], parse=cached_report)
     if changed_verdicts:
         warnings.append(
@@ -3934,10 +4443,12 @@ def build_import_proposals(
             "veredictos actuales hayan cambiado."
         )
         warnings.append("Veredictos actuales: " + " | ".join(changed_verdicts))
-    path_by_name = {Path(str(row.get("set_path") or "")).name.casefold(): str(row.get("set_path") or "") for row in rows}
-    row_by_name = {
-        Path(str(row.get("set_path") or "")).name.casefold(): row
+    path_by_name = {
+        Path(str(row.get("set_path") or "")).name.casefold(): str(row.get("set_path") or "")
         for row in rows
+    }
+    row_by_name = {
+        Path(str(row.get("set_path") or "")).name.casefold(): row for row in rows
     }
     capital = float(header.get("capital") or 0)
     target_valley = float(header.get("target_valley_dd") or 0)
@@ -3946,54 +4457,23 @@ def build_import_proposals(
     if scope == "monthly" and target_month:
         strategies, monthly_warnings = slice_strategy_sets_to_month(strategies, int(target_month))
         warnings.extend(monthly_warnings)
+
     loaded_paths = {str(strategy.set_id) for strategy in strategies}
     unmeasured: list[str] = []
     for member in members:
         name = str(member.set_name)
-        key = name.casefold()
-        set_path = path_by_name.get(key)
+        set_path = path_by_name.get(name.casefold())
         if (not set_path or set_path not in loaded_paths) and name not in unmeasured:
             unmeasured.append(name)
-    if unresolved:
-        warnings.append(
-            "Sin candidato actual ni informes localizables; se conservaron sin métricas: "
-            + ", ".join(unresolved)
-        )
-    if ambiguous:
-        warnings.append(
-            "Nombre con varios candidatos posibles; se conservó sin elegir métricas al azar: "
-            + ", ".join(ambiguous)
-        )
-    if unmeasured:
-        warnings.append(
-            "Cálculo incompleto al importar: se conservaron composición, unidades y lotes, "
-            "pero beneficio y drawdown no incluyen las estrategias sin informes: "
-            + ", ".join(unmeasured)
-        )
-    by_set = {strategy.set_id: strategy for strategy in strategies}
+    warnings.extend(_import_resolution_warnings(unresolved, ambiguous, unmeasured))
+
     order: list[str] = []
     grouped: dict[str, list[Any]] = {}
     for member in members:
         if member.variant_label not in order:
             order.append(member.variant_label)
         grouped.setdefault(member.variant_label, []).append(member)
-    # La columna PERFIL sale en blanco en todo portafolio de una sola variante
-    # —una mejora o un mensual—, porque `save_proposal` guarda sus miembros con
-    # `variant_key` vacio: la variante es la fila entera, no una de tres. La
-    # cabecera si dice el modo («Tipo:» y, en una mejora, «Mejora modo:»), y sin
-    # ese respaldo la variante caia en `variant_1`, que no es ningun modo
-    # conocido: el guardado perdia el tipo y una mejora fallaba antes, al
-    # comprobar que su composicion corresponde al modo exportado.
-    blank_variant_key = next(
-        (
-            value for value in (
-                str(header.get("improvement_portfolio_type") or "").strip().lower(),
-                str(header.get("portfolio_type") or "").strip().lower(),
-            )
-            if value in TYPE_LABELS
-        ),
-        "",
-    )
+
     exported_uid = _valid_portfolio_uid(header.get("portfolio_uid"))
     exported_parent_uid = _valid_portfolio_uid(header.get("improvement_parent_uid"))
     if exported_uid and exported_uid == exported_parent_uid:
@@ -4007,132 +4487,22 @@ def build_import_proposals(
             f"({exported_uid}); se descarta y se le asigna identidad propia."
         )
         exported_uid = ""
-    proposals: list[dict[str, Any]] = []
-    skipped: list[str] = []
-    for label in order:
-        units: dict[str, int] = {}
-        lots: dict[str, float] = {}
-        unmeasured_members: dict[str, Any] = {}
-        for member in grouped[label]:
-            set_path = path_by_name.get(str(member.set_name).casefold())
-            if not set_path or set_path not in by_set:
-                name = str(member.set_name)
-                unmeasured_members[name.casefold()] = member
-                continue
-            units[set_path] = units.get(set_path, 0) + int(member.units)
-            lots[set_path] = float(member.lot)
-        if not units and not unmeasured_members:
-            continue
-        key = portfolio_import.variant_key_for(label, order)
-        if not label.strip() and blank_variant_key:
-            key = blank_variant_key
-        inputs: dict[str, Any] = {
-            "capital": capital,
-            "valley_dd_pct": target_valley * 100.0 / capital if capital > 0 else 0.0,
-            "point_dd_pct": target_point * 100.0 / capital if capital > 0 else 0.0,
-            "portfolio_type": key,
-            "composition_portfolio_type": key,
-            "portfolio_scope": scope,
-        }
-        if scope == "monthly" and target_month:
-            inputs["target_month"] = int(target_month)
-        evaluation = evaluate_portfolio(strategies, units, target_valley, target_point, None, False, False)
-        allocations = [
-            StrategyAllocation(
-                set_id=strategy.set_id, candidate_id=strategy.candidate_id, symbol=strategy.symbol,
-                units=units[strategy.set_id], lot=lots.get(strategy.set_id, 0.0),
-                net_profit_contribution=strategy.net_profit_2020_2026_001 * units[strategy.set_id],
-                standalone_valley_dd=max(strategy.valley_dd_2020_2026_001, strategy.max_floating_dd_001) * units[strategy.set_id],
-                standalone_point_dd=strategy.point_dd_2020_2026_001 * units[strategy.set_id],
-                timeframe=strategy.timeframe, set_path=strategy.set_path,
-                is_report_path=strategy.is_report_path, oos_report_path=strategy.oos_report_path,
-                lot_size_step=None,
-                max_balance_dd_001=strategy.max_balance_dd_001, max_equity_dd_001=strategy.max_equity_dd_001,
-                floating_dd_source=strategy.floating_dd_source,
-                standalone_floating_dd=strategy.max_floating_dd_001 * units[strategy.set_id],
-                recent_net_profit_001=strategy.recent_net_profit_001,
-                recent_equity_dd_001=strategy.recent_equity_dd_001,
-                has_recent_performance=strategy.has_recent_performance,
-                final_tick_report_path=strategy.final_tick_report_path,
-                full_history_report_path=strategy.full_history_report_path,
-            )
-            for strategy in strategies if units.get(strategy.set_id, 0) > 0
-        ]
-        for member in unmeasured_members.values():
-            name = str(member.set_name)
-            row = row_by_name.get(name.casefold()) or {}
-            set_path = str(row.get("set_path") or name)
-            if name in unresolved:
-                missing_reason = "No reconstruido al importar: no existe candidato ni informe"
-            elif name in ambiguous:
-                missing_reason = "No reconstruido al importar: varios candidatos posibles"
-            else:
-                missing_reason = "No reconstruido al importar: faltan informes legibles"
-            allocations.append(StrategyAllocation(
-                set_id=set_path,
-                candidate_id=str(row.get("candidate_id") or f"importado-sin-informes:{name}"),
-                symbol=str(member.symbol),
-                units=int(member.units),
-                lot=float(member.lot),
-                net_profit_contribution=0.0,
-                standalone_valley_dd=0.0,
-                standalone_point_dd=0.0,
-                timeframe=str(member.timeframe),
-                set_path=set_path,
-                is_report_path=str(row.get("is_report_path") or ""),
-                oos_report_path=str(row.get("oos_report_path") or ""),
-                floating_dd_source=missing_reason,
-            ))
-        if unmeasured_members:
-            inputs["import_calculation_complete"] = False
-            inputs["import_unmeasured_sets"] = [
-                str(member.set_name) for member in unmeasured_members.values()
-            ]
-        else:
-            inputs["import_calculation_complete"] = True
-        result = PortfolioResult(
-            allocations=allocations,
-            equity_curve_2020_2026=evaluation.equity_curve_2020_2026,
-            total_net_profit=evaluation.total_net_profit,
-            actual_valley_dd=evaluation.valley_dd, actual_point_dd=evaluation.point_dd,
-            target_valley_dd=target_valley, target_point_dd=target_point,
-            valley_usage_pct=evaluation.valley_usage_pct, point_usage_pct=evaluation.point_usage_pct,
-            total_lot=sum(allocation.lot for allocation in allocations),
-            total_units=sum(allocation.units for allocation in allocations),
-            active_strategies=len(allocations),
-            stop_reason=(
-                "Composición importada; cálculo incompleto por informes ausentes"
-                if unmeasured_members
-                else "Composición importada de una exportación previa"
-            ),
-            warnings=list(warnings), decision_log=[],
-            group_summary=portfolio_group_summary(strategies, units),
-            stress_bootstrap=bootstrap_valley_drawdown(
-                evaluation.equity_curve_2020_2026,
-                nominal_valley_dd_limit=capital * float(inputs["valley_dd_pct"]) / 100.0,
-                effective_valley_dd_limit=target_valley,
-            ),
-            seasonal_coverage={
-                strategy.set_id: {
-                    "target_month": strategy.target_month, "years": list(strategy.month_years),
-                    "positive_years": list(strategy.positive_month_years),
-                    "year_count": len(strategy.month_years),
-                    "positive_year_count": len(strategy.positive_month_years),
-                    "trades": strategy.trades_2020_2026,
-                }
-                for strategy in strategies
-                if strategy.target_month is not None and units.get(strategy.set_id, 0) > 0
-            },
-            actual_closed_valley_dd=evaluation.closed_valley_dd,
-            floating_dd_buffer=evaluation.floating_dd_buffer,
-            enforce_point_dd=False,
+
+    ctx = _ImportContext(
+        scope=scope, capital=capital,
+        target_valley=target_valley, target_point=target_point, target_month=target_month,
+        strategies=strategies,
+        by_set={strategy.set_id: strategy for strategy in strategies},
+        path_by_name=path_by_name, row_by_name=row_by_name,
+        unresolved=unresolved, ambiguous=ambiguous, warnings=warnings,
+        blank_variant_key=_imported_variant_key(header),
+    )
+    proposals = [
+        proposal for proposal in (
+            _variant_proposal(label, order, grouped[label], ctx) for label in order
         )
-        proposals.append({
-            "key": key,
-            "label": label.strip() or TYPE_LABELS.get(key, key),
-            "inputs": inputs,
-            "result": result,
-        })
+        if proposal is not None
+    ]
     if not proposals:
         raise ValueError("El resumen no dejó ninguna variante reconstruible")
     if exported_uid:
@@ -4142,135 +4512,27 @@ def build_import_proposals(
     if scope == "full_history" and imported_alias:
         for proposal in proposals:
             proposal.setdefault("inputs", {})["portfolio_alias"] = imported_alias
+
     improvement_source_id = safe_int(header.get("improvement_source_portfolio_id"), 0)
     improvement_mode = str(header.get("improvement_portfolio_type") or "").strip().lower()
     if scope == "full_history" and improvement_source_id > 0:
-        if improvement_mode not in TYPE_LABELS:
-            raise ValueError("La exportación identifica una mejora, pero no conserva un modo válido")
-        if len(proposals) != 1 or str(proposals[0]["key"]) != improvement_mode:
-            raise ValueError(
-                "La identidad de mejora de la exportación no coincide con su composición: "
-                f"esperaba solo el modo {TYPE_LABELS[improvement_mode]}"
-            )
-        proposal = proposals[0]
-        proposal_inputs = proposal["inputs"]
-        proposal_inputs["portfolio_type"] = improvement_mode
-        proposal_inputs["composition_portfolio_type"] = improvement_mode
-        proposal_inputs["improvement_source_portfolio_id"] = improvement_source_id
-        proposal_inputs["improvement_portfolio_type"] = improvement_mode
-        portfolio_uid = exported_uid
-        if portfolio_uid:
-            proposal_inputs["portfolio_uid"] = portfolio_uid
-        label = str(header.get("improvement_label") or "").strip()
-        if label:
-            proposal_inputs["improvement_label"] = label[:240]
-        parent_uid = exported_parent_uid
-        if parent_uid:
-            proposal_inputs["improvement_parent_uid"] = parent_uid
-        root_id = safe_int(header.get("improvement_root_portfolio_id"), improvement_source_id)
-        proposal_inputs["improvement_root_portfolio_id"] = root_id or improvement_source_id
-        root_uid = _valid_portfolio_uid(header.get("improvement_root_uid"))
-        if root_uid:
-            proposal_inputs["improvement_root_uid"] = root_uid
-        depth = max(1, safe_int(header.get("improvement_depth"), 1))
-        proposal_inputs["improvement_depth"] = depth
-        lineage = _normalized_improvement_lineage(header.get("improvement_lineage"))
-        if lineage:
-            proposal_inputs["improvement_lineage"] = lineage
-        priority = str(header.get("improvement_selection_priority") or "").strip().lower()
-        if priority:
-            if priority not in IMPROVEMENT_PRIORITY_LABELS:
-                raise ValueError("La exportación conserva una prioridad de mejora desconocida")
-            proposal_inputs["improvement_selection_priority"] = priority
-        added_value = header.get("improvement_added_count")
-        added_count = safe_int(added_value, -1) if added_value is not None else -1
-        if added_count < 0:
-            # Formato antiguo: origen y modo podían estar en el nombre, pero no
-            # el número de incorporaciones. Si la base sigue guardada se puede
-            # reconstruir sin inferir ninguna decisión del optimizador.
-            try:
-                base = source.saved_portfolio_detail(
-                    improvement_source_id, "full_history"
-                )["portfolio"]
-                base_members = base.get("members") or []
-                if str(base.get("portfolio_type") or "") == "bundle":
-                    base_members = [
-                        member for member in base_members
-                        if str(member.get("variant_key") or "") == improvement_mode
-                    ]
-                base_names = {
-                    Path(str(member.get("set_path") or member.get("set_id") or "")).name.casefold()
-                    for member in base_members
-                    if int(member.get("units") or 0) > 0
-                }
-                improved_names = {
-                    Path(str(allocation.set_path or allocation.set_id)).name.casefold()
-                    for allocation in proposal["result"].allocations
-                    if allocation.units > 0
-                }
-                if base_names and base_names <= improved_names:
-                    added_count = len(improved_names - base_names)
-            except (ValueError, TypeError, OSError):
-                pass
-        audit: dict[str, Any] = {
-            "source_portfolio_id": improvement_source_id,
-            "target_portfolio_type": improvement_mode,
-            "imported_lineage": True,
-            "portfolio_uid": portfolio_uid,
-            "label": label,
-            "parent_uid": parent_uid,
-            "root_portfolio_id": root_id or improvement_source_id,
-            "root_uid": root_uid,
-            "depth": depth,
-            "lineage": lineage,
-        }
-        snapshot = header.get("improvement_source_snapshot")
-        if isinstance(snapshot, dict):
-            audit["source_snapshot"] = snapshot
-        if priority:
-            audit["selection_priority"] = priority
-        if added_count >= 0:
-            audit["added_count"] = added_count
-        proposal["result"].seasonal_validation = {
-            **(proposal["result"].seasonal_validation or {}),
-            "portfolio_improvement": audit,
-        }
+        _apply_improvement_identity(
+            proposals, header, source,
+            improvement_source_id=improvement_source_id,
+            improvement_mode=improvement_mode,
+            exported_uid=exported_uid,
+            exported_parent_uid=exported_parent_uid,
+        )
     if scope == "full_history" and len(proposals) > 1:
-        # `save_proposal` exige que las tres variantes A/M/C compartan
-        # composición, y un paquete guardado siempre la comparte: solo cambian
-        # las unidades. Si el resumen no lo cumple, decirlo aquí evita que el
-        # guardado falle más abajo con un mensaje que no señala al fichero.
-        compositions = {
-            str(proposal["key"]): frozenset(
-                allocation.set_id for allocation in proposal["result"].allocations
-            )
-            for proposal in proposals
-        }
-        if len(set(compositions.values())) > 1:
-            raise ValueError(
-                "Las variantes del resumen no comparten la misma composición, cosa que "
-                "un paquete A/M/C guardado siempre cumple. Revisa que el resumen esté "
-                "completo: " + "; ".join(
-                    f"{key}: {len(sets)} sets" for key, sets in sorted(compositions.items())
-                )
-            )
+        _assert_shared_composition(proposals)
+
     keys = [str(proposal["key"]) for proposal in proposals]
     selected_key = "balanced" if "balanced" in keys else keys[0]
-    report = {
-        "variants": keys,
-        "strategies": len({allocation.set_id for proposal in proposals for allocation in proposal["result"].allocations}),
-        "unresolved": unresolved,
-        "ambiguous": ambiguous,
-        "skipped": skipped,
-        "calculation_complete": not unmeasured,
-        "unmeasured": unmeasured,
-        "warnings": warnings,
-        "target_month": target_month,
-        "improvement_origin": {
-            "source_id": improvement_source_id,
-            "mode": improvement_mode,
-        } if improvement_source_id > 0 and improvement_mode in TYPE_LABELS else None,
-    }
+    report = _import_report(
+        proposals, ctx, unmeasured,
+        improvement_source_id=improvement_source_id,
+        improvement_mode=improvement_mode,
+    )
     return proposals, selected_key, report
 
 
