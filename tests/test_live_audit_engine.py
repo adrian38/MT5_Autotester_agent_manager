@@ -15,6 +15,7 @@ from mt5_manager.live_audit_engine import (
     normalize_request,
 )
 from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
+from tests.helpers import ASYNC_TIMEOUT, wait_until
 
 
 def request() -> dict:
@@ -111,15 +112,22 @@ class LiveAuditEngineTests(unittest.TestCase):
 
     @staticmethod
     def _wait(controller: LiveAuditController) -> dict:
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline:
-            state = controller.state(9)
-            if state["status"] not in {
-                "queued", "pausing", "extracting", "testing", "comparing", "finalizing", "resuming",
-            }:
-                return state
-            time.sleep(.01)
-        raise AssertionError("la auditoría no terminó")
+        in_progress = {
+            "queued", "pausing", "extracting", "testing", "comparing", "finalizing", "resuming",
+        }
+        last: dict = {}
+
+        def finished() -> bool:
+            nonlocal last
+            last = controller.state(9)
+            return last["status"] not in in_progress
+
+        if not wait_until(finished, interval=.01):
+            raise AssertionError(
+                f"Plazo de {ASYNC_TIMEOUT:g}s agotado: la auditoría sigue en "
+                f"'{last.get('status')}'"
+            )
+        return last
 
     def test_credentials_are_required_and_never_enter_public_state(self) -> None:
         payload = request()

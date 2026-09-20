@@ -11,7 +11,6 @@ import urllib.error
 import urllib.request
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
-from typing import Callable
 from unittest import mock
 from pathlib import Path
 
@@ -19,55 +18,12 @@ from mt5_manager.manager import PULSE_JOB_KEYS, ManagerServer
 from mt5_manager.node import JobController, NodeServer
 from mt5_manager.portfolio_service import PortfolioSource, normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
-
-#: Plazo para las esperas asincronas de estos tests.
-#:
-#: Es deliberadamente holgado. Ninguno de estos tests mide rendimiento: esperan
-#: a que un hilo o un job termine, y un plazo justo solo convierte una maquina
-#: ocupada en un fallo rojo que no dice nada del codigo. Como toda espera sale
-#: en cuanto se cumple la condicion, subirlo no alarga la pasada normal; solo
-#: alarga el caso en el que el test ya iba a fallar.
-ASYNC_TIMEOUT = 10.0
-
-#: Para los ciclos completos de pipeline, que de por si tardan segundos.
-SLOW_JOB_TIMEOUT = 60.0
-
-#: Intervalo de sondeo. Fino a proposito: fija la latencia, no el plazo.
-POLL_INTERVAL = .03
-
-
-def wait_until(
-    predicate: Callable[[], bool],
-    timeout: float = ASYNC_TIMEOUT,
-    interval: float = POLL_INTERVAL,
-) -> bool:
-    """Sondea hasta que ``predicate`` se cumpla. Devuelve si llego a cumplirse.
-
-    No afirma nada: quien llama se queda con sus propias comprobaciones, que son
-    las que describen que se esperaba.
-    """
-    deadline = time.monotonic() + timeout
-    while True:
-        if predicate():
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(interval)
-
-
-def assert_event(
-    test: unittest.TestCase,
-    event: threading.Event,
-    description: str,
-    timeout: float = ASYNC_TIMEOUT,
-) -> None:
-    """Espera un ``Event`` y, si no llega, dice que se agoto el plazo.
-
-    Un ``assertTrue(event.wait(1))`` fallaba con un escueto "False is not true",
-    que no distingue un cuelgue real de una maquina lenta.
-    """
-    if not event.wait(timeout):
-        test.fail(f"Plazo de {timeout:g}s agotado esperando: {description}")
+from tests.helpers import (
+    ASYNC_TIMEOUT,
+    SLOW_JOB_TIMEOUT,
+    assert_event,
+    wait_until,
+)
 
 
 class LocalIntegrationTests(unittest.TestCase):

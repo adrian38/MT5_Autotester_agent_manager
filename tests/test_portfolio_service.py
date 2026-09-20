@@ -51,6 +51,7 @@ from portfolio_manager.ubs_portfolio import (
     load_robust_sets_from_rows,
     set_portfolio_cancellation_check,
 )
+from tests.helpers import ASYNC_TIMEOUT, assert_event, assert_until
 
 
 class PortfolioServiceTests(unittest.TestCase):
@@ -1233,29 +1234,38 @@ class PortfolioServiceTests(unittest.TestCase):
 
             def slow_delete(_source: PortfolioSource, _portfolio_id: int, _scope: str) -> None:
                 started.set()
-                release.wait(2)
+                # Valvula de seguridad, no un plazo: abajo se libera siempre. Si
+                # vence antes de tiempo el borrado termina solo y la
+                # comprobacion de que sigue "running" falla sin que haya pasado
+                # nada malo.
+                release.wait(ASYNC_TIMEOUT)
 
             with patch.object(PortfolioSource, "delete_portfolio", slow_delete):
                 before = time.monotonic()
                 task = coordinator.delete("ic", "full_history", 37)
                 elapsed = time.monotonic() - before
 
+                # Este plazo si mide: la gracia es que delete() vuelva sin
+                # esperar al borrado, que aqui bloquea ASYNC_TIMEOUT segundos.
                 self.assertLess(elapsed, 0.2)
                 self.assertIn(task["status"], {"pending", "running"})
-                self.assertTrue(started.wait(1))
+                assert_event(self, started, "el borrado no llego a arrancar")
                 key = coordinator._key("ic", "full_history")
                 with coordinator.lock:
                     self.assertEqual(coordinator.tasks[key][0]["status"], "running")
 
                 release.set()
-                deadline = time.monotonic() + 2
-                while time.monotonic() < deadline:
+
+                def task_status() -> str:
                     with coordinator.lock:
-                        status = coordinator.tasks[key][0]["status"]
-                    if status == "completed":
-                        break
-                    time.sleep(0.01)
-                self.assertEqual(status, "completed")
+                        return coordinator.tasks[key][0]["status"]
+
+                assert_until(
+                    self,
+                    lambda: task_status() == "completed",
+                    "la tarea de borrado no llego a completarse",
+                )
+                self.assertEqual(task_status(), "completed")
 
     def test_task_state_does_not_read_the_remote_inventory(self) -> None:
         coordinator = PortfolioCoordinator(
