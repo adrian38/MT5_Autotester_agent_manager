@@ -49,7 +49,11 @@ def _caps_allow(
         max_sets_per_symbol=limits.max_sets_per_symbol,
         max_units_per_group_pct=limits.max_units_per_group_pct,
         max_sets_per_group=limits.max_sets_per_group,
-        group_unit_cap_bootstrap=limits.group_unit_cap_bootstrap,
+        # Sin resolver por tipo de cartera, vale el defecto de can_add_unit.
+        group_unit_cap_bootstrap=(
+            10 if limits.group_unit_cap_bootstrap is None
+            else limits.group_unit_cap_bootstrap
+        ),
         margin_balance=limits.margin_balance,
         max_margin_pct=limits.max_margin_pct,
         margin_profile=limits.margin_profile,

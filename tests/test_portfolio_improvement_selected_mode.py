@@ -10,6 +10,9 @@ from mt5_manager.portfolio_service import (
     PortfolioCoordinator, PortfolioSource, normalize_settings, save_portfolio_payload,
 )
 from portfolio_manager.ubs_portfolio import (
+    CandidateFunnel,
+    SearchLimits,
+    SearchPlan,
     BootstrapDrawdownAnalysis,
     PortfolioResult,
     StrategyAllocation,
@@ -94,16 +97,16 @@ class BreadthBelowMinimumTests(unittest.TestCase):
             valley_dd_pct=1.0,
             point_dd_pct=100.0,
             portfolio_type=PortfolioType.BALANCED,
-            top_k_per_symbol=5,
-            max_total_candidates=10,
-            min_trades_2020_2026=1,
-            minimum_active_strategies=2,
-            maximum_active_strategies=2,
-            prefer_breadth_below_minimum=prefer_breadth,
-            enforce_point_dd=False,
-            use_deep_refinement=False,
-            run_local_search=False,
-            search_restarts=0,
+            limits=SearchLimits(enforce_point_dd=False),
+            funnel=CandidateFunnel(
+                min_trades_2020_2026=1, top_k_per_symbol=5, max_total_candidates=10,
+            ),
+            search=SearchPlan(
+                minimum_active_strategies=2,
+                maximum_active_strategies=2,
+                prefer_breadth_below_minimum=prefer_breadth,
+                run_local_search=False,
+            ),
         )
 
     def test_the_cheapest_increment_opens_the_slots_the_richest_one_blocks(self) -> None:
@@ -327,14 +330,14 @@ class RequiredSetsSurviveTheFunnelTests(unittest.TestCase):
             valley_dd_pct=2.0,
             point_dd_pct=100.0,
             portfolio_type=PortfolioType.BALANCED,
-            top_k_per_symbol=5,
-            max_total_candidates=10,
-            min_trades_2020_2026=1,
-            required_set_ids=["original.set", "degraded.set"],
-            enforce_point_dd=False,
-            use_deep_refinement=False,
-            run_local_search=False,
-            search_restarts=0,
+            limits=SearchLimits(enforce_point_dd=False),
+            funnel=CandidateFunnel(
+                min_trades_2020_2026=1,
+                top_k_per_symbol=5,
+                max_total_candidates=10,
+                required_set_ids=["original.set", "degraded.set"],
+            ),
+            search=SearchPlan(run_local_search=False),
         )
 
         active = {item.set_id for item in result.allocations if item.units > 0}
@@ -400,20 +403,21 @@ class SelectedModeTests(unittest.TestCase):
                 self.assertEqual(optimize.call_count, 2)
                 for call in optimize.call_args_list:
                     self.assertEqual(call.kwargs["portfolio_type"], full.PORTFOLIO_TYPES[mode])
-                    self.assertEqual(call.kwargs["dd_reserve_pct"], 17)
+                    self.assertEqual(call.kwargs["search"].dd_reserve_pct, 17)
                 # La pasada que elige la composición busca cuántas caben; la
                 # que reparte lotes después no lleva esa preferencia.
                 self.assertTrue(
-                    optimize.call_args_list[0].kwargs["prefer_breadth_below_minimum"]
+                    optimize.call_args_list[0].kwargs["search"].prefer_breadth_below_minimum
                 )
                 # Y no hereda el tope de sets por grupo del perfil (Moderado 3),
                 # que una cartera de 8 ya agota: cabría una sola incorporación.
                 selector = optimize.call_args_list[0].kwargs
                 self.assertEqual(
-                    selector["max_sets_per_group"], selector["maximum_active_strategies"]
+                    selector["limits"].max_sets_per_group,
+                    selector["search"].maximum_active_strategies,
                 )
                 self.assertFalse(
-                    optimize.call_args_list[1].kwargs.get("prefer_breadth_below_minimum", False)
+                    optimize.call_args_list[1].kwargs["search"].prefer_breadth_below_minimum
                 )
                 baseline.assert_called_once()
                 self.assertEqual(baseline.call_args.args[1], {old_id: 7})

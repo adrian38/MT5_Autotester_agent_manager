@@ -252,8 +252,7 @@ def _optimize_exact_pool(
         )
     return optimize_portfolio(
         raw_sets=candidate_pool,
-        use_deep_refinement=bool(use_deep_refinement),
-        **exact_kwargs,
+        **{**exact_kwargs, "search": exact_kwargs["search"].with_deep_refinement(bool(use_deep_refinement))},
     )
 
 

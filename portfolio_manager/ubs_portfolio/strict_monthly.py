@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from typing import Sequence
 
 from .symbols import portfolio_symbol_key
@@ -25,7 +25,7 @@ from .evaluation import (
     _evaluation_violates_dd_limits,
     evaluate_portfolio,
 )
-from .limits import SearchLimits
+from .limits import CandidateFunnel, SearchLimits, SearchPlan
 from .margin import MarginModel
 from .constraints import (
     _allocations_respect_constraints,
@@ -784,9 +784,37 @@ class _MonthlyOptimizerArgs:
     enforce_point_dd: bool
     daily_dd_full_history: bool
 
-    def kwargs(self) -> dict[str, object]:
-        """Los ajustes comunes como kwargs de ``optimize_portfolio``."""
-        return {item.name: getattr(self, item.name) for item in fields(self)}
+    def limits(self) -> SearchLimits:
+        """Los topes comunes a todas las llamadas del mensual."""
+        return SearchLimits(
+            max_units_per_set=self.max_units_per_set,
+            max_units_per_symbol=self.max_units_per_symbol,
+            max_sets_per_symbol=self.max_sets_per_symbol,
+            max_pair_corr=self.max_pair_corr,
+            max_downside_corr=self.max_downside_corr,
+            max_dd_overlap=self.max_dd_overlap,
+            existing_portfolio_curves=self.existing_portfolio_curves,
+            max_portfolio_corr=self.max_portfolio_corr,
+            margin_balance=self.margin_balance,
+            max_margin_pct=self.max_margin_pct,
+            margin_profile=self.margin_profile,
+            stock_leverage=self.stock_leverage,
+            default_leverage=self.default_leverage,
+            stock_contract_size=self.stock_contract_size,
+            default_contract_size=self.default_contract_size,
+            max_daily_dd=self.max_daily_dd,
+            enforce_point_dd=self.enforce_point_dd,
+            daily_dd_full_history=self.daily_dd_full_history,
+        )
+
+    def base_kwargs(self) -> dict[str, object]:
+        """Lo que toda llamada del mensual comparte al nivel de la funcion."""
+        return {
+            "capital": self.capital,
+            "valley_dd_pct": self.valley_dd_pct,
+            "point_dd_pct": self.point_dd_pct,
+            "portfolio_type": self.portfolio_type,
+        }
 
 
 def _strict_monthly_limits(
@@ -873,14 +901,16 @@ def _reoptimize_locked_monthly(
     """
     return optimize_portfolio(
         raw_sets=sets,
-        top_k_per_symbol=max(1, len(sets)),
-        max_total_candidates=None,
-        max_total_units=sum(locked.values()),
-        run_local_search=False,
-        search_restarts=0,
-        required_initial_allocations=locked,
-        preserve_required_allocations=True,
-        **args.kwargs(),
+        limits=replace(args.limits(), max_total_units=sum(locked.values())),
+        funnel=CandidateFunnel(
+            min_trades_2020_2026=args.min_trades_2020_2026,
+            top_k_per_symbol=max(1, len(sets)),
+            max_total_candidates=None,
+            required_initial_allocations=locked,
+            preserve_required_allocations=True,
+        ),
+        search=SearchPlan(run_local_search=False, dd_reserve_pct=args.dd_reserve_pct),
+        **args.base_kwargs(),
     )
 
 
@@ -902,12 +932,18 @@ def _strict_monthly_variant_result(
     try:
         base_result = optimize_portfolio(
             raw_sets=pool,
-            top_k_per_symbol=max(top_k_per_symbol, len(pool)),
-            max_total_candidates=None,
-            max_total_units=max_total_units,
-            run_local_search=run_local_search,
-            search_restarts=int(search_restarts),
-            **args.kwargs(),
+            limits=replace(args.limits(), max_total_units=max_total_units),
+            funnel=CandidateFunnel(
+                min_trades_2020_2026=args.min_trades_2020_2026,
+                top_k_per_symbol=max(top_k_per_symbol, len(pool)),
+                max_total_candidates=None,
+            ),
+            search=SearchPlan(
+                run_local_search=run_local_search,
+                search_restarts=int(search_restarts),
+                dd_reserve_pct=args.dd_reserve_pct,
+            ),
+            **args.base_kwargs(),
         )
     except Exception as exc:
         return None, str(exc)

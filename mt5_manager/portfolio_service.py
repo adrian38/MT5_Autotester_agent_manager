@@ -21,12 +21,15 @@ import uuid
 import zlib
 import zipfile
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
+    CandidateFunnel,
+    SearchLimits,
+    SearchPlan,
     ACCOUNT_LEVERAGE_CHOICES,
     DEFAULT_ACCOUNT_LEVERAGE,
     MIN_RECENT_EQUITY_RECOVERY,
@@ -2736,48 +2739,88 @@ def _reserve_pct(configured: float, portfolio_type: PortfolioType) -> float:
     return configured
 
 
+_OPTIMIZER_BAGS = {
+    "limits": SearchLimits,
+    "funnel": CandidateFunnel,
+    "search": SearchPlan,
+}
+
+
+def optimizer_overrides(kwargs: dict[str, Any], **changes: Any) -> dict[str, Any]:
+    """Los mismos argumentos del optimizador con algunos ajustes cambiados.
+
+    Cada ajuste va al bloque que lo posee -topes, embudo o plan de busqueda-, y
+    lo que no pertenezca a ninguno se queda al nivel de la llamada. Asi el
+    llamante sigue nombrando el ajuste y no el sitio donde vive.
+    """
+    updated = dict(kwargs)
+    owned: set[str] = set()
+    for name, bag in _OPTIMIZER_BAGS.items():
+        fields_of_bag = {item.name for item in fields(bag)}
+        mine = {key: value for key, value in changes.items() if key in fields_of_bag}
+        if mine:
+            updated[name] = replace(updated[name], **mine)
+            owned |= set(mine)
+    updated.update({k: v for k, v in changes.items() if k not in owned})
+    return updated
+
+
 def _optimizer_kwargs(
     inputs: dict[str, Any],
     objective_type: PortfolioType,
     existing_curves: list[list[float]],
     reserve: float,
 ) -> dict[str, Any]:
-    use_corr = bool(inputs.get("use_correlation", True))
-    validate_margin = bool(inputs.get("validate_margin", True))
+    """Traduce los ajustes de pantalla a los argumentos del optimizador."""
     return {
         "capital": float(inputs["capital"]),
         "valley_dd_pct": float(inputs["valley_dd_pct"]),
         "point_dd_pct": float(inputs["point_dd_pct"]),
         "portfolio_type": objective_type,
-        "min_trades_2020_2026": int(inputs["min_trades_2020_2026"]),
-        "top_k_per_symbol": int(inputs["top_k_per_symbol"]),
-        "max_total_candidates": int(inputs["max_total_candidates"]),
-        "max_units_per_set": inputs.get("max_units_per_set"),
-        "max_total_units": inputs.get("max_total_units"),
-        "max_units_per_symbol": inputs.get("max_units_per_symbol"),
-        "max_sets_per_symbol": inputs.get("max_sets_per_symbol"),
-        "run_local_search": bool(inputs.get("run_local_search", True)),
-        "max_pair_corr": inputs.get("max_pair_corr") if use_corr else None,
-        "max_downside_corr": inputs.get("max_downside_corr") if use_corr else None,
-        "max_dd_overlap": inputs.get("max_dd_overlap") if use_corr else None,
-        "existing_portfolio_curves": existing_curves,
-        "max_portfolio_corr": inputs.get("max_portfolio_corr") if use_corr else None,
-        "dd_reserve_pct": reserve,
-        "search_restarts": int(inputs.get("search_restarts") or 0),
-        "margin_balance": float(inputs["capital"]) if validate_margin else None,
-        "max_margin_pct": float(inputs.get("max_margin_pct") or 100.0) if validate_margin else None,
+        "limits": _optimizer_limits(inputs, existing_curves),
+        "funnel": CandidateFunnel(
+            min_trades_2020_2026=int(inputs["min_trades_2020_2026"]),
+            top_k_per_symbol=int(inputs["top_k_per_symbol"]),
+            max_total_candidates=int(inputs["max_total_candidates"]),
+        ),
+        "search": SearchPlan(
+            run_local_search=bool(inputs.get("run_local_search", True)),
+            search_restarts=int(inputs.get("search_restarts") or 0),
+            dd_reserve_pct=reserve,
+        ),
+    }
+
+
+def _optimizer_limits(
+    inputs: dict[str, Any], existing_curves: list[list[float]],
+) -> SearchLimits:
+    """Los topes con los que se mide cada incremento."""
+    use_corr = bool(inputs.get("use_correlation", True))
+    validate_margin = bool(inputs.get("validate_margin", True))
+    return SearchLimits(
+        max_units_per_set=inputs.get("max_units_per_set"),
+        max_total_units=inputs.get("max_total_units"),
+        max_units_per_symbol=inputs.get("max_units_per_symbol"),
+        max_sets_per_symbol=inputs.get("max_sets_per_symbol"),
+        max_pair_corr=inputs.get("max_pair_corr") if use_corr else None,
+        max_downside_corr=inputs.get("max_downside_corr") if use_corr else None,
+        max_dd_overlap=inputs.get("max_dd_overlap") if use_corr else None,
+        existing_portfolio_curves=existing_curves,
+        max_portfolio_corr=inputs.get("max_portfolio_corr") if use_corr else None,
+        margin_balance=float(inputs["capital"]) if validate_margin else None,
+        max_margin_pct=(
+            float(inputs.get("max_margin_pct") or 100.0) if validate_margin else None
+        ),
         # Un MarginModel completo sustituye al nombre del perfil cuando el
         # llamante lo construyo (hoy solo el portafolio UBS full history). El
         # mensual no lo pone, asi que conserva el modelo heredado.
-        "margin_profile": inputs.get("margin_model") or str(inputs.get("margin_profile") or "ictrading"),
-        "stock_leverage": 20.0,
-        "default_leverage": 500.0,
-        "stock_contract_size": 100.0,
-        "default_contract_size": 1.0,
-        "max_daily_dd": inputs.get("max_daily_dd"),
-        "enforce_point_dd": bool(inputs.get("enforce_point_dd", False)),
-        "daily_dd_full_history": bool(inputs.get("daily_dd_full_history", False)),
-    }
+        margin_profile=(
+            inputs.get("margin_model") or str(inputs.get("margin_profile") or "ictrading")
+        ),
+        max_daily_dd=inputs.get("max_daily_dd"),
+        enforce_point_dd=bool(inputs.get("enforce_point_dd", False)),
+        daily_dd_full_history=bool(inputs.get("daily_dd_full_history", False)),
+    )
 
 
 def _seasonal_coverage(result: PortfolioResult, strategies: list[Any]) -> None:
@@ -2949,8 +2992,7 @@ def _normal_proposals(
             def optimize(candidate_sets: list[Any]) -> PortfolioResult:
                 return optimize_portfolio(
                     raw_sets=candidate_sets,
-                    use_deep_refinement=bool(inputs.get("deep_optimization")),
-                    **kwargs,
+                    **{**kwargs, "search": kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
                 )
 
             result, _removed = _optimize_without_recent_fillers(
@@ -3024,10 +3066,9 @@ def _locked_full_proposals(
             return result
         return optimize_portfolio(
             raw_sets=candidate_sets,
-            use_deep_refinement=bool(
+            **{**base_kwargs, "search": base_kwargs["search"].with_deep_refinement(bool(
                 base_inputs.get("deep_optimization")
-            ),
-            **base_kwargs,
+            ))},
         )
 
     # El motor experimental repone los rellenos dentro del torneo, donde conoce
@@ -3083,7 +3124,7 @@ def _locked_full_proposals(
                 "dd_reserve_pct": reserve,
             })
             kwargs = _optimizer_kwargs(inputs, portfolio_type, existing_by_type.get(portfolio_type, []), reserve)
-            kwargs.update({
+            kwargs = optimizer_overrides(kwargs, **{
                 "top_k_per_symbol": max(int(inputs["top_k_per_symbol"]), locked_count),
                 "max_total_candidates": None,
                 "max_sets_per_group": locked_count,
@@ -3095,8 +3136,7 @@ def _locked_full_proposals(
             try:
                 result = optimize_portfolio(
                     raw_sets=locked_sets,
-                    use_deep_refinement=bool(inputs.get("deep_optimization")),
-                    **kwargs,
+                    **{**kwargs, "search": kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
                 )
             except Exception as exc:
                 errors.append(f"{label}: {exc}")
@@ -3434,7 +3474,7 @@ def generate_completion_proposal(
         exclude_portfolio_id=portfolio_id,
     )
     kwargs = _optimizer_kwargs(inputs, portfolio_type, existing, reserve)
-    kwargs.update({
+    kwargs = optimizer_overrides(kwargs, **{
         "required_set_ids": required_ids,
         "minimum_active_strategies": target,
         "maximum_active_strategies": target,
@@ -3445,8 +3485,7 @@ def generate_completion_proposal(
         progress(f"3/3 · Buscando sustituta para completar {len(members)}/{target}")
     result = optimize_portfolio(
         raw_sets=raw_sets,
-        use_deep_refinement=bool(inputs.get("deep_optimization")),
-        **kwargs,
+        **{**kwargs, "search": kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
     )
     _seasonal_coverage(result, raw_sets)
     result.warnings[:0] = warnings

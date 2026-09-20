@@ -27,6 +27,7 @@ from .portfolio_improvement_common import (
     validate_and_attach_improvement_audit,
 )
 from .portfolio_service import (
+    optimizer_overrides,
     ASSET_GROUPS,
     PORTFOLIO_TYPES,
     PortfolioSource,
@@ -145,7 +146,7 @@ def _generate_monthly_improvement_attempt(
         else []
     )
     kwargs = _optimizer_kwargs(inputs, portfolio_type, existing, reserve)
-    kwargs.update(
+    kwargs = optimizer_overrides(kwargs, **
         {
             "required_set_ids": original_ids_ordered,
             "preserve_required_allocations": False,
@@ -167,8 +168,7 @@ def _generate_monthly_improvement_attempt(
         )
     selected_base: PortfolioResult = optimize_portfolio(
         raw_sets=list(sliced_by_id.values()),
-        use_deep_refinement=False,
-        **kwargs,
+        **{**kwargs, "search": kwargs["search"].with_deep_refinement(False)},
     )
     selected_ids = [
         allocation.set_id
@@ -186,7 +186,7 @@ def _generate_monthly_improvement_attempt(
     selected_target = len(selected_ids)
     selected_sets = [sliced_by_id[set_id] for set_id in selected_ids]
     final_kwargs = _optimizer_kwargs(inputs, portfolio_type, existing, reserve)
-    final_kwargs.update(
+    final_kwargs = optimizer_overrides(final_kwargs, **
         {
             "required_set_ids": selected_ids,
             "preserve_required_allocations": False,
@@ -205,8 +205,7 @@ def _generate_monthly_improvement_attempt(
     )
     result: PortfolioResult = optimize_portfolio(
         raw_sets=selected_sets,
-        use_deep_refinement=bool(inputs.get("deep_optimization")),
-        **final_kwargs,
+        **{**final_kwargs, "search": final_kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
     )
     baseline = evaluate_portfolio(
         original_sets,

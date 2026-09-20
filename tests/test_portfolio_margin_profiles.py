@@ -737,7 +737,7 @@ class AccountLeverageSettingTests(unittest.TestCase):
                         model = build_margin_model(source, inputs)
                         inputs["margin_model"] = model
                         self.assertIs(
-                            _optimizer_kwargs(inputs, "balanced", [], 10)["margin_profile"], model,
+                            _optimizer_kwargs(inputs, "balanced", [], 10)["limits"].margin_profile, model,
                         )
                         self.assertEqual(model.profile, profile)
                         self.assertEqual(model.min_lot_for("USTEC"), 0.1)

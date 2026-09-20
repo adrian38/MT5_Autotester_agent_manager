@@ -32,6 +32,7 @@ from .portfolio_improvement_common import (
     validate_and_attach_improvement_audit,
 )
 from .portfolio_service import (
+    optimizer_overrides,
     ACCOUNT_LEVERAGE_CHOICES,
     ASSET_GROUPS,
     DEFAULT_ACCOUNT_LEVERAGE,
@@ -558,7 +559,7 @@ def _generate_full_history_improvement_attempt(
             )
 
         selector_kwargs = _optimizer_kwargs(inputs, base_type, existing, selection_reserve)
-        selector_kwargs.update(
+        selector_kwargs = optimizer_overrides(selector_kwargs, **
             {
                 "required_set_ids": original_ids,
                 "preserve_required_allocations": False,
@@ -602,8 +603,7 @@ def _generate_full_history_improvement_attempt(
             )
         selected_base = optimize_portfolio(
             raw_sets=pool,
-            use_deep_refinement=False,
-            **selector_kwargs,
+            **{**selector_kwargs, "search": selector_kwargs["search"].with_deep_refinement(False)},
         )
         selected_ids = [
             allocation.set_id
@@ -625,7 +625,7 @@ def _generate_full_history_improvement_attempt(
         if progress:
             progress("5/5 · Validando beneficio/DD de la variante elegida")
         kwargs = _optimizer_kwargs(inputs, portfolio_type, variant_existing, reserve)
-        kwargs.update(
+        kwargs = optimizer_overrides(kwargs, **
             {
                 "required_set_ids": selected_ids,
                 "preserve_required_allocations": False,
@@ -644,8 +644,7 @@ def _generate_full_history_improvement_attempt(
         )
         result: PortfolioResult = optimize_portfolio(
             raw_sets=selected_sets,
-            use_deep_refinement=bool(inputs.get("deep_optimization")),
-            **kwargs,
+            **{**kwargs, "search": kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
         )
         fillers = _underrepresented_recent_allocation_ids(
             result, minimum_recent_pct,

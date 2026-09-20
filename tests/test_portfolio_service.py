@@ -2027,7 +2027,7 @@ class PortfolioServiceTests(unittest.TestCase):
             15.0,
         )
         for key in configured:
-            self.assertIsNone(optimizer[key])
+            self.assertIsNone(getattr(optimizer["limits"], key))
 
     def test_reenabling_legacy_empty_correlation_limits_restores_defaults(self) -> None:
         empty_limits = {

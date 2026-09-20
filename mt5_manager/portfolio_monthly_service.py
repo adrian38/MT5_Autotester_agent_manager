@@ -14,6 +14,7 @@ from portfolio_manager.ubs_portfolio import (
 )
 
 from .portfolio_service import (
+    optimizer_overrides,
     ASSET_GROUPS,
     PORTFOLIO_TYPES,
     TYPE_LABELS,
@@ -110,8 +111,7 @@ def _monthly_proposals(
                 )
             return optimize_portfolio(
                 raw_sets=candidate_sets,
-                use_deep_refinement=bool(inputs.get("deep_optimization")),
-                **kwargs,
+                **{**kwargs, "search": kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
             )
 
         try:
@@ -419,7 +419,7 @@ def generate_monthly_completion_proposal(
         if inputs.get("corr_with_monthly_portfolios") else []
     )
     kwargs = _optimizer_kwargs(inputs, portfolio_type, existing, reserve)
-    kwargs.update({
+    kwargs = optimizer_overrides(kwargs, **{
         "required_set_ids": required_ids,
         "minimum_active_strategies": target,
         "maximum_active_strategies": target,
@@ -430,8 +430,7 @@ def generate_monthly_completion_proposal(
         progress(f"5/6 · Buscando sustituta para completar {len(members)}/{target}")
     result = optimize_portfolio(
         raw_sets=raw_sets,
-        use_deep_refinement=bool(inputs.get("deep_optimization")),
-        **kwargs,
+        **{**kwargs, "search": kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
     )
     _seasonal_coverage(result, raw_sets)
     if inputs.get("strict_yearly_month_validation"):
