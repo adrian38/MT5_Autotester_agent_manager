@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.ubs_portfolio import (
+    optimizer_overrides,
     PortfolioResult,
     evaluate_portfolio,
     filter_rows_by_recent_positive_months,
@@ -27,7 +28,6 @@ from .portfolio_improvement_common import (
     validate_and_attach_improvement_audit,
 )
 from .portfolio_service import (
-    optimizer_overrides,
     ASSET_GROUPS,
     PORTFOLIO_TYPES,
     PortfolioSource,

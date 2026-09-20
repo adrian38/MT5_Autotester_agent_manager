@@ -6,6 +6,7 @@ from math import ceil
 from typing import Any, Callable, Sequence
 
 from portfolio_manager.ubs_portfolio import (
+    optimizer_overrides,
     CorrelationPair,
     PortfolioResult,
     RobustStrategySet,
@@ -236,19 +237,21 @@ def _optimize_exact_pool(
     optimizer_kwargs: dict[str, Any],
 ) -> PortfolioResult:
     """Run the existing UBS engine without applying its preliminary top-K cut."""
-    exact_kwargs = dict(optimizer_kwargs)
-    exact_kwargs["top_k_per_symbol"] = max(
-        int(exact_kwargs.get("top_k_per_symbol") or 1),
-        len(candidate_pool),
+    exact_kwargs = optimizer_overrides(
+        optimizer_kwargs,
+        top_k_per_symbol=max(
+            int(optimizer_kwargs["funnel"].top_k_per_symbol or 1), len(candidate_pool),
+        ),
+        max_total_candidates=None,
     )
-    exact_kwargs["max_total_candidates"] = None
     if strict_yearly_month_validation:
         return optimize_strict_monthly_portfolio(
             monthly_sets=candidate_pool,
             full_sets=full_sets,
             target_month=int(target_month),
-            use_deep_refinement=bool(use_deep_refinement),
-            **exact_kwargs,
+            **{**exact_kwargs, "search": exact_kwargs["search"].with_deep_refinement(
+                bool(use_deep_refinement)
+            )},
         )
     return optimize_portfolio(
         raw_sets=candidate_pool,

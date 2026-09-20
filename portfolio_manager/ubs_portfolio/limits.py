@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from typing import Sequence
 
 from .models import (
@@ -122,3 +122,29 @@ class SearchPlan:
         mejoras la encienden en unas pasadas y la apagan en otras.
         """
         return replace(self, use_deep_refinement=bool(enabled))
+
+
+_OPTIMIZER_BAGS = {
+    "limits": SearchLimits,
+    "funnel": CandidateFunnel,
+    "search": SearchPlan,
+}
+
+
+def optimizer_overrides(kwargs: dict[str, object], **changes: object) -> dict[str, object]:
+    """Los mismos argumentos del optimizador con algunos ajustes cambiados.
+
+    Cada ajuste va al bloque que lo posee -topes, embudo o plan de busqueda-, y
+    lo que no pertenezca a ninguno se queda al nivel de la llamada. Asi el
+    llamante sigue nombrando el ajuste y no el sitio donde vive.
+    """
+    updated = dict(kwargs)
+    owned: set[str] = set()
+    for name, bag in _OPTIMIZER_BAGS.items():
+        fields_of_bag = {item.name for item in fields(bag)}
+        mine = {key: value for key, value in changes.items() if key in fields_of_bag}
+        if mine:
+            updated[name] = replace(updated[name], **mine)
+            owned |= set(mine)
+    updated.update({k: v for k, v in changes.items() if k not in owned})
+    return updated

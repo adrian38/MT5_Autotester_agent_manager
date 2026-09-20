@@ -28,6 +28,7 @@ from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
     CandidateFunnel,
+    optimizer_overrides,
     SearchLimits,
     SearchPlan,
     ACCOUNT_LEVERAGE_CHOICES,
@@ -2737,32 +2738,6 @@ def _reserve_pct(configured: float, portfolio_type: PortfolioType) -> float:
     if portfolio_type == PortfolioType.BALANCED:
         return max(configured, 15.0)
     return configured
-
-
-_OPTIMIZER_BAGS = {
-    "limits": SearchLimits,
-    "funnel": CandidateFunnel,
-    "search": SearchPlan,
-}
-
-
-def optimizer_overrides(kwargs: dict[str, Any], **changes: Any) -> dict[str, Any]:
-    """Los mismos argumentos del optimizador con algunos ajustes cambiados.
-
-    Cada ajuste va al bloque que lo posee -topes, embudo o plan de busqueda-, y
-    lo que no pertenezca a ninguno se queda al nivel de la llamada. Asi el
-    llamante sigue nombrando el ajuste y no el sitio donde vive.
-    """
-    updated = dict(kwargs)
-    owned: set[str] = set()
-    for name, bag in _OPTIMIZER_BAGS.items():
-        fields_of_bag = {item.name for item in fields(bag)}
-        mine = {key: value for key, value in changes.items() if key in fields_of_bag}
-        if mine:
-            updated[name] = replace(updated[name], **mine)
-            owned |= set(mine)
-    updated.update({k: v for k, v in changes.items() if k not in owned})
-    return updated
 
 
 def _optimizer_kwargs(

@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.ubs_portfolio import (
+    optimizer_overrides,
     MARGIN_PROFILES,
     BootstrapDrawdownAnalysis,
     PortfolioEvaluation,
@@ -32,7 +33,6 @@ from .portfolio_improvement_common import (
     validate_and_attach_improvement_audit,
 )
 from .portfolio_service import (
-    optimizer_overrides,
     ACCOUNT_LEVERAGE_CHOICES,
     ASSET_GROUPS,
     DEFAULT_ACCOUNT_LEVERAGE,

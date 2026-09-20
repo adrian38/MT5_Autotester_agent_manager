@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
+    optimizer_overrides,
     PortfolioResult,
     PortfolioType,
     optimize_portfolio,
@@ -14,7 +15,6 @@ from portfolio_manager.ubs_portfolio import (
 )
 
 from .portfolio_service import (
-    optimizer_overrides,
     ASSET_GROUPS,
     PORTFOLIO_TYPES,
     TYPE_LABELS,
@@ -59,6 +59,39 @@ def prepare_monthly_log(source: PortfolioSource, operation: str, job_id: str) ->
     )
 
 
+def _optimize_monthly_variant(
+    candidate_sets: list[Any],
+    full_sets: list[Any],
+    inputs: dict[str, Any],
+    kwargs: dict[str, Any],
+    progress: Any,
+) -> PortfolioResult:
+    """El motor que corresponde a los ajustes: experimental, estricto o normal."""
+    deep = optimizer_overrides(
+        kwargs, use_deep_refinement=bool(inputs.get("deep_optimization")),
+    )
+    if inputs.get("experimental_monthly_search"):
+        return optimize_experimental_monthly_portfolio(
+            monthly_sets=candidate_sets,
+            full_sets=full_sets,
+            target_month=int(inputs["target_month"]),
+            strict_yearly_month_validation=bool(
+                inputs.get("strict_yearly_month_validation")
+            ),
+            use_deep_refinement=bool(inputs.get("deep_optimization")),
+            progress=progress,
+            **kwargs,
+        )
+    if inputs.get("strict_yearly_month_validation"):
+        return optimize_strict_monthly_portfolio(
+            monthly_sets=candidate_sets,
+            full_sets=full_sets,
+            target_month=int(inputs["target_month"]),
+            **deep,
+        )
+    return optimize_portfolio(raw_sets=candidate_sets, **deep)
+
+
 def _monthly_proposals(
     monthly_sets: list[Any],
     full_sets: list[Any],
@@ -89,29 +122,8 @@ def _monthly_proposals(
         kwargs = _optimizer_kwargs(inputs, objective_type, existing_curves, reserve)
 
         def optimize(candidate_sets: list[Any]) -> PortfolioResult:
-            if inputs.get("experimental_monthly_search"):
-                return optimize_experimental_monthly_portfolio(
-                    monthly_sets=candidate_sets,
-                    full_sets=full_sets,
-                    target_month=int(inputs["target_month"]),
-                    strict_yearly_month_validation=bool(
-                        inputs.get("strict_yearly_month_validation")
-                    ),
-                    use_deep_refinement=bool(inputs.get("deep_optimization")),
-                    progress=progress,
-                    **kwargs,
-                )
-            if inputs.get("strict_yearly_month_validation"):
-                return optimize_strict_monthly_portfolio(
-                    monthly_sets=candidate_sets,
-                    full_sets=full_sets,
-                    target_month=int(inputs["target_month"]),
-                    use_deep_refinement=bool(inputs.get("deep_optimization")),
-                    **kwargs,
-                )
-            return optimize_portfolio(
-                raw_sets=candidate_sets,
-                **{**kwargs, "search": kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
+            return _optimize_monthly_variant(
+                candidate_sets, full_sets, inputs, kwargs, progress,
             )
 
         try:
