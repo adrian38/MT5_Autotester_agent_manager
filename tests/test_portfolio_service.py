@@ -187,7 +187,9 @@ class PortfolioServiceTests(unittest.TestCase):
             }
 
             with patch(
-                "portfolio_manager.ubs_portfolio.period_report_from_strategy_report",
+                # El consumidor es load_robust_sets_from_rows, en el modulo
+                # selection: parchear el paquete no alcanza su referencia.
+                "portfolio_manager.ubs_portfolio.selection.period_report_from_strategy_report",
                 side_effect=lambda parsed, _name: periods[str(parsed)],
             ):
                 loaded, warnings = load_robust_sets_from_rows(

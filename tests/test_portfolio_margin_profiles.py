@@ -237,9 +237,13 @@ class SavedPortfolioAuditTests(unittest.TestCase):
         # El aviso se persiste en el portafolio. Decia "solo en forex y bullion",
         # de cuando el apalancamiento de cuenta estaba restringido a esos grupos,
         # y se quedo desactualizado tras corregir el modelo.
-        source = (
-            Path(__file__).parents[1] / "portfolio_manager" / "ubs_portfolio.py"
-        ).read_text(encoding="utf-8")
+        # Se lee el paquete entero, no un modulo: el aviso ha cambiado de sitio
+        # una vez y la comprobacion no debe depender de donde viva hoy.
+        package = Path(__file__).parents[1] / "portfolio_manager" / "ubs_portfolio"
+        source = "\n".join(
+            path.read_text(encoding="utf-8") for path in sorted(package.glob("*.py"))
+        )
+        self.assertTrue(source, "no se encontro el paquete ubs_portfolio")
         self.assertNotIn("solo en forex y bullion", source)
         self.assertIn("min(cuenta, tope)", source)
 
