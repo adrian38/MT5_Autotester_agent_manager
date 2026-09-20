@@ -1407,6 +1407,53 @@ class PortfolioSource:
             "exported": len(exported), "sets": exported, "missing": missing,
         }
 
+    def resolve_pool_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Localiza el candidato de una exclusión que no sale de un portafolio.
+
+        «Gestión por símbolo» excluye un set que no tiene por qué pertenecer a
+        ningún portafolio, así que no hay `portfolio_allocations` donde buscarlo:
+        el único sitio es el pool.
+
+        Vive aparte de :meth:`exclude_strategy` porque el nodo del agente
+        necesita el mismo resultado y **no puede calcularlo**: la ruta que ve el
+        manager no es la que guarda la memoria del agente —`/data/axi/...` contra
+        `F:\\TRADING\\...`—, y quien sabe traducirla es `_resolve_source_path`,
+        que solo existe en este proyecto. Por eso el manager resuelve y manda el
+        candidato ya identificado; ver `PortfolioCoordinator.exclude`.
+        """
+        requested = str(payload.get("set_path") or payload.get("set_id") or "").strip()
+        if not requested:
+            raise ValueError("Falta identificar el set que se quiere excluir")
+        candidates = self.candidate_rows(include_quarantined=True)
+        requested_key = self._path_key(_resolve_source_path(requested, self.project))
+        matches = [row for row in candidates if self._path_key(row.get("set_path")) == requested_key]
+        if not matches:
+            by_name = [row for row in candidates if Path(str(row.get("set_path") or "")).name.casefold() == Path(requested).name.casefold()]
+            if len(by_name) == 1:
+                matches = by_name
+        if not matches:
+            raise ValueError("El set no pertenece a los candidatos Final Tick 6M accepted")
+        return matches[0]
+
+    def pool_member_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """El candidato resuelto, en las cuatro claves que el nodo escribe.
+
+        REGLA DUPLICADA. Lo consume
+        `manager_node_runtime/portfolio_save.py::exclude_portfolio_members_payload`,
+        que sin esto aborta con «Falta el portafolio que contiene las
+        estrategias» cualquier exclusión que no venga de un portafolio guardado.
+        """
+        row = self.resolve_pool_candidate(payload)
+        return {
+            "set_path": str(row.get("set_path") or ""),
+            "candidate_id": str(row.get("candidate_id") or ""),
+            "symbol": portfolio_display_symbol(
+                str(row.get("target_symbol") or row.get("symbol") or ""),
+                universe_files=[self.universe],
+            ),
+            "timeframe": str(row.get("period") or ""),
+        }
+
     def exclude_strategy(self, payload: dict[str, Any], *, memory: Path | None = None) -> int:
         """Quarantine a candidate.
 
@@ -1421,19 +1468,7 @@ class PortfolioSource:
         la cuarentena se escriba en otra: en Grid la fila vive en la base del
         manager, pero los estados, el score y los pesos son del agente.
         """
-        requested = str(payload.get("set_path") or payload.get("set_id") or "").strip()
-        if not requested:
-            raise ValueError("Falta identificar el set que se quiere excluir")
-        candidates = self.candidate_rows(include_quarantined=True)
-        requested_key = self._path_key(_resolve_source_path(requested, self.project))
-        matches = [row for row in candidates if self._path_key(row.get("set_path")) == requested_key]
-        if not matches:
-            by_name = [row for row in candidates if Path(str(row.get("set_path") or "")).name.casefold() == Path(requested).name.casefold()]
-            if len(by_name) == 1:
-                matches = by_name
-        if not matches:
-            raise ValueError("El set no pertenece a los candidatos Final Tick 6M accepted")
-        row = matches[0]
+        row = self.resolve_pool_candidate(payload)
         candidate_memory = Path(str(row.get("source_memory_path") or self.memory)).absolute()
         source_memory = Path(memory or candidate_memory).absolute()
         account_label = str(row.get("account_type") or f"{self.broker}/{self.account}")
@@ -5135,12 +5170,20 @@ class PortfolioCoordinator:
             # directly over CIFS is unreliable (SQLite WAL is not coherent across
             # a network share), so a manager-side quarantine/delete silently
             # failed to appear and the excluded portfolio kept showing up.
-            status, value = self._post_to_node(node, "/api/v1/portfolios/exclude", {**payload, "scope": scope})
+            node_payload = {**payload, "scope": scope}
+            # Sin `portfolio_id` esto no sale de un portafolio guardado sino del
+            # pool («Gestión por símbolo», o una propuesta todavía sin guardar).
+            # El nodo no puede resolver ahí el candidato —no sabe traducir la ruta
+            # que ve el manager—, así que se lo damos hecho.
+            pool_exclusion = safe_int(payload.get("portfolio_id"), 0) < 1
+            if pool_exclusion:
+                node_payload["pool_member"] = PortfolioSource(node).pool_member_payload(payload)
+            status, value = self._post_to_node(node, "/api/v1/portfolios/exclude", node_payload)
             if status == 404:
                 raise ValueError("El nodo todavía no admite exclusión individual local; actualiza su código y reinícialo.")
             if status >= 400 or not isinstance(value, dict):
                 error = value.get("error") if isinstance(value, dict) else value
-                raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+                raise ValueError(self._pool_exclusion_error(error, status, pool_exclusion))
             quarantine_id = safe_int(value.get("quarantine_id"), 0)
             # Only when this manager reads the node's memory locally (via a
             # snapshot) is there a cache to refresh; without portfolio_project_dir
@@ -5155,6 +5198,31 @@ class PortfolioCoordinator:
             quarantine_id = source.remove_member_to_quarantine(payload, scope) if safe_int(payload.get("portfolio_id"), 0) else source.exclude_strategy(payload)
         self._drop_cached_proposals(node_id)
         return quarantine_id
+
+    # El nodo sin portar aborta toda exclusión sin portafolio con este texto
+    # exacto, en su primera línea. Es la única señal que lo distingue de un
+    # error legítimo de un nodo que sí sabe excluir del pool.
+    UNPORTED_POOL_EXCLUSION = "Falta el portafolio que contiene las estrategias"
+
+    @classmethod
+    def _pool_exclusion_error(cls, error: Any, status: int, pool_exclusion: bool) -> str:
+        """Traduce el 400 de un nodo que no sabe excluir fuera de un portafolio.
+
+        «Gestión por símbolo» no tiene ningún portafolio que nombrar, así que
+        propagar «Falta el portafolio que contiene las estrategias» mandaba a
+        buscar un dato que esa pantalla no puede dar. El texto del nodo se
+        conserva al final: es lo que permite reconocer la copia sin portar.
+        """
+        text = str(error or f"El nodo devolvió HTTP {status}")
+        if not pool_exclusion or cls.UNPORTED_POOL_EXCLUSION not in text:
+            return text
+        return (
+            "Este nodo todavía no sabe excluir un set que no está en ningún portafolio: "
+            "falta portar la rama `pool_member` de exclude_portfolio_members_payload a su "
+            "manager_node_runtime/portfolio_save.py y reiniciar la aplicación del agente. "
+            "Mientras tanto, un set que sí esté en un portafolio guardado se puede excluir "
+            f"desde el detalle de ese portafolio. El nodo respondió: «{text}»."
+        )
 
     @staticmethod
     def _assert_node_applied_verdict(payload: dict[str, Any], value: dict[str, Any]) -> None:

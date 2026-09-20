@@ -114,6 +114,8 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         self.assertIn("def _requalify_on_node", self.manager_source)
         self.assertIn("def write_needs_node", self.manager_source)
         self.assertIn("def _supported_dataclass_values", self.manager_source)
+        self.assertIn("def resolve_pool_candidate", self.manager_source)
+        self.assertIn("def pool_member_payload", self.manager_source)
 
     def test_run_history_pagination_reaches_every_reachable_fork(self) -> None:
         manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
@@ -159,6 +161,52 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
             )
 
         self._assert_on_every_fork(check, "exclusión múltiple mensual")
+
+    def test_pool_exclusion_reaches_every_reachable_fork(self) -> None:
+        # «Gestión por símbolo» excluye un set que no tiene por qué estar en
+        # ningún portafolio. La copia sin portar aborta en su primera línea con
+        # «Falta el portafolio que contiene las estrategias», así que no hay
+        # forma de sacar del pool un set que ningún portafolio use: el usuario
+        # tiene que esperar a que aparezca en uno. No hay 404 que lo delate, sólo
+        # un 400 que pide un dato que esa pantalla no tiene.
+        self._assert_present(
+            self.manager_source,
+            r'node_payload\["pool_member"\] = PortfolioSource\(node\)\.pool_member_payload',
+            "El manager dejó de resolver el candidato antes de pedir al nodo una "
+            "exclusión sin portafolio; sin eso el nodo no puede escribirla.",
+        )
+
+        def check(project: Path, source: str) -> None:
+            self._assert_present(
+                source,
+                r'pool_member = payload\.get\("pool_member"\)',
+                f"{project}: `exclude_portfolio_members_payload` sigue exigiendo un "
+                "`portfolio_id`, así que «Gestión por símbolo» devuelve 400 en ese "
+                "agente y no se puede excluir del pool un set que ningún portafolio "
+                "use. Portar la rama `pool_member` desde "
+                "manager_node_runtime/portfolio_save.py de una copia ya portada y "
+                "duplicar la prueba en tests/test_manager_node_portfolio_save.py. "
+                "Hay que reiniciar la aplicación del agente.",
+            )
+            self._assert_present(
+                source,
+                re.escape("Excluida manualmente desde la gestión por símbolo"),
+                f"{project}: falta el texto de la exclusión de pool; es el único hilo "
+                "que permite encontrar esta regla en la copia del agente.",
+            )
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "pool_member" in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre la exclusión de pool; "
+                    "duplicar allí la cobertura de `pool_member`."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "exclusión de un set fuera de todo portafolio")
 
     def test_no_fork_deletes_the_saved_portfolio_when_excluding(self) -> None:
         # Excluir decide sobre el pool y, si hay veredicto, sobre los estados del

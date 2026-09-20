@@ -856,6 +856,22 @@ class ExclusionReasonScreenTests(unittest.TestCase):
                 self.assertIn("reason_code: target", script)
                 self.assertNotIn("postManager('release'", script)
 
+    def test_choosing_the_state_a_row_already_has_says_so_instead_of_nothing(self) -> None:
+        # El diálogo preselecciona el estado actual, así que abrirlo y pulsar
+        # «Aplicar» elegía justamente ese estado y se salía con un `return` mudo:
+        # ni petición, ni aviso, ni recarga. El botón parecía roto y así se
+        # reportó. Los cuatro puntos que reclasifican tienen que avisar.
+        self.assertIn("function quarantineTargetIsTheSame(", self.static("exclusion_reason.js"))
+        for name in self.PAGES:
+            script = self.static(f"{name}.js")
+            with self.subTest(script=name):
+                # UBS normal reclasifica desde dos sitios: la tabla de excluidas
+                # y la ventana de gestión por símbolo.
+                expected = 2 if name == "portfolios" else 1
+                self.assertEqual(script.count("quarantineTargetIsTheSame("), expected)
+                self.assertNotIn("target === currentCode) return;", script)
+                self.assertNotIn("target === row.reason_code) return;", script)
+
 
 if __name__ == "__main__":
     unittest.main()

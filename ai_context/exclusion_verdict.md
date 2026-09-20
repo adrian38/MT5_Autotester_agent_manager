@@ -134,15 +134,56 @@ y qué hay que portar.
 Hay que **reiniciar la aplicación del agente**: el nodo va embebido en `app_ui.py`
 vía `manager_node_lifecycle.py`.
 
-## Límite conocido, anterior a este cambio
+## Excluir sin portafolio: la rama `pool_member` (2026-09-20)
 
-Excluir desde una **propuesta** (sin `portfolio_id`) no funciona contra un nodo
-HTTP: `exclude_portfolio_members_payload` empieza con
+Hasta aquí, excluir sin `portfolio_id` no funcionaba contra un nodo HTTP:
+`exclude_portfolio_members_payload` empezaba con
 `if portfolio_id <= 0: raise ValueError("Falta el portafolio que contiene las
-estrategias")`, mientras que el manager sí tiene la caída a `exclude_strategy`.
-No es nuevo ni lo introduce el veredicto, pero limita dónde se pueden usar las
-dos tablas nuevas: hoy se alimentan desde un portafolio guardado (individual o
-selección múltiple) y desde Grid, que no pasa por el nodo.
+estrategias")`, mientras que el manager sí tenía la caída a `exclude_strategy`.
+Se documentó como límite de las propuestas, pero afecta sobre todo a la ventana
+**«Gestión por símbolo»**, que es donde se excluye del pool un set que no está
+en ninguna cartera. Medido en RoboForex el 2026-09-20: siete intentos seguidos
+devolvieron 400, y el mensaje pedía un portafolio que esa pantalla no tiene.
+
+Por qué el nodo no puede resolverlo solo: la ruta que manda el manager es la
+suya (`/data/axi/...` dentro del contenedor) y la memoria del agente guarda la
+del agente (`F:\TRADING\...`). Quien sabe traducirlas es `_resolve_source_path`,
+que solo existe en el manager. Duplicar esa traducción en cada fork es
+exactamente lo que este fichero intenta evitar.
+
+Reparto: **el manager resuelve, el nodo escribe.**
+
+| Lado | Qué hace |
+| --- | --- |
+| `PortfolioSource.resolve_pool_candidate` | localiza el candidato en el pool, compartido con `exclude_strategy` |
+| `PortfolioSource.pool_member_payload` | lo reduce a `set_path`, `candidate_id`, `symbol`, `timeframe` |
+| `PortfolioCoordinator.exclude` | añade `pool_member` cuando no hay `portfolio_id` |
+| `exclude_portfolio_members_payload` del nodo | con `pool_member` escribe cuarentena y veredicto sin tocar `portfolio_allocations` |
+
+La cuarentena queda con `source_portfolio_id` a NULL —no sale de ninguna
+cartera— y con el texto propio «Excluida manualmente desde la gestión por
+símbolo», que es el hilo para encontrar la regla en la copia del agente.
+
+Un nodo sin portar sigue devolviendo su 400 de siempre.
+`PortfolioCoordinator._pool_exclusion_error` lo reconoce por el texto exacto
+(`UNPORTED_POOL_EXCLUSION`) y lo cambia por qué portar, conservando al final la
+respuesta del nodo; un 400 legítimo de un nodo ya portado se propaga intacto.
+
+La exclusión **múltiple** sigue exigiendo portafolio: las casillas solo existen
+en el detalle de una cartera guardada.
+
+### Estado del port de la exclusión de pool
+
+| Copia | Rama `pool_member` |
+| --- | --- |
+| Manager (`portfolio_service.py`; `node.py` ya caía a `exclude_strategy`) | sí |
+| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`, rama `IC`) | sí, 2026-09-20 |
+| ICTrading | **no**, pendiente (no montada en este equipo) |
+| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+
+`tests/test_node_runtime_fork_parity.py::test_pool_exclusion_reaches_every_reachable_fork`
+**falla a propósito** mientras quede una copia montada sin portar, y el fallo es
+la instrucción. Hay que reiniciar la aplicación del agente después de portar.
 
 ### Estado del port de «Cambiar estado»
 
@@ -158,14 +199,24 @@ Sin portar, el manager no propaga el 404 crudo: dice que falta portar
 nodo local sigue escribiéndose desde el manager, así que ahí no hace falta el port
 para que el botón funcione.
 
+## «Cambiar estado» al estado que la fila ya tiene (2026-09-20)
+
+El diálogo preselecciona el estado actual, así que el camino más corto —abrirlo
+y pulsar «Aplicar»— elegía ese mismo estado, y los cuatro puntos que reclasifican
+salían con un `return` mudo: ni petición, ni aviso, ni recarga. Se reportó como
+«el botón no hace nada», y los logs del manager lo confirmaron: seis horas sin
+una sola petición `requalify`. Ahora `quarantineTargetIsTheSame` decide, y cada
+pantalla lo dice. No es una operación, pero tiene que notarse que no lo es.
+
 ## Pruebas
 
-- Manager: `tests/test_exclusion_verdict.py` (18, con `RequalifyTests` y
-  `RequalifyRoutingTests`),
-  `tests/test_static_portfolios.py::ExclusionReasonScreenTests` (5),
+- Manager: `tests/test_exclusion_verdict.py` (23, con `RequalifyTests`,
+  `RequalifyRoutingTests` y `PoolExclusionRoutingTests`),
+  `tests/test_static_portfolios.py::ExclusionReasonScreenTests` (6),
   `tests/test_node_runtime_fork_parity.py` (`test_no_fork_deletes_the_saved_portfolio_when_excluding`,
-  las dos del veredicto y
-  `test_changing_the_state_of_an_excluded_strategy_reaches_every_reachable_fork`).
-- Agente IC: `tests/test_manager_node_portfolio_save.py::ManagerNodeExclusionVerdictTests` (4),
-  `::ManagerNodeRequalifyTests` (5) y las dos de exclusión múltiple, que ahora
-  comprueban que el portafolio sobrevive.
+  las dos del veredicto,
+  `test_changing_the_state_of_an_excluded_strategy_reaches_every_reachable_fork`
+  y `test_pool_exclusion_reaches_every_reachable_fork`).
+- Agente: `tests/test_manager_node_portfolio_save.py::ManagerNodeExclusionVerdictTests` (4),
+  `::ManagerNodeRequalifyTests` (5), `::ManagerNodePoolExclusionTests` (3) y las
+  dos de exclusión múltiple, que ahora comprueban que el portafolio sobrevive.

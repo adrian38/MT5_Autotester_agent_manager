@@ -445,7 +445,11 @@ async function requalifyStrategy(quarantineId, currentCode) {
     detail: 'Reclasificar deshace el veredicto vigente antes de aplicar el nuevo, así que nunca se acumulan.',
     current: currentCode,
   });
-  if (!target || target === currentCode) return;
+  if (!target) return;
+  if (quarantineTargetIsTheSame(target, currentCode)) {
+    toast(`La estrategia ya está en «${exclusionReasonLabel(target)}».`);
+    return;
+  }
   try {
     await postManager('requalify', {scope, quarantine_id: quarantineId, reason_code: target});
     toast(target === 'pool' ? 'Estrategia reintegrada al pool.' : `Estrategia movida a «${exclusionReasonLabel(target)}».`);
