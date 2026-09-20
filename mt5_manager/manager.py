@@ -659,6 +659,264 @@ class ManagerHandler(BaseHTTPRequestHandler):
             return
         self.send_error(404)
 
+    def _portfolio_exclude(self, node: dict, node_id: str, scope: str, body: dict) -> None:
+        """Excluye miembros o candidatos y deja la memoria coherente."""
+        if scope == "grid":
+            # El paquete Grid vive en la base del manager y la
+            # cuarentena en la memoria del nodo: el coordinador
+            # reparte cada escritura a su dueño.
+            self._send_json(201, self.server.portfolios.exclude_grid(node_id, body))
+        elif body.get("set_paths") is not None:
+            status, value = node_request(
+                node,
+                "POST",
+                "/api/v1/portfolios/exclude",
+                {**body, "scope": scope},
+                timeout=120,
+            )
+            if status == 404:
+                raise ValueError(
+                    "El nodo todavía no admite exclusión múltiple local; "
+                    "actualiza su código y reinícialo."
+                )
+            if status >= 400 or not isinstance(value, dict):
+                error = value.get("error") if isinstance(value, dict) else value
+                raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+            portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=1)
+            # El portafolio guardado ya no se borra, así que lo que se
+            # confirma es la cuarentena, no un borrado.
+            if not value.get("quarantine_ids") or safe_int(value.get("portfolio_id"), 0) != portfolio_id:
+                raise ValueError("El nodo no confirmó correctamente la exclusión múltiple")
+            self.server.portfolios.invalidate_after_exclusion(node_id)
+            # Misma comprobación que en la exclusión individual: un nodo
+            # sin portar acepta el motivo y no escribe el veredicto.
+            PortfolioCoordinator._assert_node_applied_verdict(body, value)
+            self._send_json(201, value)
+        else:
+            quarantine_result = self.server.portfolios.exclude(node_id, scope, body)
+            self._send_json(201, {"quarantine_id": quarantine_result})
+
+    def _portfolio_save_grid(self, node_id: str, scope: str, save_payload: dict) -> None:
+        """Grid persiste su paquete en la base del manager, no en el nodo."""
+        value = self.server.portfolios.save_grid_package(node_id, save_payload)
+        portfolio_id = safe_int(value.get("portfolio_id"), 0)
+        request_id = str(value.get("request_id") or "")
+        if portfolio_id <= 0 or request_id != str(save_payload["request_id"]):
+            raise ValueError("El manager no confirmó correctamente el paquete Grid")
+        self.server.portfolios.confirm_save(
+            node_id, scope, request_id, portfolio_id
+        )
+        variant_ids = {
+            str(proposal.get("key") or ""): portfolio_id
+            for proposal in save_payload.get("proposals") or []
+            if isinstance(proposal, dict) and proposal.get("key")
+        }
+        self._send_json(201, {
+            "portfolio_id": portfolio_id,
+            "portfolio_ids": variant_ids,
+        })
+        return
+
+    def _portfolio_report_action(
+        self, action: str, node: dict, node_id: str, scope: str, body: dict,
+    ) -> bool:
+        """Abrir un informe de un miembro, exportarlos todos o leer el log."""
+        if action == "open-report":
+            report = self.server.portfolios.open_report(
+                node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
+                str(body.get("set_path") or ""),
+            )
+            self._send_inline_content(report)
+        elif action == "export-member-reports":
+            result = self.server.portfolios.export_member_reports_archive(
+                node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
+                str(body.get("set_path") or ""),
+            )
+            self._send_download(result)
+        elif action == "log":
+            self._send_json(200, self.server.portfolios.log(
+                node_id, scope, safe_int(body.get("lines"), 500, minimum=1, maximum=5000)
+            ))
+        else:
+            return False
+        return True
+
+    def _portfolio_save(self, node: dict, node_id: str, scope: str, body: dict) -> None:
+        """Guarda la propuesta preparada; Grid la persiste en el manager y UBS en el nodo."""
+        save_payload = self.server.portfolios.prepare_save(
+            node_id, scope, str(body.get("proposal_key") or "")
+        )
+        if scope == "grid":
+            self._portfolio_save_grid(node_id, scope, save_payload)
+            return
+        portfolio_ids: dict[str, int] = {}
+        for variant_payload in (save_payload,):
+            status, value = node_request(
+                node, "POST", "/api/v1/portfolios/save", variant_payload, timeout=120
+            )
+            error_text = str(value.get("error") if isinstance(value, dict) else value or "")
+            if status >= 400 and "unexpected keyword argument" in error_text:
+                status, value = node_request(
+                    node,
+                    "POST",
+                    "/api/v1/portfolios/save",
+                    legacy_compatible_portfolio_save_payload(variant_payload),
+                    timeout=120,
+                )
+            if status == 404:
+                raise ValueError(
+                    "El nodo todavía no admite guardado local de portafolios; "
+                    "actualiza su código y reinícialo."
+                )
+            if status >= 400 or not isinstance(value, dict):
+                error = value.get("error") if isinstance(value, dict) else value
+                raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+            portfolio_id = safe_int(value.get("portfolio_id"), 0)
+            request_id = str(value.get("request_id") or "")
+            if portfolio_id <= 0 or request_id != str(variant_payload["request_id"]):
+                raise ValueError("El nodo no confirmó correctamente el guardado")
+            portfolio_ids[str(variant_payload["selected_key"])] = portfolio_id
+        selected_key = str(save_payload["selected_key"])
+        selected_id = portfolio_ids.get(selected_key, 0)
+        if selected_id <= 0:
+            raise ValueError("No se guardó la variante Grid seleccionada")
+        self.server.portfolios.confirm_save(
+            node_id, scope, str(save_payload["request_id"]), selected_id
+        )
+        self._send_json(201, {
+            "portfolio_id": selected_id,
+            "portfolio_ids": portfolio_ids,
+        })
+
+    def _portfolio_action(
+        self, action: str, node: dict, node_id: str, scope: str, body: dict,
+    ) -> bool:
+        """Acciones de calculo, guardado y ciclo de vida.
+
+        Devuelve si ha reconocido la accion; asi las dos mitades de la
+        cadena se encadenan sin que ninguna sepa de la otra.
+        """
+        if action == "settings":
+            self._send_json(200, self.server.portfolios.apply_settings(node_id, scope, body))
+        elif action == "generate":
+            self._send_json(202, {"job": self.server.portfolios.start(node_id, scope, body)})
+        elif action == "stop":
+            self._send_json(202, {"job": self.server.portfolios.stop(node_id, scope)})
+        elif action == "save":
+            self._portfolio_save(node, node_id, scope, body)
+        elif action in {"reoptimize", "complete", "improve"}:
+            portfolio_id = safe_int(body.pop("portfolio_id", 0), 0, minimum=1)
+            self._send_json(202, {"job": self.server.portfolios.start_saved_operation(
+                node_id, scope, portfolio_id, action, body or None
+            )})
+        elif action == "alias":
+            portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=1)
+            alias = self.server.portfolios.set_alias(
+                node_id, scope, portfolio_id, body.get("alias")
+            )
+            self._send_json(200, {"portfolio_id": portfolio_id, "alias": alias})
+        elif action == "exclude":
+            self._portfolio_exclude(node, node_id, scope, body)
+        elif action == "release":
+            self.server.portfolios.release(node_id, scope, str(body.get("quarantine_id") or ""))
+            self._send_json(200, {"released": True})
+        elif action == "requalify":
+            # Mover una estrategia excluida entre los tres motivos y el
+            # pool. Reintegrar es el caso `pool` de esta misma operación.
+            target = self.server.portfolios.requalify(
+                node_id, scope,
+                str(body.get("quarantine_id") or ""),
+                str(body.get("reason_code") or "pool"),
+            )
+            self._send_json(200, {"reason_code": target})
+        elif action == "undo":
+            version = self.server.portfolios.undo(node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1))
+            self._send_json(200, {"restored_version": version})
+        elif action == "delete":
+            task = self.server.portfolios.delete(
+                node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)
+            )
+            self._send_json(202, {"task": task})
+        else:
+            return False
+        return True
+
+    def _portfolio_transfer_action(
+        self, action: str, node: dict, node_id: str, scope: str, body: dict,
+    ) -> bool:
+        """Importar, exportar, abrir informes y leer el log.
+
+        Devuelve si ha reconocido la accion; asi las dos mitades de la
+        cadena se encadenan sin que ninguna sepa de la otra.
+        """
+        if action == "choose-import-folder":
+            if self.server.export_mode != "folder":
+                raise ValueError("El selector local de carpetas no está disponible en modo Docker")
+            folder = choose_directory(
+                str(body.get("initial_directory") or "").strip() or None,
+                title="Selecciona la carpeta del portafolio exportado",
+            )
+            self._send_json(200, {"folder": folder, "cancelled": folder is None})
+        elif action == "import":
+            self._send_json(201, self.server.portfolios.import_portfolio(node_id, scope, body))
+        elif action == "choose-export-folder":
+            if self.server.export_mode != "folder":
+                raise ValueError("El selector local de carpetas no está disponible en modo Docker")
+            folder = choose_directory(
+                str(body.get("initial_directory") or "").strip() or None
+            )
+            self._send_json(200, {"folder": folder, "cancelled": folder is None})
+        elif action == "symbol-sets":
+            self._send_json(200, self.server.portfolios.symbol_sets(
+                node_id, scope, str(body.get("symbol") or "")
+            ))
+        elif action == "export-symbol-download":
+            result = self.server.portfolios.export_symbol_archive(
+                node_id, scope, str(body.get("symbol") or ""), body.get("set_paths")
+            )
+            self._send_download(result)
+        elif action == "export-symbol":
+            result = self.server.portfolios.export_symbol(
+                node_id, scope, str(body.get("symbol") or ""), body.get("set_paths"),
+                str(body.get("destination") or "").strip() or None,
+            )
+            self._send_json(200, result)
+        elif action == "export-download":
+            result = self.server.portfolios.export_archive(
+                node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)
+            )
+            self._send_download(result)
+        elif action == "export":
+            result = self.server.portfolios.export(
+                node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
+                str(body.get("destination") or "").strip() or None,
+            )
+            self._send_json(200, result)
+        else:
+            return self._portfolio_report_action(action, node, node_id, scope, body)
+        return True
+
+    def _handle_portfolio_manager(self, parts: list[str]) -> None:
+        """Despacha /api/nodes/<id>/portfolio-manager/<accion>.
+
+        Eran doscientas lineas dentro de do_POST, que asi no dejaba ver el
+        resto del enrutado.
+        """
+        try:
+            node_id = urllib.parse.unquote(parts[2])
+            node = self._node(node_id)
+            body = self._body()
+            scope = normalize_portfolio_scope(body.pop("scope", "full_history"))
+            action = parts[4]
+            if not self._portfolio_action(action, node, node_id, scope, body):
+                if not self._portfolio_transfer_action(action, node, node_id, scope, body):
+                    self._send_json(404, {"error": "Acción de portafolio desconocida"})
+        except (
+            KeyError, ValueError, OSError, sqlite3.Error, json.JSONDecodeError,
+            urllib.error.URLError, TimeoutError,
+        ) as exc:
+            self._send_json(400, {"error": str(exc)})
+
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
@@ -773,211 +1031,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 self._send_json(502, {"error": str(exc)})
             return
         if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-manager":
-            try:
-                node_id = urllib.parse.unquote(parts[2])
-                node = self._node(node_id)
-                body = self._body()
-                scope = normalize_portfolio_scope(body.pop("scope", "full_history"))
-                action = parts[4]
-                if action == "settings":
-                    self._send_json(200, self.server.portfolios.apply_settings(node_id, scope, body))
-                elif action == "generate":
-                    self._send_json(202, {"job": self.server.portfolios.start(node_id, scope, body)})
-                elif action == "stop":
-                    self._send_json(202, {"job": self.server.portfolios.stop(node_id, scope)})
-                elif action == "save":
-                    save_payload = self.server.portfolios.prepare_save(
-                        node_id, scope, str(body.get("proposal_key") or "")
-                    )
-                    if scope == "grid":
-                        value = self.server.portfolios.save_grid_package(node_id, save_payload)
-                        portfolio_id = safe_int(value.get("portfolio_id"), 0)
-                        request_id = str(value.get("request_id") or "")
-                        if portfolio_id <= 0 or request_id != str(save_payload["request_id"]):
-                            raise ValueError("El manager no confirmó correctamente el paquete Grid")
-                        self.server.portfolios.confirm_save(
-                            node_id, scope, request_id, portfolio_id
-                        )
-                        variant_ids = {
-                            str(proposal.get("key") or ""): portfolio_id
-                            for proposal in save_payload.get("proposals") or []
-                            if isinstance(proposal, dict) and proposal.get("key")
-                        }
-                        self._send_json(201, {
-                            "portfolio_id": portfolio_id,
-                            "portfolio_ids": variant_ids,
-                        })
-                        return
-                    portfolio_ids: dict[str, int] = {}
-                    for variant_payload in (save_payload,):
-                        status, value = node_request(
-                            node, "POST", "/api/v1/portfolios/save", variant_payload, timeout=120
-                        )
-                        error_text = str(value.get("error") if isinstance(value, dict) else value or "")
-                        if status >= 400 and "unexpected keyword argument" in error_text:
-                            status, value = node_request(
-                                node,
-                                "POST",
-                                "/api/v1/portfolios/save",
-                                legacy_compatible_portfolio_save_payload(variant_payload),
-                                timeout=120,
-                            )
-                        if status == 404:
-                            raise ValueError(
-                                "El nodo todavía no admite guardado local de portafolios; "
-                                "actualiza su código y reinícialo."
-                            )
-                        if status >= 400 or not isinstance(value, dict):
-                            error = value.get("error") if isinstance(value, dict) else value
-                            raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
-                        portfolio_id = safe_int(value.get("portfolio_id"), 0)
-                        request_id = str(value.get("request_id") or "")
-                        if portfolio_id <= 0 or request_id != str(variant_payload["request_id"]):
-                            raise ValueError("El nodo no confirmó correctamente el guardado")
-                        portfolio_ids[str(variant_payload["selected_key"])] = portfolio_id
-                    selected_key = str(save_payload["selected_key"])
-                    selected_id = portfolio_ids.get(selected_key, 0)
-                    if selected_id <= 0:
-                        raise ValueError("No se guardó la variante Grid seleccionada")
-                    self.server.portfolios.confirm_save(
-                        node_id, scope, str(save_payload["request_id"]), selected_id
-                    )
-                    self._send_json(201, {
-                        "portfolio_id": selected_id,
-                        "portfolio_ids": portfolio_ids,
-                    })
-                elif action in {"reoptimize", "complete", "improve"}:
-                    portfolio_id = safe_int(body.pop("portfolio_id", 0), 0, minimum=1)
-                    self._send_json(202, {"job": self.server.portfolios.start_saved_operation(
-                        node_id, scope, portfolio_id, action, body or None
-                    )})
-                elif action == "alias":
-                    portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=1)
-                    alias = self.server.portfolios.set_alias(
-                        node_id, scope, portfolio_id, body.get("alias")
-                    )
-                    self._send_json(200, {"portfolio_id": portfolio_id, "alias": alias})
-                elif action == "exclude":
-                    if scope == "grid":
-                        # El paquete Grid vive en la base del manager y la
-                        # cuarentena en la memoria del nodo: el coordinador
-                        # reparte cada escritura a su dueño.
-                        self._send_json(201, self.server.portfolios.exclude_grid(node_id, body))
-                    elif body.get("set_paths") is not None:
-                        status, value = node_request(
-                            node,
-                            "POST",
-                            "/api/v1/portfolios/exclude",
-                            {**body, "scope": scope},
-                            timeout=120,
-                        )
-                        if status == 404:
-                            raise ValueError(
-                                "El nodo todavía no admite exclusión múltiple local; "
-                                "actualiza su código y reinícialo."
-                            )
-                        if status >= 400 or not isinstance(value, dict):
-                            error = value.get("error") if isinstance(value, dict) else value
-                            raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
-                        portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=1)
-                        # El portafolio guardado ya no se borra, así que lo que se
-                        # confirma es la cuarentena, no un borrado.
-                        if not value.get("quarantine_ids") or safe_int(value.get("portfolio_id"), 0) != portfolio_id:
-                            raise ValueError("El nodo no confirmó correctamente la exclusión múltiple")
-                        self.server.portfolios.invalidate_after_exclusion(node_id)
-                        # Misma comprobación que en la exclusión individual: un nodo
-                        # sin portar acepta el motivo y no escribe el veredicto.
-                        PortfolioCoordinator._assert_node_applied_verdict(body, value)
-                        self._send_json(201, value)
-                    else:
-                        quarantine_result = self.server.portfolios.exclude(node_id, scope, body)
-                        self._send_json(201, {"quarantine_id": quarantine_result})
-                elif action == "release":
-                    self.server.portfolios.release(node_id, scope, str(body.get("quarantine_id") or ""))
-                    self._send_json(200, {"released": True})
-                elif action == "requalify":
-                    # Mover una estrategia excluida entre los tres motivos y el
-                    # pool. Reintegrar es el caso `pool` de esta misma operación.
-                    target = self.server.portfolios.requalify(
-                        node_id, scope,
-                        str(body.get("quarantine_id") or ""),
-                        str(body.get("reason_code") or "pool"),
-                    )
-                    self._send_json(200, {"reason_code": target})
-                elif action == "undo":
-                    version = self.server.portfolios.undo(node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1))
-                    self._send_json(200, {"restored_version": version})
-                elif action == "delete":
-                    task = self.server.portfolios.delete(
-                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)
-                    )
-                    self._send_json(202, {"task": task})
-                elif action == "choose-import-folder":
-                    if self.server.export_mode != "folder":
-                        raise ValueError("El selector local de carpetas no está disponible en modo Docker")
-                    folder = choose_directory(
-                        str(body.get("initial_directory") or "").strip() or None,
-                        title="Selecciona la carpeta del portafolio exportado",
-                    )
-                    self._send_json(200, {"folder": folder, "cancelled": folder is None})
-                elif action == "import":
-                    self._send_json(201, self.server.portfolios.import_portfolio(node_id, scope, body))
-                elif action == "choose-export-folder":
-                    if self.server.export_mode != "folder":
-                        raise ValueError("El selector local de carpetas no está disponible en modo Docker")
-                    folder = choose_directory(
-                        str(body.get("initial_directory") or "").strip() or None
-                    )
-                    self._send_json(200, {"folder": folder, "cancelled": folder is None})
-                elif action == "symbol-sets":
-                    self._send_json(200, self.server.portfolios.symbol_sets(
-                        node_id, scope, str(body.get("symbol") or "")
-                    ))
-                elif action == "export-symbol-download":
-                    result = self.server.portfolios.export_symbol_archive(
-                        node_id, scope, str(body.get("symbol") or ""), body.get("set_paths")
-                    )
-                    self._send_download(result)
-                elif action == "export-symbol":
-                    result = self.server.portfolios.export_symbol(
-                        node_id, scope, str(body.get("symbol") or ""), body.get("set_paths"),
-                        str(body.get("destination") or "").strip() or None,
-                    )
-                    self._send_json(200, result)
-                elif action == "export-download":
-                    result = self.server.portfolios.export_archive(
-                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)
-                    )
-                    self._send_download(result)
-                elif action == "export":
-                    result = self.server.portfolios.export(
-                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
-                        str(body.get("destination") or "").strip() or None,
-                    )
-                    self._send_json(200, result)
-                elif action == "open-report":
-                    report = self.server.portfolios.open_report(
-                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
-                        str(body.get("set_path") or ""),
-                    )
-                    self._send_inline_content(report)
-                elif action == "export-member-reports":
-                    result = self.server.portfolios.export_member_reports_archive(
-                        node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
-                        str(body.get("set_path") or ""),
-                    )
-                    self._send_download(result)
-                elif action == "log":
-                    self._send_json(200, self.server.portfolios.log(
-                        node_id, scope, safe_int(body.get("lines"), 500, minimum=1, maximum=5000)
-                    ))
-                else:
-                    self._send_json(404, {"error": "Acción de portafolio desconocida"})
-            except (
-                KeyError, ValueError, OSError, sqlite3.Error, json.JSONDecodeError,
-                urllib.error.URLError, TimeoutError,
-            ) as exc:
-                self._send_json(400, {"error": str(exc)})
+            self._handle_portfolio_manager(parts)
             return
         if len(parts) != 4 or parts[:2] != ["api", "nodes"] or parts[3] not in {
             "start", "stop", "pause", "resume", "restart", "repair", "regression", "cleanup", "universe",

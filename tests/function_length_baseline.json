@@ -20,7 +20,7 @@
     "mt5_manager/live_audit_settings.py::LiveAuditSettingsStore.update": 104,
     "mt5_manager/live_audit_settings.py::normalize_live_audit_settings": 87,
     "mt5_manager/manager.py::ManagerHandler.do_GET": 170,
-    "mt5_manager/manager.py::ManagerHandler.do_POST": 388,
+    "mt5_manager/manager.py::ManagerHandler.do_POST": 184,
     "mt5_manager/manager.py::ManagerServer.__init__": 123,
     "mt5_manager/manager.py::ManagerServer._run_due_live_audits": 76,
     "mt5_manager/mt5_native_history_report.py::_WindowsTerminalReportExporter._type_filename": 71,
