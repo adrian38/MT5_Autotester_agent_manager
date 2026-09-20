@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 from unittest import mock
 from pathlib import Path
 
@@ -18,6 +19,55 @@ from mt5_manager.manager import PULSE_JOB_KEYS, ManagerServer
 from mt5_manager.node import JobController, NodeServer
 from mt5_manager.portfolio_service import PortfolioSource, normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
+
+#: Plazo para las esperas asincronas de estos tests.
+#:
+#: Es deliberadamente holgado. Ninguno de estos tests mide rendimiento: esperan
+#: a que un hilo o un job termine, y un plazo justo solo convierte una maquina
+#: ocupada en un fallo rojo que no dice nada del codigo. Como toda espera sale
+#: en cuanto se cumple la condicion, subirlo no alarga la pasada normal; solo
+#: alarga el caso en el que el test ya iba a fallar.
+ASYNC_TIMEOUT = 10.0
+
+#: Para los ciclos completos de pipeline, que de por si tardan segundos.
+SLOW_JOB_TIMEOUT = 60.0
+
+#: Intervalo de sondeo. Fino a proposito: fija la latencia, no el plazo.
+POLL_INTERVAL = .03
+
+
+def wait_until(
+    predicate: Callable[[], bool],
+    timeout: float = ASYNC_TIMEOUT,
+    interval: float = POLL_INTERVAL,
+) -> bool:
+    """Sondea hasta que ``predicate`` se cumpla. Devuelve si llego a cumplirse.
+
+    No afirma nada: quien llama se queda con sus propias comprobaciones, que son
+    las que describen que se esperaba.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        if predicate():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(interval)
+
+
+def assert_event(
+    test: unittest.TestCase,
+    event: threading.Event,
+    description: str,
+    timeout: float = ASYNC_TIMEOUT,
+) -> None:
+    """Espera un ``Event`` y, si no llega, dice que se agoto el plazo.
+
+    Un ``assertTrue(event.wait(1))`` fallaba con un escueto "False is not true",
+    que no distingue un cuelgue real de una maquina lenta.
+    """
+    if not event.wait(timeout):
+        test.fail(f"Plazo de {timeout:g}s agotado esperando: {description}")
 
 
 class LocalIntegrationTests(unittest.TestCase):
@@ -97,6 +147,16 @@ enabled=0
         with urllib.request.urlopen(request, timeout=3) as response:
             return response.status, json.loads(response.read())
 
+    def wait_for_job(self, timeout: float = ASYNC_TIMEOUT) -> None:
+        """Espera a que el job en curso deje de estar en 'running'.
+
+        No afirma nada: cada test comprueba despues el estado que espera, que es
+        lo que describe su intencion.
+        """
+        wait_until(
+            lambda: self.controller.status()["job"]["status"] != "running", timeout,
+        )
+
     def test_manager_reaches_node_starts_job_and_reads_log(self) -> None:
         status, payload = self.request("/api/nodes")
         self.assertEqual(status, 200)
@@ -108,9 +168,7 @@ enabled=0
         })
         self.assertEqual(status, 202)
         self.assertEqual(job["status"], "running")
-        deadline = time.time() + 3
-        while time.time() < deadline and self.controller.status()["job"]["status"] == "running":
-            time.sleep(.03)
+        self.wait_for_job()
         self.assertEqual(self.controller.status()["job"]["status"], "completed")
 
         status, logs = self.request("/api/nodes/test-node/logs?lines=20")
@@ -316,9 +374,7 @@ enabled=0
             "execute_backtests": False, "dry_run": True,
         })
         self.assertEqual(status, 202)
-        deadline = time.time() + 3
-        while time.time() < deadline and self.controller.status()["job"]["status"] == "running":
-            time.sleep(.03)
+        self.wait_for_job()
 
         status, pulse = self.request("/api/pulse")
         self.assertEqual(status, 200)
@@ -462,7 +518,11 @@ enabled=0
 
         def slow_request(*_args: object, **_kwargs: object) -> tuple[int, dict]:
             request_started.set()
-            release_request.wait(3)
+            # Valvula de seguridad, no un plazo: el `finally` de abajo siempre
+            # libera. Si vence antes de tiempo, `request_finished` se marca sola
+            # y la comprobacion de que la peticion sigue en vuelo falla sin que
+            # haya pasado nada malo.
+            release_request.wait(ASYNC_TIMEOUT)
             request_finished.set()
             return 202, {"job_type": "repair", "status": "running"}
 
@@ -480,7 +540,9 @@ enabled=0
                 self.assertEqual(status, 202)
                 self.assertEqual(payload["status"], "submitting")
                 self.assertFalse(payload["queued"])
-                self.assertTrue(request_started.wait(1))
+                assert_event(
+                    self, request_started, "el manager no llego a llamar al nodo",
+                )
                 self.assertFalse(request_finished.is_set())
                 node, method, path, body = request_node.call_args.args
                 self.assertEqual(node["id"], "test-node")
@@ -496,7 +558,9 @@ enabled=0
                 self.assertEqual(request_node.call_args.kwargs, {"timeout": 3600})
         finally:
             release_request.set()
-        self.assertTrue(request_finished.wait(1))
+        assert_event(
+            self, request_finished, "la peticion al nodo no termino tras liberarla",
+        )
 
     def test_portfolio_delete_endpoint_accepts_a_background_task(self) -> None:
         task = {
@@ -542,7 +606,9 @@ enabled=0
 
         self.assertEqual(status, 202)
         self.assertEqual(payload["status"], "restarting")
-        self.assertTrue(self.restart_requested.wait(1))
+        assert_event(
+            self, self.restart_requested, "el nodo embebido no recibio el reinicio",
+        )
 
     def test_application_restart_preserves_a_paused_pipeline(self) -> None:
         with self.controller.lock:
@@ -558,7 +624,9 @@ enabled=0
 
         self.assertEqual(status, 202)
         self.assertEqual(payload["status"], "restarting")
-        self.assertTrue(self.restart_requested.wait(1))
+        assert_event(
+            self, self.restart_requested, "el nodo embebido no recibio el reinicio",
+        )
         self.assertEqual(self.controller.state["status"], "paused")
         self.assertEqual(self.controller.state["current_step_index"], 0)
 
@@ -1032,12 +1100,11 @@ enabled=0
         stored = json.loads(self.controller.queue_path.read_text(encoding="utf-8"))
         self.assertEqual([item["payload"]["variants_per_seed"] for item in stored], [2, 3])
 
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            status = self.controller.status()
-            if status["job"]["status"] != "running" and status["task_queue"]["count"] == 0:
-                break
-            time.sleep(.03)
+        def drained() -> bool:
+            state = self.controller.status()
+            return state["job"]["status"] != "running" and state["task_queue"]["count"] == 0
+
+        wait_until(drained)
         status = self.controller.status()
         self.assertEqual(status["job"]["status"], "completed")
         self.assertEqual(status["job"]["request"]["variants_per_seed"], 3)
@@ -1344,9 +1411,7 @@ enabled=0
             self.assertTrue(state["request"]["repair_after_generation"])
             self.assertEqual(state["request"]["repair_attempts"], 2)
             # Cada ciclo termina sus etapas normales antes de empezar a reparar.
-            deadline = time.time() + 60
-            while time.time() < deadline and self.controller.status()["job"]["status"] == "running":
-                time.sleep(.03)
+            self.wait_for_job(SLOW_JOB_TIMEOUT)
         result = self.controller.status()["job"]
         self.assertEqual(result["status"], "completed")
         self.assertTrue(build_auto_repair_stage.call_args_list)
@@ -1398,9 +1463,7 @@ enabled=0
             self.assertEqual(state["request"]["repair_attempts"], 2)
             # 2 runs x 2 intentos x 2 fases x 6 etapas.
             self.assertEqual(len(state["pipeline"]), 48)
-            deadline = time.time() + 60
-            while time.time() < deadline and self.controller.status()["job"]["status"] == "running":
-                time.sleep(.03)
+            self.wait_for_job(SLOW_JOB_TIMEOUT)
         result = self.controller.status()["job"]
         self.assertEqual(result["status"], "completed")
         self.assertTrue(build_stage.call_args_list)
