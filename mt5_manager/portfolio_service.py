@@ -2302,9 +2302,8 @@ class PortfolioSource:
         }
         candidate_id = str(member.get("candidate_id") or "")
         set_name = Path(str(member.get("set_path") or set_path).replace("\\", "/")).name
-        for row in self.import_candidate_rows(
-            [set_name] if set_name else None, include_without_robustness=True
-        ):
+        candidate_rows = self._candidate_rows_for_report_enrichment(set_name)
+        for row in candidate_rows:
             same_candidate = candidate_id and str(row.get("candidate_id") or "") == candidate_id
             if not same_candidate and self._match_key(row.get("set_path")) != requested:
                 continue
@@ -2346,6 +2345,15 @@ class PortfolioSource:
             "reports": reports,
             "missing": missing,
         }
+
+    def _candidate_rows_for_report_enrichment(self, set_name: str) -> list[dict[str, Any]]:
+        """Obtiene el OHLC 6M sin hacer depender de SQLite los HTML guardados."""
+        try:
+            return self.import_candidate_rows(
+                [set_name] if set_name else None, include_without_robustness=True
+            )
+        except (OSError, sqlite3.Error):
+            return []
 
     def open_member_report(self, portfolio_id: int, scope: str, set_path: str) -> dict[str, Any]:
         family = self.member_reports(portfolio_id, scope, set_path)
