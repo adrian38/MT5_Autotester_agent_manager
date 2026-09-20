@@ -3,116 +3,162 @@
 ## Alcance obligatorio
 
 - Este repositorio es `MT5_Autotester_agent_manager`.
-- En la rama `dev` se permite trabajar exclusivamente en
-  `MT5_Autotester_agent_manager` y en la copia ICTrading de este equipo:
+- En `dev` sólo se puede escribir aquí y en la copia ICTrading de este equipo:
   `C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent`.
-- **La copia ICTrading sí se puede y se debe modificar** cuando el comportamiento
-  solicitado se ejecuta en su `manager_node_runtime/`; un cambio equivalente en
-  `mt5_manager/node.py` o `mt5_manager/live_audit_engine.py` no lo sustituye.
-- En `dev` no modificar AXI, RoboForex ni la copia genérica
-  `MT5_Autotester_agent`. Fuera de `dev`, no inferir permiso sobre otra copia:
-  debe estar autorizada explícitamente para la tarea.
-- El usuario es quien porta los commits de la rama `IC` hacia AXI y RoboForex
-  y quien reinicia esos agentes. El asistente sólo comunica el commit preparado
-  en `IC`; nunca realiza ese porting ni toca directamente esos checkouts.
-- Preservar cambios ajenos y limitar cada modificación al objetivo solicitado.
+- **La copia ICTrading se debe modificar** cuando el comportamiento pedido se
+  ejecuta en su `manager_node_runtime/`. Un cambio equivalente en
+  `mt5_manager/node.py` o `live_audit_engine.py` **no** lo sustituye.
+- En `dev` no tocar AXI, RoboForex ni la copia genérica `MT5_Autotester_agent`.
+  Fuera de `dev` no inferir permiso sobre otra copia: debe estar autorizada
+  explícitamente para la tarea.
+- El usuario porta los commits de `IC` hacia AXI y RoboForex y reinicia esos
+  agentes. El asistente sólo comunica el commit preparado en `IC`; nunca hace
+  ese porting ni toca esos checkouts.
+- Preservar cambios ajenos; limitar cada modificación al objetivo pedido.
 
 ## El nodo NO ejecuta este repositorio
 
-Esto ya ha costado tres reincidencias (pausa/reanudación, exclusión el 20-07 y la
-exclusión múltiple mensual). Leerlo antes de tocar cualquier regla de guardado,
-exclusión o escritura en la memoria UBS.
+Tres reincidencias ya (pausa/reanudación, exclusión del 20-07, exclusión
+múltiple mensual). Leer antes de tocar cualquier regla de guardado, exclusión o
+escritura en la memoria UBS.
 
 - `mt5_manager/node.py`, `run_node.bat` y `python -m mt5_manager.node` son un
-  **señuelo**: existen aquí, pero no es lo que corre en los equipos broker. Cada
-  agente ejecuta su propia copia bifurcada en `manager_node_runtime/`, embebida en
-  `app_ui.py` vía `manager_node_lifecycle.py`.
-- La bifurcación está **renombrada**, así que ninguna búsqueda por símbolo ni
-  `trace_path` la encuentra: `PortfolioSource` de `mt5_manager/portfolio_service.py`
-  aquí, `exclude_portfolio_members_payload` de `manager_node_runtime/portfolio_save.py`
-  allí. El grafo de `codebase-memory-mcp` solo indexa un proyecto a la vez, así
-  que **no puede** revelar la duplicación: por diseño te dará una respuesta
-  incompleta y convincente.
+  **señuelo**. Cada agente ejecuta su copia bifurcada en `manager_node_runtime/`,
+  embebida en `app_ui.py` vía `manager_node_lifecycle.py`.
+- La bifurcación está **renombrada**: ninguna búsqueda por símbolo ni
+  `trace_path` la encuentra. Aquí `PortfolioSource` de `portfolio_service.py`;
+  allí `exclude_portfolio_members_payload` de `manager_node_runtime/portfolio_save.py`.
+- El grafo indexa **un** proyecto por consulta, así que no puede revelar la
+  duplicación: por diseño dará una respuesta incompleta y convincente.
 - Lo único que une las dos copias es el **texto del error o del mensaje al
-  usuario**. Buscar por esa cadena en el proyecto del agente, no por el nombre de
-  la función.
-- Antes de dar por terminado un cambio de comportamiento del lado del nodo,
-  responder: *¿qué proceso ejecuta la línea que he cambiado?* Si la escritura la
-  hace el agente, el cambio en el manager no tiene efecto alguno.
-- Detalle, tabla de copias y estado de cada port en
-  `ai_context/node_runtime_is_forked_per_agent.md`.
+  usuario**. Buscar por esa cadena en el proyecto del agente, no por el nombre
+  de la función.
+- Antes de dar por terminado un cambio del lado del nodo: *¿qué proceso ejecuta
+  la línea que he cambiado?* Si escribe el agente, el cambio aquí no hace nada.
+- Detalle y estado de cada port: `ai_context/node_runtime_is_forked_per_agent.md`.
 
-Guardas mecánicas, para no depender de que nadie lea esto:
-
-| Guarda | Qué hace |
+| Guarda mecánica | Qué hace |
 | --- | --- |
-| `tests/test_node_runtime_fork_parity.py` | Falla si la copia del agente divergió del criterio del manager. Omite las copias no montadas y lo dice, en vez de fingir cobertura. |
-| `tools/hook_node_fork_warning.py` | Hook `PostToolUse` (`.claude/settings.json`): avisa al editar `portfolio_service.py`/`node.py`, y también al revés, al editar `manager_node_runtime/`. |
-| Docstrings de `mt5_manager/node.py` y de las dos `remove_member*_to_quarantine` | El aviso está en el punto exacto donde se edita. |
+| `tests/test_node_runtime_fork_parity.py` | Falla si la copia del agente divergió del criterio del manager. Omite las copias no montadas y lo dice. |
+| `tools/hook_node_fork_warning.py` | Hook `PostToolUse`: avisa al editar `portfolio_service.py`/`node.py` y también al revés. |
+| Docstrings de `node.py` y de las dos `remove_member*_to_quarantine` | El aviso, en el punto exacto donde se edita. |
 
 ## Leer `ai_context/` antes de escribir código
 
-`ai_context/` no es solo un buzón donde dejar hallazgos: es la primera consulta.
-Recoge trampas que ni el grafo ni `rg` pueden mostrar porque no están en el
-código de este repositorio. Antes de modificar un área, buscar ahí por el
-nombre del área (`rg -il <tema> ai_context/`) y leer lo que aparezca. Las tres
-reincidencias del apartado anterior tenían la respuesta escrita y sin leer.
+Es la primera consulta, no un buzón. Recoge trampas que ni el grafo ni `rg`
+pueden mostrar porque no están en el código de este repositorio. Antes de tocar
+un área: `rg -il <tema> ai_context/` y leer lo que salga. Las tres reincidencias
+de arriba tenían la respuesta escrita y sin leer.
 
 ## Memoria de código obligatoria
 
-Usar siempre `codebase-memory-mcp` para comprender y modificar este proyecto:
+`codebase-memory-mcp` no es opcional. Configuración de este equipo y solución de
+sus dos fallos conocidos: `CLAUDE.md`.
 
-1. Indexar `MT5_Autotester_agent_manager` al comenzar una tarea de código.
-2. Usar `search_graph` o `search_code` para localizar símbolos y flujos.
-3. Usar `get_code_snippet` solamente después de obtener el `qualified_name` exacto.
-4. Usar `trace_path` antes de cambiar código compartido o evaluar impacto.
-5. Reindexar después de cambios estructurales y consultar el grafo para verificar el impacto.
+1. Indexar el proyecto al empezar una tarea de código.
+2. `search_graph` / `search_code` para localizar símbolos y flujos, **en lugar
+   de** `rg` o `grep` para definiciones, implementaciones y relaciones.
+3. `get_code_snippet` sólo con el `qualified_name` exacto que devolvió el grafo.
+4. `trace_path` antes de cambiar código compartido. `mt5_manager/portfolio_service.py`
+   y el paquete `portfolio_manager/ubs_portfolio/` alimentan los dos scopes y los
+   tres nodos: nunca asumir el alcance de un cambio ahí.
+5. Reindexar tras cambios estructurales y volver a consultar el grafo.
 
-Las búsquedas de archivos, Git y comprobaciones mecánicas pueden usar `rg` y PowerShell, pero no sustituyen el análisis con `codebase-memory-mcp`.
-
-Límite del grafo: cubre **un** proyecto por consulta. Un `trace_path` que solo
-devuelve llamadores dentro de `mt5_manager/` no demuestra que ahí esté el código
-que se ejecuta; ver «El nodo NO ejecuta este repositorio». Para todo lo que
-escribe en la memoria de un agente, el grafo del manager no es la autoridad.
+`rg`, `git` y PowerShell valen para búsquedas de ficheros y comprobaciones
+mecánicas; no sustituyen el análisis con el grafo. Y el grafo cubre **un**
+proyecto por consulta: un `trace_path` que sólo devuelve llamadores dentro de
+`mt5_manager/` no demuestra que ahí esté el código que se ejecuta. Para todo lo
+que escribe en la memoria de un agente, el grafo del manager no es la autoridad.
 
 ## Invariante UBS
 
-- `Portafolio UBS` y `Portafolio UBS mensual` tienen interfaz, JavaScript y orquestación de cálculo separados.
-- Comparten solamente las primitivas estables de carga, evaluación de riesgo, serialización y persistencia.
-- Toda corrección común debe entrar por esas primitivas compartidas; la lógica estacional mensual pertenece a `portfolio_monthly_service.py`.
-- Al tocar `portfolio_manager/ubs_portfolio.py` o `mt5_manager/portfolio_service.py`, comprobar explícitamente ambos scopes.
-- El pool válido exige las cuatro etapas aceptadas: candidato, robustez, Final Tick continuo y Final Tick 6M.
-- El mensual debe conservar los metadatos de riesgo y auditoría al recortar la curva al mes objetivo.
+- `Portafolio UBS` y `Portafolio UBS mensual` tienen interfaz, JavaScript y
+  orquestación de cálculo separados.
+- Comparten sólo las primitivas estables de carga, evaluación de riesgo,
+  serialización y persistencia. Toda corrección común entra por ahí; la lógica
+  estacional pertenece a `portfolio_monthly_service.py`.
+- Al tocar el paquete `portfolio_manager/ubs_portfolio/` o
+  `mt5_manager/portfolio_service.py`, comprobar explícitamente **ambos** scopes.
+- El pool válido exige las cuatro etapas aceptadas: candidato, robustez, Final
+  Tick continuo y Final Tick 6M.
+- El mensual conserva los metadatos de riesgo y auditoría al recortar la curva
+  al mes objetivo.
 
 ## Invariante de la rama `dev`
 
-- `dev` es la rama de pruebas. Estando en `dev`, lo único que se puede escribir
-  del lado de los agentes es el nodo de ICTrading de este equipo:
-  `C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent`.
+- `dev` es la rama de pruebas. Lo único escribible del lado de los agentes es el
+  nodo ICTrading de este equipo.
 - Lo hace cumplir `mt5_manager/dev_branch.py`: `apply_manager_config` y
   `apply_node_config` fuerzan esa ruta, y `assert_writable` rechaza con
   `ValueError` cualquier escritura fuera de ella. Únicas excepciones, por no
   pertenecer a ningún agente: `runtime/` de este repositorio y el temporal del
   sistema (`writable_roots`).
-- Todo punto de escritura nuevo hacia el proyecto de un agente tiene que pasar
-  por `assert_writable`. Hoy el punto es `PortfolioSource.connect_memory` con
-  `write=True`.
+- Todo punto de escritura nuevo hacia el proyecto de un agente pasa por
+  `assert_writable`. Hoy el punto es `PortfolioSource.connect_memory(write=True)`.
 - La carpeta de exportación **no** es dato de un agente: la elige el usuario y
-  puede ser el Escritorio o un pendrive. Pasarla por `assert_writable` rompía la
-  exportación en `dev` para cualquier destino que no fuese uno de los tres
-  permitidos. `PortfolioSource.export_portfolio` usa `assert_export_destination`,
-  que solo aplica la regla cuando el destino cae **dentro del proyecto del
-  agente** —donde va el destino por defecto, `<proyecto>/exports`—, así que un
-  nodo de producción sigue sin poder escribir en su propio árbol.
+  puede ser el Escritorio o un pendrive. `export_portfolio` usa
+  `assert_export_destination`, que aplica la regla sólo si el destino cae dentro
+  del proyecto del agente —donde va el destino por defecto, `<proyecto>/exports`—,
+  así que un nodo de producción sigue sin poder escribir en su propio árbol.
 - La condición es la rama, nunca el fichero de configuración. Fuera de `dev`,
   `main` incluida, las funciones devuelven la configuración intacta y el candado
   no comprueba nada: el merge no puede contaminar producción.
-- No convertir el invariante en una lista de rutas prohibidas. Es una lista de
-  permitidas: lo que no está permitido se rechaza.
+- No convertirlo en una lista de rutas prohibidas. Es una lista de permitidas:
+  lo que no está permitido se rechaza.
+
+## `ubs_portfolio` es un paquete en pila
+
+`portfolio_manager/ubs_portfolio/` eran 6.800 líneas en un fichero: cambiar el
+modelo de margen costaba leer ~70k tokens. Ahora son trece módulos y **el orden
+es el de dependencia** — cada uno sólo importa de los anteriores:
+
+`symbols` → `models` → `rows` → `curves` → `reports` → `selection` →
+`evaluation` → `margin` → `constraints` → `execution` → `greedy` → `optimize` →
+`strict_monthly`
+
+- **Los llamantes no cambian.** `__init__.py` reexporta los 201 nombres, privados
+  incluidos; se sigue importando `from portfolio_manager.ubs_portfolio import X`.
+- **Nunca importar hacia arriba.** Si dos módulos se necesitan, la definición
+  compartida baja en la pila; no se invierte la dependencia.
+- **`unittest.mock.patch` necesita el módulo consumidor**, no el paquete:
+  `...ubs_portfolio.selection.period_report_from_strategy_report`, porque
+  `selection` tiene su propia referencia al nombre.
+- Lo hace cumplir `tests/test_ubs_package_layering.py`: módulo fuera de `ORDER`,
+  import hacia arriba o nombre sin reexportar, y falla.
+
+## Longitud de función: 60 líneas
+
+**Techo de 60 líneas por función**, decoradores y firma incluidos. No es
+estética: una función de 60 líneas son ~700 tokens, y tres caben en la ventana
+sin pensarlo. Por encima, leerla cuesta más que entenderla, y cambiar tres
+líneas obliga a cargar el fichero entero.
+
+Lo hace cumplir `tests/test_function_length.py`, con la medida en
+`tools/function_length.py` y la lista de perdonadas en
+`tests/function_length_baseline.json`:
+
+- **Función nueva por encima de 60: se parte.** No se añade al baseline.
+- **El baseline sólo encoge.** Al partir una función, borrar su entrada; el test
+  avisa de las que sobran.
+- Regenerar sólo para bajar el trinquete:
+  `python -m tools.function_length --write`.
+- Cuando una firma enorme hace imposible el techo —`optimize_portfolio` tiene 44
+  parámetros—, el objetivo es **bajar el número registrado**, no llegar a 60.
+
+Partir es pasos con nombre, no trocear por líneas. Lo que más ha rendido aquí:
+agrupar los argumentos que viajan juntos en un dataclass congelado con `kwargs()`
+(`_SearchLimits`, `_MonthlyOptimizerArgs`) y extraer la **secuencia** repetida,
+no sólo el bloque largo (`_greedy_then_local_search`, `_reoptimize_locked_monthly`).
 
 ## Verificación
 
-- Ejecutar primero pruebas focalizadas con `python -m unittest`.
-- Ejecutar después `python -m unittest discover -s tests -v` cuando el alcance lo permita.
-- `pytest` no forma parte actualmente de las dependencias instaladas del workspace.
+- Primero pruebas focalizadas con `python -m unittest`.
+- Después `python -m unittest discover -s tests -v` cuando el alcance lo permita.
+- `pytest` no está entre las dependencias instaladas del workspace.
+- **Un suite verde no prueba equivalencia.** Antes de refactorizar algo
+  compartido, envolver la función y contar llamadas para ver si alguna prueba la
+  alcanza: `optimize_strict_monthly_portfolio` tenía cero cobertura y los 620
+  tests pasaban igual. En un refactor sin comportamiento nuevo, comparar contra
+  `git show HEAD:<fichero>` cargado como paquete aparte sobre las mismas
+  entradas; si una rama no se deja alcanzar, comparar sus kwargs con AST.
 - Documentar decisiones y hallazgos duraderos en `ai_context/`.
