@@ -74,6 +74,12 @@ La generacion, el modelo de margen y el completado salieron despues a
 tambien literales. El servicio queda en 3.312 lineas y ambos modulos nuevos
 quedan por debajo del techo.
 
+La serializacion, reconstruccion y sustitucion de propuestas vive en
+`portfolio_proposals.py`: nueve definiciones literales y el servicio baja a
+2.997 lineas. `test_node_runtime_fork_parity.py` debe leer tanto la fachada como
+ese modulo: sus anclas comprueban texto de reglas que ya no tiene por que vivir
+en un unico fichero.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y

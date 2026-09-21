@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 
 MANAGER_ROOT = Path(__file__).parents[1]
-MANAGER_RULES = MANAGER_ROOT / "mt5_manager" / "portfolio_service.py"
+MANAGER_RULES = tuple(MANAGER_ROOT / "mt5_manager" / name for name in ("portfolio_service.py", "portfolio_proposals.py"))
 
 # Copias conocidas, en el orden de `ai_context/node_runtime_is_forked_per_agent.md`.
 # La primera es el nodo de ICTrading de este equipo, único destino que el
@@ -72,7 +72,7 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.manager_source = MANAGER_RULES.read_text(encoding="utf-8")
+        cls.manager_source = "\n".join(path.read_text(encoding="utf-8") for path in MANAGER_RULES)
         cls.forks = _reachable_forks()
 
     def _assert_absent(self, source: str, pattern: str, message: str) -> None:
