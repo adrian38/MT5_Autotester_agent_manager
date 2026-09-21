@@ -110,6 +110,12 @@ fachada baja a 929 líneas. Los tests que sustituyen la serialización deben
 parchear `portfolio_coordinator_saved.serialize_portfolio_proposals`, que es el
 consumidor real tras la extracción.
 
+El estado, los ajustes, la cola y el ciclo de vida de los cálculos viven en
+`PortfolioCoordinatorCoreMixin`; también `scope_stage_count` y
+`prepare_scope_log`. Son veintidós métodos y dos helpers literales. `_worker`
+permanece en la fachada porque despacha a los motores que esta reexporta. La
+fachada queda en 539 líneas y sale por completo del baseline de ficheros largos.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
