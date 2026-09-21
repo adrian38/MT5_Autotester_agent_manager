@@ -69,6 +69,15 @@ from portfolio_manager.mt5_report import StrategyReport, parse_report
 from . import candidate_verdict, dev_branch, portfolio_import
 from .common import load_json, safe_float, safe_int, save_json, utc_now
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
+# Reexportados a proposito: el esquema salio a su propio modulo, pero los
+# llamantes (y los tests) lo siguen importando desde aqui.
+from .portfolio_schema import (  # noqa: F401
+    PORTFOLIO_SCHEMA,
+    _ensure_column,
+    _has_column,
+    _table_exists,
+    ensure_portfolio_schema,
+)
 from .portfolio_full_experimental import optimize_experimental_full_portfolio
 from .stage_reports import recover_robustness_report
 
@@ -419,10 +428,6 @@ def filter_rows_by_disabled_symbols(
     ]
 
 
-def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
-    return conn.execute("select 1 from sqlite_master where type='table' and name=?", (table,)).fetchone() is not None
-
-
 def normalize_portfolio_alias(value: Any) -> str:
     """Normalize the optional human label without changing portfolio identity."""
     if value is None:
@@ -433,136 +438,6 @@ def normalize_portfolio_alias(value: Any) -> str:
     if len(alias) > 80:
         raise ValueError("El alias del portafolio no puede superar 80 caracteres")
     return alias
-
-
-def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
-    columns = {str(row[1]) for row in conn.execute(f"pragma table_info({table})")}
-    if column not in columns:
-        conn.execute(f"alter table {table} add column {column} {definition}")
-
-
-def ensure_portfolio_schema(conn: sqlite3.Connection) -> None:
-    """Create/migrate the same persistence surface used by the desktop portfolio UI."""
-    conn.execute(
-        """
-        create table if not exists portfolios (
-            id integer primary key autoincrement, created_at text not null,
-            name text not null default '', type text not null default '',
-            portfolio_type text not null default 'balanced', num_symbols integer not null default 0,
-            account_capital real not null default 0, capital real not null default 0,
-            target_valley_dd_pct real not null default 0, target_point_dd_pct real not null default 0,
-            target_valley_dd real not null default 0, target_point_dd real not null default 0,
-            actual_valley_dd real not null default 0, actual_point_dd real not null default 0,
-            actual_closed_valley_dd real not null default 0, floating_dd_buffer real not null default 0,
-            valley_usage_pct real not null default 0, point_usage_pct real not null default 0,
-            total_net_profit real not null default 0, total_lot real not null default 0,
-            total_units integer not null default 0, active_strategies integer not null default 0,
-            target_strategies integer not null default 0, stop_reason text not null default '',
-            scale_factor real, binding_constraint text,
-            portfolio_scope text not null default 'full_history', target_month integer, metrics_json text
-        )
-        """
-    )
-    portfolio_columns = (
-        ("name", "text not null default ''"), ("type", "text not null default ''"),
-        ("portfolio_type", "text not null default 'balanced'"), ("num_symbols", "integer not null default 0"),
-        ("account_capital", "real not null default 0"), ("capital", "real not null default 0"),
-        ("target_valley_dd_pct", "real not null default 0"), ("target_point_dd_pct", "real not null default 0"),
-        ("target_valley_dd", "real not null default 0"), ("target_point_dd", "real not null default 0"),
-        ("actual_valley_dd", "real not null default 0"), ("actual_point_dd", "real not null default 0"),
-        ("actual_closed_valley_dd", "real not null default 0"), ("floating_dd_buffer", "real not null default 0"),
-        ("valley_usage_pct", "real not null default 0"), ("point_usage_pct", "real not null default 0"),
-        ("total_net_profit", "real not null default 0"), ("total_lot", "real not null default 0"),
-        ("total_units", "integer not null default 0"), ("active_strategies", "integer not null default 0"),
-        ("target_strategies", "integer not null default 0"), ("stop_reason", "text not null default ''"),
-        ("scale_factor", "real"), ("binding_constraint", "text"),
-        ("portfolio_scope", "text not null default 'full_history'"), ("target_month", "integer"),
-        ("metrics_json", "text"),
-    )
-    for column, definition in portfolio_columns:
-        _ensure_column(conn, "portfolios", column, definition)
-    conn.execute(
-        """
-        create table if not exists portfolio_allocations (
-            id integer primary key autoincrement, portfolio_id integer not null,
-            variant_key text not null default '', variant_label text not null default '',
-            set_id text not null, candidate_id text not null, symbol text not null,
-            units integer not null, lot real not null, net_profit_contribution real not null,
-            standalone_valley_dd real not null, standalone_point_dd real not null,
-            set_path text, timeframe text, lot_size_step real,
-            margin_required real not null default 0, margin_pct real not null default 0,
-            margin_leverage real not null default 0, margin_contract_size real not null default 0,
-            margin_price real not null default 0, is_report_path text, oos_report_path text,
-            final_tick_report_path text, full_history_report_path text
-            , max_balance_dd_001 real not null default 0
-            , max_equity_dd_001 real not null default 0
-            , floating_dd_source text not null default ''
-            , standalone_floating_dd real not null default 0
-            , recent_net_profit_001 real not null default 0
-            , recent_equity_dd_001 real not null default 0
-            , has_recent_performance integer not null default 0
-        )
-        """
-    )
-    for column, definition in (
-        ("variant_key", "text not null default ''"), ("variant_label", "text not null default ''"),
-        ("margin_required", "real not null default 0"), ("margin_pct", "real not null default 0"),
-        ("margin_leverage", "real not null default 0"), ("margin_contract_size", "real not null default 0"),
-        ("margin_price", "real not null default 0"),
-        ("final_tick_report_path", "text"),
-        ("full_history_report_path", "text"),
-        ("max_balance_dd_001", "real not null default 0"),
-        ("max_equity_dd_001", "real not null default 0"),
-        ("floating_dd_source", "text not null default ''"),
-        ("standalone_floating_dd", "real not null default 0"),
-        ("recent_net_profit_001", "real not null default 0"),
-        ("recent_equity_dd_001", "real not null default 0"),
-        ("has_recent_performance", "integer not null default 0"),
-    ):
-        _ensure_column(conn, "portfolio_allocations", column, definition)
-    conn.execute(
-        """
-        create table if not exists portfolio_decision_log (
-            id integer primary key autoincrement, portfolio_id integer not null,
-            step integer not null, action text not null, set_id text, from_set_id text, to_set_id text,
-            gain real not null, valley_cost real not null, point_cost real not null, score real not null,
-            portfolio_net_profit_after real not null, portfolio_valley_dd_after real not null,
-            portfolio_point_dd_after real not null, reason text not null
-        )
-        """
-    )
-    conn.execute(
-        """
-        create table if not exists portfolio_members (
-            id integer primary key autoincrement, portfolio_id integer not null,
-            variant_key text not null default '', variant_label text not null default '',
-            candidate_id integer, set_path text not null, symbol text, period text,
-            lot_multiplier real, lot real, lot_size_step real, standalone_dd real,
-            quality_score real, combined_net_profit real, is_report_path text, oos_report_path text
-        )
-        """
-    )
-    for column, definition in (("variant_key", "text not null default ''"), ("variant_label", "text not null default ''")):
-        _ensure_column(conn, "portfolio_members", column, definition)
-    conn.execute(
-        """
-        create table if not exists portfolio_quarantine (
-            id integer primary key autoincrement, account_type text not null, candidate_id integer,
-            set_path text not null unique, symbol text, timeframe text, reason text not null default '',
-            source_portfolio_id integer, quarantined_at text not null
-        )
-        """
-    )
-    conn.execute(
-        """
-        create table if not exists portfolio_versions (
-            id integer primary key autoincrement, portfolio_id integer not null,
-            version_no integer not null, created_at text not null, reason text not null,
-            snapshot_json blob not null, unique(portfolio_id, version_no)
-        )
-        """
-    )
-    conn.commit()
 
 
 def _is_bundle_portfolio(detail: dict[str, Any]) -> bool:
@@ -745,6 +620,238 @@ def _quarantined_set_row(
         "reason_code": candidate_verdict.normalize_reason_code(quarantined.get("reason_code")),
         "exists": Path(path).is_file(),
     }
+
+
+def _sql_when(present: bool, expression: str, absent: str = "") -> str:
+    """La expresion si esa etapa existe en la memoria; si no, lo que la sustituye."""
+    return expression if present else absent
+
+
+def _import_candidate_sql(
+    conn: sqlite3.Connection, *, include_without_robustness: bool
+) -> str | None:
+    """El select de importacion, adaptado a las etapas que tenga esa memoria.
+
+    Devuelve ``None`` cuando la memoria no sirve como origen: sin ``candidates``
+    no hay nada que leer, y sin ``candidate_robustness`` solo la ventana de
+    familia acepta seguir.
+    """
+    if not _table_exists(conn, "candidates"):
+        return None
+    robust = _table_exists(conn, "candidate_robustness")
+    if not robust and not include_without_robustness:
+        return None
+    tick = _table_exists(conn, "candidate_final_tick")
+    tick6m = _table_exists(conn, "candidate_final_tick_6m")
+    robustness_join = _sql_when(robust, "left join candidate_robustness cr on cr.candidate_id=c.id")
+    final_tick_join = _sql_when(tick, "left join candidate_final_tick ft on ft.candidate_id=c.id")
+    final_tick_6m_join = _sql_when(tick6m, "left join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id")
+    oos_report_sql = _sql_when(robust, "cr.report_path", "null")
+    robustness_status_sql = _sql_when(robust, "cr.status", "null")
+    full_history_sql = _sql_when(tick, "ft.real_tick_report_path", "null")
+    final_tick_status_sql = _sql_when(tick, "ft.status", "null")
+    final_ohlc_sql = _sql_when(tick6m, "ft6.ohlc_report_path", "null")
+    final_real_sql = _sql_when(tick6m, "ft6.real_tick_report_path", "null")
+    final_from_sql = _sql_when(tick6m, "ft6.from_date", "null")
+    final_to_sql = _sql_when(tick6m, "ft6.to_date", "null")
+    final_tick_6m_status_sql = _sql_when(tick6m, "ft6.status", "null")
+    final_tick_metrics_sql = _sql_when(
+        tick6m and _has_column(conn, "candidate_final_tick_6m", "real_tick_metrics_json"),
+        "ft6.real_tick_metrics_json",
+        "null",
+    )
+    return f"""
+        select ? as account_type, ? || ':' || c.id as candidate_id,
+               c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
+               c.period, c.family, c.report_path as is_report_path,
+               {oos_report_sql} as oos_report_path,
+               {full_history_sql} as full_history_report_path,
+               {final_ohlc_sql} as final_ohlc_report_path,
+               {final_real_sql} as final_tick_report_path,
+               {final_from_sql} as final_tick_from_date,
+               {final_to_sql} as final_tick_to_date,
+               {final_tick_metrics_sql} as final_tick_metrics_json,
+               c.status as base_status, {robustness_status_sql} as robustness_status,
+               {final_tick_status_sql} as final_tick_status,
+               {final_tick_6m_status_sql} as final_tick_6m_status
+        from candidates c
+        {robustness_join}
+        {final_tick_join}
+        {final_tick_6m_join}
+        order by c.id
+        """
+
+
+def _imported_candidate(item: dict[str, Any], project: Path, memory: Path) -> dict[str, Any]:
+    """Completa una fila importada: informe historico, simbolo ejecutable y rutas."""
+    if not str(item.get("oos_report_path") or "").strip():
+        historical_report = recover_robustness_report(
+            project, item.get("source_candidate_id"), item.get("set_path")
+        )
+        if historical_report:
+            item["oos_report_path"] = historical_report
+            item["historical_robustness_report_recovered"] = True
+    final_tick_metrics = item.pop("final_tick_metrics_json", None)
+    if final_tick_metrics:
+        try:
+            executable_symbol = str(
+                (json.loads(final_tick_metrics) or {}).get("symbol") or ""
+            ).strip()
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+            executable_symbol = ""
+        if executable_symbol:
+            item["executable_symbol"] = executable_symbol
+    item["source_memory_path"] = str(memory)
+    for key in (
+        "set_path", "is_report_path", "oos_report_path", "full_history_report_path",
+        "final_ohlc_report_path", "final_tick_report_path",
+    ):
+        item[key] = _resolve_source_path(item.get(key), project)
+    return item
+
+
+def _export_folder(detail: dict[str, Any], portfolio_id: int, destination: str | None, project: Path) -> Path:
+    """La carpeta de destino, ya creada y ya autorizada."""
+    root = Path(destination).expanduser() if destination else project / "exports"
+    created = str(detail.get("created_at") or "").replace("T", "_").replace(":", "").replace("-", "")
+    portfolio_type = str(detail.get("portfolio_type") or "").lower()
+    label = (
+        "GRID_A_M_C"
+        if portfolio_type == "grid_bundle"
+        else "A_M_C"
+        if portfolio_type == "bundle"
+        else str(detail.get("portfolio_type") or "Portfolio")
+    )
+    folder_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"PORTAFOLIO_{portfolio_id}_{label}_{created[:15]}").strip("._")
+    output = root.resolve() / (folder_name or f"PORTAFOLIO_{portfolio_id}")
+    # La carpeta de destino la elige el usuario y no es dato de un agente:
+    # solo se acota cuando cae dentro del proyecto del propio agente, que es
+    # donde va el destino por defecto.
+    dev_branch.assert_export_destination(output, project)
+    output.mkdir(parents=True, exist_ok=True)
+    return output
+
+
+def _copy_exported_sets(
+    members: list[dict[str, Any]], output: Path, detail: dict[str, Any], project: Path, account: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """Copia cada .set original y devuelve (tabla, miembros portables, omitidos)."""
+    copied: set[str] = set()
+    exported: list[dict[str, Any]] = []
+    exported_members: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for member in members:
+        source_path = Path(_resolve_source_path(member.get("set_path") or member.get("set_id"), project))
+        if not source_path.is_file():
+            missing.append(source_path.name)
+            continue
+        key = str(source_path.resolve()).casefold()
+        if key not in copied:
+            shutil.copy2(source_path, output / source_path.name)
+            copied.add(key)
+        exported.append({
+            # Un portafolio de una sola variante (una mejora, un mensual) se
+            # guarda con `variant_key` y `variant_label` vacios: la variante
+            # es la fila entera. Sin este respaldo la columna PERFIL sale en
+            # blanco y el resumen deja de decir en que modo se guardo.
+            "variant": (
+                member.get("variant_label") or member.get("variant_key")
+                or TYPE_LABELS.get(str(detail.get("portfolio_type") or ""), "")
+            ),
+            "account": str(member.get("candidate_id") or "").split(":", 1)[0] or account,
+            "symbol": member.get("symbol") or "", "timeframe": member.get("timeframe") or "",
+            "units": int(member.get("units") or 0), "lot": float(member.get("lot") or 0), "set": source_path.name,
+        })
+        portable_member = dict(member)
+        portable_member["set_id"] = str(member.get("set_id") or source_path)
+        portable_member["set_path"] = str(source_path)
+        portable_member["set_name"] = source_path.name
+        exported_members.append(portable_member)
+    return exported, exported_members, missing
+
+
+def _improvement_header_lines(detail: dict[str, Any], scope: str) -> list[str]:
+    """La cabecera de linaje de una mejora, o nada si el portafolio no lo es."""
+    origin = detail.get("improvement_origin") or {}
+    source_id = safe_int(origin.get("source_id"), 0)
+    mode = str(origin.get("mode") or "")
+    if scope != "full_history" or source_id <= 0 or mode not in TYPE_LABELS:
+        return []
+    lines = [
+        f"Mejora etiqueta: {str(origin.get('label') or detail.get('name') or '')}",
+        f"Mejora origen: {source_id}",
+        f"Mejora modo: {mode}",
+    ]
+    source_uid = _valid_portfolio_uid(origin.get("source_uid"))
+    if source_uid:
+        lines.append(f"Mejora origen UID: {source_uid}")
+    lines.extend([
+        f"Mejora raiz: {safe_int(origin.get('root_id'), source_id)}",
+        f"Mejora nivel: {max(1, safe_int(origin.get('depth'), 1))}",
+    ])
+    root_uid = _valid_portfolio_uid(origin.get("root_uid"))
+    if root_uid:
+        lines.append(f"Mejora raiz UID: {root_uid}")
+    lineage = _normalized_improvement_lineage(origin.get("lineage"))
+    if lineage:
+        lines.append(
+            "Mejora linaje JSON: " + json.dumps(lineage, ensure_ascii=True, separators=(",", ":"))
+        )
+    audit = ((detail.get("metrics") or {}).get("seasonal_validation") or {}).get("portfolio_improvement") or {}
+    snapshot = audit.get("source_snapshot")
+    if isinstance(snapshot, dict):
+        lines.append(
+            "Mejora snapshot JSON: " + json.dumps(snapshot, ensure_ascii=True, separators=(",", ":"))
+        )
+    priority = str(origin.get("priority") or "")
+    if priority in IMPROVEMENT_PRIORITY_LABELS:
+        lines.append(f"Mejora prioridad: {priority}")
+    if origin.get("added_count") is not None:
+        lines.append(f"Mejora incorporaciones: {safe_int(origin.get('added_count'), 0)}")
+    return lines
+
+
+def _export_summary_lines(
+    detail: dict[str, Any], portfolio_id: int, scope: str,
+    exported: list[dict[str, Any]], exported_members: list[dict[str, Any]], missing: list[str],
+) -> list[str]:
+    """El resumen .txt. Todo metadato se inserta en la 3a linea, en orden inverso.
+
+    ``parse_summary`` deja de interpretar metadatos en cuanto empieza la tabla de
+    sets, asi que la cabecera tiene que quedar completa por delante.
+    """
+    lines = [
+        f"Portafolio: {detail.get('name') or portfolio_id}",
+        f"Tipo: {detail.get('portfolio_type') or ''}   Capital: {float(detail.get('capital') or 0):,.0f}",
+        f"DD valle objetivo: {float(detail.get('target_valley_dd') or 0):,.2f}",
+        f"DD puntual objetivo: {float(detail.get('target_point_dd') or 0):,.2f}",
+        f"DD valle usado: {float(detail.get('actual_valley_dd') or 0):,.2f}",
+        f"DD puntual usado: {float(detail.get('actual_point_dd') or 0):,.2f}",
+        f"Net profit total 2020-2026: {float(detail.get('total_net_profit') or 0):,.2f}", "",
+        "Sets exportados: copia exacta del .set original probado.",
+        "No se modifica Risk, LotPerBalance_step, grid ni ningún otro parámetro del EA.",
+        "UNID. y LOTE son la asignación informativa calculada por el portafolio.", "",
+        f"{'PERFIL':12s} {'CUENTA':12s} {'SIMBOLO':12s} {'TF':5s} {'UNID.':>7s} {'LOTE':>7s}   SET",
+    ]
+    if scope == "full_history":
+        lines[2:2] = [f"Portafolio UID: {_portable_portfolio_uid(detail)}"]
+        alias = normalize_portfolio_alias(detail.get("alias"))
+        if alias:
+            lines[2:2] = [f"Alias: {alias}"]
+    lines[2:2] = _improvement_header_lines(detail, scope)
+    # La tabla histórica trunca CUENTA y solo conserva el nombre del set. Eso no
+    # basta cuando la memoria contiene varios candidatos con el mismo nombre: se
+    # perdería el id que identifica qué informe de robustez usar. La tabla sigue
+    # siendo legible y compatible; esta cabecera da a las importaciones nuevas la
+    # identidad exacta de cada miembro.
+    lines[2:2] = [
+        "Miembros JSON: " + json.dumps(exported_members, ensure_ascii=True, separators=(",", ":"))
+    ]
+    for item in exported:
+        lines.append(f"{str(item['variant'])[:12]:12s} {str(item['account'])[:12]:12s} {str(item['symbol']):12s} {str(item['timeframe']):5s} {item['units']:7d} {item['lot']:7.2f}   {item['set']}")
+    if missing:
+        lines.extend(("", "OMITIDOS (set no encontrado): " + ", ".join(missing)))
+    return lines
 
 
 class PortfolioSource:
@@ -999,13 +1106,9 @@ class PortfolioSource:
                     # intentionally part of memory_sources for used-set and
                     # correlation lookups, never as a candidate source.
                     continue
-                final_tick_6m_columns = {
-                    str(column[1])
-                    for column in conn.execute("pragma table_info(candidate_final_tick_6m)")
-                }
                 final_tick_metrics_sql = (
                     "ft6.real_tick_metrics_json"
-                    if "real_tick_metrics_json" in final_tick_6m_columns
+                    if _has_column(conn, "candidate_final_tick_6m", "real_tick_metrics_json")
                     else "null"
                 )
                 rows = conn.execute(
@@ -1102,96 +1205,16 @@ class PortfolioSource:
         result: list[dict[str, Any]] = []
         for account_label, memory in self.memory_sources:
             with self.connect_memory(memory) as conn:
-                if not _table_exists(conn, "candidates"):
+                sql = _import_candidate_sql(
+                    conn, include_without_robustness=include_without_robustness
+                )
+                if sql is None:
                     continue
-                has_robustness = _table_exists(conn, "candidate_robustness")
-                if not has_robustness and not include_without_robustness:
-                    continue
-                robustness_join = (
-                    "left join candidate_robustness cr on cr.candidate_id=c.id"
-                    if has_robustness else ""
-                )
-                oos_report_sql = "cr.report_path" if has_robustness else "null"
-                robustness_status_sql = "cr.status" if has_robustness else "null"
-                has_final_tick = _table_exists(conn, "candidate_final_tick")
-                has_final_tick_6m = _table_exists(conn, "candidate_final_tick_6m")
-                final_tick_join = (
-                    "left join candidate_final_tick ft on ft.candidate_id=c.id"
-                    if has_final_tick else ""
-                )
-                final_tick_6m_join = (
-                    "left join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id"
-                    if has_final_tick_6m else ""
-                )
-                full_history_sql = "ft.real_tick_report_path" if has_final_tick else "null"
-                final_tick_status_sql = "ft.status" if has_final_tick else "null"
-                final_ohlc_sql = "ft6.ohlc_report_path" if has_final_tick_6m else "null"
-                final_real_sql = "ft6.real_tick_report_path" if has_final_tick_6m else "null"
-                final_from_sql = "ft6.from_date" if has_final_tick_6m else "null"
-                final_to_sql = "ft6.to_date" if has_final_tick_6m else "null"
-                final_tick_6m_status_sql = "ft6.status" if has_final_tick_6m else "null"
-                final_tick_metrics_sql = "null"
-                if has_final_tick_6m:
-                    final_tick_6m_columns = {
-                        str(column[1])
-                        for column in conn.execute("pragma table_info(candidate_final_tick_6m)")
-                    }
-                    if "real_tick_metrics_json" in final_tick_6m_columns:
-                        final_tick_metrics_sql = "ft6.real_tick_metrics_json"
-                rows = conn.execute(
-                    f"""
-                    select ? as account_type, ? || ':' || c.id as candidate_id,
-                           c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
-                           c.period, c.family, c.report_path as is_report_path,
-                           {oos_report_sql} as oos_report_path,
-                           {full_history_sql} as full_history_report_path,
-                           {final_ohlc_sql} as final_ohlc_report_path,
-                           {final_real_sql} as final_tick_report_path,
-                           {final_from_sql} as final_tick_from_date,
-                           {final_to_sql} as final_tick_to_date,
-                           {final_tick_metrics_sql} as final_tick_metrics_json,
-                           c.status as base_status, {robustness_status_sql} as robustness_status,
-                           {final_tick_status_sql} as final_tick_status,
-                           {final_tick_6m_status_sql} as final_tick_6m_status
-                    from candidates c
-                    {robustness_join}
-                    {final_tick_join}
-                    {final_tick_6m_join}
-                    order by c.id
-                    """,
-                    (account_label, account_label),
-                ).fetchall()
+                rows = conn.execute(sql, (account_label, account_label)).fetchall()
             for db_row in rows:
                 if wanted is not None and _stored_path_name(db_row["set_path"]) not in wanted:
                     continue
-                item = dict(db_row)
-                if not str(item.get("oos_report_path") or "").strip():
-                    historical_report = recover_robustness_report(
-                        self.project,
-                        item.get("source_candidate_id"),
-                        item.get("set_path"),
-                    )
-                    if historical_report:
-                        item["oos_report_path"] = historical_report
-                        item["historical_robustness_report_recovered"] = True
-                final_tick_metrics = item.pop("final_tick_metrics_json", None)
-                if final_tick_metrics:
-                    try:
-                        executable_symbol = str(
-                            (json.loads(final_tick_metrics) or {}).get("symbol") or ""
-                        ).strip()
-                    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
-                        executable_symbol = ""
-                    if executable_symbol:
-                        item["executable_symbol"] = executable_symbol
-                item["source_memory_path"] = str(memory)
-                result.append(item)
-        for row in result:
-            for key in (
-                "set_path", "is_report_path", "oos_report_path", "full_history_report_path",
-                "final_ohlc_report_path", "final_tick_report_path",
-            ):
-                row[key] = _resolve_source_path(row.get(key), self.project)
+                result.append(_imported_candidate(dict(db_row), self.project, memory))
         return result
 
     @staticmethod
@@ -2411,127 +2434,13 @@ class PortfolioSource:
         members = detail.get("members") or []
         if not members:
             raise ValueError("El portafolio no tiene estrategias para exportar")
-        root = Path(destination).expanduser() if destination else self.project / "exports"
-        created = str(detail.get("created_at") or "").replace("T", "_").replace(":", "").replace("-", "")
-        label = (
-            "GRID_A_M_C"
-            if str(detail.get("portfolio_type") or "").lower() == "grid_bundle"
-            else "A_M_C"
-            if str(detail.get("portfolio_type") or "").lower() == "bundle"
-            else str(detail.get("portfolio_type") or "Portfolio")
+        output = _export_folder(detail, portfolio_id, destination, self.project)
+        exported, exported_members, missing = _copy_exported_sets(
+            members, output, detail, self.project, self.account
         )
-        folder_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"PORTAFOLIO_{portfolio_id}_{label}_{created[:15]}").strip("._")
-        output = root.resolve() / (folder_name or f"PORTAFOLIO_{portfolio_id}")
-        # La carpeta de destino la elige el usuario y no es dato de un agente:
-        # solo se acota cuando cae dentro del proyecto del propio agente, que es
-        # donde va el destino por defecto.
-        dev_branch.assert_export_destination(output, self.project)
-        output.mkdir(parents=True, exist_ok=True)
-        copied: set[str] = set()
-        exported: list[dict[str, Any]] = []
-        exported_members: list[dict[str, Any]] = []
-        missing: list[str] = []
-        for member in members:
-            source_path = Path(_resolve_source_path(member.get("set_path") or member.get("set_id"), self.project))
-            if not source_path.is_file():
-                missing.append(source_path.name)
-                continue
-            destination_path = output / source_path.name
-            key = str(source_path.resolve()).casefold()
-            if key not in copied:
-                shutil.copy2(source_path, destination_path)
-                copied.add(key)
-            exported.append({
-                # Un portafolio de una sola variante (una mejora, un mensual) se
-                # guarda con `variant_key` y `variant_label` vacios: la variante
-                # es la fila entera. Sin este respaldo la columna PERFIL sale en
-                # blanco y el resumen deja de decir en que modo se guardo.
-                "variant": (
-                    member.get("variant_label") or member.get("variant_key")
-                    or TYPE_LABELS.get(str(detail.get("portfolio_type") or ""), "")
-                ),
-                "account": str(member.get("candidate_id") or "").split(":", 1)[0] or self.account,
-                "symbol": member.get("symbol") or "", "timeframe": member.get("timeframe") or "",
-                "units": int(member.get("units") or 0), "lot": float(member.get("lot") or 0), "set": source_path.name,
-            })
-            portable_member = dict(member)
-            portable_member["set_id"] = str(member.get("set_id") or source_path)
-            portable_member["set_path"] = str(source_path)
-            portable_member["set_name"] = source_path.name
-            exported_members.append(portable_member)
-        lines = [
-            f"Portafolio: {detail.get('name') or portfolio_id}",
-            f"Tipo: {detail.get('portfolio_type') or ''}   Capital: {float(detail.get('capital') or 0):,.0f}",
-            f"DD valle objetivo: {float(detail.get('target_valley_dd') or 0):,.2f}",
-            f"DD puntual objetivo: {float(detail.get('target_point_dd') or 0):,.2f}",
-            f"DD valle usado: {float(detail.get('actual_valley_dd') or 0):,.2f}",
-            f"DD puntual usado: {float(detail.get('actual_point_dd') or 0):,.2f}",
-            f"Net profit total 2020-2026: {float(detail.get('total_net_profit') or 0):,.2f}", "",
-            "Sets exportados: copia exacta del .set original probado.",
-            "No se modifica Risk, LotPerBalance_step, grid ni ningún otro parámetro del EA.",
-            "UNID. y LOTE son la asignación informativa calculada por el portafolio.", "",
-            f"{'PERFIL':12s} {'CUENTA':12s} {'SIMBOLO':12s} {'TF':5s} {'UNID.':>7s} {'LOTE':>7s}   SET",
-        ]
-        if scope == "full_history":
-            lines[2:2] = [f"Portafolio UID: {_portable_portfolio_uid(detail)}"]
-            alias = normalize_portfolio_alias(detail.get("alias"))
-            if alias:
-                lines[2:2] = [f"Alias: {alias}"]
-        origin = detail.get("improvement_origin") or {}
-        source_id = safe_int(origin.get("source_id"), 0)
-        mode = str(origin.get("mode") or "")
-        if scope == "full_history" and source_id > 0 and mode in TYPE_LABELS:
-            improvement_lines = [
-                f"Mejora etiqueta: {str(origin.get('label') or detail.get('name') or '')}",
-                f"Mejora origen: {source_id}",
-                f"Mejora modo: {mode}",
-            ]
-            source_uid = _valid_portfolio_uid(origin.get("source_uid"))
-            if source_uid:
-                improvement_lines.append(f"Mejora origen UID: {source_uid}")
-            improvement_lines.extend([
-                f"Mejora raiz: {safe_int(origin.get('root_id'), source_id)}",
-                f"Mejora nivel: {max(1, safe_int(origin.get('depth'), 1))}",
-            ])
-            root_uid = _valid_portfolio_uid(origin.get("root_uid"))
-            if root_uid:
-                improvement_lines.append(f"Mejora raiz UID: {root_uid}")
-            lineage = _normalized_improvement_lineage(origin.get("lineage"))
-            if lineage:
-                improvement_lines.append(
-                    "Mejora linaje JSON: "
-                    + json.dumps(lineage, ensure_ascii=True, separators=(",", ":"))
-                )
-            audit = ((detail.get("metrics") or {}).get("seasonal_validation") or {}).get("portfolio_improvement") or {}
-            snapshot = audit.get("source_snapshot")
-            if isinstance(snapshot, dict):
-                improvement_lines.append(
-                    "Mejora snapshot JSON: "
-                    + json.dumps(snapshot, ensure_ascii=True, separators=(",", ":"))
-                )
-            priority = str(origin.get("priority") or "")
-            if priority in IMPROVEMENT_PRIORITY_LABELS:
-                improvement_lines.append(f"Mejora prioridad: {priority}")
-            if origin.get("added_count") is not None:
-                improvement_lines.append(
-                    f"Mejora incorporaciones: {safe_int(origin.get('added_count'), 0)}"
-                )
-            # Mantener estos campos junto a la cabecera: ``parse_summary`` deja
-            # de interpretar metadatos en cuanto empieza la tabla de sets.
-            lines[2:2] = improvement_lines
-        # La tabla histórica trunca CUENTA y solo conserva el nombre del set.
-        # Eso no basta cuando la memoria contiene varios candidatos con el mismo
-        # nombre: se perdería el id que identifica qué informe de robustez usar.
-        # La tabla sigue siendo legible y compatible; esta cabecera da a las
-        # importaciones nuevas la identidad exacta de cada miembro.
-        lines[2:2] = [
-            "Miembros JSON: "
-            + json.dumps(exported_members, ensure_ascii=True, separators=(",", ":"))
-        ]
-        for item in exported:
-            lines.append(f"{str(item['variant'])[:12]:12s} {str(item['account'])[:12]:12s} {str(item['symbol']):12s} {str(item['timeframe']):5s} {item['units']:7d} {item['lot']:7.2f}   {item['set']}")
-        if missing:
-            lines.extend(("", "OMITIDOS (set no encontrado): " + ", ".join(missing)))
+        lines = _export_summary_lines(
+            detail, portfolio_id, scope, exported, exported_members, missing
+        )
         summary = output / f"PORTAFOLIO_{portfolio_id}_resumen.txt"
         summary.write_text("\n".join(lines), encoding="utf-8")
         return {"folder": str(output), "summary": str(summary), "exported": len(exported), "missing": missing}

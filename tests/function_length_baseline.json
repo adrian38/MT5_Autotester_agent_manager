@@ -1,5 +1,5 @@
 {
-  "_comment": "Funciones que ya superaban 60 lineas cuando se instalo la guarda. Esta lista solo puede encoger: al partir una funcion, borra su entrada. Regenerar con 'python -m tools.function_length --write'.",
+  "_comment": "Funciones que ya superaba(n) 60 lineas cuando se instalo la guarda. Esta lista solo puede encoger: al partir, borra su entrada. Regenerar no es una forma valida de silenciar el test.",
   "grandfathered": {
     "mt5_manager/experiment_lab.py::allocation_payload": 78,
     "mt5_manager/experiment_lab.py::build_lab_strategies": 73,
@@ -51,10 +51,8 @@
     "mt5_manager/portfolio_service.py::PortfolioCoordinator._worker": 72,
     "mt5_manager/portfolio_service.py::PortfolioSource._recalculate_saved": 88,
     "mt5_manager/portfolio_service.py::PortfolioSource._saved_inputs_from_detail": 86,
-    "mt5_manager/portfolio_service.py::PortfolioSource.candidate_rows": 84,
+    "mt5_manager/portfolio_service.py::PortfolioSource.candidate_rows": 80,
     "mt5_manager/portfolio_service.py::PortfolioSource.exclude_strategy": 69,
-    "mt5_manager/portfolio_service.py::PortfolioSource.export_portfolio": 129,
-    "mt5_manager/portfolio_service.py::PortfolioSource.import_candidate_rows": 131,
     "mt5_manager/portfolio_service.py::PortfolioSource.inventory": 66,
     "mt5_manager/portfolio_service.py::PortfolioSource.member_reports": 65,
     "mt5_manager/portfolio_service.py::PortfolioSource.requalify_strategy": 72,
@@ -62,7 +60,6 @@
     "mt5_manager/portfolio_service.py::_optimize_without_recent_fillers": 92,
     "mt5_manager/portfolio_service.py::_with_executable_valley_floor": 64,
     "mt5_manager/portfolio_service.py::build_import_proposals": 118,
-    "mt5_manager/portfolio_service.py::ensure_portfolio_schema": 122,
     "mt5_manager/portfolio_service.py::generate_completion_proposal": 125,
     "mt5_manager/portfolio_service.py::generate_proposals": 111,
     "mt5_manager/portfolio_service.py::normalize_settings": 112,
