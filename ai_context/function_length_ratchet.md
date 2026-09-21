@@ -116,6 +116,11 @@ El estado, los ajustes, la cola y el ciclo de vida de los cálculos viven en
 permanece en la fachada porque despacha a los motores que esta reexporta. La
 fachada queda en 539 líneas y sale por completo del baseline de ficheros largos.
 
+Los módulos de pruebas también se parten por escenarios completos, conservando
+clases y helpers por AST. `BreadthBelowMinimumTests` vive en
+`tests/test_portfolio_breadth.py`; con ese corte el módulo de mejora por modo
+seleccionado baja de 625 a 570 líneas sin fragmentar una prueba por formato.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y

@@ -21,7 +21,6 @@
     "tests/test_node_runtime_fork_parity.py": 705,
     "tests/test_portfolio_full_experimental.py": 645,
     "tests/test_portfolio_import.py": 1045,
-    "tests/test_portfolio_improvement_selected_mode.py": 625,
     "tests/test_portfolio_margin_profiles.py": 839,
     "tests/test_portfolio_service.py": 2496,
     "tests/test_static_portfolios.py": 861
