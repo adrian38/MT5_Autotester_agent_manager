@@ -91,6 +91,12 @@ versiones, undo, borrado y exclusión de miembros. Son dieciseis métodos
 idénticos; la fachada baja a 2.392 líneas. Las anclas textuales de paridad deben
 leer también este módulo porque aquí viven ahora las dos reglas de cuarentena.
 
+Inventario/símbolos y exclusión/recalificación viven en
+`PortfolioSourceInventoryMixin` y `PortfolioSourceQuarantineMixin`. Son treinta
+definiciones y métodos literales; `PortfolioSource` conserva la MRO pública y
+la fachada baja a 1.656 líneas. La guarda de paridad sigue también el mixin de
+cuarentena, propietario de las reglas que comparte con el nodo bifurcado.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
