@@ -44,3 +44,13 @@ exposiciones, lotes viables/no viables, rondas ejecutadas y resumen
 leave-one-year-out. El detalle de cada fold se conserva en
 `seasonal_validation.experimental_leave_one_year_out`. La opción puede aumentar
 considerablemente el tiempo de cálculo.
+
+## Estructura del refactor (2026-09-21)
+
+La validación leave-one-year-out vive en
+`mt5_manager/portfolio_monthly_validation.py`. La preparación de kwargs, la
+evaluación de un fold, su captura de error y el resumen son pasos separados de
+menos de 60 líneas; el torneo les pasa `_optimize_exact_pool` explícitamente.
+La comparación diferencial contra `HEAD`, con folds exitosos y fallidos, dio
+diccionarios idénticos. El módulo del torneo conserva el reexport privado y
+queda por debajo de 600 líneas.

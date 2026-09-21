@@ -127,6 +127,11 @@ Las pruebas estáticas de la pantalla de auditoría en vivo viven en
 `tests/test_live_audit_configuration_screen.py`; su clase se movió literalmente
 y `test_live_audit_settings.py` baja de 663 a 444 líneas.
 
+La validación leave-one-year-out mensual vive en
+`portfolio_monthly_validation.py`: una función de 121 líneas se convierte en
+pasos con nombre y `portfolio_monthly_experimental.py` baja de 646 a 455 líneas.
+Los folds exitosos y fallidos se compararon diferencialmente contra `HEAD`.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
