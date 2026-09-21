@@ -91,6 +91,15 @@ from .portfolio_identity import (  # noqa: F401
     _valid_portfolio_uid,
     normalize_portfolio_alias,
 )
+from .portfolio_persistence import (  # noqa: F401
+    RUNTIME_ONLY_INPUT_KEYS,
+    _insert_allocation,
+    _insert_decisions,
+    _result_metrics,
+    result_payload,
+    save_proposal,
+    settings_inputs,
+)
 from .portfolio_settings import (  # noqa: F401
     ASSET_GROUPS,
     BOOLEAN_SETTINGS,
@@ -2664,40 +2673,6 @@ def _locked_full_proposals(
     return proposals
 
 
-def result_payload(result: PortfolioResult) -> dict[str, Any]:
-    return {
-        "total_net_profit": result.total_net_profit,
-        "actual_valley_dd": result.actual_valley_dd,
-        "actual_closed_valley_dd": result.actual_closed_valley_dd,
-        "floating_dd_buffer": result.floating_dd_buffer,
-        "actual_point_dd": result.actual_point_dd,
-        "target_valley_dd": result.target_valley_dd,
-        "target_point_dd": result.target_point_dd,
-        "valley_usage_pct": result.valley_usage_pct,
-        "point_usage_pct": result.point_usage_pct,
-        "total_lot": result.total_lot,
-        "total_units": result.total_units,
-        "active_strategies": result.active_strategies,
-        "stop_reason": result.stop_reason,
-        "warnings": list(result.warnings),
-        "group_summary": result.group_summary,
-        "equity_curve_2020_2026": result.equity_curve_2020_2026,
-        "unused_sets": [asdict(item) for item in result.unused_sets],
-        "stress_bootstrap": asdict(result.stress_bootstrap) if result.stress_bootstrap else None,
-        "seasonal_coverage": result.seasonal_coverage,
-        "seasonal_validation": result.seasonal_validation,
-        "margin_summary": result.margin_summary,
-        "floating_overlap_audit": result.floating_overlap_audit,
-        "daily_dd_summary": result.daily_dd_summary,
-        "max_daily_dd": result.max_daily_dd,
-        "target_daily_dd": result.target_daily_dd,
-        "daily_dd_full_history": result.daily_dd_full_history,
-        "enforce_point_dd": result.enforce_point_dd,
-        "allocations": [asdict(allocation) for allocation in result.allocations],
-        "decision_log": [asdict(decision) for decision in result.decision_log],
-    }
-
-
 def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
     """Modelo de margen del perfil configurado, con el nocional medido si lo hay.
 
@@ -2916,24 +2891,10 @@ def generate_proposals(
     })
     return availability, proposals
 
-def generate_completion_proposal(
-    source: PortfolioSource,
-    portfolio_id: int,
-    scope: str,
-    inputs: dict[str, Any],
-    progress: Callable[[str], None] | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Complete only a full-history UBS portfolio."""
-    if scope != "full_history":
-        raise ValueError("El portafolio mensual debe usar portfolio_monthly_service")
-    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
-    detail = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
-    if _is_bundle_portfolio(detail):
-        raise ValueError("El portafolio A/M/C debe reoptimizarse completo; no admite completar una sola variante")
-    members = list(detail.get("members") or [])
-    target = max(int(detail.get("target_strategies") or 0), int(detail.get("active_strategies") or 0))
-    if target <= len(members):
-        raise ValueError("El portafolio ya tiene todas sus estrategias")
+def _completion_required_sets(
+    members: list[dict[str, Any]], progress: Callable[[str], None] | None,
+) -> tuple[list[Any], list[str]]:
+    """Reconstruye las estrategias que el portafolio ya tiene y debe conservar."""
     if progress:
         progress(f"1/3 · Reconstruyendo {len(members)} estrategias que deben conservarse")
     required_rows = [{
@@ -2959,8 +2920,22 @@ def generate_completion_proposal(
     )
     if len(required_sets) != len(required_rows):
         raise ValueError("No se pudieron reconstruir todas las estrategias que deben conservarse")
-    rows = source.candidate_rows(include_quarantined=False)
-    warnings = list(required_warnings)
+    return required_sets, required_warnings
+
+
+def _completion_filtered_rows(
+    source: PortfolioSource,
+    inputs: dict[str, Any],
+    rows: list[dict[str, Any]],
+    warnings: list[str],
+) -> list[dict[str, Any]]:
+    """El pool sobre el que buscar la sustituta.
+
+    No es el mismo filtrado que `_eligible_generation_rows`: completar no aplica
+    los simbolos deshabilitados, acepta que el pool quede vacio —lo dira despues
+    el conteo de estrategias activas— y cae a todos los grupos si no hay
+    seleccion. Unificarlos cambiaria que portafolios se pueden completar.
+    """
     if inputs.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(
             rows, min_positive_months=3, window_months=6, parse=cached_report,
@@ -2970,13 +2945,86 @@ def generate_completion_proposal(
         rows, found = filter_rows_grid_off(rows)
         warnings.extend(found)
     allowed = set(inputs.get("allowed_asset_groups") or ASSET_GROUPS)
-    rows = [
+    return [
         row for row in rows
         if portfolio_group_key(
             str(row.get("target_symbol") or row.get("symbol") or ""),
             universe_files=[source.universe],
         ) in allowed
     ]
+
+
+def _completion_optimizer_kwargs(
+    source: PortfolioSource,
+    inputs: dict[str, Any],
+    portfolio_id: int,
+    portfolio_type: PortfolioType,
+    members: list[dict[str, Any]],
+    required_sets: list[Any],
+    target: int,
+) -> tuple[dict[str, Any], float]:
+    """Los topes del optimizador con la composicion actual clavada dentro."""
+    required_ids = [strategy.set_id for strategy in required_sets]
+    saved_units = {
+        str(item.get("set_path") or item.get("set_id") or ""): int(item.get("units") or 0)
+        for item in members
+    }
+    initial = {strategy.set_id: saved_units.get(strategy.set_id, 0) for strategy in required_sets}
+    reserve = float(inputs.get("dd_reserve_pct") or 0)
+    existing = source.saved_curves(
+        monthly=False,
+        portfolio_type=portfolio_type,
+        exclude_portfolio_id=portfolio_id,
+    )
+    kwargs = _optimizer_kwargs(inputs, portfolio_type, existing, reserve)
+    return optimizer_overrides(kwargs, **{
+        "required_set_ids": required_ids,
+        "minimum_active_strategies": target,
+        "maximum_active_strategies": target,
+        "required_initial_allocations": initial,
+        "preserve_required_allocations": True,
+    }), reserve
+
+
+def _completion_proposal(
+    result: PortfolioResult, inputs: dict[str, Any], reserve: float,
+) -> dict[str, Any]:
+    proposal_inputs = settings_inputs(inputs)
+    proposal_inputs.update({
+        "optimization_profile": "complete",
+        "optimization_profile_label": "Completar portafolio",
+    })
+    return {
+        "key": "complete",
+        "label": "Completar portafolio",
+        "reserve_pct": reserve,
+        "inputs": proposal_inputs,
+        "result": result,
+    }
+
+
+def generate_completion_proposal(
+    source: PortfolioSource,
+    portfolio_id: int,
+    scope: str,
+    inputs: dict[str, Any],
+    progress: Callable[[str], None] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Complete only a full-history UBS portfolio."""
+    if scope != "full_history":
+        raise ValueError("El portafolio mensual debe usar portfolio_monthly_service")
+    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
+    detail = source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]
+    if _is_bundle_portfolio(detail):
+        raise ValueError("El portafolio A/M/C debe reoptimizarse completo; no admite completar una sola variante")
+    members = list(detail.get("members") or [])
+    target = max(int(detail.get("target_strategies") or 0), int(detail.get("active_strategies") or 0))
+    if target <= len(members):
+        raise ValueError("El portafolio ya tiene todas sus estrategias")
+    required_sets, required_warnings = _completion_required_sets(members, progress)
+    rows = source.candidate_rows(include_quarantined=False)
+    warnings = list(required_warnings)
+    rows = _completion_filtered_rows(source, inputs, rows, warnings)
     portfolio_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
     used = (
         source.used_set_paths(
@@ -2995,26 +3043,9 @@ def generate_completion_proposal(
     by_id = {strategy.set_id: strategy for strategy in candidate_sets}
     by_id.update({strategy.set_id: strategy for strategy in required_sets})
     raw_sets = list(by_id.values())
-    required_ids = [strategy.set_id for strategy in required_sets]
-    saved_units = {
-        str(item.get("set_path") or item.get("set_id") or ""): int(item.get("units") or 0)
-        for item in members
-    }
-    initial = {strategy.set_id: saved_units.get(strategy.set_id, 0) for strategy in required_sets}
-    reserve = float(inputs.get("dd_reserve_pct") or 0)
-    existing = source.saved_curves(
-        monthly=False,
-        portfolio_type=portfolio_type,
-        exclude_portfolio_id=portfolio_id,
+    kwargs, reserve = _completion_optimizer_kwargs(
+        source, inputs, portfolio_id, portfolio_type, members, required_sets, target,
     )
-    kwargs = _optimizer_kwargs(inputs, portfolio_type, existing, reserve)
-    kwargs = optimizer_overrides(kwargs, **{
-        "required_set_ids": required_ids,
-        "minimum_active_strategies": target,
-        "maximum_active_strategies": target,
-        "required_initial_allocations": initial,
-        "preserve_required_allocations": True,
-    })
     if progress:
         progress(f"3/3 · Buscando sustituta para completar {len(members)}/{target}")
     result = optimize_portfolio(
@@ -3027,56 +3058,10 @@ def generate_completion_proposal(
         raise ValueError(
             f"No existe una sustituta compatible: quedaron {result.active_strategies}/{target} estrategias"
         )
-    proposal_inputs = settings_inputs(inputs)
-    proposal_inputs.update({
-        "optimization_profile": "complete",
-        "optimization_profile_label": "Completar portafolio",
-    })
+    proposal = _completion_proposal(result, inputs, reserve)
     availability = asdict(summarize_robust_rows(rows, used))
     availability.update({"loaded_sets": len(raw_sets), "warnings": warnings})
-    return availability, [{
-        "key": "complete",
-        "label": "Completar portafolio",
-        "reserve_pct": reserve,
-        "inputs": proposal_inputs,
-        "result": result,
-    }]
-
-#: Claves de ``inputs`` que son objetos vivos del calculo, no ajustes del
-#: formulario. Nunca deben viajar al nodo ni persistirse: el payload de guardado
-#: se serializa a JSON y un ``MarginModel`` ahi dentro reventaba el POST con
-#: "Object of type MarginModel is not JSON serializable", que en la pantalla
-#: aparecia como un escueto "failed to fetch".
-RUNTIME_ONLY_INPUT_KEYS = frozenset({"margin_model"})
-
-
-def settings_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
-    """Copia de ``inputs`` con solo lo que es un ajuste serializable."""
-    return {key: value for key, value in inputs.items() if key not in RUNTIME_ONLY_INPUT_KEYS}
-
-
-def _result_metrics(inputs: dict[str, Any], result: PortfolioResult) -> dict[str, Any]:
-    return {
-        # Igual que en el limite HTTP: esto acaba como JSON en la memoria UBS.
-        "inputs": settings_inputs(inputs),
-        "warnings": result.warnings,
-        "group_summary": result.group_summary,
-        "equity_curve_2020_2026": result.equity_curve_2020_2026,
-        "unused_sets": [asdict(item) for item in result.unused_sets],
-        "stress_bootstrap": asdict(result.stress_bootstrap) if result.stress_bootstrap else None,
-        "seasonal_coverage": result.seasonal_coverage,
-        "seasonal_validation": result.seasonal_validation,
-        "margin_summary": result.margin_summary,
-        "floating_overlap_audit": result.floating_overlap_audit,
-        "daily_dd_summary": result.daily_dd_summary,
-        "max_daily_dd": result.max_daily_dd,
-        "target_daily_dd": result.target_daily_dd,
-        "daily_dd_full_history": result.daily_dd_full_history,
-        "enforce_point_dd": result.enforce_point_dd,
-        "actual_closed_valley_dd": result.actual_closed_valley_dd,
-        "floating_dd_buffer": result.floating_dd_buffer,
-    }
-
+    return availability, [proposal]
 
 def serialize_portfolio_proposals(
     proposals: list[dict[str, Any]], request_id: str
@@ -3294,91 +3279,6 @@ def save_portfolio_payload(source: PortfolioSource, payload: dict[str, Any]) -> 
         f"lote {float(detail.get('total_lot') or 0):.2f}, {int(detail.get('active_strategies') or 0)} estrategias"
     )
     return {"portfolio_id": saved_id, "request_id": request_id, "deduplicated": False}
-
-
-def _insert_allocation(
-    conn: sqlite3.Connection,
-    portfolio_id: int,
-    allocation: Any,
-    variant_key: str,
-    variant_label: str,
-) -> None:
-    conn.execute(
-        """
-        insert into portfolio_allocations (
-            portfolio_id,variant_key,variant_label,set_id,candidate_id,symbol,units,lot,
-            net_profit_contribution,standalone_valley_dd,standalone_point_dd,set_path,timeframe,
-            lot_size_step,margin_required,margin_pct,margin_leverage,margin_contract_size,
-            margin_price,is_report_path,oos_report_path,final_tick_report_path,full_history_report_path,
-            max_balance_dd_001,max_equity_dd_001,
-            floating_dd_source,standalone_floating_dd,recent_net_profit_001,recent_equity_dd_001,
-            has_recent_performance
-        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            portfolio_id, variant_key, variant_label, allocation.set_id, allocation.candidate_id,
-            allocation.symbol, allocation.units, allocation.lot, allocation.net_profit_contribution,
-            allocation.standalone_valley_dd, allocation.standalone_point_dd,
-            allocation.set_path or allocation.set_id, allocation.timeframe or "", allocation.lot_size_step,
-            allocation.margin_required, allocation.margin_pct, allocation.margin_leverage,
-            allocation.margin_contract_size, allocation.margin_price,
-            allocation.is_report_path, allocation.oos_report_path,
-            allocation.final_tick_report_path,
-            allocation.full_history_report_path,
-            allocation.max_balance_dd_001, allocation.max_equity_dd_001,
-            allocation.floating_dd_source, allocation.standalone_floating_dd,
-            allocation.recent_net_profit_001, allocation.recent_equity_dd_001,
-            int(allocation.has_recent_performance),
-        ),
-    )
-    candidate_text = str(allocation.candidate_id)
-    candidate_suffix = candidate_text.rsplit(":", 1)[-1]
-    candidate_value = int(candidate_suffix) if candidate_suffix.isdigit() else None
-    conn.execute(
-        """
-        insert into portfolio_members (
-            portfolio_id,variant_key,variant_label,candidate_id,set_path,symbol,period,
-            lot_multiplier,lot,lot_size_step,standalone_dd,quality_score,combined_net_profit,
-            is_report_path,oos_report_path
-        ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            portfolio_id, variant_key, variant_label, candidate_value,
-            allocation.set_path or allocation.set_id, allocation.symbol, allocation.timeframe or "",
-            allocation.units, allocation.lot, allocation.lot_size_step, allocation.standalone_valley_dd,
-            0.0, allocation.net_profit_contribution, allocation.is_report_path, allocation.oos_report_path,
-        ),
-    )
-
-
-def _insert_decisions(
-    conn: sqlite3.Connection,
-    portfolio_id: int,
-    result: PortfolioResult,
-    prefix: str = "",
-) -> None:
-    def finite(value: Any) -> float:
-        parsed = safe_float(value, 0.0)
-        return parsed if math.isfinite(parsed) else 0.0
-
-    for decision in result.decision_log:
-        reason = f"{prefix}: {decision.reason}" if prefix else decision.reason
-        conn.execute(
-            """
-            insert into portfolio_decision_log (
-                portfolio_id,step,action,set_id,from_set_id,to_set_id,gain,valley_cost,point_cost,
-                score,portfolio_net_profit_after,portfolio_valley_dd_after,portfolio_point_dd_after,reason
-            ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                portfolio_id, decision.step, decision.action, decision.set_id,
-                decision.from_set_id, decision.to_set_id, finite(decision.gain),
-                finite(decision.valley_cost), finite(decision.point_cost), finite(decision.score),
-                finite(decision.portfolio_net_profit_after),
-                finite(decision.portfolio_valley_dd_after),
-                finite(decision.portfolio_point_dd_after), reason,
-            ),
-        )
 
 
 def _exported_candidate_ids(portable: list[dict[str, Any]]) -> set[str]:
@@ -4121,126 +4021,6 @@ def _imported_target_month(header: dict[str, Any]) -> int | None:
         return None
     month = int(match.group(1))
     return month if 1 <= month <= 12 else None
-
-
-def save_proposal(
-    source: PortfolioSource,
-    proposals: list[dict[str, Any]],
-    selected_key: str,
-    scope: str,
-) -> int:
-    scope = normalize_portfolio_scope(scope)
-    selected = next((proposal for proposal in proposals if str(proposal["key"]) == selected_key), None)
-    if selected is None:
-        raise ValueError("La propuesta seleccionada ya no está disponible")
-    selected_result: PortfolioResult = selected["result"]
-    selected_inputs: dict[str, Any] = selected["inputs"]
-    if not selected_result.allocations:
-        raise ValueError("La propuesta no tiene asignaciones")
-    if scope == "monthly" and selected_inputs.get("strict_yearly_month_validation") and not selected_result.seasonal_validation.get("passed"):
-        raise ValueError("La propuesta mensual no pasó la validación estricta")
-    created_at = datetime.now().isoformat(timespec="seconds")
-    target_month = int(selected_inputs.get("target_month") or 0) or None
-    standalone_improvement = (
-        scope == "full_history" and len(proposals) == 1
-        and int(selected_inputs.get("improvement_source_portfolio_id") or 0) > 0
-    )
-    bundle = scope in {"full_history", "grid"} and not standalone_improvement
-    if bundle:
-        common = [allocation.set_id for allocation in selected_result.allocations if allocation.units > 0]
-        common_set = set(common)
-        if scope == "full_history" and any({allocation.set_id for allocation in proposal["result"].allocations if allocation.units > 0} != common_set for proposal in proposals):
-            raise ValueError("Las variantes A/M/C no comparten la misma composición")
-        variants: dict[str, Any] = {}
-        for proposal in proposals:
-            result: PortfolioResult = proposal["result"]
-            payload = _result_metrics(proposal["inputs"], result)
-            payload.update({
-                "label": proposal["label"],
-                "summary": result_payload(result),
-                "allocations": [asdict(allocation) for allocation in result.allocations],
-            })
-            variants[str(proposal["key"])] = payload
-        metrics = _result_metrics(selected_inputs, selected_result)
-        metrics.update({
-            "portfolio_bundle": True,
-            "bundle_display": "Grid A/M/C" if scope == "grid" else "A/M/C",
-            "selected_variant": selected_key,
-            "variant_order": [str(proposal["key"]) for proposal in proposals],
-            "variants": variants,
-            "common_set_ids": common if scope == "full_history" else [],
-            "variant_set_ids": {
-                str(proposal["key"]): [
-                    allocation.set_id for allocation in proposal["result"].allocations
-                    if allocation.units > 0
-                ]
-                for proposal in proposals
-            },
-        })
-        if scope == "grid":
-            metrics["grid_portfolio"] = True
-            row_type = "grid_bundle"
-            name = f"Grid A/M/C | {datetime.now():%d.%m.%Y %H:%M}"
-        else:
-            row_type = "bundle"
-            name = f"A/M/C | Base {TYPE_LABELS.get(str(selected_inputs.get('composition_portfolio_type')), 'Moderado')} | {len(common)} sets | {datetime.now():%d.%m.%Y %H:%M}"
-    elif standalone_improvement:
-        metrics = _result_metrics(selected_inputs, selected_result)
-        row_type = str(selected_inputs["portfolio_type"])
-        name = str(selected_inputs.get("improvement_label") or "").strip() or f"Mejora de #{int(selected_inputs['improvement_source_portfolio_id'])} | {TYPE_LABELS[row_type]} | {datetime.now():%d.%m.%Y %H:%M}"
-    elif scope == "monthly":
-        metrics = _result_metrics(selected_inputs, selected_result)
-        row_type = str(selected_inputs["portfolio_type"])
-        name = f"{TYPE_LABELS.get(row_type, row_type)} | Mes {target_month:02d} | {selected_result.active_strategies} estrategias | {datetime.now():%d.%m.%Y %H:%M}"
-    else:
-        metrics = _result_metrics(selected_inputs, selected_result)
-        metrics["grid_portfolio"] = True
-        row_type = str(selected_inputs["portfolio_type"])
-        name = (
-            f"Grid {TYPE_LABELS.get(row_type, row_type)} | "
-            f"{selected_result.active_strategies} estrategias | {datetime.now():%d.%m.%Y %H:%M}"
-        )
-    active_symbols = len({portfolio_symbol_key(allocation.symbol) for allocation in selected_result.allocations if allocation.units > 0})
-    with source.connect(write=True) as conn:
-        try:
-            cur = conn.execute(
-                """
-                insert into portfolios (
-                    created_at,name,type,portfolio_type,num_symbols,account_capital,capital,
-                    target_valley_dd_pct,target_point_dd_pct,target_valley_dd,target_point_dd,
-                    actual_valley_dd,actual_point_dd,valley_usage_pct,point_usage_pct,total_net_profit,
-                    actual_closed_valley_dd,floating_dd_buffer,
-                    total_lot,total_units,active_strategies,target_strategies,stop_reason,binding_constraint,
-                    portfolio_scope,target_month,metrics_json
-                ) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    created_at, name, row_type, row_type, active_symbols, float(selected_inputs["capital"]),
-                    float(selected_inputs["capital"]), float(selected_inputs["valley_dd_pct"]),
-                    float(selected_inputs["point_dd_pct"]), selected_result.target_valley_dd,
-                    selected_result.target_point_dd, selected_result.actual_valley_dd,
-                    selected_result.actual_point_dd, selected_result.valley_usage_pct,
-                    selected_result.point_usage_pct, selected_result.total_net_profit,
-                    selected_result.actual_closed_valley_dd, selected_result.floating_dd_buffer,
-                    selected_result.total_lot, selected_result.total_units, selected_result.active_strategies,
-                    selected_result.active_strategies, selected_result.stop_reason,
-                    "valley", scope, target_month, json.dumps(metrics, ensure_ascii=True),
-                ),
-            )
-            portfolio_id = int(cur.lastrowid)
-            rows_to_save = proposals if bundle else [selected]
-            for proposal in rows_to_save:
-                result = proposal["result"]
-                key = str(proposal["key"]) if bundle else ""
-                label = str(proposal["label"]) if bundle else ""
-                for allocation in result.allocations:
-                    _insert_allocation(conn, portfolio_id, allocation, key, label)
-                _insert_decisions(conn, portfolio_id, result, label)
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-    return portfolio_id
 
 
 def _proposal_metrics(

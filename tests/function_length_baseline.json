@@ -60,8 +60,6 @@
     "mt5_manager/portfolio_service.py::_optimize_without_recent_fillers": 92,
     "mt5_manager/portfolio_service.py::_with_executable_valley_floor": 64,
     "mt5_manager/portfolio_service.py::build_import_proposals": 118,
-    "mt5_manager/portfolio_service.py::generate_completion_proposal": 125,
-    "mt5_manager/portfolio_service.py::save_proposal": 118,
     "portfolio_manager/grid_portfolio.py::_prune_to_grid_valley": 98,
     "portfolio_manager/grid_portfolio.py::optimize_grid_portfolio": 244,
     "portfolio_manager/mt5_report.py::_build_trades": 81,
