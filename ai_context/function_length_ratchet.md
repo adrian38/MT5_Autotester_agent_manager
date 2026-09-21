@@ -197,6 +197,13 @@ normalización y persistencia. Ocho casos de normalización y una secuencia de
 guardado con contraseñas vacías coinciden contra `HEAD`; salen del trinquete
 las tres funciones perdonadas y el fichero original.
 
+El motor aislado de Experimenta se apila en `experiment_lab_models` →
+`experiment_lab_simulation` → `experiment_lab_search` →
+`experiment_lab_results`; `experiment_lab.py` conserva todos los imports
+históricos. Las quince definiciones no modificadas mantienen AST idéntico, y
+pool, simulación, búsqueda, progreso, veredicto y payload coinciden contra
+`HEAD`. Salen las cinco funciones perdonadas y el fichero de 831 líneas.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
