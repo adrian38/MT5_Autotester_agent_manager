@@ -294,7 +294,7 @@ class ImprovementWireTests(unittest.TestCase):
                 {"key": "balanced"},
             ]
             with mock.patch(
-                "mt5_manager.portfolio_service.serialize_portfolio_proposals",
+                "mt5_manager.portfolio_coordinator_saved.serialize_portfolio_proposals",
                 return_value=[{"serialized": True}],
             ):
                 payload = coordinator.prepare_save(

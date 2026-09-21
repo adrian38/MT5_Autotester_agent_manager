@@ -2446,7 +2446,7 @@ class IncompleteBundleTests(unittest.TestCase):
             coordinator.proposals[key] = [{"key": "balanced", "label": "Equilibrada",
                                            "reserve_pct": 15, "inputs": {}, "result": None}]
 
-            with patch("mt5_manager.portfolio_service.serialize_portfolio_proposals", return_value=[]):
+            with patch("mt5_manager.portfolio_coordinator_saved.serialize_portfolio_proposals", return_value=[]):
                 payload = coordinator.prepare_save("ic", "monthly", "balanced")
 
             self.assertEqual(payload["selected_key"], "balanced")

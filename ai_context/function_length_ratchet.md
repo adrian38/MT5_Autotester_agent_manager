@@ -103,6 +103,13 @@ filesystem movidos literalmente; `PortfolioSource` queda como composición
 pública de mixins y la fachada baja a 1.372 líneas. Las anclas de paridad leen
 también este módulo porque contiene reglas de acceso a la memoria del agente.
 
+La composición pública de esos mixins vive en `portfolio_source.py`, y las
+operaciones coordinadas de guardado, exclusión, reclasificación y borrado viven
+en `PortfolioCoordinatorSavedMixin`. Son diecinueve métodos literales; la
+fachada baja a 929 líneas. Los tests que sustituyen la serialización deben
+parchear `portfolio_coordinator_saved.serialize_portfolio_proposals`, que es el
+consumidor real tras la extracción.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
