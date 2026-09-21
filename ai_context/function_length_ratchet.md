@@ -86,6 +86,11 @@ ZIPs y exportacion; siete metodos identicos y la fachada baja a 2.862 lineas.
 La clase publica hereda del mixin, por lo que los llamantes siguen construyendo
 `PortfolioSource` desde `portfolio_service`.
 
+`PortfolioSourceSavedMixin` contiene las lecturas de carteras guardadas,
+versiones, undo, borrado y exclusión de miembros. Son dieciseis métodos
+idénticos; la fachada baja a 2.392 líneas. Las anclas textuales de paridad deben
+leer también este módulo porque aquí viven ahora las dos reglas de cuarentena.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
