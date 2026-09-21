@@ -136,7 +136,8 @@ como en `ubs_portfolio`, **el orden es el de dependencia**:
 `portfolio_persistence` → `portfolio_valley_floor` → `portfolio_antifiller` →
 `portfolio_generation_search` → `portfolio_generation` →
 `portfolio_completion` → `portfolio_proposals` → `portfolio_saved` →
-`portfolio_source_inventory` → `portfolio_source_quarantine` →
+`portfolio_source_connection` → `portfolio_source_inventory` →
+`portfolio_source_quarantine` →
 `portfolio_source_saved` → `portfolio_source_reports` →
 `portfolio_import_match` → `portfolio_import_build` → `portfolio_service`
 

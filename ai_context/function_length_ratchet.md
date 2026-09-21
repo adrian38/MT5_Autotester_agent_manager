@@ -97,6 +97,12 @@ definiciones y métodos literales; `PortfolioSource` conserva la MRO pública y
 la fachada baja a 1.656 líneas. La guarda de paridad sigue también el mixin de
 cuarentena, propietario de las reglas que comparte con el nodo bifurcado.
 
+Conexión, snapshots remotos y notificaciones viven en
+`PortfolioSourceConnectionMixin`. Son diez métodos y el helper de detección de
+filesystem movidos literalmente; `PortfolioSource` queda como composición
+pública de mixins y la fachada baja a 1.372 líneas. Las anclas de paridad leen
+también este módulo porque contiene reglas de acceso a la memoria del agente.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y

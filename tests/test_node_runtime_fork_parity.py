@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 
 MANAGER_ROOT = Path(__file__).parents[1]
-MANAGER_RULES = tuple(MANAGER_ROOT / "mt5_manager" / name for name in ("portfolio_service.py", "portfolio_proposals.py", "portfolio_source_saved.py", "portfolio_source_quarantine.py"))
+MANAGER_RULES = tuple(MANAGER_ROOT / "mt5_manager" / name for name in ("portfolio_service.py", "portfolio_proposals.py", "portfolio_source_connection.py", "portfolio_source_saved.py", "portfolio_source_quarantine.py"))
 
 # Copias conocidas, en el orden de `ai_context/node_runtime_is_forked_per_agent.md`.
 # La primera es el nodo de ICTrading de este equipo, único destino que el
