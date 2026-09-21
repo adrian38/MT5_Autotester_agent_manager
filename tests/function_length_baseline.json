@@ -31,7 +31,6 @@
     "mt5_manager/node.py::pipeline_stage_pending_count": 126,
     "mt5_manager/portfolio_full_experimental.py::_refined_without_recent_fillers": 77,
     "mt5_manager/portfolio_full_experimental.py::_segment_stability_audit": 118,
-    "mt5_manager/portfolio_full_experimental.py::optimize_experimental_full_portfolio": 258,
     "mt5_manager/portfolio_grid_service.py::generate_grid_proposals": 192,
     "mt5_manager/portfolio_import.py::parse_summary": 67,
     "mt5_manager/portfolio_improvement_chain_service.py::_attach_stress_comparison": 65,

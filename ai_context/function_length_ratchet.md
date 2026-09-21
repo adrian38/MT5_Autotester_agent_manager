@@ -176,6 +176,14 @@ separa AXI del resto; `portfolio_margin_summary` separa medición y
 serialización. Cuatro perfiles y resúmenes vacío/poblado coinciden campo a
 campo contra `HEAD`; los trinquetes bajan dos funciones y un fichero.
 
+El torneo de `portfolio_full_experimental.py` vive en
+`portfolio_full_experimental_search.py` y se divide en estado, ronda,
+clasificación, final, antirrelleno y auditoría. La fachada conserva como
+referencias dinámicas `filter_eligible_sets`, `_optimize_exact_pool` y
+`_refined_without_recent_fillers`: son los consumidores históricos que los
+tests parchean. Resultado, llamadas y progreso de un torneo de 35 candidatos,
+y el error de pool vacío, coinciden contra `HEAD`.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
