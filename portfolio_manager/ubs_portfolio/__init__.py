@@ -83,16 +83,20 @@ from .execution import (
     _build_unused_sets, _execution_plan_allocations, _repair_executable_allocations, apply_portfolio_lot_text,
     set_current_value,
 )
-from .greedy import (
-    _DeepScan, _IncrementRules, _StepScan, _active_unit_allocations,
-    _added_unit_decision, _best_deep_move, _best_swap, _caps_allow,
-    _consider_increment, _deep_add_move, _deep_decision, _deep_gain,
-    _deep_refine_allocations, _deep_swap_move, _greedy_start, _greedy_stop_reason,
-    _keep_best_candidate, _note_dd_block, _perturb_decision, _perturbation_move,
-    _perturbed_trial, _portfolio_corr_allows, _portfolio_corr_rejects, _repair_reduction,
-    _run_greedy_steps, _scan_step, _slot_allows_increment, _swap_candidate,
-    _swap_decision, _swap_respects_caps, _swap_respects_correlation, build_portfolio_greedy,
-    improve_with_local_search, improve_with_multi_start_search,
+from .greedy_increment import (
+    _IncrementRules, _StepScan, _added_unit_decision, _caps_allow,
+    _consider_increment, _greedy_start, _greedy_stop_reason, _keep_best_candidate,
+    _note_dd_block, _portfolio_corr_rejects, _repair_reduction, _run_greedy_steps,
+    _scan_step, _slot_allows_increment, build_portfolio_greedy,
+)
+from .greedy_swap import (
+    _best_swap, _perturb_decision, _perturbation_move, _perturbed_trial,
+    _portfolio_corr_allows, _swap_candidate, _swap_decision, _swap_respects_caps,
+    _swap_respects_correlation, improve_with_local_search, improve_with_multi_start_search,
+)
+from .greedy_deep import (
+    _DeepScan, _active_unit_allocations, _best_deep_move, _deep_add_move,
+    _deep_decision, _deep_gain, _deep_refine_allocations, _deep_swap_move,
 )
 from .optimize_search import (
     _CandidatePool, _DeepRefinement, _PassContext, _SearchPass,

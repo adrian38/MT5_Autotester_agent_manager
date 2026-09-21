@@ -1,7 +1,7 @@
 """El paquete ubs_portfolio es una pila: cada modulo solo usa los anteriores.
 
 Sin esta guarda el troceo se deshace en dos semanas: basta un import hacia
-arriba para volver a tener un solo bloque de 6.800 lineas repartido en veinte
+arriba para volver a tener un solo bloque de 6.800 lineas repartido en veintitres
 ficheros, con ciclos de importacion de regalo.
 """
 from __future__ import annotations
@@ -15,7 +15,8 @@ PACKAGE = Path(__file__).resolve().parents[1] / "portfolio_manager" / "ubs_portf
 #: De abajo a arriba. Un modulo solo puede importar de los que tiene encima.
 ORDER = [
     "symbols", "models", "rows", "curves", "monthly_validation", "reports", "selection",
-    "evaluation", "margin", "limits", "constraints", "execution", "greedy",
+    "evaluation", "margin", "limits", "constraints", "execution",
+    "greedy_increment", "greedy_swap", "greedy_deep", "greedy",
     "optimize_search", "optimize_results", "optimize_flow", "optimize",
     "strict_monthly_candidates", "strict_monthly_refinement",
     "strict_monthly",

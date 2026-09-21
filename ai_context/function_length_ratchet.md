@@ -163,6 +163,12 @@ Las 40 definiciones movidas conservan AST idéntico. Como cada módulo añade do
 líneas de envoltorio al `__init__` generado, `sync_ubs_exports` agrupa cuatro
 nombres por fila; así la fachada baja a unas 400 líneas sin omitir reexports.
 
+`ubs_portfolio/greedy.py` queda como fachada de tres capas literales:
+`greedy_increment`, `greedy_swap` y `greedy_deep`. Las 34 definiciones
+conservan AST idéntico contra `HEAD`. El generador omite bloques de importación
+vacíos, porque una fachada que sólo reexporta no define nombres propios y
+`from modulo import ()` no es sintaxis Python válida.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
