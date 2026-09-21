@@ -56,7 +56,6 @@
     "tests/test_live_audit_engine.py::LiveAuditEngineTests.test_real_history_waits_for_sync_and_recovers_open_before_period": 71,
     "tests/test_live_audit_engine.py::LiveAuditEngineTests.test_the_terminal_is_left_on_the_configured_restore_account_and_the_result_proves_it": 69,
     "tests/test_node.py::NodeTests.setUp": 61,
-    "tests/test_node_runtime_fork_parity.py::NodeRuntimeForkParityTests.test_the_auditor_leaves_the_configured_account_on_every_ported_fork": 79,
     "tests/test_portfolio_full_experimental.py::ExperimentalFullSearchTests.test_locked_bundle_uses_experimental_only_for_base_selection": 72,
     "tests/test_portfolio_full_experimental.py::ExperimentalFullSearchTests.test_tournament_examines_every_candidate_and_records_audit": 62,
     "tests/test_portfolio_full_experimental.py::ExperimentalRecentContributionTests.test_the_tournament_record_survives_a_survivor_rerun": 83,

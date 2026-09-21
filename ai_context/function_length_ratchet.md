@@ -204,6 +204,12 @@ históricos. Las quince definiciones no modificadas mantienen AST idéntico, y
 pool, simulación, búsqueda, progreso, veredicto y payload coinciden contra
 `HEAD`. Salen las cinco funciones perdonadas y el fichero de 831 líneas.
 
+La guarda de paridad del runtime bifurcado separa su base reutilizable y los
+casos de ciclo de vida/auditor en dos módulos de prueba. Veintiún métodos
+conservan AST idéntico; el único test largo separa literalmente el contrato del
+manager y la comprobación por fork. Siguen descubriéndose los 18 tests, y salen
+del baseline tanto el fichero de 705 líneas como ese método de 79.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
