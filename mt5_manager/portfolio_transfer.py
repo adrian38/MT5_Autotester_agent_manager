@@ -18,6 +18,7 @@ from .common import safe_int
 from .portfolio_identity import (
     IMPROVEMENT_PRIORITY_LABELS,
     TYPE_LABELS,
+    _normalize_memory_row,
     _normalized_improvement_lineage,
     _portable_portfolio_uid,
     _resolve_source_path,
@@ -95,23 +96,7 @@ def _imported_candidate(item: dict[str, Any], project: Path, memory: Path) -> di
         if historical_report:
             item["oos_report_path"] = historical_report
             item["historical_robustness_report_recovered"] = True
-    final_tick_metrics = item.pop("final_tick_metrics_json", None)
-    if final_tick_metrics:
-        try:
-            executable_symbol = str(
-                (json.loads(final_tick_metrics) or {}).get("symbol") or ""
-            ).strip()
-        except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
-            executable_symbol = ""
-        if executable_symbol:
-            item["executable_symbol"] = executable_symbol
-    item["source_memory_path"] = str(memory)
-    for key in (
-        "set_path", "is_report_path", "oos_report_path", "full_history_report_path",
-        "final_ohlc_report_path", "final_tick_report_path",
-    ):
-        item[key] = _resolve_source_path(item.get(key), project)
-    return item
+    return _normalize_memory_row(item, memory, project)
 
 def _export_folder(detail: dict[str, Any], portfolio_id: int, destination: str | None, project: Path) -> Path:
     """La carpeta de destino, ya creada y ya autorizada."""

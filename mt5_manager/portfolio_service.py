@@ -84,6 +84,7 @@ from .portfolio_identity import (  # noqa: F401
     PORTFOLIO_TYPES,
     TYPE_LABELS,
     _is_bundle_portfolio,
+    _normalize_memory_row,
     _normalized_improvement_lineage,
     _portable_portfolio_uid,
     _resolve_source_path,
@@ -95,6 +96,15 @@ from .portfolio_antifiller import (  # noqa: F401
     STANDARD_ANTIFILLER_REFILL_PASSES,
     _optimize_without_recent_fillers,
     _underrepresented_recent_allocation_ids,
+)
+from .portfolio_valley_floor import (  # noqa: F401
+    MAX_VALLEY_FLOOR_ATTEMPTS,
+    _adjusted_valley_pcts,
+    _proposals_are_empty,
+    _with_executable_valley_floor,
+    describe_eligibility,
+    eligibility_counts,
+    strategy_unit_risk,
 )
 from .portfolio_saved import (  # noqa: F401
     SAVED_INPUT_FALLBACKS,
@@ -137,6 +147,7 @@ from .portfolio_settings import (  # noqa: F401
     normalize_settings,
 )
 from .portfolio_transfer import (  # noqa: F401
+    _sql_when,
     _copy_exported_sets,
     _export_folder,
     _export_summary_lines,
@@ -325,6 +336,62 @@ def _quarantined_set_row(
 ``metrics.inputs``. No son los defaults del formulario: `COMMON_DEFAULTS` puede
 cambiar con el producto y esto tiene que seguir describiendo el calculo de
 entonces."""
+
+
+def _accepted_candidate_sql(conn: sqlite3.Connection) -> str | None:
+    """El pool elegible: las cuatro etapas aceptadas, o ``None`` si no aplica.
+
+    Elegibilidad = haber superado el Final Tick 6M. El estado del final tick
+    corto se acepta tambien como 'pending_ohlc_trades': es terminal para esa
+    etapa (la probe OHLC de 1 mes no genero operaciones, no es un rechazo de la
+    estrategia) y el propio pipeline lo trata como paso valido hacia 6M
+    (node.py: probe_ft.status in ('accepted','pending_ohlc_trades')). Exigir
+    'accepted' aqui dejaba fuera candidatos ya aceptados en 6M junto con sus
+    simbolos completos. Esas filas llegan sin full_history_report_path, que es
+    opcional en ubs_portfolio (require_full_history nunca se activa desde el
+    manager): entran apoyadas en IS + OOS + 6M, sin el tramo continuo.
+    """
+    candidate_tables = {
+        "candidates", "candidate_robustness",
+        "candidate_final_tick", "candidate_final_tick_6m",
+    }
+    if not all(_table_exists(conn, table) for table in candidate_tables):
+        # A manager-owned Grid memory stores portfolios only. It is
+        # intentionally part of memory_sources for used-set and correlation
+        # lookups, never as a candidate source.
+        return None
+    final_tick_metrics_sql = _sql_when(
+        _has_column(conn, "candidate_final_tick_6m", "real_tick_metrics_json"),
+        "ft6.real_tick_metrics_json",
+        "null",
+    )
+    return f"""
+        select ? as account_type, ? || ':' || c.id as candidate_id,
+               c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
+               c.period, c.family, c.report_path as is_report_path,
+               cr.report_path as oos_report_path,
+               ft.real_tick_report_path as full_history_report_path,
+               ft6.ohlc_report_path as final_ohlc_report_path,
+               ft6.real_tick_report_path as final_tick_report_path,
+               ft6.from_date as final_tick_from_date, ft6.to_date as final_tick_to_date,
+               {final_tick_metrics_sql} as final_tick_metrics_json
+        from candidates c join candidate_robustness cr on cr.candidate_id=c.id
+        join candidate_final_tick ft on ft.candidate_id=c.id
+        join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id
+        where c.status='accepted' and cr.status='accepted'
+        and ft.status in ('accepted','pending_ohlc_trades')
+        and ft6.status='accepted'
+        order by c.id
+        """
+
+
+@dataclass(frozen=True)
+class _InventoryKeys:
+    """Claves de ruta y de simbolo que restan disponibilidad en el inventario."""
+
+    quarantined: set[str]
+    used: set[str]
+    disabled: set[str]
 
 
 class PortfolioSource:
@@ -558,85 +625,33 @@ class PortfolioSource:
                 REMOTE_SNAPSHOT_LOCK.release()
 
     def candidate_rows(self, *, include_quarantined: bool) -> list[dict[str, Any]]:
-        # Elegibilidad = haber superado el Final Tick 6M. El estado del final tick
-        # corto se acepta tambien como 'pending_ohlc_trades': es terminal para esa
-        # etapa (la probe OHLC de 1 mes no genero operaciones, no es un rechazo de
-        # la estrategia) y el propio pipeline lo trata como paso valido hacia 6M
-        # (node.py: probe_ft.status in ('accepted','pending_ohlc_trades')). Exigir
-        # 'accepted' aqui dejaba fuera candidatos ya aceptados en 6M junto con sus
-        # simbolos completos. Esas filas llegan sin full_history_report_path, que
-        # es opcional en ubs_portfolio (require_full_history nunca se activa desde
-        # el manager): entran apoyadas en IS + OOS + 6M, sin el tramo continuo.
         result: list[dict[str, Any]] = []
         for account_label, memory in self.memory_sources:
             with self.connect_memory(memory) as conn:
-                candidate_tables = {
-                    "candidates", "candidate_robustness",
-                    "candidate_final_tick", "candidate_final_tick_6m",
-                }
-                if not all(_table_exists(conn, table) for table in candidate_tables):
-                    # A manager-owned Grid memory stores portfolios only. It is
-                    # intentionally part of memory_sources for used-set and
-                    # correlation lookups, never as a candidate source.
+                sql = _accepted_candidate_sql(conn)
+                if sql is None:
                     continue
-                final_tick_metrics_sql = (
-                    "ft6.real_tick_metrics_json"
-                    if _has_column(conn, "candidate_final_tick_6m", "real_tick_metrics_json")
-                    else "null"
-                )
-                rows = conn.execute(
-                    f"""
-                    select ? as account_type, ? || ':' || c.id as candidate_id,
-                           c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
-                           c.period, c.family, c.report_path as is_report_path,
-                           cr.report_path as oos_report_path,
-                           ft.real_tick_report_path as full_history_report_path,
-                           ft6.ohlc_report_path as final_ohlc_report_path,
-                           ft6.real_tick_report_path as final_tick_report_path,
-                           ft6.from_date as final_tick_from_date, ft6.to_date as final_tick_to_date,
-                           {final_tick_metrics_sql} as final_tick_metrics_json
-                    from candidates c join candidate_robustness cr on cr.candidate_id=c.id
-                    join candidate_final_tick ft on ft.candidate_id=c.id
-                    join candidate_final_tick_6m ft6 on ft6.candidate_id=c.id
-                    where c.status='accepted' and cr.status='accepted'
-                    and ft.status in ('accepted','pending_ohlc_trades')
-                    and ft6.status='accepted'
-                    order by c.id
-                    """, (account_label, account_label),
-                ).fetchall()
-            for db_row in rows:
-                item = dict(db_row)
-                final_tick_metrics = item.pop("final_tick_metrics_json", None)
-                if final_tick_metrics:
-                    try:
-                        executable_symbol = str(
-                            (json.loads(final_tick_metrics) or {}).get("symbol") or ""
-                        ).strip()
-                    except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
-                        executable_symbol = ""
-                    if executable_symbol:
-                        # This is the symbol that MT5 actually executed after the
-                        # agent applied its temporary broker map and suffixes.
-                        item["executable_symbol"] = executable_symbol
-                item["source_memory_path"] = str(memory)
-                result.append(item)
-        for row in result:
-            for key in (
-                "set_path", "is_report_path", "oos_report_path", "full_history_report_path",
-                "final_ohlc_report_path", "final_tick_report_path",
-            ):
-                row[key] = _resolve_source_path(row.get(key), self.project)
-        if not include_quarantined:
-            # The quarantine table stores the *resolved* set_path, while
-            # candidates.set_path is the raw value produced on the originating
-            # Windows node (its drive letter, its separators). Comparing them in
-            # SQL never matched, so excluded strategies silently reappeared in
-            # every new generation. Filter in Python with the same key
-            # normalisation that inventory() uses so exclusions actually hold.
-            quarantined = {self._path_key(row.get("set_path")) for row in self.quarantine_rows()}
-            if quarantined:
-                result = [row for row in result if self._path_key(row.get("set_path")) not in quarantined]
-        return result
+                rows = conn.execute(sql, (account_label, account_label)).fetchall()
+            result.extend(
+                _normalize_memory_row(dict(db_row), memory, self.project) for db_row in rows
+            )
+        if include_quarantined:
+            return result
+        return self._without_quarantined(result)
+
+    def _without_quarantined(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Quita las estrategias en cuarentena comparando por clave de ruta.
+
+        La tabla de cuarentena guarda el set_path *resuelto*, mientras que
+        candidates.set_path trae el valor crudo del nodo Windows que lo genero
+        (su letra de unidad, sus separadores). Compararlos en SQL no casaba
+        nunca, asi que las estrategias excluidas reaparecian en cada generacion.
+        Se filtra en Python con la misma normalizacion que usa `inventory`.
+        """
+        quarantined = {self._path_key(row.get("set_path")) for row in self.quarantine_rows()}
+        if not quarantined:
+            return rows
+        return [row for row in rows if self._path_key(row.get("set_path")) not in quarantined]
 
     def import_candidate_rows(
         self,
@@ -729,34 +744,31 @@ class PortfolioSource:
                 result.append(item)
         return sorted(result, key=lambda item: (str(item.get("quarantined_at") or ""), int(item.get("id") or 0)), reverse=True)
 
-    def inventory(self, scope: str, settings: dict[str, Any]) -> dict[str, Any]:
-        monthly = scope == "monthly"
-        rows = self.candidate_rows(include_quarantined=True)
-        allowed = set(settings.get("allowed_asset_groups") or ASSET_GROUPS)
-        rows = [
-            row for row in rows
-            if portfolio_group_key(
-                str(row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""),
-                universe_files=[self.universe],
-            ) in allowed
-        ]
-        warnings: list[str] = []
-        if settings.get("grid_off"):
-            rows, warnings = filter_rows_grid_off(rows)
-        quarantine = self.quarantine_rows()
-        quarantined = {self._path_key(row.get("set_path")) for row in quarantine}
+    def _inventory_keys(
+        self, monthly: bool, settings: dict[str, Any], quarantine: list[dict[str, Any]],
+    ) -> _InventoryKeys:
+        """Las tres razones por las que un set no cuenta como disponible."""
         used_paths: list[str] = []
         if monthly and settings.get("exclude_monthly_used"):
             used_paths = self.used_set_paths("monthly")
         elif not monthly and settings.get("exclude_used_sets", True):
             used_paths = self.used_set_paths("full_history")
-        used = {self._path_key(path) for path in used_paths}
-        disabled_keys = {
-            portfolio_symbol_key(
-                portfolio_display_symbol(str(symbol), universe_files=[self.universe])
-            )
-            for symbol in settings.get("disabled_symbols") or []
-        } if not monthly else set()
+        return _InventoryKeys(
+            quarantined={self._path_key(row.get("set_path")) for row in quarantine},
+            used={self._path_key(path) for path in used_paths},
+            # El control de simbolos deshabilitados pertenece solo a UBS normal.
+            disabled={
+                portfolio_symbol_key(
+                    portfolio_display_symbol(str(symbol), universe_files=[self.universe])
+                )
+                for symbol in settings.get("disabled_symbols") or []
+            } if not monthly else set(),
+        )
+
+    def _symbol_inventory_counts(
+        self, rows: list[dict[str, Any]], keys: _InventoryKeys, monthly: bool,
+    ) -> list[dict[str, Any]]:
+        """Por simbolo visible: cuantos hay, cuantos estorban y cuantos quedan."""
         by_symbol: dict[str, dict[str, Any]] = {}
         for row in rows:
             symbol = portfolio_display_symbol(
@@ -770,19 +782,39 @@ class PortfolioSource:
                 "quarantined": 0,
                 "used": 0,
                 "available": 0,
-                **({"disabled": symbol_key in disabled_keys} if not monthly else {}),
+                **({"disabled": symbol_key in keys.disabled} if not monthly else {}),
             })
             counts["total"] += 1
             key = self._path_key(row.get("set_path"))
-            is_quarantined = key in quarantined
-            is_used = key in used
+            is_quarantined = key in keys.quarantined
+            is_used = key in keys.used
             if is_quarantined:
                 counts["quarantined"] += 1
             if is_used:
                 counts["used"] += 1
-            if not is_quarantined and not is_used and symbol_key not in disabled_keys:
+            if not is_quarantined and not is_used and symbol_key not in keys.disabled:
                 counts["available"] += 1
-        symbol_rows = sorted(by_symbol.values(), key=lambda item: str(item["symbol"]).upper())
+        return sorted(by_symbol.values(), key=lambda item: str(item["symbol"]).upper())
+
+    def inventory(self, scope: str, settings: dict[str, Any]) -> dict[str, Any]:
+        monthly = scope == "monthly"
+        allowed = set(settings.get("allowed_asset_groups") or ASSET_GROUPS)
+        # No se reutiliza `_inventory_visible_rows`: ese descarta los avisos de
+        # `filter_rows_grid_off` y aqui viajan en la respuesta.
+        rows = [
+            row for row in self.candidate_rows(include_quarantined=True)
+            if portfolio_group_key(
+                str(row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""),
+                universe_files=[self.universe],
+            ) in allowed
+        ]
+        warnings: list[str] = []
+        if settings.get("grid_off"):
+            rows, warnings = filter_rows_grid_off(rows)
+        quarantine = self.quarantine_rows()
+        symbol_rows = self._symbol_inventory_counts(
+            rows, self._inventory_keys(monthly, settings, quarantine), monthly
+        )
         return {
             "scope": "monthly" if monthly else "full_history",
             "total": sum(row["total"] for row in symbol_rows),
@@ -955,23 +987,12 @@ class PortfolioSource:
             "exported": len(exported), "sets": exported, "missing": missing,
         }
 
-    def exclude_strategy(self, payload: dict[str, Any], *, memory: Path | None = None) -> int:
-        """Quarantine a candidate.
+    def _candidate_to_exclude(self, requested: str) -> dict[str, Any]:
+        """La fila del candidato que se quiere excluir, o el motivo de no hallarla.
 
-        ``memory`` overrides where the quarantine row is written. By default it
-        lands in the memory that owns the candidate (the broker's), which is the
-        global UBS quarantine. The Grid scope passes its manager-owned database
-        instead, so a Grid exclusion is written where the Grid packages live.
-
-        ``reason_code`` decide además si la exclusión escribe un veredicto de
-        etapa en la memoria del candidato (`mt5_manager/candidate_verdict.py`).
-        El veredicto va siempre a la memoria que **posee** al candidato, aunque
-        la cuarentena se escriba en otra: en Grid la fila vive en la base del
-        manager, pero los estados, el score y los pesos son del agente.
+        Se acepta el nombre del fichero como respaldo solo si identifica a UNO:
+        con dos candidatos del mismo nombre, adivinar excluiria al que no es.
         """
-        requested = str(payload.get("set_path") or payload.get("set_id") or "").strip()
-        if not requested:
-            raise ValueError("Falta identificar el set que se quiere excluir")
         candidates = self.candidate_rows(include_quarantined=True)
         requested_key = self._path_key(_resolve_source_path(requested, self.project))
         matches = [row for row in candidates if self._path_key(row.get("set_path")) == requested_key]
@@ -981,25 +1002,37 @@ class PortfolioSource:
                 matches = by_name
         if not matches:
             raise ValueError("El set no pertenece a los candidatos Final Tick 6M accepted")
-        row = matches[0]
-        candidate_memory = Path(str(row.get("source_memory_path") or self.memory)).absolute()
-        source_memory = Path(memory or candidate_memory).absolute()
-        account_label = str(row.get("account_type") or f"{self.broker}/{self.account}")
-        reason_code = candidate_verdict.normalize_reason_code(payload.get("reason_code"))
-        candidate_id = row.get("source_candidate_id")
-        # El respaldo se lee ANTES de escribir nada y viaja con la cuarentena. Si
-        # el veredicto fallase despues, la fila ya guardada describe el estado
-        # actual y «Reintegrar» sigue siendo correcto.
-        restore_json = None
-        if reason_code != candidate_verdict.MANUAL:
-            # `write=True` aunque aqui solo se lea: es el unico modo de abrir el
-            # fichero real. Una lectura normal sobre una memoria remota devuelve
-            # la copia, que puede ir por detras, y el respaldo saldria de un
-            # estado que ya no es el que se va a rechazar.
-            with self.connect_memory(candidate_memory, write=True) as read_conn:
-                restore_json = candidate_verdict.dumps_snapshot(
-                    candidate_verdict.snapshot_candidate_stages(read_conn, candidate_id)
-                )
+        return matches[0]
+
+    def _stage_restore_snapshot(
+        self, candidate_memory: Path, candidate_id: Any, reason_code: str,
+    ) -> str | None:
+        """El respaldo de etapas que permitira reintegrar, leido antes de escribir.
+
+        Si el veredicto fallase despues, la fila de cuarentena ya guardada
+        describe el estado actual y «Reintegrar» sigue siendo correcto.
+        """
+        if reason_code == candidate_verdict.MANUAL:
+            return None
+        # `write=True` aunque aqui solo se lea: es el unico modo de abrir el
+        # fichero real. Una lectura normal sobre una memoria remota devuelve la
+        # copia, que puede ir por detras, y el respaldo saldria de un estado que
+        # ya no es el que se va a rechazar.
+        with self.connect_memory(candidate_memory, write=True) as read_conn:
+            return candidate_verdict.dumps_snapshot(
+                candidate_verdict.snapshot_candidate_stages(read_conn, candidate_id)
+            )
+
+    def _write_quarantine_row(
+        self,
+        source_memory: Path,
+        row: dict[str, Any],
+        account_label: str,
+        candidate_id: Any,
+        reason_code: str,
+        payload: dict[str, Any],
+        restore_json: str | None,
+    ) -> Any:
         with self.connect_memory(source_memory, write=True) as conn:
             candidate_verdict.ensure_quarantine_schema(conn)
             conn.execute(
@@ -1022,6 +1055,35 @@ class PortfolioSource:
             )
             saved = conn.execute("select id from portfolio_quarantine where set_path=?", (row.get("set_path"),)).fetchone()
             conn.commit()
+        return saved
+
+    def exclude_strategy(self, payload: dict[str, Any], *, memory: Path | None = None) -> int:
+        """Quarantine a candidate.
+
+        ``memory`` overrides where the quarantine row is written. By default it
+        lands in the memory that owns the candidate (the broker's), which is the
+        global UBS quarantine. The Grid scope passes its manager-owned database
+        instead, so a Grid exclusion is written where the Grid packages live.
+
+        ``reason_code`` decide además si la exclusión escribe un veredicto de
+        etapa en la memoria del candidato (`mt5_manager/candidate_verdict.py`).
+        El veredicto va siempre a la memoria que **posee** al candidato, aunque
+        la cuarentena se escriba en otra: en Grid la fila vive en la base del
+        manager, pero los estados, el score y los pesos son del agente.
+        """
+        requested = str(payload.get("set_path") or payload.get("set_id") or "").strip()
+        if not requested:
+            raise ValueError("Falta identificar el set que se quiere excluir")
+        row = self._candidate_to_exclude(requested)
+        candidate_memory = Path(str(row.get("source_memory_path") or self.memory)).absolute()
+        source_memory = Path(memory or candidate_memory).absolute()
+        account_label = str(row.get("account_type") or f"{self.broker}/{self.account}")
+        reason_code = candidate_verdict.normalize_reason_code(payload.get("reason_code"))
+        candidate_id = row.get("source_candidate_id")
+        restore_json = self._stage_restore_snapshot(candidate_memory, candidate_id, reason_code)
+        saved = self._write_quarantine_row(
+            source_memory, row, account_label, candidate_id, reason_code, payload, restore_json,
+        )
         self._apply_candidate_verdict(candidate_memory, candidate_id, reason_code)
         return int(saved[0])
 
@@ -1052,27 +1114,8 @@ class PortfolioSource:
             raise ValueError("Identificador de cuarentena inválido")
         return Path(memory).absolute(), quarantine_id
 
-    def requalify_strategy(self, quarantine_key: str | int, reason_code: str) -> str:
-        """Mueve una estrategia excluida entre los cuatro estados posibles.
-
-        Los tres motivos de exclusión y el pool son estados de una misma cosa, no
-        operaciones independientes: reclasificar es **deshacer el veredicto
-        actual y aplicar el nuevo**, nunca aplicar uno encima de otro. Sin
-        deshacer primero, pasar de degradación a OHLC guardaría como «estado
-        anterior» una memoria a la que ya le faltan Final Tick y 6M, y el
-        candidato no volvería nunca al pool.
-
-        No pasa por `candidate_rows`: un candidato con veredicto ya no está ahí.
-        Todo lo que hace falta está en la fila de cuarentena.
-
-        REGLA DUPLICADA: sobre una memoria que el manager ve por red o por un bind
-        mount, esto no se puede ejecutar aquí y `PortfolioCoordinator.requalify` lo
-        manda al nodo, que reimplementa el mismo orden en
-        `manager_node_runtime/portfolio_save.py::requalify_portfolio_member_payload`.
-        Cambiar el orden solo aquí no tiene efecto para esos nodos.
-        """
-        target = candidate_verdict.normalize_reason_code(reason_code) if str(reason_code) != "pool" else "pool"
-        memory, quarantine_id = self._quarantine_memory(quarantine_key)
+    def _quarantine_verdict_row(self, memory: Path, quarantine_id: int) -> tuple[Any, str]:
+        """La fila de cuarentena y el veredicto que tiene puesto ahora mismo."""
         with self.connect_memory(memory, write=True) as conn:
             if not _table_exists(conn, "portfolio_quarantine"):
                 raise ValueError("No existe la cuarentena")
@@ -1085,12 +1128,17 @@ class PortfolioSource:
                 raise ValueError("La estrategia excluida ya no existe")
             current = candidate_verdict.normalize_reason_code(row["reason_code"])
             conn.commit()
-        if target == current:
-            return current
-        candidate_memory = next(
-            (path for label, path in self.memory_sources if label == str(row["account_type"] or "")),
-            memory,
-        )
+        return row, current
+
+    def _reapply_candidate_verdict(
+        self, candidate_memory: Path, row: Any, target: str,
+    ) -> str | None:
+        """Deshace el veredicto vigente y aplica el nuevo, en ese orden.
+
+        Sin deshacer primero, el «estado anterior» que se guardaria seria una
+        memoria a la que ya le faltan Final Tick y 6M, y el candidato no volveria
+        nunca al pool.
+        """
         restore_json: str | None = None
         with self.connect_memory(candidate_memory, write=True) as conn:
             # 1. Deshacer el veredicto vigente, si lo hubiera.
@@ -1107,6 +1155,12 @@ class PortfolioSource:
                 restore_json = candidate_verdict.dumps_snapshot(snapshot)
                 candidate_verdict.apply_verdict(conn, row["candidate_id"], target)
             conn.commit()
+        return restore_json
+
+    def _store_requalified(
+        self, memory: Path, quarantine_id: int, target: str, row: Any, restore_json: str | None,
+    ) -> None:
+        """Borra la fila si vuelve al pool; si no, la reetiqueta."""
         with self.connect_memory(memory, write=True) as conn:
             if target == "pool":
                 conn.execute("delete from portfolio_quarantine where id=?", (quarantine_id,))
@@ -1123,6 +1177,34 @@ class PortfolioSource:
                     ),
                 )
             conn.commit()
+
+    def requalify_strategy(self, quarantine_key: str | int, reason_code: str) -> str:
+        """Mueve una estrategia excluida entre los cuatro estados posibles.
+
+        Los tres motivos de exclusión y el pool son estados de una misma cosa, no
+        operaciones independientes: reclasificar es **deshacer el veredicto
+        actual y aplicar el nuevo**, nunca aplicar uno encima de otro.
+
+        No pasa por `candidate_rows`: un candidato con veredicto ya no está ahí.
+        Todo lo que hace falta está en la fila de cuarentena.
+
+        REGLA DUPLICADA: sobre una memoria que el manager ve por red o por un bind
+        mount, esto no se puede ejecutar aquí y `PortfolioCoordinator.requalify` lo
+        manda al nodo, que reimplementa el mismo orden en
+        `manager_node_runtime/portfolio_save.py::requalify_portfolio_member_payload`.
+        Cambiar el orden solo aquí no tiene efecto para esos nodos.
+        """
+        target = candidate_verdict.normalize_reason_code(reason_code) if str(reason_code) != "pool" else "pool"
+        memory, quarantine_id = self._quarantine_memory(quarantine_key)
+        row, current = self._quarantine_verdict_row(memory, quarantine_id)
+        if target == current:
+            return current
+        candidate_memory = next(
+            (path for label, path in self.memory_sources if label == str(row["account_type"] or "")),
+            memory,
+        )
+        restore_json = self._reapply_candidate_verdict(candidate_memory, row, target)
+        self._store_requalified(memory, quarantine_id, target, row, restore_json)
         return target
 
     def release_strategy(self, quarantine_key: str | int) -> None:
@@ -1605,19 +1687,15 @@ class PortfolioSource:
             for member in members
         ]
 
-    def member_reports(self, portfolio_id: int, scope: str, set_path: str) -> dict[str, Any]:
-        """Resuelve todos los informes que siguen guardados para un miembro.
+    def _member_report_paths(
+        self, member: dict[str, Any], set_name: str, requested: str,
+    ) -> dict[str, str]:
+        """Las rutas guardadas del miembro, completadas con las del candidato.
 
-        La asignación conserva las rutas usadas al guardar el portafolio. La
-        memoria del candidato puede aportar además el informe OHLC de 6M, que no
-        forma parte del esquema histórico de ``portfolio_allocations``.
+        La asignacion conserva las rutas usadas al guardar. La memoria del
+        candidato puede aportar ademas el informe OHLC de 6M, que no forma parte
+        del esquema historico de ``portfolio_allocations``.
         """
-        detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
-        requested = self._match_key(set_path)
-        member = next((item for item in detail["members"] if self._match_key(item.get("set_path")) == requested), None)
-        if member is None:
-            raise ValueError("La estrategia no pertenece al portafolio")
-
         paths = {
             key: str(member.get(key) or "")
             for key in (
@@ -1626,9 +1704,7 @@ class PortfolioSource:
             )
         }
         candidate_id = str(member.get("candidate_id") or "")
-        set_name = Path(str(member.get("set_path") or set_path).replace("\\", "/")).name
-        candidate_rows = self._candidate_rows_for_report_enrichment(set_name)
-        for row in candidate_rows:
+        for row in self._candidate_rows_for_report_enrichment(set_name):
             same_candidate = candidate_id and str(row.get("candidate_id") or "") == candidate_id
             if not same_candidate and self._match_key(row.get("set_path")) != requested:
                 continue
@@ -1636,7 +1712,12 @@ class PortfolioSource:
                 if not paths[key] and row.get(key):
                     paths[key] = str(row[key])
             break
+        return paths
 
+    def _stage_report_files(
+        self, paths: dict[str, str],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Los informes que siguen en disco, en orden de etapa, y los que faltan."""
         stages = (
             ("base", "Base", "is_report_path"),
             ("robustez", "Robustez", "oos_report_path"),
@@ -1663,6 +1744,19 @@ class PortfolioSource:
                 "code": code, "label": label, "path": str(resolved),
                 "filename": resolved.name, "content": resolved.read_bytes(),
             })
+        return reports, missing
+
+    def member_reports(self, portfolio_id: int, scope: str, set_path: str) -> dict[str, Any]:
+        """Resuelve todos los informes que siguen guardados para un miembro."""
+        detail = self.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
+        requested = self._match_key(set_path)
+        member = next((item for item in detail["members"] if self._match_key(item.get("set_path")) == requested), None)
+        if member is None:
+            raise ValueError("La estrategia no pertenece al portafolio")
+        set_name = Path(str(member.get("set_path") or set_path).replace("\\", "/")).name
+        reports, missing = self._stage_report_files(
+            self._member_report_paths(member, set_name, requested)
+        )
         if not reports:
             raise ValueError("La estrategia no tiene reportes guardados disponibles")
         return {
@@ -1750,184 +1844,6 @@ class PortfolioSource:
         )
 
 
-def eligibility_counts(
-    sets: list[Any],
-    minimum_trades: int,
-    *,
-    apply_recent_recovery: bool = True,
-) -> dict[str, int]:
-    """Explain the shared UBS eligibility funnel stage by stage.
-
-    ``filter_eligible_sets`` decide en una pasada y solo devuelve a los
-    supervivientes: cuando el pool se queda vacío no dice qué filtro lo vació.
-    Este recuento repite exactamente sus condiciones, en su orden, para que los
-    tres ámbitos puedan nombrar la etapa culpable en vez de fallar en seco.
-
-    ``apply_recent_recovery=False`` es para Grid, que desactiva a propósito la
-    regla de recuperación reciente (``has_recent_performance=False`` en
-    ``optimize_grid_portfolio``): contarla ahí daría un número de elegibles que
-    no es el que el optimizador va a usar.
-    """
-    minimum = int(minimum_trades)
-    accepted = [
-        item for item in sets
-        if str(getattr(item, "robustness_status", "")) == "accepted"
-    ]
-    not_used = [item for item in accepted if not bool(getattr(item, "already_used", False))]
-    with_curve = [item for item in not_used if getattr(item, "curve_2020_2026_001", None)]
-    with_trades = [item for item in with_curve if int(item.trades_2020_2026) > 0]
-    enough_trades = [item for item in with_curve if int(item.trades_2020_2026) >= minimum]
-    positive = [item for item in enough_trades if float(item.net_profit_2020_2026_001) > 0]
-    recent_recovery = [
-        item for item in positive
-        if not apply_recent_recovery
-        or not item.has_recent_performance
-        or (
-            float(item.recent_net_profit_001) / max(float(item.recent_equity_dd_001), 1.0)
-        ) >= MIN_RECENT_EQUITY_RECOVERY
-    ]
-    return {
-        "total": len(sets),
-        "accepted": len(accepted),
-        "not_used": len(not_used),
-        "with_curve": len(with_curve),
-        "with_trades": len(with_trades),
-        "enough_trades": len(enough_trades),
-        "positive": len(positive),
-        "recent_recovery": len(recent_recovery),
-        "eligible": len(recent_recovery),
-    }
-
-
-def strategy_unit_risk(strategy: Any) -> float:
-    """Riesgo de una unidad con la misma regla que ``evaluate_portfolio``.
-
-    La cartera se mide como ``max(DD cerrado combinado, flotante)``; con una
-    sola unidad eso es el máximo entre su valle cerrado y su flotante.
-    """
-    return max(
-        float(getattr(strategy, "max_floating_dd_001", 0.0) or 0.0),
-        float(getattr(strategy, "valley_dd_2020_2026_001", 0.0) or 0.0),
-    )
-
-
-def _adjusted_valley_pcts(
-    strategies: list[Any],
-    *,
-    capital: float,
-    reserve_pct: float,
-    requested_pct: float,
-    risk_of: Callable[[Any], float] = strategy_unit_risk,
-) -> list[float]:
-    """Executable valley floors above the requested percentage.
-
-    Si el valle pedido no llega ni al riesgo de la estrategia más pequeña del
-    pool, no existe ninguna cartera: ni una sola unidad cabe. Devolver el error
-    seco deja la pantalla vacía sin decir cuánto falta. Estos son los siguientes
-    escalones -- uno por nivel de riesgo distinto, de menor a mayor -- y el
-    primero que optimice es el mínimo ejecutable de ese pool.
-    """
-    if capital <= 0:
-        return []
-    reserve_factor = 1.0 - min(max(float(reserve_pct), 0.0), 99.0) / 100.0
-    if reserve_factor <= 0:
-        return []
-    requested_limit = float(capital) * float(requested_pct) / 100.0 * reserve_factor
-    risks = sorted({
-        round(risk, 8)
-        for risk in (float(risk_of(strategy)) for strategy in strategies)
-        if risk > requested_limit + 1e-9
-    })
-    return [
-        risk / float(capital) * 100.0 / reserve_factor + 1e-7
-        for risk in risks
-    ]
-
-
-MAX_VALLEY_FLOOR_ATTEMPTS = 5
-
-
-def _proposals_are_empty(proposals: list[dict[str, Any]]) -> bool:
-    """True when every proposal came back without una sola estrategia activa.
-
-    Un valle inalcanzable no siempre lanza error. UBS completo sí lo hace -- la
-    composición base no produce ningún set --, pero el mensual devuelve tres
-    propuestas de cero estrategias y cero neto, que es exactamente el mismo
-    fracaso presentado como resultado. Ambos casos disparan el suelo ejecutable.
-    """
-    active = [
-        int(getattr(proposal.get("result"), "active_strategies", -1) or 0)
-        for proposal in proposals
-    ]
-    return bool(active) and all(value == 0 for value in active)
-
-
-def _with_executable_valley_floor(
-    build: Callable[[dict[str, Any]], list[dict[str, Any]]],
-    inputs: dict[str, Any],
-    raw_sets: list[Any],
-    *,
-    minimum_trades: int,
-    reserve_pct: float,
-    warnings: list[str],
-    risk_of: Callable[[Any], float] = strategy_unit_risk,
-) -> tuple[list[dict[str, Any]], bool, float]:
-    """Run ``build`` and, if the valley is unreachable, retry from its floor.
-
-    Devuelve las propuestas, si hubo ajuste y el porcentaje realmente aplicado.
-    El ajuste no se persiste solo: viaja en la propuesta y únicamente se guarda
-    si el usuario elige esa propuesta, igual que en Grid.
-    """
-    requested_pct = float(inputs["valley_dd_pct"])
-    first_error: ValueError | None = None
-    empty_baseline: list[dict[str, Any]] = []
-    try:
-        proposals = build(inputs)
-        if not _proposals_are_empty(proposals):
-            return proposals, False, requested_pct
-        empty_baseline = proposals
-    except ValueError as exc:
-        first_error = exc
-
-    floors = _adjusted_valley_pcts(
-        filter_eligible_sets(raw_sets, int(minimum_trades)),
-        capital=float(inputs["capital"]),
-        reserve_pct=float(reserve_pct),
-        requested_pct=requested_pct,
-        risk_of=risk_of,
-    )
-    attempts = floors[:MAX_VALLEY_FLOOR_ATTEMPTS]
-    for adjusted_pct in attempts:
-        attempt_inputs = {**inputs, "valley_dd_pct": adjusted_pct, "point_dd_pct": adjusted_pct}
-        try:
-            proposals = build(attempt_inputs)
-        except ValueError:
-            continue
-        if _proposals_are_empty(proposals):
-            continue
-        warnings.insert(
-            0,
-            f"El valle solicitado {requested_pct:.3f}% no admite el lote mínimo de "
-            f"este pool. Esta propuesta usa el mínimo ejecutable {adjusted_pct:.3f}%.",
-        )
-        return proposals, True, adjusted_pct
-    if len(floors) > len(attempts):
-        warnings.append(
-            f"Se probaron los {len(attempts)} primeros valles ejecutables de "
-            f"{len(floors)} posibles sin encontrar una cartera viable."
-        )
-    if first_error is not None:
-        raise first_error
-    # Ningún suelo dio cartera: se devuelve lo que había, que es lo que este
-    # ámbito devolvía antes del reintento.
-    warnings.insert(
-        0,
-        f"El valle solicitado {requested_pct:.3f}% no admite el lote mínimo de este "
-        f"pool y ninguno de los {len(attempts)} valles ejecutables probados dio cartera.",
-    )
-    return empty_baseline, False, requested_pct
-
-
 def scope_stage_count(scope: str, operation: str) -> int:
     """Number of numbered stages the worker of this scope/operation emits."""
     scope = normalize_portfolio_scope(scope)
@@ -1960,18 +1876,6 @@ def prepare_scope_log(
         encoding="utf-8",
     )
     return path
-
-
-def describe_eligibility(counts: dict[str, int], minimum_trades: int) -> str:
-    """Embudo en una línea para el progreso y para el error de pool vacío."""
-    return (
-        f"{counts['total']} cargada(s); {counts['accepted']} aceptada(s); "
-        f"{counts['not_used']} sin usar; {counts['with_trades']} con operaciones; "
-        f"{counts['enough_trades']} con >= {int(minimum_trades)} trades; "
-        f"{counts['positive']} con neto positivo; "
-        f"{counts['recent_recovery']} con recuperación reciente 6M; "
-        f"{counts['eligible']} elegibles"
-    )
 
 
 def _reserve_pct(configured: float, portfolio_type: PortfolioType) -> float:
@@ -3425,6 +3329,31 @@ class PortfolioCoordinator:
         except Exception:
             pass
 
+    def _job_log_path(self, key: str, source: Any, scope: str, operation: str) -> Path:
+        """El log del trabajo: el que dejo preparado quien lo encolo, o uno nuevo."""
+        with self.lock:
+            prepared_log_path = str(self.jobs[key].get("log_path") or "")
+        if prepared_log_path:
+            return Path(prepared_log_path)
+        log_dir = source.project / "portfolio_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"manager_{scope}_{operation}_{time.strftime('%Y%m%d_%H%M%S')}.log"
+        with self.lock:
+            self.jobs[key]["log_path"] = str(log_path)
+        return log_path
+
+    def _mark_job_completed(
+        self, key: str, availability: dict[str, Any], proposals: list[dict[str, Any]],
+    ) -> None:
+        with self.lock:
+            self.proposals[key] = proposals
+            stage_total = int(self.jobs[key].get("stage_total") or 0)
+            self.jobs[key].update({
+                "status": "completed", "finished_at": utc_now(), "progress": "Propuestas listas",
+                "availability": availability, "proposal_count": len(proposals),
+                "stage": stage_total or self.jobs[key].get("stage", 0),
+            })
+
     def _worker(
         self, node_id: str, scope: str, settings: dict[str, Any], operation: str = "generate", portfolio_id: int | None = None
     ) -> None:
@@ -3443,26 +3372,14 @@ class PortfolioCoordinator:
         if scope == "full_history":
             previous_cancellation_check = set_portfolio_cancellation_check(cancellation_requested)
 
-        def progress(message: str) -> None:
-            self._record_job_progress(key, message)
-
         try:
             raise_if_cancelled()
             source = self._calculation_source(node_id, scope)
-            with self.lock:
-                prepared_log_path = str(self.jobs[key].get("log_path") or "")
-            if prepared_log_path:
-                log_path = Path(prepared_log_path)
-            else:
-                log_dir = source.project / "portfolio_logs"
-                log_dir.mkdir(parents=True, exist_ok=True)
-                log_path = log_dir / f"manager_{scope}_{operation}_{time.strftime('%Y%m%d_%H%M%S')}.log"
-                with self.lock:
-                    self.jobs[key]["log_path"] = str(log_path)
+            log_path = self._job_log_path(key, source, scope, operation)
 
             def logged_progress(message: str) -> None:
                 raise_if_cancelled()
-                progress(message)
+                self._record_job_progress(key, message)
                 with log_path.open("a", encoding="utf-8") as handle:
                     handle.write(f"{datetime.now().isoformat(timespec='seconds')} | {message}\n")
 
@@ -3470,14 +3387,7 @@ class PortfolioCoordinator:
                 source, scope, operation, portfolio_id, settings, logged_progress,
             )
             raise_if_cancelled()
-            with self.lock:
-                self.proposals[key] = proposals
-                stage_total = int(self.jobs[key].get("stage_total") or 0)
-                self.jobs[key].update({
-                    "status": "completed", "finished_at": utc_now(), "progress": "Propuestas listas",
-                    "availability": availability, "proposal_count": len(proposals),
-                    "stage": stage_total or self.jobs[key].get("stage", 0),
-                })
+            self._mark_job_completed(key, availability, proposals)
             source.notify(
                 f"Portfolio Builder {operation} listo en {source.broker}/{source.account}: "
                 f"{len(proposals)} propuesta(s)" + (f" para portafolio #{portfolio_id}" if portfolio_id else "")

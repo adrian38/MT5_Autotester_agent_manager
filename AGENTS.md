@@ -126,6 +126,30 @@ es el de dependencia** — cada uno sólo importa de los anteriores:
 - Lo hace cumplir `tests/test_ubs_package_layering.py`: módulo fuera de `ORDER`,
   import hacia arriba o nombre sin reexportar, y falla.
 
+## `portfolio_service` también es una pila
+
+`mt5_manager/portfolio_service.py` eran 6.045 líneas. Ahora son trece módulos y,
+como en `ubs_portfolio`, **el orden es el de dependencia**:
+
+`portfolio_scope` → `portfolio_schema` → `portfolio_report_cache` →
+`portfolio_identity` → `portfolio_settings` → `portfolio_transfer` →
+`portfolio_persistence` → `portfolio_valley_floor` → `portfolio_antifiller` →
+`portfolio_saved` → `portfolio_import_match` → `portfolio_import_build` →
+`portfolio_service`
+
+- **Los llamantes no cambian:** `portfolio_service` reexporta lo que movió.
+- Los módulos de abajo declaran el tipo `PortfolioSource` con
+  `if TYPE_CHECKING:`. Eso no es una dependencia: no existe en ejecución.
+- Lo hace cumplir `tests/test_portfolio_module_layering.py`.
+
+**Al mover código, el `patch()` de un test se queda sin efecto y el test sigue
+en verde.** No basta con comprobar que el *nombre movido* no se parchea: hay que
+mirar los nombres que el *código movido consume*. Los 13
+`patch("mt5_manager.portfolio_service.load_robust_sets_from_rows")` de
+`test_portfolio_import.py` dejaron de interceptar al mover el consumidor a
+`portfolio_import_build`: cinco pruebas fallaron y **ocho siguieron pasando
+ejecutando la función real**.
+
 ## Tamaño del código: 60 líneas por función, 600 por fichero
 
 No es estética, es el coste de leer. Una función de 60 líneas son ~700 tokens y
@@ -170,8 +194,13 @@ Partir es **pasos con nombre**, no trocear por líneas. Lo que ha rendido aquí:
   keyword. Pasar un kwarg que el destino no acepta también: el diferencial pilló
   `minimum_active_strategies` yendo a una función que no lo declara, y los 620
   tests pasaban.
-- **Comprobar los imports del módulo nuevo** antes de dar nada por hecho: una
-  extracción deja fuera helpers, dataclasses y constantes sin avisar.
+- **Comprobar los imports del módulo nuevo** con un recorrido AST de nombres
+  sueltos, no con `import`: una extracción deja fuera helpers y constantes, el
+  módulo importa igual y el `NameError` sólo salta al ejecutar esa rama. En una
+  extracción faltaban tres y el suite sólo delataba uno.
+- **Partir un fichero en más funciones lo hace crecer.** Los dos techos tiran en
+  direcciones opuestas: cada tanda de particiones necesita su extracción de
+  módulo, y ése es el trabajo que de verdad baja el coste de lectura.
 - **El andamiaje muerto que aparezca se borra**, pero comprobándolo con AST y
   diciéndolo en el commit: `_locked_full_proposals` tenía un `while True:` sin
   `continue` ni `break` propios.
@@ -193,8 +222,10 @@ Partir es **pasos con nombre**, no trocear por líneas. Lo que ha rendido aquí:
   literal** y nada más.
 - En un refactor sin comportamiento nuevo, **comparar contra
   `git show HEAD:<fichero>` cargado como paquete aparte** sobre las mismas
-  entradas, campo a campo. Si una rama no se deja alcanzar, comparar sus kwargs
-  con AST. Tres trampas ya vistas en ese arnés: construir las entradas con las
+  entradas, campo a campo. Si una rama no se deja alcanzar —cero cobertura—,
+  comparar con AST la **secuencia de llamadas** de la función, expandiendo en su
+  sitio los pasos nuevos: nombre, argumentos y nombres de los kwargs, en orden.
+  Idéntica significa que no se ha caído ni reordenado nada. Tres trampas ya vistas en ese arnés: construir las entradas con las
   clases nuevas (el `isinstance` de HEAD falla), dejar que el parcheo alcance la
   copia HEAD (recursión), y contar como divergencia un aviso duplicado por
   dobles inserciones sobre el mismo `list` de un doble de prueba.

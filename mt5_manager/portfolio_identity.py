@@ -175,3 +175,29 @@ def _resolve_source_path(value: Any, project: Path) -> str:
         candidate = project / path
         return str(candidate.absolute())
     return str(path)
+
+
+def _normalize_memory_row(item: dict[str, Any], memory: Any, project: Path) -> dict[str, Any]:
+    """Deja una fila de la memoria de un nodo lista para usarse en este equipo.
+
+    Tres cosas que toda fila necesita, venga del pool aceptado o de un ZIP
+    importado: el simbolo que MT5 ejecuto de verdad —tras el mapa temporal del
+    broker y sus sufijos—, de que memoria salio, y sus rutas reubicadas.
+    """
+    final_tick_metrics = item.pop("final_tick_metrics_json", None)
+    if final_tick_metrics:
+        try:
+            executable_symbol = str(
+                (json.loads(final_tick_metrics) or {}).get("symbol") or ""
+            ).strip()
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+            executable_symbol = ""
+        if executable_symbol:
+            item["executable_symbol"] = executable_symbol
+    item["source_memory_path"] = str(memory)
+    for key in (
+        "set_path", "is_report_path", "oos_report_path", "full_history_report_path",
+        "final_ohlc_report_path", "final_tick_report_path",
+    ):
+        item[key] = _resolve_source_path(item.get(key), project)
+    return item
