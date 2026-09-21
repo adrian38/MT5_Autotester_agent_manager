@@ -91,6 +91,24 @@ from .portfolio_identity import (  # noqa: F401
     _valid_portfolio_uid,
     normalize_portfolio_alias,
 )
+from .portfolio_antifiller import (  # noqa: F401
+    STANDARD_ANTIFILLER_REFILL_PASSES,
+    _optimize_without_recent_fillers,
+    _underrepresented_recent_allocation_ids,
+)
+from .portfolio_saved import (  # noqa: F401
+    SAVED_INPUT_FALLBACKS,
+    _allocation_source_rows,
+    _annotate_improvement_lineage,
+    _blank_recalculated_portfolio,
+    _migrated_asset_groups,
+    _recalculated_metrics,
+    _saved_portfolio_row,
+    _saved_portfolio_type,
+    _saved_risk_targets,
+    _stored_metrics,
+    _update_recalculated_row,
+)
 from .portfolio_report_cache import cached_report  # noqa: F401
 from .portfolio_import_build import (  # noqa: F401
     _ImportContext,
@@ -139,12 +157,6 @@ EXPERIMENTAL_WARNING_PREFIXES = (
     "Advertencia experimental UBS:",
     "Regla antirrelleno 6M en la búsqueda experimental:",
 )
-# Pasadas de reposicion de la ruta estandar. Cada una vuelve a seleccionar sobre
-# el pool completo menos los rellenos ya descartados, asi que cuesta una
-# optimizacion entera: el presupuesto acota el peor caso a minutos. Sin cota
-# vuelve el bucle de `ai_context/ubs_generation_repeated_tournaments.md`.
-STANDARD_ANTIFILLER_REFILL_PASSES = 8
-
 def filter_rows_by_disabled_symbols(
     rows: list[dict[str, Any]],
     disabled_symbols: Any,
@@ -309,111 +321,10 @@ def _quarantined_set_row(
     }
 
 
-def _saved_portfolio_row(row: Any, value: Callable[..., Any], portfolio_scope: str) -> dict[str, Any]:
-    """Una fila de `portfolios` como la espera el listado, con tipos ya fijados."""
-    return {
-        "id": int(value(row, "id", 0) or 0),
-        "created_at": str(value(row, "created_at", "") or ""),
-        "name": str(value(row, "name", "") or ""),
-        "portfolio_type": str(value(row, "portfolio_type", value(row, "type", "")) or ""),
-        "portfolio_scope": portfolio_scope,
-        "target_month": int(value(row, "target_month", 0) or 0) or None,
-        "capital": float(value(row, "capital", value(row, "account_capital", 0)) or 0),
-        "total_net_profit": float(value(row, "total_net_profit", 0) or 0),
-        "actual_valley_dd": float(value(row, "actual_valley_dd", 0) or 0),
-        "actual_closed_valley_dd": float(value(row, "actual_closed_valley_dd", 0) or 0),
-        "floating_dd_buffer": float(value(row, "floating_dd_buffer", 0) or 0),
-        "target_valley_dd": float(value(row, "target_valley_dd", 0) or 0),
-        "target_valley_dd_pct": float(value(row, "target_valley_dd_pct", 0) or 0),
-        "valley_usage_pct": float(value(row, "valley_usage_pct", 0) or 0),
-        "actual_point_dd": float(value(row, "actual_point_dd", 0) or 0),
-        "target_point_dd": float(value(row, "target_point_dd", 0) or 0),
-        "target_point_dd_pct": float(value(row, "target_point_dd_pct", 0) or 0),
-        "point_usage_pct": float(value(row, "point_usage_pct", 0) or 0),
-        "total_lot": float(value(row, "total_lot", 0) or 0),
-        "total_units": int(value(row, "total_units", 0) or 0),
-        "active_strategies": int(value(row, "active_strategies", 0) or 0),
-        "target_strategies": int(value(row, "target_strategies", 0) or 0),
-        "stop_reason": str(value(row, "stop_reason", "") or ""),
-        "binding_constraint": str(value(row, "binding_constraint", "") or ""),
-    }
-
-
-def _improvement_origin(
-    inputs: dict[str, Any], audit: dict[str, Any], source_id: int, mode: str,
-) -> dict[str, Any]:
-    """El linaje de una mejora, reconstruido de los ajustes o de la auditoria."""
-    origin: dict[str, Any] = {"source_id": source_id, "mode": mode}
-    source_uid = _valid_portfolio_uid(
-        inputs.get("improvement_parent_uid") or audit.get("parent_uid")
-    )
-    if source_uid:
-        origin["source_uid"] = source_uid
-    origin["root_id"] = safe_int(
-        inputs.get("improvement_root_portfolio_id")
-        or audit.get("root_portfolio_id")
-        or source_id,
-        source_id,
-    )
-    root_uid = _valid_portfolio_uid(
-        inputs.get("improvement_root_uid") or audit.get("root_uid")
-    )
-    if root_uid:
-        origin["root_uid"] = root_uid
-    origin["depth"] = max(
-        1, safe_int(inputs.get("improvement_depth") or audit.get("depth"), 1)
-    )
-    lineage = _normalized_improvement_lineage(
-        inputs.get("improvement_lineage") or audit.get("lineage")
-    )
-    if lineage:
-        origin["lineage"] = lineage
-    # Con qué criterio se eligió esta mejora. Sin él, dos mejoras del mismo
-    # portafolio y modo son idénticas en la lista aunque una venga de maximizar
-    # beneficio/DD y la otra de minimizar estrés.
-    priority = str(
-        inputs.get("improvement_selection_priority")
-        or audit.get("selection_priority")
-        or ""
-    )
-    if priority in IMPROVEMENT_PRIORITY_LABELS:
-        origin["priority"] = priority
-        origin["priority_label"] = IMPROVEMENT_PRIORITY_LABELS[priority]
-    added = audit.get("added_count")
-    if added is not None:
-        origin["added_count"] = int(added)
-    return origin
-
-
-def _annotate_improvement_lineage(
-    portfolios: list[dict[str, Any]], rows: list[Any], value: Callable[..., Any],
-) -> None:
-    """Recupera alias y linaje de `metrics_json`, sin reescribir la memoria.
-
-    Los nodos embebidos antiguos guardaban una mejora de un solo modo con
-    nombre generico de paquete. Una fila con metadatos ilegibles se queda como
-    esta: el listado tiene que salir igual.
-    """
-    for portfolio, row in zip(portfolios, rows):
-        try:
-            metrics = json.loads(value(row, "metrics_json", "{}") or "{}")
-            inputs = metrics.get("inputs") or {}
-            portfolio["alias"] = normalize_portfolio_alias(inputs.get("portfolio_alias"))
-            audit = (metrics.get("seasonal_validation") or {}).get("portfolio_improvement") or {}
-            source_id = int(inputs.get("improvement_source_portfolio_id") or audit.get("source_portfolio_id") or 0)
-            mode = inputs.get("improvement_portfolio_type") or audit.get("target_portfolio_type") or inputs.get("portfolio_type")
-            if source_id > 0 and mode in TYPE_LABELS:
-                origin = _improvement_origin(inputs, audit, source_id, mode)
-                portfolio["improvement_origin"] = origin
-                visible_label = str(
-                    inputs.get("improvement_label")
-                    or audit.get("label")
-                    or f"Mejora del portafolio #{source_id} | modo {TYPE_LABELS[mode]}"
-                ).strip()
-                origin["label"] = visible_label
-                portfolio["name"] = visible_label
-        except (ValueError, TypeError, AttributeError):
-            pass
+"""Con que se reconstruye una cartera guardada antes de que existiera
+``metrics.inputs``. No son los defaults del formulario: `COMMON_DEFAULTS` puede
+cambiar con el producto y esto tiene que seguir describiendo el calculo de
+entonces."""
 
 
 class PortfolioSource:
@@ -1436,60 +1347,16 @@ class PortfolioSource:
         """Rebuild saved constraints, including rows created before metrics.inputs existed."""
         metrics = detail.get("metrics") if isinstance(detail.get("metrics"), dict) else {}
         stored = metrics.get("inputs") if isinstance(metrics.get("inputs"), dict) else {}
-        capital = float(detail.get("capital") or detail.get("account_capital") or 0)
-        valley_pct = float(detail.get("target_valley_dd_pct") or 0)
-        if valley_pct <= 0 and capital > 0:
-            valley_pct = float(detail.get("target_valley_dd") or 0) * 100.0 / capital
-        point_pct = float(detail.get("target_point_dd_pct") or 0) or valley_pct
-        saved_row_type = str(detail.get("portfolio_type") or detail.get("type") or "balanced").lower()
-        portfolio_type = saved_row_type
-        if saved_row_type in {"bundle", "grid_bundle"}:
-            portfolio_type = str(
-                stored.get("composition_portfolio_type")
-                or metrics.get("composition_portfolio_type")
-                or stored.get("portfolio_type")
-                or "balanced"
-            ).lower()
+        capital, valley_pct, point_pct = _saved_risk_targets(detail)
+        saved_row_type, portfolio_type = _saved_portfolio_type(detail, metrics, stored)
         values: dict[str, Any] = {
             "capital": capital,
             "valley_dd_pct": valley_pct,
             "point_dd_pct": point_pct,
             "portfolio_type": portfolio_type,
-            "top_k_per_symbol": 3,
-            "max_total_candidates": 30,
             "min_trades_2020_2026": 15 if scope == "monthly" else 100,
-            "max_units_per_set": None,
-            "max_total_units": None,
-            "max_units_per_symbol": None,
-            "max_sets_per_symbol": 1,
-            "run_local_search": True,
-            "deep_optimization": False,
-            "use_correlation": True,
-            "require_3_positive_months_6m": False,
-            "grid_off": False,
-            "exclude_used_sets": True,
-            "experimental_full_search": False,
-            "min_strategy_recent_contribution_pct": COMMON_DEFAULTS["min_strategy_recent_contribution_pct"],
-            "exclude_monthly_used": False,
-            "corr_with_monthly_portfolios": False,
-            "strict_yearly_month_validation": False,
-            "experimental_monthly_search": False,
-            "daily_dd_full_history": False,
-            "dd_reserve_pct": 0.0,
-            "search_restarts": 0,
-            "max_pair_corr": 0.35,
-            "max_downside_corr": 0.25,
-            "max_dd_overlap": 0.35,
-            "max_portfolio_corr": 0.50,
-            "allowed_asset_groups": list(ASSET_GROUPS),
+            **SAVED_INPUT_FALLBACKS,
             "margin_profile": self.broker.lower(),
-            # Las carteras anteriores a este campo no pueden reconstruir la
-            # elección original. Usamos el mismo valor inicial que ofrece AXI
-            # en el formulario y dejamos que el diálogo de mejora lo muestre y
-            # permita corregirlo antes de recalcular.
-            "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
-            "max_margin_pct": 100.0,
-            "validate_margin": True,
             "portfolio_scope": scope,
         }
         if scope == "monthly":
@@ -1506,17 +1373,9 @@ class PortfolioSource:
             values["portfolio_type"] = portfolio_type
         if scope == "monthly":
             values["target_month"] = values.get("target_month") or detail.get("target_month")
-
-        # Match the desktop migration for portfolios saved before the eight-group universe.
-        stored_groups = set(values.get("allowed_asset_groups") or [])
-        legacy_groups = not stored_groups.intersection({"Indices", "Energies", "Crypto", "Bonds", "Softs"})
-        if "IndicesEnergies" in stored_groups:
-            stored_groups.remove("IndicesEnergies")
-            stored_groups.update(("Indices", "Energies"))
-        if legacy_groups:
-            stored_groups.update(("Crypto", "Bonds", "Softs"))
-        if stored_groups:
-            values["allowed_asset_groups"] = sorted(stored_groups)
+        migrated_groups = _migrated_asset_groups(values)
+        if migrated_groups:
+            values["allowed_asset_groups"] = migrated_groups
         return normalize_settings(scope, values, self.broker)
 
     def _save_version(self, conn: sqlite3.Connection, portfolio_id: int, reason: str) -> int:
@@ -1605,38 +1464,13 @@ class PortfolioSource:
         rows = [dict(row) for row in conn.execute(
             "select * from portfolio_allocations where portfolio_id=? order by id", (portfolio_id,)
         ).fetchall()]
-        try:
-            metrics = json.loads(portfolio["metrics_json"] or "{}")
-            if not isinstance(metrics, dict):
-                metrics = {}
-        except (json.JSONDecodeError, TypeError):
-            metrics = {}
+        metrics = _stored_metrics(portfolio)
         if not rows:
-            metrics.update({"equity_curve_2020_2026": [0.0], "group_summary": {}, "seasonal_coverage": {}, "seasonal_validation": {}})
-            metrics["stress_bootstrap"] = asdict(bootstrap_valley_drawdown(
-                [0.0],
-                nominal_valley_dd_limit=float(portfolio["capital"] or portfolio["account_capital"] or 0) * float(portfolio["target_valley_dd_pct"] or 0) / 100.0,
-                effective_valley_dd_limit=float(portfolio["target_valley_dd"] or 0),
-            ))
-            conn.execute(
-                "update portfolios set num_symbols=0,actual_valley_dd=0,actual_point_dd=0,actual_closed_valley_dd=0,floating_dd_buffer=0,valley_usage_pct=0,point_usage_pct=0,total_net_profit=0,total_lot=0,total_units=0,active_strategies=0,metrics_json=? where id=?",
-                (json.dumps(metrics, ensure_ascii=True), portfolio_id),
-            )
+            _blank_recalculated_portfolio(conn, portfolio, portfolio_id, metrics)
             return
-        source_rows = [{
-            "candidate_id": row.get("candidate_id"), "set_path": row.get("set_path") or row.get("set_id"),
-            "symbol": row.get("symbol"), "target_symbol": row.get("symbol"), "period": row.get("timeframe"),
-            "family": "", "is_report_path": row.get("is_report_path"), "oos_report_path": row.get("oos_report_path"),
-            "max_balance_dd_001": row.get("max_balance_dd_001"),
-            "max_equity_dd_001": row.get("max_equity_dd_001"),
-            "floating_dd_source": row.get("floating_dd_source"),
-            "recent_net_profit_001": row.get("recent_net_profit_001"),
-            "recent_equity_dd_001": row.get("recent_equity_dd_001"),
-            "has_recent_performance": row.get("has_recent_performance"),
-            "final_tick_report_path": row.get("final_tick_report_path"),
-            "full_history_report_path": row.get("full_history_report_path"),
-        } for row in rows]
-        strategies, warnings = load_robust_sets_from_rows(source_rows, [], parse=cached_report)
+        strategies, warnings = load_robust_sets_from_rows(
+            _allocation_source_rows(rows), [], parse=cached_report,
+        )
         if len(strategies) != len(rows):
             raise ValueError("No se pudieron reconstruir todas las curvas restantes")
         full_strategies = list(strategies)
@@ -1652,23 +1486,7 @@ class PortfolioSource:
             strategies, units, float(portfolio["target_valley_dd"] or 0), float(portfolio["target_point_dd"] or 0),
             inputs.get("max_daily_dd"), bool(inputs.get("enforce_point_dd", False)), bool(inputs.get("daily_dd_full_history", False)),
         )
-        metrics.update({
-            "equity_curve_2020_2026": evaluation.equity_curve_2020_2026,
-            "group_summary": portfolio_group_summary(strategies, units),
-            "actual_closed_valley_dd": evaluation.closed_valley_dd,
-            "floating_dd_buffer": evaluation.floating_dd_buffer,
-            "seasonal_coverage": {
-                strategy.set_id: {"target_month": strategy.target_month, "years": list(strategy.month_years),
-                    "positive_years": list(strategy.positive_month_years), "year_count": len(strategy.month_years),
-                    "positive_year_count": len(strategy.positive_month_years), "trades": strategy.trades_2020_2026}
-                for strategy in strategies if strategy.target_month is not None and units.get(strategy.set_id, 0) > 0
-            },
-            "stress_bootstrap": asdict(bootstrap_valley_drawdown(
-                evaluation.equity_curve_2020_2026,
-                nominal_valley_dd_limit=float(portfolio["capital"] or portfolio["account_capital"] or 0) * float(portfolio["target_valley_dd_pct"] or 0) / 100.0,
-                effective_valley_dd_limit=float(portfolio["target_valley_dd"] or 0),
-            )),
-        })
+        _recalculated_metrics(metrics, evaluation, strategies, units, portfolio)
         if inputs.get("strict_yearly_month_validation"):
             metrics["seasonal_validation"] = validate_strict_monthly_portfolio(
                 full_strategies, units, target_month=int(inputs["target_month"]),
@@ -1677,15 +1495,7 @@ class PortfolioSource:
             )
         if warnings:
             metrics.setdefault("warnings", []).extend(warnings)
-        conn.execute(
-            """update portfolios set num_symbols=?,actual_valley_dd=?,actual_point_dd=?,actual_closed_valley_dd=?,floating_dd_buffer=?,valley_usage_pct=?,point_usage_pct=?,
-               total_net_profit=?,total_lot=?,total_units=?,active_strategies=?,metrics_json=? where id=?""",
-            (len({portfolio_symbol_key(item.symbol) for item in strategies if units.get(item.set_id, 0) > 0}),
-             evaluation.valley_dd, evaluation.point_dd, evaluation.closed_valley_dd, evaluation.floating_dd_buffer,
-             evaluation.valley_usage_pct, evaluation.point_usage_pct,
-             evaluation.total_net_profit, evaluation.total_lot, evaluation.total_units, evaluation.active_strategies,
-             json.dumps(metrics, ensure_ascii=True), portfolio_id),
-        )
+        _update_recalculated_row(conn, portfolio_id, metrics, evaluation, strategies, units)
 
     def remove_member_to_quarantine(self, payload: dict[str, Any], scope: str) -> int:
         """Excluye un miembro y decide si el portafolio se borra o se recalcula.
@@ -2244,127 +2054,6 @@ def _seasonal_coverage(result: PortfolioResult, strategies: list[Any]) -> None:
         for allocation in result.allocations
         if allocation.set_id in by_id and by_id[allocation.set_id].target_month is not None
     }
-
-
-def _underrepresented_recent_allocation_ids(
-    result: PortfolioResult,
-    minimum_pct: float,
-) -> set[str]:
-    """Return active sets whose final lot does not contribute enough recent profit."""
-    threshold = max(float(minimum_pct), 0.0) / 100.0
-    if threshold <= 0 or not result.allocations:
-        return set()
-    contributions = {
-        allocation.set_id: (
-            max(float(allocation.recent_net_profit_001), 0.0) * int(allocation.units)
-            if allocation.has_recent_performance
-            else 0.0
-        )
-        for allocation in result.allocations
-        if allocation.units > 0
-    }
-    total = sum(contributions.values())
-    if total <= 0:
-        return set()
-    return {
-        set_id
-        for set_id, contribution in contributions.items()
-        if contribution + 1e-9 < total * threshold
-    }
-
-
-def _optimize_without_recent_fillers(
-    raw_sets: list[Any],
-    minimum_pct: float,
-    optimize: Callable[[list[Any]], PortfolioResult],
-    *,
-    progress: Callable[[str], None] | None = None,
-    refill_from_pool: bool = False,
-) -> tuple[PortfolioResult, set[str]]:
-    """Select globally once, then refine a strictly shrinking active composition.
-
-    Reopening the whole candidate pool after every removal admits new fillers
-    and can repeat the experimental tournament hundreds of times. Re-optimize
-    only active survivors, retaining the caller's risk and validation policy.
-    Each retry removes at least one active set; inactive candidates cannot enter.
-
-    `refill_from_pool` opts into replacing the removals instead: every retry
-    keeps the whole pool minus the fillers already dropped, so the released DD
-    budget can be spent again and breadth survives the quota rule rather than
-    being traded for it. The quota is a share of the total recent profit, so a
-    wide composition puts more members under the minimum; refining only the
-    survivors then ships a portfolio smaller than the pool allows.
-
-    Only for callers whose `optimize` is a single optimization. With the
-    experimental tournament as the callback this is the twelve-hour loop of
-    `ai_context/ubs_generation_repeated_tournaments.md` -- and that engine
-    already replaces fillers inside the tournament, where the winning batch is
-    known. Bounded by `STANDARD_ANTIFILLER_REFILL_PASSES`: once the budget runs
-    out the shrink-only refinement finishes the job, so the delivered result is
-    never dirtier, nor slower by more than that budget, than without the option.
-    """
-    pool = list(raw_sets)
-    removed: set[str] = set()
-    refill_budget = STANDARD_ANTIFILLER_REFILL_PASSES if refill_from_pool else 0
-    refilled = False
-    while True:
-        result = optimize(pool)
-        underrepresented = _underrepresented_recent_allocation_ids(result, minimum_pct)
-        underrepresented -= removed
-        if not underrepresented:
-            if removed:
-                result.warnings.insert(
-                    0,
-                    "Regla antirrelleno 6M: aporte minimo "
-                    f"{float(minimum_pct):.1f}% por estrategia; "
-                    f"{len(removed)} estrategia(s) eliminada(s) y portafolio "
-                    + (
-                        "reoptimizado reponiendo desde el pool."
-                        if refilled else "reoptimizado."
-                    ),
-                )
-            return result, removed
-        active_ids = {allocation.set_id for allocation in result.allocations if allocation.units > 0}
-        if active_ids and active_ids <= underrepresented:
-            contribution_by_id = {
-                allocation.set_id: (
-                    max(float(allocation.recent_net_profit_001), 0.0) * int(allocation.units)
-                    if allocation.has_recent_performance
-                    else 0.0
-                )
-                for allocation in result.allocations
-                if allocation.units > 0
-            }
-            keep_id = max(contribution_by_id, key=contribution_by_id.get)
-            underrepresented.discard(keep_id)
-            if not underrepresented:
-                return result, removed
-        removed.update(underrepresented)
-        if refill_budget > 0:
-            refill_budget -= 1
-            refilled = True
-            pool = [strategy for strategy in pool if strategy.set_id not in removed]
-            message = (
-                "Regla antirrelleno 6M: "
-                f"{len(underrepresented)} relleno(s) fuera del aporte mínimo "
-                f"{float(minimum_pct):.1f}%; reponiendo sobre {len(pool)} "
-                "candidato(s) del pool para reutilizar el DD liberado."
-            )
-        else:
-            pool = [
-                strategy for strategy in pool
-                if strategy.set_id in active_ids and strategy.set_id not in removed
-            ]
-            message = (
-                "Regla antirrelleno 6M: "
-                f"{len(underrepresented)} estrategia(s) bajo el aporte mínimo "
-                f"{float(minimum_pct):.1f}%; refinando {len(pool)} superviviente(s) "
-                "de la composición seleccionada, sin reabrir el pool global."
-            )
-        if not pool:
-            raise ValueError("La regla antirrelleno 6M no dejó una composición reoptimizable")
-        if progress:
-            progress(message)
 
 
 def _normal_proposals(
