@@ -91,6 +91,16 @@ from .portfolio_identity import (  # noqa: F401
     _valid_portfolio_uid,
     normalize_portfolio_alias,
 )
+from .portfolio_settings import (  # noqa: F401
+    ASSET_GROUPS,
+    BOOLEAN_SETTINGS,
+    COMMON_DEFAULTS,
+    CORRELATION_KEYS,
+    MONTHLY_DEFAULTS,
+    _optional_corr,
+    _optional_int,
+    normalize_settings,
+)
 from .portfolio_transfer import (  # noqa: F401
     _copy_exported_sets,
     _export_folder,
@@ -102,7 +112,6 @@ from .portfolio_full_experimental import optimize_experimental_full_portfolio
 from .stage_reports import recover_robustness_report
 
 
-ASSET_GROUPS = ("Forex", "Metals", "Indices", "Energies", "Crypto", "Stocks", "Bonds", "Softs")
 BROKER_ACCOUNT_TYPES = {"ROBOFOREX": ("ECN", "PRO"), "ICTRADING": ("STANDARD",), "AXI": ("STANDARD", "PREMIUM")}
 REMOTE_SNAPSHOT_LOCK = threading.RLock()
 # Avisos que describen el torneo experimental y viajan a las tres variantes
@@ -118,55 +127,6 @@ EXPERIMENTAL_WARNING_PREFIXES = (
 # optimizacion entera: el presupuesto acota el peor caso a minutos. Sin cota
 # vuelve el bucle de `ai_context/ubs_generation_repeated_tournaments.md`.
 STANDARD_ANTIFILLER_REFILL_PASSES = 8
-
-COMMON_DEFAULTS: dict[str, Any] = {
-    "capital": 10000.0,
-    "valley_dd_pct": 10.0,
-    "point_dd_pct": 10.0,
-    "portfolio_type": "balanced",
-    "top_k_per_symbol": 3,
-    "max_total_candidates": 30,
-    "min_trades_2020_2026": 100,
-    "max_units_per_set": None,
-    "max_total_units": None,
-    "max_units_per_symbol": None,
-    "max_sets_per_symbol": 1,
-    "run_local_search": True,
-    "deep_optimization": True,
-    "use_correlation": True,
-    "require_3_positive_months_6m": False,
-    "grid_off": False,
-    "exclude_used_sets": True,
-    "experimental_full_search": False,
-    "min_strategy_recent_contribution_pct": 5.0,
-    "dd_reserve_pct": 10.0,
-    "search_restarts": 4,
-    "max_pair_corr": 0.35,
-    "max_downside_corr": 0.25,
-    "max_dd_overlap": 0.35,
-    "max_portfolio_corr": 0.50,
-    "allowed_asset_groups": list(ASSET_GROUPS),
-    "disabled_symbols": [],
-    "margin_profile": "ictrading",
-    "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
-    "max_margin_pct": 100.0,
-    "validate_margin": True,
-    "enforce_point_dd": False,
-}
-
-MONTHLY_DEFAULTS: dict[str, Any] = {
-    **COMMON_DEFAULTS,
-    "portfolio_scope": "monthly",
-    "target_month": 1,
-    "min_trades_2020_2026": 15,
-    "deep_optimization": False,
-    "max_daily_dd": 150.0,
-    "daily_dd_full_history": False,
-    "exclude_monthly_used": False,
-    "corr_with_monthly_portfolios": False,
-    "strict_yearly_month_validation": False,
-    "experimental_monthly_search": False,
-}
 
 _REPORT_CACHE: dict[str, tuple[int, int, StrategyReport]] = {}
 _REPORT_CACHE_LOCK = threading.RLock()
@@ -184,138 +144,6 @@ def cached_report(path: Path) -> StrategyReport:
     with _REPORT_CACHE_LOCK:
         _REPORT_CACHE[key] = (stat.st_mtime_ns, stat.st_size, parsed)
     return parsed
-
-
-def _optional_int(value: Any, label: str) -> int | None:
-    if value in (None, ""):
-        return None
-    parsed = safe_int(value, -1)
-    if parsed < 1:
-        raise ValueError(f"{label} debe ser un entero mayor que 0")
-    return parsed
-
-
-def _optional_corr(value: Any, label: str) -> float | None:
-    if value in (None, ""):
-        return None
-    parsed = safe_float(value, -1.0)
-    if not 0 <= parsed <= 1:
-        raise ValueError(f"{label} debe estar entre 0 y 1")
-    return parsed
-
-
-def normalize_settings(scope: str, raw: dict[str, Any], broker: str = "ICTRADING") -> dict[str, Any]:
-    scope = normalize_portfolio_scope(scope)
-    if scope == "grid":
-        from .portfolio_grid_service import normalize_grid_settings
-
-        return normalize_grid_settings(raw, broker)
-    monthly = scope == "monthly"
-    values = dict(MONTHLY_DEFAULTS if monthly else COMMON_DEFAULTS)
-    values["margin_profile"] = str(broker or "ICTRADING").strip().lower()
-    values.update(raw)
-    values["portfolio_scope"] = "monthly" if monthly else "full_history"
-    values["capital"] = safe_float(values.get("capital"), 0)
-    values["valley_dd_pct"] = safe_float(values.get("valley_dd_pct"), 0)
-    values["point_dd_pct"] = values["valley_dd_pct"]
-    values["enforce_point_dd"] = False
-    if values["capital"] <= 0 or values["valley_dd_pct"] <= 0:
-        raise ValueError("Capital y DD valle deben ser mayores que 0")
-    type_key = str(values.get("portfolio_type") or "balanced").strip().lower()
-    if type_key not in PORTFOLIO_TYPES:
-        raise ValueError("portfolio_type debe ser aggressive, balanced o conservative")
-    values["portfolio_type"] = type_key
-    for key, minimum in (("top_k_per_symbol", 1), ("max_total_candidates", 1), ("min_trades_2020_2026", 0), ("max_sets_per_symbol", 1), ("search_restarts", 0)):
-        values[key] = safe_int(values.get(key), -1)
-        if values[key] < minimum:
-            raise ValueError(f"{key} debe ser >= {minimum}")
-    for key in ("max_units_per_set", "max_total_units", "max_units_per_symbol"):
-        values[key] = _optional_int(values.get(key), key)
-    values["dd_reserve_pct"] = safe_float(values.get("dd_reserve_pct"), -1)
-    if not 0 <= values["dd_reserve_pct"] < 100:
-        raise ValueError("dd_reserve_pct debe estar entre 0 y menos de 100")
-    values["min_strategy_recent_contribution_pct"] = safe_float(
-        values.get("min_strategy_recent_contribution_pct"), -1
-    )
-    if not 0 <= values["min_strategy_recent_contribution_pct"] <= 100:
-        raise ValueError("min_strategy_recent_contribution_pct debe estar entre 0 y 100")
-    values["max_margin_pct"] = safe_float(values.get("max_margin_pct"), 0)
-    if values["max_margin_pct"] <= 0:
-        raise ValueError("max_margin_pct debe ser mayor que 0")
-    values["margin_profile"] = str(values.get("margin_profile") or broker).strip().lower()
-    # Apalancamiento de cuenta: hoy solo lo consume el perfil AXI y solo en el
-    # portafolio UBS (full history). Se guarda igualmente para cualquier perfil
-    # para que la preferencia sobreviva a un cambio de broker en el formulario.
-    leverage = safe_float(values.get("account_leverage"), 0)
-    if leverage not in ACCOUNT_LEVERAGE_CHOICES:
-        leverage = DEFAULT_ACCOUNT_LEVERAGE
-    values["account_leverage"] = leverage
-    correlation_keys = (
-        "max_pair_corr",
-        "max_downside_corr",
-        "max_dd_overlap",
-        "max_portfolio_corr",
-    )
-    for key in correlation_keys:
-        values[key] = _optional_corr(values.get(key), key)
-    boolean_keys = (
-        "run_local_search", "deep_optimization", "use_correlation",
-        "require_3_positive_months_6m", "grid_off", "exclude_used_sets",
-        "experimental_full_search",
-        "validate_margin", "daily_dd_full_history", "exclude_monthly_used",
-        "corr_with_monthly_portfolios", "strict_yearly_month_validation",
-        "experimental_monthly_search",
-    )
-    for key in boolean_keys:
-        values[key] = bool(values.get(key))
-    if monthly:
-        values["experimental_full_search"] = False
-    else:
-        values["experimental_monthly_search"] = False
-    # Disabling correlation must not erase the configured thresholds. The
-    # optimizer already ignores them while use_correlation is false. Older
-    # persisted settings may have lost all four values, so restore defaults
-    # when correlation is enabled again.
-    if values["use_correlation"] and all(
-        values[key] is None for key in correlation_keys
-    ):
-        for key in correlation_keys:
-            values[key] = COMMON_DEFAULTS[key]
-    groups = [str(value) for value in values.get("allowed_asset_groups") or [] if str(value) in ASSET_GROUPS]
-    if not groups:
-        raise ValueError("Selecciona al menos un grupo de activos")
-    values["allowed_asset_groups"] = sorted(set(groups))
-    def normalized_disabled_symbols(raw_symbols: Any, key: str) -> list[str]:
-        if raw_symbols is None:
-            raw_symbols = []
-        if not isinstance(raw_symbols, (list, tuple, set)):
-            raise ValueError(f"{key} debe ser una lista de símbolos")
-        normalized: dict[str, str] = {}
-        for raw_symbol in raw_symbols:
-            if not isinstance(raw_symbol, str):
-                raise ValueError("Cada símbolo deshabilitado debe ser texto")
-            symbol = raw_symbol.strip()
-            if not symbol:
-                continue
-            if len(symbol) > 64:
-                raise ValueError("Un símbolo deshabilitado no puede superar 64 caracteres")
-            normalized.setdefault(symbol.casefold(), symbol)
-        return sorted(normalized.values(), key=str.casefold)
-
-    generation_disabled = normalized_disabled_symbols(
-        values.get("disabled_symbols"), "disabled_symbols"
-    )
-    # El control pertenece exclusivamente a UBS normal. El mensual tiene su
-    # propia interfaz y orquestación, y no debe heredar silenciosamente el filtro.
-    values["disabled_symbols"] = [] if monthly else generation_disabled
-    if monthly:
-        values["target_month"] = safe_int(values.get("target_month"), 0)
-        if not 1 <= values["target_month"] <= 12:
-            raise ValueError("target_month debe estar entre 1 y 12")
-        values["max_daily_dd"] = safe_float(values.get("max_daily_dd"), 0)
-        if values["max_daily_dd"] <= 0:
-            raise ValueError("max_daily_dd debe ser mayor que 0")
-    return values
 
 
 def filter_rows_by_disabled_symbols(
@@ -2922,24 +2750,22 @@ def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
     )
 
 
-def generate_proposals(
+def _eligible_generation_rows(
     source: PortfolioSource,
     inputs: dict[str, Any],
-    progress: Callable[[str], None] | None = None,
-    *,
-    exclude_portfolio_id: int | None = None,
-    lock_portfolio_type: PortfolioType | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Generate only the full-history UBS A/M/C bundle."""
-    if inputs.get("portfolio_scope") == "monthly":
-        raise ValueError("El cálculo mensual debe usar portfolio_monthly_service")
-    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
+    warnings: list[str],
+    progress: Callable[[str], None] | None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Los candidatos que pasan los filtros del formulario, y el reparto por grupo.
+
+    Cada filtro tiene su propio mensaje de error: son cuatro motivos distintos
+    por los que el pool puede quedarse vacio y el usuario necesita cual fue.
+    """
     if progress:
         progress("1/5 · Leyendo candidatos Final Tick aceptados")
     rows = source.candidate_rows(include_quarantined=False)
     if not rows:
         raise ValueError("No hay candidatos con Final Tick continuo y 6M aceptados")
-    warnings: list[str] = []
     if inputs.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(
             rows, min_positive_months=3, window_months=6, parse=cached_report,
@@ -2969,28 +2795,41 @@ def generate_proposals(
     )
     if not rows:
         raise ValueError("No quedan candidatos tras deshabilitar los símbolos seleccionados")
-    used = (
-        source.used_set_paths(
-            "full_history",
-            exclude_portfolio_id=exclude_portfolio_id,
-            portfolio_type=lock_portfolio_type,
-        )
-        if inputs.get("exclude_used_sets", True) else []
-    )
-    availability = asdict(summarize_robust_rows(rows, used))
+    return rows, group_counts
+
+
+def _loaded_generation_sets(
+    source: PortfolioSource,
+    inputs: dict[str, Any],
+    rows: list[dict[str, Any]],
+    used: list[str],
+    warnings: list[str],
+    progress: Callable[[str], None] | None,
+) -> list[Any]:
+    """Lee los informes de cada fila y vuelve a filtrar por grupo permitido.
+
+    El segundo filtro no sobra: la fila trae el simbolo de la memoria y el set
+    cargado trae el suyo, y un simbolo ejecutable puede caer en otro grupo.
+    """
     if progress:
         progress(f"2/5 · Cargando reportes de {len(rows)} candidatos")
     raw_sets, load_warnings = load_robust_sets_from_rows(
         rows, used, parse=cached_report, progress=progress,
     )
     warnings.extend(load_warnings)
+    allowed = set(inputs["allowed_asset_groups"])
     raw_sets = [
         strategy for strategy in raw_sets
         if portfolio_group_key(strategy.symbol, universe_files=[source.universe]) in allowed
     ]
     if not raw_sets:
         raise ValueError("No quedan sets cargados después de los filtros")
-    minimum_trades = int(inputs["min_trades_2020_2026"])
+    return raw_sets
+
+
+def _require_eligible_sets(
+    raw_sets: list[Any], minimum_trades: int, progress: Callable[[str], None] | None,
+) -> None:
     eligibility = eligibility_counts(raw_sets, minimum_trades)
     eligibility_text = describe_eligibility(eligibility, minimum_trades)
     if progress:
@@ -3000,14 +2839,17 @@ def generate_proposals(
             eligibility_text
             + ". Revise mínimo de trades, sets ya usados y la recuperación reciente 6M."
         )
-    existing_by_type = {
-        kind: source.saved_curves(
-            monthly=False,
-            portfolio_type=kind,
-            exclude_portfolio_id=exclude_portfolio_id,
-        )
-        for kind in PORTFOLIO_TYPES.values()
-    }
+
+
+def _bundle_proposals(
+    raw_sets: list[Any],
+    inputs: dict[str, Any],
+    existing_by_type: dict[PortfolioType, list[list[float]]],
+    warnings: list[str],
+    minimum_trades: int,
+    progress: Callable[[str], None] | None,
+) -> list[dict[str, Any]]:
+    """El paquete A/M/C, con el suelo de valle ejecutable ya aplicado."""
     requested_valley_pct = float(inputs["valley_dd_pct"])
     proposals, auto_adjusted, applied_pct = _with_executable_valley_floor(
         lambda attempt_inputs: _locked_full_proposals(
@@ -3027,6 +2869,46 @@ def generate_proposals(
         proposal["auto_adjusted_valley"] = auto_adjusted
         proposal["requested_valley_dd_pct"] = requested_valley_pct
         proposal["adjusted_valley_dd_pct"] = applied_pct
+    return proposals
+
+
+def generate_proposals(
+    source: PortfolioSource,
+    inputs: dict[str, Any],
+    progress: Callable[[str], None] | None = None,
+    *,
+    exclude_portfolio_id: int | None = None,
+    lock_portfolio_type: PortfolioType | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Generate only the full-history UBS A/M/C bundle."""
+    if inputs.get("portfolio_scope") == "monthly":
+        raise ValueError("El cálculo mensual debe usar portfolio_monthly_service")
+    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
+    warnings: list[str] = []
+    rows, group_counts = _eligible_generation_rows(source, inputs, warnings, progress)
+    used = (
+        source.used_set_paths(
+            "full_history",
+            exclude_portfolio_id=exclude_portfolio_id,
+            portfolio_type=lock_portfolio_type,
+        )
+        if inputs.get("exclude_used_sets", True) else []
+    )
+    availability = asdict(summarize_robust_rows(rows, used))
+    raw_sets = _loaded_generation_sets(source, inputs, rows, used, warnings, progress)
+    minimum_trades = int(inputs["min_trades_2020_2026"])
+    _require_eligible_sets(raw_sets, minimum_trades, progress)
+    existing_by_type = {
+        kind: source.saved_curves(
+            monthly=False,
+            portfolio_type=kind,
+            exclude_portfolio_id=exclude_portfolio_id,
+        )
+        for kind in PORTFOLIO_TYPES.values()
+    }
+    proposals = _bundle_proposals(
+        raw_sets, inputs, existing_by_type, warnings, minimum_trades, progress
+    )
     availability.update({
         "loaded_sets": len(raw_sets),
         "group_counts": group_counts,
