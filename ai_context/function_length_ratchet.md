@@ -120,6 +120,9 @@ Los módulos de pruebas también se parten por escenarios completos, conservando
 clases y helpers por AST. `BreadthBelowMinimumTests` vive en
 `tests/test_portfolio_breadth.py`; con ese corte el módulo de mejora por modo
 seleccionado baja de 625 a 570 líneas sin fragmentar una prueba por formato.
+Los cinco fixtures del buscador experimental completo viven en
+`tests/portfolio_full_experimental_fixtures.py`; el módulo de escenarios baja
+de 645 a 555 líneas y conserva los helpers idénticos por AST.
 
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
