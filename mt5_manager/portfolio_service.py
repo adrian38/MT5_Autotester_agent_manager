@@ -660,6 +660,93 @@ def _linux_path_needs_snapshot(path: Path, mounts_text: str) -> bool:
     return fstype in WAL_UNSUPPORTED_FILESYSTEMS or fstype.startswith("fuse.")
 
 
+def _pool_symbol(row: dict[str, Any]) -> Any:
+    """El simbolo con el que el inventario cuenta esta fila."""
+    return row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol")
+
+
+def _inventory_visible_rows(
+    rows: list[dict[str, Any]],
+    symbol_of: Callable[[dict[str, Any]], Any],
+    settings: dict[str, Any],
+    universe: Any,
+) -> list[dict[str, Any]]:
+    """Los mismos descartes que aplica ``inventory`` a la fila de la que se abre.
+
+    Sin esto la ventana ensenaba 84 sets de DE40 frente a los 61 de la fila: el
+    pool crudo no sabe nada de ``grid_off`` ni de ``allowed_asset_groups``.
+    """
+    allowed_groups = set(settings.get("allowed_asset_groups") or ASSET_GROUPS)
+    kept = [
+        row for row in rows
+        if portfolio_group_key(
+            str(symbol_of(row) or ""), universe_files=[universe]
+        ) in allowed_groups
+    ]
+    if bool(settings.get("grid_off")):
+        kept, _ = filter_rows_grid_off(kept)
+    return kept
+
+
+def _symbol_set_row(
+    row: dict[str, Any],
+    path: str,
+    display_symbol: str,
+    quarantined: dict[str, Any] | None,
+    used: bool,
+) -> dict[str, Any]:
+    """Fila del inventario de una familia, con su estado ya resuelto.
+
+    ``candidate_rows`` ya exige las cuatro etapas aceptadas: aqui el estado solo
+    depende de la cuarentena y de si el set esta asignado.
+    """
+    if quarantined:
+        state, state_label = "excluded", str(quarantined.get("reason_label") or "Excluido")
+    elif used:
+        state, state_label = "used", "Usado en portafolio"
+    else:
+        state, state_label = "available", "Disponible"
+    return {
+        "candidate_id": row.get("candidate_id"),
+        "set_path": path,
+        "set_name": Path(path).name,
+        "symbol": display_symbol,
+        "timeframe": row.get("period") or "",
+        "family": row.get("family") or "",
+        "account": row.get("account_type") or "",
+        "state": state,
+        "state_label": state_label,
+        "quarantine_key": str(quarantined.get("quarantine_key") or "") if quarantined else "",
+        "reason_code": (
+            candidate_verdict.normalize_reason_code(quarantined.get("reason_code"))
+            if quarantined else ""
+        ),
+        "exists": Path(path).is_file(),
+    }
+
+
+def _quarantined_set_row(
+    quarantined: dict[str, Any], path: str, display_symbol: str,
+) -> dict[str, Any]:
+    """Fila de un set en cuarentena que ya no aparece en el inventario vivo."""
+    return {
+        "candidate_id": quarantined.get("candidate_id"),
+        "set_path": path,
+        "set_name": Path(path).name,
+        "symbol": display_symbol,
+        "timeframe": quarantined.get("timeframe") or "",
+        "family": "",
+        "account": (
+            quarantined.get("source_account") or quarantined.get("account_type") or ""
+        ),
+        "state": "excluded",
+        "state_label": str(quarantined.get("reason_label") or "Excluido"),
+        "quarantine_key": str(quarantined.get("quarantine_key") or ""),
+        "reason_code": candidate_verdict.normalize_reason_code(quarantined.get("reason_code")),
+        "exists": Path(path).is_file(),
+    }
+
+
 class PortfolioSource:
     def __init__(self, node: dict[str, Any]) -> None:
         self.node = node
@@ -1219,25 +1306,13 @@ class PortfolioSource:
         scope: str = "full_history",
         settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Lista los sets que cuenta el inventario para la familia, más su cuarentena.
+        """Lista los sets que el inventario cuenta para la familia, y su cuarentena.
 
-        La ventana se abre desde una fila de «Sets disponibles por símbolo», así
-        que tiene que enseñar lo que esa fila cuenta: el pool de las cuatro
-        etapas aceptadas —disponibles, usados y en cuarentena—. El histórico de
-        candidatas de la familia no cabe aquí; con
-        ``import_candidate_rows(include_without_robustness=True)`` la tabla
-        llegaba a ~1000 filas de DE40 frente a los 61 sets anunciados, casi
-        tantas como sets tiene el inventario entero, y parecía estar mostrando
-        la base de datos completa.
-
-        Las excluidas que ya no están en el pool sí entran: el veredicto de
-        degradación u OHLC ≠ every tick las saca de :meth:`candidate_rows`, y
-        esta tabla es desde donde se reintegran.
-
-        ``settings`` son los mismos ajustes con los que se dibujó el inventario,
-        y hay que aplicarlos: sin ellos la ventana enseñaba 84 sets de DE40
-        frente a los 61 de la fila, porque el pool crudo no sabe nada de
-        ``grid_off`` ni de ``allowed_asset_groups``.
+        La ventana se abre desde una fila de «Sets disponibles por simbolo», asi
+        que ensena lo que esa fila cuenta: el pool de las cuatro etapas
+        aceptadas. Las excluidas que ya no estan en el pool tambien entran,
+        porque esta tabla es desde donde se reintegran. Ver
+        `ai_context/symbol_sync_cards.md` para el caso que lo fijo.
         """
         if normalize_portfolio_scope(scope) != "full_history":
             raise ValueError("La gestión por símbolo solo está disponible en Portafolio UBS")
@@ -1252,39 +1327,46 @@ class PortfolioSource:
             )
             return portfolio_symbol_key(display) == requested_key
 
-        values = settings or {}
-        allowed_groups = set(values.get("allowed_asset_groups") or ASSET_GROUPS)
-        grid_off = bool(values.get("grid_off"))
-
         def inventory_filters(
             rows: list[dict[str, Any]], symbol_of: Callable[[dict[str, Any]], Any]
         ) -> list[dict[str, Any]]:
-            """Los mismos descartes que aplica :meth:`inventory` a la fila."""
-            kept = [
-                row for row in rows
-                if portfolio_group_key(
-                    str(symbol_of(row) or ""), universe_files=[self.universe]
-                ) in allowed_groups
-            ]
-            if grid_off:
-                kept, _ = filter_rows_grid_off(kept)
-            return kept
+            return _inventory_visible_rows(rows, symbol_of, settings or {}, self.universe)
 
         quarantine = {
             self._path_key(row.get("set_path")): row
             for row in self.quarantine_rows()
         }
         used = {self._path_key(path) for path in self.used_set_paths("full_history")}
-        result: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        def pool_symbol(row: dict[str, Any]) -> Any:
-            return row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol")
-
         pool_rows = [
             row for row in self.candidate_rows(include_quarantined=True)
-            if belongs_to_family(pool_symbol(row))
+            if belongs_to_family(_pool_symbol(row))
         ]
-        for row in inventory_filters(pool_rows, pool_symbol):
+        result = self._family_pool_rows(
+            inventory_filters(pool_rows, _pool_symbol), quarantine, used,
+        )
+        seen = {self._path_key(str(item["set_path"])) for item in result}
+        family_quarantine = [
+            row for key, row in quarantine.items()
+            if key and key not in seen and belongs_to_family(row.get("symbol"))
+        ]
+        result.extend(self._family_quarantine_rows(
+            inventory_filters(family_quarantine, lambda row: row.get("symbol")),
+        ))
+        if not result:
+            raise ValueError(f"No se encontraron sets de la familia {requested}")
+        result.sort(key=lambda item: (str(item["set_name"]).casefold(), str(item["account"]).casefold()))
+        return {"symbol": requested, "sets": result, "total": len(result)}
+
+    def _family_pool_rows(
+        self,
+        rows: list[dict[str, Any]],
+        quarantine: dict[str, Any],
+        used: set[str],
+    ) -> list[dict[str, Any]]:
+        """Filas del pool vivo de la familia, sin repetir el mismo .set."""
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
             path = str(row.get("set_path") or "")
             if not path.strip():
                 continue
@@ -1292,68 +1374,34 @@ class PortfolioSource:
             if not path_key or path_key in seen:
                 continue
             seen.add(path_key)
-            quarantined = quarantine.get(path_key)
-            display_symbol = portfolio_display_symbol(
-                str(row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol") or ""),
-                universe_files=[self.universe],
-            )
-            # candidate_rows ya exige las cuatro etapas aceptadas: aquí el estado
-            # solo depende de la cuarentena y de si el set está asignado.
-            if quarantined:
-                state = "excluded"
-                state_label = str(quarantined.get("reason_label") or "Excluido")
-            elif path_key in used:
-                state = "used"
-                state_label = "Usado en portafolio"
-            else:
-                state = "available"
-                state_label = "Disponible"
-            result.append({
-                "candidate_id": row.get("candidate_id"),
-                "set_path": path,
-                "set_name": Path(path).name,
-                "symbol": display_symbol,
-                "timeframe": row.get("period") or "",
-                "family": row.get("family") or "",
-                "account": row.get("account_type") or "",
-                "state": state,
-                "state_label": state_label,
-                "quarantine_key": str(quarantined.get("quarantine_key") or "") if quarantined else "",
-                "reason_code": (
-                    candidate_verdict.normalize_reason_code(quarantined.get("reason_code"))
-                    if quarantined else ""
+            result.append(_symbol_set_row(
+                row,
+                path,
+                portfolio_display_symbol(
+                    str(_pool_symbol(row) or ""), universe_files=[self.universe],
                 ),
-                "exists": Path(path).is_file(),
-            })
-        family_quarantine = [
-            row for key, row in quarantine.items()
-            if key and key not in seen and belongs_to_family(row.get("symbol"))
-        ]
-        for quarantined in inventory_filters(family_quarantine, lambda row: row.get("symbol")):
+                quarantine.get(path_key),
+                path_key in used,
+            ))
+        return result
+
+    def _family_quarantine_rows(
+        self, rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Excluidas que ya no figuran en el pool; desde aqui se reintegran."""
+        result: list[dict[str, Any]] = []
+        for quarantined in rows:
             path = str(quarantined.get("set_path") or "")
             if not path.strip():
                 continue
-            seen.add(self._path_key(path))
-            result.append({
-                "candidate_id": quarantined.get("candidate_id"),
-                "set_path": path,
-                "set_name": Path(path).name,
-                "symbol": portfolio_display_symbol(
-                    str(quarantined.get("symbol") or ""), universe_files=[self.universe]
+            result.append(_quarantined_set_row(
+                quarantined,
+                path,
+                portfolio_display_symbol(
+                    str(quarantined.get("symbol") or ""), universe_files=[self.universe],
                 ),
-                "timeframe": quarantined.get("timeframe") or "",
-                "family": "",
-                "account": quarantined.get("source_account") or quarantined.get("account_type") or "",
-                "state": "excluded",
-                "state_label": str(quarantined.get("reason_label") or "Excluido"),
-                "quarantine_key": str(quarantined.get("quarantine_key") or ""),
-                "reason_code": candidate_verdict.normalize_reason_code(quarantined.get("reason_code")),
-                "exists": Path(path).is_file(),
-            })
-        if not result:
-            raise ValueError(f"No se encontraron sets de la familia {requested}")
-        result.sort(key=lambda item: (str(item["set_name"]).casefold(), str(item["account"]).casefold()))
-        return {"symbol": requested, "sets": result, "total": len(result)}
+            ))
+        return result
 
     def export_symbol_sets(
         self,
@@ -2986,26 +3034,27 @@ def _normal_proposals(
     return proposals
 
 
-def _locked_full_proposals(
-    raw_sets: list[Any],
-    inputs: dict[str, Any],
-    existing_by_type: dict[PortfolioType, list[list[float]]],
-    progress: Callable[[str], None] | None = None,
-) -> list[dict[str, Any]]:
-    base_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
-    configured = float(inputs.get("dd_reserve_pct") or 0)
-    base_reserve = max(_reserve_pct(configured, portfolio_type) for _key, _label, portfolio_type in LOCKED_VARIANTS)
-    base_inputs = dict(inputs)
-    base_inputs["dd_reserve_pct"] = base_reserve
-    minimum_recent_pct = float(inputs.get("min_strategy_recent_contribution_pct") or 0.0)
-    if progress:
-        progress(f"4/5 · Seleccionando composicion base {TYPE_LABELS[base_type.value]}")
-    base_kwargs = _optimizer_kwargs(
-        base_inputs,
-        base_type,
-        existing_by_type.get(base_type, []),
-        base_reserve,
-    )
+@dataclass
+class _LockedComposition:
+    """La composicion comun A/M/C, ya fijada, y lo que costo llegar a ella."""
+
+    sets: list[Any]
+    ids: list[str]
+    base_reserve: float
+    removed_ids: list[str]
+    refill_base: bool
+    experimental_audit: dict[str, Any] | None
+    experimental_warnings: list[str]
+
+
+def _base_optimizer(
+    base_inputs: dict[str, Any],
+    base_kwargs: dict[str, Any],
+    telemetry: dict[str, Any],
+    minimum_recent_pct: float,
+    progress: Callable[[str], None] | None,
+) -> Callable[[list[Any]], PortfolioResult]:
+    """El motor que elige la composicion base: experimental o normal."""
 
     def recent_filler_ids(result: PortfolioResult) -> set[str]:
         # La regla tiene una sola definicion. Se inyecta en el motor
@@ -3013,39 +3062,76 @@ def _locked_full_proposals(
         # lugar de reimplementarlo y arriesgar que los dos se separen.
         return _underrepresented_recent_allocation_ids(result, minimum_recent_pct)
 
-    # El torneo corre una vez. Si la regla compartida vuelve a entrar en este
-    # callback con los supervivientes, esa segunda pasada no tiene rondas y
-    # sobreescribiria el registro de la busqueda real con «0 ronda(s)».
-    experimental_telemetry: dict[str, Any] = {}
-
     def optimize_base(candidate_sets: list[Any]) -> PortfolioResult:
-        if base_inputs.get("experimental_full_search"):
-            result = optimize_experimental_full_portfolio(
+        if not base_inputs.get("experimental_full_search"):
+            return optimize_portfolio(
                 raw_sets=candidate_sets,
-                use_deep_refinement=bool(
-                    base_inputs.get("deep_optimization")
+                **optimizer_overrides(
+                    base_kwargs,
+                    use_deep_refinement=bool(base_inputs.get("deep_optimization")),
                 ),
-                progress=progress,
-                recent_filler_ids=recent_filler_ids,
-                **base_kwargs,
             )
-            if "warnings" not in experimental_telemetry:
-                experimental_telemetry["warnings"] = [
-                    warning
-                    for warning in result.warnings
-                    if warning.startswith(EXPERIMENTAL_WARNING_PREFIXES)
-                ]
-                experimental_telemetry["audit"] = (
-                    result.seasonal_validation or {}
-                ).get("experimental_full_history_stability")
-            return result
-        return optimize_portfolio(
+        result = optimize_experimental_full_portfolio(
             raw_sets=candidate_sets,
-            **{**base_kwargs, "search": base_kwargs["search"].with_deep_refinement(bool(
-                base_inputs.get("deep_optimization")
-            ))},
+            use_deep_refinement=bool(base_inputs.get("deep_optimization")),
+            progress=progress,
+            recent_filler_ids=recent_filler_ids,
+            **base_kwargs,
         )
+        # El torneo corre una vez. Si la regla compartida vuelve a entrar en
+        # este callback con los supervivientes, esa segunda pasada no tiene
+        # rondas y sobreescribiria el registro de la busqueda real con
+        # «0 ronda(s)».
+        if "warnings" not in telemetry:
+            telemetry["warnings"] = [
+                warning
+                for warning in result.warnings
+                if warning.startswith(EXPERIMENTAL_WARNING_PREFIXES)
+            ]
+            telemetry["audit"] = (
+                result.seasonal_validation or {}
+            ).get("experimental_full_history_stability")
+        return result
 
+    return optimize_base
+
+
+def _locked_sets_from(
+    base: PortfolioResult, raw_sets: list[Any],
+) -> tuple[list[str], list[Any]]:
+    """Los sets activos de la base, comprobando que siguen en el pool."""
+    locked_ids = [
+        allocation.set_id for allocation in base.allocations if allocation.units > 0
+    ]
+    if not locked_ids:
+        raise ValueError("La composicion base no produjo ningun set activo")
+    raw_by_id = {strategy.set_id: strategy for strategy in raw_sets}
+    missing = [set_id for set_id in locked_ids if set_id not in raw_by_id]
+    if missing:
+        raise ValueError(
+            "Faltan sets de la composicion base: "
+            + ", ".join(Path(value).name for value in missing)
+        )
+    return locked_ids, [raw_by_id[set_id] for set_id in locked_ids]
+
+
+def _locked_composition(
+    raw_sets: list[Any],
+    inputs: dict[str, Any],
+    base_type: PortfolioType,
+    existing_by_type: dict[PortfolioType, list[list[float]]],
+    progress: Callable[[str], None] | None,
+) -> _LockedComposition:
+    """Elige la composicion que las tres variantes van a compartir."""
+    base_reserve = max(
+        _reserve_pct(float(inputs.get("dd_reserve_pct") or 0), portfolio_type)
+        for _key, _label, portfolio_type in LOCKED_VARIANTS
+    )
+    base_inputs = {**inputs, "dd_reserve_pct": base_reserve}
+    minimum_recent_pct = float(inputs.get("min_strategy_recent_contribution_pct") or 0.0)
+    if progress:
+        progress(f"4/5 · Seleccionando composicion base {TYPE_LABELS[base_type.value]}")
+    telemetry: dict[str, Any] = {}
     # El motor experimental repone los rellenos dentro del torneo, donde conoce
     # el lote ganador; reabrir el pool aqui con el torneo como callback es el
     # bucle de doce horas de `ubs_generation_repeated_tournaments.md`. Sin el
@@ -3057,106 +3143,160 @@ def _locked_full_proposals(
     base, removed_ids = _optimize_without_recent_fillers(
         raw_sets,
         minimum_recent_pct,
-        optimize_base,
+        _base_optimizer(
+            base_inputs,
+            _optimizer_kwargs(
+                base_inputs, base_type, existing_by_type.get(base_type, []), base_reserve,
+            ),
+            telemetry,
+            minimum_recent_pct,
+            progress,
+        ),
         progress=progress,
         refill_from_pool=refill_base,
     )
-    locked_ids = [allocation.set_id for allocation in base.allocations if allocation.units > 0]
-    if not locked_ids:
-        raise ValueError("La composicion base no produjo ningun set activo")
-    raw_by_id = {strategy.set_id: strategy for strategy in raw_sets}
-    missing = [set_id for set_id in locked_ids if set_id not in raw_by_id]
-    if missing:
-        raise ValueError("Faltan sets de la composicion base: " + ", ".join(Path(value).name for value in missing))
-    locked_sets = [raw_by_id[set_id] for set_id in locked_ids]
-    # Del torneo real, no de una reejecucion sobre los supervivientes: esa no
-    # tiene rondas y declararia «0 ronda(s)» con la auditoria calculada sobre la
-    # composicion ya recortada.
-    experimental_audit = (
-        experimental_telemetry.get("audit")
-        if base_inputs.get("experimental_full_search")
-        else None
+    locked_ids, locked_sets = _locked_sets_from(base, raw_sets)
+    return _LockedComposition(
+        sets=locked_sets,
+        ids=locked_ids,
+        base_reserve=base_reserve,
+        removed_ids=removed_ids,
+        refill_base=refill_base,
+        # Del torneo real, no de una reejecucion sobre los supervivientes: esa
+        # no tiene rondas y declararia «0 ronda(s)» con la auditoria calculada
+        # sobre la composicion ya recortada.
+        experimental_audit=(
+            telemetry.get("audit")
+            if base_inputs.get("experimental_full_search")
+            else None
+        ),
+        experimental_warnings=list(telemetry.get("warnings") or []),
     )
-    experimental_warnings = list(experimental_telemetry.get("warnings") or [])
-    while True:
-        locked_count = len(locked_sets)
-        if inputs.get("max_total_units") is not None and int(inputs["max_total_units"]) < locked_count:
-            raise ValueError("Max unidades es menor que la composicion comun")
-        proposals: list[dict[str, Any]] = []
-        errors: list[str] = []
-        for index, (key, label, portfolio_type) in enumerate(LOCKED_VARIANTS, 1):
-            if progress:
-                progress(f"5/5 · Calculando variante {index}/3: {label}")
-            reserve = _reserve_pct(configured, portfolio_type)
-            proposal_inputs = settings_inputs(inputs)
-            proposal_inputs.update({
-                "optimization_profile": key,
-                "optimization_profile_label": label,
-                "portfolio_type": portfolio_type.value,
-                "portfolio_type_label": TYPE_LABELS[portfolio_type.value],
-                "composition_portfolio_type": base_type.value,
-                "composition_portfolio_type_label": TYPE_LABELS[base_type.value],
-                "dd_reserve_pct": reserve,
-            })
-            kwargs = _optimizer_kwargs(inputs, portfolio_type, existing_by_type.get(portfolio_type, []), reserve)
-            kwargs = optimizer_overrides(kwargs, **{
-                "top_k_per_symbol": max(int(inputs["top_k_per_symbol"]), locked_count),
-                "max_total_candidates": None,
-                "max_sets_per_group": locked_count,
-                "group_unit_cap_bootstrap": max(locked_count, 1),
-                "minimum_active_strategies": locked_count,
-                "maximum_active_strategies": locked_count,
-                "search_restarts": 0,
-            })
-            try:
-                result = optimize_portfolio(
-                    raw_sets=locked_sets,
-                    **{**kwargs, "search": kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
-                )
-            except Exception as exc:
-                errors.append(f"{label}: {exc}")
-                continue
-            if {allocation.set_id for allocation in result.allocations if allocation.units > 0} != set(locked_ids):
-                errors.append(f"{label}: no mantuvo todos los sets comunes")
-                continue
-            _seasonal_coverage(result, locked_sets)
-            if experimental_audit is not None:
-                result.seasonal_validation = dict(
-                    result.seasonal_validation or {}
-                )
-                result.seasonal_validation[
-                    "experimental_full_history_stability"
-                ] = experimental_audit
-                result.warnings[:0] = experimental_warnings
-            proposals.append({"key": key, "label": label, "reserve_pct": reserve, "inputs": proposal_inputs, "result": result})
-        if not proposals:
-            raise ValueError("No se pudo calcular ninguna variante bloqueada. " + " | ".join(errors))
 
-        for proposal in proposals:
-            result = proposal["result"]
-            result.warnings.insert(
-                0,
-                f"Composicion comun A/M/C: {locked_count} sets; reserva base {base_reserve:.1f}%",
+
+def _locked_variant_proposal(
+    variant: tuple[str, str, PortfolioType],
+    composition: _LockedComposition,
+    inputs: dict[str, Any],
+    base_type: PortfolioType,
+    existing_by_type: dict[PortfolioType, list[list[float]]],
+) -> tuple[dict[str, Any] | None, str]:
+    """Una variante sobre la composicion fijada, o el motivo de descartarla."""
+    key, label, portfolio_type = variant
+    locked_count = len(composition.sets)
+    reserve = _reserve_pct(float(inputs.get("dd_reserve_pct") or 0), portfolio_type)
+    proposal_inputs = settings_inputs(inputs)
+    proposal_inputs.update({
+        "optimization_profile": key,
+        "optimization_profile_label": label,
+        "portfolio_type": portfolio_type.value,
+        "portfolio_type_label": TYPE_LABELS[portfolio_type.value],
+        "composition_portfolio_type": base_type.value,
+        "composition_portfolio_type_label": TYPE_LABELS[base_type.value],
+        "dd_reserve_pct": reserve,
+    })
+    kwargs = optimizer_overrides(
+        _optimizer_kwargs(
+            inputs, portfolio_type, existing_by_type.get(portfolio_type, []), reserve,
+        ),
+        top_k_per_symbol=max(int(inputs["top_k_per_symbol"]), locked_count),
+        max_total_candidates=None,
+        max_sets_per_group=locked_count,
+        group_unit_cap_bootstrap=max(locked_count, 1),
+        minimum_active_strategies=locked_count,
+        maximum_active_strategies=locked_count,
+        search_restarts=0,
+        use_deep_refinement=bool(inputs.get("deep_optimization")),
+    )
+    try:
+        result = optimize_portfolio(raw_sets=composition.sets, **kwargs)
+    except Exception as exc:
+        return None, f"{label}: {exc}"
+    active = {
+        allocation.set_id for allocation in result.allocations if allocation.units > 0
+    }
+    if active != set(composition.ids):
+        return None, f"{label}: no mantuvo todos los sets comunes"
+    _seasonal_coverage(result, composition.sets)
+    if composition.experimental_audit is not None:
+        result.seasonal_validation = dict(result.seasonal_validation or {})
+        result.seasonal_validation["experimental_full_history_stability"] = (
+            composition.experimental_audit
+        )
+        result.warnings[:0] = composition.experimental_warnings
+    return {
+        "key": key, "label": label, "reserve_pct": reserve,
+        "inputs": proposal_inputs, "result": result,
+    }, ""
+
+
+def _annotate_locked_proposals(
+    proposals: list[dict[str, Any]],
+    errors: list[str],
+    composition: _LockedComposition,
+) -> None:
+    """Explica la composicion comun, la antirrelleno y las variantes caidas."""
+    locked_count = len(composition.sets)
+    for proposal in proposals:
+        warnings = proposal["result"].warnings
+        warnings.insert(
+            0,
+            f"Composicion comun A/M/C: {locked_count} sets; "
+            f"reserva base {composition.base_reserve:.1f}%",
+        )
+        if composition.removed_ids:
+            warnings.insert(
+                1,
+                "Regla antirrelleno 6M: "
+                f"{len(composition.removed_ids)} estrategia(s) eliminada(s) "
+                + ("y repuestas desde el pool " if composition.refill_base else "")
+                + "antes de fijar la composicion A/M/C.",
             )
-            if removed_ids:
-                result.warnings.insert(
-                    1,
-                    "Regla antirrelleno 6M: "
-                    f"{len(removed_ids)} estrategia(s) eliminada(s) "
-                    + ("y repuestas desde el pool " if refill_base else "")
-                    + "antes de fijar la composicion A/M/C.",
-                )
-            # Una variante inviable no anula a las demas: el redondeo ejecutable
-            # puede dejar fuera solo a la mas restrictiva. Se entregan las
-            # viables para poder mirarlas, y `prepare_save` bloquea el guardado
-            # mientras el paquete no tenga las tres.
-            if errors:
-                result.warnings.insert(
-                    2 if removed_ids else 1,
-                    f"Paquete A/M/C incompleto: {len(proposals)}/3 variantes viables. "
-                    "No se puede guardar hasta recalcular. " + " | ".join(errors),
-                )
-        return proposals
+        # Una variante inviable no anula a las demas: el redondeo ejecutable
+        # puede dejar fuera solo a la mas restrictiva. Se entregan las viables
+        # para poder mirarlas, y `prepare_save` bloquea el guardado mientras el
+        # paquete no tenga las tres.
+        if errors:
+            warnings.insert(
+                2 if composition.removed_ids else 1,
+                f"Paquete A/M/C incompleto: {len(proposals)}/3 variantes viables. "
+                "No se puede guardar hasta recalcular. " + " | ".join(errors),
+            )
+
+
+def _locked_full_proposals(
+    raw_sets: list[Any],
+    inputs: dict[str, Any],
+    existing_by_type: dict[PortfolioType, list[list[float]]],
+    progress: Callable[[str], None] | None = None,
+) -> list[dict[str, Any]]:
+    """Las tres variantes A/M/C sobre una composicion comun.
+
+    Un paquete guardado siempre comparte composicion: solo cambian las unidades.
+    """
+    base_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
+    composition = _locked_composition(raw_sets, inputs, base_type, existing_by_type, progress)
+    locked_count = len(composition.sets)
+    if inputs.get("max_total_units") is not None and int(inputs["max_total_units"]) < locked_count:
+        raise ValueError("Max unidades es menor que la composicion comun")
+    proposals: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for index, variant in enumerate(LOCKED_VARIANTS, 1):
+        if progress:
+            progress(f"5/5 · Calculando variante {index}/3: {variant[1]}")
+        proposal, error = _locked_variant_proposal(
+            variant, composition, inputs, base_type, existing_by_type,
+        )
+        if proposal is None:
+            errors.append(error)
+            continue
+        proposals.append(proposal)
+    if not proposals:
+        raise ValueError(
+            "No se pudo calcular ninguna variante bloqueada. " + " | ".join(errors)
+        )
+    _annotate_locked_proposals(proposals, errors, composition)
+    return proposals
 
 
 def result_payload(result: PortfolioResult) -> dict[str, Any]:
@@ -4796,6 +4936,64 @@ def proposal_diff(previous_members: list[dict[str, Any]], result: PortfolioResul
     return rows
 
 
+def _run_portfolio_operation(
+    source: PortfolioSource,
+    scope: str,
+    operation: str,
+    portfolio_id: int | None,
+    settings: dict[str, Any],
+    progress: Callable[[str], None],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """El motor que corresponde al ambito y a la operacion pedida.
+
+    Los imports son locales a proposito: cada ambito arrastra su modulo y no
+    tiene por que cargarse para atender a los otros dos.
+    """
+    if scope == "monthly":
+        from .portfolio_monthly_service import run_monthly_operation
+
+        return run_monthly_operation(source, operation, portfolio_id, settings, progress)
+    if scope == "grid":
+        from .portfolio_grid_service import run_grid_operation
+
+        return run_grid_operation(source, operation, portfolio_id, settings, progress)
+    if operation == "improve":
+        if portfolio_id is None:
+            raise ValueError("Falta el portafolio cuya base se quiere mejorar")
+        # Dos motores en dos ficheros: base y cadena. La decision la toma la
+        # genealogia del destino, no el nombre ni esta rama.
+        from .portfolio_improvement_dispatch import run_full_history_improvement
+
+        return run_full_history_improvement(source, portfolio_id, settings, progress)
+    if operation == "complete":
+        if portfolio_id is None:
+            raise ValueError("Falta el portafolio que se quiere completar")
+        return generate_completion_proposal(
+            source, portfolio_id, scope, settings, progress,
+        )
+    return generate_proposals(
+        source, settings, progress,
+        exclude_portfolio_id=portfolio_id if operation == "reoptimize" else None,
+        lock_portfolio_type=_reoptimize_locked_type(source, scope, operation, portfolio_id, settings),
+    )
+
+
+def _reoptimize_locked_type(
+    source: PortfolioSource,
+    scope: str,
+    operation: str,
+    portfolio_id: int | None,
+    settings: dict[str, Any],
+) -> PortfolioType | None:
+    """Reoptimizar una fila de una sola variante fija su tipo; un paquete no."""
+    if operation != "reoptimize" or portfolio_id is None:
+        return None
+    saved = source.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
+    if _is_bundle_portfolio(saved):
+        return None
+    return PORTFOLIO_TYPES[str(settings["portfolio_type"])]
+
+
 class PortfolioCoordinator:
     def __init__(self, nodes: list[dict[str, Any]], settings_path: Path) -> None:
         self.nodes = {str(node.get("id")): node for node in nodes}
@@ -5007,6 +5205,70 @@ class PortfolioCoordinator:
             settings = normalize_settings(scope, settings, source.broker)
         return self._start_job(node_id, scope, settings, operation, portfolio_id, list(detail.get("members") or []))
 
+    def _record_job_progress(self, key: str, message: str) -> None:
+        """Anota el avance del job y, si numera etapas, su posicion.
+
+        Los tres ambitos numeran sus etapas «N/M». El mensual era el unico
+        que lo leia y por eso el unico con monitor.
+        """
+        with self.lock:
+            if key not in self.jobs:
+                return
+            self.jobs[key]["progress"] = str(message)
+            match = re.match(r"^\s*(\d+)/(\d+)\b", str(message))
+            if not match:
+                return
+            self.jobs[key]["stage"] = max(
+                int(self.jobs[key].get("stage") or 0), int(match.group(1)),
+            )
+            self.jobs[key]["stage_total"] = int(match.group(2))
+
+    def _append_job_log(self, log_path: str, line: str) -> None:
+        """Anade una linea al log del job. Si no se puede, no es motivo de fallo."""
+        if not log_path:
+            return
+        try:
+            with Path(log_path).open("a", encoding="utf-8") as handle:
+                handle.write(f"{datetime.now().isoformat(timespec='seconds')} | {line}\n")
+        except OSError:
+            pass
+
+    def _mark_job_stopped(self, key: str) -> None:
+        """Deja el job como detenido por el usuario y lo anota en su log."""
+        with self.lock:
+            job = self.jobs.get(key) or {}
+            job.update({
+                "status": "stopped", "finished_at": utc_now(), "error": None,
+                "progress": "Cálculo detenido por el usuario",
+            })
+            log_path = str(job.get("log_path") or "")
+        self._append_job_log(log_path, "DETENIDO por el usuario")
+
+    def _mark_job_failed(
+        self,
+        key: str,
+        exc: Exception,
+        node_id: str,
+        operation: str,
+        portfolio_id: int | None,
+    ) -> None:
+        """Deja el job como fallido, lo anota y avisa al nodo."""
+        with self.lock:
+            self.jobs[key].update({
+                "status": "failed", "finished_at": utc_now(),
+                "error": str(exc), "progress": "Error",
+            })
+            log_path = str(self.jobs[key].get("log_path") or "")
+        self._append_job_log(log_path, f"ERROR · {exc}")
+        try:
+            PortfolioSource(self._node(node_id)).notify(
+                f"Portfolio Builder {operation} fallido"
+                + (f" para #{portfolio_id}" if portfolio_id else "")
+                + f": {exc}"
+            )
+        except Exception:
+            pass
+
     def _worker(
         self, node_id: str, scope: str, settings: dict[str, Any], operation: str = "generate", portfolio_id: int | None = None
     ) -> None:
@@ -5026,18 +5288,7 @@ class PortfolioCoordinator:
             previous_cancellation_check = set_portfolio_cancellation_check(cancellation_requested)
 
         def progress(message: str) -> None:
-            with self.lock:
-                if key in self.jobs:
-                    self.jobs[key]["progress"] = str(message)
-                    # Los tres ámbitos numeran sus etapas «N/M». El mensual era
-                    # el único que lo leía y por eso el único con monitor.
-                    match = re.match(r"^\s*(\d+)/(\d+)\b", str(message))
-                    if match:
-                        self.jobs[key]["stage"] = max(
-                            int(self.jobs[key].get("stage") or 0),
-                            int(match.group(1)),
-                        )
-                        self.jobs[key]["stage_total"] = int(match.group(2))
+            self._record_job_progress(key, message)
 
         try:
             raise_if_cancelled()
@@ -5059,44 +5310,9 @@ class PortfolioCoordinator:
                 with log_path.open("a", encoding="utf-8") as handle:
                     handle.write(f"{datetime.now().isoformat(timespec='seconds')} | {message}\n")
 
-            if scope == "monthly":
-                from .portfolio_monthly_service import run_monthly_operation
-
-                availability, proposals = run_monthly_operation(
-                    source, operation, portfolio_id, settings, logged_progress,
-                )
-            elif scope == "grid":
-                from .portfolio_grid_service import run_grid_operation
-
-                availability, proposals = run_grid_operation(
-                    source, operation, portfolio_id, settings, logged_progress,
-                )
-            elif operation == "improve":
-                if portfolio_id is None:
-                    raise ValueError("Falta el portafolio cuya base se quiere mejorar")
-                # Dos motores en dos ficheros: base y cadena. La decisión la
-                # toma la genealogía del destino, no el nombre ni esta rama.
-                from .portfolio_improvement_dispatch import run_full_history_improvement
-
-                availability, proposals = run_full_history_improvement(
-                    source, portfolio_id, settings, logged_progress,
-                )
-            elif operation == "complete":
-                if portfolio_id is None:
-                    raise ValueError("Falta el portafolio que se quiere completar")
-                availability, proposals = generate_completion_proposal(source, portfolio_id, scope, settings, logged_progress)
-            else:
-                lock_portfolio_type: PortfolioType | None = None
-                if operation == "reoptimize" and portfolio_id is not None:
-                    saved = source.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
-                    is_bundle = _is_bundle_portfolio(saved)
-                    if not is_bundle:
-                        lock_portfolio_type = PORTFOLIO_TYPES[str(settings["portfolio_type"])]
-                availability, proposals = generate_proposals(
-                    source, settings, logged_progress,
-                    exclude_portfolio_id=portfolio_id if operation == "reoptimize" else None,
-                    lock_portfolio_type=lock_portfolio_type,
-                )
+            availability, proposals = _run_portfolio_operation(
+                source, scope, operation, portfolio_id, settings, logged_progress,
+            )
             raise_if_cancelled()
             with self.lock:
                 self.proposals[key] = proposals
@@ -5111,56 +5327,14 @@ class PortfolioCoordinator:
                 f"{len(proposals)} propuesta(s)" + (f" para portafolio #{portfolio_id}" if portfolio_id else "")
             )
         except PortfolioCalculationCancelled:
-            with self.lock:
-                job = self.jobs.get(key) or {}
-                job.update({
-                    "status": "stopped", "finished_at": utc_now(), "error": None,
-                    "progress": "Cálculo detenido por el usuario",
-                })
-                stopped_log_path = str(job.get("log_path") or "")
-            if stopped_log_path:
-                try:
-                    with Path(stopped_log_path).open("a", encoding="utf-8") as handle:
-                        handle.write(
-                            f"{datetime.now().isoformat(timespec='seconds')} | DETENIDO por el usuario\n"
-                        )
-                except OSError:
-                    pass
+            self._mark_job_stopped(key)
         except Exception as exc:
             if cancellation_requested():
-                with self.lock:
-                    job = self.jobs.get(key) or {}
-                    job.update({
-                        "status": "stopped", "finished_at": utc_now(), "error": None,
-                        "progress": "Cálculo detenido por el usuario",
-                    })
-                    stopped_log_path = str(job.get("log_path") or "")
-                if stopped_log_path:
-                    try:
-                        with Path(stopped_log_path).open("a", encoding="utf-8") as handle:
-                            handle.write(
-                                f"{datetime.now().isoformat(timespec='seconds')} | DETENIDO por el usuario\n"
-                            )
-                    except OSError:
-                        pass
+                # El motor no siempre alcanza a lanzar la cancelacion antes de
+                # fallar por lo que la cancelacion misma provoco.
+                self._mark_job_stopped(key)
                 return
-            with self.lock:
-                self.jobs[key].update({"status": "failed", "finished_at": utc_now(), "error": str(exc), "progress": "Error"})
-                failed_log_path = str(self.jobs[key].get("log_path") or "")
-            if failed_log_path:
-                try:
-                    with Path(failed_log_path).open("a", encoding="utf-8") as handle:
-                        handle.write(
-                            f"{datetime.now().isoformat(timespec='seconds')} | ERROR · {exc}\n"
-                        )
-                except OSError:
-                    pass
-            try:
-                PortfolioSource(self._node(node_id)).notify(
-                    f"Portfolio Builder {operation} fallido" + (f" para #{portfolio_id}" if portfolio_id else "") + f": {exc}"
-                )
-            except Exception:
-                pass
+            self._mark_job_failed(key, exc, node_id, operation, portfolio_id)
         finally:
             if scope == "full_history":
                 set_portfolio_cancellation_check(previous_cancellation_check)
