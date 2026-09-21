@@ -375,10 +375,9 @@ def _refined_without_recent_fillers(
     return current, removed
 
 
-def _segment_stability_audit(
-    result: PortfolioResult,
-    candidate_pool: Sequence[RobustStrategySet],
-) -> dict[str, object]:
+def _active_stability_rows(
+    result: PortfolioResult, candidate_pool: Sequence[RobustStrategySet]
+) -> tuple[dict[str, RobustStrategySet], list[Any]]:
     by_id = {
         _strategy_id(strategy): strategy for strategy in candidate_pool
     }
@@ -388,6 +387,98 @@ def _segment_stability_audit(
         if int(allocation.units) > 0
         and str(allocation.set_id) in by_id
     ]
+    return by_id, active
+
+
+def _period_stability_metrics(
+    active: list[Any],
+    by_id: dict[str, RobustStrategySet],
+    attribute: str,
+) -> dict[str, object]:
+    rows = [
+        (by_id[str(allocation.set_id)], int(allocation.units))
+        for allocation in active
+    ]
+    nets = [
+        float(getattr(strategy, attribute).net_profit_001)
+        for strategy, _units in rows
+    ]
+    weighted_net = sum(
+        float(getattr(strategy, attribute).net_profit_001) * units
+        for strategy, units in rows
+    )
+    positive = sum(net > 0 for net in nets)
+    years = max(
+        _period_years(getattr(strategy, attribute))
+        for strategy, _units in rows
+    )
+    return {
+        "net_profit_001": weighted_net,
+        "annualized_net_profit_001": weighted_net / years,
+        "positive_strategies": positive,
+        "strategy_count": len(rows),
+        "positive_rate": positive / len(rows),
+        "years": years,
+    }
+
+
+def _recent_stability_metrics(
+    active: list[Any], by_id: dict[str, RobustStrategySet]
+) -> tuple[dict[str, object], bool]:
+    rows = [
+        (by_id[str(allocation.set_id)], int(allocation.units))
+        for allocation in active
+        if by_id[str(allocation.set_id)].has_recent_performance
+    ]
+    positive = sum(
+        float(strategy.recent_net_profit_001) > 0
+        for strategy, _units in rows
+    )
+    net = sum(
+        float(strategy.recent_net_profit_001) * units
+        for strategy, units in rows
+    )
+    dd = sum(
+        max(float(strategy.recent_equity_dd_001), 0.0) * units
+        for strategy, units in rows
+    )
+    return {
+        "net_profit_001": net,
+        "equity_dd_001": dd,
+        "recovery_ratio": net / max(dd, 1.0),
+        "positive_strategies": positive,
+        "strategy_count": len(rows),
+        "positive_rate": positive / len(rows) if rows else 0.0,
+        "coverage_rate": len(rows) / len(active),
+    }, bool(rows)
+
+
+def _stability_passed(
+    in_sample: dict[str, object],
+    out_of_sample: dict[str, object],
+    recent: dict[str, object],
+    has_recent: bool,
+    annualized_ratio: float,
+) -> bool:
+    recent_passed = not has_recent or (
+        float(recent["net_profit_001"]) > 0
+        and float(recent["positive_rate"]) >= 0.5
+    )
+    return (
+        float(in_sample["net_profit_001"]) > 0
+        and float(out_of_sample["net_profit_001"]) > 0
+        and float(in_sample["positive_rate"]) >= 0.6
+        and float(out_of_sample["positive_rate"]) >= 0.6
+        and 0.2 <= annualized_ratio <= 5.0
+        and recent_passed
+    )
+
+
+def _segment_stability_audit(
+    result: PortfolioResult,
+    candidate_pool: Sequence[RobustStrategySet],
+) -> dict[str, object]:
+    by_id, active = _active_stability_rows(result, candidate_pool)
     if not active:
         return {
             "status": "no_active_allocations",
@@ -395,71 +486,9 @@ def _segment_stability_audit(
             "segments": {},
         }
 
-    def period_metrics(attribute: str) -> dict[str, object]:
-        rows = [
-            (
-                by_id[str(allocation.set_id)],
-                int(allocation.units),
-            )
-            for allocation in active
-        ]
-        nets = [
-            float(getattr(strategy, attribute).net_profit_001)
-            for strategy, _units in rows
-        ]
-        weighted_net = sum(
-            float(getattr(strategy, attribute).net_profit_001) * units
-            for strategy, units in rows
-        )
-        positive = sum(net > 0 for net in nets)
-        years = max(
-            _period_years(getattr(strategy, attribute))
-            for strategy, _units in rows
-        )
-        return {
-            "net_profit_001": weighted_net,
-            "annualized_net_profit_001": weighted_net / years,
-            "positive_strategies": positive,
-            "strategy_count": len(rows),
-            "positive_rate": positive / len(rows),
-            "years": years,
-        }
-
-    in_sample = period_metrics("report_2020_2024")
-    out_of_sample = period_metrics("report_2025_2026")
-    recent_rows = [
-        (
-            by_id[str(allocation.set_id)],
-            int(allocation.units),
-        )
-        for allocation in active
-        if by_id[str(allocation.set_id)].has_recent_performance
-    ]
-    recent_positive = sum(
-        float(strategy.recent_net_profit_001) > 0
-        for strategy, _units in recent_rows
-    )
-    recent_net = sum(
-        float(strategy.recent_net_profit_001) * units
-        for strategy, units in recent_rows
-    )
-    recent_dd = sum(
-        max(float(strategy.recent_equity_dd_001), 0.0) * units
-        for strategy, units in recent_rows
-    )
-    recent = {
-        "net_profit_001": recent_net,
-        "equity_dd_001": recent_dd,
-        "recovery_ratio": recent_net / max(recent_dd, 1.0),
-        "positive_strategies": recent_positive,
-        "strategy_count": len(recent_rows),
-        "positive_rate": (
-            recent_positive / len(recent_rows)
-            if recent_rows
-            else 0.0
-        ),
-        "coverage_rate": len(recent_rows) / len(active),
-    }
+    in_sample = _period_stability_metrics(active, by_id, "report_2020_2024")
+    out_of_sample = _period_stability_metrics(active, by_id, "report_2025_2026")
+    recent, has_recent = _recent_stability_metrics(active, by_id)
     in_annual = float(in_sample["annualized_net_profit_001"])
     out_annual = float(out_of_sample["annualized_net_profit_001"])
     annualized_ratio = (
@@ -467,20 +496,8 @@ def _segment_stability_audit(
         if in_annual > 0
         else 0.0
     )
-    recent_passed = (
-        not recent_rows
-        or (
-            recent_net > 0
-            and float(recent["positive_rate"]) >= 0.5
-        )
-    )
-    passed = (
-        float(in_sample["net_profit_001"]) > 0
-        and float(out_of_sample["net_profit_001"]) > 0
-        and float(in_sample["positive_rate"]) >= 0.6
-        and float(out_of_sample["positive_rate"]) >= 0.6
-        and 0.2 <= annualized_ratio <= 5.0
-        and recent_passed
+    passed = _stability_passed(
+        in_sample, out_of_sample, recent, has_recent, annualized_ratio
     )
     return {
         "status": "completed",

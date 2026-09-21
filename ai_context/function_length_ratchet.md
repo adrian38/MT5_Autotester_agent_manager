@@ -184,6 +184,11 @@ referencias dinámicas `filter_eligible_sets`, `_optimize_exact_pool` y
 tests parchean. Resultado, llamadas y progreso de un torneo de 35 candidatos,
 y el error de pool vacío, coinciden contra `HEAD`.
 
+La auditoría de estabilidad del mismo modo se separa en asignaciones activas,
+métricas IS/OOS, métricas 6M y veredicto. Los casos sin asignaciones, completo,
+sin cobertura reciente y con 6M negativo coinciden campo a campo contra
+`HEAD`; `_segment_stability_audit` sale del baseline.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
