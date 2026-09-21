@@ -1,6 +1,6 @@
 """Trinquete de capas del servicio de portafolio.
 
-`mt5_manager/portfolio_service.py` eran 6.045 lineas. Ahora son trece modulos y
+`mt5_manager/portfolio_service.py` eran 6.045 lineas. Ahora son catorce modulos y
 **el orden es el de dependencia**: cada uno solo importa de los anteriores. Sin
 esta guarda, el primer import hacia arriba vuelve a convertirlo en un solo
 fichero con nombres repartidos.
@@ -29,6 +29,7 @@ ORDER = [
     "portfolio_persistence",
     "portfolio_valley_floor",
     "portfolio_antifiller",
+    "portfolio_generation_search",
     "portfolio_saved",
     "portfolio_import_match",
     "portfolio_import_build",

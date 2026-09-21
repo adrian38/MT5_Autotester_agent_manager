@@ -368,8 +368,8 @@ class PortfolioServiceTests(unittest.TestCase):
 
                 if scope == "full_history":
                     settings["experimental_full_search"] = True
-                    with patch("mt5_manager.portfolio_service.optimize_experimental_full_portfolio", side_effect=optimize), patch(
-                        "mt5_manager.portfolio_service.optimize_portfolio", side_effect=optimize,
+                    with patch("mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio", side_effect=optimize), patch(
+                        "mt5_manager.portfolio_generation_search.optimize_portfolio", side_effect=optimize,
                     ):
                         proposals = _locked_full_proposals(pool, settings, {}, messages.append)
                 else:
@@ -468,10 +468,10 @@ class PortfolioServiceTests(unittest.TestCase):
                     ])
 
                 with patch(
-                    "mt5_manager.portfolio_service.optimize_experimental_full_portfolio",
+                    "mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio",
                     side_effect=optimize,
                 ), patch(
-                    "mt5_manager.portfolio_service.optimize_portfolio", side_effect=optimize,
+                    "mt5_manager.portfolio_generation_search.optimize_portfolio", side_effect=optimize,
                 ):
                     proposals = _locked_full_proposals(pool, settings, {}, None)
 
@@ -2410,7 +2410,7 @@ class IncompleteBundleTests(unittest.TestCase):
                 raise value
             return value
 
-        with patch("mt5_manager.portfolio_service.optimize_portfolio", side_effect=optimize):
+        with patch("mt5_manager.portfolio_generation_search.optimize_portfolio", side_effect=optimize):
             proposals = _locked_full_proposals([self.strategy()], settings, {})
 
         self.assertEqual([item["key"] for item in proposals], ["aggressive", "balanced"])

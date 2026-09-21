@@ -328,13 +328,13 @@ class ExperimentalFullSearchTests(unittest.TestCase):
             return optimize(candidate_sets), set()
 
         with patch(
-            "mt5_manager.portfolio_service._optimize_without_recent_fillers",
+            "mt5_manager.portfolio_generation_search._optimize_without_recent_fillers",
             side_effect=run_once,
         ), patch(
-            "mt5_manager.portfolio_service.optimize_experimental_full_portfolio",
+            "mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio",
             return_value=base_result,
         ) as experimental, patch(
-            "mt5_manager.portfolio_service.optimize_portfolio",
+            "mt5_manager.portfolio_generation_search.optimize_portfolio",
             side_effect=lambda **_kwargs: result_for(locked),
         ) as stable:
             proposals = _locked_full_proposals(
@@ -610,13 +610,13 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
             return optimize(candidate_sets[:2]), {"set-2", "set-3"}
 
         with patch(
-            "mt5_manager.portfolio_service._optimize_without_recent_fillers",
+            "mt5_manager.portfolio_generation_search._optimize_without_recent_fillers",
             side_effect=refine_over_survivors,
         ), patch(
-            "mt5_manager.portfolio_service.optimize_experimental_full_portfolio",
+            "mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio",
             side_effect=engine_results,
         ), patch(
-            "mt5_manager.portfolio_service.optimize_portfolio",
+            "mt5_manager.portfolio_generation_search.optimize_portfolio",
             side_effect=lambda **_kwargs: result_for(locked),
         ):
             proposals = _locked_full_proposals(

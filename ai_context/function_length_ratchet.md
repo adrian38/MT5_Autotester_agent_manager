@@ -61,6 +61,19 @@ pasada relajada **no** reenvía `prefer_breadth_below_minimum` y se queda con el
 default. Se ha conservado con un comentario; igualarla cambiaría carteras ya
 guardadas.
 
+## Continuacion de la pila de `portfolio_service`
+
+La traduccion de ajustes al optimizador y la busqueda A/M/C bloqueada viven en
+`mt5_manager/portfolio_generation_search.py` desde el 2026-09-21. Son doce
+definiciones movidas literalmente desde `portfolio_service.py`; este las
+reexporta para no cambiar a los llamantes. El modulo nuevo queda en 431 lineas y
+el servicio baja de 4.111 a 3.722.
+
+Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
+consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
+servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
+con las 633 pruebas del repositorio.
+
 ## Y el techo por fichero (600 líneas), añadido el 2026-09-21
 
 El techo por función no obliga a que el fichero encoja: `portfolio_service.py`
