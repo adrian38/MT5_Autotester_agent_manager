@@ -80,6 +80,12 @@ La serializacion, reconstruccion y sustitucion de propuestas vive en
 ese modulo: sus anclas comprueban texto de reglas que ya no tiene por que vivir
 en un unico fichero.
 
+`PortfolioSource` se parte mediante mixins literales para conservar su API y el
+tipo concreto. El primero, `PortfolioSourceReportsMixin`, contiene informes,
+ZIPs y exportacion; siete metodos identicos y la fachada baja a 2.862 lineas.
+La clase publica hereda del mixin, por lo que los llamantes siguen construyendo
+`PortfolioSource` desde `portfolio_service`.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
