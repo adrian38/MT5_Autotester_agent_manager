@@ -59,7 +59,6 @@
     "portfolio_manager/ubs_portfolio/margin.py::portfolio_margin_summary": 85,
     "portfolio_manager/ubs_portfolio/reports.py::build_robust_strategy_set": 140,
     "portfolio_manager/ubs_portfolio/reports.py::slice_strategy_set_to_month": 91,
-    "portfolio_manager/ubs_portfolio/selection.py::load_robust_sets_from_rows": 186,
     "tests/test_integration.py::LocalIntegrationTests.test_controller_runs_selected_pipeline_in_order": 76,
     "tests/test_integration.py::LocalIntegrationTests.test_grid_exclusion_stays_in_the_manager_instead_of_calling_the_node": 64,
     "tests/test_integration.py::LocalIntegrationTests.test_manager_reaches_node_starts_job_and_reads_log": 85,

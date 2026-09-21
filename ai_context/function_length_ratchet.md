@@ -141,6 +141,14 @@ de 188 líneas se separa por ventana, año, mes y dominancia; `selection.py` baj
 de 656 a 465 líneas. Casos vacío, poblado, sin DD puntual y mes inválido dieron
 salidas idénticas contra `HEAD`.
 
+La carga compartida de candidatos robustos se separa en deduplicación, lectura
+de informes obligatorios, cobertura continua, Final Tick 6M, construcción y
+avisos. Los pasos internos viven como métodos de `_RobustSetLoader`: dejarlos
+como funciones de módulo hacía que la reexportación obligatoria empujara
+`ubs_portfolio/__init__.py` por encima de 600 líneas. Ocho escenarios
+diferenciales contra `HEAD` cubren usado, duplicado, ausente, ilegible,
+continuo corto, continuo obligatorio y Final Tick 6M.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y

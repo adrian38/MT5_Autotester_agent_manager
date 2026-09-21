@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
@@ -85,6 +86,251 @@ def summarize_robust_rows(rows: Iterable[object], used_set_paths: Iterable[str])
     )
 
 
+@dataclass
+class _LoadStats:
+    skipped_missing: int = 0
+    skipped_parse: int = 0
+    continuous_fallbacks: int = 0
+    missing_examples: list[str] = field(default_factory=list)
+    parse_examples: list[str] = field(default_factory=list)
+    continuous_fallback_examples: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _CandidateReports:
+    is_period: PeriodReport
+    oos_period: PeriodReport
+    final_tick_balance_dd: float
+    final_tick_equity_dd: float
+    final_tick_source: str
+    final_tick_net_profit: float
+    recent_equity_dd: float
+    has_final_tick_performance: bool
+    full_history_period: PeriodReport | None = None
+    full_history_report_path: str = ""
+    final_tick_period: PeriodReport | None = None
+    final_tick_report_path: str = ""
+
+
+class _RobustSetLoader:
+    def _latest_candidate_rows(rows: Sequence[object]) -> list[object]:
+        latest_by_stem: dict[str, object] = {}
+        for row in rows:
+            set_path = str(_row_value(row, "set_path", default=""))
+            if not set_path:
+                continue
+            account_type = str(_row_value(row, "account_type", default="")).strip().upper()
+            stem = _logical_stem(set_path)
+            if account_type:
+                stem = f"{account_type}:{stem}"
+            current = latest_by_stem.get(stem)
+            if current is None or _row_int(row, "source_candidate_id", "candidate_id") > _row_int(
+                current, "source_candidate_id", "candidate_id"
+            ):
+                latest_by_stem[stem] = row
+        return list(latest_by_stem.values())
+
+
+    def _required_report_paths(row: object) -> tuple[Path, Path]:
+        is_path = resolve_workspace_path(
+            str(_row_value(row, "is_report_path", "report_path", default=""))
+        )
+        oos_path = resolve_workspace_path(
+            str(_row_value(row, "oos_report_path", "robust_report_path", default=""))
+        )
+        return is_path, oos_path
+
+
+    def _record_missing_reports(
+        stats: _LoadStats, set_path: str, is_path: Path, oos_path: Path
+    ) -> None:
+        stats.skipped_missing += 1
+        if len(stats.missing_examples) >= 5:
+            return
+        missing_parts = []
+        if not is_path.is_file():
+            missing_parts.append(f"base={is_path.name or '-'}")
+        if not oos_path.is_file():
+            missing_parts.append(f"robustez={oos_path.name or '-'}")
+        stats.missing_examples.append(f"{Path(set_path).name}: " + ", ".join(missing_parts))
+
+
+    def _initial_candidate_reports(
+        row: object,
+        is_path: Path,
+        oos_path: Path,
+        parse: Callable[[Path], StrategyReport],
+    ) -> _CandidateReports:
+        return _CandidateReports(
+            is_period=period_report_from_strategy_report(parse(is_path), "2020_2024"),
+            oos_period=period_report_from_strategy_report(parse(oos_path), "2025_2026"),
+            final_tick_balance_dd=float(_row_value(row, "max_balance_dd_001", default=0.0) or 0.0),
+            final_tick_equity_dd=float(_row_value(row, "max_equity_dd_001", default=0.0) or 0.0),
+            final_tick_source=str(_row_value(row, "floating_dd_source", default="guardado") or "guardado"),
+            final_tick_net_profit=float(_row_value(row, "recent_net_profit_001", default=0.0) or 0.0),
+            recent_equity_dd=float(_row_value(row, "recent_equity_dd_001", default=0.0) or 0.0),
+            has_final_tick_performance=bool(_row_value(row, "has_recent_performance", default=False)),
+        )
+
+
+    def _load_full_history_report(
+        row: object,
+        set_path: str,
+        reports: _CandidateReports,
+        parse: Callable[[Path], StrategyReport],
+        stats: _LoadStats,
+    ) -> None:
+        full_history_text = str(
+            _row_value(row, "full_history_report_path", default="") or ""
+        ).strip()
+        require_full_history = bool(_row_value(row, "require_full_history", default=False))
+        if not full_history_text:
+            if require_full_history:
+                raise ValueError("Falta el reporte Final Tick continuo 2020-hoy")
+            return
+        continuous_path = resolve_workspace_path(full_history_text)
+        if not continuous_path.is_file():
+            raise FileNotFoundError(
+                f"Final Tick continuo 2020-hoy report not found: {continuous_path}"
+            )
+        full_history_period = period_report_from_strategy_report(
+            parse(continuous_path), "final_tick_continuous_2020_today"
+        )
+        required_to = str(_row_value(row, "final_tick_to_date", default="") or "")
+        continuous_bounds = _report_period_bounds(full_history_period)
+        required_end = _parse_report_date(required_to)
+        covers_history = _full_history_report_covers_segmented_history(
+            reports.is_period, reports.oos_period, full_history_period
+        )
+        covers_recent_cutoff = required_end is None or (
+            continuous_bounds is not None and continuous_bounds[1] >= required_end
+        )
+        if covers_history and covers_recent_cutoff:
+            reports.full_history_period = full_history_period
+            reports.full_history_report_path = str(continuous_path)
+            return
+        if require_full_history:
+            raise ValueError("El supuesto Final Tick continuo no cubre todo IS + OOS + corte reciente")
+        stats.continuous_fallbacks += 1
+        if len(stats.continuous_fallback_examples) < 5:
+            stats.continuous_fallback_examples.append(
+                f"{Path(set_path).name}: {full_history_period.start_date or '?'} -> "
+                f"{full_history_period.end_date or '?'}"
+            )
+
+
+    def _load_recent_report(
+        row: object,
+        reports: _CandidateReports,
+        parse: Callable[[Path], StrategyReport],
+    ) -> None:
+        recent_report_text = str(
+            _row_value(row, "final_tick_report_path", "real_tick_report_path", default="") or ""
+        ).strip()
+        if not recent_report_text:
+            return
+        recent_report_path = resolve_workspace_path(recent_report_text)
+        if not recent_report_path.is_file():
+            raise FileNotFoundError(f"Final Tick 6M report not found: {recent_report_path}")
+        recent_report = parse(recent_report_path)
+        reports.final_tick_period = period_report_from_strategy_report(
+            recent_report, "final_tick_6m"
+        )
+        reports.final_tick_report_path = str(recent_report_path)
+        reports.final_tick_balance_dd, reports.final_tick_equity_dd = maximal_drawdowns_from_report(
+            recent_report
+        )
+        metric_net_profit = _metric_amount(recent_report, "Total Net Profit", "Beneficio Neto")
+        if metric_net_profit is None:
+            raise ValueError("Final Tick 6M report has no total net profit metric")
+        reports.final_tick_net_profit = float(metric_net_profit)
+        reports.recent_equity_dd = reports.final_tick_equity_dd
+        reports.has_final_tick_performance = True
+        reports.final_tick_source = "Final Tick 6M"
+
+
+    def _build_loaded_strategy(
+        row: object,
+        set_path: str,
+        is_path: Path,
+        oos_path: Path,
+        reports: _CandidateReports,
+    ) -> RobustStrategySet:
+        return build_robust_strategy_set(
+            set_id=set_path,
+            candidate_id=str(_row_value(row, "candidate_id", "id", default=set_path)),
+            symbol=str(_row_value(row, "target_symbol", "symbol", default=reports.is_period.symbol)),
+            timeframe=str(_row_value(row, "period", "timeframe", default=reports.is_period.timeframe)),
+            strategy_family=str(_row_value(row, "family", "strategy_family", default="")),
+            robustness_status="accepted",
+            already_used=False,
+            report_2020_2024=reports.is_period,
+            report_2025_2026=reports.oos_period,
+            set_path=set_path,
+            is_report_path=str(is_path),
+            oos_report_path=str(oos_path),
+            final_tick_balance_dd_001=reports.final_tick_balance_dd,
+            final_tick_equity_dd_001=reports.final_tick_equity_dd,
+            final_tick_net_profit_001=reports.final_tick_net_profit,
+            recent_equity_dd_001=reports.recent_equity_dd,
+            has_final_tick_performance=reports.has_final_tick_performance,
+            final_tick_source=reports.final_tick_source,
+            final_tick_report=reports.final_tick_period,
+            final_tick_report_path=reports.final_tick_report_path,
+            full_history_report=reports.full_history_period,
+            full_history_report_path=reports.full_history_report_path,
+        )
+
+
+    def _load_candidate(
+        row: object,
+        parse: Callable[[Path], StrategyReport],
+        stats: _LoadStats,
+    ) -> RobustStrategySet | None:
+        set_path = str(_row_value(row, "set_path", default=""))
+        is_path, oos_path = _RobustSetLoader._required_report_paths(row)
+        if not is_path.is_file() or not oos_path.is_file():
+            _RobustSetLoader._record_missing_reports(stats, set_path, is_path, oos_path)
+            return None
+        try:
+            reports = _RobustSetLoader._initial_candidate_reports(row, is_path, oos_path, parse)
+            _RobustSetLoader._load_full_history_report(row, set_path, reports, parse, stats)
+            _RobustSetLoader._load_recent_report(row, reports, parse)
+            return _RobustSetLoader._build_loaded_strategy(row, set_path, is_path, oos_path, reports)
+        except Exception as exc:
+            stats.skipped_parse += 1
+            if len(stats.parse_examples) < 5:
+                message = str(exc).strip() or "sin detalle"
+                stats.parse_examples.append(
+                    f"{Path(set_path).name}: {type(exc).__name__}: {message}"
+                )
+            return None
+
+
+    def _load_warnings(stats: _LoadStats) -> list[str]:
+        warnings: list[str] = []
+        if stats.skipped_missing:
+            warnings.append(
+                f"{stats.skipped_missing} candidato(s) omitido(s): faltan reportes base o robustez."
+            )
+            warnings.append("Ejemplos de reportes ausentes: " + " | ".join(stats.missing_examples))
+        if stats.skipped_parse:
+            warnings.append(
+                f"{stats.skipped_parse} candidato(s) omitido(s): reporte ilegible o curva invalida."
+            )
+            warnings.append("Ejemplos de errores de carga: " + " | ".join(stats.parse_examples))
+        if stats.continuous_fallbacks:
+            warnings.append(
+                f"{stats.continuous_fallbacks} reporte(s) Final Tick no eran continuos; "
+                "se conservó la curva IS + OOS y Final Tick 6M sólo extendió la cola/riesgo."
+            )
+            warnings.append(
+                "Ejemplos de coberturas no continuas: "
+                + " | ".join(stats.continuous_fallback_examples)
+            )
+        return warnings
+
+
 def load_robust_sets_from_rows(
     rows: Sequence[object],
     used_set_paths: Iterable[str],
@@ -92,185 +338,21 @@ def load_robust_sets_from_rows(
     parse: Callable[[Path], StrategyReport] = parse_report,
     progress: ProgressCallback | None = None,
 ) -> tuple[list[RobustStrategySet], list[str]]:
-    warnings: list[str] = []
     used = {_norm_path(path) for path in used_set_paths}
-    latest_by_stem: dict[str, object] = {}
-
-    for row in rows:
-        set_path = str(_row_value(row, "set_path", default=""))
-        if not set_path:
-            continue
-        account_type = str(_row_value(row, "account_type", default="")).strip().upper()
-        stem = _logical_stem(set_path)
-        if account_type:
-            stem = f"{account_type}:{stem}"
-        current = latest_by_stem.get(stem)
-        if current is None or _row_int(row, "source_candidate_id", "candidate_id") > _row_int(
-            current, "source_candidate_id", "candidate_id"
-        ):
-            latest_by_stem[stem] = row
+    candidates = _RobustSetLoader._latest_candidate_rows(rows)
+    stats = _LoadStats()
 
     loaded: list[RobustStrategySet] = []
-    skipped_missing = 0
-    skipped_parse = 0
-    continuous_fallbacks = 0
-    missing_examples: list[str] = []
-    parse_examples: list[str] = []
-    continuous_fallback_examples: list[str] = []
-    candidates = list(latest_by_stem.values())
     for index, row in enumerate(candidates, start=1):
         set_path = str(_row_value(row, "set_path", default=""))
         if _norm_path(set_path) in used:
             continue
         if progress:
             progress(f"Analizando set Final Tick OK {index}/{len(candidates)}")
-        is_path = resolve_workspace_path(str(_row_value(row, "is_report_path", "report_path", default="")))
-        oos_path = resolve_workspace_path(str(_row_value(row, "oos_report_path", "robust_report_path", default="")))
-        if not is_path.is_file() or not oos_path.is_file():
-            skipped_missing += 1
-            if len(missing_examples) < 5:
-                missing_parts = []
-                if not is_path.is_file():
-                    missing_parts.append(f"base={is_path.name or '-'}")
-                if not oos_path.is_file():
-                    missing_parts.append(f"robustez={oos_path.name or '-'}")
-                missing_examples.append(
-                    f"{Path(set_path).name}: " + ", ".join(missing_parts)
-                )
-            continue
-        try:
-            is_period = period_report_from_strategy_report(parse(is_path), "2020_2024")
-            oos_period = period_report_from_strategy_report(parse(oos_path), "2025_2026")
-            final_tick_balance_dd = float(_row_value(row, "max_balance_dd_001", default=0.0) or 0.0)
-            final_tick_equity_dd = float(_row_value(row, "max_equity_dd_001", default=0.0) or 0.0)
-            final_tick_source = str(_row_value(row, "floating_dd_source", default="guardado") or "guardado")
-            final_tick_net_profit = float(_row_value(row, "recent_net_profit_001", default=0.0) or 0.0)
-            recent_equity_dd = float(_row_value(row, "recent_equity_dd_001", default=0.0) or 0.0)
-            has_final_tick_performance = bool(
-                _row_value(row, "has_recent_performance", default=False)
-            )
-            full_history_period: PeriodReport | None = None
-            full_history_report_path = ""
-            full_history_text = str(
-                _row_value(row, "full_history_report_path", default="") or ""
-            ).strip()
-            require_full_history = bool(
-                _row_value(row, "require_full_history", default=False)
-            )
-            if full_history_text:
-                continuous_path = resolve_workspace_path(full_history_text)
-                if not continuous_path.is_file():
-                    raise FileNotFoundError(
-                        f"Final Tick continuo 2020-hoy report not found: {continuous_path}"
-                    )
-                continuous_report = parse(continuous_path)
-                full_history_period = period_report_from_strategy_report(
-                    continuous_report,
-                    "final_tick_continuous_2020_today",
-                )
-                full_history_report_path = str(continuous_path)
-                required_to = str(
-                    _row_value(row, "final_tick_to_date", default="") or ""
-                )
-                continuous_bounds = _report_period_bounds(full_history_period)
-                required_end = _parse_report_date(required_to)
-                covers_history = _full_history_report_covers_segmented_history(
-                    is_period, oos_period, full_history_period
-                )
-                covers_recent_cutoff = (
-                    required_end is None
-                    or (continuous_bounds is not None and continuous_bounds[1] >= required_end)
-                )
-                if not covers_history or not covers_recent_cutoff:
-                    if require_full_history:
-                        raise ValueError(
-                            "El supuesto Final Tick continuo no cubre todo IS + OOS + corte reciente"
-                        )
-                    continuous_fallbacks += 1
-                    if len(continuous_fallback_examples) < 5:
-                        continuous_fallback_examples.append(
-                            f"{Path(set_path).name}: {full_history_period.start_date or '?'} -> "
-                            f"{full_history_period.end_date or '?'}"
-                        )
-                    full_history_period = None
-                    full_history_report_path = ""
-            elif require_full_history:
-                raise ValueError("Falta el reporte Final Tick continuo 2020-hoy")
-
-            final_tick_period: PeriodReport | None = None
-            final_tick_report_path = ""
-            recent_report_text = str(
-                _row_value(row, "final_tick_report_path", "real_tick_report_path", default="") or ""
-            ).strip()
-            if recent_report_text:
-                recent_report_path = resolve_workspace_path(recent_report_text)
-                if not recent_report_path.is_file():
-                    raise FileNotFoundError(f"Final Tick 6M report not found: {recent_report_path}")
-                recent_report = parse(recent_report_path)
-                final_tick_period = period_report_from_strategy_report(
-                    recent_report,
-                    "final_tick_6m",
-                )
-                final_tick_report_path = str(recent_report_path)
-                final_tick_balance_dd, final_tick_equity_dd = maximal_drawdowns_from_report(recent_report)
-                metric_net_profit = _metric_amount(recent_report, "Total Net Profit", "Beneficio Neto")
-                if metric_net_profit is None:
-                    raise ValueError("Final Tick 6M report has no total net profit metric")
-                final_tick_net_profit = float(metric_net_profit)
-                recent_equity_dd = final_tick_equity_dd
-                has_final_tick_performance = True
-                final_tick_source = "Final Tick 6M"
-            target_symbol = str(_row_value(row, "target_symbol", "symbol", default=is_period.symbol))
-            loaded.append(
-                build_robust_strategy_set(
-                    set_id=set_path,
-                    candidate_id=str(_row_value(row, "candidate_id", "id", default=set_path)),
-                    symbol=target_symbol,
-                    timeframe=str(_row_value(row, "period", "timeframe", default=is_period.timeframe)),
-                    strategy_family=str(_row_value(row, "family", "strategy_family", default="")),
-                    robustness_status="accepted",
-                    already_used=False,
-                    report_2020_2024=is_period,
-                    report_2025_2026=oos_period,
-                    set_path=set_path,
-                    is_report_path=str(is_path),
-                    oos_report_path=str(oos_path),
-                    final_tick_balance_dd_001=final_tick_balance_dd,
-                    final_tick_equity_dd_001=final_tick_equity_dd,
-                    final_tick_net_profit_001=final_tick_net_profit,
-                    recent_equity_dd_001=recent_equity_dd,
-                    has_final_tick_performance=has_final_tick_performance,
-                    final_tick_source=final_tick_source,
-                    final_tick_report=final_tick_period,
-                    final_tick_report_path=final_tick_report_path,
-                    full_history_report=full_history_period,
-                    full_history_report_path=full_history_report_path,
-                )
-            )
-        except Exception as exc:
-            skipped_parse += 1
-            if len(parse_examples) < 5:
-                message = str(exc).strip() or "sin detalle"
-                parse_examples.append(
-                    f"{Path(set_path).name}: {type(exc).__name__}: {message}"
-                )
-            continue
-
-    if skipped_missing:
-        warnings.append(f"{skipped_missing} candidato(s) omitido(s): faltan reportes base o robustez.")
-        warnings.append("Ejemplos de reportes ausentes: " + " | ".join(missing_examples))
-    if skipped_parse:
-        warnings.append(f"{skipped_parse} candidato(s) omitido(s): reporte ilegible o curva invalida.")
-        warnings.append("Ejemplos de errores de carga: " + " | ".join(parse_examples))
-    if continuous_fallbacks:
-        warnings.append(
-            f"{continuous_fallbacks} reporte(s) Final Tick no eran continuos; "
-            "se conservó la curva IS + OOS y Final Tick 6M sólo extendió la cola/riesgo."
-        )
-        warnings.append(
-            "Ejemplos de coberturas no continuas: " + " | ".join(continuous_fallback_examples)
-        )
-    return loaded, warnings
+        candidate = _RobustSetLoader._load_candidate(row, parse, stats)
+        if candidate is not None:
+            loaded.append(candidate)
+    return loaded, _RobustSetLoader._load_warnings(stats)
 
 
 def filter_eligible_sets(
