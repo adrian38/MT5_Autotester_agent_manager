@@ -210,6 +210,12 @@ conservan AST idéntico; el único test largo separa literalmente el contrato de
 manager y la comprobación por fork. Siguen descubriéndose los 18 tests, y salen
 del baseline tanto el fichero de 705 líneas como ese método de 79.
 
+Las pruebas de perfiles de margen separan fixtures, modelo/carga y ajustes por
+cuenta. Cuarenta y una definiciones conservan AST idéntico; el caso largo de
+ICTrading divide preparación del proyecto, comprobación de cada perfil y matriz
+perfil/scope, manteniendo sus 36 tests. Salen el fichero de 839 líneas y el
+método de 81.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
