@@ -2217,9 +2217,9 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             "key": "balanced", "label": "Moderado", "reserve_pct": 15,
             "inputs": settings, "result": result,
         }
-        with patch("mt5_manager.portfolio_service.build_margin_model", return_value=None), \
-                patch("mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=([strategy], [])) as loader, \
-                patch("mt5_manager.portfolio_service._locked_full_proposals", return_value=[proposal]):
+        with patch("mt5_manager.portfolio_generation.build_margin_model", return_value=None), \
+                patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])) as loader, \
+                patch("mt5_manager.portfolio_generation._locked_full_proposals", return_value=[proposal]):
             generate_proposals(Source(), settings)
 
         loaded_rows = loader.call_args.args[0]
@@ -2266,10 +2266,10 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             def used_set_paths(self, *_args, **_kwargs): return []
             def saved_curves(self, **_kwargs): return []
 
-        with patch("mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_service.summarize_robust_rows",
+        with patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio_generation.summarize_robust_rows",
                    return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_service._locked_full_proposals", side_effect=locked):
+             patch("mt5_manager.portfolio_generation._locked_full_proposals", side_effect=locked):
             _availability, proposals = generate_proposals(Source(), settings)
 
         self.assertEqual(len(attempts), 2)
@@ -2304,10 +2304,10 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             def used_set_paths(self, *_args, **_kwargs): return []
             def saved_curves(self, **_kwargs): return []
 
-        with patch("mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_service.summarize_robust_rows",
+        with patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio_generation.summarize_robust_rows",
                    return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_service._locked_full_proposals", side_effect=locked):
+             patch("mt5_manager.portfolio_generation._locked_full_proposals", side_effect=locked):
             _availability, proposals = generate_proposals(Source(), settings)
 
         self.assertEqual(len(attempts), 2)
@@ -2337,10 +2337,10 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             def used_set_paths(self, *_args, **_kwargs): return []
             def saved_curves(self, **_kwargs): return []
 
-        with patch("mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_service.summarize_robust_rows",
+        with patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio_generation.summarize_robust_rows",
                    return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_service._locked_full_proposals", side_effect=locked):
+             patch("mt5_manager.portfolio_generation._locked_full_proposals", side_effect=locked):
             _availability, proposals = generate_proposals(Source(), settings)
 
         self.assertEqual(len(proposals), 1)
@@ -2368,10 +2368,10 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             def used_set_paths(self, *_args, **_kwargs): return []
             def saved_curves(self, **_kwargs): return []
 
-        with patch("mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_service.summarize_robust_rows",
+        with patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio_generation.summarize_robust_rows",
                    return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_service._locked_full_proposals", side_effect=locked):
+             patch("mt5_manager.portfolio_generation._locked_full_proposals", side_effect=locked):
             _availability, proposals = generate_proposals(Source(), settings)
 
         self.assertEqual(calls, [10.0])

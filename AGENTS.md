@@ -134,8 +134,9 @@ como en `ubs_portfolio`, **el orden es el de dependencia**:
 `portfolio_scope` → `portfolio_schema` → `portfolio_report_cache` →
 `portfolio_identity` → `portfolio_settings` → `portfolio_transfer` →
 `portfolio_persistence` → `portfolio_valley_floor` → `portfolio_antifiller` →
-`portfolio_generation_search` → `portfolio_saved` →
-`portfolio_import_match` → `portfolio_import_build` → `portfolio_service`
+`portfolio_generation_search` → `portfolio_generation` →
+`portfolio_completion` → `portfolio_saved` → `portfolio_import_match` →
+`portfolio_import_build` → `portfolio_service`
 
 - **Los llamantes no cambian:** `portfolio_service` reexporta lo que movió.
 - Los módulos de abajo declaran el tipo `PortfolioSource` con

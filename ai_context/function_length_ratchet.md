@@ -69,6 +69,11 @@ definiciones movidas literalmente desde `portfolio_service.py`; este las
 reexporta para no cambiar a los llamantes. El modulo nuevo queda en 431 lineas y
 el servicio baja de 4.111 a 3.722.
 
+La generacion, el modelo de margen y el completado salieron despues a
+`portfolio_generation.py` y `portfolio_completion.py`: doce definiciones mas,
+tambien literales. El servicio queda en 3.312 lineas y ambos modulos nuevos
+quedan por debajo del techo.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
