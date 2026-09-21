@@ -3,7 +3,6 @@
   "grandfathered": {
     "mt5_manager/experiment_lab.py": 831,
     "mt5_manager/live_audit_engine.py": 2010,
-    "mt5_manager/live_audit_settings.py": 753,
     "mt5_manager/manager.py": 1492,
     "mt5_manager/node.py": 2174,
     "mt5_manager/portfolio_improvement_chain_service.py": 890,

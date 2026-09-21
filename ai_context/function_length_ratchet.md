@@ -189,6 +189,14 @@ métricas IS/OOS, métricas 6M y veredicto. Los casos sin asignaciones, completo
 sin cobertura reciente y con 6M negativo coinciden campo a campo contra
 `HEAD`; `_segment_stability_audit` sale del baseline.
 
+`live_audit_settings.py` separa el contrato estable en
+`live_audit_settings_schema.py`: defaults, validadores, migración heredada y
+normalización. El almacén conserva los reexports públicos y divide el catálogo
+de cuentas y la actualización en pasos para referencias, secretos,
+normalización y persistencia. Ocho casos de normalización y una secuencia de
+guardado con contraseñas vacías coinciden contra `HEAD`; salen del trinquete
+las tres funciones perdonadas y el fichero original.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
