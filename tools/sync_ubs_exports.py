@@ -20,7 +20,8 @@ PACKAGE = Path(__file__).resolve().parents[1] / "portfolio_manager" / "ubs_portf
 ORDER = [
     "symbols", "models", "rows", "curves", "monthly_validation", "reports", "selection",
     "evaluation", "margin", "limits", "constraints", "execution", "greedy",
-    "optimize", "strict_monthly_candidates", "strict_monthly_refinement",
+    "optimize_search", "optimize_results", "optimize_flow", "optimize",
+    "strict_monthly_candidates", "strict_monthly_refinement",
     "strict_monthly",
 ]
 
@@ -39,6 +40,13 @@ def public_names(module: str) -> list[str]:
     return sorted(set(names))
 
 
+def import_block(module: str, names: list[str]) -> str:
+    """Agrupa nombres para que la fachada generada siga bajo el techo."""
+    rows = [names[index:index + 4] for index in range(0, len(names), 4)]
+    body = "\n".join("    " + ", ".join(row) + "," for row in rows)
+    return f"from .{module} import (\n{body}\n)"
+
+
 def rebuild() -> int:
     init = PACKAGE / "__init__.py"
     header = init.read_text(encoding="utf-8").split("from .symbols import (", 1)[0]
@@ -46,8 +54,7 @@ def rebuild() -> int:
     for module in ORDER:
         names = public_names(module)
         exported += names
-        body = ",\n".join(f"    {name}" for name in names)
-        blocks.append(f"from .{module} import (\n{body},\n)")
+        blocks.append(import_block(module, names))
     text = header + "\n".join(blocks) + "\n\n__all__ = [\n"
     text += "".join(f'    "{name}",\n' for name in sorted(set(exported)))
     text += "]\n"

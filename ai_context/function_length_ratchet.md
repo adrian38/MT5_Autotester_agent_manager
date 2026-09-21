@@ -156,6 +156,13 @@ profunda; la fachada conserva la orquestación final. Las 23 definiciones se
 compararon por AST contra `HEAD`, sin cambios, y el fichero de 1.246 líneas
 sale del baseline sin crear otro fichero largo.
 
+`ubs_portfolio/optimize.py` sigue la misma forma: `optimize_search` contiene el
+pool y las pasadas, `optimize_results` mide y redacta el resultado,
+`optimize_flow` encadena las fases y la fachada conserva `optimize_portfolio`.
+Las 40 definiciones movidas conservan AST idéntico. Como cada módulo añade dos
+líneas de envoltorio al `__init__` generado, `sync_ubs_exports` agrupa cuatro
+nombres por fila; así la fachada baja a unas 400 líneas sin omitir reexports.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y

@@ -11,7 +11,6 @@
     "mt5_manager/portfolio_improvement_service.py": 893,
     "portfolio_manager/ubs_portfolio/greedy.py": 1143,
     "portfolio_manager/ubs_portfolio/margin.py": 765,
-    "portfolio_manager/ubs_portfolio/optimize.py": 1244,
     "tests/test_integration.py": 1473,
     "tests/test_live_audit_engine.py": 903,
     "tests/test_node_runtime_fork_parity.py": 705,
