@@ -10,7 +10,7 @@
     "mt5_manager/portfolio_improvement_chain_service.py": 890,
     "mt5_manager/portfolio_improvement_service.py": 893,
     "mt5_manager/portfolio_monthly_experimental.py": 646,
-    "mt5_manager/portfolio_service.py": 5244,
+    "mt5_manager/portfolio_service.py": 4512,
     "portfolio_manager/ubs_portfolio/greedy.py": 1143,
     "portfolio_manager/ubs_portfolio/margin.py": 765,
     "portfolio_manager/ubs_portfolio/optimize.py": 1244,

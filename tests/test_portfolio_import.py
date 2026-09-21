@@ -321,7 +321,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=candidates
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
                 side_effect=load,
             ):
                 _proposals, _selected, report = build_import_proposals(
@@ -368,7 +368,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=candidates
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
                 side_effect=load,
             ):
                 _proposals, _selected, report = build_import_proposals(
@@ -523,7 +523,7 @@ class ImportRoundTripTests(unittest.TestCase):
             header, members = portfolio_import.parse_summary(SUMMARY)
 
             with patch.object(PortfolioSource, "import_candidate_rows", return_value=candidates), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, selected_key, report = build_import_proposals(
@@ -588,7 +588,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, selected_key, report = build_import_proposals(
@@ -645,7 +645,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
             ):
                 proposals, selected_key, report = build_import_proposals(
                     source, "full_history", header, members
@@ -690,7 +690,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
             ):
                 proposals, selected_key, _report = build_import_proposals(
                     source, "full_history", header, members
@@ -724,7 +724,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
             ):
                 proposals, selected_key, _report = build_import_proposals(
                     source, "full_history", header, members
@@ -760,7 +760,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows", return_value=(strategies, [])
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
             ):
                 proposals, selected_key, _report = build_import_proposals(
                     source, "full_history", header, members
@@ -809,7 +809,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, _selected_key, _report = build_import_proposals(
@@ -835,7 +835,7 @@ class ImportRoundTripTests(unittest.TestCase):
             header, members = portfolio_import.parse_summary(SUMMARY)
 
             with patch.object(PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, selected_key, _report = build_import_proposals(
@@ -863,7 +863,7 @@ class ImportRoundTripTests(unittest.TestCase):
             header, members = portfolio_import.parse_summary(SUMMARY)
 
             with patch.object(PortfolioSource, "import_candidate_rows", return_value=only_alpha), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, _selected, report = build_import_proposals(
@@ -917,7 +917,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=candidates
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(only_alpha, ["1 candidato omitido: reporte ilegible"]),
             ):
                 proposals, _selected, report = build_import_proposals(
@@ -951,7 +951,7 @@ class ImportRoundTripTests(unittest.TestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=candidates
             ), patch(
-                "mt5_manager.portfolio_service.load_robust_sets_from_rows",
+                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, _selected, report = build_import_proposals(
