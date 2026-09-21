@@ -112,7 +112,7 @@ que escribe en la memoria de un agente, el grafo del manager no es la autoridad.
 modelo de margen costaba leer ~70k tokens. Ahora son catorce módulos y **el orden
 es el de dependencia** — cada uno sólo importa de los anteriores:
 
-`symbols` → `models` → `rows` → `curves` → `reports` → `selection` →
+`symbols` → `models` → `rows` → `curves` → `monthly_validation` → `reports` → `selection` →
 `evaluation` → `margin` → `limits` → `constraints` → `execution` → `greedy` →
 `optimize` → `strict_monthly`
 

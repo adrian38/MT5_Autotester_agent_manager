@@ -135,6 +135,12 @@ El torneo de 194 líneas del mismo módulo se separa en estado, evaluación de
 lotes, avance, final y avisos; su secuencia de llamadas, progreso y resultado
 también se compararon diferencialmente contra `HEAD`.
 
+La auditoría anual/DD/dominancia de los portafolios mensuales estrictos vive en
+`ubs_portfolio/monthly_validation.py`, debajo de `curves` en la pila. La función
+de 188 líneas se separa por ventana, año, mes y dominancia; `selection.py` baja
+de 656 a 465 líneas. Casos vacío, poblado, sin DD puntual y mes inválido dieron
+salidas idénticas contra `HEAD`.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
