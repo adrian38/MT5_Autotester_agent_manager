@@ -19,7 +19,8 @@ PACKAGE = Path(__file__).resolve().parents[1] / "portfolio_manager" / "ubs_portf
 
 ORDER = [
     "symbols", "models", "rows", "curves", "monthly_validation", "reports", "selection",
-    "evaluation", "margin", "limits", "constraints", "execution",
+    "evaluation", "margin_models", "margin_loaders", "margin_profiles",
+    "margin_summary", "margin", "limits", "constraints", "execution",
     "greedy_increment", "greedy_swap", "greedy_deep", "greedy",
     "optimize_search", "optimize_results", "optimize_flow", "optimize",
     "strict_monthly_candidates", "strict_monthly_refinement",

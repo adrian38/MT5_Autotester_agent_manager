@@ -62,14 +62,23 @@ from .evaluation import (
     _evaluate_portfolio_on_time_axis, _evaluation_violates_dd_limits, _evaluation_violation_ratio, evaluate_portfolio,
     portfolio_group_summary,
 )
-from .margin import (
-    ACCOUNT_LEVERAGE_CHOICES, AXI_FALLBACK_GROUP_LEVERAGE, DEFAULT_ACCOUNT_LEVERAGE, MARGIN_PROFILES,
-    MARGIN_PROFILE_LABELS, MarginModel, _load_json_dict, allocation_margin_required,
-    allocation_notional, allocations_respect_margin_limit, load_max_product_leverage, load_symbol_notional,
-    load_symbol_notional_from_specs, load_symbol_specs, load_unmeasured_symbols, margin_contract_size_for_profile,
-    margin_leverage_for_profile, margin_model_for_profile, margin_profile_label, normalize_margin_profile,
-    portfolio_margin_summary, resolve_margin_model, roboforex_contract_size, roboforex_margin_leverage,
-    strategy_reference_price, ttp_leverage_for,
+from .margin_models import (
+    ACCOUNT_LEVERAGE_CHOICES, AXI_FALLBACK_GROUP_LEVERAGE, DEFAULT_ACCOUNT_LEVERAGE, MarginModel,
+    _MarginModelInputs, _axi_margin_model, _standard_margin_model, margin_model_for_profile,
+    normalize_margin_profile, resolve_margin_model, roboforex_contract_size, roboforex_margin_leverage,
+    ttp_leverage_for,
+)
+from .margin_loaders import (
+    _load_json_dict, load_max_product_leverage, load_symbol_notional, load_symbol_notional_from_specs,
+    load_symbol_specs, load_unmeasured_symbols,
+)
+from .margin_profiles import (
+    MARGIN_PROFILES, MARGIN_PROFILE_LABELS, allocation_notional, margin_contract_size_for_profile,
+    margin_leverage_for_profile, margin_profile_label, strategy_reference_price,
+)
+from .margin_summary import (
+    _MarginMeasurement, _margin_summary_payload, _measure_margin_allocations, allocation_margin_required,
+    allocations_respect_margin_limit, portfolio_margin_summary,
 )
 from .limits import (
     CandidateFunnel, SearchLimits, SearchPlan, _OPTIMIZER_BAGS,
@@ -175,6 +184,8 @@ __all__ = [
     "_DeepScan",
     "_IncrementRules",
     "_LoadStats",
+    "_MarginMeasurement",
+    "_MarginModelInputs",
     "_Measured",
     "_MonthlyOptimizerArgs",
     "_MonthlyReduction",
@@ -197,6 +208,7 @@ __all__ = [
     "_apply_greedy_pass",
     "_apply_multi_start",
     "_ascii_text",
+    "_axi_margin_model",
     "_axi_margin_rule_text",
     "_best_deep_move",
     "_best_monthly_deep_move",
@@ -252,7 +264,9 @@ __all__ = [
     "_looks_like_forex_pair",
     "_lot_size_step",
     "_margin_and_daily_summaries",
+    "_margin_summary_payload",
     "_margin_warning",
+    "_measure_margin_allocations",
     "_measure_portfolio",
     "_merge_curve_points",
     "_metric_amount",
@@ -315,6 +329,7 @@ __all__ = [
     "_search_phase_warnings",
     "_select_strict_monthly_base",
     "_slot_allows_increment",
+    "_standard_margin_model",
     "_step_for_max_units",
     "_strict_monthly_candidate_score",
     "_strict_monthly_candidate_validation",

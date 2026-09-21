@@ -109,11 +109,12 @@ que escribe en la memoria de un agente, el grafo del manager no es la autoridad.
 ## `ubs_portfolio` es un paquete en pila
 
 `portfolio_manager/ubs_portfolio/` eran 6.800 líneas en un fichero: cambiar el
-modelo de margen costaba leer ~70k tokens. Ahora son veintitrés módulos y **el orden
+modelo de margen costaba leer ~70k tokens. Ahora son veintisiete módulos y **el orden
 es el de dependencia** — cada uno sólo importa de los anteriores:
 
 `symbols` → `models` → `rows` → `curves` → `monthly_validation` → `reports` → `selection` →
-`evaluation` → `margin` → `limits` → `constraints` → `execution` →
+`evaluation` → `margin_models` → `margin_loaders` → `margin_profiles` →
+`margin_summary` → `margin` → `limits` → `constraints` → `execution` →
 `greedy_increment` → `greedy_swap` → `greedy_deep` → `greedy` →
 `optimize_search` → `optimize_results` → `optimize_flow` → `optimize` →
 `strict_monthly_candidates` → `strict_monthly_refinement` → `strict_monthly`

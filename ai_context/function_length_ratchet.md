@@ -169,6 +169,13 @@ conservan AST idéntico contra `HEAD`. El generador omite bloques de importació
 vacíos, porque una fachada que sólo reexporta no define nombres propios y
 `from modulo import ()` no es sintaxis Python válida.
 
+El margen se apila en `margin_models`, `margin_loaders`, `margin_profiles` y
+`margin_summary`, con `margin.py` como fachada. Las 19 definiciones no tocadas
+conservan AST idéntico. `margin_model_for_profile` agrupa sus datos internos y
+separa AXI del resto; `portfolio_margin_summary` separa medición y
+serialización. Cuatro perfiles y resúmenes vacío/poblado coinciden campo a
+campo contra `HEAD`; los trinquetes bajan dos funciones y un fichero.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
