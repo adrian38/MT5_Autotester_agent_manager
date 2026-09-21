@@ -131,6 +131,9 @@ La validación leave-one-year-out mensual vive en
 `portfolio_monthly_validation.py`: una función de 121 líneas se convierte en
 pasos con nombre y `portfolio_monthly_experimental.py` baja de 646 a 455 líneas.
 Los folds exitosos y fallidos se compararon diferencialmente contra `HEAD`.
+El torneo de 194 líneas del mismo módulo se separa en estado, evaluación de
+lotes, avance, final y avisos; su secuencia de llamadas, progreso y resultado
+también se compararon diferencialmente contra `HEAD`.
 
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del

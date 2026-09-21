@@ -43,7 +43,6 @@
     "mt5_manager/portfolio_improvement_service.py::_generate_full_history_improvement_attempt": 317,
     "mt5_manager/portfolio_improvement_service.py::_load_full_history_improvement_pool": 80,
     "mt5_manager/portfolio_improvement_service.py::generate_full_history_improvement": 112,
-    "mt5_manager/portfolio_monthly_experimental.py::optimize_experimental_monthly_portfolio": 194,
     "mt5_manager/portfolio_monthly_improvement_service.py::_generate_monthly_improvement_attempt": 247,
     "mt5_manager/portfolio_monthly_service.py::generate_monthly_completion_proposal": 139,
     "mt5_manager/portfolio_monthly_service.py::generate_monthly_proposals": 174,

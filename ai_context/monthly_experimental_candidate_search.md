@@ -54,3 +54,9 @@ menos de 60 líneas; el torneo les pasa `_optimize_exact_pool` explícitamente.
 La comparación diferencial contra `HEAD`, con folds exitosos y fallidos, dio
 diccionarios idénticos. El módulo del torneo conserva el reexport privado y
 queda por debajo de 600 líneas.
+
+El torneo se expresa mediante `_TournamentConfig`, `_TournamentState` y
+`_RoundScores`; la evaluación de lote, avance, final y avisos son pasos de menos
+de 60 líneas. La comparación diferencial contra `HEAD` fijó la secuencia de
+llamadas al optimizador, el progreso y el resultado completo. No se cambió el
+orden de rotaciones, la clasificación ni los desempates.
