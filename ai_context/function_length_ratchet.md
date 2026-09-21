@@ -149,6 +149,13 @@ como funciones de módulo hacía que la reexportación obligatoria empujara
 diferenciales contra `HEAD` cubren usado, duplicado, ausente, ilegible,
 continuo corto, continuo obligatorio y Final Tick 6M.
 
+`ubs_portfolio/strict_monthly.py` se divide también por su pila interna:
+`strict_monthly_candidates` posee selección, puntuación y reparación;
+`strict_monthly_refinement`, que depende de ella, posee relleno y búsqueda
+profunda; la fachada conserva la orquestación final. Las 23 definiciones se
+compararon por AST contra `HEAD`, sin cambios, y el fichero de 1.246 líneas
+sale del baseline sin crear otro fichero largo.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y

@@ -109,12 +109,12 @@ que escribe en la memoria de un agente, el grafo del manager no es la autoridad.
 ## `ubs_portfolio` es un paquete en pila
 
 `portfolio_manager/ubs_portfolio/` eran 6.800 líneas en un fichero: cambiar el
-modelo de margen costaba leer ~70k tokens. Ahora son catorce módulos y **el orden
+modelo de margen costaba leer ~70k tokens. Ahora son diecisiete módulos y **el orden
 es el de dependencia** — cada uno sólo importa de los anteriores:
 
 `symbols` → `models` → `rows` → `curves` → `monthly_validation` → `reports` → `selection` →
 `evaluation` → `margin` → `limits` → `constraints` → `execution` → `greedy` →
-`optimize` → `strict_monthly`
+`optimize` → `strict_monthly_candidates` → `strict_monthly_refinement` → `strict_monthly`
 
 - **Los llamantes no cambian.** `__init__.py` reexporta todos los nombres, privados
   incluidos; se sigue importando `from portfolio_manager.ubs_portfolio import X`.
