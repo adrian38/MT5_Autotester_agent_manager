@@ -16,53 +16,42 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.function_length import MAX_LINES, function_lengths, load_baseline
+from tools.source_files import ratchet_offenders
 
 
 class FunctionLengthTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.sizes = function_lengths()
-        cls.baseline = load_baseline()
+        cls.offenders = ratchet_offenders(function_lengths(), load_baseline(), MAX_LINES)
 
     def test_no_new_function_exceeds_the_limit(self) -> None:
-        offenders = {
-            key: size
-            for key, size in self.sizes.items()
-            if size > MAX_LINES and key not in self.baseline
-        }
+        new = self.offenders["new"]
         self.assertFalse(
-            offenders,
-            "Funcion nueva por encima de "
-            f"{MAX_LINES} lineas. Partela en pasos con nombre; no la anadas al "
-            "baseline:\n"
-            + "\n".join(f"  {size:>4}  {key}" for key, size in sorted(offenders.items())),
+            new,
+            f"Funcion nueva por encima de {MAX_LINES} lineas. Partela en pasos con "
+            "nombre; no la anadas al baseline:\n"
+            + "\n".join(f"  {size:>4}  {key}" for key, size in sorted(new.items())),
         )
 
     def test_grandfathered_functions_never_grow(self) -> None:
-        grown = {
-            key: (self.baseline[key], self.sizes[key])
-            for key in self.baseline
-            if key in self.sizes and self.sizes[key] > self.baseline[key]
-        }
+        grown = self.offenders["grown"]
         self.assertFalse(
             grown,
             "Una funcion ya perdonada ha crecido. El trinquete solo baja:\n"
             + "\n".join(
-                f"  {key}: {before} -> {after}" for key, (before, after) in sorted(grown.items())
+                f"  {key}: {before} -> {after}"
+                for key, (before, after) in sorted(grown.items())
             ),
         )
 
     def test_the_baseline_has_no_stale_entries(self) -> None:
-        stale = sorted(
-            key
-            for key in self.baseline
-            if key not in self.sizes or self.sizes[key] <= MAX_LINES
-        )
+        stale = self.offenders["stale"]
         self.assertFalse(
             stale,
             "Estas entradas del baseline ya no hacen falta (la funcion se partio, se "
             "renombro o desaparecio). Borralas de "
-            "tests/function_length_baseline.json:\n" + "\n".join(f"  {key}" for key in stale),
+            "tests/function_length_baseline.json:\n"
+            + "\n".join(f"  {key}" for key in sorted(stale)),
         )
 
 

@@ -37,6 +37,12 @@ Contexto persistente para agentes que trabajan en `MT5_Autotester_agent_manager`
 - `dev_branch_test_paths.md`: por qué en la rama `dev` la ruta del nodo ICTrading
   se fuerza al agente local sin quitar las demás tarjetas, y cómo se garantiza
   que el merge a `main` no toque las rutas de producción.
+- `ubs_portfolio_package.md`: por qué las 6.800 líneas de `ubs_portfolio` son
+  ahora un paquete ordenado por dependencia, y qué rompe al parchear el
+  paquete en vez del módulo consumidor.
+- `function_length_ratchet.md`: los dos techos de tamaño (60 líneas por
+  función, 600 por fichero), sus trinquetes, y el banco diferencial contra
+  `HEAD` para refactorizar lo que no tiene tests.
 - `AGENTS.md` en la raíz contiene el flujo obligatorio de trabajo y verificación.
 
 Actualizar estos documentos cuando cambien invariantes, contratos de datos o decisiones arquitectónicas. No guardar secretos, tokens ni datos de producción.

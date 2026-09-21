@@ -109,14 +109,14 @@ que escribe en la memoria de un agente, el grafo del manager no es la autoridad.
 ## `ubs_portfolio` es un paquete en pila
 
 `portfolio_manager/ubs_portfolio/` eran 6.800 líneas en un fichero: cambiar el
-modelo de margen costaba leer ~70k tokens. Ahora son trece módulos y **el orden
+modelo de margen costaba leer ~70k tokens. Ahora son catorce módulos y **el orden
 es el de dependencia** — cada uno sólo importa de los anteriores:
 
 `symbols` → `models` → `rows` → `curves` → `reports` → `selection` →
-`evaluation` → `margin` → `constraints` → `execution` → `greedy` → `optimize` →
-`strict_monthly`
+`evaluation` → `margin` → `limits` → `constraints` → `execution` → `greedy` →
+`optimize` → `strict_monthly`
 
-- **Los llamantes no cambian.** `__init__.py` reexporta los 201 nombres, privados
+- **Los llamantes no cambian.** `__init__.py` reexporta todos los nombres, privados
   incluidos; se sigue importando `from portfolio_manager.ubs_portfolio import X`.
 - **Nunca importar hacia arriba.** Si dos módulos se necesitan, la definición
   compartida baja en la pila; no se invierte la dependencia.
@@ -126,39 +126,80 @@ es el de dependencia** — cada uno sólo importa de los anteriores:
 - Lo hace cumplir `tests/test_ubs_package_layering.py`: módulo fuera de `ORDER`,
   import hacia arriba o nombre sin reexportar, y falla.
 
-## Longitud de función: 60 líneas
+## Tamaño del código: 60 líneas por función, 600 por fichero
 
-**Techo de 60 líneas por función**, decoradores y firma incluidos. No es
-estética: una función de 60 líneas son ~700 tokens, y tres caben en la ventana
-sin pensarlo. Por encima, leerla cuesta más que entenderla, y cambiar tres
-líneas obliga a cargar el fichero entero.
+No es estética, es el coste de leer. Una función de 60 líneas son ~700 tokens y
+tres caben en la ventana sin pensarlo; un fichero de 600 son ~7k y entra entero
+junto a sus llamantes. Por encima, cambiar tres líneas obliga a cargar todo.
 
-Lo hace cumplir `tests/test_function_length.py`, con la medida en
-`tools/function_length.py` y la lista de perdonadas en
-`tests/function_length_baseline.json`:
+| Techo | Medida | Guarda | Perdonados |
+| --- | --- | --- | --- |
+| 60 líneas por función | `tools/function_length.py` | `tests/test_function_length.py` | `tests/function_length_baseline.json` |
+| 600 líneas por fichero | `tools/file_length.py` | `tests/test_file_length.py` | `tests/file_length_baseline.json` |
 
-- **Función nueva por encima de 60: se parte.** No se añade al baseline.
-- **El baseline sólo encoge.** Al partir una función, borrar su entrada; el test
-  avisa de las que sobran.
-- Regenerar sólo para bajar el trinquete:
-  `python -m tools.function_length --write`.
-- Cuando una firma enorme hace imposible el techo —`optimize_portfolio` tiene 44
-  parámetros—, el objetivo es **bajar el número registrado**, no llegar a 60.
+El alcance y el trinquete son comunes: `tools/source_files.py`.
 
-Partir es pasos con nombre, no trocear por líneas. Lo que más ha rendido aquí:
-agrupar los argumentos que viajan juntos en un dataclass congelado con `kwargs()`
-(`_SearchLimits`, `_MonthlyOptimizerArgs`) y extraer la **secuencia** repetida,
-no sólo el bloque largo (`_greedy_then_local_search`, `_reoptimize_locked_monthly`).
+- **Lo nuevo cumple.** Función o fichero nuevo por encima del techo: se parte.
+  No se añade al baseline.
+- **El baseline sólo encoge.** Al partir, borrar la entrada; el test avisa de
+  las que sobran. Regenerar (`--write`) sólo para bajar el trinquete, nunca
+  para silenciar un fallo.
+- **No se toca `SKIP_PARTS`** para esquivar una guarda. Está para excluir código
+  ajeno (`runtime/` son 232 ficheros de node-gyp), no el nuestro.
+- Cuando una firma enorme hace imposible el techo —`optimize_portfolio` tenía 44
+  parámetros—, el objetivo es **bajar el número registrado**. Si el número no
+  baja, la causa está en la firma, no en el cuerpo.
+- Un fichero que no cabe no se aprieta: se convierte en **paquete en pila**,
+  ordenado por dependencia y no por tema, como `portfolio_manager/ubs_portfolio/`.
+  La forma está en la sección anterior; la reexportación la regenera
+  `python -m tools.sync_ubs_exports`.
+
+## Cómo se parte sin cambiar comportamiento
+
+Partir es **pasos con nombre**, no trocear por líneas. Lo que ha rendido aquí:
+
+- **Agrupar los argumentos que viajan juntos** en un dataclass congelado
+  (`SearchLimits`, `CandidateFunnel`, `SearchPlan`, `_LockedComposition`). Es lo
+  único que bajó `optimize_portfolio` de 44 parámetros a 8.
+- **Extraer la secuencia repetida**, no sólo el bloque largo: `_worker` repetía
+  palabra por palabra el bloque de «detenido por el usuario» en sus dos `except`.
+- **Mover el bloque literal.** No reescribir de paso: un refactor y un cambio de
+  comportamiento nunca van en el mismo commit.
+- **Los nombres de los parámetros son contrato.** Renombrar al extraer
+  (`candidates` por `candidate_pool`) rompe en silencio a quien llama con
+  keyword. Pasar un kwarg que el destino no acepta también: el diferencial pilló
+  `minimum_active_strategies` yendo a una función que no lo declara, y los 620
+  tests pasaban.
+- **Comprobar los imports del módulo nuevo** antes de dar nada por hecho: una
+  extracción deja fuera helpers, dataclasses y constantes sin avisar.
+- **El andamiaje muerto que aparezca se borra**, pero comprobándolo con AST y
+  diciéndolo en el commit: `_locked_full_proposals` tenía un `while True:` sin
+  `continue` ni `break` propios.
+- **Tres errores de indentación seguidos en un fichero: parar.** Es la señal de
+  que se está editando a ciegas, no una racha de mala suerte. Verificar lo hecho
+  y dejar para otra sesión la función más arriesgada.
+- **Un commit por unidad**, con su verificación pasada antes de crearlo.
 
 ## Verificación
 
 - Primero pruebas focalizadas con `python -m unittest`.
-- Después `python -m unittest discover -s tests -v` cuando el alcance lo permita.
+- Después `python -m unittest discover -s tests` cuando el alcance lo permita.
 - `pytest` no está entre las dependencias instaladas del workspace.
 - **Un suite verde no prueba equivalencia.** Antes de refactorizar algo
   compartido, envolver la función y contar llamadas para ver si alguna prueba la
   alcanza: `optimize_strict_monthly_portfolio` tenía cero cobertura y los 620
-  tests pasaban igual. En un refactor sin comportamiento nuevo, comparar contra
-  `git show HEAD:<fichero>` cargado como paquete aparte sobre las mismas
-  entradas; si una rama no se deja alcanzar, comparar sus kwargs con AST.
+  tests pasaban igual. Lo mismo `_recalculate_saved` y
+  `generate_completion_proposal`. Sin cobertura, el cambio es **movimiento
+  literal** y nada más.
+- En un refactor sin comportamiento nuevo, **comparar contra
+  `git show HEAD:<fichero>` cargado como paquete aparte** sobre las mismas
+  entradas, campo a campo. Si una rama no se deja alcanzar, comparar sus kwargs
+  con AST. Tres trampas ya vistas en ese arnés: construir las entradas con las
+  clases nuevas (el `isinstance` de HEAD falla), dejar que el parcheo alcance la
+  copia HEAD (recursión), y contar como divergencia un aviso duplicado por
+  dobles inserciones sobre el mismo `list` de un doble de prueba.
+- **Otras sesiones escriben en este árbol.** Comprobar `git status` antes de
+  fiarse de una medición larga, y commitear lo ajeno aparte.
+- Antes de commitear un refactor: `python -m tools.sync_ubs_exports`,
+  `python -m tools.function_length --write`, `python -m tools.file_length --write`.
 - Documentar decisiones y hallazgos duraderos en `ai_context/`.

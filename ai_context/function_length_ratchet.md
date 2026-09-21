@@ -60,3 +60,27 @@ Al hacerlo salió a la luz una asimetría real que estaba escondida en el ruido:
 pasada relajada **no** reenvía `prefer_breadth_below_minimum` y se queda con el
 default. Se ha conservado con un comentario; igualarla cambiaría carteras ya
 guardadas.
+
+## Y el techo por fichero (600 líneas), añadido el 2026-09-21
+
+El techo por función no obliga a que el fichero encoja: `portfolio_service.py`
+pasó de tener funciones de 464 líneas a ninguna por encima de 172 y siguió
+teniendo 6.045 líneas. Leer el módulo entero sigue costando ~70k tokens, que era
+el problema original.
+
+`tools/file_length.py` + `tests/test_file_length.py` +
+`tests/file_length_baseline.json`, con la misma mecánica de trinquete. El
+alcance (`SKIP_PARTS`), el recorrido y las tres formas de romper un trinquete
+—entrada nueva, perdonada que crece, entrada que sobra— viven ahora una sola vez
+en `tools/source_files.py`, compartidos por las dos guardas.
+
+Al instalarlo: 25 ficheros por encima de 600 sobre 96, 16.798 líneas de exceso.
+Los cuatro grandes son `mt5_manager/portfolio_service.py` (6.045),
+`tests/test_portfolio_service.py` (2.496), `mt5_manager/node.py` (2.174) y
+`mt5_manager/live_audit_engine.py` (2.010).
+
+**600 y no otro número**: a ~12 tokens por línea son ~7k tokens, un módulo
+entero en la ventana junto a sus llamantes. Con 800 el trinquete arrancaría
+perdonando 16 ficheros en vez de 25, pero dejaría fuera del objetivo a los
+módulos del paquete UBS que ya rondan las 700-800, que son exactamente los que
+hay que seguir partiendo.

@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import argparse
 import ast
-import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from tools import source_files
+from tools.source_files import ROOT, iter_python_files
+
 BASELINE_PATH = ROOT / "tests" / "function_length_baseline.json"
 
 MAX_LINES = 60
@@ -24,21 +25,12 @@ Una funcion de 60 lineas son ~700 tokens: caben tres en la ventana sin pensarlo.
 Por encima de eso, leerla ya cuesta mas que entenderla.
 """
 
-SKIP_PARTS = {".git", "__pycache__", "runtime", ".venv", "node_modules", "build", "dist"}
-
-
-def _iter_python_files(root: Path):
-    for path in sorted(root.rglob("*.py")):
-        if any(part in SKIP_PARTS for part in path.parts):
-            continue
-        yield path
-
 
 def function_lengths(root: Path | None = None) -> dict[str, int]:
     """Devuelve ``{"ruta/relativa.py::qualname": lineas}`` para todo el repo."""
     base = root or ROOT
     found: dict[str, int] = {}
-    for path in _iter_python_files(base):
+    for path in iter_python_files(base):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         rel = path.relative_to(base).as_posix()
         for node, qualname in _walk_functions(tree):
@@ -60,34 +52,14 @@ def _walk_functions(tree: ast.AST, prefix: str = ""):
 
 
 def load_baseline() -> dict[str, int]:
-    if not BASELINE_PATH.exists():
-        return {}
-    return json.loads(BASELINE_PATH.read_text(encoding="utf-8"))["grandfathered"]
+    return source_files.load_baseline(BASELINE_PATH)
 
 
 def write_baseline() -> dict[str, int]:
     over = {
-        key: size
-        for key, size in sorted(function_lengths().items())
-        if size > MAX_LINES
+        key: size for key, size in function_lengths().items() if size > MAX_LINES
     }
-    BASELINE_PATH.write_text(
-        json.dumps(
-            {
-                "_comment": (
-                    f"Funciones que ya superaban {MAX_LINES} lineas cuando se instalo la "
-                    "guarda. Esta lista solo puede encoger: al partir una funcion, borra "
-                    "su entrada. Regenerar con 'python -m tools.function_length --write'."
-                ),
-                "max_lines": MAX_LINES,
-                "grandfathered": over,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    source_files.write_baseline(BASELINE_PATH, over, MAX_LINES, "Funciones")
     return over
 
 
