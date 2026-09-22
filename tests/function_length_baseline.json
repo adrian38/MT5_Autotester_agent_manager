@@ -49,7 +49,6 @@
     "tests/test_portfolio_full_experimental.py::ExperimentalFullSearchTests.test_locked_bundle_uses_experimental_only_for_base_selection": 72,
     "tests/test_portfolio_full_experimental.py::ExperimentalFullSearchTests.test_tournament_examines_every_candidate_and_records_audit": 62,
     "tests/test_portfolio_full_experimental.py::ExperimentalRecentContributionTests.test_the_tournament_record_survives_a_survivor_rerun": 83,
-    "tests/test_portfolio_import.py::ImportRoundTripTests.test_an_exported_bundle_comes_back_as_a_normal_saved_portfolio": 65,
     "tests/test_portfolio_improvement_selected_mode.py::SelectedModeTests.test_save_creates_an_identified_portfolio_and_retry_is_idempotent": 63,
     "tests/test_portfolio_monthly_experimental.py::ExperimentalMonthlySearchTests.test_tournament_examines_all_candidates_before_the_final": 62,
     "tests/test_portfolio_service.py::PortfolioServiceTests.test_axi_inventory_groups_legacy_symbols_under_the_executable_broker_symbol": 100,

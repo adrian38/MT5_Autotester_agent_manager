@@ -5,7 +5,6 @@
     "mt5_manager/manager.py": 1492,
     "mt5_manager/node.py": 2174,
     "tests/test_integration.py": 1473,
-    "tests/test_portfolio_import.py": 1045,
     "tests/test_portfolio_service.py": 2496
   },
   "max_lines": 600

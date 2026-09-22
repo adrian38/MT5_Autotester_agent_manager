@@ -239,6 +239,13 @@ movidas conservan AST y los bancos diferenciales del intento y de la búsqueda
 exterior coinciden contra `HEAD`. Salen ocho funciones y los dos ficheros de
 unas 890 líneas de los baselines.
 
+Las 1.045 líneas de pruebas de importación se separan en parseo, reconstrucción
+del bundle e identidad/persistencia, con fixtures compartidos fuera del patrón
+de descubrimiento. Treinta y tres métodos no tocados conservan AST idéntico; la
+ida y vuelta larga del bundle se divide en importación, lectura y aserciones y
+pasa también desde la clase de `HEAD`. Salen el fichero y esa función de los
+baselines manteniendo los 32 casos.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
