@@ -4,8 +4,6 @@
     "mt5_manager/live_audit_engine.py": 2010,
     "mt5_manager/manager.py": 1492,
     "mt5_manager/node.py": 2174,
-    "mt5_manager/portfolio_improvement_chain_service.py": 890,
-    "mt5_manager/portfolio_improvement_service.py": 893,
     "tests/test_integration.py": 1473,
     "tests/test_portfolio_import.py": 1045,
     "tests/test_portfolio_service.py": 2496

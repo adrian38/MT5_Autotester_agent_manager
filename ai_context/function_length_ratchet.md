@@ -231,6 +231,14 @@ dividen en escenario y aserciones, y ambos pasan también ejecutados desde la
 versión de `HEAD`. Se conservan los 32 casos y salen un fichero y dos funciones
 de los baselines.
 
+Los motores de mejora base y cadena conservan sus forks completos en capas
+paralelas `support` → `attempt` → fachada. La preparación, selección, reparto,
+reintento, auditoría, propuesta y comparación entre cantidades son pasos por
+debajo de 60 líneas. La paridad cubre cada paso de ambos forks; doce funciones
+movidas conservan AST y los bancos diferenciales del intento y de la búsqueda
+exterior coinciden contra `HEAD`. Salen ocho funciones y los dos ficheros de
+unas 890 líneas de los baselines.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y

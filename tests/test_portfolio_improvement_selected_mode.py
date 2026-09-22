@@ -5,7 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
+from mt5_manager import portfolio_improvement_attempt as full_attempt
 from mt5_manager import portfolio_improvement_service as full
+from mt5_manager import portfolio_improvement_support as full_support
 from mt5_manager.portfolio_service import (
     PortfolioCoordinator, PortfolioSource, normalize_settings, save_portfolio_payload,
 )
@@ -114,9 +116,9 @@ class ImprovementAllowedGroupsTests(unittest.TestCase):
             "improvement_allowed_asset_groups": ["Forex"],
             "improvement_additions": 1,
         }
-        with patch.object(full, "load_robust_sets_from_rows") as loader, \
-                patch.object(full, "recent_positive_candidates", side_effect=lambda sets, ids: sets), \
-                patch.object(full, "member_rows", return_value=[{"set_path": "btc.set"}]):
+        with patch.object(full_support, "load_robust_sets_from_rows") as loader, \
+                patch.object(full_support, "recent_positive_candidates", side_effect=lambda sets, ids: sets), \
+                patch.object(full_support, "member_rows", return_value=[{"set_path": "btc.set"}]):
             loader.side_effect = [
                 ([original], []),
                 ([NS(set_id="eur.set", symbol="EURUSD")], []),
@@ -140,8 +142,8 @@ class ImprovementMarginProfileTests(unittest.TestCase):
         detail = {"portfolio_type": "bundle", "members": [{"variant_key": "balanced", "units": 1}],
                   "metrics": {"variants": {"balanced": {"inputs": {"margin_profile": "ictrading"}}}}}
         source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
-        with patch.object(full, "build_margin_model", return_value=None) as model, \
-                patch.object(full, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
+        with patch.object(full_attempt, "build_margin_model", return_value=None) as model, \
+                patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
             with self.assertRaisesRegex(ValueError, "No se encontró una mejora válida"):
                 full.generate_full_history_improvement(source, 7, {
                     "portfolio_type": "balanced", "improvement_min_additions": 1, **request,
@@ -188,8 +190,8 @@ class ImprovementMarginProfileTests(unittest.TestCase):
         source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
 
         def reaching_model(request: dict) -> float:
-            with patch.object(full, "build_margin_model", return_value=None) as model, \
-                    patch.object(full, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
+            with patch.object(full_attempt, "build_margin_model", return_value=None) as model, \
+                    patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
                 with self.assertRaisesRegex(ValueError, "No se encontró una mejora válida"):
                     full.generate_full_history_improvement(source, 7, {
                         "portfolio_type": "balanced", "improvement_min_additions": 1, **request,
@@ -216,8 +218,8 @@ class ImprovementGridOffTests(unittest.TestCase):
             "metrics": {"variants": {"balanced": {"inputs": {"grid_off": True}}}},
         }
         source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
-        with patch.object(full, "build_margin_model", return_value=None) as model, \
-                patch.object(full, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
+        with patch.object(full_attempt, "build_margin_model", return_value=None) as model, \
+                patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
             with self.assertRaisesRegex(ValueError, "No se encontró una mejora válida"):
                 full.generate_full_history_improvement(source, 7, {
                     "portfolio_type": "balanced",
@@ -342,7 +344,7 @@ class SelectedModeTests(unittest.TestCase):
                     self.assertEqual(len(selected["members"]), 1)
                     self.assertEqual(selected["members"][0]["variant_key"], mode)
                     return sets[:1], sets, [], [], []
-                with patch.object(full, "_load_full_history_improvement_pool", side_effect=pool), patch.object(full, "build_margin_model", return_value=None), patch.object(full, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full, "evaluate_portfolio", return_value=NS(total_net_profit=100, valley_dd=10)) as baseline, patch("mt5_manager.portfolio_improvement_common.strategy_correlation_pair", return_value=NS(pearson_corr=0, downside_corr=0, dd_overlap=0)):
+                with patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=pool), patch.object(full_attempt, "build_margin_model", return_value=None), patch.object(full_attempt, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full_attempt, "evaluate_portfolio", return_value=NS(total_net_profit=100, valley_dd=10)) as baseline, patch("mt5_manager.portfolio_improvement_common.strategy_correlation_pair", return_value=NS(pearson_corr=0, downside_corr=0, dd_overlap=0)):
                     _, proposals = full.generate_full_history_improvement(source, 42, {**output["inputs"], "portfolio_type": "balanced", "improvement_portfolio_type": mode, "improvement_additions": 1})
                 self.assertEqual([p["key"] for p in proposals], [mode])
                 self.assertEqual(optimize.call_count, 2)
@@ -401,7 +403,7 @@ class SelectedModeTests(unittest.TestCase):
         detail = {"portfolio_type": "balanced", "members": [{"set_path": old_id, "units": 1}]}
         source = NS(project=Path.cwd(), saved_portfolio_detail=Mock(return_value={"portfolio": detail}), saved_curves=Mock(return_value=[]))
         sets = [NS(set_id=a.set_id) for a in output["result"].allocations] + [NS(set_id="another.set")]
-        with patch.object(full, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full, "build_margin_model", return_value=None), patch.object(full, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full, "evaluate_portfolio") as baseline:
+        with patch.object(full_attempt, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full_attempt, "build_margin_model", return_value=None), patch.object(full_attempt, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full_attempt, "evaluate_portfolio") as baseline:
             with self.assertRaisesRegex(ValueError, "al menos 2.*selector añadió 1"):
                 full.generate_full_history_improvement(source, 1, {**output["inputs"], "improvement_min_additions": 2})
         self.assertEqual(optimize.call_count, 1)
@@ -414,7 +416,7 @@ class SelectedModeTests(unittest.TestCase):
         detail = {"portfolio_type": "bundle", "members": [{"variant_key": "balanced", "set_path": old.set_id, "units": 1}]}
         source = NS(project=Path.cwd(), saved_portfolio_detail=Mock(return_value={"portfolio": detail}), saved_curves=Mock(return_value=[]))
         sets = [NS(set_id=a.set_id) for a in (old, new)]
-        with patch.object(full, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full, "build_margin_model", return_value=None), patch.object(full, "optimize_portfolio", return_value=output["result"]), patch.object(full, "evaluate_portfolio") as baseline:
+        with patch.object(full_attempt, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full_attempt, "build_margin_model", return_value=None), patch.object(full_attempt, "optimize_portfolio", return_value=output["result"]), patch.object(full_attempt, "evaluate_portfolio") as baseline:
             with self.assertRaisesRegex(ValueError, "aporte mínimo Final Tick 6M"):
                 full.generate_full_history_improvement(source, 1, {**output["inputs"], "improvement_additions": 1})
         baseline.assert_not_called()
@@ -439,7 +441,9 @@ class SelectedModeTests(unittest.TestCase):
         baseline = NS(equity_curve_2020_2026=[0, 5, 2, 8])
 
         with patch.object(
-            full, "bootstrap_valley_drawdown", return_value=stress(p95=66, probability=7)
+            full_support,
+            "bootstrap_valley_drawdown",
+            return_value=stress(p95=66, probability=7),
         ):
             full._attach_stress_comparison(
                 result=result, baseline=baseline, priority="balanced"
