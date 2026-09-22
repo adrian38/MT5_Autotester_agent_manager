@@ -270,6 +270,13 @@ pila menor de 600 líneas (`core` → `lifecycle`/`terminals`/`extraction`/`test
 `comparison` → fachada), y la guarda de paridad del fork busca los contratos
 textuales en toda esa pila en vez de asumir que viven en la fachada.
 
+Grid separa la preparación del pool, el filtro de solapamiento abierto, el
+reintento por suelo ejecutable y la agregación de variantes. El optimizador
+separa a su vez preparación de riesgo, poda, lotajes conservados, avisos,
+margen de pico y resultado final. `generate_grid_proposals`,
+`optimize_grid_portfolio` y `_prune_to_grid_valley` salen del baseline sin
+cambiar la regla `max(DD cerrado, exposición abierta)` ni el orden A/M/C.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y

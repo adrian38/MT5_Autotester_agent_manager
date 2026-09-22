@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
 from portfolio_manager.grid_portfolio import grid_floating_dd_001, optimize_grid_portfolio
@@ -157,26 +157,20 @@ def grid_inventory(source: Any, settings: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def generate_grid_proposals(
-    source: Any,
-    inputs: dict[str, Any],
-    progress: Callable[[str], None] | None = None,
-    *,
-    exclude_portfolio_id: int | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    from .portfolio_service import (
-        _optimizer_kwargs,
-        _reserve_pct,
-        build_margin_model,
-        cached_report,
-        describe_eligibility,
-        eligibility_counts,
-    )
+@dataclass(frozen=True)
+class _GridPool:
+    settings: dict[str, Any]
+    raw_sets: list[Any]
+    warnings: list[str]
+    availability: dict[str, Any]
+    group_counts: dict[str, int]
 
-    settings = normalize_grid_settings(inputs, source.broker)
-    settings["margin_model"] = build_margin_model(source, settings)
-    if progress:
-        progress("1/4 · Leyendo candidatos aceptados en las cuatro etapas")
+
+def _filtered_grid_rows(
+    source: Any,
+    settings: dict[str, Any],
+    cached_report: Callable[..., Any],
+) -> tuple[list[dict[str, Any]], list[str], int, int, dict[str, int]]:
     rows = source.candidate_rows(include_quarantined=False)
     if not rows:
         raise ValueError("No hay candidatos con Final Tick continuo y 6M aceptados")
@@ -189,15 +183,12 @@ def generate_grid_proposals(
     grid_rows = len(rows)
     if settings.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(
-            rows,
-            min_positive_months=3,
-            window_months=6,
-            parse=cached_report,
+            rows, min_positive_months=3, window_months=6, parse=cached_report,
         )
         warnings.extend(found)
     allowed = set(settings["allowed_asset_groups"])
     group_counts: dict[str, int] = {}
-    filtered: list[dict[str, Any]] = []
+    filtered = []
     for row in rows:
         group = portfolio_group_key(
             str(row.get("target_symbol") or row.get("symbol") or ""),
@@ -206,17 +197,29 @@ def generate_grid_proposals(
         group_counts[group] = group_counts.get(group, 0) + 1
         if group in allowed:
             filtered.append(row)
-    rows = filtered
-    if not rows:
+    if not filtered:
+        details = ", ".join(f"{group} {count}" for group, count in sorted(group_counts.items()))
         raise ValueError(
             f"{grid_rows} candidato(s) Grid y ninguno en los grupos de activos "
-            f"seleccionados. Encontrados por grupo: "
-            + ", ".join(f"{group} {count}" for group, count in sorted(group_counts.items()))
+            f"seleccionados. Encontrados por grupo: {details}"
         )
+    return filtered, warnings, accepted_rows, grid_rows, group_counts
+
+
+def _load_grid_pool(
+    source: Any,
+    settings: dict[str, Any],
+    progress: Callable[[str], None] | None,
+    exclude_portfolio_id: int | None,
+) -> _GridPool:
+    from .portfolio_service import cached_report, describe_eligibility, eligibility_counts
+
+    rows, warnings, accepted_rows, grid_rows, group_counts = _filtered_grid_rows(
+        source, settings, cached_report,
+    )
     used = (
         source.used_set_paths("grid", exclude_portfolio_id=exclude_portfolio_id)
-        if settings.get("exclude_used_sets", True)
-        else []
+        if settings.get("exclude_used_sets", True) else []
     )
     availability = asdict(summarize_robust_rows(rows, used))
     if progress:
@@ -225,15 +228,13 @@ def generate_grid_proposals(
         rows, used, parse=cached_report, progress=progress,
     )
     warnings.extend(load_warnings)
+    allowed = set(settings["allowed_asset_groups"])
     raw_sets = [
         strategy for strategy in raw_sets
         if portfolio_group_key(strategy.symbol, universe_files=[source.universe]) in allowed
     ]
     if not raw_sets:
         raise ValueError("No quedan estrategias grid cargadas después de los filtros")
-    # Grid apaga la regla de recuperación reciente en el optimizador, así que el
-    # embudo tampoco puede contarla: daría un número de elegibles que no es el
-    # que se va a usar.
     minimum_trades = int(settings["min_trades_2020_2026"])
     eligibility = eligibility_counts(raw_sets, minimum_trades, apply_recent_recovery=False)
     eligibility_text = (
@@ -247,108 +248,146 @@ def generate_grid_proposals(
             eligibility_text
             + ". Revise el mínimo de trades, los sets Grid ya usados y la cuarentena."
         )
-    # Los filtros de correlación compartidos miran el P/L cerrado diario, que en
-    # un grid es positivo casi siempre porque cierra ganadoras y deja abiertas
-    # las perdedoras. El solapamiento que importa aquí es el de los días con
-    # posiciones abiertas: dos grids que se hunden a la vez no diversifican.
-    exposure_model = GridExposureModel(raw_sets)
-    if settings.get("use_correlation", True):
-        raw_sets, overlap_warnings = prune_overlapping_sets(
-            raw_sets,
-            max_open_overlap=float(settings.get("max_open_overlap") or DEFAULT_MAX_OPEN_OVERLAP),
-            model=exposure_model,
+    raw_sets = _prune_grid_overlap(raw_sets, settings, warnings, eligibility["eligible"])
+    return _GridPool(settings, raw_sets, warnings, availability, group_counts)
+
+
+def _prune_grid_overlap(
+    raw_sets: list[Any],
+    settings: dict[str, Any],
+    warnings: list[str],
+    eligible_count: int,
+) -> list[Any]:
+    if not settings.get("use_correlation", True):
+        return raw_sets
+    overlap = float(settings.get("max_open_overlap") or DEFAULT_MAX_OPEN_OVERLAP)
+    pruned, overlap_warnings = prune_overlapping_sets(
+        raw_sets, max_open_overlap=overlap, model=GridExposureModel(raw_sets),
+    )
+    if overlap_warnings:
+        warnings.append(
+            f"Grid: {len(overlap_warnings)} estrategia(s) descartada(s) por solapar "
+            "sus días con exposición abierta con otra ya elegida."
         )
-        if overlap_warnings:
-            warnings.append(
-                f"Grid: {len(overlap_warnings)} estrategia(s) descartada(s) por solapar "
-                "sus días con exposición abierta con otra ya elegida."
+        warnings.extend(overlap_warnings[:10])
+    if not pruned:
+        raise ValueError(
+            f"{eligible_count} estrategia(s) grid elegible(s) y todas comparten sus días "
+            f"de exposición abierta por encima de {overlap:.0%}. "
+            "Suba «Máx. solape de exposición» o desmarque la casilla."
+        )
+    return pruned
+
+
+def _optimize_grid_variant(
+    raw_sets: list[Any],
+    settings: dict[str, Any],
+    variant: tuple[str, str, PortfolioType],
+    reserve: float,
+) -> tuple[dict[str, Any] | None, str | None]:
+    from .portfolio_service import _optimizer_kwargs
+
+    key, label, objective_type = variant
+    variant_inputs = {**settings, "portfolio_type": key, "dd_reserve_pct": reserve}
+    requested_valley_pct = float(variant_inputs["valley_dd_pct"])
+    existing: list[list[float]] = []
+    optimizer_kwargs = _optimizer_kwargs(variant_inputs, objective_type, existing, reserve)
+    auto_adjusted = False
+    try:
+        result = optimize_grid_portfolio(raw_sets, **optimizer_kwargs)
+    except ValueError as first_error:
+        result = None
+        for adjusted_pct in _adjusted_grid_valley_pcts(
+            raw_sets,
+            capital=float(settings["capital"]),
+            reserve_pct=reserve,
+            requested_pct=requested_valley_pct,
+            min_trades=int(settings["min_trades_2020_2026"]),
+        ):
+            adjusted_inputs = {**variant_inputs, "valley_dd_pct": adjusted_pct}
+            try:
+                result = optimize_grid_portfolio(
+                    raw_sets,
+                    **_optimizer_kwargs(adjusted_inputs, objective_type, existing, reserve),
+                )
+            except ValueError:
+                continue
+            variant_inputs = adjusted_inputs
+            auto_adjusted = True
+            result.warnings.insert(
+                0,
+                f"El valle solicitado {requested_valley_pct:.3f}% no admite el lote mínimo "
+                f"de este pool. Esta propuesta usa el mínimo ejecutable {adjusted_pct:.3f}%.",
             )
-            warnings.extend(overlap_warnings[:10])
-        if not raw_sets:
-            raise ValueError(
-                f"{eligibility['eligible']} estrategia(s) grid elegible(s) y todas "
-                f"comparten sus días de exposición abierta por encima de "
-                f"{float(settings.get('max_open_overlap') or DEFAULT_MAX_OPEN_OVERLAP):.0%}. "
-                "Suba «Máx. solape de exposición» o desmarque la casilla."
-            )
-    proposals: list[dict[str, Any]] = []
-    variant_failures: list[str] = []
-    configured_reserve = float(settings.get("dd_reserve_pct") or 0.0)
-    for index, (key, label, objective_type) in enumerate(GRID_VARIANTS, start=1):
+            break
+        if result is None:
+            return None, f"{label}: {first_error}"
+    return {
+        "key": key,
+        "label": label,
+        "reserve_pct": reserve,
+        "auto_adjusted_valley": auto_adjusted,
+        "requested_valley_dd_pct": requested_valley_pct,
+        "adjusted_valley_dd_pct": float(variant_inputs["valley_dd_pct"]),
+        "inputs": variant_inputs,
+        "result": result,
+    }, None
+
+
+def _grid_variant_proposals(
+    pool: _GridPool,
+    progress: Callable[[str], None] | None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    from .portfolio_service import _reserve_pct
+
+    proposals = []
+    failures = []
+    configured_reserve = float(pool.settings.get("dd_reserve_pct") or 0.0)
+    for index, variant in enumerate(GRID_VARIANTS, start=1):
+        key, label, objective_type = variant
         if progress:
             progress(f"3/4 · Optimizando {label} ({index}/3)")
         reserve = _reserve_pct(configured_reserve, objective_type)
-        # Grid anula `max_portfolio_corr`, y `_portfolio_corr_allowed` sale por
-        # la primera línea cuando es None: leer las curvas guardadas por cada
-        # variante era una consulta a SQLite por propuesta que no decidía nada.
-        # Lo que evita repetir sets entre paquetes es `exclude_used_sets`.
-        existing: list[list[float]] = []
-        variant_inputs = {
-            **settings,
-            "portfolio_type": key,
-            "dd_reserve_pct": reserve,
-        }
-        auto_adjusted = False
-        requested_valley_pct = float(variant_inputs["valley_dd_pct"])
-        try:
-            result = optimize_grid_portfolio(
-                raw_sets,
-                **_optimizer_kwargs(variant_inputs, objective_type, existing, reserve),
-            )
-        except ValueError as exc:
-            first_error = exc
-            result = None
-            for adjusted_pct in _adjusted_grid_valley_pcts(
-                raw_sets,
-                capital=float(settings["capital"]),
-                reserve_pct=reserve,
-                requested_pct=requested_valley_pct,
-                min_trades=int(settings["min_trades_2020_2026"]),
-            ):
-                adjusted_inputs = {**variant_inputs, "valley_dd_pct": adjusted_pct}
-                try:
-                    result = optimize_grid_portfolio(
-                        raw_sets,
-                        **_optimizer_kwargs(adjusted_inputs, objective_type, existing, reserve),
-                    )
-                except ValueError:
-                    continue
-                variant_inputs = adjusted_inputs
-                auto_adjusted = True
-                result.warnings.insert(
-                    0,
-                    f"El valle solicitado {requested_valley_pct:.3f}% no admite el lote mínimo "
-                    f"de este pool. Esta propuesta usa el mínimo ejecutable {adjusted_pct:.3f}%.",
-                )
-                break
-            if result is None:
-                variant_failures.append(f"{label}: {first_error}")
-                continue
-        result.warnings[:0] = warnings
-        proposals.append({
-            "key": key,
-            "label": label,
-            "reserve_pct": reserve,
-            "auto_adjusted_valley": auto_adjusted,
-            "requested_valley_dd_pct": requested_valley_pct,
-            "adjusted_valley_dd_pct": float(variant_inputs["valley_dd_pct"]),
-            "inputs": variant_inputs,
-            "result": result,
-        })
+        proposal, failure = _optimize_grid_variant(
+            pool.raw_sets, pool.settings, (key, label, objective_type), reserve,
+        )
+        if failure:
+            failures.append(failure)
+        elif proposal:
+            proposal["result"].warnings[:0] = pool.warnings
+            proposals.append(proposal)
+    return proposals, failures
+
+
+def generate_grid_proposals(
+    source: Any,
+    inputs: dict[str, Any],
+    progress: Callable[[str], None] | None = None,
+    *,
+    exclude_portfolio_id: int | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    from .portfolio_service import build_margin_model
+
+    settings = normalize_grid_settings(inputs, source.broker)
+    settings["margin_model"] = build_margin_model(source, settings)
+    if progress:
+        progress("1/4 · Leyendo candidatos aceptados en las cuatro etapas")
+    pool = _load_grid_pool(source, settings, progress, exclude_portfolio_id)
+    proposals, variant_failures = _grid_variant_proposals(pool, progress)
     if not proposals:
         raise ValueError("; ".join(variant_failures))
-    warnings.extend(variant_failures)
+    pool.warnings.extend(variant_failures)
     for proposal in proposals:
         proposal["result"].warnings.extend(variant_failures)
-    availability.update({
-        "loaded_sets": len(raw_sets),
-        "group_counts": group_counts,
-        "warnings": warnings,
+    pool.availability.update({
+        "loaded_sets": len(pool.raw_sets),
+        "group_counts": pool.group_counts,
+        "warnings": pool.warnings,
         "grid_only": True,
     })
     if progress:
         progress("4/4 · Propuestas listas")
-    return availability, proposals
+    return pool.availability, proposals
 
 
 def run_grid_operation(
