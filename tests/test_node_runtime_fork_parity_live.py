@@ -106,8 +106,16 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
 
         self._assert_on_every_fork(check, "reinicio completo de la aplicacion")
 
+    @staticmethod
+    def _manager_auditor_source() -> str:
+        engine_dir = MANAGER_ROOT / "mt5_manager"
+        return "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(engine_dir.glob("live_audit_*.py"))
+        )
+
     def _assert_manager_auditor_restore_contract(self) -> None:
-        manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        manager_engine = self._manager_auditor_source()
         manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
         self.assertIn('"live_audit_restore_account": True', manager_node)
         for token in (
@@ -181,7 +189,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         )
 
     def test_ictrading_live_auditor_has_calendar_boundaries_and_effective_lot_rules(self) -> None:
-        manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        manager_engine = self._manager_auditor_source()
         ic_project = FORK_CANDIDATES[0]
         ic_engine_path = ic_project / "manager_node_runtime" / "live_audit.py"
         if not ic_engine_path.is_file():

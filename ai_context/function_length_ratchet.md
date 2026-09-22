@@ -260,6 +260,16 @@ preparación, operación y aserciones, y los seis casos pasan al ejecutarlos des
 `HEAD` y desde la versión extraída. Se conservan los 74 casos y salen del
 baseline el fichero original y sus tres funciones perdonadas.
 
+El auditor real separa validación del request, pausa/restauración del pipeline,
+sincronización y reconstrucción del historial, preparación/ejecución del tester
+y comparación por operación en pasos menores de 60 líneas. Sus 32 escenarios
+se ejecutan completos tanto con la clase de `HEAD` como con la nueva; además
+`normalize_request` y el payload completo de `_compare` coinciden campo a campo.
+Salen las siete funciones del auditor del baseline. El fichero queda como una
+pila menor de 600 líneas (`core` → `lifecycle`/`terminals`/`extraction`/`tester`/
+`comparison` → fachada), y la guarda de paridad del fork busca los contratos
+textuales en toda esa pila en vez de asumir que viven en la fachada.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y

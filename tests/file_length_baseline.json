@@ -1,7 +1,6 @@
 {
   "_comment": "Ficheros que ya superaba(n) 600 lineas cuando se instalo la guarda. Esta lista solo puede encoger: al partir, borra su entrada. Regenerar no es una forma valida de silenciar el test.",
   "grandfathered": {
-    "mt5_manager/live_audit_engine.py": 2010,
     "mt5_manager/manager.py": 1492,
     "mt5_manager/node.py": 2174
   },
