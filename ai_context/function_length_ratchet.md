@@ -246,6 +246,13 @@ ida y vuelta larga del bundle se divide en importación, lectura y aserciones y
 pasa también desde la clase de `HEAD`. Salen el fichero y esa función de los
 baselines manteniendo los 32 casos.
 
+Las 1.473 líneas de integración local comparten ahora el ciclo de vida HTTP en
+`integration_test_base.py` y separan API general, portafolios y flujos del nodo
+en tres módulos descubiertos. Treinta y cinco tests no tocados conservan AST
+idéntico; los seis escenarios largos se ejecutaron tanto desde `HEAD` como
+desde sus pasos extraídos, con los doce casos verdes. Se conservan los 41 casos
+y salen del baseline el fichero original y sus seis funciones perdonadas.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
