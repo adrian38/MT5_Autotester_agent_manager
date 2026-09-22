@@ -16,7 +16,6 @@
     "mt5_manager/node.py::pipeline_stage_pending_count": 126,
     "mt5_manager/portfolio_full_experimental.py::_refined_without_recent_fillers": 77,
     "mt5_manager/portfolio_import.py::parse_summary": 67,
-    "mt5_manager/portfolio_improvement_common.py::validate_and_attach_improvement_audit": 152,
     "mt5_manager/portfolio_monthly_improvement_service.py::_generate_monthly_improvement_attempt": 247,
     "mt5_manager/portfolio_monthly_service.py::generate_monthly_completion_proposal": 139,
     "mt5_manager/portfolio_monthly_service.py::generate_monthly_proposals": 174,

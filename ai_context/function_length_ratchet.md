@@ -277,6 +277,12 @@ margen de pico y resultado final. `generate_grid_proposals`,
 `optimize_grid_portfolio` y `_prune_to_grid_valley` salen del baseline sin
 cambiar la regla `max(DD cerrado, exposición abierta)` ni el orden A/M/C.
 
+La auditoría común de mejora separa pertenencia, límites de correlación,
+auditoría de cada incorporación, eficiencia y construcción del payload. Los
+cuatro escenarios de auditoría pasan tanto contra la función de `HEAD` como
+contra la composición nueva; la función pública sale del baseline y conserva
+el mismo punto de parcheo para `strategy_correlation_pair`.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
