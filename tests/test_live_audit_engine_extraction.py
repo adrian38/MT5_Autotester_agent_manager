@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+import sys
+import tempfile
+import time
+import unittest
+import unittest.mock
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from types import SimpleNamespace
+
+from mt5_manager.live_audit_engine import (
+    LiveAuditController, _audit_period, _read_set_text, _redact_log_files, _redact_runner_output,
+    normalize_request,
+)
+from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
+from tests.live_audit_engine_base import FakeOwner, LiveAuditEngineTestCase, request
+
+
+class LiveAuditExtractionTests(LiveAuditEngineTestCase):
+    def test_credentials_are_required_and_never_enter_public_state(self) -> None:
+        payload = request()
+        payload["source_password"] = ""
+        with self.assertRaisesRegex(ValueError, "source_password"):
+            normalize_request(payload)
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+            controller.start(request())
+            state = self._wait(controller)
+            self.assertNotIn("password", str(state).casefold())
+            self.assertNotIn("secret", (Path(temp) / "live_audits" / "state.json").read_text(encoding="utf-8"))
+
+    def test_rolling_period_uses_complete_calendar_days(self) -> None:
+        normalized = normalize_request(request())
+        start, end = _audit_period(normalized, datetime(2026, 8, 30, 16, 45, tzinfo=timezone.utc))
+
+        self.assertEqual(start, datetime(2026, 8, 23, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(end.date().isoformat(), "2026-08-30")
+        self.assertEqual(end.time(), datetime.max.time())
+
+    def test_fixed_calendar_period_is_inclusive_and_validated(self) -> None:
+        payload = {
+            **request(), "period_mode": "fixed_dates",
+            "period_start_date": "2026-08-23", "period_end_date": "2026-08-30",
+        }
+        normalized = normalize_request(payload)
+        start, end = _audit_period(normalized)
+
+        self.assertEqual(start.isoformat(), "2026-08-23T00:00:00+00:00")
+        self.assertEqual(end.date().isoformat(), "2026-08-30")
+        with self.assertRaisesRegex(ValueError, "posterior"):
+            normalize_request({**payload, "period_start_date": "2026-08-31"})
+
+    def test_request_validates_real_lots_per_strategy(self) -> None:
+        normalized = normalize_request({
+            **request(), "real_strategy_lots": {"AXI/STANDARD:34173": "0.6"},
+        })
+        self.assertEqual(normalized["real_strategy_lots"], {"AXI/STANDARD:34173": 0.6})
+        with self.assertRaisesRegex(ValueError, "objeto JSON"):
+            normalize_request({**request(), "real_strategy_lots": []})
+        with self.assertRaisesRegex(ValueError, "fuera"):
+            normalize_request({**request(), "real_strategy_lots": {"bad": 0}})
+
+    def test_runner_output_redacts_ini_and_incidental_secret_copies(self) -> None:
+        text = "[Common]\nPassword=tester-secret\nerror tester-secret\nPassword=another-value\n"
+        redacted = _redact_runner_output(text, "tester-secret")
+        self.assertNotIn("tester-secret", redacted)
+        self.assertNotIn("another-value", redacted)
+        self.assertEqual(redacted.count("[REDACTED]"), 3)
+
+    def test_run_tests_own_log_files_are_redacted_too(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "run.log").write_text("Password=tester-secret\n", encoding="utf-8")
+            (root / "ignore.htm").write_text("Password=tester-secret\n", encoding="utf-8")
+            _redact_log_files(root, "tester-secret")
+            log = (root / "run.log").read_text(encoding="utf-8")
+            report = (root / "ignore.htm").read_text(encoding="utf-8")
+
+        self.assertNotIn("tester-secret", log)
+        self.assertIn("tester-secret", report)
+
+    def test_utf16_set_is_decoded_and_start_lots_is_replaced_without_nuls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "strategy.set"
+            path.write_text(
+                "EA_MagicNumber=1007||1000||1||10000||N\nStartLots=0.05||0.01||0.01||1||N\n",
+                encoding="utf-16",
+            )
+            text, encoding = _read_set_text(path)
+            changed = LiveAuditController._set_value(text, "StartLots", "0.02")
+            target = Path(temp) / "changed.set"
+            target.write_text(changed, encoding=encoding)
+            reread, _ = _read_set_text(target)
+
+        self.assertEqual(encoding, "utf-16")
+        self.assertNotIn("\x00", reread)
+        self.assertIn("StartLots=0.02||0.01||0.01||1||N", reread)
+        self.assertEqual(LiveAuditController._set_parameter(reread, "EA_MagicNumber"), "1007")
+
+    def test_saved_ustec_lot_is_raised_to_the_broker_minimum_for_the_tester(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            assets = root / "assets"
+            assets.mkdir()
+            (assets / "ictrading_symbol_specs.json").write_text(
+                '{"symbols":{"USTEC":{"volume_min":0.1,"volume_step":0.1}}}',
+                encoding="utf-8",
+            )
+            owner = FakeOwner("idle")
+            owner.config.update(project_dir=str(root), broker="ICTRADING")
+            controller = LiveAuditController(owner, root / "runtime")
+            rules = controller._broker_volume_rules()
+            result = controller._tester_lot(
+                {"symbol": "USTEC", "units": 1, "lot": 0.01}, rules,
+            )
+
+        self.assertEqual(result, (0.01, 0.1, 0.1, 0.1, 1))
+
+    def test_portfolio_units_do_not_multiply_the_broker_minimum(self) -> None:
+        result = LiveAuditController._tester_lot(
+            {"symbol": "DE40", "units": 3, "lot": 0.03}, {"de40": (0.1, 0.1)},
+        )
+
+        self.assertEqual(result, (0.03, 0.1, 0.1, 0.1, 3))
+
+    def test_real_account_report_must_be_the_native_terminal_html(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "ReportHistory-111.html"
+            path.write_text(
+                '<html><head><title>111 - Trade History Report</title>'
+                '<meta name="generator" content="client terminal"></head><body>'
+                + ("x" * 600) + "</body></html>",
+                encoding="utf-16",
+            )
+            artifact = validate_native_history_report(path, "111")
+            localized = Path(temp) / "InformeHistorial-111.html"
+            localized.write_text(
+                '<html><head><title>111 - Informe del historial de trading</title>'
+                '<meta name="generator" content="client terminal"></head><body>'
+                + ("x" * 600) + "</body></html>",
+                encoding="utf-16",
+            )
+            localized_artifact = validate_native_history_report(localized, "111")
+            fake = Path(temp) / "reconstructed.html"
+            fake.write_text("<html>Historial reconstruido</html>", encoding="utf-8")
+
+            with self.assertRaises(NativeHistoryReportError):
+                validate_native_history_report(fake, "111")
+
+        self.assertTrue(artifact["native_terminal_report"])
+        self.assertTrue(localized_artifact["native_terminal_report"])
+        self.assertEqual(artifact["source"], "mt5_terminal_history_report")
+
+    def test_artifact_path_only_exposes_reports_from_current_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            controller = LiveAuditController(FakeOwner("idle"), Path(temp))
+            controller.states["9"] = {"audit_key": "9", "audit_id": "run_1", "status": "completed"}
+            reports = Path(temp) / "live_audits" / "audit_9" / "run_1" / "reports"
+            reports.mkdir(parents=True)
+            report = reports / "strategy.htm"
+            report.write_text("report", encoding="utf-8")
+            hidden_set = reports / "strategy.set"
+            hidden_set.write_text("StartLots=0.06", encoding="utf-8")
+
+            self.assertEqual(controller.artifact_path("9", "run_1", "strategy.htm"), report.resolve())
+            with self.assertRaises(ValueError):
+                controller.artifact_path("9", "run_1", "strategy.set")
+            with self.assertRaises(ValueError):
+                controller.artifact_path("9", "run_1", "../strategy.htm")
+            with self.assertRaises(FileNotFoundError):
+                controller.artifact_path("9", "old_run", "strategy.htm")
+
+    def test_real_history_waits_for_sync_and_recovers_open_before_period(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            controller = LiveAuditController(FakeOwner("idle"), Path(temp))
+            controller.history_sync_attempts = 4
+            controller.history_sync_delay_seconds = 0
+            period_end = datetime.now(timezone.utc)
+            period_start = period_end - timedelta(days=7)
+            mt5, result = self._extract_synced_history(controller, period_start, period_end)
+
+        trades, points, account = result
+        self.assertEqual(len(trades), 2)
+        self.assertEqual(points, {"EURUSD": .00001})
+        self.assertTrue(account["connected"])
+        self.assertEqual(account["server"], "IC-Real")
+        self._assert_recovered_history(account["history_detail"])
+        self.assertTrue(mt5.shutdown_called)
+
+    def _extract_synced_history(self, controller, period_start, period_end):
+        prior_open = self._deal(1, 10, 0, period_start - timedelta(days=1), 0)
+        prior_close = self._deal(2, 10, 1, period_start + timedelta(hours=1), 1)
+        current_open = self._deal(3, 20, 0, period_start + timedelta(days=1), 0)
+        current_close = self._deal(4, 20, 1, period_start + timedelta(days=1, hours=1), 1)
+        period_deals = [prior_close, current_open, current_close]
+
+        class FakeMt5:
+            def __init__(self) -> None:
+                self.period_calls = 0
+                self.shutdown_called = False
+
+            account_info = staticmethod(
+                lambda: SimpleNamespace(login=111, server="IC-Real", currency="USD")
+            )
+            terminal_info = staticmethod(lambda: SimpleNamespace(connected=True))
+            symbol_info = staticmethod(lambda _symbol: SimpleNamespace(point=.00001))
+            last_error = staticmethod(lambda: (1, "Success"))
+
+            def history_deals_get(self, *_args, **kwargs):
+                if "position" in kwargs:
+                    return [prior_open, prior_close] if kwargs["position"] == 10 else []
+                self.period_calls += 1
+                return [] if self.period_calls == 1 else period_deals
+
+            def shutdown(self) -> None:
+                self.shutdown_called = True
+
+        mt5 = FakeMt5()
+        controller._login_terminal = lambda *_args, **_kwargs: (
+            mt5, "Terminal.2", {"name": "MT5_IC_1"}, set()
+        )
+        result = controller._extract_real(request(), period_start, period_end)
+        return mt5, result
+
+    @staticmethod
+    def _deal(ticket, position, entry, moment, deal_type) -> SimpleNamespace:
+        timestamp = int(moment.timestamp())
+        return SimpleNamespace(
+            ticket=ticket, position_id=position, entry=entry, type=deal_type,
+            time=timestamp, time_msc=timestamp * 1000, magic=11008,
+            symbol="EURUSD", volume=.01, price=1.1, profit=1.0,
+            commission=0.0, swap=0.0, fee=0.0, comment="",
+        )
+
+    def _assert_recovered_history(self, detail: dict) -> None:
+        self.assertEqual(detail["sync_snapshots"], [0, 3, 3])
+        self.assertEqual(detail["period_raw_deals"], 3)
+        self.assertEqual(detail["closing_deals"], 2)
+        self.assertEqual(detail["positions_missing_open_in_period"], 1)
+        self.assertEqual(detail["positions_recovered"], 1)
+        self.assertEqual(detail["trades_reconstructed"], 2)
+
+    def test_portfolio_variant_is_required_and_selects_only_that_variant(self) -> None:
+        payload = request()
+        payload["portfolio_type"] = ""
+        with self.assertRaisesRegex(ValueError, "portfolio_type"):
+            normalize_request(payload)
+        with tempfile.TemporaryDirectory() as temp:
+            owner, controller = self._controller(Path(temp), "idle")
+            _detail, members = controller._portfolio_members(9, "balanced")
+            self.assertEqual([row["candidate_id"] for row in members], ["one"])
+
+    def test_tester_uses_five_configured_broker_terminals_for_six_sets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+            profiles = [
+                (f"Terminal.{index}", {"name": f"MT5_IC_{index}", "mt5_path": fr"C:\\IC{index}\\terminal64.exe"})
+                for index in range(1, 6)
+            ]
+            controller._terminal_profiles = lambda *, include_disabled=False: (
+                list(profiles) if include_disabled else list(profiles[:1])
+            )
+            selected = controller._tester_terminal_pool("Terminal.3", profiles[2][1], 6)
+
+        self.assertEqual(len(selected), 5)
+        self.assertEqual(selected[0][0], "Terminal.3")
+        self.assertEqual({section for section, _profile in selected}, {section for section, _profile in profiles})
+
+    def test_native_report_fallback_uses_only_the_active_broker_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            primary = root / "primary.exe"
+            fallback = root / "fallback.exe"
+            foreign = root / "foreign.exe"
+            for path in (primary, fallback, foreign):
+                path.touch()
+            (root / "ui_settings.ini").write_text(
+                "[Terminal.1]\nname=Primary\nenabled=1\nbroker=ICTRADING\nmt5_path=" + str(primary) + "\n"
+                "[Terminal.2]\nname=Fallback\nenabled=0\nbroker=ICTRADING\nmt5_path=" + str(fallback) + "\n"
+                "[Terminal.3]\nname=Foreign\nenabled=1\nbroker=ROBOFOREX\nmt5_path=" + str(foreign) + "\n",
+                encoding="utf-8",
+            )
+            owner = FakeOwner("idle")
+            owner.config.update(project_dir=str(root), settings_file="ui_settings.ini")
+            controller = LiveAuditController(owner, root / "runtime")
+            profiles = controller._native_report_profiles(primary)
+
+        self.assertEqual([profile[1]["name"] for profile in profiles], ["Fallback"])
+
+    def test_comparison_explains_missing_extra_and_deviation_reasons(self) -> None:
+        now = datetime.now(timezone.utc)
+        real = [{
+            "strategy": "1007", "symbol": "EURUSD", "side": "buy", "open_time": now,
+            "close_time": now, "open_price": 1.2, "volume": .02, "profit": -5.0,
+        }]
+        expected = [{
+            "strategy": "one", "symbol": "EURUSD", "side": "buy", "open_time": now,
+            "close_time": now, "open_price": 1.1, "volume": .01, "profit": 1.0,
+        }, {
+            "strategy": "two", "symbol": "XAUUSD", "side": "sell", "open_time": now,
+            "close_time": now - timedelta(hours=1), "open_price": 1.0, "volume": .01, "profit": 1.0,
+        }]
+        result = LiveAuditController._compare(
+            real, expected, {"EURUSD": .00001}, request(), {"one": 1, "two": 1},
+        )
+        self.assertEqual(result["comparison_detail"]["missing_by_strategy"], {"two": 1})
+        self.assertEqual(result["comparison_detail"]["deviation_reasons"]["volume"], 1)
+        self.assertEqual(result["comparison_detail"]["deviation_reasons"]["pnl"], 1)
+        self.assertEqual(result["matched_trades"], 1)
+        self.assertEqual(result["within_tolerance_trades"], 0)
+        self.assertEqual(result["deviating_pairs"], 1)
+        rows = result["comparison_detail"]["operation_comparisons"]
+        self.assertEqual([row["status"] for row in rows], ["deviation", "missing"])
+        self.assertEqual(rows[0]["real"]["strategy"], "1007")
+        self.assertIsInstance(rows[0]["tester"]["open_time"], str)
+        self.assertEqual(rows[0]["measurements"]["open_price_delta_points"], 10000.0)
+        self.assertEqual(rows[1]["reasons"], ["no_real_same_symbol_and_side"])
+        self.assertEqual(rows[1]["data_issues"], ["close_before_open"])
+        self.assertEqual(result["comparison_detail"]["tester_data_issues"], {"close_before_open": 1})
+        self.assertEqual(result["comparison_detail"]["strategy_summary"][0], {
+            "strategy": "one", "tester_trades": 1, "aligned": 1,
+            "within_tolerance": 0, "with_deviations": 1, "missing_real": 0,
+        })
+        self.assertIn("cada real se usa una vez", result["comparison_detail"]["methodology"]["alignment"])
+
+
+if __name__ == "__main__":
+    unittest.main()

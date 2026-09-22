@@ -53,8 +53,6 @@
     "tests/test_integration.py::LocalIntegrationTests.test_manager_saves_all_grid_variants_with_different_compositions": 81,
     "tests/test_integration.py::LocalIntegrationTests.test_manager_saves_portfolio_exclusively_through_node_api": 61,
     "tests/test_integration.py::LocalIntegrationTests.test_manager_serves_and_persists_live_audit_configuration_without_the_node": 89,
-    "tests/test_live_audit_engine.py::LiveAuditEngineTests.test_real_history_waits_for_sync_and_recovers_open_before_period": 71,
-    "tests/test_live_audit_engine.py::LiveAuditEngineTests.test_the_terminal_is_left_on_the_configured_restore_account_and_the_result_proves_it": 69,
     "tests/test_node.py::NodeTests.setUp": 61,
     "tests/test_portfolio_full_experimental.py::ExperimentalFullSearchTests.test_locked_bundle_uses_experimental_only_for_base_selection": 72,
     "tests/test_portfolio_full_experimental.py::ExperimentalFullSearchTests.test_tournament_examines_every_candidate_and_records_audit": 62,

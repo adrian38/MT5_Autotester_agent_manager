@@ -223,6 +223,14 @@ auditor y comprobación de valores; el caso completo y el helper de validación
 coinciden contra `HEAD`. El fichero de 861 líneas y su método de 79 salen de
 los dos baselines conservando los 51 casos descubiertos.
 
+Las pruebas del motor de auditoría comparten su dueño, controlador y espera en
+`live_audit_engine_base.py`; extracción/artefactos se separan del ciclo de vida
+y comparación. Las 33 definiciones no modificadas conservan AST idéntico. Los
+casos largos de sincronización del historial y restauración del terminal se
+dividen en escenario y aserciones, y ambos pasan también ejecutados desde la
+versión de `HEAD`. Se conservan los 32 casos y salen un fichero y dos funciones
+de los baselines.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
