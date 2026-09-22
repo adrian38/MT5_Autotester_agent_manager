@@ -64,8 +64,7 @@
     "tests/test_portfolio_monthly_experimental.py::ExperimentalMonthlySearchTests.test_tournament_examines_all_candidates_before_the_final": 62,
     "tests/test_portfolio_service.py::PortfolioServiceTests.test_axi_inventory_groups_legacy_symbols_under_the_executable_broker_symbol": 100,
     "tests/test_portfolio_service.py::PortfolioServiceTests.test_portfolio_source_reads_only_full_pipeline_accepted_candidates": 71,
-    "tests/test_portfolio_service.py::PortfolioServiceTests.test_save_selected_bundle_commits_and_is_readable_afterward": 68,
-    "tests/test_static_portfolios.py::PortfolioFormTests.test_every_html_number_input_accepts_representative_backend_values": 79
+    "tests/test_portfolio_service.py::PortfolioServiceTests.test_save_selected_bundle_commits_and_is_readable_afterward": 68
   },
   "max_lines": 60
 }

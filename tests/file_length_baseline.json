@@ -9,8 +9,7 @@
     "tests/test_integration.py": 1473,
     "tests/test_live_audit_engine.py": 903,
     "tests/test_portfolio_import.py": 1045,
-    "tests/test_portfolio_service.py": 2496,
-    "tests/test_static_portfolios.py": 861
+    "tests/test_portfolio_service.py": 2496
   },
   "max_lines": 600
 }

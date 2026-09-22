@@ -216,6 +216,13 @@ ICTrading divide preparación del proyecto, comprobación de cada perfil y matri
 perfil/scope, manteniendo sus 36 tests. Salen el fichero de 839 líneas y el
 método de 81.
 
+Las pruebas estáticas de portafolios separan los diálogos del nodo y la
+transferencia/exclusión de las pruebas centrales del formulario. La auditoría
+de inputs numéricos se divide en descubrimiento HTML, campos dinámicos del
+auditor y comprobación de valores; el caso completo y el helper de validación
+coinciden contra `HEAD`. El fichero de 861 líneas y su método de 79 salen de
+los dos baselines conservando los 51 casos descubiertos.
+
 Los dobles de prueba que ejercitan `_locked_full_proposals` deben parchear el
 consumidor `mt5_manager.portfolio_generation_search`, no el reexport del
 servicio. La equivalencia se comprobo definicion a definicion contra `HEAD` y
