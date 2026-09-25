@@ -43,6 +43,10 @@ Contexto persistente para agentes que trabajan en `MT5_Autotester_agent_manager`
 - `function_length_ratchet.md`: los dos techos de tamaño (60 líneas por
   función, 600 por fichero), sus trinquetes, y el banco diferencial contra
   `HEAD` para refactorizar lo que no tiene tests.
+- `ficheros_identicos_al_runtime_de_ic.md`: los dos ficheros del protocolo de
+  lotes guiados que no admiten ni un import nuevo, y qué implica al refactorizar.
+- `test_symbol_sync_intermitente.md`: por qué esa prueba falla a veces en el
+  suite completo y pasa sola, y qué no hay que depurar por ello.
 - `AGENTS.md` en la raíz contiene el flujo obligatorio de trabajo y verificación.
 
 Actualizar estos documentos cuando cambien invariantes, contratos de datos o decisiones arquitectónicas. No guardar secretos, tokens ni datos de producción.

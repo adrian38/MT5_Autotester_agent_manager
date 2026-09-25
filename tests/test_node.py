@@ -24,14 +24,7 @@ from mt5_manager.node import (
 )
 
 
-class NodeTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
-        (self.root / "ubs_agent.py").write_text("print('ok')\n", encoding="utf-8")
-        (self.root / "tester_template.ini").write_text("[Tester]\n", encoding="utf-8")
-        (self.root / "ui_settings.ini").write_text(
-            """[Paths]
+UI_SETTINGS = """[Paths]
 set_files_root=C:\\sets
 ubs_generation_output=C:\\output
 template_path={template}
@@ -79,7 +72,19 @@ ubs_final_tick_max_trades_delta_pct=35
 
 [Multiterminal]
 enabled=0
-""".format(template=self.root / "tester_template.ini"),
+"""
+"""Los ajustes que el nodo lee en cada prueba. `{template}` es lo unico que
+cambia entre ejecuciones."""
+
+
+class NodeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "ubs_agent.py").write_text("print('ok')\n", encoding="utf-8")
+        (self.root / "tester_template.ini").write_text("[Tester]\n", encoding="utf-8")
+        (self.root / "ui_settings.ini").write_text(
+            UI_SETTINGS.format(template=self.root / "tester_template.ini"),
             encoding="utf-8",
         )
         self.config = {

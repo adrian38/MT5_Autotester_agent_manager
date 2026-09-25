@@ -509,6 +509,38 @@ class SelectedModeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no contiene la variante"):
             full._selected_variant_detail(detail, "balanced")
 
+    def _saved_improvement(self, source, coordinator, state_key, original_id):
+        """Guarda una mejora del portafolio y reintenta: el reintento deduplica."""
+        coordinator.proposals[state_key] = [proposal("conservative", original_id)]
+        coordinator.jobs[state_key] = {"operation": "improve", "portfolio_id": original_id}
+        payload = coordinator.prepare_save("ic", "full_history", "conservative")
+        saved = save_portfolio_payload(source, payload)
+        retry = save_portfolio_payload(source, payload)
+        self.assertNotEqual(saved["portfolio_id"], original_id)
+        self.assertTrue(retry["deduplicated"])
+        self.assertEqual(saved["portfolio_id"], retry["portfolio_id"])
+        return saved["portfolio_id"]
+
+    def _publish_selection_priority(self, source, portfolio_id: int) -> None:
+        """Anade prioridad e incorporaciones a la fila ya guardada.
+
+        Dos mejoras del mismo portafolio y modo son indistinguibles en la lista
+        si no se publica con que criterio se eligio cada una.
+        """
+        with source.connect(write=True) as conn:
+            metrics = json.loads(conn.execute(
+                "select metrics_json from portfolios where id=?", (portfolio_id,)
+            ).fetchone()[0])
+            metrics["inputs"]["improvement_selection_priority"] = "stress"
+            metrics.setdefault("seasonal_validation", {}).setdefault(
+                "portfolio_improvement", {}
+            )["added_count"] = 3
+            conn.execute(
+                "update portfolios set metrics_json=? where id=?",
+                (json.dumps(metrics), portfolio_id),
+            )
+            conn.commit()
+
     def test_save_creates_an_identified_portfolio_and_retry_is_idempotent(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -522,21 +554,14 @@ class SelectedModeTests(unittest.TestCase):
             coordinator.jobs[state_key] = {"operation": "generate"}
             original_id = save_portfolio_payload(source, coordinator.prepare_save("ic", "full_history", "balanced"))["portfolio_id"]
             before = source.saved_portfolio_detail(original_id, "full_history")["portfolio"]
-            coordinator.proposals[state_key] = [proposal("conservative", original_id)]
-            coordinator.jobs[state_key] = {"operation": "improve", "portfolio_id": original_id}
-            payload = coordinator.prepare_save("ic", "full_history", "conservative")
-            saved = save_portfolio_payload(source, payload)
-            retry = save_portfolio_payload(source, payload)
-            self.assertNotEqual(saved["portfolio_id"], original_id)
-            self.assertTrue(retry["deduplicated"])
-            self.assertEqual(saved["portfolio_id"], retry["portfolio_id"])
+            saved_id = self._saved_improvement(source, coordinator, state_key, original_id)
             self.assertEqual(before, source.saved_portfolio_detail(original_id, "full_history")["portfolio"])
             # Simulate an older node that retained provenance but generated a
             # generic name. Reading recovers identity without changing SQLite.
             with source.connect(write=True) as conn:
-                conn.execute("update portfolios set name='A/M/C antiguo' where id=?", (saved["portfolio_id"],))
+                conn.execute("update portfolios set name='A/M/C antiguo' where id=?", (saved_id,))
                 conn.commit()
-            new = source.saved_portfolio_detail(saved["portfolio_id"], "full_history")["portfolio"]
+            new = source.saved_portfolio_detail(saved_id, "full_history")["portfolio"]
             self.assertIn(f"Mejora del portafolio #{original_id} | modo Conservador", new["name"])
             self.assertEqual(new["improvement_origin"], {
                 "source_id": original_id,
@@ -546,22 +571,8 @@ class SelectedModeTests(unittest.TestCase):
                 "label": f"Mejora del portafolio #{original_id} | modo Conservador",
             })
             self.assertEqual(new["portfolio_type"], "conservative")
-            # Dos mejoras del mismo portafolio y modo son indistinguibles en la
-            # lista si no se publica con qué criterio se eligió cada una.
-            with source.connect(write=True) as conn:
-                metrics = json.loads(conn.execute(
-                    "select metrics_json from portfolios where id=?", (saved["portfolio_id"],)
-                ).fetchone()[0])
-                metrics["inputs"]["improvement_selection_priority"] = "stress"
-                metrics.setdefault("seasonal_validation", {}).setdefault(
-                    "portfolio_improvement", {}
-                )["added_count"] = 3
-                conn.execute(
-                    "update portfolios set metrics_json=? where id=?",
-                    (json.dumps(metrics), saved["portfolio_id"]),
-                )
-                conn.commit()
-            enriched = source.saved_portfolio_detail(saved["portfolio_id"], "full_history")["portfolio"]
+            self._publish_selection_priority(source, saved_id)
+            enriched = source.saved_portfolio_detail(saved_id, "full_history")["portfolio"]
             self.assertEqual(enriched["improvement_origin"], {
                 "source_id": original_id, "mode": "conservative",
                 "root_id": original_id, "depth": 1,
@@ -571,4 +582,4 @@ class SelectedModeTests(unittest.TestCase):
             self.assertFalse(new["metrics"].get("portfolio_bundle", False))
             self.assertEqual(new["metrics"]["inputs"]["improvement_source_portfolio_id"], original_id)
             with source.connect() as conn:
-                self.assertEqual(conn.execute("select name from portfolios where id=?", (saved["portfolio_id"],)).fetchone()[0], "A/M/C antiguo")
+                self.assertEqual(conn.execute("select name from portfolios where id=?", (saved_id,)).fetchone()[0], "A/M/C antiguo")

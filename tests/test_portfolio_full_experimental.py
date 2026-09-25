@@ -34,6 +34,52 @@ from tests.portfolio_full_experimental_fixtures import (
 
 
 
+def _experimental_inputs():
+    return normalize_settings(
+        "full_history",
+        {
+            "allowed_asset_groups": ["Forex"],
+            "experimental_full_search": True,
+        },
+        "ICTRADING",
+    )
+
+
+def _run_locked_bundle(strategies, locked, engine, refine):
+    """Ejecuta el paquete A/M/C con el motor y la primitiva sustituidos."""
+    with patch(
+        "mt5_manager.portfolio_generation_search._optimize_without_recent_fillers",
+        side_effect=refine,
+    ), patch(
+        "mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio",
+        **engine,
+    ) as experimental, patch(
+        "mt5_manager.portfolio_generation_search.optimize_portfolio",
+        side_effect=lambda **_kwargs: result_for(locked),
+    ) as stable:
+        proposals = _locked_full_proposals(
+            strategies,
+            _experimental_inputs(),
+            {kind: [] for kind in PORTFOLIO_TYPES.values()},
+        )
+    return proposals, experimental, stable
+
+
+def _tournament_result(strategies, locked, warning: str, audit_active: int):
+    result = result_for(strategies)
+    result.allocations = result_for(locked).allocations
+    result.active_strategies = len(locked)
+    result.warnings = [warning]
+    result.seasonal_validation = {
+        "experimental_full_history_stability": {
+            "status": "completed",
+            "passed": True,
+            "active_strategies": audit_active,
+        }
+    }
+    return result
+
+
 class ExperimentalFullSearchTests(unittest.TestCase):
     def test_full_setting_is_opt_in_and_cannot_leak_to_monthly(self) -> None:
         defaults = normalize_settings(
@@ -126,6 +172,25 @@ class ExperimentalFullSearchTests(unittest.TestCase):
             pool_by_id["set-0"], pool_by_id["set-1"]
         )
 
+    def _assert_round_robin_coverage(self, first_round, strategies) -> None:
+        """Cada candidato aparece el mismo numero de veces en la primera ronda."""
+        self.assertEqual(
+            {set_id for pool in first_round for set_id in pool},
+            {item.set_id for item in strategies},
+        )
+        appearances = {
+            set_id: sum(set_id in pool for pool in first_round)
+            for set_id in {item.set_id for item in strategies}
+        }
+        self.assertEqual(set(appearances.values()), {3})
+
+    def _assert_only_the_final_pass_refines(self, settings_seen) -> None:
+        """Las rondas del torneo van sin reinicios ni refinado profundo."""
+        for settings in settings_seen[:-1]:
+            self.assertEqual(settings["optimizer_kwargs"]["search_restarts"], 0)
+            self.assertFalse(settings["use_deep_refinement"])
+        self.assertTrue(settings_seen[-1]["use_deep_refinement"])
+
     def test_tournament_examines_every_candidate_and_records_audit(self) -> None:
         strategies = [strategy(index) for index in range(35)]
         evaluated: list[list[str]] = []
@@ -151,39 +216,12 @@ class ExperimentalFullSearchTests(unittest.TestCase):
                 top_k_per_symbol=3,
             )
 
-        first_round = evaluated[:12]
-        self.assertEqual(
-            {
-                set_id
-                for pool in first_round
-                for set_id in pool
-            },
-            {item.set_id for item in strategies},
-        )
-        appearances = {
-            set_id: sum(
-                set_id in pool for pool in first_round
-            )
-            for set_id in {
-                item.set_id for item in strategies
-            }
-        }
-        self.assertEqual(set(appearances.values()), {3})
-        for settings in settings_seen[:-1]:
-            self.assertEqual(
-                settings["optimizer_kwargs"]["search_restarts"], 0
-            )
-            self.assertFalse(settings["use_deep_refinement"])
-        self.assertTrue(settings_seen[-1]["use_deep_refinement"])
+        self._assert_round_robin_coverage(evaluated[:12], strategies)
+        self._assert_only_the_final_pass_refines(settings_seen)
         self.assertTrue(
-            any(
-                "35/35 candidatos examinados" in warning
-                for warning in result.warnings
-            )
+            any("35/35 candidatos examinados" in warning for warning in result.warnings)
         )
-        audit = result.seasonal_validation[
-            "experimental_full_history_stability"
-        ]
+        audit = result.seasonal_validation["experimental_full_history_stability"]
         self.assertEqual(audit["status"], "completed")
         self.assertIn("is_2020_2024", audit["segments"])
         self.assertIn("oos_2025_2026", audit["segments"])
@@ -191,56 +229,25 @@ class ExperimentalFullSearchTests(unittest.TestCase):
 
     def test_locked_bundle_uses_experimental_only_for_base_selection(self) -> None:
         strategies = [strategy(index) for index in range(4)]
-        inputs = normalize_settings(
-            "full_history",
-            {
-                "allowed_asset_groups": ["Forex"],
-                "experimental_full_search": True,
-            },
-            "ICTRADING",
-        )
-        base_result = result_for(strategies)
         locked = strategies[:2]
+        base_result = result_for(strategies)
         base_result.allocations = result_for(locked).allocations
         base_result.active_strategies = len(locked)
         base_result.seasonal_validation = {
-            "experimental_full_history_stability": {
-                "status": "completed",
-                "passed": True,
-            }
+            "experimental_full_history_stability": {"status": "completed", "passed": True}
         }
-        base_result.warnings = [
-            "Búsqueda UBS experimental: 4/4 candidatos examinados;"
-        ]
-
+        base_result.warnings = ["Búsqueda UBS experimental: 4/4 candidatos examinados;"]
         refill_flags: list[bool] = []
 
         def run_once(
-            candidate_sets,
-            _minimum_recent,
-            optimize,
-            *,
-            progress=None,
-            refill_from_pool=False,
+            candidate_sets, _minimum_recent, optimize, *, progress=None, refill_from_pool=False,
         ):
             refill_flags.append(refill_from_pool)
             return optimize(candidate_sets), set()
 
-        with patch(
-            "mt5_manager.portfolio_generation_search._optimize_without_recent_fillers",
-            side_effect=run_once,
-        ), patch(
-            "mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio",
-            return_value=base_result,
-        ) as experimental, patch(
-            "mt5_manager.portfolio_generation_search.optimize_portfolio",
-            side_effect=lambda **_kwargs: result_for(locked),
-        ) as stable:
-            proposals = _locked_full_proposals(
-                strategies,
-                inputs,
-                {kind: [] for kind in PORTFOLIO_TYPES.values()},
-            )
+        proposals, experimental, stable = _run_locked_bundle(
+            strategies, locked, {"return_value": base_result}, run_once,
+        )
 
         self.assertEqual(len(proposals), 3)
         experimental.assert_called_once()
@@ -457,72 +464,31 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
 
     def test_the_tournament_record_survives_a_survivor_rerun(self) -> None:
         strategies = [strategy(index) for index in range(4)]
-        inputs = normalize_settings(
-            "full_history",
-            {
-                "allowed_asset_groups": ["Forex"],
-                "experimental_full_search": True,
-            },
-            "ICTRADING",
-        )
         locked = strategies[:2]
-
-        def tournament_result(warning: str, audit_active: int) -> SimpleNamespace:
-            result = result_for(strategies)
-            result.allocations = result_for(locked).allocations
-            result.active_strategies = len(locked)
-            result.warnings = [warning]
-            result.seasonal_validation = {
-                "experimental_full_history_stability": {
-                    "status": "completed",
-                    "passed": True,
-                    "active_strategies": audit_active,
-                }
-            }
-            return result
-
         engine_results = [
-            tournament_result(
-                "Búsqueda UBS experimental: 486/486 candidatos examinados; "
-                "3 ronda(s).",
+            _tournament_result(
+                strategies, locked,
+                "Búsqueda UBS experimental: 486/486 candidatos examinados; 3 ronda(s).",
                 8,
             ),
-            tournament_result(
-                "Búsqueda UBS experimental: 4/4 candidatos examinados; "
-                "0 ronda(s).",
+            _tournament_result(
+                strategies, locked,
+                "Búsqueda UBS experimental: 4/4 candidatos examinados; 0 ronda(s).",
                 4,
             ),
         ]
-
         refill_flags: list[bool] = []
 
         def refine_over_survivors(
-            candidate_sets,
-            _minimum_recent,
-            optimize,
-            *,
-            progress=None,
-            refill_from_pool=False,
+            candidate_sets, _minimum_recent, optimize, *, progress=None, refill_from_pool=False,
         ):
             refill_flags.append(refill_from_pool)
             optimize(candidate_sets)
             return optimize(candidate_sets[:2]), {"set-2", "set-3"}
 
-        with patch(
-            "mt5_manager.portfolio_generation_search._optimize_without_recent_fillers",
-            side_effect=refine_over_survivors,
-        ), patch(
-            "mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio",
-            side_effect=engine_results,
-        ), patch(
-            "mt5_manager.portfolio_generation_search.optimize_portfolio",
-            side_effect=lambda **_kwargs: result_for(locked),
-        ):
-            proposals = _locked_full_proposals(
-                strategies,
-                inputs,
-                {kind: [] for kind in PORTFOLIO_TYPES.values()},
-            )
+        proposals, _experimental, _stable = _run_locked_bundle(
+            strategies, locked, {"side_effect": engine_results}, refine_over_survivors,
+        )
 
         self.assertEqual(len(proposals), 3)
         self.assertEqual(refill_flags, [False])

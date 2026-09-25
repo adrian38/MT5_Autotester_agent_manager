@@ -42,6 +42,13 @@ escritura en la memoria UBS.
 | `tests/test_node_runtime_fork_parity.py` | Falla si la copia del agente divergió del criterio del manager. Omite las copias no montadas y lo dice. |
 | `tools/hook_node_fork_warning.py` | Hook `PostToolUse`: avisa al editar `portfolio_service.py`/`node.py` y también al revés. |
 | Docstrings de `node.py` y de las dos `remove_member*_to_quarantine` | El aviso, en el punto exacto donde se edita. |
+| `tests/test_guided_routing.py` | Compara **byte a byte** `guided_batches.py` y `guided_controller.py` con la copia de IC. |
+
+**Esos dos ficheros no se pueden refactorizar aquí**: son el protocolo de los
+lotes guiados y las dos copias tienen que coincidir. No admiten ni un import
+nuevo. Por eso `validate_package` (87 líneas) es la única función de producción
+por encima del techo, y por eso la cola de `JobController` sigue siendo métodos
+que delegan. Detalle en `ai_context/ficheros_identicos_al_runtime_de_ic.md`.
 
 ## Leer `ai_context/` antes de escribir código
 
@@ -283,6 +290,10 @@ Partir es **pasos con nombre**, no trocear por líneas. Lo que ha rendido aquí:
   dobles inserciones sobre el mismo `list` de un doble de prueba.
 - **Otras sesiones escriben en este árbol.** Comprobar `git status` antes de
   fiarse de una medición larga, y commitear lo ajeno aparte.
+- `test_symbol_sync` falla de vez en cuando en el suite completo y pasa sola:
+  habla por HTTP con el fork de IC y deja un hilo contestando tarde. Volver a
+  correrla aislada antes de darle importancia —
+  `ai_context/test_symbol_sync_intermitente.md`.
 - Antes de commitear un refactor: `python -m tools.sync_ubs_exports`,
   `python -m tools.function_length --write`, `python -m tools.file_length --write`.
 - Documentar decisiones y hallazgos duraderos en `ai_context/`.
