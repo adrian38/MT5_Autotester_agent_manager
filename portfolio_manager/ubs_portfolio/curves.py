@@ -169,6 +169,25 @@ def portfolio_daily_closed_floating_dd(
     }
 
 
+def _worst_day_contributions(
+    sets: list[RobustStrategySet],
+    active: dict[str, int],
+    worst_day: object,
+    full_history: bool,
+) -> dict[str, float]:
+    """Cuanto aporta cada estrategia al peor dia, a su lote asignado."""
+    contributions: dict[str, float] = {}
+    for strategy in sets:
+        units = int(active.get(strategy.set_id, 0))
+        if units <= 0 or not worst_day:
+            continue
+        series = strategy_daily_closed_floating_dd(strategy, full_history=full_history)
+        value = float(series.get(str(worst_day), 0.0)) * units
+        if value > 0:
+            contributions[strategy.set_id] = round(value, 2)
+    return contributions
+
+
 def portfolio_floating_overlap_audit(
     sets: list[RobustStrategySet],
     allocations: dict[str, int],
@@ -184,10 +203,9 @@ def portfolio_floating_overlap_audit(
     verdad cuando varias coinciden.
 
     La medida es **informativa**: usa el mismo proxy diario que el DD diario del
-    proyecto (la perdida final de cada operacion perdedora pesa en cada dia que
-    estuvo abierta), que exagera hacia arriba en operaciones largas y se queda
-    corto en la excursion adversa de las ganadoras. Sirve para detectar que el
-    supuesto del ``max()`` se esta rompiendo, no para sustituirlo en silencio.
+    proyecto, que exagera hacia arriba en operaciones largas y se queda corto en
+    la excursion adversa de las ganadoras. Sirve para detectar que el supuesto
+    del ``max()`` se esta rompiendo, no para sustituirlo en silencio.
 
     El solapamiento se aisla comparando el agregado contra ``worst_single``, que
     es el mismo proxy tomando solo la peor estrategia: ambos lados salen de la
@@ -206,7 +224,6 @@ def portfolio_floating_overlap_audit(
         return {}
     worst_day = summary.get("worst_day")
     by_set = summary.get("by_set") or {}
-    by_day = summary.get("by_day") or {}
     worst_single = max(
         (
             float(entry.get("worst_allocated_dd", 0.0))
@@ -214,15 +231,7 @@ def portfolio_floating_overlap_audit(
         ),
         default=0.0,
     )
-    contributions: dict[str, float] = {}
-    for strategy in sets:
-        units = int(active.get(strategy.set_id, 0))
-        if units <= 0 or not worst_day:
-            continue
-        series = strategy_daily_closed_floating_dd(strategy, full_history=full_history)
-        value = float(series.get(str(worst_day), 0.0)) * units
-        if value > 0:
-            contributions[strategy.set_id] = round(value, 2)
+    contributions = _worst_day_contributions(sets, active, worst_day, full_history)
     return {
         "worst_day": worst_day,
         "measured_aggregate": round(float(measured), 2),
@@ -233,7 +242,7 @@ def portfolio_floating_overlap_audit(
         "exceeds_declared": bool(float(measured) > float(declared_floating) + 1e-9),
         "coincident_sets": len(contributions),
         "active_sets": len(active),
-        "measured_days": len(by_day),
+        "measured_days": len(summary.get("by_day") or {}),
         "contributions": dict(
             sorted(contributions.items(), key=lambda item: item[1], reverse=True)[:10]
         ),
@@ -331,47 +340,36 @@ def calc_point_dd(equity_curve: list[float]) -> float:
     return abs(float(worst_loss))
 
 
-def bootstrap_valley_drawdown(
-    equity_curve: Sequence[float],
-    *,
-    nominal_valley_dd_limit: float,
-    effective_valley_dd_limit: float,
-    simulations: int = DEFAULT_BOOTSTRAP_SIMULATIONS,
-    block_size: int | None = None,
-    seed: int = DEFAULT_BOOTSTRAP_SEED,
+def _empty_bootstrap(
+    simulations: int, seed: int,
+    nominal_valley_dd_limit: float, effective_valley_dd_limit: float,
 ) -> BootstrapDrawdownAnalysis:
-    """Estimate valley-DD risk with a deterministic circular block bootstrap.
+    """Sin incrementos no hay nada que remuestrear: todo a cero y sin alerta."""
+    return BootstrapDrawdownAnalysis(
+        method=BOOTSTRAP_METHOD,
+        simulations=int(simulations),
+        seed=int(seed),
+        observations=0,
+        block_size=0,
+        valley_dd_p50=0.0,
+        valley_dd_p95=0.0,
+        nominal_valley_dd_limit=float(nominal_valley_dd_limit),
+        effective_valley_dd_limit=float(effective_valley_dd_limit),
+        probability_exceed_nominal_pct=0.0,
+        probability_exceed_effective_pct=0.0,
+        alert=False,
+    )
 
-    Consecutive P/L increments are sampled in blocks, preserving local loss
-    streaks instead of independently shuffling every trade. A fixed seed makes
-    proposal comparisons and saved audits reproducible.
+
+def _bootstrap_drawdowns(
+    increments: list[float], simulations: int, block_size: int, seed: int,
+) -> list[float]:
+    """Los valles simulados, ordenados, en bloques circulares y semilla fija.
+
+    Se muestrean bloques consecutivos para conservar las rachas de perdidas en
+    vez de barajar operacion a operacion.
     """
-    if simulations <= 0:
-        raise ValueError("Bootstrap simulations must be positive")
-    increments = [
-        float(current) - float(previous)
-        for previous, current in zip(equity_curve, equity_curve[1:])
-    ]
     observation_count = len(increments)
-    if observation_count == 0:
-        return BootstrapDrawdownAnalysis(
-            method=BOOTSTRAP_METHOD,
-            simulations=int(simulations),
-            seed=int(seed),
-            observations=0,
-            block_size=0,
-            valley_dd_p50=0.0,
-            valley_dd_p95=0.0,
-            nominal_valley_dd_limit=float(nominal_valley_dd_limit),
-            effective_valley_dd_limit=float(effective_valley_dd_limit),
-            probability_exceed_nominal_pct=0.0,
-            probability_exceed_effective_pct=0.0,
-            alert=False,
-        )
-
-    if block_size is None:
-        block_size = min(20, max(5, int(round(math.sqrt(observation_count)))))
-    block_size = min(max(int(block_size), 1), observation_count)
     rng = random.Random(int(seed))
     drawdowns: list[float] = []
     for _simulation in range(int(simulations)):
@@ -389,26 +387,57 @@ def bootstrap_valley_drawdown(
                 max_drawdown = max(max_drawdown, peak - equity)
             sampled += take
         drawdowns.append(float(max_drawdown))
-
     drawdowns.sort()
-    p50 = _linear_percentile(drawdowns, 0.50)
+    return drawdowns
+
+
+def bootstrap_valley_drawdown(
+    equity_curve: Sequence[float],
+    *,
+    nominal_valley_dd_limit: float,
+    effective_valley_dd_limit: float,
+    simulations: int = DEFAULT_BOOTSTRAP_SIMULATIONS,
+    block_size: int | None = None,
+    seed: int = DEFAULT_BOOTSTRAP_SEED,
+) -> BootstrapDrawdownAnalysis:
+    """Estimate valley-DD risk with a deterministic circular block bootstrap.
+
+    A fixed seed makes proposal comparisons and saved audits reproducible.
+    """
+    if simulations <= 0:
+        raise ValueError("Bootstrap simulations must be positive")
+    increments = [
+        float(current) - float(previous)
+        for previous, current in zip(equity_curve, equity_curve[1:])
+    ]
+    observation_count = len(increments)
+    if observation_count == 0:
+        return _empty_bootstrap(
+            simulations, seed, nominal_valley_dd_limit, effective_valley_dd_limit
+        )
+    if block_size is None:
+        block_size = min(20, max(5, int(round(math.sqrt(observation_count)))))
+    block_size = min(max(int(block_size), 1), observation_count)
+    drawdowns = _bootstrap_drawdowns(increments, simulations, block_size, seed)
     p95 = _linear_percentile(drawdowns, 0.95)
     nominal_limit = float(nominal_valley_dd_limit)
     effective_limit = float(effective_valley_dd_limit)
-    exceed_nominal = sum(value > nominal_limit + 1e-9 for value in drawdowns)
-    exceed_effective = sum(value > effective_limit + 1e-9 for value in drawdowns)
     return BootstrapDrawdownAnalysis(
         method=BOOTSTRAP_METHOD,
         simulations=int(simulations),
         seed=int(seed),
         observations=observation_count,
         block_size=block_size,
-        valley_dd_p50=p50,
+        valley_dd_p50=_linear_percentile(drawdowns, 0.50),
         valley_dd_p95=p95,
         nominal_valley_dd_limit=nominal_limit,
         effective_valley_dd_limit=effective_limit,
-        probability_exceed_nominal_pct=exceed_nominal / simulations * 100.0,
-        probability_exceed_effective_pct=exceed_effective / simulations * 100.0,
+        probability_exceed_nominal_pct=(
+            sum(value > nominal_limit + 1e-9 for value in drawdowns) / simulations * 100.0
+        ),
+        probability_exceed_effective_pct=(
+            sum(value > effective_limit + 1e-9 for value in drawdowns) / simulations * 100.0
+        ),
         alert=p95 > effective_limit + 1e-9,
     )
 

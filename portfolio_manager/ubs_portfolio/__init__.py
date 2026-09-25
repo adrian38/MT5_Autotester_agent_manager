@@ -34,11 +34,11 @@ from .rows import (
     execution_units_from_step,
 )
 from .curves import (
-    _curve_points_from_closed_trades, _linear_percentile, _merge_curve_points, bootstrap_valley_drawdown,
-    build_correlation_pairs, calc_point_dd, calc_valley_dd, curve_increment_correlation,
-    daily_pnl_series, merge_accumulated_curves, merge_incremental_curves, pearson_correlation,
-    portfolio_daily_closed_floating_dd, portfolio_floating_overlap_audit, strategy_correlation_pair, strategy_daily_closed_floating_dd,
-    to_accumulated_curve,
+    _bootstrap_drawdowns, _curve_points_from_closed_trades, _empty_bootstrap, _linear_percentile,
+    _merge_curve_points, _worst_day_contributions, bootstrap_valley_drawdown, build_correlation_pairs,
+    calc_point_dd, calc_valley_dd, curve_increment_correlation, daily_pnl_series,
+    merge_accumulated_curves, merge_incremental_curves, pearson_correlation, portfolio_daily_closed_floating_dd,
+    portfolio_floating_overlap_audit, strategy_correlation_pair, strategy_daily_closed_floating_dd, to_accumulated_curve,
 )
 from .monthly_validation import (
     _StrictMonthlyContext, _curve_metrics, _dd_passed, _dominant_month,
@@ -46,10 +46,15 @@ from .monthly_validation import (
     _validation_window, _year_validation, validate_strict_monthly_portfolio,
 )
 from .reports import (
-    _chronological_closed_trade_history, _first_metric, _full_history_report_covers_segmented_history, _metric_amount,
-    _period_years, _report_period_bounds, _validate_curve_against_net, _validate_period_order,
-    build_equity_curve_from_closed_trades, build_robust_strategy_set, calc_combined_profit_factor, extract_period_info,
-    maximal_drawdowns_from_report, parse_mt5_html_report, period_report_from_strategy_report, slice_strategy_set_to_month,
+    _FinalTickInputs, _chronological_closed_trade_history, _combined_profit_factor, _curve_fields,
+    _drawdown_fields, _final_tick_fields, _first_metric, _full_history_report_covers_segmented_history,
+    _merged_equity_curve, _metric_amount, _period_years, _report_period_bounds,
+    _robust_strategy_set, _validate_curve_against_net, _validate_period_order, _validate_report_symbols,
+    _worst_drawdown_observation, build_equity_curve_from_closed_trades, build_robust_strategy_set, calc_combined_profit_factor,
+    extract_period_info, maximal_drawdowns_from_report, parse_mt5_html_report, period_report_from_strategy_report,
+)
+from .reports_monthly import (
+    _carried_strategy_fields, _month_curve_fields, _month_trade_increments, slice_strategy_set_to_month,
     slice_strategy_sets_to_month,
 )
 from .selection import (
@@ -59,8 +64,8 @@ from .selection import (
     summarize_robust_rows,
 )
 from .evaluation import (
-    _evaluate_portfolio_on_time_axis, _evaluation_violates_dd_limits, _evaluation_violation_ratio, evaluate_portfolio,
-    portfolio_group_summary,
+    _empty_portfolio_evaluation, _evaluate_portfolio_on_time_axis, _evaluation_violates_dd_limits, _evaluation_violation_ratio,
+    _floating_dd_buffer, _portfolio_equity_curve, evaluate_portfolio, portfolio_group_summary,
 )
 from .margin_models import (
     ACCOUNT_LEVERAGE_CHOICES, AXI_FALLBACK_GROUP_LEVERAGE, DEFAULT_ACCOUNT_LEVERAGE, MarginModel,
@@ -85,8 +90,9 @@ from .limits import (
     optimizer_overrides,
 )
 from .constraints import (
-    _allocations_respect_constraints, _candidate_group_count, _portfolio_active_count, _portfolio_corr_allowed,
-    _target_group_units_pct_allowed, can_add_unit, score_increment, violates_correlation_limits,
+    _allocation_counts, _allocations_respect_constraints, _candidate_group_count, _count_caps_allow_unit,
+    _portfolio_active_count, _portfolio_corr_allowed, _target_group_units_pct_allowed, can_add_unit,
+    score_increment, violates_correlation_limits,
 )
 from .execution import (
     _ExecutableRepairConfig, _ExecutableRepairState, _apply_executable_reduction, _best_executable_reduction,
@@ -185,6 +191,7 @@ __all__ = [
     "_DeepScan",
     "_ExecutableRepairConfig",
     "_ExecutableRepairState",
+    "_FinalTickInputs",
     "_IncrementRules",
     "_LoadStats",
     "_MarginMeasurement",
@@ -203,6 +210,7 @@ __all__ = [
     "_active_unit_allocations",
     "_active_units_of",
     "_added_unit_decision",
+    "_allocation_counts",
     "_allocation_row",
     "_allocations_respect_constraints",
     "_apply_deep_pass",
@@ -220,14 +228,19 @@ __all__ = [
     "_best_monthly_reduction",
     "_best_monthly_refill",
     "_best_swap",
+    "_bootstrap_drawdowns",
     "_build_candidate_pool",
     "_build_portfolio_result",
     "_build_unused_sets",
     "_candidate_group_count",
     "_caps_allow",
+    "_carried_strategy_fields",
     "_chronological_closed_trade_history",
     "_coerce_month_end",
+    "_combined_profit_factor",
     "_consider_increment",
+    "_count_caps_allow_unit",
+    "_curve_fields",
     "_curve_metrics",
     "_curve_points_from_closed_trades",
     "_daily_dd_warning",
@@ -243,7 +256,10 @@ __all__ = [
     "_default_margin_rule_text",
     "_distinct_monthly_variants",
     "_dominant_month",
+    "_drawdown_fields",
     "_drop_preserved_warning",
+    "_empty_bootstrap",
+    "_empty_portfolio_evaluation",
     "_empty_validation",
     "_evaluate_executable_allocations",
     "_evaluate_portfolio_on_time_axis",
@@ -252,9 +268,11 @@ __all__ = [
     "_executable_reduction_choice",
     "_execution_plan_allocations",
     "_feasible_group_units_pct",
+    "_final_tick_fields",
     "_finish_portfolio",
     "_first_existing_report_path",
     "_first_metric",
+    "_floating_dd_buffer",
     "_full_history_report_covers_segmented_history",
     "_greedy_start",
     "_greedy_stop_reason",
@@ -276,7 +294,10 @@ __all__ = [
     "_measure_margin_allocations",
     "_measure_portfolio",
     "_merge_curve_points",
+    "_merged_equity_curve",
     "_metric_amount",
+    "_month_curve_fields",
+    "_month_trade_increments",
     "_month_validation",
     "_month_window",
     "_monthly_add_candidate",
@@ -308,6 +329,7 @@ __all__ = [
     "_portfolio_corr_allowed",
     "_portfolio_corr_allows",
     "_portfolio_corr_rejects",
+    "_portfolio_equity_curve",
     "_portfolio_increments",
     "_portfolio_universe_display_maps_for_files",
     "_portfolio_universe_display_symbol",
@@ -328,6 +350,7 @@ __all__ = [
     "_repair_to_executable_lots",
     "_report_period_bounds",
     "_result_allocation_rows",
+    "_robust_strategy_set",
     "_row_int",
     "_row_value",
     "_run_greedy_steps",
@@ -358,7 +381,10 @@ __all__ = [
     "_usage_warnings",
     "_validate_curve_against_net",
     "_validate_period_order",
+    "_validate_report_symbols",
     "_validation_window",
+    "_worst_day_contributions",
+    "_worst_drawdown_observation",
     "_year_validation",
     "allocation_margin_required",
     "allocation_notional",

@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import re
-from typing import Sequence
+from dataclasses import dataclass
+from typing import Any, Sequence
 
 from ..mt5_report import StrategyReport, parse_report
 
@@ -190,6 +191,117 @@ def _chronological_closed_trade_history(
     return sorted(primary + tail, key=lambda trade: trade.close_time), len(tail)
 
 
+def _validate_report_symbols(
+    report_2020_2024: PeriodReport,
+    report_2025_2026: PeriodReport,
+    final_tick_report: PeriodReport | None,
+    full_history_report: PeriodReport | None,
+) -> None:
+    """Los cuatro informes tienen que hablar del mismo simbolo."""
+    if _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(report_2025_2026.symbol):
+        raise ValueError("Cannot merge reports with different symbols")
+    _validate_period_order(report_2020_2024, report_2025_2026)
+    if final_tick_report is not None and (
+        _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(final_tick_report.symbol)
+    ):
+        raise ValueError("Cannot merge Final Tick report with a different symbol")
+    if full_history_report is not None and (
+        _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(full_history_report.symbol)
+    ):
+        raise ValueError("Cannot use a continuous Final Tick report with a different symbol")
+
+
+def _merged_equity_curve(
+    report_2020_2024: PeriodReport,
+    report_2025_2026: PeriodReport,
+    closed_history: list[Any],
+) -> tuple[list[float], list[Any]]:
+    """La curva 2020-2026 y sus puntos, de las operaciones si las hay.
+
+    Sin historial cerrado se cae a unir las dos curvas acumuladas, que es lo
+    unico que dan los informes antiguos.
+    """
+    if closed_history:
+        curve_points = _curve_points_from_closed_trades(closed_history)
+        return [0.0] + [value for _time, value in curve_points], curve_points
+    curve = merge_accumulated_curves(
+        report_2020_2024.pnl_curve_001,
+        report_2025_2026.pnl_curve_001,
+    )
+    curve_points = _merge_curve_points(report_2020_2024, report_2025_2026)
+    if curve_points:
+        curve = [0.0] + [value for _time, value in curve_points]
+    return curve, curve_points
+
+
+def _combined_profit_factor(
+    report_2020_2024: PeriodReport,
+    report_2025_2026: PeriodReport,
+    closed_history: list[Any],
+) -> float:
+    if not closed_history:
+        return calc_combined_profit_factor(report_2020_2024, report_2025_2026)
+    gross_profit = sum(trade.net_profit for trade in closed_history if trade.net_profit > 0)
+    gross_loss = sum(trade.net_profit for trade in closed_history if trade.net_profit < 0)
+    if gross_loss:
+        return gross_profit / abs(gross_loss)
+    return float("inf") if gross_profit else 0.0
+
+
+def _worst_drawdown_observation(
+    report_2020_2024: PeriodReport,
+    report_2025_2026: PeriodReport,
+    continuous_history: PeriodReport | None,
+    final_tick_balance_dd_001: float,
+    final_tick_equity_dd_001: float,
+    final_tick_source: str,
+) -> tuple[str, float, float]:
+    """El peor episodio de equity observado, y de que tramo sale.
+
+    Con historial continuo manda ese tramo y nada mas: mezclarlo con los dos
+    segmentados contaria dos veces el mismo periodo.
+    """
+    if continuous_history is not None:
+        observations = [(
+            "Final Tick continuo 2020-hoy",
+            continuous_history.balance_dd_metric_001,
+            continuous_history.equity_dd_metric_001,
+        )]
+    else:
+        observations = [
+            ("2020-2024", report_2020_2024.balance_dd_metric_001, report_2020_2024.equity_dd_metric_001),
+            ("2025-2026", report_2025_2026.balance_dd_metric_001, report_2025_2026.equity_dd_metric_001),
+        ]
+        if final_tick_balance_dd_001 > 0 or final_tick_equity_dd_001 > 0:
+            observations.append(
+                (final_tick_source, float(final_tick_balance_dd_001), float(final_tick_equity_dd_001))
+            )
+    return max(observations, key=lambda item: max(float(item[2]), 0.0))
+
+
+@dataclass(frozen=True)
+class _FinalTickInputs:
+    """Lo que aporta el Final Tick a una estrategia: riesgo, rendimiento y rutas.
+
+    Viaja junto porque son doce argumentos opcionales que nadie usa por
+    separado; la firma publica los sigue aceptando sueltos.
+    """
+
+    set_path: str = ""
+    is_report_path: str = ""
+    oos_report_path: str = ""
+    balance_dd_001: float = 0.0
+    equity_dd_001: float = 0.0
+    net_profit_001: float = 0.0
+    recent_equity_dd_001: float | None = None
+    has_performance: bool = False
+    source: str = "Final Tick 6M"
+    report: PeriodReport | None = None
+    report_path: str = ""
+    full_history_report: PeriodReport | None = None
+    full_history_report_path: str = ""
+
+
 def build_robust_strategy_set(
     set_id: str,
     candidate_id: str,
@@ -215,86 +327,127 @@ def build_robust_strategy_set(
     full_history_report: PeriodReport | None = None,
     full_history_report_path: str = "",
 ) -> RobustStrategySet:
-    if _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(report_2025_2026.symbol):
-        raise ValueError("Cannot merge reports with different symbols")
-    _validate_period_order(report_2020_2024, report_2025_2026)
+    return _robust_strategy_set(
+        set_id, candidate_id, symbol, timeframe, strategy_family,
+        robustness_status, already_used, report_2020_2024, report_2025_2026,
+        _FinalTickInputs(
+            set_path=set_path,
+            is_report_path=is_report_path,
+            oos_report_path=oos_report_path,
+            balance_dd_001=final_tick_balance_dd_001,
+            equity_dd_001=final_tick_equity_dd_001,
+            net_profit_001=final_tick_net_profit_001,
+            recent_equity_dd_001=recent_equity_dd_001,
+            has_performance=has_final_tick_performance,
+            source=final_tick_source,
+            report=final_tick_report,
+            report_path=final_tick_report_path,
+            full_history_report=full_history_report,
+            full_history_report_path=full_history_report_path,
+        ),
+    )
 
-    if final_tick_report is not None and (
-        _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(final_tick_report.symbol)
-    ):
-        raise ValueError("Cannot merge Final Tick report with a different symbol")
-    if full_history_report is not None and (
-        _normalize_symbol(report_2020_2024.symbol) != _normalize_symbol(full_history_report.symbol)
-    ):
-        raise ValueError("Cannot use a continuous Final Tick report with a different symbol")
 
+def _curve_fields(
+    report_2020_2024: PeriodReport,
+    report_2025_2026: PeriodReport,
+    curve: list[float],
+    curve_points: list[Any],
+    closed_history: list[Any],
+) -> dict[str, Any]:
+    """Todo lo que se mide sobre la curva 2020-2026."""
+    net_profit = curve[-1]
+    valley_dd = calc_valley_dd(curve)
+    return {
+        "curve_2020_2026_001": curve,
+        "curve_points_2020_2026_001": curve_points,
+        "net_profit_2020_2026_001": net_profit,
+        "valley_dd_2020_2026_001": valley_dd,
+        "point_dd_2020_2026_001": calc_point_dd(curve),
+        "return_dd_2020_2026": net_profit / max(valley_dd, 1.0),
+        "profit_factor_2020_2026": _combined_profit_factor(
+            report_2020_2024, report_2025_2026, closed_history
+        ),
+        "trades_2020_2026": (
+            len(closed_history)
+            if closed_history
+            else report_2020_2024.trades + report_2025_2026.trades
+        ),
+    }
+
+
+def _drawdown_fields(
+    report_2020_2024: PeriodReport,
+    report_2025_2026: PeriodReport,
+    continuous_history: PeriodReport | None,
+    final_tick: _FinalTickInputs,
+) -> dict[str, Any]:
+    floating_source, max_balance_dd, max_equity_dd = _worst_drawdown_observation(
+        report_2020_2024, report_2025_2026, continuous_history,
+        final_tick.balance_dd_001, final_tick.equity_dd_001, final_tick.source,
+    )
+    return {
+        "max_balance_dd_001": max(float(max_balance_dd), 0.0),
+        "max_equity_dd_001": max(float(max_equity_dd), 0.0),
+        # MT5's maximum equity drawdown already represents the worst equity
+        # episode. Subtracting a maximum balance DD measured at another
+        # timestamp understates risk.
+        "max_floating_dd_001": max(float(max_equity_dd), 0.0),
+        "floating_dd_source": floating_source,
+    }
+
+
+def _final_tick_fields(
+    final_tick: _FinalTickInputs, continuous_history: PeriodReport | None,
+) -> dict[str, Any]:
+    return {
+        "set_path": final_tick.set_path,
+        "is_report_path": final_tick.is_report_path,
+        "oos_report_path": final_tick.oos_report_path,
+        "recent_net_profit_001": float(final_tick.net_profit_001),
+        "recent_equity_dd_001": max(float(
+            final_tick.equity_dd_001
+            if final_tick.recent_equity_dd_001 is None
+            else final_tick.recent_equity_dd_001
+        ), 0.0),
+        "has_recent_performance": bool(final_tick.has_performance),
+        "final_tick_report_path": str(final_tick.report_path),
+        # La ruta del tramo continuo solo se guarda si de verdad cubre el
+        # historial segmentado; si no, el informe existe pero no se uso.
+        "full_history_report_path": str(
+            final_tick.full_history_report_path if continuous_history is not None else ""
+        ),
+    }
+
+
+def _robust_strategy_set(
+    set_id: str,
+    candidate_id: str,
+    symbol: str,
+    timeframe: str | None,
+    strategy_family: str | None,
+    robustness_status: str,
+    already_used: bool,
+    report_2020_2024: PeriodReport,
+    report_2025_2026: PeriodReport,
+    final_tick: _FinalTickInputs,
+) -> RobustStrategySet:
+    _validate_report_symbols(
+        report_2020_2024, report_2025_2026, final_tick.report, final_tick.full_history_report
+    )
     continuous_history = (
-        full_history_report
+        final_tick.full_history_report
         if _full_history_report_covers_segmented_history(
-            report_2020_2024, report_2025_2026, full_history_report
+            report_2020_2024, report_2025_2026, final_tick.full_history_report
         )
         else None
     )
     closed_history, final_tick_tail_trades = _chronological_closed_trade_history(
-        report_2020_2024,
-        report_2025_2026,
-        final_tick_report,
-        continuous_history,
+        report_2020_2024, report_2025_2026, final_tick.report, continuous_history,
     )
-    if closed_history:
-        curve_points = _curve_points_from_closed_trades(closed_history)
-        curve_2020_2026_001 = [0.0] + [value for _time, value in curve_points]
-    else:
-        curve_2020_2026_001 = merge_accumulated_curves(
-            report_2020_2024.pnl_curve_001,
-            report_2025_2026.pnl_curve_001,
-        )
-        curve_points = _merge_curve_points(report_2020_2024, report_2025_2026)
-        if curve_points:
-            curve_2020_2026_001 = [0.0] + [value for _time, value in curve_points]
-
-    net_profit_2020_2026_001 = curve_2020_2026_001[-1]
-    valley_dd_2020_2026_001 = calc_valley_dd(curve_2020_2026_001)
-    point_dd_2020_2026_001 = calc_point_dd(curve_2020_2026_001)
-    return_dd_2020_2026 = net_profit_2020_2026_001 / max(valley_dd_2020_2026_001, 1.0)
-    trades_2020_2026 = (
-        len(closed_history)
-        if closed_history
-        else report_2020_2024.trades + report_2025_2026.trades
+    curve, curve_points = _merged_equity_curve(
+        report_2020_2024, report_2025_2026, closed_history
     )
-    if closed_history:
-        gross_profit = sum(trade.net_profit for trade in closed_history if trade.net_profit > 0)
-        gross_loss = sum(trade.net_profit for trade in closed_history if trade.net_profit < 0)
-        profit_factor_2020_2026 = (
-            gross_profit / abs(gross_loss)
-            if gross_loss
-            else (float("inf") if gross_profit else 0.0)
-        )
-    else:
-        profit_factor_2020_2026 = calc_combined_profit_factor(report_2020_2024, report_2025_2026)
-    if continuous_history is not None:
-        drawdown_observations = [(
-            "Final Tick continuo 2020-hoy",
-            continuous_history.balance_dd_metric_001,
-            continuous_history.equity_dd_metric_001,
-        )]
-    else:
-        drawdown_observations = [
-            ("2020-2024", report_2020_2024.balance_dd_metric_001, report_2020_2024.equity_dd_metric_001),
-            ("2025-2026", report_2025_2026.balance_dd_metric_001, report_2025_2026.equity_dd_metric_001),
-        ]
-        if final_tick_balance_dd_001 > 0 or final_tick_equity_dd_001 > 0:
-            drawdown_observations.append(
-                (final_tick_source, float(final_tick_balance_dd_001), float(final_tick_equity_dd_001))
-            )
-    floating_source, max_balance_dd, max_equity_dd = max(
-        drawdown_observations,
-        key=lambda item: max(float(item[2]), 0.0),
-    )
-    # MT5's maximum equity drawdown already represents the worst equity episode.
-    # Subtracting a maximum balance DD measured at another timestamp understates risk.
-    max_floating_dd = max(float(max_equity_dd), 0.0)
-
     return RobustStrategySet(
         set_id=str(set_id),
         candidate_id=str(candidate_id),
@@ -305,144 +458,12 @@ def build_robust_strategy_set(
         already_used=already_used,
         report_2020_2024=report_2020_2024,
         report_2025_2026=report_2025_2026,
-        curve_2020_2026_001=curve_2020_2026_001,
-        net_profit_2020_2026_001=net_profit_2020_2026_001,
-        valley_dd_2020_2026_001=valley_dd_2020_2026_001,
-        point_dd_2020_2026_001=point_dd_2020_2026_001,
-        profit_factor_2020_2026=profit_factor_2020_2026,
-        return_dd_2020_2026=return_dd_2020_2026,
-        trades_2020_2026=trades_2020_2026,
-        set_path=set_path,
-        is_report_path=is_report_path,
-        oos_report_path=oos_report_path,
-        curve_points_2020_2026_001=curve_points,
-        max_balance_dd_001=max(float(max_balance_dd), 0.0),
-        max_equity_dd_001=max(float(max_equity_dd), 0.0),
-        max_floating_dd_001=max_floating_dd,
-        floating_dd_source=floating_source,
-        recent_net_profit_001=float(final_tick_net_profit_001),
-        recent_equity_dd_001=max(float(
-            final_tick_equity_dd_001 if recent_equity_dd_001 is None else recent_equity_dd_001
-        ), 0.0),
-        has_recent_performance=bool(has_final_tick_performance),
-        final_tick_report_path=str(final_tick_report_path),
-        full_history_report_path=str(full_history_report_path if continuous_history is not None else ""),
         closed_trades_2020_2026=closed_history,
         final_tick_tail_trades=final_tick_tail_trades,
+        **_curve_fields(report_2020_2024, report_2025_2026, curve, curve_points, closed_history),
+        **_drawdown_fields(report_2020_2024, report_2025_2026, continuous_history, final_tick),
+        **_final_tick_fields(final_tick, continuous_history),
     )
-
-
-def slice_strategy_set_to_month(
-    strategy: RobustStrategySet,
-    target_month: int,
-) -> RobustStrategySet:
-    """Return the strategy curve restricted to one calendar month across all years.
-
-    The source points are accumulated trade P/L values.  We first recover each
-    closed-trade increment, then keep only trades whose close timestamp belongs
-    to ``target_month``.  Concatenating those increments chronologically gives a
-    seasonal history such as every January available in the base + OOS reports.
-    """
-    if not 1 <= int(target_month) <= 12:
-        raise ValueError("target_month must be between 1 and 12")
-    if not strategy.curve_points_2020_2026_001:
-        raise ValueError("Strategy has no timestamped trade curve")
-
-    selected: list[tuple[datetime, float]] = []
-    previous_value = 0.0
-    for timestamp, accumulated_value in strategy.curve_points_2020_2026_001:
-        increment = float(accumulated_value) - previous_value
-        previous_value = float(accumulated_value)
-        if timestamp.month == int(target_month):
-            selected.append((timestamp, increment))
-
-    total = 0.0
-    curve = [0.0]
-    points: list[tuple[datetime, float]] = []
-    pnl_by_year: dict[int, float] = {}
-    gross_profit = 0.0
-    gross_loss = 0.0
-    for timestamp, increment in selected:
-        total += increment
-        curve.append(total)
-        points.append((timestamp, total))
-        pnl_by_year[timestamp.year] = pnl_by_year.get(timestamp.year, 0.0) + increment
-        if increment >= 0:
-            gross_profit += increment
-        else:
-            gross_loss += increment
-
-    valley_dd = calc_valley_dd(curve)
-    point_dd = calc_point_dd(curve)
-    if gross_loss < 0:
-        profit_factor = gross_profit / abs(gross_loss)
-    elif gross_profit > 0:
-        profit_factor = float("inf")
-    else:
-        profit_factor = 0.0
-    years = tuple(sorted(pnl_by_year))
-    positive_years = tuple(year for year in years if pnl_by_year[year] > 0)
-
-    return RobustStrategySet(
-        set_id=strategy.set_id,
-        candidate_id=strategy.candidate_id,
-        symbol=strategy.symbol,
-        timeframe=strategy.timeframe,
-        strategy_family=strategy.strategy_family,
-        robustness_status=strategy.robustness_status,
-        already_used=strategy.already_used,
-        report_2020_2024=strategy.report_2020_2024,
-        report_2025_2026=strategy.report_2025_2026,
-        curve_2020_2026_001=curve,
-        net_profit_2020_2026_001=total,
-        valley_dd_2020_2026_001=valley_dd,
-        point_dd_2020_2026_001=point_dd,
-        profit_factor_2020_2026=profit_factor,
-        return_dd_2020_2026=total / max(valley_dd, 1.0),
-        trades_2020_2026=len(selected),
-        set_path=strategy.set_path,
-        is_report_path=strategy.is_report_path,
-        oos_report_path=strategy.oos_report_path,
-        curve_points_2020_2026_001=points,
-        target_month=int(target_month),
-        month_years=years,
-        positive_month_years=positive_years,
-        max_balance_dd_001=strategy.max_balance_dd_001,
-        max_equity_dd_001=strategy.max_equity_dd_001,
-        max_floating_dd_001=strategy.max_floating_dd_001,
-        floating_dd_source=strategy.floating_dd_source,
-        recent_net_profit_001=strategy.recent_net_profit_001,
-        recent_equity_dd_001=strategy.recent_equity_dd_001,
-        has_recent_performance=strategy.has_recent_performance,
-        final_tick_report_path=strategy.final_tick_report_path,
-        full_history_report_path=strategy.full_history_report_path,
-        closed_trades_2020_2026=[
-            trade
-            for trade in strategy.closed_trades_2020_2026
-            if trade.close_time.month == int(target_month)
-        ],
-        final_tick_tail_trades=strategy.final_tick_tail_trades,
-    )
-
-
-def slice_strategy_sets_to_month(
-    strategies: Sequence[RobustStrategySet],
-    target_month: int,
-) -> tuple[list[RobustStrategySet], list[str]]:
-    """Build seasonal curves and report candidates without timestamped history."""
-    sliced: list[RobustStrategySet] = []
-    skipped = 0
-    for strategy in strategies:
-        try:
-            sliced.append(slice_strategy_set_to_month(strategy, target_month))
-        except ValueError:
-            skipped += 1
-    warnings = []
-    if skipped:
-        warnings.append(
-            f"{skipped} candidato(s) omitido(s): no tienen curva historica con fechas para el mes objetivo."
-        )
-    return sliced, warnings
 
 
 def _metric_amount(report: StrategyReport, *keys: str) -> float | None:

@@ -74,6 +74,56 @@ def _target_group_units_pct_allowed(
     return after_group_units <= max_units_with_one_step_slack
 
 
+def _count_caps_allow_unit(
+    target_set: RobustStrategySet,
+    sets: list[RobustStrategySet],
+    allocations: dict[str, int],
+    max_units_per_set: int | None,
+    max_total_units: int | None,
+    max_units_per_symbol: int | None,
+    max_sets_per_symbol: int | None,
+    max_sets_per_group: int | None,
+) -> bool:
+    """Los topes que se cuentan: unidades y numero de sets, por simbolo y grupo.
+
+    Los de «sets por» solo muerden al abrir uno nuevo: subir una unidad a uno ya
+    activo no cambia cuantos hay.
+    """
+    current_units = allocations.get(target_set.set_id, 0)
+    if max_units_per_set is not None and current_units >= max_units_per_set:
+        return False
+    if max_total_units is not None and sum(allocations.values()) + 1 > max_total_units:
+        return False
+    if max_units_per_symbol is not None:
+        target_symbol = portfolio_symbol_key(target_set.symbol)
+        symbol_units = sum(
+            allocations.get(strategy.set_id, 0)
+            for strategy in sets
+            if portfolio_symbol_key(strategy.symbol) == target_symbol
+        )
+        if symbol_units + 1 > max_units_per_symbol:
+            return False
+    if max_sets_per_symbol is not None and current_units == 0:
+        target_symbol = portfolio_symbol_key(target_set.symbol)
+        active_same_symbol = sum(
+            1
+            for strategy in sets
+            if portfolio_symbol_key(strategy.symbol) == target_symbol and allocations.get(strategy.set_id, 0) > 0
+        )
+        if active_same_symbol >= max_sets_per_symbol:
+            return False
+    if max_sets_per_group is not None and current_units == 0:
+        target_group = portfolio_group_key(target_set.symbol)
+        active_same_group = sum(
+            1
+            for strategy in sets
+            if portfolio_group_key(strategy.symbol) == target_group and allocations.get(strategy.set_id, 0) > 0
+        )
+        if active_same_group >= max_sets_per_group:
+            return False
+    return True
+
+
 def can_add_unit(
     target_set: RobustStrategySet,
     sets: list[RobustStrategySet],
@@ -93,40 +143,13 @@ def can_add_unit(
     stock_contract_size: float = 100.0,
     default_contract_size: float = 1.0,
 ) -> bool:
-    current_units = allocations.get(target_set.set_id, 0)
-    if max_units_per_set is not None and current_units >= max_units_per_set:
+    if not _count_caps_allow_unit(
+        target_set, sets, allocations, max_units_per_set, max_total_units,
+        max_units_per_symbol, max_sets_per_symbol, max_sets_per_group,
+    ):
         return False
-    if max_total_units is not None and sum(allocations.values()) + 1 > max_total_units:
-        return False
-    if max_units_per_symbol is not None:
-        target_symbol = portfolio_symbol_key(target_set.symbol)
-        symbol_units = sum(
-            allocations.get(strategy.set_id, 0)
-            for strategy in sets
-            if portfolio_symbol_key(strategy.symbol) == target_symbol
-        )
-        if symbol_units + 1 > max_units_per_symbol:
-            return False
-    if max_sets_per_symbol is not None:
-        target_symbol = portfolio_symbol_key(target_set.symbol)
-        active_same_symbol = sum(
-            1
-            for strategy in sets
-            if portfolio_symbol_key(strategy.symbol) == target_symbol and allocations.get(strategy.set_id, 0) > 0
-        )
-        if current_units == 0 and active_same_symbol >= max_sets_per_symbol:
-            return False
-    if max_sets_per_group is not None:
-        target_group = portfolio_group_key(target_set.symbol)
-        active_same_group = sum(
-            1
-            for strategy in sets
-            if portfolio_group_key(strategy.symbol) == target_group and allocations.get(strategy.set_id, 0) > 0
-        )
-        if current_units == 0 and active_same_group >= max_sets_per_group:
-            return False
     temp_allocations = allocations.copy()
-    temp_allocations[target_set.set_id] = current_units + 1
+    temp_allocations[target_set.set_id] = allocations.get(target_set.set_id, 0) + 1
     if not _target_group_units_pct_allowed(
         target_set,
         sets,
@@ -135,7 +158,7 @@ def can_add_unit(
         group_unit_cap_bootstrap,
     ):
         return False
-    if not allocations_respect_margin_limit(
+    return allocations_respect_margin_limit(
         sets,
         temp_allocations,
         balance=margin_balance,
@@ -145,9 +168,7 @@ def can_add_unit(
         default_leverage=default_leverage,
         stock_contract_size=stock_contract_size,
         default_contract_size=default_contract_size,
-    ):
-        return False
-    return True
+    )
 
 
 def violates_correlation_limits(
@@ -176,6 +197,31 @@ def violates_correlation_limits(
     return False, ""
 
 
+def _allocation_counts(
+    sets: list[RobustStrategySet],
+    allocations: dict[str, int],
+    max_units_per_set: int | None,
+) -> tuple[int, dict[str, int], dict[str, int], dict[str, int]] | None:
+    """Totales por simbolo y grupo, o ``None`` si un set ya pasa de su tope."""
+    total_units = 0
+    units_by_symbol: dict[str, int] = {}
+    active_sets_by_symbol: dict[str, int] = {}
+    active_sets_by_group: dict[str, int] = {}
+    for strategy in sets:
+        units = max(int(allocations.get(strategy.set_id, 0)), 0)
+        total_units += units
+        if max_units_per_set is not None and units > max_units_per_set:
+            return None
+        if units <= 0:
+            continue
+        symbol_key = portfolio_symbol_key(strategy.symbol)
+        units_by_symbol[symbol_key] = units_by_symbol.get(symbol_key, 0) + units
+        active_sets_by_symbol[symbol_key] = active_sets_by_symbol.get(symbol_key, 0) + 1
+        group_key = portfolio_group_key(strategy.symbol)
+        active_sets_by_group[group_key] = active_sets_by_group.get(group_key, 0) + 1
+    return total_units, units_by_symbol, active_sets_by_symbol, active_sets_by_group
+
+
 def _allocations_respect_constraints(
     sets: list[RobustStrategySet],
     allocations: dict[str, int],
@@ -192,39 +238,20 @@ def _allocations_respect_constraints(
     stock_contract_size: float = 100.0,
     default_contract_size: float = 1.0,
 ) -> bool:
-    total_units = 0
-    units_by_symbol: dict[str, int] = {}
-    active_sets_by_symbol: dict[str, int] = {}
-    active_sets_by_group: dict[str, int] = {}
-
-    for strategy in sets:
-        units = max(int(allocations.get(strategy.set_id, 0)), 0)
-        total_units += units
-        if max_units_per_set is not None and units > max_units_per_set:
-            return False
-        if units <= 0:
-            continue
-        symbol_key = portfolio_symbol_key(strategy.symbol)
-        units_by_symbol[symbol_key] = units_by_symbol.get(symbol_key, 0) + units
-        active_sets_by_symbol[symbol_key] = active_sets_by_symbol.get(symbol_key, 0) + 1
-        group_key = portfolio_group_key(strategy.symbol)
-        active_sets_by_group[group_key] = active_sets_by_group.get(group_key, 0) + 1
-
+    counted = _allocation_counts(sets, allocations, max_units_per_set)
+    if counted is None:
+        return False
+    total_units, units_by_symbol, active_sets_by_symbol, active_sets_by_group = counted
     if max_total_units is not None and total_units > max_total_units:
         return False
-    if max_units_per_symbol is not None:
-        for units in units_by_symbol.values():
-            if units > max_units_per_symbol:
-                return False
-    if max_sets_per_symbol is not None:
-        for count in active_sets_by_symbol.values():
-            if count > max_sets_per_symbol:
-                return False
-    if max_sets_per_group is not None:
-        for count in active_sets_by_group.values():
-            if count > max_sets_per_group:
-                return False
-    if not allocations_respect_margin_limit(
+    for cap, counts in (
+        (max_units_per_symbol, units_by_symbol),
+        (max_sets_per_symbol, active_sets_by_symbol),
+        (max_sets_per_group, active_sets_by_group),
+    ):
+        if cap is not None and any(value > cap for value in counts.values()):
+            return False
+    return allocations_respect_margin_limit(
         sets,
         allocations,
         balance=margin_balance,
@@ -234,9 +261,7 @@ def _allocations_respect_constraints(
         default_leverage=default_leverage,
         stock_contract_size=stock_contract_size,
         default_contract_size=default_contract_size,
-    ):
-        return False
-    return True
+    )
 
 
 def score_increment(

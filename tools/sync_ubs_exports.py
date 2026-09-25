@@ -18,7 +18,7 @@ from pathlib import Path
 PACKAGE = Path(__file__).resolve().parents[1] / "portfolio_manager" / "ubs_portfolio"
 
 ORDER = [
-    "symbols", "models", "rows", "curves", "monthly_validation", "reports", "selection",
+    "symbols", "models", "rows", "curves", "monthly_validation", "reports", "reports_monthly", "selection",
     "evaluation", "margin_models", "margin_loaders", "margin_profiles",
     "margin_summary", "margin", "limits", "constraints", "execution",
     "greedy_increment", "greedy_swap", "greedy_deep", "greedy",
