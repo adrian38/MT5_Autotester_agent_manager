@@ -179,6 +179,25 @@ orden de dependencia:
   mismo por ese motivo.
 - Lo hace cumplir `tests/test_module_layering.py`.
 
+## El nodo también es una pila (y sigue siendo un señuelo)
+
+`mt5_manager/node.py` eran 2.174 líneas. Ahora son once módulos en orden de
+dependencia, y `node.py` es la fachada de 56 líneas que arranca y reexporta:
+
+`node_statuses` → `node_settings` → `node_snapshots` → `node_commands` →
+`node_job_runtime` → `node_job_starts` → `node_job_queue` →
+`node_portfolio_api` → `node_jobs` → `node_http` → `node`
+
+- Sigue sin ejecutarlo ningún agente: el aviso de la sección «El nodo NO
+  ejecuta este repositorio» vale igual para los once.
+- La guarda de paridad ya no lee `node.py`: `manager_node_source()` concatena
+  todos los `node*.py`. Compara **criterios**, no ficheros.
+- **`mt5_manager/guided_controller.py` tiene que ser idéntico byte a byte** al
+  del runtime de IC, y hay una prueba que lo compara. No se le puede añadir ni
+  un import: por eso `_normalize_generation`, `_enqueue` y el resto de la cola
+  siguen siendo métodos de `JobController` que delegan.
+- Lo hace cumplir `tests/test_module_layering.py`.
+
 ## Tamaño del código: 60 líneas por función, 600 por fichero
 
 No es estética, es el coste de leer. Una función de 60 líneas son ~700 tokens y
@@ -218,6 +237,10 @@ Partir es **pasos con nombre**, no trocear por líneas. Lo que ha rendido aquí:
   palabra por palabra el bloque de «detenido por el usuario» en sus dos `except`.
 - **Mover el bloque literal.** No reescribir de paso: un refactor y un cambio de
   comportamiento nunca van en el mismo commit.
+- **Renombrar al mover rompe una guarda de texto.** Al sacar los métodos del
+  nodo les quité el guion bajo y el token `def _honour_stop_request` dejó de
+  existir en el manager: la paridad con el fork lo buscaba literalmente. Se
+  mueve con el nombre puesto.
 - **Los nombres de los parámetros son contrato.** Renombrar al extraer
   (`candidates` por `candidate_pool`) rompe en silencio a quien llama con
   keyword. Pasar un kwarg que el destino no acepta también: el diferencial pilló

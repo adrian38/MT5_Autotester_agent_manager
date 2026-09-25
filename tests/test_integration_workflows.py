@@ -469,7 +469,7 @@ class NodeWorkflowIntegrationTests(IntegrationTestCase):
         with (
             mock.patch("mt5_manager.node_snapshots.pipeline_stage_pending_count", return_value=0),
             mock.patch("mt5_manager.node_commands.build_pipeline_stage_command") as build_command,
-            mock.patch("mt5_manager.node.subprocess.Popen") as popen,
+            mock.patch("mt5_manager.node_job_runtime.subprocess.Popen") as popen,
         ):
             state = self.controller.start_repair({"run_ids": [7], "retry_low_quality": True})
         self.assertEqual(state["status"], "completed")

@@ -63,7 +63,21 @@ MANAGER_STACK = [
     "manager",
 ]
 
-STACKS = {"portfolio": PORTFOLIO_STACK, "manager": MANAGER_STACK}
+NODE_STACK = [
+    "node_statuses",
+    "node_settings",
+    "node_snapshots",
+    "node_commands",
+    "node_job_runtime",
+    "node_job_starts",
+    "node_job_queue",
+    "node_portfolio_api",
+    "node_jobs",
+    "node_http",
+    "node",
+]
+
+STACKS = {"portfolio": PORTFOLIO_STACK, "manager": MANAGER_STACK, "node": NODE_STACK}
 
 
 def _runtime_imports(module: str, stack: set[str]) -> set[str]:
@@ -129,6 +143,12 @@ class ModuleLayeringTest(unittest.TestCase):
             "manager.py": {
                 "ManagerServer", "ManagerHandler", "PULSE_JOB_KEYS", "live_log_progress",
                 "node_request", "choose_directory", "STATIC_FILES", "NODE_ACTION_TARGETS",
+            },
+            "node.py": {
+                "JobController", "NodeServer", "NodeHandler", "main",
+                "build_generation_command", "build_pipeline_stage_command",
+                "pipeline_stage_pending_count", "database_snapshot", "memory_path",
+                "read_settings", "setting", "setting_bool", "CLEANUP_STAGES",
             },
         }
         for filename, names in expected.items():

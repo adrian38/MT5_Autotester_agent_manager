@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 from pathlib import Path
 
+from mt5_manager import node_portfolio_api
 from mt5_manager.manager import PULSE_JOB_KEYS, ManagerServer
 from mt5_manager.node import JobController, NodeServer
 from mt5_manager.portfolio_service import PortfolioSource, normalize_settings
@@ -271,7 +272,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         }
         with (
             mock.patch.object(
-                self.controller, "exclude_portfolio_members", return_value=node_result
+                node_portfolio_api, "exclude_portfolio_members", return_value=node_result
             ) as node_exclude,
             mock.patch.object(
                 self.manager.portfolios, "exclude", side_effect=AssertionError("no debe escribir directamente")
@@ -289,7 +290,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
 
         self.assertEqual(status, 201)
         self.assertEqual(payload, node_result)
-        node_exclude.assert_called_once_with({
+        node_exclude.assert_called_once_with(mock.ANY, {
             "portfolio_id": 40,
             "set_paths": ["one.set", "two.set"],
             "scope": "full_history",
@@ -339,7 +340,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         }
         with (
             mock.patch.object(
-                self.controller,
+                node_portfolio_api,
                 "exclude_portfolio_members",
                 side_effect=AssertionError("el nodo no debe recibir la exclusión Grid"),
             ),
@@ -379,7 +380,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         # reappearing after a "successful" (201) exclusion.
         node_result = {"quarantine_id": 5, "portfolio_id": 49, "scope": "monthly"}
         with mock.patch.object(
-            self.controller, "exclude_portfolio_members", return_value=node_result
+            node_portfolio_api, "exclude_portfolio_members", return_value=node_result
         ) as node_exclude:
             status, payload = self.request(
                 "/api/nodes/test-node/portfolio-manager/exclude",
@@ -392,7 +393,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
 
         self.assertEqual(status, 201)
         self.assertEqual(payload, {"quarantine_id": 5})
-        node_exclude.assert_called_once_with({
+        node_exclude.assert_called_once_with(mock.ANY, {
             "portfolio_id": 49,
             "set_path": "/data/roboforex/proj/outputs/sets/USDJPY_M15.set",
             "scope": "monthly",
