@@ -89,8 +89,9 @@ from .constraints import (
     _target_group_units_pct_allowed, can_add_unit, score_increment, violates_correlation_limits,
 )
 from .execution import (
-    _build_unused_sets, _execution_plan_allocations, _repair_executable_allocations, apply_portfolio_lot_text,
-    set_current_value,
+    _ExecutableRepairConfig, _ExecutableRepairState, _apply_executable_reduction, _best_executable_reduction,
+    _build_unused_sets, _evaluate_executable_allocations, _executable_reduction_choice, _execution_plan_allocations,
+    _repair_executable_allocations, apply_portfolio_lot_text, set_current_value,
 )
 from .greedy_increment import (
     _IncrementRules, _StepScan, _added_unit_decision, _caps_allow,
@@ -182,6 +183,8 @@ __all__ = [
     "_CandidateReports",
     "_DeepRefinement",
     "_DeepScan",
+    "_ExecutableRepairConfig",
+    "_ExecutableRepairState",
     "_IncrementRules",
     "_LoadStats",
     "_MarginMeasurement",
@@ -204,6 +207,7 @@ __all__ = [
     "_allocations_respect_constraints",
     "_apply_deep_pass",
     "_apply_deep_refinement",
+    "_apply_executable_reduction",
     "_apply_executable_rounding",
     "_apply_greedy_pass",
     "_apply_multi_start",
@@ -211,6 +215,7 @@ __all__ = [
     "_axi_margin_model",
     "_axi_margin_rule_text",
     "_best_deep_move",
+    "_best_executable_reduction",
     "_best_monthly_deep_move",
     "_best_monthly_reduction",
     "_best_monthly_refill",
@@ -240,9 +245,11 @@ __all__ = [
     "_dominant_month",
     "_drop_preserved_warning",
     "_empty_validation",
+    "_evaluate_executable_allocations",
     "_evaluate_portfolio_on_time_axis",
     "_evaluation_violates_dd_limits",
     "_evaluation_violation_ratio",
+    "_executable_reduction_choice",
     "_execution_plan_allocations",
     "_feasible_group_units_pct",
     "_finish_portfolio",

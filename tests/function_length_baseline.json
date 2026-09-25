@@ -25,7 +25,6 @@
     "portfolio_manager/ubs_portfolio/curves.py::bootstrap_valley_drawdown": 80,
     "portfolio_manager/ubs_portfolio/curves.py::portfolio_floating_overlap_audit": 69,
     "portfolio_manager/ubs_portfolio/evaluation.py::evaluate_portfolio": 94,
-    "portfolio_manager/ubs_portfolio/execution.py::_repair_executable_allocations": 140,
     "portfolio_manager/ubs_portfolio/reports.py::build_robust_strategy_set": 140,
     "portfolio_manager/ubs_portfolio/reports.py::slice_strategy_set_to_month": 91,
     "tests/test_node.py::NodeTests.setUp": 61,
