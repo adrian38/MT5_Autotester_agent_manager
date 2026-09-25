@@ -1,13 +1,7 @@
 {
   "_comment": "Funciones que ya superaba(n) 60 lineas cuando se instalo la guarda. Esta lista solo puede encoger: al partir, borra su entrada. Regenerar no es una forma valida de silenciar el test.",
   "grandfathered": {
-    "mt5_manager/experiment_service.py::ExperimentCoordinator._load_pool": 77,
-    "mt5_manager/experiment_service.py::ExperimentCoordinator._worker": 62,
     "mt5_manager/guided_batches.py::validate_package": 87,
-    "mt5_manager/mt5_native_history_report.py::_WindowsTerminalReportExporter._type_filename": 71,
-    "mt5_manager/portfolio_full_experimental.py::_refined_without_recent_fillers": 77,
-    "mt5_manager/portfolio_import.py::parse_summary": 67,
-    "portfolio_manager/mt5_report.py::_build_trades": 81,
     "tests/test_node.py::NodeTests.setUp": 61,
     "tests/test_portfolio_full_experimental.py::ExperimentalFullSearchTests.test_locked_bundle_uses_experimental_only_for_base_selection": 72,
     "tests/test_portfolio_full_experimental.py::ExperimentalFullSearchTests.test_tournament_examines_every_candidate_and_records_audit": 62,

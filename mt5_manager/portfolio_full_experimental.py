@@ -296,6 +296,46 @@ def _optimize_exact_pool(
     )
 
 
+def _refill_without_fillers(
+    pool: list[RobustStrategySet],
+    removed: set[str],
+    fillers: set[str],
+    refinement_kwargs: dict[str, Any],
+    progress: Progress | None,
+) -> tuple[PortfolioResult, list[RobustStrategySet]]:
+    """Reoptimiza el lote ganador menos los rellenos, y devuelve el lote nuevo."""
+    candidates = [
+        strategy for strategy in pool
+        if _strategy_id(strategy) not in removed | fillers
+    ]
+    if len(candidates) >= len(pool):
+        raise ValueError(
+            "La regla antirrelleno experimental no redujo el lote ganador."
+        )
+    if not candidates:
+        raise ValueError(
+            "La regla antirrelleno experimental agotó el lote ganador."
+        )
+    if progress:
+        progress(
+            "Búsqueda experimental UBS: "
+            f"{len(fillers)} relleno(s) 6M fuera; reoptimizando "
+            f"{len(candidates)} candidato(s) del lote ganador"
+        )
+    try:
+        refreshed = _optimize_exact_pool(
+            candidates,
+            use_deep_refinement=False,
+            optimizer_kwargs=refinement_kwargs,
+        )
+    except Exception as exc:
+        raise ValueError(
+            "La búsqueda experimental no encontró una reposición viable "
+            "para los rellenos 6M."
+        ) from exc
+    return refreshed, candidates
+
+
 def _refined_without_recent_fillers(
     result: PortfolioResult,
     candidate_pool: Sequence[RobustStrategySet],
@@ -326,48 +366,18 @@ def _refined_without_recent_fillers(
     pool = list(candidate_pool)
     removed: set[str] = set()
     current = result
-    retry_budget = min(len(pool), EXPERIMENTAL_FULL_ANTIFILLER_RETRIES)
     refinement_kwargs = dict(optimizer_kwargs)
     refinement_kwargs["search_restarts"] = 0
     refinement_kwargs["run_local_search"] = False
-    for _attempt in range(retry_budget):
+    for _attempt in range(min(len(pool), EXPERIMENTAL_FULL_ANTIFILLER_RETRIES)):
         fillers = set(recent_filler_ids(current))
         if not fillers:
             return current, removed
-        candidates = [
-            strategy for strategy in pool
-            if _strategy_id(strategy) not in removed | fillers
-        ]
-        if len(candidates) >= len(pool):
-            raise ValueError(
-                "La regla antirrelleno experimental no redujo el lote ganador."
-            )
-        if not candidates:
-            raise ValueError(
-                "La regla antirrelleno experimental agotó el lote ganador."
-            )
-        if progress:
-            progress(
-                "Búsqueda experimental UBS: "
-                f"{len(fillers)} relleno(s) 6M fuera; reoptimizando "
-                f"{len(candidates)} candidato(s) del lote ganador"
-            )
-        try:
-            refreshed = _optimize_exact_pool(
-                candidates,
-                use_deep_refinement=False,
-                optimizer_kwargs=refinement_kwargs,
-            )
-        except Exception as exc:
-            raise ValueError(
-                "La búsqueda experimental no encontró una reposición viable "
-                "para los rellenos 6M."
-            ) from exc
+        current, pool = _refill_without_fillers(
+            pool, removed, fillers, refinement_kwargs, progress
+        )
         removed |= fillers
-        pool = candidates
-        current = refreshed
-    remaining = set(recent_filler_ids(current))
-    if remaining:
+    if set(recent_filler_ids(current)):
         raise ValueError(
             "La búsqueda experimental agotó su lote sin eliminar todos los "
             "rellenos 6M."
