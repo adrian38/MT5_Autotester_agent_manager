@@ -18,6 +18,7 @@ from portfolio_manager.ubs_portfolio import (
 
 from .common import safe_int
 from .portfolio_identity import (
+    _allocation_source_rows,
     IMPROVEMENT_PRIORITY_LABELS,
     TYPE_LABELS,
     _normalized_improvement_lineage,
@@ -235,22 +236,6 @@ def _blank_recalculated_portfolio(
         "update portfolios set num_symbols=0,actual_valley_dd=0,actual_point_dd=0,actual_closed_valley_dd=0,floating_dd_buffer=0,valley_usage_pct=0,point_usage_pct=0,total_net_profit=0,total_lot=0,total_units=0,active_strategies=0,metrics_json=? where id=?",
         (json.dumps(metrics, ensure_ascii=True), portfolio_id),
     )
-
-def _allocation_source_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Las asignaciones guardadas en la forma que espera la carga de informes."""
-    return [{
-        "candidate_id": row.get("candidate_id"), "set_path": row.get("set_path") or row.get("set_id"),
-        "symbol": row.get("symbol"), "target_symbol": row.get("symbol"), "period": row.get("timeframe"),
-        "family": "", "is_report_path": row.get("is_report_path"), "oos_report_path": row.get("oos_report_path"),
-        "max_balance_dd_001": row.get("max_balance_dd_001"),
-        "max_equity_dd_001": row.get("max_equity_dd_001"),
-        "floating_dd_source": row.get("floating_dd_source"),
-        "recent_net_profit_001": row.get("recent_net_profit_001"),
-        "recent_equity_dd_001": row.get("recent_equity_dd_001"),
-        "has_recent_performance": row.get("has_recent_performance"),
-        "final_tick_report_path": row.get("final_tick_report_path"),
-        "full_history_report_path": row.get("full_history_report_path"),
-    } for row in rows]
 
 def _recalculated_metrics(
     metrics: dict[str, Any],

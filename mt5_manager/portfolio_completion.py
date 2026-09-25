@@ -17,7 +17,11 @@ from portfolio_manager.ubs_portfolio import (
 
 from .portfolio_generation import build_margin_model
 from .portfolio_generation_search import _optimizer_kwargs, _seasonal_coverage
-from .portfolio_identity import PORTFOLIO_TYPES, _is_bundle_portfolio
+from .portfolio_identity import (
+    PORTFOLIO_TYPES,
+    _allocation_source_rows,
+    _is_bundle_portfolio,
+)
 from .portfolio_persistence import settings_inputs
 from .portfolio_report_cache import cached_report
 from .portfolio_settings import ASSET_GROUPS
@@ -32,24 +36,7 @@ def _completion_required_sets(
     """Reconstruye las estrategias que el portafolio ya tiene y debe conservar."""
     if progress:
         progress(f"1/3 · Reconstruyendo {len(members)} estrategias que deben conservarse")
-    required_rows = [{
-        "candidate_id": item.get("candidate_id"),
-        "set_path": item.get("set_path") or item.get("set_id"),
-        "symbol": item.get("symbol"),
-        "target_symbol": item.get("symbol"),
-        "period": item.get("timeframe"),
-        "family": "",
-        "is_report_path": item.get("is_report_path"),
-        "oos_report_path": item.get("oos_report_path"),
-        "final_tick_report_path": item.get("final_tick_report_path"),
-        "full_history_report_path": item.get("full_history_report_path"),
-        "max_balance_dd_001": item.get("max_balance_dd_001"),
-        "max_equity_dd_001": item.get("max_equity_dd_001"),
-        "floating_dd_source": item.get("floating_dd_source"),
-        "recent_net_profit_001": item.get("recent_net_profit_001"),
-        "recent_equity_dd_001": item.get("recent_equity_dd_001"),
-        "has_recent_performance": item.get("has_recent_performance"),
-    } for item in members]
+    required_rows = _allocation_source_rows(members)
     required_sets, required_warnings = load_robust_sets_from_rows(
         required_rows, [], parse=cached_report,
     )

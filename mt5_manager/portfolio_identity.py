@@ -201,3 +201,25 @@ def _normalize_memory_row(item: dict[str, Any], memory: Any, project: Path) -> d
     ):
         item[key] = _resolve_source_path(item.get(key), project)
     return item
+
+
+def _allocation_source_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Las filas guardadas en la forma que espera la carga de informes.
+
+    Vale igual para una asignacion y para un miembro: los dos guardan las
+    mismas claves. Es una primitiva compartida por UBS normal y mensual, y
+    estaba escrita tres veces.
+    """
+    return [{
+        "candidate_id": row.get("candidate_id"), "set_path": row.get("set_path") or row.get("set_id"),
+        "symbol": row.get("symbol"), "target_symbol": row.get("symbol"), "period": row.get("timeframe"),
+        "family": "", "is_report_path": row.get("is_report_path"), "oos_report_path": row.get("oos_report_path"),
+        "max_balance_dd_001": row.get("max_balance_dd_001"),
+        "max_equity_dd_001": row.get("max_equity_dd_001"),
+        "floating_dd_source": row.get("floating_dd_source"),
+        "recent_net_profit_001": row.get("recent_net_profit_001"),
+        "recent_equity_dd_001": row.get("recent_equity_dd_001"),
+        "has_recent_performance": row.get("has_recent_performance"),
+        "final_tick_report_path": row.get("final_tick_report_path"),
+        "full_history_report_path": row.get("full_history_report_path"),
+    } for row in rows]
