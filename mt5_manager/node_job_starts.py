@@ -71,57 +71,64 @@ def _normalize_generation(handler, payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _start_generation(handler, payload: dict[str, Any]) -> dict[str, Any]:
-    payload = _normalize_generation(handler, payload)
-    cycles = payload["cycles"]
-    run_robustness = payload["run_robustness"]
-    run_final_tick = payload["run_final_tick"]
-    run_final_tick_6m = payload["run_final_tick_6m"]
-    repair_after_generation = payload["repair_after_generation"]
+def _generation_pipeline(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Las etapas de cada ciclo, en el orden en que se van a ejecutar."""
     repair_phase_workers = (
         payload["repair_max_workers"], payload["repair_phase2_max_workers"],
     )
-    repair_attempts = payload["repair_attempts"]
-    cleanup_after_run = payload["cleanup_after_run"]
     pipeline: list[dict[str, Any]] = []
-    for cycle in range(1, cycles + 1):
+    for cycle in range(1, payload["cycles"] + 1):
         pipeline.append({"action": "generation", "cycle": cycle, "run_id": None})
         # Complete the ordinary run once with its own worker limit. Repair is
         # a later pass over the finished run; it must never replace or split
         # these stages.
-        if run_robustness:
-            pipeline.append({"action": "robustness", "cycle": cycle, "run_id": None})
-        if run_final_tick:
-            pipeline.append({"action": "final_tick", "cycle": cycle, "run_id": None})
-        if run_final_tick_6m:
-            pipeline.append({"action": "final_tick_6m", "cycle": cycle, "run_id": None})
-        if repair_after_generation:
-            repair_actions = ["result"]
-            if run_robustness:
-                repair_actions.append("robustness")
-            if run_final_tick:
-                repair_actions.extend(["final_tick", "final_tick_quality"])
-            if run_final_tick_6m:
-                repair_actions.extend(["final_tick_6m", "final_tick_6m_quality"])
-            # Cada intento se parte en dos fases sobre las mismas etapas: la
-            # primera con los terminales de reparacion y la segunda con los
-            # suyos. Todas las etapas son «pending-only», asi que la segunda
-            # solo trabaja lo que la primera dejo pendiente y se omite sin
-            # lanzar proceso cuando no queda nada.
-            pipeline.extend(
-                {
-                    "action": action, "cycle": cycle, "run_id": None,
-                    "attempt": attempt, "phase": phase, "max_workers": workers,
-                }
-                for attempt in range(1, repair_attempts + 1)
-                for phase, workers in enumerate(repair_phase_workers, start=1)
-                for action in repair_actions
-            )
-        if cleanup_after_run:
+        for flag, action in (
+            ("run_robustness", "robustness"),
+            ("run_final_tick", "final_tick"),
+            ("run_final_tick_6m", "final_tick_6m"),
+        ):
+            if payload[flag]:
+                pipeline.append({"action": action, "cycle": cycle, "run_id": None})
+        if payload["repair_after_generation"]:
+            pipeline.extend(_repair_pass(payload, cycle, repair_phase_workers))
+        if payload["cleanup_after_run"]:
             pipeline.extend(
                 {"action": action, "cycle": cycle, "run_id": None}
                 for action in CLEANUP_STAGES
             )
+    return pipeline
+
+
+def _repair_pass(
+    payload: dict[str, Any], cycle: int, repair_phase_workers: tuple[Any, Any],
+) -> list[dict[str, Any]]:
+    """Los intentos de reparacion de un ciclo, cada uno en sus dos fases.
+
+    Todas las etapas son «pending-only», asi que la segunda fase solo trabaja
+    lo que la primera dejo pendiente y se omite sin lanzar proceso cuando no
+    queda nada.
+    """
+    repair_actions = ["result"]
+    if payload["run_robustness"]:
+        repair_actions.append("robustness")
+    if payload["run_final_tick"]:
+        repair_actions.extend(["final_tick", "final_tick_quality"])
+    if payload["run_final_tick_6m"]:
+        repair_actions.extend(["final_tick_6m", "final_tick_6m_quality"])
+    return [
+        {
+            "action": action, "cycle": cycle, "run_id": None,
+            "attempt": attempt, "phase": phase, "max_workers": workers,
+        }
+        for attempt in range(1, payload["repair_attempts"] + 1)
+        for phase, workers in enumerate(repair_phase_workers, start=1)
+        for action in repair_actions
+    ]
+
+
+def _start_generation(handler, payload: dict[str, Any]) -> dict[str, Any]:
+    payload = _normalize_generation(handler, payload)
+    pipeline = _generation_pipeline(payload)
     command, cwd = node_commands.build_generation_command(handler.config, payload)
     job_id = time.strftime("%Y%m%d_%H%M%S") + f"_{time.time_ns() % 1_000_000:06d}"
     log_path = handler.runtime_dir / f"generation_{job_id}.log"

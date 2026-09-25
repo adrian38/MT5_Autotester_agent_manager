@@ -159,6 +159,56 @@ def _launch_step(handler, step_index: int, command: list[str], cwd: Path, log_pa
     threading.Thread(target=_watch, args=(handler, process, step_index), daemon=True).start()
 
 
+def _mark_paused(handler) -> None:
+    """La etapa se corto a peticion del usuario, no fallo.
+
+    Se conserva ``current_step_index`` para relanzar esta misma etapa: al
+    volver, ``pipeline_stage_pending_count`` recalcula lo que quede pendiente.
+    """
+    handler.pause_requested = False
+    handler.state["status"] = "paused"
+    handler.state["pid"] = None
+    handler.state["return_code"] = None
+    handler.state["paused_at"] = utc_now()
+    handler.process = None
+    handler._persist()
+
+
+def _bind_generated_run(handler, pipeline: list[dict[str, Any]], cycle: Any) -> None:
+    """Fija en las etapas del ciclo el run que acaba de generar el agente.
+
+    Con un lote preparado el run tiene que venir del propio lote: quedarse con
+    el ultimo de la memoria ataria el pipeline al run de otro.
+    """
+    settings_path = Path(str(handler.config.get("settings_file") or "ui_settings.ini"))
+    project = Path(str(handler.config["project_dir"])).expanduser().resolve()
+    if not settings_path.is_absolute():
+        settings_path = project / settings_path
+    cfg = read_settings(settings_path)
+    snapshot = database_snapshot(memory_path(handler.config, cfg))
+    prepared_id = (handler.state.get("request") or {}).get("guided_batch_id")
+    prepared_run = guided_batches.read_run(project, prepared_id) if prepared_id else None
+    if prepared_id and not prepared_run:
+        raise ValueError("El lote preparado no publicó su run exacto")
+    generated_run = safe_int((prepared_run or snapshot.get("latest_run") or {}).get("run_id" if prepared_id else "id"), 0, minimum=0)
+    if generated_run <= 0:
+        raise ValueError("No se encontro el run generado")
+    handler.state.setdefault("cycle_run_ids", {})[str(cycle)] = generated_run
+    for pending_step in pipeline:
+        if pending_step.get("cycle") == cycle:
+            pending_step["run_id"] = generated_run
+    handler.state["pipeline"] = pipeline
+
+
+def _record_step_outcome(handler, step: dict[str, Any], return_code: int) -> None:
+    label = handler._step_label(step)
+    handler.state.setdefault("stage_return_codes", {})[label] = return_code
+    if return_code == 0:
+        handler.state.setdefault("completed_stages", []).append(label)
+    elif str(step["action"]) in CLEANUP_STAGES:
+        handler.state["cleanup_failed"] = True
+
+
 def _watch(handler, process: subprocess.Popen[str], step_index: int) -> None:
     return_code = process.wait()
     with handler.lock:
@@ -169,16 +219,7 @@ def _watch(handler, process: subprocess.Popen[str], step_index: int) -> None:
             handler.log_handle = None
         handler.guided_stage_finished(str((handler.state.get("pipeline") or [])[step_index]["action"]))
         if handler.pause_requested:
-            # La etapa se corto a peticion del usuario, no fallo. Se conserva
-            # ``current_step_index`` para relanzar esta misma etapa: al volver,
-            # ``pipeline_stage_pending_count`` recalcula lo que quede pendiente.
-            handler.pause_requested = False
-            handler.state["status"] = "paused"
-            handler.state["pid"] = None
-            handler.state["return_code"] = None
-            handler.state["paused_at"] = utc_now()
-            handler.process = None
-            handler._persist()
+            _mark_paused(handler)
             return
         if handler.stop_requested:
             # Detener no es un fallo de la etapa: si se dejara caer al camino
@@ -191,37 +232,14 @@ def _watch(handler, process: subprocess.Popen[str], step_index: int) -> None:
         step = pipeline[step_index]
         stage = str(step["action"])
         cycle = step.get("cycle")
-        run_id = step.get("run_id")
-        label = handler._step_label(step)
-        handler.state.setdefault("stage_return_codes", {})[label] = return_code
-        if return_code == 0:
-            handler.state.setdefault("completed_stages", []).append(label)
-        elif stage in CLEANUP_STAGES:
-            handler.state["cleanup_failed"] = True
+        _record_step_outcome(handler, step, return_code)
         has_downstream_for_cycle = any(
             pending.get("cycle") == cycle and pending.get("action") != "generation"
             for pending in pipeline[step_index + 1:]
         )
         if return_code == 0 and stage == "generation" and has_downstream_for_cycle:
             try:
-                settings_path = Path(str(handler.config.get("settings_file") or "ui_settings.ini"))
-                project = Path(str(handler.config["project_dir"])).expanduser().resolve()
-                if not settings_path.is_absolute():
-                    settings_path = project / settings_path
-                cfg = read_settings(settings_path)
-                snapshot = database_snapshot(memory_path(handler.config, cfg))
-                prepared_id = (handler.state.get("request") or {}).get("guided_batch_id")
-                prepared_run = guided_batches.read_run(project, prepared_id) if prepared_id else None
-                if prepared_id and not prepared_run:
-                    raise ValueError("El lote preparado no publicó su run exacto")
-                generated_run = safe_int((prepared_run or snapshot.get("latest_run") or {}).get("run_id" if prepared_id else "id"), 0, minimum=0)
-                if generated_run <= 0:
-                    raise ValueError("No se encontro el run generado")
-                handler.state.setdefault("cycle_run_ids", {})[str(cycle)] = generated_run
-                for pending_step in pipeline:
-                    if pending_step.get("cycle") == cycle:
-                        pending_step["run_id"] = generated_run
-                handler.state["pipeline"] = pipeline
+                _bind_generated_run(handler, pipeline, cycle)
             except Exception as exc:
                 handler.state["error"] = str(exc)
                 return_code = 1
