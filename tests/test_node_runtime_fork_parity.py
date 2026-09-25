@@ -23,7 +23,11 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         ic_node_path = ic_project / "manager_node_runtime" / "node.py"
         if not ic_rules_path.is_file() or not ic_node_path.is_file():
             self.skipTest(f"La copia ICTrading no está montada: {ic_project}")
-        manager_routes = (MANAGER_ROOT / "mt5_manager" / "manager.py").read_text(encoding="utf-8")
+        # La ruta del alias vive en el modulo de rutas de portafolio desde que
+        # manager.py se partio; lo que se comprueba es el criterio, no el fichero.
+        manager_routes = (
+            MANAGER_ROOT / "mt5_manager" / "manager_portfolio_routes.py"
+        ).read_text(encoding="utf-8")
         ic_rules = ic_rules_path.read_text(encoding="utf-8", errors="replace")
         ic_node = ic_node_path.read_text(encoding="utf-8", errors="replace")
         ic_tests = (ic_project / "tests" / "test_manager_node_portfolio_save.py").read_text(

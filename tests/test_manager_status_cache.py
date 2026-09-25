@@ -23,7 +23,7 @@ class ManagerStatusCacheTests(unittest.TestCase):
                     "database": {"stages": {"generation": {"accepted": 20}}},
                     "capabilities": {"repair_runs": True}, "task_queue": {"count": 1},
                     "observed_at": "2026-08-31T10:00:00+00:00"}
-        with patch("mt5_manager.manager.node_request", side_effect=[
+        with patch("mt5_manager.manager_http.node_request", side_effect=[
             (200, snapshot), (200, {"lines": []}), TimeoutError("timed out"),
             TimeoutError("still timed out"), (200, {**snapshot, "job": {"status": "completed"}}),
         ]):
@@ -44,14 +44,14 @@ class ManagerStatusCacheTests(unittest.TestCase):
             self.assertNotIn("error", recovered)
 
     def test_first_failure_does_not_invent_previous_data(self):
-        with patch("mt5_manager.manager.node_request", side_effect=TimeoutError("timed out")):
+        with patch("mt5_manager.manager_http.node_request", side_effect=TimeoutError("timed out")):
             result = self.handler._all_status()[0]
         self.assertTrue(result["offline"])
         self.assertFalse(result["stale"])
         self.assertNotIn("job", result)
 
     def test_bad_payload_does_not_replace_cached_status(self):
-        with patch("mt5_manager.manager.node_request", side_effect=[
+        with patch("mt5_manager.manager_http.node_request", side_effect=[
             (200, {"job": {"status": "idle"}}), (200, {"error": "malformed"}),
         ]):
             self.handler._all_status()

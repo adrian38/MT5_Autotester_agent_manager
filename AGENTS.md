@@ -148,7 +148,8 @@ como en `ubs_portfolio`, **el orden es el de dependencia**:
 - **Los llamantes no cambian:** `portfolio_service` reexporta lo que movió.
 - Los módulos de abajo declaran el tipo `PortfolioSource` con
   `if TYPE_CHECKING:`. Eso no es una dependencia: no existe en ejecución.
-- Lo hace cumplir `tests/test_portfolio_module_layering.py`.
+- Lo hace cumplir `tests/test_module_layering.py`, que vigila esta pila y la
+  del servidor HTTP.
 
 **Al mover código, el `patch()` de un test se queda sin efecto y el test sigue
 en verde.** No basta con comprobar que el *nombre movido* no se parchea: hay que
@@ -157,6 +158,26 @@ mirar los nombres que el *código movido consume*. Los 13
 `test_portfolio_import.py` dejaron de interceptar al mover el consumidor a
 `portfolio_import_build`: cinco pruebas fallaron y **ocho siguieron pasando
 ejecutando la función real**.
+
+## `manager.py` es la fachada de su servidor
+
+El servidor HTTP eran 1.585 líneas en `manager.py`. Ahora son ocho módulos, en
+orden de dependencia:
+
+`manager_config` → `manager_http` → `manager_pulse` →
+`manager_live_audit_routes` → `manager_portfolio_routes` → `manager_handler` →
+`manager_server` → `manager`
+
+- `manager.py` sólo arranca y **reexporta**: `from mt5_manager.manager import
+  ManagerServer, ManagerHandler, PULSE_JOB_KEYS, ...` sigue funcionando.
+- Las rutas de cada área son funciones de módulo que reciben el handler, igual
+  que `correlation_routes` y `experiment_routes`.
+- **Todo reenvío al nodo pasa por `manager_http.node_request`, llamado como
+  atributo del módulo**, nunca con `from ... import node_request`. Así un doble
+  puesto ahí alcanza a todos los consumidores, estén en el fichero que estén, y
+  los tests tienen un único punto que parchear. `manager_http` se importa a sí
+  mismo por ese motivo.
+- Lo hace cumplir `tests/test_module_layering.py`.
 
 ## Tamaño del código: 60 líneas por función, 600 por fichero
 

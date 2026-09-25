@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from mt5_manager import manager, dev_branch
+from mt5_manager import manager, manager_http, dev_branch
 from mt5_manager.docker_entrypoint import docker_config
 from tests.test_guided_node import package
 
@@ -21,16 +21,16 @@ class GuidedRoutingTests(unittest.TestCase):
         for field, value in [('broker', 'AXI'), ('account_type', 'ECN'), ('project_dir', 'wrong')]:
             with self.subTest(field=field):
                 state = {**self.state, 'node': {**self.state['node'], field: value}}
-                with mock.patch.object(manager, 'node_request', return_value=(200, state)) as call:
+                with mock.patch.object(manager_http, 'node_request', return_value=(200, state)) as call:
                     with self.assertRaises(ValueError): manager.submit_guided_to_node(self.node, package())
                     self.assertEqual(call.call_count, 1)
-        with mock.patch.object(manager, 'node_request', return_value=(200, {'capabilities': {}})) as call:
+        with mock.patch.object(manager_http, 'node_request', return_value=(200, {'capabilities': {}})) as call:
             with self.assertRaises(ValueError): manager.submit_guided_to_node(self.node, package())
             self.assertEqual(call.call_count, 1)
 
     def test_write_guard_runs_before_network(self):
         with mock.patch.object(dev_branch, 'assert_writable', side_effect=ValueError('blocked')), \
-             mock.patch.object(manager, 'node_request') as call:
+             mock.patch.object(manager_http, 'node_request') as call:
             with self.assertRaises(ValueError): manager.submit_guided_to_node(self.node, package())
             call.assert_not_called()
 
@@ -39,13 +39,13 @@ class GuidedRoutingTests(unittest.TestCase):
                  'repair_phase2_max_workers':1,'repair_attempts':3}
         submission={'package':package(),'launch_options':options}
         with mock.patch.object(dev_branch,'assert_writable'), \
-             mock.patch.object(manager,'node_request',return_value=(200,self.state)) as call:
+             mock.patch.object(manager_http,'node_request',return_value=(200,self.state)) as call:
             with self.assertRaisesRegex(ValueError,'terminales/reparación'):
                 manager.submit_guided_to_node(self.node,submission)
             self.assertEqual(call.call_count,1)
         supported={**self.state,'capabilities':{**self.state['capabilities'],'guided_launch_options_v1':True}}
         with mock.patch.object(dev_branch,'assert_writable'), \
-             mock.patch.object(manager,'node_request',side_effect=[(200,supported),(200,{'queued':True})]) as call:
+             mock.patch.object(manager_http,'node_request',side_effect=[(200,supported),(200,{'queued':True})]) as call:
             self.assertEqual(manager.submit_guided_to_node(self.node,submission),(200,{'queued':True}))
             self.assertEqual(call.call_args.args[3],submission)
 
@@ -56,7 +56,7 @@ class GuidedRoutingTests(unittest.TestCase):
         with mock.patch.dict(manager.os.environ, {'MT5_MANAGER_RESTART_REPO': str(Path(__file__).parents[1])}), \
              mock.patch.object(dev_branch, 'assert_writable'), \
              mock.patch.object(dev_branch, 'is_active', return_value=True), \
-             mock.patch.object(manager, 'node_request', side_effect=[(200, state), (200, {'queued': True})]) as call:
+             mock.patch.object(manager_http, 'node_request', side_effect=[(200, state), (200, {'queued': True})]) as call:
             self.assertEqual(manager.submit_guided_to_node(node, package()), (200, {'queued': True}))
             self.assertEqual(call.call_args.args[1:3], ('POST', '/api/v1/guided-batches'))
             for key, value in [('portfolio_broker', 'AXI'), ('node_project_dir', r'C:\another\ic')]:
@@ -80,7 +80,7 @@ class GuidedRoutingTests(unittest.TestCase):
         with mock.patch.dict(manager.os.environ, environment), \
              mock.patch.object(dev_branch, 'assert_writable'), \
              mock.patch.object(dev_branch, 'is_active', return_value=True), \
-             mock.patch.object(manager, 'node_request', side_effect=[(200,state),(200,{'queued':True})]):
+             mock.patch.object(manager_http, 'node_request', side_effect=[(200,state),(200,{'queued':True})]):
             self.assertEqual(manager.submit_guided_to_node(node,payload),(200,{'queued':True}))
 
     def test_portable_protocol_matches_actual_ic_runtime(self):

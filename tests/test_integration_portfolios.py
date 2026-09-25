@@ -35,7 +35,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         # pasara en la maquina anfitriona. Un test no debe depender del runner.
         self.manager.export_mode = "folder"
         with mock.patch(
-            "mt5_manager.manager.choose_directory", return_value=r"D:\exports"
+            "mt5_manager.manager_config.choose_directory", return_value=r"D:\exports"
         ) as picker:
             status, payload = self.request(
                 "/api/nodes/test-node/portfolio-manager/choose-export-folder",
@@ -50,7 +50,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         # Este es el modo que corre de verdad en produccion (docker-compose lo
         # fija a download) y no habia ninguna prueba que lo cubriera.
         self.manager.export_mode = "download"
-        with mock.patch("mt5_manager.manager.choose_directory") as picker:
+        with mock.patch("mt5_manager.manager_config.choose_directory") as picker:
             with self.assertRaises(urllib.error.HTTPError) as caught:
                 self.request(
                     "/api/nodes/test-node/portfolio-manager/choose-export-folder",
@@ -94,7 +94,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
             self.assertFalse(server.live_audit_scheduler_enabled)
             self.assertIsNone(server.live_audit_thread)
             # Y aunque se llame al barrido a mano, no sale ninguna petición.
-            with mock.patch("mt5_manager.manager.node_request") as node_request:
+            with mock.patch("mt5_manager.manager_http.node_request") as node_request:
                 server._run_due_live_audits()
             node_request.assert_not_called()
         finally:
@@ -166,7 +166,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                     server.live_audit_settings, "restore_credentials",
                     return_value={"restore_password": "saved"},
                 ),
-                mock.patch("mt5_manager.manager.node_request", side_effect=request) as node_request,
+                mock.patch("mt5_manager.manager_http.node_request", side_effect=request) as node_request,
             ):
                 server.live_audit_scheduler_settings["interval_days"] = 7
                 server._run_due_live_audits()
