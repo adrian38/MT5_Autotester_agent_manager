@@ -10,6 +10,7 @@ from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
+from mt5_manager import node_job_runtime, node_job_starts
 from mt5_manager.node import (
     CLEANUP_STAGES,
     JobController,
@@ -162,7 +163,7 @@ enabled=0
         config_path.write_text(json.dumps(self.config), encoding="utf-8")
         controller = JobController(self.config, config_path)
 
-        with mock.patch.object(controller, "_launch_step"):
+        with mock.patch.object(node_job_runtime, "_launch_step"):
             state = controller.start({
                 "cycles": 2,
                 "execute_backtests": False,
@@ -182,7 +183,7 @@ enabled=0
         config_path.write_text(json.dumps(self.config), encoding="utf-8")
         controller = JobController(self.config, config_path)
 
-        with mock.patch.object(controller, "_launch_step"):
+        with mock.patch.object(node_job_runtime, "_launch_step"):
             state = controller.start({
                 "cycles": 1,
                 "max_workers": 7,
@@ -223,7 +224,7 @@ enabled=0
         config_path.write_text(json.dumps(self.config), encoding="utf-8")
         controller = JobController(self.config, config_path)
 
-        with mock.patch.object(controller, "_launch_step"):
+        with mock.patch.object(node_job_runtime, "_launch_step"):
             state = controller.start({
                 "cycles": 1,
                 "max_workers": 6,
@@ -282,9 +283,9 @@ enabled=0
         self.assertEqual(state["status"], "stopping")
         self.assertTrue(controller.stop_requested)
 
-        with mock.patch.object(controller, "_launch_step") as launch:
+        with mock.patch.object(node_job_runtime, "_launch_step") as launch:
             self.assertTrue(
-                controller._launch_next_runnable(0, Path(str(controller.state["log_path"]))),
+                node_job_runtime._launch_next_runnable(controller, 0, Path(str(controller.state["log_path"]))),
             )
         self.assertFalse(launch.called)
         self.assertEqual(controller.state["status"], "stopped")
@@ -298,7 +299,7 @@ enabled=0
         controller.stop_requested = True
         controller.state["log_path"] = str(self.root / "old.log")
 
-        controller._complete(0)
+        node_job_runtime._complete(controller, 0)
 
         self.assertFalse(controller.stop_requested)
         self.assertEqual(controller.state["status"], "completed")
@@ -312,7 +313,7 @@ enabled=0
         config_path.write_text(json.dumps(self.config), encoding="utf-8")
         controller = JobController(self.config, config_path)
 
-        with mock.patch.object(controller, "_launch_next_runnable"):
+        with mock.patch.object(node_job_runtime, "_launch_next_runnable"):
             state = controller.start_cleanup()
 
         self.assertEqual(state["job_type"], "cleanup")
@@ -327,7 +328,7 @@ enabled=0
         config_path.write_text(json.dumps(self.config), encoding="utf-8")
         controller = JobController(self.config, config_path)
 
-        with mock.patch.object(controller, "_launch_next_runnable", return_value=True):
+        with mock.patch.object(node_job_runtime, "_launch_next_runnable", return_value=True):
             state = controller.start_repair({
                 "run_ids": [7, 9], "repair_attempts": 1, "cleanup_after_run": True,
                 "max_workers": 5, "repair_phase2_max_workers": 2,
@@ -376,7 +377,7 @@ enabled=0
         config_path.write_text(json.dumps(self.config), encoding="utf-8")
         controller = JobController(self.config, config_path)
 
-        with mock.patch.object(controller, "_launch_next_runnable", return_value=True):
+        with mock.patch.object(node_job_runtime, "_launch_next_runnable", return_value=True):
             state = controller.start_regression({
                 "run_ids": [11, 12], "max_workers": 4, "cleanup_after_run": True,
             })
@@ -517,10 +518,10 @@ enabled=0
     def test_generation_normalizes_optional_random_seed(self) -> None:
         controller = JobController(self.config, self.root / "node.json")
 
-        self.assertEqual(controller._normalize_generation({"random_seed": "20260812"})["random_seed"], 20260812)
-        self.assertIsNone(controller._normalize_generation({"random_seed": ""})["random_seed"])
+        self.assertEqual(node_job_starts._normalize_generation(controller, {"random_seed": "20260812"})["random_seed"], 20260812)
+        self.assertIsNone(node_job_starts._normalize_generation(controller, {"random_seed": ""})["random_seed"])
         with self.assertRaisesRegex(ValueError, "random_seed"):
-            controller._normalize_generation({"random_seed": "not-an-int"})
+            node_job_starts._normalize_generation(controller, {"random_seed": "not-an-int"})
 
     def test_legacy_branch_drops_new_cli_options_and_uses_legacy_memory(self) -> None:
         (self.root / "ubs_agent.py").write_text(

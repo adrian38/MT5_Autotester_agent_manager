@@ -390,12 +390,12 @@ class NodeWorkflowIntegrationTests(IntegrationTestCase):
         self.controller.config["memory_path"] = str(memory)
         fake_command = [sys.executable, str(self.root / "ubs_agent.py")]
         with (
-            mock.patch("mt5_manager.node.build_generation_command", return_value=(fake_command, self.root)),
+            mock.patch("mt5_manager.node_commands.build_generation_command", return_value=(fake_command, self.root)),
             mock.patch(
-                "mt5_manager.node.build_pipeline_stage_command",
+                "mt5_manager.node_commands.build_pipeline_stage_command",
                 return_value=(fake_command, self.root),
             ) as build_auto_repair_stage,
-            mock.patch("mt5_manager.node.pipeline_stage_pending_count", return_value=1),
+            mock.patch("mt5_manager.node_snapshots.pipeline_stage_pending_count", return_value=1),
         ):
             state = self.controller.start({
                 "cycles": 2,
@@ -425,10 +425,10 @@ class NodeWorkflowIntegrationTests(IntegrationTestCase):
         fake_command = [sys.executable, str(self.root / "ubs_agent.py")]
         with (
             mock.patch(
-                "mt5_manager.node.build_pipeline_stage_command",
+                "mt5_manager.node_commands.build_pipeline_stage_command",
                 return_value=(fake_command, self.root),
             ) as build_stage,
-            mock.patch("mt5_manager.node.pipeline_stage_pending_count", return_value=1),
+            mock.patch("mt5_manager.node_snapshots.pipeline_stage_pending_count", return_value=1),
         ):
             state = self.controller.start_repair({
                 "run_ids": [7, 9], "max_workers": 3,
@@ -467,8 +467,8 @@ class NodeWorkflowIntegrationTests(IntegrationTestCase):
 
     def test_repair_skips_empty_stages_without_spawning_a_process(self) -> None:
         with (
-            mock.patch("mt5_manager.node.pipeline_stage_pending_count", return_value=0),
-            mock.patch("mt5_manager.node.build_pipeline_stage_command") as build_command,
+            mock.patch("mt5_manager.node_snapshots.pipeline_stage_pending_count", return_value=0),
+            mock.patch("mt5_manager.node_commands.build_pipeline_stage_command") as build_command,
             mock.patch("mt5_manager.node.subprocess.Popen") as popen,
         ):
             state = self.controller.start_repair({"run_ids": [7], "retry_low_quality": True})

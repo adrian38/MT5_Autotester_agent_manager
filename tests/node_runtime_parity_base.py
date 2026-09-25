@@ -17,6 +17,19 @@ MANAGER_RULES = tuple(
         "portfolio_coordinator_saved.py",
     )
 )
+def manager_node_source() -> str:
+    """El nodo del manager entero, sea cual sea el numero de ficheros.
+
+    `node.py` se partio en `node_settings`, `node_commands` y `node_snapshots`.
+    La paridad compara criterios, no ficheros: se leen todos juntos para que
+    partirlos otra vez no vuelva a romper la guarda.
+    """
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((MANAGER_ROOT / "mt5_manager").glob("node*.py"))
+    )
+
+
 FORK_CANDIDATES = (
     Path(r"C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent"),
     Path(r"F:\TRADING\MT5_Autotester_agent_AXI"),

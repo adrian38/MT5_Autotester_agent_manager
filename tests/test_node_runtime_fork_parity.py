@@ -8,10 +8,12 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
+        manager_node_source,
     )
 except ImportError:
     from node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
+        manager_node_source,
     )
 
 
@@ -61,7 +63,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         self.assertIn("def _supported_dataclass_values", self.manager_source)
 
     def test_run_history_pagination_reaches_every_reachable_fork(self) -> None:
-        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        manager_node = manager_node_source()
         for token in ('limit ? offset ?', '"pagination": {', '"next_offset"', 'query.get("offset"'):
             self.assertIn(token, manager_node, f"El nodo fuente del manager perdió `{token}`.")
 
@@ -316,7 +318,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         # sola pasada: el campo nuevo del diálogo no haría nada y no hay 404 que lo
         # delate. La clave de etapa también tiene que llevar la fase; si no, la
         # segunda pasada pisa el código de retorno y el recuento de la primera.
-        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        manager_node = manager_node_source()
         for token in (
             'payload.get("repair_phase2_max_workers")',
             "for phase, workers in enumerate(",

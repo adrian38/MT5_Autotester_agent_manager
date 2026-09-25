@@ -7,10 +7,12 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
+        manager_node_source,
     )
 except ImportError:
     from node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
+        manager_node_source,
     )
 
 
@@ -20,7 +22,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         # detener se quedaba esperando. Un nodo sin portar acepta el POST, tarda
         # minutos en atenderlo y deja el trabajo corriendo: la pantalla dice que
         # falló y el pipeline sigue. No hay 404 que lo delate.
-        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        manager_node = manager_node_source()
         for token in (
             "self.stop_requested = True",
             "self.lock.acquire(timeout=CONTROL_LOCK_TIMEOUT)",
@@ -69,7 +71,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         self._assert_on_every_fork(check, "detener sin depender del bloqueo")
 
     def test_application_restart_reaches_every_embedded_node_fork(self) -> None:
-        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        manager_node = manager_node_source()
         self.assertIn("/api/v1/application/restart", manager_node)
         self.assertIn("application_restart", manager_node)
 
@@ -116,7 +118,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
 
     def _assert_manager_auditor_restore_contract(self) -> None:
         manager_engine = self._manager_auditor_source()
-        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        manager_node = manager_node_source()
         self.assertIn('"live_audit_restore_account": True', manager_node)
         for token in (
             "def _restore_tester_login",
@@ -278,7 +280,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         # convertía en `--random-seed None` y argparse mataba la generación con
         # código 2 antes de crear un solo candidato (2026-08-17, run #124 de
         # ICTrading). Arreglarlo solo aquí no habría cambiado nada para el usuario.
-        manager_node = (MANAGER_ROOT / "mt5_manager" / "node.py").read_text(encoding="utf-8")
+        manager_node = manager_node_source()
         self._assert_present(
             manager_node,
             r"def _add\(.*?\n(?:\s*#.*\n)*\s*if value is None:\s*\n\s*return",
