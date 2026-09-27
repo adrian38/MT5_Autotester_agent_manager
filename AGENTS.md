@@ -44,8 +44,10 @@ escritura en la memoria UBS.
 | Docstrings de `node.py` y de las dos `remove_member*_to_quarantine` | El aviso, en el punto exacto donde se edita. |
 | `tests/test_guided_routing.py` | Compara **byte a byte** `guided_batches.py` y `guided_controller.py` con la copia de IC. |
 
-**Esos dos ficheros sólo se refactorizan cambiando las dos copias en el mismo
-commit**: son el protocolo de los lotes guiados y tienen que coincidir. Y **no
+**Esos dos ficheros sólo se refactorizan cambiando las dos copias a la vez**:
+son el protocolo de los lotes guiados y tienen que coincidir. Están en
+repositorios distintos, así que no es un commit sino dos hermanos, y hasta que
+existan los dos la prueba está roja. Y **no
 admiten ni un import nuevo**, porque el import tendría que existir también en el
 runtime del agente: por eso la cola de `JobController` sigue siendo métodos que
 delegan. Así se partió `validate_package`, que era la única función de
@@ -118,10 +120,11 @@ que escribe en la memoria de un agente, el grafo del manager no es la autoridad.
 ## `ubs_portfolio` es un paquete en pila
 
 `portfolio_manager/ubs_portfolio/` eran 6.800 líneas en un fichero: cambiar el
-modelo de margen costaba leer ~70k tokens. Ahora son veintisiete módulos y **el orden
+modelo de margen costaba leer ~70k tokens. Ahora son veintiocho módulos y **el orden
 es el de dependencia** — cada uno sólo importa de los anteriores:
 
-`symbols` → `models` → `rows` → `curves` → `monthly_validation` → `reports` → `selection` →
+`symbols` → `models` → `rows` → `curves` → `monthly_validation` → `reports` →
+`reports_monthly` → `selection` →
 `evaluation` → `margin_models` → `margin_loaders` → `margin_profiles` →
 `margin_summary` → `margin` → `limits` → `constraints` → `execution` →
 `greedy_increment` → `greedy_swap` → `greedy_deep` → `greedy` →
