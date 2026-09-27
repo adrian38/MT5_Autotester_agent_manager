@@ -17,11 +17,23 @@ se rechaza sin decir por qué.
   a `guided_controller.py`: la prueba falló al instante. La solución fue dejar
   `_normalize_generation`, `_enqueue`, `_schedule_queue_drain` y el resto de la
   cola como métodos de `JobController` que delegan al módulo.
-- **`validate_package` (87 líneas) se queda por encima del techo.** Es la única
-  función de producción que lo supera, y está en el baseline por esto. Partirla
-  exige tocar la copia del agente, que sólo está autorizada en `dev`.
-- Si algún día hay que partirla: cambiar las dos copias en el mismo commit, en
-  `dev`, y comprobar que la prueba sigue verde antes de dar nada por hecho.
+- **Partir sí se puede, si se parten las dos copias en el mismo commit.**
+  `validate_package` tenía 87 líneas y era la única función de producción por
+  encima del techo. Se partió en siete pasos con nombre el 2026-09-27,
+  escribiendo el mismo texto en los dos ficheros —cada uno con sus finales de
+  línea, CRLF aquí y LF en IC— con el script
+  `scratchpad/split_validate_package.py`. Ya no queda ninguna excepción en
+  `tests/function_length_baseline.json`.
+- Requiere permiso explícito sobre la copia del agente: en `dev` lo da el
+  alcance de la rama; fuera de `dev` lo tiene que dar el usuario para la tarea.
+- **Un suite verde no basta para este fichero.** Es validación de protocolo: un
+  `raise` que se cae deja pasar lotes manipulados sin que ninguna prueba lo
+  note. Se comparó contra `git show HEAD:` con 620 lotes construidos a propósito
+  —sobre, campos del candidato, modos, timeframes, los dos `.set` codificados,
+  ocho manipulaciones del contenido en cada lado, mutación numérica, retargeting
+  y recuperación de símbolo, duplicados— exigiendo el **mensaje exacto** del
+  `ValueError` y no sólo que fallara. 24 de los 620 son lotes válidos, para que
+  el camino positivo también entre: 0 divergencias.
 
 ## El resto del nodo sí se puede partir
 

@@ -44,11 +44,13 @@ escritura en la memoria UBS.
 | Docstrings de `node.py` y de las dos `remove_member*_to_quarantine` | El aviso, en el punto exacto donde se edita. |
 | `tests/test_guided_routing.py` | Compara **byte a byte** `guided_batches.py` y `guided_controller.py` con la copia de IC. |
 
-**Esos dos ficheros no se pueden refactorizar aquí**: son el protocolo de los
-lotes guiados y las dos copias tienen que coincidir. No admiten ni un import
-nuevo. Por eso `validate_package` (87 líneas) es la única función de producción
-por encima del techo, y por eso la cola de `JobController` sigue siendo métodos
-que delegan. Detalle en `ai_context/ficheros_identicos_al_runtime_de_ic.md`.
+**Esos dos ficheros sólo se refactorizan cambiando las dos copias en el mismo
+commit**: son el protocolo de los lotes guiados y tienen que coincidir. Y **no
+admiten ni un import nuevo**, porque el import tendría que existir también en el
+runtime del agente: por eso la cola de `JobController` sigue siendo métodos que
+delegan. Así se partió `validate_package`, que era la única función de
+producción por encima del techo. Detalle en
+`ai_context/ficheros_identicos_al_runtime_de_ic.md`.
 
 ## Leer `ai_context/` antes de escribir código
 
@@ -217,6 +219,9 @@ junto a sus llamantes. Por encima, cambiar tres líneas obliga a cargar todo.
 | 600 líneas por fichero | `tools/file_length.py` | `tests/test_file_length.py` | `tests/file_length_baseline.json` |
 
 El alcance y el trinquete son comunes: `tools/source_files.py`.
+
+**Los dos baselines están vacíos.** Ninguna función pasa de 60 ni ningún fichero
+de 600. Una entrada nueva ya no es una herencia: es una regresión.
 
 - **Lo nuevo cumple.** Función o fichero nuevo por encima del techo: se parte.
   No se añade al baseline.
