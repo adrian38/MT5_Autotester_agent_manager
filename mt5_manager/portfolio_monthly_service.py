@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
+    optimizer_overrides,
     PortfolioResult,
     PortfolioType,
     optimize_portfolio,
@@ -18,6 +19,7 @@ from .portfolio_service import (
     PORTFOLIO_TYPES,
     TYPE_LABELS,
     PortfolioSource,
+    _allocation_source_rows,
     _optimize_without_recent_fillers,
     _optimizer_kwargs,
     _seasonal_coverage,
@@ -58,6 +60,39 @@ def prepare_monthly_log(source: PortfolioSource, operation: str, job_id: str) ->
     )
 
 
+def _optimize_monthly_variant(
+    candidate_sets: list[Any],
+    full_sets: list[Any],
+    inputs: dict[str, Any],
+    kwargs: dict[str, Any],
+    progress: Any,
+) -> PortfolioResult:
+    """El motor que corresponde a los ajustes: experimental, estricto o normal."""
+    deep = optimizer_overrides(
+        kwargs, use_deep_refinement=bool(inputs.get("deep_optimization")),
+    )
+    if inputs.get("experimental_monthly_search"):
+        return optimize_experimental_monthly_portfolio(
+            monthly_sets=candidate_sets,
+            full_sets=full_sets,
+            target_month=int(inputs["target_month"]),
+            strict_yearly_month_validation=bool(
+                inputs.get("strict_yearly_month_validation")
+            ),
+            use_deep_refinement=bool(inputs.get("deep_optimization")),
+            progress=progress,
+            **kwargs,
+        )
+    if inputs.get("strict_yearly_month_validation"):
+        return optimize_strict_monthly_portfolio(
+            monthly_sets=candidate_sets,
+            full_sets=full_sets,
+            target_month=int(inputs["target_month"]),
+            **deep,
+        )
+    return optimize_portfolio(raw_sets=candidate_sets, **deep)
+
+
 def _monthly_proposals(
     monthly_sets: list[Any],
     full_sets: list[Any],
@@ -88,30 +123,8 @@ def _monthly_proposals(
         kwargs = _optimizer_kwargs(inputs, objective_type, existing_curves, reserve)
 
         def optimize(candidate_sets: list[Any]) -> PortfolioResult:
-            if inputs.get("experimental_monthly_search"):
-                return optimize_experimental_monthly_portfolio(
-                    monthly_sets=candidate_sets,
-                    full_sets=full_sets,
-                    target_month=int(inputs["target_month"]),
-                    strict_yearly_month_validation=bool(
-                        inputs.get("strict_yearly_month_validation")
-                    ),
-                    use_deep_refinement=bool(inputs.get("deep_optimization")),
-                    progress=progress,
-                    **kwargs,
-                )
-            if inputs.get("strict_yearly_month_validation"):
-                return optimize_strict_monthly_portfolio(
-                    monthly_sets=candidate_sets,
-                    full_sets=full_sets,
-                    target_month=int(inputs["target_month"]),
-                    use_deep_refinement=bool(inputs.get("deep_optimization")),
-                    **kwargs,
-                )
-            return optimize_portfolio(
-                raw_sets=candidate_sets,
-                use_deep_refinement=bool(inputs.get("deep_optimization")),
-                **kwargs,
+            return _optimize_monthly_variant(
+                candidate_sets, full_sets, inputs, kwargs, progress,
             )
 
         try:
@@ -157,25 +170,18 @@ def _strict_monthly_candidate_pool(
     ]
 
 
-def generate_monthly_proposals(
+def _monthly_eligible_rows(
     source: PortfolioSource,
     inputs: dict[str, Any],
-    progress: Progress | None = None,
-    *,
-    exclude_portfolio_id: int | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    if inputs.get("portfolio_scope") != "monthly":
-        raise ValueError("La lógica mensual sólo admite portfolio_scope=monthly")
-    # El modelo de margen medido (tramos por grupo, apalancamiento de cuenta y
-    # nocional real de AXI) lo construían solo UBS full y Grid. Sin él, la misma
-    # cuenta valida el margen con dos modelos distintos según la pantalla.
-    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
+    warnings: list[str],
+    progress: Progress | None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Los candidatos que pasan los filtros del formulario, y su reparto por grupo."""
     if progress:
         progress("1/6 · Leyendo candidatos Final Tick aceptados")
     rows = source.candidate_rows(include_quarantined=False)
     if not rows:
         raise ValueError("No hay candidatos con Final Tick continuo y 6M aceptados")
-    warnings: list[str] = []
     if progress:
         progress("2/6 · Aplicando filtros y grupos permitidos")
     if inputs.get("require_3_positive_months_6m"):
@@ -197,20 +203,27 @@ def generate_monthly_proposals(
         group_counts[group] = group_counts.get(group, 0) + 1
         if group in allowed:
             filtered.append(row)
-    rows = filtered
-    if not rows:
+    if not filtered:
         raise ValueError("No quedan candidatos tras aplicar los grupos permitidos")
-    used = (
-        source.used_set_paths("monthly", exclude_portfolio_id=exclude_portfolio_id)
-        if inputs.get("exclude_monthly_used") else []
-    )
-    availability = asdict(summarize_robust_rows(rows, used))
+    return filtered, group_counts
+
+
+def _monthly_loaded_sets(
+    source: PortfolioSource,
+    inputs: dict[str, Any],
+    rows: list[dict[str, Any]],
+    used: list[str],
+    warnings: list[str],
+    progress: Progress | None,
+) -> tuple[list[Any], list[Any]]:
+    """Lee los informes y devuelve (curva entera, curva recortada al mes)."""
     if progress:
         progress(f"3/6 · Cargando reportes de {len(rows)} candidatos")
     raw_sets, load_warnings = load_robust_sets_from_rows(
         rows, used, parse=cached_report, progress=progress,
     )
     warnings.extend(load_warnings)
+    allowed = set(inputs["allowed_asset_groups"])
     raw_sets = [
         strategy for strategy in raw_sets
         if portfolio_group_key(strategy.symbol, universe_files=[source.universe]) in allowed
@@ -225,7 +238,13 @@ def generate_monthly_proposals(
     warnings.extend(slice_warnings)
     if not monthly_sets:
         raise ValueError("Ningún candidato tiene trades para el mes objetivo")
-    minimum_trades = int(inputs["min_trades_2020_2026"])
+    return raw_sets, monthly_sets
+
+
+def _require_monthly_eligibility(
+    monthly_sets: list[Any], inputs: dict[str, Any], minimum_trades: int,
+    progress: Progress | None,
+) -> None:
     eligibility = monthly_eligibility_counts(monthly_sets, minimum_trades)
     eligibility_text = (
         f"Mes {int(inputs['target_month']):02d}: "
@@ -238,10 +257,16 @@ def generate_monthly_proposals(
             eligibility_text
             + ". Revise la cobertura temporal de IS/OOS y los filtros comunes UBS."
         )
-    existing = (
-        source.saved_curves(monthly=True, exclude_portfolio_id=exclude_portfolio_id)
-        if inputs.get("corr_with_monthly_portfolios") else []
-    )
+
+
+def _strict_monthly_validator(
+    raw_sets: list[Any], progress: Progress | None,
+) -> Callable[[list[dict[str, Any]], dict[str, Any]], list[dict[str, Any]]]:
+    """Deja pasar solo las propuestas que aguantan el mes objetivo cinco años.
+
+    Se valida con la curva entera, no con la recortada: la estacionalidad de
+    cinco años no se puede leer en un solo mes.
+    """
 
     def validate_strict(
         items: list[dict[str, Any]], attempt_inputs: dict[str, Any]
@@ -280,7 +305,18 @@ def generate_monthly_proposals(
             )
         return valid
 
-    attempt_warnings: list[str] = []
+    return validate_strict
+
+
+def _monthly_attempt_builder(
+    monthly_sets: list[Any],
+    raw_sets: list[Any],
+    existing: list[Any],
+    attempt_warnings: list[str],
+    validate_strict: Callable[[list[dict[str, Any]], dict[str, Any]], list[dict[str, Any]]],
+    progress: Progress | None,
+) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    """Un intento de calculo mensual, con su reintento sobre el pool estricto."""
 
     def build(attempt_inputs: dict[str, Any]) -> list[dict[str, Any]]:
         # Las advertencias del reintento estricto se acumulan por intento y solo
@@ -310,6 +346,43 @@ def generate_monthly_proposals(
             )
             return validate_strict(proposals, attempt_inputs)
 
+    return build
+
+
+def generate_monthly_proposals(
+    source: PortfolioSource,
+    inputs: dict[str, Any],
+    progress: Progress | None = None,
+    *,
+    exclude_portfolio_id: int | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if inputs.get("portfolio_scope") != "monthly":
+        raise ValueError("La lógica mensual sólo admite portfolio_scope=monthly")
+    # El modelo de margen medido (tramos por grupo, apalancamiento de cuenta y
+    # nocional real de AXI) lo construían solo UBS full y Grid. Sin él, la misma
+    # cuenta valida el margen con dos modelos distintos según la pantalla.
+    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
+    warnings: list[str] = []
+    rows, group_counts = _monthly_eligible_rows(source, inputs, warnings, progress)
+    used = (
+        source.used_set_paths("monthly", exclude_portfolio_id=exclude_portfolio_id)
+        if inputs.get("exclude_monthly_used") else []
+    )
+    availability = asdict(summarize_robust_rows(rows, used))
+    raw_sets, monthly_sets = _monthly_loaded_sets(
+        source, inputs, rows, used, warnings, progress
+    )
+    minimum_trades = int(inputs["min_trades_2020_2026"])
+    _require_monthly_eligibility(monthly_sets, inputs, minimum_trades, progress)
+    existing = (
+        source.saved_curves(monthly=True, exclude_portfolio_id=exclude_portfolio_id)
+        if inputs.get("corr_with_monthly_portfolios") else []
+    )
+    attempt_warnings: list[str] = []
+    build = _monthly_attempt_builder(
+        monthly_sets, raw_sets, existing, attempt_warnings,
+        _strict_monthly_validator(raw_sets, progress), progress,
+    )
     requested_valley_pct = float(inputs["valley_dd_pct"])
     proposals, auto_adjusted, applied_pct = _with_executable_valley_floor(
         build,
@@ -333,38 +406,21 @@ def generate_monthly_proposals(
     return availability, proposals
 
 
-def generate_monthly_completion_proposal(
+def _monthly_completion_pool(
     source: PortfolioSource,
-    portfolio_id: int,
     inputs: dict[str, Any],
-    progress: Progress | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
-    detail = source.saved_portfolio_detail(portfolio_id, "monthly")["portfolio"]
-    members = list(detail.get("members") or [])
-    target = max(int(detail.get("target_strategies") or 0), int(detail.get("active_strategies") or 0))
-    if target <= len(members):
-        raise ValueError("El portafolio ya tiene todas sus estrategias")
+    members: list[dict[str, Any]],
+    warnings: list[str],
+    progress: Progress | None,
+) -> tuple[list[Any], list[Any], list[dict[str, Any]], list[Any]]:
+    """Reconstruye lo que hay que conservar y el pool, y recorta al mes objetivo.
+
+    Devuelve ``(required, raw, rows, full)``: ``full`` conserva la curva entera,
+    que es lo que necesita la validacion estricta de cinco años.
+    """
     if progress:
         progress(f"1/6 · Reconstruyendo {len(members)} estrategias que deben conservarse")
-    required_rows = [{
-        "candidate_id": item.get("candidate_id"),
-        "set_path": item.get("set_path") or item.get("set_id"),
-        "symbol": item.get("symbol"),
-        "target_symbol": item.get("symbol"),
-        "period": item.get("timeframe"),
-        "family": "",
-        "is_report_path": item.get("is_report_path"),
-        "oos_report_path": item.get("oos_report_path"),
-        "final_tick_report_path": item.get("final_tick_report_path"),
-        "full_history_report_path": item.get("full_history_report_path"),
-        "max_balance_dd_001": item.get("max_balance_dd_001"),
-        "max_equity_dd_001": item.get("max_equity_dd_001"),
-        "floating_dd_source": item.get("floating_dd_source"),
-        "recent_net_profit_001": item.get("recent_net_profit_001"),
-        "recent_equity_dd_001": item.get("recent_equity_dd_001"),
-        "has_recent_performance": item.get("has_recent_performance"),
-    } for item in members]
+    required_rows = _allocation_source_rows(members)
     required_sets, required_warnings = load_robust_sets_from_rows(
         required_rows, [], parse=cached_report,
     )
@@ -373,7 +429,7 @@ def generate_monthly_completion_proposal(
     if progress:
         progress("2/6 · Aplicando filtros mensuales")
     rows = source.candidate_rows(include_quarantined=False)
-    warnings = list(required_warnings)
+    warnings.extend(required_warnings)
     if inputs.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(
             rows, min_positive_months=3, window_months=6, parse=cached_report,
@@ -405,55 +461,99 @@ def generate_monthly_completion_proposal(
     warnings.extend(found)
     by_id = {strategy.set_id: strategy for strategy in candidate_sets}
     by_id.update({strategy.set_id: strategy for strategy in required_sets})
-    raw_sets = list(by_id.values())
-    required_ids = [strategy.set_id for strategy in required_sets]
+    return required_sets, list(by_id.values()), rows, full_sets
+
+
+def _monthly_completion_kwargs(
+    source: PortfolioSource,
+    inputs: dict[str, Any],
+    portfolio_id: int,
+    members: list[dict[str, Any]],
+    required_sets: list[Any],
+    target: int,
+    reserve: float,
+) -> dict[str, Any]:
+    """Los topes del optimizador con la composicion actual clavada dentro."""
     saved_units = {
         str(item.get("set_path") or item.get("set_id") or ""): int(item.get("units") or 0)
         for item in members
     }
-    initial = {strategy.set_id: saved_units.get(strategy.set_id, 0) for strategy in required_sets}
-    portfolio_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
-    reserve = float(inputs.get("dd_reserve_pct") or 0)
     existing = (
         source.saved_curves(monthly=True, exclude_portfolio_id=portfolio_id)
         if inputs.get("corr_with_monthly_portfolios") else []
     )
-    kwargs = _optimizer_kwargs(inputs, portfolio_type, existing, reserve)
-    kwargs.update({
-        "required_set_ids": required_ids,
+    kwargs = _optimizer_kwargs(
+        inputs, PORTFOLIO_TYPES[str(inputs["portfolio_type"])], existing, reserve,
+    )
+    return optimizer_overrides(kwargs, **{
+        "required_set_ids": [strategy.set_id for strategy in required_sets],
         "minimum_active_strategies": target,
         "maximum_active_strategies": target,
-        "required_initial_allocations": initial,
+        "required_initial_allocations": {
+            strategy.set_id: saved_units.get(strategy.set_id, 0) for strategy in required_sets
+        },
         "preserve_required_allocations": True,
     })
+
+
+def _validate_monthly_completion(
+    result: PortfolioResult,
+    inputs: dict[str, Any],
+    full_sets: list[Any],
+    progress: Progress | None,
+) -> None:
+    """Comprueba la sustitucion mes a mes cuando la validacion estricta esta activa."""
+    if not inputs.get("strict_yearly_month_validation"):
+        if progress:
+            progress("6/6 · Preparando la sustitución mensual")
+        return
+    if progress:
+        progress("6/6 · Validando la sustitución sobre cinco años")
+    full_by_id = {strategy.set_id: strategy for strategy in full_sets}
+    units = {item.set_id: item.units for item in result.allocations if item.units > 0}
+    validation = validate_strict_monthly_portfolio(
+        [full_by_id[set_id] for set_id in units if set_id in full_by_id],
+        units,
+        target_month=int(inputs["target_month"]),
+        target_valley_dd=result.target_valley_dd,
+        target_point_dd=result.target_point_dd,
+        enforce_point_dd=False,
+        lookback_years=5,
+    )
+    result.seasonal_validation = validation
+    if not validation.get("passed"):
+        reasons = "; ".join(str(item) for item in (validation.get("reasons") or [])[:3])
+        raise ValueError("La sustitución no pasó la validación mensual estricta: " + reasons)
+
+
+def generate_monthly_completion_proposal(
+    source: PortfolioSource,
+    portfolio_id: int,
+    inputs: dict[str, Any],
+    progress: Progress | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    inputs = {**inputs, "margin_model": build_margin_model(source, inputs)}
+    detail = source.saved_portfolio_detail(portfolio_id, "monthly")["portfolio"]
+    members = list(detail.get("members") or [])
+    target = max(int(detail.get("target_strategies") or 0), int(detail.get("active_strategies") or 0))
+    if target <= len(members):
+        raise ValueError("El portafolio ya tiene todas sus estrategias")
+    warnings: list[str] = []
+    required_sets, raw_sets, rows, full_sets = _monthly_completion_pool(
+        source, inputs, members, warnings, progress
+    )
+    reserve = float(inputs.get("dd_reserve_pct") or 0)
+    kwargs = _monthly_completion_kwargs(
+        source, inputs, portfolio_id, members, required_sets, target, reserve
+    )
     if progress:
         progress(f"5/6 · Buscando sustituta para completar {len(members)}/{target}")
     result = optimize_portfolio(
         raw_sets=raw_sets,
-        use_deep_refinement=bool(inputs.get("deep_optimization")),
-        **kwargs,
+        **{**kwargs, "search": kwargs["search"].with_deep_refinement(bool(inputs.get("deep_optimization")))},
     )
     _seasonal_coverage(result, raw_sets)
-    if inputs.get("strict_yearly_month_validation"):
-        if progress:
-            progress("6/6 · Validando la sustitución sobre cinco años")
-        full_by_id = {strategy.set_id: strategy for strategy in full_sets}
-        units = {item.set_id: item.units for item in result.allocations if item.units > 0}
-        validation = validate_strict_monthly_portfolio(
-            [full_by_id[set_id] for set_id in units if set_id in full_by_id],
-            units,
-            target_month=int(inputs["target_month"]),
-            target_valley_dd=result.target_valley_dd,
-            target_point_dd=result.target_point_dd,
-            enforce_point_dd=False,
-            lookback_years=5,
-        )
-        result.seasonal_validation = validation
-        if not validation.get("passed"):
-            reasons = "; ".join(str(item) for item in (validation.get("reasons") or [])[:3])
-            raise ValueError("La sustitución no pasó la validación mensual estricta: " + reasons)
-    elif progress:
-        progress("6/6 · Preparando la sustitución mensual")
+    _validate_monthly_completion(result, inputs, full_sets, progress)
     result.warnings[:0] = warnings
     if result.active_strategies < target:
         raise ValueError(

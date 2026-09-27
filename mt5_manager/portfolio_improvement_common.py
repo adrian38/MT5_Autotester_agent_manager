@@ -176,17 +176,28 @@ def _max_or_zero(values: Iterable[float]) -> float:
     return max((float(value) for value in values), default=0.0)
 
 
-def validate_and_attach_improvement_audit(
-    *,
+@dataclass(frozen=True)
+class _ImprovementMembers:
+    original_set: set[str]
+    added_ids: list[str]
+    by_id: dict[str, RobustStrategySet]
+    originals: list[RobustStrategySet]
+    active_sets: list[RobustStrategySet]
+
+
+@dataclass(frozen=True)
+class _CorrelationLimits:
+    pearson: float
+    downside: float
+    overlap: float
+
+
+def _improvement_members(
     result: PortfolioResult,
-    baseline: PortfolioEvaluation,
     all_sets: Sequence[RobustStrategySet],
     original_ids: Sequence[str],
     options: ImprovementOptions,
-    inputs: dict[str, Any],
-    scope: str,
-    minimum_gain_pct: float | None = None,
-) -> dict[str, Any]:
+) -> _ImprovementMembers:
     active_ids = {
         allocation.set_id for allocation in result.allocations if allocation.units > 0
     }
@@ -203,73 +214,90 @@ def validate_and_attach_improvement_audit(
             "La mejora debe añadir al menos una estrategia y no superar el máximo "
             f"de {options.max_additions}; añadió {len(added_ids)}"
         )
-
     by_id = {strategy.set_id: strategy for strategy in all_sets}
-    originals = [by_id[set_id] for set_id in original_ids if set_id in by_id]
-    active_sets = [by_id[set_id] for set_id in active_ids if set_id in by_id]
-    max_pair = float(inputs.get("max_pair_corr") if inputs.get("max_pair_corr") is not None else 0.35)
-    max_downside = float(
-        inputs.get("max_downside_corr")
-        if inputs.get("max_downside_corr") is not None
-        else 0.25
+    return _ImprovementMembers(
+        original_set=original_set,
+        added_ids=added_ids,
+        by_id=by_id,
+        originals=[by_id[set_id] for set_id in original_ids if set_id in by_id],
+        active_sets=[by_id[set_id] for set_id in active_ids if set_id in by_id],
     )
-    max_overlap = float(
-        inputs.get("max_dd_overlap")
-        if inputs.get("max_dd_overlap") is not None
-        else 0.35
-    )
-    candidate_audit: list[dict[str, Any]] = []
-    for added_id in added_ids:
-        strategy = by_id.get(added_id)
-        if strategy is None:
-            raise ValueError(f"No se pudo auditar la estrategia nueva {Path(added_id).name}")
-        if not strategy.has_recent_performance or strategy.recent_net_profit_001 <= 0:
-            raise ValueError(
-                f"{Path(added_id).name} no aporta beneficio positivo en Final Tick 6M"
-            )
-        peers = [peer for peer in active_sets if peer.set_id != added_id]
-        pairs = [strategy_correlation_pair(strategy, peer) for peer in peers]
-        pearson = _max_or_zero(max(pair.pearson_corr, 0.0) for pair in pairs)
-        downside = _max_or_zero(max(pair.downside_corr, 0.0) for pair in pairs)
-        overlap = _max_or_zero(pair.dd_overlap for pair in pairs)
-        if pearson > max_pair + 1e-9 or downside > max_downside + 1e-9 or overlap > max_overlap + 1e-9:
-            raise ValueError(
-                f"{Path(added_id).name} no justifica su diversificación: "
-                f"corr {pearson:.2f}/{max_pair:.2f}, downside {downside:.2f}/{max_downside:.2f}, "
-                f"solapamiento DD {overlap:.2f}/{max_overlap:.2f}"
-            )
-        same_symbol = any(
-            portfolio_symbol_key(peer.symbol) == portfolio_symbol_key(strategy.symbol)
-            for peer in originals
-        )
-        if same_symbol and not options.allow_same_symbol:
-            raise ValueError(
-                f"{Path(added_id).name} repite símbolo y la opción no está marcada"
-            )
-        candidate_audit.append(
-            {
-                "set_id": added_id,
-                "set_name": Path(added_id).name,
-                "symbol": strategy.symbol,
-                "same_symbol_as_original": same_symbol,
-                "recent_net_profit_001": round(float(strategy.recent_net_profit_001), 6),
-                "max_pearson_corr": round(pearson, 6),
-                "max_downside_corr": round(downside, 6),
-                "max_dd_overlap": round(overlap, 6),
-                "justification": (
-                    "Mismo símbolo aceptado por baja dependencia"
-                    if same_symbol
-                    else "Nueva exposición aceptada por baja dependencia"
-                ),
-            }
-        )
 
-    baseline_efficiency = portfolio_efficiency(
-        baseline.total_net_profit, baseline.valley_dd
+
+def _correlation_limits(inputs: dict[str, Any]) -> _CorrelationLimits:
+    return _CorrelationLimits(
+        pearson=float(
+            inputs.get("max_pair_corr")
+            if inputs.get("max_pair_corr") is not None else 0.35
+        ),
+        downside=float(
+            inputs.get("max_downside_corr")
+            if inputs.get("max_downside_corr") is not None else 0.25
+        ),
+        overlap=float(
+            inputs.get("max_dd_overlap")
+            if inputs.get("max_dd_overlap") is not None else 0.35
+        ),
     )
-    improved_efficiency = portfolio_efficiency(
-        result.total_net_profit, result.actual_valley_dd
+
+
+def _candidate_improvement_audit(
+    added_id: str,
+    members: _ImprovementMembers,
+    options: ImprovementOptions,
+    limits: _CorrelationLimits,
+) -> dict[str, Any]:
+    strategy = members.by_id.get(added_id)
+    if strategy is None:
+        raise ValueError(f"No se pudo auditar la estrategia nueva {Path(added_id).name}")
+    if not strategy.has_recent_performance or strategy.recent_net_profit_001 <= 0:
+        raise ValueError(f"{Path(added_id).name} no aporta beneficio positivo en Final Tick 6M")
+    peers = [peer for peer in members.active_sets if peer.set_id != added_id]
+    pairs = [strategy_correlation_pair(strategy, peer) for peer in peers]
+    pearson = _max_or_zero(max(pair.pearson_corr, 0.0) for pair in pairs)
+    downside = _max_or_zero(max(pair.downside_corr, 0.0) for pair in pairs)
+    overlap = _max_or_zero(pair.dd_overlap for pair in pairs)
+    if (
+        pearson > limits.pearson + 1e-9
+        or downside > limits.downside + 1e-9
+        or overlap > limits.overlap + 1e-9
+    ):
+        raise ValueError(
+            f"{Path(added_id).name} no justifica su diversificación: "
+            f"corr {pearson:.2f}/{limits.pearson:.2f}, "
+            f"downside {downside:.2f}/{limits.downside:.2f}, "
+            f"solapamiento DD {overlap:.2f}/{limits.overlap:.2f}"
+        )
+    same_symbol = any(
+        portfolio_symbol_key(peer.symbol) == portfolio_symbol_key(strategy.symbol)
+        for peer in members.originals
     )
+    if same_symbol and not options.allow_same_symbol:
+        raise ValueError(f"{Path(added_id).name} repite símbolo y la opción no está marcada")
+    return {
+        "set_id": added_id,
+        "set_name": Path(added_id).name,
+        "symbol": strategy.symbol,
+        "same_symbol_as_original": same_symbol,
+        "recent_net_profit_001": round(float(strategy.recent_net_profit_001), 6),
+        "max_pearson_corr": round(pearson, 6),
+        "max_downside_corr": round(downside, 6),
+        "max_dd_overlap": round(overlap, 6),
+        "justification": (
+            "Mismo símbolo aceptado por baja dependencia"
+            if same_symbol else "Nueva exposición aceptada por baja dependencia"
+        ),
+    }
+
+
+def _improvement_efficiency(
+    result: PortfolioResult,
+    baseline: PortfolioEvaluation,
+    options: ImprovementOptions,
+    minimum_gain_pct: float | None,
+) -> tuple[float, float, float, float]:
+    baseline_efficiency = portfolio_efficiency(baseline.total_net_profit, baseline.valley_dd)
+    improved_efficiency = portfolio_efficiency(result.total_net_profit, result.actual_valley_dd)
     if baseline_efficiency > 0:
         gain_pct = (improved_efficiency / baseline_efficiency - 1.0) * 100.0
     elif result.total_net_profit > baseline.total_net_profit:
@@ -278,8 +306,7 @@ def validate_and_attach_improvement_audit(
         gain_pct = -100.0
     required_gain = (
         options.min_efficiency_gain_pct
-        if minimum_gain_pct is None
-        else float(minimum_gain_pct)
+        if minimum_gain_pct is None else float(minimum_gain_pct)
     )
     if gain_pct + 1e-9 < required_gain:
         raise ValueError(
@@ -288,17 +315,26 @@ def validate_and_attach_improvement_audit(
         )
     if result.actual_valley_dd > result.target_valley_dd + 1e-9:
         raise ValueError("La propuesta mejorada supera el DD valle permitido")
+    return baseline_efficiency, improved_efficiency, gain_pct, required_gain
 
-    audit = {
-        "scope": scope,
-        "verdict": "ACEPTADA",
-        "originals_locked": True,
-        "original_count": len(original_set),
-        "removed_original_ids": [],
-        "added_count": len(added_ids),
-        "maximum_additions": options.max_additions,
-        "added_set_ids": added_ids,
-        "exclude_used_sets": options.exclude_used_sets,
+
+def _improvement_audit_payload(
+    *,
+    result: PortfolioResult,
+    baseline: PortfolioEvaluation,
+    members: _ImprovementMembers,
+    options: ImprovementOptions,
+    scope: str,
+    limits: _CorrelationLimits,
+    candidate_audit: list[dict[str, Any]],
+    efficiencies: tuple[float, float, float, float],
+) -> dict[str, Any]:
+    baseline_efficiency, improved_efficiency, gain_pct, required_gain = efficiencies
+    return {
+        "scope": scope, "verdict": "ACEPTADA", "originals_locked": True,
+        "original_count": len(members.original_set), "removed_original_ids": [],
+        "added_count": len(members.added_ids), "maximum_additions": options.max_additions,
+        "added_set_ids": members.added_ids, "exclude_used_sets": options.exclude_used_sets,
         "allow_same_symbol": options.allow_same_symbol,
         "baseline": {
             "net_profit": round(float(baseline.total_net_profit), 6),
@@ -313,18 +349,43 @@ def validate_and_attach_improvement_audit(
         "efficiency_gain_pct": round(float(gain_pct), 6),
         "minimum_efficiency_gain_pct": round(float(required_gain), 6),
         "correlation_limits": {
-            "pearson": max_pair,
-            "downside": max_downside,
-            "drawdown_overlap": max_overlap,
+            "pearson": limits.pearson,
+            "downside": limits.downside,
+            "drawdown_overlap": limits.overlap,
         },
         "candidates": candidate_audit,
     }
+
+
+def validate_and_attach_improvement_audit(
+    *,
+    result: PortfolioResult,
+    baseline: PortfolioEvaluation,
+    all_sets: Sequence[RobustStrategySet],
+    original_ids: Sequence[str],
+    options: ImprovementOptions,
+    inputs: dict[str, Any],
+    scope: str,
+    minimum_gain_pct: float | None = None,
+) -> dict[str, Any]:
+    members = _improvement_members(result, all_sets, original_ids, options)
+    limits = _correlation_limits(inputs)
+    candidate_audit = [
+        _candidate_improvement_audit(added_id, members, options, limits)
+        for added_id in members.added_ids
+    ]
+    efficiencies = _improvement_efficiency(result, baseline, options, minimum_gain_pct)
+    audit = _improvement_audit_payload(
+        result=result, baseline=baseline, members=members, options=options,
+        scope=scope, limits=limits, candidate_audit=candidate_audit,
+        efficiencies=efficiencies,
+    )
     result.seasonal_validation = dict(result.seasonal_validation or {})
     result.seasonal_validation["portfolio_improvement"] = audit
     result.warnings.insert(
         0,
         "Mejora controlada: "
-        f"{len(original_set)} originales bloqueadas, {len(added_ids)} nueva(s), "
-        f"beneficio/DD {gain_pct:+.2f}%.",
+        f"{len(members.original_set)} originales bloqueadas, "
+        f"{len(members.added_ids)} nueva(s), beneficio/DD {efficiencies[2]:+.2f}%.",
     )
     return audit

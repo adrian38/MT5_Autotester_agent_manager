@@ -18,4 +18,4 @@ class PortfolioComparisonTests(unittest.TestCase):
         self.assertIn('id="detail-compare-original"', page)
         self.assertIn('src="/portfolio_comparison.js"', page)
         self.assertNotIn('portfolio_comparison.js', monthly)
-        self.assertIn('"portfolio_comparison.js"', (root / "manager.py").read_text(encoding="utf-8"))
+        self.assertIn('"portfolio_comparison.js"', (root / "manager_handler.py").read_text(encoding="utf-8"))

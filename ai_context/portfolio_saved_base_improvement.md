@@ -288,7 +288,26 @@ Es la misma guarda mecánica que `test_node_runtime_fork_parity.py`, por la mism
 razón: un fork sin guarda deriva en silencio.
 
 Coste asumido: ~800 líneas duplicadas. La alternativa era tocar el motor que ya
-funciona.
+funcionaba.
+
+### Capas internas de los dos motores (refactor 2026-09-22)
+
+La separación base/cadena sigue siendo física y deliberada, pero cada fork se
+divide internamente en tres capas para cumplir los techos de lectura:
+
+| Base | Cadena | Responsabilidad |
+| --- | --- | --- |
+| `portfolio_improvement_support.py` | `portfolio_improvement_chain_support.py` | opciones, reconstrucción del pool, ranking y estrés |
+| `portfolio_improvement_attempt.py` | `portfolio_improvement_chain_attempt.py` | selección, reintentos, evaluación, auditoría y propuesta de un tamaño |
+| `portfolio_improvement_service.py` | `portfolio_improvement_chain_service.py` | fachada pública y comparación entre cantidades |
+
+Las fachadas reexportan los nombres históricos. Los tests que sustituyen
+dependencias internas deben parchear el módulo consumidor (`*_support` para la
+carga/estrés y `*_attempt` para optimizador, margen y evaluación), no el
+reexport de la fachada. La guarda de paridad compara ahora diecisiete helpers
+de soporte y trece pasos del intento entre ambos forks. Doce funciones movidas
+sin cambios conservan AST idéntico; intento y búsqueda exterior se compararon
+diferencialmente contra `HEAD` en salida, metadatos y llamadas al optimizador.
 
 Lo ejecuta el manager; el nodo sólo persiste los inputs serializados, así que
 **no requiere port a `manager_node_runtime/`**. El mensual sigue congelado y no

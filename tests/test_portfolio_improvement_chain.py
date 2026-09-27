@@ -10,9 +10,13 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
+from mt5_manager import portfolio_improvement_attempt as base_attempt
+from mt5_manager import portfolio_improvement_chain_attempt as chain_attempt
 from mt5_manager import portfolio_improvement_chain_service as chain
+from mt5_manager import portfolio_improvement_chain_support as chain_support
 from mt5_manager import portfolio_improvement_dispatch as dispatch
 from mt5_manager import portfolio_improvement_service as base
+from mt5_manager import portfolio_improvement_support as base_support
 from mt5_manager.portfolio_service import normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
 
@@ -162,14 +166,14 @@ class ChainFillerRetryTests(unittest.TestCase):
     def run_attempt(self, optimize_results, **extra):
         source = single_mode_source()
         sets = self.pool()
-        with patch.object(chain, "_load_full_history_improvement_pool",
+        with patch.object(chain_attempt, "_load_full_history_improvement_pool",
                           return_value=(sets[:1], sets, [], [], [])), \
-             patch.object(chain, "build_margin_model", return_value=None), \
-             patch.object(chain, "optimize_portfolio", side_effect=optimize_results) as optimize, \
-             patch.object(chain, "evaluate_portfolio") as baseline, \
-             patch.object(chain, "validate_and_attach_improvement_audit",
+             patch.object(chain_attempt, "build_margin_model", return_value=None), \
+             patch.object(chain_attempt, "optimize_portfolio", side_effect=optimize_results) as optimize, \
+             patch.object(chain_attempt, "evaluate_portfolio") as baseline, \
+             patch.object(chain_attempt, "validate_and_attach_improvement_audit",
                           return_value={"added_count": 1}), \
-             patch.object(chain, "_seasonal_coverage"):
+             patch.object(chain_attempt, "_seasonal_coverage"):
             availability, proposals = chain._generate_full_history_improvement_attempt(
                 source, 82, chain_inputs(**extra),
             )
@@ -209,11 +213,11 @@ class ChainFillerRetryTests(unittest.TestCase):
         for set_id in bad_ids:
             bad = allocation(set_id, "USDJPY", 1)
             optimize_results.extend([result_for([old, bad]), result_for([old, bad])])
-        with patch.object(chain, "_load_full_history_improvement_pool",
+        with patch.object(chain_attempt, "_load_full_history_improvement_pool",
                           return_value=(sets[:1], sets, [], [], [])), \
-             patch.object(chain, "build_margin_model", return_value=None), \
-             patch.object(chain, "optimize_portfolio", side_effect=optimize_results) as optimize, \
-             patch.object(chain, "evaluate_portfolio") as baseline:
+             patch.object(chain_attempt, "build_margin_model", return_value=None), \
+             patch.object(chain_attempt, "optimize_portfolio", side_effect=optimize_results) as optimize, \
+             patch.object(chain_attempt, "evaluate_portfolio") as baseline:
             with self.assertRaisesRegex(ValueError, "tras 3 reintento\\(s\\).*Baja ese mínimo"):
                 chain._generate_full_history_improvement_attempt(
                     source, 82, chain_inputs(min_strategy_recent_contribution_pct=5),
@@ -235,11 +239,11 @@ class ChainFillerRetryTests(unittest.TestCase):
         old, bad = allocation(OLD, "EURUSD", 1000), allocation(BAD, "USDJPY", 1)
         source = single_mode_source()
         sets = [NS(set_id=OLD), NS(set_id=BAD)]
-        with patch.object(chain, "_load_full_history_improvement_pool",
+        with patch.object(chain_attempt, "_load_full_history_improvement_pool",
                           return_value=(sets[:1], sets, [], [], [])), \
-             patch.object(chain, "build_margin_model", return_value=None), \
-             patch.object(chain, "optimize_portfolio", return_value=result_for([old, bad])), \
-             patch.object(chain, "evaluate_portfolio"):
+             patch.object(chain_attempt, "build_margin_model", return_value=None), \
+             patch.object(chain_attempt, "optimize_portfolio", return_value=result_for([old, bad])), \
+             patch.object(chain_attempt, "evaluate_portfolio"):
             # La causa es el umbral, no que falten candidatas en el pool.
             with self.assertRaisesRegex(
                 ValueError, "aporte mínimo Final Tick 6M de 5.0%.*agotaron.*tras vetar 1"
@@ -259,14 +263,14 @@ class BaseEngineThresholdTests(unittest.TestCase):
                   saved_curves=Mock(return_value=[]))
 
     def run_attempt(self, optimize_results, sets, **extra):
-        with patch.object(base, "_load_full_history_improvement_pool",
+        with patch.object(base_attempt, "_load_full_history_improvement_pool",
                           return_value=(sets[:1], sets, [], [], [])), \
-             patch.object(base, "build_margin_model", return_value=None), \
-             patch.object(base, "optimize_portfolio", side_effect=optimize_results) as optimize, \
-             patch.object(base, "evaluate_portfolio") as baseline, \
-             patch.object(base, "validate_and_attach_improvement_audit",
+             patch.object(base_attempt, "build_margin_model", return_value=None), \
+             patch.object(base_attempt, "optimize_portfolio", side_effect=optimize_results) as optimize, \
+             patch.object(base_attempt, "evaluate_portfolio") as baseline, \
+             patch.object(base_attempt, "validate_and_attach_improvement_audit",
                           return_value={"added_count": 1}), \
-             patch.object(base, "_seasonal_coverage"):
+             patch.object(base_attempt, "_seasonal_coverage"):
             availability, proposals = base._generate_full_history_improvement_attempt(
                 self.base_source(), 9, chain_inputs(**extra),
             )
@@ -341,7 +345,27 @@ class ChainForkParityTests(unittest.TestCase):
         "_improvement_rank",
         "_selected_variant_detail",
         "_saved_single_mode",
+        "_stress_direction",
+        "_stress_comparison_payload",
+        "_load_original_improvement_sets",
+        "_candidate_rows_for_improvement",
         "_load_full_history_improvement_pool",
+    )
+
+    ATTEMPT_SHARED = (
+        "_merged_attempt_inputs",
+        "_attempt_context",
+        "_available_pool",
+        "_selection_kwargs",
+        "_select_composition",
+        "_optimize_selected",
+        "_search_valid_composition",
+        "_baseline",
+        "_source_snapshot",
+        "_attach_attempt_audit",
+        "_proposal",
+        "_availability",
+        "_generate_full_history_improvement_attempt",
     )
 
     def test_both_engines_filter_disabled_symbols_only_from_new_candidates(self):
@@ -365,11 +389,11 @@ class ChainForkParityTests(unittest.TestCase):
             "improvement_disabled_symbols": ["EURUSD", "GBPUSD"],
         }
 
-        for engine in (base, chain):
+        for engine, support in ((base, base_support), (chain, chain_support)):
             with self.subTest(engine=engine.__name__), \
-                    patch.object(engine, "load_robust_sets_from_rows") as loader, \
-                    patch.object(engine, "recent_positive_candidates", side_effect=lambda sets, ids: sets), \
-                    patch.object(engine, "member_rows", return_value=[{"set_path": OLD}]):
+                    patch.object(support, "load_robust_sets_from_rows") as loader, \
+                    patch.object(support, "recent_positive_candidates", side_effect=lambda sets, ids: sets), \
+                    patch.object(support, "member_rows", return_value=[{"set_path": OLD}]):
                 loader.side_effect = [([original], []), ([candidate], [])]
                 originals, pool, kept_rows, _used, _warnings = (
                     engine._load_full_history_improvement_pool(
@@ -403,8 +427,8 @@ class ChainForkParityTests(unittest.TestCase):
 
     def test_shared_helpers_are_identical_in_both_engines(self):
         root = Path(__file__).resolve().parents[1] / "mt5_manager"
-        left = self.bodies(root / "portfolio_improvement_service.py")
-        right = self.bodies(root / "portfolio_improvement_chain_service.py")
+        left = self.bodies(root / "portfolio_improvement_support.py")
+        right = self.bodies(root / "portfolio_improvement_chain_support.py")
         for name in self.SHARED:
             with self.subTest(name=name):
                 self.assertIn(name, left)
@@ -424,14 +448,14 @@ class ChainForkParityTests(unittest.TestCase):
         quita a conciencia y se documenta por qué.
         """
         root = Path(__file__).resolve().parents[1] / "mt5_manager"
-        name = "_generate_full_history_improvement_attempt"
-        left = self.bodies(root / "portfolio_improvement_service.py")[name]
-        right = self.bodies(root / "portfolio_improvement_chain_service.py")[name]
-        self.assertEqual(
-            left.replace("'base'", "'engine'"),
-            right.replace("'chain'", "'engine'"),
-            "los dos intentos divergieron; porta el arreglo o documenta la separación",
-        )
+        left = self.bodies(root / "portfolio_improvement_attempt.py")
+        right = self.bodies(root / "portfolio_improvement_chain_attempt.py")
+        for name in self.ATTEMPT_SHARED:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    left[name], right[name],
+                    "los dos intentos divergieron; porta el arreglo o documenta la separación",
+                )
 
     def test_the_constants_match(self):
         self.assertEqual(base.MAX_IMPROVEMENT_ADDITIONS, chain.MAX_IMPROVEMENT_ADDITIONS)

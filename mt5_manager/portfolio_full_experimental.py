@@ -292,9 +292,48 @@ def _optimize_exact_pool(
     exact_kwargs["max_total_candidates"] = None
     return optimize_portfolio(
         raw_sets=candidate_pool,
-        use_deep_refinement=bool(use_deep_refinement),
-        **exact_kwargs,
+        **{**exact_kwargs, "search": exact_kwargs["search"].with_deep_refinement(bool(use_deep_refinement))},
     )
+
+
+def _refill_without_fillers(
+    pool: list[RobustStrategySet],
+    removed: set[str],
+    fillers: set[str],
+    refinement_kwargs: dict[str, Any],
+    progress: Progress | None,
+) -> tuple[PortfolioResult, list[RobustStrategySet]]:
+    """Reoptimiza el lote ganador menos los rellenos, y devuelve el lote nuevo."""
+    candidates = [
+        strategy for strategy in pool
+        if _strategy_id(strategy) not in removed | fillers
+    ]
+    if len(candidates) >= len(pool):
+        raise ValueError(
+            "La regla antirrelleno experimental no redujo el lote ganador."
+        )
+    if not candidates:
+        raise ValueError(
+            "La regla antirrelleno experimental agotó el lote ganador."
+        )
+    if progress:
+        progress(
+            "Búsqueda experimental UBS: "
+            f"{len(fillers)} relleno(s) 6M fuera; reoptimizando "
+            f"{len(candidates)} candidato(s) del lote ganador"
+        )
+    try:
+        refreshed = _optimize_exact_pool(
+            candidates,
+            use_deep_refinement=False,
+            optimizer_kwargs=refinement_kwargs,
+        )
+    except Exception as exc:
+        raise ValueError(
+            "La búsqueda experimental no encontró una reposición viable "
+            "para los rellenos 6M."
+        ) from exc
+    return refreshed, candidates
 
 
 def _refined_without_recent_fillers(
@@ -327,48 +366,18 @@ def _refined_without_recent_fillers(
     pool = list(candidate_pool)
     removed: set[str] = set()
     current = result
-    retry_budget = min(len(pool), EXPERIMENTAL_FULL_ANTIFILLER_RETRIES)
     refinement_kwargs = dict(optimizer_kwargs)
     refinement_kwargs["search_restarts"] = 0
     refinement_kwargs["run_local_search"] = False
-    for _attempt in range(retry_budget):
+    for _attempt in range(min(len(pool), EXPERIMENTAL_FULL_ANTIFILLER_RETRIES)):
         fillers = set(recent_filler_ids(current))
         if not fillers:
             return current, removed
-        candidates = [
-            strategy for strategy in pool
-            if _strategy_id(strategy) not in removed | fillers
-        ]
-        if len(candidates) >= len(pool):
-            raise ValueError(
-                "La regla antirrelleno experimental no redujo el lote ganador."
-            )
-        if not candidates:
-            raise ValueError(
-                "La regla antirrelleno experimental agotó el lote ganador."
-            )
-        if progress:
-            progress(
-                "Búsqueda experimental UBS: "
-                f"{len(fillers)} relleno(s) 6M fuera; reoptimizando "
-                f"{len(candidates)} candidato(s) del lote ganador"
-            )
-        try:
-            refreshed = _optimize_exact_pool(
-                candidates,
-                use_deep_refinement=False,
-                optimizer_kwargs=refinement_kwargs,
-            )
-        except Exception as exc:
-            raise ValueError(
-                "La búsqueda experimental no encontró una reposición viable "
-                "para los rellenos 6M."
-            ) from exc
+        current, pool = _refill_without_fillers(
+            pool, removed, fillers, refinement_kwargs, progress
+        )
         removed |= fillers
-        pool = candidates
-        current = refreshed
-    remaining = set(recent_filler_ids(current))
-    if remaining:
+    if set(recent_filler_ids(current)):
         raise ValueError(
             "La búsqueda experimental agotó su lote sin eliminar todos los "
             "rellenos 6M."
@@ -376,10 +385,9 @@ def _refined_without_recent_fillers(
     return current, removed
 
 
-def _segment_stability_audit(
-    result: PortfolioResult,
-    candidate_pool: Sequence[RobustStrategySet],
-) -> dict[str, object]:
+def _active_stability_rows(
+    result: PortfolioResult, candidate_pool: Sequence[RobustStrategySet]
+) -> tuple[dict[str, RobustStrategySet], list[Any]]:
     by_id = {
         _strategy_id(strategy): strategy for strategy in candidate_pool
     }
@@ -389,6 +397,98 @@ def _segment_stability_audit(
         if int(allocation.units) > 0
         and str(allocation.set_id) in by_id
     ]
+    return by_id, active
+
+
+def _period_stability_metrics(
+    active: list[Any],
+    by_id: dict[str, RobustStrategySet],
+    attribute: str,
+) -> dict[str, object]:
+    rows = [
+        (by_id[str(allocation.set_id)], int(allocation.units))
+        for allocation in active
+    ]
+    nets = [
+        float(getattr(strategy, attribute).net_profit_001)
+        for strategy, _units in rows
+    ]
+    weighted_net = sum(
+        float(getattr(strategy, attribute).net_profit_001) * units
+        for strategy, units in rows
+    )
+    positive = sum(net > 0 for net in nets)
+    years = max(
+        _period_years(getattr(strategy, attribute))
+        for strategy, _units in rows
+    )
+    return {
+        "net_profit_001": weighted_net,
+        "annualized_net_profit_001": weighted_net / years,
+        "positive_strategies": positive,
+        "strategy_count": len(rows),
+        "positive_rate": positive / len(rows),
+        "years": years,
+    }
+
+
+def _recent_stability_metrics(
+    active: list[Any], by_id: dict[str, RobustStrategySet]
+) -> tuple[dict[str, object], bool]:
+    rows = [
+        (by_id[str(allocation.set_id)], int(allocation.units))
+        for allocation in active
+        if by_id[str(allocation.set_id)].has_recent_performance
+    ]
+    positive = sum(
+        float(strategy.recent_net_profit_001) > 0
+        for strategy, _units in rows
+    )
+    net = sum(
+        float(strategy.recent_net_profit_001) * units
+        for strategy, units in rows
+    )
+    dd = sum(
+        max(float(strategy.recent_equity_dd_001), 0.0) * units
+        for strategy, units in rows
+    )
+    return {
+        "net_profit_001": net,
+        "equity_dd_001": dd,
+        "recovery_ratio": net / max(dd, 1.0),
+        "positive_strategies": positive,
+        "strategy_count": len(rows),
+        "positive_rate": positive / len(rows) if rows else 0.0,
+        "coverage_rate": len(rows) / len(active),
+    }, bool(rows)
+
+
+def _stability_passed(
+    in_sample: dict[str, object],
+    out_of_sample: dict[str, object],
+    recent: dict[str, object],
+    has_recent: bool,
+    annualized_ratio: float,
+) -> bool:
+    recent_passed = not has_recent or (
+        float(recent["net_profit_001"]) > 0
+        and float(recent["positive_rate"]) >= 0.5
+    )
+    return (
+        float(in_sample["net_profit_001"]) > 0
+        and float(out_of_sample["net_profit_001"]) > 0
+        and float(in_sample["positive_rate"]) >= 0.6
+        and float(out_of_sample["positive_rate"]) >= 0.6
+        and 0.2 <= annualized_ratio <= 5.0
+        and recent_passed
+    )
+
+
+def _segment_stability_audit(
+    result: PortfolioResult,
+    candidate_pool: Sequence[RobustStrategySet],
+) -> dict[str, object]:
+    by_id, active = _active_stability_rows(result, candidate_pool)
     if not active:
         return {
             "status": "no_active_allocations",
@@ -396,71 +496,9 @@ def _segment_stability_audit(
             "segments": {},
         }
 
-    def period_metrics(attribute: str) -> dict[str, object]:
-        rows = [
-            (
-                by_id[str(allocation.set_id)],
-                int(allocation.units),
-            )
-            for allocation in active
-        ]
-        nets = [
-            float(getattr(strategy, attribute).net_profit_001)
-            for strategy, _units in rows
-        ]
-        weighted_net = sum(
-            float(getattr(strategy, attribute).net_profit_001) * units
-            for strategy, units in rows
-        )
-        positive = sum(net > 0 for net in nets)
-        years = max(
-            _period_years(getattr(strategy, attribute))
-            for strategy, _units in rows
-        )
-        return {
-            "net_profit_001": weighted_net,
-            "annualized_net_profit_001": weighted_net / years,
-            "positive_strategies": positive,
-            "strategy_count": len(rows),
-            "positive_rate": positive / len(rows),
-            "years": years,
-        }
-
-    in_sample = period_metrics("report_2020_2024")
-    out_of_sample = period_metrics("report_2025_2026")
-    recent_rows = [
-        (
-            by_id[str(allocation.set_id)],
-            int(allocation.units),
-        )
-        for allocation in active
-        if by_id[str(allocation.set_id)].has_recent_performance
-    ]
-    recent_positive = sum(
-        float(strategy.recent_net_profit_001) > 0
-        for strategy, _units in recent_rows
-    )
-    recent_net = sum(
-        float(strategy.recent_net_profit_001) * units
-        for strategy, units in recent_rows
-    )
-    recent_dd = sum(
-        max(float(strategy.recent_equity_dd_001), 0.0) * units
-        for strategy, units in recent_rows
-    )
-    recent = {
-        "net_profit_001": recent_net,
-        "equity_dd_001": recent_dd,
-        "recovery_ratio": recent_net / max(recent_dd, 1.0),
-        "positive_strategies": recent_positive,
-        "strategy_count": len(recent_rows),
-        "positive_rate": (
-            recent_positive / len(recent_rows)
-            if recent_rows
-            else 0.0
-        ),
-        "coverage_rate": len(recent_rows) / len(active),
-    }
+    in_sample = _period_stability_metrics(active, by_id, "report_2020_2024")
+    out_of_sample = _period_stability_metrics(active, by_id, "report_2025_2026")
+    recent, has_recent = _recent_stability_metrics(active, by_id)
     in_annual = float(in_sample["annualized_net_profit_001"])
     out_annual = float(out_of_sample["annualized_net_profit_001"])
     annualized_ratio = (
@@ -468,20 +506,8 @@ def _segment_stability_audit(
         if in_annual > 0
         else 0.0
     )
-    recent_passed = (
-        not recent_rows
-        or (
-            recent_net > 0
-            and float(recent["positive_rate"]) >= 0.5
-        )
-    )
-    passed = (
-        float(in_sample["net_profit_001"]) > 0
-        and float(out_of_sample["net_profit_001"]) > 0
-        and float(in_sample["positive_rate"]) >= 0.6
-        and float(out_of_sample["positive_rate"]) >= 0.6
-        and 0.2 <= annualized_ratio <= 5.0
-        and recent_passed
+    passed = _stability_passed(
+        in_sample, out_of_sample, recent, has_recent, annualized_ratio
     )
     return {
         "status": "completed",
@@ -496,261 +522,4 @@ def _segment_stability_audit(
     }
 
 
-def optimize_experimental_full_portfolio(
-    *,
-    raw_sets: list[RobustStrategySet],
-    use_deep_refinement: bool,
-    progress: Progress | None = None,
-    recent_filler_ids: Callable[[PortfolioResult], set[str]] | None = None,
-    **optimizer_kwargs: Any,
-) -> PortfolioResult:
-    """Evaluate every eligible full-history strategy before fixing A/M/C sets."""
-    minimum_trades = int(
-        optimizer_kwargs.get("min_trades_2020_2026") or 0
-    )
-    eligible = filter_eligible_sets(raw_sets, minimum_trades)
-    if not eligible:
-        raise ValueError(
-            "No hay candidatos UBS elegibles para la búsqueda experimental."
-        )
-
-    pool_size = max(
-        int(optimizer_kwargs.get("max_total_candidates") or 30),
-        2,
-    )
-    current = eligible
-    evaluated_ids: set[str] = set()
-    successful_pools = 0
-    failed_pools = 0
-    round_number = 0
-    total_exposures = 0
-    best_result: PortfolioResult | None = None
-    best_result_pool: list[RobustStrategySet] = []
-    correlation_cache: dict[
-        tuple[str, str], CorrelationPair
-    ] = {}
-
-    while len(current) > pool_size:
-        round_number += 1
-        appearances = {
-            _strategy_id(strategy): 0 for strategy in current
-        }
-        selections = {
-            _strategy_id(strategy): 0 for strategy in current
-        }
-        contributions = {
-            _strategy_id(strategy): 0.0 for strategy in current
-        }
-        round_results: list[PortfolioResult] = []
-        rotation_pools = [
-            build_experimental_full_candidate_pools(
-                current,
-                pool_size=pool_size,
-                min_trades_2020_2026=minimum_trades,
-                rotation=rotation,
-                correlation_cache=correlation_cache,
-            )
-            for rotation in range(EXPERIMENTAL_FULL_POOL_ROTATIONS)
-        ]
-        if progress:
-            progress(
-                "Búsqueda experimental UBS: "
-                f"ronda {round_number}, {len(current)} candidatos, "
-                f"{EXPERIMENTAL_FULL_POOL_ROTATIONS} rotaciones"
-            )
-        qualifying_kwargs = dict(optimizer_kwargs)
-        # Three rotations already expose every candidate to different peers.
-        # Multi-start inside every qualifying pool multiplies runtime without
-        # adding coverage; reserve it for the complete final optimisation.
-        qualifying_kwargs["search_restarts"] = 0
-        qualifying_kwargs["run_local_search"] = False
-        for rotation, pools in enumerate(rotation_pools, 1):
-            for pool_index, pool in enumerate(pools, 1):
-                pool_ids = {
-                    _strategy_id(strategy) for strategy in pool
-                }
-                evaluated_ids.update(pool_ids)
-                total_exposures += len(pool_ids)
-                for set_id in pool_ids:
-                    appearances[set_id] += 1
-                try:
-                    result = _optimize_exact_pool(
-                        pool,
-                        use_deep_refinement=False,
-                        optimizer_kwargs=qualifying_kwargs,
-                    )
-                    successful_pools += 1
-                    round_results.append(result)
-                    if (
-                        best_result is None
-                        or _result_rank(result) > _result_rank(best_result)
-                    ):
-                        best_result = result
-                        best_result_pool = pool
-                    for allocation in result.allocations:
-                        set_id = str(allocation.set_id)
-                        if (
-                            int(allocation.units) <= 0
-                            or set_id not in selections
-                        ):
-                            continue
-                        selections[set_id] += 1
-                        contributions[set_id] += float(
-                            allocation.net_profit_contribution
-                        )
-                except Exception:
-                    failed_pools += 1
-                if progress:
-                    progress(
-                        "Búsqueda experimental UBS: "
-                        f"rotación {rotation}/"
-                        f"{EXPERIMENTAL_FULL_POOL_ROTATIONS}, "
-                        f"lote {pool_index}/{len(pools)}"
-                    )
-
-        pareto_ids = {
-            set_id
-            for result in _pareto_archive(round_results)
-            for set_id in _active_allocation_ids(result)
-        }
-        base_order = _interleaved_candidate_order(
-            current, minimum_trades
-        )
-        base_rank = {
-            _strategy_id(strategy): len(base_order) - index
-            for index, strategy in enumerate(base_order)
-        }
-        advancing_count = max(
-            int(ceil(len(current) / 2)),
-            min(pool_size, len(current)),
-        )
-        advancing = sorted(
-            current,
-            key=lambda strategy: (
-                selections[_strategy_id(strategy)]
-                / max(appearances[_strategy_id(strategy)], 1),
-                1 if _strategy_id(strategy) in pareto_ids else 0,
-                contributions[_strategy_id(strategy)]
-                / max(selections[_strategy_id(strategy)], 1),
-                _segment_stability_key(strategy),
-                base_rank[_strategy_id(strategy)],
-            ),
-            reverse=True,
-        )[:advancing_count]
-        if not advancing or len(advancing) >= len(current):
-            break
-        current = advancing
-
-    evaluated_ids.update(
-        _strategy_id(strategy) for strategy in current
-    )
-    final_result: PortfolioResult | None = None
-    final_error: Exception | None = None
-    try:
-        if progress:
-            progress(
-                "Búsqueda experimental UBS: "
-                f"final completa con {len(current)} candidatos"
-            )
-        final_result = _optimize_exact_pool(
-            current,
-            use_deep_refinement=use_deep_refinement,
-            optimizer_kwargs=optimizer_kwargs,
-        )
-        successful_pools += 1
-    except Exception as exc:
-        failed_pools += 1
-        final_error = exc
-
-    # Se compara lo que se va a entregar, no lo que el optimizador propuso: la
-    # regla de aporte reciente ya esta aplicada en ambos finalistas. Asi la
-    # amplitud que sobrevive a la regla gana, y la que la regla destruiria deja
-    # de ganar el torneo sobre el papel. El orden conserva el desempate a favor
-    # de la final completa.
-    finalists: list[tuple[PortfolioResult, list[RobustStrategySet], set[str]]] = []
-    refinement_errors: list[str] = []
-    for candidate_result, candidate_pool in (
-        (final_result, current),
-        (best_result, best_result_pool),
-    ):
-        if candidate_result is None:
-            continue
-        try:
-            refined, dropped = _refined_without_recent_fillers(
-                candidate_result,
-                candidate_pool,
-                recent_filler_ids,
-                optimizer_kwargs=optimizer_kwargs,
-                progress=progress,
-            )
-        except ValueError as exc:
-            refinement_errors.append(str(exc))
-            continue
-        finalists.append((refined, list(candidate_pool), dropped))
-
-    if not finalists:
-        if final_error is not None:
-            raise ValueError(
-                "La búsqueda UBS experimental no encontró ningún lote viable."
-            ) from final_error
-        detail = " | ".join(refinement_errors)
-        message = (
-            "La búsqueda UBS experimental no produjo resultados sin "
-            "rellenos 6M."
-        )
-        if detail:
-            message += " " + detail
-        raise ValueError(message)
-
-    selected_result, selected_pool, removed_recent = max(
-        finalists, key=lambda item: _result_rank(item[0])
-    )
-
-    stability = _segment_stability_audit(
-        selected_result, selected_pool
-    )
-    selected_result.seasonal_validation = dict(
-        selected_result.seasonal_validation or {}
-    )
-    selected_result.seasonal_validation[
-        "experimental_full_history_stability"
-    ] = stability
-
-    missing = sorted(
-        {_strategy_id(strategy) for strategy in eligible}
-        - evaluated_ids
-    )
-    selected_result.warnings.append(
-        "Búsqueda UBS experimental: "
-        f"{len(evaluated_ids)}/{len(eligible)} candidatos examinados; "
-        f"{total_exposures} exposiciones clasificatorias en "
-        f"{EXPERIMENTAL_FULL_POOL_ROTATIONS} rotaciones; "
-        f"{successful_pools} lotes viables, "
-        f"{failed_pools} no viables; "
-        f"{round_number} ronda(s)."
-    )
-    if removed_recent:
-        selected_result.warnings.append(
-            "Regla antirrelleno 6M en la búsqueda experimental: "
-            f"{len(removed_recent)} relleno(s) sustituido(s) desde el lote "
-            "ganador; la composición conserva su amplitud en vez de encogerse "
-            "a los supervivientes."
-        )
-    if stability.get("status") == "completed":
-        segments = stability["segments"]
-        selected_result.warnings.append(
-            "Estabilidad UBS experimental IS/OOS/6M: "
-            f"IS {float(segments['is_2020_2024']['positive_rate']) * 100:.1f}% "
-            "positivas; "
-            f"OOS {float(segments['oos_2025_2026']['positive_rate']) * 100:.1f}% "
-            "positivas; "
-            f"6M {float(segments['final_tick_6m']['positive_rate']) * 100:.1f}% "
-            "positivas; "
-            f"{'OK' if stability['passed'] else 'REVISAR'}."
-        )
-    if missing:
-        selected_result.warnings.append(
-            "Advertencia experimental UBS: quedaron sin examinar "
-            f"{len(missing)} candidato(s) por una interrupción del torneo."
-        )
-    return selected_result
+from .portfolio_full_experimental_search import optimize_experimental_full_portfolio

@@ -294,7 +294,7 @@ class ImprovementWireTests(unittest.TestCase):
                 {"key": "balanced"},
             ]
             with mock.patch(
-                "mt5_manager.portfolio_service.serialize_portfolio_proposals",
+                "mt5_manager.portfolio_coordinator_saved.serialize_portfolio_proposals",
                 return_value=[{"serialized": True}],
             ):
                 payload = coordinator.prepare_save(
@@ -410,7 +410,7 @@ class ImprovementScreenTests(unittest.TestCase):
         self.assertNotIn("option.value !== currentDetail.portfolio_type", script)
 
     def test_manager_serves_both_new_static_assets(self) -> None:
-        manager = (self.ROOT.parent / "manager.py").read_text(encoding="utf-8")
+        manager = (self.ROOT.parent / "manager_handler.py").read_text(encoding="utf-8")
         self.assertIn('"portfolio_improvement.js"', manager)
         self.assertIn('"portfolio_monthly_improvement.js"', manager)
 

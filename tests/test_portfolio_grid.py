@@ -310,7 +310,7 @@ class GridOverlapTests(unittest.TestCase):
 
         for key in ("max_pair_corr", "max_downside_corr", "max_dd_overlap", "max_portfolio_corr"):
             self.assertIsNone(values[key], key)
-            self.assertIsNone(kwargs[key], key)
+            self.assertIsNone(getattr(kwargs["limits"], key), key)
         self.assertEqual(values["max_open_overlap"], 0.6)
 
     def test_ubs_keeps_its_own_correlation_thresholds(self) -> None:

@@ -13,6 +13,15 @@ from pathlib import Path
 MAX_BODY = 16_000_000
 MAX_SET = 256_000
 MAX_CANDIDATES = 200
+CANDIDATE_FIELDS = frozenset({
+    'fingerprint', 'family', 'target_symbol', 'period', 'mode', 'root_seed',
+    'parent_candidate_id', 'mutation', 'set_sha256', 'parent_sha256',
+    'set_b64', 'parent_b64',
+})
+SAFETY_BASELINE = {
+    'Risk': '0', 'StartLots': '0.01',
+    'AdjustLotsizeToVariableValues': 'false', 'UseEveryTick': 'false',
+}
 LAUNCH_OPTION_KEYS = frozenset({
     'max_workers', 'repair_after_generation', 'repair_max_workers',
     'repair_phase2_max_workers', 'repair_attempts',
@@ -117,7 +126,8 @@ def assert_writable(path, project):
     return path
 
 
-def validate_package(package, broker, account):
+def check_package_shape(package, broker, account):
+    """El sobre del lote: contrato, version, identidad y recuento."""
     if not isinstance(package,dict) or set(package)!={'version','batch_id','broker','account_type','candidates'}:
         raise ValueError('Contrato de lote inválido')
     if type(package['version']) is not int or package['version']!=1 or package['broker']!=broker or package['account_type']!=account:
@@ -127,77 +137,118 @@ def validate_package(package, broker, account):
     candidates = package['candidates']
     if not isinstance(candidates,list) or not 1<=len(candidates)<=MAX_CANDIDATES:
         raise ValueError('Cantidad de candidatos inválida')
+    return candidates
+
+
+def check_candidate_shape(item):
+    """Contrato del candidato: campos, padre, metadatos, modo y timeframe."""
+    if not isinstance(item,dict) or set(item)!=CANDIDATE_FIELDS:
+        raise ValueError('Contrato de candidato inválido')
+    if not isinstance(item['parent_candidate_id'],int) or isinstance(item['parent_candidate_id'],bool) or item['parent_candidate_id']<=0:
+        raise ValueError('Padre inválido')
+    if any(not isinstance(item[k],str) or not item[k] or len(item[k])>2048 for k in ('family','target_symbol','period','root_seed')):
+        raise ValueError('Metadatos inválidos')
+    if item['mode'] not in {'guided','exploration','symbol_exploration'} or not re.fullmatch(r'(M[1-9][0-9]*|H[1-9][0-9]*|D1|W1|MN1)',item['period']):
+        raise ValueError('Modo o timeframe inválido')
+
+
+def decode_candidate_sets(item):
+    """Los dos .set del candidato, comprobados por tamaño y por hash."""
+    raw = []
+    for prefix in ('set','parent'):
+        encoded = item[prefix+'_b64']
+        if not isinstance(encoded,str) or len(encoded)>MAX_SET*2:
+            raise ValueError('Set demasiado grande')
+        content = base64.b64decode(encoded,validate=True)
+        if not content or len(content)>MAX_SET or digest(content)!=item[prefix+'_sha256']:
+            raise ValueError('Hash/tamaño de set incorrecto')
+        raw.append(content)
+    return raw
+
+
+def check_symbol_retarget(change, key):
+    """Retargeting serves two purposes with one shape.
+
+    ``symbol_exploration`` reaches an instrument with no final positive yet.
+    ``symbol_retarget`` rebuilds a usable parent on an enabled destination that
+    is already proven but whose own local sets no longer pass today's safety
+    rules, so Discovery can keep working there instead of abandoning it.
+    """
+    if (set(change)!={'kind','key','old','new'}
+            or change.get('kind') not in {'symbol_exploration','symbol_retarget'}
+            or key!='ForceSymbol'):
+        raise ValueError('Retargeting de símbolo inválido')
+    if not all(isinstance(change.get(k),str) and change[k] for k in ('old','new')) or change['old'].upper()==change['new'].upper():
+        raise ValueError('Símbolo anterior/nuevo inválido')
+
+
+def check_numeric_mutation(change):
+    """Un paso numérico: dirección, tamaño exacto y rango declarado."""
+    if not {'key','old','new','step','direction','minimum','maximum'}<=set(change):
+        raise ValueError('Mutación numérica incompleta')
+    try:
+        old,new,step,minimum,maximum = (Decimal(str(change[k])) for k in ('old','new','step','minimum','maximum'))
+        valid = all(v.is_finite() for v in (old,new,step,minimum,maximum)) and step>0 and minimum<maximum
+        valid = valid and change['direction'] in (-1,1) and new-old==step*change['direction'] and minimum<=new<=maximum
+    except (InvalidOperation,TypeError,ValueError):
+        valid = False
+    if not valid:
+        raise ValueError('Paso/rango/dirección de mutación inválidos')
+
+
+def check_mutation(item):
+    """La mutación declarada, según el modo del candidato."""
+    change = item['mutation']
+    if not isinstance(change,dict) or not isinstance(change.get('key'),str):
+        raise ValueError('Mutación inválida')
+    key = change['key']
+    symbol_exploration = item['mode']=='symbol_exploration'
+    # Symbol Discovery has two shapes. Retargeting moves a proven set to a new
+    # instrument; recovery adapts one numeric parameter of an attempt that
+    # already made partial progress on that same instrument, so it is checked
+    # like any other numeric mutation and must never touch the identity.
+    recovery = symbol_exploration and change.get('kind')=='symbol_recovery'
+    if recovery:
+        if key=='ForceSymbol' or set(change)-{'kind','parent_stage'}!={'key','old','new','step','direction','minimum','maximum'}:
+            raise ValueError('Recuperación de símbolo inválida')
+        if type(change.get('parent_stage')) is not int or not 1<=change['parent_stage']<=4:
+            raise ValueError('Etapa alcanzada por el padre inválida')
+    if symbol_exploration and not recovery:
+        check_symbol_retarget(change,key)
+    else:
+        check_numeric_mutation(change)
+    return change, key
+
+
+def check_single_mutation(values, previous, key, change):
+    """Cambia exactamente un parámetro, y es el que la mutación declara."""
+    if set(values)!=set(previous) or [k for k in sorted(values) if normalized(values[k])!=normalized(previous[k])]!=[key]:
+        raise ValueError('Se exige exactamente una mutación')
+    if normalized(previous[key])!=normalized(change['old']) or normalized(values[key])!=normalized(change['new']):
+        raise ValueError('Valores de mutación incoherentes')
+
+
+def check_safety_baseline(values, item):
+    """Riesgo fijo, base OHLC y el símbolo que el candidato dice llevar."""
+    for name,expected in SAFETY_BASELINE.items():
+        if normalized(values.get(name,''))!=expected:
+            raise ValueError('Set incompatible con seguridad/base OHLC')
+    if values.get('ForceSymbol','').upper()!=item['target_symbol'].upper():
+        raise ValueError('ForceSymbol incorrecto')
+
+
+def validate_package(package, broker, account):
+    candidates = check_package_shape(package,broker,account)
     seen, decoded = set(), []
-    fields = {'fingerprint','family','target_symbol','period','mode','root_seed','parent_candidate_id',
-              'mutation','set_sha256','parent_sha256','set_b64','parent_b64'}
     for item in candidates:
-        if not isinstance(item,dict) or set(item)!=fields:
-            raise ValueError('Contrato de candidato inválido')
-        if not isinstance(item['parent_candidate_id'],int) or isinstance(item['parent_candidate_id'],bool) or item['parent_candidate_id']<=0:
-            raise ValueError('Padre inválido')
-        if any(not isinstance(item[k],str) or not item[k] or len(item[k])>2048 for k in ('family','target_symbol','period','root_seed')):
-            raise ValueError('Metadatos inválidos')
-        if item['mode'] not in {'guided','exploration','symbol_exploration'} or not re.fullmatch(r'(M[1-9][0-9]*|H[1-9][0-9]*|D1|W1|MN1)',item['period']):
-            raise ValueError('Modo o timeframe inválido')
-        raw = []
-        for prefix in ('set','parent'):
-            encoded = item[prefix+'_b64']
-            if not isinstance(encoded,str) or len(encoded)>MAX_SET*2:
-                raise ValueError('Set demasiado grande')
-            content = base64.b64decode(encoded,validate=True)
-            if not content or len(content)>MAX_SET or digest(content)!=item[prefix+'_sha256']:
-                raise ValueError('Hash/tamaño de set incorrecto')
-            raw.append(content)
+        check_candidate_shape(item)
+        raw = decode_candidate_sets(item)
         values, previous = set_params(raw[0]), set_params(raw[1])
-        change = item['mutation']
-        if not isinstance(change,dict) or not isinstance(change.get('key'),str):
-            raise ValueError('Mutación inválida')
-        key = change['key']
-        symbol_exploration = item['mode']=='symbol_exploration'
-        # Symbol Discovery has two shapes. Retargeting moves a proven set to a new
-        # instrument; recovery adapts one numeric parameter of an attempt that
-        # already made partial progress on that same instrument, so it is checked
-        # like any other numeric mutation and must never touch the identity.
-        recovery = symbol_exploration and change.get('kind')=='symbol_recovery'
-        if recovery:
-            if key=='ForceSymbol' or set(change)-{'kind','parent_stage'}!={'key','old','new','step','direction','minimum','maximum'}:
-                raise ValueError('Recuperación de símbolo inválida')
-            if type(change.get('parent_stage')) is not int or not 1<=change['parent_stage']<=4:
-                raise ValueError('Etapa alcanzada por el padre inválida')
-        if symbol_exploration and not recovery:
-            # Retargeting serves two purposes with one shape. ``symbol_exploration``
-            # reaches an instrument with no final positive yet. ``symbol_retarget``
-            # rebuilds a usable parent on an enabled destination that is already
-            # proven but whose own local sets no longer pass today's safety rules,
-            # so Discovery can keep working there instead of abandoning it.
-            if (set(change)!={'kind','key','old','new'}
-                    or change.get('kind') not in {'symbol_exploration','symbol_retarget'}
-                    or key!='ForceSymbol'):
-                raise ValueError('Retargeting de símbolo inválido')
-            if not all(isinstance(change.get(k),str) and change[k] for k in ('old','new')) or change['old'].upper()==change['new'].upper():
-                raise ValueError('Símbolo anterior/nuevo inválido')
-        else:
-            if not {'key','old','new','step','direction','minimum','maximum'}<=set(change):
-                raise ValueError('Mutación numérica incompleta')
-            try:
-                old,new,step,minimum,maximum = (Decimal(str(change[k])) for k in ('old','new','step','minimum','maximum'))
-                valid = all(v.is_finite() for v in (old,new,step,minimum,maximum)) and step>0 and minimum<maximum
-                valid = valid and change['direction'] in (-1,1) and new-old==step*change['direction'] and minimum<=new<=maximum
-            except (InvalidOperation,TypeError,ValueError):
-                valid = False
-            if not valid:
-                raise ValueError('Paso/rango/dirección de mutación inválidos')
-        if set(values)!=set(previous) or [k for k in sorted(values) if normalized(values[k])!=normalized(previous[k])]!=[key]:
-            raise ValueError('Se exige exactamente una mutación')
-        if normalized(previous[key])!=normalized(change['old']) or normalized(values[key])!=normalized(change['new']):
-            raise ValueError('Valores de mutación incoherentes')
+        change, key = check_mutation(item)
+        check_single_mutation(values,previous,key,change)
         if set_text(raw[0])!=replace_current(set_text(raw[1]),key,change['new']):
             raise ValueError('El lote alteró parámetros/rangos fuera de la mutación declarada')
-        for name,expected in {'Risk':'0','StartLots':'0.01','AdjustLotsizeToVariableValues':'false','UseEveryTick':'false'}.items():
-            if normalized(values.get(name,''))!=expected:
-                raise ValueError('Set incompatible con seguridad/base OHLC')
-        if values.get('ForceSymbol','').upper()!=item['target_symbol'].upper():
-            raise ValueError('ForceSymbol incorrecto')
+        check_safety_baseline(values,item)
         fp = fingerprint(broker,account,item['target_symbol'],item['period'],values)
         if fp!=item['fingerprint'] or fp in seen:
             raise ValueError('Fingerprint incorrecto o duplicado')

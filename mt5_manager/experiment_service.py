@@ -381,18 +381,66 @@ class ExperimentCoordinator:
         )
         return picked
 
+    def _load_origin_sets(
+        self,
+        node_id: str,
+        settings: dict[str, Any],
+        warnings: list[str],
+        origins: dict[str, Any],
+    ) -> list[tuple[Any, str, str]]:
+        """Las estrategias de una memoria, o nada y un aviso si no se deja leer.
+
+        Una memoria que no responde no aborta el experimento: se anota en
+        `origins` con su error y se sigue con las demas.
+        """
+        node = self.nodes.get(node_id)
+        if node is None:
+            warnings.append(f"{node_id}: nodo desconocido, fuera del experimento")
+            return []
+        try:
+            source = self.readonly_source(node_id)
+            rows = source.candidate_rows(include_quarantined=False)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            warnings.append(f"{node_id}: {exc}")
+            origins[node_id] = {
+                "broker": str(node.get("portfolio_broker") or node_id),
+                "rows": 0, "read": 0, "loaded": 0, "error": str(exc),
+            }
+            return []
+        origin = source.broker
+        accepted = len(rows)
+        rows = self._trim_candidates(rows, settings, origin, warnings)
+        self._checkpoint(
+            f"{origin}: {accepted} candidatos aceptados, cargando reportes de {len(rows)}"
+        )
+        sets, load_warnings = load_robust_sets_from_rows(
+            rows, [], parse=cached_report,
+            progress=lambda message, origin=origin: self._checkpoint(f"{origin} · {message}"),
+        )
+        warnings.extend(f"{origin}: {item}" for item in load_warnings)
+        origins[node_id] = {
+            "broker": origin, "rows": accepted, "read": len(rows),
+            "loaded": len(sets), "error": "",
+        }
+        return [(strategy, origin, node_id) for strategy in sets]
+
+    def _target_margin_model(self, target_source: Any) -> Any:
+        """El perfil de margen del broker de destino: la cuenta unica es suya.
+
+        `account_leverage` solo lo usa el modelo AXI, y se pasa el mismo valor
+        por defecto que la pantalla UBS para no cambiar de criterio entre
+        pantallas.
+        """
+        return build_margin_model(target_source, {
+            "margin_profile": target_source.broker.lower(),
+            "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
+        })
+
     def _load_pool(
         self, settings: dict[str, Any],
     ) -> tuple[list[lab.LabStrategy], lab.LabAxis, list[str], dict[str, Any]]:
         target_source = self.readonly_source(settings["target_node"])
-        # El perfil de margen es siempre el del broker de destino: la cuenta
-        # única es suya. `account_leverage` solo lo usa el modelo AXI, y se pasa
-        # el mismo valor por defecto que la pantalla UBS para no cambiar de
-        # criterio entre pantallas.
-        margin_model = build_margin_model(target_source, {
-            "margin_profile": target_source.broker.lower(),
-            "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
-        })
+        margin_model = self._target_margin_model(target_source)
         portable = portable_symbols_for(target_source)
         self._checkpoint(
             f"Destino {target_source.broker}/{target_source.account}: "
@@ -403,36 +451,7 @@ class ExperimentCoordinator:
         origins: dict[str, Any] = {}
         for node_id in settings["source_nodes"]:
             self._checkpoint(f"Leyendo la memoria de {node_id}")
-            node = self.nodes.get(node_id)
-            if node is None:
-                warnings.append(f"{node_id}: nodo desconocido, fuera del experimento")
-                continue
-            try:
-                source = self.readonly_source(node_id)
-                rows = source.candidate_rows(include_quarantined=False)
-            except (ValueError, OSError, sqlite3.Error) as exc:
-                warnings.append(f"{node_id}: {exc}")
-                origins[node_id] = {
-                    "broker": str(node.get("portfolio_broker") or node_id),
-                    "rows": 0, "read": 0, "loaded": 0, "error": str(exc),
-                }
-                continue
-            origin = source.broker
-            accepted = len(rows)
-            rows = self._trim_candidates(rows, settings, origin, warnings)
-            self._checkpoint(
-                f"{origin}: {accepted} candidatos aceptados, cargando reportes de {len(rows)}"
-            )
-            sets, load_warnings = load_robust_sets_from_rows(
-                rows, [], parse=cached_report,
-                progress=lambda message, origin=origin: self._checkpoint(f"{origin} · {message}"),
-            )
-            warnings.extend(f"{origin}: {item}" for item in load_warnings)
-            loaded.extend((strategy, origin, node_id) for strategy in sets)
-            origins[node_id] = {
-                "broker": origin, "rows": accepted, "read": len(rows),
-                "loaded": len(sets), "error": "",
-            }
+            loaded.extend(self._load_origin_sets(node_id, settings, warnings, origins))
         if not loaded:
             raise ValueError(
                 "Ninguna memoria elegida devolvió estrategias cargables. "
@@ -447,7 +466,7 @@ class ExperimentCoordinator:
             progress=self._checkpoint,
         )
         warnings.extend(pool_warnings)
-        meta = {
+        return pool, axis, warnings, {
             "target": {
                 "node": settings["target_node"],
                 "broker": target_source.broker,
@@ -457,56 +476,59 @@ class ExperimentCoordinator:
             },
             "origins": origins,
         }
-        return pool, axis, warnings, meta
+
+    def _run_experiment(self, settings: dict[str, Any]) -> None:
+        """Del pool a la asignacion y su veredicto, y lo guarda."""
+        pool, axis, warnings, meta = self._load_pool(settings)
+        if not axis.size:
+            raise ValueError("El pool no tiene ningún día con operaciones en la ventana")
+        config = lab_config(settings)
+        self._checkpoint(
+            f"Ventana {axis.days[0]} → {axis.days[-1]} · {axis.months} meses · {axis.size} días"
+        )
+        candidates, notes = lab.select_candidates(
+            pool, config, require_portable=bool(settings["require_portable"]),
+        )
+        warnings.extend(notes)
+        if not candidates:
+            raise ValueError(
+                "Ninguna estrategia del pool pasa los filtros: revisa el neto positivo, "
+                "la portabilidad al broker de destino y el límite de correlación."
+            )
+        self._checkpoint(f"Candidatas seleccionadas: {len(candidates)} de {len(pool)}")
+        allocation = lab.search_allocation(
+            candidates, axis, config, progress=self._checkpoint,
+        )
+        verdict = lab.build_verdict(allocation, candidates, axis, config)
+        payload = lab.allocation_payload(allocation, candidates, verdict, axis, config)
+        payload.update({
+            "settings": settings,
+            "pool": {
+                "strategies": len(pool),
+                "candidates": len(candidates),
+                "by_origin": lab.pool_summary(pool),
+            },
+            "warnings": warnings,
+            "target": meta["target"],
+            "origins": meta["origins"],
+            "finished_at": utc_now(),
+        })
+        with self.lock:
+            self.result = payload
+            self.job.update({
+                "status": "completed",
+                "finished_at": utc_now(),
+                "progress": verdict.note or "Experimento terminado",
+            })
+        self._note(verdict.note or "Experimento terminado")
+        try:
+            save_json(self.result_path, payload)
+        except OSError as exc:
+            self._note(f"El resultado no se pudo guardar en runtime: {exc}")
 
     def _worker(self, settings: dict[str, Any]) -> None:
         try:
-            pool, axis, warnings, meta = self._load_pool(settings)
-            if not axis.size:
-                raise ValueError("El pool no tiene ningún día con operaciones en la ventana")
-            config = lab_config(settings)
-            self._checkpoint(
-                f"Ventana {axis.days[0]} → {axis.days[-1]} · {axis.months} meses · {axis.size} días"
-            )
-            candidates, notes = lab.select_candidates(
-                pool, config, require_portable=bool(settings["require_portable"]),
-            )
-            warnings.extend(notes)
-            if not candidates:
-                raise ValueError(
-                    "Ninguna estrategia del pool pasa los filtros: revisa el neto positivo, "
-                    "la portabilidad al broker de destino y el límite de correlación."
-                )
-            self._checkpoint(f"Candidatas seleccionadas: {len(candidates)} de {len(pool)}")
-            allocation = lab.search_allocation(
-                candidates, axis, config, progress=self._checkpoint,
-            )
-            verdict = lab.build_verdict(allocation, candidates, axis, config)
-            payload = lab.allocation_payload(allocation, candidates, verdict, axis, config)
-            payload.update({
-                "settings": settings,
-                "pool": {
-                    "strategies": len(pool),
-                    "candidates": len(candidates),
-                    "by_origin": lab.pool_summary(pool),
-                },
-                "warnings": warnings,
-                "target": meta["target"],
-                "origins": meta["origins"],
-                "finished_at": utc_now(),
-            })
-            with self.lock:
-                self.result = payload
-                self.job.update({
-                    "status": "completed",
-                    "finished_at": utc_now(),
-                    "progress": verdict.note or "Experimento terminado",
-                })
-            self._note(verdict.note or "Experimento terminado")
-            try:
-                save_json(self.result_path, payload)
-            except OSError as exc:
-                self._note(f"El resultado no se pudo guardar en runtime: {exc}")
+            self._run_experiment(settings)
         except ExperimentCancelled:
             with self.lock:
                 self.job.update({

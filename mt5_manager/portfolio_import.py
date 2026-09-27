@@ -147,54 +147,30 @@ def _split_row(line: str) -> list[str] | None:
     return [" ".join(tokens[:-6]), *tokens[-6:]]
 
 
-def parse_summary(text: str) -> tuple[dict[str, Any], list[ImportedMember]]:
-    header: dict[str, Any] = {}
-    members: list[ImportedMember] = []
-    in_table = False
-    for raw_line in text.splitlines():
-        line = raw_line.rstrip()
-        if not line.strip():
-            continue
-        if line.lstrip().startswith(TABLE_HEADER):
-            in_table = True
-            continue
-        if line.startswith("OMITIDOS"):
-            break
-        if in_table:
-            columns = _split_row(line)
-            if columns is None:
-                continue
-            members.append(ImportedMember(
-                variant_label=columns[0], account=columns[1], symbol=columns[2],
-                timeframe=columns[3], units=int(_number(columns[4])), lot=_number(columns[5]),
-                set_name=columns[6],
-            ))
-            continue
-        # La cabecera admite dos pares en la misma linea: «Tipo: X   Capital: Y».
-        for chunk in re.split(r"\s{3,}", line):
-            if ":" not in chunk:
-                continue
-            label, _, value = chunk.partition(":")
-            key = HEADER_KEYS.get(label.strip().lower())
-            if not key:
-                continue
-            header[key] = value.strip() if key in STRING_HEADER_KEYS else _number(value)
-    # Las exportaciones anteriores a la cabecera explicita ya llevaban el
-    # nombre visible resuelto por ``saved_portfolio_detail``. Esto permite
-    # recuperar origen y modo al reimportarlas, aunque la prioridad de
-    # seleccion no puede deducirse honestamente de la composicion final.
+def _recover_improvement_from_name(header: dict[str, Any]) -> None:
+    """Recupera origen y modo del nombre visible de una mejora antigua.
+
+    Las exportaciones anteriores a la cabecera explicita ya llevaban el nombre
+    resuelto por ``saved_portfolio_detail``. La prioridad de seleccion no se
+    puede deducir honestamente de la composicion final, asi que no se inventa.
+    """
     match = re.search(
         r"^Mejora (?:de |del portafolio )#(\d+)\s*\|\s*(?:modo )?"
         r"(Agresivo|Moderado|Conservador)\b",
         str(header.get("name") or ""),
         re.IGNORECASE,
     )
-    if match:
-        header.setdefault("improvement_source_portfolio_id", float(match.group(1)))
-        header.setdefault(
-            "improvement_portfolio_type",
-            IMPROVEMENT_MODE_BY_LABEL[match.group(2).casefold()],
-        )
+    if not match:
+        return
+    header.setdefault("improvement_source_portfolio_id", float(match.group(1)))
+    header.setdefault(
+        "improvement_portfolio_type",
+        IMPROVEMENT_MODE_BY_LABEL[match.group(2).casefold()],
+    )
+
+
+def _decode_header_json(header: dict[str, Any]) -> None:
+    """Convierte los campos JSON de la cabecera, o rechaza el resumen."""
     for key, expected in (
         ("improvement_lineage", list),
         ("improvement_source_snapshot", dict),
@@ -213,6 +189,46 @@ def parse_summary(text: str) -> tuple[dict[str, Any], list[ImportedMember]]:
         ):
             raise ImportError_("El resumen contiene portfolio_members con filas no válidas")
         header[key] = value
+
+
+def _read_header_line(header: dict[str, Any], line: str) -> None:
+    """La cabecera admite dos pares en la misma linea: «Tipo: X   Capital: Y»."""
+    for chunk in re.split(r"\s{3,}", line):
+        if ":" not in chunk:
+            continue
+        label, _, value = chunk.partition(":")
+        key = HEADER_KEYS.get(label.strip().lower())
+        if not key:
+            continue
+        header[key] = value.strip() if key in STRING_HEADER_KEYS else _number(value)
+
+
+def parse_summary(text: str) -> tuple[dict[str, Any], list[ImportedMember]]:
+    header: dict[str, Any] = {}
+    members: list[ImportedMember] = []
+    in_table = False
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            continue
+        if line.lstrip().startswith(TABLE_HEADER):
+            in_table = True
+            continue
+        if line.startswith("OMITIDOS"):
+            break
+        if not in_table:
+            _read_header_line(header, line)
+            continue
+        columns = _split_row(line)
+        if columns is None:
+            continue
+        members.append(ImportedMember(
+            variant_label=columns[0], account=columns[1], symbol=columns[2],
+            timeframe=columns[3], units=int(_number(columns[4])), lot=_number(columns[5]),
+            set_name=columns[6],
+        ))
+    _recover_improvement_from_name(header)
+    _decode_header_json(header)
     return header, members
 
 

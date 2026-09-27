@@ -268,10 +268,14 @@ conserva su base propia en el manager mediante `_persistence_source`.
 
 ## Pruebas
 
-`tests/test_portfolio_import.py`: parseo del resumen, carpeta y ZIP leyendo
-lo mismo, ida y vuelta completa hasta `save_proposal`, sets comprometidos después
-de importar, números recalculados y no copiados, errores con mensaje, y una ida
-y vuelta de mejora encadenada que conserva etiqueta, raíz, nivel y snapshot.
+Las pruebas se reparten por escenario: `test_portfolio_import_summary.py`
+comprueba parseo y transporte; `test_portfolio_import.py`, inventario e ida y
+vuelta del bundle; `test_portfolio_import_identity.py`, identidad portable,
+faltantes y escritura en el nodo. Fixtures y constructores comunes viven en
+`portfolio_import_test_support.py`. En conjunto cubren la ida y vuelta hasta
+`save_proposal`, sets comprometidos, números recalculados y no copiados,
+errores con mensaje y una mejora encadenada que conserva etiqueta, raíz, nivel
+y snapshot.
 `tests/test_static_portfolios.py::PortfolioImportScreenTests` fija el botón y el
 transporte en los tres ámbitos.
 

@@ -277,6 +277,58 @@ def _matching_stop_slot(
     return None
 
 
+@dataclass
+class _MatchedEntry:
+    """Lo que un cierre ha consumido de las entradas abiertas."""
+
+    volume: float = 0.0
+    weighted_open_price: float = 0.0
+    entry_net: float = 0.0
+    close_net: float = 0.0
+    open_time: datetime | None = None
+    ticket: str = ""
+
+
+def _consume_open_positions(
+    queue: list[dict[str, object]],
+    deal: RawDeal,
+    order_stops: dict[str, dict[str, float]],
+) -> _MatchedEntry:
+    """Empareja un cierre con las entradas abiertas y las va vaciando.
+
+    El SL/TP identifica la entrada correcta cuando dos posiciones del mismo
+    simbolo y lado se solapan; sin esa evidencia se conserva el FIFO.
+    """
+    matched = _MatchedEntry()
+    remaining_close = max(float(deal.volume), 0.0)
+    while queue and remaining_close > 1e-9:
+        preferred_index = _matching_stop_slot(queue, deal, order_stops)
+        slot_index = preferred_index if preferred_index is not None else 0
+        slot = queue[slot_index]
+        opened = slot["deal"]
+        if not isinstance(opened, RawDeal):
+            queue.pop(slot_index)
+            continue
+        available = max(float(slot.get("remaining") or 0.0), 0.0)
+        if available <= 1e-9:
+            queue.pop(slot_index)
+            continue
+        volume = min(available, remaining_close)
+        matched.volume += volume
+        matched.weighted_open_price += opened.price * volume
+        matched.entry_net += opened.net_profit * (volume / opened.volume if opened.volume else 0.0)
+        matched.close_net += deal.net_profit * (volume / deal.volume if deal.volume else 0.0)
+        if matched.open_time is None or opened.timestamp < matched.open_time:
+            matched.open_time = opened.timestamp
+        if not matched.ticket:
+            matched.ticket = opened.ticket
+        slot["remaining"] = available - volume
+        remaining_close -= volume
+        if float(slot["remaining"]) <= 1e-9:
+            queue.pop(slot_index)
+    return matched
+
+
 def _build_trades(
     raw_deals: list[RawDeal], order_stops: dict[str, dict[str, float]] | None = None,
 ) -> list[Trade]:
@@ -284,9 +336,7 @@ def _build_trades(
     trades: list[Trade] = []
     order_stops = order_stops or {}
 
-    # El HTML de MT5 no garantiza que la tabla quede ordenada por fecha. Si dos
-    # posiciones del mismo símbolo y lado se solapan, el SL/TP identifica la
-    # entrada correcta; sin esa evidencia conservamos el emparejamiento FIFO.
+    # El HTML de MT5 no garantiza que la tabla quede ordenada por fecha.
     # `sorted` es estable, por lo que conserva el orden original entre deals que
     # comparten exactamente el mismo timestamp.
     for deal in sorted(raw_deals, key=lambda item: item.timestamp):
@@ -299,59 +349,23 @@ def _build_trades(
             continue
         if direction != "out":
             continue
-
         open_type = "buy" if trade_type == "sell" else "sell"
         queue = open_positions.get((deal.symbol, open_type), [])
-        remaining_close = max(float(deal.volume), 0.0)
-        if not queue or remaining_close <= 0.0:
+        if not queue or float(deal.volume) <= 0.0:
             continue
-        matched_volume = 0.0
-        weighted_open_price = 0.0
-        entry_net = 0.0
-        close_net = 0.0
-        open_time: datetime | None = None
-        ticket = ""
-
-        while queue and remaining_close > 1e-9:
-            preferred_index = _matching_stop_slot(queue, deal, order_stops)
-            slot_index = preferred_index if preferred_index is not None else 0
-            slot = queue[slot_index]
-            opened = slot["deal"]
-            if not isinstance(opened, RawDeal):
-                queue.pop(slot_index)
-                continue
-            available = max(float(slot.get("remaining") or 0.0), 0.0)
-            if available <= 1e-9:
-                queue.pop(slot_index)
-                continue
-            volume = min(available, remaining_close)
-            entry_ratio = volume / opened.volume if opened.volume else 0.0
-            close_ratio = volume / deal.volume if deal.volume else 0.0
-            matched_volume += volume
-            weighted_open_price += opened.price * volume
-            entry_net += opened.net_profit * entry_ratio
-            close_net += deal.net_profit * close_ratio
-            if open_time is None or opened.timestamp < open_time:
-                open_time = opened.timestamp
-            if not ticket:
-                ticket = opened.ticket
-            slot["remaining"] = available - volume
-            remaining_close -= volume
-            if float(slot["remaining"]) <= 1e-9:
-                queue.pop(slot_index)
-
-        if matched_volume <= 0.0 or open_time is None:
+        matched = _consume_open_positions(queue, deal, order_stops)
+        if matched.volume <= 0.0 or matched.open_time is None:
             continue
         trades.append(
             Trade(
-                ticket=ticket,
+                ticket=matched.ticket,
                 trade_type=open_type.capitalize(),
-                open_time=open_time,
-                open_price=weighted_open_price / matched_volume,
-                size=matched_volume,
+                open_time=matched.open_time,
+                open_price=matched.weighted_open_price / matched.volume,
+                size=matched.volume,
                 close_time=deal.timestamp,
                 close_price=deal.price,
-                profit_loss=entry_net + close_net,
+                profit_loss=matched.entry_net + matched.close_net,
                 comment=deal.comment,
             )
         )

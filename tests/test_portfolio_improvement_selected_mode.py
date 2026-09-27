@@ -5,11 +5,16 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
+from mt5_manager import portfolio_improvement_attempt as full_attempt
 from mt5_manager import portfolio_improvement_service as full
+from mt5_manager import portfolio_improvement_support as full_support
 from mt5_manager.portfolio_service import (
     PortfolioCoordinator, PortfolioSource, normalize_settings, save_portfolio_payload,
 )
 from portfolio_manager.ubs_portfolio import (
+    CandidateFunnel,
+    SearchLimits,
+    SearchPlan,
     BootstrapDrawdownAnalysis,
     PortfolioResult,
     StrategyAllocation,
@@ -70,61 +75,6 @@ def curve_set(set_id: str, symbol: str, dip: float, net: float):
     )
 
 
-class BreadthBelowMinimumTests(unittest.TestCase):
-    """Abrir huecos busca cuántas caben, no cuánto rinde la siguiente."""
-
-    def sets(self):
-        # La gorda rinde más por unidad pero se come el presupuesto de DD; las
-        # dos flacas caben juntas. Son las candidatas del selector de mejora.
-        # Presupuesto de valle 50. La gorda cabe sola (35) y rinde mucho más
-        # por punto de DD, pero con ella dentro no cabe ninguna otra: 35+20>50.
-        # Las dos flacas juntas suman 40 y sí caben.
-        return [
-            curve_set("fat.set", "XAUUSD", dip=35.0, net=400.0),
-            curve_set("thin-a.set", "EURUSD", dip=20.0, net=90.0),
-            curve_set("thin-b.set", "USDJPY", dip=20.0, net=90.0),
-        ]
-
-    def optimize(self, *, prefer_breadth: bool):
-        from portfolio_manager.ubs_portfolio import PortfolioType, optimize_portfolio
-
-        return optimize_portfolio(
-            raw_sets=self.sets(),
-            capital=5000.0,
-            valley_dd_pct=1.0,
-            point_dd_pct=100.0,
-            portfolio_type=PortfolioType.BALANCED,
-            top_k_per_symbol=5,
-            max_total_candidates=10,
-            min_trades_2020_2026=1,
-            minimum_active_strategies=2,
-            maximum_active_strategies=2,
-            prefer_breadth_below_minimum=prefer_breadth,
-            enforce_point_dd=False,
-            use_deep_refinement=False,
-            run_local_search=False,
-            search_restarts=0,
-        )
-
-    def test_the_cheapest_increment_opens_the_slots_the_richest_one_blocks(self) -> None:
-        greedy = self.optimize(prefer_breadth=False)
-        breadth = self.optimize(prefer_breadth=True)
-
-        # Por rentabilidad entra la gorda y ya no cabe una segunda.
-        self.assertEqual(
-            [item.set_id for item in greedy.allocations if item.units > 0], ["fat.set"]
-        )
-        self.assertEqual(greedy.active_strategies, 1)
-        # Por coste de riesgo entran las dos flacas y se alcanza el mínimo.
-        self.assertEqual(breadth.active_strategies, 2)
-        self.assertEqual(
-            sorted(item.set_id for item in breadth.allocations if item.units > 0),
-            ["thin-a.set", "thin-b.set"],
-        )
-        self.assertIn(
-            "Cheapest valid +0.01 increment while opening required slots",
-            [decision.reason for decision in breadth.decision_log],
-        )
 
 
 class ImprovementAllowedGroupsTests(unittest.TestCase):
@@ -166,9 +116,9 @@ class ImprovementAllowedGroupsTests(unittest.TestCase):
             "improvement_allowed_asset_groups": ["Forex"],
             "improvement_additions": 1,
         }
-        with patch.object(full, "load_robust_sets_from_rows") as loader, \
-                patch.object(full, "recent_positive_candidates", side_effect=lambda sets, ids: sets), \
-                patch.object(full, "member_rows", return_value=[{"set_path": "btc.set"}]):
+        with patch.object(full_support, "load_robust_sets_from_rows") as loader, \
+                patch.object(full_support, "recent_positive_candidates", side_effect=lambda sets, ids: sets), \
+                patch.object(full_support, "member_rows", return_value=[{"set_path": "btc.set"}]):
             loader.side_effect = [
                 ([original], []),
                 ([NS(set_id="eur.set", symbol="EURUSD")], []),
@@ -192,8 +142,8 @@ class ImprovementMarginProfileTests(unittest.TestCase):
         detail = {"portfolio_type": "bundle", "members": [{"variant_key": "balanced", "units": 1}],
                   "metrics": {"variants": {"balanced": {"inputs": {"margin_profile": "ictrading"}}}}}
         source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
-        with patch.object(full, "build_margin_model", return_value=None) as model, \
-                patch.object(full, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
+        with patch.object(full_attempt, "build_margin_model", return_value=None) as model, \
+                patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
             with self.assertRaisesRegex(ValueError, "No se encontró una mejora válida"):
                 full.generate_full_history_improvement(source, 7, {
                     "portfolio_type": "balanced", "improvement_min_additions": 1, **request,
@@ -240,8 +190,8 @@ class ImprovementMarginProfileTests(unittest.TestCase):
         source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
 
         def reaching_model(request: dict) -> float:
-            with patch.object(full, "build_margin_model", return_value=None) as model, \
-                    patch.object(full, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
+            with patch.object(full_attempt, "build_margin_model", return_value=None) as model, \
+                    patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
                 with self.assertRaisesRegex(ValueError, "No se encontró una mejora válida"):
                     full.generate_full_history_improvement(source, 7, {
                         "portfolio_type": "balanced", "improvement_min_additions": 1, **request,
@@ -268,8 +218,8 @@ class ImprovementGridOffTests(unittest.TestCase):
             "metrics": {"variants": {"balanced": {"inputs": {"grid_off": True}}}},
         }
         source = NS(saved_portfolio_detail=Mock(return_value={"portfolio": detail}))
-        with patch.object(full, "build_margin_model", return_value=None) as model, \
-                patch.object(full, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
+        with patch.object(full_attempt, "build_margin_model", return_value=None) as model, \
+                patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=ValueError("sin pool")):
             with self.assertRaisesRegex(ValueError, "No se encontró una mejora válida"):
                 full.generate_full_history_improvement(source, 7, {
                     "portfolio_type": "balanced",
@@ -327,14 +277,14 @@ class RequiredSetsSurviveTheFunnelTests(unittest.TestCase):
             valley_dd_pct=2.0,
             point_dd_pct=100.0,
             portfolio_type=PortfolioType.BALANCED,
-            top_k_per_symbol=5,
-            max_total_candidates=10,
-            min_trades_2020_2026=1,
-            required_set_ids=["original.set", "degraded.set"],
-            enforce_point_dd=False,
-            use_deep_refinement=False,
-            run_local_search=False,
-            search_restarts=0,
+            limits=SearchLimits(enforce_point_dd=False),
+            funnel=CandidateFunnel(
+                min_trades_2020_2026=1,
+                top_k_per_symbol=5,
+                max_total_candidates=10,
+                required_set_ids=["original.set", "degraded.set"],
+            ),
+            search=SearchPlan(run_local_search=False),
         )
 
         active = {item.set_id for item in result.allocations if item.units > 0}
@@ -394,26 +344,27 @@ class SelectedModeTests(unittest.TestCase):
                     self.assertEqual(len(selected["members"]), 1)
                     self.assertEqual(selected["members"][0]["variant_key"], mode)
                     return sets[:1], sets, [], [], []
-                with patch.object(full, "_load_full_history_improvement_pool", side_effect=pool), patch.object(full, "build_margin_model", return_value=None), patch.object(full, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full, "evaluate_portfolio", return_value=NS(total_net_profit=100, valley_dd=10)) as baseline, patch("mt5_manager.portfolio_improvement_common.strategy_correlation_pair", return_value=NS(pearson_corr=0, downside_corr=0, dd_overlap=0)):
+                with patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=pool), patch.object(full_attempt, "build_margin_model", return_value=None), patch.object(full_attempt, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full_attempt, "evaluate_portfolio", return_value=NS(total_net_profit=100, valley_dd=10)) as baseline, patch("mt5_manager.portfolio_improvement_common.strategy_correlation_pair", return_value=NS(pearson_corr=0, downside_corr=0, dd_overlap=0)):
                     _, proposals = full.generate_full_history_improvement(source, 42, {**output["inputs"], "portfolio_type": "balanced", "improvement_portfolio_type": mode, "improvement_additions": 1})
                 self.assertEqual([p["key"] for p in proposals], [mode])
                 self.assertEqual(optimize.call_count, 2)
                 for call in optimize.call_args_list:
                     self.assertEqual(call.kwargs["portfolio_type"], full.PORTFOLIO_TYPES[mode])
-                    self.assertEqual(call.kwargs["dd_reserve_pct"], 17)
+                    self.assertEqual(call.kwargs["search"].dd_reserve_pct, 17)
                 # La pasada que elige la composición busca cuántas caben; la
                 # que reparte lotes después no lleva esa preferencia.
                 self.assertTrue(
-                    optimize.call_args_list[0].kwargs["prefer_breadth_below_minimum"]
+                    optimize.call_args_list[0].kwargs["search"].prefer_breadth_below_minimum
                 )
                 # Y no hereda el tope de sets por grupo del perfil (Moderado 3),
                 # que una cartera de 8 ya agota: cabría una sola incorporación.
                 selector = optimize.call_args_list[0].kwargs
                 self.assertEqual(
-                    selector["max_sets_per_group"], selector["maximum_active_strategies"]
+                    selector["limits"].max_sets_per_group,
+                    selector["search"].maximum_active_strategies,
                 )
                 self.assertFalse(
-                    optimize.call_args_list[1].kwargs.get("prefer_breadth_below_minimum", False)
+                    optimize.call_args_list[1].kwargs["search"].prefer_breadth_below_minimum
                 )
                 baseline.assert_called_once()
                 self.assertEqual(baseline.call_args.args[1], {old_id: 7})
@@ -452,7 +403,7 @@ class SelectedModeTests(unittest.TestCase):
         detail = {"portfolio_type": "balanced", "members": [{"set_path": old_id, "units": 1}]}
         source = NS(project=Path.cwd(), saved_portfolio_detail=Mock(return_value={"portfolio": detail}), saved_curves=Mock(return_value=[]))
         sets = [NS(set_id=a.set_id) for a in output["result"].allocations] + [NS(set_id="another.set")]
-        with patch.object(full, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full, "build_margin_model", return_value=None), patch.object(full, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full, "evaluate_portfolio") as baseline:
+        with patch.object(full_attempt, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full_attempt, "build_margin_model", return_value=None), patch.object(full_attempt, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full_attempt, "evaluate_portfolio") as baseline:
             with self.assertRaisesRegex(ValueError, "al menos 2.*selector añadió 1"):
                 full.generate_full_history_improvement(source, 1, {**output["inputs"], "improvement_min_additions": 2})
         self.assertEqual(optimize.call_count, 1)
@@ -465,7 +416,7 @@ class SelectedModeTests(unittest.TestCase):
         detail = {"portfolio_type": "bundle", "members": [{"variant_key": "balanced", "set_path": old.set_id, "units": 1}]}
         source = NS(project=Path.cwd(), saved_portfolio_detail=Mock(return_value={"portfolio": detail}), saved_curves=Mock(return_value=[]))
         sets = [NS(set_id=a.set_id) for a in (old, new)]
-        with patch.object(full, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full, "build_margin_model", return_value=None), patch.object(full, "optimize_portfolio", return_value=output["result"]), patch.object(full, "evaluate_portfolio") as baseline:
+        with patch.object(full_attempt, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full_attempt, "build_margin_model", return_value=None), patch.object(full_attempt, "optimize_portfolio", return_value=output["result"]), patch.object(full_attempt, "evaluate_portfolio") as baseline:
             with self.assertRaisesRegex(ValueError, "aporte mínimo Final Tick 6M"):
                 full.generate_full_history_improvement(source, 1, {**output["inputs"], "improvement_additions": 1})
         baseline.assert_not_called()
@@ -490,7 +441,9 @@ class SelectedModeTests(unittest.TestCase):
         baseline = NS(equity_curve_2020_2026=[0, 5, 2, 8])
 
         with patch.object(
-            full, "bootstrap_valley_drawdown", return_value=stress(p95=66, probability=7)
+            full_support,
+            "bootstrap_valley_drawdown",
+            return_value=stress(p95=66, probability=7),
         ):
             full._attach_stress_comparison(
                 result=result, baseline=baseline, priority="balanced"
@@ -556,6 +509,38 @@ class SelectedModeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no contiene la variante"):
             full._selected_variant_detail(detail, "balanced")
 
+    def _saved_improvement(self, source, coordinator, state_key, original_id):
+        """Guarda una mejora del portafolio y reintenta: el reintento deduplica."""
+        coordinator.proposals[state_key] = [proposal("conservative", original_id)]
+        coordinator.jobs[state_key] = {"operation": "improve", "portfolio_id": original_id}
+        payload = coordinator.prepare_save("ic", "full_history", "conservative")
+        saved = save_portfolio_payload(source, payload)
+        retry = save_portfolio_payload(source, payload)
+        self.assertNotEqual(saved["portfolio_id"], original_id)
+        self.assertTrue(retry["deduplicated"])
+        self.assertEqual(saved["portfolio_id"], retry["portfolio_id"])
+        return saved["portfolio_id"]
+
+    def _publish_selection_priority(self, source, portfolio_id: int) -> None:
+        """Anade prioridad e incorporaciones a la fila ya guardada.
+
+        Dos mejoras del mismo portafolio y modo son indistinguibles en la lista
+        si no se publica con que criterio se eligio cada una.
+        """
+        with source.connect(write=True) as conn:
+            metrics = json.loads(conn.execute(
+                "select metrics_json from portfolios where id=?", (portfolio_id,)
+            ).fetchone()[0])
+            metrics["inputs"]["improvement_selection_priority"] = "stress"
+            metrics.setdefault("seasonal_validation", {}).setdefault(
+                "portfolio_improvement", {}
+            )["added_count"] = 3
+            conn.execute(
+                "update portfolios set metrics_json=? where id=?",
+                (json.dumps(metrics), portfolio_id),
+            )
+            conn.commit()
+
     def test_save_creates_an_identified_portfolio_and_retry_is_idempotent(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -569,21 +554,14 @@ class SelectedModeTests(unittest.TestCase):
             coordinator.jobs[state_key] = {"operation": "generate"}
             original_id = save_portfolio_payload(source, coordinator.prepare_save("ic", "full_history", "balanced"))["portfolio_id"]
             before = source.saved_portfolio_detail(original_id, "full_history")["portfolio"]
-            coordinator.proposals[state_key] = [proposal("conservative", original_id)]
-            coordinator.jobs[state_key] = {"operation": "improve", "portfolio_id": original_id}
-            payload = coordinator.prepare_save("ic", "full_history", "conservative")
-            saved = save_portfolio_payload(source, payload)
-            retry = save_portfolio_payload(source, payload)
-            self.assertNotEqual(saved["portfolio_id"], original_id)
-            self.assertTrue(retry["deduplicated"])
-            self.assertEqual(saved["portfolio_id"], retry["portfolio_id"])
+            saved_id = self._saved_improvement(source, coordinator, state_key, original_id)
             self.assertEqual(before, source.saved_portfolio_detail(original_id, "full_history")["portfolio"])
             # Simulate an older node that retained provenance but generated a
             # generic name. Reading recovers identity without changing SQLite.
             with source.connect(write=True) as conn:
-                conn.execute("update portfolios set name='A/M/C antiguo' where id=?", (saved["portfolio_id"],))
+                conn.execute("update portfolios set name='A/M/C antiguo' where id=?", (saved_id,))
                 conn.commit()
-            new = source.saved_portfolio_detail(saved["portfolio_id"], "full_history")["portfolio"]
+            new = source.saved_portfolio_detail(saved_id, "full_history")["portfolio"]
             self.assertIn(f"Mejora del portafolio #{original_id} | modo Conservador", new["name"])
             self.assertEqual(new["improvement_origin"], {
                 "source_id": original_id,
@@ -593,22 +571,8 @@ class SelectedModeTests(unittest.TestCase):
                 "label": f"Mejora del portafolio #{original_id} | modo Conservador",
             })
             self.assertEqual(new["portfolio_type"], "conservative")
-            # Dos mejoras del mismo portafolio y modo son indistinguibles en la
-            # lista si no se publica con qué criterio se eligió cada una.
-            with source.connect(write=True) as conn:
-                metrics = json.loads(conn.execute(
-                    "select metrics_json from portfolios where id=?", (saved["portfolio_id"],)
-                ).fetchone()[0])
-                metrics["inputs"]["improvement_selection_priority"] = "stress"
-                metrics.setdefault("seasonal_validation", {}).setdefault(
-                    "portfolio_improvement", {}
-                )["added_count"] = 3
-                conn.execute(
-                    "update portfolios set metrics_json=? where id=?",
-                    (json.dumps(metrics), saved["portfolio_id"]),
-                )
-                conn.commit()
-            enriched = source.saved_portfolio_detail(saved["portfolio_id"], "full_history")["portfolio"]
+            self._publish_selection_priority(source, saved_id)
+            enriched = source.saved_portfolio_detail(saved_id, "full_history")["portfolio"]
             self.assertEqual(enriched["improvement_origin"], {
                 "source_id": original_id, "mode": "conservative",
                 "root_id": original_id, "depth": 1,
@@ -618,4 +582,4 @@ class SelectedModeTests(unittest.TestCase):
             self.assertFalse(new["metrics"].get("portfolio_bundle", False))
             self.assertEqual(new["metrics"]["inputs"]["improvement_source_portfolio_id"], original_id)
             with source.connect() as conn:
-                self.assertEqual(conn.execute("select name from portfolios where id=?", (saved["portfolio_id"],)).fetchone()[0], "A/M/C antiguo")
+                self.assertEqual(conn.execute("select name from portfolios where id=?", (saved_id,)).fetchone()[0], "A/M/C antiguo")

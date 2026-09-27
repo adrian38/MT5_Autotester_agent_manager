@@ -424,6 +424,66 @@ class _WindowsTerminalReportExporter:
             "MT5 cerró Guardar como, pero no creó el HTML nativo",
         )
 
+    def _activate_dialog(self, dialog: int) -> bool:
+        """Trae el dialogo al frente. Falso si Windows se niega."""
+        self.user32.ShowWindow(dialog, SW_RESTORE)
+        self.user32.keybd_event(0x12, 0, 0, 0)
+        self.user32.keybd_event(0x12, 0, 2, 0)
+        self.user32.BringWindowToTop(dialog)
+        if self.user32.SetForegroundWindow(dialog):
+            return True
+        self.user32.SwitchToThisWindow(dialog, True)
+        return self.user32.GetForegroundWindow() == dialog
+
+    def _type_by_messages(self, dialog: int, edit: int, save: int, value: str) -> None:
+        """Escribe el destino con mensajes directos al Edit.
+
+        En una sesion RDP sin escritorio interactivo Windows puede rechazar
+        SetForegroundWindow aunque el hilo del dialogo ya este unido a nuestra
+        cola de entrada. SetActiveWindow y los mensajes siguen siendo validos
+        dentro de esa cola. WM_CHAR genera las notificaciones de cambio que el
+        dialogo comun no genera con un simple SetWindowText.
+        """
+        self.user32.SetActiveWindow(dialog)
+        self.user32.SendMessageW(edit, 0x0007, 0, 0)  # WM_SETFOCUS
+        self.user32.SendMessageW(edit, 0x00B1, 0, -1)  # EM_SETSEL
+        self.user32.SendMessageW(edit, 0x0303, 0, 0)  # WM_CLEAR
+        for character in value:
+            self.user32.SendMessageW(edit, 0x0102, ord(character), 1)  # WM_CHAR
+        if self._control_text(edit) != value:
+            raise NativeHistoryReportError(
+                "Guardar como de MT5 no conservó el destino solicitado"
+            )
+        self.user32.SendMessageW(save, BM_CLICK, 0, 0)
+        time.sleep(0.1)
+
+    def _type_by_keystrokes(self, edit: int, value: str) -> None:
+        """Escribe el destino tecla a tecla, con sus modificadores."""
+        self.user32.SetFocus(edit)
+        self.user32.keybd_event(0x11, 0, 0, 0)
+        self.user32.keybd_event(0x41, 0, 0, 0)
+        self.user32.keybd_event(0x41, 0, 2, 0)
+        self.user32.keybd_event(0x11, 0, 2, 0)
+        for character in value:
+            key = self.user32.VkKeyScanW(ord(character))
+            if key == -1:
+                raise NativeHistoryReportError(
+                    f"Guardar como no admite el carácter {character!r} del destino"
+                )
+            virtual_key = key & 0xFF
+            modifiers = (key >> 8) & 0xFF
+            for mask, modifier in ((1, 0x10), (2, 0x11), (4, 0x12)):
+                if modifiers & mask:
+                    self.user32.keybd_event(modifier, 0, 0, 0)
+            self.user32.keybd_event(virtual_key, 0, 0, 0)
+            self.user32.keybd_event(virtual_key, 0, 2, 0)
+            for mask, modifier in ((4, 0x12), (2, 0x11), (1, 0x10)):
+                if modifiers & mask:
+                    self.user32.keybd_event(modifier, 0, 2, 0)
+        self.user32.keybd_event(0x0D, 0, 0, 0)
+        self.user32.keybd_event(0x0D, 0, 2, 0)
+        time.sleep(0.1)
+
     def _type_filename(self, dialog: int, edit: int, save: int, value: str) -> None:
         current_thread = self.kernel32.GetCurrentThreadId()
         foreground = self.user32.GetForegroundWindow()
@@ -434,64 +494,10 @@ class _WindowsTerminalReportExporter:
             for thread in {foreground_thread, target_thread} - {0, current_thread}:
                 if self.user32.AttachThreadInput(current_thread, thread, True):
                     attached.append(thread)
-            self.user32.ShowWindow(dialog, SW_RESTORE)
-            self.user32.keybd_event(0x12, 0, 0, 0)
-            self.user32.keybd_event(0x12, 0, 2, 0)
-            self.user32.BringWindowToTop(dialog)
-            activated = bool(self.user32.SetForegroundWindow(dialog))
-            if not activated:
-                self.user32.SwitchToThisWindow(dialog, True)
-                activated = self.user32.GetForegroundWindow() == dialog
-            if not activated:
-                # En una sesión RDP sin escritorio interactivo Windows puede
-                # rechazar SetForegroundWindow aunque el hilo del diálogo ya
-                # esté unido a nuestra cola de entrada. SetActiveWindow y
-                # mensajes directos al Edit siguen siendo válidos dentro de
-                # esa cola. WM_CHAR genera las notificaciones de cambio que el
-                # diálogo común no genera con un simple SetWindowText.
-                self.user32.SetActiveWindow(dialog)
-                self.user32.SendMessageW(edit, 0x0007, 0, 0)  # WM_SETFOCUS
-                self.user32.SendMessageW(edit, 0x00B1, 0, -1)  # EM_SETSEL
-                self.user32.SendMessageW(edit, 0x0303, 0, 0)  # WM_CLEAR
-                for character in value:
-                    self.user32.SendMessageW(edit, 0x0102, ord(character), 1)  # WM_CHAR
-                if self._control_text(edit) != value:
-                    raise NativeHistoryReportError(
-                        "Guardar como de MT5 no conservó el destino solicitado"
-                    )
-                self.user32.SendMessageW(save, BM_CLICK, 0, 0)
-                time.sleep(0.1)
-                return
-            self.user32.SetFocus(edit)
-            self.user32.keybd_event(0x11, 0, 0, 0)
-            self.user32.keybd_event(0x41, 0, 0, 0)
-            self.user32.keybd_event(0x41, 0, 2, 0)
-            self.user32.keybd_event(0x11, 0, 2, 0)
-            for character in value:
-                key = self.user32.VkKeyScanW(ord(character))
-                if key == -1:
-                    raise NativeHistoryReportError(
-                        f"Guardar como no admite el carácter {character!r} del destino"
-                    )
-                virtual_key = key & 0xFF
-                modifiers = (key >> 8) & 0xFF
-                if modifiers & 1:
-                    self.user32.keybd_event(0x10, 0, 0, 0)
-                if modifiers & 2:
-                    self.user32.keybd_event(0x11, 0, 0, 0)
-                if modifiers & 4:
-                    self.user32.keybd_event(0x12, 0, 0, 0)
-                self.user32.keybd_event(virtual_key, 0, 0, 0)
-                self.user32.keybd_event(virtual_key, 0, 2, 0)
-                if modifiers & 4:
-                    self.user32.keybd_event(0x12, 0, 2, 0)
-                if modifiers & 2:
-                    self.user32.keybd_event(0x11, 0, 2, 0)
-                if modifiers & 1:
-                    self.user32.keybd_event(0x10, 0, 2, 0)
-            self.user32.keybd_event(0x0D, 0, 0, 0)
-            self.user32.keybd_event(0x0D, 0, 2, 0)
-            time.sleep(0.1)
+            if self._activate_dialog(dialog):
+                self._type_by_keystrokes(edit, value)
+            else:
+                self._type_by_messages(dialog, edit, save, value)
         finally:
             for thread in reversed(attached):
                 self.user32.AttachThreadInput(current_thread, thread, False)

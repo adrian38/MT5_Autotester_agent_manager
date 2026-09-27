@@ -152,9 +152,8 @@ class ExperimentalMonthlySearchTests(unittest.TestCase):
         }
         self.assertNotEqual(pool_by_id["set-0"], pool_by_id["set-1"])
 
-    def test_tournament_examines_all_candidates_before_the_final(self) -> None:
-        strategies = [strategy(index) for index in range(35)]
-        evaluated: list[list[str]] = []
+    def _fake_monthly_optimize(self, evaluated):
+        """Un optimizador de mentira que anota el lote y elige su mitad."""
 
         def fake_optimize(pool, _full_sets, **_kwargs):
             evaluated.append([item.set_id for item in pool])
@@ -178,12 +177,29 @@ class ExperimentalMonthlySearchTests(unittest.TestCase):
                 seasonal_validation={},
             )
 
+        return fake_optimize
+
+    def _assert_round_robin_coverage(self, first_round, strategies) -> None:
+        """Cada candidato aparece el mismo numero de veces en la primera ronda."""
+        self.assertEqual(
+            {set_id for pool in first_round for set_id in pool},
+            {item.set_id for item in strategies},
+        )
+        appearances = {
+            set_id: sum(set_id in pool for pool in first_round)
+            for set_id in {item.set_id for item in strategies}
+        }
+        self.assertEqual(set(appearances.values()), {3})
+
+    def test_tournament_examines_all_candidates_before_the_final(self) -> None:
+        strategies = [strategy(index) for index in range(35)]
+        evaluated: list[list[str]] = []
         with patch(
             "mt5_manager.portfolio_monthly_experimental.filter_eligible_sets",
             return_value=strategies,
         ), patch(
             "mt5_manager.portfolio_monthly_experimental._optimize_exact_pool",
-            side_effect=fake_optimize,
+            side_effect=self._fake_monthly_optimize(evaluated),
         ):
             result = optimize_experimental_monthly_portfolio(
                 monthly_sets=strategies,
@@ -196,22 +212,11 @@ class ExperimentalMonthlySearchTests(unittest.TestCase):
                 top_k_per_symbol=3,
             )
 
-        first_round = evaluated[:12]
-        self.assertEqual(
-            {set_id for pool in first_round for set_id in pool},
-            {item.set_id for item in strategies},
-        )
-        appearances = {
-            set_id: sum(set_id in pool for pool in first_round)
-            for set_id in {item.set_id for item in strategies}
-        }
-        self.assertEqual(set(appearances.values()), {3})
+        self._assert_round_robin_coverage(evaluated[:12], strategies)
         self.assertTrue(
             any("35/35 candidatos examinados" in warning for warning in result.warnings)
         )
-        yearly_audit = result.seasonal_validation[
-            "experimental_leave_one_year_out"
-        ]
+        yearly_audit = result.seasonal_validation["experimental_leave_one_year_out"]
         self.assertEqual(yearly_audit["status"], "completed")
         self.assertEqual(len(yearly_audit["folds"]), 5)
 
