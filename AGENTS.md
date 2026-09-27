@@ -16,6 +16,18 @@
   ese porting ni toca esos checkouts.
 - Preservar cambios ajenos; limitar cada modificación al objetivo pedido.
 
+### Matriz de escritura por rama
+
+| Rama del manager | Manager | ICTrading local | AXI, RoboForex y copia genérica |
+| --- | --- | --- | --- |
+| `dev` | Sí | Sí, sólo para el comportamiento que ejecuta su runtime | Nunca |
+| `refactor` | Sí | Sólo con autorización explícita o si la tarea exige el par de protocolo/runtime | Nunca |
+| `main` | Sí | Sólo con autorización explícita para esa tarea | Nunca |
+| Cualquier otra | Sí | Sólo con autorización explícita para esa tarea | Nunca |
+
+La rama permite una ubicación; no amplía el objetivo pedido. Un checkout externo
+que no figure como escribible en esta tabla requiere autorización explícita.
+
 ## El nodo NO ejecuta este repositorio
 
 Tres reincidencias ya (pausa/reanudación, exclusión del 20-07, exclusión
@@ -44,7 +56,8 @@ escritura en la memoria UBS.
 | Docstrings de `node.py` y de las dos `remove_member*_to_quarantine` | El aviso, en el punto exacto donde se edita. |
 | `tests/test_guided_routing.py` | Compara **byte a byte** `guided_batches.py` y `guided_controller.py` con la copia de IC. |
 
-**Esos dos ficheros sólo se refactorizan cambiando las dos copias a la vez**:
+**Esos dos ficheros de producción sólo se refactorizan cambiando las dos copias
+a la vez**:
 son el protocolo de los lotes guiados y tienen que coincidir. Están en
 repositorios distintos, así que no es un commit sino dos hermanos, y hasta que
 existan los dos la prueba está roja. Y **no
@@ -53,6 +66,12 @@ runtime del agente: por eso la cola de `JobController` sigue siendo métodos que
 delegan. Así se partió `validate_package`, que era la única función de
 producción por encima del techo. Detalle en
 `ai_context/ficheros_identicos_al_runtime_de_ic.md`.
+
+Las pruebas propias de cada repositorio no tienen que ser idénticas y se
+modifican sólo donde vive el contrato que comprueban. Después de cambiar el
+protocolo o el pipeline guiado, ejecutar también en IC:
+
+`python -m unittest tests.test_prepared_candidates tests.test_guided_node tests.test_guided_http tests.test_manager_node_repair_phases`
 
 ## Leer `ai_context/` antes de escribir código
 
@@ -74,6 +93,11 @@ sus dos fallos conocidos: `CLAUDE.md`.
    y el paquete `portfolio_manager/ubs_portfolio/` alimentan los dos scopes y los
    tres nodos: nunca asumir el alcance de un cambio ahí.
 5. Reindexar tras cambios estructurales y volver a consultar el grafo.
+
+Si la memoria no arranca, no admite la raíz o queda desactualizada, usar el
+grafo existente sólo para orientarse y continuar con lectura directa y `rg` en
+el área afectada y en el otro repositorio. Declarar la limitación en la entrega.
+Nunca interpretar un resultado negativo del grafo como prueba de ausencia.
 
 `rg`, `git` y PowerShell valen para búsquedas de ficheros y comprobaciones
 mecánicas; no sustituyen el análisis con el grafo. Y el grafo cubre **un**
@@ -228,9 +252,9 @@ de 600. Una entrada nueva ya no es una herencia: es una regresión.
 
 - **Lo nuevo cumple.** Función o fichero nuevo por encima del techo: se parte.
   No se añade al baseline.
-- **El baseline sólo encoge.** Al partir, borrar la entrada; el test avisa de
-  las que sobran. Regenerar (`--write`) sólo para bajar el trinquete, nunca
-  para silenciar un fallo.
+- **El baseline sólo encoge.** Como ahora está vacío, no se ejecuta `--write`
+  de rutina: toda entrada nueva es una regresión. Sólo se regenera para retirar
+  una excepción preexistente real, si vuelve a existir alguna vez.
 - **No se toca `SKIP_PARTS`** para esquivar una guarda. Está para excluir código
   ajeno (`runtime/` son 232 ficheros de node-gyp), no el nuestro.
 - Cuando una firma enorme hace imposible el techo —`optimize_portfolio` tenía 44
@@ -267,6 +291,8 @@ Partir es **pasos con nombre**, no trocear por líneas. Lo que ha rendido aquí:
   extracción faltaban tres y el suite sólo delataba uno; en su primera pasada
   sobre el proyecto entero encontró un cuarto que llevaba meses ahí
   (`_integer` en `live_audit_settings.py`).
+- **`import *` sólo en `tools.undefined_names.ALLOWED_STAR_IMPORTS`.** Un módulo
+  nuevo con importación estrella no queda «no comprobable»: rompe la guarda.
 - **Al partir un fichero, buscar las guardas que lo nombran.** La paridad con el
   fork leía `node.py`; partido en once módulos habría **seguido pasando**
   mientras comprobaba una fracción de lo que comprobaba antes. Se arregló con
@@ -323,15 +349,18 @@ no puede pasar por el shell, y el resultado hay que mirarlo:
   clases nuevas (el `isinstance` de HEAD falla), dejar que el parcheo alcance la
   copia HEAD (recursión), y contar como divergencia un aviso duplicado por
   dobles inserciones sobre el mismo `list` de un doble de prueba.
-- **Otras sesiones escriben en este árbol.** Comprobar `git status` antes de
-  fiarse de una medición larga, y commitear lo ajeno aparte.
+- **Otras sesiones escriben en este árbol.** Capturar `HEAD` y `git status
+  --porcelain --untracked-files=no` antes de una medición larga y compararlos al
+  terminar. Si cambia `HEAD`, parar; si cambia el estado tracked, revisar y no
+  absorberlo. Los cambios ajenos se conservan y se commitean aparte.
 - `test_symbol_sync` falla de vez en cuando en el suite completo y pasa sola:
   habla por HTTP con el fork de IC y deja un hilo contestando tarde. Volver a
   correrla aislada antes de darle importancia —
   `ai_context/test_symbol_sync_intermitente.md`.
-- Antes de commitear un refactor: `python -m tools.sync_ubs_exports`,
-  `python -m tools.undefined_names`,
-  `python -m tools.function_length --write`, `python -m tools.file_length --write`.
+- Antes de commitear un refactor: `python -m tools.verify_project`, que también
+  sincroniza las reexportaciones UBS. Durante la iteración,
+  `python -m tools.verify_project --quick` omite sólo el suite completo del
+  manager; nunca silencia guardas ni el contrato focal de IC si está montado.
 - Documentar decisiones y hallazgos duraderos en `ai_context/`, **y añadir su
   línea al `README.md` de esa carpeta**: se presenta como índice y lo exige
   `tests/test_ai_context_index.py`.
@@ -343,9 +372,22 @@ en `tools/` se reescribe distinto en cada sesión, así que aquí vive todo.
 
 | Comando | Para qué |
 | --- | --- |
-| `tools.function_length` / `tools.file_length` | Los dos techos y sus trinquetes. `--write` sólo para bajarlos. |
+| `tools.function_length` / `tools.file_length` | Los dos techos; con baselines vacíos no se usa `--write` de rutina. |
 | `tools.undefined_names` | Nombres que un módulo usa y nadie define. Lo que deja fuera una extracción. |
 | `tools.call_trace` | La secuencia de llamadas contra `HEAD`, para lo que no tiene cobertura. |
 | `tools.coverage_probe` | Cuántas veces el suite entero alcanza una función. |
 | `tools.sync_ubs_exports` | Regenera la reexportación de `ubs_portfolio`. |
 | `tools.ai_context_index` | Notas de `ai_context/` que el índice no menciona. |
+| `tools.verify_project` | Contrato completo: auditorías, guardas, suite manager, IC si está montado y estabilidad de Git. |
+
+## Definición de terminado y entrega
+
+Una tarea no está terminada hasta que el comando completo aplicable queda verde,
+el diff se ha leído y cada unidad pertenece a su repositorio y commit correctos.
+La entrega final siempre indica:
+
+- commit del manager y, si se tocó, commit hermano de IC;
+- comandos ejecutados y número de pruebas aprobadas;
+- copias opcionales no montadas u omitidas;
+- porting o reinicio que debe hacer el usuario;
+- estado limpio o cambios ajenos que permanecen en cada checkout.

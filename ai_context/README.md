@@ -116,6 +116,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 
 ## Forma del código y verificación
 
+- `project_verification_contract.md`: puerta única de verificación, estabilidad
+  de Git, lista cerrada de `import *` y formato obligatorio de entrega.
 - `ubs_portfolio_package.md`: por qué las 6.800 líneas de `ubs_portfolio` son
   ahora un paquete ordenado por dependencia, y qué rompe al parchear el
   paquete en vez del módulo consumidor.

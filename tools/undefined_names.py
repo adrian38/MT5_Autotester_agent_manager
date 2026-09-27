@@ -10,10 +10,10 @@ delataba uno.
 Sin argumentos recorre todo el código del proyecto. Devuelve 1 si encuentra
 algo, así que sirve dentro de un script de verificación.
 
-Dos cosas no se denuncian, porque no son fallos:
+Dos cosas no se denuncian como nombres sueltos:
 
-- Un módulo con ``import *`` no es comprobable y se dice así. El intérprete
-  tampoco sabe qué trae hasta ejecutarlo.
+- Un módulo autorizado con ``import *`` no es comprobable y se dice así. La
+  lista cerrada evita que una extracción nueva abra otro agujero silencioso.
 - Un nombre que sólo aparece en anotaciones, con ``from __future__ import
   annotations`` activo, nunca se evalúa. Es lo que pasa con los tipos que los
   módulos de abajo de una pila declaran bajo ``if TYPE_CHECKING:``.
@@ -27,6 +27,15 @@ from pathlib import Path
 
 from tools.source_files import iter_python_files
 
+ROOT = Path(__file__).resolve().parents[1]
+ALLOWED_STAR_IMPORTS = frozenset({
+    "mt5_manager/live_audit_comparison.py",
+    "mt5_manager/live_audit_engine.py",
+    "mt5_manager/live_audit_extraction.py",
+    "mt5_manager/live_audit_lifecycle.py",
+    "mt5_manager/live_audit_terminals.py",
+    "mt5_manager/live_audit_tester.py",
+})
 ALWAYS_DEFINED = frozenset(dir(builtins)) | {
     "__name__", "__file__", "__doc__", "__package__", "__spec__", "__all__",
 }
@@ -110,19 +119,38 @@ def unresolved(source: str) -> list[str] | None:
     })
 
 
+def relative_path(path: Path) -> str:
+    """Ruta estable para comparar la excepción con independencia del SO."""
+    return path.resolve().relative_to(ROOT).as_posix()
+
+
 def main(argv: list[str]) -> int:
     paths = [Path(name) for name in argv] or list(iter_python_files())
-    found = skipped = 0
+    found = allowed_stars = 0
+    unexpected_stars = set()
     for path in paths:
         missing = unresolved(path.read_text(encoding="utf-8"))
         if missing is None:
-            skipped += 1
+            name = relative_path(path)
+            if name in ALLOWED_STAR_IMPORTS:
+                allowed_stars += 1
+            else:
+                unexpected_stars.add(name)
         elif missing:
             found += len(missing)
             print(f"{path}: {', '.join(missing)}")
-    tail = f", {skipped} no comprobable(s) por `import *`" if skipped else ""
+    stale = set()
+    if not argv:
+        actual = {relative_path(path) for path in paths if unresolved(
+            path.read_text(encoding="utf-8")) is None}
+        stale = set(ALLOWED_STAR_IMPORTS) - actual
+    for name in sorted(unexpected_stars):
+        print(f"{name}: `import *` no autorizado")
+    for name in sorted(stale):
+        print(f"{name}: excepción de `import *` obsoleta")
+    tail = f", {allowed_stars} `import *` autorizado(s)" if allowed_stars else ""
     print(f"{len(paths)} fichero(s), {found} nombre(s) sueltos{tail}")
-    return 1 if found else 0
+    return 1 if found or unexpected_stars or stale else 0
 
 
 if __name__ == "__main__":
