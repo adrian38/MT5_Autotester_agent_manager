@@ -261,10 +261,18 @@ Partir es **pasos con nombre**, no trocear por líneas. Lo que ha rendido aquí:
   keyword. Pasar un kwarg que el destino no acepta también: el diferencial pilló
   `minimum_active_strategies` yendo a una función que no lo declara, y los 620
   tests pasaban.
-- **Comprobar los imports del módulo nuevo** con un recorrido AST de nombres
-  sueltos, no con `import`: una extracción deja fuera helpers y constantes, el
-  módulo importa igual y el `NameError` sólo salta al ejecutar esa rama. En una
-  extracción faltaban tres y el suite sólo delataba uno.
+- **Comprobar los imports del módulo nuevo** con `python -m tools.undefined_names`,
+  no con `import`: una extracción deja fuera helpers y constantes, el módulo
+  importa igual y el `NameError` sólo salta al ejecutar esa rama. En una
+  extracción faltaban tres y el suite sólo delataba uno; en su primera pasada
+  sobre el proyecto entero encontró un cuarto que llevaba meses ahí
+  (`_integer` en `live_audit_settings.py`).
+- **Al partir un fichero, buscar las guardas que lo nombran.** La paridad con el
+  fork leía `node.py`; partido en once módulos habría **seguido pasando**
+  mientras comprobaba una fracción de lo que comprobaba antes. Se arregló con
+  `manager_node_source()`, que concatena todos los `node*.py`. Una guarda que se
+  debilita en silencio es peor que una que se rompe: `rg -l <fichero> tests/
+  tools/` antes de dar por hecho el reparto.
 - **Partir un fichero en más funciones lo hace crecer.** Los dos techos tiran en
   direcciones opuestas: cada tanda de particiones necesita su extracción de
   módulo, y ése es el trabajo que de verdad baja el coste de lectura.
@@ -276,23 +284,42 @@ Partir es **pasos con nombre**, no trocear por líneas. Lo que ha rendido aquí:
   y dejar para otra sesión la función más arriesgada.
 - **Un commit por unidad**, con su verificación pasada antes de crearlo.
 
+### El código fuente no se edita a través del shell
+
+Reescribir con un script está bien —así se movieron los módulos— pero el texto
+no puede pasar por el shell, y el resultado hay que mirarlo:
+
+- **Un heredoc convierte los `\n` de un literal Python en saltos reales.** Tres
+  `SyntaxError` por esto en una sola sesión, siempre «cadena sin cerrar». El
+  texto se escribe con la herramienta de edición o, dentro de un script, con
+  `chr(10)`.
+- **En el reemplazo de `re.sub`, un `\1` se convierte en el carácter U+0001.**
+  La peor de las dos: en vez de insertar una línea, *sustituyó*
+  `from mt5_manager.manager import PULSE_JOB_KEYS, ManagerServer` en un test. El
+  suite no dijo nada; lo delató un `NameError` mucho después.
+- **Después de cualquier reescritura por script, leer el diff.** Es lo único que
+  caza las dos de arriba y la sobre-captura: una extracción por AST se llevó 180
+  líneas de helpers ajenos y sólo se vio al medir el fichero resultante.
+
 ## Verificación
 
 - Primero pruebas focalizadas con `python -m unittest`.
 - Después `python -m unittest discover -s tests` cuando el alcance lo permita.
 - `pytest` no está entre las dependencias instaladas del workspace.
 - **Un suite verde no prueba equivalencia.** Antes de refactorizar algo
-  compartido, envolver la función y contar llamadas para ver si alguna prueba la
-  alcanza: `optimize_strict_monthly_portfolio` tenía cero cobertura y los 620
-  tests pasaban igual. Lo mismo `_recalculate_saved` y
+  compartido, medir con `python -m tools.coverage_probe <módulo>:<nombre>` si
+  alguna prueba lo alcanza: `optimize_strict_monthly_portfolio` tenía cero
+  cobertura y los 620 tests pasaban igual. Lo mismo `_recalculate_saved` y
   `generate_completion_proposal`. Sin cobertura, el cambio es **movimiento
-  literal** y nada más.
+  literal** y nada más. Si el informe dice que no quedó envuelto en ningún
+  módulo, la medida no vale: repetirla.
 - En un refactor sin comportamiento nuevo, **comparar contra
   `git show HEAD:<fichero>` cargado como paquete aparte** sobre las mismas
   entradas, campo a campo. Si una rama no se deja alcanzar —cero cobertura—,
-  comparar con AST la **secuencia de llamadas** de la función, expandiendo en su
-  sitio los pasos nuevos: nombre, argumentos y nombres de los kwargs, en orden.
-  Idéntica significa que no se ha caído ni reordenado nada. Tres trampas ya vistas en ese arnés: construir las entradas con las
+  `python -m tools.call_trace <fichero> <función> <ayudante...>` compara la
+  **secuencia de llamadas** contra `HEAD` expandiendo en su sitio los pasos
+  nuevos: nombre, argumentos y nombres de los kwargs, en orden. Idéntica
+  significa que no se ha caído ni reordenado nada. Tres trampas ya vistas en ese arnés: construir las entradas con las
   clases nuevas (el `isinstance` de HEAD falla), dejar que el parcheo alcance la
   copia HEAD (recursión), y contar como divergencia un aviso duplicado por
   dobles inserciones sobre el mismo `list` de un doble de prueba.
@@ -303,5 +330,22 @@ Partir es **pasos con nombre**, no trocear por líneas. Lo que ha rendido aquí:
   correrla aislada antes de darle importancia —
   `ai_context/test_symbol_sync_intermitente.md`.
 - Antes de commitear un refactor: `python -m tools.sync_ubs_exports`,
+  `python -m tools.undefined_names`,
   `python -m tools.function_length --write`, `python -m tools.file_length --write`.
-- Documentar decisiones y hallazgos duraderos en `ai_context/`.
+- Documentar decisiones y hallazgos duraderos en `ai_context/`, **y añadir su
+  línea al `README.md` de esa carpeta**: se presenta como índice y lo exige
+  `tests/test_ai_context_index.py`.
+
+### Las herramientas
+
+Las reglas de arriba no son consejos: cada una tiene su comando. Lo que no está
+en `tools/` se reescribe distinto en cada sesión, así que aquí vive todo.
+
+| Comando | Para qué |
+| --- | --- |
+| `tools.function_length` / `tools.file_length` | Los dos techos y sus trinquetes. `--write` sólo para bajarlos. |
+| `tools.undefined_names` | Nombres que un módulo usa y nadie define. Lo que deja fuera una extracción. |
+| `tools.call_trace` | La secuencia de llamadas contra `HEAD`, para lo que no tiene cobertura. |
+| `tools.coverage_probe` | Cuántas veces el suite entero alcanza una función. |
+| `tools.sync_ubs_exports` | Regenera la reexportación de `ubs_portfolio`. |
+| `tools.ai_context_index` | Notas de `ai_context/` que el índice no menciona. |
