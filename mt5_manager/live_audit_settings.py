@@ -14,6 +14,7 @@ from .live_audit_settings_schema import (
     DEFAULT_LIVE_AUDIT_SETTINGS,
     DEFAULT_TERMINAL_RESTORE_ACCOUNT,
     _audit_ids,
+    _integer,
     _portfolio_ids,
     _public_legacy_profile,
     _require_complete_profile,
