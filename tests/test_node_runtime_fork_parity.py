@@ -635,6 +635,70 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "cuenta que queda en el terminal tras auditar")
 
+    def test_the_auditor_accepts_a_single_variant_improvement_on_every_ported_fork(self) -> None:
+        # Una mejora se guarda con `variant_key` vacío: la variante es la fila
+        # entera y su modo es el heredado de la base. Sin esta regla el nodo
+        # rechaza el portafolio con «no contiene la variante aggressive» y
+        # `Auditar ahora` no llega ni a abrir un terminal, por mucho que la
+        # pantalla del manager deje configurar el uso.
+        manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        tokens = (
+            "def single_variant_mode",
+            'own_mode = single_variant_mode(detail)',
+            "guarda una sola variante, modo",
+        )
+        for token in tokens:
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                print(f"\n[paridad] mejora de una sola variante: {project} no tiene live_audit.py")
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            for token in tokens:
+                self._assert_present(
+                    source,
+                    re.escape(token),
+                    f"{project}: falta `{token}` en manager_node_runtime/live_audit.py. "
+                    "Portar la resolución del modo heredado desde "
+                    "mt5_manager/live_audit_engine.py: sin ella el nodo rechaza auditar "
+                    "cualquier mejora, aunque el manager la deje configurar.",
+                )
+
+        self._assert_on_every_fork(check, "auditar una mejora de una sola variante")
+
+    def test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork(self) -> None:
+        # `initialize()` vuelve en cuanto el servidor autoriza el login, no cuando
+        # el terminal ha conmutado de cuenta. Sin el sondeo, un terminal arrancado
+        # en frío devuelve la cuenta de restauración anterior y el pool entero se
+        # cae con «No se confirmó la cuenta tester en todo el pool».
+        manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        tokens = (
+            "def _settled_account",
+            "tester_login_settle_seconds",
+        )
+        for token in tokens:
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                print(f"\n[paridad] conmutación de cuenta tester: {project} no tiene live_audit.py")
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            for token in tokens:
+                self._assert_present(
+                    source,
+                    re.escape(token),
+                    f"{project}: falta `{token}` en manager_node_runtime/live_audit.py. "
+                    "Portar el sondeo desde mt5_manager/live_audit_engine.py: sin él la "
+                    "auditoría aborta antes del Strategy Tester cada vez que un terminal "
+                    "arranca con otra cuenta guardada.",
+                )
+
+        self._assert_on_every_fork(check, "esperar la conmutación de la cuenta tester")
+
     def test_ictrading_live_auditor_has_calendar_boundaries_and_effective_lot_rules(self) -> None:
         manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
         ic_project = FORK_CANDIDATES[0]

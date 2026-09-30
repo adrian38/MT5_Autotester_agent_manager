@@ -769,14 +769,25 @@ sólo existe en el modo de su base. Por tanto aquí no hay nada que elegir.
 - El detalle del portafolio ya no espera a que el usuario elija modo: si el modo
   está resuelto, `ensureSelectionDetails()` lo pide al seleccionar el uso.
 
-**Pendiente de port al nodo.** Quien ejecuta la auditoría es
-`manager_node_runtime/live_audit.py` del agente, y su `_portfolio_members` sigue
-exigiendo coincidencia exacta de `variant_key`: hasta portarlo, `Auditar ahora`
-sobre una mejora falla con «no contiene la variante aggressive; disponibles:
-ninguna». La copia ICTrading no estaba montada en este equipo al escribir esto
-(`I:\TRADING\MT5_Autotester_agent_IC` no existe), así que el cambio vive sólo en
-el motor de referencia. El port necesita las dos piezas: `single_variant_mode` y
-la rama de `_portfolio_members`.
+Quien ejecuta la auditoría es `manager_node_runtime/live_audit.py` del agente,
+así que el cambio en el manager por sí solo no habría servido de nada: sin él,
+`Auditar ahora` sobre una mejora falla con «no contiene la variante aggressive;
+disponibles: ninguna» antes de abrir un terminal. El port está hecho en la rama
+`IC` del agente, con su prueba en `tests/test_manager_node_live_audit.py`. El
+nodo no publica `improvement_origin`, así que allí manda el respaldo
+`portfolio_type` de la fila; por eso `single_variant_mode` mira los dos.
+
+**No buscar la copia IC por el nombre de la carpeta.** En este equipo no existe
+`I:\TRADING\MT5_Autotester_agent_IC` pese a que `manager.json` lo declare: la
+rama `IC` está en el checkout de `F:\TRADING\MT5_Autotester_agent_AXI`, que el
+2026-10-01 tenía `IC` como rama activa. `git branch` de cualquier checkout del
+agente es la autoridad, no el árbol de directorios.
+
+`test_the_auditor_accepts_a_single_variant_improvement_on_every_ported_fork`
+vigila las dos piezas (`single_variant_mode` y la rama de `_portfolio_members`)
+en cada copia alcanzable. Hoy falla a propósito para
+`G:\TRADING\MT5_Autotester_agent` (RoboForex, rama `dev`), que todavía no ha
+recibido el merge desde `IC`; el port a AXI y RoboForex lo hace el usuario.
 
 ## Validación p54: NAS100/BTCUSD y cierres solapados (2026-09-14)
 
@@ -804,3 +815,57 @@ Este arreglo necesita dos piezas al portarlo al agente: el lector compartido
 `portfolio_manager/mt5_report.py` y los nuevos pisos de
 `manager_node_runtime/live_audit.py`. Cambiar solo el motor de referencia del
 manager no altera la auditoría que ejecuta el nodo broker.
+
+## `initialize()` autoriza el login antes de que el terminal cambie de cuenta (2026-10-01)
+
+La auditoría `20261001_005310_756706` (RoboForex, uso `audit-148-muon8rbd-1`,
+portafolio #148 agresivo) extrajo bien la cuenta real —33 cierres y HTML
+nativo— y murió después con «No se confirmó la cuenta tester en todo el pool:
+MT5_4 … MT5_7 … MT5_8: confirmó el login 67188517».
+
+El mensaje induce a error de dos maneras y conviene leerlo con cuidado:
+
+- **El pool no eran tres terminales, eran diez.** `_verify_tester_terminals`
+  solo enumera los que fallan. Siete confirmaron el login tester correctamente.
+- **`67188517` no es una cuenta ajena ni un dato corrupto.** Es la cuenta final
+  de restauración configurada para ese nodo, es decir, exactamente la que una
+  auditoría anterior dejó guardada en esos terminales.
+
+El Journal de los tres que fallaron da la causa sin ambigüedad:
+
+```
+00:54:37.424  '77049426': authorized on RoboForex-ECN
+00:54:37.916  '67188517': terminal synchronized with RoboForex Ltd: 5 positions, 44 orders
+00:54:39.647  '77049426': scanning network for access points
+00:54:40.208  exit with code 0
+```
+
+MT5 **sí** autorizó la cuenta tester. Lo que devuelve `initialize()` es esa
+autorización del servidor, no la conmutación del terminal: un terminal arrancado
+en frío sigue sincronizando la cuenta que tenía guardada durante ese hueco. Los
+siete terminales que pasaron ya tenían `77049426` guardada, así que no había
+conmutación que perder; los tres que fallaron venían de una restauración previa.
+Por eso el fallo es **intermitente y depende de la ejecución anterior**, no de la
+configuración.
+
+Es la misma clase de error que ya documenta este fichero para el historial de
+deals: no es válido leer el estado de MT5 una sola vez justo después de cambiar
+de login. `_reopen_without_password` ya lo hacía bien —sondea 15 s exigiendo
+login, servidor y `connected`—; `_verify_tester_terminals` leía `account_info()`
+una única vez.
+
+Ahora ambos motores sondean con `_settled_account`, con plazo
+`tester_login_settle_seconds` (30 s, más que la restauración porque aquí el
+terminal arranca en frío y además tiene que conmutar de cuenta). Devuelve siempre
+la última lectura aunque no coincida, para que el error siga diciendo qué cuenta
+confirmó realmente en lugar de un «sin confirmación» mudo.
+
+Coste de equivocarse aquí: un solo terminal perdido aborta el pool entero
+**antes** de lanzar el Strategy Tester, después de haber abierto la cuenta real,
+extraído el historial y copiado los sets. No degrada el resultado, lo destruye.
+
+Portado a `G:\TRADING\MT5_Autotester_agent\manager_node_runtime\live_audit.py`
+(rama `IC`), que es el proceso que ejecutó esta auditoría. `AXI` lo tiene
+pendiente y la guarda
+`test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork` falla a
+propósito hasta que el usuario porte el commit.

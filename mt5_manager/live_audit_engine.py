@@ -384,6 +384,7 @@ class LiveAuditController:
 
     history_sync_attempts = 6
     history_sync_delay_seconds = 1.0
+    tester_login_settle_seconds = 30.0
 
     def __init__(self, owner: Any, runtime_dir: Path) -> None:
         self.owner = owner
@@ -1188,6 +1189,32 @@ class LiveAuditController:
                 row["journal_captured"] = False
                 row["journal_error"] = str(exc)
 
+    @staticmethod
+    def _settled_account(
+        mt5: Any, login: str, server: str, timeout: float,
+    ) -> tuple[str, str, bool]:
+        """Espera a que el terminal conmute de cuenta antes de creer `account_info()`.
+
+        `initialize()` vuelve en cuanto el servidor autoriza el login, no cuando
+        el terminal ha cambiado de cuenta. Devuelve siempre la última lectura,
+        coincida o no, para que el llamante pueda decir qué cuenta confirmó.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            info = mt5.account_info()
+            terminal = mt5.terminal_info()
+            actual_login = str(getattr(info, "login", "") or "") if info is not None else ""
+            actual_server = str(getattr(info, "server", "") or "") if info is not None else ""
+            connected = bool(getattr(terminal, "connected", False)) if terminal is not None else False
+            matched = (
+                actual_login == login
+                and actual_server.casefold() == server.casefold()
+                and connected
+            )
+            if matched or time.monotonic() >= deadline:
+                return actual_login, actual_server, connected
+            time.sleep(0.25)
+
     def _verify_tester_terminals(
         self, request: dict[str, Any], profiles: list[tuple[str, dict[str, str]]],
     ) -> list[dict[str, Any]]:
@@ -1216,11 +1243,14 @@ class LiveAuditController:
                     row["error"] = f"MT5 rechazó la cuenta tester: {mt5.last_error()}"
                 else:
                     launched = self._terminal_pids() - before
-                    info = mt5.account_info()
-                    terminal = mt5.terminal_info()
-                    actual_login = str(getattr(info, "login", "") or "") if info is not None else ""
-                    actual_server = str(getattr(info, "server", "") or "") if info is not None else ""
-                    connected = bool(getattr(terminal, "connected", False)) if terminal is not None else False
+                    # Un terminal arrancado en frío sigue sincronizando la cuenta
+                    # que tenía guardada —la de restauración de la auditoría
+                    # anterior— mientras MT5 ya ha autorizado la del tester. Leer
+                    # `account_info()` una sola vez aquí devolvía esa cuenta vieja
+                    # y abortaba el pool entero con un login correcto.
+                    actual_login, actual_server, connected = self._settled_account(
+                        mt5, login, server, self.tester_login_settle_seconds
+                    )
                     row.update(login=actual_login or None, server=actual_server or None, connected=connected)
                     if actual_login != login:
                         row["error"] = f"confirmó el login {actual_login or 'desconocido'}"

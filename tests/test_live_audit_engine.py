@@ -877,6 +877,76 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertEqual({row["login"] for row in rows}, {"222"})
         self.assertEqual({row["server"] for row in rows}, {"IC-Demo"})
 
+    def test_the_tester_login_waits_for_the_terminal_to_switch_accounts(self) -> None:
+        # Un terminal arrancado en frío sigue sincronizando la cuenta guardada
+        # —la de restauración— cuando MT5 ya autorizó la del tester. El pase real
+        # `20261001_005310_756706` de RoboForex perdió tres terminales del pool
+        # así: el Journal decía «'77049426': authorized» y medio segundo después
+        # «'67188517': terminal synchronized».
+        controller = LiveAuditController(FakeOwner("idle"), Path(tempfile.gettempdir()))
+        controller.tester_login_settle_seconds = 5.0
+        reads: list[int] = [0]
+
+        class SwitchingMt5:
+            @staticmethod
+            def initialize(**_kwargs) -> bool:
+                return True
+
+            @staticmethod
+            def account_info() -> SimpleNamespace:
+                reads[0] += 1
+                if reads[0] < 3:
+                    return SimpleNamespace(login=999, server="IC-Demo")
+                return SimpleNamespace(login=222, server="IC-Demo")
+
+            @staticmethod
+            def terminal_info() -> SimpleNamespace:
+                return SimpleNamespace(connected=True)
+
+            @staticmethod
+            def shutdown() -> None:
+                pass
+
+        controller._terminal_pids = lambda: set()
+        controller._close_terminal_pids_gracefully = lambda _pids: None
+        profiles = [("Terminal.2", {"name": "MT5_IC_1", "mt5_path": r"C:\IC1\terminal64.exe"})]
+        with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": SwitchingMt5}):
+            rows = controller._verify_tester_terminals(request(), profiles)
+
+        self.assertTrue(rows[0]["verified"])
+        self.assertEqual(rows[0]["login"], "222")
+        self.assertGreaterEqual(reads[0], 3)
+
+    def test_a_terminal_that_never_switches_still_names_the_account_it_confirmed(self) -> None:
+        controller = LiveAuditController(FakeOwner("idle"), Path(tempfile.gettempdir()))
+        controller.tester_login_settle_seconds = 0.0
+
+        class StuckMt5:
+            @staticmethod
+            def initialize(**_kwargs) -> bool:
+                return True
+
+            @staticmethod
+            def account_info() -> SimpleNamespace:
+                return SimpleNamespace(login=67188517, server="IC-Demo")
+
+            @staticmethod
+            def terminal_info() -> SimpleNamespace:
+                return SimpleNamespace(connected=True)
+
+            @staticmethod
+            def shutdown() -> None:
+                pass
+
+        controller._terminal_pids = lambda: set()
+        controller._close_terminal_pids_gracefully = lambda _pids: None
+        profiles = [("Terminal.2", {"name": "MT5_4", "mt5_path": r"C:\IC1\terminal64.exe"})]
+        with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": StuckMt5}):
+            with self.assertRaises(RuntimeError) as failure:
+                controller._verify_tester_terminals(request(), profiles)
+
+        self.assertIn("MT5_4: confirmó el login 67188517", str(failure.exception))
+
     def test_main_journal_capture_keeps_only_new_lines_and_redacts_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
