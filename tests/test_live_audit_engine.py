@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 from mt5_manager.live_audit_engine import (
     LiveAuditController, _audit_period, _read_set_text, _redact_log_files, _redact_runner_output,
-    normalize_request,
+    normalize_request, single_variant_mode,
 )
 from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
 
@@ -54,9 +54,22 @@ class FakeOwner:
         self.config = {"project_dir": ".", "settings_file": "ui_settings.ini"}
 
     def portfolio_detail(self, portfolio_id: int, scope: str) -> dict:
-        if portfolio_id != 9 or scope != "full_history":
+        if scope != "full_history":
             raise ValueError("portfolio inesperado")
-        return {"portfolio": {"id": 9, "members": [
+        if portfolio_id == 148:
+            # Mejora de una mejora: una sola variante, guardada sin `variant_key`
+            # porque la variante es la fila entera. Su modo es el de la base.
+            return {"portfolio": {
+                "id": 148, "portfolio_type": "aggressive",
+                "improvement_origin": {"source_id": 137, "mode": "aggressive", "depth": 2},
+                "members": [
+                    {"variant_key": "", "candidate_id": "imp-one", "symbol": "EURUSD", "lot": .02},
+                    {"variant_key": "", "candidate_id": "imp-two", "symbol": "XAUUSD", "lot": .03},
+                ],
+            }}
+        if portfolio_id != 9:
+            raise ValueError("portfolio inesperado")
+        return {"portfolio": {"id": 9, "portfolio_type": "bundle", "members": [
             {"variant_key": "balanced", "candidate_id": "one", "symbol": "EURUSD", "lot": .01},
             {"variant_key": "aggressive", "candidate_id": "two", "symbol": "XAUUSD"},
         ]}}
@@ -355,6 +368,24 @@ class LiveAuditEngineTests(unittest.TestCase):
             owner, controller = self._controller(Path(temp), "idle")
             _detail, members = controller._portfolio_members(9, "balanced")
             self.assertEqual([row["candidate_id"] for row in members], ["one"])
+
+    def test_a_saved_improvement_is_audited_in_the_mode_it_inherited(self) -> None:
+        """Una mejora no es un bundle: sus miembros no declaran `variant_key`."""
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+            _detail, members = controller._portfolio_members(148, "aggressive")
+            self.assertEqual([row["candidate_id"] for row in members], ["imp-one", "imp-two"])
+            with self.assertRaisesRegex(ValueError, "una sola variante, modo aggressive"):
+                controller._portfolio_members(148, "balanced")
+
+    def test_only_a_single_variant_portfolio_resolves_an_implicit_mode(self) -> None:
+        self.assertEqual(single_variant_mode({"portfolio_type": "conservative"}), "conservative")
+        self.assertEqual(
+            single_variant_mode({"portfolio_type": "improved", "improvement_origin": {"mode": "aggressive"}}),
+            "aggressive",
+        )
+        self.assertEqual(single_variant_mode({"portfolio_type": "bundle"}), "")
+        self.assertEqual(single_variant_mode({}), "")
 
     def test_tester_uses_five_configured_broker_terminals_for_six_sets(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

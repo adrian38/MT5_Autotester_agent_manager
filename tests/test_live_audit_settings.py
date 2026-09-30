@@ -497,6 +497,24 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Desmárcalo arriba y selecciona un portafolio existente.", self.script)
         self.assertIn("portfolioDetailErrors[key] = message", self.script)
 
+    def test_a_saved_improvement_keeps_the_mode_it_inherited_from_its_base(self) -> None:
+        """Una mejora guarda una sola variante: no hay tres modos que elegir."""
+        variant = self.script.split("function variantMembers", 1)[1].split("function strategyLotsMarkup", 1)[0]
+        # Sin `variant_key` la variante es la fila entera, pero sólo cuando el
+        # modo pedido es el que el portafolio heredó.
+        self.assertIn("!all.some(member => member.variant_key)", variant)
+        self.assertIn("singleVariant && fixed && fixed === profile.portfolio_type ? all : []", variant)
+        self.assertIn("row.improvement_origin?.mode || row.portfolio_type", self.script)
+        self.assertIn("if (singleMode) profile.portfolio_type = singleMode;", self.script)
+        self.assertIn('<select data-field="portfolio_type" disabled>', self.script)
+        self.assertIn("su modo es el que heredó de la base y no se elige", self.script)
+        for creation in (
+            "portfolio_type: fixedPortfolioMode(id)",
+            "portfolio_type: fixedPortfolioMode(portfolioId)",
+        ):
+            self.assertIn(creation, self.script)
+        self.assertNotIn("portfolio_type: ''", self.script)
+
     def test_period_can_be_selected_with_native_calendar_inputs(self) -> None:
         self.assertIn('type="date"', self.script)
         self.assertIn("Usar calendario para elegir el periodo", self.script)

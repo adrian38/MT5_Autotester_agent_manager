@@ -736,6 +736,48 @@ nuevo mapa conservan el lote efectivo del tester como fallback. La evidencia
 por estrategia registra por separado `configured_lot`, `tester_lot` y
 `real_account_lot`.
 
+## Una mejora se audita en el modo que heredó de su base (2026-10-01)
+
+El auditor se diseñó contra bundles A/M/C, donde cada miembro declara su
+`variant_key`. Al marcar el #148 de ICTrading —`Mejora del portafolio #137 |
+modo Agresivo`— la tarjeta decía «Este portafolio no contiene estrategias para
+el modo seleccionado» con Agresivo ya elegido, y sin lotes no se puede
+configurar el uso.
+
+No era un dato corrupto. `save_proposal` detecta `standalone_improvement`
+(`scope=full_history`, una sola propuesta y `improvement_source_portfolio_id`) y
+guarda sus miembros con `variant_key` y `variant_label` **vacíos**: la variante
+es la fila entera, igual que en un mensual. El modo no se pierde, vive en la
+columna `portfolio_type` de la fila (`aggressive` para el #148) y en
+`improvement_origin.mode`, que el manager reconstruye desde los metadatos. Es la
+misma regla que ya documenta «El modo no cambia al mejorar una mejora» en
+`portfolio_saved_base_improvement.md`: una mejora, y la mejora de una mejora,
+sólo existe en el modo de su base. Por tanto aquí no hay nada que elegir.
+
+- `live_audit_engine.single_variant_mode(detail)` resuelve ese modo:
+  `improvement_origin.mode` primero, `portfolio_type` después, y sólo si cae en
+  A/M/C. Un bundle devuelve cadena vacía y conserva el comportamiento anterior.
+- `_portfolio_members` acepta la fila entera **sólo** cuando ningún miembro
+  declara `variant_key` y el modo pedido coincide con el resuelto. Pedir otro
+  modo falla con «guarda una sola variante, modo X», no con la lista vacía de
+  variantes disponibles, que mandaba a buscar donde no estaba el problema.
+- La pantalla muestra el modo bloqueado y explicado para esos portafolios, en
+  vez de un selector A/M/C con dos opciones que no existen; un uso guardado
+  antes con otro modo se corrige al guardar. `variantMembers` aplica la misma
+  condición que el motor, así que la tabla de lotes nunca enseña miembros de un
+  modo que el nodo rechazaría.
+- El detalle del portafolio ya no espera a que el usuario elija modo: si el modo
+  está resuelto, `ensureSelectionDetails()` lo pide al seleccionar el uso.
+
+**Pendiente de port al nodo.** Quien ejecuta la auditoría es
+`manager_node_runtime/live_audit.py` del agente, y su `_portfolio_members` sigue
+exigiendo coincidencia exacta de `variant_key`: hasta portarlo, `Auditar ahora`
+sobre una mejora falla con «no contiene la variante aggressive; disponibles:
+ninguna». La copia ICTrading no estaba montada en este equipo al escribir esto
+(`I:\TRADING\MT5_Autotester_agent_IC` no existe), así que el cambio vive sólo en
+el motor de referencia. El port necesita las dos piezas: `single_variant_mode` y
+la rama de `_portfolio_members`.
+
 ## Validación p54: NAS100/BTCUSD y cierres solapados (2026-09-14)
 
 La revisión `auditor_v1_p54_antes.xlsx` / `auditor_v1_p54_despues.xlsx` no

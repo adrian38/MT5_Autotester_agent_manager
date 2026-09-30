@@ -53,6 +53,30 @@ ADAPTIVE_PRICE_TOLERANCE_FLOORS = {
 _INDEX_SYMBOL_PREFIXES = ("US30", "DE40", "USTEC", "USTECH")
 _FX_CURRENCIES = frozenset({"AUD", "CAD", "CHF", "EUR", "GBP", "JPY", "NZD", "USD"})
 
+PORTFOLIO_MODES = ("aggressive", "balanced", "conservative")
+
+
+def single_variant_mode(detail: dict[str, Any]) -> str:
+    """Modo de un portafolio guardado con una sola variante, o cadena vacía.
+
+    El auditor se diseñó contra bundles A/M/C, donde cada miembro declara su
+    `variant_key`. Una mejora —y la mejora de una mejora— no es un bundle: se
+    guarda con `variant_key` vacío porque la variante es la fila entera, y su
+    modo no se elige, es el que heredó de la base. Sin esta resolución el
+    auditor pide una variante que ningún miembro declara y rechaza el
+    portafolio completo.
+    """
+    origin = detail.get("improvement_origin")
+    candidates = (
+        origin.get("mode") if isinstance(origin, dict) else None,
+        detail.get("portfolio_type"),
+    )
+    for value in candidates:
+        mode = str(value or "").strip().lower()
+        if mode in PORTFOLIO_MODES:
+            return mode
+    return ""
+
 
 def _as_int(value: Any, name: str, minimum: int = 0) -> int:
     try:
@@ -1470,6 +1494,18 @@ class LiveAuditController:
         detail = self.owner.portfolio_detail(portfolio_id, "full_history")["portfolio"]
         members = [dict(row) for row in detail.get("members") or []]
         matching = [row for row in members if str(row.get("variant_key") or "") == portfolio_type]
+        if not matching and members and not any(str(row.get("variant_key") or "") for row in members):
+            # Portafolio de una sola variante (una mejora, o la mejora de una
+            # mejora). No hay tres modos entre los que elegir: el suyo es el
+            # heredado de la base y la variante es la fila entera.
+            own_mode = single_variant_mode(detail)
+            if own_mode and own_mode == portfolio_type:
+                matching = members
+            elif own_mode:
+                raise ValueError(
+                    f"El portafolio #{portfolio_id} guarda una sola variante, modo {own_mode}; "
+                    f"no puede auditarse como {portfolio_type}"
+                )
         if not matching:
             available = sorted({str(row.get("variant_key") or "") for row in members if row.get("variant_key")})
             raise ValueError(
