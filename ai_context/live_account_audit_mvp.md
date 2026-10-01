@@ -841,24 +841,49 @@ El Journal de los tres que fallaron da la causa sin ambigüedad:
 ```
 
 MT5 **sí** autorizó la cuenta tester. Lo que devuelve `initialize()` es esa
-autorización del servidor, no la conmutación del terminal: un terminal arrancado
-en frío sigue sincronizando la cuenta que tenía guardada durante ese hueco. Los
-siete terminales que pasaron ya tenían `77049426` guardada, así que no había
-conmutación que perder; los tres que fallaron venían de una restauración previa.
-Por eso el fallo es **intermitente y depende de la ejecución anterior**, no de la
+autorización del servidor, no la cuenta activa del terminal. Los siete
+terminales que pasaron ya tenían `77049426` guardada, así que no había nada que
+conmutar; los tres que fallaron venían de una restauración previa. Por eso el
+fallo es **intermitente y depende de la ejecución anterior**, no de la
 configuración.
 
-Es la misma clase de error que ya documenta este fichero para el historial de
-deals: no es válido leer el estado de MT5 una sola vez justo después de cambiar
-de login. `_reopen_without_password` ya lo hacía bien —sondea 15 s exigiendo
-login, servidor y `connected`—; `_verify_tester_terminals` leía `account_info()`
-una única vez.
+### Esperar no era el arreglo (corrección del mismo día)
 
-Ahora ambos motores sondean con `_settled_account`, con plazo
-`tester_login_settle_seconds` (30 s, más que la restauración porque aquí el
-terminal arranca en frío y además tiene que conmutar de cuenta). Devuelve siempre
-la última lectura aunque no coincida, para que el error siga diciendo qué cuenta
-confirmó realmente en lugar de un «sin confirmación» mudo.
+La primera conclusión fue que se trataba de una carrera, como la ya documentada
+para el historial de deals, y se añadió un sondeo de 30 s
+(`tester_login_settle_seconds`). **Es falso y la prueba está en el Journal.** En
+el pase `20261001_023955_464006`, con el sondeo ya cargado —el `.pyc` del agente
+se recompiló—, MT5_2 registró:
+
+```
+02:40:46.649  started
+02:40:47.099  '77049426': authorized on RoboForex-ECN
+02:40:47.546  '67188517': terminal synchronized with RoboForex Ltd
+02:41:19.793  exit with code 0
+```
+
+32,7 segundos entre la autorización y el cierre, contra los 2,8 de antes: el
+sondeo corrió entero y la cuenta no cambió nunca. No hay carrera que ganar.
+
+`initialize(login=...)` autentica las credenciales, pero **no obliga al terminal
+a abandonar la cuenta que tiene guardada**. La llamada que conmuta la cuenta de
+un terminal ya conectado es `login()`, y no se usaba en ninguna parte del
+proyecto: todo el auditor dependía de los parámetros de `initialize`.
+
+`_activate_account` hace ahora lo correcto: sondeo corto —`account_probe_seconds`,
+2 s, solo para cubrir el arranque de `initialize`—, y si la cuenta no es la
+pedida, `mt5.login(...)` explícito y entonces sí el plazo completo. El orden
+importa: con el plazo largo antes de conmutar, un pool de diez terminales pagaba
+hasta diez minutos antes de intentar lo único que funciona.
+
+Se aplica en los dos sitios con el mismo patrón, no solo en el que falló:
+`_verify_tester_terminals` y `_login_terminal`. El segundo descartaba en silencio
+terminales válidos con «el terminal no confirmó el login» y podía agotar el pool
+entero por la misma causa.
+
+Si `login()` devuelve falso, el error lo dice —«MT5 no cambió a la cuenta
+tester»— en vez de atribuirlo a la cuenta confirmada, que es un síntoma y no la
+causa.
 
 Coste de equivocarse aquí: un solo terminal perdido aborta el pool entero
 **antes** de lanzar el Strategy Tester, después de haber abierto la cuenta real,

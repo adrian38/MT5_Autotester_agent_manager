@@ -676,7 +676,9 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
         manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
         tokens = (
             "def _settled_account",
+            "def _activate_account",
             "tester_login_settle_seconds",
+            "mt5.login(int(login)",
         )
         for token in tokens:
             self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
