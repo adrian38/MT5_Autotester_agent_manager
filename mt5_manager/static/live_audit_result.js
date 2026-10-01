@@ -10,10 +10,14 @@ const reasonLabels = {
   drawdown: 'Drawdown fuera de tolerancia',
   open_time_outside_tolerance: 'La operación real más cercana abre fuera de la tolerancia',
   no_real_same_symbol_and_side: 'No existe una real libre con el mismo símbolo y lado',
+  real_position_still_open_at_period_end: 'La posición real seguía abierta al terminar el periodo',
   close_before_open: 'Dato tester inválido: el cierre es anterior a la apertura',
 };
 const priceRuleLabels = {
   adaptive_indices: 'índices',
+  adaptive_nasdaq: 'Nasdaq',
+  adaptive_nikkei: 'Nikkei',
+  adaptive_crypto_btc: 'Bitcoin',
   adaptive_gold: 'oro',
   adaptive_silver: 'plata',
   adaptive_jpy_fx: 'divisas con cotización JPY',
@@ -83,10 +87,26 @@ function pnlDelta(measurements, limit) {
   return `<span class="audit-delta good-text">Sin diferencia · límite ${escapeHtml(number(limit, 4))} %</span>`;
 }
 
+// El lote real configurado y el PnL escalado no son adornos: sin ellos la tabla
+// enseña 0,08 contra 0,04 y un «En contra 50 %» que el motor ya no usa para
+// decidir, y el lector no puede reconstruir por qué la fila está dentro.
+function expectedRealVolumeNote(limits) {
+  if (limits.volume_expected_source !== 'configured_real_lot') return '';
+  if (limits.volume_expected_real == null) return '';
+  return ` · esperado en real ${number(limits.volume_expected_real, 4)} (lote configurado)`;
+}
+
+function pnlScaleNote(measurements) {
+  const scale = Number(measurements.pnl_scale);
+  if (!Number.isFinite(scale) || Math.abs(scale - 1) < 1e-9) return '';
+  return ` · tester escalado a ${number(measurements.tester_profit_scaled, 2)} por el lote real`;
+}
+
 function comparisonDecision(row) {
   const tester = row.tester || {};
   const real = row.real || {};
   const nearest = row.nearest_unused_real || {};
+  const stillOpen = row.real_position_still_open || null;
   const detectedIssues = [...(row.data_issues || [])];
   if (tester.open_time && tester.close_time && new Date(tester.close_time) < new Date(tester.open_time)
       && !detectedIssues.includes('close_before_open')) detectedIssues.push('close_before_open');
@@ -99,7 +119,14 @@ function comparisonDecision(row) {
     displayStatus,
     statusLabel: {matched: 'DENTRO', deviation: 'DESVIACIÓN', missing: 'SIN REAL', invalid: 'FUENTE INVÁLIDA'}[displayStatus] || displayStatus,
     statusClass: {matched: 'good', deviation: 'warn', missing: 'bad', invalid: 'bad'}[displayStatus] || '',
-    reasons: [...detectedIssues, ...(row.reasons || [])].map(reason => reasonLabels[reason] || reason),
+    stillOpen,
+    reasons: [...detectedIssues, ...(row.reasons || [])].map(reason => {
+      const label = reasonLabels[reason] || reason;
+      if (reason !== 'real_position_still_open_at_period_end' || !stillOpen) return label;
+      const ticket = stillOpen.position_id ?? stillOpen.ticket;
+      const opened = marketDateTime(stillOpen.open_time);
+      return `${label} (posición ${ticket ?? '—'}, abierta ${opened}, ${number(stillOpen.volume, 4)} lotes)`;
+    }),
   };
 }
 
@@ -134,10 +161,10 @@ function comparisonCsvRow(row) {
     : `${plainPair(tester.open_price, real.open_price, value => number(value, 8))} · ${plainDelta(measurements.open_price_delta_points, limits.open_price_points, ' pt')} · límite absoluto ${number(limits.open_price_absolute, 8)} · regla ${priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada'}`;
   const volumeText = row.status === 'missing'
     ? plainPair(tester.volume, real.volume, value => number(value, 4))
-    : `${plainPair(tester.volume, real.volume, value => number(value, 4))} · ${plainDelta(measurements.volume_delta_pct, limits.volume_pct, ' %')}`;
+    : `${plainPair(tester.volume, real.volume, value => number(value, 4))} · ${plainDelta(measurements.volume_delta_pct, limits.volume_pct, ' %')}${expectedRealVolumeNote(limits)}`;
   const pnlText = row.status === 'missing'
     ? plainPair(tester.profit, real.profit, value => number(value, 2))
-    : `${plainPair(tester.profit, real.profit, value => number(value, 2))} · ${plainPnlDelta(measurements, limits.pnl_pct)}`;
+    : `${plainPair(tester.profit, real.profit, value => number(value, 2))} · ${plainPnlDelta(measurements, limits.pnl_pct)}${pnlScaleNote(measurements)}`;
   return [
     `T${row.tester_index ?? ''}`,
     statusLabel,
@@ -401,14 +428,24 @@ function comparisonMarkup(row) {
   const openReal = real.open_time || nearest.open_time;
   const openDelta = measurements.open_time_delta_seconds ?? measurements.nearest_open_time_delta_seconds;
   const nearestNote = row.status === 'missing' && nearest.open_time ? '<em>Candidato más cercano, no consumido</em>' : '';
+  const volumeNote = expectedRealVolumeNote(limits).replace(/^ · /, '');
+  const scaleNote = pnlScaleNote(measurements).replace(/^ · /, '');
+  const volumeCell = row.status === 'missing' ? '' : [
+    delta(measurements.volume_delta_pct, limits.volume_pct, ' %'),
+    volumeNote ? `<small>${escapeHtml(volumeNote)}</small>` : '',
+  ].join('');
+  const pnlCell = row.status === 'missing' ? '' : [
+    pnlDelta(measurements, limits.pnl_pct),
+    scaleNote ? `<small>${escapeHtml(scaleNote)}</small>` : '',
+  ].join('');
   return `<tr data-status="${escapeHtml(displayStatus)}" data-search="${escapeHtml(`${row.strategy || ''} ${tester.symbol || ''} ${real.strategy || nearest.strategy || ''}`.toLocaleLowerCase('es'))}">
     <td><span class="audit-status ${statusClass}">${escapeHtml(statusLabel)}</span><small>#T${escapeHtml(row.tester_index)}</small></td>
     <td><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><span>${escapeHtml(tester.side)}</span><small>${escapeHtml(row.strategy)}</small></td>
     <td>${pair(tester.open_time, openReal, marketDateTime)}${delta(openDelta, limits.open_time_seconds, ' s')}${nearestNote}</td>
     <td>${pair(tester.close_time, real.close_time, marketDateTime)}${row.status === 'missing' ? '' : delta(measurements.close_time_delta_seconds, limits.close_time_seconds, ' s')}</td>
     <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : `${delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}<small>Límite absoluto ${escapeHtml(number(limits.open_price_absolute, 8))} · regla ${escapeHtml(priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada')}</small>`}</td>
-    <td>${pair(tester.volume, real.volume, value => number(value, 4))}${row.status === 'missing' ? '' : delta(measurements.volume_delta_pct, limits.volume_pct, ' %')}</td>
-    <td>${pair(tester.profit, real.profit, value => number(value, 2))}${row.status === 'missing' ? '' : pnlDelta(measurements, limits.pnl_pct)}</td>
+    <td>${pair(tester.volume, real.volume, value => number(value, 4))}${volumeCell}</td>
+    <td>${pair(tester.profit, real.profit, value => number(value, 2))}${pnlCell}</td>
     <td>${reasons.length ? `<ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : '<strong class="good-text">Todos los límites se cumplen</strong>'}</td>
   </tr>`;
 }

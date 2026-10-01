@@ -44,6 +44,7 @@ PROGRESS = {
 ADAPTIVE_PRICE_TOLERANCE_FLOORS = {
     "indices": 10.5,
     "nasdaq": 5.0,
+    "nikkei": 5.0,
     "crypto_btc": 10.0,
     "gold": 2.05,
     "silver": 0.02,
@@ -51,6 +52,7 @@ ADAPTIVE_PRICE_TOLERANCE_FLOORS = {
     "fx": 0.0005,
 }
 _INDEX_SYMBOL_PREFIXES = ("US30", "DE40", "USTEC", "USTECH")
+_NIKKEI_SYMBOL_PREFIXES = ("JP225", "JPN225", "JP_225")
 _FX_CURRENCIES = frozenset({"AUD", "CAD", "CHF", "EUR", "GBP", "JPY", "NZD", "USD"})
 
 PORTFOLIO_MODES = ("aggressive", "balanced", "conservative")
@@ -126,9 +128,18 @@ def _member_strategy_id(member: dict[str, Any], fallback: str = "") -> str:
 
 def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:
     """Devuelve el piso absoluto validado para la familia del instrumento."""
-    root = re.split(r"[^A-Z0-9]", str(symbol or "").upper(), maxsplit=1)[0]
+    # Los adornos del broker pueden ir delante y no solo detrás: RoboForex
+    # cotiza `.DE40Cash` y `.JP225Cash`. Partir por el primer separador sin
+    # quitar antes el prefijo dejaba la raíz vacía, así que esos símbolos se
+    # quedaban sin ningún piso y una diferencia admisible de dos unidades se
+    # publicaba como desviación de precio.
+    root = re.split(
+        r"[^A-Z0-9]", re.sub(r"^[^A-Z0-9]+", "", str(symbol or "").upper()), maxsplit=1,
+    )[0]
     if root.startswith(("NAS100", "US100")):
         return ADAPTIVE_PRICE_TOLERANCE_FLOORS["nasdaq"], "adaptive_nasdaq"
+    if root.startswith(_NIKKEI_SYMBOL_PREFIXES):
+        return ADAPTIVE_PRICE_TOLERANCE_FLOORS["nikkei"], "adaptive_nikkei"
     if root.startswith("BTC"):
         return ADAPTIVE_PRICE_TOLERANCE_FLOORS["crypto_btc"], "adaptive_crypto_btc"
     if root.startswith(_INDEX_SYMBOL_PREFIXES):
@@ -141,6 +152,46 @@ def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:
         family = "jpy_fx" if root[3:6] == "JPY" else "fx"
         return ADAPTIVE_PRICE_TOLERANCE_FLOORS[family], f"adaptive_{family}"
     return None, "configured_points"
+
+
+def _expected_real_volume(
+    expected: dict[str, Any], real_lots: dict[str, float],
+) -> tuple[float, float]:
+    """Volumen que debe tener la operación real y el que usó el tester."""
+    tester_volume = float(expected.get("volume") or 0.0)
+    configured = real_lots.get(str(expected.get("strategy") or ""))
+    try:
+        expected_volume = float(configured) if configured is not None else tester_volume
+    except (TypeError, ValueError):
+        expected_volume = tester_volume
+    return (expected_volume if expected_volume > 0 else tester_volume), tester_volume
+
+
+def _matching_open_position(
+    expected: dict[str, Any], still_open: list[dict[str, Any]], time_limit: float,
+) -> dict[str, Any] | None:
+    """Posición real abierta al terminar el periodo que explica un `missing`.
+
+    Una posición que sigue abierta no tiene cierre dentro del periodo, así que
+    no puede ser una operación real. Decir «no existe una real» por eso es
+    falso: existe, no ha terminado. Sin esta distinción el usuario encuentra el
+    ticket en MT5 en diez segundos y concluye que el auditor perdió datos.
+    """
+    best: tuple[float, dict[str, Any]] | None = None
+    for position in still_open:
+        if str(position.get("symbol") or "").casefold() != str(expected["symbol"]).casefold():
+            continue
+        if position.get("side") != expected["side"]:
+            continue
+        open_time = position.get("open_time")
+        if not isinstance(open_time, datetime):
+            continue
+        delta = abs((open_time - expected["open_time"]).total_seconds())
+        if delta > time_limit:
+            continue
+        if best is None or delta < best[0]:
+            best = (delta, {**position, "open_time_delta_seconds": round(delta, 3)})
+    return best[1] if best else None
 
 
 def _effective_price_tolerance(
@@ -318,6 +369,11 @@ def _trade_view(trade: dict[str, Any] | None) -> dict[str, Any] | None:
     ):
         value = trade.get(key)
         result[key] = value.isoformat() if isinstance(value, datetime) else value
+    # Solo las posiciones todavía abiertas traen ticket: es lo que permite al
+    # usuario abrirlas en MT5 en vez de fiarse de la explicación.
+    for key in ("position_id", "ticket"):
+        if trade.get(key) is not None:
+            result[key] = trade[key]
     return result
 
 
@@ -554,6 +610,15 @@ class LiveAuditController:
             if not real_account_report.get("native_terminal_report"):
                 raise RuntimeError("MT5 no entregó el HTML nativo del historial de la cuenta real")
             real_history_detail = dict(account.pop("history_detail", {}) or {})
+            # Las posiciones abiertas llevan `datetime`: la comparación las
+            # necesita así, el resultado persistido las necesita serializadas.
+            open_at_period_end = list(
+                real_history_detail.pop("open_positions_at_period_end", []) or []
+            )
+            request = {**request, "real_positions_open_at_period_end": open_at_period_end}
+            real_history_detail["open_positions_at_period_end"] = [
+                _trade_view(position) for position in open_at_period_end
+            ]
             self._update(
                 audit_key, "extracting", "Historial de la cuenta real sincronizado.",
                 f"Cuenta MT5 verificada: login {account.get('login')}, servidor {account.get('server')}, "
@@ -1310,6 +1375,34 @@ class LiveAuditController:
                 for deal in market_deals if int(getattr(deal, "entry", -1)) in {1, 2, 3}
             }
             missing_open_positions = closing_positions - opening_positions
+            # El espejo del caso anterior: posiciones abiertas dentro del periodo
+            # que todavía no habían cerrado al terminarlo. No son operaciones
+            # reales —no hay cierre que comparar— pero existen, y la comparación
+            # necesita poder decirlo en vez de afirmar que no hay ninguna real.
+            unclosed_positions = opening_positions - closing_positions
+            pending_positions = set(unclosed_positions)
+            open_at_period_end: list[dict[str, Any]] = []
+            for deal in sorted(
+                market_deals,
+                key=lambda item: (int(getattr(item, "time_msc", 0)), int(getattr(item, "ticket", 0))),
+            ):
+                position_id = int(getattr(deal, "position_id", 0) or 0)
+                if position_id not in pending_positions:
+                    continue
+                if int(getattr(deal, "entry", -1)) not in {0, 2}:
+                    continue
+                pending_positions.discard(position_id)
+                open_at_period_end.append({
+                    "strategy": str(
+                        getattr(deal, "magic", 0) or getattr(deal, "comment", "") or position_id
+                    ),
+                    "symbol": str(getattr(deal, "symbol", "") or ""),
+                    "side": "buy" if int(getattr(deal, "type", 0)) == 0 else "sell",
+                    "open_time": datetime.fromtimestamp(int(getattr(deal, "time", 0)), timezone.utc),
+                    "open_price": float(getattr(deal, "price", 0.0) or 0.0),
+                    "volume": float(getattr(deal, "volume", 0.0) or 0.0),
+                    "position_id": position_id,
+                })
             all_deals = list(period_deals)
             recovered_positions = 0
             unresolved_positions: list[int] = []
@@ -1350,6 +1443,8 @@ class LiveAuditController:
                 "positions_recovered": recovered_positions,
                 "positions_unresolved": len(unresolved_positions),
                 "trades_reconstructed": len(trades),
+                "positions_open_at_period_end": len(unclosed_positions),
+                "open_positions_at_period_end": open_at_period_end,
             }
             account = {
                 "login": str(info.login), "server": actual_server, "currency": str(info.currency),
@@ -1870,6 +1965,8 @@ class LiveAuditController:
         tester_data_issues: dict[str, int] = {}
         operation_comparisons: list[dict[str, Any]] = []
         time_limit = request["trade_time_tolerance_seconds"]
+        real_lots = request.get("real_strategy_lots") or {}
+        still_open = list(request.get("real_positions_open_at_period_end") or [])
         for tester_index, expected in enumerate(tester, 1):
             strategy = str(expected["strategy"])
             data_issues: list[str] = []
@@ -1890,6 +1987,13 @@ class LiveAuditController:
                 missing_by_strategy[strategy] = missing_by_strategy.get(strategy, 0) + 1
                 nearest = min(same_market) if same_market else None
                 nearest_trade = real[nearest[1]] if nearest else None
+                open_position = _matching_open_position(expected, still_open, time_limit)
+                if open_position is not None:
+                    reason = "real_position_still_open_at_period_end"
+                elif nearest:
+                    reason = "open_time_outside_tolerance"
+                else:
+                    reason = "no_real_same_symbol_and_side"
                 operation_comparisons.append({
                     "tester_index": tester_index,
                     "status": "missing",
@@ -1897,14 +2001,16 @@ class LiveAuditController:
                     "tester": _trade_view(expected),
                     "real": None,
                     "nearest_unused_real": _trade_view(nearest_trade),
+                    "real_position_still_open": _trade_view(open_position),
                     "measurements": {
                         "nearest_open_time_delta_seconds": round(nearest[0], 3) if nearest else None,
+                        "open_position_delta_seconds": (
+                            open_position.get("open_time_delta_seconds") if open_position else None
+                        ),
                     },
                     "limits": {"open_time_seconds": time_limit},
                     "data_issues": data_issues,
-                    "reasons": [
-                        "open_time_outside_tolerance" if nearest else "no_real_same_symbol_and_side"
-                    ],
+                    "reasons": [reason],
                 })
                 continue
             open_time_delta, index = min(candidates)
@@ -1916,14 +2022,23 @@ class LiveAuditController:
             price_limit, price_limit_points, price_limit_rule = _effective_price_tolerance(
                 actual["symbol"], point, request["price_tolerance_points"],
             )
-            volume_limit = max(expected["volume"], 1e-9) * request["volume_tolerance_pct"] / 100
+            # El lote de la cuenta real es una decisión del usuario, no un
+            # defecto: `real_strategy_lots` declara con qué tamaño opera cada
+            # estrategia en real. Comparar ese volumen contra el `StartLots` del
+            # tester convertía esa decisión en desviación en todas las parejas, y
+            # arrastraba al PnL, que es proporcional al tamaño. Sin lote real
+            # configurado se espera el del tester, que es el comportamiento previo.
+            expected_volume, tester_volume = _expected_real_volume(expected, real_lots)
+            pnl_scale = expected_volume / tester_volume if tester_volume > 0 else 1.0
+            scaled_tester_profit = float(expected["profit"]) * pnl_scale
+            volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
             pnl = _pnl_comparison(
-                actual["profit"], expected["profit"], request["pnl_deviation_warning_pct"],
+                actual["profit"], scaled_tester_profit, request["pnl_deviation_warning_pct"],
             )
             pnl_limit = float(pnl["limit"])
             close_time_delta = abs((actual["close_time"] - expected["close_time"]).total_seconds())
             open_price_delta = abs(float(actual["open_price"]) - float(expected["open_price"]))
-            volume_delta = abs(float(actual["volume"]) - float(expected["volume"]))
+            volume_delta = abs(float(actual["volume"]) - expected_volume)
             pnl_delta = float(pnl["delta"])
             reasons: list[str] = []
             if close_time_delta > time_limit:
@@ -1961,9 +2076,11 @@ class LiveAuditController:
                     "open_price_delta": round(open_price_delta, 10),
                     "open_price_delta_points": round(open_price_delta / point, 3) if point > 0 else None,
                     "volume_delta": round(volume_delta, 8),
-                    "volume_delta_pct": round(volume_delta / max(abs(float(expected["volume"])), 1e-9) * 100, 3),
+                    "volume_delta_pct": round(volume_delta / max(abs(expected_volume), 1e-9) * 100, 3),
                     "pnl_delta": round(pnl_delta, 2),
-                    "pnl_delta_pct": round(pnl_delta / max(abs(float(expected["profit"])), 1.0) * 100, 3),
+                    "pnl_delta_pct": round(pnl_delta / max(abs(scaled_tester_profit), 1.0) * 100, 3),
+                    "pnl_scale": round(pnl_scale, 8),
+                    "tester_profit_scaled": round(scaled_tester_profit, 2),
                     "pnl_change": round(float(pnl["change"]), 2),
                     "pnl_change_pct": round(float(pnl["change_pct"]), 3),
                     "pnl_adverse_delta": round(float(pnl["adverse_delta"]), 2),
@@ -1979,6 +2096,10 @@ class LiveAuditController:
                     "open_price_rule": price_limit_rule,
                     "volume_pct": request["volume_tolerance_pct"],
                     "volume_absolute": round(volume_limit, 8),
+                    "volume_expected_real": round(expected_volume, 8),
+                    "volume_expected_source": (
+                        "configured_real_lot" if strategy in real_lots else "tester_lot"
+                    ),
                     "pnl_pct": request["pnl_deviation_warning_pct"],
                     "pnl_absolute": round(pnl_limit, 2),
                 },
@@ -2033,15 +2154,17 @@ class LiveAuditController:
                 "time_tolerance_seconds": time_limit,
                 "methodology": {
                     "alignment": "Mismo símbolo y lado; apertura dentro de tolerancia; se elige el menor delta y cada real se usa una vez.",
-                    "validation": "Después se validan cierre, precio de apertura y volumen. El PnL solo alerta si el resultado real empeora frente al tester; una mejora es admisible. El drawdown se valida sobre el conjunto.",
+                    "validation": "Después se validan cierre, precio de apertura y volumen. El volumen se compara contra el lote real configurado para la estrategia, no contra el del tester, y el PnL del tester se escala por ese mismo ratio antes de medir el deterioro. El PnL solo alerta si el resultado real empeora; una mejora es admisible. El drawdown se valida sobre el conjunto.",
                     "tolerances": {
                         "time_seconds": time_limit,
                         "price_points": request["price_tolerance_points"],
                         "price_policy": "adaptive_by_instrument",
                         "price_absolute_floors": ADAPTIVE_PRICE_TOLERANCE_FLOORS,
                         "volume_pct": request["volume_tolerance_pct"],
+                        "volume_basis": "configured_real_lot",
                         "pnl_pct": request["pnl_deviation_warning_pct"],
                         "pnl_policy": "adverse_shortfall_only",
+                        "pnl_basis": "tester_scaled_to_real_lot",
                         "drawdown_pct": request["drawdown_deviation_warning_pct"],
                     },
                 },

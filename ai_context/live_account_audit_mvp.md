@@ -869,3 +869,71 @@ Portado a `G:\TRADING\MT5_Autotester_agent\manager_node_runtime\live_audit.py`
 pendiente y la guarda
 `test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork` falla a
 propósito hasta que el usuario porte el commit.
+
+## El lote real configurado no llegaba a la comparación (2026-10-01)
+
+Validación `auditor_01.10.2026_v1.xlsx` sobre la auditoría
+`20261001_012810_063790` (RoboForex, uso 148, modo agresivo). El usuario anotó
+23 de las 26 filas con «no se está teniendo en cuenta el volumen configurado
+para real» y concluyó que el auditor no recogía los lotes manuales.
+
+**Los lotes sí se recogían.** `real_account_lot` coincidía exactamente con las 15
+entradas de `real_strategy_lots`, y el filtro de pertenencia
+`(símbolo, lote real)` ya los usaba: todos los volúmenes reales de la hoja son el
+lote configurado. Conviene decirlo porque la reacción natural —volver a
+introducir los lotes— no habría cambiado nada.
+
+Lo que los ignoraba era `_compare`, que nunca recibió el mapa:
+
+- `volume_limit` se calculaba sobre `expected["volume"]`, el `StartLots` del
+  tester. Con EURUSD a 0,08 en tester y 0,04 en real, y tolerancia del 1 %, el
+  límite era 0,0008: imposible de cumplir. `volume` salió en las 22 desviaciones.
+- El déficit adverso de PnL se medía entre PnL absolutos de tamaños distintos.
+  Media posición da medio beneficio, así que «En contra ~50 %» era aritmética.
+
+Ahora `_expected_real_volume` resuelve la expectativa —lote real configurado, y
+el del tester si no hay— y el PnL del tester se escala por `lote_real /
+lote_tester` antes de `_pnl_comparison`. Sin mapa configurado el comportamiento
+es idéntico al anterior, y una EA que opera un lote distinto del configurado
+sigue marcando `volume`: el chequeo no se debilita, se le da la referencia
+correcta. El resultado persiste `volume_expected_real`, `volume_expected_source`,
+`pnl_scale` y `tester_profit_scaled`, y la página los muestra; si no, la tabla
+enseñaría 0,08 contra 0,04 y un porcentaje que el motor ya no usa para decidir.
+
+Reproducido sobre las 26 operaciones de esa ejecución: **de 1 dentro de
+tolerancia y 22 desviadas se pasa a 18 y 5.** Las cinco que quedan son reales
+—T1 por PnL −19 % y T7, T10, T18 y T20 por cierres de 24 min a 22 h— y coinciden
+con las que el usuario no objetó.
+
+### Los símbolos con prefijo de broker se quedaban sin piso de precio
+
+`adaptive_price_tolerance_floor` partía por el primer separador y se quedaba con
+lo de delante. RoboForex cotiza `.DE40Cash`, `.USTECHCash` y `.JP225Cash`: la
+raíz salía **vacía** y el símbolo no recibía ningún piso, ni siquiera el de
+índices que `DE40Cash` sin punto sí recibe. La nota de 2026-09-03 hablaba de
+«sufijos de broker separados por signos»; los prefijos nunca se contemplaron.
+
+Se limpia el prefijo antes de partir y se añade la familia `nikkei` (5,0), que
+tampoco existía: JP225 no empieza por ninguno de los prefijos de índice
+conocidos. Las tres causas `open_price` de esa ejecución desaparecen, incluidas
+las dos que el usuario había marcado como admisibles a mano.
+
+### «SIN REAL» no puede significar «no existe»
+
+Las filas 6 y 26 decían «No existe una real libre con el mismo símbolo y lado».
+El usuario encontró los tickets `760842306` (AMZN) y `759105632` (WFC) en MT5 y
+dedujo que el auditor había perdido datos. El informe nativo lo aclara: las dos
+posiciones abrieron dentro del periodo y **cerraron el 28/09, fuera de él**. No
+hay cierre que comparar, así que el veredicto era correcto y el motivo falso.
+
+El dato ya estaba a mano: `opening_positions - closing_positions` es el espejo
+exacto de la recuperación de aperturas anteriores que ya existía. Esas posiciones
+se publican en `open_positions_at_period_end` con su `position_id`, y una fila
+`missing` que coincide en símbolo, lado y apertura pasa a
+`real_position_still_open_at_period_end`, con el ticket en el motivo para poder
+abrirla en MT5. El veredicto no cambia: sigue siendo SIN REAL.
+
+Portado a la copia `IC` de `G:\TRADING\MT5_Autotester_agent`, con dos guardas de
+paridad: `test_the_real_lot_drives_volume_and_pnl_on_every_ported_fork` y
+`test_broker_prefixed_symbols_keep_their_price_floor_on_every_ported_fork`. AXI
+las falla a propósito hasta que el usuario porte el commit.

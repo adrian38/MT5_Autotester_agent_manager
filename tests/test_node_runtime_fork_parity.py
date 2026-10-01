@@ -699,6 +699,63 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
 
         self._assert_on_every_fork(check, "esperar la conmutación de la cuenta tester")
 
+    def test_the_real_lot_drives_volume_and_pnl_on_every_ported_fork(self) -> None:
+        # El lote real configurado decidía qué cierres pertenecen al portafolio,
+        # pero la comparación seguía midiendo contra el `StartLots` del tester.
+        # Resultado: 22 de 26 parejas marcadas por volumen y 14 por PnL en la
+        # auditoría 20261001_012810_063790, todas por una diferencia de tamaño
+        # que el usuario había pedido expresamente.
+        manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        tokens = (
+            "def _expected_real_volume",
+            "def _matching_open_position",
+            "real_position_still_open_at_period_end",
+            "tester_scaled_to_real_lot",
+            "open_positions_at_period_end",
+        )
+        for token in tokens:
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                print(f"\n[paridad] lote real en la comparación: {project} no tiene live_audit.py")
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            for token in tokens:
+                self._assert_present(
+                    source,
+                    re.escape(token),
+                    f"{project}: falta `{token}` en manager_node_runtime/live_audit.py. "
+                    "Portar desde mt5_manager/live_audit_engine.py: sin ello el nodo "
+                    "sigue comparando el volumen real contra el lote del tester y marca "
+                    "como desviación cada operación cuyo lote real configuraste distinto.",
+                )
+
+        self._assert_on_every_fork(check, "lote real como expectativa de volumen y PnL")
+
+    def test_broker_prefixed_symbols_keep_their_price_floor_on_every_ported_fork(self) -> None:
+        manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
+        for token in ("_NIKKEI_SYMBOL_PREFIXES", '"nikkei"', r're.sub(r"^[^A-Z0-9]+"'):
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            price = project / "manager_node_runtime" / "live_audit_price.py"
+            if not price.is_file():
+                print(f"\n[paridad] piso de precio con prefijo: {project} no tiene live_audit_price.py")
+                return
+            source = price.read_text(encoding="utf-8", errors="replace")
+            for token in ("_NIKKEI_SYMBOL_PREFIXES", '"nikkei"', r're.sub(r"^[^A-Z0-9]+"'):
+                self._assert_present(
+                    source,
+                    re.escape(token),
+                    f"{project}: falta `{token}` en manager_node_runtime/live_audit_price.py. "
+                    "Sin la limpieza del prefijo, `.DE40Cash` y `.JP225Cash` se quedan sin "
+                    "ningún piso absoluto y una diferencia admisible se publica como desviación.",
+                )
+
+        self._assert_on_every_fork(check, "piso de precio en símbolos con prefijo de broker")
+
     def test_ictrading_live_auditor_has_calendar_boundaries_and_effective_lot_rules(self) -> None:
         manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")
         ic_project = FORK_CANDIDATES[0]

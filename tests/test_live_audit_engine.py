@@ -11,8 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mt5_manager.live_audit_engine import (
-    LiveAuditController, _audit_period, _read_set_text, _redact_log_files, _redact_runner_output,
-    normalize_request, single_variant_mode,
+    LiveAuditController, _adaptive_price_tolerance_floor, _audit_period, _read_set_text,
+    _redact_log_files, _redact_runner_output, normalize_request, single_variant_mode,
 )
 from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
 
@@ -459,6 +459,127 @@ class LiveAuditEngineTests(unittest.TestCase):
             "within_tolerance": 0, "with_deviations": 1, "missing_real": 0,
         })
         self.assertIn("cada real se usa una vez", result["comparison_detail"]["methodology"]["alignment"])
+
+    def test_the_configured_real_lot_is_the_expectation_for_volume_and_pnl(self) -> None:
+        # Fila 9 de `auditor_01.10.2026_v1.xlsx`: EURUSD de la estrategia 27672,
+        # tester 0,08 lotes con 5,97 y real 0,04 lotes con 3,06. El usuario pidió
+        # expresamente que la cuenta real operase a la mitad, así que ni el
+        # volumen ni el PnL son desviaciones: 5,97 × 0,04/0,08 = 2,985 < 3,06.
+        now = datetime(2026, 9, 22, 9, 19, 46, tzinfo=timezone.utc)
+        base = {
+            "strategy": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "side": "sell",
+            "open_time": now, "close_time": now, "open_price": 1.14621,
+        }
+        order = {**request(), "real_strategy_lots": {"ROBOFOREX/ECN:27672": 0.04}}
+        result = LiveAuditController._compare(
+            [{**base, "volume": 0.04, "profit": 3.06}],
+            [{**base, "volume": 0.08, "profit": 5.97}],
+            {"EURUSD": 0.00001}, order, {"ROBOFOREX/ECN:27672": 1},
+        )
+        row = result["comparison_detail"]["operation_comparisons"][0]
+
+        self.assertEqual(row["status"], "matched")
+        self.assertEqual(row["reasons"], [])
+        self.assertEqual(row["limits"]["volume_expected_real"], 0.04)
+        self.assertEqual(row["limits"]["volume_expected_source"], "configured_real_lot")
+        self.assertEqual(row["measurements"]["volume_delta"], 0.0)
+        self.assertEqual(row["measurements"]["pnl_scale"], 0.5)
+        # 5,97 × 0,5 = 2,985; el redondeo a dos decimales es solo de presentación,
+        # la comparación usa el valor sin redondear.
+        self.assertEqual(row["measurements"]["tester_profit_scaled"], 2.98)
+        self.assertEqual(row["measurements"]["pnl_direction"], "favorable")
+        self.assertIn("lote real configurado", result["comparison_detail"]["methodology"]["validation"])
+
+    def test_a_real_lot_that_disobeys_the_configuration_is_still_a_deviation(self) -> None:
+        # El escalado no puede tapar el caso que el chequeo existe para ver: la
+        # EA operó 0,02 donde se configuró 0,04.
+        now = datetime(2026, 9, 22, 9, 19, 46, tzinfo=timezone.utc)
+        base = {
+            "strategy": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "side": "sell",
+            "open_time": now, "close_time": now, "open_price": 1.14621,
+        }
+        order = {**request(), "real_strategy_lots": {"ROBOFOREX/ECN:27672": 0.04}}
+        row = LiveAuditController._compare(
+            [{**base, "volume": 0.02, "profit": 1.49}],
+            [{**base, "volume": 0.08, "profit": 5.97}],
+            {"EURUSD": 0.00001}, order, {"ROBOFOREX/ECN:27672": 1},
+        )["comparison_detail"]["operation_comparisons"][0]
+
+        self.assertEqual(row["status"], "deviation")
+        self.assertIn("volume", row["reasons"])
+
+    def test_without_a_configured_real_lot_the_tester_volume_stays_the_expectation(self) -> None:
+        now = datetime(2026, 9, 22, 9, 19, 46, tzinfo=timezone.utc)
+        base = {
+            "strategy": "sin-lote", "symbol": "EURUSD", "side": "sell",
+            "open_time": now, "close_time": now, "open_price": 1.14621,
+        }
+        row = LiveAuditController._compare(
+            [{**base, "volume": 0.04, "profit": 3.06}],
+            [{**base, "volume": 0.08, "profit": 5.97}],
+            {"EURUSD": 0.00001}, request(), {"sin-lote": 1},
+        )["comparison_detail"]["operation_comparisons"][0]
+
+        self.assertEqual(row["status"], "deviation")
+        self.assertIn("volume", row["reasons"])
+        self.assertEqual(row["limits"]["volume_expected_real"], 0.08)
+        self.assertEqual(row["limits"]["volume_expected_source"], "tester_lot")
+        self.assertEqual(row["measurements"]["pnl_scale"], 1.0)
+
+    def test_a_real_position_still_open_is_not_reported_as_a_missing_real(self) -> None:
+        # Filas 6 y 26 de la hoja: los tickets 760842306 y 759105632 existían, se
+        # abrieron dentro del periodo y cerraron el 28/09, fuera de él. El
+        # veredicto SIN REAL es correcto; decir que no existe ninguna real no.
+        opened = datetime(2026, 9, 24, 16, 59, 42, tzinfo=timezone.utc)
+        tester = [{
+            "strategy": "ROBOFOREX/ECN:16268", "symbol": "AMZN", "side": "sell",
+            "open_time": opened - timedelta(seconds=1),
+            "close_time": datetime(2026, 9, 25, 23, 55, tzinfo=timezone.utc),
+            "open_price": 245.62, "volume": 0.05, "profit": -18.44,
+        }]
+        order = {**request(), "real_positions_open_at_period_end": [{
+            "strategy": "ROBOFOREX/ECN:16268", "symbol": "AMZN", "side": "sell",
+            "open_time": opened, "open_price": 245.64, "volume": 0.02,
+            "position_id": 760842306,
+        }]}
+        row = LiveAuditController._compare(
+            [], tester, {"AMZN": 0.01}, order, {"ROBOFOREX/ECN:16268": 1},
+        )["comparison_detail"]["operation_comparisons"][0]
+
+        self.assertEqual(row["status"], "missing")
+        self.assertEqual(row["reasons"], ["real_position_still_open_at_period_end"])
+        self.assertEqual(row["real_position_still_open"]["position_id"], 760842306)
+        self.assertEqual(row["measurements"]["open_position_delta_seconds"], 1.0)
+
+    def test_a_missing_real_without_an_open_position_keeps_its_old_reason(self) -> None:
+        now = datetime(2026, 9, 24, 16, 59, 42, tzinfo=timezone.utc)
+        tester = [{
+            "strategy": "sola", "symbol": "AMZN", "side": "sell", "open_time": now,
+            "close_time": now, "open_price": 245.62, "volume": 0.05, "profit": -18.44,
+        }]
+        row = LiveAuditController._compare(
+            [], tester, {"AMZN": 0.01}, request(), {"sola": 1},
+        )["comparison_detail"]["operation_comparisons"][0]
+
+        self.assertEqual(row["reasons"], ["no_real_same_symbol_and_side"])
+        self.assertIsNone(row["real_position_still_open"])
+
+    def test_broker_prefixed_symbols_keep_their_validated_price_floor(self) -> None:
+        # RoboForex antepone un punto. La raíz quedaba vacía y `.DE40Cash` perdía
+        # el piso de índices que `DE40Cash` sí recibe.
+        cases = {
+            ".DE40Cash": (10.5, "adaptive_indices"),
+            ".USTECHCash": (10.5, "adaptive_indices"),
+            ".JP225Cash": (5.0, "adaptive_nikkei"),
+            "JP225Cash": (5.0, "adaptive_nikkei"),
+            "JPN225": (5.0, "adaptive_nikkei"),
+            "NAS100.fs": (5.0, "adaptive_nasdaq"),
+            "XAUUSD": (2.05, "adaptive_gold"),
+            "AMZN": (None, "configured_points"),
+        }
+        for symbol, expected in cases.items():
+            with self.subTest(symbol=symbol):
+                self.assertEqual(_adaptive_price_tolerance_floor(symbol), expected)
 
     def test_only_adverse_pnl_differences_trigger_the_tolerance(self) -> None:
         now = datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc)
