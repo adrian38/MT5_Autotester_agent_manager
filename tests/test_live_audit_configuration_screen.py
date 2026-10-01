@@ -64,6 +64,21 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Desmárcalo arriba y selecciona un portafolio existente.", self.script)
         self.assertIn("portfolioDetailErrors[key] = message", self.script)
 
+    def test_a_saved_improvement_keeps_the_mode_it_inherited_from_its_base(self) -> None:
+        variant = self.script.split("function variantMembers", 1)[1].split(
+            "function strategyLotsMarkup", 1,
+        )[0]
+        self.assertIn("!all.some(member => member.variant_key)", variant)
+        self.assertIn(
+            "singleVariant && fixed && fixed === profile.portfolio_type ? all : []", variant,
+        )
+        self.assertIn("row.improvement_origin?.mode || row.portfolio_type", self.script)
+        self.assertIn("if (singleMode) profile.portfolio_type = singleMode;", self.script)
+        self.assertIn('<select data-field="portfolio_type" disabled>', self.script)
+        self.assertIn("su modo es el que heredó de la base y no se elige", self.script)
+        self.assertIn("portfolio_type: fixedPortfolioMode(id)", self.script)
+        self.assertIn("portfolio_type: fixedPortfolioMode(portfolioId)", self.script)
+
     def test_period_can_be_selected_with_native_calendar_inputs(self) -> None:
         self.assertIn('type="date"', self.script)
         self.assertIn("Usar calendario para elegir el periodo", self.script)
@@ -166,13 +181,17 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
 
     def test_result_leads_with_mutually_exclusive_outcomes_and_hides_technical_noise(self) -> None:
         for text in (
-            "1 · VEREDICTO", "Pertenencia al modo", "Cumplen todo",
+            "1 · VEREDICTO", "Pertenencia al modo", "Cerradas correctas / reales abiertas",
             "Parejas con desviación", "Sin pareja", "Dónde está el problema",
             "Ver metodología, cuentas, origen MT5, lotes y reportes",
         ):
             self.assertIn(text, self.result_page_text + self.result_script)
         self.assertIn("let activeFilter = 'all'", self.result_script)
         self.assertIn("activeFilter === 'issues'", self.result_script)
+        self.assertIn("['deviation', 'missing', 'invalid'].includes", self.result_script)
+        self.assertIn("REAL ABIERTA", self.result_page_text + self.result_script)
+        self.assertTrue(self.result_page.xpath('//button[@data-status-filter="open"]'))
+        self.assertIn("Pendiente hasta el cierre real", self.result_script)
         self.assertIn("Este no es el resultado de la última ejecución", self.result_script)
         self.assertIn('id="stale-result-warning"', self.result_page_text)
         self.assertIn("33 de 33", self.result_script.replace("${portfolioClosures}", "33").replace("${real}", "33"))

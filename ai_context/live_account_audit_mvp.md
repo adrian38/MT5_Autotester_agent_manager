@@ -736,6 +736,59 @@ nuevo mapa conservan el lote efectivo del tester como fallback. La evidencia
 por estrategia registra por separado `configured_lot`, `tester_lot` y
 `real_account_lot`.
 
+## Una mejora se audita en el modo que heredó de su base (2026-10-01)
+
+El auditor se diseñó contra bundles A/M/C, donde cada miembro declara su
+`variant_key`. Al marcar el #148 de ICTrading —`Mejora del portafolio #137 |
+modo Agresivo`— la tarjeta decía «Este portafolio no contiene estrategias para
+el modo seleccionado» con Agresivo ya elegido, y sin lotes no se puede
+configurar el uso.
+
+No era un dato corrupto. `save_proposal` detecta `standalone_improvement`
+(`scope=full_history`, una sola propuesta y `improvement_source_portfolio_id`) y
+guarda sus miembros con `variant_key` y `variant_label` **vacíos**: la variante
+es la fila entera, igual que en un mensual. El modo no se pierde, vive en la
+columna `portfolio_type` de la fila (`aggressive` para el #148) y en
+`improvement_origin.mode`, que el manager reconstruye desde los metadatos. Es la
+misma regla que ya documenta «El modo no cambia al mejorar una mejora» en
+`portfolio_saved_base_improvement.md`: una mejora, y la mejora de una mejora,
+sólo existe en el modo de su base. Por tanto aquí no hay nada que elegir.
+
+- `live_audit_engine.single_variant_mode(detail)` resuelve ese modo:
+  `improvement_origin.mode` primero, `portfolio_type` después, y sólo si cae en
+  A/M/C. Un bundle devuelve cadena vacía y conserva el comportamiento anterior.
+- `_portfolio_members` acepta la fila entera **sólo** cuando ningún miembro
+  declara `variant_key` y el modo pedido coincide con el resuelto. Pedir otro
+  modo falla con «guarda una sola variante, modo X», no con la lista vacía de
+  variantes disponibles, que mandaba a buscar donde no estaba el problema.
+- La pantalla muestra el modo bloqueado y explicado para esos portafolios, en
+  vez de un selector A/M/C con dos opciones que no existen; un uso guardado
+  antes con otro modo se corrige al guardar. `variantMembers` aplica la misma
+  condición que el motor, así que la tabla de lotes nunca enseña miembros de un
+  modo que el nodo rechazaría.
+- El detalle del portafolio ya no espera a que el usuario elija modo: si el modo
+  está resuelto, `ensureSelectionDetails()` lo pide al seleccionar el uso.
+
+Quien ejecuta la auditoría es `manager_node_runtime/live_audit.py` del agente,
+así que el cambio en el manager por sí solo no habría servido de nada: sin él,
+`Auditar ahora` sobre una mejora falla con «no contiene la variante aggressive;
+disponibles: ninguna» antes de abrir un terminal. El port está hecho en la rama
+`IC` del agente, con su prueba en `tests/test_manager_node_live_audit.py`. El
+nodo no publica `improvement_origin`, así que allí manda el respaldo
+`portfolio_type` de la fila; por eso `single_variant_mode` mira los dos.
+
+**No buscar la copia IC por el nombre de la carpeta.** En este equipo no existe
+`I:\TRADING\MT5_Autotester_agent_IC` pese a que `manager.json` lo declare: la
+rama `IC` está en el checkout de `F:\TRADING\MT5_Autotester_agent_AXI`, que el
+2026-10-01 tenía `IC` como rama activa. `git branch` de cualquier checkout del
+agente es la autoridad, no el árbol de directorios.
+
+`test_the_auditor_accepts_a_single_variant_improvement_on_every_ported_fork`
+vigila las dos piezas (`single_variant_mode` y la rama de `_portfolio_members`)
+en cada copia alcanzable. Hoy falla a propósito para
+`G:\TRADING\MT5_Autotester_agent` (RoboForex, rama `dev`), que todavía no ha
+recibido el merge desde `IC`; el port a AXI y RoboForex lo hace el usuario.
+
 ## Validación p54: NAS100/BTCUSD y cierres solapados (2026-09-14)
 
 La revisión `auditor_v1_p54_antes.xlsx` / `auditor_v1_p54_despues.xlsx` no
@@ -762,3 +815,240 @@ Este arreglo necesita dos piezas al portarlo al agente: el lector compartido
 `portfolio_manager/mt5_report.py` y los nuevos pisos de
 `manager_node_runtime/live_audit.py`. Cambiar solo el motor de referencia del
 manager no altera la auditoría que ejecuta el nodo broker.
+
+## Una posición real abierta no es una operación ausente (2026-10-01)
+
+Las filas AMZN y WFC de `auditor_01.10.2026_v2.xlsx` mostraban `SIN REAL` aunque
+el HTML real contenía los tickets 760842306 y 759105632. Ambos se habían abierto
+dentro de la tolerancia y seguían abiertos al final del periodo; el tester los
+cerró artificialmente al terminar su rango. El manager ya encontraba esas
+posiciones, pero las dejaba dentro del contador `missing_real_trades`.
+
+El contrato distingue ahora cuatro estados por operación: cerrada correcta,
+real abierta, desviación y sin real. Una posición abierta alineada:
+
+- incrementa `matched_trades` y `open_real_trades`, nunca
+  `missing_real_trades`;
+- se consume una sola vez, igual que un cierre real;
+- valida apertura, precio y volumen contra el lote real configurado;
+- no inventa cierre ni PnL: ambos quedan explícitamente pendientes;
+- puede ser desviación si el precio o el volumen observable incumplen su límite.
+
+La página la rotula `REAL ABIERTA`, ofrece filtro propio y no la incluye en
+`Problemas` mientras los límites observables se cumplan. El nodo RoboForex ya
+publica `open_positions_at_period_end`; por tanto, este cambio vive en el
+manager y puede reanalizar la materia prima guardada sin repetir Strategy Tester.
+
+## `initialize()` autoriza el login antes de que el terminal cambie de cuenta (2026-10-01)
+
+La auditoría `20261001_005310_756706` (RoboForex, uso `audit-148-muon8rbd-1`,
+portafolio #148 agresivo) extrajo bien la cuenta real —33 cierres y HTML
+nativo— y murió después con «No se confirmó la cuenta tester en todo el pool:
+MT5_4 … MT5_7 … MT5_8: confirmó el login 67188517».
+
+El mensaje induce a error de dos maneras y conviene leerlo con cuidado:
+
+- **El pool no eran tres terminales, eran diez.** `_verify_tester_terminals`
+  solo enumera los que fallan. Siete confirmaron el login tester correctamente.
+- **`67188517` no es una cuenta ajena ni un dato corrupto.** Es la cuenta final
+  de restauración configurada para ese nodo, es decir, exactamente la que una
+  auditoría anterior dejó guardada en esos terminales.
+
+El Journal de los tres que fallaron da la causa sin ambigüedad:
+
+```
+00:54:37.424  '77049426': authorized on RoboForex-ECN
+00:54:37.916  '67188517': terminal synchronized with RoboForex Ltd: 5 positions, 44 orders
+00:54:39.647  '77049426': scanning network for access points
+00:54:40.208  exit with code 0
+```
+
+MT5 **sí** autorizó la cuenta tester. Lo que devuelve `initialize()` es esa
+autorización del servidor, no la cuenta activa del terminal. Los siete
+terminales que pasaron ya tenían `77049426` guardada, así que no había nada que
+conmutar; los tres que fallaron venían de una restauración previa. Por eso el
+fallo es **intermitente y depende de la ejecución anterior**, no de la
+configuración.
+
+### Esperar no era el arreglo (corrección del mismo día)
+
+La primera conclusión fue que se trataba de una carrera, como la ya documentada
+para el historial de deals, y se añadió un sondeo de 30 s
+(`tester_login_settle_seconds`). **Es falso y la prueba está en el Journal.** En
+el pase `20261001_023955_464006`, con el sondeo ya cargado —el `.pyc` del agente
+se recompiló—, MT5_2 registró:
+
+```
+02:40:46.649  started
+02:40:47.099  '77049426': authorized on RoboForex-ECN
+02:40:47.546  '67188517': terminal synchronized with RoboForex Ltd
+02:41:19.793  exit with code 0
+```
+
+32,7 segundos entre la autorización y el cierre, contra los 2,8 de antes: el
+sondeo corrió entero y la cuenta no cambió nunca. No hay carrera que ganar.
+
+`initialize(login=...)` autentica las credenciales, pero **no obliga al terminal
+a abandonar la cuenta que tiene guardada**. La llamada que conmuta la cuenta de
+un terminal ya conectado es `login()`, y no se usaba en ninguna parte del
+proyecto: todo el auditor dependía de los parámetros de `initialize`.
+
+`_activate_account` hace ahora lo correcto: sondeo corto —`account_probe_seconds`,
+2 s, solo para cubrir el arranque de `initialize`—, y si la cuenta no es la
+pedida, `mt5.login(...)` explícito y entonces sí el plazo completo. El orden
+importa: con el plazo largo antes de conmutar, un pool de diez terminales pagaba
+hasta diez minutos antes de intentar lo único que funciona.
+
+Se aplica en los dos sitios con el mismo patrón, no solo en el que falló:
+`_verify_tester_terminals` y `_login_terminal`. El segundo descartaba en silencio
+terminales válidos con «el terminal no confirmó el login» y podía agotar el pool
+entero por la misma causa.
+
+Si `login()` devuelve falso, el error lo dice —«MT5 no cambió a la cuenta
+tester»— en vez de atribuirlo a la cuenta confirmada, que es un síntoma y no la
+causa.
+
+Coste de equivocarse aquí: un solo terminal perdido aborta el pool entero
+**antes** de lanzar el Strategy Tester, después de haber abierto la cuenta real,
+extraído el historial y copiado los sets. No degrada el resultado, lo destruye.
+
+Portado a `G:\TRADING\MT5_Autotester_agent\manager_node_runtime\live_audit.py`
+(rama `IC`), que es el proceso que ejecutó esta auditoría. `AXI` lo tiene
+pendiente y la guarda
+`test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork` falla a
+propósito hasta que el usuario porte el commit.
+
+## El lote real configurado no llegaba a la comparación (2026-10-01)
+
+Validación `auditor_01.10.2026_v1.xlsx` sobre la auditoría
+`20261001_012810_063790` (RoboForex, uso 148, modo agresivo). El usuario anotó
+23 de las 26 filas con «no se está teniendo en cuenta el volumen configurado
+para real» y concluyó que el auditor no recogía los lotes manuales.
+
+**Los lotes sí se recogían.** `real_account_lot` coincidía exactamente con las 15
+entradas de `real_strategy_lots`, y el filtro de pertenencia
+`(símbolo, lote real)` ya los usaba: todos los volúmenes reales de la hoja son el
+lote configurado. Conviene decirlo porque la reacción natural —volver a
+introducir los lotes— no habría cambiado nada.
+
+Lo que los ignoraba era `_compare`, que nunca recibió el mapa:
+
+- `volume_limit` se calculaba sobre `expected["volume"]`, el `StartLots` del
+  tester. Con EURUSD a 0,08 en tester y 0,04 en real, y tolerancia del 1 %, el
+  límite era 0,0008: imposible de cumplir. `volume` salió en las 22 desviaciones.
+- El déficit adverso de PnL se medía entre PnL absolutos de tamaños distintos.
+  Media posición da medio beneficio, así que «En contra ~50 %» era aritmética.
+
+Ahora `_expected_real_volume` resuelve la expectativa —lote real configurado, y
+el del tester si no hay— y el PnL del tester se escala por `lote_real /
+lote_tester` antes de `_pnl_comparison`. Sin mapa configurado el comportamiento
+es idéntico al anterior, y una EA que opera un lote distinto del configurado
+sigue marcando `volume`: el chequeo no se debilita, se le da la referencia
+correcta. El resultado persiste `volume_expected_real`, `volume_expected_source`,
+`pnl_scale` y `tester_profit_scaled`, y la página los muestra; si no, la tabla
+enseñaría 0,08 contra 0,04 y un porcentaje que el motor ya no usa para decidir.
+
+Reproducido sobre las 26 operaciones de esa ejecución: **de 1 dentro de
+tolerancia y 22 desviadas se pasa a 18 y 5.** Las cinco que quedan son reales
+—T1 por PnL −19 % y T7, T10, T18 y T20 por cierres de 24 min a 22 h— y coinciden
+con las que el usuario no objetó.
+
+### Los símbolos con prefijo de broker se quedaban sin piso de precio
+
+`adaptive_price_tolerance_floor` partía por el primer separador y se quedaba con
+lo de delante. RoboForex cotiza `.DE40Cash`, `.USTECHCash` y `.JP225Cash`: la
+raíz salía **vacía** y el símbolo no recibía ningún piso, ni siquiera el de
+índices que `DE40Cash` sin punto sí recibe. La nota de 2026-09-03 hablaba de
+«sufijos de broker separados por signos»; los prefijos nunca se contemplaron.
+
+Se limpia el prefijo antes de partir y se añade la familia `nikkei` (5,0), que
+tampoco existía: JP225 no empieza por ninguno de los prefijos de índice
+conocidos. Las tres causas `open_price` de esa ejecución desaparecen, incluidas
+las dos que el usuario había marcado como admisibles a mano.
+
+### «SIN REAL» no puede significar «no existe»
+
+Las filas 6 y 26 decían «No existe una real libre con el mismo símbolo y lado».
+El usuario encontró los tickets `760842306` (AMZN) y `759105632` (WFC) en MT5 y
+dedujo que el auditor había perdido datos. El informe nativo lo aclara: las dos
+posiciones abrieron dentro del periodo y **cerraron el 28/09, fuera de él**. No
+hay cierre que comparar, así que el veredicto era correcto y el motivo falso.
+
+El dato ya estaba a mano: `opening_positions - closing_positions` es el espejo
+exacto de la recuperación de aperturas anteriores que ya existía. Esas posiciones
+se publican en `open_positions_at_period_end` con su `position_id`, y una fila
+`missing` que coincide en símbolo, lado y apertura pasa a
+`real_position_still_open_at_period_end`, con el ticket en el motivo para poder
+abrirla en MT5. El veredicto no cambia: sigue siendo SIN REAL.
+
+Portado a la copia `IC` de `G:\TRADING\MT5_Autotester_agent`, con dos guardas de
+paridad: `test_the_real_lot_drives_volume_and_pnl_on_every_ported_fork` y
+`test_broker_prefixed_symbols_keep_their_price_floor_on_every_ported_fork`. AXI
+las falla a propósito hasta que el usuario porte el commit.
+
+## El nodo ejecuta, el manager juzga (2026-10-01)
+
+Hasta aquí el nodo hacía las dos cosas y el manager era un proxy literal:
+`node_request(...)` seguido de `self._send_json(status, value)`. El motor
+`mt5_manager/live_audit_engine.py` solo lo importaba `mt5_manager/node.py`, el
+nodo señuelo; nunca se ejecutaba. Lo que la pantalla mostraba era el veredicto
+que ya venía calculado del agente.
+
+Eso costaba dos cosas a diario:
+
+- Cada regla había que portarla a mano a la copia de cada broker. Bastaba
+  olvidar una para que ese agente auditase con otro criterio sin decirlo.
+- **Cambiar una tolerancia exigía repetir la auditoría entera**: parar el
+  pipeline, abrir terminales, reejecutar el Strategy Tester. Tres ejecuciones
+  del 2026-10-01 murieron antes de comparar y el usuario nunca llegó a ver el
+  efecto de los arreglos; exportó tres veces el mismo resultado viejo porque
+  `last_result` se conserva cuando la ejecución siguiente falla.
+
+Reparto nuevo:
+
+| Dónde | Qué |
+| --- | --- |
+| Nodo | Pausar el pipeline, extraer el historial con la API MT5, ejecutar el Strategy Tester, exportar los informes nativos, restaurar las cuentas. Publica `last_payload`. |
+| Manager | Filtro de pertenencia, puerta de History Quality, tolerancias, comparación y veredicto, en `mt5_manager/live_audit_analysis.py`. |
+
+`last_payload` lleva lo observado: `real_trades` **sin filtrar**, `tester_trades`,
+`symbol_points`, `strategies`, `qualities`, `strategy_artifacts`, posiciones
+abiertas al cerrar el periodo, y las dos cosas que solo el nodo sabe —
+`selected_members` de la variante y las `volume_rules` de su broker.
+
+`analyze(payload, perfil)` toma las tolerancias del **perfil vigente** y el
+periodo, las cuentas y los informes del **payload**. Esa asimetría es
+deliberada: se puede reanalizar con otro criterio, no con otro periodo. Cambiar
+el periodo cambia lo que el Strategy Tester ejecutó, así que exige repetir la
+auditoría; dejar que la configuración de hoy lo reescribiese daría un resultado
+que dice auditar unas fechas sobre operaciones de otras.
+`test_the_period_comes_from_the_execution_and_not_from_the_profile` lo fija.
+
+Comprobado sobre `20261001_012810_063790`, sin abrir un solo terminal:
+
+| Criterio | DENTRO | Desviadas |
+| --- | --- | --- |
+| Tolerancias actuales | 18 | 5 |
+| Sin lotes reales configurados | 1 | 22 |
+| Sin lotes reales, volumen al 60 % | 5 | 18 |
+
+Detalles que no son obvios:
+
+- El sondeo de la pantalla de configuración va cada dos segundos y solo pinta
+  barra, estado y logs. `last_payload` son miles de operaciones, así que se
+  elimina ahí y se sustituye por `has_payload`. Solo viaja entero a la página de
+  resultado, que pide una auditoría concreta.
+- La materia prima tampoco llega al navegador en esa página:
+  `analyse_node_state` la sustituye por el veredicto y hace `pop`.
+- **Un agente sin portar sigue funcionando.** Si no hay `last_payload`, el
+  manager respeta su `last_result`. Por eso las guardas de paridad de las reglas
+  de comparación siguen vigentes: AXI y cualquier copia sin portar todavía
+  comparan por su cuenta y necesitan las reglas correctas. Se podrán retirar
+  cuando las tres copias publiquen materia prima.
+- El criterio vive en `live_audit_analysis.py` y no en `manager.py` también por
+  una razón práctica: `manager.py` importa `cryptography` para las credenciales
+  y en este workspace no está instalado, así que nada que se importe desde ahí
+  es testeable. El handler es una envoltura de cinco líneas.
+- Si el análisis falla, el resultado es `None` y se publica `analysis_error`. La
+  página lo dice en vez de «todavía no hay una auditoría terminada», que sería
+  falso cuando el nodo sí ejecutó.

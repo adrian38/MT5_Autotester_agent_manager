@@ -16,6 +16,13 @@ except ImportError:
     )
 
 
+def _delegates_to_the_manager(project: Path) -> bool:
+    engine = project / "manager_node_runtime" / "live_audit.py"
+    return engine.is_file() and "last_payload=payload" in engine.read_text(
+        encoding="utf-8", errors="replace",
+    )
+
+
 class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
     def test_stop_without_the_lock_reaches_every_reachable_fork(self) -> None:
         # Quien retiene el bloqueo es el nodo del agente, así que ahí es donde
@@ -190,33 +197,133 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             "cuenta que queda en el terminal tras auditar",
         )
 
-    def test_ictrading_live_auditor_has_calendar_boundaries_and_effective_lot_rules(self) -> None:
+    def test_the_auditor_accepts_a_single_variant_improvement_on_every_ported_fork(self) -> None:
+        tokens = (
+            "def single_variant_mode", "own_mode = single_variant_mode(detail)",
+            "guarda una sola variante, modo",
+        )
+        manager_engine = self._manager_auditor_source()
+        for token in tokens:
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            for token in tokens:
+                self.assertIn(token, source, f"{project}: falta `{token}` en el auditor real")
+
+        self._assert_on_every_fork(check, "auditar una mejora de una sola variante")
+
+    def test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork(self) -> None:
+        tokens = (
+            "def _settled_account", "def _activate_account",
+            "tester_login_settle_seconds", "mt5.login(int(login)",
+        )
+        manager_engine = self._manager_auditor_source()
+        for token in tokens:
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            for token in tokens:
+                self.assertIn(token, source, f"{project}: falta `{token}` en el auditor real")
+
+        self._assert_on_every_fork(check, "esperar la conmutación de la cuenta tester")
+
+    def test_the_real_lot_drives_volume_and_pnl_on_every_ported_fork(self) -> None:
+        tokens = (
+            "def _expected_real_volume", "def _matching_open_position",
+            "real_position_still_open_at_period_end", "tester_scaled_to_real_lot",
+            "open_positions_at_period_end",
+        )
+        manager_engine = self._manager_auditor_source()
+        for token in tokens:
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            if _delegates_to_the_manager(project):
+                return
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            for token in tokens:
+                self.assertIn(token, source, f"{project}: falta `{token}` en el auditor real")
+
+        self._assert_on_every_fork(check, "lote real como expectativa de volumen y PnL")
+
+    def test_broker_prefixed_symbols_keep_their_price_floor_on_every_ported_fork(self) -> None:
+        tokens = ("_NIKKEI_SYMBOL_PREFIXES", '"nikkei"', r're.sub(r"^[^A-Z0-9]+"')
+        for token in tokens:
+            self.assertIn(token, self._manager_auditor_source(), f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            if _delegates_to_the_manager(project):
+                return
+            price = project / "manager_node_runtime" / "live_audit_price.py"
+            if not price.is_file():
+                return
+            source = price.read_text(encoding="utf-8", errors="replace")
+            for token in tokens:
+                self.assertIn(token, source, f"{project}: falta `{token}` en el precio real")
+
+        self._assert_on_every_fork(check, "piso de precio con prefijo de broker")
+
+    def test_a_ported_fork_publishes_raw_material_instead_of_a_verdict(self) -> None:
+        analysis = (MANAGER_ROOT / "mt5_manager" / "live_audit_analysis.py").read_text(
+            encoding="utf-8",
+        )
+        for token in ("def analyze", "def analyse_node_state", "def has_raw_material"):
+            self.assertIn(token, analysis, f"El manager perdió `{token}`.")
+        ported: list[Path] = []
+
+        def check(project: Path, _source: str) -> None:
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            if "last_payload=payload" in source:
+                ported.append(project)
+                self.assertIn('"last_payload": raw.get("last_payload")', source)
+
+        self._assert_on_every_fork(check, "el nodo publica materia prima")
+        if not ported:
+            self.skipTest("Ninguna copia alcanzable tiene el reparto nuevo")
+
+    def test_ictrading_live_auditor_has_calendar_boundaries_and_effective_lot_contract(self) -> None:
         manager_engine = self._manager_auditor_source()
         ic_project = FORK_CANDIDATES[0]
         ic_engine_path = ic_project / "manager_node_runtime" / "live_audit.py"
         if not ic_engine_path.is_file():
             self.skipTest(f"La copia ICTrading no está montada: {ic_engine_path}")
         ic_engine = ic_engine_path.read_text(encoding="utf-8", errors="replace")
-        for token in (
+        node_tokens = (
             "def _audit_period",
-            "def _effective_price_tolerance",
-            "def _pnl_comparison",
-            '"pnl_policy": "adverse_shortfall_only"',
-            '"pnl_adverse_delta"',
-            '"indices": 10.5',
-            '"gold": 2.05',
-            '"silver": 0.02',
-            '"jpy_fx": 0.05',
-            '"fx": 0.0005',
             'period_mode == "fixed_dates"',
             "datetime.min.time()",
             "datetime.max.time()",
             "tester_lot = max(portfolio_lot, volume_min)",
             "configured_lot_below_broker_minimum",
             "lot_matches_effective_lot",
-        ):
+        )
+        comparison_tokens = (
+            "def _effective_price_tolerance", "def _pnl_comparison",
+            '"pnl_policy": "adverse_shortfall_only"', '"pnl_adverse_delta"',
+            '"indices": 10.5', '"gold": 2.05', '"silver": 0.02',
+            '"jpy_fx": 0.05', '"fx": 0.0005',
+        )
+        for token in (*node_tokens, *comparison_tokens):
             self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+        for token in node_tokens:
             self.assertIn(token, ic_engine, f"ICTrading no ejecutará la regla `{token}`.")
+        if not _delegates_to_the_manager(ic_project):
+            for token in comparison_tokens:
+                self.assertIn(token, ic_engine, f"ICTrading no ejecutará la regla `{token}`.")
 
     def test_every_reachable_fork_ignores_fields_from_a_newer_manager(self) -> None:
         # El manager manda la tanda de riesgo por equity (`max_balance_dd_001`,

@@ -13,8 +13,18 @@ import urllib.error
 import urllib.parse
 from typing import Any
 
+from . import live_audit_analysis
 from . import manager_http
 from .common import safe_int
+
+
+def analysed_live_audit(handler, node_id: str, audit_id: str, value: Any) -> Any:
+    """Aplica el criterio vigente del manager a la materia prima del nodo."""
+    if not live_audit_analysis.has_raw_material(value):
+        return value
+    settings = handler.server.live_audit_settings.state(node_id)
+    profile = dict((settings.get("profiles") or {}).get(audit_id) or {})
+    return live_audit_analysis.analyse_node_state(value, profile)
 
 
 def config_state(handler, node: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
@@ -29,7 +39,14 @@ def config_state(handler, node: dict[str, Any], state: dict[str, Any]) -> dict[s
         return state
     if status == 200 and isinstance(value, dict):
         state["phase"] = "connected"
-        state["audit_states"] = value.get("audits") if isinstance(value.get("audits"), dict) else {}
+        audits = value.get("audits") if isinstance(value.get("audits"), dict) else {}
+        state["audit_states"] = {
+            key: ({
+                **{name: field for name, field in row.items() if name != "last_payload"},
+                "has_payload": bool(row.get("last_payload")),
+            } if isinstance(row, dict) else row)
+            for key, row in audits.items()
+        }
     elif status != 404:
         state["phase"] = "agent_unavailable"
         state["connection_error"] = str(value.get("error") if isinstance(value, dict) else value)
@@ -70,12 +87,13 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
         return True
     if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audits":
         try:
-            node = handler._node(urllib.parse.unquote(parts[2]))
+            node_id = urllib.parse.unquote(parts[2])
+            node = handler._node(node_id)
             audit_id = urllib.parse.unquote(parts[4])
             status, value = manager_http.node_request(
                 node, "GET", f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}", timeout=10
             )
-            handler._send_json(status, value)
+            handler._send_json(status, analysed_live_audit(handler, node_id, audit_id, value))
         except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
             handler._send_json(502, {"error": str(exc)})
         return True

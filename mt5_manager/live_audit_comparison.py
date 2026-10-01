@@ -5,12 +5,16 @@ from .live_audit_core import *  # noqa: F403
 
 class _ComparisonMixin:
     @staticmethod
-    def _comparison_state(real: list[dict[str, Any]]) -> dict[str, Any]:
+    def _comparison_state(
+        real: list[dict[str, Any]], request: dict[str, Any],
+    ) -> dict[str, Any]:
+        still_open = list(request.get("real_positions_open_at_period_end") or [])
         return {
             "unused": set(range(len(real))), "matched": 0, "within_tolerance": 0,
-            "deviations": 0, "matched_by_strategy": {},
+            "deviations": 0, "open_real": 0, "matched_by_strategy": {},
             "within_tolerance_by_strategy": {}, "deviating_by_strategy": {},
-            "missing_by_strategy": {},
+            "open_real_by_strategy": {}, "missing_by_strategy": {},
+            "still_open": still_open, "unused_open": set(range(len(still_open))),
             "deviation_reasons": {
                 "close_time": 0, "open_price": 0, "volume": 0, "pnl": 0,
                 "drawdown": 0,
@@ -49,6 +53,7 @@ class _ComparisonMixin:
             "tester_index": tester_index, "status": "missing", "strategy": strategy,
             "tester": _trade_view(expected), "real": None,
             "nearest_unused_real": _trade_view(nearest_trade),
+            "real_position_still_open": None,
             "measurements": {
                 "nearest_open_time_delta_seconds": round(nearest[0], 3) if nearest else None,
             },
@@ -59,9 +64,41 @@ class _ComparisonMixin:
         }
 
     @staticmethod
+    def _consume_open_position(
+        expected: dict[str, Any], tester_index: int, strategy: str,
+        state: dict[str, Any], points: dict[str, float], request: dict[str, Any],
+        data_issues: list[str],
+    ) -> bool:
+        match = _matching_open_position(
+            expected, state["still_open"], state["unused_open"],
+            request["trade_time_tolerance_seconds"],
+        )
+        if match is None:
+            return False
+        open_index, position = match
+        state["unused_open"].remove(open_index)
+        state["matched"] += 1
+        state["open_real"] += 1
+        _ComparisonMixin._increment(state["matched_by_strategy"], strategy)
+        _ComparisonMixin._increment(state["open_real_by_strategy"], strategy)
+        row, reasons = _open_position_comparison(
+            expected, position, tester_index, open_index,
+            points.get(str(position.get("symbol") or expected["symbol"]), 0.0),
+            request, request.get("real_strategy_lots") or {}, data_issues,
+        )
+        if reasons:
+            state["deviations"] += 1
+            _ComparisonMixin._increment(state["deviating_by_strategy"], strategy)
+            for reason in reasons:
+                state["deviation_reasons"][reason] += 1
+        state["operation_comparisons"].append(row)
+        return True
+
+    @staticmethod
     def _matched_measurements(
         expected: dict[str, Any], open_time_delta: float, point: float,
         close_delta: float, price_delta: float, volume_delta: float, pnl: dict[str, Any],
+        expected_volume: float, scaled_tester_profit: float, pnl_scale: float,
     ) -> dict[str, Any]:
         return {
             "open_time_delta_seconds": round(open_time_delta, 3),
@@ -69,9 +106,11 @@ class _ComparisonMixin:
             "open_price_delta": round(price_delta, 10),
             "open_price_delta_points": round(price_delta / point, 3) if point > 0 else None,
             "volume_delta": round(volume_delta, 8),
-            "volume_delta_pct": round(volume_delta / max(abs(float(expected["volume"])), 1e-9) * 100, 3),
+            "volume_delta_pct": round(volume_delta / max(abs(expected_volume), 1e-9) * 100, 3),
             "pnl_delta": round(float(pnl["delta"]), 2),
-            "pnl_delta_pct": round(float(pnl["delta"]) / max(abs(float(expected["profit"])), 1.0) * 100, 3),
+            "pnl_delta_pct": round(float(pnl["delta"]) / max(abs(scaled_tester_profit), 1.0) * 100, 3),
+            "pnl_scale": round(pnl_scale, 8),
+            "tester_profit_scaled": round(scaled_tester_profit, 2),
             "pnl_change": round(float(pnl["change"]), 2),
             "pnl_change_pct": round(float(pnl["change_pct"]), 3),
             "pnl_adverse_delta": round(float(pnl["adverse_delta"]), 2),
@@ -83,7 +122,8 @@ class _ComparisonMixin:
     def _matched_limits(
         request: dict[str, Any], price_limit: float | None,
         price_limit_points: float | None, price_limit_rule: str,
-        volume_limit: float, pnl_limit: float,
+        volume_limit: float, pnl_limit: float, strategy: str,
+        real_lots: dict[str, float], expected_volume: float,
     ) -> dict[str, Any]:
         return {
             "open_time_seconds": request["trade_time_tolerance_seconds"],
@@ -92,7 +132,10 @@ class _ComparisonMixin:
             "open_price_absolute": round(price_limit, 10) if price_limit is not None else None,
             "open_price_configured_points": request["price_tolerance_points"],
             "open_price_rule": price_limit_rule, "volume_pct": request["volume_tolerance_pct"],
-            "volume_absolute": round(volume_limit, 8), "pnl_pct": request["pnl_deviation_warning_pct"],
+            "volume_absolute": round(volume_limit, 8),
+            "volume_expected_real": round(expected_volume, 8),
+            "volume_expected_source": "configured_real_lot" if strategy in real_lots else "tester_lot",
+            "pnl_pct": request["pnl_deviation_warning_pct"],
             "pnl_absolute": round(pnl_limit, 2),
         }
 
@@ -105,13 +148,18 @@ class _ComparisonMixin:
         price_limit, price_limit_points, price_limit_rule = _effective_price_tolerance(
             actual["symbol"], point, request["price_tolerance_points"],
         )
-        volume_limit = max(expected["volume"], 1e-9) * request["volume_tolerance_pct"] / 100
+        strategy = str(expected["strategy"])
+        real_lots = request.get("real_strategy_lots") or {}
+        expected_volume, tester_volume = _expected_real_volume(expected, real_lots)
+        pnl_scale = expected_volume / tester_volume if tester_volume > 0 else 1.0
+        scaled_tester_profit = float(expected["profit"]) * pnl_scale
+        volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
         pnl = _pnl_comparison(
-            actual["profit"], expected["profit"], request["pnl_deviation_warning_pct"],
+            actual["profit"], scaled_tester_profit, request["pnl_deviation_warning_pct"],
         )
         close_delta = abs((actual["close_time"] - expected["close_time"]).total_seconds())
         price_delta = abs(float(actual["open_price"]) - float(expected["open_price"]))
-        volume_delta = abs(float(actual["volume"]) - float(expected["volume"]))
+        volume_delta = abs(float(actual["volume"]) - expected_volume)
         reasons = []
         if close_delta > request["trade_time_tolerance_seconds"]:
             reasons.append("close_time")
@@ -127,10 +175,11 @@ class _ComparisonMixin:
             reasons.append("pnl")
         measurements = _ComparisonMixin._matched_measurements(
             expected, open_time_delta, point, close_delta, price_delta, volume_delta, pnl,
+            expected_volume, scaled_tester_profit, pnl_scale,
         )
         limits = _ComparisonMixin._matched_limits(
             request, price_limit, price_limit_points, price_limit_rule,
-            volume_limit, float(pnl["limit"]),
+            volume_limit, float(pnl["limit"]), strategy, real_lots, expected_volume,
         )
         return ({
             "tester_index": tester_index, "real_index": real_index + 1,
@@ -159,6 +208,10 @@ class _ComparisonMixin:
             expected, real, state["unused"], request["trade_time_tolerance_seconds"],
         )
         if not candidates:
+            if _ComparisonMixin._consume_open_position(
+                expected, tester_index, strategy, state, points, request, data_issues,
+            ):
+                return
             _ComparisonMixin._increment(state["missing_by_strategy"], strategy)
             state["operation_comparisons"].append(_ComparisonMixin._missing_comparison(
                 expected, tester_index, strategy, same_market, real,
@@ -207,6 +260,7 @@ class _ComparisonMixin:
             "strategy": strategy, "tester_trades": int(strategies.get(strategy) or 0),
             "aligned": state["matched_by_strategy"].get(strategy, 0),
             "within_tolerance": state["within_tolerance_by_strategy"].get(strategy, 0),
+            "open_real": state["open_real_by_strategy"].get(strategy, 0),
             "with_deviations": state["deviating_by_strategy"].get(strategy, 0),
             "missing_real": state["missing_by_strategy"].get(strategy, 0),
         } for strategy in sorted(strategies)]
@@ -236,7 +290,7 @@ class _ComparisonMixin:
         missing = len(tester) - state["matched"]
         extra = len(state["unused"])
         return {
-            "matched_trades": state["matched"],
+            "matched_trades": state["matched"], "open_real_trades": state["open_real"],
             "within_tolerance_trades": state["within_tolerance"],
             "missing_real_trades": missing, "extra_real_trades": extra,
             "deviating_pairs": sum(state["deviating_by_strategy"].values()),
@@ -257,6 +311,7 @@ class _ComparisonMixin:
         return {
             "matched_by_strategy": state["matched_by_strategy"],
             "within_tolerance_by_strategy": state["within_tolerance_by_strategy"],
+            "open_real_by_strategy": state["open_real_by_strategy"],
             "deviating_by_strategy": state["deviating_by_strategy"],
             "missing_by_strategy": state["missing_by_strategy"], "unmatched_real": unmatched,
             "deviation_reasons": {
@@ -265,15 +320,17 @@ class _ComparisonMixin:
             "tester_data_issues": state["tester_data_issues"],
             "time_tolerance_seconds": time_limit,
             "methodology": {
-                "alignment": "Mismo símbolo y lado; apertura dentro de tolerancia; se elige el menor delta y cada real se usa una vez.",
-                "validation": "Después se validan cierre, precio de apertura y volumen. El PnL solo alerta si el resultado real empeora frente al tester; una mejora es admisible. El drawdown se valida sobre el conjunto.",
+                "alignment": "Mismo símbolo y lado; apertura dentro de tolerancia; se elige el menor delta y cada real se usa una vez, sea un cierre o una posición todavía abierta.",
+                "validation": "En parejas cerradas se validan cierre, precio de apertura, volumen y PnL. Una posición real todavía abierta se considera alineada y valida solo apertura, precio y volumen: no se inventan cierre ni PnL. El volumen se compara contra el lote real configurado para la estrategia y el PnL del tester se escala por ese mismo ratio. El drawdown se valida sobre el conjunto.",
                 "tolerances": {
                     "time_seconds": time_limit, "price_points": request["price_tolerance_points"],
                     "price_policy": "adaptive_by_instrument",
                     "price_absolute_floors": ADAPTIVE_PRICE_TOLERANCE_FLOORS,
                     "volume_pct": request["volume_tolerance_pct"],
+                    "volume_basis": "configured_real_lot",
                     "pnl_pct": request["pnl_deviation_warning_pct"],
                     "pnl_policy": "adverse_shortfall_only",
+                    "pnl_basis": "tester_scaled_to_real_lot",
                     "drawdown_pct": request["drawdown_deviation_warning_pct"],
                 },
             },
@@ -293,7 +350,7 @@ class _ComparisonMixin:
         real: list[dict[str, Any]], tester: list[dict[str, Any]], points: dict[str, float],
         request: dict[str, Any], strategies: dict[str, int],
     ) -> dict[str, Any]:
-        state = _ComparisonMixin._comparison_state(real)
+        state = _ComparisonMixin._comparison_state(real, request)
         for tester_index, expected in enumerate(tester, 1):
             _ComparisonMixin._compare_one_operation(
                 real, points, request, state, tester_index, expected,

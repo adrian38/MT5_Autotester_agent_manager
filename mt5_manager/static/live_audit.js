@@ -44,9 +44,24 @@ function escapeHtml(value) {
   })[character]);
 }
 
+const MODE_LABELS = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
+
+function portfolioRow(id) {
+  return portfolios.find(item => Number(item.id) === Number(id)) || null;
+}
+
 function portfolioName(id) {
-  const row = portfolios.find(item => Number(item.id) === Number(id));
-  return row?.name || `Portafolio #${id}`;
+  return portfolioRow(id)?.name || `Portafolio #${id}`;
+}
+
+// Una mejora —y la mejora de una mejora— no es un bundle A/M/C: guarda una sola
+// variante y su modo no se elige, es el que heredó de la base. Devuelve ese modo
+// o cadena vacía cuando el portafolio sí contiene las tres variantes.
+function fixedPortfolioMode(portfolioId) {
+  const row = portfolioRow(portfolioId);
+  if (!row) return '';
+  const mode = String(row.improvement_origin?.mode || row.portfolio_type || '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(MODE_LABELS, mode) ? mode : '';
 }
 
 function portfolioForAudit(auditId) {
@@ -55,9 +70,8 @@ function portfolioForAudit(auditId) {
 
 function auditTitle(auditId) {
   const profile = profiles[String(auditId)] || {};
-  const labels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
   const account = profile.source_login ? ` · cuenta ${profile.source_login}` : '';
-  return `${portfolioName(profile.portfolio_id)} · ${labels[profile.portfolio_type] || 'sin modo'}${account}`;
+  return `${portfolioName(profile.portfolio_id)} · ${MODE_LABELS[profile.portfolio_type] || 'sin modo'}${account}`;
 }
 
 function newAuditId(portfolioId) {
@@ -97,6 +111,18 @@ function strategyKey(member) {
   return filename.replace(/\.[^.]+$/, '');
 }
 
+// Los miembros del modo pedido. Un bundle A/M/C los etiqueta con `variant_key`;
+// un portafolio de una sola variante los guarda sin etiqueta porque la variante
+// es la fila entera, y entonces vale su modo heredado.
+function variantMembers(detail, profile) {
+  const all = detail.members || [];
+  const matching = all.filter(member => member.variant_key === profile.portfolio_type);
+  if (matching.length) return matching;
+  const singleVariant = all.length > 0 && !all.some(member => member.variant_key);
+  const fixed = fixedPortfolioMode(profile.portfolio_id);
+  return singleVariant && fixed && fixed === profile.portfolio_type ? all : [];
+}
+
 function strategyLotsMarkup(profile) {
   if (!profile.portfolio_type) {
     return '<p class="live-audit-lots-empty">Selecciona un modo para ver sus estrategias.</p>';
@@ -109,7 +135,7 @@ function strategyLotsMarkup(profile) {
   if (!detail) {
     return '<p class="live-audit-lots-empty">Cargando estrategias del portafolio…</p>';
   }
-  const members = (detail.members || []).filter(member => member.variant_key === profile.portfolio_type);
+  const members = variantMembers(detail, profile);
   if (!members.length) {
     return '<p class="live-audit-lots-empty">Este portafolio no contiene estrategias para el modo seleccionado.</p>';
   }
@@ -137,6 +163,28 @@ async function ensurePortfolioDetail(portfolioId) {
     throw new Error(message);
   }
   portfolioDetails[key] = data.portfolio || {};
+}
+
+// Detalles que faltan para pintar los lotes de los usos ya seleccionados. Un
+// portafolio de una sola variante no espera a que el usuario elija modo: ya lo
+// tiene, así que su detalle se pide igual.
+function pendingDetailIds() {
+  const ids = selectedAuditIds.map(auditId => {
+    const profile = profiles[String(auditId)] || {};
+    const portfolioId = Number(profile.portfolio_id || 0);
+    const mode = fixedPortfolioMode(portfolioId) || profile.portfolio_type;
+    return portfolioId && mode ? portfolioId : 0;
+  });
+  return [...new Set(ids.filter(id => id
+    && !portfolioDetails[String(id)] && !portfolioDetailErrors[String(id)]))];
+}
+
+async function ensureSelectionDetails() {
+  const ids = pendingDetailIds();
+  if (!ids.length) return;
+  await Promise.all(ids.map(id => ensurePortfolioDetail(id).catch(() => {})));
+  captureDrafts();
+  renderProfiles();
 }
 
 function savedAccountOptions(current = '', hasCurrent = false) {
@@ -212,6 +260,10 @@ function auditOperationsMarkup(auditId) {
 function profileMarkup(auditId) {
   const profile = {...defaults, ...(profiles[String(auditId)] || {})};
   const id = Number(profile.portfolio_id || 0);
+  // Un uso guardado antes de esta regla pudo quedarse con otro modo; el del
+  // portafolio de una sola variante manda y se persiste al guardar.
+  const singleMode = fixedPortfolioMode(id);
+  if (singleMode) profile.portfolio_type = singleMode;
   const credentials = credentialState[String(auditId)] || {};
   const sourceSaved = Boolean(credentials.source_password_saved);
   const testerSaved = Boolean(credentials.tester_password_saved);
@@ -219,12 +271,15 @@ function profileMarkup(auditId) {
   const testerReference = profile.tester_saved_account_id || '';
   const sourceReady = sourceSaved || Boolean(sourceReference);
   const testerReady = testerSaved || Boolean(testerReference);
+  const modeField = singleMode
+    ? `<label>Modo del portafolio<select data-field="portfolio_type" disabled>${option(singleMode, MODE_LABELS[singleMode], singleMode)}</select><small>Este portafolio guarda una sola variante: su modo es el que heredó de la base y no se elige.</small></label>`
+    : `<label>Modo del portafolio<select data-field="portfolio_type" required>${option('', 'Selecciona Agresivo / Moderado / Conservador', profile.portfolio_type)}${option('aggressive', 'Agresivo', profile.portfolio_type)}${option('balanced', 'Moderado', profile.portfolio_type)}${option('conservative', 'Conservador', profile.portfolio_type)}</select></label>`;
   return `<section class="panel-card live-audit-card live-audit-profile" data-profile-id="${escapeHtml(auditId)}">
     <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO #${id} · USO ${escapeHtml(auditId)}</p><h2>${escapeHtml(portfolioName(id))}</h2></div><div><span class="badge ${sourceReady && testerReady ? 'completed' : 'idle'}">${sourceReady && testerReady ? 'CREDENCIALES DISPONIBLES' : 'PENDIENTE'}</span><button type="button" class="secondary" data-remove-audit="${escapeHtml(auditId)}">Quitar uso</button></div></div>
     <div class="live-audit-subtitle"><strong>Identidad de este uso</strong><span>El mismo portafolio puede repetirse con otro modo y otra cuenta sin sobrescribir esta auditoría.</span></div>
     <div class="live-audit-fields">
       <label>Nombre descriptivo<input data-field="deployment_name" maxlength="120" value="${escapeHtml(profile.deployment_name)}" placeholder="Ej.: Moderado cuenta principal"></label>
-      <label>Modo del portafolio<select data-field="portfolio_type" required>${option('', 'Selecciona Agresivo / Moderado / Conservador', profile.portfolio_type)}${option('aggressive', 'Agresivo', profile.portfolio_type)}${option('balanced', 'Moderado', profile.portfolio_type)}${option('conservative', 'Conservador', profile.portfolio_type)}</select></label>
+      ${modeField}
     </div>
     <div class="live-audit-subtitle"><strong>Lotes usados en la cuenta real</strong><span>Por defecto coinciden con el portafolio. Edítalos sólo cuando el EA opere otro lote en real.</span></div>
     ${strategyLotsMarkup(profile)}
@@ -423,6 +478,7 @@ function applyState(data) {
   configPhase = data.phase || 'configuration_only';
   renderPortfolios();
   renderProfiles();
+  ensureSelectionDetails();
   const configured = data.configured_audit_ids?.length || 0;
   if (configured && !restoreAccount.configured) setState('FALTA CUENTA FINAL', 'pending');
   else setState(configured ? `${configured} CONFIGURADO${configured === 1 ? '' : 'S'}` : 'PENDIENTE', configured ? 'completed' : 'idle');
@@ -543,11 +599,6 @@ async function loadSettings() {
     portfolios = portfolioData.portfolios || [];
     portfolioDetails = {};
     portfolioDetailErrors = {};
-    const detailIds = [...new Set(Object.values(data.profiles || {})
-      .filter(profile => profile?.portfolio_type)
-      .map(profile => Number(profile.portfolio_id || 0))
-      .filter(Boolean))];
-    await Promise.all(detailIds.map(id => ensurePortfolioDetail(id).catch(() => {})));
     document.querySelector('#audit-title').textContent = data.node?.name || nodeId;
     applyState(data);
     applySchedulerState(schedulerData);
@@ -566,13 +617,14 @@ portfolioList.addEventListener('change', event => {
     if (!selectedAuditIds.some(auditId => portfolioForAudit(auditId) === id)) {
       const auditId = newAuditId(id);
       selectedAuditIds.push(auditId);
-      profiles[auditId] = {...defaults, portfolio_id: id, portfolio_type: ''};
+      profiles[auditId] = {...defaults, portfolio_id: id, portfolio_type: fixedPortfolioMode(id)};
     }
   } else {
     selectedAuditIds = selectedAuditIds.filter(auditId => portfolioForAudit(auditId) !== id);
   }
   renderPortfolios();
   renderProfiles();
+  ensureSelectionDetails();
   setState('CAMBIOS SIN GUARDAR', 'pending');
 });
 
@@ -602,9 +654,10 @@ portfolioList.addEventListener('click', event => {
   const portfolioId = Number(button.dataset.addPortfolio || 0);
   const auditId = newAuditId(portfolioId);
   selectedAuditIds.push(auditId);
-  profiles[auditId] = {...defaults, portfolio_id: portfolioId, portfolio_type: ''};
+  profiles[auditId] = {...defaults, portfolio_id: portfolioId, portfolio_type: fixedPortfolioMode(portfolioId)};
   renderPortfolios();
   renderProfiles();
+  ensureSelectionDetails();
   setState('CAMBIOS SIN GUARDAR', 'pending');
 });
 
@@ -718,10 +771,14 @@ form.addEventListener('submit', async event => {
 
 document.querySelector('#reset-audit').addEventListener('click', () => {
   selectedAuditIds.forEach(id => {
-    profiles[String(id)] = {...defaults, portfolio_id: portfolioForAudit(id), portfolio_type: ''};
+    const portfolioId = portfolioForAudit(id);
+    profiles[String(id)] = {
+      ...defaults, portfolio_id: portfolioId, portfolio_type: fixedPortfolioMode(portfolioId),
+    };
   });
   passwordDrafts = {};
   renderProfiles();
+  ensureSelectionDetails();
   setState('CAMBIOS SIN GUARDAR', 'pending');
   toast('Valores restablecidos por portafolio; las credenciales guardadas se conservarán.');
 });

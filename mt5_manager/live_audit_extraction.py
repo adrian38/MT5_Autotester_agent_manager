@@ -20,7 +20,7 @@ class _ExtractionMixin:
             raise RuntimeError("MT5 confirmó el login local, pero el terminal no está conectado al broker")
         return info, actual_server
 
-    def _recover_real_deals(self, mt5: Any, period_deals: list[Any]) -> tuple[list[Any], dict[str, int]]:
+    def _recover_real_deals(self, mt5: Any, period_deals: list[Any]) -> tuple[list[Any], dict[str, Any]]:
         market_deals = [deal for deal in period_deals if self._is_market_deal(deal)]
         opening_positions = {
             int(getattr(deal, "position_id", 0) or 0)
@@ -31,6 +31,8 @@ class _ExtractionMixin:
             for deal in market_deals if int(getattr(deal, "entry", -1)) in {1, 2, 3}
         }
         missing_open_positions = closing_positions - opening_positions
+        unclosed_positions = opening_positions - closing_positions
+        open_at_period_end = self._openings_without_closure(market_deals, unclosed_positions)
         all_deals = list(period_deals)
         recovered_positions = 0
         unresolved_positions: list[int] = []
@@ -55,8 +57,38 @@ class _ExtractionMixin:
             "positions_closed": len(closing_positions),
             "positions_missing_open_in_period": len(missing_open_positions),
             "positions_recovered": recovered_positions, "positions_unresolved": len(unresolved_positions),
+            "positions_open_at_period_end": len(unclosed_positions),
+            "open_positions_at_period_end": open_at_period_end,
         }
         return all_deals, detail
+
+    @staticmethod
+    def _openings_without_closure(
+        market_deals: list[Any], unclosed_positions: set[int],
+    ) -> list[dict[str, Any]]:
+        """Primera apertura de cada posición que seguía abierta al acabar."""
+        pending = set(unclosed_positions)
+        openings: list[dict[str, Any]] = []
+        for deal in sorted(
+            market_deals,
+            key=lambda item: (int(getattr(item, "time_msc", 0)), int(getattr(item, "ticket", 0))),
+        ):
+            position_id = int(getattr(deal, "position_id", 0) or 0)
+            if position_id not in pending or int(getattr(deal, "entry", -1)) not in {0, 2}:
+                continue
+            pending.discard(position_id)
+            openings.append({
+                "strategy": str(
+                    getattr(deal, "magic", 0) or getattr(deal, "comment", "") or position_id
+                ),
+                "symbol": str(getattr(deal, "symbol", "") or ""),
+                "side": "buy" if int(getattr(deal, "type", 0)) == 0 else "sell",
+                "open_time": datetime.fromtimestamp(int(getattr(deal, "time", 0)), timezone.utc),
+                "open_price": float(getattr(deal, "price", 0.0) or 0.0),
+                "volume": float(getattr(deal, "volume", 0.0) or 0.0),
+                "position_id": position_id,
+            })
+        return openings
 
     def _reconstruct_real_trades(
         self, mt5: Any, all_deals: list[Any], period_start: datetime, period_end: datetime,
@@ -261,6 +293,15 @@ class _ExtractionMixin:
         detail = self.owner.portfolio_detail(portfolio_id, "full_history")["portfolio"]
         members = [dict(row) for row in detail.get("members") or []]
         matching = [row for row in members if str(row.get("variant_key") or "") == portfolio_type]
+        if not matching and members and not any(str(row.get("variant_key") or "") for row in members):
+            own_mode = single_variant_mode(detail)
+            if own_mode and own_mode == portfolio_type:
+                matching = members
+            elif own_mode:
+                raise ValueError(
+                    f"El portafolio #{portfolio_id} guarda una sola variante, modo {own_mode}; "
+                    f"no puede auditarse como {portfolio_type}"
+                )
         if not matching:
             available = sorted({str(row.get("variant_key") or "") for row in members if row.get("variant_key")})
             raise ValueError(

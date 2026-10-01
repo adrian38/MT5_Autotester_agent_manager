@@ -91,6 +91,13 @@ class _LifecycleMixin:
         if not real_account_report.get("native_terminal_report"):
             raise RuntimeError("MT5 no entregó el HTML nativo del historial de la cuenta real")
         real_history_detail = dict(account.pop("history_detail", {}) or {})
+        open_at_period_end = list(
+            real_history_detail.pop("open_positions_at_period_end", []) or []
+        )
+        request["real_positions_open_at_period_end"] = open_at_period_end
+        real_history_detail["open_positions_at_period_end"] = [
+            _trade_view(position) for position in open_at_period_end
+        ]
         self._update(
             audit_key, "extracting", "Historial de la cuenta real sincronizado.",
             f"Cuenta MT5 verificada: login {account.get('login')}, servidor {account.get('server')}, "

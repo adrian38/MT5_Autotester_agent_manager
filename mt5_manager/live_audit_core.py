@@ -43,6 +43,7 @@ PROGRESS = {
 ADAPTIVE_PRICE_TOLERANCE_FLOORS = {
     "indices": 10.5,
     "nasdaq": 5.0,
+    "nikkei": 5.0,
     "crypto_btc": 10.0,
     "gold": 2.05,
     "silver": 0.02,
@@ -50,7 +51,24 @@ ADAPTIVE_PRICE_TOLERANCE_FLOORS = {
     "fx": 0.0005,
 }
 _INDEX_SYMBOL_PREFIXES = ("US30", "DE40", "USTEC", "USTECH")
+_NIKKEI_SYMBOL_PREFIXES = ("JP225", "JPN225", "JP_225")
 _FX_CURRENCIES = frozenset({"AUD", "CAD", "CHF", "EUR", "GBP", "JPY", "NZD", "USD"})
+
+PORTFOLIO_MODES = ("aggressive", "balanced", "conservative")
+
+
+def single_variant_mode(detail: dict[str, Any]) -> str:
+    """Modo heredado por un portafolio guardado con una sola variante."""
+    origin = detail.get("improvement_origin")
+    candidates = (
+        origin.get("mode") if isinstance(origin, dict) else None,
+        detail.get("portfolio_type"),
+    )
+    for value in candidates:
+        mode = str(value or "").strip().lower()
+        if mode in PORTFOLIO_MODES:
+            return mode
+    return ""
 
 def _as_int(value: Any, name: str, minimum: int = 0) -> int:
     try:
@@ -100,9 +118,13 @@ def _member_strategy_id(member: dict[str, Any], fallback: str = "") -> str:
 
 def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:
     """Devuelve el piso absoluto validado para la familia del instrumento."""
-    root = re.split(r"[^A-Z0-9]", str(symbol or "").upper(), maxsplit=1)[0]
+    root = re.split(
+        r"[^A-Z0-9]", re.sub(r"^[^A-Z0-9]+", "", str(symbol or "").upper()), maxsplit=1,
+    )[0]
     if root.startswith(("NAS100", "US100")):
         return ADAPTIVE_PRICE_TOLERANCE_FLOORS["nasdaq"], "adaptive_nasdaq"
+    if root.startswith(_NIKKEI_SYMBOL_PREFIXES):
+        return ADAPTIVE_PRICE_TOLERANCE_FLOORS["nikkei"], "adaptive_nikkei"
     if root.startswith("BTC"):
         return ADAPTIVE_PRICE_TOLERANCE_FLOORS["crypto_btc"], "adaptive_crypto_btc"
     if root.startswith(_INDEX_SYMBOL_PREFIXES):
@@ -115,6 +137,90 @@ def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:
         family = "jpy_fx" if root[3:6] == "JPY" else "fx"
         return ADAPTIVE_PRICE_TOLERANCE_FLOORS[family], f"adaptive_{family}"
     return None, "configured_points"
+
+
+def _expected_real_volume(
+    expected: dict[str, Any], real_lots: dict[str, float],
+) -> tuple[float, float]:
+    """Volumen esperado en real y volumen que usó el tester."""
+    tester_volume = float(expected.get("volume") or 0.0)
+    configured = real_lots.get(str(expected.get("strategy") or ""))
+    try:
+        expected_volume = float(configured) if configured is not None else tester_volume
+    except (TypeError, ValueError):
+        expected_volume = tester_volume
+    return (expected_volume if expected_volume > 0 else tester_volume), tester_volume
+
+
+def _matching_open_position(
+    expected: dict[str, Any], still_open: list[dict[str, Any]],
+    unused: set[int], time_limit: float,
+) -> tuple[int, dict[str, Any]] | None:
+    """Devuelve una posición real abierta alineada y su índice consumible."""
+    best: tuple[float, int, dict[str, Any]] | None = None
+    for index in unused:
+        position = still_open[index]
+        if str(position.get("symbol") or "").casefold() != str(expected["symbol"]).casefold():
+            continue
+        if position.get("side") != expected["side"]:
+            continue
+        open_time = position.get("open_time")
+        if not isinstance(open_time, datetime):
+            continue
+        delta = abs((open_time - expected["open_time"]).total_seconds())
+        if delta <= time_limit and (best is None or delta < best[0]):
+            best = (delta, index, {**position, "open_time_delta_seconds": round(delta, 3)})
+    return (best[1], best[2]) if best else None
+
+
+def _open_position_comparison(
+    expected: dict[str, Any], actual: dict[str, Any], tester_index: int,
+    open_index: int, point: float, request: dict[str, Any],
+    real_lots: dict[str, float], data_issues: list[str],
+) -> tuple[dict[str, Any], list[str]]:
+    """Valida lo observable sin inventar cierre ni PnL para una real abierta."""
+    strategy = str(expected["strategy"])
+    price_limit, price_points, price_rule = _effective_price_tolerance(
+        str(actual.get("symbol") or expected["symbol"]), point,
+        request["price_tolerance_points"],
+    )
+    expected_volume, _tester_volume = _expected_real_volume(expected, real_lots)
+    volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
+    price_delta = abs(float(actual.get("open_price") or 0) - float(expected["open_price"]))
+    volume_delta = abs(float(actual.get("volume") or 0) - expected_volume)
+    reasons: list[str] = []
+    epsilon = max(point * 1e-6, 1e-12)
+    if price_limit is not None and price_delta > price_limit and not math.isclose(
+        price_delta, price_limit, rel_tol=0.0, abs_tol=epsilon,
+    ):
+        reasons.append("open_price")
+    if volume_delta > volume_limit:
+        reasons.append("volume")
+    return ({
+        "tester_index": tester_index, "open_real_index": open_index + 1,
+        "status": "deviation" if reasons else "open", "strategy": strategy,
+        "tester": _trade_view(expected), "real": _trade_view(actual),
+        "nearest_unused_real": None, "real_position_still_open": _trade_view(actual),
+        "measurements": {
+            "open_time_delta_seconds": round(float(actual["open_time_delta_seconds"]), 3),
+            "open_price_delta": round(price_delta, 10),
+            "open_price_delta_points": round(price_delta / point, 3) if point > 0 else None,
+            "volume_delta": round(volume_delta, 8),
+            "volume_delta_pct": round(volume_delta / max(abs(expected_volume), 1e-9) * 100, 3),
+        },
+        "limits": {
+            "open_time_seconds": request["trade_time_tolerance_seconds"],
+            "open_price_points": round(price_points, 3) if price_points is not None else None,
+            "open_price_absolute": round(price_limit, 10) if price_limit is not None else None,
+            "open_price_configured_points": request["price_tolerance_points"],
+            "open_price_rule": price_rule, "volume_pct": request["volume_tolerance_pct"],
+            "volume_absolute": round(volume_limit, 8),
+            "volume_expected_real": round(expected_volume, 8),
+            "volume_expected_source": "configured_real_lot" if strategy in real_lots else "tester_lot",
+        },
+        "data_issues": data_issues,
+        "reasons": ["real_position_still_open_at_period_end", *reasons],
+    }, reasons)
 
 
 def _effective_price_tolerance(
@@ -306,6 +412,9 @@ def _trade_view(trade: dict[str, Any] | None) -> dict[str, Any] | None:
     ):
         value = trade.get(key)
         result[key] = value.isoformat() if isinstance(value, datetime) else value
+    for key in ("position_id", "ticket"):
+        if trade.get(key) is not None:
+            result[key] = trade[key]
     return result
 
 

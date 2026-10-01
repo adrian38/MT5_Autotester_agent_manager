@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from mt5_manager.live_audit_engine import (
     LiveAuditController, _audit_period, _read_set_text, _redact_log_files, _redact_runner_output,
-    normalize_request,
+    normalize_request, single_variant_mode,
 )
 from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
 from tests.live_audit_engine_base import FakeOwner, LiveAuditEngineTestCase, request
@@ -251,6 +251,22 @@ class LiveAuditExtractionTests(LiveAuditEngineTestCase):
             _detail, members = controller._portfolio_members(9, "balanced")
             self.assertEqual([row["candidate_id"] for row in members], ["one"])
 
+    def test_a_saved_improvement_is_audited_in_the_mode_it_inherited(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+            _detail, members = controller._portfolio_members(148, "aggressive")
+            self.assertEqual([row["candidate_id"] for row in members], ["imp-one", "imp-two"])
+            with self.assertRaisesRegex(ValueError, "una sola variante, modo aggressive"):
+                controller._portfolio_members(148, "balanced")
+
+    def test_only_a_single_variant_portfolio_resolves_an_implicit_mode(self) -> None:
+        self.assertEqual(single_variant_mode({"portfolio_type": "conservative"}), "conservative")
+        self.assertEqual(single_variant_mode({
+            "portfolio_type": "improved", "improvement_origin": {"mode": "aggressive"},
+        }), "aggressive")
+        self.assertEqual(single_variant_mode({"portfolio_type": "bundle"}), "")
+        self.assertEqual(single_variant_mode({}), "")
+
     def test_tester_uses_five_configured_broker_terminals_for_six_sets(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             _owner, controller = self._controller(Path(temp), "idle")
@@ -321,6 +337,7 @@ class LiveAuditExtractionTests(LiveAuditEngineTestCase):
         self.assertEqual(result["comparison_detail"]["strategy_summary"][0], {
             "strategy": "one", "tester_trades": 1, "aligned": 1,
             "within_tolerance": 0, "with_deviations": 1, "missing_real": 0,
+            "open_real": 0,
         })
         self.assertIn("cada real se usa una vez", result["comparison_detail"]["methodology"]["alignment"])
 

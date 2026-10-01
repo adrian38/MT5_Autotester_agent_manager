@@ -46,9 +46,20 @@ class FakeOwner:
         self.config = {"project_dir": ".", "settings_file": "ui_settings.ini"}
 
     def portfolio_detail(self, portfolio_id: int, scope: str) -> dict:
-        if portfolio_id != 9 or scope != "full_history":
+        if scope != "full_history":
             raise ValueError("portfolio inesperado")
-        return {"portfolio": {"id": 9, "members": [
+        if portfolio_id == 148:
+            return {"portfolio": {
+                "id": 148, "portfolio_type": "aggressive",
+                "improvement_origin": {"source_id": 137, "mode": "aggressive", "depth": 2},
+                "members": [
+                    {"variant_key": "", "candidate_id": "imp-one", "symbol": "EURUSD", "lot": .02},
+                    {"variant_key": "", "candidate_id": "imp-two", "symbol": "XAUUSD", "lot": .03},
+                ],
+            }}
+        if portfolio_id != 9:
+            raise ValueError("portfolio inesperado")
+        return {"portfolio": {"id": 9, "portfolio_type": "bundle", "members": [
             {"variant_key": "balanced", "candidate_id": "one", "symbol": "EURUSD", "lot": .01},
             {"variant_key": "aggressive", "candidate_id": "two", "symbol": "XAUUSD"},
         ]}}

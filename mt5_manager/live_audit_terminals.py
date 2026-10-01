@@ -350,10 +350,15 @@ class _TerminalMixin:
             # ya cambió, tanto si el login se confirma como si no.
             if remember_for:
                 self._remember_real_account_terminal(remember_for, section, profile)
-            info = mt5.account_info()
-            if info is not None and int(info.login) == int(login):
+            actual_login, _actual_server, _connected, switch_error = self._activate_account(
+                mt5, str(login), password, server, self.tester_login_settle_seconds,
+            )
+            if not switch_error and actual_login == str(login):
                 return mt5, section, profile, self._terminal_pids() - before
-            errors.append(f"{Path(path).parent.name}: el terminal no confirmó el login")
+            errors.append(
+                f"{Path(path).parent.name}: "
+                + (switch_error or "el terminal no confirmó el login")
+            )
             mt5.shutdown()
             self._close_terminal_pids(self._terminal_pids() - before)
         raise RuntimeError("No se pudo iniciar sesión en ninguna terminal configurada: " + " | ".join(errors))
@@ -447,6 +452,49 @@ class _TerminalMixin:
                 row["journal_captured"] = False
                 row["journal_error"] = str(exc)
 
+    @classmethod
+    def _activate_account(
+        cls, mt5: Any, login: str, password: str, server: str, timeout: float,
+    ) -> tuple[str, str, bool, str | None]:
+        """Conmuta explícitamente si `initialize` deja activa la cuenta anterior."""
+        actual_login, actual_server, connected = cls._settled_account(
+            mt5, login, server, cls.account_probe_seconds,
+        )
+        if actual_login == login:
+            return actual_login, actual_server, connected, None
+        try:
+            switched = mt5.login(int(login), password=password, server=server, timeout=60000)
+        except Exception as exc:
+            return actual_login, actual_server, connected, f"MT5 rechazó cambiar de cuenta: {exc}"
+        if not switched:
+            return (
+                actual_login, actual_server, connected,
+                f"MT5 no cambió a la cuenta tester: {mt5.last_error()}",
+            )
+        actual_login, actual_server, connected = cls._settled_account(
+            mt5, login, server, timeout,
+        )
+        return actual_login, actual_server, connected, None
+
+    @staticmethod
+    def _settled_account(
+        mt5: Any, login: str, server: str, timeout: float,
+    ) -> tuple[str, str, bool]:
+        """Espera a que el terminal confirme cuenta, servidor y conexión."""
+        deadline = time.monotonic() + timeout
+        while True:
+            info = mt5.account_info()
+            terminal = mt5.terminal_info()
+            actual_login = str(getattr(info, "login", "") or "") if info is not None else ""
+            actual_server = str(getattr(info, "server", "") or "") if info is not None else ""
+            connected = bool(getattr(terminal, "connected", False)) if terminal is not None else False
+            if (
+                (actual_login == login and actual_server.casefold() == server.casefold() and connected)
+                or time.monotonic() >= deadline
+            ):
+                return actual_login, actual_server, connected
+            time.sleep(0.25)
+
     def _verify_tester_terminals(
         self, request: dict[str, Any], profiles: list[tuple[str, dict[str, str]]],
     ) -> list[dict[str, Any]]:
@@ -475,13 +523,14 @@ class _TerminalMixin:
                     row["error"] = f"MT5 rechazó la cuenta tester: {mt5.last_error()}"
                 else:
                     launched = self._terminal_pids() - before
-                    info = mt5.account_info()
-                    terminal = mt5.terminal_info()
-                    actual_login = str(getattr(info, "login", "") or "") if info is not None else ""
-                    actual_server = str(getattr(info, "server", "") or "") if info is not None else ""
-                    connected = bool(getattr(terminal, "connected", False)) if terminal is not None else False
+                    actual_login, actual_server, connected, switch_error = self._activate_account(
+                        mt5, login, request["tester_password"], server,
+                        self.tester_login_settle_seconds,
+                    )
                     row.update(login=actual_login or None, server=actual_server or None, connected=connected)
-                    if actual_login != login:
+                    if switch_error:
+                        row["error"] = switch_error
+                    elif actual_login != login:
                         row["error"] = f"confirmó el login {actual_login or 'desconocido'}"
                     elif actual_server.casefold() != server.casefold():
                         row["error"] = f"confirmó el servidor {actual_server or 'desconocido'}"

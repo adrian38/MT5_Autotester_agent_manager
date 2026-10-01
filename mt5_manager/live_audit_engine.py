@@ -15,6 +15,8 @@ class LiveAuditController(
 
     history_sync_attempts = 6
     history_sync_delay_seconds = 1.0
+    tester_login_settle_seconds = 30.0
+    account_probe_seconds = 2.0
 
     def __init__(self, owner: Any, runtime_dir: Path) -> None:
         self.owner = owner
