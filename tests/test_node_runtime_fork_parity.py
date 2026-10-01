@@ -22,6 +22,20 @@ MANAGER_RULES = MANAGER_ROOT / "mt5_manager" / "portfolio_service.py"
 # Copias conocidas, en el orden de `ai_context/node_runtime_is_forked_per_agent.md`.
 # La primera es el nodo de ICTrading de este equipo, único destino que el
 # invariante de la rama `dev` autoriza a escribir.
+def _delegates_to_the_manager(project: Path) -> bool:
+    """¿Esta copia ya publica materia prima en vez de calcular el veredicto?
+
+    Las guardas de reglas de comparación existen para las copias que todavía
+    juzgan por su cuenta. A una que delega hay que exigirle lo contrario: que
+    **no** arrastre esas reglas, porque ahí serían código muerto que puede
+    divergir en silencio del criterio que de verdad se aplica.
+    """
+    engine = project / "manager_node_runtime" / "live_audit.py"
+    if not engine.is_file():
+        return False
+    return "last_payload=payload" in engine.read_text(encoding="utf-8", errors="replace")
+
+
 FORK_CANDIDATES = (
     Path(r"C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent"),
     Path(r"F:\TRADING\MT5_Autotester_agent_AXI"),
@@ -723,6 +737,11 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
             if not engine.is_file():
                 print(f"\n[paridad] lote real en la comparación: {project} no tiene live_audit.py")
                 return
+            if _delegates_to_the_manager(project):
+                # Esta copia ya no compara: publica materia prima y juzga el
+                # manager. Exigirle las reglas sería exigirle código muerto.
+                print(f"\n[paridad] lote real en la comparación: {project} delega en el manager")
+                return
             source = engine.read_text(encoding="utf-8", errors="replace")
             for token in tokens:
                 self._assert_present(
@@ -742,6 +761,9 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
             self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
 
         def check(project: Path, _source: str) -> None:
+            if _delegates_to_the_manager(project):
+                print(f"\n[paridad] piso de precio con prefijo: {project} delega en el manager")
+                return
             price = project / "manager_node_runtime" / "live_audit_price.py"
             if not price.is_file():
                 print(f"\n[paridad] piso de precio con prefijo: {project} no tiene live_audit_price.py")
@@ -757,6 +779,41 @@ class NodeRuntimeForkParityTests(unittest.TestCase):
                 )
 
         self._assert_on_every_fork(check, "piso de precio en símbolos con prefijo de broker")
+
+    def test_a_ported_fork_publishes_raw_material_instead_of_a_verdict(self) -> None:
+        # El reparto nuevo: el nodo ejecuta y publica lo observado, el manager
+        # aplica el criterio. Mientras un agente no lo tenga, sigue calculando
+        # su propio veredicto y el manager se lo respeta — por eso las guardas
+        # de reglas de comparación de este fichero siguen vigentes para él.
+        manager_source = (MANAGER_ROOT / "mt5_manager" / "live_audit_analysis.py").read_text(encoding="utf-8")
+        for token in ("def analyze", "def analyse_node_state", "def has_raw_material"):
+            self.assertIn(token, manager_source, f"El manager perdió `{token}`.")
+
+        ported: list[Path] = []
+
+        def check(project: Path, _source: str) -> None:
+            engine = project / "manager_node_runtime" / "live_audit.py"
+            if not engine.is_file():
+                print(f"\n[paridad] materia prima: {project} no tiene live_audit.py")
+                return
+            source = engine.read_text(encoding="utf-8", errors="replace")
+            if "last_payload=payload" in source:
+                ported.append(project)
+                self._assert_present(
+                    source, re.escape('"last_payload": raw.get("last_payload")'),
+                    f"{project}: publica `last_payload` al terminar pero no lo expone en el "
+                    "estado público. El manager no puede analizarlo y la pantalla de "
+                    "resultado se queda vacía.",
+                )
+            else:
+                print(
+                    f"\n[paridad] materia prima: {project} todavía calcula su propio veredicto; "
+                    "el manager usará su `last_result`."
+                )
+
+        self._assert_on_every_fork(check, "el nodo publica materia prima")
+        if not ported:
+            self.skipTest("Ninguna copia alcanzable tiene el reparto nuevo todavía")
 
     def test_ictrading_live_auditor_has_calendar_boundaries_and_effective_lot_rules(self) -> None:
         manager_engine = (MANAGER_ROOT / "mt5_manager" / "live_audit_engine.py").read_text(encoding="utf-8")

@@ -24,6 +24,7 @@ from . import experiment_routes
 from . import guided_batches
 from .common import json_bytes, load_json, safe_int, save_json, utc_now
 from .experiment_service import ExperimentCoordinator
+from . import live_audit_analysis
 from .live_audit_settings import LiveAuditSettingsStore
 from .manager_restart import ManagerRestartController, RestartAlreadyRunning
 from .portfolio_service import (
@@ -369,6 +370,26 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 return node
         raise KeyError(f"Nodo desconocido: {node_id}")
 
+    def _analysed_live_audit(
+        self, node_id: str, audit_id: str, value: Any,
+    ) -> Any:
+        """Convierte la materia prima del nodo en veredicto, aquí y no allí.
+
+        El criterio —tolerancias, filtro de pertenencia y comparación— vive en
+        el manager, así que el resultado se calcula en cada lectura con la
+        configuración vigente. Cambiar una tolerancia y recargar basta: no hay
+        que repetir la auditoría ni abrir un terminal.
+
+        Un nodo que todavía no publica `last_payload` conserva su `last_result`
+        tal cual. Es lo que mantiene vivos los agentes a los que aún no se ha
+        portado el cambio, en vez de dejarles la pantalla en blanco.
+        """
+        if not live_audit_analysis.has_raw_material(value):
+            return value
+        settings = self.server.live_audit_settings.state(node_id)
+        profile = dict((settings.get("profiles") or {}).get(audit_id) or {})
+        return live_audit_analysis.analyse_node_state(value, profile)
+
     def _live_audit_config_state(self, node: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
         """Añade el estado operativo del agente sin exponer credenciales."""
         state = dict(state)
@@ -381,7 +402,18 @@ class ManagerHandler(BaseHTTPRequestHandler):
             return state
         if status == 200 and isinstance(value, dict):
             state["phase"] = "connected"
-            state["audit_states"] = value.get("audits") if isinstance(value.get("audits"), dict) else {}
+            audits = value.get("audits") if isinstance(value.get("audits"), dict) else {}
+            # Esta pantalla sondea cada dos segundos y solo pinta barra, estado y
+            # logs. La materia prima de cada ejecución son miles de operaciones:
+            # mandarla aquí multiplicaría el tráfico por nada. Se entrega
+            # únicamente en la página de resultado, que pide una auditoría.
+            state["audit_states"] = {
+                key: ({
+                    **{name: field for name, field in row.items() if name != "last_payload"},
+                    "has_payload": bool(row.get("last_payload")),
+                } if isinstance(row, dict) else row)
+                for key, row in audits.items()
+            }
         elif status != 404:
             state["phase"] = "agent_unavailable"
             state["connection_error"] = str(value.get("error") if isinstance(value, dict) else value)
@@ -586,12 +618,13 @@ class ManagerHandler(BaseHTTPRequestHandler):
             return
         if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audits":
             try:
-                node = self._node(urllib.parse.unquote(parts[2]))
+                node_id = urllib.parse.unquote(parts[2])
+                node = self._node(node_id)
                 audit_id = urllib.parse.unquote(parts[4])
                 status, value = node_request(
                     node, "GET", f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}", timeout=10
                 )
-                self._send_json(status, value)
+                self._send_json(status, self._analysed_live_audit(node_id, audit_id, value))
             except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self._send_json(502, {"error": str(exc)})
             return

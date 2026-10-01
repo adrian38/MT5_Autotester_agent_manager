@@ -962,3 +962,70 @@ Portado a la copia `IC` de `G:\TRADING\MT5_Autotester_agent`, con dos guardas de
 paridad: `test_the_real_lot_drives_volume_and_pnl_on_every_ported_fork` y
 `test_broker_prefixed_symbols_keep_their_price_floor_on_every_ported_fork`. AXI
 las falla a propósito hasta que el usuario porte el commit.
+
+## El nodo ejecuta, el manager juzga (2026-10-01)
+
+Hasta aquí el nodo hacía las dos cosas y el manager era un proxy literal:
+`node_request(...)` seguido de `self._send_json(status, value)`. El motor
+`mt5_manager/live_audit_engine.py` solo lo importaba `mt5_manager/node.py`, el
+nodo señuelo; nunca se ejecutaba. Lo que la pantalla mostraba era el veredicto
+que ya venía calculado del agente.
+
+Eso costaba dos cosas a diario:
+
+- Cada regla había que portarla a mano a la copia de cada broker. Bastaba
+  olvidar una para que ese agente auditase con otro criterio sin decirlo.
+- **Cambiar una tolerancia exigía repetir la auditoría entera**: parar el
+  pipeline, abrir terminales, reejecutar el Strategy Tester. Tres ejecuciones
+  del 2026-10-01 murieron antes de comparar y el usuario nunca llegó a ver el
+  efecto de los arreglos; exportó tres veces el mismo resultado viejo porque
+  `last_result` se conserva cuando la ejecución siguiente falla.
+
+Reparto nuevo:
+
+| Dónde | Qué |
+| --- | --- |
+| Nodo | Pausar el pipeline, extraer el historial con la API MT5, ejecutar el Strategy Tester, exportar los informes nativos, restaurar las cuentas. Publica `last_payload`. |
+| Manager | Filtro de pertenencia, puerta de History Quality, tolerancias, comparación y veredicto, en `mt5_manager/live_audit_analysis.py`. |
+
+`last_payload` lleva lo observado: `real_trades` **sin filtrar**, `tester_trades`,
+`symbol_points`, `strategies`, `qualities`, `strategy_artifacts`, posiciones
+abiertas al cerrar el periodo, y las dos cosas que solo el nodo sabe —
+`selected_members` de la variante y las `volume_rules` de su broker.
+
+`analyze(payload, perfil)` toma las tolerancias del **perfil vigente** y el
+periodo, las cuentas y los informes del **payload**. Esa asimetría es
+deliberada: se puede reanalizar con otro criterio, no con otro periodo. Cambiar
+el periodo cambia lo que el Strategy Tester ejecutó, así que exige repetir la
+auditoría; dejar que la configuración de hoy lo reescribiese daría un resultado
+que dice auditar unas fechas sobre operaciones de otras.
+`test_the_period_comes_from_the_execution_and_not_from_the_profile` lo fija.
+
+Comprobado sobre `20261001_012810_063790`, sin abrir un solo terminal:
+
+| Criterio | DENTRO | Desviadas |
+| --- | --- | --- |
+| Tolerancias actuales | 18 | 5 |
+| Sin lotes reales configurados | 1 | 22 |
+| Sin lotes reales, volumen al 60 % | 5 | 18 |
+
+Detalles que no son obvios:
+
+- El sondeo de la pantalla de configuración va cada dos segundos y solo pinta
+  barra, estado y logs. `last_payload` son miles de operaciones, así que se
+  elimina ahí y se sustituye por `has_payload`. Solo viaja entero a la página de
+  resultado, que pide una auditoría concreta.
+- La materia prima tampoco llega al navegador en esa página:
+  `analyse_node_state` la sustituye por el veredicto y hace `pop`.
+- **Un agente sin portar sigue funcionando.** Si no hay `last_payload`, el
+  manager respeta su `last_result`. Por eso las guardas de paridad de las reglas
+  de comparación siguen vigentes: AXI y cualquier copia sin portar todavía
+  comparan por su cuenta y necesitan las reglas correctas. Se podrán retirar
+  cuando las tres copias publiquen materia prima.
+- El criterio vive en `live_audit_analysis.py` y no en `manager.py` también por
+  una razón práctica: `manager.py` importa `cryptography` para las credenciales
+  y en este workspace no está instalado, así que nada que se importe desde ahí
+  es testeable. El handler es una envoltura de cinco líneas.
+- Si el análisis falla, el resultado es `None` y se publica `analysis_error`. La
+  página lo dice en vez de «todavía no hay una auditoría terminada», que sería
+  falso cuando el nodo sí ejecutó.

@@ -1385,6 +1385,38 @@ class LiveAuditController:
             raise RuntimeError("No se confirmó la cuenta tester en todo el pool: " + " | ".join(failures))
         return rows
 
+    @staticmethod
+    def _openings_without_closure(
+        market_deals: list[Any], unclosed_positions: set[int],
+    ) -> list[dict[str, Any]]:
+        """Aperturas del periodo cuya posición seguía abierta al terminarlo.
+
+        Se queda con la primera apertura de cada posición: un llenado parcial
+        produce varias y la operación es una sola.
+        """
+        pending = set(unclosed_positions)
+        openings: list[dict[str, Any]] = []
+        for deal in sorted(
+            market_deals,
+            key=lambda item: (int(getattr(item, "time_msc", 0)), int(getattr(item, "ticket", 0))),
+        ):
+            position_id = int(getattr(deal, "position_id", 0) or 0)
+            if position_id not in pending or int(getattr(deal, "entry", -1)) not in {0, 2}:
+                continue
+            pending.discard(position_id)
+            openings.append({
+                "strategy": str(
+                    getattr(deal, "magic", 0) or getattr(deal, "comment", "") or position_id
+                ),
+                "symbol": str(getattr(deal, "symbol", "") or ""),
+                "side": "buy" if int(getattr(deal, "type", 0)) == 0 else "sell",
+                "open_time": datetime.fromtimestamp(int(getattr(deal, "time", 0)), timezone.utc),
+                "open_price": float(getattr(deal, "price", 0.0) or 0.0),
+                "volume": float(getattr(deal, "volume", 0.0) or 0.0),
+                "position_id": position_id,
+            })
+        return openings
+
     def _extract_real(
         self, request: dict[str, Any], period_start: datetime, period_end: datetime,
         native_report_path: Path | None = None,
@@ -1423,29 +1455,7 @@ class LiveAuditController:
             # reales —no hay cierre que comparar— pero existen, y la comparación
             # necesita poder decirlo en vez de afirmar que no hay ninguna real.
             unclosed_positions = opening_positions - closing_positions
-            pending_positions = set(unclosed_positions)
-            open_at_period_end: list[dict[str, Any]] = []
-            for deal in sorted(
-                market_deals,
-                key=lambda item: (int(getattr(item, "time_msc", 0)), int(getattr(item, "ticket", 0))),
-            ):
-                position_id = int(getattr(deal, "position_id", 0) or 0)
-                if position_id not in pending_positions:
-                    continue
-                if int(getattr(deal, "entry", -1)) not in {0, 2}:
-                    continue
-                pending_positions.discard(position_id)
-                open_at_period_end.append({
-                    "strategy": str(
-                        getattr(deal, "magic", 0) or getattr(deal, "comment", "") or position_id
-                    ),
-                    "symbol": str(getattr(deal, "symbol", "") or ""),
-                    "side": "buy" if int(getattr(deal, "type", 0)) == 0 else "sell",
-                    "open_time": datetime.fromtimestamp(int(getattr(deal, "time", 0)), timezone.utc),
-                    "open_price": float(getattr(deal, "price", 0.0) or 0.0),
-                    "volume": float(getattr(deal, "volume", 0.0) or 0.0),
-                    "position_id": position_id,
-                })
+            open_at_period_end = self._openings_without_closure(market_deals, unclosed_positions)
             all_deals = list(period_deals)
             recovered_positions = 0
             unresolved_positions: list[int] = []

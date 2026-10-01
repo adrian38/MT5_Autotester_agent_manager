@@ -127,6 +127,14 @@ class LiveAuditAnalysisTests(unittest.TestCase):
         self.assertEqual(configured, {("eurusd", 0.04)})
         self.assertEqual(fallback, {("eurusd", 0.08)})
 
+    def test_a_saved_lot_below_the_broker_minimum_uses_the_effective_one(self) -> None:
+        # Portafolios ICTrading guardados antes de que la construcción consumiese
+        # `volume_min`: 0,03 con tres unidades y mínimo 0,1 se ejecuta a 0,1, no
+        # a 0,3. Las unidades son metadato de asignación, no multiplican.
+        members = [{"candidate_id": "de40", "symbol": "DE40", "lot": 0.03, "units": 3}]
+        signatures = portfolio_signatures(members, {"de40": (0.1, 0.1)}, {}, {})
+        self.assertEqual(signatures, {("de40", 0.1)})
+
     def test_the_broker_symbol_of_the_report_is_what_the_filter_matches(self) -> None:
         # El portafolio guarda `NAS100` y el broker ejecuta `NAS100.fs`.
         members = [{"candidate_id": "s1", "symbol": "NAS100", "lot": 0.01}]

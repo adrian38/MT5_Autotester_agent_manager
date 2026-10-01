@@ -49,6 +49,49 @@ class PayloadError(ValueError):
     """La materia prima del nodo no permite analizar la ejecución."""
 
 
+def _node_state(value: Any) -> dict[str, Any] | None:
+    """El estado del nodo, venga envuelto en `audit` o plano."""
+    if not isinstance(value, dict):
+        return None
+    nested = value.get("audit")
+    return nested if isinstance(nested, dict) else value
+
+
+def has_raw_material(value: Any) -> bool:
+    """¿Publicó este nodo materia prima analizable?
+
+    Un agente al que todavía no se le ha portado el reparto nuevo devuelve su
+    propio `last_result` y ningún `last_payload`. Distinguirlo aquí evita que el
+    manager pida credenciales y perfiles para nada.
+    """
+    state = _node_state(value)
+    payload = state.get("last_payload") if state else None
+    return isinstance(payload, dict) and bool(payload.get("audit_id"))
+
+
+def analyse_node_state(value: Any, profile: dict[str, Any]) -> Any:
+    """Sustituye la materia prima del estado del nodo por el veredicto.
+
+    La materia prima no viaja al navegador: son miles de operaciones y el único
+    consumidor es este análisis.
+    """
+    state = _node_state(value)
+    if state is None:
+        return value
+    payload = state.get("last_payload")
+    if not isinstance(payload, dict) or not payload.get("audit_id"):
+        return value
+    try:
+        state["last_result"] = analyze(payload, profile)
+    except (PayloadError, KeyError, TypeError, ValueError) as exc:
+        # Nunca inventar un veredicto a partir de materia prima que no se puede
+        # interpretar: se dice que el análisis falló y por qué.
+        state["last_result"] = None
+        state["analysis_error"] = str(exc)
+    state.pop("last_payload", None)
+    return value
+
+
 def _revive(trade: dict[str, Any] | None) -> dict[str, Any] | None:
     """Devuelve las marcas de tiempo a `datetime`; el transporte es JSON."""
     if not trade:

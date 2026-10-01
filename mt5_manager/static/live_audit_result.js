@@ -538,9 +538,15 @@ async function loadResult() {
     fetch(`/api/nodes/${encodedNode}/portfolios?scope=full_history`, {cache: 'no-store'}).then(jsonResponse),
     fetch(`/api/nodes/${encodedNode}/live-audits/${encodeURIComponent(auditId)}`, {cache: 'no-store'}).then(jsonResponse),
   ]);
-  const result = audit.audit?.last_result;
+  const state = audit.audit || {};
+  const result = state.last_result;
+  // El análisis lo hace el manager al leer. Si falla, hay que decirlo: un
+  // «todavía no hay auditoría» sería falso cuando el nodo sí ejecutó.
+  if (!result && state.analysis_error) {
+    throw new Error(`El manager no pudo analizar esta ejecución: ${state.analysis_error}`);
+  }
   if (!result) throw new Error('Esta configuración todavía no tiene una auditoría terminada.');
-  renderResult(result, config, portfolios, audit.audit || {});
+  renderResult(result, config, portfolios, state);
 }
 
 document.querySelectorAll('[data-status-filter]').forEach(button => button.addEventListener('click', () => {
