@@ -168,17 +168,13 @@ def _expected_real_volume(
 
 
 def _matching_open_position(
-    expected: dict[str, Any], still_open: list[dict[str, Any]], time_limit: float,
-) -> dict[str, Any] | None:
-    """Posición real abierta al terminar el periodo que explica un `missing`.
-
-    Una posición que sigue abierta no tiene cierre dentro del periodo, así que
-    no puede ser una operación real. Decir «no existe una real» por eso es
-    falso: existe, no ha terminado. Sin esta distinción el usuario encuentra el
-    ticket en MT5 en diez segundos y concluye que el auditor perdió datos.
-    """
-    best: tuple[float, dict[str, Any]] | None = None
-    for position in still_open:
+    expected: dict[str, Any], still_open: list[dict[str, Any]],
+    unused: set[int], time_limit: float,
+) -> tuple[int, dict[str, Any]] | None:
+    """Devuelve una posición real abierta alineada y su índice consumible."""
+    best: tuple[float, int, dict[str, Any]] | None = None
+    for index in unused:
+        position = still_open[index]
         if str(position.get("symbol") or "").casefold() != str(expected["symbol"]).casefold():
             continue
         if position.get("side") != expected["side"]:
@@ -190,8 +186,61 @@ def _matching_open_position(
         if delta > time_limit:
             continue
         if best is None or delta < best[0]:
-            best = (delta, {**position, "open_time_delta_seconds": round(delta, 3)})
-    return best[1] if best else None
+            best = (delta, index, {**position, "open_time_delta_seconds": round(delta, 3)})
+    return (best[1], best[2]) if best else None
+
+
+def _open_position_comparison(
+    expected: dict[str, Any], actual: dict[str, Any], tester_index: int,
+    open_index: int, point: float, request: dict[str, Any],
+    real_lots: dict[str, float], data_issues: list[str],
+) -> tuple[dict[str, Any], list[str]]:
+    """Valida lo observable sin inventar cierre ni PnL para una real abierta."""
+    strategy = str(expected["strategy"])
+    price_limit, price_limit_points, price_rule = _effective_price_tolerance(
+        str(actual.get("symbol") or expected["symbol"]), point,
+        request["price_tolerance_points"],
+    )
+    expected_volume, _tester_volume = _expected_real_volume(expected, real_lots)
+    volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
+    price_delta = abs(float(actual.get("open_price") or 0) - float(expected["open_price"]))
+    volume_delta = abs(float(actual.get("volume") or 0) - expected_volume)
+    open_delta = float(actual["open_time_delta_seconds"])
+    reasons: list[str] = []
+    epsilon = max(point * 1e-6, 1e-12)
+    if (
+        price_limit is not None and price_delta > price_limit
+        and not math.isclose(price_delta, price_limit, rel_tol=0.0, abs_tol=epsilon)
+    ):
+        reasons.append("open_price")
+    if volume_delta > volume_limit:
+        reasons.append("volume")
+    row_reasons = ["real_position_still_open_at_period_end", *reasons]
+    return ({
+        "tester_index": tester_index, "open_real_index": open_index + 1,
+        "status": "deviation" if reasons else "open", "strategy": strategy,
+        "tester": _trade_view(expected), "real": _trade_view(actual),
+        "nearest_unused_real": None, "real_position_still_open": _trade_view(actual),
+        "measurements": {
+            "open_time_delta_seconds": round(open_delta, 3),
+            "open_price_delta": round(price_delta, 10),
+            "open_price_delta_points": round(price_delta / point, 3) if point > 0 else None,
+            "volume_delta": round(volume_delta, 8),
+            "volume_delta_pct": round(volume_delta / max(abs(expected_volume), 1e-9) * 100, 3),
+        },
+        "limits": {
+            "open_time_seconds": request["trade_time_tolerance_seconds"],
+            "open_price_points": round(price_limit_points, 3) if price_limit_points is not None else None,
+            "open_price_absolute": round(price_limit, 10) if price_limit is not None else None,
+            "open_price_configured_points": request["price_tolerance_points"],
+            "open_price_rule": price_rule,
+            "volume_pct": request["volume_tolerance_pct"],
+            "volume_absolute": round(volume_limit, 8),
+            "volume_expected_real": round(expected_volume, 8),
+            "volume_expected_source": "configured_real_lot" if strategy in real_lots else "tester_lot",
+        },
+        "data_issues": data_issues, "reasons": row_reasons,
+    }, reasons)
 
 
 def _effective_price_tolerance(
@@ -2008,11 +2057,13 @@ class LiveAuditController:
     ) -> dict[str, Any]:
         unused = set(range(len(real)))
         matched = 0
+        open_real = 0
         within_tolerance = 0
         deviations = 0
         matched_by_strategy: dict[str, int] = {}
         within_tolerance_by_strategy: dict[str, int] = {}
         deviating_by_strategy: dict[str, int] = {}
+        open_real_by_strategy: dict[str, int] = {}
         missing_by_strategy: dict[str, int] = {}
         deviation_reasons = {"close_time": 0, "open_price": 0, "volume": 0, "pnl": 0, "drawdown": 0}
         tester_data_issues: dict[str, int] = {}
@@ -2020,6 +2071,7 @@ class LiveAuditController:
         time_limit = request["trade_time_tolerance_seconds"]
         real_lots = request.get("real_strategy_lots") or {}
         still_open = list(request.get("real_positions_open_at_period_end") or [])
+        unused_open = set(range(len(still_open)))
         for tester_index, expected in enumerate(tester, 1):
             strategy = str(expected["strategy"])
             data_issues: list[str] = []
@@ -2037,16 +2089,35 @@ class LiveAuditController:
                 if delta <= time_limit:
                     candidates.append((delta, index))
             if not candidates:
-                missing_by_strategy[strategy] = missing_by_strategy.get(strategy, 0) + 1
                 nearest = min(same_market) if same_market else None
                 nearest_trade = real[nearest[1]] if nearest else None
-                open_position = _matching_open_position(expected, still_open, time_limit)
-                if open_position is not None:
-                    reason = "real_position_still_open_at_period_end"
-                elif nearest:
-                    reason = "open_time_outside_tolerance"
-                else:
-                    reason = "no_real_same_symbol_and_side"
+                open_match = _matching_open_position(
+                    expected, still_open, unused_open, time_limit,
+                )
+                if open_match is not None:
+                    open_index, open_position = open_match
+                    unused_open.remove(open_index)
+                    matched += 1
+                    open_real += 1
+                    matched_by_strategy[strategy] = matched_by_strategy.get(strategy, 0) + 1
+                    open_real_by_strategy[strategy] = open_real_by_strategy.get(strategy, 0) + 1
+                    row, reasons = _open_position_comparison(
+                        expected, open_position, tester_index, open_index,
+                        points.get(str(open_position.get("symbol") or expected["symbol"]), 0.0),
+                        request, real_lots, data_issues,
+                    )
+                    if reasons:
+                        deviations += 1
+                        deviating_by_strategy[strategy] = deviating_by_strategy.get(strategy, 0) + 1
+                        for reason in reasons:
+                            deviation_reasons[reason] += 1
+                    operation_comparisons.append(row)
+                    continue
+                missing_by_strategy[strategy] = missing_by_strategy.get(strategy, 0) + 1
+                reason = (
+                    "open_time_outside_tolerance" if nearest
+                    else "no_real_same_symbol_and_side"
+                )
                 operation_comparisons.append({
                     "tester_index": tester_index,
                     "status": "missing",
@@ -2054,12 +2125,9 @@ class LiveAuditController:
                     "tester": _trade_view(expected),
                     "real": None,
                     "nearest_unused_real": _trade_view(nearest_trade),
-                    "real_position_still_open": _trade_view(open_position),
+                    "real_position_still_open": None,
                     "measurements": {
                         "nearest_open_time_delta_seconds": round(nearest[0], 3) if nearest else None,
-                        "open_position_delta_seconds": (
-                            open_position.get("open_time_delta_seconds") if open_position else None
-                        ),
                     },
                     "limits": {"open_time_seconds": time_limit},
                     "data_issues": data_issues,
@@ -2186,11 +2254,13 @@ class LiveAuditController:
                 "tester_trades": int(strategies.get(strategy) or 0),
                 "aligned": matched_by_strategy.get(strategy, 0),
                 "within_tolerance": within_tolerance_by_strategy.get(strategy, 0),
+                "open_real": open_real_by_strategy.get(strategy, 0),
                 "with_deviations": deviating_by_strategy.get(strategy, 0),
                 "missing_real": missing_by_strategy.get(strategy, 0),
             })
         return {
-            "matched_trades": matched, "within_tolerance_trades": within_tolerance,
+            "matched_trades": matched, "open_real_trades": open_real,
+            "within_tolerance_trades": within_tolerance,
             "missing_real_trades": missing, "extra_real_trades": extra,
             "deviating_pairs": sum(deviating_by_strategy.values()),
             "deviating_trades": deviations, "discrepancies": missing + extra + deviations,
@@ -2199,6 +2269,7 @@ class LiveAuditController:
             "comparison_detail": {
                 "matched_by_strategy": matched_by_strategy,
                 "within_tolerance_by_strategy": within_tolerance_by_strategy,
+                "open_real_by_strategy": open_real_by_strategy,
                 "deviating_by_strategy": deviating_by_strategy,
                 "missing_by_strategy": missing_by_strategy,
                 "unmatched_real": unmatched_real,
@@ -2206,8 +2277,8 @@ class LiveAuditController:
                 "tester_data_issues": tester_data_issues,
                 "time_tolerance_seconds": time_limit,
                 "methodology": {
-                    "alignment": "Mismo símbolo y lado; apertura dentro de tolerancia; se elige el menor delta y cada real se usa una vez.",
-                    "validation": "Después se validan cierre, precio de apertura y volumen. El volumen se compara contra el lote real configurado para la estrategia, no contra el del tester, y el PnL del tester se escala por ese mismo ratio antes de medir el deterioro. El PnL solo alerta si el resultado real empeora; una mejora es admisible. El drawdown se valida sobre el conjunto.",
+                    "alignment": "Mismo símbolo y lado; apertura dentro de tolerancia; se elige el menor delta y cada real se usa una vez, sea un cierre o una posición todavía abierta.",
+                    "validation": "En parejas cerradas se validan cierre, precio de apertura, volumen y PnL. Una posición real todavía abierta se considera alineada y valida solo apertura, precio y volumen: no se inventan cierre ni PnL. El volumen se compara contra el lote real configurado para la estrategia y el PnL del tester se escala por ese mismo ratio. El drawdown se valida sobre el conjunto.",
                     "tolerances": {
                         "time_seconds": time_limit,
                         "price_points": request["price_tolerance_points"],

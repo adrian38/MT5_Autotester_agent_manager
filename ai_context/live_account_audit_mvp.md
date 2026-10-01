@@ -816,6 +816,29 @@ Este arreglo necesita dos piezas al portarlo al agente: el lector compartido
 `manager_node_runtime/live_audit.py`. Cambiar solo el motor de referencia del
 manager no altera la auditoría que ejecuta el nodo broker.
 
+## Una posición real abierta no es una operación ausente (2026-10-01)
+
+Las filas AMZN y WFC de `auditor_01.10.2026_v2.xlsx` mostraban `SIN REAL` aunque
+el HTML real contenía los tickets 760842306 y 759105632. Ambos se habían abierto
+dentro de la tolerancia y seguían abiertos al final del periodo; el tester los
+cerró artificialmente al terminar su rango. El manager ya encontraba esas
+posiciones, pero las dejaba dentro del contador `missing_real_trades`.
+
+El contrato distingue ahora cuatro estados por operación: cerrada correcta,
+real abierta, desviación y sin real. Una posición abierta alineada:
+
+- incrementa `matched_trades` y `open_real_trades`, nunca
+  `missing_real_trades`;
+- se consume una sola vez, igual que un cierre real;
+- valida apertura, precio y volumen contra el lote real configurado;
+- no inventa cierre ni PnL: ambos quedan explícitamente pendientes;
+- puede ser desviación si el precio o el volumen observable incumplen su límite.
+
+La página la rotula `REAL ABIERTA`, ofrece filtro propio y no la incluye en
+`Problemas` mientras los límites observables se cumplan. El nodo RoboForex ya
+publica `open_positions_at_period_end`; por tanto, este cambio vive en el
+manager y puede reanalizar la materia prima guardada sin repetir Strategy Tester.
+
 ## `initialize()` autoriza el login antes de que el terminal cambie de cuenta (2026-10-01)
 
 La auditoría `20261001_005310_756706` (RoboForex, uso `audit-148-muon8rbd-1`,

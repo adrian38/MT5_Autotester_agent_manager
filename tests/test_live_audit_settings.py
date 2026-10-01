@@ -617,13 +617,17 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
 
     def test_result_leads_with_mutually_exclusive_outcomes_and_hides_technical_noise(self) -> None:
         for text in (
-            "1 · VEREDICTO", "Pertenencia al modo", "Cumplen todo",
+            "1 · VEREDICTO", "Pertenencia al modo", "Cerradas correctas / reales abiertas",
             "Parejas con desviación", "Sin pareja", "Dónde está el problema",
             "Ver metodología, cuentas, origen MT5, lotes y reportes",
         ):
             self.assertIn(text, self.result_page_text + self.result_script)
         self.assertIn("let activeFilter = 'all'", self.result_script)
         self.assertIn("activeFilter === 'issues'", self.result_script)
+        self.assertIn("['deviation', 'missing', 'invalid'].includes", self.result_script)
+        self.assertIn("REAL ABIERTA", self.result_page_text + self.result_script)
+        self.assertTrue(self.result_page.xpath('//button[@data-status-filter="open"]'))
+        self.assertIn("Pendiente hasta el cierre real", self.result_script)
         self.assertIn("Este no es el resultado de la última ejecución", self.result_script)
         self.assertIn('id="stale-result-warning"', self.result_page_text)
         self.assertIn("33 de 33", self.result_script.replace("${portfolioClosures}", "33").replace("${real}", "33"))

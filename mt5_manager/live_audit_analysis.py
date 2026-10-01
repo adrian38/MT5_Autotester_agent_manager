@@ -271,6 +271,7 @@ def analyze(payload: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         result["summary"] = (
             f"{comparison['matched_trades']} parejas alineadas, "
             f"{comparison['within_tolerance_trades']} dentro de todas las tolerancias y "
+            f"{comparison.get('open_real_trades', 0)} posición(es) real(es) aún abierta(s); "
             f"{comparison['discrepancies']} discrepancias; "
             f"{comparison['stalled_strategies']} estrategia(s) sin continuidad"
             + (f"; {invalid_tester} operación(es) tester con tiempos inválidos." if invalid_tester else ".")

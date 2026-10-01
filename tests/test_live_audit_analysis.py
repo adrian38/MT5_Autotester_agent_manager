@@ -72,6 +72,31 @@ class LiveAuditAnalysisTests(unittest.TestCase):
         self.assertEqual(row["limits"]["volume_expected_real"], 0.04)
         self.assertEqual(row["measurements"]["pnl_scale"], 0.5)
 
+    def test_an_open_real_ticket_is_aligned_instead_of_counted_as_missing(self) -> None:
+        base = payload()
+        tester = dict(base["tester_trades"][0])
+        open_position = {
+            "strategy": tester["strategy"], "symbol": tester["symbol"],
+            "side": tester["side"], "open_time": tester["open_time"],
+            "open_price": tester["open_price"], "volume": 0.04,
+            "position_id": 760842306,
+        }
+        result = analyze(
+            payload(real_trades=[], open_positions_at_period_end=[open_position]),
+            profile(
+                real_strategy_lots={tester["strategy"]: 0.04},
+                drawdown_deviation_warning_pct=1000.0,
+            ),
+        )
+
+        row = result["comparison_detail"]["operation_comparisons"][0]
+        self.assertEqual(row["status"], "open")
+        self.assertEqual(row["real"]["position_id"], 760842306)
+        self.assertEqual(result["matched_trades"], 1)
+        self.assertEqual(result["open_real_trades"], 1)
+        self.assertEqual(result["missing_real_trades"], 0)
+        self.assertIn("1 posición(es) real(es) aún abierta(s)", result["summary"])
+
     def test_the_period_comes_from_the_execution_and_not_from_the_profile(self) -> None:
         # El periodo decide qué ejecutó el Strategy Tester. Dejar que lo
         # reescribiese la configuración actual produciría un resultado que dice

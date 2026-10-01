@@ -456,7 +456,8 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertEqual(result["comparison_detail"]["tester_data_issues"], {"close_before_open": 1})
         self.assertEqual(result["comparison_detail"]["strategy_summary"][0], {
             "strategy": "one", "tester_trades": 1, "aligned": 1,
-            "within_tolerance": 0, "with_deviations": 1, "missing_real": 0,
+            "within_tolerance": 0, "open_real": 0,
+            "with_deviations": 1, "missing_real": 0,
         })
         self.assertIn("cada real se usa una vez", result["comparison_detail"]["methodology"]["alignment"])
 
@@ -528,8 +529,8 @@ class LiveAuditEngineTests(unittest.TestCase):
 
     def test_a_real_position_still_open_is_not_reported_as_a_missing_real(self) -> None:
         # Filas 6 y 26 de la hoja: los tickets 760842306 y 759105632 existían, se
-        # abrieron dentro del periodo y cerraron el 28/09, fuera de él. El
-        # veredicto SIN REAL es correcto; decir que no existe ninguna real no.
+        # abrieron dentro del periodo y cerraron el 28/09, fuera de él. La real
+        # existe: debe quedar alineada como abierta, no como `SIN REAL`.
         opened = datetime(2026, 9, 24, 16, 59, 42, tzinfo=timezone.utc)
         tester = [{
             "strategy": "ROBOFOREX/ECN:16268", "symbol": "AMZN", "side": "sell",
@@ -537,19 +538,49 @@ class LiveAuditEngineTests(unittest.TestCase):
             "close_time": datetime(2026, 9, 25, 23, 55, tzinfo=timezone.utc),
             "open_price": 245.62, "volume": 0.05, "profit": -18.44,
         }]
-        order = {**request(), "real_positions_open_at_period_end": [{
+        order = {**request(), "drawdown_deviation_warning_pct": 1000.0,
+                 "real_strategy_lots": {"ROBOFOREX/ECN:16268": 0.02},
+                 "real_positions_open_at_period_end": [{
             "strategy": "ROBOFOREX/ECN:16268", "symbol": "AMZN", "side": "sell",
             "open_time": opened, "open_price": 245.64, "volume": 0.02,
             "position_id": 760842306,
         }]}
-        row = LiveAuditController._compare(
+        result = LiveAuditController._compare(
             [], tester, {"AMZN": 0.01}, order, {"ROBOFOREX/ECN:16268": 1},
-        )["comparison_detail"]["operation_comparisons"][0]
+        )
+        row = result["comparison_detail"]["operation_comparisons"][0]
 
-        self.assertEqual(row["status"], "missing")
+        self.assertEqual(row["status"], "open")
         self.assertEqual(row["reasons"], ["real_position_still_open_at_period_end"])
+        self.assertEqual(row["real"]["position_id"], 760842306)
         self.assertEqual(row["real_position_still_open"]["position_id"], 760842306)
-        self.assertEqual(row["measurements"]["open_position_delta_seconds"], 1.0)
+        self.assertEqual(row["measurements"]["open_time_delta_seconds"], 1.0)
+        self.assertEqual(row["measurements"]["volume_delta"], 0.0)
+        self.assertEqual(result["matched_trades"], 1)
+        self.assertEqual(result["open_real_trades"], 1)
+        self.assertEqual(result["missing_real_trades"], 0)
+        self.assertEqual(result["discrepancies"], 0)
+
+    def test_an_open_real_position_can_only_align_one_tester_operation(self) -> None:
+        now = datetime(2026, 9, 24, 16, 59, 42, tzinfo=timezone.utc)
+        trade = {
+            "strategy": "s1", "symbol": "AMZN", "side": "sell",
+            "open_time": now, "close_time": now + timedelta(days=1),
+            "open_price": 245.62, "volume": 0.02, "profit": -7.0,
+        }
+        order = {**request(), "real_positions_open_at_period_end": [{
+            **trade, "close_time": None, "profit": None, "position_id": 760842306,
+        }]}
+        result = LiveAuditController._compare(
+            [], [trade, dict(trade)], {"AMZN": 0.01}, order, {"s1": 2},
+        )
+
+        statuses = [
+            row["status"] for row in result["comparison_detail"]["operation_comparisons"]
+        ]
+        self.assertEqual(statuses, ["open", "missing"])
+        self.assertEqual(result["open_real_trades"], 1)
+        self.assertEqual(result["missing_real_trades"], 1)
 
     def test_a_missing_real_without_an_open_position_keeps_its_old_reason(self) -> None:
         now = datetime(2026, 9, 24, 16, 59, 42, tzinfo=timezone.utc)
