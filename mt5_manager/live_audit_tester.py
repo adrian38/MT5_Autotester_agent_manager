@@ -89,12 +89,24 @@ class _TesterMixin:
 
     @staticmethod
     def _tester_wrapper(reports_dir: Path, configs_dir: Path, logs_dir: Path) -> str:
+        """Lanzador del runner con sus carpetas apuntando al area de la auditoria.
+
+        El runner esta partido en modulos y cada uno conserva su propia
+        referencia a REPORT_DIR/CONFIG_DIR/LOG_DIR, asi que reapuntar solo la
+        fachada `run_tests` dejaba los reportes y los INI del tester en las
+        carpetas del proyecto y la auditoria no encontraba ningun reporte.
+        """
         return (
-            "import sys,run_tests; from pathlib import Path; "
-            f"run_tests.REPORT_DIR=Path({str(reports_dir)!r}); "
-            f"run_tests.CONFIG_DIR=Path({str(configs_dir)!r}); "
-            f"run_tests.LOG_DIR=Path({str(logs_dir)!r}); "
-            "sys.argv=['run_tests.py']+sys.argv[1:]; raise SystemExit(run_tests.main())"
+            "import sys, run_tests; from pathlib import Path; "
+            f"_dirs = (('REPORT_DIR', Path({str(reports_dir)!r})), "
+            f"('CONFIG_DIR', Path({str(configs_dir)!r})), "
+            f"('LOG_DIR', Path({str(logs_dir)!r}))); "
+            "[setattr(module, name, value) "
+            "for key, module in list(sys.modules.items()) "
+            "if key == 'run_tests' or key.startswith('run_tests_') "
+            "for name, value in _dirs if hasattr(module, name)]; "
+            "sys.argv = ['run_tests.py'] + sys.argv[1:]; "
+            "raise SystemExit(run_tests.main())"
         )
 
     def _prepare_tester_terminals(

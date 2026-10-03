@@ -100,6 +100,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   la memoria y los números concretos que se usaron.
 - `invalid_stops_agent_results.md`: `no_trades` con stops inválidos en el run 445
   de ICTrading (2026-09-06).
+- `live_audit_runner_dirs_after_split.md`: «MT5 no generó el reporte de…» con el
+  tester en verde, porque partir `run_tests.py` dejó al lanzador parcheando sólo
+  la fachada.
 
 ## Manager: interfaz y operación
 
