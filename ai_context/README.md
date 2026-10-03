@@ -30,6 +30,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   que la reparación termine; qué garantiza esa respuesta y qué no.
 - `symbol_sync_cards.md`: sincronización de símbolos desde las tarjetas de nodo,
   con su proxy HTTP y la conexión real.
+- `ubs_agent_cli_split_breaks_option_sniffing.md`: `ubs_agent.py` es una fachada
+  sin literales `--opción`, así que el nodo pedía la memoria UBS legacy; qué
+  criterio lo sustituye y qué sitio sigue roto por lo mismo.
 
 ## Portafolio UBS: núcleo compartido y ámbitos
 

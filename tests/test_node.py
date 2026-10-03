@@ -542,6 +542,17 @@ class NodeTests(unittest.TestCase):
         self.assertNotIn("--generation-mode", command)
         self.assertEqual(command[command.index("--memory") + 1], str(legacy))
 
+    def test_split_agent_facade_uses_the_scoped_memory(self) -> None:
+        (self.root / "ubs_agent.py").write_text(
+            "from ubs_agent_cli import main\n",
+            encoding="utf-8",
+        )
+        scoped = self.root / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite"
+
+        command, _ = build_generation_command(self.config, {"execute_backtests": False})
+
+        self.assertEqual(command[command.index("--memory") + 1], str(scoped))
+
 
 if __name__ == "__main__":
     unittest.main()

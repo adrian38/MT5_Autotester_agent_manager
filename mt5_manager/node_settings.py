@@ -215,7 +215,9 @@ def memory_path(config: dict[str, Any], parser: configparser.ConfigParser) -> Pa
     legacy = project / "outputs" / "ubs_memory.sqlite"
     script = project / "ubs_agent.py"
     try:
-        supports_broker = '"--broker"' in script.read_text(encoding="utf-8", errors="ignore")
+        source = script.read_text(encoding="utf-8", errors="ignore")
+        supported = set(re.findall(r"[\"'](--[a-z0-9-]+)[\"']", source, flags=re.IGNORECASE))
+        supports_broker = "--generations" not in supported or "--broker" in supported
     except OSError:
         supports_broker = True
     return scoped if supports_broker else legacy
