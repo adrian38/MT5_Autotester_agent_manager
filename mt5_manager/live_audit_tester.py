@@ -17,7 +17,10 @@ class _TesterMixin:
                 member, volume_rules,
             )
             text = self._set_value(text, "StartLots", f"{tester_lot:.8f}".rstrip("0").rstrip("."))
-            target = sets_dir / f"audit_{index:03d}_{source.name}"
+            work = sets_dir.parent
+            target = sets_dir / audit_set_name(
+                index, source.name, sets_dir, work / "reports", work / "configs"
+            )
             target.write_text(text, encoding=set_encoding, newline="\n")
             runtime_text, _runtime_encoding = _read_set_text(target)
             runtime_lot_text = self._set_parameter(runtime_text, "StartLots")

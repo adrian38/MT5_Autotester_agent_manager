@@ -60,6 +60,44 @@ partido igual que el de verdad, ejecutan el lanzador y exigen que los ocho
 nombres apunten al área de trabajo. Con el lanzador antiguo, cinco de los ocho
 se quedan en las carpetas del proyecto.
 
+## Segunda mitad: MT5 trunca a 259 caracteres
+
+Arreglar lo anterior destapó lo siguiente, en la auditoría del 2026-10-04
+00:16. Doce sets terminaron bien; cuatro —y exactamente los cuatro con nombre
+de 64 hexadecimales— fallaron con
+
+```
+Strategy Tester terminó con código 1: ERROR: MT5 Model=4 volvio a bloquearse
+tras el reintento automatico.
+```
+
+El journal del terminal dice la verdad:
+
+```
+cannot load config "...\configs\audit_013_AUDJPY_H1_6ed04acc...1c6093268b9c1e22cb8" at start
+```
+
+Ese texto mide **259 caracteres** exactos y al `.ini` le faltan los seis
+últimos (`80.ini`, 265 en total). MT5 trunca cualquier ruta en `MAX_PATH`,
+arranca sin configuración y se queda parado; el watchdog ve el journal sin
+volcar y los `.tkc` sin crecer, lo mata a los 70 s, reintenta, vuelve a pasar y
+devuelve 1. Nada de esto menciona la ruta: el síntoma visible es «0 barras /
+0 ticks» y «volvió a bloquearse».
+
+Mover los `.ini` del proyecto (prefijo de 84 caracteres) al área de trabajo de
+la auditoría (177) es lo que empujó esos cuatro por encima del límite.
+
+**Python no tiene el problema**: escribió sin quejarse los
+`audit_013_...watchdog_attempt_2.mt5log.txt` de 268 caracteres en esa misma
+carpeta. El límite lo pone el terminal, no el sistema de ficheros, así que no
+sirve de nada comprobarlo desde Python.
+
+`audit_set_name` calcula el presupuesto con las carpetas reales de la
+auditoría y recorta el nombre del set para que la ruta más larga que MT5 puede
+llegar a ver quepa en 259, reservando 32 caracteres para el sufijo más largo
+(`.watchdog_attempt_N.mt5log.txt`). El prefijo `audit_NNN_` sigue garantizando
+unicidad y el nombre original se conserva en la ficha del set (`source_set`).
+
 ## Lo que queda por hacer a mano
 
 Los `.ini` con la contraseña y los reportes de las auditorías ya corridas
