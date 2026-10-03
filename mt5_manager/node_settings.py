@@ -203,6 +203,23 @@ def _load_universe_rows(config: dict[str, Any]) -> tuple[list[dict[str, Any]], s
     rows.sort(key=lambda item: (str(item["group"]).casefold(), str(item["symbol"]).casefold()))
     return rows, disabled, seed_enabled
 
+def declared_cli_options(script: Path) -> set[str] | None:
+    """Opciones que `ubs_agent.py` declara, o None cuando no declara ninguna.
+
+    None significa «no se puede saber», nunca «no soporta nada»: desde que el
+    parser vive en `ubs_agent_cli.py` la fachada no contiene ni un literal
+    `--opcion`, y exigirle uno daba por no soportada hasta la memoria por
+    broker. El centinela es `--generations`, que declara toda rama con parser
+    propio. Detalle en
+    `ai_context/ubs_agent_cli_split_breaks_option_sniffing.md`.
+    """
+    try:
+        source = script.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    options = set(re.findall(r"[\"'](--[a-z0-9-]+)[\"']", source, flags=re.IGNORECASE))
+    return options if "--generations" in options else None
+
 def memory_path(config: dict[str, Any], parser: configparser.ConfigParser) -> Path:
     project = Path(str(config["project_dir"])).expanduser().resolve()
     explicit = str(config.get("memory_path") or "").strip()
@@ -213,14 +230,8 @@ def memory_path(config: dict[str, Any], parser: configparser.ConfigParser) -> Pa
     account = str(config.get("account_type") or setting(parser, "General", "ubs_account_type", "ECN")).upper()
     scoped = project / "outputs" / f"ubs_memory_{broker}_{account}.sqlite"
     legacy = project / "outputs" / "ubs_memory.sqlite"
-    script = project / "ubs_agent.py"
-    try:
-        source = script.read_text(encoding="utf-8", errors="ignore")
-        supported = set(re.findall(r"[\"'](--[a-z0-9-]+)[\"']", source, flags=re.IGNORECASE))
-        supports_broker = "--generations" not in supported or "--broker" in supported
-    except OSError:
-        supports_broker = True
-    return scoped if supports_broker else legacy
+    declared = declared_cli_options(project / "ubs_agent.py")
+    return scoped if declared is None or "--broker" in declared else legacy
 
 def _add(args: list[str], option: str, value: Any) -> None:
     # None es «sin valor», no el texto "None": `--random-seed None` mataba
@@ -233,13 +244,9 @@ def _add(args: list[str], option: str, value: Any) -> None:
 
 def filter_supported_options(command: list[str], script: Path) -> list[str]:
     """Remove manager options that an older broker branch does not expose."""
-    try:
-        source = script.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return command
-    supported = set(re.findall(r"[\"'](--[a-z0-9-]+)[\"']", source, flags=re.IGNORECASE))
+    supported = declared_cli_options(script)
     # A custom wrapper may not define argparse options in its own source.
-    if "--generations" not in supported:
+    if supported is None:
         return command
     prefix, options = command[:3], command[3:]
     filtered: list[str] = []

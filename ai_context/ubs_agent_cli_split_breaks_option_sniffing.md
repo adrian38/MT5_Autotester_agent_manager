@@ -29,11 +29,19 @@ devolvía la ruta legacy.
 
 `filter_supported_options` ya se protegía de eso: si no encuentra
 `--generations` da por hecho que es un envoltorio y no filtra nada.
-`memory_path` no tenía esa salida. Ahora usa el mismo criterio:
+`memory_path` no tenía esa salida.
 
-```python
-supports_broker = "--generations" not in supported or "--broker" in supported
-```
+El criterio vive ahora en un único sitio, `node_settings.declared_cli_options`,
+que devuelve **`None` cuando el fichero no declara ninguna opción**: no es «no
+soporta nada», es «no se puede saber». El centinela sigue siendo
+`--generations`, que declara toda rama con parser propio. Cada consumidor
+decide qué hace con el `None`:
+
+| Consumidor | Con `None` |
+| --- | --- |
+| `memory_path` | memoria por broker y cuenta |
+| `filter_supported_options` | no filtra ninguna opción |
+| `universe_service.build_history_command` (sólo en el runtime) | no exige `--probe-universe-history` |
 
 Una rama vieja de verdad sí declara `--generations` sin `--broker`, así que
 sigue cayendo en la legacy; una fachada sin literales se trata como agente
@@ -47,11 +55,18 @@ moderno.
   diff y reventaba con `NameError` en la primera llamada. `python -m
   tools.undefined_names <módulo>` lo caza; `import` del módulo, no.
 
-## Sigue roto por la misma causa (no tocado aquí)
+## Segundo sitio, arreglado después
 
-`manager_node_runtime/universe_service.build_history_command` exige el literal
-`"--probe-universe-history"` dentro de `ubs_agent.py` y, si no lo encuentra,
-corta con «El agente no soporta --probe-universe-history». En IC ese literal
-está en `ubs_agent_cli.py`, así que el sondeo de historial del universo está
-inalcanzable desde el nodo. Mismo arreglo pendiente: no exigir el literal
-cuando el fichero no declara ninguna opción.
+`manager_node_runtime/universe_service.build_history_command` exigía el literal
+`"--probe-universe-history"` dentro de `ubs_agent.py` y, al no encontrarlo,
+cortaba con «El agente no soporta --probe-universe-history»: el sondeo de
+historial del universo quedó inalcanzable desde el nodo el mismo día que se
+dividió el CLI. Ahora pasa por `declared_cli_options` como los otros dos.
+
+Ese gate **no existe en el manager**: el universo lo resuelve el nodo, así que
+`universe_service.py` sólo vive en `manager_node_runtime/`. Lo que sí está en
+las dos copias es el helper.
+
+Si aparece un cuarto sitio, el síntoma siempre es el mismo: una capacidad que
+el agente sí tiene se da por ausente. Buscar `ubs_agent.py` en el runtime antes
+de depurar el agente.
