@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .live_audit_core import *  # noqa: F403
+from .live_audit_sets import resolve_portfolio_set
 
 
 class _ExtractionMixin:
@@ -368,16 +369,4 @@ class _ExtractionMixin:
 
     def _resolve_set(self, raw: str) -> Path:
         project = Path(str(self.owner.config["project_dir"])).expanduser().resolve()
-        path = Path(raw)
-        if path.is_file():
-            return path
-        normalized = raw.replace("\\", "/")
-        for prefix in ("/data/ic/", "/data/axi/", "/data/roboforex/"):
-            if normalized.casefold().startswith(prefix):
-                candidate = project / normalized[len(prefix):]
-                if candidate.is_file():
-                    return candidate
-        matches = list(project.rglob(path.name)) if path.name else []
-        if len(matches) == 1:
-            return matches[0]
-        raise FileNotFoundError(f"No se encontró el set del portafolio: {path.name or raw}")
+        return resolve_portfolio_set(project, raw)

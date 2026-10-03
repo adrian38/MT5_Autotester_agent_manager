@@ -839,6 +839,25 @@ La página la rotula `REAL ABIERTA`, ofrece filtro propio y no la incluye en
 publica `open_positions_at_period_end`; por tanto, este cambio vive en el
 manager y puede reanalizar la materia prima guardada sin repetir Strategy Tester.
 
+## Un basename puede identificar varias copias idénticas del mismo set (2026-10-03)
+
+La auditoría AXI `20261003_130834_877490` del portafolio #106 falló después de
+extraer la cuenta real con «No se encontró el set del portafolio» para
+`ETHUSD.sa_H4_Client_sets_Nio_M30_Client_e333ccb6_g002_s004_v002.set`. El set
+no faltaba: el miembro guardado conservaba solo el basename y había dos copias,
+procedentes de `run_20260818_013024` y `run_20260818_023204`, con el mismo SHA-256
+`d5358ddf...e1515b`. `_resolve_set` exigía exactamente una coincidencia y
+presentaba cualquier duplicado como ausencia.
+
+El resolver acepta ahora varias coincidencias solo cuando sus bytes son
+idénticos y elige la primera ruta en orden estable. Si los contenidos difieren,
+falla con un error explícito de ambigüedad en vez de ejecutar una estrategia
+arbitraria. La regla está en `live_audit_sets.py`, consumida por la referencia
+del manager y, de forma imprescindible, por
+`F:\TRADING\MT5_Autotester_agent_AXI\manager_node_runtime\live_audit.py`, que es
+el proceso embebido que ejecuta la auditoría AXI. Hay pruebas tanto para el
+duplicado idéntico como para el conflicto real.
+
 ## `initialize()` autoriza el login antes de que el terminal cambie de cuenta (2026-10-01)
 
 La auditoría `20261001_005310_756706` (RoboForex, uso `audit-148-muon8rbd-1`,

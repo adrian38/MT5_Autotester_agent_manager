@@ -98,6 +98,39 @@ class LiveAuditExtractionTests(LiveAuditEngineTestCase):
         self.assertIn("StartLots=0.02||0.01||0.01||1||N", reread)
         self.assertEqual(LiveAuditController._set_parameter(reread, "EA_MagicNumber"), "1007")
 
+    def test_duplicate_identical_sets_are_resolved_deterministically(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = root / "run_001" / "strategy.set"
+            second = root / "run_002" / "strategy.set"
+            first.parent.mkdir()
+            second.parent.mkdir()
+            first.write_text("StartLots=0.01\n", encoding="utf-8")
+            second.write_text("StartLots=0.01\n", encoding="utf-8")
+            owner = FakeOwner("idle")
+            owner.config["project_dir"] = str(root)
+            controller = LiveAuditController(owner, root / "runtime")
+
+            resolved = controller._resolve_set("strategy.set")
+
+        self.assertEqual(resolved, first)
+
+    def test_duplicate_different_sets_are_rejected_as_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = root / "run_001" / "strategy.set"
+            second = root / "run_002" / "strategy.set"
+            first.parent.mkdir()
+            second.parent.mkdir()
+            first.write_text("StartLots=0.01\n", encoding="utf-8")
+            second.write_text("StartLots=0.02\n", encoding="utf-8")
+            owner = FakeOwner("idle")
+            owner.config["project_dir"] = str(root)
+            controller = LiveAuditController(owner, root / "runtime")
+
+            with self.assertRaisesRegex(FileNotFoundError, "varios sets distintos"):
+                controller._resolve_set("strategy.set")
+
     def test_saved_ustec_lot_is_raised_to_the_broker_minimum_for_the_tester(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
