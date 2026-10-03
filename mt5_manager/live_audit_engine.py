@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import load_json, save_json, utc_now
+from .live_audit_sets import resolve_portfolio_set
 from .mt5_native_history_report import NativeHistoryReportError, export_native_history_report
 
 
@@ -1799,19 +1800,7 @@ class LiveAuditController:
 
     def _resolve_set(self, raw: str) -> Path:
         project = Path(str(self.owner.config["project_dir"])).expanduser().resolve()
-        path = Path(raw)
-        if path.is_file():
-            return path
-        normalized = raw.replace("\\", "/")
-        for prefix in ("/data/ic/", "/data/axi/", "/data/roboforex/"):
-            if normalized.casefold().startswith(prefix):
-                candidate = project / normalized[len(prefix):]
-                if candidate.is_file():
-                    return candidate
-        matches = list(project.rglob(path.name)) if path.name else []
-        if len(matches) == 1:
-            return matches[0]
-        raise FileNotFoundError(f"No se encontró el set del portafolio: {path.name or raw}")
+        return resolve_portfolio_set(project, raw)
 
     def _run_tester(
         self, request: dict[str, Any], audit_id: str, period_start: datetime, period_end: datetime
