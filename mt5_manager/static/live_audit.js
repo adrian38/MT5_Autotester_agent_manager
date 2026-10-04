@@ -187,9 +187,18 @@ async function ensureSelectionDetails() {
   renderProfiles();
 }
 
+// Una cuenta guardada es un login en un servidor, así que el catálogo trae una
+// sola entrada por cuenta: la procedencia dice dónde se guardó y cuántos usos
+// más la comparten.
+function accountOriginLabel(account) {
+  const extra = Math.max(0, Number(account.uses || 1) - 1);
+  if (!extra) return account.origin;
+  return `${account.origin} · y ${extra} uso${extra === 1 ? '' : 's'} más`;
+}
+
 function savedAccountOptions(current = '', hasCurrent = false) {
   const rows = savedAccounts.map(account => {
-    const label = `${account.login} · ${account.server} · ${account.origin}`;
+    const label = `${account.login} · ${account.server} · ${accountOriginLabel(account)}`;
     return `<option value="${escapeHtml(account.id)}"${current === account.id ? ' selected' : ''}>${escapeHtml(label)}</option>`;
   });
   const manualLabel = hasCurrent

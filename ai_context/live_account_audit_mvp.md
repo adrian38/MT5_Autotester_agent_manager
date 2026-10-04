@@ -474,11 +474,28 @@ internamente el token cifrado al nuevo uso. Las referencias no se persisten en
 el perfil ni llegan al agente. El payload operativo que recibe
 `manager_node_runtime/live_audit.py` no cambia.
 
-Cada lugar en el que se guardó una credencial aparece como opción independiente
-y con procedencia visible: cuenta real, cuenta de Strategy Tester y cuenta final.
-No se fusionan aunque login, servidor y secreto coincidan; el selector debe
-reflejar las tres entradas que el usuario guardó y permitir reutilizar cualquiera.
 El catálogo es por nodo: una referencia obtenida en otro nodo se rechaza.
+
+### Una entrada por cuenta, no por lugar donde se guardó (2026-10-05)
+
+La primera versión listaba cada lugar en el que se guardó una credencial como
+opción independiente, sin fusionar nunca. Con varios usos del mismo portafolio
+y de la misma cuenta el desplegable repetía el mismo login decenas de veces.
+
+**La identidad de una cuenta es `login` + `server`.** El rol (cuenta real,
+cuenta de Strategy Tester, cuenta final de los terminales) y el uso en que se
+guardó son procedencia, no identidad. `_account_catalog` fusiona por ese par
+—comparando el servidor sin distinguir mayúsculas— y publica:
+
+- el `id` y el token cifrado del **primer** candidato, que es el que se
+  reutiliza al referenciar la cuenta: no hay marca de tiempo por credencial, así
+  que no se puede elegir «la más reciente»;
+- la procedencia del primero, y `uses` con cuántos candidatos la comparten. El
+  selector la pinta como `… · y N usos más`.
+
+El mismo login en otro servidor sigue siendo otra cuenta. Lo comprueban
+`test_catalog_lists_each_login_and_server_once_whatever_the_role` y
+`test_catalog_merges_the_same_account_across_uses_but_not_across_servers`.
 
 Este comportamiento se ejecuta íntegramente en el proceso manager, dueño de
 `runtime/live_audit_settings.json` y de las credenciales cifradas. No requiere

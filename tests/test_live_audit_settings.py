@@ -227,7 +227,7 @@ class LiveAuditSettingsTests(unittest.TestCase):
         self.assertEqual(saved["profiles"]["portfolio-20"]["source_server"], "Broker-Final")
         self.assertEqual(credentials["source_password"], "final-secret")
 
-    def test_catalog_keeps_real_tester_and_final_entries_even_when_credentials_match(self) -> None:
+    def test_catalog_lists_each_login_and_server_once_whatever_the_role(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
             store.update("node-a", {
@@ -245,13 +245,63 @@ class LiveAuditSettingsTests(unittest.TestCase):
             })
             catalog = store.state("node-a")["saved_accounts"]
 
-        self.assertEqual(len(catalog), 3)
+        # 333 en Broker-Demo es la cuenta de pruebas y también la cuenta final:
+        # la misma cuenta, una sola entrada, con la procedencia de la primera.
         self.assertEqual(
             [account["id"] for account in catalog],
-            ["profile:portfolio-20:source", "profile:portfolio-20:tester", "restore:terminal"],
+            ["profile:portfolio-20:source", "profile:portfolio-20:tester"],
         )
-        self.assertEqual([account["login"] for account in catalog], ["111", "333", "333"])
+        self.assertEqual([account["login"] for account in catalog], ["111", "333"])
+        self.assertEqual([account["uses"] for account in catalog], [1, 2])
+        self.assertEqual(catalog[1]["origin"], "Portafolio #20 · cuenta de pruebas")
         self.assertNotIn("password", json.dumps(catalog))
+
+    def test_catalog_merges_the_same_account_across_uses_but_not_across_servers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
+            store.update("node-a", {
+                "selected_audit_ids": ["use-9", "use-16"],
+                "profiles": {
+                    "use-9": {
+                        **profile("111", "911"),
+                        "portfolio_id": 9,
+                        "portfolio_type": "balanced",
+                        "source_password": "real-secret",
+                        "tester_password": "tester-secret",
+                    },
+                    "use-16": {
+                        **profile("111", "911", source_server="broker-live"),
+                        "portfolio_id": 16,
+                        "portfolio_type": "conservative",
+                        "source_password": "real-secret",
+                        "tester_password": "tester-secret",
+                    },
+                },
+            })
+            catalog = store.state("node-a")["saved_accounts"]
+            same_server = store.update("node-a", {
+                "selected_audit_ids": ["use-40"],
+                "profiles": {
+                    "use-40": {
+                        **profile("111", "912", source_server="Broker-Live-2"),
+                        "portfolio_id": 40,
+                        "portfolio_type": "aggressive",
+                        "source_password": "other-secret",
+                        "tester_password": "other-tester-secret",
+                    },
+                },
+            })["saved_accounts"]
+
+        # El mismo login en el mismo servidor, aunque lo escribiera con otra caja.
+        self.assertEqual(
+            [(account["login"], account["server"], account["uses"]) for account in catalog],
+            [("111", "Broker-Live", 2), ("911", "Broker-Demo", 2)],
+        )
+        # Otro servidor es otra cuenta aunque el login coincida.
+        self.assertEqual(
+            [(account["login"], account["server"]) for account in same_server],
+            [("111", "Broker-Live"), ("911", "Broker-Demo"), ("111", "Broker-Live-2"), ("912", "Broker-Demo")],
+        )
 
     def test_profile_numeric_limits_and_fixed_policy_are_validated(self) -> None:
         with self.assertRaisesRegex(ValueError, "period_days"):
