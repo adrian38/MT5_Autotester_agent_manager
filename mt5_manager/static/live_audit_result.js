@@ -4,6 +4,7 @@ const auditId = params.get('audit') || '';
 const modeLabels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
 const reasonLabels = {
   close_time: 'Cierre fuera de tolerancia',
+  open_time: 'Apertura fuera de tolerancia; la real se alineó por el cierre',
   open_price: 'Precio de apertura fuera de tolerancia',
   volume: 'Volumen fuera de tolerancia',
   pnl: 'PnL real peor que el tester',
@@ -169,7 +170,7 @@ function comparisonCsvRow(row) {
   return [
     `T${row.tester_index ?? ''}`,
     statusLabel,
-    `${tester.symbol || '—'} · ${number(tester.volume, 4)} lotes · ${tester.side || '—'} · ${row.strategy || '—'}`,
+    `${tester.symbol || '—'} · ${number(tester.volume, 4)} lotes · ${tester.side || '—'} · ${row.strategy_set || '—'} · ${row.strategy || '—'}`,
     `${plainPair(tester.open_time, openReal, marketDateTime)} · ${plainDelta(openDelta, limits.open_time_seconds, ' s')}${row.status === 'missing' && nearest.open_time ? ' · candidato más cercano, no consumido' : ''}`,
     closeText,
     priceText,
@@ -421,7 +422,7 @@ function renderStrategies(result) {
       const diagnosis = Number(row.missing_real) === Number(row.tester_trades) ? ['SIN CONTINUIDAD', 'bad']
         : Number(row.with_deviations) || Number(row.missing_real) ? ['REVISAR', 'warn']
           : Number(row.open_real) ? ['REAL ABIERTA', 'info'] : ['CORRECTA', 'good'];
-      return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote real ${escapeHtml(number(artifact.real_account_lot ?? artifact.tester_lot ?? artifact.configured_lot, 8))} · tester ${escapeHtml(number(artifact.tester_lot ?? artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy)}</small></th>
+      return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote real ${escapeHtml(number(artifact.real_account_lot ?? artifact.tester_lot ?? artifact.configured_lot, 8))} · tester ${escapeHtml(number(artifact.tester_lot ?? artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy_set || row.strategy)}</small>${row.strategy_set ? `<small>${escapeHtml(row.strategy)}</small>` : ''}</th>
         <td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
         <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td>${escapeHtml(row.open_real || 0)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
         <td><span class="audit-status ${diagnosis[1]}">${diagnosis[0]}</span></td>`;
@@ -447,9 +448,9 @@ function comparisonMarkup(row) {
     pnlDelta(measurements, limits.pnl_pct),
     scaleNote ? `<small>${escapeHtml(scaleNote)}</small>` : '',
   ].join('');
-  return `<tr data-status="${escapeHtml(displayStatus)}" data-search="${escapeHtml(`${row.strategy || ''} ${tester.symbol || ''} ${real.strategy || nearest.strategy || ''}`.toLocaleLowerCase('es'))}">
+  return `<tr data-status="${escapeHtml(displayStatus)}" data-search="${escapeHtml(`${row.strategy || ''} ${row.strategy_set || ''} ${tester.symbol || ''} ${real.strategy || nearest.strategy || ''}`.toLocaleLowerCase('es'))}">
     <td><span class="audit-status ${statusClass}">${escapeHtml(statusLabel)}</span><small>#T${escapeHtml(row.tester_index)}</small></td>
-    <td><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><span>${escapeHtml(tester.side)}</span><small>${escapeHtml(row.strategy)}</small></td>
+    <td><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><span>${escapeHtml(tester.side)}</span><small>${escapeHtml(row.strategy_set || row.strategy)}</small>${row.strategy_set ? `<small>${escapeHtml(row.strategy)}</small>` : ''}</td>
     <td>${pair(tester.open_time, openReal, marketDateTime)}${delta(openDelta, limits.open_time_seconds, ' s')}${nearestNote}</td>
     <td>${pair(tester.close_time, real.close_time, marketDateTime)}${row.status === 'missing' || openPosition ? '' : delta(measurements.close_time_delta_seconds, limits.close_time_seconds, ' s')}${openPosition ? '<small>Pendiente: la posición real sigue abierta</small>' : ''}</td>
     <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : `${delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}<small>Límite absoluto ${escapeHtml(number(limits.open_price_absolute, 8))} · regla ${escapeHtml(priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada')}</small>`}</td>

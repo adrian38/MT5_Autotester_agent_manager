@@ -16,30 +16,81 @@ class _ComparisonMixin:
             "open_real_by_strategy": {}, "missing_by_strategy": {},
             "still_open": still_open, "unused_open": set(range(len(still_open))),
             "deviation_reasons": {
-                "close_time": 0, "open_price": 0, "volume": 0, "pnl": 0,
-                "drawdown": 0,
+                "open_time": 0, "close_time": 0, "open_price": 0, "volume": 0,
+                "pnl": 0, "drawdown": 0,
             },
             "tester_data_issues": {}, "operation_comparisons": [],
         }
 
     @staticmethod
-    def _candidate_matches(
-        expected: dict[str, Any], real: list[dict[str, Any]], unused: set[int],
-        time_limit: int,
-    ) -> tuple[list[tuple[float, int]], list[tuple[float, int]]]:
-        candidates, same_market = [], []
-        for index in unused:
-            actual = real[index]
-            if (
-                actual["symbol"].casefold() != expected["symbol"].casefold()
-                or actual["side"] != expected["side"]
-            ):
+    def _same_market(
+        expected: dict[str, Any], real: list[dict[str, Any]], indices: Iterable[int],
+    ) -> list[tuple[float, int]]:
+        """Cierres reales del mismo símbolo y lado, por distancia de apertura."""
+        return sorted(
+            (abs((real[index]["open_time"] - expected["open_time"]).total_seconds()), index)
+            for index in indices
+            if real[index]["symbol"].casefold() == expected["symbol"].casefold()
+            and real[index]["side"] == expected["side"]
+        )
+
+    @staticmethod
+    def _pair_cost(
+        expected: dict[str, Any], actual: dict[str, Any], request: dict[str, Any],
+    ) -> tuple[int, int, int, float] | None:
+        """Lo lejos que está esta real de ser la del tester, o `None` si no lo es.
+
+        El lote manda: es lo que identifica a la estrategia dentro de la cuenta,
+        igual que en el filtro de pertenencia. Después la apertura dentro de
+        tolerancia, después el cierre, y a igualdad la menor distancia total.
+        """
+        if (
+            actual["symbol"].casefold() != expected["symbol"].casefold()
+            or actual["side"] != expected["side"]
+        ):
+            return None
+        time_limit = request["trade_time_tolerance_seconds"]
+        open_delta = abs((actual["open_time"] - expected["open_time"]).total_seconds())
+        close_delta = abs((actual["close_time"] - expected["close_time"]).total_seconds())
+        if open_delta > time_limit and close_delta > time_limit:
+            return None
+        expected_volume, _tester_volume = _expected_real_volume(
+            expected, request.get("real_strategy_lots") or {},
+        )
+        volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
+        return (
+            int(abs(float(actual["volume"]) - expected_volume) > volume_limit),
+            int(open_delta > time_limit), int(close_delta > time_limit),
+            open_delta + close_delta,
+        )
+
+    @staticmethod
+    def _assign_real_trades(
+        tester: list[dict[str, Any]], real: list[dict[str, Any]], request: dict[str, Any],
+    ) -> dict[int, int]:
+        """Reparte los cierres reales entre las operaciones del tester.
+
+        Elegir por tester, de uno en uno y sólo por la apertura, repartía mal
+        dos operaciones abiertas en el mismo segundo: la primera se quedaba con
+        el cierre de la segunda y ninguna de las dos quedaba dentro de
+        tolerancia. El reparto se decide ahora sobre todas las parejas a la vez,
+        de la mejor a la peor, y cada real se consume una sola vez.
+        """
+        costs = sorted(
+            (*cost, tester_index, real_index)
+            for tester_index, expected in enumerate(tester)
+            for real_index, actual in enumerate(real)
+            for cost in [_ComparisonMixin._pair_cost(expected, actual, request)]
+            if cost is not None
+        )
+        assignment: dict[int, int] = {}
+        taken: set[int] = set()
+        for *_cost, tester_index, real_index in costs:
+            if tester_index in assignment or real_index in taken:
                 continue
-            delta = abs((actual["open_time"] - expected["open_time"]).total_seconds())
-            same_market.append((delta, index))
-            if delta <= time_limit:
-                candidates.append((delta, index))
-        return candidates, same_market
+            assignment[tester_index] = real_index
+            taken.add(real_index)
+        return assignment
 
     @staticmethod
     def _missing_comparison(
@@ -161,6 +212,8 @@ class _ComparisonMixin:
         price_delta = abs(float(actual["open_price"]) - float(expected["open_price"]))
         volume_delta = abs(float(actual["volume"]) - expected_volume)
         reasons = []
+        if open_time_delta > request["trade_time_tolerance_seconds"]:
+            reasons.append("open_time")
         if close_delta > request["trade_time_tolerance_seconds"]:
             reasons.append("close_time")
         epsilon = max(point * 1e-6, 1e-12)
@@ -204,23 +257,24 @@ class _ComparisonMixin:
         if expected["close_time"] < expected["open_time"]:
             data_issues.append("close_before_open")
             _ComparisonMixin._increment(state["tester_data_issues"], "close_before_open")
-        candidates, same_market = _ComparisonMixin._candidate_matches(
-            expected, real, state["unused"], request["trade_time_tolerance_seconds"],
-        )
-        if not candidates:
+        index = state["assignment"].get(tester_index - 1)
+        if index is None:
             if _ComparisonMixin._consume_open_position(
                 expected, tester_index, strategy, state, points, request, data_issues,
             ):
                 return
             _ComparisonMixin._increment(state["missing_by_strategy"], strategy)
             state["operation_comparisons"].append(_ComparisonMixin._missing_comparison(
-                expected, tester_index, strategy, same_market, real,
+                expected, tester_index, strategy,
+                _ComparisonMixin._same_market(expected, real, state["unassigned"]), real,
                 request["trade_time_tolerance_seconds"], data_issues,
             ))
             return
-        open_time_delta, index = min(candidates)
         state["unused"].remove(index)
         actual = real[index]
+        open_time_delta = abs(
+            (actual["open_time"] - expected["open_time"]).total_seconds()
+        )
         state["matched"] += 1
         _ComparisonMixin._increment(state["matched_by_strategy"], strategy)
         row, reasons = _ComparisonMixin._matched_comparison(
@@ -253,11 +307,20 @@ class _ComparisonMixin:
         return unmatched, operations
 
     @staticmethod
+    def _name_strategies(state: dict[str, Any], set_names: dict[str, str]) -> None:
+        """Pone en cada operación el `.set` con el que se probó su estrategia."""
+        for row in state["operation_comparisons"]:
+            row["strategy_set"] = set_names.get(str(row.get("strategy") or ""), "")
+
+    @staticmethod
     def _strategy_comparison_summary(
         strategies: dict[str, int], state: dict[str, Any],
+        set_names: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
+        set_names = set_names or {}
         return [{
-            "strategy": strategy, "tester_trades": int(strategies.get(strategy) or 0),
+            "strategy": strategy, "strategy_set": set_names.get(strategy, ""),
+            "tester_trades": int(strategies.get(strategy) or 0),
             "aligned": state["matched_by_strategy"].get(strategy, 0),
             "within_tolerance": state["within_tolerance_by_strategy"].get(strategy, 0),
             "open_real": state["open_real_by_strategy"].get(strategy, 0),
@@ -282,7 +345,11 @@ class _ComparisonMixin:
         unmatched, unmatched_operations = _ComparisonMixin._unmatched_real_operations(
             real, state["unused"],
         )
-        strategy_summary = _ComparisonMixin._strategy_comparison_summary(strategies, state)
+        set_names = dict(request.get("strategy_set_names") or {})
+        _ComparisonMixin._name_strategies(state, set_names)
+        strategy_summary = _ComparisonMixin._strategy_comparison_summary(
+            strategies, state, set_names,
+        )
         detail = _ComparisonMixin._comparison_detail(
             request, state, unmatched, unmatched_operations, strategy_summary,
             real_dd, tester_dd, dd_deviation,
@@ -320,7 +387,7 @@ class _ComparisonMixin:
             "tester_data_issues": state["tester_data_issues"],
             "time_tolerance_seconds": time_limit,
             "methodology": {
-                "alignment": "Mismo símbolo y lado; apertura dentro de tolerancia; se elige el menor delta y cada real se usa una vez, sea un cierre o una posición todavía abierta.",
+                "alignment": "Mismo símbolo y lado; el reparto se decide sobre todas las parejas a la vez y cada real se usa una vez, sea un cierre o una posición todavía abierta. Manda la apertura dentro de tolerancia; a igualdad, el cierre dentro de tolerancia; a igualdad, la menor distancia total. Una real que sólo encaja por el cierre se acepta y se marca la apertura como desviación.",
                 "validation": "En parejas cerradas se validan cierre, precio de apertura, volumen y PnL. Una posición real todavía abierta se considera alineada y valida solo apertura, precio y volumen: no se inventan cierre ni PnL. El volumen se compara contra el lote real configurado para la estrategia y el PnL del tester se escala por ese mismo ratio. El drawdown se valida sobre el conjunto.",
                 "tolerances": {
                     "time_seconds": time_limit, "price_points": request["price_tolerance_points"],
@@ -351,6 +418,8 @@ class _ComparisonMixin:
         request: dict[str, Any], strategies: dict[str, int],
     ) -> dict[str, Any]:
         state = _ComparisonMixin._comparison_state(real, request)
+        state["assignment"] = _ComparisonMixin._assign_real_trades(tester, real, request)
+        state["unassigned"] = set(range(len(real))) - set(state["assignment"].values())
         for tester_index, expected in enumerate(tester, 1):
             _ComparisonMixin._compare_one_operation(
                 real, points, request, state, tester_index, expected,

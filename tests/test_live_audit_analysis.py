@@ -3,7 +3,9 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from mt5_manager.live_audit_analysis import PayloadError, analyze, portfolio_signatures
+from mt5_manager.live_audit_analysis import (
+    PayloadError, analyze, portfolio_lot_bands, strategy_set_names,
+)
 
 
 def profile(**overrides) -> dict:
@@ -142,31 +144,57 @@ class LiveAuditAnalysisTests(unittest.TestCase):
         self.assertEqual(result["portfolio_filter"]["foreign_closures_ignored"], 1)
         self.assertEqual(result["real_trades"], 1)
 
-    def test_signatures_prefer_the_configured_real_lot_over_the_tester_one(self) -> None:
+    def test_the_band_goes_from_the_tester_lot_to_the_configured_real_one(self) -> None:
+        # Entre el lote con el que se probó y el configurado para la cuenta real
+        # hay redondeos del broker y reajustes a mano: un cierre intermedio
+        # sigue siendo de la estrategia. Sin lote configurado, la banda es un
+        # punto y el filtro se comporta como antes.
         members = [{"candidate_id": "s1", "symbol": "EURUSD", "lot": 0.08}]
         rules = {"eurusd": (0.01, 0.01)}
 
-        configured = portfolio_signatures(members, rules, {}, {"s1": 0.04})
-        fallback = portfolio_signatures(members, rules, {}, {})
+        configured = portfolio_lot_bands(members, rules, {}, {"s1": 0.04})
+        fallback = portfolio_lot_bands(members, rules, {}, {})
 
-        self.assertEqual(configured, {("eurusd", 0.04)})
-        self.assertEqual(fallback, {("eurusd", 0.08)})
+        self.assertEqual(configured, {"eurusd": (0.04, 0.08)})
+        self.assertEqual(fallback, {"eurusd": (0.08, 0.08)})
 
     def test_a_saved_lot_below_the_broker_minimum_uses_the_effective_one(self) -> None:
         # Portafolios ICTrading guardados antes de que la construcción consumiese
         # `volume_min`: 0,03 con tres unidades y mínimo 0,1 se ejecuta a 0,1, no
         # a 0,3. Las unidades son metadato de asignación, no multiplican.
         members = [{"candidate_id": "de40", "symbol": "DE40", "lot": 0.03, "units": 3}]
-        signatures = portfolio_signatures(members, {"de40": (0.1, 0.1)}, {}, {})
-        self.assertEqual(signatures, {("de40", 0.1)})
+        bands = portfolio_lot_bands(members, {"de40": (0.1, 0.1)}, {}, {})
+        self.assertEqual(bands, {"de40": (0.1, 0.1)})
 
     def test_the_broker_symbol_of_the_report_is_what_the_filter_matches(self) -> None:
         # El portafolio guarda `NAS100` y el broker ejecuta `NAS100.fs`.
         members = [{"candidate_id": "s1", "symbol": "NAS100", "lot": 0.01}]
-        signatures = portfolio_signatures(
-            members, {}, {"s1": {"nas100.fs"}}, {"s1": 0.01},
+        bands = portfolio_lot_bands(members, {}, {"s1": {"nas100.fs"}}, {"s1": 0.01})
+        self.assertEqual(bands, {"nas100.fs": (0.01, 0.01)})
+
+    def test_every_operation_names_the_set_file_of_its_strategy(self) -> None:
+        # El magic no dice nada a quien lee el informe; el fichero `.set` sí.
+        members = [
+            {"candidate_id": "s1", "symbol": "EURUSD", "lot": 0.04, "set_name": "EURUSD_H1_a.set"},
+            {"candidate_id": "s2", "symbol": "EURUSD", "set_id": "/data/x/EURUSD_H4_b.set"},
+        ]
+        self.assertEqual(strategy_set_names(members), {
+            "s1": "EURUSD_H1_a.set", "s2": "EURUSD_H4_b.set",
+        })
+
+        result = analyze(
+            payload(selected_members=[{
+                "candidate_id": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "lot": 0.08,
+                "set_name": "EURUSD_H1_a.set",
+            }]),
+            profile(),
         )
-        self.assertEqual(signatures, {("nas100.fs", 0.01)})
+        detail = result["comparison_detail"]
+        self.assertEqual(
+            [row["strategy_set"] for row in detail["operation_comparisons"]],
+            ["EURUSD_H1_a.set"],
+        )
+        self.assertEqual(detail["strategy_summary"][0]["strategy_set"], "EURUSD_H1_a.set")
 
     def test_a_run_without_raw_material_is_rejected_instead_of_invented(self) -> None:
         for broken in ({}, {"audit_id": ""}, {"real_trades": []}):

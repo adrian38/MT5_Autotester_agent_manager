@@ -12,6 +12,7 @@ import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any
 
 from .common import load_json, save_json, utc_now
@@ -118,6 +119,57 @@ def _member_strategy_id(member: dict[str, Any], fallback: str = "") -> str:
         return candidate_id
     source = str(member.get("set_id") or member.get("set_path") or "").strip()
     return Path(source).stem if source else fallback
+
+
+def _member_set_name(member: dict[str, Any]) -> str:
+    """Nombre del fichero `.set` con el que se probó y se opera la estrategia."""
+    name = str(member.get("set_name") or "").strip()
+    if name:
+        return name
+    source = str(member.get("set_id") or member.get("set_path") or "").strip()
+    return Path(source).name if source else ""
+
+
+def _lot_bands(
+    entries: Iterable[tuple[Iterable[str], float, float]],
+) -> dict[str, tuple[float, float]]:
+    """Banda de lote admisible por símbolo, del lote del tester al configurado.
+
+    La pertenencia al portafolio no puede exigir un lote exacto. Entre lo que
+    probó el Strategy Tester y lo que se configuró para la cuenta real hay
+    redondeos del broker y reajustes manuales, y un cierre con un lote
+    intermedio sigue siendo de esa estrategia. Fuera de la banda sí es ajeno.
+    """
+    bands: dict[str, tuple[float, float]] = {}
+    for symbols, tester_lot, real_lot in entries:
+        try:
+            low, high = sorted((round(float(tester_lot), 8), round(float(real_lot), 8)))
+        except (TypeError, ValueError):
+            continue
+        if high <= 0:
+            continue
+        low = max(low, 0.0)
+        for symbol in symbols:
+            key = str(symbol or "").casefold()
+            if not key:
+                continue
+            current = bands.get(key)
+            bands[key] = (
+                (min(low, current[0]), max(high, current[1])) if current else (low, high)
+            )
+    return bands
+
+
+def _within_lot_bands(trade: dict[str, Any], bands: dict[str, tuple[float, float]]) -> bool:
+    """¿Cae el lote de este cierre real en la banda de su símbolo?"""
+    band = bands.get(str(trade.get("symbol") or "").casefold())
+    if band is None:
+        return False
+    try:
+        volume = round(float(trade.get("volume") or 0.0), 8)
+    except (TypeError, ValueError):
+        return False
+    return band[0] - 1e-9 <= volume <= band[1] + 1e-9
 
 
 def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:

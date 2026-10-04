@@ -25,7 +25,8 @@ from datetime import datetime
 from typing import Any
 
 from .live_audit_engine import (
-    LiveAuditController, _member_strategy_id, _trade_view,
+    LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
+    _trade_view, _within_lot_bands,
 )
 
 # Lo que el usuario puede cambiar y volver a aplicar sobre una ejecución guardada.
@@ -108,19 +109,21 @@ def _revive_all(trades: Any) -> list[dict[str, Any]]:
     return [revived for revived in (_revive(trade) for trade in (trades or [])) if revived]
 
 
-def portfolio_signatures(
+def portfolio_lot_bands(
     members: list[dict[str, Any]],
     volume_rules: dict[str, tuple[float, float]],
     symbols_by_strategy: dict[str, set[str]],
     real_strategy_lots: dict[str, float],
-) -> set[tuple[str, float]]:
-    """Firmas `(símbolo, lote real)` que identifican los cierres del portafolio.
+) -> dict[str, tuple[float, float]]:
+    """Banda `símbolo → (lote mínimo, lote máximo)` de los cierres del portafolio.
 
     El magic del terminal real puede no coincidir con el del `.set` importado,
-    así que la pertenencia se decide por símbolo y lote. El lote esperado es el
-    configurado para la cuenta real; si no hay, el efectivo del tester.
+    así que la pertenencia se decide por símbolo y lote. Exigir el lote exacto
+    configurado descartaba cierres que sí eran de la estrategia —el auditado
+    del 2026-10-04 perdió así un USDJPY a 0,03 y un XAGUSD a 0,06—, de modo que
+    se admite cualquier lote entre el que probó el tester y el configurado.
     """
-    signatures: set[tuple[str, float]] = set()
+    entries: list[tuple[set[str], float, float]] = []
     for member in members:
         strategy = _member_strategy_id(member)
         try:
@@ -136,10 +139,19 @@ def portfolio_signatures(
         symbols = symbols_by_strategy.get(strategy) or {
             str(member.get("symbol") or "").casefold()
         }
-        signatures.update(
-            (symbol, round(real_lot, 8)) for symbol in symbols if symbol and real_lot > 0
-        )
-    return signatures
+        entries.append((symbols, float(effective_lot), real_lot))
+    return _lot_bands(entries)
+
+
+def strategy_set_names(members: list[dict[str, Any]]) -> dict[str, str]:
+    """Fichero `.set` de cada estrategia, para nombrarla en cada operación."""
+    names: dict[str, str] = {}
+    for member in members:
+        strategy = _member_strategy_id(member)
+        name = _member_set_name(member)
+        if strategy and name:
+            names[strategy] = name
+    return names
 
 
 def _symbols_by_strategy(
@@ -192,6 +204,9 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
     for key in EXECUTION_FACTS:
         if key in executed:
             request[key] = executed[key]
+    request["strategy_set_names"] = strategy_set_names(
+        list(payload.get("selected_members") or []),
+    )
     return request
 
 
@@ -226,26 +241,20 @@ def _filter_portfolio_trades(
     payload: dict[str, Any], request: dict[str, Any], inputs: dict[str, Any],
 ) -> dict[str, Any]:
     real_trades = inputs["real_trades"]
-    signatures = portfolio_signatures(
+    bands = portfolio_lot_bands(
         list(payload.get("selected_members") or []),
         _volume_rules(payload),
         _symbols_by_strategy(inputs["tester_trades"], inputs["strategy_artifacts"]),
         request.get("real_strategy_lots") or {},
     )
-    filter_detail: dict[str, Any] = {"applied": bool(signatures)}
-    if signatures:
+    filter_detail: dict[str, Any] = {"applied": bool(bands)}
+    if bands:
         before = len(real_trades)
-        real_trades = [
-            trade for trade in real_trades
-            if (
-                str(trade.get("symbol") or "").casefold(),
-                round(float(trade.get("volume") or 0), 8),
-            ) in signatures
-        ]
+        real_trades = [trade for trade in real_trades if _within_lot_bands(trade, bands)]
         inputs["history_detail"]["portfolio_closures"] = len(real_trades)
         inputs["history_detail"]["foreign_closures_ignored"] = before - len(real_trades)
         filter_detail.update(
-            signatures=sorted(signatures),
+            lot_bands={symbol: list(band) for symbol, band in sorted(bands.items())},
             closures_before=before,
             portfolio_closures=len(real_trades),
             foreign_closures_ignored=before - len(real_trades),

@@ -103,6 +103,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_runner_dirs_after_split.md`: «MT5 no generó el reporte de…» con el
   tester en verde, porque partir `run_tests.py` dejó al lanzador parcheando sólo
   la fachada.
+- `live_audit_pairing_20261004.md`: por qué el auditor emparejaba mal los
+  cierres reales, la banda de lote que sustituye al lote exacto y el reparto
+  global que sustituye al codicioso por operación.
 
 ## Manager: interfaz y operación
 

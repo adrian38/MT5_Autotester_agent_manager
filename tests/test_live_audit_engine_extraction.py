@@ -368,7 +368,7 @@ class LiveAuditExtractionTests(LiveAuditEngineTestCase):
         self.assertEqual(rows[1]["data_issues"], ["close_before_open"])
         self.assertEqual(result["comparison_detail"]["tester_data_issues"], {"close_before_open": 1})
         self.assertEqual(result["comparison_detail"]["strategy_summary"][0], {
-            "strategy": "one", "tester_trades": 1, "aligned": 1,
+            "strategy": "one", "strategy_set": "", "tester_trades": 1, "aligned": 1,
             "within_tolerance": 0, "with_deviations": 1, "missing_real": 0,
             "open_real": 0,
         })

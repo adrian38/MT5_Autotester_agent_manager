@@ -209,7 +209,10 @@ class LiveAuditEngineTests(LiveAuditEngineTestCase):
         self.assertEqual(state["last_result"]["real_trades"], 1)
         self.assertEqual(state["last_result"]["real_history_detail"]["portfolio_closures"], 1)
 
-    def test_real_account_filter_uses_the_configured_lot_for_each_strategy(self) -> None:
+    def test_the_real_lot_may_sit_between_the_tester_one_and_the_configured_one(self) -> None:
+        # Exigir el lote configurado al milésimo descartaba cierres que sí eran
+        # de la estrategia: la cuenta real los ejecutó con el lote del tester o
+        # con uno intermedio. Fuera de esa banda el cierre sigue siendo ajeno.
         with tempfile.TemporaryDirectory() as temp:
             owner, controller = self._controller(Path(temp), "idle")
             owner.portfolio_detail = lambda *_args: {"portfolio": {"id": 9, "members": [{
@@ -221,17 +224,17 @@ class LiveAuditEngineTests(LiveAuditEngineTestCase):
                 "close_time": now, "open_price": 100.0, "close_price": 100.0, "profit": 1.0,
             }
             controller._extract_real = lambda *_args: (
-                [{**base, "volume": .6}, {**base, "volume": .7}], {"ETHUSD": .01},
+                [{**base, "volume": volume} for volume in (.6, .7, .9)], {"ETHUSD": .01},
                 {"login": "111", "native_report": {"filename": "real.html", "native_terminal_report": True},
                  "history_detail": {}},
             )
             controller._run_tester = lambda *_args: (
-                [{**base, "strategy": "eth-grid", "volume": .6}], [99.0], {"eth-grid": 1}, [], {},
+                [{**base, "strategy": "eth-grid", "volume": .7}], [99.0], {"eth-grid": 1}, [], {},
             )
             controller.start({**request(), "real_strategy_lots": {"eth-grid": .6}})
             state = self._wait(controller)
 
-        self.assertEqual(state["last_result"]["real_trades"], 1)
+        self.assertEqual(state["last_result"]["real_trades"], 2)
         self.assertEqual(state["last_result"]["matched_trades"], 1)
         self.assertEqual(state["last_result"]["real_history_detail"]["foreign_closures_ignored"], 1)
 
