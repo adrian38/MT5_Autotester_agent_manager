@@ -58,6 +58,10 @@ class Trade:
     close_price: float
     profit_loss: float
     comment: str
+    # Los de la orden de entrada, tal como la coloco la estrategia. El auditor
+    # real los compara con los de la cuenta: son la huella de la operacion.
+    sl: float = 0.0
+    tp: float = 0.0
 
 
 @dataclass
@@ -287,6 +291,7 @@ class _MatchedEntry:
     close_net: float = 0.0
     open_time: datetime | None = None
     ticket: str = ""
+    order: str = ""
 
 
 def _consume_open_positions(
@@ -322,6 +327,7 @@ def _consume_open_positions(
             matched.open_time = opened.timestamp
         if not matched.ticket:
             matched.ticket = opened.ticket
+            matched.order = opened.order
         slot["remaining"] = available - volume
         remaining_close -= volume
         if float(slot["remaining"]) <= 1e-9:
@@ -356,6 +362,7 @@ def _build_trades(
         matched = _consume_open_positions(queue, deal, order_stops)
         if matched.volume <= 0.0 or matched.open_time is None:
             continue
+        stops = order_stops.get(matched.order) or {}
         trades.append(
             Trade(
                 ticket=matched.ticket,
@@ -367,6 +374,8 @@ def _build_trades(
                 close_price=deal.price,
                 profit_loss=matched.entry_net + matched.close_net,
                 comment=deal.comment,
+                sl=float(stops.get("sl") or 0.0),
+                tp=float(stops.get("tp") or 0.0),
             )
         )
 

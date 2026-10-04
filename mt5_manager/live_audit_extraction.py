@@ -91,6 +91,40 @@ class _ExtractionMixin:
             })
         return openings
 
+    @staticmethod
+    def _entry_order_stops(orders: Any) -> dict[int, dict[str, float]]:
+        """SL y TP con los que se colocó la orden que abrió cada posición.
+
+        La orden de cierre no los lleva y el trailing mueve los de la posición,
+        así que la huella que se puede comparar con el tester es la de entrada:
+        la orden más antigua de la posición que declara algún nivel.
+        """
+        earliest: dict[int, tuple[int, dict[str, float]]] = {}
+        for order in orders or ():
+            position = int(getattr(order, "position_id", 0) or 0)
+            stops = {
+                "sl": float(getattr(order, "sl", 0.0) or 0.0),
+                "tp": float(getattr(order, "tp", 0.0) or 0.0),
+            }
+            if not position or not (stops["sl"] or stops["tp"]):
+                continue
+            setup = int(getattr(order, "time_setup_msc", 0) or 0)
+            current = earliest.get(position)
+            if current is None or setup < current[0]:
+                earliest[position] = (setup, stops)
+        return {position: stops for position, (_setup, stops) in earliest.items()}
+
+    def _real_order_stops(
+        self, mt5: Any, period_start: datetime, period_end: datetime, positions: set[int],
+    ) -> dict[int, dict[str, float]]:
+        """Stops de entrada de cada posición, recuperando las órdenes anteriores."""
+        period_orders = list(mt5.history_orders_get(period_start, period_end) or ())
+        stops = self._entry_order_stops(period_orders)
+        seen = {int(getattr(order, "position_id", 0) or 0) for order in period_orders}
+        for position in sorted(positions - seen):
+            stops.update(self._entry_order_stops(mt5.history_orders_get(position=position)))
+        return {position: stops[position] for position in positions if position in stops}
+
     def _reconstruct_real_trades(
         self, mt5: Any, all_deals: list[Any], period_start: datetime, period_end: datetime,
     ) -> tuple[list[dict[str, Any]], dict[str, float]]:
@@ -99,6 +133,12 @@ class _ExtractionMixin:
             trade for trade in self._real_trades(unique_deals.values())
             if period_start <= trade["close_time"] <= period_end
         ]
+        stops = self._real_order_stops(
+            mt5, period_start, period_end,
+            {int(trade.get("position_id") or 0) for trade in trades},
+        )
+        for trade in trades:
+            trade.update(stops.get(int(trade.get("position_id") or 0)) or {})
         points = {}
         for symbol in {row["symbol"] for row in trades}:
             symbol_info = mt5.symbol_info(symbol)
@@ -284,7 +324,7 @@ class _ExtractionMixin:
                 "close_time": datetime.fromtimestamp(int(getattr(deal, "time", 0)), timezone.utc),
                 "open_price": float(getattr(first, "price", 0.0) or 0.0),
                 "close_price": float(getattr(deal, "price", 0.0) or 0.0),
-                "volume": volume, "profit": profit,
+                "volume": volume, "profit": profit, "position_id": position,
             })
         return trades
 

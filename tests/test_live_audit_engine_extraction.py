@@ -232,6 +232,7 @@ class LiveAuditExtractionTests(LiveAuditEngineTestCase):
             def __init__(self) -> None:
                 self.period_calls = 0
                 self.shutdown_called = False
+                self.position_order_calls: list[int] = []
 
             account_info = staticmethod(
                 lambda: SimpleNamespace(login=111, server="IC-Real", currency="USD")
@@ -245,6 +246,16 @@ class LiveAuditExtractionTests(LiveAuditEngineTestCase):
                     return [prior_open, prior_close] if kwargs["position"] == 10 else []
                 self.period_calls += 1
                 return [] if self.period_calls == 1 else period_deals
+
+            def history_orders_get(self, *_args, **kwargs):
+                # La orden que abrio la posicion 10 es anterior al periodo, asi
+                # que solo aparece al preguntar por su posicion.
+                if "position" in kwargs:
+                    self.position_order_calls.append(kwargs["position"])
+                    return [SimpleNamespace(
+                        position_id=10, sl=1.09, tp=1.12, time_setup_msc=1,
+                    )] if kwargs["position"] == 10 else []
+                return [SimpleNamespace(position_id=11, sl=1.2, tp=1.3, time_setup_msc=2)]
 
             def shutdown(self) -> None:
                 self.shutdown_called = True

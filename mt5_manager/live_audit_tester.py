@@ -258,6 +258,8 @@ class _TesterMixin:
                 "close_time": close_time, "open_price": trade.open_price,
                 "close_price": trade.close_price, "volume": trade.size,
                 "profit": trade.profit_loss,
+                "sl": float(getattr(trade, "sl", 0.0) or 0.0),
+                "tp": float(getattr(trade, "tp", 0.0) or 0.0),
             })
         return rows
 

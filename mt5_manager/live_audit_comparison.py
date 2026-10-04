@@ -35,14 +35,37 @@ class _ComparisonMixin:
         )
 
     @staticmethod
+    def _stops_evidence(
+        expected: dict[str, Any], actual: dict[str, Any], limit: float | None,
+    ) -> int:
+        """0 si los stops coinciden, 1 si no hay evidencia, 2 si se contradicen.
+
+        El SL y el TP con que se coloca la orden son la huella de la operación:
+        en el auditado del 2026-10-04 los dos XAUUSD que abren en el mismo
+        segundo llevaban 4189,28/4133,78 y 4169,86/4123,54, y sólo uno de los
+        dos cierres reales traía cada par. No siempre existen —una orden a
+        mercado no declara niveles—, y entonces no dicen nada.
+        """
+        levels = [
+            (float(expected.get(key) or 0.0), float(actual.get(key) or 0.0))
+            for key in ("sl", "tp")
+        ]
+        known = [(mine, theirs) for mine, theirs in levels if mine and theirs]
+        if not known or limit is None:
+            return 1
+        return 0 if all(abs(mine - theirs) <= limit for mine, theirs in known) else 2
+
+    @staticmethod
     def _pair_cost(
         expected: dict[str, Any], actual: dict[str, Any], request: dict[str, Any],
-    ) -> tuple[int, int, int, float] | None:
+        points: dict[str, float],
+    ) -> tuple[int, int, int, int, float] | None:
         """Lo lejos que está esta real de ser la del tester, o `None` si no lo es.
 
-        El lote manda: es lo que identifica a la estrategia dentro de la cuenta,
-        igual que en el filtro de pertenencia. Después la apertura dentro de
-        tolerancia, después el cierre, y a igualdad la menor distancia total.
+        Manda la huella de SL y TP, cuando las dos partes la declaran. Después
+        el lote, que identifica a la estrategia dentro de la cuenta igual que en
+        el filtro de pertenencia. Después la apertura dentro de tolerancia,
+        después el cierre, y a igualdad la menor distancia total.
         """
         if (
             actual["symbol"].casefold() != expected["symbol"].casefold()
@@ -58,7 +81,12 @@ class _ComparisonMixin:
             expected, request.get("real_strategy_lots") or {},
         )
         volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
+        price_limit, _points, _rule = _effective_price_tolerance(
+            actual["symbol"], points.get(actual["symbol"], 0.0),
+            request["price_tolerance_points"],
+        )
         return (
+            _ComparisonMixin._stops_evidence(expected, actual, price_limit),
             int(abs(float(actual["volume"]) - expected_volume) > volume_limit),
             int(open_delta > time_limit), int(close_delta > time_limit),
             open_delta + close_delta,
@@ -67,6 +95,7 @@ class _ComparisonMixin:
     @staticmethod
     def _assign_real_trades(
         tester: list[dict[str, Any]], real: list[dict[str, Any]], request: dict[str, Any],
+        points: dict[str, float],
     ) -> dict[int, int]:
         """Reparte los cierres reales entre las operaciones del tester.
 
@@ -80,7 +109,7 @@ class _ComparisonMixin:
             (*cost, tester_index, real_index)
             for tester_index, expected in enumerate(tester)
             for real_index, actual in enumerate(real)
-            for cost in [_ComparisonMixin._pair_cost(expected, actual, request)]
+            for cost in [_ComparisonMixin._pair_cost(expected, actual, request, points)]
             if cost is not None
         )
         assignment: dict[int, int] = {}
@@ -418,7 +447,9 @@ class _ComparisonMixin:
         request: dict[str, Any], strategies: dict[str, int],
     ) -> dict[str, Any]:
         state = _ComparisonMixin._comparison_state(real, request)
-        state["assignment"] = _ComparisonMixin._assign_real_trades(tester, real, request)
+        state["assignment"] = _ComparisonMixin._assign_real_trades(
+            tester, real, request, points,
+        )
         state["unassigned"] = set(range(len(real))) - set(state["assignment"].values())
         for tester_index, expected in enumerate(tester, 1):
             _ComparisonMixin._compare_one_operation(

@@ -19,6 +19,7 @@ START = datetime(2026, 10, 2, 4, 0, 0, tzinfo=timezone.utc)
 def operation(
     strategy: str, opened: int, closed: int, *, volume: float = .01,
     symbol: str = "XAUUSD", price: float = 4139.8, profit: float = 1.0,
+    sl: float = 0.0, tp: float = 0.0,
 ) -> dict:
     """Operación con apertura y cierre en segundos desde `START`."""
     return {
@@ -26,6 +27,7 @@ def operation(
         "open_time": START + timedelta(seconds=opened),
         "close_time": START + timedelta(seconds=closed),
         "open_price": price, "close_price": price, "volume": volume, "profit": profit,
+        "sl": sl, "tp": tp,
     }
 
 
@@ -94,6 +96,48 @@ class LiveAuditAssignmentTests(unittest.TestCase):
         rows = compare(real, [operation("a", 0, 7200)])
 
         self.assertEqual(rows[0]["real"]["strategy"], "por-apertura")
+
+
+    def test_the_stops_of_the_entry_order_decide_before_anything_else(self) -> None:
+        # Los niveles son los reales del 2026-10-04: dos US30 del portafolio
+        # abiertos en el mismo segundo y con el mismo lote, cada uno con el
+        # SL/TP de su estrategia. Los cierres estan puestos para que el tiempo
+        # prefiera el reparto contrario y solo los stops puedan deshacerlo: sin
+        # ellos las dos parejas equivocadas cierran a un segundo.
+        tester = [
+            operation("largo", 0, 100, sl=51_077.14, tp=51_966.56, symbol="US30",
+                      price=51_709.7, volume=.1),
+            operation("corto", 0, 120, sl=49_807.18, tp=51_894.22, symbol="US30",
+                      price=51_709.7, volume=.1),
+        ]
+        real = [
+            operation("1970212220", 1, 101, sl=49_799.73, tp=51_894.94, symbol="US30",
+                      price=51_708.2, volume=.1),
+            operation("1970212277", 1, 119, sl=51_074.67, tp=51_967.57, symbol="US30",
+                      price=51_702.7, volume=.1),
+        ]
+
+        rows = compare(real, tester)
+
+        self.assertEqual(rows[0]["real"]["strategy"], "1970212277")
+        self.assertEqual(rows[1]["real"]["strategy"], "1970212220")
+
+        blind = compare(
+            [{**row, "sl": 0.0, "tp": 0.0} for row in real],
+            [{**row, "sl": 0.0, "tp": 0.0} for row in tester],
+        )
+        self.assertEqual(
+            [row["real"]["strategy"] for row in blind], ["1970212220", "1970212277"],
+        )
+
+    def test_stops_that_nobody_declares_do_not_decide_anything(self) -> None:
+        # Una orden a mercado no lleva niveles: sin evidencia manda el tiempo.
+        tester = [operation("a", 0, 100), operation("b", 0, 900)]
+        real = [operation("r1", 1, 905), operation("r2", 1, 101)]
+
+        rows = compare(real, tester)
+
+        self.assertEqual([row["real"]["strategy"] for row in rows], ["r2", "r1"])
 
 
 if __name__ == "__main__":

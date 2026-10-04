@@ -246,6 +246,39 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
 
         self._assert_on_every_fork(check, "lote real como expectativa de volumen y PnL")
 
+    def test_every_fork_publishes_the_entry_stops_of_each_real_trade(self) -> None:
+        # El SL/TP de la orden de entrada es la huella que empareja un cierre
+        # real con la operación del tester. El criterio lo aplica el manager,
+        # pero el dato sólo lo puede observar el nodo: sin el port, la copia de
+        # ese agente audita sin la evidencia más fuerte y nadie lo dice.
+        tokens = (
+            "def _entry_order_stops", "def _real_order_stops",
+            "history_orders_get", '"position_id": position',
+            'getattr(trade, "sl"', 'getattr(trade, "tp"',
+        )
+        manager_engine = self._manager_auditor_source()
+        for token in tokens:
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+        self.assertIn(
+            "def _stops_evidence", manager_engine,
+            "El manager dejó de usar los stops para repartir los cierres reales.",
+        )
+
+        def check(project: Path, _source: str) -> None:
+            source = fork_live_audit_source(project)
+            if not source:
+                return
+            for token in tokens:
+                self._assert_present(
+                    source, re.escape(token),
+                    f"{project}: falta `{token}` en el auditor real. Portar la "
+                    "publicación de SL/TP desde mt5_manager/live_audit_extraction.py "
+                    "y mt5_manager/live_audit_tester.py, y duplicar la prueba en "
+                    "tests/test_manager_node_live_audit.py.",
+                )
+
+        self._assert_on_every_fork(check, "stops de entrada de cada cierre real")
+
     def test_broker_prefixed_symbols_keep_their_price_floor_on_every_ported_fork(self) -> None:
         tokens = ("_NIKKEI_SYMBOL_PREFIXES", '"nikkei"', r're.sub(r"^[^A-Z0-9]+"')
         for token in tokens:
