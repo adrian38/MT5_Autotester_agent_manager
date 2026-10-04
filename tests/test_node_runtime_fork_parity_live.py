@@ -7,20 +7,17 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        manager_node_source,
+        fork_live_audit_source, fork_node_source, manager_node_source,
     )
 except ImportError:
     from node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        manager_node_source,
+        fork_live_audit_source, fork_node_source, manager_node_source,
     )
 
 
 def _delegates_to_the_manager(project: Path) -> bool:
-    engine = project / "manager_node_runtime" / "live_audit.py"
-    return engine.is_file() and "last_payload=payload" in engine.read_text(
-        encoding="utf-8", errors="replace",
-    )
+    return "last_payload=payload" in fork_live_audit_source(project)
 
 
 class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
@@ -38,9 +35,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             self.assertIn(token, manager_node, f"El manager perdió `{token}`.")
 
         def check(project: Path, _source: str) -> None:
-            node_source = (project / "manager_node_runtime" / "node.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
+            node_source = fork_node_source(project)
             for token, hint in (
                 ("self.stop_requested = True", "la petición de parada fuera del bloqueo"),
                 (
@@ -83,9 +78,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         self.assertIn("application_restart", manager_node)
 
         def check(project: Path, _source: str) -> None:
-            node_source = (project / "manager_node_runtime" / "node.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
+            node_source = fork_node_source(project)
             lifecycle_source = (project / "manager_node_lifecycle.py").read_text(
                 encoding="utf-8", errors="replace"
             )
@@ -132,7 +125,9 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             "def _remember_real_account_terminal",
             "def _tester_terminal_pool",
             '"tester_execution"',
-            '"workers": str(workers)',
+            # Sin el nombre de la variable: el fork lo escribe
+            # `str(terminals.workers)` y el criterio es el mismo.
+            '"workers": str(',
             "def _close_terminal_pids_gracefully",
             "remember_for=str(request[\"audit_key\"])",
             'request["restore_login"]',
@@ -143,14 +138,11 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
 
     def _check_auditor_restore_on_fork(self, project: Path, _source: str) -> None:
-        engine = project / "manager_node_runtime" / "live_audit.py"
-        if not engine.is_file():
+        source = fork_live_audit_source(project)
+        if not source:
             print(f"\n[paridad] auditor real: {project} no tiene manager_node_runtime/live_audit.py")
             return
-        source = engine.read_text(encoding="utf-8", errors="replace")
-        node_source = (project / "manager_node_runtime" / "node.py").read_text(
-            encoding="utf-8", errors="replace"
-        )
+        node_source = fork_node_source(project)
         self.assertIn(
             '"live_audit_restore_account": True', node_source,
             f"{project}: el runtime nuevo no anuncia al manager la restauración independiente.",
@@ -160,7 +152,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             ("def _remember_real_account_terminal", "el registro de terminales con la cuenta real"),
             ("def _tester_terminal_pool", "el reparto del tester entre terminales habilitadas"),
             ('"tester_execution"', "la evidencia del modo y del pool de terminales ejecutado"),
-            ('"workers": str(workers)', "el número efectivo de terminales del tester"),
+            ('"workers": str(', "el número efectivo de terminales del tester"),
             ("def _close_terminal_pids_gracefully", "el cierre que deja a MT5 guardar la cuenta"),
             ('request["restore_login"]', "el login final independiente de la cuenta tester"),
             ('request["restore_password"]', "la credencial final independiente de la cuenta tester"),
@@ -207,10 +199,9 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
 
         def check(project: Path, _source: str) -> None:
-            engine = project / "manager_node_runtime" / "live_audit.py"
-            if not engine.is_file():
+            source = fork_live_audit_source(project)
+            if not source:
                 return
-            source = engine.read_text(encoding="utf-8", errors="replace")
             for token in tokens:
                 self.assertIn(token, source, f"{project}: falta `{token}` en el auditor real")
 
@@ -226,10 +217,9 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
 
         def check(project: Path, _source: str) -> None:
-            engine = project / "manager_node_runtime" / "live_audit.py"
-            if not engine.is_file():
+            source = fork_live_audit_source(project)
+            if not source:
                 return
-            source = engine.read_text(encoding="utf-8", errors="replace")
             for token in tokens:
                 self.assertIn(token, source, f"{project}: falta `{token}` en el auditor real")
 
@@ -248,10 +238,9 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         def check(project: Path, _source: str) -> None:
             if _delegates_to_the_manager(project):
                 return
-            engine = project / "manager_node_runtime" / "live_audit.py"
-            if not engine.is_file():
+            source = fork_live_audit_source(project)
+            if not source:
                 return
-            source = engine.read_text(encoding="utf-8", errors="replace")
             for token in tokens:
                 self.assertIn(token, source, f"{project}: falta `{token}` en el auditor real")
 
@@ -265,10 +254,9 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         def check(project: Path, _source: str) -> None:
             if _delegates_to_the_manager(project):
                 return
-            price = project / "manager_node_runtime" / "live_audit_price.py"
-            if not price.is_file():
+            source = fork_live_audit_source(project)
+            if not source:
                 return
-            source = price.read_text(encoding="utf-8", errors="replace")
             for token in tokens:
                 self.assertIn(token, source, f"{project}: falta `{token}` en el precio real")
 
@@ -283,10 +271,9 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         ported: list[Path] = []
 
         def check(project: Path, _source: str) -> None:
-            engine = project / "manager_node_runtime" / "live_audit.py"
-            if not engine.is_file():
+            source = fork_live_audit_source(project)
+            if not source:
                 return
-            source = engine.read_text(encoding="utf-8", errors="replace")
             if "last_payload=payload" in source:
                 ported.append(project)
                 self.assertIn('"last_payload": raw.get("last_payload")', source)
@@ -298,10 +285,9 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
     def test_ictrading_live_auditor_has_calendar_boundaries_and_effective_lot_contract(self) -> None:
         manager_engine = self._manager_auditor_source()
         ic_project = FORK_CANDIDATES[0]
-        ic_engine_path = ic_project / "manager_node_runtime" / "live_audit.py"
-        if not ic_engine_path.is_file():
-            self.skipTest(f"La copia ICTrading no está montada: {ic_engine_path}")
-        ic_engine = ic_engine_path.read_text(encoding="utf-8", errors="replace")
+        ic_engine = fork_live_audit_source(ic_project)
+        if not ic_engine:
+            self.skipTest(f"La copia ICTrading no está montada: {ic_project}")
         node_tokens = (
             "def _audit_period",
             'period_mode == "fixed_dates"',
@@ -396,9 +382,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         )
 
         def check(project: Path, _source: str) -> None:
-            node_source = (project / "manager_node_runtime" / "node.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
+            node_source = fork_node_source(project)
             self._assert_present(
                 node_source,
                 r"def _add\(.*?\n(?:\s*#.*\n)*\s*if value is None:\s*\n\s*return",

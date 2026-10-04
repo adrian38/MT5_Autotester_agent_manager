@@ -8,12 +8,12 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        manager_node_source,
+        fork_node_source, manager_node_source,
     )
 except ImportError:
     from node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        manager_node_source,
+        fork_node_source, manager_node_source,
     )
 
 
@@ -70,8 +70,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
             self.assertIn(token, manager_node, f"El nodo fuente del manager perdió `{token}`.")
 
         def check(project: Path, _source: str) -> None:
-            node_path = project / "manager_node_runtime" / "node.py"
-            node_source = node_path.read_text(encoding="utf-8", errors="replace")
+            node_source = fork_node_source(project)
             for token in ('limit ? offset ?', '"pagination": {', '"next_offset"', 'query.get("offset"'):
                 self.assertIn(
                     token,
@@ -244,11 +243,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                 "fotografiar el estado restaurado, aplicar el nuevo) y duplicar la prueba "
                 "en tests/test_manager_node_portfolio_save.py.",
             )
-            node_runtime = project / "manager_node_runtime" / "node.py"
-            try:
-                node_source = node_runtime.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                self.fail(f"{project}: no se puede leer {node_runtime}")
+            node_source = fork_node_source(project)
             self._assert_present(
                 node_source,
                 re.escape("/api/v1/portfolios/requalify"),
@@ -325,9 +320,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         self.assertIn("repair_run_regression", script)
 
         def check(project: Path, _source: str) -> None:
-            node_source = (project / "manager_node_runtime" / "node.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
+            node_source = fork_node_source(project)
             self._assert_present(
                 node_source,
                 re.escape('payload["run_regression"] = bool(payload.get("run_regression", True))'),
@@ -375,9 +368,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
             self.assertIn(token, manager_node, f"El manager perdió `{token}`.")
 
         def check(project: Path, _source: str) -> None:
-            node_source = (project / "manager_node_runtime" / "node.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
+            node_source = fork_node_source(project)
             for token, hint in (
                 ('payload.get("repair_phase2_max_workers")', "el límite de terminales de la fase 2"),
                 ("for phase, workers in enumerate(", "las dos fases del pipeline de reparación"),

@@ -30,6 +30,36 @@ def manager_node_source() -> str:
     )
 
 
+def _fork_source(project: Path, pattern: str) -> str:
+    """Todos los módulos del runtime del agente que empiezan por `pattern`.
+
+    La copia de cada agente también se parte: ICTrading repartió `node.py` en
+    once `node*.py` y `live_audit.py` en nueve `live_audit*.py`. Leer un solo
+    fichero hacía fallar la paridad por criterios que el fork sí tiene, que es
+    la cara ruidosa del mismo fallo que vuelve verde una guarda vacía.
+    """
+    runtime = project / "manager_node_runtime"
+    return "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in sorted(runtime.glob(f"{pattern}*.py"))
+    )
+
+
+def fork_node_source(project: Path) -> str:
+    """El nodo del agente entero, sea cual sea el número de ficheros."""
+    return _fork_source(project, "node")
+
+
+def fork_live_audit_source(project: Path) -> str:
+    """El auditor real del agente entero, sea cual sea el número de ficheros."""
+    return _fork_source(project, "live_audit")
+
+
+def fork_portfolio_source(project: Path) -> str:
+    """Las reglas de portafolio del agente, `portfolio_save` y lo que salió de él."""
+    return _fork_source(project, "portfolio")
+
+
 FORK_CANDIDATES = (
     Path(r"C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent"),
     Path(r"F:\TRADING\MT5_Autotester_agent_AXI"),
@@ -44,7 +74,7 @@ def _reachable_forks() -> list[tuple[Path, str]]:
         rules = project / "manager_node_runtime" / "portfolio_save.py"
         try:
             if rules.is_file():
-                found.append((project, rules.read_text(encoding="utf-8", errors="replace")))
+                found.append((project, fork_portfolio_source(project)))
         except OSError:
             continue
     return found
