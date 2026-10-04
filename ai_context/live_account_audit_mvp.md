@@ -1088,3 +1088,34 @@ Detalles que no son obvios:
 - Si el análisis falla, el resultado es `None` y se publica `analysis_error`. La
   página lo dice en vez de «todavía no hay una auditoría terminada», que sería
   falso cuando el nodo sí ejecutó.
+
+## El pool del tester respeta el tope del nodo y no repite instalación (2026-10-05)
+
+Medición del 2026-10-05 sobre la auditoría del portafolio #53: 16 sets, cinco
+terminales, cinco backtests simultáneos de 01:31:31 a 01:33:20. El tester **sí
+es paralelo**. Lo que es monoterminal por diseño —y ocupa los otros tres de los
+cinco minutos— es conectar la cuenta real, bajar su HTML nativo, verificar el
+login del tester y restaurar la cuenta final: la cuenta real es una.
+
+Dos cosas estaban mal en `_tester_terminal_pool`, las dos invisibles mientras el
+número de terminales coincidiera con el de workers:
+
+- **Ignoraba `[Multiterminal] workers`.** El pipeline lo pasa a `run_tests` como
+  `--max-workers` (`node_jobs_api.py`, `node_commands.py`); el auditor abría una
+  terminal por set hasta agotar las del broker. Con `workers=5` y nueve
+  terminales declaradas habría abierto nueve. Ahora `_multiterminal_worker_limit`
+  lee esa sección: ausente o ilegible no inventa tope (manda el número de sets),
+  `enabled=0` significa una sola terminal, y si no, el número configurado.
+- **No deduplicaba por `mt5_path`.** Cuatro secciones apuntando a la misma
+  instalación eran cuatro «workers» peleándose por una única instancia de MT5 y
+  por su cuenta guardada. `_unique_terminal_paths` se queda con la primera, que
+  tras la ordenación es la terminal ya validada para el tester.
+
+Queda a propósito una asimetría: `_login_terminal` —cuenta real y verificación
+del tester— sólo mira las terminales **habilitadas**, mientras que el pool las
+ignora en cuanto hay más de un set, igual que la UI. Es lo que hizo que una
+entrada marcada ICTRADING pero apuntando al terminal de RoboForex, la única
+habilitada, devolviera `(-10003, "IPC initialize failed, Pipe server didn't
+answer in 60 sec")` tras 60 segundos: el auditor intentó meter una cuenta de
+CapitalPoint en un terminal de RoboForex. El error nombra la carpeta de la
+instalación, que es lo que delató el caso.

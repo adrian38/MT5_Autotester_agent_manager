@@ -36,6 +36,43 @@ class _TerminalMixin:
     def _terminal_path(self) -> Path:
         return Path(self._terminal_profiles()[0][1]["mt5_path"])
 
+    def _multiterminal_worker_limit(self) -> int:
+        """Tope de terminales simultáneas del nodo; 0 si su configuración no lo fija.
+
+        Es el mismo `[Multiterminal]` que el pipeline pasa a `run_tests` como
+        `--max-workers`. El auditor lo ignoraba y abría tantas terminales como
+        tuviera el broker, saltándose el límite que el usuario sí configuró.
+        """
+        try:
+            parser = configparser.ConfigParser(interpolation=None)
+            parser.read(self._settings_path(), encoding="utf-8")
+            if not parser.has_section("Multiterminal"):
+                return 0
+            if not parser.getboolean("Multiterminal", "enabled", fallback=False):
+                return 1
+            return max(1, int(str(parser.get("Multiterminal", "workers", fallback="")).strip() or 1))
+        except (OSError, ValueError, configparser.Error):
+            return 0
+
+    @staticmethod
+    def _unique_terminal_paths(
+        profiles: list[tuple[str, dict[str, str]]],
+    ) -> list[tuple[str, dict[str, str]]]:
+        """Una instalación, un worker: dos perfiles con la misma ruta no son dos terminales.
+
+        Duplicarla no reparte nada; los dos workers se pelean por la misma
+        instancia de MT5 y por su cuenta guardada.
+        """
+        unique: list[tuple[str, dict[str, str]]] = []
+        seen: set[str] = set()
+        for section, profile in profiles:
+            key = os.path.normcase(os.path.abspath(str(profile.get("mt5_path") or "")))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append((section, profile))
+        return unique
+
     def _tester_terminal_pool(
         self, preferred_section: str, preferred_profile: dict[str, str], set_count: int,
     ) -> list[tuple[str, dict[str, str]]]:
@@ -50,7 +87,12 @@ class _TerminalMixin:
                 or str(item[1].get("mt5_path") or "").casefold() == preferred_path
             ) else 1
         )
-        return profiles[:min(max(0, set_count), len(profiles))]
+        unique = self._unique_terminal_paths(profiles)
+        limit = max(0, set_count)
+        worker_limit = self._multiterminal_worker_limit()
+        if worker_limit:
+            limit = min(limit, worker_limit)
+        return unique[:min(limit, len(unique))]
 
     def _native_report_profiles(self, excluded_path: Path) -> list[tuple[str, dict[str, str]]]:
         excluded = excluded_path.resolve()
