@@ -176,10 +176,10 @@ en el detalle de una cartera guardada.
 
 | Copia | Rama `pool_member` |
 | --- | --- |
-| Manager (`portfolio_service.py`; `node.py` ya caía a `exclude_strategy`) | sí |
-| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`, rama `IC`) | sí, 2026-09-20 |
-| ICTrading | **no**, pendiente (no montada en este equipo) |
-| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+| Manager (`portfolio_source_quarantine.py` + `portfolio_coordinator_saved.py`) | sí |
+| ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, verificado el 2026-09-27 |
+| AXI | no verificado (`F:` no montada) |
+| RoboForex / `MT5_Autotester_agent` | no verificado (no montadas) |
 
 `tests/test_node_runtime_fork_parity.py::test_pool_exclusion_reaches_every_reachable_fork`
 **falla a propósito** mientras quede una copia montada sin portar, y el fallo es
@@ -212,7 +212,7 @@ pantalla lo dice. No es una operación, pero tiene que notarse que no lo es.
 
 - Manager: `tests/test_exclusion_verdict.py` (23, con `RequalifyTests`,
   `RequalifyRoutingTests` y `PoolExclusionRoutingTests`),
-  `tests/test_static_portfolios.py::ExclusionReasonScreenTests` (6),
+  `tests/test_static_portfolio_transfer.py::ExclusionReasonScreenTests`,
   `tests/test_node_runtime_fork_parity.py` (`test_no_fork_deletes_the_saved_portfolio_when_excluding`,
   las dos del veredicto,
   `test_changing_the_state_of_an_excluded_strategy_reaches_every_reachable_fork`

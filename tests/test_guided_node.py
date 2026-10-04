@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from mt5_manager import node_job_starts
+from mt5_manager import node_job_runtime
 from mt5_manager import guided_batches as protocol
 from mt5_manager.node import JobController, build_generation_command
 
@@ -99,8 +101,8 @@ class GuidedNodeTests(unittest.TestCase):
         self.assertEqual(len(self.controller.queue),1)
         saved=json.loads(self.controller.queue_path.read_text());self.assertEqual(saved[0]['payload']['guided_batch_id'],p['batch_id'])
         request=self.controller.queue[0]['payload']
-        with mock.patch.object(self.controller,'_launch_step'):
-            self.controller._start_generation(request)
+        with mock.patch.object(node_job_runtime, "_launch_step"):
+            node_job_starts._start_generation(self.controller, request)
         self.assertEqual([x['action'] for x in self.controller.state['pipeline']],['generation','robustness','final_tick','final_tick_6m'])
         command=self.controller.state['command']
         self.assertIn('--prepared-manifest',command)
@@ -113,7 +115,7 @@ class GuidedNodeTests(unittest.TestCase):
                                      current_step_index=0, log_path='existing.log')
         with mock.patch.object(self.controller,'_schedule_queue_drain'):
             self.controller.submit_guided(package())
-        with mock.patch.object(self.controller,'_start_generation') as launch:
+        with mock.patch.object(node_job_starts, "_start_generation") as launch:
             self.controller._drain_queue()
             launch.assert_not_called()
         self.assertEqual(self.controller.state['status'],'paused')
@@ -138,14 +140,14 @@ class GuidedNodeTests(unittest.TestCase):
         with mock.patch.object(self.controller,'_schedule_queue_drain'):
             self.controller.submit_guided(p)
         request=self.controller.queue.pop()['payload']
-        with mock.patch.object(self.controller,'_launch_step'):
-            self.controller._start_generation(request)
+        with mock.patch.object(node_job_runtime, "_launch_step"):
+            node_job_starts._start_generation(self.controller, request)
         protocol.save_json(protocol.batch_dir(self.root,p['batch_id'])/'run.json',{'run_id':17})
         process=mock.Mock();process.wait.return_value=0;self.controller.process=process
         node_module=JobController.__module__
         with mock.patch(node_module+'.database_snapshot',return_value={'latest_run':{'id':999}}), \
-             mock.patch.object(self.controller,'_launch_next_runnable',return_value=True):
-            self.controller._watch(process,0)
+             mock.patch.object(node_job_runtime, "_launch_next_runnable",return_value=True):
+            node_job_runtime._watch(self.controller, process,0)
         self.assertTrue(all(x['run_id']==17 for x in self.controller.state['pipeline']))
 
 

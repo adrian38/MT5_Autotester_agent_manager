@@ -1,0 +1,5 @@
+{
+  "_comment": "Ficheros que ya superaba(n) 600 lineas cuando se instalo la guarda. Esta lista solo puede encoger: al partir, borra su entrada. Regenerar no es una forma valida de silenciar el test.",
+  "grandfathered": {},
+  "max_lines": 600
+}

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -14,125 +13,71 @@ from mt5_manager.portfolio_full_experimental import (
 from mt5_manager.portfolio_service import (
     PORTFOLIO_TYPES,
     _locked_full_proposals,
-    _underrepresented_recent_allocation_ids,
     normalize_settings,
+)
+from tests.portfolio_full_experimental_fixtures import (
+    allocation,
+    built_result,
+    recent_fillers,
+    result_for,
+    strategy,
 )
 
 
-def allocation(
-    set_id: str,
-    *,
-    units: int = 1,
-    recent: float = 10.0,
-    contribution: float = 100.0,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        set_id=set_id,
-        units=units,
-        net_profit_contribution=contribution,
-        recent_net_profit_001=recent,
-        has_recent_performance=True,
+
+
+
+
+
+
+
+
+
+
+def _experimental_inputs():
+    return normalize_settings(
+        "full_history",
+        {
+            "allowed_asset_groups": ["Forex"],
+            "experimental_full_search": True,
+        },
+        "ICTRADING",
     )
 
 
-def built_result(allocations, *, profit: float | None = None) -> SimpleNamespace:
-    allocations = list(allocations)
-    return SimpleNamespace(
-        allocations=allocations,
-        total_net_profit=float(
-            profit
-            if profit is not None
-            else sum(item.net_profit_contribution for item in allocations)
-        ),
-        active_strategies=len([item for item in allocations if item.units > 0]),
-        actual_valley_dd=10.0,
-        target_valley_dd=1000.0,
-        target_point_dd=1000.0,
-        total_units=sum(item.units for item in allocations),
-        warnings=[],
-        seasonal_coverage={},
-        seasonal_validation={},
-    )
-
-
-def recent_fillers(result) -> set[str]:
-    return _underrepresented_recent_allocation_ids(result, 5.0)
-
-
-def strategy(index: int) -> SimpleNamespace:
-    increments = [
-        float(20 + index % 5),
-        float(24 + index % 7),
-        float(28 + index % 3),
-    ]
-    total = 0.0
-    curve = [0.0]
-    points = []
-    for offset, increment in enumerate(increments):
-        total += increment
-        curve.append(total)
-        points.append((datetime(2023 + offset, 6, 15), total))
-    in_sample = SimpleNamespace(
-        start_year=2020,
-        end_year=2024,
-        net_profit_001=60.0 + index,
-        return_dd_ratio=2.0 + index % 4,
-    )
-    out_of_sample = SimpleNamespace(
-        start_year=2025,
-        end_year=2026,
-        net_profit_001=35.0 + index,
-        return_dd_ratio=1.5 + index % 3,
-    )
-    return SimpleNamespace(
-        set_id=f"set-{index}",
-        symbol=("EURUSD", "XAUUSD", "US500")[index % 3],
-        robustness_status="accepted",
-        already_used=False,
-        report_2020_2024=in_sample,
-        report_2025_2026=out_of_sample,
-        curve_2020_2026_001=curve,
-        curve_points_2020_2026_001=points,
-        net_profit_2020_2026_001=total,
-        return_dd_2020_2026=float(1 + index % 7),
-        profit_factor_2020_2026=float(1.1 + (index % 5) / 10),
-        valley_dd_2020_2026_001=float(20 + index % 11),
-        max_floating_dd_001=float(index % 13),
-        trades_2020_2026=130,
-        has_recent_performance=True,
-        recent_net_profit_001=float(10 + index % 5),
-        recent_equity_dd_001=float(3 + index % 4),
-        target_month=None,
-        month_years=(),
-        positive_month_years=(),
-    )
-
-
-def result_for(pool) -> SimpleNamespace:
-    allocations = [
-        SimpleNamespace(
-            set_id=item.set_id,
-            units=1,
-            net_profit_contribution=item.net_profit_2020_2026_001,
-            recent_net_profit_001=item.recent_net_profit_001,
-            has_recent_performance=True,
+def _run_locked_bundle(strategies, locked, engine, refine):
+    """Ejecuta el paquete A/M/C con el motor y la primitiva sustituidos."""
+    with patch(
+        "mt5_manager.portfolio_generation_search._optimize_without_recent_fillers",
+        side_effect=refine,
+    ), patch(
+        "mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio",
+        **engine,
+    ) as experimental, patch(
+        "mt5_manager.portfolio_generation_search.optimize_portfolio",
+        side_effect=lambda **_kwargs: result_for(locked),
+    ) as stable:
+        proposals = _locked_full_proposals(
+            strategies,
+            _experimental_inputs(),
+            {kind: [] for kind in PORTFOLIO_TYPES.values()},
         )
-        for item in pool[: max(len(pool) // 2, 1)]
-    ]
-    return SimpleNamespace(
-        allocations=allocations,
-        total_net_profit=sum(
-            item.net_profit_2020_2026_001 for item in pool
-        ),
-        active_strategies=len(allocations),
-        actual_valley_dd=10.0,
-        target_valley_dd=1000.0,
-        target_point_dd=1000.0,
-        total_units=len(allocations),
-        warnings=[],
-        seasonal_coverage={},
-        seasonal_validation={},
-    )
+    return proposals, experimental, stable
+
+
+def _tournament_result(strategies, locked, warning: str, audit_active: int):
+    result = result_for(strategies)
+    result.allocations = result_for(locked).allocations
+    result.active_strategies = len(locked)
+    result.warnings = [warning]
+    result.seasonal_validation = {
+        "experimental_full_history_stability": {
+            "status": "completed",
+            "passed": True,
+            "active_strategies": audit_active,
+        }
+    }
+    return result
 
 
 class ExperimentalFullSearchTests(unittest.TestCase):
@@ -227,6 +172,25 @@ class ExperimentalFullSearchTests(unittest.TestCase):
             pool_by_id["set-0"], pool_by_id["set-1"]
         )
 
+    def _assert_round_robin_coverage(self, first_round, strategies) -> None:
+        """Cada candidato aparece el mismo numero de veces en la primera ronda."""
+        self.assertEqual(
+            {set_id for pool in first_round for set_id in pool},
+            {item.set_id for item in strategies},
+        )
+        appearances = {
+            set_id: sum(set_id in pool for pool in first_round)
+            for set_id in {item.set_id for item in strategies}
+        }
+        self.assertEqual(set(appearances.values()), {3})
+
+    def _assert_only_the_final_pass_refines(self, settings_seen) -> None:
+        """Las rondas del torneo van sin reinicios ni refinado profundo."""
+        for settings in settings_seen[:-1]:
+            self.assertEqual(settings["optimizer_kwargs"]["search_restarts"], 0)
+            self.assertFalse(settings["use_deep_refinement"])
+        self.assertTrue(settings_seen[-1]["use_deep_refinement"])
+
     def test_tournament_examines_every_candidate_and_records_audit(self) -> None:
         strategies = [strategy(index) for index in range(35)]
         evaluated: list[list[str]] = []
@@ -252,39 +216,12 @@ class ExperimentalFullSearchTests(unittest.TestCase):
                 top_k_per_symbol=3,
             )
 
-        first_round = evaluated[:12]
-        self.assertEqual(
-            {
-                set_id
-                for pool in first_round
-                for set_id in pool
-            },
-            {item.set_id for item in strategies},
-        )
-        appearances = {
-            set_id: sum(
-                set_id in pool for pool in first_round
-            )
-            for set_id in {
-                item.set_id for item in strategies
-            }
-        }
-        self.assertEqual(set(appearances.values()), {3})
-        for settings in settings_seen[:-1]:
-            self.assertEqual(
-                settings["optimizer_kwargs"]["search_restarts"], 0
-            )
-            self.assertFalse(settings["use_deep_refinement"])
-        self.assertTrue(settings_seen[-1]["use_deep_refinement"])
+        self._assert_round_robin_coverage(evaluated[:12], strategies)
+        self._assert_only_the_final_pass_refines(settings_seen)
         self.assertTrue(
-            any(
-                "35/35 candidatos examinados" in warning
-                for warning in result.warnings
-            )
+            any("35/35 candidatos examinados" in warning for warning in result.warnings)
         )
-        audit = result.seasonal_validation[
-            "experimental_full_history_stability"
-        ]
+        audit = result.seasonal_validation["experimental_full_history_stability"]
         self.assertEqual(audit["status"], "completed")
         self.assertIn("is_2020_2024", audit["segments"])
         self.assertIn("oos_2025_2026", audit["segments"])
@@ -292,56 +229,25 @@ class ExperimentalFullSearchTests(unittest.TestCase):
 
     def test_locked_bundle_uses_experimental_only_for_base_selection(self) -> None:
         strategies = [strategy(index) for index in range(4)]
-        inputs = normalize_settings(
-            "full_history",
-            {
-                "allowed_asset_groups": ["Forex"],
-                "experimental_full_search": True,
-            },
-            "ICTRADING",
-        )
-        base_result = result_for(strategies)
         locked = strategies[:2]
+        base_result = result_for(strategies)
         base_result.allocations = result_for(locked).allocations
         base_result.active_strategies = len(locked)
         base_result.seasonal_validation = {
-            "experimental_full_history_stability": {
-                "status": "completed",
-                "passed": True,
-            }
+            "experimental_full_history_stability": {"status": "completed", "passed": True}
         }
-        base_result.warnings = [
-            "Búsqueda UBS experimental: 4/4 candidatos examinados;"
-        ]
-
+        base_result.warnings = ["Búsqueda UBS experimental: 4/4 candidatos examinados;"]
         refill_flags: list[bool] = []
 
         def run_once(
-            candidate_sets,
-            _minimum_recent,
-            optimize,
-            *,
-            progress=None,
-            refill_from_pool=False,
+            candidate_sets, _minimum_recent, optimize, *, progress=None, refill_from_pool=False,
         ):
             refill_flags.append(refill_from_pool)
             return optimize(candidate_sets), set()
 
-        with patch(
-            "mt5_manager.portfolio_service._optimize_without_recent_fillers",
-            side_effect=run_once,
-        ), patch(
-            "mt5_manager.portfolio_service.optimize_experimental_full_portfolio",
-            return_value=base_result,
-        ) as experimental, patch(
-            "mt5_manager.portfolio_service.optimize_portfolio",
-            side_effect=lambda **_kwargs: result_for(locked),
-        ) as stable:
-            proposals = _locked_full_proposals(
-                strategies,
-                inputs,
-                {kind: [] for kind in PORTFOLIO_TYPES.values()},
-            )
+        proposals, experimental, stable = _run_locked_bundle(
+            strategies, locked, {"return_value": base_result}, run_once,
+        )
 
         self.assertEqual(len(proposals), 3)
         experimental.assert_called_once()
@@ -558,72 +464,31 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
 
     def test_the_tournament_record_survives_a_survivor_rerun(self) -> None:
         strategies = [strategy(index) for index in range(4)]
-        inputs = normalize_settings(
-            "full_history",
-            {
-                "allowed_asset_groups": ["Forex"],
-                "experimental_full_search": True,
-            },
-            "ICTRADING",
-        )
         locked = strategies[:2]
-
-        def tournament_result(warning: str, audit_active: int) -> SimpleNamespace:
-            result = result_for(strategies)
-            result.allocations = result_for(locked).allocations
-            result.active_strategies = len(locked)
-            result.warnings = [warning]
-            result.seasonal_validation = {
-                "experimental_full_history_stability": {
-                    "status": "completed",
-                    "passed": True,
-                    "active_strategies": audit_active,
-                }
-            }
-            return result
-
         engine_results = [
-            tournament_result(
-                "Búsqueda UBS experimental: 486/486 candidatos examinados; "
-                "3 ronda(s).",
+            _tournament_result(
+                strategies, locked,
+                "Búsqueda UBS experimental: 486/486 candidatos examinados; 3 ronda(s).",
                 8,
             ),
-            tournament_result(
-                "Búsqueda UBS experimental: 4/4 candidatos examinados; "
-                "0 ronda(s).",
+            _tournament_result(
+                strategies, locked,
+                "Búsqueda UBS experimental: 4/4 candidatos examinados; 0 ronda(s).",
                 4,
             ),
         ]
-
         refill_flags: list[bool] = []
 
         def refine_over_survivors(
-            candidate_sets,
-            _minimum_recent,
-            optimize,
-            *,
-            progress=None,
-            refill_from_pool=False,
+            candidate_sets, _minimum_recent, optimize, *, progress=None, refill_from_pool=False,
         ):
             refill_flags.append(refill_from_pool)
             optimize(candidate_sets)
             return optimize(candidate_sets[:2]), {"set-2", "set-3"}
 
-        with patch(
-            "mt5_manager.portfolio_service._optimize_without_recent_fillers",
-            side_effect=refine_over_survivors,
-        ), patch(
-            "mt5_manager.portfolio_service.optimize_experimental_full_portfolio",
-            side_effect=engine_results,
-        ), patch(
-            "mt5_manager.portfolio_service.optimize_portfolio",
-            side_effect=lambda **_kwargs: result_for(locked),
-        ):
-            proposals = _locked_full_proposals(
-                strategies,
-                inputs,
-                {kind: [] for kind in PORTFOLIO_TYPES.values()},
-            )
+        proposals, _experimental, _stable = _run_locked_bundle(
+            strategies, locked, {"side_effect": engine_results}, refine_over_survivors,
+        )
 
         self.assertEqual(len(proposals), 3)
         self.assertEqual(refill_flags, [False])

@@ -2,55 +2,47 @@
 
 @AGENTS.md
 
-## Obligatorio antes de tocar código
+Las reglas de trabajo están en `AGENTS.md`. Aquí sólo lo que depende de **este
+equipo**: cómo se llama el proyecto en el índice y cómo desatascar
+`codebase-memory-mcp` cuando falla.
 
-**Usar `codebase-memory-mcp` (DeusData) en este proyecto. No es opcional.**
+## Nombres del índice en este equipo
 
-El proyecto está indexado como **`C-Users-Adrian-Adrian-TRADING-MT5_Autotester_agent_manager`**
-(el nombre lo deriva la herramienta de la ruta; `list_projects` es la autoridad si falla).
-Comprobar con `index_status` y reindexar con `index_repository` si está obsoleto.
+La herramienta los deriva de la ruta, así que cambian de equipo: confirmar con
+`list_projects` antes de darlos por buenos. Comprobar frescura con
+`index_status`.
 
-Si `index_repository` responde «Indexing worker crashed on a file», **no es un fichero
-del proyecto**: el worker muere al arrancar y deja el log en blanco. Comprobado el
-2026-08-09 con un repo de dos ficheros, que crashea igual. Reindexar por CLI, que sí
-funciona, y reiniciar el servidor MCP cuando se pueda:
+| Proyecto | Nombre en el índice |
+| --- | --- |
+| Este repositorio | `C-Users-Adrian-Adrian-TRADING-MT5_Autotester_agent_manager` |
+| ICTrading (el que corre aquí) | `C-Users-Adrian-Adrian-TRADING-MT5_Autotester_agent_IC-MT5_Autotester_agent` |
+| RoboForex / genérico | `C-Users-Adrian-Adrian-TRADING-MT5_Autotester_agent` |
+
+Los dos proyectos hermanos son imprescindibles para ver la copia bifurcada del
+nodo, que el grafo del manager no puede mostrar. **AXI no está indexado aquí**
+(`F:` sin montar): para AXI no hay grafo, sólo `rg` sobre la ruta cuando esté
+disponible.
+
+## Fallo 1: «Indexing worker crashed on a file»
+
+No es un fichero del proyecto: el worker muere al arrancar y deja el log en
+blanco. Comprobado el 2026-08-09 con un repo de dos ficheros, que crashea igual.
+Reindexar por CLI, que sí funciona, y reiniciar el servidor MCP cuando se pueda:
 
 ```
 "C:\Users\Adrian\AppData\Local\Programs\codebase-memory-mcp\codebase-memory-mcp.exe" cli index_repository --repo-path "C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_manager" --mode full
 ```
 
-El parámetro obligatorio es `repo_path`, no `project`; pasar `project` devuelve el mismo
-mensaje de crash en lugar de un error de validación, y hace perder el diagnóstico.
+El parámetro obligatorio es `repo_path`, no `project`. Pasar `project` devuelve
+el mismo mensaje de crash en lugar de un error de validación, y hace perder el
+diagnóstico.
 
-Si el servidor MCP se queda en «connecting» y no aparece ninguna de sus herramientas,
-**no** es el índice: desde la 0.10.8 se niega a arrancar si su caché cuelga del perfil.
-Por eso `.mcp.json` fija `CBM_CACHE_DIR` y `CBM_RUNTIME_DIR` en `C:\cbm`, igual que los
-proyectos de Idrica. Diagnóstico en `ai_context/codebase_memory_mcp_no_arranca.md`.
-Que el CLI de arriba funcione **no** demuestra que el servidor arranque: es otro
-ejecutable y otra versión (0.9.0 contra 0.10.8).
+## Fallo 2: el servidor se queda en «connecting»
 
-Antes de leer o modificar código:
+Si no aparece ninguna de sus herramientas, **no** es el índice: desde la 0.10.8
+se niega a arrancar si su caché cuelga del perfil. Por eso `.mcp.json` fija
+`CBM_CACHE_DIR` y `CBM_RUNTIME_DIR` en `C:\cbm`, igual que los proyectos de
+Idrica. Diagnóstico en `ai_context/codebase_memory_mcp_no_arranca.md`.
 
-1. `search_graph` / `search_code` para localizar símbolos y flujos — **en lugar de** `rg` o `grep`
-   para encontrar definiciones, implementaciones y relaciones.
-2. `trace_path` antes de cambiar cualquier cosa compartida, para ver el impacto real.
-   `mt5_manager/portfolio_service.py` y `portfolio_manager/ubs_portfolio.py` alimentan los dos
-   scopes (UBS y UBS mensual) y los tres nodos: nunca asumir el alcance de un cambio ahí.
-3. `get_code_snippet` solo con el `qualified_name` exacto que devolvió el grafo.
-4. Reindexar tras cambios estructurales y volver a consultar el grafo para verificar.
-
-`rg`, `git` y PowerShell valen para búsquedas de ficheros y comprobaciones mecánicas, no
-sustituyen al análisis con el grafo.
-
-Proyectos hermanos indexados en este equipo, útiles para cruzar el manager con los
-agentes — imprescindibles para ver la copia bifurcada del nodo, que el grafo del manager
-no puede mostrar:
-
-| Agente | Nombre del proyecto |
-| --- | --- |
-| ICTrading (el que corre aquí) | `C-Users-Adrian-Adrian-TRADING-MT5_Autotester_agent_IC-MT5_Autotester_agent` |
-| RoboForex / `MT5_Autotester_agent` | `C-Users-Adrian-Adrian-TRADING-MT5_Autotester_agent` |
-
-**AXI no está indexado en este equipo** (`F:` no montada): para AXI no hay grafo, solo
-`rg` sobre la ruta cuando esté disponible. Los nombres los deriva la herramienta de la
-ruta, así que cambian de equipo: confirmar con `list_projects` antes de darlos por buenos.
+Que el CLI del fallo 1 funcione **no** demuestra que el servidor arranque: es
+otro ejecutable y otra versión (0.9.0 contra 0.10.8).

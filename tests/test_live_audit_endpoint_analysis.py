@@ -1,25 +1,19 @@
 from __future__ import annotations
 
 import unittest
-from mt5_manager.live_audit_analysis import analyse_node_state, has_raw_material
+from types import SimpleNamespace
+
+from mt5_manager.manager_live_audit_routes import analysed_live_audit
 from tests.test_live_audit_analysis import payload, profile
 
 
 class Endpoint:
-    """Reproduce lo que hace el manager al servir una auditoría.
-
-    `manager.py` importa `cryptography` para las credenciales, que no está en
-    este workspace; por eso el criterio vive en `live_audit_analysis` y el
-    handler es una envoltura de cinco líneas que esto replica exactamente.
-    """
-
     def __init__(self, profiles: dict) -> None:
-        self._profiles = profiles
+        settings = SimpleNamespace(state=lambda _node_id: {"profiles": profiles})
+        self.server = SimpleNamespace(live_audit_settings=settings)
 
-    def _analysed_live_audit(self, _node_id: str, audit_id: str, value):
-        if not has_raw_material(value):
-            return value
-        return analyse_node_state(value, dict(self._profiles.get(audit_id) or {}))
+    def _analysed_live_audit(self, node_id: str, audit_id: str, value):
+        return analysed_live_audit(self, node_id, audit_id, value)
 
 
 def handler(profiles: dict) -> Endpoint:

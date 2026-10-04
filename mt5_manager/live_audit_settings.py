@@ -1,74 +1,26 @@
 from __future__ import annotations
 
-import math
 import os
 import threading
-from datetime import date
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 
 from .common import load_json, save_json, utc_now
-
-
-DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
-    "portfolio_id": 0,
-    "portfolio_type": "",
-    "real_strategy_lots": {},
-    "deployment_name": "",
-    "source_login": "",
-    "source_server": "",
-    "tester_login": "",
-    "tester_server": "",
-    "active_job_policy": "pause_resume",
-    "period_mode": "rolling_days",
-    "period_days": 7,
-    "period_start_date": "",
-    "period_end_date": "",
-    "audit_interval_days": 1,
-    "tester_model": "real_ticks",
-    "min_tick_history_quality_pct": 80.0,
-    "execution_delay_mode": "measured",
-    "fixed_delay_ms": 0,
-    "trade_time_tolerance_seconds": 120,
-    "price_tolerance_points": 15.0,
-    "volume_tolerance_pct": 1.0,
-    "pnl_deviation_warning_pct": 10.0,
-    "drawdown_deviation_warning_pct": 15.0,
-}
-
-DEFAULT_TERMINAL_RESTORE_ACCOUNT: dict[str, str] = {
-    "login": "11637157",
-    "server": "CapitalPointTrading-MT5-4",
-}
-
-# Alias conservado para consumidores de la primera versión del MVP.
-DEFAULT_LIVE_AUDIT_SETTINGS = DEFAULT_LIVE_AUDIT_PROFILE
-
-_TEXT_LIMITS = {
-    "portfolio_type": 32,
-    "deployment_name": 120,
-    "source_login": 32,
-    "source_server": 160,
-    "tester_login": 32,
-    "tester_server": 160,
-    "period_start_date": 10,
-    "period_end_date": 10,
-}
-_INT_LIMITS = {
-    "period_days": (1, 3650),
-    "audit_interval_days": (1, 3650),
-    "fixed_delay_ms": (0, 600_000),
-    "trade_time_tolerance_seconds": (0, 86_400),
-}
-_FLOAT_LIMITS = {
-    "min_tick_history_quality_pct": (0.0, 100.0),
-    "price_tolerance_points": (0.0, 1_000_000.0),
-    "volume_tolerance_pct": (0.0, 100.0),
-    "pnl_deviation_warning_pct": (0.0, 10_000.0),
-    "drawdown_deviation_warning_pct": (0.0, 10_000.0),
-}
+from .live_audit_settings_schema import (
+    DEFAULT_LIVE_AUDIT_PROFILE,
+    DEFAULT_LIVE_AUDIT_SETTINGS,
+    DEFAULT_TERMINAL_RESTORE_ACCOUNT,
+    _audit_ids,
+    _integer,
+    _portfolio_ids,
+    _public_legacy_profile,
+    _require_complete_profile,
+    normalize_live_audit_settings,
+    normalize_terminal_restore_account,
+)
 _PROFILE_SECRET_KEYS = {"source_password", "tester_password"}
 _RESTORE_SECRET_KEYS = {"restore_password"}
 _RESTORE_CREDENTIAL_ID = "__terminal_restore__"
@@ -77,223 +29,16 @@ _ACCOUNT_REFERENCE_KEYS = {
     "tester": "tester_saved_account_id",
 }
 _REQUEST_KEYS = {"selected_audit_ids", "selected_portfolio_ids", "profiles"}
-_LEGACY_SCHEDULE_KEYS = {
-    "sync_interval_minutes",
-    "daily_audit_time",
-    "heartbeat_timeout_minutes",
-}
 
 
-def _text(value: Any, key: str, maximum: int) -> str:
-    result = str(value or "").strip()
-    if "\n" in result or "\r" in result:
-        raise ValueError(f"{key} no puede contener saltos de línea")
-    if len(result) > maximum:
-        raise ValueError(f"{key} no puede superar {maximum} caracteres")
-    return result
-
-
-def _integer(value: Any, key: str, minimum: int, maximum: int) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{key} debe ser un entero")
-    try:
-        result = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{key} debe ser un entero") from exc
-    if result < minimum or result > maximum:
-        raise ValueError(f"{key} debe estar entre {minimum} y {maximum}")
-    return result
-
-
-def _number(value: Any, key: str, minimum: float, maximum: float) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"{key} debe ser numérico")
-    try:
-        result = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{key} debe ser numérico") from exc
-    if not math.isfinite(result) or result < minimum or result > maximum:
-        raise ValueError(f"{key} debe estar entre {minimum:g} y {maximum:g}")
-    return result
-
-
-def _real_strategy_lots(value: Any) -> dict[str, float]:
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError("real_strategy_lots debe ser un objeto JSON")
-    if len(value) > 500:
-        raise ValueError("No se pueden configurar más de 500 lotes de estrategias")
-    result: dict[str, float] = {}
-    for raw_strategy, raw_lot in value.items():
-        strategy = _text(raw_strategy, "identificador de estrategia", 512)
-        if not strategy:
-            raise ValueError("Cada lote real debe tener un identificador de estrategia")
-        result[strategy] = _number(
-            raw_lot, f"real_strategy_lots[{strategy}]", 0.00000001, 1_000_000.0,
-        )
-    return result
-
-
-def _portfolio_ids(value: Any) -> list[int]:
-    if not isinstance(value, list):
-        raise ValueError("selected_portfolio_ids debe ser una lista")
-    if len(value) > 100:
-        raise ValueError("No se pueden seleccionar más de 100 portafolios")
-    result: list[int] = []
-    for raw in value:
-        portfolio_id = _integer(raw, "selected_portfolio_ids", 1, 2_147_483_647)
-        if portfolio_id not in result:
-            result.append(portfolio_id)
-    return result
-
-
-def _audit_ids(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        raise ValueError("selected_audit_ids debe ser una lista")
-    if len(value) > 100:
-        raise ValueError("No se pueden configurar más de 100 usos de portafolio")
-    result: list[str] = []
-    for raw in value:
-        audit_id = str(raw or "").strip()
-        if not audit_id or len(audit_id) > 120 or not all(char.isalnum() or char in "-_." for char in audit_id):
-            raise ValueError("Cada selected_audit_id debe ser un identificador seguro de hasta 120 caracteres")
-        if audit_id not in result:
-            result.append(audit_id)
-    return result
-
-
-def normalize_terminal_restore_account(value: dict[str, Any]) -> dict[str, str]:
-    """Valida la cuenta independiente que debe quedar activa en cada terminal usado."""
-    if not isinstance(value, dict):
-        raise ValueError("La cuenta de restauración debe ser un objeto JSON")
-    unknown = set(value) - {"login", "server"}
-    if unknown:
-        raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
-    normalized = dict(DEFAULT_TERMINAL_RESTORE_ACCOUNT)
-    if "login" in value:
-        normalized["login"] = _text(value["login"], "login de restauración", 32)
-    if "server" in value:
-        normalized["server"] = _text(value["server"], "servidor de restauración", 160)
-    if not normalized["login"] or not normalized["login"].isdigit():
-        raise ValueError("El login de restauración debe contener solo dígitos")
-    if not normalized["server"]:
-        raise ValueError("Falta el servidor de restauración")
-    return normalized
-
-
-def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
-    """Normaliza el perfil independiente de un portafolio."""
-    if not isinstance(value, dict):
-        raise ValueError("La configuración del portafolio debe ser un objeto JSON")
-    legacy_period_contract = "period_mode" not in value
-    # La primera versión confundía sincronización/heartbeat con la cadencia de
-    # la auditoría. Se aceptan solo para poder cargar y reemplazar registros ya
-    # guardados; nunca vuelven a formar parte del contrato público.
-    value = {key: item for key, item in value.items() if key not in _LEGACY_SCHEDULE_KEYS}
-    unknown = set(value) - set(DEFAULT_LIVE_AUDIT_PROFILE)
-    if unknown:
-        raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
-
-    normalized = dict(DEFAULT_LIVE_AUDIT_PROFILE)
-    if "portfolio_id" in value:
-        # Cero es el marcador de un perfil aún no asociado; update() exige un
-        # ID real antes de persistir un uso seleccionado.
-        normalized["portfolio_id"] = _integer(value["portfolio_id"], "portfolio_id", 0, 2_147_483_647)
-    for key, maximum in _TEXT_LIMITS.items():
-        if key in value:
-            normalized[key] = _text(value[key], key, maximum)
-    for key, (minimum, maximum) in _INT_LIMITS.items():
-        if key in value:
-            normalized[key] = _integer(value[key], key, minimum, maximum)
-    for key, (minimum, maximum) in _FLOAT_LIMITS.items():
-        if key in value:
-            normalized[key] = _number(value[key], key, minimum, maximum)
-    if "real_strategy_lots" in value:
-        normalized["real_strategy_lots"] = _real_strategy_lots(value["real_strategy_lots"])
-    if legacy_period_contract and normalized["trade_time_tolerance_seconds"] == 60:
-        # 60 s era el valor heredado y convertía diferencias admisibles de 82 s
-        # en falsos "SIN REAL". Los perfiles nuevos conservan cualquier valor
-        # elegido explícitamente por el usuario.
-        normalized["trade_time_tolerance_seconds"] = 120
-    if legacy_period_contract and normalized["price_tolerance_points"] == 10.0:
-        # 10 puntos era el límite heredado. La validación real confirmó que una
-        # diferencia de 11 puntos debe seguir considerándose admisible.
-        normalized["price_tolerance_points"] = 15.0
-
-    if "tester_model" in value:
-        tester_model = _text(value["tester_model"], "tester_model", 32).lower()
-        if tester_model != "real_ticks":
-            raise ValueError("tester_model debe ser real_ticks en este MVP")
-        normalized["tester_model"] = tester_model
-
-    if "period_mode" in value:
-        period_mode = _text(value["period_mode"], "period_mode", 32).lower()
-        if period_mode not in {"rolling_days", "fixed_dates"}:
-            raise ValueError("period_mode debe ser rolling_days o fixed_dates")
-        normalized["period_mode"] = period_mode
-    parsed_dates: dict[str, date] = {}
-    for key in ("period_start_date", "period_end_date"):
-        raw = normalized[key]
-        if not raw:
-            continue
-        try:
-            parsed_dates[key] = date.fromisoformat(raw)
-        except ValueError as exc:
-            raise ValueError(f"{key} debe tener formato AAAA-MM-DD") from exc
-    if normalized["period_mode"] == "fixed_dates":
-        if set(parsed_dates) != {"period_start_date", "period_end_date"}:
-            raise ValueError("El periodo por calendario requiere fecha desde y fecha hasta")
-        if parsed_dates["period_start_date"] > parsed_dates["period_end_date"]:
-            raise ValueError("La fecha desde no puede ser posterior a la fecha hasta")
-        if (parsed_dates["period_end_date"] - parsed_dates["period_start_date"]).days > 3650:
-            raise ValueError("El periodo por calendario no puede superar 3650 días")
-
-    if normalized["portfolio_type"]:
-        normalized["portfolio_type"] = normalized["portfolio_type"].lower()
-        if normalized["portfolio_type"] not in {"aggressive", "balanced", "conservative"}:
-            raise ValueError("portfolio_type debe ser aggressive, balanced o conservative")
-
-    if "execution_delay_mode" in value:
-        delay_mode = _text(value["execution_delay_mode"], "execution_delay_mode", 32).lower()
-        if delay_mode not in {"none", "measured", "fixed"}:
-            raise ValueError("execution_delay_mode debe ser none, measured o fixed")
-        normalized["execution_delay_mode"] = delay_mode
-
-    if "active_job_policy" in value and value["active_job_policy"] != "pause_resume":
-        raise ValueError("active_job_policy debe ser pause_resume")
-    normalized["active_job_policy"] = "pause_resume"
-
-    for key in ("source_login", "tester_login"):
-        login = normalized[key]
-        if login and not login.isdigit():
-            raise ValueError(f"{key} debe contener solo dígitos")
-    return normalized
-
-
-def _require_complete_profile(audit_id: str, profile: dict[str, Any]) -> None:
-    portfolio_id = int(profile.get("portfolio_id") or 0)
-    if not portfolio_id:
-        raise ValueError(f"Falta el portafolio del uso {audit_id}")
-    if not profile.get("portfolio_type"):
-        raise ValueError(f"Selecciona Agresivo, Moderado o Conservador para el portafolio #{portfolio_id}")
-    for key, label in (
-        ("source_login", "login de la cuenta real"),
-        ("source_server", "servidor de la cuenta real"),
-        ("tester_login", "login de la cuenta de pruebas"),
-        ("tester_server", "servidor de la cuenta de pruebas"),
-    ):
-        if not profile[key]:
-            raise ValueError(f"Falta el {label} del portafolio #{portfolio_id} ({audit_id})")
-
-
-def _public_legacy_profile(raw: dict[str, Any]) -> dict[str, Any]:
-    legacy = dict(raw)
-    legacy["source_login"] = legacy.get("source_login") or legacy.get("account_login") or ""
-    legacy["source_server"] = legacy.get("source_server") or legacy.get("account_server") or ""
-    for key in ("enabled", "selected_portfolio_ids", "account_login", "account_server", "terminal_path"):
-        legacy.pop(key, None)
-    return normalize_live_audit_settings(legacy)
+@dataclass
+class _SettingsUpdate:
+    existing: dict[str, Any]
+    account_sources: dict[str, dict[str, str]]
+    profiles: dict[str, dict[str, Any]]
+    node_credentials: dict[str, dict[str, str]]
+    cipher: Fernet | None = None
+    credentials_changed: bool = False
 
 
 class LiveAuditSettingsStore:
@@ -457,21 +202,11 @@ class LiveAuditSettingsStore:
         )
         return account
 
-    def _saved_account_sources(
-        self, node_id: str,
-    ) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
-        """Catálogo público y fuentes cifradas reutilizables del nodo.
-
-        Las contraseñas nunca forman parte del catálogo público. Cada lugar en
-        el que el usuario guardó una credencial queda visible con su procedencia,
-        incluso si otra entrada usa el mismo login, servidor y secreto. Así el
-        catálogo refleja fielmente cuenta real, tester y cuenta final.
-        """
+    def _profile_account_candidates(self, node_id: str) -> list[dict[str, str]]:
         record = self.records.get(node_id) or {}
-        profiles = record.get("profiles") or {}
         encrypted = self.credential_records.get(node_id) or {}
         candidates: list[dict[str, str]] = []
-        for audit_id, profile in profiles.items():
+        for audit_id, profile in (record.get("profiles") or {}).items():
             if not isinstance(profile, dict):
                 continue
             stored = encrypted.get(str(audit_id)) or {}
@@ -495,22 +230,30 @@ class LiveAuditSettingsStore:
                         "token": token,
                         "origin": f"{portfolio_label} · {role_label}",
                     })
+        return candidates
 
+    def _append_restore_candidate(
+        self, node_id: str, candidates: list[dict[str, str]],
+    ) -> None:
+        record = self.records.get(node_id) or {}
+        encrypted = self.credential_records.get(node_id) or {}
         restore = self._restore_account_state(node_id, record)
-        restore_token = str(
+        token = str(
             (encrypted.get(_RESTORE_CREDENTIAL_ID) or {}).get("restore_password") or ""
         )
-        if restore["login"] and restore["server"] and restore_token:
+        if restore["login"] and restore["server"] and token:
             candidates.append({
                 "id": "restore:terminal",
                 "login": str(restore["login"]),
                 "server": str(restore["server"]),
-                "token": restore_token,
+                "token": token,
                 "origin": "Cuenta final de los terminales",
             })
 
-        if not candidates:
-            return [], {}
+    @staticmethod
+    def _account_catalog(
+        candidates: list[dict[str, str]],
+    ) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
         public: list[dict[str, Any]] = []
         sources: dict[str, dict[str, str]] = {}
         for candidate in candidates:
@@ -527,6 +270,14 @@ class LiveAuditSettingsStore:
                 "origin": candidate["origin"],
             })
         return public, sources
+
+    def _saved_account_sources(
+        self, node_id: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
+        """Devuelve el catálogo público y sus fuentes cifradas reutilizables."""
+        candidates = self._profile_account_candidates(node_id)
+        self._append_restore_candidate(node_id, candidates)
+        return self._account_catalog(candidates)
 
     def state(self, node_id: str) -> dict[str, Any]:
         with self.lock:
@@ -571,110 +322,146 @@ class LiveAuditSettingsStore:
                 "phase": "configuration_only",
             }
 
-    def update(self, node_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+    @staticmethod
+    def _update_request(
+        changes: dict[str, Any],
+    ) -> tuple[list[str], dict[Any, Any], bool]:
         if not isinstance(changes, dict):
             raise ValueError("La configuración del auditor debe ser un objeto JSON")
         unknown = set(changes) - _REQUEST_KEYS
         if unknown:
             raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
-        modern_contract = "selected_audit_ids" in changes
-        if modern_contract:
-            selected = _audit_ids(changes.get("selected_audit_ids") or [])
-        else:
-            selected = [str(value) for value in _portfolio_ids(changes.get("selected_portfolio_ids") or [])]
-        submitted_profiles = changes.get("profiles")
-        if not isinstance(submitted_profiles, dict):
+        modern = "selected_audit_ids" in changes
+        selected = (
+            _audit_ids(changes.get("selected_audit_ids") or [])
+            if modern else
+            [str(value) for value in _portfolio_ids(changes.get("selected_portfolio_ids") or [])]
+        )
+        submitted = changes.get("profiles")
+        if not isinstance(submitted, dict):
             raise ValueError("profiles debe ser un objeto por portafolio")
+        return selected, submitted, modern
 
-        with self.lock:
-            existing = self.records.get(node_id) or {}
-            _saved_accounts, account_sources = self._saved_account_sources(node_id)
-            profiles = {
+    def _update_context(self, node_id: str) -> _SettingsUpdate:
+        existing = self.records.get(node_id) or {}
+        _saved_accounts, account_sources = self._saved_account_sources(node_id)
+        return _SettingsUpdate(
+            existing=existing,
+            account_sources=account_sources,
+            profiles={
                 str(portfolio_id): dict(profile)
                 for portfolio_id, profile in (existing.get("profiles") or {}).items()
-            }
-            node_credentials = {
+            },
+            node_credentials={
                 str(portfolio_id): dict(credentials)
-                for portfolio_id, credentials in (self.credential_records.get(node_id) or {}).items()
-            }
-            credentials_changed = False
-            cipher: Fernet | None = None
+                for portfolio_id, credentials
+                in (self.credential_records.get(node_id) or {}).items()
+            },
+        )
 
+    @staticmethod
+    def _submitted_profile(
+        audit_id: str, submitted: dict[Any, Any], modern: bool,
+    ) -> dict[str, Any]:
+        raw = submitted.get(audit_id)
+        if raw is None and not modern and audit_id.isdigit():
+            raw = submitted.get(int(audit_id))
+        if not isinstance(raw, dict):
+            if not modern and audit_id.isdigit():
+                raise ValueError(f"Falta la configuración del portafolio #{audit_id}")
+            raise ValueError(f"Falta la configuración del uso {audit_id}")
+        profile = dict(raw)
+        if not modern:
+            profile["portfolio_id"] = int(audit_id)
+            if profile.get("portfolio_type") not in {"aggressive", "balanced", "conservative"}:
+                profile["portfolio_type"] = "balanced"
+        return profile
+
+    @staticmethod
+    def _reuse_referenced_accounts(
+        raw_profile: dict[str, Any], account_sources: dict[str, dict[str, str]],
+    ) -> dict[str, str]:
+        reused: dict[str, str] = {}
+        for role, reference_key in _ACCOUNT_REFERENCE_KEYS.items():
+            account_id = str(raw_profile.pop(reference_key, "") or "").strip()
+            if not account_id:
+                continue
+            account = account_sources.get(account_id)
+            if account is None:
+                raise ValueError(
+                    f"La cuenta guardada seleccionada para {role} ya no está disponible; recarga la página"
+                )
+            raw_profile[f"{role}_login"] = account["login"]
+            raw_profile[f"{role}_server"] = account["server"]
+            reused[f"{role}_password"] = account["token"]
+        return reused
+
+    @staticmethod
+    def _secret_changes(audit_id: str, raw_profile: dict[str, Any]) -> dict[str, str]:
+        changes: dict[str, str] = {}
+        for secret_key in _PROFILE_SECRET_KEYS:
+            if secret_key not in raw_profile:
+                continue
+            value = raw_profile.pop(secret_key)
+            if not isinstance(value, str):
+                raise ValueError(f"{secret_key} del uso {audit_id} debe ser texto")
+            if len(value) > 512:
+                raise ValueError(f"{secret_key} del uso {audit_id} no puede superar 512 caracteres")
+            if value:
+                changes[secret_key] = value
+        return changes
+
+    def _update_profile(
+        self, state: _SettingsUpdate, audit_id: str, raw_profile: dict[str, Any],
+    ) -> None:
+        reused = self._reuse_referenced_accounts(raw_profile, state.account_sources)
+        secret_changes = self._secret_changes(audit_id, raw_profile)
+        portfolio_id = int(raw_profile.get("portfolio_id") or 0)
+        merged = dict(state.profiles.get(audit_id) or DEFAULT_LIVE_AUDIT_PROFILE)
+        merged.update(raw_profile)
+        normalized = normalize_live_audit_settings(merged)
+        _require_complete_profile(audit_id, normalized)
+        encrypted = dict(state.node_credentials.get(audit_id) or {})
+        encrypted.update(reused)
+        if not _PROFILE_SECRET_KEYS.issubset(set(encrypted) | set(secret_changes)):
+            raise ValueError(
+                f"Guarda las dos contraseñas del portafolio #{portfolio_id} ({audit_id})"
+            )
+        if secret_changes:
+            state.cipher = state.cipher or self._cipher(create=True)
+            for key, value in secret_changes.items():
+                encrypted[key] = state.cipher.encrypt(value.encode("utf-8")).decode("ascii")
+        if reused or secret_changes:
+            state.node_credentials[audit_id] = encrypted
+            state.credentials_changed = True
+        state.profiles[audit_id] = normalized
+
+    def _save_update(
+        self, node_id: str, selected: list[str], state: _SettingsUpdate,
+    ) -> dict[str, Any]:
+        if state.credentials_changed:
+            credential_records = dict(self.credential_records)
+            credential_records[node_id] = state.node_credentials
+            save_json(self.credentials_path, credential_records)
+            self.credential_records = credential_records
+        self.records[node_id] = {
+            "selected_audit_ids": selected,
+            "profiles": state.profiles,
+            "updated_at": utc_now(),
+        }
+        if state.existing.get("restore_account"):
+            self.records[node_id]["restore_account"] = dict(state.existing["restore_account"])
+        save_json(self.path, self.records)
+        return self.state(node_id)
+
+    def update(self, node_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        selected, submitted, modern = self._update_request(changes)
+        with self.lock:
+            state = self._update_context(node_id)
             for audit_id in selected:
-                key = str(audit_id)
-                raw_profile = submitted_profiles.get(key)
-                if raw_profile is None and not modern_contract and key.isdigit():
-                    raw_profile = submitted_profiles.get(int(key))
-                if not isinstance(raw_profile, dict):
-                    if not modern_contract and key.isdigit():
-                        raise ValueError(f"Falta la configuración del portafolio #{key}")
-                    raise ValueError(f"Falta la configuración del uso {audit_id}")
-                raw_profile = dict(raw_profile)
-                if not modern_contract:
-                    raw_profile["portfolio_id"] = int(key)
-                    if raw_profile.get("portfolio_type") not in {"aggressive", "balanced", "conservative"}:
-                        raw_profile["portfolio_type"] = "balanced"
-                portfolio_id = int(raw_profile.get("portfolio_id") or 0)
-                reused_secrets: dict[str, str] = {}
-                for role, reference_key in _ACCOUNT_REFERENCE_KEYS.items():
-                    account_id = str(raw_profile.pop(reference_key, "") or "").strip()
-                    if not account_id:
-                        continue
-                    account = account_sources.get(account_id)
-                    if account is None:
-                        raise ValueError(
-                            f"La cuenta guardada seleccionada para {role} ya no está disponible; recarga la página"
-                        )
-                    raw_profile[f"{role}_login"] = account["login"]
-                    raw_profile[f"{role}_server"] = account["server"]
-                    reused_secrets[f"{role}_password"] = account["token"]
-                secret_changes: dict[str, str] = {}
-                for secret_key in _PROFILE_SECRET_KEYS:
-                    if secret_key not in raw_profile:
-                        continue
-                    value = raw_profile.pop(secret_key)
-                    if not isinstance(value, str):
-                        raise ValueError(f"{secret_key} del uso {audit_id} debe ser texto")
-                    if len(value) > 512:
-                        raise ValueError(f"{secret_key} del uso {audit_id} no puede superar 512 caracteres")
-                    if value:
-                        secret_changes[secret_key] = value
-
-                merged = dict(profiles.get(key) or DEFAULT_LIVE_AUDIT_PROFILE)
-                merged.update(raw_profile)
-                normalized = normalize_live_audit_settings(merged)
-                _require_complete_profile(audit_id, normalized)
-
-                encrypted = dict(node_credentials.get(key) or {})
-                if reused_secrets:
-                    encrypted.update(reused_secrets)
-                available_secrets = set(encrypted) | set(secret_changes)
-                if not _PROFILE_SECRET_KEYS.issubset(available_secrets):
-                    raise ValueError(f"Guarda las dos contraseñas del portafolio #{portfolio_id} ({audit_id})")
-                if secret_changes:
-                    cipher = cipher or self._cipher(create=True)
-                    for secret_key, value in secret_changes.items():
-                        encrypted[secret_key] = cipher.encrypt(value.encode("utf-8")).decode("ascii")
-                if reused_secrets or secret_changes:
-                    node_credentials[key] = encrypted
-                    credentials_changed = True
-                profiles[key] = normalized
-
-            if credentials_changed:
-                credential_records = dict(self.credential_records)
-                credential_records[node_id] = node_credentials
-                save_json(self.credentials_path, credential_records)
-                self.credential_records = credential_records
-
-            self.records[node_id] = {
-                "selected_audit_ids": selected,
-                "profiles": profiles,
-                "updated_at": utc_now(),
-            }
-            if existing.get("restore_account"):
-                self.records[node_id]["restore_account"] = dict(existing["restore_account"])
-            save_json(self.path, self.records)
-            return self.state(node_id)
+                raw_profile = self._submitted_profile(audit_id, submitted, modern)
+                self._update_profile(state, audit_id, raw_profile)
+            return self._save_update(node_id, selected, state)
 
     def update_restore_account(self, node_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         """Guarda la cuenta que debe quedar activa sin mezclarla con la del tester."""

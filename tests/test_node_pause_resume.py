@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from mt5_manager import node_job_starts
+from mt5_manager import node_job_runtime
 from mt5_manager.node import RESUMABLE_STATUSES, JobController
 
 
@@ -79,7 +81,7 @@ class NodePauseResumeTests(unittest.TestCase):
         self.assertEqual(state["status"], "pausing")
         self.assertTrue(process.signals or process.terminated)
         # El vigilante convierte el corte en pausa, no en fallo.
-        controller._watch(process, 1)
+        node_job_runtime._watch(controller, process, 1)
         self.assertEqual(controller.state["status"], "paused")
         self.assertEqual(controller.state["current_step_index"], 1)
         self.assertIsNone(controller.state["return_code"])
@@ -91,13 +93,13 @@ class NodePauseResumeTests(unittest.TestCase):
         controller = self.controller()
         process = self.running_pipeline(controller)
         controller.pause()
-        controller._watch(process, 1)
+        node_job_runtime._watch(controller, process, 1)
 
-        with mock.patch.object(controller, "_launch_next_runnable", return_value=True) as launch:
+        with mock.patch.object(node_job_runtime, "_launch_next_runnable", return_value=True) as launch:
             controller.resume()
 
         launch.assert_called_once()
-        self.assertEqual(launch.call_args.args[0], 1)
+        self.assertEqual(launch.call_args.args[1], 1)
         self.assertEqual(controller.state["error"], None)
 
     def test_a_failed_stage_can_be_resumed_from_the_same_pipeline_position(self) -> None:
@@ -108,11 +110,11 @@ class NodePauseResumeTests(unittest.TestCase):
         controller._persist()
 
         self.assertTrue(controller._is_resumable())
-        with mock.patch.object(controller, "_launch_next_runnable", return_value=True) as launch:
+        with mock.patch.object(node_job_runtime, "_launch_next_runnable", return_value=True) as launch:
             controller.resume()
 
         launch.assert_called_once()
-        self.assertEqual(launch.call_args.args[0], 1)
+        self.assertEqual(launch.call_args.args[1], 1)
         self.assertEqual(controller.state["error"], None)
 
     def test_failed_without_a_valid_saved_position_is_not_resumable(self) -> None:
@@ -130,16 +132,16 @@ class NodePauseResumeTests(unittest.TestCase):
         controller = self.controller()
         process = self.running_pipeline(controller)
         controller.pause()
-        controller._watch(process, 1)
+        node_job_runtime._watch(controller, process, 1)
 
         # El agente se cierra y se abre: solo queda el fichero de estado.
         reopened = self.controller()
 
         self.assertEqual(reopened.state["status"], "paused")
         self.assertEqual(reopened.state["current_step_index"], 1)
-        with mock.patch.object(reopened, "_launch_next_runnable", return_value=True) as launch:
+        with mock.patch.object(node_job_runtime, "_launch_next_runnable", return_value=True) as launch:
             reopened.resume()
-        self.assertEqual(launch.call_args.args[0], 1)
+        self.assertEqual(launch.call_args.args[1], 1)
 
     def test_an_agent_killed_mid_stage_reopens_as_resumable(self) -> None:
         controller = self.controller()
@@ -151,9 +153,9 @@ class NodePauseResumeTests(unittest.TestCase):
         self.assertEqual(reopened.state["status"], "interrupted")
         self.assertIn(reopened.state["status"], RESUMABLE_STATUSES)
         self.assertIsNone(reopened.state["pid"])
-        with mock.patch.object(reopened, "_launch_next_runnable", return_value=True) as launch:
+        with mock.patch.object(node_job_runtime, "_launch_next_runnable", return_value=True) as launch:
             reopened.resume()
-        self.assertEqual(launch.call_args.args[0], 2)
+        self.assertEqual(launch.call_args.args[1], 2)
 
     def test_a_job_without_a_recorded_position_is_not_resumable(self) -> None:
         controller = self.controller()
@@ -173,13 +175,13 @@ class NodePauseResumeTests(unittest.TestCase):
         controller = self.controller()
         process = self.running_pipeline(controller)
         controller.pause()
-        controller._watch(process, 1)
+        node_job_runtime._watch(controller, process, 1)
 
         # Si el nodo se diera por libre, la cola arrancaria otro trabajo encima
         # del pausado y ya no habria nada que reanudar.
         self.assertTrue(controller._busy())
         controller.queue = [{"id": "t1", "type": "generation", "payload": {}}]
-        with mock.patch.object(controller, "_start_generation") as start:
+        with mock.patch.object(node_job_starts, "_start_generation") as start:
             controller._drain_queue()
         start.assert_not_called()
         self.assertEqual(len(controller.queue), 1)
@@ -188,7 +190,7 @@ class NodePauseResumeTests(unittest.TestCase):
         controller = self.controller()
         process = self.running_pipeline(controller)
         controller.pause()
-        controller._watch(process, 1)
+        node_job_runtime._watch(controller, process, 1)
 
         state = controller.stop()
 
@@ -205,7 +207,7 @@ class NodePauseResumeTests(unittest.TestCase):
         controller = self.controller()
         process = self.running_pipeline(controller)
         controller.pause()
-        controller._watch(process, 1)
+        node_job_runtime._watch(controller, process, 1)
 
         with self.assertRaises(RuntimeError):
             controller.pause()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 import tempfile
-import threading
 import time
 import unittest
 import unittest.mock
@@ -11,640 +10,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mt5_manager.live_audit_engine import (
-    LiveAuditController, _adaptive_price_tolerance_floor, _audit_period, _read_set_text,
-    _redact_log_files, _redact_runner_output, normalize_request, single_variant_mode,
+    LiveAuditController, _audit_period, _read_set_text, _redact_log_files, _redact_runner_output,
+    normalize_request,
 )
 from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
+from tests.live_audit_engine_base import FakeOwner, LiveAuditEngineTestCase, request
 
 
-def request() -> dict:
-    return {
-        "audit_key": "9",
-        "portfolio_id": 9,
-        "portfolio_type": "balanced",
-        "source_login": "111",
-        "source_server": "IC-Real",
-        "source_password": "real-secret",
-        "tester_login": "222",
-        "tester_server": "IC-Demo",
-        "tester_password": "tester-secret",
-        "restore_login": "333",
-        "restore_server": "CapitalPoint-Live",
-        "restore_password": "restore-secret",
-        "period_days": 7,
-        "min_tick_history_quality_pct": 80,
-        "trade_time_tolerance_seconds": 120,
-        "price_tolerance_points": 15,
-        "volume_tolerance_pct": 1,
-        "pnl_deviation_warning_pct": 10,
-        "drawdown_deviation_warning_pct": 15,
-        "execution_delay_mode": "measured",
-        "fixed_delay_ms": 0,
-    }
-
-
-class FakeOwner:
-    def __init__(self, status: str) -> None:
-        self.lock = threading.RLock()
-        self.state = {"status": status, "pipeline": [{"action": "generation"}]}
-        self.process = object() if status == "running" else None
-        self.queue = []
-        self.pause_calls = 0
-        self.resume_calls = 0
-        self.config = {"project_dir": ".", "settings_file": "ui_settings.ini"}
-
-    def portfolio_detail(self, portfolio_id: int, scope: str) -> dict:
-        if scope != "full_history":
-            raise ValueError("portfolio inesperado")
-        if portfolio_id == 148:
-            # Mejora de una mejora: una sola variante, guardada sin `variant_key`
-            # porque la variante es la fila entera. Su modo es el de la base.
-            return {"portfolio": {
-                "id": 148, "portfolio_type": "aggressive",
-                "improvement_origin": {"source_id": 137, "mode": "aggressive", "depth": 2},
-                "members": [
-                    {"variant_key": "", "candidate_id": "imp-one", "symbol": "EURUSD", "lot": .02},
-                    {"variant_key": "", "candidate_id": "imp-two", "symbol": "XAUUSD", "lot": .03},
-                ],
-            }}
-        if portfolio_id != 9:
-            raise ValueError("portfolio inesperado")
-        return {"portfolio": {"id": 9, "portfolio_type": "bundle", "members": [
-            {"variant_key": "balanced", "candidate_id": "one", "symbol": "EURUSD", "lot": .01},
-            {"variant_key": "aggressive", "candidate_id": "two", "symbol": "XAUUSD"},
-        ]}}
-
-    def pause(self) -> dict:
-        self.pause_calls += 1
-        self.process = None
-        self.state["status"] = "paused"
-        return dict(self.state)
-
-    def resume(self) -> dict:
-        self.resume_calls += 1
-        self.state["status"] = "running"
-        return dict(self.state)
-
-    def _schedule_queue_drain(self) -> None:
-        pass
-
-
-class LiveAuditEngineTests(unittest.TestCase):
-    def _controller(self, root: Path, status: str, quality: float | None = 99.0):
-        owner = FakeOwner(status)
-        controller = LiveAuditController(owner, root)
-        now = datetime.now(timezone.utc)
-        trade = {
-            "strategy": "one", "symbol": "EURUSD", "side": "buy",
-            "open_time": now, "close_time": now, "open_price": 1.1,
-            "close_price": 1.1, "volume": .01, "profit": 1.0,
-        }
-        controller._extract_real = lambda *_args: (
-            [dict(trade)], {"EURUSD": .00001},
-            {"login": "111", "native_report": {"filename": "real.html", "native_terminal_report": True}},
-        )
-        controller._run_tester = lambda *_args: (
-            [dict(trade)], [] if quality is None else [quality], {"one": 1}, [],
-            {"portfolio_type": "balanced", "set_count": 1, "workers": 1, "terminal_profiles": ["MT5_IC_1"]},
-        )
-        return owner, controller
-
-    @staticmethod
-    def _remember_on_extraction(controller: LiveAuditController) -> None:
-        """Imita al auditor real: la extracción deja la cuenta real en un terminal."""
-        extract = controller._extract_real
-
-        def remembering(*args):
-            controller._remember_real_account_terminal(
-                "9", "Terminal.2", {"name": "MT5_IC_1", "mt5_path": r"C:\IC\terminal64.exe"},
-            )
-            return extract(*args)
-
-        controller._extract_real = remembering
-
-    @staticmethod
-    def _wait(controller: LiveAuditController) -> dict:
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline:
-            state = controller.state(9)
-            if state["status"] not in {
-                "queued", "pausing", "extracting", "testing", "comparing", "finalizing", "resuming",
-            }:
-                return state
-            time.sleep(.01)
-        raise AssertionError("la auditoría no terminó")
-
-    def test_credentials_are_required_and_never_enter_public_state(self) -> None:
-        payload = request()
-        payload["source_password"] = ""
-        with self.assertRaisesRegex(ValueError, "source_password"):
-            normalize_request(payload)
-        with tempfile.TemporaryDirectory() as temp:
-            _owner, controller = self._controller(Path(temp), "idle")
-            controller.start(request())
-            state = self._wait(controller)
-            self.assertNotIn("password", str(state).casefold())
-            self.assertNotIn("secret", (Path(temp) / "live_audits" / "state.json").read_text(encoding="utf-8"))
-
-    def test_rolling_period_uses_complete_calendar_days(self) -> None:
-        normalized = normalize_request(request())
-        start, end = _audit_period(normalized, datetime(2026, 8, 30, 16, 45, tzinfo=timezone.utc))
-
-        self.assertEqual(start, datetime(2026, 8, 23, 0, 0, tzinfo=timezone.utc))
-        self.assertEqual(end.date().isoformat(), "2026-08-30")
-        self.assertEqual(end.time(), datetime.max.time())
-
-    def test_fixed_calendar_period_is_inclusive_and_validated(self) -> None:
-        payload = {
-            **request(), "period_mode": "fixed_dates",
-            "period_start_date": "2026-08-23", "period_end_date": "2026-08-30",
-        }
-        normalized = normalize_request(payload)
-        start, end = _audit_period(normalized)
-
-        self.assertEqual(start.isoformat(), "2026-08-23T00:00:00+00:00")
-        self.assertEqual(end.date().isoformat(), "2026-08-30")
-        with self.assertRaisesRegex(ValueError, "posterior"):
-            normalize_request({**payload, "period_start_date": "2026-08-31"})
-
-    def test_request_validates_real_lots_per_strategy(self) -> None:
-        normalized = normalize_request({
-            **request(), "real_strategy_lots": {"AXI/STANDARD:34173": "0.6"},
-        })
-        self.assertEqual(normalized["real_strategy_lots"], {"AXI/STANDARD:34173": 0.6})
-        with self.assertRaisesRegex(ValueError, "objeto JSON"):
-            normalize_request({**request(), "real_strategy_lots": []})
-        with self.assertRaisesRegex(ValueError, "fuera"):
-            normalize_request({**request(), "real_strategy_lots": {"bad": 0}})
-
-    def test_runner_output_redacts_ini_and_incidental_secret_copies(self) -> None:
-        text = "[Common]\nPassword=tester-secret\nerror tester-secret\nPassword=another-value\n"
-        redacted = _redact_runner_output(text, "tester-secret")
-        self.assertNotIn("tester-secret", redacted)
-        self.assertNotIn("another-value", redacted)
-        self.assertEqual(redacted.count("[REDACTED]"), 3)
-
-    def test_run_tests_own_log_files_are_redacted_too(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            (root / "run.log").write_text("Password=tester-secret\n", encoding="utf-8")
-            (root / "ignore.htm").write_text("Password=tester-secret\n", encoding="utf-8")
-            _redact_log_files(root, "tester-secret")
-            log = (root / "run.log").read_text(encoding="utf-8")
-            report = (root / "ignore.htm").read_text(encoding="utf-8")
-
-        self.assertNotIn("tester-secret", log)
-        self.assertIn("tester-secret", report)
-
-    def test_utf16_set_is_decoded_and_start_lots_is_replaced_without_nuls(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "strategy.set"
-            path.write_text(
-                "EA_MagicNumber=1007||1000||1||10000||N\nStartLots=0.05||0.01||0.01||1||N\n",
-                encoding="utf-16",
-            )
-            text, encoding = _read_set_text(path)
-            changed = LiveAuditController._set_value(text, "StartLots", "0.02")
-            target = Path(temp) / "changed.set"
-            target.write_text(changed, encoding=encoding)
-            reread, _ = _read_set_text(target)
-
-        self.assertEqual(encoding, "utf-16")
-        self.assertNotIn("\x00", reread)
-        self.assertIn("StartLots=0.02||0.01||0.01||1||N", reread)
-        self.assertEqual(LiveAuditController._set_parameter(reread, "EA_MagicNumber"), "1007")
-
-    def test_duplicate_identical_sets_are_resolved_deterministically(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            first = root / "run_001" / "strategy.set"
-            second = root / "run_002" / "strategy.set"
-            first.parent.mkdir()
-            second.parent.mkdir()
-            first.write_text("StartLots=0.01\n", encoding="utf-8")
-            second.write_text("StartLots=0.01\n", encoding="utf-8")
-            owner = FakeOwner("idle")
-            owner.config["project_dir"] = str(root)
-            controller = LiveAuditController(owner, root / "runtime")
-
-            resolved = controller._resolve_set("strategy.set")
-
-        self.assertEqual(resolved, first)
-
-    def test_duplicate_different_sets_are_rejected_as_ambiguous(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            first = root / "run_001" / "strategy.set"
-            second = root / "run_002" / "strategy.set"
-            first.parent.mkdir()
-            second.parent.mkdir()
-            first.write_text("StartLots=0.01\n", encoding="utf-8")
-            second.write_text("StartLots=0.02\n", encoding="utf-8")
-            owner = FakeOwner("idle")
-            owner.config["project_dir"] = str(root)
-            controller = LiveAuditController(owner, root / "runtime")
-
-            with self.assertRaisesRegex(FileNotFoundError, "varios sets distintos"):
-                controller._resolve_set("strategy.set")
-
-    def test_saved_ustec_lot_is_raised_to_the_broker_minimum_for_the_tester(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            assets = root / "assets"
-            assets.mkdir()
-            (assets / "ictrading_symbol_specs.json").write_text(
-                '{"symbols":{"USTEC":{"volume_min":0.1,"volume_step":0.1}}}',
-                encoding="utf-8",
-            )
-            owner = FakeOwner("idle")
-            owner.config.update(project_dir=str(root), broker="ICTRADING")
-            controller = LiveAuditController(owner, root / "runtime")
-            rules = controller._broker_volume_rules()
-            result = controller._tester_lot(
-                {"symbol": "USTEC", "units": 1, "lot": 0.01}, rules,
-            )
-
-        self.assertEqual(result, (0.01, 0.1, 0.1, 0.1, 1))
-
-    def test_portfolio_units_do_not_multiply_the_broker_minimum(self) -> None:
-        result = LiveAuditController._tester_lot(
-            {"symbol": "DE40", "units": 3, "lot": 0.03}, {"de40": (0.1, 0.1)},
-        )
-
-        self.assertEqual(result, (0.03, 0.1, 0.1, 0.1, 3))
-
-    def test_real_account_report_must_be_the_native_terminal_html(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "ReportHistory-111.html"
-            path.write_text(
-                '<html><head><title>111 - Trade History Report</title>'
-                '<meta name="generator" content="client terminal"></head><body>'
-                + ("x" * 600) + "</body></html>",
-                encoding="utf-16",
-            )
-            artifact = validate_native_history_report(path, "111")
-            localized = Path(temp) / "InformeHistorial-111.html"
-            localized.write_text(
-                '<html><head><title>111 - Informe del historial de trading</title>'
-                '<meta name="generator" content="client terminal"></head><body>'
-                + ("x" * 600) + "</body></html>",
-                encoding="utf-16",
-            )
-            localized_artifact = validate_native_history_report(localized, "111")
-            fake = Path(temp) / "reconstructed.html"
-            fake.write_text("<html>Historial reconstruido</html>", encoding="utf-8")
-
-            with self.assertRaises(NativeHistoryReportError):
-                validate_native_history_report(fake, "111")
-
-        self.assertTrue(artifact["native_terminal_report"])
-        self.assertTrue(localized_artifact["native_terminal_report"])
-        self.assertEqual(artifact["source"], "mt5_terminal_history_report")
-
-    def test_artifact_path_only_exposes_reports_from_current_run(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            controller = LiveAuditController(FakeOwner("idle"), Path(temp))
-            controller.states["9"] = {"audit_key": "9", "audit_id": "run_1", "status": "completed"}
-            reports = Path(temp) / "live_audits" / "audit_9" / "run_1" / "reports"
-            reports.mkdir(parents=True)
-            report = reports / "strategy.htm"
-            report.write_text("report", encoding="utf-8")
-            hidden_set = reports / "strategy.set"
-            hidden_set.write_text("StartLots=0.06", encoding="utf-8")
-
-            self.assertEqual(controller.artifact_path("9", "run_1", "strategy.htm"), report.resolve())
-            with self.assertRaises(ValueError):
-                controller.artifact_path("9", "run_1", "strategy.set")
-            with self.assertRaises(ValueError):
-                controller.artifact_path("9", "run_1", "../strategy.htm")
-            with self.assertRaises(FileNotFoundError):
-                controller.artifact_path("9", "old_run", "strategy.htm")
-
-    def test_real_history_waits_for_sync_and_recovers_open_before_period(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            controller = LiveAuditController(FakeOwner("idle"), Path(temp))
-            controller.history_sync_attempts = 4
-            controller.history_sync_delay_seconds = 0
-            period_end = datetime.now(timezone.utc)
-            period_start = period_end - timedelta(days=7)
-
-            def deal(ticket: int, position: int, entry: int, moment: datetime, deal_type: int) -> SimpleNamespace:
-                timestamp = int(moment.timestamp())
-                return SimpleNamespace(
-                    ticket=ticket, position_id=position, entry=entry, type=deal_type,
-                    time=timestamp, time_msc=timestamp * 1000, magic=11008,
-                    symbol="EURUSD", volume=.01, price=1.1, profit=1.0,
-                    commission=0.0, swap=0.0, fee=0.0, comment="",
-                )
-
-            prior_open = deal(1, 10, 0, period_start - timedelta(days=1), 0)
-            prior_close = deal(2, 10, 1, period_start + timedelta(hours=1), 1)
-            current_open = deal(3, 20, 0, period_start + timedelta(days=1), 0)
-            current_close = deal(4, 20, 1, period_start + timedelta(days=1, hours=1), 1)
-            period_deals = [prior_close, current_open, current_close]
-
-            class FakeMt5:
-                def __init__(self) -> None:
-                    self.period_calls = 0
-                    self.shutdown_called = False
-
-                @staticmethod
-                def account_info() -> SimpleNamespace:
-                    return SimpleNamespace(login=111, server="IC-Real", currency="USD")
-
-                @staticmethod
-                def terminal_info() -> SimpleNamespace:
-                    return SimpleNamespace(connected=True)
-
-                def history_deals_get(self, *_args, **kwargs):
-                    if "position" in kwargs:
-                        return [prior_open, prior_close] if kwargs["position"] == 10 else []
-                    self.period_calls += 1
-                    return [] if self.period_calls == 1 else period_deals
-
-                @staticmethod
-                def symbol_info(_symbol: str) -> SimpleNamespace:
-                    return SimpleNamespace(point=.00001)
-
-                @staticmethod
-                def last_error() -> tuple[int, str]:
-                    return 1, "Success"
-
-                def shutdown(self) -> None:
-                    self.shutdown_called = True
-
-            mt5 = FakeMt5()
-            controller._login_terminal = lambda *_args, **_kwargs: (
-                mt5, "Terminal.2", {"name": "MT5_IC_1"}, set()
-            )
-            trades, points, account = controller._extract_real(request(), period_start, period_end)
-
-        self.assertEqual(len(trades), 2)
-        self.assertEqual(points, {"EURUSD": .00001})
-        self.assertTrue(account["connected"])
-        self.assertEqual(account["server"], "IC-Real")
-        detail = account["history_detail"]
-        self.assertEqual(detail["sync_snapshots"], [0, 3, 3])
-        self.assertEqual(detail["period_raw_deals"], 3)
-        self.assertEqual(detail["closing_deals"], 2)
-        self.assertEqual(detail["positions_missing_open_in_period"], 1)
-        self.assertEqual(detail["positions_recovered"], 1)
-        self.assertEqual(detail["trades_reconstructed"], 2)
-        self.assertTrue(mt5.shutdown_called)
-
-    def test_portfolio_variant_is_required_and_selects_only_that_variant(self) -> None:
-        payload = request()
-        payload["portfolio_type"] = ""
-        with self.assertRaisesRegex(ValueError, "portfolio_type"):
-            normalize_request(payload)
-        with tempfile.TemporaryDirectory() as temp:
-            owner, controller = self._controller(Path(temp), "idle")
-            _detail, members = controller._portfolio_members(9, "balanced")
-            self.assertEqual([row["candidate_id"] for row in members], ["one"])
-
-    def test_a_saved_improvement_is_audited_in_the_mode_it_inherited(self) -> None:
-        """Una mejora no es un bundle: sus miembros no declaran `variant_key`."""
-        with tempfile.TemporaryDirectory() as temp:
-            _owner, controller = self._controller(Path(temp), "idle")
-            _detail, members = controller._portfolio_members(148, "aggressive")
-            self.assertEqual([row["candidate_id"] for row in members], ["imp-one", "imp-two"])
-            with self.assertRaisesRegex(ValueError, "una sola variante, modo aggressive"):
-                controller._portfolio_members(148, "balanced")
-
-    def test_only_a_single_variant_portfolio_resolves_an_implicit_mode(self) -> None:
-        self.assertEqual(single_variant_mode({"portfolio_type": "conservative"}), "conservative")
-        self.assertEqual(
-            single_variant_mode({"portfolio_type": "improved", "improvement_origin": {"mode": "aggressive"}}),
-            "aggressive",
-        )
-        self.assertEqual(single_variant_mode({"portfolio_type": "bundle"}), "")
-        self.assertEqual(single_variant_mode({}), "")
-
-    def test_tester_uses_five_configured_broker_terminals_for_six_sets(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            _owner, controller = self._controller(Path(temp), "idle")
-            profiles = [
-                (f"Terminal.{index}", {"name": f"MT5_IC_{index}", "mt5_path": fr"C:\\IC{index}\\terminal64.exe"})
-                for index in range(1, 6)
-            ]
-            controller._terminal_profiles = lambda *, include_disabled=False: (
-                list(profiles) if include_disabled else list(profiles[:1])
-            )
-            selected = controller._tester_terminal_pool("Terminal.3", profiles[2][1], 6)
-
-        self.assertEqual(len(selected), 5)
-        self.assertEqual(selected[0][0], "Terminal.3")
-        self.assertEqual({section for section, _profile in selected}, {section for section, _profile in profiles})
-
-    def test_native_report_fallback_uses_only_the_active_broker_profiles(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            primary = root / "primary.exe"
-            fallback = root / "fallback.exe"
-            foreign = root / "foreign.exe"
-            for path in (primary, fallback, foreign):
-                path.touch()
-            (root / "ui_settings.ini").write_text(
-                "[Terminal.1]\nname=Primary\nenabled=1\nbroker=ICTRADING\nmt5_path=" + str(primary) + "\n"
-                "[Terminal.2]\nname=Fallback\nenabled=0\nbroker=ICTRADING\nmt5_path=" + str(fallback) + "\n"
-                "[Terminal.3]\nname=Foreign\nenabled=1\nbroker=ROBOFOREX\nmt5_path=" + str(foreign) + "\n",
-                encoding="utf-8",
-            )
-            owner = FakeOwner("idle")
-            owner.config.update(project_dir=str(root), settings_file="ui_settings.ini")
-            controller = LiveAuditController(owner, root / "runtime")
-            profiles = controller._native_report_profiles(primary)
-
-        self.assertEqual([profile[1]["name"] for profile in profiles], ["Fallback"])
-
-    def test_comparison_explains_missing_extra_and_deviation_reasons(self) -> None:
-        now = datetime.now(timezone.utc)
-        real = [{
-            "strategy": "1007", "symbol": "EURUSD", "side": "buy", "open_time": now,
-            "close_time": now, "open_price": 1.2, "volume": .02, "profit": -5.0,
-        }]
-        expected = [{
-            "strategy": "one", "symbol": "EURUSD", "side": "buy", "open_time": now,
-            "close_time": now, "open_price": 1.1, "volume": .01, "profit": 1.0,
-        }, {
-            "strategy": "two", "symbol": "XAUUSD", "side": "sell", "open_time": now,
-            "close_time": now - timedelta(hours=1), "open_price": 1.0, "volume": .01, "profit": 1.0,
-        }]
-        result = LiveAuditController._compare(
-            real, expected, {"EURUSD": .00001}, request(), {"one": 1, "two": 1},
-        )
-        self.assertEqual(result["comparison_detail"]["missing_by_strategy"], {"two": 1})
-        self.assertEqual(result["comparison_detail"]["deviation_reasons"]["volume"], 1)
-        self.assertEqual(result["comparison_detail"]["deviation_reasons"]["pnl"], 1)
-        self.assertEqual(result["matched_trades"], 1)
-        self.assertEqual(result["within_tolerance_trades"], 0)
-        self.assertEqual(result["deviating_pairs"], 1)
-        rows = result["comparison_detail"]["operation_comparisons"]
-        self.assertEqual([row["status"] for row in rows], ["deviation", "missing"])
-        self.assertEqual(rows[0]["real"]["strategy"], "1007")
-        self.assertIsInstance(rows[0]["tester"]["open_time"], str)
-        self.assertEqual(rows[0]["measurements"]["open_price_delta_points"], 10000.0)
-        self.assertEqual(rows[1]["reasons"], ["no_real_same_symbol_and_side"])
-        self.assertEqual(rows[1]["data_issues"], ["close_before_open"])
-        self.assertEqual(result["comparison_detail"]["tester_data_issues"], {"close_before_open": 1})
-        self.assertEqual(result["comparison_detail"]["strategy_summary"][0], {
-            "strategy": "one", "tester_trades": 1, "aligned": 1,
-            "within_tolerance": 0, "open_real": 0,
-            "with_deviations": 1, "missing_real": 0,
-        })
-        self.assertIn("cada real se usa una vez", result["comparison_detail"]["methodology"]["alignment"])
-
-    def test_the_configured_real_lot_is_the_expectation_for_volume_and_pnl(self) -> None:
-        # Fila 9 de `auditor_01.10.2026_v1.xlsx`: EURUSD de la estrategia 27672,
-        # tester 0,08 lotes con 5,97 y real 0,04 lotes con 3,06. El usuario pidió
-        # expresamente que la cuenta real operase a la mitad, así que ni el
-        # volumen ni el PnL son desviaciones: 5,97 × 0,04/0,08 = 2,985 < 3,06.
-        now = datetime(2026, 9, 22, 9, 19, 46, tzinfo=timezone.utc)
-        base = {
-            "strategy": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "side": "sell",
-            "open_time": now, "close_time": now, "open_price": 1.14621,
-        }
-        order = {**request(), "real_strategy_lots": {"ROBOFOREX/ECN:27672": 0.04}}
-        result = LiveAuditController._compare(
-            [{**base, "volume": 0.04, "profit": 3.06}],
-            [{**base, "volume": 0.08, "profit": 5.97}],
-            {"EURUSD": 0.00001}, order, {"ROBOFOREX/ECN:27672": 1},
-        )
-        row = result["comparison_detail"]["operation_comparisons"][0]
-
-        self.assertEqual(row["status"], "matched")
-        self.assertEqual(row["reasons"], [])
-        self.assertEqual(row["limits"]["volume_expected_real"], 0.04)
-        self.assertEqual(row["limits"]["volume_expected_source"], "configured_real_lot")
-        self.assertEqual(row["measurements"]["volume_delta"], 0.0)
-        self.assertEqual(row["measurements"]["pnl_scale"], 0.5)
-        # 5,97 × 0,5 = 2,985; el redondeo a dos decimales es solo de presentación,
-        # la comparación usa el valor sin redondear.
-        self.assertEqual(row["measurements"]["tester_profit_scaled"], 2.98)
-        self.assertEqual(row["measurements"]["pnl_direction"], "favorable")
-        self.assertIn("lote real configurado", result["comparison_detail"]["methodology"]["validation"])
-
-    def test_a_real_lot_that_disobeys_the_configuration_is_still_a_deviation(self) -> None:
-        # El escalado no puede tapar el caso que el chequeo existe para ver: la
-        # EA operó 0,02 donde se configuró 0,04.
-        now = datetime(2026, 9, 22, 9, 19, 46, tzinfo=timezone.utc)
-        base = {
-            "strategy": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "side": "sell",
-            "open_time": now, "close_time": now, "open_price": 1.14621,
-        }
-        order = {**request(), "real_strategy_lots": {"ROBOFOREX/ECN:27672": 0.04}}
-        row = LiveAuditController._compare(
-            [{**base, "volume": 0.02, "profit": 1.49}],
-            [{**base, "volume": 0.08, "profit": 5.97}],
-            {"EURUSD": 0.00001}, order, {"ROBOFOREX/ECN:27672": 1},
-        )["comparison_detail"]["operation_comparisons"][0]
-
-        self.assertEqual(row["status"], "deviation")
-        self.assertIn("volume", row["reasons"])
-
-    def test_without_a_configured_real_lot_the_tester_volume_stays_the_expectation(self) -> None:
-        now = datetime(2026, 9, 22, 9, 19, 46, tzinfo=timezone.utc)
-        base = {
-            "strategy": "sin-lote", "symbol": "EURUSD", "side": "sell",
-            "open_time": now, "close_time": now, "open_price": 1.14621,
-        }
-        row = LiveAuditController._compare(
-            [{**base, "volume": 0.04, "profit": 3.06}],
-            [{**base, "volume": 0.08, "profit": 5.97}],
-            {"EURUSD": 0.00001}, request(), {"sin-lote": 1},
-        )["comparison_detail"]["operation_comparisons"][0]
-
-        self.assertEqual(row["status"], "deviation")
-        self.assertIn("volume", row["reasons"])
-        self.assertEqual(row["limits"]["volume_expected_real"], 0.08)
-        self.assertEqual(row["limits"]["volume_expected_source"], "tester_lot")
-        self.assertEqual(row["measurements"]["pnl_scale"], 1.0)
-
-    def test_a_real_position_still_open_is_not_reported_as_a_missing_real(self) -> None:
-        # Filas 6 y 26 de la hoja: los tickets 760842306 y 759105632 existían, se
-        # abrieron dentro del periodo y cerraron el 28/09, fuera de él. La real
-        # existe: debe quedar alineada como abierta, no como `SIN REAL`.
-        opened = datetime(2026, 9, 24, 16, 59, 42, tzinfo=timezone.utc)
-        tester = [{
-            "strategy": "ROBOFOREX/ECN:16268", "symbol": "AMZN", "side": "sell",
-            "open_time": opened - timedelta(seconds=1),
-            "close_time": datetime(2026, 9, 25, 23, 55, tzinfo=timezone.utc),
-            "open_price": 245.62, "volume": 0.05, "profit": -18.44,
-        }]
-        order = {**request(), "drawdown_deviation_warning_pct": 1000.0,
-                 "real_strategy_lots": {"ROBOFOREX/ECN:16268": 0.02},
-                 "real_positions_open_at_period_end": [{
-            "strategy": "ROBOFOREX/ECN:16268", "symbol": "AMZN", "side": "sell",
-            "open_time": opened, "open_price": 245.64, "volume": 0.02,
-            "position_id": 760842306,
-        }]}
-        result = LiveAuditController._compare(
-            [], tester, {"AMZN": 0.01}, order, {"ROBOFOREX/ECN:16268": 1},
-        )
-        row = result["comparison_detail"]["operation_comparisons"][0]
-
-        self.assertEqual(row["status"], "open")
-        self.assertEqual(row["reasons"], ["real_position_still_open_at_period_end"])
-        self.assertEqual(row["real"]["position_id"], 760842306)
-        self.assertEqual(row["real_position_still_open"]["position_id"], 760842306)
-        self.assertEqual(row["measurements"]["open_time_delta_seconds"], 1.0)
-        self.assertEqual(row["measurements"]["volume_delta"], 0.0)
-        self.assertEqual(result["matched_trades"], 1)
-        self.assertEqual(result["open_real_trades"], 1)
-        self.assertEqual(result["missing_real_trades"], 0)
-        self.assertEqual(result["discrepancies"], 0)
-
-    def test_an_open_real_position_can_only_align_one_tester_operation(self) -> None:
-        now = datetime(2026, 9, 24, 16, 59, 42, tzinfo=timezone.utc)
-        trade = {
-            "strategy": "s1", "symbol": "AMZN", "side": "sell",
-            "open_time": now, "close_time": now + timedelta(days=1),
-            "open_price": 245.62, "volume": 0.02, "profit": -7.0,
-        }
-        order = {**request(), "real_positions_open_at_period_end": [{
-            **trade, "close_time": None, "profit": None, "position_id": 760842306,
-        }]}
-        result = LiveAuditController._compare(
-            [], [trade, dict(trade)], {"AMZN": 0.01}, order, {"s1": 2},
-        )
-
-        statuses = [
-            row["status"] for row in result["comparison_detail"]["operation_comparisons"]
-        ]
-        self.assertEqual(statuses, ["open", "missing"])
-        self.assertEqual(result["open_real_trades"], 1)
-        self.assertEqual(result["missing_real_trades"], 1)
-
-    def test_a_missing_real_without_an_open_position_keeps_its_old_reason(self) -> None:
-        now = datetime(2026, 9, 24, 16, 59, 42, tzinfo=timezone.utc)
-        tester = [{
-            "strategy": "sola", "symbol": "AMZN", "side": "sell", "open_time": now,
-            "close_time": now, "open_price": 245.62, "volume": 0.05, "profit": -18.44,
-        }]
-        row = LiveAuditController._compare(
-            [], tester, {"AMZN": 0.01}, request(), {"sola": 1},
-        )["comparison_detail"]["operation_comparisons"][0]
-
-        self.assertEqual(row["reasons"], ["no_real_same_symbol_and_side"])
-        self.assertIsNone(row["real_position_still_open"])
-
-    def test_broker_prefixed_symbols_keep_their_validated_price_floor(self) -> None:
-        # RoboForex antepone un punto. La raíz quedaba vacía y `.DE40Cash` perdía
-        # el piso de índices que `DE40Cash` sí recibe.
-        cases = {
-            ".DE40Cash": (10.5, "adaptive_indices"),
-            ".USTECHCash": (10.5, "adaptive_indices"),
-            ".JP225Cash": (5.0, "adaptive_nikkei"),
-            "JP225Cash": (5.0, "adaptive_nikkei"),
-            "JPN225": (5.0, "adaptive_nikkei"),
-            "NAS100.fs": (5.0, "adaptive_nasdaq"),
-            "XAUUSD": (2.05, "adaptive_gold"),
-            "AMZN": (None, "configured_points"),
-        }
-        for symbol, expected in cases.items():
-            with self.subTest(symbol=symbol):
-                self.assertEqual(_adaptive_price_tolerance_floor(symbol), expected)
-
+class LiveAuditEngineTests(LiveAuditEngineTestCase):
     def test_only_adverse_pnl_differences_trigger_the_tolerance(self) -> None:
         now = datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc)
         base = {
@@ -836,7 +209,10 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertEqual(state["last_result"]["real_trades"], 1)
         self.assertEqual(state["last_result"]["real_history_detail"]["portfolio_closures"], 1)
 
-    def test_real_account_filter_uses_the_configured_lot_for_each_strategy(self) -> None:
+    def test_the_real_lot_may_sit_between_the_tester_one_and_the_configured_one(self) -> None:
+        # Exigir el lote configurado al milésimo descartaba cierres que sí eran
+        # de la estrategia: la cuenta real los ejecutó con el lote del tester o
+        # con uno intermedio. Fuera de esa banda el cierre sigue siendo ajeno.
         with tempfile.TemporaryDirectory() as temp:
             owner, controller = self._controller(Path(temp), "idle")
             owner.portfolio_detail = lambda *_args: {"portfolio": {"id": 9, "members": [{
@@ -848,17 +224,17 @@ class LiveAuditEngineTests(unittest.TestCase):
                 "close_time": now, "open_price": 100.0, "close_price": 100.0, "profit": 1.0,
             }
             controller._extract_real = lambda *_args: (
-                [{**base, "volume": .6}, {**base, "volume": .7}], {"ETHUSD": .01},
+                [{**base, "volume": volume} for volume in (.6, .7, .9)], {"ETHUSD": .01},
                 {"login": "111", "native_report": {"filename": "real.html", "native_terminal_report": True},
                  "history_detail": {}},
             )
             controller._run_tester = lambda *_args: (
-                [{**base, "strategy": "eth-grid", "volume": .6}], [99.0], {"eth-grid": 1}, [], {},
+                [{**base, "strategy": "eth-grid", "volume": .7}], [99.0], {"eth-grid": 1}, [], {},
             )
             controller.start({**request(), "real_strategy_lots": {"eth-grid": .6}})
             state = self._wait(controller)
 
-        self.assertEqual(state["last_result"]["real_trades"], 1)
+        self.assertEqual(state["last_result"]["real_trades"], 2)
         self.assertEqual(state["last_result"]["matched_trades"], 1)
         self.assertEqual(state["last_result"]["real_history_detail"]["foreign_closures_ignored"], 1)
 
@@ -901,41 +277,50 @@ class LiveAuditEngineTests(unittest.TestCase):
         # pipeline probaría cada estrategia contra la cuenta real.
         with tempfile.TemporaryDirectory() as temp:
             owner, controller = self._controller(Path(temp), "running")
-            initialize_calls: list[dict[str, object]] = []
-            launches: list[tuple[str, str | None]] = []
-            closed_gracefully: list[set[int]] = []
+            evidence = self._run_restore_scenario(controller)
 
-            class FakeMt5:
-                @staticmethod
-                def initialize(**kwargs) -> bool:
-                    initialize_calls.append(dict(kwargs))
-                    return True
-
-                @staticmethod
-                def account_info() -> SimpleNamespace:
-                    return SimpleNamespace(login=333, server="CapitalPoint-Live", currency="EUR")
-
-                @staticmethod
-                def terminal_info() -> SimpleNamespace:
-                    return SimpleNamespace(connected=True)
-
-                @staticmethod
-                def shutdown() -> None:
-                    pass
-
-            self._remember_on_extraction(controller)
-            controller._terminal_pids_for_path = lambda _path: set()
-            controller._launch_terminal = lambda path, config_path=None: (
-                launches.append((
-                    path, config_path.read_text(encoding="utf-8") if config_path else None,
-                )) or {101}
-            )
-            controller._close_terminal_pids_gracefully = closed_gracefully.append
-            with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": FakeMt5}):
-                controller.start(request())
-                state = self._wait(controller)
-
+        state = evidence["state"]
         self.assertEqual(state["status"], "completed")
+        self._assert_restore_login(evidence)
+        self._assert_restore_result(state)
+        self.assertEqual((owner.pause_calls, owner.resume_calls), (1, 1))
+        self.assertTrue(any("MT5_IC_1 → 333 (CapitalPoint-Live)" in line for line in state["log_lines"]))
+
+    def _run_restore_scenario(self, controller) -> dict:
+        initialize_calls: list[dict[str, object]] = []
+        launches: list[tuple[str, str | None]] = []
+        closed_gracefully: list[set[int]] = []
+
+        class FakeMt5:
+            @staticmethod
+            def initialize(**kwargs) -> bool:
+                initialize_calls.append(dict(kwargs))
+                return True
+
+            account_info = staticmethod(
+                lambda: SimpleNamespace(login=333, server="CapitalPoint-Live", currency="EUR")
+            )
+            terminal_info = staticmethod(lambda: SimpleNamespace(connected=True))
+            shutdown = staticmethod(lambda: None)
+
+        self._remember_on_extraction(controller)
+        controller._terminal_pids_for_path = lambda _path: set()
+        controller._launch_terminal = lambda path, config_path=None: (
+            launches.append((
+                path, config_path.read_text(encoding="utf-8") if config_path else None,
+            )) or {101}
+        )
+        controller._close_terminal_pids_gracefully = closed_gracefully.append
+        with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": FakeMt5}):
+            controller.start(request())
+            state = self._wait(controller)
+        return {
+            "state": state, "initialize_calls": initialize_calls,
+            "launches": launches, "closed_gracefully": closed_gracefully,
+        }
+
+    def _assert_restore_login(self, evidence: dict) -> None:
+        initialize_calls = evidence["initialize_calls"]
         self.assertEqual(len(initialize_calls), 2)
         self.assertEqual(set(initialize_calls[0]), {"path", "timeout"})
         self.assertEqual(set(initialize_calls[1]), {"path", "timeout", "login", "server"})
@@ -945,11 +330,14 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertNotIn("password", initialize_calls[1])
         # Solo el arranque con el INI es manual. La reapertura normal la hace
         # initialize(path=...) para no competir con una segunda instancia MT5.
+        launches = evidence["launches"]
         self.assertEqual(len(launches), 1)
         self.assertIn("KeepPrivate = 1", launches[0][1] or "")
         self.assertIn("Login = 333", launches[0][1] or "")
         self.assertIn("Password = restore-secret", launches[0][1] or "")
-        self.assertEqual(closed_gracefully, [set(), set(), set()])
+        self.assertEqual(evidence["closed_gracefully"], [set(), set(), set()])
+
+    def _assert_restore_result(self, state: dict) -> None:
         restore = state["terminal_restore"]
         self.assertEqual(len(restore), 1)
         self.assertEqual(restore[0]["terminal"], "MT5_IC_1")
@@ -960,10 +348,6 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertEqual(state["last_result"]["terminal_restore"], restore)
         self.assertNotIn("tester-secret", str(state))
         self.assertNotIn("restore-secret", str(state))
-        # La restauración precede a la reanudación: el pipeline no puede reabrir
-        # el terminal en la cuenta real.
-        self.assertEqual((owner.pause_calls, owner.resume_calls), (1, 1))
-        self.assertTrue(any("MT5_IC_1 → 333 (CapitalPoint-Live)" in line for line in state["log_lines"]))
 
     def test_a_terminal_left_on_another_account_is_reported_without_hiding_the_result(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1061,205 +445,6 @@ class LiveAuditEngineTests(unittest.TestCase):
         self.assertTrue(all(row["verified"] for row in rows))
         self.assertEqual({row["login"] for row in rows}, {"222"})
         self.assertEqual({row["server"] for row in rows}, {"IC-Demo"})
-
-    def test_the_tester_login_waits_for_the_terminal_to_switch_accounts(self) -> None:
-        # Un terminal arrancado en frío sigue sincronizando la cuenta guardada
-        # —la de restauración— cuando MT5 ya autorizó la del tester. El pase real
-        # `20261001_005310_756706` de RoboForex perdió tres terminales del pool
-        # así: el Journal decía «'77049426': authorized» y medio segundo después
-        # «'67188517': terminal synchronized».
-        controller = LiveAuditController(FakeOwner("idle"), Path(tempfile.gettempdir()))
-        controller.tester_login_settle_seconds = 5.0
-        reads: list[int] = [0]
-
-        class SwitchingMt5:
-            @staticmethod
-            def initialize(**_kwargs) -> bool:
-                return True
-
-            @staticmethod
-            def account_info() -> SimpleNamespace:
-                reads[0] += 1
-                if reads[0] < 3:
-                    return SimpleNamespace(login=999, server="IC-Demo")
-                return SimpleNamespace(login=222, server="IC-Demo")
-
-            @staticmethod
-            def terminal_info() -> SimpleNamespace:
-                return SimpleNamespace(connected=True)
-
-            @staticmethod
-            def shutdown() -> None:
-                pass
-
-        controller._terminal_pids = lambda: set()
-        controller._close_terminal_pids_gracefully = lambda _pids: None
-        profiles = [("Terminal.2", {"name": "MT5_IC_1", "mt5_path": r"C:\IC1\terminal64.exe"})]
-        with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": SwitchingMt5}):
-            rows = controller._verify_tester_terminals(request(), profiles)
-
-        self.assertTrue(rows[0]["verified"])
-        self.assertEqual(rows[0]["login"], "222")
-        self.assertGreaterEqual(reads[0], 3)
-
-    def test_a_terminal_parked_on_another_account_is_switched_with_login(self) -> None:
-        # Pase real `20261001_023955_464006`, MT5_2: el Journal registró
-        # «'77049426': authorized» y acto seguido «'67188517': terminal
-        # synchronized». El terminal se quedó 32 s con la cuenta guardada sin
-        # conmutar, así que esperar no es el arreglo: hay que pedir el cambio.
-        controller = LiveAuditController(FakeOwner("idle"), Path(tempfile.gettempdir()))
-        controller.tester_login_settle_seconds = 1.0
-        controller.account_probe_seconds = 0.0
-        logins: list[tuple[int, str]] = []
-
-        class ParkedMt5:
-            @staticmethod
-            def initialize(**_kwargs) -> bool:
-                return True
-
-            @staticmethod
-            def login(login: int, **kwargs) -> bool:
-                logins.append((login, str(kwargs.get("server") or "")))
-                return True
-
-            @staticmethod
-            def account_info() -> SimpleNamespace:
-                # La cuenta guardada manda hasta que alguien llama a `login`.
-                return SimpleNamespace(
-                    login=222 if logins else 67188517, server="IC-Demo",
-                )
-
-            @staticmethod
-            def terminal_info() -> SimpleNamespace:
-                return SimpleNamespace(connected=True)
-
-            @staticmethod
-            def shutdown() -> None:
-                pass
-
-        controller._terminal_pids = lambda: set()
-        controller._close_terminal_pids_gracefully = lambda _pids: None
-        profiles = [("Terminal.5", {"name": "MT5_2", "mt5_path": r"C:\IC1\terminal64.exe"})]
-        with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": ParkedMt5}):
-            rows = controller._verify_tester_terminals(request(), profiles)
-
-        self.assertEqual(logins, [(222, "IC-Demo")])
-        self.assertTrue(rows[0]["verified"])
-        self.assertEqual(rows[0]["login"], "222")
-
-    def test_a_terminal_already_on_the_tester_account_is_not_switched(self) -> None:
-        controller = LiveAuditController(FakeOwner("idle"), Path(tempfile.gettempdir()))
-        controller.account_probe_seconds = 0.0
-        logins: list[int] = []
-
-        class ReadyMt5:
-            @staticmethod
-            def initialize(**_kwargs) -> bool:
-                return True
-
-            @staticmethod
-            def login(login: int, **_kwargs) -> bool:
-                logins.append(login)
-                return True
-
-            @staticmethod
-            def account_info() -> SimpleNamespace:
-                return SimpleNamespace(login=222, server="IC-Demo")
-
-            @staticmethod
-            def terminal_info() -> SimpleNamespace:
-                return SimpleNamespace(connected=True)
-
-            @staticmethod
-            def shutdown() -> None:
-                pass
-
-        controller._terminal_pids = lambda: set()
-        controller._close_terminal_pids_gracefully = lambda _pids: None
-        with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": ReadyMt5}):
-            rows = controller._verify_tester_terminals(
-                request(), [("Terminal.2", {"name": "MT5_1", "mt5_path": r"C:\IC1\terminal64.exe"})],
-            )
-
-        self.assertEqual(logins, [])
-        self.assertTrue(rows[0]["verified"])
-
-    def test_a_refused_account_switch_is_reported_as_such(self) -> None:
-        controller = LiveAuditController(FakeOwner("idle"), Path(tempfile.gettempdir()))
-        controller.account_probe_seconds = 0.0
-
-        class RefusingSwitchMt5:
-            @staticmethod
-            def initialize(**_kwargs) -> bool:
-                return True
-
-            @staticmethod
-            def login(_login: int, **_kwargs) -> bool:
-                return False
-
-            @staticmethod
-            def last_error() -> tuple[int, str]:
-                return (-6, "Authorization failed")
-
-            @staticmethod
-            def account_info() -> SimpleNamespace:
-                return SimpleNamespace(login=67188517, server="IC-Demo")
-
-            @staticmethod
-            def terminal_info() -> SimpleNamespace:
-                return SimpleNamespace(connected=True)
-
-            @staticmethod
-            def shutdown() -> None:
-                pass
-
-        controller._terminal_pids = lambda: set()
-        controller._close_terminal_pids_gracefully = lambda _pids: None
-        with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": RefusingSwitchMt5}):
-            with self.assertRaises(RuntimeError) as failure:
-                controller._verify_tester_terminals(
-                    request(), [("Terminal.5", {"name": "MT5_2", "mt5_path": r"C:\IC1\terminal64.exe"})],
-                )
-
-        self.assertIn("MT5_2: MT5 no cambió a la cuenta tester", str(failure.exception))
-        self.assertIn("Authorization failed", str(failure.exception))
-
-    def test_a_terminal_that_never_switches_still_names_the_account_it_confirmed(self) -> None:
-        # `login()` dice que sí y la cuenta sigue sin cambiar: el pool debe caer
-        # nombrando la cuenta que el terminal confirmó, no con un fallo mudo.
-        controller = LiveAuditController(FakeOwner("idle"), Path(tempfile.gettempdir()))
-        controller.tester_login_settle_seconds = 0.0
-        controller.account_probe_seconds = 0.0
-
-        class StuckMt5:
-            @staticmethod
-            def initialize(**_kwargs) -> bool:
-                return True
-
-            @staticmethod
-            def login(_login: int, **_kwargs) -> bool:
-                return True
-
-            @staticmethod
-            def account_info() -> SimpleNamespace:
-                return SimpleNamespace(login=67188517, server="IC-Demo")
-
-            @staticmethod
-            def terminal_info() -> SimpleNamespace:
-                return SimpleNamespace(connected=True)
-
-            @staticmethod
-            def shutdown() -> None:
-                pass
-
-        controller._terminal_pids = lambda: set()
-        controller._close_terminal_pids_gracefully = lambda _pids: None
-        profiles = [("Terminal.2", {"name": "MT5_4", "mt5_path": r"C:\IC1\terminal64.exe"})]
-        with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": StuckMt5}):
-            with self.assertRaises(RuntimeError) as failure:
-                controller._verify_tester_terminals(request(), profiles)
-
-        self.assertIn("MT5_4: confirmó el login 67188517", str(failure.exception))
 
     def test_main_journal_capture_keeps_only_new_lines_and_redacts_secrets(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

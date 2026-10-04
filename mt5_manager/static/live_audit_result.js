@@ -4,6 +4,7 @@ const auditId = params.get('audit') || '';
 const modeLabels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
 const reasonLabels = {
   close_time: 'Cierre fuera de tolerancia',
+  open_time: 'Apertura fuera de tolerancia; la real se alineó por el cierre',
   open_price: 'Precio de apertura fuera de tolerancia',
   volume: 'Volumen fuera de tolerancia',
   pnl: 'PnL real peor que el tester',
@@ -130,6 +131,17 @@ function comparisonDecision(row) {
   };
 }
 
+function realTicketNote(real) {
+  const ticket = real.position_id ?? real.ticket;
+  return ticket ? ` · ticket ${ticket}` : '';
+}
+
+function stopsPair(tester, real) {
+  const level = trade => (Number(trade.sl) || Number(trade.tp))
+    ? `SL ${number(trade.sl, 8)} / TP ${number(trade.tp, 8)}` : 'sin niveles';
+  return `${level(tester)} · REAL: ${level(real)}`;
+}
+
 function plainPair(tester, real, formatter = value => number(value)) {
   return `TESTER: ${formatter(tester)} · REAL: ${formatter(real)}`;
 }
@@ -166,13 +178,15 @@ function comparisonCsvRow(row) {
   const pnlText = noClosedReal
     ? plainPair(tester.profit, real.profit, value => number(value, 2))
     : `${plainPair(tester.profit, real.profit, value => number(value, 2))} · ${plainPnlDelta(measurements, limits.pnl_pct)}${pnlScaleNote(measurements)}`;
+  const stopsText = `TESTER: ${stopsPair(tester, real)}`;
   return [
     `T${row.tester_index ?? ''}`,
     statusLabel,
-    `${tester.symbol || '—'} · ${number(tester.volume, 4)} lotes · ${tester.side || '—'} · ${row.strategy || '—'}`,
-    `${plainPair(tester.open_time, openReal, marketDateTime)} · ${plainDelta(openDelta, limits.open_time_seconds, ' s')}${row.status === 'missing' && nearest.open_time ? ' · candidato más cercano, no consumido' : ''}`,
+    `${tester.symbol || '—'} · ${number(tester.volume, 4)} lotes · ${tester.side || '—'} · ${row.strategy_set || '—'} · ${row.strategy || '—'}`,
+    `${plainPair(tester.open_time, openReal, marketDateTime)} · ${plainDelta(openDelta, limits.open_time_seconds, ' s')}${realTicketNote(real)}${row.status === 'missing' && nearest.open_time ? ' · candidato más cercano, no consumido' : ''}`,
     closeText,
     priceText,
+    stopsText,
     volumeText,
     pnlText,
     reasonText,
@@ -188,7 +202,7 @@ function csvCell(value) {
 
 function downloadComparisons() {
   if (!comparisonRows.length || !currentResult) return;
-  const headers = ['ID', 'Estado', 'Mercado', 'Apertura', 'Cierre', 'Precio apertura', 'Volumen', 'PnL', 'Por qué', 'Validación / observaciones'];
+  const headers = ['ID', 'Estado', 'Mercado', 'Apertura', 'Cierre', 'Precio apertura', 'SL / TP', 'Volumen', 'PnL', 'Por qué', 'Validación / observaciones'];
   const csv = `\uFEFF${[headers, ...comparisonRows.map(comparisonCsvRow)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
   const fileId = String(currentResult.audit_id || auditId || 'resultado').replace(/[^A-Za-z0-9_-]+/g, '_');
   const start = String(currentResult.period_start || '').slice(0, 10) || 'sin-inicio';
@@ -421,7 +435,7 @@ function renderStrategies(result) {
       const diagnosis = Number(row.missing_real) === Number(row.tester_trades) ? ['SIN CONTINUIDAD', 'bad']
         : Number(row.with_deviations) || Number(row.missing_real) ? ['REVISAR', 'warn']
           : Number(row.open_real) ? ['REAL ABIERTA', 'info'] : ['CORRECTA', 'good'];
-      return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote real ${escapeHtml(number(artifact.real_account_lot ?? artifact.tester_lot ?? artifact.configured_lot, 8))} · tester ${escapeHtml(number(artifact.tester_lot ?? artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy)}</small></th>
+      return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote real ${escapeHtml(number(artifact.real_account_lot ?? artifact.tester_lot ?? artifact.configured_lot, 8))} · tester ${escapeHtml(number(artifact.tester_lot ?? artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy_set || row.strategy)}</small>${row.strategy_set ? `<small>${escapeHtml(row.strategy)}</small>` : ''}</th>
         <td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
         <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td>${escapeHtml(row.open_real || 0)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
         <td><span class="audit-status ${diagnosis[1]}">${diagnosis[0]}</span></td>`;
@@ -447,12 +461,12 @@ function comparisonMarkup(row) {
     pnlDelta(measurements, limits.pnl_pct),
     scaleNote ? `<small>${escapeHtml(scaleNote)}</small>` : '',
   ].join('');
-  return `<tr data-status="${escapeHtml(displayStatus)}" data-search="${escapeHtml(`${row.strategy || ''} ${tester.symbol || ''} ${real.strategy || nearest.strategy || ''}`.toLocaleLowerCase('es'))}">
-    <td><span class="audit-status ${statusClass}">${escapeHtml(statusLabel)}</span><small>#T${escapeHtml(row.tester_index)}</small></td>
-    <td><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><span>${escapeHtml(tester.side)}</span><small>${escapeHtml(row.strategy)}</small></td>
+  return `<tr data-status="${escapeHtml(displayStatus)}" data-search="${escapeHtml(`${row.strategy || ''} ${row.strategy_set || ''} ${tester.symbol || ''} ${real.strategy || nearest.strategy || ''}`.toLocaleLowerCase('es'))}">
+    <td><span class="audit-status ${statusClass}">${escapeHtml(statusLabel)}</span><small>#T${escapeHtml(row.tester_index)}</small>${realTicketNote(real) ? `<small>${escapeHtml(realTicketNote(real).replace(/^ · /, ''))}</small>` : ''}</td>
+    <td><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><span>${escapeHtml(tester.side)}</span><small>${escapeHtml(row.strategy_set || row.strategy)}</small>${row.strategy_set ? `<small>${escapeHtml(row.strategy)}</small>` : ''}</td>
     <td>${pair(tester.open_time, openReal, marketDateTime)}${delta(openDelta, limits.open_time_seconds, ' s')}${nearestNote}</td>
     <td>${pair(tester.close_time, real.close_time, marketDateTime)}${row.status === 'missing' || openPosition ? '' : delta(measurements.close_time_delta_seconds, limits.close_time_seconds, ' s')}${openPosition ? '<small>Pendiente: la posición real sigue abierta</small>' : ''}</td>
-    <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : `${delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}<small>Límite absoluto ${escapeHtml(number(limits.open_price_absolute, 8))} · regla ${escapeHtml(priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada')}</small>`}</td>
+    <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : `${delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}<small>Límite absoluto ${escapeHtml(number(limits.open_price_absolute, 8))} · regla ${escapeHtml(priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada')}</small>`}<small>${escapeHtml(stopsPair(tester, real))}</small></td>
     <td>${pair(tester.volume, real.volume, value => number(value, 4))}${volumeCell}</td>
     <td>${pair(tester.profit, real.profit, value => number(value, 2))}${pnlCell}${openPosition ? '<small>Pendiente hasta el cierre real</small>' : ''}</td>
     <td>${reasons.length ? `<ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : '<strong class="good-text">Todos los límites se cumplen</strong>'}</td>

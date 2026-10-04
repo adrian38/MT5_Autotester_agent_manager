@@ -59,7 +59,7 @@ class SymbolSyncRoutingTests(unittest.TestCase):
             else:
                 payload = {"symbols": ["TEST"]}
             with self.subTest(action=action), mock.patch(
-                "mt5_manager.manager.node_request", return_value=(202, {"status": "running"})
+                "mt5_manager.manager_http.node_request", return_value=(202, {"status": "running"})
             ) as forward:
                 self.assertEqual(self.post(action, payload), (202, {"status": "running"}))
                 forward.assert_called_once_with(self.server.nodes[0], "POST", target, payload, timeout=120)
@@ -77,7 +77,7 @@ class SymbolSyncRoutingTests(unittest.TestCase):
             ("resume", "/api/v1/jobs/resume"),
         ):
             with self.subTest(action=action), mock.patch(
-                "mt5_manager.manager.node_request", return_value=(200, {"status": "stopping"})
+                "mt5_manager.manager_http.node_request", return_value=(200, {"status": "stopping"})
             ) as forward:
                 self.assertEqual(self.post(action, {}), (200, {"status": "stopping"}))
                 forward.assert_called_once_with(
@@ -87,19 +87,19 @@ class SymbolSyncRoutingTests(unittest.TestCase):
     def test_busy_and_old_nodes_return_their_error_without_retry(self):
         for status in (409, 404):
             with self.subTest(status=status), mock.patch(
-                "mt5_manager.manager.node_request", return_value=(status, {"error": "node error"})
+                "mt5_manager.manager_http.node_request", return_value=(status, {"error": "node error"})
             ) as forward:
                 self.assertEqual(self.post("universe-sync", {}), (status, {"error": "node error"}))
                 forward.assert_called_once()
 
     def test_timeout_does_not_retry_a_possible_completed_mutation(self):
-        with mock.patch("mt5_manager.manager.node_request", side_effect=TimeoutError("timeout")) as forward:
+        with mock.patch("mt5_manager.manager_http.node_request", side_effect=TimeoutError("timeout")) as forward:
             self.assertEqual(self.post("universe-sync", {})[0], 502)
             forward.assert_called_once()
 
     def test_dev_rejects_a_disallowed_agent_before_contacting_it(self):
         with mock.patch("mt5_manager.manager.dev_branch.assert_writable", side_effect=ValueError("denied")), mock.patch(
-            "mt5_manager.manager.node_request"
+            "mt5_manager.manager_http.node_request"
         ) as forward:
             self.assertEqual(self.post("universe-history", {}), (400, {"error": "denied"}))
             forward.assert_not_called()
@@ -107,7 +107,7 @@ class SymbolSyncRoutingTests(unittest.TestCase):
     def test_dev_rejects_unknown_destination(self):
         self.server.nodes[0].pop("portfolio_project_dir")
         with mock.patch("mt5_manager.manager.dev_branch.is_active", return_value=True), mock.patch(
-            "mt5_manager.manager.node_request"
+            "mt5_manager.manager_http.node_request"
         ) as forward:
             self.assertEqual(self.post("universe-sync", {})[0], 400)
             forward.assert_not_called()
