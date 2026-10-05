@@ -46,3 +46,23 @@ Idrica. Diagnóstico en `ai_context/codebase_memory_mcp_no_arranca.md`.
 
 Que el CLI del fallo 1 funcione **no** demuestra que el servidor arranque: es
 otro ejecutable y otra versión (0.9.0 contra 0.10.8).
+
+## Fallo 3: «outside the allowed root» al reindexar el manager (2026-10-05)
+
+`index_repository` sobre **este** repositorio responde:
+
+```
+C:/Users/Adrian/Adrian/TRADING/MT5_Autotester_agent_manager is outside the
+allowed root. To allow it, run: codebase-memory-mcp allow-root <ruta>
+```
+
+El proyecto de IC sí está permitido y se refresca solo: su grafo contestó con
+símbolos escritos minutos antes. El del manager se queda en la última versión
+que escribió el CLI del fallo 1, que es **otra base de datos** que el servidor
+no lee. Así que aquí `search_graph` contesta con rutas y líneas viejas, y lo
+hace sin avisar: un símbolo nuevo simplemente «no existe».
+
+Mientras no se ejecute `allow-root`, en el manager el grafo vale para
+orientarse y para preguntar por código que no se ha movido; lo recién escrito
+se comprueba leyendo. En IC el grafo sí es autoridad. Declararlo en la entrega,
+como pide `AGENTS.md`.
