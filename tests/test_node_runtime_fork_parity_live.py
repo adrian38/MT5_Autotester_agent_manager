@@ -122,6 +122,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         self.assertIn('"live_audit_restore_account": True', manager_node)
         for token in (
             "def _restore_tester_login",
+            "def _persist_terminal_account_retrying",
             "def _remember_real_account_terminal",
             "def _tester_terminal_pool",
             "def _multiterminal_worker_limit",
@@ -151,6 +152,10 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         )
         for token, hint in (
             ("def _restore_tester_login", "la restauración de la cuenta de pruebas"),
+            (
+                "def _persist_terminal_account_retrying",
+                "el segundo intento que salva la carrera del arranque con el INI",
+            ),
             ("def _remember_real_account_terminal", "el registro de terminales con la cuenta real"),
             ("def _tester_terminal_pool", "el reparto del tester entre terminales habilitadas"),
             (

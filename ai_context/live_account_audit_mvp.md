@@ -1119,3 +1119,38 @@ habilitada, devolviera `(-10003, "IPC initialize failed, Pipe server didn't
 answer in 60 sec")` tras 60 segundos: el auditor intentó meter una cuenta de
 CapitalPoint en un terminal de RoboForex. El error nombra la carpeta de la
 instalación, que es lo que delató el caso.
+
+## La restauración reintenta: el arranque con el INI es una carrera (2026-10-05)
+
+Una auditoría del 2026-10-05 01:56 dejó `MT5_IC_2` sin restaurar y la siguiente
+—idéntica— restauró las cinco terminales. El mensaje exacto no se pudo
+recuperar: `state.json` guarda un solo resultado por uso y la ejecución buena
+lo sobrescribió, `log_lines` se reinicia en cada ejecución, y los Journals de
+MT5 viven bajo el perfil del usuario `test`, al que esta sesión no tiene
+acceso. Los `main_journal_*.txt` que copia la auditoría cubren la fase del
+tester, no la restauración, que es posterior.
+
+Lo que sí se puede demostrar leyendo el código es que esa fase tiene dos
+defectos, los dos intermitentes y los dos en el camino de una sola terminal:
+
+- **`_close_terminal_pids_gracefully` no esperaba al cierre forzado.** Tras los
+  30 s de WM_CLOSE llama a `taskkill /F`, que vuelve en cuanto pide la
+  terminación, y devolvía el control enseguida. `_persist_terminal_account`
+  consulta los procesos en la línea siguiente, veía el proceso todavía vivo y
+  lanzaba «MT5 no se cerró limpiamente antes de guardar la cuenta final» sin
+  haber intentado nada. Ahora espera hasta diez segundos a que Windows lo
+  retire.
+- **El arranque manual con el INI sigue compitiendo con el IPC de MT5.** Es el
+  patrón que el 2026-09-14 dejó cuatro terminales de AXI en `(-10005, 'IPC
+  timeout')`. De la reapertura se pudo quitar el arranque manual; de la primera
+  fase no, porque `KeepPrivate=1` sólo entra por el INI de arranque. Como la
+  operación se verifica sola y es idempotente,
+  `_persist_terminal_account_retrying` la repite una vez sobre la instalación
+  ya cerrada. Un rechazo real falla los dos intentos y se reporta igual, con
+  los dos errores por delante (`intento 1: …; intento 2: …`).
+
+No está demostrado que alguno de los dos sea el fallo del 01:56; son los dos
+defectos reales que hay en ese camino. Para la próxima: el error por terminal
+vive en `terminal_restore[].error` del `state.json` del agente y lo pinta la
+pantalla de resultado, así que conviene copiarlo antes de relanzar la
+auditoría, porque la siguiente ejecución lo borra.

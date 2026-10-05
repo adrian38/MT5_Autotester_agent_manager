@@ -86,6 +86,12 @@ class _ProcessMixin:
                 return
             time.sleep(0.5)
         self._close_terminal_pids(pids & self._terminal_pids())
+        # `taskkill /F` vuelve en cuanto pide la terminacion, no cuando Windows
+        # retira el proceso. Quien comprueba justo despues lo ve vivo y da el
+        # terminal por no cerrado sin haber intentado nada.
+        forced = time.monotonic() + 10.0
+        while time.monotonic() < forced and pids & self._terminal_pids():
+            time.sleep(0.5)
 
     def _launch_terminal(self, terminal_path: str, config_path: Path | None = None) -> set[int]:
         """Arranca una instalación y espera a identificar su proceso exacto."""
