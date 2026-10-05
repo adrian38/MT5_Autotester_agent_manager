@@ -251,24 +251,39 @@ class LiveAuditSettingsStore:
             })
 
     @staticmethod
+    def _account_identity(candidate: dict[str, str]) -> tuple[str, str]:
+        """La cuenta es el login en su servidor: el mismo par es la misma cuenta."""
+        return candidate["login"].strip(), candidate["server"].strip().casefold()
+
+    @classmethod
     def _account_catalog(
-        candidates: list[dict[str, str]],
+        cls, candidates: list[dict[str, str]],
     ) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
+        """Una entrada por cuenta: el rol y el uso son procedencia, no identidad."""
         public: list[dict[str, Any]] = []
         sources: dict[str, dict[str, str]] = {}
+        merged: dict[tuple[str, str], dict[str, Any]] = {}
         for candidate in candidates:
+            identity = cls._account_identity(candidate)
+            entry = merged.get(identity)
+            if entry is not None:
+                entry["uses"] += 1
+                continue
             account_id = candidate["id"]
             sources[account_id] = {
                 "login": candidate["login"],
                 "server": candidate["server"],
                 "token": candidate["token"],
             }
-            public.append({
+            entry = {
                 "id": account_id,
                 "login": candidate["login"],
                 "server": candidate["server"],
                 "origin": candidate["origin"],
-            })
+                "uses": 1,
+            }
+            merged[identity] = entry
+            public.append(entry)
         return public, sources
 
     def _saved_account_sources(

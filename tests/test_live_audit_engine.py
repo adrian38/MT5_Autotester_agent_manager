@@ -386,12 +386,73 @@ class LiveAuditEngineTests(LiveAuditEngineTestCase):
                 state = self._wait(controller)
 
         self.assertEqual(state["status"], "completed")
-        self.assertEqual(attempts, 2)
+        # Un rechazo real falla los dos intentos: la reapertura del primero y ya
+        # el arranque del segundo. Se reporta igual, con los dos por delante.
+        self.assertEqual(attempts, 3)
         self.assertFalse(state["terminal_restore"][0]["restored"])
         self.assertFalse(state["terminal_restore"][0]["password_persisted"])
         self.assertFalse(state["terminal_restore"][0]["reopened_without_password"])
         self.assertIn("Authorization failed", state["terminal_restore"][0]["error"])
+        self.assertIn("intento 1: ", state["terminal_restore"][0]["error"])
+        self.assertIn("intento 2: ", state["terminal_restore"][0]["error"])
         self.assertIn("no quedó en la cuenta configurada 333", state["progress_text"])
+
+    def test_a_terminal_that_fails_the_first_start_is_restored_on_the_second(self) -> None:
+        # El arranque con el INI compite con el IPC de MT5 y devuelve IPC
+        # timeout. Antes bastaba esa carrera para dejar el terminal en la cuenta
+        # auditada; la operación se verifica sola, así que se repite.
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+            attempts = 0
+
+            class FlakyMt5:
+                @staticmethod
+                def initialize(**_kwargs) -> bool:
+                    nonlocal attempts
+                    attempts += 1
+                    return attempts > 1
+
+                account_info = staticmethod(
+                    lambda: SimpleNamespace(login=333, server="CapitalPoint-Live")
+                )
+                terminal_info = staticmethod(lambda: SimpleNamespace(connected=True))
+                last_error = staticmethod(lambda: (-10005, "IPC timeout"))
+                shutdown = staticmethod(lambda: None)
+
+            self._remember_on_extraction(controller)
+            controller._terminal_pids_for_path = lambda _path: set()
+            controller._launch_terminal = lambda _path, _config_path=None: {101}
+            controller._close_terminal_pids_gracefully = lambda _pids: None
+            with unittest.mock.patch.dict(sys.modules, {"MetaTrader5": FlakyMt5}):
+                controller.start(request())
+                state = self._wait(controller)
+
+        self.assertEqual(attempts, 3)
+        self.assertTrue(state["terminal_restore"][0]["restored"])
+        self.assertTrue(state["terminal_restore"][0]["password_persisted"])
+        self.assertTrue(state["terminal_restore"][0]["reopened_without_password"])
+        self.assertIsNone(state["terminal_restore"][0]["error"])
+
+    def test_a_forced_kill_waits_until_windows_retires_the_process(self) -> None:
+        # `taskkill /F` vuelve en cuanto pide la terminación. Quien comprobaba
+        # justo después veía el proceso vivo y declaraba el terminal sin cerrar
+        # antes de intentar guardarle la cuenta.
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+            killed: list[set[int]] = []
+            polls: list[int] = []
+
+            def terminal_pids() -> set[int]:
+                polls.append(len(killed))
+                return set() if polls.count(1) >= 2 else {101}
+
+            controller._terminal_pids = terminal_pids
+            controller._close_terminal_pids = killed.append
+            with unittest.mock.patch("mt5_manager.live_audit_core.subprocess.run"):
+                controller._close_terminal_pids_gracefully({101}, timeout=0.01)
+
+        self.assertEqual(killed, [{101}])
+        self.assertGreaterEqual(polls.count(1), 2)
 
     def test_the_same_terminal_is_only_restored_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

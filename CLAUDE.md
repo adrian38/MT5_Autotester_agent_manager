@@ -46,3 +46,33 @@ Idrica. Diagnóstico en `ai_context/codebase_memory_mcp_no_arranca.md`.
 
 Que el CLI del fallo 1 funcione **no** demuestra que el servidor arranque: es
 otro ejecutable y otra versión (0.9.0 contra 0.10.8).
+
+## Fallo 3: «outside the allowed root» al reindexar (resuelto el 2026-10-05)
+
+`index_repository` sobre **este** repositorio respondía:
+
+```
+C:/Users/Adrian/Adrian/TRADING/MT5_Autotester_agent_manager is outside the
+allowed root. To allow it, run: codebase-memory-mcp allow-root <ruta>
+```
+
+El servidor confina la indexación a las raíces grabadas en
+`C:\cbm\cache\allowed_roots`, un fichero de texto con una ruta por línea. Ahí
+estaban IC, Discovery Lab y los dos de Idrica, pero no el manager; por eso IC
+se refrescaba solo y el manager se quedaba congelado. **No es el
+`CBM_ALLOWED_ROOT` de `.mcp.json`**, que es otro mecanismo y ya apuntaba aquí.
+
+Resuelto grabando la raíz:
+
+```
+codebase-memory-mcp allow-root "C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_manager"
+```
+
+Dos avisos para la próxima:
+
+- El comando dice «with at least one root recorded, indexing is now confined to
+  the recorded roots». Si el fichero estuviera vacío, grabar una raíz dejaría
+  fuera a todas las demás: mirar `allowed_roots` antes y reponer lo que haya.
+- El síntoma es silencioso. Un grafo congelado no dice que lo está: contesta con
+  rutas y líneas viejas, y un símbolo recién escrito simplemente «no existe».
+  Ante una respuesta que no cuadra con el código, comprobar `index_status`.

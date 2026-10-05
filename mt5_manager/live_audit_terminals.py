@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from .live_audit_core import *  # noqa: F403
+from .live_audit_processes import _ProcessMixin
 
 
-class _TerminalMixin:
+class _TerminalMixin(_ProcessMixin):
     def _settings_path(self) -> Path:
         project = Path(str(self.owner.config["project_dir"])).expanduser().resolve()
         path = Path(str(self.owner.config.get("settings_file") or "ui_settings.ini"))
@@ -36,6 +37,43 @@ class _TerminalMixin:
     def _terminal_path(self) -> Path:
         return Path(self._terminal_profiles()[0][1]["mt5_path"])
 
+    def _multiterminal_worker_limit(self) -> int:
+        """Tope de terminales simultáneas del nodo; 0 si su configuración no lo fija.
+
+        Es el mismo `[Multiterminal]` que el pipeline pasa a `run_tests` como
+        `--max-workers`. El auditor lo ignoraba y abría tantas terminales como
+        tuviera el broker, saltándose el límite que el usuario sí configuró.
+        """
+        try:
+            parser = configparser.ConfigParser(interpolation=None)
+            parser.read(self._settings_path(), encoding="utf-8")
+            if not parser.has_section("Multiterminal"):
+                return 0
+            if not parser.getboolean("Multiterminal", "enabled", fallback=False):
+                return 1
+            return max(1, int(str(parser.get("Multiterminal", "workers", fallback="")).strip() or 1))
+        except (OSError, ValueError, configparser.Error):
+            return 0
+
+    @staticmethod
+    def _unique_terminal_paths(
+        profiles: list[tuple[str, dict[str, str]]],
+    ) -> list[tuple[str, dict[str, str]]]:
+        """Una instalación, un worker: dos perfiles con la misma ruta no son dos terminales.
+
+        Duplicarla no reparte nada; los dos workers se pelean por la misma
+        instancia de MT5 y por su cuenta guardada.
+        """
+        unique: list[tuple[str, dict[str, str]]] = []
+        seen: set[str] = set()
+        for section, profile in profiles:
+            key = os.path.normcase(os.path.abspath(str(profile.get("mt5_path") or "")))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append((section, profile))
+        return unique
+
     def _tester_terminal_pool(
         self, preferred_section: str, preferred_profile: dict[str, str], set_count: int,
     ) -> list[tuple[str, dict[str, str]]]:
@@ -50,7 +88,12 @@ class _TerminalMixin:
                 or str(item[1].get("mt5_path") or "").casefold() == preferred_path
             ) else 1
         )
-        return profiles[:min(max(0, set_count), len(profiles))]
+        unique = self._unique_terminal_paths(profiles)
+        limit = max(0, set_count)
+        worker_limit = self._multiterminal_worker_limit()
+        if worker_limit:
+            limit = min(limit, worker_limit)
+        return unique[:min(limit, len(unique))]
 
     def _native_report_profiles(self, excluded_path: Path) -> list[tuple[str, dict[str, str]]]:
         excluded = excluded_path.resolve()
@@ -66,99 +109,6 @@ class _TerminalMixin:
             ) else 1
         )
         return profiles
-
-    @staticmethod
-    def _terminal_pids() -> set[int]:
-        if sys.platform != "win32":
-            return set()
-        completed = subprocess.run(
-            [
-                "powershell", "-NoProfile", "-Command",
-                "Get-CimInstance Win32_Process -Filter \"name='terminal64.exe'\" | Select-Object ProcessId | ConvertTo-Json -Compress",
-            ],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=15,
-        )
-        if completed.returncode or not completed.stdout.strip():
-            return set()
-        parsed = json.loads(completed.stdout)
-        rows = [parsed] if isinstance(parsed, dict) else parsed
-        return {int(row["ProcessId"]) for row in rows or [] if int(row.get("ProcessId") or 0) > 0}
-
-    @staticmethod
-    def _terminal_pids_for_path(terminal_path: str) -> set[int]:
-        """Devuelve solo los procesos de una instalación concreta de MT5."""
-        if sys.platform != "win32":
-            return set()
-        completed = subprocess.run(
-            [
-                "powershell", "-NoProfile", "-Command",
-                "Get-CimInstance Win32_Process -Filter \"name='terminal64.exe'\" | "
-                "Select-Object ProcessId,ExecutablePath | ConvertTo-Json -Compress",
-            ],
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=15,
-        )
-        if completed.returncode or not completed.stdout.strip():
-            return set()
-        parsed = json.loads(completed.stdout)
-        rows = [parsed] if isinstance(parsed, dict) else parsed
-        expected = os.path.normcase(os.path.abspath(terminal_path))
-        return {
-            int(row["ProcessId"])
-            for row in rows or []
-            if int(row.get("ProcessId") or 0) > 0
-            and os.path.normcase(os.path.abspath(str(row.get("ExecutablePath") or ""))) == expected
-        }
-
-    @staticmethod
-    def _close_terminal_pids(pids: set[int]) -> None:
-        for pid in sorted(pids):
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=30,
-            )
-
-    def _close_terminal_pids_gracefully(self, pids: set[int], timeout: float = 30.0) -> None:
-        """Pide el cierre con WM_CLOSE y solo fuerza a los que no obedecen.
-
-        `taskkill /F` mata el proceso antes de que MT5 escriba su configuración,
-        así que la cuenta que se acaba de restaurar se perdería y el terminal
-        volvería a abrirse en la cuenta real.
-        """
-        if not pids:
-            return
-        for pid in sorted(pids):
-            subprocess.run(
-                ["taskkill", "/PID", str(pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=30,
-            )
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            remaining = pids & self._terminal_pids()
-            if not remaining:
-                return
-            time.sleep(0.5)
-        self._close_terminal_pids(pids & self._terminal_pids())
-
-    def _launch_terminal(self, terminal_path: str, config_path: Path | None = None) -> set[int]:
-        """Arranca una instalación y espera a identificar su proceso exacto."""
-        command = [terminal_path]
-        if config_path is not None:
-            command.append(f"/config:{config_path}")
-        subprocess.Popen(
-            command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
-        )
-        deadline = time.monotonic() + 30.0
-        while time.monotonic() < deadline:
-            pids = self._terminal_pids_for_path(terminal_path)
-            if pids:
-                return pids
-            time.sleep(0.25)
-        raise RuntimeError(f"MT5 no abrió el proceso de {Path(terminal_path).parent.name}")
 
     @staticmethod
     def _connect_saved_account(
@@ -266,6 +216,32 @@ class _TerminalMixin:
                     self._terminal_pids_for_path(terminal_path)
                 )
 
+    def _persist_terminal_account_retrying(
+        self, mt5: Any, terminal_path: str, login: str, password: str, server: str,
+    ) -> Any:
+        """Guarda la cuenta final y, si falla, lo intenta una segunda vez.
+
+        El arranque manual con el INI compite con el IPC de MT5: es el patron
+        que el 2026-09-14 dejo cuatro terminales en `(-10005, 'IPC timeout')`.
+        De la reapertura se pudo quitar el arranque manual; de aqui no, porque
+        `KeepPrivate=1` solo entra por el INI de arranque. La operacion se
+        verifica sola y es idempotente, asi que repetirla sobre la instalacion
+        ya cerrada no arriesga nada y convierte la carrera en una restauracion
+        buena. Un rechazo real falla las dos veces y se reporta igual.
+        """
+        errors: list[str] = []
+        for attempt in (1, 2):
+            try:
+                return self._persist_terminal_account(
+                    mt5, terminal_path, login, password, server,
+                )
+            except Exception as exc:
+                errors.append(f"intento {attempt}: {exc}")
+                self._close_terminal_pids_gracefully(
+                    self._terminal_pids_for_path(terminal_path)
+                )
+        raise RuntimeError("; ".join(errors))
+
     def _restore_tester_login(self, request: dict[str, Any]) -> list[dict[str, Any]]:
         """Deja todos los terminales usados en la cuenta de restauración.
 
@@ -303,7 +279,7 @@ class _TerminalMixin:
                 "error": None,
             }
             try:
-                info = self._persist_terminal_account(
+                info = self._persist_terminal_account_retrying(
                     mt5, terminal["mt5_path"], login,
                     str(request["restore_password"]), server,
                 )

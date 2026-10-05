@@ -33,6 +33,7 @@ ALLOWED_STAR_IMPORTS = frozenset({
     "mt5_manager/live_audit_engine.py",
     "mt5_manager/live_audit_extraction.py",
     "mt5_manager/live_audit_lifecycle.py",
+    "mt5_manager/live_audit_processes.py",
     "mt5_manager/live_audit_terminals.py",
     "mt5_manager/live_audit_tester.py",
 })

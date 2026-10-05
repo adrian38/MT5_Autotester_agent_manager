@@ -327,6 +327,84 @@ class LiveAuditExtractionTests(LiveAuditEngineTestCase):
         self.assertEqual(selected[0][0], "Terminal.3")
         self.assertEqual({section for section, _profile in selected}, {section for section, _profile in profiles})
 
+    def _pool_controller(self, root: Path, multiterminal: str, paths: list[str]):
+        """Controlador con su `[Multiterminal]` en disco y un perfil por ruta dada."""
+        owner, controller = self._controller(root, "idle")
+        owner.config.update(project_dir=str(root), settings_file="ui_settings.ini")
+        (root / "ui_settings.ini").write_text(multiterminal, encoding="utf-8")
+        profiles = [
+            (f"Terminal.{index}", {"name": f"MT5_IC_{index}", "mt5_path": path})
+            for index, path in enumerate(paths, 1)
+        ]
+        controller._terminal_profiles = lambda *, include_disabled=False: (
+            list(profiles) if include_disabled else list(profiles[:1])
+        )
+        return controller, profiles
+
+    def test_tester_never_opens_more_terminals_than_the_node_allows(self) -> None:
+        # El pipeline pasa `[Multiterminal] workers` a run_tests como
+        # --max-workers; el auditor abría una terminal por set hasta agotar las
+        # del broker y se saltaba ese tope.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller, _profiles = self._pool_controller(
+                root, "[Multiterminal]\nenabled=1\nworkers=2\n",
+                [fr"C:\IC{index}\terminal64.exe" for index in range(1, 6)],
+            )
+            self.assertEqual(controller._multiterminal_worker_limit(), 2)
+            capped = controller._tester_terminal_pool("Terminal.1", {}, 6)
+            fewer_sets = controller._tester_terminal_pool("Terminal.1", {}, 1)
+
+        self.assertEqual([section for section, _profile in capped], ["Terminal.1", "Terminal.2"])
+        # Menos sets que workers sigue mandando: no se abre una terminal de más.
+        self.assertEqual([section for section, _profile in fewer_sets], ["Terminal.1"])
+
+    def test_the_same_installation_declared_twice_is_one_terminal(self) -> None:
+        # Dos perfiles con la misma mt5_path no reparten nada: los dos workers
+        # se pelean por la misma instancia de MT5 y por su cuenta guardada.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller, _profiles = self._pool_controller(
+                root, "[Multiterminal]\nenabled=1\nworkers=5\n",
+                [
+                    r"C:\IC1\terminal64.exe", r"C:\IC2\terminal64.exe",
+                    r"c:\ic1\TERMINAL64.EXE", r"C:\IC2\terminal64.exe",
+                ],
+            )
+            selected = controller._tester_terminal_pool("Terminal.1", {}, 6)
+
+        self.assertEqual([section for section, _profile in selected], ["Terminal.1", "Terminal.2"])
+
+    def test_a_node_without_multiterminal_audits_with_a_single_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller, _profiles = self._pool_controller(
+                root, "[Multiterminal]\nenabled=0\nworkers=5\n",
+                [fr"C:\IC{index}\terminal64.exe" for index in range(1, 4)],
+            )
+            self.assertEqual(controller._multiterminal_worker_limit(), 1)
+            selected = controller._tester_terminal_pool("Terminal.1", {}, 6)
+
+        self.assertEqual([section for section, _profile in selected], ["Terminal.1"])
+
+    def test_an_unreadable_limit_leaves_the_pool_as_it_was(self) -> None:
+        # Sin `[Multiterminal]`, o con un valor que no es un número, el tope no
+        # se inventa: manda el número de sets, como hasta ahora.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller, _profiles = self._pool_controller(
+                root, "[Paths]\nmt5_path=\n", [fr"C:\IC{index}\terminal64.exe" for index in range(1, 4)],
+            )
+            self.assertEqual(controller._multiterminal_worker_limit(), 0)
+            without_section = controller._tester_terminal_pool("Terminal.1", {}, 6)
+            (root / "ui_settings.ini").write_text(
+                "[Multiterminal]\nenabled=1\nworkers=muchos\n", encoding="utf-8",
+            )
+            unreadable = controller._tester_terminal_pool("Terminal.1", {}, 6)
+
+        self.assertEqual(len(without_section), 3)
+        self.assertEqual(len(unreadable), 3)
+
     def test_native_report_fallback_uses_only_the_active_broker_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

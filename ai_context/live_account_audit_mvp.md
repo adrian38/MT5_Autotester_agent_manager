@@ -474,11 +474,28 @@ internamente el token cifrado al nuevo uso. Las referencias no se persisten en
 el perfil ni llegan al agente. El payload operativo que recibe
 `manager_node_runtime/live_audit.py` no cambia.
 
-Cada lugar en el que se guardó una credencial aparece como opción independiente
-y con procedencia visible: cuenta real, cuenta de Strategy Tester y cuenta final.
-No se fusionan aunque login, servidor y secreto coincidan; el selector debe
-reflejar las tres entradas que el usuario guardó y permitir reutilizar cualquiera.
 El catálogo es por nodo: una referencia obtenida en otro nodo se rechaza.
+
+### Una entrada por cuenta, no por lugar donde se guardó (2026-10-05)
+
+La primera versión listaba cada lugar en el que se guardó una credencial como
+opción independiente, sin fusionar nunca. Con varios usos del mismo portafolio
+y de la misma cuenta el desplegable repetía el mismo login decenas de veces.
+
+**La identidad de una cuenta es `login` + `server`.** El rol (cuenta real,
+cuenta de Strategy Tester, cuenta final de los terminales) y el uso en que se
+guardó son procedencia, no identidad. `_account_catalog` fusiona por ese par
+—comparando el servidor sin distinguir mayúsculas— y publica:
+
+- el `id` y el token cifrado del **primer** candidato, que es el que se
+  reutiliza al referenciar la cuenta: no hay marca de tiempo por credencial, así
+  que no se puede elegir «la más reciente»;
+- la procedencia del primero, y `uses` con cuántos candidatos la comparten. El
+  selector la pinta como `… · y N usos más`.
+
+El mismo login en otro servidor sigue siendo otra cuenta. Lo comprueban
+`test_catalog_lists_each_login_and_server_once_whatever_the_role` y
+`test_catalog_merges_the_same_account_across_uses_but_not_across_servers`.
 
 Este comportamiento se ejecuta íntegramente en el proceso manager, dueño de
 `runtime/live_audit_settings.json` y de las credenciales cifradas. No requiere
@@ -1071,3 +1088,69 @@ Detalles que no son obvios:
 - Si el análisis falla, el resultado es `None` y se publica `analysis_error`. La
   página lo dice en vez de «todavía no hay una auditoría terminada», que sería
   falso cuando el nodo sí ejecutó.
+
+## El pool del tester respeta el tope del nodo y no repite instalación (2026-10-05)
+
+Medición del 2026-10-05 sobre la auditoría del portafolio #53: 16 sets, cinco
+terminales, cinco backtests simultáneos de 01:31:31 a 01:33:20. El tester **sí
+es paralelo**. Lo que es monoterminal por diseño —y ocupa los otros tres de los
+cinco minutos— es conectar la cuenta real, bajar su HTML nativo, verificar el
+login del tester y restaurar la cuenta final: la cuenta real es una.
+
+Dos cosas estaban mal en `_tester_terminal_pool`, las dos invisibles mientras el
+número de terminales coincidiera con el de workers:
+
+- **Ignoraba `[Multiterminal] workers`.** El pipeline lo pasa a `run_tests` como
+  `--max-workers` (`node_jobs_api.py`, `node_commands.py`); el auditor abría una
+  terminal por set hasta agotar las del broker. Con `workers=5` y nueve
+  terminales declaradas habría abierto nueve. Ahora `_multiterminal_worker_limit`
+  lee esa sección: ausente o ilegible no inventa tope (manda el número de sets),
+  `enabled=0` significa una sola terminal, y si no, el número configurado.
+- **No deduplicaba por `mt5_path`.** Cuatro secciones apuntando a la misma
+  instalación eran cuatro «workers» peleándose por una única instancia de MT5 y
+  por su cuenta guardada. `_unique_terminal_paths` se queda con la primera, que
+  tras la ordenación es la terminal ya validada para el tester.
+
+Queda a propósito una asimetría: `_login_terminal` —cuenta real y verificación
+del tester— sólo mira las terminales **habilitadas**, mientras que el pool las
+ignora en cuanto hay más de un set, igual que la UI. Es lo que hizo que una
+entrada marcada ICTRADING pero apuntando al terminal de RoboForex, la única
+habilitada, devolviera `(-10003, "IPC initialize failed, Pipe server didn't
+answer in 60 sec")` tras 60 segundos: el auditor intentó meter una cuenta de
+CapitalPoint en un terminal de RoboForex. El error nombra la carpeta de la
+instalación, que es lo que delató el caso.
+
+## La restauración reintenta: el arranque con el INI es una carrera (2026-10-05)
+
+Una auditoría del 2026-10-05 01:56 dejó `MT5_IC_2` sin restaurar y la siguiente
+—idéntica— restauró las cinco terminales. El mensaje exacto no se pudo
+recuperar: `state.json` guarda un solo resultado por uso y la ejecución buena
+lo sobrescribió, `log_lines` se reinicia en cada ejecución, y los Journals de
+MT5 viven bajo el perfil del usuario `test`, al que esta sesión no tiene
+acceso. Los `main_journal_*.txt` que copia la auditoría cubren la fase del
+tester, no la restauración, que es posterior.
+
+Lo que sí se puede demostrar leyendo el código es que esa fase tiene dos
+defectos, los dos intermitentes y los dos en el camino de una sola terminal:
+
+- **`_close_terminal_pids_gracefully` no esperaba al cierre forzado.** Tras los
+  30 s de WM_CLOSE llama a `taskkill /F`, que vuelve en cuanto pide la
+  terminación, y devolvía el control enseguida. `_persist_terminal_account`
+  consulta los procesos en la línea siguiente, veía el proceso todavía vivo y
+  lanzaba «MT5 no se cerró limpiamente antes de guardar la cuenta final» sin
+  haber intentado nada. Ahora espera hasta diez segundos a que Windows lo
+  retire.
+- **El arranque manual con el INI sigue compitiendo con el IPC de MT5.** Es el
+  patrón que el 2026-09-14 dejó cuatro terminales de AXI en `(-10005, 'IPC
+  timeout')`. De la reapertura se pudo quitar el arranque manual; de la primera
+  fase no, porque `KeepPrivate=1` sólo entra por el INI de arranque. Como la
+  operación se verifica sola y es idempotente,
+  `_persist_terminal_account_retrying` la repite una vez sobre la instalación
+  ya cerrada. Un rechazo real falla los dos intentos y se reporta igual, con
+  los dos errores por delante (`intento 1: …; intento 2: …`).
+
+No está demostrado que alguno de los dos sea el fallo del 01:56; son los dos
+defectos reales que hay en ese camino. Para la próxima: el error por terminal
+vive en `terminal_restore[].error` del `state.json` del agente y lo pinta la
+pantalla de resultado, así que conviene copiarlo antes de relanzar la
+auditoría, porque la siguiente ejecución lo borra.

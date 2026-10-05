@@ -113,6 +113,13 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Nueva cuenta · escribir login, servidor y contraseña", self.script)
         self.assertIn("la contraseña nunca vuelve al navegador", self.script)
 
+    def test_each_saved_account_is_one_option_with_its_shared_uses(self) -> None:
+        options = self.script.split("function savedAccountOptions", 1)[1]
+        self.assertIn("${accountOriginLabel(account)}", options)
+        label = self.script.split("function accountOriginLabel", 1)[1].split("\nfunction ", 1)[0]
+        self.assertIn("Number(account.uses || 1) - 1", label)
+        self.assertIn("uso${extra === 1 ? '' : 's'} más", label)
+
     def test_profile_only_asks_for_the_audited_period(self) -> None:
         self.assertIn("Días hacia atrás · incluye hoy", self.script)
         self.assertIn("Usar calendario para elegir el periodo", self.script)
