@@ -7,15 +7,22 @@ el usuario puede habilitar brokers únicamente para este endpoint con
 `MT5_MANAGER_GUIDED_DEV_BROKERS`; los demás puntos de escritura conservan el candado.
 
 - Lab envía `.set` y padre fijado en JSON con SHA256 e identidad completa.
+  El paquete v2 añade `parent_provenance`: local con broker/run, o
+  `cross_broker_final` con broker/run, símbolo fuente, fingerprint del set y
+  evidencia del informe Final Tick 6M. El protocolo exige forma exacta y que el
+  broker fuente sea distinto del destino; una recuperación no puede declararse
+  extranjera. V1 permanece admitido únicamente para padres locales.
 - POST `/api/nodes/{id}/guided-batches` valida destino/capacidad y usa el token
   existente para POST `/api/v1/guided-batches` del nodo.
 - El runtime real es **IC/manager_node_runtime**, embebido en `app_ui.py`.
   `guided_batches.py` y `guided_controller.py` tienen copias idénticas en ambos repos.
 - FIFO persistente, idempotencia por hash. La ejecución pausada conserva el nodo.
   Reenviar no relanza un lote terminado.
-- `ubs/prepared.py` entra por `--prepared-manifest`: padre positivo local, reglas
-  actuales, universo, un paso numérico y parámetros fijos. No remuta. Reutiliza
-  `evaluate_generation`, robustez, Final Tick y Final Tick 6M.
+- `ubs/prepared.py` entra por `--prepared-manifest`: el padre local sigue
+  comprobándose contra la memoria del nodo. Sólo un `cross_broker_final` v2
+  completo omite esa consulta local imposible; hashes, reglas actuales,
+  universo, un paso numérico y parámetros fijos se conservan. No remuta.
+  Reutiliza `evaluate_generation`, robustez, Final Tick y Final Tick 6M.
 - `outputs/guided_batches/{hash}/run.json` vincula fingerprint/candidate_id/run_id.
   El watcher utiliza ese run, no el último arbitrario de SQLite.
 - GET por las mismas rutas más `/{hash}` devuelve etapas, positivo sólo con Final

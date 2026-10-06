@@ -13,11 +13,16 @@ from pathlib import Path
 MAX_BODY = 16_000_000
 MAX_SET = 256_000
 MAX_CANDIDATES = 200
-CANDIDATE_FIELDS = frozenset({
+CANDIDATE_FIELDS_V1 = frozenset({
     'fingerprint', 'family', 'target_symbol', 'period', 'mode', 'root_seed',
     'parent_candidate_id', 'mutation', 'set_sha256', 'parent_sha256',
     'set_b64', 'parent_b64',
 })
+CANDIDATE_FIELDS = CANDIDATE_FIELDS_V1 | {'parent_provenance'}
+LOCAL_PARENT_FIELDS = frozenset({'kind', 'broker', 'run_id'})
+CROSS_PARENT_FIELDS = LOCAL_PARENT_FIELDS | {
+    'source_symbol', 'set_fingerprint', 'report_sha256', 'window', 'active_days',
+}
 SAFETY_BASELINE = {
     'Risk': '0', 'StartLots': '0.01',
     'AdjustLotsizeToVariableValues': 'false', 'UseEveryTick': 'false',
@@ -130,7 +135,7 @@ def check_package_shape(package, broker, account):
     """El sobre del lote: contrato, version, identidad y recuento."""
     if not isinstance(package,dict) or set(package)!={'version','batch_id','broker','account_type','candidates'}:
         raise ValueError('Contrato de lote inválido')
-    if type(package['version']) is not int or package['version']!=1 or package['broker']!=broker or package['account_type']!=account:
+    if type(package['version']) is not int or package['version'] not in {1,2} or package['broker']!=broker or package['account_type']!=account:
         raise ValueError('Versión, broker o cuenta incorrectos')
     if package['batch_id']!=batch_identity(package):
         raise ValueError('Hash del lote incorrecto')
@@ -140,9 +145,38 @@ def check_package_shape(package, broker, account):
     return candidates
 
 
-def check_candidate_shape(item):
+def check_parent_provenance(item, broker, account):
+    """Validate the auditable authority for a local or transferred parent."""
+    value = item['parent_provenance']
+    if not isinstance(value, dict) or value.get('kind') not in {'local', 'cross_broker_final'}:
+        raise ValueError('Procedencia del padre inválida')
+    fields = LOCAL_PARENT_FIELDS if value['kind']=='local' else CROSS_PARENT_FIELDS
+    if set(value) != fields:
+        raise ValueError('Procedencia del padre incompleta o desconocida')
+    if (not isinstance(value['broker'],str) or not re.fullmatch(r'[A-Z0-9_-]{3,128}',value['broker'])
+            or type(value['run_id']) is not int or value['run_id']<=0):
+        raise ValueError('Broker o run del padre inválido')
+    destination = f'{broker}_{account}'
+    if value['kind']=='local':
+        if value['broker'] != destination:
+            raise ValueError('Un padre local debe pertenecer al broker destino')
+        return
+    if value['broker']==destination or item['mutation'].get('kind')=='symbol_recovery':
+        raise ValueError('Transferencia de padre inválida para el broker destino')
+    hashes = (value['set_fingerprint'], value['report_sha256'])
+    window = value['window']
+    if (not isinstance(value['source_symbol'],str) or not value['source_symbol'] or len(value['source_symbol'])>256
+            or any(not isinstance(v,str) or not re.fullmatch(r'[a-f0-9]{64}',v) for v in hashes)
+            or not isinstance(window,list) or len(window)!=2
+            or any(not isinstance(v,str) or not re.fullmatch(r'\d{4}\.\d{2}\.\d{2}',v) for v in window)
+            or window[0]>window[1] or type(value['active_days']) is not int or value['active_days']<=0):
+        raise ValueError('Evidencia Final Tick 6M del padre transferido inválida')
+
+
+def check_candidate_shape(item, version, broker, account):
     """Contrato del candidato: campos, padre, metadatos, modo y timeframe."""
-    if not isinstance(item,dict) or set(item)!=CANDIDATE_FIELDS:
+    expected = CANDIDATE_FIELDS_V1 if version==1 else CANDIDATE_FIELDS
+    if not isinstance(item,dict) or set(item)!=expected:
         raise ValueError('Contrato de candidato inválido')
     if not isinstance(item['parent_candidate_id'],int) or isinstance(item['parent_candidate_id'],bool) or item['parent_candidate_id']<=0:
         raise ValueError('Padre inválido')
@@ -150,6 +184,8 @@ def check_candidate_shape(item):
         raise ValueError('Metadatos inválidos')
     if item['mode'] not in {'guided','exploration','symbol_exploration'} or not re.fullmatch(r'(M[1-9][0-9]*|H[1-9][0-9]*|D1|W1|MN1)',item['period']):
         raise ValueError('Modo o timeframe inválido')
+    if version==2:
+        check_parent_provenance(item,broker,account)
 
 
 def decode_candidate_sets(item):
@@ -241,7 +277,7 @@ def validate_package(package, broker, account):
     candidates = check_package_shape(package,broker,account)
     seen, decoded = set(), []
     for item in candidates:
-        check_candidate_shape(item)
+        check_candidate_shape(item,package['version'],broker,account)
         raw = decode_candidate_sets(item)
         values, previous = set_params(raw[0]), set_params(raw[1])
         change, key = check_mutation(item)
@@ -280,7 +316,7 @@ def store_batch(project, package, broker, account):
                 raise ValueError('Ruta de archivo fuera del inbox')
             target.write_bytes(content)
         records.append({k:v for k,v in item.items() if k not in {'set_b64','parent_b64'}})
-    save_json(marker,{'version':1,'batch_id':package['batch_id'],'broker':broker,'account_type':account,'candidates':records})
+    save_json(marker,{'version':package['version'],'batch_id':package['batch_id'],'broker':broker,'account_type':account,'candidates':records})
     return directory
 
 

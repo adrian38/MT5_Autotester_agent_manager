@@ -27,6 +27,20 @@ def package():
     return value
 
 
+def cross_broker_package():
+    value=package();item=value['candidates'][0]
+    value['version']=2
+    item['parent_candidate_id']=68885
+    item['parent_provenance']={
+        'kind':'cross_broker_final','broker':'ROBOFOREX_ECN','run_id':282,
+        'source_symbol':'.USTECHCASH','set_fingerprint':'b'*64,
+        'report_sha256':'c'*64,'window':['2026.01.01','2026.06.30'],
+        'active_days':67,
+    }
+    value['batch_id']=protocol.batch_identity(value)
+    return value
+
+
 def symbol_package():
     value=package();item=value['candidates'][0]
     parent=base64.b64decode(item['parent_b64']);raw=parent.replace(b'ForceSymbol=US30',b'ForceSymbol=EURUSD')
@@ -66,6 +80,17 @@ class GuidedNodeTests(unittest.TestCase):
         p=package();p['candidates']*=2;p['batch_id']=protocol.batch_identity(p)
         with self.assertRaises(ValueError):protocol.validate_package(p,'ICTRADING','STANDARD')
         with self.assertRaises(ValueError):protocol.batch_dir(self.root,'../../escape')
+
+    def test_cross_broker_parent_requires_complete_final_6m_provenance(self):
+        protocol.validate_package(cross_broker_package(),'ICTRADING','STANDARD')
+        for change,message in (
+                (lambda p:p['candidates'][0]['parent_provenance'].pop('report_sha256'),'Procedencia'),
+                (lambda p:p['candidates'][0]['parent_provenance'].update(broker='ICTRADING_STANDARD'),'Transferencia'),
+                (lambda p:p['candidates'][0]['parent_provenance'].update(active_days=0),'Evidencia')):
+            with self.subTest(message=message):
+                p=cross_broker_package();change(p);p['batch_id']=protocol.batch_identity(p)
+                with self.assertRaisesRegex(ValueError,message):
+                    protocol.validate_package(p,'ICTRADING','STANDARD')
 
     def test_symbol_exploration_is_an_allowed_discovery_mode(self):
         p=symbol_package()
