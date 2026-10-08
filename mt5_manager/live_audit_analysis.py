@@ -176,6 +176,58 @@ def _symbols_by_strategy(
     return symbols
 
 
+def _symbol_aliases(
+    members: list[dict[str, Any]], tester_trades: list[dict[str, Any]],
+    strategy_artifacts: list[dict[str, Any]],
+) -> dict[str, str]:
+    """Traduce el símbolo del portfolio al que observó el tester.
+
+    Las cuentas real y tester pueden pertenecer a grupos de servidor distintos
+    del mismo broker: AXI-US50 informa `BTCUSD`, mientras AXI-US51 ejecuta
+    `BTCUSD.sa`. El miembro guardado une ambos nombres sin adivinar sufijos.
+    """
+    effective: dict[str, dict[str, str]] = {}
+    for trade in tester_trades:
+        strategy = str(trade.get("strategy") or "")
+        symbol = str(trade.get("symbol") or "")
+        if strategy and symbol:
+            effective.setdefault(strategy, {}).setdefault(symbol.casefold(), symbol)
+    for artifact in strategy_artifacts or []:
+        strategy = str(artifact.get("strategy") or "")
+        symbol = str(artifact.get("report_symbol") or "")
+        if strategy and symbol:
+            effective.setdefault(strategy, {}).setdefault(symbol.casefold(), symbol)
+    candidates: dict[str, set[str]] = {}
+    spelling: dict[str, str] = {}
+    for member in members:
+        strategy = _member_strategy_id(member)
+        targets = effective.get(strategy) or {}
+        if len(targets) != 1:
+            continue
+        target_key, target = next(iter(targets.items()))
+        source = str(member.get("symbol") or "").casefold()
+        for alias in (source, target_key):
+            if alias:
+                candidates.setdefault(alias, set()).add(target_key)
+                spelling[target_key] = target
+    return {
+        alias: spelling[next(iter(targets))]
+        for alias, targets in candidates.items() if len(targets) == 1
+    }
+
+
+def _apply_symbol_aliases(
+    trades: list[dict[str, Any]], aliases: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Canoniza la copia de análisis; la materia prima observada queda intacta."""
+    for trade in trades:
+        reported = str(trade.get("symbol") or "")
+        canonical = aliases.get(reported.casefold())
+        if canonical and canonical.casefold() != reported.casefold():
+            trade["symbol"] = canonical
+    return trades
+
+
 def _volume_rules(payload: dict[str, Any]) -> dict[str, tuple[float, float]]:
     """Normaliza las especificaciones del broker que publicó el nodo."""
     rules: dict[str, tuple[float, float]] = {}
@@ -211,9 +263,15 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
 
 
 def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
-    real_trades = _revive_all(payload.get("real_trades"))
     tester_trades = _revive_all(payload.get("tester_trades"))
-    open_positions = _revive_all(payload.get("open_positions_at_period_end"))
+    artifacts = list(payload.get("strategy_artifacts") or [])
+    aliases = _symbol_aliases(
+        list(payload.get("selected_members") or []), tester_trades, artifacts,
+    )
+    real_trades = _apply_symbol_aliases(_revive_all(payload.get("real_trades")), aliases)
+    open_positions = _apply_symbol_aliases(
+        _revive_all(payload.get("open_positions_at_period_end")), aliases,
+    )
     request["real_positions_open_at_period_end"] = open_positions
     history_detail = dict(payload.get("real_history_detail") or {})
     history_detail["open_positions_at_period_end"] = [
@@ -232,7 +290,8 @@ def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[s
             str(strategy): int(count or 0)
             for strategy, count in (payload.get("strategies") or {}).items()
         },
-        "strategy_artifacts": list(payload.get("strategy_artifacts") or []),
+        "strategy_artifacts": artifacts,
+        "symbol_aliases": aliases,
         "history_detail": history_detail,
     }
 
@@ -247,7 +306,9 @@ def _filter_portfolio_trades(
         _symbols_by_strategy(inputs["tester_trades"], inputs["strategy_artifacts"]),
         request.get("real_strategy_lots") or {},
     )
-    filter_detail: dict[str, Any] = {"applied": bool(bands)}
+    filter_detail: dict[str, Any] = {
+        "applied": bool(bands), "symbol_aliases": dict(inputs["symbol_aliases"]),
+    }
     if bands:
         before = len(real_trades)
         real_trades = [trade for trade in real_trades if _within_lot_bands(trade, bands)]

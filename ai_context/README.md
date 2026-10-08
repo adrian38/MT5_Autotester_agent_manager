@@ -106,6 +106,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_pairing_20261004.md`: por qué el auditor emparejaba mal los
   cierres reales, la banda de lote que sustituye al lote exacto y el reparto
   global que sustituye al codicioso por operación.
+- `live_audit_cross_account_symbol_aliases.md`: cuentas real y tester del mismo
+  broker con símbolos distintos (`BTCUSD`/`BTCUSD.sa`) y canonización basada en
+  el miembro del portfolio, sin adivinar sufijos.
 
 ## Manager: interfaz y operación
 

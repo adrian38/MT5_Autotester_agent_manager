@@ -172,6 +172,38 @@ class LiveAuditAnalysisTests(unittest.TestCase):
         bands = portfolio_lot_bands(members, {}, {"s1": {"nas100.fs"}}, {"s1": 0.01})
         self.assertEqual(bands, {"nas100.fs": (0.01, 0.01)})
 
+    def test_real_and_tester_accounts_may_use_different_symbol_suffixes(self) -> None:
+        # AXI-US50 informa BTCUSD y AXI-US51 ejecuta BTCUSD.sa. El miembro del
+        # portfolio demuestra la equivalencia; no se adivina quitando sufijos.
+        strategy = "AXI/STANDARD:21175"
+        member = {"candidate_id": strategy, "symbol": "BTCUSD", "lot": 0.03}
+        base = payload()
+        tester = {
+            **base["tester_trades"][0], "strategy": strategy,
+            "symbol": "BTCUSD.sa", "volume": 0.03,
+        }
+        real = {
+            **base["real_trades"][0], "strategy": "1002",
+            "symbol": "BTCUSD", "volume": 0.1,
+        }
+
+        result = analyze(
+            payload(
+                selected_members=[member], tester_trades=[tester], real_trades=[real],
+                symbol_points={"BTCUSD.sa": 0.01}, strategies={strategy: 1},
+                volume_rules={"btcusd": {"volume_min": 0.01, "volume_step": 0.01}},
+            ),
+            profile(real_strategy_lots={strategy: 0.1}),
+        )
+
+        row = result["comparison_detail"]["operation_comparisons"][0]
+        self.assertEqual(result["portfolio_filter"]["portfolio_closures"], 1)
+        self.assertEqual(result["matched_trades"], 1)
+        self.assertEqual(row["real"]["symbol"], "BTCUSD.sa")
+        self.assertEqual(result["portfolio_filter"]["symbol_aliases"], {
+            "btcusd": "BTCUSD.sa", "btcusd.sa": "BTCUSD.sa",
+        })
+
     def test_every_operation_names_the_set_file_of_its_strategy(self) -> None:
         # El magic no dice nada a quien lee el informe; el fichero `.set` sí.
         members = [
