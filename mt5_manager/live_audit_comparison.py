@@ -75,8 +75,6 @@ class _ComparisonMixin:
         time_limit = request["trade_time_tolerance_seconds"]
         open_delta = abs((actual["open_time"] - expected["open_time"]).total_seconds())
         close_delta = abs((actual["close_time"] - expected["close_time"]).total_seconds())
-        if open_delta > time_limit and close_delta > time_limit:
-            return None
         expected_volume, _tester_volume = _expected_real_volume(
             expected, request.get("real_strategy_lots") or {},
         )
@@ -85,9 +83,19 @@ class _ComparisonMixin:
             actual["symbol"], points.get(actual["symbol"], 0.0),
             request["price_tolerance_points"],
         )
+        stops_evidence = _ComparisonMixin._stops_evidence(expected, actual, price_limit)
+        complete_stops = stops_evidence == 0 and all(
+            float(expected.get(key) or 0.0) and float(actual.get(key) or 0.0)
+            for key in ("sl", "tp")
+        )
+        volume_outside = abs(float(actual["volume"]) - expected_volume) > volume_limit
+        if (
+            open_delta > time_limit and close_delta > time_limit
+            and (not complete_stops or volume_outside)
+        ):
+            return None
         return (
-            _ComparisonMixin._stops_evidence(expected, actual, price_limit),
-            int(abs(float(actual["volume"]) - expected_volume) > volume_limit),
+            stops_evidence, int(volume_outside),
             int(open_delta > time_limit), int(close_delta > time_limit),
             open_delta + close_delta,
         )

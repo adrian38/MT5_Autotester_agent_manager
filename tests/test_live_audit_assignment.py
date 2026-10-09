@@ -35,7 +35,7 @@ def compare(real: list[dict], tester: list[dict], **overrides) -> list[dict]:
     order = {**request(), **overrides}
     strategies = {str(row["strategy"]): 1 for row in tester}
     result = LiveAuditController._compare(
-        real, tester, {"XAUUSD": .01, "EURUSD": .00001}, order, strategies,
+        real, tester, {"XAUUSD": .01, "EURUSD": .00001, "USDJPY": .001}, order, strategies,
     )
     return result["comparison_detail"]["operation_comparisons"]
 
@@ -138,6 +138,27 @@ class LiveAuditAssignmentTests(unittest.TestCase):
         rows = compare(real, tester)
 
         self.assertEqual([row["real"]["strategy"] for row in rows], ["r2", "r1"])
+
+    def test_complete_stops_and_lot_can_identify_a_trade_outside_both_times(self) -> None:
+        # AXI 2026-09-01: el ticket 101653043 es la misma operación aunque
+        # abrió 145 s tarde y cerró 754 s antes. SL, TP y lote la identifican.
+        tester = operation(
+            "AXI/STANDARD:20578", 0, 19_810, symbol="USDJPY", price=160.204,
+            sl=158.254, tp=160.704,
+        )
+        real = operation(
+            "101653043", 145, 19_056, symbol="USDJPY", price=160.205,
+            sl=158.255, tp=160.705,
+        )
+
+        row = compare([real], [tester])[0]
+
+        self.assertEqual(row["status"], "deviation")
+        self.assertEqual(row["real"]["strategy"], "101653043")
+        self.assertEqual(row["reasons"], ["open_time", "close_time"])
+
+        incomplete = compare([{**real, "tp": 0.0}], [tester])[0]
+        self.assertEqual(incomplete["status"], "missing")
 
 
 if __name__ == "__main__":
