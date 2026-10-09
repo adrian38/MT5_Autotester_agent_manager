@@ -20,6 +20,7 @@ CANDIDATE_FIELDS_V1 = frozenset({
 })
 CANDIDATE_FIELDS = CANDIDATE_FIELDS_V1 | {'parent_provenance'}
 LOCAL_PARENT_FIELDS = frozenset({'kind', 'broker', 'run_id'})
+SEED_PARENT_FIELDS = frozenset({'kind', 'broker', 'seed_id'})
 CROSS_PARENT_FIELDS = LOCAL_PARENT_FIELDS | {
     'source_symbol', 'set_fingerprint', 'report_sha256', 'window', 'active_days',
 }
@@ -135,7 +136,7 @@ def check_package_shape(package, broker, account):
     """El sobre del lote: contrato, version, identidad y recuento."""
     if not isinstance(package,dict) or set(package)!={'version','batch_id','broker','account_type','candidates'}:
         raise ValueError('Contrato de lote inválido')
-    if type(package['version']) is not int or package['version'] not in {1,2} or package['broker']!=broker or package['account_type']!=account:
+    if type(package['version']) is not int or package['version'] not in {1,2,3} or package['broker']!=broker or package['account_type']!=account:
         raise ValueError('Versión, broker o cuenta incorrectos')
     if package['batch_id']!=batch_identity(package):
         raise ValueError('Hash del lote incorrecto')
@@ -145,18 +146,31 @@ def check_package_shape(package, broker, account):
     return candidates
 
 
-def check_parent_provenance(item, broker, account):
+def check_parent_provenance(item, broker, account, version):
     """Validate the auditable authority for a local or transferred parent."""
     value = item['parent_provenance']
-    if not isinstance(value, dict) or value.get('kind') not in {'local', 'cross_broker_final'}:
+    if not isinstance(value, dict) or value.get('kind') not in {
+            'local', 'local_seed', 'local_candidate', 'cross_broker_final'}:
         raise ValueError('Procedencia del padre inválida')
-    fields = LOCAL_PARENT_FIELDS if value['kind']=='local' else CROSS_PARENT_FIELDS
+    fields = (LOCAL_PARENT_FIELDS if value['kind'] in {'local','local_candidate'} else
+              SEED_PARENT_FIELDS if value['kind']=='local_seed' else CROSS_PARENT_FIELDS)
     if set(value) != fields:
         raise ValueError('Procedencia del padre incompleta o desconocida')
-    if (not isinstance(value['broker'],str) or not re.fullmatch(r'[A-Z0-9_-]{3,128}',value['broker'])
-            or type(value['run_id']) is not int or value['run_id']<=0):
-        raise ValueError('Broker o run del padre inválido')
+    if not isinstance(value['broker'],str) or not re.fullmatch(r'[A-Z0-9_-]{3,128}',value['broker']):
+        raise ValueError('Broker del padre inválido')
     destination = f'{broker}_{account}'
+    if value['kind']=='local_seed':
+        if (version < 3 or value['broker'] != destination
+                or type(value['seed_id']) is not int or value['seed_id']<=0
+                or value['seed_id'] != item['parent_candidate_id']):
+            raise ValueError('Procedencia de semilla local inválida')
+        return
+    if type(value['run_id']) is not int or value['run_id']<=0:
+        raise ValueError('Run del padre inválido')
+    if value['kind']=='local_candidate':
+        if version < 3 or value['broker'] != destination:
+            raise ValueError('Procedencia de linaje local inválida')
+        return
     if value['kind']=='local':
         if value['broker'] != destination:
             raise ValueError('Un padre local debe pertenecer al broker destino')
@@ -182,10 +196,16 @@ def check_candidate_shape(item, version, broker, account):
         raise ValueError('Padre inválido')
     if any(not isinstance(item[k],str) or not item[k] or len(item[k])>2048 for k in ('family','target_symbol','period','root_seed')):
         raise ValueError('Metadatos inválidos')
-    if item['mode'] not in {'guided','exploration','symbol_exploration'} or not re.fullmatch(r'(M[1-9][0-9]*|H[1-9][0-9]*|D1|W1|MN1)',item['period']):
+    modes = {'guided','exploration','symbol_exploration'}
+    if version >= 3:
+        modes.add('seed_exploration')
+    if item['mode'] not in modes or not re.fullmatch(r'(M[1-9][0-9]*|H[1-9][0-9]*|D1|W1|MN1)',item['period']):
         raise ValueError('Modo o timeframe inválido')
-    if version==2:
-        check_parent_provenance(item,broker,account)
+    if version >= 2:
+        check_parent_provenance(item,broker,account,version)
+        lineage = item['parent_provenance']['kind'] in {'local_seed','local_candidate'}
+        if lineage != (item['mode']=='seed_exploration'):
+            raise ValueError('Modo y procedencia de semilla incoherentes')
 
 
 def decode_candidate_sets(item):

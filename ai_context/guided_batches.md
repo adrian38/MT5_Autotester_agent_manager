@@ -12,6 +12,12 @@ el usuario puede habilitar brokers únicamente para este endpoint con
   evidencia del informe Final Tick 6M. El protocolo exige forma exacta y que el
   broker fuente sea distinto del destino; una recuperación no puede declararse
   extranjera. V1 permanece admitido únicamente para padres locales.
+  El paquete v3 añade el modo `seed_exploration` y las procedencias locales
+  `local_seed` y `local_candidate`. La primera debe seguir activa y aceptada en
+  `seed_scores`; la segunda debe seguir Base aceptada y no tener positivo Final
+  Tick 6M propio. El manager comprueba sólo la forma portable; el nodo comprueba
+  autoridad viva y bytes exactos antes de ejecutar el pipeline completo. Un
+  paquete puede mezclar estas procedencias con las de v2.
 - POST `/api/nodes/{id}/guided-batches` valida destino/capacidad y usa el token
   existente para POST `/api/v1/guided-batches` del nodo.
 - El runtime real es **IC/manager_node_runtime**, embebido en `app_ui.py`.
@@ -22,7 +28,9 @@ el usuario puede habilitar brokers únicamente para este endpoint con
   comprobándose contra la memoria del nodo. Sólo un `cross_broker_final` v2
   completo omite esa consulta local imposible; hashes, reglas actuales,
   universo, un paso numérico y parámetros fijos se conservan. No remuta.
-  Reutiliza `evaluate_generation`, robustez, Final Tick y Final Tick 6M.
+  `local_seed` y `local_candidate` v3 usan autoridad local explícita y tampoco
+  heredan aceptación. Reutiliza `evaluate_generation`, robustez, Final Tick y
+  Final Tick 6M.
 - `outputs/guided_batches/{hash}/run.json` vincula fingerprint/candidate_id/run_id.
   El watcher utiliza ese run, no el último arbitrario de SQLite.
 - GET por las mismas rutas más `/{hash}` devuelve etapas, positivo sólo con Final
