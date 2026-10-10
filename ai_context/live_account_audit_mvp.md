@@ -1195,3 +1195,32 @@ de la pantalla de configuración puede traer una sola de las dos señales.
 
 La página vive sólo en el manager (`live_audit_analysis.html/js/css`) y reutiliza
 el endpoint del detalle. No requiere port del runtime ni reinicio del agente.
+
+## La tabla de operaciones era asimétrica (2026-10-10)
+
+El veredicto decía «1 tester · 3 reales» sin pareja, pero la tabla de la
+pantalla de resultado **estaba indexada por operación del tester**: una real que
+ningún resultado reclamó no podía salir en ella por construcción. Sólo vivía en
+la sección «4 · REALES SIN PAREJA», más abajo. Visto en AXI, portafolio 67
+(`audit-67-muzhv8jq-1`): 58 filas del tester y 3 reales huérfanas fuera.
+
+Lo caro no era la tabla, era todo lo que colgaba de ella:
+
+- Los filtros tenían «Sin real» y ningún simétrico, y «Problemas» no las contaba.
+- El contador decía «58 FILAS» cuando los hechos auditados eran 61.
+- La búsqueda por símbolo no las alcanzaba.
+- **El CSV se las dejaba fuera**, así que uno se descargaba la auditoría
+  creyéndola completa justo sin las operaciones que la cuenta hizo por su cuenta.
+
+Ahora son filas de la misma tabla, con estado `extra` («REAL SIN TESTER»), su
+filtro, dentro de «Problemas», en el contador y en el CSV. La sección 4 se
+conserva como vista dedicada y dice dónde están las mismas filas.
+
+Dos detalles al tocar esto:
+
+- **El aviso de «resultado antiguo» mira sólo `operation_comparisons`.** Si
+  mirase la lista combinada, una real huérfana en una ejecución sin trazabilidad
+  por operación apagaría el aviso.
+- Una real huérfana trae `reason` en singular, no `reasons`; y su `strategy` es
+  el magic de la cuenta, no una estrategia del portafolio. Se etiqueta «Sin
+  estrategia del tester» y el magic va aparte.

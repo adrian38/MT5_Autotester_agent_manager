@@ -36,7 +36,7 @@
     </section>
 
     <section class="panel-card audit-section audit-comparisons">
-      <div class="panel-title"><div><p class="eyebrow">3 · OPERACIONES</p><h2>Comparación tester ↔ real, fila por fila</h2><p class="audit-section-help">Se muestran todas las operaciones. Usa los filtros para aislar problemas o coincidencias correctas.</p></div><span id="comparison-count" class="badge idle">0 FILAS</span></div>
+      <div class="panel-title"><div><p class="eyebrow">3 · OPERACIONES</p><h2>Comparación tester ↔ real, fila por fila</h2><p class="audit-section-help">Una fila por operación del tester y, al final, una por cada real que ningún resultado del tester reclamó. Usa los filtros para aislar problemas o coincidencias correctas; la descarga CSV lleva lo mismo que la tabla.</p></div><span id="comparison-count" class="badge idle">0 FILAS</span></div>
       <div class="audit-filters" role="group" aria-label="Filtros de comparación">
         <button type="button" class="secondary active" data-status-filter="all">Todas</button>
         <button type="button" class="secondary" data-status-filter="issues">Problemas</button>
@@ -44,6 +44,7 @@
         <button type="button" class="secondary" data-status-filter="open">Real abierta</button>
         <button type="button" class="secondary" data-status-filter="deviation">Con desviación</button>
         <button type="button" class="secondary" data-status-filter="missing">Sin real</button>
+        <button type="button" class="secondary" data-status-filter="extra">Real sin tester</button>
         <button type="button" class="secondary" data-status-filter="invalid">Fuente inválida</button>
         <button type="button" class="secondary" id="download-comparison" disabled>Descargar tabla CSV</button>
         <label>Buscar estrategia o símbolo<input id="comparison-search" type="search" placeholder="Ej.: EURUSD"></label>
@@ -53,7 +54,7 @@
     </section>
 
     <section id="extra-section" class="panel-card audit-section" hidden>
-      <div class="panel-title"><div><p class="eyebrow">4 · REALES SIN PAREJA</p><h2>Operaciones reales que ningún resultado del tester utilizó</h2></div></div>
+      <div class="panel-title"><div><p class="eyebrow">4 · REALES SIN PAREJA</p><h2>Operaciones reales que ningún resultado del tester utilizó</h2><p class="audit-section-help">Las mismas filas están al final de la tabla anterior, bajo el filtro «Real sin tester»; aquí se ven solas.</p></div></div>
       <div class="audit-table-wrap"><table class="audit-table"><thead><tr><th>Símbolo / lote</th><th>Apertura</th><th>Cierre</th><th>PnL</th><th>Motivo</th></tr></thead><tbody id="extra-body"></tbody></table></div>
     </section>
 

@@ -13,6 +13,7 @@ const reasonLabels = {
   no_real_same_symbol_and_side: 'No existe una real libre con el mismo símbolo y lado',
   real_position_still_open_at_period_end: 'La posición real seguía abierta al terminar el periodo',
   close_before_open: 'Dato tester inválido: el cierre es anterior a la apertura',
+  not_used_by_any_tester_operation: 'Ninguna operación del tester utilizó esta real',
 };
 const priceRuleLabels = {
   adaptive_indices: 'índices',
@@ -136,10 +137,23 @@ function realTicketNote(real) {
   return ticket ? ` · ticket ${ticket}` : '';
 }
 
-function stopsPair(tester, real) {
-  const level = trade => (Number(trade.sl) || Number(trade.tp))
+function stopsLevel(trade) {
+  return (Number(trade.sl) || Number(trade.tp))
     ? `SL ${number(trade.sl, 8)} / TP ${number(trade.tp, 8)}` : 'sin niveles';
-  return `${level(tester)} · REAL: ${level(real)}`;
+}
+
+function stopsPair(tester, real) {
+  return `${stopsLevel(tester)} · REAL: ${stopsLevel(real)}`;
+}
+
+// Una real sin pareja no tiene con qué formar el par TESTER/REAL, pero sigue
+// siendo una fila de la misma tabla: se escribe el lado que existe.
+function realOnly(value, formatter = value => number(value)) {
+  return `<span class="audit-pair"><small>REAL</small><strong>${escapeHtml(formatter(value))}</strong></span>`;
+}
+
+function extraReason(row) {
+  return reasonLabels[row.reason] || row.reason || 'Ninguna operación del tester utilizó esta real';
 }
 
 function plainPair(tester, real, formatter = value => number(value)) {
@@ -194,6 +208,28 @@ function comparisonCsvRow(row) {
   ];
 }
 
+function extraCsvRow(row) {
+  const real = row.real || {};
+  const magic = real.strategy ? ` · magic ${real.strategy}` : '';
+  return [
+    `R${row.real_index ?? ''}`,
+    'REAL SIN TESTER',
+    `${real.symbol || '—'} · ${number(real.volume, 4)} lotes · ${real.side || '—'} · sin estrategia del tester${magic}`,
+    `TESTER: sin operación · REAL: ${marketDateTime(real.open_time)}${realTicketNote(real)}`,
+    `TESTER: sin operación · REAL: ${marketDateTime(real.close_time)}`,
+    `TESTER: sin operación · REAL: ${number(real.open_price, 8)}`,
+    `TESTER: sin operación · REAL: ${stopsLevel(real)}`,
+    `TESTER: sin operación · REAL: ${number(real.volume, 4)}`,
+    `TESTER: sin operación · REAL: ${number(real.profit, 2)}`,
+    extraReason(row),
+    '',
+  ];
+}
+
+function csvRowFor(row) {
+  return row.status === 'extra' ? extraCsvRow(row) : comparisonCsvRow(row);
+}
+
 function csvCell(value) {
   let text = String(value ?? '').replace(/\r?\n/g, ' ').trim();
   if (/^[=+\-@]/.test(text)) text = `'${text}`;
@@ -203,7 +239,7 @@ function csvCell(value) {
 function downloadComparisons() {
   if (!comparisonRows.length || !currentResult) return;
   const headers = ['ID', 'Estado', 'Mercado', 'Apertura', 'Cierre', 'Precio apertura', 'SL / TP', 'Volumen', 'PnL', 'Por qué', 'Validación / observaciones'];
-  const csv = `\uFEFF${[headers, ...comparisonRows.map(comparisonCsvRow)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
+  const csv = `\uFEFF${[headers, ...comparisonRows.map(csvRowFor)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
   const fileId = String(currentResult.audit_id || auditId || 'resultado').replace(/[^A-Za-z0-9_-]+/g, '_');
   const start = String(currentResult.period_start || '').slice(0, 10) || 'sin-inicio';
   const end = String(currentResult.period_end || '').slice(0, 10) || 'sin-fin';
@@ -473,12 +509,34 @@ function comparisonMarkup(row) {
   </tr>`;
 }
 
+// Las reales que ningún resultado del tester reclamó son filas de pleno derecho
+// de esta tabla: si sólo viven en su sección, no entran en los filtros, ni en el
+// contador, ni en el CSV, y la auditoría que uno se descarga sale incompleta.
+function extraComparisonMarkup(row) {
+  const real = row.real || {};
+  const ticket = realTicketNote(real).replace(/^ · /, '');
+  return `<tr data-status="extra" data-search="${escapeHtml(`${real.symbol || ''} ${real.strategy || ''}`.toLocaleLowerCase('es'))}">
+    <td><span class="audit-status bad">REAL SIN TESTER</span><small>#R${escapeHtml(row.real_index)}</small>${ticket ? `<small>${escapeHtml(ticket)}</small>` : ''}</td>
+    <td><strong>${escapeHtml(real.symbol)} · ${escapeHtml(number(real.volume, 4))} lotes</strong><span>${escapeHtml(real.side)}</span><small>Sin estrategia del tester</small>${real.strategy ? `<small>magic ${escapeHtml(real.strategy)}</small>` : ''}</td>
+    <td>${realOnly(real.open_time, marketDateTime)}</td>
+    <td>${realOnly(real.close_time, marketDateTime)}</td>
+    <td>${realOnly(real.open_price, value => number(value, 8))}<small>${escapeHtml(stopsLevel(real))}</small></td>
+    <td>${realOnly(real.volume, value => number(value, 4))}</td>
+    <td>${realOnly(real.profit, value => number(value, 2))}</td>
+    <td><ul><li>${escapeHtml(extraReason(row))}</li></ul></td>
+  </tr>`;
+}
+
+function rowMarkup(row) {
+  return row.status === 'extra' ? extraComparisonMarkup(row) : comparisonMarkup(row);
+}
+
 function applyFilters() {
   const query = document.querySelector('#comparison-search').value.trim().toLocaleLowerCase('es');
   let visible = 0;
   document.querySelectorAll('#comparison-body tr[data-status]').forEach(row => {
     const statusMatches = activeFilter === 'all' || row.dataset.status === activeFilter
-      || (activeFilter === 'issues' && ['deviation', 'missing', 'invalid'].includes(row.dataset.status));
+      || (activeFilter === 'issues' && ['deviation', 'missing', 'extra', 'invalid'].includes(row.dataset.status));
     const show = statusMatches && (!query || row.dataset.search.includes(query));
     row.hidden = !show;
     if (show) visible += 1;
@@ -487,18 +545,20 @@ function applyFilters() {
 }
 
 function renderComparisons(detail) {
-  comparisonRows = detail.operation_comparisons || [];
+  const testerRows = detail.operation_comparisons || [];
+  comparisonRows = [...testerRows, ...(detail.unmatched_real_operations || [])];
   const body = document.querySelector('#comparison-body');
   const warning = document.querySelector('#legacy-warning');
   document.querySelector('#download-comparison').disabled = !comparisonRows.length;
-  if (!comparisonRows.length) {
-    body.innerHTML = '<tr><td colspan="8" class="audit-empty">No hay filas de comparación guardadas.</td></tr>';
-    warning.hidden = false;
+  // El aviso de ejecución antigua mira sólo las filas del tester: una real sin
+  // pareja no demuestra que haya trazabilidad por operación.
+  warning.hidden = Boolean(testerRows.length);
+  if (!warning.hidden) {
     warning.innerHTML = '<strong>Resultado antiguo sin trazabilidad por operación.</strong><span>Vuelve a ejecutar esta auditoría con el motor actualizado para ver cada pareja real–tester, sus deltas y la decisión.</span>';
-  } else {
-    warning.hidden = true;
-    body.innerHTML = comparisonRows.map(comparisonMarkup).join('');
   }
+  body.innerHTML = comparisonRows.length
+    ? comparisonRows.map(rowMarkup).join('')
+    : '<tr><td colspan="8" class="audit-empty">No hay filas de comparación guardadas.</td></tr>';
   applyFilters();
 }
 

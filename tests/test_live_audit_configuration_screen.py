@@ -228,19 +228,54 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("A favor +", self.result_script)
         self.assertIn("PnL: alerta si el real empeora más de", self.result_script)
 
+    def test_the_comparison_table_is_symmetric_between_tester_and_real(self) -> None:
+        # La tabla estaba indexada por operación del tester, así que una real
+        # que ningún resultado reclamó no podía salir nunca en ella: el veredicto
+        # decía «3 reales» sin pareja y la tabla, los filtros, el contador y el
+        # CSV sólo hablaban del otro sentido. Ahora son filas de la misma tabla.
+        self.assertIn("function extraComparisonMarkup(row)", self.result_script)
+        self.assertIn(
+            "row.status === 'extra' ? extraComparisonMarkup(row) : comparisonMarkup(row)",
+            self.result_script,
+        )
+        self.assertIn("REAL SIN TESTER", self.result_script)
+        self.assertIn('data-status="extra"', self.result_script)
+        self.assertIn(
+            "comparisonRows = [...testerRows, ...(detail.unmatched_real_operations || [])]",
+            self.result_script,
+        )
+        self.assertTrue(self.result_page.xpath('//button[@data-status-filter="extra"]'))
+        self.assertEqual(
+            self.result_page.xpath('//button[@data-status-filter="extra"]')[0].text,
+            "Real sin tester",
+        )
+        # El aviso de ejecución antigua mira sólo las filas del tester: una real
+        # suelta no demuestra que haya trazabilidad por operación.
+        self.assertIn("warning.hidden = Boolean(testerRows.length)", self.result_script)
+        # La sección dedicada se conserva y dice dónde están las mismas filas.
+        self.assertTrue(self.result_page.xpath('//section[@id="extra-section"]'))
+        self.assertIn("bajo el filtro «Real sin tester»", self.result_page_text)
+
     def test_result_can_download_the_complete_comparison_as_excel_compatible_csv(self) -> None:
         buttons = self.result_page.xpath('//button[@id="download-comparison"]')
         self.assertEqual(len(buttons), 1)
         self.assertEqual(buttons[0].text, "Descargar tabla CSV")
         self.assertIn("disabled", buttons[0].attrib)
         for token in (
-            "function downloadComparisons()", "comparisonRows.map(comparisonCsvRow)",
+            "function downloadComparisons()", "comparisonRows.map(csvRowFor)",
             "Validación / observaciones", "text/csv;charset=utf-8", "\\uFEFF",
             "link.download = `auditoria_", "URL.revokeObjectURL(url)",
             "#download-comparison').disabled = !comparisonRows.length",
         ):
             self.assertIn(token, self.result_script)
         self.assertIn("if (/^[=+\\-@]/.test(text))", self.result_script)
+        # La descarga tiene que llevar lo mismo que la tabla: las reales sin
+        # pareja también, o uno se baja la auditoría creyéndola completa.
+        self.assertIn("function extraCsvRow(row)", self.result_script)
+        self.assertIn(
+            "row.status === 'extra' ? extraCsvRow(row) : comparisonCsvRow(row)",
+            self.result_script,
+        )
 
     def test_result_leads_with_mutually_exclusive_outcomes_and_hides_technical_noise(self) -> None:
         for text in (
@@ -251,7 +286,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             self.assertIn(text, self.result_page_text + self.result_script)
         self.assertIn("let activeFilter = 'all'", self.result_script)
         self.assertIn("activeFilter === 'issues'", self.result_script)
-        self.assertIn("['deviation', 'missing', 'invalid'].includes", self.result_script)
+        self.assertIn("['deviation', 'missing', 'extra', 'invalid'].includes", self.result_script)
         self.assertIn("REAL ABIERTA", self.result_page_text + self.result_script)
         self.assertTrue(self.result_page.xpath('//button[@data-status-filter="open"]'))
         self.assertIn("Pendiente hasta el cierre real", self.result_script)
