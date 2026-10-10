@@ -1154,3 +1154,44 @@ defectos reales que hay en ese camino. Para la próxima: el error por terminal
 vive en `terminal_restore[].error` del `state.json` del agente y lo pinta la
 pantalla de resultado, así que conviene copiarlo antes de relanzar la
 auditoría, porque la siguiente ejecución lo borra.
+
+## La pestaña Análisis deriva sus curvas del veredicto (2026-10-10)
+
+Cada uso con resultado ofrece `Análisis`, además de `Último resultado`. La nueva
+pestaña no ejecuta otra auditoría ni pide la materia prima que el manager retira
+antes de responder al navegador: deriva el PnL cerrado acumulado de
+`comparison_detail.operation_comparisons`.
+
+- La curva Demo contiene una vez cada operación tester de esas comparaciones.
+- La curva Real global contiene las reales emparejadas y también
+  `unmatched_real_operations`; omitir estas últimas falsearía la ganancia real.
+- El desglose por estrategia atribuye cada operación real a la estrategia
+  tester con la que el auditor la emparejó. Las reales sin pareja sólo pueden
+  figurar en el global porque no hay base fiable para inventarles estrategia.
+- Drawdown y periodo se toman del resultado ya calculado. PnL se suma sobre las
+  operaciones cerradas que dibuja cada curva.
+
+Tres decisiones que no se ven en el código y cuesta volver a deducir:
+
+- **Se agrupa por `strategy`, nunca por `strategy_set`.** El nombre del `.set`
+  es la etiqueta legible, pero dos estrategias pueden compartirlo: agrupando por
+  él se funden en una fila y desaparece la que peor reproduce. La identidad que
+  usa el auditor —y la tabla por estrategia de la pantalla de resultado— es
+  `strategy`.
+- **El eje de tiempo es el periodo auditado, no la extensión de las
+  operaciones.** Así las curvas de dos estrategias son comparables entre sí y
+  con la global. Con la extensión, una auditoría de una sola operación ponía la
+  demo en un extremo y la real en el otro por los segundos de diferencia entre
+  sus cierres, que es cierto y a la vez ilegible.
+- **Sin `operation_comparisons` la pantalla no se dibuja: se explica.** Una
+  ejecución antigua daría curvas planas y PnL cero, que se lee como «la cuenta
+  no ganó nada» en vez de «no hay con qué dibujarlo». Igual que la pantalla de
+  resultado, un `analysis_error` del manager se enseña tal cual en vez de
+  «todavía no hay auditoría», que sería falso cuando el nodo sí la ejecutó.
+
+El botón se habilita con `last_result` **o** `has_payload`: el manager retira la
+materia prima y sólo calcula el veredicto al abrir el detalle, así que el estado
+de la pantalla de configuración puede traer una sola de las dos señales.
+
+La página vive sólo en el manager (`live_audit_analysis.html/js/css`) y reutiliza
+el endpoint del detalle. No requiere port del runtime ni reinicio del agente.

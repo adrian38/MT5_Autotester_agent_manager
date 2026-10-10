@@ -42,6 +42,7 @@ STATIC_FILES = {
     "app.js", "styles.css", "universe.html", "universe.js",
     "live_audit.html", "live_audit.js", "live_audit.css",
     "live_audit_result.html", "live_audit_result.js", "live_audit_result.css",
+    "live_audit_analysis.html", "live_audit_analysis.js", "live_audit_analysis.css",
     "portfolios.html", "portfolios.js",
     "portfolios_monthly.html", "portfolios_monthly.js",
     "portfolio_improvement.js", "portfolio_monthly_improvement.js",

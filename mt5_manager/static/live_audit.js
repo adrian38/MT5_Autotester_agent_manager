@@ -227,6 +227,10 @@ function auditRuntime(id) {
     can_run: Boolean(value.can_run),
     log_lines: Array.isArray(value.log_lines) ? value.log_lines : [],
     last_result: value.last_result || null,
+    // El manager retira la materia prima antes de contestar y deja `has_payload`.
+    // El veredicto lo calcula al abrir el detalle, así que cualquiera de las dos
+    // señales basta para que haya algo que analizar.
+    has_payload: Boolean(value.has_payload),
   };
 }
 
@@ -261,6 +265,7 @@ function auditOperationsMarkup(auditId) {
     <div class="live-audit-operation-actions">
       <button type="button" data-audit-action="run"${canRun ? '' : ' disabled'} title="${escapeHtml(runTitle)}">Auditar ahora</button>
       <button type="button" class="secondary" data-audit-action="result">Último resultado</button>
+      <button type="button" class="secondary" data-audit-action="analysis"${runtime.last_result || runtime.has_payload ? '' : ' disabled'} title="${runtime.last_result || runtime.has_payload ? 'Curvas acumuladas de la demo frente a la cuenta real' : 'Disponible cuando la auditoría haya producido un resultado'}">Análisis</button>
       <button type="button" class="secondary" data-audit-action="logs">Ver logs</button>
     </div>
   </section>`;
@@ -511,6 +516,13 @@ function openLastResult(id) {
   else toast('El navegador bloqueó la pestaña del resultado. Permite ventanas emergentes para este manager.', true);
 }
 
+function openAuditAnalysis(id) {
+  const url = `/live_audit_analysis.html?node=${encodeURIComponent(nodeId)}&audit=${encodeURIComponent(id)}`;
+  const analysisTab = window.open(url, '_blank');
+  if (analysisTab) analysisTab.opener = null;
+  else toast('El navegador bloqueó la pestaña de análisis. Permite ventanas emergentes para este manager.', true);
+}
+
 function openAuditLogs(id) {
   const dialog = document.querySelector('#audit-log-dialog');
   const lines = auditRuntime(id).log_lines;
@@ -687,6 +699,7 @@ configsEl.addEventListener('click', event => {
   const id = String(card?.dataset.profileId || '');
   if (!id) return;
   if (button.dataset.auditAction === 'result') openLastResult(id);
+  else if (button.dataset.auditAction === 'analysis') openAuditAnalysis(id);
   else if (button.dataset.auditAction === 'logs') openAuditLogs(id);
   else if (button.dataset.auditAction === 'run') runAuditNow(id, button);
 });

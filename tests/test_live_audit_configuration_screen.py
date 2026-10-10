@@ -16,9 +16,12 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         cls.script = (cls.static_dir / "live_audit.js").read_text(encoding="utf-8")
         cls.result_page_text = (cls.static_dir / "live_audit_result.html").read_text(encoding="utf-8")
         cls.result_script = (cls.static_dir / "live_audit_result.js").read_text(encoding="utf-8")
+        cls.analysis_page_text = (cls.static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
+        cls.analysis_script = (cls.static_dir / "live_audit_analysis.js").read_text(encoding="utf-8")
         cls.manager_script = (cls.static_dir / "app.js").read_text(encoding="utf-8")
         cls.page = html.fromstring(cls.page_text)
         cls.result_page = html.fromstring(cls.result_page_text)
+        cls.analysis_page = html.fromstring(cls.analysis_page_text)
 
     def test_every_node_card_links_to_the_page(self) -> None:
         self.assertIn('/live_audit.html?node=${encodeURIComponent(id)}', self.manager_script)
@@ -130,6 +133,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
     def test_each_portfolio_has_manual_audit_progress_result_tab_and_logs(self) -> None:
         self.assertIn('data-audit-action="run"', self.script)
         self.assertIn('data-audit-action="result"', self.script)
+        self.assertIn('data-audit-action="analysis"', self.script)
         self.assertIn('data-audit-action="logs"', self.script)
         self.assertIn('role="progressbar"', self.script)
         for stage in ("Preparación", "Extracción real", "Strategy Tester", "Comparación", "Finalizado"):
@@ -137,8 +141,60 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertFalse(self.page.xpath('//dialog[@id="audit-result-dialog"]'))
         self.assertTrue(self.page.xpath('//dialog[@id="audit-log-dialog"]'))
         self.assertIn("/live_audit_result.html?node=", self.script)
+        self.assertIn("/live_audit_analysis.html?node=", self.script)
         self.assertIn("window.open(url, '_blank')", self.script)
         self.assertIn("configuration_only", self.script)
+
+    def test_the_analysis_tab_opens_whenever_the_agent_published_an_execution(self) -> None:
+        # El manager retira la materia prima y calcula el veredicto al abrir el
+        # detalle, así que el estado de la pantalla de configuración puede traer
+        # `has_payload` sin `last_result`: con cualquiera de las dos hay análisis.
+        self.assertIn("has_payload: Boolean(value.has_payload)", self.script)
+        self.assertIn("runtime.last_result || runtime.has_payload", self.script)
+
+    def test_analysis_tab_compares_global_and_per_strategy_curves(self) -> None:
+        for text in (
+            "Demo / Strategy Tester", "Cuenta real", "Curvas acumuladas",
+            "Análisis por estrategia", "PnL cerrado", "Drawdown máximo",
+            "Operaciones cerradas",
+        ):
+            self.assertIn(text, self.analysis_page_text + self.analysis_script)
+        for token in (
+            "operation_comparisons", "unmatched_real_operations", "cumulativeSeries",
+            "renderChart", "strategyGroups", "data-strategy-key", "period_start",
+        ):
+            self.assertIn(token, self.analysis_script)
+        for element_id in (
+            "demo-summary", "real-summary", "global-chart", "global-count",
+            "strategy-list", "strategy-chart", "strategy-heading", "strategy-count",
+            "analysis-error",
+        ):
+            self.assertTrue(
+                self.analysis_page.xpath(f'//*[@id="{element_id}"]'), element_id,
+            )
+
+    def test_the_analysis_groups_by_strategy_and_counts_the_unpaired_reals(self) -> None:
+        # Dos estrategias pueden compartir el nombre del `.set`; agrupar por él
+        # las fundiría en una fila y escondería la que peor reproduce.
+        self.assertIn("String(row.strategy || tester.strategy", self.analysis_script)
+        self.assertIn("label: row.strategy_set || key", self.analysis_script)
+        # La curva real incluye las reales sin pareja: omitirlas falsearía la
+        # ganancia de la cuenta, y el recuento deja ver cuántas son.
+        self.assertIn("real: [...pairedReal, ...extras]", self.analysis_script)
+        self.assertIn("SIN PAREJA", self.analysis_script)
+
+    def test_the_analysis_draws_over_the_audited_period_and_says_what_is_missing(self) -> None:
+        # El eje de tiempo es el periodo auditado y no la extensión de las
+        # operaciones: así las curvas de dos estrategias son comparables entre
+        # sí, y una auditoría de una sola operación no se dibuja en los extremos.
+        self.assertIn("periodWindow", self.analysis_script)
+        self.assertIn("chartBounds([demo, real], window)", self.analysis_script)
+        # Sin materia prima no se enseña un PnL de cero, que se leería como que
+        # la cuenta no ganó nada; y un fallo del análisis se dice tal cual.
+        self.assertIn("El manager no pudo analizar esta ejecución", self.analysis_script)
+        self.assertIn(
+            "no guardó la comparación operación por operación", self.analysis_script,
+        )
 
     def test_result_tab_explains_method_and_each_operation_in_tables(self) -> None:
         self.assertTrue(self.result_page.xpath('//table/tbody[@id="comparison-body"]'))
