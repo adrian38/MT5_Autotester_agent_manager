@@ -11,11 +11,84 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.parse
+from datetime import datetime
 from typing import Any
 
 from . import live_audit_analysis
+from . import live_audit_degradation
 from . import manager_http
 from .common import safe_int
+from .portfolio_service import PortfolioSource
+
+
+def strategy_history(handler, node_id: str, audit_id: str) -> dict[str, Any]:
+    """Veredicto de degradacion por estrategia del uso pedido.
+
+    Se lee del nodo la ejecucion ya analizada y de la memoria UBS del agente el
+    historico de cada candidato. Es una ruta aparte y no parte del detalle
+    porque la pantalla de configuracion sondea el detalle en bucle y esto abre
+    la base del agente.
+    """
+    node = handler._node(node_id)
+    status, value = manager_http.node_request(
+        node, "GET", f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}", timeout=10
+    )
+    if status != 200:
+        raise ValueError(str((value or {}).get("error") if isinstance(value, dict) else value))
+    analysed = analysed_live_audit(handler, node_id, audit_id, value)
+    state = analysed.get("audit") if isinstance(analysed.get("audit"), dict) else analysed
+    result = (state or {}).get("last_result")
+    if not isinstance(result, dict):
+        return {"strategies": [], "reference_lot": live_audit_degradation.REFERENCE_LOT}
+    return degradation_report(PortfolioSource(node), result)
+
+
+def _period_days(result: dict[str, Any]) -> float:
+    start = str(result.get("period_start") or "")
+    end = str(result.get("period_end") or "")
+    try:
+        span = datetime.fromisoformat(end) - datetime.fromisoformat(start)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, span.total_seconds() / 86400)
+
+
+def _tester_trades_by_strategy(result: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    detail = result.get("comparison_detail") or {}
+    for row in detail.get("operation_comparisons") or []:
+        tester = row.get("tester")
+        if not isinstance(tester, dict) or not tester.get("close_time"):
+            continue
+        key = str(row.get("strategy") or tester.get("strategy") or "")
+        grouped.setdefault(key, []).append(tester)
+    return grouped
+
+
+def degradation_report(source: Any, result: dict[str, Any]) -> dict[str, Any]:
+    """Compara cada estrategia del periodo con su historico en la memoria."""
+    grouped = _tester_trades_by_strategy(result)
+    days = _period_days(result)
+    histories = live_audit_degradation.read_histories(source, list(grouped))
+    sets = {
+        str(row.get("strategy") or ""): str(row.get("strategy_set") or "")
+        for row in (result.get("comparison_detail") or {}).get("strategy_summary") or []
+    }
+    symbols = {
+        strategy: str((trades[0] or {}).get("symbol") or "")
+        for strategy, trades in grouped.items() if trades
+    }
+    strategies = [{
+        "strategy": strategy, "strategy_set": sets.get(strategy, ""),
+        "symbol": symbols.get(strategy, ""),
+        **live_audit_degradation.compare(histories.get(strategy), trades, days),
+    } for strategy, trades in grouped.items()]
+    strategies.sort(key=lambda row: (row["symbol"], row["strategy_set"], row["strategy"]))
+    return {
+        "strategies": strategies, "period_days": days,
+        "reference_lot": live_audit_degradation.REFERENCE_LOT,
+        "minimum_trades": live_audit_degradation.MINIMUM_TRADES,
+    }
 
 
 def analysed_live_audit(handler, node_id: str, audit_id: str, value: Any) -> Any:
@@ -83,6 +156,17 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
             )
             handler._send_artifact(status, body, content_type)
         except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+            handler._send_json(502, {"error": str(exc)})
+        return True
+    if (
+        len(parts) == 6 and parts[:2] == ["api", "nodes"]
+        and parts[3] == "live-audits" and parts[5] == "strategy-history"
+    ):
+        try:
+            handler._send_json(200, strategy_history(
+                handler, urllib.parse.unquote(parts[2]), urllib.parse.unquote(parts[4]),
+            ))
+        except (KeyError, ValueError, urllib.error.URLError, TimeoutError, OSError) as exc:
             handler._send_json(502, {"error": str(exc)})
         return True
     if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audits":

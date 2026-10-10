@@ -301,6 +301,113 @@ function render(result) {
   document.querySelector('#analysis-main').hidden = false;
 }
 
+const verdictTone = {
+  degraded: 'bad', warning: 'warn', normal: 'good', better: 'good',
+  insufficient: 'info', no_trades: 'info', no_history: 'info', no_dispersion: 'info',
+};
+const verdictLabels = {
+  degraded: 'DEGRADA', warning: 'AVISO', normal: 'NORMAL',
+  better: 'MEJOR QUE EL HISTÓRICO', insufficient: 'INSUFICIENTE',
+  no_trades: 'SIN OPERACIONES', no_history: 'SIN HISTÓRICO',
+  no_dispersion: 'SIN DISPERSIÓN HISTÓRICA',
+};
+const verdictHelp = {
+  degraded: 'Al menos dos errores estándar por debajo de su media histórica.',
+  warning: 'Entre uno y dos errores estándar por debajo: mirarlo, no concluir.',
+  normal: 'Dentro de lo que esta estrategia siempre ha hecho.',
+  better: 'Al menos dos errores estándar por encima de su media histórica.',
+  insufficient: 'Pocas operaciones en el periodo: una sola mala arrastraría la media.',
+  no_trades: 'La estrategia no cerró ninguna operación en el periodo.',
+  no_history: 'No hay backtest de este candidato en la memoria del agente.',
+  no_dispersion: 'El histórico no guarda SQN, así que no hay dispersión con la que medir.',
+};
+
+function perLot(value, currency) {
+  return value === null || value === undefined ? '—' : money(value, currency);
+}
+
+function deviationCell(row) {
+  if (row.deviations === null || row.deviations === undefined) {
+    return row.difference_pct === null || row.difference_pct === undefined
+      ? '—' : `<small>${escapeHtml(number(row.difference_pct, 0))} % frente a la media</small>`;
+  }
+  const sigma = `${row.deviations > 0 ? '+' : ''}${number(row.deviations, 2)} σ`;
+  const percent = row.difference_pct === null || row.difference_pct === undefined
+    ? '' : `<small>${escapeHtml(number(row.difference_pct, 0))} % frente a la media</small>`;
+  return `<strong>${escapeHtml(sigma)}</strong>${percent}`;
+}
+
+// El recuento esperado sale del ritmo histórico. Cuando se despega mucho, la
+// estrategia no está operando como solía aunque cada operación rinda igual, y
+// eso es un hallazgo distinto del veredicto de rendimiento.
+function tradesCell(row) {
+  const expected = row.expected_trades;
+  if (expected === null || expected === undefined) return `<strong>${escapeHtml(row.trades)}</strong>`;
+  const ratio = expected > 0 ? row.trades / expected : null;
+  const off = ratio !== null && (ratio > 2 || ratio < 0.5);
+  return `<strong>${escapeHtml(row.trades)}</strong><small${off ? ' class="degradation-off"' : ''}>`
+    + `${escapeHtml(number(expected, 1))} esperadas por su ritmo</small>`;
+}
+
+function historyCell(row, currency) {
+  const history = row.history;
+  if (!history) return '<small>Sin backtest guardado</small>';
+  const months = history.active_months ? `${number(history.active_months, 0)} meses` : 'periodo no informado';
+  return `<strong>${escapeHtml(number(history.trades, 0))} operaciones</strong>`
+    + `<small>${escapeHtml(months)} · PF ${escapeHtml(number(history.profit_factor, 2))} · SQN ${escapeHtml(number(history.sqn, 2))}</small>`
+    + `<small>${escapeHtml(perLot(row.history_per_lot, currency))} por lote</small>`;
+}
+
+function degradationRow(row, currency) {
+  const tone = verdictTone[row.verdict] || '';
+  const label = verdictLabels[row.verdict] || row.verdict;
+  const name = row.strategy_set && row.strategy_set !== row.strategy
+    ? `${row.strategy_set} · ${row.strategy}` : row.strategy;
+  return `<tr>
+    <th><strong>${escapeHtml(row.symbol || '—')}</strong><small>${escapeHtml(name)}</small></th>
+    <td>${tradesCell(row)}</td>
+    <td><strong>${escapeHtml(perLot(row.observed_per_lot, currency))}</strong><small>histórico ${escapeHtml(perLot(row.history_per_lot, currency))}</small></td>
+    <td>${deviationCell(row)}</td>
+    <td>${historyCell(row, currency)}</td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(verdictHelp[row.verdict] || '')}</small></td>
+  </tr>`;
+}
+
+function renderDegradation(report) {
+  const rows = report.strategies || [];
+  const currency = chartContext.currency;
+  document.querySelector('#history-reference-lot').textContent = number(report.reference_lot, 8);
+  document.querySelector('#minimum-trades').textContent = number(report.minimum_trades, 0);
+  document.querySelector('#degradation-body').innerHTML = rows.length
+    ? rows.map(row => degradationRow(row, currency)).join('')
+    : '<tr><td colspan="6" class="audit-analysis-empty">No hay estrategias que comparar en este resultado.</td></tr>';
+  const flagged = rows.filter(row => ['degraded', 'warning'].includes(row.verdict)).length;
+  const badge = document.querySelector('#degradation-count');
+  badge.textContent = flagged ? `${flagged} A REVISAR` : `${rows.length} SIN AVISOS`;
+  badge.className = `badge ${flagged ? 'pending' : 'idle'}`;
+}
+
+function degradationUnavailable(message) {
+  document.querySelector('#degradation-body').innerHTML =
+    '<tr><td colspan="6" class="audit-analysis-empty">No se pudo leer el histórico de las estrategias.</td></tr>';
+  const warning = document.querySelector('#degradation-warning');
+  warning.hidden = false;
+  warning.textContent = `La memoria del agente no contestó: ${message}`;
+  document.querySelector('#degradation-count').textContent = 'SIN HISTÓRICO';
+}
+
+// Va en su propia petición y después de pintar las curvas: abre la base del
+// agente, que puede estar ocupada, y una pantalla a medias es peor que una
+// tabla que llega tarde.
+async function loadDegradation() {
+  const url = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/strategy-history`;
+  try {
+    renderDegradation(await jsonResponse(await fetch(url, {cache: 'no-store'})));
+  } catch (error) {
+    degradationUnavailable(error.message);
+  }
+}
+
 async function loadAnalysis() {
   if (!nodeId || !auditId) throw new Error('Faltan el nodo o el identificador de auditoría en la URL.');
   const data = await jsonResponse(await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}`, {cache: 'no-store'}));
@@ -319,6 +426,7 @@ async function loadAnalysis() {
     throw new Error('Esta ejecución no guardó la comparación operación por operación, así que no hay con qué derivar las curvas. Vuelve a ejecutar la auditoría con el motor actual.');
   }
   render(result);
+  await loadDegradation();
 }
 
 function lotInput(group, side) {

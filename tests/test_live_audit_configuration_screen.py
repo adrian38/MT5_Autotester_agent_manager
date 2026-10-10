@@ -231,6 +231,24 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         # Y dice lo que el modelo lineal no sabe.
         self.assertIn("no modela deslizamiento, margen ni stop out", self.analysis_script)
 
+    def test_the_analysis_compares_each_strategy_with_its_stored_history(self) -> None:
+        self.assertTrue(self.analysis_page.xpath('//table/tbody[@id="degradation-body"]'))
+        self.assertTrue(self.analysis_page.xpath('//*[@id="degradation-count"]'))
+        self.assertTrue(self.analysis_page.xpath('//*[@id="degradation-warning"]'))
+        for verdict in (
+            "DEGRADA", "AVISO", "NORMAL", "INSUFICIENTE",
+            "SIN OPERACIONES", "SIN HISTÓRICO", "SIN DISPERSIÓN HISTÓRICA",
+            "MEJOR QUE EL HISTÓRICO",
+        ):
+            self.assertIn(verdict, self.analysis_script, verdict)
+        # El histórico corre a 0,01 y la auditoría al lote del portafolio: sin
+        # normalizar por lote se compararía el tamaño de la posición.
+        self.assertIn("por lote", self.analysis_page_text)
+        self.assertIn("/strategy-history", self.analysis_script)
+        # Petición aparte: abre la base del agente y no puede retrasar las curvas.
+        self.assertIn("async function loadDegradation()", self.analysis_script)
+        self.assertIn("function degradationUnavailable(", self.analysis_script)
+
     def test_result_tab_explains_method_and_each_operation_in_tables(self) -> None:
         self.assertTrue(self.result_page.xpath('//table/tbody[@id="comparison-body"]'))
         self.assertTrue(self.result_page.xpath('//table/tbody[@id="strategy-body"]'))

@@ -1257,3 +1257,47 @@ era el lote, no la estrategia.
 - No confundirlo con «Lotes usados en la cuenta real» de la pantalla de
   configuración, que **sí** cambia el veredicto porque el manager reanaliza con
   esos lotes (tolerancia de volumen y escalado de PnL).
+
+## ¿La estrategia sigue haciendo lo de siempre? (2026-10-11)
+
+La última tabla de Análisis compara lo que cada estrategia hizo en la demo
+durante el periodo con su backtest guardado en la memoria UBS del agente.
+`mt5_manager/live_audit_degradation.py` tiene el criterio;
+`GET /api/nodes/<nodo>/live-audits/<uso>/strategy-history` lo sirve.
+
+**Es sólo del manager.** `/api/v1/portfolios` lo sirve el runtime bifurcado del
+agente, así que por ahí habría hecho falta un port; pero el manager ya lee la
+memoria UBS del agente directamente con `PortfolioSource` —`memory_sources` más
+`connect_memory`, lo mismo que hace `portfolio_source_inventory`— y de ahí sale
+`candidates.metrics_json`. Sin tocar los nodos.
+
+Cuatro cosas que costó averiguar y no están en el código:
+
+- **El histórico está a `StartLots=0,01`.** Comprobado leyendo los `.set`
+  originales de AXI. El periodo auditado corre al lote del portafolio, así que
+  todo se normaliza **por lote** (`beneficio / volumen`): el PnL crudo mediría
+  el tamaño de la posición y no el comportamiento.
+- **La dispersión sale del SQN.** La memoria no guarda la desviación por
+  operación, pero `SQN = media / desviación * raíz(n)` la despeja. Sin ella el
+  veredicto sería una opinión sobre dos medias sueltas.
+- **Por eso el porcentaje a secas engaña.** En AXI #67, ETHUSD cayó un −171 %
+  frente a su media y sale NORMAL: su SQN de 1,83 dice que siempre fue así de
+  ruidosa. XAUUSD cayó un −97 %, menos en porcentaje, y sale AVISO porque su
+  SQN de 8,91 la hacía muy estable. Un umbral sobre el porcentaje habría dado
+  la alarma en la estrategia equivocada.
+- **`raw_net_profit` antes que `net_profit`.** En algunos brokers `net_profit`
+  viene normalizado por nocional (`net_profit_basis:
+  axi_notional_normalization_ref1000`) y entonces no es dinero comparable con
+  el de una cuenta. En AXI coinciden, pero no hay que confiarse.
+
+Decisiones de producto, por si hay que moverlas: los umbrales son ±1σ (aviso) y
+±2σ (degrada/mejor), y por debajo de 8 operaciones no se opina —no es un umbral
+estadístico sino el punto donde el aviso deja de ser accionable—. Están en
+constantes con nombre al principio del módulo.
+
+La tabla **no** depende de la simulación de lotes: la comparación ya es por lote
+y el tamaño que se hubiera operado no cambia el comportamiento medido. Va en su
+propia petición y después de pintar las curvas, porque abre la base del agente y
+esa puede estar bloqueada por una generación; si falla, la tabla lo dice y el
+resto de la pantalla sigue en pie. Y es ruta aparte, no parte del detalle,
+porque la pantalla de configuración sondea el detalle en bucle.

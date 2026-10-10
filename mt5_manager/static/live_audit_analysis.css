@@ -8,7 +8,9 @@
 .audit-analysis-account dl div { min-width: 0; padding: 12px; border-radius: 10px; background: #0b141e; }
 .audit-analysis-account dt { color: var(--muted); font-size: 11px; }
 .audit-analysis-account dd { margin: 6px 0 0; overflow-wrap: anywhere; font-size: 18px; font-weight: 750; }
-.audit-analysis-section { margin: 0; }
+/* `min-width: 0`: sin esto la tabla ancha estira la columna de la rejilla y
+   desborda la página entera en vez de hacer scroll dentro de su caja. */
+.audit-analysis-section { margin: 0; min-width: 0; }
 .audit-analysis-section .subtitle { max-width: 820px; font-size: 12px; }
 /* Sin `min-height`: el SVG conserva su proporción al estrecharse la columna de
    la estrategia y una altura fija dejaría un hueco muerto bajo la curva. */
@@ -51,6 +53,21 @@
 .lots-table td small { margin-top: 5px; }
 .lots-table input { max-width: 150px; }
 .lots-caveat { margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.audit-analysis-table-wrap { overflow-x: auto; }
+.audit-analysis-table { width: 100%; min-width: 820px; border-collapse: collapse; }
+.audit-analysis-table th, .audit-analysis-table td { padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.audit-analysis-table thead th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.audit-analysis-table tbody th { display: grid; gap: 3px; font-weight: 750; }
+.audit-analysis-table small { display: block; margin-top: 4px; color: var(--muted); font-weight: 400; font-size: 11px; line-height: 1.45; }
+.audit-analysis-table tbody tr:last-child th, .audit-analysis-table tbody tr:last-child td { border-bottom: 0; }
+.degradation-status { display: inline-block; padding: 5px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+.degradation-status.good { color: #78f0d0; background: #2d8c7730; }
+.degradation-status.warn { color: #ffd47c; background: #8f681f36; }
+.degradation-status.bad { color: #ff9da5; background: #9a39443b; }
+.degradation-status.info { color: #9dcdff; background: #244e733d; }
+.degradation-off { color: #ffd47c !important; }
+.audit-analysis-note { margin: 0 20px 14px; padding: 12px 14px; border: 1px solid #8f681f; border-radius: 10px; background: #1c180e; color: #ffd978; font-size: 12px; }
+.audit-analysis-note-text { margin: 0; padding: 14px 20px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.6; }
 @media (max-width: 560px) {
   .audit-analysis-simulation { flex-wrap: wrap; }
   .audit-analysis-simulation button { margin-left: 0; }
