@@ -1258,6 +1258,42 @@ era el lote, no la estrategia.
   configuración, que **sí** cambia el veredicto porque el manager reanaliza con
   esos lotes (tolerancia de volumen y escalado de PnL).
 
+## Qué se guarda y qué se pierde al desmarcar (2026-10-11)
+
+Pregunta del usuario: ¿marcar otro portafolio me hace perder lo configurado y
+su última auditoría? **No**, pero había una trampa cerca.
+
+Lo que persiste, comprobado:
+
+- **Los perfiles no se borran nunca al guardar.** La pantalla manda sólo los
+  usos seleccionados, pero `_update_context` parte de *todos* los perfiles
+  guardados y `update` sólo pisa los enviados: el servidor fusiona, no
+  reemplaza. Un uso desmarcado conserva cuentas, periodo, tolerancias, lotes
+  por estrategia y las dos contraseñas cifradas, que siguen descifrando.
+- **Las auditorías viven en el agente y no se podan.** Una entrada por uso en
+  `runtime/<nodo>/live_audits/state.json`, más una carpeta por ejecución. AXI
+  guardaba cuatro usos, el más viejo del 13 de septiembre, con todas sus
+  ejecuciones.
+- Cada portafolio marcado crea un uso independiente: marcar otro no toca los
+  que ya existen.
+
+Lo que sí pierde algo:
+
+- **Repetir una auditoría pisa el resultado anterior de ese uso.** Sólo se
+  conserva el último. Los ficheros de las ejecuciones previas siguen en disco,
+  pero `artifact_path` sólo sirve los del `audit_id` visible.
+- **Desmarcar y volver a marcar creaba un uso nuevo en blanco** (arreglado).
+  `newAuditId` mina siempre un identificador nuevo y la comprobación sólo
+  miraba los *seleccionados*, así que el perfil viejo y su última auditoría
+  quedaban huérfanos: en disco, pero invisibles para siempre. Ahora
+  `savedAuditFor` recupera el uso guardado de **ese** portafolio.
+  - La pertenencia la decide `portfolio_id` del perfil, **no** el texto del
+    identificador: `audit-64-...` es cosmético y un perfil reasignado lo
+    desmentiría.
+  - Con varios huérfanos del mismo portafolio gana el más reciente, ordenando
+    por la marca de tiempo en base 36 del identificador y el número de secuencia.
+  - «Añadir otro uso» sigue creando uno nuevo a propósito: es su función.
+
 ## ¿La estrategia sigue haciendo lo de siempre? (2026-10-11)
 
 La última tabla de Análisis compara lo que cada estrategia hizo en la demo

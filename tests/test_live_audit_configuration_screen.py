@@ -145,6 +145,27 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("window.open(url, '_blank')", self.script)
         self.assertIn("configuration_only", self.script)
 
+    def test_marking_a_portfolio_again_recovers_its_own_saved_use(self) -> None:
+        # Desmarcar no borra nada: el perfil y las contraseñas siguen en el
+        # manager y la última auditoría en el agente. Pero al volver a marcar se
+        # minaba un identificador nuevo y todo aquello quedaba huérfano, sin
+        # forma de verlo desde la pantalla.
+        self.assertIn("function savedAuditFor(portfolioId)", self.script)
+        self.assertIn("const saved = savedAuditFor(id);", self.script)
+        # La pertenencia la decide `portfolio_id` del perfil guardado: ni el
+        # texto del identificador ni lo que estuviera marcado antes.
+        self.assertIn(
+            "Number(profiles[auditId]?.portfolio_id || 0) === Number(portfolioId)",
+            self.script,
+        )
+        # Y nunca devuelve un uso que ya está marcado.
+        self.assertIn("&& !selectedAuditIds.includes(auditId)", self.script)
+        # Con varios huérfanos del mismo portafolio manda el más reciente.
+        self.assertIn("function auditStamp(auditId)", self.script)
+        self.assertIn("Se ha recuperado la configuración guardada", self.script)
+        # Sin nada que recuperar se sigue creando un uso en blanco.
+        self.assertIn("const auditId = newAuditId(id);", self.script)
+
     def test_the_analysis_tab_opens_whenever_the_agent_published_an_execution(self) -> None:
         # El manager retira la materia prima y calcula el veredicto al abrir el
         # detalle, así que el estado de la pantalla de configuración puede traer

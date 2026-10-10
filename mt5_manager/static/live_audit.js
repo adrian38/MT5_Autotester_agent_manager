@@ -79,6 +79,32 @@ function newAuditId(portfolioId) {
   return `audit-${portfolioId}-${Date.now().toString(36)}-${auditSequence}`;
 }
 
+// El orden de creación del uso, sacado de su identificador. Sirve para quedarse
+// con el más reciente cuando un portafolio dejó varios usos sin marcar.
+function auditStamp(auditId) {
+  const match = String(auditId).match(/^audit-\d+-([0-9a-z]+)-(\d+)$/);
+  return match ? [parseInt(match[1], 36) || 0, Number(match[2]) || 0] : [0, 0];
+}
+
+// Desmarcar un portafolio no borra nada: su perfil y sus contraseñas siguen en
+// el manager y su última auditoría en el agente. Al volver a marcarlo hay que
+// recuperar **el uso de ese portafolio**, porque minar un identificador nuevo
+// dejaba todo aquello huérfano y obligaba a reconfigurar cuentas y contraseñas.
+// La pertenencia la decide `portfolio_id` del perfil guardado, nunca el texto
+// del identificador ni lo que estuviera marcado antes.
+function savedAuditFor(portfolioId) {
+  const orphans = Object.keys(profiles).filter(auditId => (
+    Number(profiles[auditId]?.portfolio_id || 0) === Number(portfolioId)
+    && !selectedAuditIds.includes(auditId)
+  ));
+  orphans.sort((a, b) => {
+    const [leftTime, leftSeq] = auditStamp(a);
+    const [rightTime, rightSeq] = auditStamp(b);
+    return leftTime - rightTime || leftSeq - rightSeq;
+  });
+  return orphans.length ? orphans[orphans.length - 1] : '';
+}
+
 function renderPortfolios() {
   const knownIds = new Set(portfolios.map(row => Number(row.id)));
   const selectedPortfolioIds = new Set(selectedAuditIds.map(portfolioForAudit));
@@ -636,9 +662,15 @@ portfolioList.addEventListener('change', event => {
   captureDrafts();
   if (event.target.checked) {
     if (!selectedAuditIds.some(auditId => portfolioForAudit(auditId) === id)) {
-      const auditId = newAuditId(id);
-      selectedAuditIds.push(auditId);
-      profiles[auditId] = {...defaults, portfolio_id: id, portfolio_type: fixedPortfolioMode(id)};
+      const saved = savedAuditFor(id);
+      if (saved) {
+        selectedAuditIds.push(saved);
+        toast(`Se ha recuperado la configuración guardada de ${portfolioName(id)}, con su última auditoría.`);
+      } else {
+        const auditId = newAuditId(id);
+        selectedAuditIds.push(auditId);
+        profiles[auditId] = {...defaults, portfolio_id: id, portfolio_type: fixedPortfolioMode(id)};
+      }
     }
   } else {
     selectedAuditIds = selectedAuditIds.filter(auditId => portfolioForAudit(auditId) !== id);
