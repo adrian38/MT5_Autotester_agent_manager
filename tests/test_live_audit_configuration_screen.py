@@ -180,7 +180,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("label: row.strategy_set || key", self.analysis_script)
         # La curva real incluye las reales sin pareja: omitirlas falsearía la
         # ganancia de la cuenta, y el recuento deja ver cuántas son.
-        self.assertIn("real: [...pairedReal, ...extras]", self.analysis_script)
+        self.assertIn("real: [...paired, ...extras]", self.analysis_script)
         self.assertIn("SIN PAREJA", self.analysis_script)
 
     def test_the_analysis_draws_over_the_audited_period_and_says_what_is_missing(self) -> None:
@@ -195,6 +195,41 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn(
             "no guardó la comparación operación por operación", self.analysis_script,
         )
+
+    def test_the_analysis_simulates_another_lot_per_strategy_on_both_sides(self) -> None:
+        self.assertTrue(self.analysis_page.xpath('//button[@id="open-lots"]'))
+        self.assertTrue(self.analysis_page.xpath('//dialog[@id="lots-dialog"]'))
+        self.assertTrue(self.analysis_page.xpath('//table/tbody[@id="lots-body"]'))
+        for button in ("lots-apply", "lots-reset", "lots-cancel", "lots-close"):
+            self.assertTrue(self.analysis_page.xpath(f'//button[@id="{button}"]'), button)
+        self.assertTrue(self.analysis_page.xpath('//section[@id="simulation-notice"]'))
+        # Los dos lados por estrategia, cada uno con su propio lote.
+        self.assertIn("data-lot-side=\"${side}\"", self.analysis_script)
+        self.assertIn("sideSeries(group.demo, group.strategy, 'demo')", self.analysis_script)
+        self.assertIn("sideSeries(group.real, group.strategy, 'real')", self.analysis_script)
+        # Se reescala operación a operación por su volumen: un factor único por
+        # estrategia daría un PnL inventado cuando operó varios volúmenes.
+        self.assertIn("return profit / volume * lot;", self.analysis_script)
+        self.assertIn("function observedLots(trades)", self.analysis_script)
+
+    def test_the_simulation_recalculates_the_drawdown_and_never_touches_the_audit(self) -> None:
+        # Con otro lote el drawdown del veredicto deja de valer, así que se
+        # recalcula sobre la curva con el mismo criterio que `_drawdown`.
+        self.assertIn("function curveDrawdown(series)", self.analysis_script)
+        self.assertIn("curveDrawdown(cumulativeSeries(trades))", self.analysis_script)
+        self.assertNotIn("result.tester_drawdown", self.analysis_script)
+        self.assertNotIn("result.real_drawdown", self.analysis_script)
+        # Una real sin pareja no es de ninguna estrategia: nunca se reescala.
+        self.assertIn("nunca se reescalan", self.analysis_page_text + self.analysis_script)
+        self.assertIn("profit: Number(trade.profit || 0)", self.analysis_script)
+        # Es una simulación del navegador: no escribe en el perfil ni reanaliza.
+        self.assertIn("live-audit-lots:${nodeId}:${auditId}", self.analysis_script)
+        self.assertIn("SIMULACIÓN", self.analysis_script)
+        self.assertIn("No cambia la auditoría", self.analysis_page_text)
+        self.assertNotIn("real_strategy_lots", self.analysis_script)
+        self.assertNotIn("method: 'POST'", self.analysis_script)
+        # Y dice lo que el modelo lineal no sabe.
+        self.assertIn("no modela deslizamiento, margen ni stop out", self.analysis_script)
 
     def test_result_tab_explains_method_and_each_operation_in_tables(self) -> None:
         self.assertTrue(self.result_page.xpath('//table/tbody[@id="comparison-body"]'))

@@ -1168,8 +1168,11 @@ antes de responder al navegador: deriva el PnL cerrado acumulado de
 - El desglose por estrategia atribuye cada operación real a la estrategia
   tester con la que el auditor la emparejó. Las reales sin pareja sólo pueden
   figurar en el global porque no hay base fiable para inventarles estrategia.
-- Drawdown y periodo se toman del resultado ya calculado. PnL se suma sobre las
-  operaciones cerradas que dibuja cada curva.
+- El periodo se toma del resultado ya calculado. PnL y drawdown se calculan
+  sobre las operaciones cerradas que dibuja cada curva; el drawdown repite el
+  criterio de `_drawdown` del motor (equity desde cero, mayor caída pico-valle)
+  y a lotes ejecutados coincide con el del veredicto. Comprobado con AXI #67:
+  24,78 y 69,12 en los dos sitios.
 
 Tres decisiones que no se ven en el código y cuesta volver a deducir:
 
@@ -1224,3 +1227,33 @@ Dos detalles al tocar esto:
 - Una real huérfana trae `reason` en singular, no `reasons`; y su `strategy` es
   el magic de la cuenta, no una estrategia del portafolio. Se etiqueta «Sin
   estrategia del tester» y el magic va aparte.
+
+## Simulación de lotes en Análisis (2026-10-10)
+
+«Lotes por estrategia» abre un diálogo con un lote demo y un lote real por
+estrategia y reescala las curvas. Es **sólo de la vista**: no escribe en el
+perfil, no reanaliza y no toca el veredicto ni el detalle de operaciones. Vive
+en `localStorage` bajo `live-audit-lots:<nodo>:<uso>`, con aviso «SIMULACIÓN»
+visible y botón de restablecer.
+
+Para qué sirve, con el caso que lo motivó: en AXI #67 la estrategia de BTCUSD
+corrió **0,03 en el tester y 0,1 en la cuenta real**. El PnL demo era 22,85 € y
+el real 101,79 €, que leído de frente parece una divergencia enorme de
+comportamiento. Simulando la demo a 0,1 sube a **104,80 €**: casi todo el hueco
+era el lote, no la estrategia.
+
+- **Se reescala operación a operación**, `profit / volume * lote`, no con un
+  factor único por estrategia. Si una estrategia operó varios volúmenes, el
+  factor común daría un PnL que nunca existió. Por eso el grupo guarda
+  `demoLots`/`realLots` —la lista de volúmenes observados— y no un lote solo.
+- **Las reales sin pareja nunca se reescalan**: no pertenecen a ninguna
+  estrategia del tester. Sumadas al global, intactas.
+- **El drawdown hay que recalcularlo.** Con otro lote el del veredicto deja de
+  valer. Al hacerlo se vuelve obligatorio recalcularlo también sin simulación,
+  o el mismo número cambiaría de origen según el modo.
+- El modelo es lineal: supone que el mismo precio se habría llenado con
+  cualquier tamaño. No modela deslizamiento, margen ni stop out, y el diálogo lo
+  dice. Lote 0 es válido y responde «¿y si no hubiera operado esto?».
+- No confundirlo con «Lotes usados en la cuenta real» de la pantalla de
+  configuración, que **sí** cambia el veredicto porque el manager reanaliza con
+  esos lotes (tolerancia de volumen y escalado de PnL).

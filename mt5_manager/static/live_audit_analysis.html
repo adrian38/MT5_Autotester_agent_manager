@@ -15,12 +15,14 @@
       <p id="analysis-subtitle" class="subtitle">Demo / Strategy Tester frente a cuenta real</p>
     </div>
     <div class="header-actions">
+      <button id="open-lots" type="button" class="secondary">Lotes por estrategia</button>
       <a id="result-link" class="button secondary" href="#">Ver detalle de operaciones</a>
       <a id="back-link" class="button secondary" href="/">Volver al auditor</a>
     </div>
   </header>
 
   <main id="analysis-main" hidden>
+    <section id="simulation-notice" class="audit-analysis-simulation" role="status" hidden></section>
     <section class="audit-analysis-summary" aria-label="Resumen comparativo">
       <article class="panel-card audit-analysis-account demo">
         <p class="eyebrow">A · DEMO / STRATEGY TESTER</p>
@@ -50,6 +52,30 @@
       </div>
     </section>
   </main>
+
+  <dialog id="lots-dialog" class="lots-dialog" aria-labelledby="lots-title">
+    <div class="dialog-head">
+      <div>
+        <p class="eyebrow">SIMULACIÓN DE LOTES</p>
+        <h2 id="lots-title">¿Y si cada estrategia hubiera operado otro lote?</h2>
+        <p class="subtitle">Reescala el PnL y el drawdown de estas curvas en proporción al lote. <strong>No cambia la auditoría</strong>: ni el veredicto, ni el detalle de operaciones, ni la configuración del uso. Deja un campo vacío para conservar el lote que se ejecutó.</p>
+      </div>
+      <button id="lots-close" type="button" class="icon-button" aria-label="Cerrar">×</button>
+    </div>
+    <div class="lots-table-wrap">
+      <table class="lots-table">
+        <thead><tr><th>Estrategia</th><th>Lote demo / tester</th><th>Lote cuenta real</th></tr></thead>
+        <tbody id="lots-body"></tbody>
+      </table>
+    </div>
+    <p id="lots-caveat" class="lots-caveat"></p>
+    <div class="dialog-actions">
+      <button id="lots-reset" type="button" class="secondary">Restablecer lotes ejecutados</button>
+      <button id="lots-cancel" type="button" class="secondary">Cancelar</button>
+      <button id="lots-apply" type="button">Aplicar a las curvas</button>
+    </div>
+  </dialog>
+
   <div id="analysis-error" class="audit-analysis-error" role="alert" hidden></div>
   <script src="/live_audit_analysis.js"></script>
 </body>

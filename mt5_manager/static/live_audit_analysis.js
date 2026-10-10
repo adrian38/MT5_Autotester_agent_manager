@@ -2,8 +2,45 @@ const params = new URLSearchParams(location.search);
 const nodeId = params.get('node') || '';
 const auditId = params.get('audit') || '';
 const modeLabels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
+const lotsKey = `live-audit-lots:${nodeId}:${auditId}`;
 let strategyRows = [];
 let chartContext = {currency: 'EUR', window: []};
+let lotOverrides = {};
+let currentResult = null;
+
+function readOverrides() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(lotsKey) || '{}');
+    return stored && typeof stored === 'object' ? stored : {};
+  } catch (_error) { return {}; }
+}
+
+function writeOverrides(value) {
+  try {
+    if (Object.keys(value).length) localStorage.setItem(lotsKey, JSON.stringify(value));
+    else localStorage.removeItem(lotsKey);
+  } catch (_error) { /* Sin almacenamiento la simulación dura lo que la pestaña. */ }
+}
+
+function overrideFor(strategy, side) {
+  const value = Number(lotOverrides[strategy]?.[side]);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+// Se reescala operación a operación por su propio volumen, no por un lote único
+// de la estrategia: si una estrategia operó varios volúmenes, un factor común
+// daría un PnL que nunca existió.
+function scaledProfit(trade, lot) {
+  const profit = Number(trade.profit || 0);
+  const volume = Number(trade.volume || 0);
+  if (lot === null || !(volume > 0)) return profit;
+  return profit / volume * lot;
+}
+
+function sideSeries(trades, strategy, side) {
+  const lot = overrideFor(strategy, side);
+  return trades.map(trade => ({close_time: trade.close_time, profit: scaledProfit(trade, lot)}));
+}
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -41,14 +78,19 @@ function comparisonRows(result) {
 }
 
 // Omitir las reales sin pareja falsearía la ganancia de la cuenta: son dinero
-// que la cuenta movió aunque ningún resultado del tester las reclame.
-function globalTrades(result) {
-  const rows = comparisonRows(result);
-  const demo = rows.map(row => row.tester).filter(trade => trade?.close_time);
-  const pairedReal = rows.map(row => row.real).filter(trade => trade?.close_time);
-  const extras = (result.comparison_detail?.unmatched_real_operations || [])
-    .map(row => row.real).filter(trade => trade?.close_time);
-  return {demo, real: [...pairedReal, ...extras], paired: pairedReal.length, extras: extras.length};
+// que la cuenta movió aunque ningún resultado del tester las reclame. No se
+// reescalan nunca: no pertenecen a ninguna estrategia del tester.
+function unmatchedReals(result) {
+  return (result.comparison_detail?.unmatched_real_operations || [])
+    .map(row => row.real).filter(trade => trade?.close_time)
+    .map(trade => ({close_time: trade.close_time, profit: Number(trade.profit || 0)}));
+}
+
+function globalTrades(result, groups) {
+  const demo = groups.flatMap(group => sideSeries(group.demo, group.strategy, 'demo'));
+  const paired = groups.flatMap(group => sideSeries(group.real, group.strategy, 'real'));
+  const extras = unmatchedReals(result);
+  return {demo, real: [...paired, ...extras], paired: paired.length, extras: extras.length};
 }
 
 function cumulativeSeries(trades) {
@@ -77,10 +119,20 @@ function strategyGroups(result) {
     }
     const group = groups.get(key);
     if (group.symbol === '—' && tester.symbol) group.symbol = tester.symbol;
-    if (row.tester) group.demo.push(row.tester);
+    if (row.tester?.close_time) group.demo.push(row.tester);
     if (row.real?.close_time) group.real.push(row.real);
   });
-  return [...groups.values()].sort((a, b) => `${a.symbol} ${a.label}`.localeCompare(`${b.symbol} ${b.label}`, 'es'));
+  return [...groups.values()].map(group => ({
+    ...group,
+    demoLots: observedLots(group.demo),
+    realLots: observedLots(group.real),
+  })).sort((a, b) => `${a.symbol} ${a.label}`.localeCompare(`${b.symbol} ${b.label}`, 'es'));
+}
+
+function observedLots(trades) {
+  const volumes = trades.map(trade => Number(trade.volume))
+    .filter(volume => Number.isFinite(volume) && volume > 0);
+  return [...new Set(volumes)].sort((a, b) => a - b);
 }
 
 function curvePoints(series, bounds) {
@@ -138,20 +190,52 @@ function periodWindow(result) {
     .map(value => new Date(value).getTime()).filter(Number.isFinite);
 }
 
+// Mismo criterio que `_drawdown` del motor: equity corrida desde cero y mayor
+// caída de pico a valle. Se recalcula sobre la curva dibujada en lugar de leer
+// el del veredicto, porque al simular otro lote el del veredicto ya no vale.
+function curveDrawdown(series) {
+  let peak = 0;
+  let maximum = 0;
+  series.forEach(point => {
+    peak = Math.max(peak, point.value);
+    maximum = Math.max(maximum, peak - point.value);
+  });
+  return maximum;
+}
+
 // El periodo es el mismo para las dos cuentas y vive en el subtítulo: aquí sólo
 // lo que las diferencia, y el recuento que explica de dónde sale cada curva.
-function summaryMarkup(trades, drawdown, currency) {
+function summaryMarkup(trades, currency) {
   const gain = trades.reduce((total, trade) => total + Number(trade.profit || 0), 0);
+  const drawdown = curveDrawdown(cumulativeSeries(trades));
   return `<div><dt>PnL cerrado</dt><dd>${escapeHtml(money(gain, currency))}</dd></div>`
     + `<div><dt>Drawdown máximo</dt><dd>${escapeHtml(money(drawdown, currency))}</dd></div>`
     + `<div><dt>Operaciones cerradas</dt><dd>${escapeHtml(number(trades.length, 0))}</dd></div>`;
 }
 
+function groupTotal(group, side) {
+  return sideSeries(side === 'demo' ? group.demo : group.real, group.strategy, side)
+    .reduce((sum, trade) => sum + trade.profit, 0);
+}
+
+function simulatedMark(group) {
+  const sides = ['demo', 'real'].filter(side => overrideFor(group.strategy, side) !== null);
+  return sides.length ? '<small class="lots-changed">LOTE SIMULADO</small>' : '';
+}
+
 function strategyButton(group, index) {
-  const demo = group.demo.reduce((sum, trade) => sum + Number(trade.profit || 0), 0);
-  const real = group.real.reduce((sum, trade) => sum + Number(trade.profit || 0), 0);
   const currency = chartContext.currency;
-  return `<button type="button" data-strategy-key="${index}"><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(group.label)}</small><small>Demo ${escapeHtml(money(demo, currency))} · Real ${escapeHtml(money(real, currency))}</small></button>`;
+  const demo = money(groupTotal(group, 'demo'), currency);
+  const real = money(groupTotal(group, 'real'), currency);
+  return `<button type="button" data-strategy-key="${index}"><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(group.label)}</small><small>Demo ${escapeHtml(demo)} · Real ${escapeHtml(real)}</small>${simulatedMark(group)}</button>`;
+}
+
+function lotNote(group, side) {
+  const override = overrideFor(group.strategy, side);
+  const executed = side === 'demo' ? group.demoLots : group.realLots;
+  const label = side === 'demo' ? 'demo' : 'real';
+  if (override === null) return `${label} ${executed.map(lot => number(lot, 8)).join(' · ') || '—'}`;
+  return `${label} ${number(override, 8)} simulado sobre ${executed.map(lot => number(lot, 8)).join(' · ') || '—'}`;
 }
 
 function selectStrategy(index) {
@@ -159,29 +243,61 @@ function selectStrategy(index) {
   if (!group) return;
   document.querySelectorAll('[data-strategy-key]').forEach(button => button.classList.toggle('active', Number(button.dataset.strategyKey) === index));
   const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
-  document.querySelector('#strategy-heading').innerHTML = `<div><strong>${escapeHtml(group.symbol)}</strong><p>${escapeHtml(name)}</p></div><span class="badge idle">${group.demo.length} DEMO · ${group.real.length} REAL EMPAREJADA${group.real.length === 1 ? '' : 'S'}</span>`;
-  renderChart('strategy-chart', group.demo, group.real);
+  const lots = `Lote ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`;
+  document.querySelector('#strategy-heading').innerHTML = `<div><strong>${escapeHtml(group.symbol)}</strong><p>${escapeHtml(name)}</p><small>${escapeHtml(lots)}</small></div><span class="badge idle">${group.demo.length} DEMO · ${group.real.length} REAL EMPAREJADA${group.real.length === 1 ? '' : 'S'}</span>`;
+  renderChart(
+    'strategy-chart',
+    sideSeries(group.demo, group.strategy, 'demo'),
+    sideSeries(group.real, group.strategy, 'real'),
+  );
+}
+
+function simulatedStrategies() {
+  return strategyRows.filter(group => (
+    overrideFor(group.strategy, 'demo') !== null || overrideFor(group.strategy, 'real') !== null
+  ));
+}
+
+function renderSimulationNotice() {
+  const notice = document.querySelector('#simulation-notice');
+  const changed = simulatedStrategies();
+  notice.hidden = !changed.length;
+  if (notice.hidden) return;
+  const detail = changed
+    .map(group => `${group.symbol}: ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`)
+    .join(' — ');
+  notice.innerHTML = `<span class="badge pending">SIMULACIÓN</span><div><strong>Estas curvas no son las de la auditoría.</strong><span>${escapeHtml(detail)}</span></div><button type="button" id="simulation-reset" class="secondary">Restablecer</button>`;
+}
+
+function renderCurves() {
+  const currency = chartContext.currency;
+  const trades = globalTrades(currentResult, strategyRows);
+  document.querySelector('#demo-summary').innerHTML = summaryMarkup(trades.demo, currency);
+  document.querySelector('#real-summary').innerHTML = summaryMarkup(trades.real, currency);
+  document.querySelector('#global-count').textContent = trades.extras
+    ? `${trades.paired} EMPAREJADAS · ${trades.extras} SIN PAREJA`
+    : `${trades.paired} EMPAREJADAS`;
+  renderChart('global-chart', trades.demo, trades.real);
+  const active = Math.max(0, [...document.querySelectorAll('[data-strategy-key].active')]
+    .map(button => Number(button.dataset.strategyKey))[0] || 0);
+  document.querySelector('#strategy-count').textContent = `${strategyRows.length} ESTRATEGIA${strategyRows.length === 1 ? '' : 'S'}`;
+  document.querySelector('#strategy-list').innerHTML = strategyRows.map(strategyButton).join('');
+  if (strategyRows.length) selectStrategy(Math.min(active, strategyRows.length - 1));
+  else document.querySelector('#strategy-chart').innerHTML = '<p class="audit-analysis-empty">No hay estrategias en este resultado.</p>';
+  renderSimulationNotice();
 }
 
 function render(result) {
-  const trades = globalTrades(result);
+  currentResult = result;
   const currency = result.account?.currency || 'EUR';
   chartContext = {currency, window: periodWindow(result)};
   const mode = modeLabels[result.portfolio_type] || result.portfolio_type || 'sin modo';
   document.title = `Análisis auditoría #${result.portfolio_id || ''} · MT5 Manager`;
   document.querySelector('#analysis-title').textContent = `Portafolio #${result.portfolio_id || '—'} · ${mode}`;
   document.querySelector('#analysis-subtitle').textContent = `${result.account?.login || 'Cuenta real'} · ${result.account?.server || 'servidor no informado'} · periodo ${auditedPeriod(result)}`;
-  document.querySelector('#demo-summary').innerHTML = summaryMarkup(trades.demo, result.tester_drawdown, currency);
-  document.querySelector('#real-summary').innerHTML = summaryMarkup(trades.real, result.real_drawdown, currency);
-  document.querySelector('#global-count').textContent = trades.extras
-    ? `${trades.paired} EMPAREJADAS · ${trades.extras} SIN PAREJA`
-    : `${trades.paired} EMPAREJADAS`;
-  renderChart('global-chart', trades.demo, trades.real);
   strategyRows = strategyGroups(result);
-  document.querySelector('#strategy-count').textContent = `${strategyRows.length} ESTRATEGIA${strategyRows.length === 1 ? '' : 'S'}`;
-  document.querySelector('#strategy-list').innerHTML = strategyRows.map(strategyButton).join('');
-  if (strategyRows.length) selectStrategy(0);
-  else document.querySelector('#strategy-chart').innerHTML = '<p class="audit-analysis-empty">No hay estrategias en este resultado.</p>';
+  lotOverrides = readOverrides();
+  renderCurves();
   document.querySelector('#analysis-main').hidden = false;
 }
 
@@ -204,6 +320,65 @@ async function loadAnalysis() {
   }
   render(result);
 }
+
+function lotInput(group, side) {
+  const override = overrideFor(group.strategy, side);
+  const executed = side === 'demo' ? group.demoLots : group.realLots;
+  const placeholder = executed.length === 1 ? number(executed[0], 8)
+    : executed.length ? `varios: ${executed.map(lot => number(lot, 8)).join(' · ')}` : 'sin operaciones';
+  const disabled = executed.length ? '' : ' disabled';
+  return `<td><input type="number" min="0" step="0.01" inputmode="decimal"
+    data-lot-strategy="${escapeHtml(group.strategy)}" data-lot-side="${side}"
+    value="${override === null ? '' : override}" placeholder="${escapeHtml(placeholder)}"
+    aria-label="Lote ${side} de ${escapeHtml(group.symbol)}"${disabled}>
+    <small>ejecutado ${escapeHtml(executed.map(lot => number(lot, 8)).join(' · ') || '—')}</small></td>`;
+}
+
+function openLotsDialog() {
+  const body = document.querySelector('#lots-body');
+  body.innerHTML = strategyRows.length ? strategyRows.map(group => `<tr>
+    <th><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(group.label)}</small><small>${escapeHtml(group.demo.length)} demo · ${escapeHtml(group.real.length)} real</small></th>
+    ${lotInput(group, 'demo')}${lotInput(group, 'real')}
+  </tr>`).join('') : '<tr><td colspan="3" class="audit-analysis-empty">No hay estrategias en este resultado.</td></tr>';
+  const extras = unmatchedReals(currentResult).length;
+  document.querySelector('#lots-caveat').textContent = [
+    'El PnL se reescala en proporción al lote, así que da por supuesto que el mismo precio se habría llenado con cualquier tamaño: no modela deslizamiento, margen ni stop out.',
+    extras ? `Las ${extras} reales sin pareja no pertenecen a ninguna estrategia del tester y nunca se reescalan.` : '',
+  ].filter(Boolean).join(' ');
+  document.querySelector('#lots-dialog').showModal();
+}
+
+function readDialogLots() {
+  const next = {};
+  document.querySelectorAll('[data-lot-strategy]').forEach(input => {
+    const value = Number(input.value);
+    if (input.value.trim() === '' || !Number.isFinite(value) || value < 0) return;
+    const strategy = input.dataset.lotStrategy;
+    next[strategy] = {...next[strategy], [input.dataset.lotSide]: value};
+  });
+  return next;
+}
+
+function applyLots(overrides) {
+  lotOverrides = overrides;
+  writeOverrides(lotOverrides);
+  renderCurves();
+}
+
+document.querySelector('#open-lots').addEventListener('click', openLotsDialog);
+document.querySelector('#lots-close').addEventListener('click', () => document.querySelector('#lots-dialog').close());
+document.querySelector('#lots-cancel').addEventListener('click', () => document.querySelector('#lots-dialog').close());
+document.querySelector('#lots-reset').addEventListener('click', () => {
+  applyLots({});
+  document.querySelector('#lots-dialog').close();
+});
+document.querySelector('#lots-apply').addEventListener('click', () => {
+  applyLots(readDialogLots());
+  document.querySelector('#lots-dialog').close();
+});
+document.querySelector('#simulation-notice').addEventListener('click', event => {
+  if (event.target.id === 'simulation-reset') applyLots({});
+});
 
 document.querySelector('#back-link').href = `/live_audit.html?node=${encodeURIComponent(nodeId)}`;
 document.querySelector('#result-link').href = `/live_audit_result.html?node=${encodeURIComponent(nodeId)}&audit=${encodeURIComponent(auditId)}`;
