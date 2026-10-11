@@ -119,8 +119,10 @@ class DynamicAuditTests(unittest.TestCase):
                 "rules": {STRATEGY: {"dd_001": 10.0, "risk_pct": 10.0}},
             },
             _autolot_balance_history=[
-                {"time": "2026-09-22T09:00:00+00:00", "balance": 1000.0},
-                {"time": "2026-09-22T10:00:00+00:00", "balance": 2000.0},
+                # El HTML nativo imprime UTC sin sufijo, mientras la materia
+                # prima del nodo transporta las operaciones con zona horaria.
+                {"time": "2026-09-22T09:00:00", "balance": 1000.0},
+                {"time": "2026-09-22T12:00:00+02:00", "balance": 2000.0},
             ],
         ))
         rows = result["comparison_detail"]["operation_comparisons"]

@@ -9,7 +9,7 @@ import tempfile
 import unicodedata
 import zipfile
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Callable
@@ -240,7 +240,7 @@ def prepare_request(request: dict[str, Any]) -> None:
     points: list[tuple[datetime, float]] = []
     for item in request.pop("_autolot_balance_history", []) or []:
         try:
-            points.append((datetime.fromisoformat(str(item["time"])), float(item["balance"])))
+            points.append((_utc_datetime(datetime.fromisoformat(str(item["time"]))), float(item["balance"])))
         except (KeyError, TypeError, ValueError):
             continue
     points.sort(key=lambda item: item[0])
@@ -250,8 +250,16 @@ def prepare_request(request: dict[str, Any]) -> None:
         raise ValueError(message or "El autolote no pudo leer el saldo histórico del informe nativo de MT5")
 
 
+def _utc_datetime(value: datetime) -> datetime:
+    """Normaliza a UTC; el informe nativo de MT5 imprime UTC sin sufijo."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _balance_at(points: list[tuple[datetime, float]], moment: datetime) -> float | None:
-    previous = [balance for timestamp, balance in points if timestamp <= moment]
+    comparable_moment = _utc_datetime(moment)
+    previous = [balance for timestamp, balance in points if timestamp <= comparable_moment]
     if previous:
         return previous[-1]
     return points[0][1] if points else None

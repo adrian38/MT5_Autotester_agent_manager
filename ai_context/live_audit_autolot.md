@@ -39,6 +39,12 @@ historias. Para cada apertura usa el último saldo informado en ese instante;
 si la apertura precede a la primera fila disponible, usa el primer saldo del
 informe.
 
+Las horas de esa tabla son UTC, pero el HTML las imprime sin sufijo de zona;
+la materia prima JSON del nodo sí lleva `+00:00`. Ambos lados se normalizan a
+UTC antes de ordenar o comparar. No comparar directamente los `datetime` del
+parser del HTML con los revividos del JSON: Python rechaza mezclar fechas sin
+zona y con zona, y convertirlas a la zona local desplazaría el saldo elegido.
+
 Esto mantiene el cambio únicamente en el manager. La configuración `autolot`
 se retira del payload que lanza el nodo; el runtime de RoboForex no necesita un
 port. El nodo sigue observando y publicando hechos, y el manager aplica el
