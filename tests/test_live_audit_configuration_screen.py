@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from lxml import html
+from mt5_manager.manager_handler import STATIC_FILES
 
 
 class LiveAuditConfigurationScreenTests(unittest.TestCase):
@@ -70,6 +71,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
 
     def test_autolot_import_uses_the_excel_and_the_historical_account_balance(self) -> None:
         self.assertIn('src="/live_audit_autolot.js"', self.page_text)
+        self.assertIn("live_audit_autolot.js", STATIC_FILES)
         self.assertIn("Autolote según saldo y riesgo", self.script)
         self.assertIn("data-autolot-enabled", self.autolot_script)
         self.assertIn("data-autolot-file", self.autolot_script)

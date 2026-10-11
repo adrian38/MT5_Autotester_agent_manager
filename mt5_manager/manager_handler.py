@@ -40,7 +40,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 # móvil no es razonable, así que `/api/pulse` proyecta solo estos campos.
 STATIC_FILES = {
     "app.js", "styles.css", "universe.html", "universe.js",
-    "live_audit.html", "live_audit.js", "live_audit.css",
+    "live_audit.html", "live_audit.js", "live_audit_autolot.js", "live_audit.css",
     "live_audit_result.html", "live_audit_result.js", "live_audit_result.css",
     "live_audit_analysis.html", "live_audit_analysis.js", "live_audit_analysis.css",
     "portfolios.html", "portfolios.js",

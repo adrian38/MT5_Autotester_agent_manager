@@ -238,6 +238,8 @@ class LocalIntegrationTests(IntegrationTestCase):
             self.assertIn(b"Auditor de cuenta real", response.read())
         with urllib.request.urlopen(self.base + "/live_audit.js", timeout=3) as response:
             self.assertIn(b"live-audit-config", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_autolot.js", timeout=3) as response:
+            self.assertIn(b"live-audit-autolot-import", response.read())
         with urllib.request.urlopen(self.base + "/live_audit.css", timeout=3) as response:
             self.assertIn(b"live-audit-configs", response.read())
         with urllib.request.urlopen(self.base + "/live_audit_result.html?node=test-node&audit=11", timeout=3) as response:
