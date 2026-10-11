@@ -4,11 +4,14 @@ import math
 from datetime import date
 from typing import Any
 
+from .live_audit_autolot import empty_autolot, normalize_autolot
+
 
 DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "portfolio_id": 0,
     "portfolio_type": "",
     "real_strategy_lots": {},
+    "autolot": empty_autolot(),
     "deployment_name": "",
     "source_login": "",
     "source_server": "",
@@ -182,6 +185,7 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
             normalized[key] = _number(value[key], key, minimum, maximum)
     if "real_strategy_lots" in value:
         normalized["real_strategy_lots"] = _real_strategy_lots(value["real_strategy_lots"])
+    normalized["autolot"] = normalize_autolot(value.get("autolot"))
     return normalized
 
 

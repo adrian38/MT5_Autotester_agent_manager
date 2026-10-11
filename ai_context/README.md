@@ -109,6 +109,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_cross_account_symbol_aliases.md`: cuentas real y tester del mismo
   broker con símbolos distintos (`BTCUSD`/`BTCUSD.sa`) y canonización basada en
   el miembro del portfolio, sin adivinar sufijos.
+- `live_audit_autolot.md`: importación del DD/riesgo por estrategia, saldo
+  histórico del HTML nativo y lote dinámico por apertura, sólo en el manager.
 
 ## Manager: interfaz y operación
 

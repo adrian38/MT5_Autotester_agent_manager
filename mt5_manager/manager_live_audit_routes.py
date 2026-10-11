@@ -8,6 +8,7 @@ con la cuenta del uso, que es de un tercero.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import urllib.error
 import urllib.parse
@@ -15,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from . import live_audit_analysis
+from . import live_audit_autolot
 from . import live_audit_degradation
 from . import manager_http
 from .common import safe_int
@@ -91,12 +93,48 @@ def degradation_report(source: Any, result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def analysed_live_audit(handler, node_id: str, audit_id: str, value: Any) -> Any:
+def _autolot_balance_history(node: dict[str, Any], value: Any) -> list[dict[str, Any]]:
+    state = value.get("audit") if isinstance(value, dict) and isinstance(value.get("audit"), dict) else value
+    payload = state.get("last_payload") if isinstance(state, dict) else None
+    if not isinstance(payload, dict):
+        raise ValueError("La ejecución no publicó materia prima para calcular el autolote")
+    report = payload.get("real_account_report") or {}
+    filename = str(report.get("filename") or "")
+    audit_key = str((payload.get("request") or {}).get("audit_key") or payload.get("audit_key") or "")
+    execution_id = str(payload.get("audit_id") or "")
+    if not filename or not audit_key or not execution_id:
+        raise ValueError("La ejecución no publicó el HTML nativo necesario para calcular el autolote")
+    encoded = "/".join(urllib.parse.quote(item, safe="") for item in (audit_key, execution_id, filename))
+
+    def load() -> bytes:
+        status, body, _content_type = manager_http.node_artifact_request(
+            node, f"/api/v1/live-audits/{encoded.split('/')[0]}/artifacts/"
+            f"{encoded.split('/')[1]}/{encoded.split('/')[2]}", timeout=120,
+        )
+        if status != 200:
+            raise ValueError(f"El nodo devolvió {status} al leer el HTML nativo para el autolote")
+        expected_sha = str(report.get("sha256") or "").lower()
+        if expected_sha and hashlib.sha256(body).hexdigest() != expected_sha:
+            raise ValueError("El HTML nativo del autolote no coincide con la ejecución guardada")
+        return body
+
+    cache_key = str(report.get("sha256") or f"{audit_key}:{execution_id}:{filename}")
+    return live_audit_autolot.cached_balance_history(cache_key, load)
+
+
+def analysed_live_audit(
+    handler, node_id: str, audit_id: str, value: Any, node: dict[str, Any] | None = None,
+) -> Any:
     """Aplica el criterio vigente del manager a la materia prima del nodo."""
     if not live_audit_analysis.has_raw_material(value):
         return value
     settings = handler.server.live_audit_settings.state(node_id)
     profile = dict((settings.get("profiles") or {}).get(audit_id) or {})
+    if (profile.get("autolot") or {}).get("enabled"):
+        try:
+            profile["_autolot_balance_history"] = _autolot_balance_history(node or {}, value)
+        except (KeyError, ValueError, OSError, urllib.error.URLError, TimeoutError) as exc:
+            profile["_autolot_balance_error"] = str(exc)
     return live_audit_analysis.analyse_node_state(value, profile)
 
 
@@ -177,7 +215,7 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
             status, value = manager_http.node_request(
                 node, "GET", f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}", timeout=10
             )
-            handler._send_json(status, analysed_live_audit(handler, node_id, audit_id, value))
+            handler._send_json(status, analysed_live_audit(handler, node_id, audit_id, value, node))
         except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
             handler._send_json(502, {"error": str(exc)})
         return True
@@ -207,8 +245,9 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
     restore = handler.server.live_audit_settings.restore_credentials(node_id)
     if not restore:
         raise ValueError("Configura y guarda la cuenta que debe quedar en los terminales")
+    node_profile = {key: value for key, value in profile.items() if key != "autolot"}
     return {
-        **profile, **credentials, **restore,
+        **node_profile, **credentials, **restore,
         "audit_key": audit_id,
         "portfolio_id": safe_int(profile.get("portfolio_id"), 0, minimum=1),
     }
@@ -216,6 +255,14 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
 
 def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
     """Configuracion del auditor, cuenta de restauracion y lanzar un uso."""
+    if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audit-autolot-import":
+        try:
+            handler._node(urllib.parse.unquote(parts[2]))
+            autolot = live_audit_autolot.import_workbook(handler._body())
+            handler._send_json(200, {"autolot": autolot, "strategy_count": len(autolot["rules"])})
+        except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+            handler._send_json(400, {"error": str(exc)})
+        return True
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] in {
         "live-audit-config", "live-audit-restore-account",
     }:

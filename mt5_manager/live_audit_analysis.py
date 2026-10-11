@@ -24,6 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .live_audit_autolot import dynamic_lot_bands, prepare_request
 from .live_audit_engine import (
     LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
     _trade_view, _within_lot_bands,
@@ -38,6 +39,7 @@ REANALYSABLE_TOLERANCES = (
     "drawdown_deviation_warning_pct",
     "min_tick_history_quality_pct",
     "real_strategy_lots",
+    "autolot",
 )
 # Lo que describe la ejecución y no se puede reinterpretar sin repetirla.
 EXECUTION_FACTS = (
@@ -259,10 +261,13 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
     request["strategy_set_names"] = strategy_set_names(
         list(payload.get("selected_members") or []),
     )
+    request["_autolot_balance_history"] = profile.get("_autolot_balance_history") or []
+    request["_autolot_balance_error"] = profile.get("_autolot_balance_error") or ""
     return request
 
 
 def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
+    request["_autolot_volume_rules"] = _volume_rules(payload)
     tester_trades = _revive_all(payload.get("tester_trades"))
     artifacts = list(payload.get("strategy_artifacts") or [])
     aliases = _symbol_aliases(
@@ -306,6 +311,11 @@ def _filter_portfolio_trades(
         _symbols_by_strategy(inputs["tester_trades"], inputs["strategy_artifacts"]),
         request.get("real_strategy_lots") or {},
     )
+    for symbol, dynamic in dynamic_lot_bands(inputs["tester_trades"], request).items():
+        previous = bands.get(symbol)
+        bands[symbol] = (
+            min(previous[0], dynamic[0]), max(previous[1], dynamic[1])
+        ) if previous else dynamic
     filter_detail: dict[str, Any] = {
         "applied": bool(bands), "symbol_aliases": dict(inputs["symbol_aliases"]),
     }
@@ -392,6 +402,7 @@ def _attach_evidence(
 def analyze(payload: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     """Veredicto reanalizable a partir de hechos del nodo y criterio actual."""
     request = _analysis_request(payload, profile)
+    prepare_request(request)
     inputs = _filter_portfolio_trades(
         payload, request, _analysis_inputs(payload, request),
     )

@@ -14,6 +14,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         cls.static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         cls.page_text = (cls.static_dir / "live_audit.html").read_text(encoding="utf-8")
         cls.script = (cls.static_dir / "live_audit.js").read_text(encoding="utf-8")
+        cls.autolot_script = (cls.static_dir / "live_audit_autolot.js").read_text(encoding="utf-8")
         cls.result_page_text = (cls.static_dir / "live_audit_result.html").read_text(encoding="utf-8")
         cls.result_script = (cls.static_dir / "live_audit_result.js").read_text(encoding="utf-8")
         cls.analysis_page_text = (cls.static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
@@ -66,6 +67,15 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("No se pueden mostrar los lotes.", self.script)
         self.assertIn("Desmárcalo arriba y selecciona un portafolio existente.", self.script)
         self.assertIn("portfolioDetailErrors[key] = message", self.script)
+
+    def test_autolot_import_uses_the_excel_and_the_historical_account_balance(self) -> None:
+        self.assertIn('src="/live_audit_autolot.js"', self.page_text)
+        self.assertIn("Autolote según saldo y riesgo", self.script)
+        self.assertIn("data-autolot-enabled", self.autolot_script)
+        self.assertIn("data-autolot-file", self.autolot_script)
+        self.assertIn("live-audit-autolot-import", self.autolot_script)
+        self.assertIn("saldo × riesgo % × 0,01 ÷ DD_0.01", self.autolot_script)
+        self.assertIn("volume_expected_source === 'autolot'", self.result_script)
 
     def test_a_saved_improvement_keeps_the_mode_it_inherited_from_its_base(self) -> None:
         variant = self.script.split("function variantMembers", 1)[1].split(

@@ -93,8 +93,11 @@ function pnlDelta(measurements, limit) {
 // enseña 0,08 contra 0,04 y un «En contra 50 %» que el motor ya no usa para
 // decidir, y el lector no puede reconstruir por qué la fila está dentro.
 function expectedRealVolumeNote(limits) {
-  if (limits.volume_expected_source !== 'configured_real_lot') return '';
   if (limits.volume_expected_real == null) return '';
+  if (limits.volume_expected_source === 'autolot') {
+    return ` · esperado en real ${number(limits.volume_expected_real, 4)} (autolote: saldo ${number(limits.balance, 2)}, riesgo ${number(limits.risk_pct, 2)} %, DD 0,01 ${number(limits.dd_001, 2)})`;
+  }
+  if (limits.volume_expected_source !== 'configured_real_lot') return '';
   return ` · esperado en real ${number(limits.volume_expected_real, 4)} (lote configurado)`;
 }
 

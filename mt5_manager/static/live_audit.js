@@ -323,6 +323,8 @@ function profileMarkup(auditId) {
     </div>
     <div class="live-audit-subtitle"><strong>Lotes usados en la cuenta real</strong><span>Por defecto coinciden con el portafolio. Edítalos sólo cuando el EA opere otro lote en real.</span></div>
     ${strategyLotsMarkup(profile)}
+    <div class="live-audit-subtitle"><strong>Autolote según saldo y riesgo</strong><span>El cálculo se aplica operación a operación y puede cambiar varias veces dentro del periodo auditado.</span></div>
+    ${autolotMarkup(profile)}
     <div class="live-audit-subtitle"><strong>Cuentas de esta prueba</strong><span>Puedes reutilizar cualquier cuenta cifrada del nodo en otro portafolio; los logins pueden coincidir.</span></div>
     <div class="live-audit-account-grid">
       <fieldset class="live-audit-account">
@@ -402,10 +404,12 @@ function readCard(card) {
   card.querySelectorAll('[data-strategy-lot]').forEach(input => {
     realStrategyLots[input.dataset.strategyLot] = Number(input.value);
   });
+  const current = profiles[String(card.dataset.profileId)] || {};
   return {
     portfolio_id: portfolioForAudit(card.dataset.profileId),
     portfolio_type: field('portfolio_type').value,
     real_strategy_lots: realStrategyLots,
+    autolot: autolotCardValue(card, current),
     deployment_name: field('deployment_name').value.trim(),
     source_saved_account_id: card.querySelector('[data-saved-account-role="source"]').value,
     source_login: field('source_login').value.trim(),
@@ -715,6 +719,13 @@ portfolioList.addEventListener('click', event => {
 });
 
 configsEl.addEventListener('click', event => {
+  const autolotImport = event.target.closest('[data-autolot-import]');
+  if (autolotImport) {
+    event.preventDefault();
+    captureDrafts();
+    importAutolotWorkbook(autolotImport).catch(error => toast(error.message, true));
+    return;
+  }
   const remove = event.target.closest('[data-remove-audit]');
   if (remove) {
     captureDrafts();

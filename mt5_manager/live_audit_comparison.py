@@ -75,9 +75,7 @@ class _ComparisonMixin:
         time_limit = request["trade_time_tolerance_seconds"]
         open_delta = abs((actual["open_time"] - expected["open_time"]).total_seconds())
         close_delta = abs((actual["close_time"] - expected["close_time"]).total_seconds())
-        expected_volume, _tester_volume = _expected_real_volume(
-            expected, request.get("real_strategy_lots") or {},
-        )
+        expected_volume, _tester_volume = _expected_real_volume(expected, request, actual)
         volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
         price_limit, _points, _rule = _effective_price_tolerance(
             actual["symbol"], points.get(actual["symbol"], 0.0),
@@ -210,9 +208,9 @@ class _ComparisonMixin:
     def _matched_limits(
         request: dict[str, Any], price_limit: float | None,
         price_limit_points: float | None, price_limit_rule: str,
-        volume_limit: float, pnl_limit: float, strategy: str,
-        real_lots: dict[str, float], expected_volume: float,
+        volume_limit: float, pnl_limit: float, volume_detail: dict[str, Any],
     ) -> dict[str, Any]:
+        expected_volume = float(volume_detail["expected"])
         return {
             "open_time_seconds": request["trade_time_tolerance_seconds"],
             "close_time_seconds": request["trade_time_tolerance_seconds"],
@@ -222,7 +220,10 @@ class _ComparisonMixin:
             "open_price_rule": price_limit_rule, "volume_pct": request["volume_tolerance_pct"],
             "volume_absolute": round(volume_limit, 8),
             "volume_expected_real": round(expected_volume, 8),
-            "volume_expected_source": "configured_real_lot" if strategy in real_lots else "tester_lot",
+            "volume_expected_source": volume_detail["source"],
+            **{key: round(float(volume_detail[key]), 8) for key in (
+                "balance", "dd_001", "risk_pct", "raw_lot",
+            ) if key in volume_detail},
             "pnl_pct": request["pnl_deviation_warning_pct"],
             "pnl_absolute": round(pnl_limit, 2),
         }
@@ -237,8 +238,9 @@ class _ComparisonMixin:
             actual["symbol"], point, request["price_tolerance_points"],
         )
         strategy = str(expected["strategy"])
-        real_lots = request.get("real_strategy_lots") or {}
-        expected_volume, tester_volume = _expected_real_volume(expected, real_lots)
+        volume_detail = _expected_real_volume_detail(expected, request, actual)
+        expected_volume = float(volume_detail["expected"])
+        tester_volume = float(volume_detail["tester"])
         pnl_scale = expected_volume / tester_volume if tester_volume > 0 else 1.0
         scaled_tester_profit = float(expected["profit"]) * pnl_scale
         volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
@@ -269,7 +271,7 @@ class _ComparisonMixin:
         )
         limits = _ComparisonMixin._matched_limits(
             request, price_limit, price_limit_points, price_limit_rule,
-            volume_limit, float(pnl["limit"]), strategy, real_lots, expected_volume,
+            volume_limit, float(pnl["limit"]), volume_detail,
         )
         return ({
             "tester_index": tester_index, "real_index": real_index + 1,

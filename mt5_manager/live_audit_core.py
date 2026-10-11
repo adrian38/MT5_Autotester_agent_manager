@@ -16,6 +16,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from .common import load_json, save_json, utc_now
+from .live_audit_autolot import expected_volume as _autolot_expected_volume
 from .mt5_native_history_report import NativeHistoryReportError, export_native_history_report
 
 RUNNING_STATUSES = frozenset({
@@ -196,16 +197,18 @@ def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:
 
 
 def _expected_real_volume(
-    expected: dict[str, Any], real_lots: dict[str, float],
+    expected: dict[str, Any], request: dict[str, Any], actual: dict[str, Any] | None = None,
 ) -> tuple[float, float]:
     """Volumen esperado en real y volumen que usó el tester."""
-    tester_volume = float(expected.get("volume") or 0.0)
-    configured = real_lots.get(str(expected.get("strategy") or ""))
-    try:
-        expected_volume = float(configured) if configured is not None else tester_volume
-    except (TypeError, ValueError):
-        expected_volume = tester_volume
-    return (expected_volume if expected_volume > 0 else tester_volume), tester_volume
+    detail = _expected_real_volume_detail(expected, request, actual)
+    return float(detail["expected"]), float(detail["tester"])
+
+
+def _expected_real_volume_detail(
+    expected: dict[str, Any], request: dict[str, Any], actual: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Incluye la procedencia y los factores del volumen esperado."""
+    return _autolot_expected_volume(expected, request, actual)
 
 
 def _matching_open_position(
@@ -240,7 +243,8 @@ def _open_position_comparison(
         str(actual.get("symbol") or expected["symbol"]), point,
         request["price_tolerance_points"],
     )
-    expected_volume, _tester_volume = _expected_real_volume(expected, real_lots)
+    volume_detail = _expected_real_volume_detail(expected, request, actual)
+    expected_volume = float(volume_detail["expected"])
     volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
     price_delta = abs(float(actual.get("open_price") or 0) - float(expected["open_price"]))
     volume_delta = abs(float(actual.get("volume") or 0) - expected_volume)
@@ -272,7 +276,10 @@ def _open_position_comparison(
             "open_price_rule": price_rule, "volume_pct": request["volume_tolerance_pct"],
             "volume_absolute": round(volume_limit, 8),
             "volume_expected_real": round(expected_volume, 8),
-            "volume_expected_source": "configured_real_lot" if strategy in real_lots else "tester_lot",
+            "volume_expected_source": volume_detail["source"],
+            **{key: round(float(volume_detail[key]), 8) for key in (
+                "balance", "dd_001", "risk_pct", "raw_lot",
+            ) if key in volume_detail},
         },
         "data_issues": data_issues,
         "reasons": ["real_position_still_open_at_period_end", *reasons],
