@@ -370,4 +370,36 @@ def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
         except (urllib.error.URLError, TimeoutError) as exc:
             handler._send_json(502, {"error": str(exc)})
         return True
+    if (
+        len(parts) == 6 and parts[:2] == ["api", "nodes"]
+        and parts[3] == "live-audits" and parts[5] == "stop"
+    ):
+        _handle_stop(handler, parts)
+        return True
     return False
+
+
+def _handle_stop(handler, parts: list[str]) -> None:
+    """Detener no necesita el perfil ni las credenciales.
+
+    La auditoría que corre ya los tiene; sólo hay que decírselo al agente, que
+    es quien la ejecuta y quien tiene el proceso del tester que cortar.
+    """
+    try:
+        node = handler._node(urllib.parse.unquote(parts[2]))
+        audit_id = urllib.parse.unquote(parts[4])
+        status, value = manager_http.node_request(
+            node, "POST",
+            f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}/stop",
+            {}, timeout=30,
+        )
+        if status == 404:
+            raise ValueError(
+                "El agente todavía no sabe detener una auditoría; reinícialo cuando "
+                "termine su trabajo actual."
+            )
+        handler._send_json(status, value)
+    except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+        handler._send_json(400, {"error": str(exc)})
+    except (urllib.error.URLError, TimeoutError) as exc:
+        handler._send_json(502, {"error": str(exc)})

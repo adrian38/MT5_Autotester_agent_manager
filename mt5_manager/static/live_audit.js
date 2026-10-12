@@ -290,6 +290,7 @@ function auditOperationsMarkup(auditId) {
     <div class="live-audit-stage-list">${stageMarkup}</div>
     <div class="live-audit-operation-actions">
       <button type="button" data-audit-action="run"${canRun ? '' : ' disabled'} title="${escapeHtml(runTitle)}">Auditar ahora</button>
+      <button type="button" class="secondary" data-audit-action="stop"${runtime.running ? '' : ' disabled'} title="${runtime.running ? 'Corta el Strategy Tester, devuelve cada terminal a su cuenta y reanuda el proceso pausado' : 'Sólo mientras la auditoría está en marcha'}">Detener</button>
       <button type="button" class="secondary" data-audit-action="result">Último resultado</button>
       <button type="button" class="secondary" data-audit-action="analysis"${runtime.last_result || runtime.has_payload ? '' : ' disabled'} title="${runtime.last_result || runtime.has_payload ? 'Curvas acumuladas de la demo frente a la cuenta real' : 'Disponible cuando la auditoría haya producido un resultado'}">Análisis</button>
       <button type="button" class="secondary" data-audit-action="logs">Ver logs</button>
@@ -609,6 +610,31 @@ async function runAuditNow(id, button) {
   } finally { button.disabled = false; }
 }
 
+async function stopAuditNow(id, button) {
+  // Sin confirmación no: pararla deja el periodo a medias y hay que volver a
+  // lanzarla entera. Con una configuración mal puesta, eso es justo lo que se
+  // quiere, pero que se diga.
+  if (!window.confirm(
+    `¿Detener la auditoría de ${auditTitle(id)}?\n\n`
+    + 'Se corta el Strategy Tester, cada terminal vuelve a su cuenta configurada y '
+    + 'se reanuda el proceso que el auditor hubiera pausado. No habrá resultado de '
+    + 'esta ejecución: hay que lanzarla de nuevo.'
+  )) return;
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(id)}/stop`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    });
+    const data = await jsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    auditStates[String(id)] = data.audit || data;
+    renderAuditOperations([id]);
+    toast(`Deteniendo la auditoría de ${auditTitle(id)}; restaurando los terminales.`);
+  } catch (error) {
+    toast(error.message, true);
+  } finally { button.disabled = false; }
+}
+
 async function refreshAuditStates() {
   if (!nodeId || !selectedAuditIds.length || configPhase !== 'connected') return;
   try {
@@ -751,6 +777,7 @@ configsEl.addEventListener('click', event => {
   else if (button.dataset.auditAction === 'analysis') openAuditAnalysis(id);
   else if (button.dataset.auditAction === 'logs') openAuditLogs(id);
   else if (button.dataset.auditAction === 'run') runAuditNow(id, button);
+  else if (button.dataset.auditAction === 'stop') stopAuditNow(id, button);
 });
 
 document.querySelector('#audit-log-close').addEventListener('click', () => document.querySelector('#audit-log-dialog').close());

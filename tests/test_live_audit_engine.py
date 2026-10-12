@@ -542,6 +542,40 @@ class LiveAuditEngineTests(LiveAuditEngineTestCase):
         self.assertTrue(validations[0]["journal_login_seen"])
         self.assertTrue(validations[0]["journal_server_seen"])
 
+    def test_the_user_can_stop_an_audit_and_it_is_not_counted_as_a_failure(self) -> None:
+        # Detener es para cuando la configuración salió mal: lo que no puede es
+        # dejar las terminales en la cuenta real ni el pipeline pausado, ni
+        # publicarse como una avería del auditor.
+        import threading
+
+        with tempfile.TemporaryDirectory() as temp:
+            owner, controller = self._controller(Path(temp), "running")
+            running = threading.Event()
+
+            def blocking_tester(*_args):
+                running.set()
+                while not controller.stop_requested:
+                    time.sleep(0.01)
+                return ([], [], {}, [], {})
+
+            controller._run_tester = blocking_tester
+            controller.start(request())
+            self.assertTrue(running.wait(10))
+            stopping = controller.stop("9")
+            self.assertIn("Deteniendo", stopping["progress_text"])
+            state = self._wait(controller)
+
+        self.assertEqual(state["status"], "stopped")
+        self.assertEqual(state["status_label"], "DETENIDA")
+        self.assertIsNone(state["error"])
+        self.assertEqual((owner.pause_calls, owner.resume_calls), (1, 1))
+
+    def test_stopping_without_an_audit_in_flight_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            _owner, controller = self._controller(Path(temp), "idle")
+            with self.assertRaisesRegex(ValueError, "ninguna auditoría en curso"):
+                controller.stop("9")
+
     def test_missing_tick_quality_marks_the_strategies_without_voiding_the_audit(self) -> None:
         # Antes devolvía not_comparable y no comparaba nada. Ahora compara y
         # deja la marca en el set, que es de quien es el historial de ticks.

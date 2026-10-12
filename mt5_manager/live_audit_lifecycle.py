@@ -12,6 +12,17 @@ class _LifecycleMixin:
                 raw.setdefault("log_lines", []).append(f"[{utc_now()}] {log}")
             self._persist()
 
+    def _honour_stop_request(self) -> None:
+        """Corte entre fases. Lo pide el botón de detener y lo mira el hilo.
+
+        No se interrumpe a mitad de un paso: se sale por el `finally` del
+        `_run`, que restaura la cuenta de cada terminal y reanuda el pipeline.
+        """
+        with self.lock:
+            stopped = self.stop_requested
+        if stopped:
+            raise AuditStopped("Auditoría detenida a petición del usuario")
+
     def _log(self, audit_key: str, line: str) -> None:
         """Registra un hecho sin tocar el estado terminal ya publicado."""
         with self.lock:
@@ -312,6 +323,26 @@ class _LifecycleMixin:
         if getattr(self.owner, "queue", None):
             self.owner._schedule_queue_drain()
 
+    def _abort_status(self, audit_key: str, error: BaseException) -> str:
+        """Lo que se publica cuando la auditoría no llega al final.
+
+        Detener no es fallar: ni `error` ni texto de avería. Lo que queda por
+        hacer sí es lo mismo, restaurar los terminales y reanudar el pipeline.
+        """
+        if isinstance(error, AuditStopped):
+            self._update(
+                audit_key, "finalizing",
+                "Detenida a petición del usuario; restaurando las terminales.",
+                "Auditoría detenida por el usuario antes de terminar.",
+            )
+            return "stopped"
+        self._update(
+            audit_key, "finalizing",
+            f"La auditoría falló; restaurando las terminales: {error}", str(error),
+            error=str(error),
+        )
+        return "failed"
+
     def _run(self, request: dict[str, Any], audit_id: str) -> None:
         audit_key = request["audit_key"]
         paused_by_auditor = False
@@ -321,10 +352,12 @@ class _LifecycleMixin:
             self.real_account_terminals[audit_key] = []
         try:
             paused_by_auditor = self._pause_pipeline_for_audit(audit_key)
+            self._honour_stop_request()
             (
                 period_start, period_end, real_trades, symbol_points, account,
                 real_history_detail, real_account_report,
             ) = self._extract_audit_history(request, audit_id)
+            self._honour_stop_request()
             self._update(
                 audit_key, "testing", "Ejecutando el portafolio con ticks reales en el nodo.",
                 f"{len(real_trades)} cierres reales reconstruidos antes del filtro del portafolio.",
@@ -332,6 +365,7 @@ class _LifecycleMixin:
             tester_trades, qualities, strategies, strategy_artifacts, tester_execution = self._run_tester(
                 request, audit_id, period_start, period_end
             )
+            self._honour_stop_request()
             real_trades = self._filter_real_portfolio_trades(
                 request, real_trades, tester_trades, strategy_artifacts, real_history_detail,
             )
@@ -355,11 +389,7 @@ class _LifecycleMixin:
                 f"Comparación finalizada" + (f": {detail_log}" if detail_log else ""), last_result=result,
             )
         except Exception as exc:
-            terminal_status = "failed"
-            self._update(
-                audit_key, "finalizing", f"La auditoría falló; restaurando las terminales: {exc}", str(exc),
-                error=str(exc),
-            )
+            terminal_status = self._abort_status(audit_key, exc)
         finally:
             self._finish_audit(request, audit_id, paused_by_auditor, terminal_status)
             self.single_terminal_audit = False

@@ -44,6 +44,19 @@ AUDITOR_RESTORE_TOKENS = (
         "def _unique_terminal_paths",
         "el descarte de la instalación repetida, que no es una terminal más",
     ),
+    (
+        "def _honour_stop_request",
+        "el corte entre fases que atiende el botón de detener",
+    ),
+    (
+        "def _terminate_tester_process",
+        "cortar el lanzador del tester sin forzar el cierre de ninguna terminal",
+    ),
+    (
+        "def _close_tester_terminals",
+        "cerrar las terminales que el tester dejó abiertas al detener",
+    ),
+    ('"stopped"', "el estado DETENIDA, que no es una avería del auditor"),
     ('"tester_execution"', "la evidencia del modo y del pool de terminales ejecutado"),
     ('"workers": str(', "el número efectivo de terminales del tester"),
     ("def _close_terminal_pids_gracefully", "el cierre que deja a MT5 guardar la cuenta"),
@@ -167,6 +180,10 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             "def _principal_terminal_only",
             '"use_multiterminal"',
             "single_terminal_audit",
+            "def _honour_stop_request",
+            "def _terminate_tester_process",
+            "def _close_tester_terminals",
+            '"stopped"',
             "def _unique_terminal_paths",
             '"tester_execution"',
             # Sin el nombre de la variable: el fork lo escribe

@@ -349,6 +349,15 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("use_multiterminal: field('use_multiterminal').checked,", self.script)
         self.assertIn("Usar el multiterminal del nodo", self.script)
 
+    def test_a_running_audit_can_be_stopped_from_its_card(self) -> None:
+        # Una configuración mal puesta no se arregla esperando horas a que el
+        # tester acabe: el botón corta y devuelve los terminales a su cuenta.
+        self.assertIn('data-audit-action="stop"', self.script)
+        self.assertIn("async function stopAuditNow(id, button)", self.script)
+        self.assertIn("/stop`", self.script)
+        self.assertIn("window.confirm(", self.script)
+        self.assertIn("No habrá resultado de", self.script)
+
     def test_a_result_without_comparison_is_never_painted_as_a_match(self) -> None:
         # Un `not_comparable` no trae contadores. Leerlos como ceros daba el
         # badge COINCIDE, «No se detectaron desviaciones» y una pertenencia al

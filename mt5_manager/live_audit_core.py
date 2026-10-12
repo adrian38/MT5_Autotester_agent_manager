@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,7 @@ STATUS_LABELS = {
     "extracting": "EXTRAYENDO", "testing": "PROBANDO", "comparing": "COMPARANDO",
     "finalizing": "FINALIZANDO", "resuming": "REANUDANDO",
     "completed": "COMPLETADA", "not_comparable": "NO COMPARABLE",
-    "failed": "FALLIDA",
+    "failed": "FALLIDA", "stopped": "DETENIDA",
 }
 PROGRESS = {
     "idle": ("idle", 0), "queued": ("preparing", 5), "pausing": ("preparing", 10),
@@ -35,8 +36,17 @@ PROGRESS = {
     "comparing": ("comparing", 85), "finalizing": ("comparing", 95),
     "resuming": ("comparing", 98),
     "completed": ("completed", 100), "not_comparable": ("completed", 100),
-    "failed": ("completed", 100),
+    "failed": ("completed", 100), "stopped": ("completed", 100),
 }
+
+
+class AuditStopped(RuntimeError):
+    """El usuario pidió parar: no es un fallo y no debe leerse como tal.
+
+    Se lanza en los cortes entre fases, así que la auditoría termina por su
+    `finally` de siempre: restaura la cuenta de cada terminal y reanuda el
+    pipeline que había pausado.
+    """
 
 # Pisos absolutos validados por el usuario. La tolerancia configurada en puntos
 # sigue existiendo y puede ampliar estos límites, pero no reducirlos: un único

@@ -12,6 +12,23 @@ class _ProcessMixin:
     """
 
     @staticmethod
+    def _terminate_tester_process(process: Any) -> None:
+        """Corta el lanzador del tester como el pipeline corta su proceso.
+
+        Nunca `taskkill /F` sobre un terminal: eso le borra la cuenta guardada.
+        Se avisa al lanzador, que cierra lo suyo, y solo si no atiende en ocho
+        segundos se le termina.
+        """
+        try:
+            if os.name == "nt":
+                process.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                process.send_signal(signal.SIGTERM)
+            process.wait(timeout=8)
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            process.terminate()
+
+    @staticmethod
     def _terminal_pids() -> set[int]:
         if sys.platform != "win32":
             return set()
