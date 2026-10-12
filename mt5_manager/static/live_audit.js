@@ -368,6 +368,11 @@ function profileMarkup(auditId) {
       <label>Aviso por empeoramiento de PnL (%)<input data-field="pnl_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.pnl_deviation_warning_pct}" required><small>Una mejora del resultado real frente al tester es admisible.</small></label>
       <label>Aviso por desviación de DD (%)<input data-field="drawdown_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.drawdown_deviation_warning_pct}" required></label>
     </div>
+    <div class="live-audit-subtitle"><strong>Terminales que usa este uso</strong><span>Desmarcado, el uso entero corre en la terminal principal del nodo: más lento, pero siempre la misma caché de ticks.</span></div>
+    <div class="live-audit-fields">
+      <label class="check"><input data-field="use_multiterminal" type="checkbox"${profile.use_multiterminal ? ' checked' : ''}>Usar el multiterminal del nodo</label>
+      <div class="live-audit-quality-gate"><strong>Una terminal, un historial</strong><span>Con el multiterminal, cada set cae en la terminal que toque y hereda su descarga de ticks: dos sets del mismo símbolo pueden dar calidades distintas.</span></div>
+    </div>
     <div class="live-audit-policy"><strong>Terminales del nodo · pausar y reanudar.</strong><p>Esta prueba reutilizará los terminales ya configurados. Si el auditor pausa un proceso activo, lo reanudará al terminar; si ya estaba pausado por el usuario, conservará ese estado.</p></div>
     ${auditOperationsMarkup(auditId)}
   </section>`;
@@ -422,6 +427,7 @@ function readCard(card) {
     period_days: number('period_days'),
     period_start_date: field('period_start_date').value,
     period_end_date: field('period_end_date').value,
+    use_multiterminal: field('use_multiterminal').checked,
     tester_model: field('tester_model').value,
     min_tick_history_quality_pct: number('min_tick_history_quality_pct'),
     execution_delay_mode: field('execution_delay_mode').value,

@@ -96,6 +96,13 @@ def _as_float(value: Any, name: str, minimum: float = 0.0, maximum: float | None
     return result
 
 
+def _as_bool(value: Any) -> bool:
+    """Casilla del manager: ausente es falso, que es «una sola terminal»."""
+    if isinstance(value, bool):
+        return value
+    return str(value if value is not None else "").strip().casefold() in {"1", "true", "on", "si", "sí"}
+
+
 def _normalize_real_strategy_lots(value: Any) -> dict[str, float]:
     if value is None:
         return {}
@@ -430,6 +437,7 @@ def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
         "drawdown_deviation_warning_pct": _as_float(
             value.get("drawdown_deviation_warning_pct"), "drawdown_deviation_warning_pct"
         ),
+        "use_multiterminal": _as_bool(value.get("use_multiterminal")),
         "execution_delay_mode": str(value.get("execution_delay_mode") or "measured"),
         "fixed_delay_ms": _as_int(value.get("fixed_delay_ms", 0), "fixed_delay_ms", 0),
     }

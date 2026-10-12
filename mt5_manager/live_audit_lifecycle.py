@@ -321,6 +321,7 @@ class _LifecycleMixin:
         audit_key = request["audit_key"]
         paused_by_auditor = False
         terminal_status = "failed"
+        self.single_terminal_audit = not request.get("use_multiterminal", False)
         with self.lock:
             self.real_account_terminals[audit_key] = []
         try:
@@ -366,3 +367,4 @@ class _LifecycleMixin:
             )
         finally:
             self._finish_audit(request, audit_id, paused_by_auditor, terminal_status)
+            self.single_terminal_audit = False

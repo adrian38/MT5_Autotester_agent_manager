@@ -387,6 +387,56 @@ class LiveAuditExtractionTests(LiveAuditEngineTestCase):
 
         self.assertEqual([section for section, _profile in selected], ["Terminal.1"])
 
+    def _ini_controller(self, root: Path, sections: list[tuple[str, bool]]):
+        """Controlador con sus terminales en disco.
+
+        Los demás casos sustituyen `_terminal_profiles`; aquí no se puede,
+        porque la casilla se aplica justo dentro de ese método para que la vean
+        los cuatro consumidores y no sólo el pool del tester.
+        """
+        owner, controller = self._controller(root, "idle")
+        owner.config.update(project_dir=str(root), settings_file="ui_settings.ini")
+        lines = ["[Multiterminal]", "enabled=1", "workers=10", ""]
+        for index, (name, enabled) in enumerate(sections, 1):
+            path = root / name / "terminal64.exe"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")
+            lines += [
+                f"[Terminal.{index}]", f"name={name}",
+                f"enabled={1 if enabled else 0}", f"mt5_path={path}", "",
+            ]
+        (root / "ui_settings.ini").write_text("\n".join(lines), encoding="utf-8")
+        return controller
+
+    def test_without_the_checkbox_the_whole_audit_runs_in_the_principal(self) -> None:
+        # Con el multiterminal, el set que cae en una terminal sin los ticks
+        # descargados baja la calidad y deja el uso NO COMPARABLE. Desmarcado,
+        # todo el camino —cuenta real, tester, informe nativo y restauración—
+        # pasa por la misma terminal, que es la primera habilitada.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = self._ini_controller(
+                root, [("MT5_AXI_0", False), ("MT5_AXI_1", True), ("MT5_AXI_2", True)],
+            )
+            every = [section for section, _profile in controller._terminal_profiles(include_disabled=True)]
+            pool_multi = controller._tester_terminal_pool("Terminal.3", {}, 6)
+            controller.single_terminal_audit = True
+            enabled_only = controller._terminal_profiles()
+            with_disabled = controller._terminal_profiles(include_disabled=True)
+            pool_single = controller._tester_terminal_pool("Terminal.3", {}, 6)
+
+        self.assertEqual(every, ["Terminal.1", "Terminal.2", "Terminal.3"])
+        self.assertEqual(len(pool_multi), 3)
+        self.assertEqual([section for section, _profile in enabled_only], ["Terminal.2"])
+        self.assertEqual([section for section, _profile in with_disabled], ["Terminal.2"])
+        self.assertEqual([section for section, _profile in pool_single], ["Terminal.2"])
+
+    def test_the_multiterminal_checkbox_reaches_the_node_request(self) -> None:
+        payload = request()
+        self.assertIs(normalize_request(payload)["use_multiterminal"], False)
+        payload["use_multiterminal"] = True
+        self.assertIs(normalize_request(payload)["use_multiterminal"], True)
+
     def test_an_unreadable_limit_leaves_the_pool_as_it_was(self) -> None:
         # Sin `[Multiterminal]`, o con un valor que no es un número, el tope no
         # se inventa: manda el número de sets, como hasta ahora.

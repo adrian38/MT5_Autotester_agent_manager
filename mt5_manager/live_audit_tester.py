@@ -149,15 +149,21 @@ class _TesterMixin:
             terminal_config[f"Terminal.{index}"] = {**profile, "enabled": "1"}
             terminal_names.append(str(profile.get("name") or section))
             self._remember_real_account_terminal(request["audit_key"], section, profile)
+        multiterminal = bool(request.get("use_multiterminal"))
         execution = {
             "portfolio_type": request["portfolio_type"], "set_count": len(set_files),
             "workers": workers, "terminal_profiles": terminal_names,
             "terminal_validations": terminal_validations,
+            "use_multiterminal": multiterminal,
         }
         self._update(
-            request["audit_key"], "testing", "Ejecutando Strategy Tester en paralelo.",
+            request["audit_key"], "testing",
+            "Ejecutando Strategy Tester en paralelo." if multiterminal else
+            "Ejecutando Strategy Tester en la terminal principal.",
             f"Solo variante {request['portfolio_type']}: {len(set_files)} sets repartidos entre "
-            f"{workers} terminales ({', '.join(terminal_names)})",
+            f"{workers} terminales ({', '.join(terminal_names)})" if multiterminal else
+            f"Solo variante {request['portfolio_type']}: {len(set_files)} sets en serie "
+            f"en {', '.join(terminal_names)}",
         )
         path = work / "terminals.ini"
         with path.open("w", encoding="utf-8", newline="\n") as handle:

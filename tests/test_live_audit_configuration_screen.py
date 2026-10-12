@@ -344,6 +344,11 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("A favor +", self.result_script)
         self.assertIn("PnL: alerta si el real empeora más de", self.result_script)
 
+    def test_a_use_can_choose_the_principal_terminal_instead_of_the_multiterminal(self) -> None:
+        self.assertIn('data-field="use_multiterminal" type="checkbox"', self.script)
+        self.assertIn("use_multiterminal: field('use_multiterminal').checked,", self.script)
+        self.assertIn("Usar el multiterminal del nodo", self.script)
+
     def test_the_comparison_table_is_symmetric_between_tester_and_real(self) -> None:
         # La tabla estaba indexada por operación del tester, así que una real
         # que ningún resultado reclamó no podía salir nunca en ella: el veredicto

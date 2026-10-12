@@ -97,6 +97,21 @@ class LiveAuditSettingsTests(unittest.TestCase):
         for obsolete in ("sync_interval_minutes", "daily_audit_time", "heartbeat_timeout_minutes"):
             self.assertNotIn(obsolete, DEFAULT_LIVE_AUDIT_PROFILE)
 
+    def test_the_multiterminal_checkbox_defaults_to_a_single_terminal(self) -> None:
+        # Desmarcada por defecto: con el multiterminal cada set cae en la
+        # terminal que toque y hereda su caché de ticks, así que dos sets del
+        # mismo símbolo pueden dar calidades distintas.
+        self.assertIs(DEFAULT_LIVE_AUDIT_PROFILE["use_multiterminal"], False)
+        self.assertIs(normalize_live_audit_settings({})["use_multiterminal"], False)
+        self.assertIs(
+            normalize_live_audit_settings({"use_multiterminal": True})["use_multiterminal"], True,
+        )
+        self.assertIs(
+            normalize_live_audit_settings({"use_multiterminal": "1"})["use_multiterminal"], True,
+        )
+        with self.assertRaisesRegex(ValueError, "use_multiterminal"):
+            normalize_live_audit_settings({"use_multiterminal": "a ratos"})
+
     def test_real_lot_per_strategy_defaults_empty_and_is_validated(self) -> None:
         self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["real_strategy_lots"], {})
         normalized = normalize_live_audit_settings({
