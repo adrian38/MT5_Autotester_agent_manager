@@ -311,7 +311,7 @@ function renderSimulationNotice() {
       .map(group => `${group.symbol}: ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`)
       .join(' — ');
   const heading = autolotMode()
-    ? 'La curva Demo usa el autolote histórico de cada operación.'
+    ? 'La curva Demo usa el autolote del saldo real en cada operación.'
     : 'Estas curvas no son las de la auditoría.';
   notice.innerHTML = `<span class="badge pending">SIMULACIÓN</span><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(detail)}</span></div><button type="button" id="simulation-reset" class="secondary">Restablecer</button>`;
 }
@@ -509,7 +509,7 @@ function openLotsDialog() {
     : 'Este resultado no contiene cálculos de autolote.';
   document.querySelector('#lots-caveat').textContent = [
     automatic ? `Autolote puede recalcular ${automatic} de ${totalDemo} operaciones demo; las demás conservan el lote ejecutado.` : '',
-    automatic ? 'Entran también las operaciones demo sin pareja en real, con el lote que el autolote da en su propia apertura: dejarlas con el lote del backtest mezclaría dos escalas en la misma curva.' : '',
+    automatic ? 'Entran también las operaciones demo sin pareja en real, con el lote que sale del saldo de la cuenta real a la hora de su apertura: dejarlas con el lote fijo del backtest mezclaría dos escalas en la misma curva.' : '',
     'El PnL se reescala en proporción al lote, así que da por supuesto que el mismo precio se habría llenado con cualquier tamaño: no modela deslizamiento, margen ni stop out.',
     extras ? `Las ${extras} reales sin pareja no pertenecen a ninguna estrategia del tester y nunca se reescalan.` : '',
   ].filter(Boolean).join(' ');

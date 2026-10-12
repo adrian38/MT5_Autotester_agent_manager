@@ -76,7 +76,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("data-autolot-enabled", self.autolot_script)
         self.assertIn("data-autolot-file", self.autolot_script)
         self.assertIn("live-audit-autolot-import", self.autolot_script)
-        self.assertIn("saldo × riesgo % × 0,01 ÷ DD_0.01", self.autolot_script)
+        self.assertIn("riesgo % × 0,01 ÷ DD_0.01", self.autolot_script)
         self.assertIn("volume_expected_source === 'autolot'", self.result_script)
 
     def test_a_saved_improvement_keeps_the_mode_it_inherited_from_its_base(self) -> None:
@@ -251,20 +251,30 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("trade.autolot_volume", self.analysis_script)
         self.assertIn("applyLots({$mode: 'autolot'})", self.analysis_script)
         self.assertIn("las demás conservan el lote ejecutado", self.analysis_script)
-        self.assertIn("La curva Demo usa el autolote histórico de cada operación", self.analysis_script)
+        self.assertIn("La curva Demo usa el autolote del saldo real", self.analysis_script)
         # Las demo sin pareja entran en la simulación: el manager les publica el
         # lote esperado y la pantalla lo dice, en vez de dejarlas en el backtest.
         self.assertIn("operaciones demo sin pareja en real", self.analysis_script)
+        self.assertIn("saldo de la cuenta real a la hora de su apertura", self.analysis_script)
         self.assertIn("function lotList(lots)", self.analysis_script)
         self.assertIn("function autolotTrades(group)", self.analysis_script)
 
     def test_the_verdict_declares_which_lot_it_expected_in_real(self) -> None:
         self.assertIn("tolerances.volume_basis === 'autolot_balance_risk'", self.result_script)
-        self.assertIn("Lote esperado: autolote por saldo y riesgo", self.result_script)
+        self.assertIn("Lote esperado: autolote por saldo de la cuenta real y riesgo", self.result_script)
         self.assertIn("Lote esperado: el lote real configurado por estrategia", self.result_script)
         # Un faltante también enseña el lote que se esperaba y de dónde salió.
-        self.assertIn("volume_expected_basis === 'tester_open_time'", self.result_script)
-        self.assertIn("en la apertura del tester por no tener pareja", self.result_script)
+        self.assertIn(
+            "volume_expected_basis === 'real_balance_at_tester_open_time'", self.result_script,
+        )
+        self.assertIn("leído a la hora de apertura del tester", self.result_script)
+
+    def test_the_autolot_card_says_the_balance_is_the_real_account(self) -> None:
+        # El tester corrió su backtest con un lote fijo: el autolote describe
+        # sólo lo que la cuenta real habría usado.
+        self.assertIn("saldo histórico de la cuenta real", self.autolot_script)
+        self.assertIn("el tester ejecutó su backtest con un lote fijo", self.autolot_script)
+        self.assertIn("saldo de la cuenta real × riesgo % × 0,01 ÷ DD_0.01", self.autolot_script)
 
     def test_the_simulation_recalculates_the_drawdown_and_never_touches_the_audit(self) -> None:
         # Con otro lote el drawdown del veredicto deja de valer, así que se

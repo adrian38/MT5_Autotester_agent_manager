@@ -94,12 +94,13 @@ function pnlDelta(measurements, limit) {
 // decidir, y el lector no puede reconstruir por qué la fila está dentro.
 function expectedRealVolumeNote(limits) {
   if (limits.volume_expected_real == null) return '';
-  // Sin pareja no hay apertura real de la que leer el saldo: el autolote se
-  // evalúa en la apertura del tester y la fila tiene que decirlo.
-  const basis = limits.volume_expected_basis === 'tester_open_time'
-    ? ', en la apertura del tester por no tener pareja' : '';
+  // El saldo es siempre el de la cuenta real. Sin pareja lo único que falta es
+  // el instante en que leerlo, y se usa la hora de apertura del tester: la
+  // fila tiene que decirlo para que no se lea como un saldo del backtest.
+  const basis = limits.volume_expected_basis === 'real_balance_at_tester_open_time'
+    ? ', leído a la hora de apertura del tester por no tener pareja real' : '';
   if (limits.volume_expected_source === 'autolot') {
-    return ` · esperado en real ${number(limits.volume_expected_real, 4)} (autolote: saldo ${number(limits.balance, 2)}, riesgo ${number(limits.risk_pct, 2)} %, DD 0,01 ${number(limits.dd_001, 2)}${basis})`;
+    return ` · esperado en real ${number(limits.volume_expected_real, 4)} (autolote: saldo real ${number(limits.balance, 2)}, riesgo ${number(limits.risk_pct, 2)} %, DD 0,01 ${number(limits.dd_001, 2)}${basis})`;
   }
   if (limits.volume_expected_source !== 'configured_real_lot') return '';
   return ` · esperado en real ${number(limits.volume_expected_real, 4)} (lote configurado)`;
@@ -378,7 +379,7 @@ function renderMethodology(result) {
   // El lote esperado es el criterio que más cambia el veredicto de volumen y
   // de PnL: la metodología tiene que decir cuál se aplicó y de dónde salió.
   const autolotBasis = tolerances.volume_basis === 'autolot_balance_risk'
-    ? `<span>Lote esperado: autolote por saldo y riesgo${tolerances.autolot_strategies ? ` · ${escapeHtml(number(tolerances.autolot_strategies, 0))} estrategia${tolerances.autolot_strategies === 1 ? '' : 's'}` : ''}${tolerances.autolot_source ? ` · ${escapeHtml(tolerances.autolot_source)}` : ''}</span>`
+    ? `<span>Lote esperado: autolote por saldo de la cuenta real y riesgo${tolerances.autolot_strategies ? ` · ${escapeHtml(number(tolerances.autolot_strategies, 0))} estrategia${tolerances.autolot_strategies === 1 ? '' : 's'}` : ''}${tolerances.autolot_source ? ` · ${escapeHtml(tolerances.autolot_source)}` : ''}</span>`
     : '<span>Lote esperado: el lote real configurado por estrategia</span>';
   document.querySelector('#methodology').innerHTML = `
     <ol>

@@ -8,12 +8,12 @@ function autolotMarkup(profile) {
     ? `${escapeHtml(source || 'Excel importado')} · ${count} estrategia${count === 1 ? '' : 's'}`
     : 'Todavía no se ha importado ningún Excel.';
   return `<div class="live-audit-autolot">
-    <label class="live-audit-switch"><input data-autolot-enabled type="checkbox"${checked}><span><strong>Calcular el lote real con autolote</strong><small>Usa el saldo histórico de la cuenta en cada apertura, el DD a 0,01 y el porcentaje de riesgo del Excel.</small></span></label>
+    <label class="live-audit-switch"><input data-autolot-enabled type="checkbox"${checked}><span><strong>Calcular el lote real con autolote</strong><small>Usa el saldo histórico de la cuenta real en cada apertura, el DD a 0,01 y el porcentaje de riesgo del Excel. Sólo describe el lote de la cuenta real: el tester ejecutó su backtest con un lote fijo.</small></span></label>
     <div class="live-audit-autolot-import">
       <label>Excel de riesgo por estrategia<input data-autolot-file type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
       <button data-autolot-import type="button" class="secondary">Importar Excel</button>
     </div>
-    <p class="live-audit-security" data-autolot-status>${status}. Fórmula: saldo × riesgo % × 0,01 ÷ DD_0.01; el resultado se ajusta al mínimo y paso del broker. Si una estrategia no figura en el Excel, se conserva su lote manual.</p>
+    <p class="live-audit-security" data-autolot-status>${status}. Fórmula: saldo de la cuenta real × riesgo % × 0,01 ÷ DD_0.01; el resultado se ajusta al mínimo y paso del broker. Si una estrategia no figura en el Excel, se conserva su lote manual.</p>
   </div>`;
 }
 

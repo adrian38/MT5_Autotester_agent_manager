@@ -72,6 +72,18 @@ durante el periodo para no descartar una operación antes de compararla. Despué
 apertura concreta. Así dos operaciones de la misma estrategia pueden esperar
 lotes diferentes dentro de una sola auditoría.
 
+## El saldo es el de la cuenta real; el tester no tiene autolote
+
+Es la confusión que invita el nombre del campo, así que queda escrito: el
+autolote describe **sólo** el lote que la cuenta real habría usado. El tester
+ejecutó su backtest con el lote fijo del `.set` y ese volumen se observa, nunca
+se recalcula; sirve de denominador del escalado de PnL y de nada más.
+
+Los saldos salen siempre de `balance_history_from_html` sobre
+`real_account_report`, el HTML nativo que el nodo captura **de la cuenta real**
+—`_extract_audit_history` aborta si MT5 no lo entrega—. No hay ninguna ruta por
+la que un saldo del tester entre en `_autolot_balance_points`.
+
 ## Un cierre del tester sin pareja también tiene lote esperado
 
 `_missing_comparison` publicaba sólo `open_time_seconds`, así que la fila se
@@ -80,12 +92,12 @@ dejaba con el lote del backtest. En un periodo con autolote eso mezclaba dos
 escalas en la misma curva: las operaciones emparejadas a 0,2 y las huérfanas a
 0,01.
 
-Sin pareja no hay apertura real de la que leer el saldo, así que el autolote se
-evalúa **en la apertura del tester**. Es el instante que habría usado cualquier
-otra operación de esa estrategia ahí: una apertura real sólo puede caer dentro
-de la tolerancia de tiempo, y el saldo es el mismo escalón de `_balance_at`. La
-fila lo declara con `volume_expected_basis: "tester_open_time"` y el informe lo
-dice en texto, porque es un supuesto y no un hecho observado.
+Sin pareja lo único que falta es **cuándo** leer el saldo real, no de dónde
+sacarlo. Se usa la hora de apertura del tester, que da el mismo escalón de
+`_balance_at` que habría dado la apertura real: una apertura real sólo puede
+caer dentro de la tolerancia de tiempo. La fila lo declara con
+`volume_expected_basis: "real_balance_at_tester_open_time"` y el informe lo dice
+en texto, porque es un supuesto y no un hecho observado.
 
 El lote no convierte el faltante en pareja: `missing_real_trades` no cambia.
 

@@ -143,10 +143,11 @@ class DynamicAuditTests(unittest.TestCase):
         self.assertEqual(result["portfolio_filter"]["portfolio_closures"], 2)
 
     def test_a_tester_operation_without_a_real_pair_still_expects_its_historical_lot(self) -> None:
-        """Sin pareja el lote se calcula en la apertura del tester, no se congela.
+        """Sin pareja el saldo sigue siendo el real; sólo cambia cuándo se lee.
 
-        Es el mismo instante que habría usado cualquier otra operación de la
-        estrategia ahí: la apertura real sólo puede caer dentro de la tolerancia.
+        El tester no tiene autolote —su lote es el fijo del backtest—, así que
+        lo único que aporta es la hora: da el mismo escalón de saldo real que
+        habría dado la apertura real, que sólo cabe dentro de la tolerancia.
         """
         payload = audit_payload()
         payload["real_trades"] = payload["real_trades"][:1]
@@ -157,10 +158,25 @@ class DynamicAuditTests(unittest.TestCase):
         limits = missing[0]["limits"]
         self.assertEqual(limits["volume_expected_source"], "autolot")
         self.assertEqual(limits["volume_expected_real"], 0.2)
+        # El saldo sale del HTML nativo de la cuenta real, nunca del tester.
         self.assertEqual(limits["balance"], 2000.0)
-        self.assertEqual(limits["volume_expected_basis"], "tester_open_time")
+        self.assertEqual(limits["volume_expected_basis"], "real_balance_at_tester_open_time")
+        # El lote del tester se observa, no se recalcula: sigue siendo el suyo.
+        self.assertEqual(missing[0]["tester"]["volume"], 0.01)
         # El lote sigue siendo informativo: no convierte el faltante en pareja.
         self.assertEqual(result["missing_real_trades"], 1)
+
+    def test_the_balance_never_comes_from_the_tester_side(self) -> None:
+        """Mover la hora del tester no inventa saldo: lo elige del real."""
+        payload = audit_payload()
+        payload["real_trades"] = []
+        result = analyze(payload, autolot_profile())
+        balances = [
+            row["limits"]["balance"]
+            for row in result["comparison_detail"]["operation_comparisons"]
+        ]
+        # 09:30 y 10:30 UTC caen en los dos escalones del saldo real publicado.
+        self.assertEqual(balances, [1000.0, 2000.0])
 
     def test_the_methodology_declares_the_dynamic_lot_instead_of_the_configured_one(self) -> None:
         tolerances = analyze(audit_payload(), autolot_profile())[

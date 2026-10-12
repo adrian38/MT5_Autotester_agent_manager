@@ -135,14 +135,16 @@ class _ComparisonMixin:
     ) -> dict[str, Any]:
         """La fila de un cierre del tester que ninguna real reclamó.
 
-        Publica igualmente el lote que se esperaba en real. Sin pareja no hay
-        apertura real de la que leer el saldo, así que el autolote se evalúa en
-        la apertura del tester: es el mismo instante que habría usado cualquier
-        otra operación de esa estrategia ahí, porque la apertura real sólo puede
-        caer dentro de la tolerancia de tiempo. Dejar la fila sin lote esperado
-        la congelaba en el lote del tester, y la simulación de la pantalla de
-        análisis mezclaba lotes históricos con lotes de backtest en una misma
-        curva.
+        Publica igualmente el lote que se esperaba en real. El saldo es siempre
+        el de la **cuenta real** —el tester no tiene autolote: su lote es el
+        fijo con que se ejecutó el backtest—, y lo único que falta sin pareja es
+        el instante en que leerlo. Se usa entonces la hora de apertura del
+        tester, que da el mismo escalón de saldo que habría dado la real: una
+        apertura real sólo puede caer dentro de la tolerancia de tiempo.
+
+        Dejar la fila sin lote esperado la congelaba en el lote del backtest, y
+        la simulación de la pantalla de análisis mezclaba dos escalas en una
+        misma curva.
         """
         time_limit = request["trade_time_tolerance_seconds"]
         nearest = min(same_market) if same_market else None
@@ -158,7 +160,7 @@ class _ComparisonMixin:
             },
             "limits": {
                 "open_time_seconds": time_limit,
-                "volume_expected_basis": "tester_open_time",
+                "volume_expected_basis": "real_balance_at_tester_open_time",
                 **_volume_limits(volume_detail),
             },
             "data_issues": data_issues,
@@ -445,7 +447,7 @@ class _ComparisonMixin:
                 "validation": (
                     "En parejas cerradas se validan cierre, precio de apertura, volumen y PnL. Una posición real todavía abierta se considera alineada y valida solo apertura, precio y volumen: no se inventan cierre ni PnL. "
                     + (
-                        "El volumen se compara contra el lote que el autolote calcula en la apertura de cada operación —saldo histórico × riesgo % × 0,01 ÷ DD_0.01, ajustado al mínimo y paso del broker— y el PnL del tester se escala por ese mismo ratio: dentro de una misma auditoría dos operaciones de la estrategia pueden esperar lotes distintos. Un cierre del tester sin pareja real se evalúa en su propia apertura."
+                        "El volumen se compara contra el lote que el autolote calcula en la apertura de cada operación con el saldo de la cuenta real —saldo real × riesgo % × 0,01 ÷ DD_0.01, ajustado al mínimo y paso del broker— y el PnL del tester se escala por ese mismo ratio: dentro de una misma auditoría dos operaciones de la estrategia pueden esperar lotes distintos. El tester no tiene autolote: su lote es el fijo del backtest. Un cierre del tester sin pareja real lee ese mismo saldo real en la hora de su propia apertura."
                         if dynamic_lots else
                         "El volumen se compara contra el lote real configurado para la estrategia y el PnL del tester se escala por ese mismo ratio."
                     )
