@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from .live_audit_attribution import attribution_by_ticket
+from .live_audit_attribution import annotate_unmatched, attribution_by_ticket
 from .live_audit_autolot import dynamic_lot_bands, prepare_request, rules_by_strategy
 from .live_audit_engine import (
     LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
@@ -327,9 +327,13 @@ def _filter_portfolio_trades(
     filter_detail: dict[str, Any] = {
         "applied": bool(bands), "symbol_aliases": dict(inputs["symbol_aliases"]),
     }
+    discarded: list[dict[str, Any]] = []
     if bands:
         before = len(real_trades)
-        real_trades = [trade for trade in real_trades if _within_lot_bands(trade, bands)]
+        kept: list[dict[str, Any]] = []
+        for trade in real_trades:
+            (kept if _within_lot_bands(trade, bands) else discarded).append(trade)
+        real_trades = kept
         inputs["history_detail"]["portfolio_closures"] = len(real_trades)
         inputs["history_detail"]["foreign_closures_ignored"] = before - len(real_trades)
         filter_detail.update(
@@ -339,8 +343,32 @@ def _filter_portfolio_trades(
             foreign_closures_ignored=before - len(real_trades),
         )
     inputs["real_trades"] = real_trades
+    inputs["discarded_real_trades"] = discarded
     inputs["filter_detail"] = filter_detail
     return inputs
+
+
+def _attach_discarded_reals(
+    result: dict[str, Any], request: dict[str, Any], inputs: dict[str, Any],
+) -> None:
+    """Dice las reales que el filtro de lote dejó fuera, en vez de perderlas.
+
+    El filtro es una conjetura —«este lote no lo opera el portafolio»— y hasta
+    ahora se las tragaba en silencio: no estaban emparejadas, ni sin pareja, ni
+    en ninguna tabla. Ahora salen en el cuadre como pendientes, que es donde el
+    Excel de atribución puede decir de quién son o que son ajenas.
+    """
+    detail = result.get("comparison_detail")
+    if not isinstance(detail, dict):
+        return
+    bands = (inputs.get("filter_detail") or {}).get("lot_bands") or {}
+    rows = [{
+        "status": "discarded", "real": _trade_view(trade),
+        "reason": "lot_outside_portfolio_bands",
+        "portfolio_lot_band": bands.get(str(trade.get("symbol") or "").casefold()),
+    } for trade in inputs.get("discarded_real_trades") or []]
+    annotate_unmatched(rows, request.get("_real_attribution_by_ticket") or {})
+    detail["discarded_real_operations"] = rows
 
 
 def _analysis_result(
@@ -363,6 +391,7 @@ def _analysis_result(
     below = LiveAuditController._mark_quality(
         result, inputs["strategy_artifacts"], minimum_quality,
     )
+    _attach_discarded_reals(result, request, inputs)
     invalid_tester = sum(
         (comparison.get("comparison_detail") or {}).get("tester_data_issues", {}).values()
     )

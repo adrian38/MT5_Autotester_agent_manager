@@ -133,6 +133,32 @@ class LiveAuditAnalysisTests(unittest.TestCase):
         self.assertEqual([row["quality_ok"] for row in summary], [False])
         self.assertEqual(summary[0]["history_quality_pct"], 42.0)
 
+    def test_the_closures_discarded_by_lot_are_published_with_their_band(self) -> None:
+        # El filtro de pertenencia descartaba cierres reales en silencio: no
+        # quedaban emparejados, ni sin pareja, ni en ninguna tabla. En el uso
+        # 105 de AXI eran 10 de 35.
+        members = [{"candidate_id": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "lot": 0.08}]
+        foreign = {
+            **payload()["real_trades"][0], "volume": 1.0, "profit": -4.37,
+            "position_id": 46480001,
+        }
+        result = analyze(
+            payload(
+                real_trades=[{**payload()["real_trades"][0], "volume": 0.08}, foreign],
+                selected_members=members,
+            ),
+            profile(),
+        )
+
+        discarded = result["comparison_detail"]["discarded_real_operations"]
+        self.assertEqual(len(discarded), 1)
+        self.assertEqual(discarded[0]["real"]["volume"], 1.0)
+        self.assertEqual(discarded[0]["reason"], "lot_outside_portfolio_bands")
+        self.assertEqual(discarded[0]["portfolio_lot_band"], [0.08, 0.08])
+        self.assertEqual(result["real_history_detail"]["foreign_closures_ignored"], 1)
+        # Sigue sin entrar en la comparación: no es una real «sin pareja».
+        self.assertEqual(result["extra_real_trades"], 0)
+
     def test_a_set_without_informed_quality_is_marked_too(self) -> None:
         artifacts = [{"strategy": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "history_quality_pct": None}]
         missing = analyze(payload(qualities=[], strategy_artifacts=artifacts), profile())

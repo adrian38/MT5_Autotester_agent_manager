@@ -130,6 +130,26 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("function groupRealTrades(group)", self.analysis_script)
         self.assertIn("attributionOf(row).state !== 'excluded'", self.analysis_script)
 
+    def test_the_reals_discarded_by_lot_are_said_instead_of_disappearing(self) -> None:
+        # El filtro de banda de lote descarta cierres reales antes de comparar.
+        # En el uso 105 de AXI eran 10 de 35 —nueve Tesla+ a 1.0 y un BTCUSD—
+        # que no salían en ninguna tabla: ni emparejadas, ni sin pareja, ni
+        # ajenas. Son dinero que la cuenta movió y el Excel tiene que poder
+        # reclamarlas.
+        self.assertIn("function discardedRows(result)", self.analysis_script)
+        self.assertIn("discarded_real_operations", self.analysis_script)
+        self.assertIn("function unaccountedRows(result)", self.analysis_script)
+        self.assertIn("DESCARTADA POR LOTE", self.analysis_script)
+        self.assertIn("function discardedHelp(row)", self.analysis_script)
+        # Entran en el cuadre y en la atribución, pero no en la curva Real
+        # mientras nadie las reclame: el filtro ya las dio por ajenas.
+        self.assertIn(
+            "row.status !== 'discarded' || attributionOf(row).state === 'attributed'",
+            self.analysis_script,
+        )
+        self.assertIn("las descartó el filtro de lote antes de comparar", self.analysis_script)
+        self.assertIn("ese filtro es una conjetura", self.analysis_page_text)
+
     def test_without_a_comparison_the_balance_panel_says_so_instead_of_squaring(self) -> None:
         # Una lista vacía porque no se comparó nada daba «TODO CUADRADO» y
         # «No queda ninguna real sin explicar»: la misma mentira que pintaba de

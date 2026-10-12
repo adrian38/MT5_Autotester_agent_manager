@@ -142,6 +142,18 @@ function unmatchedRows(result) {
     .filter(row => row.real?.close_time);
 }
 
+// El filtro de lote del portafolio descarta cierres reales antes de comparar:
+// no son «sin pareja», es que nunca entraron. Antes desaparecían sin dejar
+// rastro; son dinero que la cuenta movió y el Excel tiene que poder reclamarlas.
+function discardedRows(result) {
+  return (result.comparison_detail?.discarded_real_operations || [])
+    .filter(row => row.real?.close_time);
+}
+
+function unaccountedRows(result) {
+  return [...unmatchedRows(result), ...discardedRows(result)];
+}
+
 // Tres destinos para una real que el tester no reclamó, y el Excel de
 // atribución decide cuál:
 //   - atribuida: es de esa estrategia, suma en su real y en la curva;
@@ -162,7 +174,11 @@ function attributionOf(row) {
 // que la cuenta movió aunque ningún resultado del tester las reclame. Sólo se
 // van las que el usuario marcó como ajenas al portafolio.
 function unmatchedReals(result) {
-  return unmatchedRows(result)
+  // Las descartadas por lote no entran en la curva Real mientras nadie las
+  // reclame: el filtro ya dijo que no son del portafolio. Si el Excel las
+  // atribuye, son de una estrategia y vuelven.
+  return unaccountedRows(result)
+    .filter(row => row.status !== 'discarded' || attributionOf(row).state === 'attributed')
     .filter(row => attributionOf(row).state !== 'excluded')
     .map(row => ({close_time: row.real.close_time, profit: Number(row.real.profit || 0)}));
 }
@@ -236,7 +252,7 @@ function strategyGroups(result) {
   // Lo que el usuario atribuyó a mano entra en el real de su estrategia, pero
   // en su propia lista: `group.real` sigue siendo lo que el auditor emparejó, y
   // de ahí salen el recuento de parejas y la regla de «pocas operaciones».
-  unmatchedRows(result).forEach(row => {
+  unaccountedRows(result).forEach(row => {
     const {state, strategy} = attributionOf(row);
     if (state === 'attributed' && groups.has(strategy)) {
       groups.get(strategy).attributed.push(row.real);
@@ -643,13 +659,23 @@ const unaccountedStates = {
   pending: ['PENDIENTE DE INVESTIGACIÓN', 'warn'],
 };
 
+function discardedHelp(row) {
+  const band = row.portfolio_lot_band;
+  const lote = `${number(row.real.volume, 4)} lotes`;
+  return band
+    ? `El auditor la descartó antes de comparar: ${lote} queda fuera de lo que el portafolio opera en ${row.real.symbol} (${number(band[0], 4)} a ${number(band[1], 4)}). No está en la curva Real. Si es del portafolio, atribúyela en el Excel.`
+    : `El auditor la descartó antes de comparar porque su lote no es de los que opera el portafolio. No está en la curva Real. Si es del portafolio, atribúyela en el Excel.`;
+}
+
 function unaccountedRow(row, currency) {
   const {state, reason} = attributionOf(row);
-  const [label, tone] = unaccountedStates[state];
+  const discarded = row.status === 'discarded' && state === 'pending';
+  const [label, tone] = discarded ? ['DESCARTADA POR LOTE', 'warn'] : unaccountedStates[state];
   const trade = row.real;
-  const help = state === 'excluded'
-    ? (reason || 'Marcada como ajena al portafolio en el Excel.')
-    : 'El Excel no dice nada de esta operación: no suma en ninguna estrategia y sigue en la curva Real.';
+  const help = discarded ? discardedHelp(row)
+    : state === 'excluded'
+      ? (reason || 'Marcada como ajena al portafolio en el Excel.')
+      : 'El Excel no dice nada de esta operación: no suma en ninguna estrategia y sigue en la curva Real.';
   return `<tr>
     <th><strong>${escapeHtml(trade.symbol)} · ${escapeHtml(number(trade.volume, 4))} lotes</strong><small>${escapeHtml(trade.side)}</small>${trade.position_id ? `<small>ticket ${escapeHtml(trade.position_id)}</small>` : ''}</th>
     <td>${escapeHtml(dateTime(trade.open_time))}</td>
@@ -679,7 +705,7 @@ function renderUnaccounted() {
   // Sin comparación no hay nada que cuadrar, y decir «todo cuadrado» por una
   // lista vacía es la misma mentira que pintar de verde un uso sin medir.
   if (!currentResult?.comparison_detail) return renderUncomparedUnaccounted();
-  const rows = unmatchedRows(currentResult)
+  const rows = unaccountedRows(currentResult)
     .filter(row => attributionOf(row).state !== 'attributed')
     .sort((a, b) => new Date(a.real.open_time) - new Date(b.real.open_time));
   document.querySelector('#unaccounted-body').innerHTML = rows.length
@@ -692,8 +718,9 @@ function renderUnaccounted() {
   badge.textContent = pending.length
     ? `${pending.length} POR INVESTIGAR` : rows.length ? `${rows.length} FUERA` : 'TODO CUADRADO';
   badge.className = `badge ${pending.length ? 'pending' : 'idle'}`;
-  const attributed = unmatchedRows(currentResult)
+  const attributed = unaccountedRows(currentResult)
     .filter(row => attributionOf(row).state === 'attributed');
+  const discarded = rows.filter(row => row.status === 'discarded');
   // El recuento guardado puede ser mayor que el de esta auditoría: la
   // atribución se acumula y conserva lo dicho de ejecuciones anteriores.
   const stored = Object.keys(storedAttribution().rules || {}).length;
@@ -708,6 +735,8 @@ function renderUnaccounted() {
     pending.length
       ? `${pending.length} (${money(sum(pending), currency)}) siguen sin explicar: cuentan en la curva Real porque la cuenta movió ese dinero, pero no en ninguna estrategia.`
       : 'No queda ninguna real sin explicar.',
+    discarded.length
+      ? `De ellas, ${discarded.length} (${money(sum(discarded), currency)}) las descartó el filtro de lote antes de comparar: ésas no están en la curva Real hasta que el Excel diga que son del portafolio.` : '',
   ].filter(Boolean).join(' ');
 }
 

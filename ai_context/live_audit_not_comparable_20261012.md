@@ -82,6 +82,26 @@ Como el veredicto lo pone el manager **al leer**, el uso 105 pasó a comparar
 sin relanzar nada: de «0 de todo» a 26 parejas alineadas, 13 correctas, 1 real
 abierta y los dos XAUUSD marcados.
 
+## Las reales que el filtro de lote se tragaba
+
+El cuadre prometía que «cada real cerrada acaba emparejada, atribuida o aquí,
+dicha con su motivo», y no era verdad: `_filter_portfolio_trades` descarta por
+banda de lote **antes** de comparar, y lo descartado no salía en ninguna tabla.
+En el uso 105 eran **10 de 35** cierres reales: nueve `Tesla+` a 1.0 lotes
+—el portafolio lo opera entre 5 y 10— y un `BTCUSD` a 0.06 contra una banda
+`[0.09, 0.09]`. El panel enseñaba «TODO CUADRADO».
+
+Ahora se publican en `comparison_detail.discarded_real_operations`, con su
+`portfolio_lot_band` y pasados por `annotate_unmatched`, así que el Excel de
+atribución puede reclamarlas por ticket igual que a las reales sin pareja. En
+la pantalla salen como `DESCARTADA POR LOTE` y cuentan en el badge de «por
+investigar».
+
+Lo que **no** cambia: `extra_real_trades` sigue siendo el de la comparación
+—nunca entraron en ella— y la curva Real no las incluye mientras nadie las
+reclame, porque el filtro ya las dio por ajenas. Atribuirlas en el Excel las
+mete en su estrategia y en la curva.
+
 `not_comparable` ya no lo produce el manager. Se mantiene en `STATUS_LABELS` y
 en la pantalla porque un agente sin portar sigue pudiendo decidirlo él
 (`has_raw_material` falso: el manager muestra su resultado tal cual).
