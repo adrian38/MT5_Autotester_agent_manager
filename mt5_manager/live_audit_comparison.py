@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .live_audit_attribution import annotate_unmatched
 from .live_audit_core import *  # noqa: F403
 
 
@@ -399,6 +400,12 @@ class _ComparisonMixin:
         unmatched, unmatched_operations = _ComparisonMixin._unmatched_real_operations(
             real, state["unused"],
         )
+        # El usuario puede haber dicho de quién es cada real que el auditor no
+        # pudo emparejar. No se inventa una pareja: la fila sigue siendo
+        # `extra` y sólo queda anotada.
+        state["attribution_summary"] = annotate_unmatched(
+            unmatched_operations, request.get("_real_attribution_by_ticket") or {},
+        )
         set_names = dict(request.get("strategy_set_names") or {})
         _ComparisonMixin._name_strategies(state, set_names)
         strategy_summary = _ComparisonMixin._strategy_comparison_summary(
@@ -472,6 +479,7 @@ class _ComparisonMixin:
             "strategy_summary": strategy_summary,
             "operation_comparisons": state["operation_comparisons"],
             "unmatched_real_operations": unmatched_operations,
+            "real_attribution": state.get("attribution_summary") or {},
             "drawdown": {
                 "real": round(real_dd, 2), "tester": round(tester_dd, 2),
                 "deviation_pct": round(dd_deviation, 2),

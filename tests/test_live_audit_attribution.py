@@ -1,0 +1,192 @@
+from __future__ import annotations
+
+import base64
+import io
+import unittest
+import zipfile
+from datetime import datetime, timezone
+
+from mt5_manager.live_audit_analysis import analyze
+from mt5_manager.live_audit_attribution import (
+    attribution_by_ticket,
+    import_workbook,
+    normalize_attribution,
+    split_reason,
+)
+from mt5_manager.live_audit_settings_schema import normalize_live_audit_settings
+
+
+STRATEGY = "ROBOFOREX/ECN:4426"
+SET_STEM = "XAUUSD_H4_GOLD_XAUUSD_H4_GOLD_fee5a2f9_g002_s021_v006"
+MEMBER = {
+    "candidate_id": STRATEGY, "symbol": "XAUUSD", "lot": 0.02,
+    "set_name": f"{SET_STEM}.set", "set_id": f"/runs/gen_002/{SET_STEM}.set",
+}
+
+
+def workbook_bytes(rows: list[tuple[str, str]]) -> bytes:
+    """Un libro con la forma de la exportación del detalle de operaciones.
+
+    El ticket viaja dentro de la celda de mercado, que es como lo imprime la
+    pantalla (`...; magic 123; ticket 123`), y la columna de la derecha es la
+    que el usuario añade a mano.
+    """
+    shared = ["#", "Estado", "Mercado", "Razon"]
+    for market, reason in rows:
+        shared.extend([market, reason])
+    strings = "".join(f"<si><t>{value}</t></si>" for value in shared)
+    cells = [
+        '<row r="2"><c r="A2" t="s"><v>0</v></c><c r="B2" t="s"><v>1</v></c>'
+        '<c r="C2" t="s"><v>2</v></c><c r="D2" t="s"><v>3</v></c></row>',
+    ]
+    for index, _row in enumerate(rows):
+        line = index + 3
+        market_index, reason_index = 4 + index * 2, 5 + index * 2
+        cells.append(
+            f'<row r="{line}"><c r="A{line}" t="str"><v>R{index + 1}</v></c>'
+            f'<c r="B{line}" t="str"><v>REAL SIN TESTER</v></c>'
+            f'<c r="C{line}" t="s"><v>{market_index}</v></c>'
+            f'<c r="D{line}" t="s"><v>{reason_index}</v></c></row>'
+        )
+    sheet = (
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(cells)}</sheetData></worksheet>'
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("xl/workbook.xml", """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>""")
+        archive.writestr("xl/_rels/workbook.xml.rels", """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/></Relationships>""")
+        archive.writestr("xl/sharedStrings.xml", f"<sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">{strings}</sst>")
+        archive.writestr("xl/worksheets/sheet1.xml", sheet)
+    return output.getvalue()
+
+
+def imported(rows: list[tuple[str, str]]) -> dict[str, object]:
+    contents = workbook_bytes(rows)
+    return import_workbook({
+        "filename": "auditor.xlsx",
+        "content_base64": base64.b64encode(contents).decode("ascii"),
+    })
+
+
+EXPORTED_ROWS = [
+    (f"XAUUSD · 0,02 lotes; sell; Sin estrategia del tester; magic 111; ticket 111", SET_STEM),
+    ("GOOGL · 0,01 lotes; buy; Sin estrategia del tester; magic 222; ticket 222",
+     "no contabiliza en este portafolio"),
+]
+
+
+class WorkbookTests(unittest.TestCase):
+    def test_the_exported_detail_plus_a_column_is_all_that_is_needed(self) -> None:
+        result = imported(EXPORTED_ROWS)
+        self.assertEqual(sorted(result["rules"]), ["111", "222"])
+        self.assertEqual(result["rules"]["111"]["strategy_set"], SET_STEM)
+        self.assertEqual(result["source_name"], "auditor.xlsx")
+        self.assertEqual(len(result["source_sha256"]), 64)
+
+    def test_a_note_before_the_semicolon_is_kept_and_the_set_is_the_last_piece(self) -> None:
+        # El fichero que originó esto traía «duplicado, gestionada por mi; <set>».
+        self.assertEqual(split_reason(f"duplicado, gestionada por mi;{SET_STEM}"),
+                         (SET_STEM, "duplicado, gestionada por mi"))
+        self.assertEqual(split_reason("no contabiliza en este portafolio"),
+                         ("no contabiliza en este portafolio", ""))
+
+    def test_a_file_without_tickets_says_what_falta(self) -> None:
+        with self.assertRaisesRegex(ValueError, "ticket"):
+            imported([("XAUUSD · 0,02 lotes; sell; sin identificador", SET_STEM)])
+
+    def test_the_stored_attribution_is_validated(self) -> None:
+        configured = normalize_live_audit_settings({
+            "real_attribution": {
+                "source_name": "auditor.xlsx", "source_sha256": "a" * 64,
+                "rules": {"111": {"strategy_set": SET_STEM, "reason": ""}},
+            },
+        })
+        self.assertEqual(configured["real_attribution"]["rules"]["111"]["strategy_set"], SET_STEM)
+        with self.assertRaisesRegex(ValueError, "ticket"):
+            normalize_attribution({"rules": {"no-es-un-ticket": {"strategy_set": SET_STEM}}})
+
+
+class BindingTests(unittest.TestCase):
+    def test_the_set_name_resolves_to_the_candidate_id_of_the_member(self) -> None:
+        resolved = attribution_by_ticket(imported(EXPORTED_ROWS), [MEMBER])
+        self.assertEqual(resolved["111"]["strategy"], STRATEGY)
+        self.assertFalse(resolved["111"]["excluded"])
+
+    def test_text_that_names_no_member_excludes_the_operation_with_its_reason(self) -> None:
+        resolved = attribution_by_ticket(imported(EXPORTED_ROWS), [MEMBER])
+        self.assertTrue(resolved["222"]["excluded"])
+        self.assertEqual(resolved["222"]["strategy"], "")
+        self.assertEqual(resolved["222"]["reason"], "no contabiliza en este portafolio")
+
+
+def trade(opened: datetime, volume: float, profit: float, position: int) -> dict[str, object]:
+    return {
+        "strategy": str(position), "symbol": "XAUUSD", "side": "sell",
+        "open_time": opened.isoformat(),
+        "close_time": opened.replace(minute=30).isoformat(),
+        "open_price": 4300.0, "close_price": 4290.0, "volume": volume,
+        "profit": profit, "position_id": position,
+    }
+
+
+def audit_payload() -> dict[str, object]:
+    paired = datetime(2026, 9, 22, 9, 0, tzinfo=timezone.utc)
+    orphan = datetime(2026, 9, 23, 9, 0, tzinfo=timezone.utc)
+    return {
+        "audit_id": "run-attribution", "completed_at": "2026-09-23T12:00:00+00:00",
+        "period_start": "2026-09-22T00:00:00+00:00", "period_end": "2026-09-23T23:59:59+00:00",
+        "request": {
+            "audit_key": "audit-148", "portfolio_id": 148, "portfolio_type": "aggressive",
+            "period_mode": "fixed_dates", "period_days": 2,
+            "period_start_date": "2026-09-22", "period_end_date": "2026-09-23",
+        },
+        "tester_trades": [trade(paired, 0.02, 5.0, 1)],
+        "real_trades": [trade(paired, 0.02, 4.0, 900), trade(orphan, 0.02, -11.0, 111)],
+        "symbol_points": {"XAUUSD": 0.01}, "strategies": {STRATEGY: 1},
+        "qualities": [100.0], "strategy_artifacts": [], "selected_members": [MEMBER],
+        "volume_rules": {"xauusd": {"volume_min": 0.01, "volume_step": 0.01}},
+        "account": {}, "real_history_detail": {}, "tester_execution": {},
+        "real_account_report": {}, "terminal_restore": [], "open_positions_at_period_end": [],
+    }
+
+
+def profile(**changes: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "trade_time_tolerance_seconds": 120, "price_tolerance_points": 15000.0,
+        "volume_tolerance_pct": 5.0, "pnl_deviation_warning_pct": 50.0,
+        "drawdown_deviation_warning_pct": 1000.0, "min_tick_history_quality_pct": 80.0,
+        "real_strategy_lots": {},
+    }
+    values.update(changes)
+    return values
+
+
+class AnalysisTests(unittest.TestCase):
+    def test_an_unmatched_real_is_annotated_without_inventing_a_pair(self) -> None:
+        attribution = imported([
+            ("XAUUSD · 0,02 lotes; sell; Sin estrategia del tester; magic 111; ticket 111",
+             SET_STEM),
+        ])
+        result = analyze(audit_payload(), profile(real_attribution=attribution))
+        detail = result["comparison_detail"]
+        extras = detail["unmatched_real_operations"]
+        self.assertEqual(len(extras), 1)
+        # Sigue siendo una real sin pareja: el emparejado del auditor no cambia.
+        self.assertEqual(extras[0]["status"], "extra")
+        self.assertEqual(result["extra_real_trades"], 1)
+        self.assertEqual(extras[0]["attribution"]["strategy"], STRATEGY)
+        self.assertFalse(extras[0]["attribution"]["excluded"])
+        self.assertEqual(detail["real_attribution"], {
+            "attributed": 1, "excluded": 0, "unresolved": 0,
+            "attributed_profit": -11.0, "excluded_profit": 0.0,
+        })
+
+    def test_without_the_excel_nothing_is_annotated(self) -> None:
+        detail = analyze(audit_payload(), profile())["comparison_detail"]
+        self.assertNotIn("attribution", detail["unmatched_real_operations"][0])
+        self.assertEqual(detail["real_attribution"]["unresolved"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

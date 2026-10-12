@@ -24,6 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .live_audit_attribution import attribution_by_ticket
 from .live_audit_autolot import dynamic_lot_bands, prepare_request, rules_by_strategy
 from .live_audit_engine import (
     LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
@@ -40,6 +41,7 @@ REANALYSABLE_TOLERANCES = (
     "min_tick_history_quality_pct",
     "real_strategy_lots",
     "autolot",
+    "real_attribution",
 )
 # Lo que describe la ejecución y no se puede reinterpretar sin repetirla.
 EXECUTION_FACTS = (
@@ -266,6 +268,9 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
     )
     request["_autolot_balance_history"] = profile.get("_autolot_balance_history") or []
     request["_autolot_balance_error"] = profile.get("_autolot_balance_error") or ""
+    request["_real_attribution_by_ticket"] = attribution_by_ticket(
+        request.get("real_attribution"), list(payload.get("selected_members") or []),
+    )
     return request
 
 

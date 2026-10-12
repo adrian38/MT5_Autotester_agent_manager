@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from . import live_audit_analysis
-from . import live_audit_autolot
+from . import live_audit_attribution, live_audit_autolot
 from . import live_audit_degradation
 from . import manager_http
 from .common import safe_int
@@ -245,7 +245,12 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
     restore = handler.server.live_audit_settings.restore_credentials(node_id)
     if not restore:
         raise ValueError("Configura y guarda la cuenta que debe quedar en los terminales")
-    node_profile = {key: value for key, value in profile.items() if key != "autolot"}
+    # Ni el autolote ni la atribución manual viajan al nodo: los dos son
+    # criterio del manager y se aplican al analizar lo que el nodo observó.
+    node_profile = {
+        key: value for key, value in profile.items()
+        if key not in {"autolot", "real_attribution"}
+    }
     return {
         **node_profile, **credentials, **restore,
         "audit_key": audit_id,
@@ -253,15 +258,32 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
     }
 
 
+def _handle_workbook_import(handler, parts: list[str]) -> bool:
+    """Los dos Excel que el manager lee y guarda en el perfil del uso."""
+    readers = {
+        "live-audit-autolot-import": (
+            live_audit_autolot.import_workbook, "autolot", "strategy_count",
+        ),
+        "live-audit-attribution-import": (
+            live_audit_attribution.import_workbook, "real_attribution", "operation_count",
+        ),
+    }
+    reader = readers.get(parts[3]) if len(parts) == 4 and parts[:2] == ["api", "nodes"] else None
+    if reader is None:
+        return False
+    read, field, count = reader
+    try:
+        handler._node(urllib.parse.unquote(parts[2]))
+        imported = read(handler._body())
+        handler._send_json(200, {field: imported, count: len(imported["rules"])})
+    except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+        handler._send_json(400, {"error": str(exc)})
+    return True
+
+
 def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
     """Configuracion del auditor, cuenta de restauracion y lanzar un uso."""
-    if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audit-autolot-import":
-        try:
-            handler._node(urllib.parse.unquote(parts[2]))
-            autolot = live_audit_autolot.import_workbook(handler._body())
-            handler._send_json(200, {"autolot": autolot, "strategy_count": len(autolot["rules"])})
-        except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
-            handler._send_json(400, {"error": str(exc)})
+    if _handle_workbook_import(handler, parts):
         return True
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] in {
         "live-audit-config", "live-audit-restore-account",
