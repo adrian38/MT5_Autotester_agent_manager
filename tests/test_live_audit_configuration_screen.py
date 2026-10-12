@@ -349,6 +349,23 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("use_multiterminal: field('use_multiterminal').checked,", self.script)
         self.assertIn("Usar el multiterminal del nodo", self.script)
 
+    def test_a_result_without_comparison_is_never_painted_as_a_match(self) -> None:
+        # Un `not_comparable` no trae contadores. Leerlos como ceros daba el
+        # badge COINCIDE, «No se detectaron desviaciones» y una pertenencia al
+        # modo inventada por el fallback: la auditoría que no midió nada se leía
+        # como la que cuadra.
+        self.assertIn("const notComparable = result.status === 'not_comparable';", self.result_script)
+        self.assertIn('<span class="badge failed">NO COMPARABLE</span>', self.result_script)
+        self.assertIn("function renderNotComparableVerdict(result, minimum)", self.result_script)
+        self.assertIn("Sin comparar: la calidad tick a tick no llega al mínimo exigido", self.result_script)
+        self.assertIn("Sets que no acreditan la calidad:", self.result_script)
+        self.assertIn("multiterminal desmarcado: sólo la principal", self.result_script)
+        self.assertIn("CALIDAD INSUFICIENTE", self.result_script)
+        self.assertIn("por debajo del mínimo", self.result_script)
+        # La hora de la ejecución, no la de la lectura: `completed_at` se vuelve
+        # a sellar cada vez que el manager analiza la materia prima del nodo.
+        self.assertIn("dateTime(result.analysis?.executed_at || result.completed_at)", self.result_script)
+
     def test_the_comparison_table_is_symmetric_between_tester_and_real(self) -> None:
         # La tabla estaba indexada por operación del tester, así que una real
         # que ningún resultado reclamó no podía salir nunca en ella: el veredicto

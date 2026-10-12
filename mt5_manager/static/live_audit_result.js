@@ -292,7 +292,38 @@ function percent(part, total) {
   return denominator > 0 ? `${number(numerator / denominator * 100, 0)} %` : '—';
 }
 
-function renderVerdict(result) {
+function qualityFailures(result, minimum) {
+  // Sin comparación no hay resumen por estrategia: lo único que identifica al
+  // culpable son los artefactos, que sí traen la calidad set a set.
+  return (result.strategy_artifacts || []).filter(row => (
+    row.history_quality_pct == null || Number(row.history_quality_pct) < minimum
+  ));
+}
+
+function renderNotComparableVerdict(result, minimum) {
+  const failures = qualityFailures(result, minimum);
+  const quality = result.history_quality_pct;
+  document.querySelector('#verdict-title').textContent =
+    'Sin comparar: la calidad tick a tick no llega al mínimo exigido';
+  document.querySelector('#verdict-explanation').innerHTML =
+    `<strong>${escapeHtml(result.summary || 'MT5 no acreditó la calidad exigida.')}</strong> `
+    + 'La auditoría se detuvo antes de emparejar nada, así que los contadores de '
+    + 'operaciones no significan que todo cuadre: significa que no se midió. '
+    + `Se leyeron <strong>${escapeHtml(result.real_trades ?? '—')}</strong> cierres reales y `
+    + `<strong>${escapeHtml(result.tester_trades ?? '—')}</strong> operaciones del tester.`;
+  document.querySelector('#verdict-grid').innerHTML = [
+    metric('Calidad obtenida', quality == null ? 'NO INFORMADA' : `${number(quality)} %`, 'bad'),
+    metric('Mínimo exigido', `${number(minimum)} %`),
+    metric('Sets por debajo', `${failures.length} de ${(result.strategy_artifacts || []).length}`, failures.length ? 'bad' : ''),
+    metric('Operaciones leídas', `${result.real_trades ?? '—'} reales · ${result.tester_trades ?? '—'} tester`),
+  ].join('');
+  document.querySelector('#reason-list').innerHTML = failures.length
+    ? `<strong>Sets que no acreditan la calidad:</strong>${failures.map(row => `<span>${escapeHtml(row.symbol || row.strategy)} · ${row.history_quality_pct == null ? 'sin calidad informada' : `${escapeHtml(number(row.history_quality_pct))} %`}</span>`).join('')}`
+    : '<strong>MT5 no informó la calidad de ningún set.</strong>';
+}
+
+function renderVerdict(result, minimum) {
+  if (result.status === 'not_comparable') return renderNotComparableVerdict(result, minimum);
   const total = Number(result.tester_trades || 0);
   const aligned = Number(result.matched_trades || 0);
   const correct = Number(result.within_tolerance_trades || 0);
@@ -354,20 +385,28 @@ function testerTerminalValidation(testerExecution) {
   ];
 }
 
-function renderSummary(result) {
+function renderSummary(result, minimum) {
   const account = result.account || {};
   const testerExecution = result.tester_execution || {};
   const period = `${marketDateTime(result.period_start)} → ${marketDateTime(result.period_end)} · hora MT5`;
+  const quality = result.history_quality_pct;
+  const qualityFails = quality == null || Number(quality) < minimum;
   document.querySelector('#summary-grid').innerHTML = [
     metric('Periodo auditado', period),
     metric('Modo', modeLabels[result.portfolio_type] || result.portfolio_type),
     metric('Ejecución del tester', testerExecution.workers
       ? `${testerExecution.set_count} sets · ${testerExecution.workers} terminales · ${(testerExecution.terminal_profiles || []).join(' · ')}`
+        + `${testerExecution.use_multiterminal === false ? ' · multiterminal desmarcado: sólo la principal' : ''}`
       : 'NO REGISTRADA · ejecución anterior'),
     metric('Cuenta tester confirmada por terminal', ...testerTerminalValidation(testerExecution)),
     metric('Cuenta real verificada', account.connected ? `${account.login} · ${account.server}` : 'NO VERIFICADA', account.connected ? '' : 'bad'),
     metric('Terminal devuelto a la cuenta final configurada', ...terminalRestore(result)),
-    metric('Calidad tick', result.history_quality_pct == null ? 'NO INFORMADA' : `${number(result.history_quality_pct)} %`),
+    metric(
+      'Calidad tick',
+      quality == null ? `NO INFORMADA · mínimo ${number(minimum)} %`
+        : `${number(quality)} %${qualityFails ? ` · por debajo del mínimo ${number(minimum)} %` : ''}`,
+      qualityFails ? 'bad' : 'good',
+    ),
   ].join('');
 }
 
@@ -475,7 +514,25 @@ function renderArtifacts(result) {
   }).join('');
 }
 
-function renderStrategies(result) {
+function qualityBlockedStrategies(result, minimum) {
+  const rows = result.strategy_artifacts || [];
+  if (!rows.length) {
+    return '<tr><td colspan="8" class="audit-empty">Esta ejecución no guardó el detalle por estrategia.</td></tr>';
+  }
+  return rows.map(row => {
+    const quality = row.history_quality_pct;
+    const blocked = quality == null || Number(quality) < minimum;
+    return `<tr>
+      <th><strong>${escapeHtml(row.symbol || row.strategy)}</strong><small>${escapeHtml(row.runtime_set || row.source_set || row.strategy)}</small></th>
+      <td>${escapeHtml(row.tester_trades ?? '—')}</td>
+      <td colspan="4" class="audit-empty">Sin comparación: el uso quedó NO COMPARABLE</td>
+      <td>${quality == null ? 'SIN CALIDAD' : `${escapeHtml(number(quality))} %`}</td>
+      <td><span class="audit-status ${blocked ? 'bad' : 'good'}">${blocked ? 'CALIDAD INSUFICIENTE' : 'CALIDAD OK'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderStrategies(result, minimum) {
   const detail = result.comparison_detail || {};
   const rows = detail.strategy_summary || [];
   const artifacts = new Map((result.strategy_artifacts || []).map(row => [String(row.strategy), row]));
@@ -490,7 +547,7 @@ function renderStrategies(result) {
         <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td>${escapeHtml(row.open_real || 0)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
         <td><span class="audit-status ${diagnosis[1]}">${diagnosis[0]}</span></td>`;
     })()}
-  </tr>`).join('') : '<tr><td colspan="8" class="audit-empty">Esta ejecución no guardó el detalle por estrategia.</td></tr>';
+  </tr>`).join('') : qualityBlockedStrategies(result, minimum);
 }
 
 function comparisonMarkup(row) {
@@ -596,7 +653,7 @@ function renderResult(result, config, portfolios, auditState = {}) {
   document.title = `${title} · detalle de auditoría`;
   document.querySelector('#result-title').textContent = title;
   const auditedPeriod = `${marketDateTime(result.period_start)} → ${marketDateTime(result.period_end)}`;
-  document.querySelector('#result-subtitle').textContent = `${modeLabels[result.portfolio_type] || result.portfolio_type || 'Sin modo'} · cuenta ${result.account?.login || profile.source_login || '—'} · periodo ${auditedPeriod} · finalizada ${dateTime(result.completed_at)}`;
+  document.querySelector('#result-subtitle').textContent = `${modeLabels[result.portfolio_type] || result.portfolio_type || 'Sin modo'} · cuenta ${result.account?.login || profile.source_login || '—'} · periodo ${auditedPeriod} · finalizada ${dateTime(result.analysis?.executed_at || result.completed_at)}`;
   const staleWarning = document.querySelector('#stale-result-warning');
   const stale = Boolean(auditState.audit_id && result.audit_id && auditState.audit_id !== result.audit_id);
   staleWarning.hidden = !stale;
@@ -605,19 +662,28 @@ function renderResult(result, config, portfolios, auditState = {}) {
     staleWarning.innerHTML = `<strong>Este no es el resultado de la última ejecución.</strong><span>Se muestra la auditoría ${escapeHtml(result.audit_id)} porque la ejecución ${escapeHtml(auditState.audit_id)} terminó ${escapeHtml(currentStatus)} antes de producir una comparación nueva. ${escapeHtml(auditState.error || '')}</span>`;
   }
   const state = document.querySelector('#result-state');
+  // Un resultado sin comparación no tiene contadores: leerlos como ceros
+  // pintaba de verde una auditoría que no llegó a medir nada.
+  const notComparable = result.status === 'not_comparable';
+  const minimumQuality = Number(
+    result.analysis?.tolerances?.min_tick_history_quality_pct
+    ?? profile.min_tick_history_quality_pct ?? 0
+  );
   const needsReview = Number(result.missing_real_trades) || Number(result.extra_real_trades) || Number(result.deviating_pairs);
   const open = Number(result.open_real_trades || 0);
   const successText = open
     ? `${open} posición(es) real(es) siguen abiertas y están alineadas en los datos disponibles.`
     : 'La cuenta y el tester coinciden dentro de todas las tolerancias.';
-  state.innerHTML = `<span class="badge ${result.status === 'failed' ? 'failed' : needsReview ? 'idle' : 'completed'}">${result.status === 'failed' ? 'FALLIDA' : needsReview ? 'REQUIERE REVISIÓN' : 'COINCIDE'}</span><strong>${needsReview ? 'La cuenta pertenece al modo seleccionado, pero la reproducción no es completa.' : successText}</strong>`;
-  renderVerdict(result);
-  renderSummary(result);
+  state.innerHTML = notComparable
+    ? `<span class="badge failed">NO COMPARABLE</span><strong>${escapeHtml(result.summary || 'MT5 no acreditó la calidad tick a tick exigida: no se comparó ninguna operación.')}</strong>`
+    : `<span class="badge ${result.status === 'failed' ? 'failed' : needsReview ? 'idle' : 'completed'}">${result.status === 'failed' ? 'FALLIDA' : needsReview ? 'REQUIERE REVISIÓN' : 'COINCIDE'}</span><strong>${needsReview ? 'La cuenta pertenece al modo seleccionado, pero la reproducción no es completa.' : successText}</strong>`;
+  renderVerdict(result, minimumQuality);
+  renderSummary(result, minimumQuality);
   renderMethodology(result);
   renderHistory(result);
   renderArtifacts(result);
   const detail = result.comparison_detail || {};
-  renderStrategies(result);
+  renderStrategies(result, minimumQuality);
   renderComparisons(detail);
   renderExtras(detail);
   document.querySelector('#raw-result').textContent = JSON.stringify({

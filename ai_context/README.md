@@ -111,6 +111,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   el miembro del portfolio, sin adivinar sufijos.
 - `live_audit_autolot.md`: importación del DD/riesgo por estrategia, saldo
   histórico del HTML nativo y lote dinámico por apertura, sólo en el manager.
+- `live_audit_not_comparable_20261012.md`: un uso NO COMPARABLE se leía como
+  COINCIDE; la caché de ticks incompleta de una terminal, la casilla del
+  multiterminal y por qué `completed_at` no es la hora de la ejecución.
 
 ## Manager: interfaz y operación
 
