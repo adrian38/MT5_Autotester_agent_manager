@@ -34,7 +34,7 @@ import posixpath
 import re
 import unicodedata
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .live_audit_autolot import MAX_WORKBOOK_BYTES, _rule_key, _sheet_rows
 
@@ -44,12 +44,19 @@ _TICKET = re.compile(r"\bticket\s*[:#]?\s*(\d{1,20})\b", re.IGNORECASE)
 
 
 def empty_attribution() -> dict[str, Any]:
-    return {"source_name": "", "source_sha256": "", "rules": {}}
+    return {"source_name": "", "source_sha256": "", "sources": {}, "rules": {}}
 
 
 def _ticket(value: Any) -> str:
     digits = str(value or "").strip()
     return digits if digits.isdigit() and len(digits) <= 20 else ""
+
+
+def _sha256(value: Any, label: str) -> str:
+    digest = str(value or "").strip().lower()
+    if digest and (len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest)):
+        raise ValueError(f"La huella {label} no es válida")
+    return digest
 
 
 def _normalize_rule(ticket: str, raw: Any) -> tuple[str, dict[str, str]]:
@@ -61,7 +68,30 @@ def _normalize_rule(ticket: str, raw: Any) -> tuple[str, dict[str, str]]:
         raise ValueError(f"La atribución de {ticket} es demasiado larga")
     if any(char in strategy_set + reason for char in "\n\r"):
         raise ValueError(f"La atribución de {ticket} no puede ocupar varias líneas")
-    return ticket, {"strategy_set": strategy_set, "reason": reason}
+    # De qué fichero salió. Sin esto, acumular sería una calle de un solo
+    # sentido: no habría forma de retirar un Excel equivocado sin perder los
+    # demás. Vacío en lo guardado antes de que existiera el campo.
+    return ticket, {
+        "strategy_set": strategy_set, "reason": reason,
+        "source": _sha256(raw.get("source"), f"del origen de {ticket}"),
+    }
+
+
+def _normalize_sources(value: Any) -> dict[str, dict[str, str]]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or len(value) > 200:
+        raise ValueError("real_attribution.sources debe ser un objeto por fichero")
+    sources = {}
+    for raw_digest, raw_source in value.items():
+        digest = _sha256(raw_digest, "de un fichero de atribución")
+        if not digest:
+            continue
+        name = str((raw_source or {}).get("name") or "").strip() if isinstance(raw_source, dict) else ""
+        if len(name) > 255 or "\n" in name or "\r" in name:
+            raise ValueError("El nombre de un Excel de atribución no es válido")
+        sources[digest] = {"name": name}
+    return sources
 
 
 def normalize_attribution(value: Any) -> dict[str, Any]:
@@ -69,17 +99,14 @@ def normalize_attribution(value: Any) -> dict[str, Any]:
         return empty_attribution()
     if not isinstance(value, dict):
         raise ValueError("real_attribution debe ser un objeto JSON")
-    unknown = set(value) - {"source_name", "source_sha256", "rules"}
+    unknown = set(value) - {"source_name", "source_sha256", "sources", "rules"}
     if unknown:
         raise ValueError(f"Campos de atribución desconocidos: {', '.join(sorted(unknown))}")
     source_name = str(value.get("source_name") or "").strip()
-    source_sha256 = str(value.get("source_sha256") or "").strip().lower()
+    source_sha256 = _sha256(value.get("source_sha256"), "del Excel de atribución")
     if len(source_name) > 255 or "\n" in source_name or "\r" in source_name:
         raise ValueError("El nombre del Excel de atribución no es válido")
-    if source_sha256 and (
-        len(source_sha256) != 64 or any(c not in "0123456789abcdef" for c in source_sha256)
-    ):
-        raise ValueError("La huella del Excel de atribución no es válida")
+    sources = _normalize_sources(value.get("sources"))
     raw_rules = value.get("rules") or {}
     if not isinstance(raw_rules, dict) or len(raw_rules) > MAX_ATTRIBUTIONS:
         raise ValueError(f"La atribución admite como máximo {MAX_ATTRIBUTIONS} operaciones")
@@ -90,7 +117,49 @@ def normalize_attribution(value: Any) -> dict[str, Any]:
             raise ValueError(f"«{raw_ticket}» no es un ticket válido")
         key, rule = _normalize_rule(ticket, raw_rule)
         rules[key] = rule
-    return {"source_name": source_name, "source_sha256": source_sha256, "rules": rules}
+    return {
+        "source_name": source_name, "source_sha256": source_sha256,
+        "sources": sources, "rules": rules,
+    }
+
+
+def attribution_sources(attribution: Any) -> list[dict[str, Any]]:
+    """Los Excel subidos y cuántas operaciones aporta cada uno, para poder
+    quitarlos de uno en uno."""
+    stored = normalize_attribution(attribution)
+    counts: dict[str, int] = {}
+    for rule in stored["rules"].values():
+        counts[rule["source"]] = counts.get(rule["source"], 0) + 1
+    listed = [
+        {
+            "sha256": digest, "name": source["name"] or "Excel sin nombre",
+            "operations": counts.get(digest, 0),
+        }
+        for digest, source in stored["sources"].items()
+    ]
+    # Lo guardado antes de que existiera el campo no tiene fichero asociado y
+    # no puede quedar invisible: se enseña para poder retirarlo.
+    if counts.get(""):
+        listed.append({"sha256": "", "name": "Subidas anteriores", "operations": counts[""]})
+    return sorted(listed, key=lambda item: (-item["operations"], item["name"]))
+
+
+def remove_source(attribution: Any, sha256: str) -> dict[str, Any]:
+    """Retira un Excel y sólo lo que ese Excel dijo."""
+    stored = normalize_attribution(attribution)
+    digest = _sha256(sha256, "del Excel que se retira") if sha256 else ""
+    rules = {
+        ticket: rule for ticket, rule in stored["rules"].items()
+        if rule["source"] != digest
+    }
+    if len(rules) == len(stored["rules"]) and digest not in stored["sources"]:
+        raise ValueError("Ese Excel no está entre los subidos para este uso")
+    sources = {key: value for key, value in stored["sources"].items() if key != digest}
+    return normalize_attribution({
+        "source_name": stored["source_name"] if digest != stored["source_sha256"] else "",
+        "source_sha256": stored["source_sha256"] if digest != stored["source_sha256"] else "",
+        "sources": sources, "rules": rules,
+    })
 
 
 def _row_ticket(row: dict[int, Any]) -> str:
@@ -207,12 +276,40 @@ def merge_attribution(stored: Any, incoming: Any) -> dict[str, Any]:
     """
     previous = normalize_attribution(stored)
     added = normalize_attribution(incoming)
-    rules = {**previous["rules"], **added["rules"]}
-    return {
-        "source_name": added["source_name"] or previous["source_name"],
-        "source_sha256": added["source_sha256"] or previous["source_sha256"],
-        "rules": rules,
+    digest = added["source_sha256"]
+    marked = {
+        ticket: {**rule, "source": rule["source"] or digest}
+        for ticket, rule in added["rules"].items()
     }
+    sources = dict(previous["sources"])
+    if digest:
+        sources[digest] = {"name": added["source_name"]}
+    return normalize_attribution({
+        "source_name": added["source_name"] or previous["source_name"],
+        "source_sha256": digest or previous["source_sha256"],
+        "sources": sources, "rules": {**previous["rules"], **marked},
+    })
+
+
+def rewrite_profile_attribution(
+    record: dict[str, Any], audit_id: str, rewrite: Callable[[Any], dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Los perfiles de un nodo con la atribución de un uso reescrita.
+
+    Devuelve copias: quien llame decide cuándo persistir. Toca **un solo
+    campo** de **un solo uso**, porque quien cambia la atribución es la pantalla
+    de Análisis y esa no conoce el resto de la configuración —credenciales
+    referenciadas, cuentas, los demás usos—: reescribir el perfil entero desde
+    ahí lo borraría.
+    """
+    profiles = {
+        str(key): dict(value) for key, value in (record.get("profiles") or {}).items()
+    }
+    profile = profiles.get(str(audit_id))
+    if profile is None:
+        raise KeyError(f"El uso {audit_id} no tiene configuración guardada")
+    profile["real_attribution"] = normalize_attribution(rewrite(profile.get("real_attribution")))
+    return profiles
 
 
 def _trade_ticket(trade: Any) -> str:

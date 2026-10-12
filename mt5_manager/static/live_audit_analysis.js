@@ -603,6 +603,41 @@ function renderReproduction() {
     : `${criterion} La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: pulsa «Escalar demo al lote real» para comparar comportamiento.`;
 }
 
+function storedAttribution() {
+  return currentResult.analysis?.tolerances?.real_attribution || {};
+}
+
+// Cada regla recuerda de qué fichero salió, así que se puede retirar un Excel
+// equivocado sin perder los demás. Lo guardado antes de que existiera ese campo
+// no tiene fichero y se agrupa aparte, para que tampoco quede atrapado.
+function attributionSources() {
+  const stored = storedAttribution();
+  const counts = new Map();
+  Object.values(stored.rules || {}).forEach(rule => {
+    const key = String(rule.source || '');
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  const named = Object.entries(stored.sources || {}).map(([sha256, source]) => ({
+    sha256, name: source?.name || 'Excel sin nombre', operations: counts.get(sha256) || 0,
+  }));
+  if (counts.get('')) {
+    named.push({sha256: '', name: 'Subidas anteriores', operations: counts.get('')});
+  }
+  return named.sort((a, b) => b.operations - a.operations || a.name.localeCompare(b.name, 'es'));
+}
+
+function renderAttributionSources() {
+  const target = document.querySelector('#attribution-sources');
+  const sources = attributionSources();
+  target.hidden = !sources.length;
+  if (target.hidden) return;
+  const chips = sources.map(source => `<span class="attribution-source">${escapeHtml(source.name)}
+    <small>${escapeHtml(number(source.operations, 0))} op</small>
+    <button type="button" data-remove-source="${escapeHtml(source.sha256)}" title="Quitar este Excel y sólo lo que dijo">✕</button></span>`).join('');
+  target.innerHTML = `<span>Excel subidos</span>${chips}`
+    + '<button type="button" class="secondary attribution-clear" data-clear-attribution>Quitar toda la atribución</button>';
+}
+
 const unaccountedStates = {
   excluded: ['FUERA DEL PORTAFOLIO', 'info'],
   pending: ['PENDIENTE DE INVESTIGACIÓN', 'warn'],
@@ -645,10 +680,8 @@ function renderUnaccounted() {
     .filter(row => attributionOf(row).state === 'attributed');
   // El recuento guardado puede ser mayor que el de esta auditoría: la
   // atribución se acumula y conserva lo dicho de ejecuciones anteriores.
-  const stored = Number(
-    currentResult.analysis?.tolerances?.real_attribution?.rules
-      && Object.keys(currentResult.analysis.tolerances.real_attribution.rules).length,
-  ) || 0;
+  const stored = Object.keys(storedAttribution().rules || {}).length;
+  renderAttributionSources();
   document.querySelector('#unaccounted-note').textContent = [
     stored
       ? `Hay ${stored} operacion${stored === 1 ? '' : 'es'} guardada${stored === 1 ? '' : 's'} en la atribución de este uso; cada Excel que subas se suma a lo anterior, no lo reemplaza.` : '',
@@ -917,10 +950,27 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
-// El veredicto lo calcula el manager al leer, así que subir el Excel no basta:
-// hay que guardarlo en el uso y volver a pedir el análisis. Las dos cosas van
-// en una sola llamada —`.../attribution` devuelve el resultado ya recalculado—
-// para que no pueda quedarse guardado sin repintar ni repintado sin guardar.
+// El veredicto lo calcula el manager al leer, así que cambiar la atribución no
+// basta: hay que guardarla en el uso y volver a pedir el análisis. Las dos
+// cosas van en una sola llamada —`.../attribution` devuelve el resultado ya
+// recalculado— para que no pueda quedarse guardado sin repintar ni repintado
+// sin guardar. Añadir y quitar hacen el mismo viaje.
+async function changeAttribution(change) {
+  const state = await jsonResponse(await fetch(
+    `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/attribution`,
+    {method: 'POST', headers: {'Content-Type': 'application/json'},
+     body: JSON.stringify(change)},
+  ));
+  const result = (state.audit || state).last_result;
+  if (!result) {
+    throw new Error((state.audit || state).analysis_error
+      || 'El manager no devolvió el análisis recalculado.');
+  }
+  render(result);
+  await loadDegradation();
+  showAnalysisError('');
+}
+
 async function uploadAttribution(file) {
   const button = document.querySelector('#attribution-upload');
   // El rótulo es un `span` aparte a propósito: el `input` es hijo del `label`,
@@ -939,16 +989,7 @@ async function uploadAttribution(file) {
        body: JSON.stringify({filename: file.name, content_base64: content})},
     ));
     label.textContent = 'Recalculando la auditoría…';
-    const state = await jsonResponse(await fetch(
-      `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/attribution`,
-      {method: 'POST', headers: {'Content-Type': 'application/json'},
-       body: JSON.stringify({real_attribution: parsed.real_attribution})},
-    ));
-    const result = (state.audit || state).last_result;
-    if (!result) throw new Error((state.audit || state).analysis_error || 'El manager no devolvió el análisis recalculado.');
-    render(result);
-    await loadDegradation();
-    showAnalysisError('');
+    await changeAttribution({real_attribution: parsed.real_attribution});
   } finally {
     label.textContent = previous;
     button.classList.remove('is-busy');
@@ -961,6 +1002,24 @@ async function uploadAttribution(file) {
 document.querySelector('#attribution-file').addEventListener('change', event => {
   const file = event.target.files?.[0];
   if (file) uploadAttribution(file).catch(error => showAnalysisError(error.message));
+});
+
+// Delegado: la lista se repinta con cada recálculo, así que escuchar en los
+// botones dejaría los oyentes colgando del marcado viejo.
+document.querySelector('#attribution-sources').addEventListener('click', event => {
+  const remove = event.target.closest('[data-remove-source]');
+  const clear = event.target.closest('[data-clear-attribution]');
+  if (!remove && !clear) return;
+  const change = clear ? {clear: true} : {remove_source: remove.dataset.removeSource};
+  const question = clear
+    ? '¿Quitar toda la atribución guardada de este uso? Las reales vuelven a quedar sin explicar.'
+    : 'Se quitará ese Excel y sólo las operaciones que dijo. ¿Seguir?';
+  if (!window.confirm(question)) return;
+  event.target.disabled = true;
+  changeAttribution(change).catch(error => {
+    event.target.disabled = false;
+    showAnalysisError(error.message);
+  });
 });
 
 document.querySelector('#back-link').href = `/live_audit.html?node=${encodeURIComponent(nodeId)}`;

@@ -1,0 +1,171 @@
+"""Contrato de la pantalla de Análisis: escalado al lote real y cuadre.
+
+Salió de `test_live_audit_configuration_screen.py`, que se pasaba de las 600
+líneas. Aquí viven las comprobaciones de lo que esa pantalla decide —a qué lote
+se lleva la demo, qué entra en cada curva y dónde acaba cada real—; en el otro
+quedan la configuración del uso y la pantalla de resultado.
+"""
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+from lxml import html
+
+
+class LiveAuditAnalysisScreenTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        cls.analysis_page_text = (static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
+        cls.analysis_script = (static_dir / "live_audit_analysis.js").read_text(encoding="utf-8")
+        cls.analysis_css = (static_dir / "live_audit_analysis.css").read_text(encoding="utf-8")
+        cls.analysis_page = html.fromstring(cls.analysis_page_text)
+
+    def test_the_demo_curve_is_scaled_to_the_lot_the_real_account_executed(self) -> None:
+        # La cuenta real lleva la batuta. Escalar al lote que el autolote
+        # calcula mete en la comparación la desviación que la auditoría está
+        # midiendo: en la auditoría 148 de RoboForex, 65 de 94 operaciones
+        # ejecutaron un lote distinto del calculado.
+        self.assertIn("function scaleTarget(row)", self.analysis_script)
+        self.assertIn("row.real || row.real_position_still_open", self.analysis_script)
+        self.assertIn("return {volume: executed, source: 'real'}", self.analysis_script)
+        self.assertIn("trade.scale_volume", self.analysis_script)
+        self.assertIn("applyLots({$mode: 'autolot'})", self.analysis_script)
+        self.assertIn("La curva Demo está escalada al lote de la cuenta real", self.analysis_script)
+        self.assertIn("La cuenta real lleva la batuta", self.analysis_script)
+        self.assertIn("Escalar demo al lote real", self.analysis_page_text)
+
+    def test_only_an_operation_without_a_real_pair_falls_back_to_the_autolot(self) -> None:
+        # Sin pareja no hay lote ejecutado que copiar, y ahí sí entra el
+        # calculo: dejarla con el lote fijo del backtest mezclaria dos escalas.
+        self.assertIn("row.limits?.volume_expected_source === 'autolot'", self.analysis_script)
+        self.assertIn("row.limits.volume_expected_real", self.analysis_script)
+        self.assertIn("{volume: expected, source: 'autolot'}", self.analysis_script)
+        self.assertIn("porque no hay lote ejecutado que copiar", self.analysis_script)
+        self.assertIn("function lotList(lots)", self.analysis_script)
+        self.assertIn("function scaledBySource(group, source)", self.analysis_script)
+
+    def test_a_pair_whose_real_is_still_open_leaves_both_curves(self) -> None:
+        # El tester cerró esa operación sólo porque se acabó el rango del
+        # backtest, así que su PnL mide el corte y no la estrategia. Mientras
+        # estuvo dentro, la curva Demo de la auditoría 148 arrastraba -124,88 €
+        # que en real no se habían materializado.
+        self.assertIn("function splitPending(series)", self.analysis_script)
+        self.assertIn("point.pending_real", self.analysis_script)
+        self.assertIn("pending_real: Boolean(row.real_position_still_open)", self.analysis_script)
+        self.assertIn("splitPending(series).settled.reduce", self.analysis_script)
+        self.assertIn("sólo cerró porque se acabó el\n// rango del backtest", self.analysis_script)
+        # No se dibujan en ningún sitio: el gráfico sólo tiene Demo y Real, y
+        # lo excluido se informa con texto en el resumen y en la cabecera.
+        self.assertIn("chartLegend([['demo', 'Demo / Tester'], ['real', 'Real']])", self.analysis_script)
+        self.assertNotIn("audit-analysis-line pending", self.analysis_script)
+        self.assertNotIn(".audit-analysis-line.pending", self.analysis_css)
+        self.assertIn("ninguna de las dos se dibuja", self.analysis_page_text)
+
+    def test_a_real_position_still_open_counts_as_paired_and_not_as_absent(self) -> None:
+        # Una real sin cerrar no tiene PnL, así que no entra en la curva; pero
+        # el auditor sí la emparejó. Contarla sólo por `real.close_time` hacía
+        # que la pantalla dijese «0 REAL EMPAREJADAS» de una estrategia que el
+        # veredicto alineaba al segundo, y se leía como que no había operado.
+        self.assertIn("row.real_position_still_open) group.openReal.push", self.analysis_script)
+        self.assertIn("function openRealMark(group)", self.analysis_script)
+        self.assertIn("EMPAREJADA${open === 1 ? '' : 'S'} SIN CERRAR", self.analysis_script)
+        self.assertIn("${open} SIN CERRAR, FUERA", self.analysis_script)
+        self.assertIn("ninguna de las dos se dibuja", self.analysis_script)
+        self.assertIn("Fuera: sin cerrar en real", self.analysis_script)
+
+    def test_a_strategy_that_does_not_reproduce_in_real_is_flagged(self) -> None:
+        # `.USTECHCash` H1 de la auditoría 148 hace +11,38 € en el tester y
+        # -0,46 € en real: el cambio de signo no admite grado y tiene que verse
+        # sin abrir estrategia por estrategia.
+        self.assertTrue(self.analysis_page.xpath('//tbody[@id="reproduction-body"]'))
+        self.assertTrue(self.analysis_page.xpath('//span[@id="reproduction-count"]'))
+        self.assertIn("¿Se está comportando en real como en el tester?", self.analysis_page_text)
+        self.assertIn("function reproductionVerdict(numbers)", self.analysis_script)
+        self.assertIn("if (demo >= 1 && real < 0)", self.analysis_script)
+        self.assertIn("'NO REPRODUCE'", self.analysis_script)
+        # Sólo avisa si el real empeora, igual que `adverse_shortfall_only` del
+        # motor: que la cuenta gane más que el tester no es un defecto.
+        self.assertIn("'MEJOR QUE EL TESTER', 'good'", self.analysis_script)
+        # La magnitud NO es la del perfil: `pnl_deviation_warning_pct` mide la
+        # desviación de un relleno, no el deterioro agregado de la estrategia.
+        # Perder algo al pasar a real es lo normal y está cuantificado fuera.
+        self.assertIn("const REPRODUCTION_EXPECTED_PCT = 20;", self.analysis_script)
+        self.assertIn("const REPRODUCTION_BROKEN_PCT = 60;", self.analysis_script)
+        self.assertNotIn("tolerances?.pnl_pct", self.analysis_script)
+        self.assertIn("no un umbral canónico", self.analysis_script)
+        # Lo que no se compara se dice: faltantes y pendientes no están en los
+        # importes, así que la fila avisa de que la comparación es parcial.
+        self.assertIn("Comparación parcial", self.analysis_script)
+        # Con pocas parejas no se calla el veredicto: es una comparación de las
+        # mismas operaciones, no un contraste contra una distribución. Lo que se
+        # dice es hasta dónde vale, y va pegado al veredicto, no en otra columna.
+        self.assertIn("function fewPairsChip(counts)", self.analysis_script)
+        self.assertIn("POCAS OPERACIONES", self.analysis_script)
+        self.assertIn("vale para mirarlo, no para concluir", self.analysis_script)
+        # El corte sale de la propia banda: con n parejas una operación mueve
+        # 1/n del total, y por debajo de cinco eso supera el 20 % tolerado.
+        self.assertIn(
+            "const REPRODUCTION_FEW_PAIRS = Math.ceil(100 / REPRODUCTION_EXPECTED_PCT);",
+            self.analysis_script,
+        )
+        self.assertIn("Math.max(Math.abs(demo), 1)", self.analysis_script)
+        self.assertIn("function differenceNote(numbers)", self.analysis_script)
+        self.assertIn("renderReproduction();", self.analysis_script)
+
+    def test_every_closed_real_ends_up_accounted_or_said(self) -> None:
+        # El objetivo es que cuadre: cada real cerrada acaba emparejada,
+        # atribuida a una estrategia, o en la tabla del final con su motivo.
+        self.assertTrue(self.analysis_page.xpath('//tbody[@id="unaccounted-body"]'))
+        self.assertIn("Reales que no cuentan en ninguna estrategia", self.analysis_page_text)
+        self.assertIn("function attributionOf(row)", self.analysis_script)
+        self.assertIn("PENDIENTE DE INVESTIGACIÓN", self.analysis_script)
+        self.assertIn("FUERA DEL PORTAFOLIO", self.analysis_script)
+        self.assertIn("function renderUnaccounted()", self.analysis_script)
+        self.assertIn("renderUnaccounted();", self.analysis_script)
+        # Lo atribuido suma en el real de su estrategia; lo excluido sale de la
+        # curva; lo que nadie explicó sigue en la curva pero no en una fila.
+        self.assertIn(".attributed.push(row.real)", self.analysis_script)
+        self.assertIn("function groupRealTrades(group)", self.analysis_script)
+        self.assertIn("attributionOf(row).state !== 'excluded'", self.analysis_script)
+
+    def test_uploading_the_excel_saves_it_and_repaints_with_the_new_verdict(self) -> None:
+        # El veredicto lo calcula el manager al leer, así que subir el Excel no
+        # basta: hay que guardarlo en el uso y volver a pedir el análisis. Va en
+        # una sola llamada para que no quede guardado sin repintar.
+        self.assertTrue(self.analysis_page.xpath('//input[@id="attribution-file"]'))
+        self.assertIn("live-audit-attribution-import", self.analysis_script)
+        self.assertIn("/attribution`", self.analysis_script)
+        self.assertIn("Recalculando la auditoría…", self.analysis_script)
+        self.assertIn("render(result);", self.analysis_script)
+        self.assertIn("await loadDegradation();", self.analysis_script)
+        # El `input` es hijo del `label`, así que el rótulo tiene que vivir en
+        # su propio `span`: escribir en el `textContent` del `label` borraba el
+        # `input` y la subida sólo funcionaba una vez.
+        self.assertTrue(self.analysis_page.xpath('//label[@id="attribution-upload"]/span[@id="attribution-label"]'))
+        self.assertTrue(self.analysis_page.xpath('//label[@id="attribution-upload"]/input[@id="attribution-file"]'))
+        upload = self.analysis_script.split("async function uploadAttribution(file)", 1)[1]
+        self.assertIn("const label = document.querySelector('#attribution-label')", upload)
+        self.assertNotIn("const label = document.querySelector('#attribution-upload')", upload)
+        # Vaciar el `value` deja volver a elegir el mismo fichero corregido.
+        self.assertIn("document.querySelector('#attribution-file').value = ''", self.analysis_script)
+
+    def test_an_uploaded_excel_can_be_taken_back(self) -> None:
+        # Si se acumula, tiene que poder deshacerse: cada regla recuerda de qué
+        # fichero salió, así que se retira uno sin perder los demás.
+        self.assertTrue(self.analysis_page.xpath('//div[@id="attribution-sources"]'))
+        self.assertIn("function attributionSources()", self.analysis_script)
+        self.assertIn("data-remove-source", self.analysis_script)
+        self.assertIn("data-clear-attribution", self.analysis_script)
+        self.assertIn("{remove_source: remove.dataset.removeSource}", self.analysis_script)
+        self.assertIn("{clear: true}", self.analysis_script)
+        # Quitar y subir hacen el mismo viaje: guardar y repintar con lo nuevo.
+        self.assertIn("changeAttribution(change)", self.analysis_script)
+        self.assertIn("window.confirm(question)", self.analysis_script)
+        # Lo guardado antes de que existiera el campo no puede quedar atrapado.
+        self.assertIn("Subidas anteriores", self.analysis_script)
+
+
+if __name__ == "__main__":
+    unittest.main()

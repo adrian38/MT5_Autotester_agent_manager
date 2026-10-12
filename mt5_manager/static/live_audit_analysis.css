@@ -71,6 +71,13 @@
 .degradation-off { color: #ffd47c !important; }
 #attribution-upload { display: inline-flex; align-items: center; cursor: pointer; }
 #attribution-upload.is-busy { opacity: .6; pointer-events: none; }
+.attribution-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.attribution-sources > span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.attribution-source { display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px 6px 11px; border: 1px solid var(--line); border-radius: 999px; background: #0b141e; font-size: 12px; }
+.attribution-source small { color: var(--muted); }
+.attribution-source button { padding: 2px 7px; border-radius: 999px; background: transparent; border: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.2; }
+.attribution-source button:hover { border-color: #9a3944; color: #ff9da5; }
+.attribution-sources .attribution-clear { margin-left: auto; }
 .audit-analysis-note { margin: 0 20px 14px; padding: 12px 14px; border: 1px solid #8f681f; border-radius: 10px; background: #1c180e; color: #ffd978; font-size: 12px; }
 .audit-analysis-note-text { margin: 0; padding: 14px 20px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.6; }
 @media (max-width: 560px) {

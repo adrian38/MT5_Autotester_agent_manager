@@ -281,8 +281,25 @@ def _handle_workbook_import(handler, parts: list[str]) -> bool:
     return True
 
 
+def _apply_attribution_change(handler, node_id: str, audit_id: str, body: Any) -> None:
+    """Suma un Excel, retira uno, o los retira todos.
+
+    Las tres operaciones por la misma puerta: lo que importa del endpoint es
+    que deje la atribución guardada y devuelva el análisis rehecho, y eso es
+    igual se añada o se quite.
+    """
+    settings = handler.server.live_audit_settings
+    change = body if isinstance(body, dict) else {}
+    if change.get("clear"):
+        settings.drop_real_attribution(node_id, audit_id, None)
+    elif "remove_source" in change:
+        settings.drop_real_attribution(node_id, audit_id, str(change["remove_source"] or ""))
+    else:
+        settings.set_real_attribution(node_id, audit_id, change.get("real_attribution"))
+
+
 def _handle_attribution_save(handler, parts: list[str]) -> bool:
-    """Guarda la atribución de un uso y devuelve el veredicto ya recalculado.
+    """Cambia la atribución de un uso y devuelve el veredicto ya recalculado.
 
     En una sola llamada: el criterio vive en el manager y se aplica al leer, de
     modo que guardar y volver a pedir son dos pasos que no pueden quedar a
@@ -297,10 +314,7 @@ def _handle_attribution_save(handler, parts: list[str]) -> bool:
         node_id = urllib.parse.unquote(parts[2])
         audit_id = urllib.parse.unquote(parts[4])
         node = handler._node(node_id)
-        body = handler._body()
-        handler.server.live_audit_settings.set_real_attribution(
-            node_id, audit_id, (body or {}).get("real_attribution"),
-        )
+        _apply_attribution_change(handler, node_id, audit_id, handler._body())
         status, value = manager_http.node_request(
             node, "GET", f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}",
             timeout=10,

@@ -9,9 +9,11 @@ from datetime import datetime, timezone
 from mt5_manager.live_audit_analysis import analyze
 from mt5_manager.live_audit_attribution import (
     attribution_by_ticket,
+    attribution_sources,
     import_workbook,
     merge_attribution,
     normalize_attribution,
+    remove_source,
     split_reason,
 )
 from mt5_manager.live_audit_settings_schema import normalize_live_audit_settings
@@ -133,9 +135,36 @@ class MergeTests(unittest.TestCase):
         )
         self.assertEqual(sorted(merged["rules"]), ["111", "222"])
 
-    def test_merging_over_nothing_is_the_incoming_file(self) -> None:
+    def test_merging_over_nothing_keeps_the_incoming_rules_and_stamps_their_file(self) -> None:
         first = imported(EXPORTED_ROWS)
-        self.assertEqual(merge_attribution(None, first)["rules"], first["rules"])
+        merged = merge_attribution(None, first)
+        self.assertEqual(sorted(merged["rules"]), sorted(first["rules"]))
+        # Cada regla recuerda de qué Excel salió: sin eso, acumular sería una
+        # calle de un solo sentido y no se podría retirar un fichero concreto.
+        self.assertTrue(all(
+            rule["source"] == first["source_sha256"] for rule in merged["rules"].values()
+        ))
+        self.assertEqual(merged["sources"][first["source_sha256"]]["name"], "auditor.xlsx")
+
+    def test_a_file_can_be_removed_without_losing_the_others(self) -> None:
+        # Como lo acumula el almacén: cada subida pasa por `merge_attribution`,
+        # que es donde cada regla queda sellada con su fichero.
+        first = merge_attribution(None, imported(EXPORTED_ROWS))
+        stored = merge_attribution(first, {
+            "source_name": "correcciones.xlsx", "source_sha256": "b" * 64,
+            "rules": {"333": {"strategy_set": SET_STEM, "reason": ""}},
+        })
+        self.assertEqual(len(stored["rules"]), 3)
+        left = remove_source(stored, "b" * 64)
+        self.assertEqual(sorted(left["rules"]), ["111", "222"])
+        self.assertNotIn("b" * 64, left["sources"])
+        self.assertEqual(
+            [source["name"] for source in attribution_sources(left)], ["auditor.xlsx"],
+        )
+
+    def test_removing_a_file_that_was_never_uploaded_says_so(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no está entre los subidos"):
+            remove_source(imported(EXPORTED_ROWS), "c" * 64)
 
 
 class BindingTests(unittest.TestCase):
