@@ -196,11 +196,15 @@ def _names_a_strategy(value: Any) -> bool:
 def _reason_column(header: dict[int, Any], body: list[dict[int, Any]]) -> int:
     """La columna donde el usuario escribió la estrategia.
 
-    Primero por el nombre de la cabecera; después, la columna que nombra un
-    `.set` o un identificador del auditor, que es lo único que una estrategia
-    parece. La última con contenido es el último recurso: vale cuando se añade
-    la columna a la derecha de lo exportado, pero no cuando lo añadido es el
-    ticket, y entonces el ticket se tomaba por el nombre de la estrategia.
+    Manda el nombre de la cabecera. Si no la nombra, manda la última columna
+    con contenido: es donde acaba lo que se añade a la derecha de lo exportado,
+    y da igual que sea el nombre del `.set` o una nota a mano.
+
+    La excepción es que lo añadido sea el **ticket**. Entonces la estrategia no
+    está ahí, sino en lo exportado, y se busca la columna que nombra un `.set`
+    o un identificador del auditor. Decidirlo mirando sólo la última columna
+    importa: la celda de mercado de una fila emparejada también nombra su
+    `.set`, así que preferirla siempre pisaría la nota del usuario.
     """
     named = {
         column for column, value in (header or {}).items()
@@ -212,12 +216,6 @@ def _reason_column(header: dict[int, Any], body: list[dict[int, Any]]) -> int:
         column for row in body for column, value in row.items()
         if str(value or "").strip()
     }
-    strategies = {
-        column for row in body for column, value in row.items()
-        if _names_a_strategy(value)
-    }
-    if strategies:
-        return max(strategies)
     if not candidates:
         raise ValueError(
             "Las filas del Excel no traen ninguna columna con la estrategia de cada operación"
@@ -226,7 +224,14 @@ def _reason_column(header: dict[int, Any], body: list[dict[int, Any]]) -> int:
         column for row in body for column, value in row.items()
         if _TICKET.search(str(value or ""))
     }
-    return max(candidates - tickets or candidates)
+    last = max(candidates)
+    if last not in tickets:
+        return last
+    strategies = {
+        column for row in body for column, value in row.items()
+        if _names_a_strategy(value)
+    }
+    return max(strategies) if strategies else max(candidates - tickets or candidates)
 
 
 def split_reason(value: Any) -> tuple[str, str]:

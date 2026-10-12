@@ -114,6 +114,26 @@ class WorkbookTests(unittest.TestCase):
         self.assertEqual(result["rules"]["46430179"]["strategy_set"], "AXI/STANDARD:21169")
         self.assertEqual(result["rules"]["46568182"]["strategy_set"], "AXI/STANDARD:32134")
 
+    def test_a_hand_written_note_still_wins_over_the_set_of_the_exported_row(self) -> None:
+        # La celda de mercado de una fila emparejada también nombra su `.set`.
+        # Preferir siempre «la columna que parece una estrategia» pisaba lo que
+        # el usuario había escrito: sólo se busca ahí cuando lo añadido a la
+        # derecha es el ticket, porque entonces la estrategia no está ahí.
+        exported = (
+            "Tesla+ · 5 lotes; buy; Tesla_M30_Bitcoin_37f12147_g001_s003_v004.set; "
+            "AXI/STANDARD:32134; ticket 46568182"
+        )
+        note = "esta no es del portafolio, la abrí a mano"
+        result = imported([(exported, note)], last_header="")
+        self.assertEqual(result["rules"]["46568182"]["strategy_set"], note)
+
+    def test_the_ticket_and_the_set_may_share_the_added_cell(self) -> None:
+        result = imported(
+            [("XAUUSD · 0,02 lotes; sell; sin pareja", f"ticket 46000002; {SET_STEM}.set")],
+            last_header="",
+        )
+        self.assertEqual(result["rules"]["46000002"]["strategy_set"], f"{SET_STEM}.set")
+
     def test_a_number_that_is_not_a_ticket_does_not_pass_as_one(self) -> None:
         with self.assertRaisesRegex(ValueError, "ticket"):
             imported([("XAUUSD · 0,02 lotes; sell; sin pareja", "ticket pendiente, 2 intentos")])
