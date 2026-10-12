@@ -55,13 +55,17 @@ class StrategyHistoryTests(unittest.TestCase):
 
 class ObservedTests(unittest.TestCase):
     def test_the_period_is_measured_per_lot_and_not_per_operation(self) -> None:
-        # Dividir por volumen y no por numero de operaciones deja el periodo en
-        # la misma unidad que el historico aunque la estrategia operara
-        # volumenes distintos.
+        # Cada operacion se lleva a un lote antes de hacer la media: el mismo
+        # peso por cierre que usa el historico, aunque los volumenes difieran.
         mixed = [{"profit": 10.0, "volume": 0.02}, {"profit": 5.0, "volume": 0.01}]
         value, volume = observed_per_lot(mixed)
-        self.assertAlmostEqual(value, 15.0 / 0.03, places=6)
+        self.assertAlmostEqual(value, (10.0 / 0.02 + 5.0 / 0.01) / 2, places=6)
         self.assertAlmostEqual(volume, 0.03, places=9)
+
+    def test_each_mixed_lot_trade_has_the_same_weight_as_in_history(self) -> None:
+        mixed = [{"profit": 10.0, "volume": 0.02}, {"profit": 10.0, "volume": 0.01}]
+        value, _volume = observed_per_lot(mixed)
+        self.assertAlmostEqual(value, 750.0, places=6)
 
     def test_operations_without_volume_cannot_be_measured_per_lot(self) -> None:
         self.assertIsNone(observed_per_lot([{"profit": 10.0, "volume": 0}]))
@@ -86,6 +90,8 @@ class CompareTests(unittest.TestCase):
         self.assertAlmostEqual(report["deviations"], 0.0, places=6)
         self.assertAlmostEqual(report["observed_per_lot"], 118.27, places=4)
         self.assertAlmostEqual(report["history_per_lot"], 118.27, places=4)
+        self.assertAlmostEqual(report["observed_at_reference_lot"], 1.1827, places=4)
+        self.assertAlmostEqual(report["history_at_reference_lot"], 1.1827, places=4)
 
     def sigmas_below(self, history: StrategyHistory, sigmas: float, count: int = 20) -> dict:
         """Periodo cuya media cae `sigmas` errores estandar de la historica."""

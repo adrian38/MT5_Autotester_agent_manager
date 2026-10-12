@@ -1337,3 +1337,16 @@ propia petición y después de pintar las curvas, porque abre la base del agente
 esa puede estar bloqueada por una generación; si falla, la tabla lo dice y el
 resto de la pantalla sigue en pie. Y es ruta aparte, no parte del detalle,
 porque la pantalla de configuración sondea el detalle en bucle.
+
+La presentación original decía «por lote» y enseñaba euros a un lote entero,
+aunque el histórico se hubiera ejecutado a 0,01. Era matemáticamente equivalente
+pero no permitía comprobar la escala a simple vista. La tabla enseña ahora la
+media del periodo y la histórica **ambas a 0,01 lotes**, y declara que las dos
+proceden del Strategy Tester. Si el periodo trae volúmenes distintos, cada
+operación se normaliza por separado antes de promediar: sumar primero PnL y
+volumen daba más peso a los cierres grandes que a los pequeños, incompatible con
+la media por operación y el error estándar históricos.
+
+El veredicto también expresa la acción prudente: mantener, vigilar, revisar o no
+decidir aún. Los casos sin muestra, histórico o dispersión cuentan como «sin
+conclusión» en la cabecera; nunca vuelven a quedar resumidos como «sin avisos».

@@ -304,9 +304,12 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             "MEJOR QUE EL HISTÓRICO",
         ):
             self.assertIn(verdict, self.analysis_script, verdict)
-        # El histórico corre a 0,01 y la auditoría al lote del portafolio: sin
-        # normalizar por lote se compararía el tamaño de la posición.
-        self.assertIn("por lote", self.analysis_page_text)
+        # Cada operacion del tester se presenta al lote historico de 0,01 para
+        # que la tabla conteste tambien en que escala esta comparando.
+        self.assertIn("mismo lote base del histórico", self.analysis_page_text)
+        self.assertIn("PnL medio al lote histórico", self.analysis_page_text)
+        self.assertIn("No cambiar aún", self.analysis_script)
+        self.assertIn("SIN CONCLUSIÓN", self.analysis_script)
         self.assertIn("/strategy-history", self.analysis_script)
         # Petición aparte: abre la base del agente y no puede retrasar las curvas.
         self.assertIn("async function loadDegradation()", self.analysis_script)

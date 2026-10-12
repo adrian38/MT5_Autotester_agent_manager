@@ -117,22 +117,24 @@ def history_from_metrics(metrics: dict[str, Any] | None) -> StrategyHistory | No
 
 
 def observed_per_lot(trades: list[dict[str, Any]]) -> tuple[float, float] | None:
-    """PnL por lote y volumen total de las operaciones del periodo.
+    """PnL medio por lote y volumen total de las operaciones del periodo.
 
-    Se divide el beneficio por el volumen en lugar de por el número de
-    operaciones: así una estrategia que operó varios volúmenes queda medida en
-    la misma unidad que el histórico, sin suponerle un lote único.
+    Cada operación se lleva primero a un lote y después se promedian esos
+    rendimientos. Así todos los cierres pesan igual que en la media histórica,
+    aunque la estrategia haya operado volúmenes distintos durante el periodo.
     """
-    profit = 0.0
+    profit_per_lot = 0.0
     volume = 0.0
+    count = 0
     for trade in trades:
         size = _number(trade.get("volume"))
         gain = _number(trade.get("profit"))
         if size is None or gain is None or size <= 0:
             continue
-        profit += gain
+        profit_per_lot += gain / size
         volume += size
-    return (profit / volume, volume) if volume > 0 else None
+        count += 1
+    return (profit_per_lot / count, volume) if count else None
 
 
 def expected_trades(history: StrategyHistory, period_days: float) -> float | None:
@@ -168,6 +170,7 @@ def compare(
         "trades": count, "reference_lot": reference_lot,
         "history": None, "expected_trades": None,
         "observed_per_lot": None, "history_per_lot": None,
+        "observed_at_reference_lot": None, "history_at_reference_lot": None,
         "deviation_per_lot": None, "deviations": None,
         "difference_pct": None, "observed_volume": None,
     }
@@ -184,11 +187,13 @@ def compare(
         },
         "expected_trades": expected_trades(history, period_days),
         "history_per_lot": per_lot,
+        "history_at_reference_lot": history.average_trade,
     }
     observed = observed_per_lot(trades)
     if not count or observed is None:
         return {**base, "verdict": "no_trades"}
     base["observed_per_lot"], base["observed_volume"] = observed
+    base["observed_at_reference_lot"] = observed[0] * reference_lot
     if per_lot:
         base["difference_pct"] = (observed[0] - per_lot) / abs(per_lot) * 100
     if count < MINIMUM_TRADES:

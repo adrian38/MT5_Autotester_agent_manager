@@ -102,9 +102,13 @@ function number(value, digits = 2) {
   return Number.isFinite(parsed) ? parsed.toLocaleString('es-ES', {maximumFractionDigits: digits}) : '—';
 }
 
-function money(value, currency) {
+function money(value, currency, maximumFractionDigits = 2) {
   const parsed = Number(value || 0);
-  try { return parsed.toLocaleString('es-ES', {style: 'currency', currency: currency || 'EUR'}); }
+  try {
+    return parsed.toLocaleString('es-ES', {
+      style: 'currency', currency: currency || 'EUR', maximumFractionDigits,
+    });
+  }
   catch (_error) { return `${number(parsed)} ${currency || ''}`.trim(); }
 }
 
@@ -834,18 +838,18 @@ const verdictLabels = {
   no_dispersion: 'SIN DISPERSIÓN HISTÓRICA',
 };
 const verdictHelp = {
-  degraded: 'Al menos dos errores estándar por debajo de su media histórica.',
-  warning: 'Entre uno y dos errores estándar por debajo: mirarlo, no concluir.',
-  normal: 'Dentro de lo que esta estrategia siempre ha hecho.',
-  better: 'Al menos dos errores estándar por encima de su media histórica.',
-  insufficient: 'Pocas operaciones en el periodo: una sola mala arrastraría la media.',
-  no_trades: 'La estrategia no cerró ninguna operación en el periodo.',
-  no_history: 'No hay backtest de este candidato en la memoria del agente.',
-  no_dispersion: 'El histórico no guarda SQN, así que no hay dispersión con la que medir.',
+  degraded: 'Revisar o sustituir antes de seguir: hay evidencia de deterioro frente a su histórico.',
+  warning: 'Mantener en vigilancia; aún no hay base suficiente para cambiarla.',
+  normal: 'Mantener: está dentro de lo que esta estrategia siempre ha hecho.',
+  better: 'Mantener: rinde por encima de su comportamiento histórico.',
+  insufficient: 'No cambiar aún: pocas operaciones; una sola mala arrastraría la media.',
+  no_trades: 'Esperar datos: la estrategia no cerró ninguna operación en el periodo.',
+  no_history: 'No decidible: no hay backtest de este candidato en la memoria del agente.',
+  no_dispersion: 'No decidible: el histórico no guarda SQN para medir su variación normal.',
 };
 
-function perLot(value, currency) {
-  return value === null || value === undefined ? '—' : money(value, currency);
+function atHistoryLot(value, currency) {
+  return value === null || value === undefined ? '—' : money(value, currency, 4);
 }
 
 function deviationCell(row) {
@@ -877,7 +881,7 @@ function historyCell(row, currency) {
   const months = history.active_months ? `${number(history.active_months, 0)} meses` : 'periodo no informado';
   return `<strong>${escapeHtml(number(history.trades, 0))} operaciones</strong>`
     + `<small>${escapeHtml(months)} · PF ${escapeHtml(number(history.profit_factor, 2))} · SQN ${escapeHtml(number(history.sqn, 2))}</small>`
-    + `<small>${escapeHtml(perLot(row.history_per_lot, currency))} por lote</small>`;
+    + `<small>media ${escapeHtml(atHistoryLot(row.history_at_reference_lot, currency))} por operación a ${escapeHtml(number(row.reference_lot, 8))} lotes</small>`;
 }
 
 function degradationRow(row, currency) {
@@ -888,7 +892,7 @@ function degradationRow(row, currency) {
   return `<tr>
     <th><strong>${escapeHtml(row.symbol || '—')}</strong><small>${escapeHtml(name)}</small></th>
     <td>${tradesCell(row)}</td>
-    <td><strong>${escapeHtml(perLot(row.observed_per_lot, currency))}</strong><small>histórico ${escapeHtml(perLot(row.history_per_lot, currency))}</small></td>
+    <td><strong>periodo ${escapeHtml(atHistoryLot(row.observed_at_reference_lot, currency))}</strong><small>histórico ${escapeHtml(atHistoryLot(row.history_at_reference_lot, currency))}</small><small>por operación a ${escapeHtml(number(row.reference_lot, 8))} lotes</small></td>
     <td>${deviationCell(row)}</td>
     <td>${historyCell(row, currency)}</td>
     <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(verdictHelp[row.verdict] || '')}</small></td>
@@ -904,8 +908,16 @@ function renderDegradation(report) {
     ? rows.map(row => degradationRow(row, currency)).join('')
     : '<tr><td colspan="6" class="audit-analysis-empty">No hay estrategias que comparar en este resultado.</td></tr>';
   const flagged = rows.filter(row => ['degraded', 'warning'].includes(row.verdict)).length;
+  const undecided = rows.filter(row => [
+    'insufficient', 'no_trades', 'no_history', 'no_dispersion',
+  ].includes(row.verdict)).length;
   const badge = document.querySelector('#degradation-count');
-  badge.textContent = flagged ? `${flagged} A REVISAR` : `${rows.length} SIN AVISOS`;
+  const reviewed = rows.length - flagged - undecided;
+  badge.textContent = [
+    flagged ? `${flagged} A REVISAR` : '',
+    undecided ? `${undecided} SIN CONCLUSIÓN` : '',
+    reviewed ? `${reviewed} MANTENER` : '',
+  ].filter(Boolean).join(' · ') || 'SIN DATOS';
   badge.className = `badge ${flagged ? 'pending' : 'idle'}`;
 }
 
