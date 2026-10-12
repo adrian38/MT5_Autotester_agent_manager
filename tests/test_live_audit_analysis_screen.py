@@ -130,6 +130,18 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("function groupRealTrades(group)", self.analysis_script)
         self.assertIn("attributionOf(row).state !== 'excluded'", self.analysis_script)
 
+    def test_reproduction_says_whether_the_backtest_had_the_tick_quality(self) -> None:
+        # Decidir si se retira una estrategia por su déficit frente al tester
+        # exige saber si ese tester corrió con historial completo: con 66 % de
+        # calidad, el déficit puede ser del dato y no de la estrategia.
+        self.assertIn("function strategyQuality(result)", self.analysis_script)
+        self.assertIn("function qualityChip(group)", self.analysis_script)
+        self.assertIn("CALIDAD TICK ", self.analysis_script)
+        self.assertIn("SIN CALIDAD TICK", self.analysis_script)
+        self.assertIn("quality: quality.get(key) || null", self.analysis_script)
+        self.assertIn("${qualityChip(group)}", self.analysis_script)
+        self.assertIn("su veredicto no sirve para decidir si se retiran", self.analysis_script)
+
     def test_the_reals_discarded_by_lot_are_said_instead_of_disappearing(self) -> None:
         # El filtro de banda de lote descarta cierres reales antes de comparar.
         # En el uso 105 de AXI eran 10 de 35 —nueve Tesla+ a 1.0 y un BTCUSD—

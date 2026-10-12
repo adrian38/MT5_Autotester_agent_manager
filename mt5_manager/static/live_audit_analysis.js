@@ -224,6 +224,7 @@ function cumulativeSeries(trades) {
 // fundirían en una sola fila, escondiendo la que peor reproduce.
 function strategyGroups(result) {
   const groups = new Map();
+  const quality = strategyQuality(result);
   comparisonRows(result).forEach(row => {
     const tester = row.tester || {};
     const key = String(row.strategy || tester.strategy || 'Sin estrategia');
@@ -231,6 +232,7 @@ function strategyGroups(result) {
       groups.set(key, {
         strategy: key, label: row.strategy_set || key,
         symbol: tester.symbol || '—', demo: [], real: [], openReal: [], attributed: [],
+        quality: quality.get(key) || null,
       });
     }
     const group = groups.get(key);
@@ -564,6 +566,40 @@ function reproductionCounts(group) {
 // quien lee «NO REPRODUCE» en rojo tiene que ver en el mismo sitio que son dos
 // operaciones. Es una segunda etiqueta y no un veredicto distinto, porque el
 // rojo sigue valiendo: hay que mirarlo, sólo que todavía no es un diagnóstico.
+// La calidad tick es del historial de la terminal que ejecutó ese set, no de
+// la estrategia. Aquí importa porque decide si el déficit frente al tester se
+// puede creer: con el backtest corrido sobre un historial incompleto, retirar
+// la estrategia sería castigarla por un problema de datos.
+function strategyQuality(result) {
+  const quality = new Map();
+  (result.comparison_detail?.strategy_summary || []).forEach(row => {
+    quality.set(String(row.strategy), {pct: row.history_quality_pct, ok: row.quality_ok});
+  });
+  (result.strategy_artifacts || []).forEach(row => {
+    const key = String(row.strategy);
+    if (!quality.has(key)) quality.set(key, {pct: row.history_quality_pct, ok: undefined});
+  });
+  return quality;
+}
+
+function qualityChip(group) {
+  const quality = group.quality;
+  if (!quality) return '';
+  const text = quality.pct == null ? 'SIN CALIDAD TICK' : `CALIDAD TICK ${number(quality.pct)} %`;
+  if (quality.ok === false) return `<span class="degradation-status bad">${escapeHtml(text)}</span>`;
+  if (quality.pct == null) return `<span class="degradation-status warn">${escapeHtml(text)}</span>`;
+  return '';
+}
+
+function qualityNote(group) {
+  const quality = group.quality;
+  if (!quality) return '';
+  if (quality.ok === false || quality.pct == null) {
+    return `<small class="degradation-off">El backtest de esta estrategia corrió con historial de ticks incompleto${quality.pct == null ? '' : ` (${escapeHtml(number(quality.pct))} %)`}: su déficit frente al tester puede ser del dato, no de la estrategia. Repite la auditoría antes de retirarla.</small>`;
+  }
+  return `<small>Calidad tick ${escapeHtml(number(quality.pct))} %: el backtest es comparable.</small>`;
+}
+
 function fewPairsChip(counts) {
   return counts.few
     ? `<span class="degradation-status info">POCAS OPERACIONES</span>` : '';
@@ -589,7 +625,7 @@ function reproductionRow(group, currency) {
     <td><strong>${escapeHtml(money(numbers.real, currency))}</strong></td>
     <td><strong>${escapeHtml(`${sign}${money(numbers.real - numbers.demo, currency)}`)}</strong><small>${escapeHtml(differenceNote(numbers))}</small></td>
     <td><strong>${escapeHtml(group.real.length)} emparejadas</strong>${counts.attributed ? `<small class="lots-autolot-note">+ ${escapeHtml(counts.attributed)} atribuidas a mano</small>` : ''}${counts.deviations ? `<small class="degradation-off">${escapeHtml(counts.deviations)} con desviación</small>` : ''}${partial}</td>
-    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span>${fewPairsChip(counts)}<small>${escapeHtml(help)}</small>${fewPairsNote(counts)}</td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span>${fewPairsChip(counts)}${qualityChip(group)}<small>${escapeHtml(help)}</small>${fewPairsNote(counts)}${qualityNote(group)}</td>
   </tr>`;
 }
 
@@ -614,9 +650,16 @@ function renderReproduction() {
   ].filter(Boolean).join(' · ') || `${ranked.length} SIN AVISOS`;
   badge.className = `badge ${broken ? 'failed' : warnings ? 'pending' : 'idle'}`;
   const criterion = `Perder algo al pasar de backtest a real es lo normal, así que hasta el ${number(REPRODUCTION_EXPECTED_PCT, 0)} % de déficit se da por bueno; entre ahí y el ${number(REPRODUCTION_BROKEN_PCT, 0)} % avisa, y por encima —o si la cuenta pierde donde el tester ganaba— se marca NO REPRODUCE. Son valores por defecto tomados de las bandas de deterioro publicadas (10-20 % para una estrategia bien construida, 20-60 % habitual), no un umbral canónico: conviene recalibrarlos contra tus propias estrategias. Con menos de ${number(REPRODUCTION_FEW_PAIRS, 0)} parejas una sola operación mueve el total más que esa banda, así que el veredicto se da igual pero marcado POCAS OPERACIONES: sirve para mirarlo, no para concluir.`;
-  document.querySelector('#reproduction-note').textContent = autolotMode()
+  // Una estrategia cuyo backtest corrió sobre un historial incompleto no se
+  // puede retirar por su déficit: el déficit puede ser del dato.
+  const doubtful = ranked.filter(group => group.quality
+    && (group.quality.ok === false || group.quality.pct == null));
+  const qualityWarning = doubtful.length
+    ? ` ${doubtful.length} estrategia(s) corrieron el tester sin la calidad tick exigida (${doubtful.map(group => `${group.symbol} ${group.quality.pct == null ? 'sin informar' : `${number(group.quality.pct)} %`}`).join(', ')}): su veredicto no sirve para decidir si se retiran.`
+    : '';
+  document.querySelector('#reproduction-note').textContent = (autolotMode()
     ? `${criterion} Los importes de la demo están escalados al lote de la cuenta real, así que la diferencia ya no mide el tamaño de la posición.`
-    : `${criterion} La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: pulsa «Escalar demo al lote real» para comparar comportamiento.`;
+    : `${criterion} La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: pulsa «Escalar demo al lote real» para comparar comportamiento.`) + qualityWarning;
 }
 
 function storedAttribution() {
