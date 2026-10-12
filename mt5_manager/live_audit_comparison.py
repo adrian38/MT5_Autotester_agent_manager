@@ -131,10 +131,23 @@ class _ComparisonMixin:
     def _missing_comparison(
         expected: dict[str, Any], tester_index: int, strategy: str,
         same_market: list[tuple[float, int]], real: list[dict[str, Any]],
-        time_limit: int, data_issues: list[str],
+        request: dict[str, Any], data_issues: list[str],
     ) -> dict[str, Any]:
+        """La fila de un cierre del tester que ninguna real reclamó.
+
+        Publica igualmente el lote que se esperaba en real. Sin pareja no hay
+        apertura real de la que leer el saldo, así que el autolote se evalúa en
+        la apertura del tester: es el mismo instante que habría usado cualquier
+        otra operación de esa estrategia ahí, porque la apertura real sólo puede
+        caer dentro de la tolerancia de tiempo. Dejar la fila sin lote esperado
+        la congelaba en el lote del tester, y la simulación de la pantalla de
+        análisis mezclaba lotes históricos con lotes de backtest en una misma
+        curva.
+        """
+        time_limit = request["trade_time_tolerance_seconds"]
         nearest = min(same_market) if same_market else None
         nearest_trade = real[nearest[1]] if nearest else None
+        volume_detail = _expected_real_volume_detail(expected, request)
         return {
             "tester_index": tester_index, "status": "missing", "strategy": strategy,
             "tester": _trade_view(expected), "real": None,
@@ -143,7 +156,12 @@ class _ComparisonMixin:
             "measurements": {
                 "nearest_open_time_delta_seconds": round(nearest[0], 3) if nearest else None,
             },
-            "limits": {"open_time_seconds": time_limit}, "data_issues": data_issues,
+            "limits": {
+                "open_time_seconds": time_limit,
+                "volume_expected_basis": "tester_open_time",
+                **_volume_limits(volume_detail),
+            },
+            "data_issues": data_issues,
             "reasons": [
                 "open_time_outside_tolerance" if nearest else "no_real_same_symbol_and_side"
             ],
@@ -210,7 +228,6 @@ class _ComparisonMixin:
         price_limit_points: float | None, price_limit_rule: str,
         volume_limit: float, pnl_limit: float, volume_detail: dict[str, Any],
     ) -> dict[str, Any]:
-        expected_volume = float(volume_detail["expected"])
         return {
             "open_time_seconds": request["trade_time_tolerance_seconds"],
             "close_time_seconds": request["trade_time_tolerance_seconds"],
@@ -219,11 +236,7 @@ class _ComparisonMixin:
             "open_price_configured_points": request["price_tolerance_points"],
             "open_price_rule": price_limit_rule, "volume_pct": request["volume_tolerance_pct"],
             "volume_absolute": round(volume_limit, 8),
-            "volume_expected_real": round(expected_volume, 8),
-            "volume_expected_source": volume_detail["source"],
-            **{key: round(float(volume_detail[key]), 8) for key in (
-                "balance", "dd_001", "risk_pct", "raw_lot",
-            ) if key in volume_detail},
+            **_volume_limits(volume_detail),
             "pnl_pct": request["pnl_deviation_warning_pct"],
             "pnl_absolute": round(pnl_limit, 2),
         }
@@ -306,7 +319,7 @@ class _ComparisonMixin:
             state["operation_comparisons"].append(_ComparisonMixin._missing_comparison(
                 expected, tester_index, strategy,
                 _ComparisonMixin._same_market(expected, real, state["unassigned"]), real,
-                request["trade_time_tolerance_seconds"], data_issues,
+                request, data_issues,
             ))
             return
         state["unused"].remove(index)
@@ -414,6 +427,8 @@ class _ComparisonMixin:
         real_dd: float, tester_dd: float, dd_deviation: float,
     ) -> dict[str, Any]:
         time_limit = request["trade_time_tolerance_seconds"]
+        autolot = request.get("autolot") or {}
+        dynamic_lots = bool(autolot.get("enabled"))
         return {
             "matched_by_strategy": state["matched_by_strategy"],
             "within_tolerance_by_strategy": state["within_tolerance_by_strategy"],
@@ -427,13 +442,25 @@ class _ComparisonMixin:
             "time_tolerance_seconds": time_limit,
             "methodology": {
                 "alignment": "Mismo símbolo y lado; el reparto se decide sobre todas las parejas a la vez y cada real se usa una vez, sea un cierre o una posición todavía abierta. Manda la apertura dentro de tolerancia; a igualdad, el cierre dentro de tolerancia; a igualdad, la menor distancia total. Una real que sólo encaja por el cierre se acepta y se marca la apertura como desviación.",
-                "validation": "En parejas cerradas se validan cierre, precio de apertura, volumen y PnL. Una posición real todavía abierta se considera alineada y valida solo apertura, precio y volumen: no se inventan cierre ni PnL. El volumen se compara contra el lote real configurado para la estrategia y el PnL del tester se escala por ese mismo ratio. El drawdown se valida sobre el conjunto.",
+                "validation": (
+                    "En parejas cerradas se validan cierre, precio de apertura, volumen y PnL. Una posición real todavía abierta se considera alineada y valida solo apertura, precio y volumen: no se inventan cierre ni PnL. "
+                    + (
+                        "El volumen se compara contra el lote que el autolote calcula en la apertura de cada operación —saldo histórico × riesgo % × 0,01 ÷ DD_0.01, ajustado al mínimo y paso del broker— y el PnL del tester se escala por ese mismo ratio: dentro de una misma auditoría dos operaciones de la estrategia pueden esperar lotes distintos. Un cierre del tester sin pareja real se evalúa en su propia apertura."
+                        if dynamic_lots else
+                        "El volumen se compara contra el lote real configurado para la estrategia y el PnL del tester se escala por ese mismo ratio."
+                    )
+                    + " El drawdown se valida sobre el conjunto."
+                ),
                 "tolerances": {
                     "time_seconds": time_limit, "price_points": request["price_tolerance_points"],
                     "price_policy": "adaptive_by_instrument",
                     "price_absolute_floors": ADAPTIVE_PRICE_TOLERANCE_FLOORS,
                     "volume_pct": request["volume_tolerance_pct"],
-                    "volume_basis": "configured_real_lot",
+                    "volume_basis": "autolot_balance_risk" if dynamic_lots else "configured_real_lot",
+                    "autolot_source": str(autolot.get("source_name") or "") if dynamic_lots else "",
+                    "autolot_strategies": len(
+                        request.get("_autolot_rules_by_strategy") or autolot.get("rules") or {},
+                    ) if dynamic_lots else 0,
                     "pnl_pct": request["pnl_deviation_warning_pct"],
                     "pnl_policy": "adverse_shortfall_only",
                     "pnl_basis": "tester_scaled_to_real_lot",

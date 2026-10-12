@@ -252,6 +252,19 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("applyLots({$mode: 'autolot'})", self.analysis_script)
         self.assertIn("las demás conservan el lote ejecutado", self.analysis_script)
         self.assertIn("La curva Demo usa el autolote histórico de cada operación", self.analysis_script)
+        # Las demo sin pareja entran en la simulación: el manager les publica el
+        # lote esperado y la pantalla lo dice, en vez de dejarlas en el backtest.
+        self.assertIn("operaciones demo sin pareja en real", self.analysis_script)
+        self.assertIn("function lotList(lots)", self.analysis_script)
+        self.assertIn("function autolotTrades(group)", self.analysis_script)
+
+    def test_the_verdict_declares_which_lot_it_expected_in_real(self) -> None:
+        self.assertIn("tolerances.volume_basis === 'autolot_balance_risk'", self.result_script)
+        self.assertIn("Lote esperado: autolote por saldo y riesgo", self.result_script)
+        self.assertIn("Lote esperado: el lote real configurado por estrategia", self.result_script)
+        # Un faltante también enseña el lote que se esperaba y de dónde salió.
+        self.assertIn("volume_expected_basis === 'tester_open_time'", self.result_script)
+        self.assertIn("en la apertura del tester por no tener pareja", self.result_script)
 
     def test_the_simulation_recalculates_the_drawdown_and_never_touches_the_audit(self) -> None:
         # Con otro lote el drawdown del veredicto deja de valer, así que se

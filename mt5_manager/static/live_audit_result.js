@@ -94,8 +94,12 @@ function pnlDelta(measurements, limit) {
 // decidir, y el lector no puede reconstruir por qué la fila está dentro.
 function expectedRealVolumeNote(limits) {
   if (limits.volume_expected_real == null) return '';
+  // Sin pareja no hay apertura real de la que leer el saldo: el autolote se
+  // evalúa en la apertura del tester y la fila tiene que decirlo.
+  const basis = limits.volume_expected_basis === 'tester_open_time'
+    ? ', en la apertura del tester por no tener pareja' : '';
   if (limits.volume_expected_source === 'autolot') {
-    return ` · esperado en real ${number(limits.volume_expected_real, 4)} (autolote: saldo ${number(limits.balance, 2)}, riesgo ${number(limits.risk_pct, 2)} %, DD 0,01 ${number(limits.dd_001, 2)})`;
+    return ` · esperado en real ${number(limits.volume_expected_real, 4)} (autolote: saldo ${number(limits.balance, 2)}, riesgo ${number(limits.risk_pct, 2)} %, DD 0,01 ${number(limits.dd_001, 2)}${basis})`;
   }
   if (limits.volume_expected_source !== 'configured_real_lot') return '';
   return ` · esperado en real ${number(limits.volume_expected_real, 4)} (lote configurado)`;
@@ -190,7 +194,7 @@ function comparisonCsvRow(row) {
     ? plainPair(tester.open_price, real.open_price, value => number(value, 8))
     : `${plainPair(tester.open_price, real.open_price, value => number(value, 8))} · ${plainDelta(measurements.open_price_delta_points, limits.open_price_points, ' pt')} · límite absoluto ${number(limits.open_price_absolute, 8)} · regla ${priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada'}`;
   const volumeText = row.status === 'missing'
-    ? plainPair(tester.volume, real.volume, value => number(value, 4))
+    ? `${plainPair(tester.volume, real.volume, value => number(value, 4))}${expectedRealVolumeNote(limits)}`
     : `${plainPair(tester.volume, real.volume, value => number(value, 4))} · ${plainDelta(measurements.volume_delta_pct, limits.volume_pct, ' %')}${expectedRealVolumeNote(limits)}`;
   const pnlText = noClosedReal
     ? plainPair(tester.profit, real.profit, value => number(value, 2))
@@ -371,6 +375,11 @@ function renderMethodology(result) {
   const methodology = detail.methodology || {};
   const tolerances = methodology.tolerances || {};
   const adaptivePrice = tolerances.price_policy === 'adaptive_by_instrument';
+  // El lote esperado es el criterio que más cambia el veredicto de volumen y
+  // de PnL: la metodología tiene que decir cuál se aplicó y de dónde salió.
+  const autolotBasis = tolerances.volume_basis === 'autolot_balance_risk'
+    ? `<span>Lote esperado: autolote por saldo y riesgo${tolerances.autolot_strategies ? ` · ${escapeHtml(number(tolerances.autolot_strategies, 0))} estrategia${tolerances.autolot_strategies === 1 ? '' : 's'}` : ''}${tolerances.autolot_source ? ` · ${escapeHtml(tolerances.autolot_source)}` : ''}</span>`
+    : '<span>Lote esperado: el lote real configurado por estrategia</span>';
   document.querySelector('#methodology').innerHTML = `
     <ol>
       <li><strong>Alinear.</strong><span>${escapeHtml(methodology.alignment || 'Mismo símbolo y lado, con apertura dentro de la tolerancia temporal. Se usa la real más cercana y no puede reutilizarse.')}</span></li>
@@ -381,6 +390,7 @@ function renderMethodology(result) {
       <span>Tiempo ±${escapeHtml(number(tolerances.time_seconds ?? detail.time_tolerance_seconds, 0))} s</span>
       <span>${adaptivePrice ? 'Precio adaptativo por instrumento · límite efectivo en cada fila' : `Precio ±${escapeHtml(number(tolerances.price_points, 2))} puntos`}</span>
       <span>Volumen ±${escapeHtml(number(tolerances.volume_pct, 2))} %</span>
+      ${autolotBasis}
       <span>${tolerances.pnl_policy === 'adverse_shortfall_only' ? `PnL: alerta si el real empeora más de ${escapeHtml(number(tolerances.pnl_pct, 2))} %` : `PnL ±${escapeHtml(number(tolerances.pnl_pct, 2))} %`}</span>
       <span>Drawdown ±${escapeHtml(number(tolerances.drawdown_pct, 2))} %</span>
     </div>`;
@@ -492,10 +502,11 @@ function comparisonMarkup(row) {
   const nearestNote = row.status === 'missing' && nearest.open_time ? '<em>Candidato más cercano, no consumido</em>' : '';
   const volumeNote = expectedRealVolumeNote(limits).replace(/^ · /, '');
   const scaleNote = pnlScaleNote(measurements).replace(/^ · /, '');
-  const volumeCell = row.status === 'missing' ? '' : [
-    delta(measurements.volume_delta_pct, limits.volume_pct, ' %'),
-    volumeNote ? `<small>${escapeHtml(volumeNote)}</small>` : '',
-  ].join('');
+  // Un faltante no tiene volumen real contra el que medir, pero sí un lote
+  // esperado: es lo que habría llevado la real que no existe.
+  const expectedVolume = volumeNote ? `<small>${escapeHtml(volumeNote)}</small>` : '';
+  const volumeCell = row.status === 'missing' ? expectedVolume
+    : `${delta(measurements.volume_delta_pct, limits.volume_pct, ' %')}${expectedVolume}`;
   const pnlCell = row.status === 'missing' || openPosition ? '' : [
     pnlDelta(measurements, limits.pnl_pct),
     scaleNote ? `<small>${escapeHtml(scaleNote)}</small>` : '',

@@ -211,6 +211,22 @@ def _expected_real_volume_detail(
     return _autolot_expected_volume(expected, request, actual)
 
 
+def _volume_limits(volume_detail: dict[str, Any]) -> dict[str, Any]:
+    """El lote esperado y, si viene del autolote, los factores que lo explican.
+
+    Lo publican las tres clases de fila —pareja cerrada, real todavía abierta y
+    tester sin pareja—, así que vive aquí: un cuarto consumidor no puede volver
+    a copiar la lista de factores y olvidarse de uno.
+    """
+    return {
+        "volume_expected_real": round(float(volume_detail["expected"]), 8),
+        "volume_expected_source": volume_detail["source"],
+        **{key: round(float(volume_detail[key]), 8) for key in (
+            "balance", "dd_001", "risk_pct", "raw_lot",
+        ) if key in volume_detail},
+    }
+
+
 def _matching_open_position(
     expected: dict[str, Any], still_open: list[dict[str, Any]],
     unused: set[int], time_limit: float,
@@ -275,11 +291,7 @@ def _open_position_comparison(
             "open_price_configured_points": request["price_tolerance_points"],
             "open_price_rule": price_rule, "volume_pct": request["volume_tolerance_pct"],
             "volume_absolute": round(volume_limit, 8),
-            "volume_expected_real": round(expected_volume, 8),
-            "volume_expected_source": volume_detail["source"],
-            **{key: round(float(volume_detail[key]), 8) for key in (
-                "balance", "dd_001", "risk_pct", "raw_lot",
-            ) if key in volume_detail},
+            **_volume_limits(volume_detail),
         },
         "data_issues": data_issues,
         "reasons": ["real_position_still_open_at_period_end", *reasons],

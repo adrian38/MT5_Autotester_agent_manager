@@ -51,6 +51,23 @@ def trade(opened: datetime, volume: float, profit: float) -> dict[str, object]:
     }
 
 
+def autolot_profile(**changes: object) -> dict[str, object]:
+    """Perfil con el autolote activo y el saldo que publica el HTML nativo."""
+    return audit_profile(
+        autolot={
+            "enabled": True, "source_name": "riesgo.xlsx", "source_sha256": "a" * 64,
+            "rules": {SET_STEM: {"dd_001": 10.0, "risk_pct": 10.0}},
+        },
+        _autolot_balance_history=[
+            # El HTML nativo imprime UTC sin sufijo, mientras la materia
+            # prima del nodo transporta las operaciones con zona horaria.
+            {"time": "2026-09-22T09:00:00", "balance": 1000.0},
+            {"time": "2026-09-22T12:00:00+02:00", "balance": 2000.0},
+        ],
+        **changes,
+    )
+
+
 def audit_payload() -> dict[str, object]:
     first = datetime(2026, 9, 22, 9, 30, tzinfo=timezone.utc)
     second = datetime(2026, 9, 22, 10, 30, tzinfo=timezone.utc)
@@ -117,24 +134,44 @@ class AccountBalanceTests(unittest.TestCase):
 
 class DynamicAuditTests(unittest.TestCase):
     def test_each_operation_uses_the_balance_available_at_its_opening(self) -> None:
-        result = analyze(audit_payload(), audit_profile(
-            autolot={
-                "enabled": True, "source_name": "riesgo.xlsx", "source_sha256": "a" * 64,
-                "rules": {SET_STEM: {"dd_001": 10.0, "risk_pct": 10.0}},
-            },
-            _autolot_balance_history=[
-                # El HTML nativo imprime UTC sin sufijo, mientras la materia
-                # prima del nodo transporta las operaciones con zona horaria.
-                {"time": "2026-09-22T09:00:00", "balance": 1000.0},
-                {"time": "2026-09-22T12:00:00+02:00", "balance": 2000.0},
-            ],
-        ))
+        result = analyze(audit_payload(), autolot_profile())
         rows = result["comparison_detail"]["operation_comparisons"]
         self.assertEqual(result["within_tolerance_trades"], 2)
         self.assertEqual([row["limits"]["volume_expected_real"] for row in rows], [0.1, 0.2])
         self.assertEqual([row["limits"]["balance"] for row in rows], [1000.0, 2000.0])
         self.assertTrue(all(row["limits"]["volume_expected_source"] == "autolot" for row in rows))
         self.assertEqual(result["portfolio_filter"]["portfolio_closures"], 2)
+
+    def test_a_tester_operation_without_a_real_pair_still_expects_its_historical_lot(self) -> None:
+        """Sin pareja el lote se calcula en la apertura del tester, no se congela.
+
+        Es el mismo instante que habría usado cualquier otra operación de la
+        estrategia ahí: la apertura real sólo puede caer dentro de la tolerancia.
+        """
+        payload = audit_payload()
+        payload["real_trades"] = payload["real_trades"][:1]
+        result = analyze(payload, autolot_profile())
+        rows = result["comparison_detail"]["operation_comparisons"]
+        missing = [row for row in rows if row["status"] == "missing"]
+        self.assertEqual(len(missing), 1)
+        limits = missing[0]["limits"]
+        self.assertEqual(limits["volume_expected_source"], "autolot")
+        self.assertEqual(limits["volume_expected_real"], 0.2)
+        self.assertEqual(limits["balance"], 2000.0)
+        self.assertEqual(limits["volume_expected_basis"], "tester_open_time")
+        # El lote sigue siendo informativo: no convierte el faltante en pareja.
+        self.assertEqual(result["missing_real_trades"], 1)
+
+    def test_the_methodology_declares_the_dynamic_lot_instead_of_the_configured_one(self) -> None:
+        tolerances = analyze(audit_payload(), autolot_profile())[
+            "comparison_detail"]["methodology"]["tolerances"]
+        self.assertEqual(tolerances["volume_basis"], "autolot_balance_risk")
+        self.assertEqual(tolerances["autolot_source"], "riesgo.xlsx")
+        self.assertEqual(tolerances["autolot_strategies"], 1)
+        static = analyze(audit_payload(), audit_profile())[
+            "comparison_detail"]["methodology"]["tolerances"]
+        self.assertEqual(static["volume_basis"], "configured_real_lot")
+        self.assertEqual(static["autolot_strategies"], 0)
 
     def test_enabled_autolot_never_silently_falls_back_without_balance_history(self) -> None:
         with self.assertRaisesRegex(ValueError, "saldo histórico"):

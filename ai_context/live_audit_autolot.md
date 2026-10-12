@@ -71,3 +71,35 @@ durante el periodo para no descartar una operación antes de compararla. Despué
 `_pair_cost`, la validación de volumen y el escalado de PnL usan el lote de esa
 apertura concreta. Así dos operaciones de la misma estrategia pueden esperar
 lotes diferentes dentro de una sola auditoría.
+
+## Un cierre del tester sin pareja también tiene lote esperado
+
+`_missing_comparison` publicaba sólo `open_time_seconds`, así que la fila se
+quedaba sin `volume_expected_real` y la simulación de la pantalla Análisis la
+dejaba con el lote del backtest. En un periodo con autolote eso mezclaba dos
+escalas en la misma curva: las operaciones emparejadas a 0,2 y las huérfanas a
+0,01.
+
+Sin pareja no hay apertura real de la que leer el saldo, así que el autolote se
+evalúa **en la apertura del tester**. Es el instante que habría usado cualquier
+otra operación de esa estrategia ahí: una apertura real sólo puede caer dentro
+de la tolerancia de tiempo, y el saldo es el mismo escalón de `_balance_at`. La
+fila lo declara con `volume_expected_basis: "tester_open_time"` y el informe lo
+dice en texto, porque es un supuesto y no un hecho observado.
+
+El lote no convierte el faltante en pareja: `missing_real_trades` no cambia.
+
+## La metodología declara qué lote esperaba
+
+`methodology.tolerances.volume_basis` era siempre `configured_real_lot`, también
+con el autolote activo: el veredicto describía un criterio que no había usado.
+Ahora vale `autolot_balance_risk` cuando está activo y lleva `autolot_source` y
+`autolot_strategies`; el texto de `validation` cambia con él y la pantalla de
+resultado lo enseña junto a las tolerancias.
+
+## Enumerar lotes no escala
+
+Con un lote por apertura, `observedLots` devuelve decenas de valores distintos y
+el aviso de simulación los listaba todos, estrategia por estrategia. `lotList`
+resume por encima de tres (`0,01 — 0,37 (12 lotes)`) y el aviso pasa a ser un
+recuento; el detalle por estrategia vive en el diálogo de lotes.
