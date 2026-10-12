@@ -542,13 +542,21 @@ class LiveAuditEngineTests(LiveAuditEngineTestCase):
         self.assertTrue(validations[0]["journal_login_seen"])
         self.assertTrue(validations[0]["journal_server_seen"])
 
-    def test_missing_tick_quality_makes_the_result_not_comparable(self) -> None:
+    def test_missing_tick_quality_marks_the_strategies_without_voiding_the_audit(self) -> None:
+        # Antes devolvía not_comparable y no comparaba nada. Ahora compara y
+        # deja la marca en el set, que es de quien es el historial de ticks.
         with tempfile.TemporaryDirectory() as temp:
             owner, controller = self._controller(Path(temp), "running", quality=None)
             controller.start(request())
             state = self._wait(controller)
-            self.assertEqual(state["status"], "not_comparable")
-            self.assertIsNone(state["last_result"]["history_quality_pct"])
+            result = state["last_result"]
+            self.assertEqual(state["status"], "completed")
+            self.assertIsNone(result["history_quality_pct"])
+            self.assertIn("comparison_detail", result)
+            self.assertEqual(
+                result["minimum_tick_history_quality_pct"],
+                float(request()["min_tick_history_quality_pct"]),
+            )
             self.assertEqual((owner.pause_calls, owner.resume_calls), (1, 1))
 
 

@@ -461,11 +461,19 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         for obsolete in ("scheduler-check-minutes", "scheduler-startup-delay", "check_interval_minutes", "startup_delay_seconds"):
             self.assertNotIn(obsolete, self.page_text + self.script)
 
-    def test_tick_quality_is_a_required_comparison_gate_per_portfolio(self) -> None:
+    def test_tick_quality_marks_the_strategy_instead_of_voiding_the_audit(self) -> None:
+        # Era una puerta: un set por debajo del mínimo dejaba sin comparar a los
+        # otros doce. La calidad la decide el historial de la terminal que tocó
+        # ese set, no la cuenta auditada, así que marca y no anula.
         self.assertIn("Calidad de datos tick a tick", self.script)
-        self.assertIn("no se realiza la comparación", self.script)
-        self.assertIn("MT5 no acredita este porcentaje", self.script)
+        self.assertIn("Marca, no anula", self.script)
+        self.assertIn("sale en rojo y el resto de la auditoría sigue valiendo", self.script)
+        self.assertNotIn("no se realiza la comparación", self.script)
         self.assertIn("min_tick_history_quality_pct: number('min_tick_history_quality_pct')", self.script)
+        self.assertIn("CALIDAD INSUFICIENTE", self.result_script)
+        self.assertIn("REVISAR LA CALIDAD TICK", self.result_script)
+        self.assertIn("strategies_below_quality", self.result_script)
+        self.assertIn("function qualityChips(result, minimum)", self.result_script)
 
     def test_script_loads_full_history_portfolios_and_the_manager_endpoint(self) -> None:
         self.assertIn("/portfolios?scope=full_history", self.script)

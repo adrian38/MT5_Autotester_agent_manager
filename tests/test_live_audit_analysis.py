@@ -112,15 +112,35 @@ class LiveAuditAnalysisTests(unittest.TestCase):
         self.assertEqual(result["period_days"], 7)
         self.assertEqual(result["period_start"], "2026-09-21T00:00:00+00:00")
 
-    def test_the_quality_gate_still_blocks_the_comparison(self) -> None:
-        result = analyze(payload(qualities=[42.0]), profile())
-        self.assertEqual(result["status"], "not_comparable")
-        self.assertEqual(result["matched_trades"], 0)
-        self.assertIn("42.00%", result["summary"])
+    def test_insufficient_quality_marks_its_strategy_and_compares_the_rest(self) -> None:
+        # El uso 105 de AXI: dos sets de XAUUSD al 66 % dejaban sin comparar a
+        # los otros once, que estaban al 100 %. La calidad es del historial de
+        # ticks de la terminal que ejecutó ese set, no de la cuenta auditada.
+        artifacts = [
+            {"strategy": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "history_quality_pct": 42.0},
+            {"strategy": "ROBOFOREX/ECN:99999", "symbol": "XAUUSD", "history_quality_pct": 100.0},
+        ]
+        result = analyze(payload(qualities=[42.0, 100.0], strategy_artifacts=artifacts), profile())
 
-        missing = analyze(payload(qualities=[]), profile())
-        self.assertEqual(missing["status"], "not_comparable")
-        self.assertIn("no informó History Quality", missing["summary"])
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["matched_trades"], 1)
+        self.assertEqual(result["minimum_tick_history_quality_pct"], 80.0)
+        self.assertEqual(
+            [row["symbol"] for row in result["strategies_below_quality"]], ["EURUSD"],
+        )
+        self.assertIn("1 set(s) por debajo de la calidad mínima 80.00%", result["summary"])
+        summary = result["comparison_detail"]["strategy_summary"]
+        self.assertEqual([row["quality_ok"] for row in summary], [False])
+        self.assertEqual(summary[0]["history_quality_pct"], 42.0)
+
+    def test_a_set_without_informed_quality_is_marked_too(self) -> None:
+        artifacts = [{"strategy": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "history_quality_pct": None}]
+        missing = analyze(payload(qualities=[], strategy_artifacts=artifacts), profile())
+
+        self.assertEqual(missing["status"], "completed")
+        self.assertEqual(missing["matched_trades"], 1)
+        self.assertIsNone(missing["strategies_below_quality"][0]["history_quality_pct"])
+        self.assertIn("sin calidad informada", missing["summary"])
 
     def test_the_portfolio_filter_discards_closures_of_another_lot(self) -> None:
         members = [{"candidate_id": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "lot": 0.08}]

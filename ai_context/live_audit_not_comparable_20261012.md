@@ -66,9 +66,22 @@ tester, los 25 habrían salido como `extra_real_trades`.
 - `[Multiterminal] enabled=false` en el `ui_settings.ini` del agente ya daba un
   worker, pero es global del nodo y no adapta el resto del camino.
 
-## Lo que sigue abierto
+## La calidad marca, ya no anula
 
-Un set con calidad insuficiente sigue anulando la auditoría entera: 11 de 13
-sets al 100 % no se comparan por culpa de dos. Lo razonable sería comparar y
-marcar los sets por debajo del mínimo, y es criterio del manager, así que se
-aplicaría también a lo ya guardado.
+Anular la auditoría entera era lo peor de los dos mundos: la calidad la decide
+el historial de ticks de la terminal que ejecutó **ese** set, no la cuenta
+auditada, así que once sets al 100 % se quedaban sin medir por culpa de dos.
+
+Ahora `_compare` corre siempre y `_mark_quality` añade al resultado
+`minimum_tick_history_quality_pct` y `strategies_below_quality`, y marca cada
+fila de `strategy_summary` con `history_quality_pct` y `quality_ok`. La
+pantalla pinta esa estrategia en rojo —`CALIDAD INSUFICIENTE`— y avisa arriba
+(`REVISAR LA CALIDAD TICK`), pero el resto del veredicto vale.
+
+Como el veredicto lo pone el manager **al leer**, el uso 105 pasó a comparar
+sin relanzar nada: de «0 de todo» a 26 parejas alineadas, 13 correctas, 1 real
+abierta y los dos XAUUSD marcados.
+
+`not_comparable` ya no lo produce el manager. Se mantiene en `STATUS_LABELS` y
+en la pantalla porque un agente sin portar sigue pudiendo decidirlo él
+(`has_raw_material` falso: el manager muestra su resultado tal cual).

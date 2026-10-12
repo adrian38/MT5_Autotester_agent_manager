@@ -292,6 +292,20 @@ function percent(part, total) {
   return denominator > 0 ? `${number(numerator / denominator * 100, 0)} %` : '—';
 }
 
+function qualityLabel(row) {
+  const quality = row.history_quality_pct;
+  return quality == null ? 'sin calidad informada' : `${number(quality)} %`;
+}
+
+function qualityChips(result, minimum) {
+  // La calidad ya no anula la auditoría: marca el set cuyo historial de ticks
+  // no da la talla, para no leer sus desviaciones como un fallo de la cuenta.
+  const below = result.strategies_below_quality || [];
+  if (!below.length) return '';
+  return `<strong class="bad-text">Calidad tick por debajo de ${escapeHtml(number(minimum))} %:</strong>`
+    + below.map(row => `<span class="bad-text">${escapeHtml(row.symbol || row.strategy)} · ${escapeHtml(qualityLabel(row))}</span>`).join('');
+}
+
 function qualityFailures(result, minimum) {
   // Sin comparación no hay resumen por estrategia: lo único que identifica al
   // culpable son los artefactos, que sí traen la calidad set a set.
@@ -362,9 +376,9 @@ function renderVerdict(result, minimum) {
     pnl: 'PnL desfavorable', drawdown: 'Drawdown',
   };
   const items = Object.entries(reasons).filter(([, count]) => Number(count) > 0);
-  document.querySelector('#reason-list').innerHTML = items.length
+  document.querySelector('#reason-list').innerHTML = (items.length
     ? `<strong>Principales causas:</strong>${items.map(([key, count]) => `<span>${escapeHtml(labels[key] || key)} · ${escapeHtml(count)}</span>`).join('')}`
-    : '<strong class="good-text">No se detectaron desviaciones.</strong>';
+    : '<strong class="good-text">No se detectaron desviaciones.</strong>') + qualityChips(result, minimum);
 }
 
 function testerTerminalValidation(testerExecution) {
@@ -542,6 +556,14 @@ function renderStrategies(result, minimum) {
       const diagnosis = Number(row.missing_real) === Number(row.tester_trades) ? ['SIN CONTINUIDAD', 'bad']
         : Number(row.with_deviations) || Number(row.missing_real) ? ['REVISAR', 'warn']
           : Number(row.open_real) ? ['REAL ABIERTA', 'info'] : ['CORRECTA', 'good'];
+      // La estrategia cuyo historial de ticks no llega al mínimo se marca, pero
+      // sus operaciones se comparan igual que las demás.
+      if (row.quality_ok === false) {
+        return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small class="bad-text">Calidad tick ${escapeHtml(qualityLabel(row))}</small><small>${escapeHtml(row.strategy_set || row.strategy)}</small></th>
+        <td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
+        <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td>${escapeHtml(row.open_real || 0)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
+        <td><span class="audit-status bad">CALIDAD INSUFICIENTE</span><small>${escapeHtml(diagnosis[0])} con el historial que había</small></td>`;
+      }
       return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote real ${escapeHtml(number(artifact.real_account_lot ?? artifact.tester_lot ?? artifact.configured_lot, 8))} · tester ${escapeHtml(number(artifact.tester_lot ?? artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy_set || row.strategy)}</small>${row.strategy_set ? `<small>${escapeHtml(row.strategy)}</small>` : ''}</th>
         <td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
         <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td>${escapeHtml(row.open_real || 0)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
@@ -666,9 +688,11 @@ function renderResult(result, config, portfolios, auditState = {}) {
   // pintaba de verde una auditoría que no llegó a medir nada.
   const notComparable = result.status === 'not_comparable';
   const minimumQuality = Number(
-    result.analysis?.tolerances?.min_tick_history_quality_pct
+    result.minimum_tick_history_quality_pct
+    ?? result.analysis?.tolerances?.min_tick_history_quality_pct
     ?? profile.min_tick_history_quality_pct ?? 0
   );
+  const belowQuality = result.strategies_below_quality || [];
   const needsReview = Number(result.missing_real_trades) || Number(result.extra_real_trades) || Number(result.deviating_pairs);
   const open = Number(result.open_real_trades || 0);
   const successText = open
@@ -676,7 +700,10 @@ function renderResult(result, config, portfolios, auditState = {}) {
     : 'La cuenta y el tester coinciden dentro de todas las tolerancias.';
   state.innerHTML = notComparable
     ? `<span class="badge failed">NO COMPARABLE</span><strong>${escapeHtml(result.summary || 'MT5 no acreditó la calidad tick a tick exigida: no se comparó ninguna operación.')}</strong>`
-    : `<span class="badge ${result.status === 'failed' ? 'failed' : needsReview ? 'idle' : 'completed'}">${result.status === 'failed' ? 'FALLIDA' : needsReview ? 'REQUIERE REVISIÓN' : 'COINCIDE'}</span><strong>${needsReview ? 'La cuenta pertenece al modo seleccionado, pero la reproducción no es completa.' : successText}</strong>`;
+    : `<span class="badge ${result.status === 'failed' ? 'failed' : needsReview || belowQuality.length ? 'idle' : 'completed'}">${result.status === 'failed' ? 'FALLIDA' : needsReview ? 'REQUIERE REVISIÓN' : belowQuality.length ? 'REVISAR LA CALIDAD TICK' : 'COINCIDE'}</span><strong>${needsReview ? 'La cuenta pertenece al modo seleccionado, pero la reproducción no es completa.' : successText}</strong>`
+      + (belowQuality.length
+        ? `<span class="bad-text">${escapeHtml(belowQuality.length)} estrategia(s) sin la calidad tick exigida (${escapeHtml(belowQuality.map(row => `${row.symbol || row.strategy} ${qualityLabel(row)}`).join(', '))}): se comparan igual, pero sus desviaciones pueden venir del historial y no de la cuenta.</span>`
+        : '');
   renderVerdict(result, minimumQuality);
   renderSummary(result, minimumQuality);
   renderMethodology(result);

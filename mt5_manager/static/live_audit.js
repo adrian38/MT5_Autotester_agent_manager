@@ -345,10 +345,10 @@ function profileMarkup(auditId) {
       </fieldset>
     </div>
     <p class="live-audit-security"><strong>Catálogo seguro por nodo.</strong> Solo se muestran login y servidor; al reutilizar una cuenta, el manager copia internamente su secreto cifrado y la contraseña nunca vuelve al navegador.</p>
-    <div class="live-audit-subtitle"><strong>Calidad de datos tick a tick</strong><span>Sin calidad informada o por debajo del mínimo, no se realiza la comparación.</span></div>
+    <div class="live-audit-subtitle"><strong>Calidad de datos tick a tick</strong><span>El set que no acredite este porcentaje se marca en el resultado; los demás se comparan igual.</span></div>
     <div class="live-audit-fields live-audit-quality-fields">
       <label>Calidad histórica mínima (%)<input data-field="min_tick_history_quality_pct" type="number" min="0" max="100" step="any" value="${profile.min_tick_history_quality_pct}" required></label>
-      <div class="live-audit-quality-gate"><strong>Puerta obligatoria</strong><span>El resultado se marcará como no comparable si MT5 no acredita este porcentaje de calidad tick a tick.</span></div>
+      <div class="live-audit-quality-gate"><strong>Marca, no anula</strong><span>La calidad la decide el historial de ticks de la terminal que ejecutó cada set, no la cuenta auditada: una estrategia sin calidad suficiente sale en rojo y el resto de la auditoría sigue valiendo.</span></div>
     </div>
     <div class="live-audit-subtitle"><strong>Periodo auditado</strong><span>Cuánto historial se compara en este uso.</span></div>
     <div class="live-audit-fields">

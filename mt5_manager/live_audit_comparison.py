@@ -384,6 +384,56 @@ class _ComparisonMixin:
         } for strategy in sorted(strategies)]
 
     @staticmethod
+    def _mark_quality(
+        result: dict[str, Any], artifacts: list[dict[str, Any]], minimum: float,
+    ) -> list[dict[str, Any]]:
+        """Marca los sets sin la calidad exigida en vez de anular la auditoría.
+
+        Una calidad insuficiente la causa el historial de ticks de la terminal
+        que ejecutó ese set, no la cuenta auditada. Anular la comparación
+        entera dejaba sin medir once sets al 100 % por culpa de dos al 66 %.
+        """
+        below = [{
+            "strategy": str(row.get("strategy") or ""),
+            "symbol": str(row.get("symbol") or ""),
+            "history_quality_pct": (
+                None if row.get("history_quality_pct") is None
+                else float(row["history_quality_pct"])
+            ),
+        } for row in artifacts if (
+            row.get("history_quality_pct") is None
+            or float(row["history_quality_pct"]) < minimum
+        )]
+        quality_by_strategy = {
+            str(row.get("strategy") or ""): row.get("history_quality_pct")
+            for row in artifacts
+        }
+        flagged = {row["strategy"] for row in below}
+        for summary in (result.get("comparison_detail") or {}).get("strategy_summary") or []:
+            strategy = str(summary.get("strategy") or "")
+            summary["history_quality_pct"] = quality_by_strategy.get(strategy)
+            summary["quality_ok"] = strategy not in flagged
+        result["minimum_tick_history_quality_pct"] = minimum
+        result["strategies_below_quality"] = below
+        return below
+
+    @staticmethod
+    def _quality_note(below: list[dict[str, Any]], minimum: float) -> str:
+        """Lo que se añade al resumen para que el aviso llegue a la tarjeta."""
+        if not below:
+            return ""
+        detail = ", ".join(
+            f"{row['symbol'] or row['strategy']} "
+            + ("sin calidad informada" if row["history_quality_pct"] is None
+               else f"{row['history_quality_pct']:.2f}%")
+            for row in below[:5]
+        )
+        return (
+            f" {len(below)} set(s) por debajo de la calidad mínima {minimum:.2f}%"
+            f" ({detail}): sus desviaciones pueden ser del historial de ticks."
+        )
+
+    @staticmethod
     def _finalize_comparison(
         real: list[dict[str, Any]], tester: list[dict[str, Any]],
         request: dict[str, Any], strategies: dict[str, int], state: dict[str, Any],

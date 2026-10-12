@@ -353,34 +353,30 @@ def _analysis_result(
         request, inputs["period_start"], inputs["period_end"],
         inputs["real_trades"], inputs["tester_trades"], quality,
     )
-    if quality is None or quality < minimum_quality:
-        result.update(
-            status="not_comparable", status_label="NO COMPARABLE", matched_trades=0,
-            discrepancies=0, stalled_strategies=0,
-            summary=(
-                "MT5 no informó History Quality." if quality is None else
-                f"History Quality {quality:.2f}% inferior al mínimo {minimum_quality:.2f}%."
-            ),
-        )
-    else:
-        comparison = LiveAuditController._compare(
-            inputs["real_trades"], inputs["tester_trades"], inputs["symbol_points"],
-            request, inputs["strategies"],
-        )
-        result.update(comparison)
-        invalid_tester = sum(
-            (comparison.get("comparison_detail") or {}).get("tester_data_issues", {}).values()
-        )
-        result["summary"] = (
-            f"{comparison['matched_trades']} parejas alineadas, "
-            f"{comparison['within_tolerance_trades']} dentro de todas las tolerancias y "
-            f"{comparison.get('open_real_trades', 0)} posición(es) real(es) aún abierta(s); "
-            f"{comparison['discrepancies']} discrepancias; "
-            f"{comparison['stalled_strategies']} estrategia(s) sin continuidad"
-            + (f"; {invalid_tester} operación(es) tester con tiempos inválidos." if invalid_tester else ".")
-        )
-        result["status"] = "completed"
-        result["status_label"] = "COMPLETADA"
+    comparison = LiveAuditController._compare(
+        inputs["real_trades"], inputs["tester_trades"], inputs["symbol_points"],
+        request, inputs["strategies"],
+    )
+    result.update(comparison)
+    # La calidad ya no es una puerta: marca el set que no la acredita y la
+    # auditoría sigue, porque el historial malo es de una terminal concreta.
+    below = LiveAuditController._mark_quality(
+        result, inputs["strategy_artifacts"], minimum_quality,
+    )
+    invalid_tester = sum(
+        (comparison.get("comparison_detail") or {}).get("tester_data_issues", {}).values()
+    )
+    result["summary"] = (
+        f"{comparison['matched_trades']} parejas alineadas, "
+        f"{comparison['within_tolerance_trades']} dentro de todas las tolerancias y "
+        f"{comparison.get('open_real_trades', 0)} posición(es) real(es) aún abierta(s); "
+        f"{comparison['discrepancies']} discrepancias; "
+        f"{comparison['stalled_strategies']} estrategia(s) sin continuidad"
+        + (f"; {invalid_tester} operación(es) tester con tiempos inválidos." if invalid_tester else ".")
+        + LiveAuditController._quality_note(below, minimum_quality)
+    )
+    result["status"] = "completed"
+    result["status_label"] = "COMPLETADA"
     return result
 
 

@@ -189,24 +189,18 @@ class _LifecycleMixin:
         self, request: dict[str, Any], period_start: datetime, period_end: datetime,
         real_trades: list[dict[str, Any]], tester_trades: list[dict[str, Any]],
         qualities: list[float], symbol_points: dict[str, float], strategies: dict[str, int],
+        strategy_artifacts: list[dict[str, Any]] | None = None,
     ) -> tuple[dict[str, Any], str]:
         quality = min(qualities) if qualities else None
+        minimum = float(request["min_tick_history_quality_pct"])
         result = self._result_base(
             request, period_start, period_end, real_trades, tester_trades, quality,
         )
-        if quality is None or quality < request["min_tick_history_quality_pct"]:
-            result.update(
-                status="not_comparable", status_label="NO COMPARABLE", matched_trades=0,
-                discrepancies=0, stalled_strategies=0,
-                summary=(
-                    "MT5 no informó History Quality." if quality is None else
-                    f"History Quality {quality:.2f}% inferior al mínimo "
-                    f"{request['min_tick_history_quality_pct']:.2f}%."
-                ),
-            )
-            return result, "not_comparable"
         comparison = self._compare(real_trades, tester_trades, symbol_points, request, strategies)
         result.update(comparison)
+        # La calidad marca, no bloquea: el historial de ticks es de la terminal
+        # que ejecutó ese set, no de la cuenta que se está auditando.
+        below = self._mark_quality(result, list(strategy_artifacts or []), minimum)
         invalid_tester = sum(
             (comparison.get("comparison_detail") or {}).get("tester_data_issues", {}).values()
         )
@@ -216,6 +210,7 @@ class _LifecycleMixin:
             f"{comparison['discrepancies']} discrepancias; "
             f"{comparison['stalled_strategies']} estrategia(s) sin continuidad"
             + (f"; {invalid_tester} operación(es) tester con tiempos inválidos." if invalid_tester else ".")
+            + self._quality_note(below, minimum)
         )
         result["status"] = result["status_label"] = "completed"
         result["status_label"] = "COMPLETADA"
@@ -348,7 +343,7 @@ class _LifecycleMixin:
             )
             result, final_status = self._comparison_result(
                 request, period_start, period_end, real_trades, tester_trades,
-                qualities, symbol_points, strategies,
+                qualities, symbol_points, strategies, strategy_artifacts,
             )
             detail_log = self._attach_audit_evidence(
                 result, request, audit_id, account, real_history_detail,
