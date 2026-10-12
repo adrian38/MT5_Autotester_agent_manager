@@ -26,6 +26,10 @@
 .audit-analysis-legend { fill: var(--text); font-size: 12px; font-weight: 700; }
 .audit-analysis-zero { stroke: #6c7f8e; stroke-dasharray: 5 5; }
 .audit-analysis-empty { display: grid; place-items: center; min-height: 280px; color: var(--muted); }
+/* Los 280px son para el hueco de una gráfica que no se puede dibujar. En una
+   celda abren un vacío enorme bajo la cabecera, y `display: grid` saca al `td`
+   de la tabla: la fila vacía deja de respetar las columnas. */
+td.audit-analysis-empty { display: table-cell; min-height: 0; padding: 26px 16px; text-align: center; }
 .audit-analysis-strategies { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); }
 #strategy-list { max-height: 540px; overflow: auto; border-right: 1px solid var(--line); }
 #strategy-list button { display: grid; width: 100%; gap: 5px; padding: 14px 16px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--text); text-align: left; }

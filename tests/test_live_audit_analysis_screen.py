@@ -130,6 +130,24 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("function groupRealTrades(group)", self.analysis_script)
         self.assertIn("attributionOf(row).state !== 'excluded'", self.analysis_script)
 
+    def test_without_a_comparison_the_balance_panel_says_so_instead_of_squaring(self) -> None:
+        # Una lista vacía porque no se comparó nada daba «TODO CUADRADO» y
+        # «No queda ninguna real sin explicar»: la misma mentira que pintaba de
+        # verde el resultado de un uso sin medir.
+        self.assertIn("function renderUncomparedUnaccounted()", self.analysis_script)
+        self.assertIn("if (!currentResult?.comparison_detail) return renderUncomparedUnaccounted();", self.analysis_script)
+        self.assertIn("SIN COMPARACIÓN", self.analysis_script)
+        self.assertIn("no significa que todas las reales estén explicadas", self.analysis_script)
+
+    def test_an_empty_table_row_is_not_a_blank_block_under_the_header(self) -> None:
+        # `.audit-analysis-empty` reserva 280 px para el hueco de una gráfica.
+        # En un `td` eso abre un vacío enorme y, con `display: grid`, saca a la
+        # celda de la tabla.
+        css = (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / "live_audit_analysis.css"
+        ).read_text(encoding="utf-8")
+        self.assertIn("td.audit-analysis-empty { display: table-cell; min-height: 0;", css)
+
     def test_uploading_the_excel_saves_it_and_repaints_with_the_new_verdict(self) -> None:
         # El veredicto lo calcula el manager al leer, así que subir el Excel no
         # basta: hay que guardarlo en el uso y volver a pedir el análisis. Va en

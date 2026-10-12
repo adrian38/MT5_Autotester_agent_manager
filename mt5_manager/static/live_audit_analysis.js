@@ -659,10 +659,26 @@ function unaccountedRow(row, currency) {
   </tr>`;
 }
 
+function renderUncomparedUnaccounted() {
+  document.querySelector('#unaccounted-body').innerHTML =
+    '<tr><td colspan="5" class="audit-analysis-empty">Esta ejecución no llegó a comparar, '
+    + 'así que no hay reales emparejadas ni sin pareja que cuadrar.</td></tr>';
+  const badge = document.querySelector('#unaccounted-count');
+  badge.textContent = 'SIN COMPARACIÓN';
+  badge.className = 'badge pending';
+  renderAttributionSources();
+  document.querySelector('#unaccounted-note').textContent =
+    'El cuadre necesita la comparación del manager. Mientras no exista, que esta '
+    + 'lista esté vacía no significa que todas las reales estén explicadas.';
+}
+
 // El objetivo es que todo cuadre: cada real cerrada acaba emparejada, atribuida
 // a una estrategia, o aquí, dicha con su motivo. Nada se pierde en silencio.
 function renderUnaccounted() {
   const currency = chartContext.currency;
+  // Sin comparación no hay nada que cuadrar, y decir «todo cuadrado» por una
+  // lista vacía es la misma mentira que pintar de verde un uso sin medir.
+  if (!currentResult?.comparison_detail) return renderUncomparedUnaccounted();
   const rows = unmatchedRows(currentResult)
     .filter(row => attributionOf(row).state !== 'attributed')
     .sort((a, b) => new Date(a.real.open_time) - new Date(b.real.open_time));
