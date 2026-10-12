@@ -69,6 +69,8 @@
 .degradation-status.bad { color: #ff9da5; background: #9a39443b; }
 .degradation-status.info { color: #9dcdff; background: #244e733d; }
 .degradation-off { color: #ffd47c !important; }
+#attribution-upload { display: inline-flex; align-items: center; cursor: pointer; }
+#attribution-upload.is-busy { opacity: .6; pointer-events: none; }
 .audit-analysis-note { margin: 0 20px 14px; padding: 12px 14px; border: 1px solid #8f681f; border-radius: 10px; background: #1c180e; color: #ffd978; font-size: 12px; }
 .audit-analysis-note-text { margin: 0; padding: 14px 20px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.6; }
 @media (max-width: 560px) {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -338,6 +339,33 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("function differenceNote(numbers)", self.analysis_script)
         self.assertIn("renderReproduction();", self.analysis_script)
 
+    def test_every_closed_real_ends_up_accounted_or_said(self) -> None:
+        # El objetivo es que cuadre: cada real cerrada acaba emparejada,
+        # atribuida a una estrategia, o en la tabla del final con su motivo.
+        self.assertTrue(self.analysis_page.xpath('//tbody[@id="unaccounted-body"]'))
+        self.assertIn("Reales que no cuentan en ninguna estrategia", self.analysis_page_text)
+        self.assertIn("function attributionOf(row)", self.analysis_script)
+        self.assertIn("PENDIENTE DE INVESTIGACIÓN", self.analysis_script)
+        self.assertIn("FUERA DEL PORTAFOLIO", self.analysis_script)
+        self.assertIn("function renderUnaccounted()", self.analysis_script)
+        self.assertIn("renderUnaccounted();", self.analysis_script)
+        # Lo atribuido suma en el real de su estrategia; lo excluido sale de la
+        # curva; lo que nadie explicó sigue en la curva pero no en una fila.
+        self.assertIn(".attributed.push(row.real)", self.analysis_script)
+        self.assertIn("function groupRealTrades(group)", self.analysis_script)
+        self.assertIn("attributionOf(row).state !== 'excluded'", self.analysis_script)
+
+    def test_uploading_the_excel_saves_it_and_repaints_with_the_new_verdict(self) -> None:
+        # El veredicto lo calcula el manager al leer, así que subir el Excel no
+        # basta: hay que guardarlo en el uso y volver a pedir el análisis. Va en
+        # una sola llamada para que no quede guardado sin repintar.
+        self.assertTrue(self.analysis_page.xpath('//input[@id="attribution-file"]'))
+        self.assertIn("live-audit-attribution-import", self.analysis_script)
+        self.assertIn("/attribution`", self.analysis_script)
+        self.assertIn("Recalculando la auditoría…", self.analysis_script)
+        self.assertIn("render(result);", self.analysis_script)
+        self.assertIn("await loadDegradation();", self.analysis_script)
+
     def test_the_verdict_declares_which_lot_it_expected_in_real(self) -> None:
         self.assertIn("tolerances.volume_basis === 'autolot_balance_risk'", self.result_script)
         self.assertIn("Lote esperado: autolote por saldo de la cuenta real y riesgo", self.result_script)
@@ -362,15 +390,27 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("curveDrawdown(cumulativeSeries(trades))", self.analysis_script)
         self.assertNotIn("result.tester_drawdown", self.analysis_script)
         self.assertNotIn("result.real_drawdown", self.analysis_script)
-        # Una real sin pareja no es de ninguna estrategia: nunca se reescala.
+        # Una real es lo que la cuenta ejecutó: la simulación sólo toca la demo,
+        # así que una real sin pareja —atribuida o no— nunca se reescala.
         self.assertIn("nunca se reescalan", self.analysis_page_text + self.analysis_script)
-        self.assertIn("profit: Number(trade.profit || 0)", self.analysis_script)
+        self.assertIn("profit: Number(row.real.profit || 0)", self.analysis_script)
         # Es una simulación del navegador: no escribe en el perfil ni reanaliza.
         self.assertIn("live-audit-lots:${nodeId}:${auditId}", self.analysis_script)
         self.assertIn("SIMULACIÓN", self.analysis_script)
         self.assertIn("No cambia la auditoría", self.analysis_page_text)
         self.assertNotIn("real_strategy_lots", self.analysis_script)
-        self.assertNotIn("method: 'POST'", self.analysis_script)
+        # Aplicar lotes sólo toca `localStorage` y repinta. La pantalla sí
+        # escribe para la atribución manual —eso es criterio y vive en el
+        # manager—, así que el candado se pone donde estaba el riesgo: que la
+        # simulación de lotes acabe guardándose en el perfil del uso.
+        apply_lots = self.analysis_script.split("function applyLots(overrides)", 1)[1]
+        apply_lots = apply_lots.split("\n}", 1)[0]
+        self.assertIn("writeOverrides(lotOverrides)", apply_lots)
+        self.assertNotIn("fetch", apply_lots)
+        posts = re.findall(r"`(/api/nodes/[^`]*)`,\s*\n?\s*\{method: 'POST'", self.analysis_script)
+        self.assertTrue(posts, "La pantalla ya no hace ningún POST: revisa esta guarda.")
+        for url in posts:
+            self.assertIn("attribution", url, f"POST inesperado desde Análisis: {url}")
         # Y dice lo que el modelo lineal no sabe.
         self.assertIn("no modela deslizamiento, margen ni stop out", self.analysis_script)
 

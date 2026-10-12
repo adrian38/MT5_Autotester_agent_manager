@@ -281,9 +281,41 @@ def _handle_workbook_import(handler, parts: list[str]) -> bool:
     return True
 
 
+def _handle_attribution_save(handler, parts: list[str]) -> bool:
+    """Guarda la atribución de un uso y devuelve el veredicto ya recalculado.
+
+    En una sola llamada: el criterio vive en el manager y se aplica al leer, de
+    modo que guardar y volver a pedir son dos pasos que no pueden quedar a
+    medias. La pantalla recibe el resultado nuevo y repinta con él.
+    """
+    if not (
+        len(parts) == 6 and parts[:2] == ["api", "nodes"]
+        and parts[3] == "live-audits" and parts[5] == "attribution"
+    ):
+        return False
+    try:
+        node_id = urllib.parse.unquote(parts[2])
+        audit_id = urllib.parse.unquote(parts[4])
+        node = handler._node(node_id)
+        body = handler._body()
+        handler.server.live_audit_settings.set_real_attribution(
+            node_id, audit_id, (body or {}).get("real_attribution"),
+        )
+        status, value = manager_http.node_request(
+            node, "GET", f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}",
+            timeout=10,
+        )
+        handler._send_json(status, analysed_live_audit(handler, node_id, audit_id, value, node))
+    except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+        handler._send_json(400, {"error": str(exc)})
+    except (urllib.error.URLError, TimeoutError) as exc:
+        handler._send_json(502, {"error": str(exc)})
+    return True
+
+
 def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
     """Configuracion del auditor, cuenta de restauracion y lanzar un uso."""
-    if _handle_workbook_import(handler, parts):
+    if _handle_workbook_import(handler, parts) or _handle_attribution_save(handler, parts):
         return True
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] in {
         "live-audit-config", "live-audit-restore-account",

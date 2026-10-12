@@ -113,6 +113,11 @@ function dateLabel(value) {
   return Number.isNaN(date.getTime()) ? String(value || '—') : date.toLocaleDateString('es-ES');
 }
 
+function dateTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value || '—') : date.toLocaleString('es-ES');
+}
+
 async function jsonResponse(response) {
   const text = await response.text();
   let value;
@@ -126,13 +131,40 @@ function comparisonRows(result) {
   return result.comparison_detail?.operation_comparisons || [];
 }
 
-// Omitir las reales sin pareja falsearía la ganancia de la cuenta: son dinero
-// que la cuenta movió aunque ningún resultado del tester las reclame. No se
-// reescalan nunca: no pertenecen a ninguna estrategia del tester.
-function unmatchedReals(result) {
+function showAnalysisError(message) {
+  const element = document.querySelector('#analysis-error');
+  element.textContent = message;
+  element.hidden = !message;
+}
+
+function unmatchedRows(result) {
   return (result.comparison_detail?.unmatched_real_operations || [])
-    .map(row => row.real).filter(trade => trade?.close_time)
-    .map(trade => ({close_time: trade.close_time, profit: Number(trade.profit || 0)}));
+    .filter(row => row.real?.close_time);
+}
+
+// Tres destinos para una real que el tester no reclamó, y el Excel de
+// atribución decide cuál:
+//   - atribuida: es de esa estrategia, suma en su real y en la curva;
+//   - excluida: el usuario dijo que no es del portafolio, sale de todo;
+//   - sin decir nada: sigue en la curva, porque es dinero que la cuenta movió,
+//     y queda pendiente de investigar.
+function attributionOf(row) {
+  const value = row.attribution || null;
+  if (!value) return {state: 'pending', strategy: '', reason: ''};
+  return {
+    state: value.excluded ? 'excluded' : 'attributed',
+    strategy: String(value.strategy || ''),
+    reason: String(value.reason || ''),
+  };
+}
+
+// Omitir las reales sin pareja falsearía la ganancia de la cuenta: son dinero
+// que la cuenta movió aunque ningún resultado del tester las reclame. Sólo se
+// van las que el usuario marcó como ajenas al portafolio.
+function unmatchedReals(result) {
+  return unmatchedRows(result)
+    .filter(row => attributionOf(row).state !== 'excluded')
+    .map(row => ({close_time: row.real.close_time, profit: Number(row.real.profit || 0)}));
 }
 
 // Si la real sigue abierta, su pareja del tester sólo cerró porque se acabó el
@@ -182,7 +214,7 @@ function strategyGroups(result) {
     if (!groups.has(key)) {
       groups.set(key, {
         strategy: key, label: row.strategy_set || key,
-        symbol: tester.symbol || '—', demo: [], real: [], openReal: [],
+        symbol: tester.symbol || '—', demo: [], real: [], openReal: [], attributed: [],
       });
     }
     const group = groups.get(key);
@@ -201,11 +233,24 @@ function strategyGroups(result) {
     // se leía como que la estrategia no había operado en real.
     else if (row.real_position_still_open) group.openReal.push(row.real_position_still_open);
   });
+  // Lo que el usuario atribuyó a mano entra en el real de su estrategia, pero
+  // en su propia lista: `group.real` sigue siendo lo que el auditor emparejó, y
+  // de ahí salen el recuento de parejas y la regla de «pocas operaciones».
+  unmatchedRows(result).forEach(row => {
+    const {state, strategy} = attributionOf(row);
+    if (state === 'attributed' && groups.has(strategy)) {
+      groups.get(strategy).attributed.push(row.real);
+    }
+  });
   return [...groups.values()].map(group => ({
     ...group,
     demoLots: observedLots(group.demo),
-    realLots: observedLots(group.real),
+    realLots: observedLots([...group.real, ...group.attributed]),
   })).sort((a, b) => `${a.symbol} ${a.label}`.localeCompare(`${b.symbol} ${b.label}`, 'es'));
+}
+
+function groupRealTrades(group) {
+  return [...group.real, ...group.attributed];
 }
 
 function observedLots(trades) {
@@ -314,7 +359,9 @@ function summaryMarkup(trades, currency, pending = []) {
 }
 
 function groupTotal(group, side) {
-  const series = sideSeries(side === 'demo' ? group.demo : group.real, group.strategy, side);
+  const series = sideSeries(
+    side === 'demo' ? group.demo : groupRealTrades(group), group.strategy, side,
+  );
   return splitPending(series).settled.reduce((sum, trade) => sum + trade.profit, 0);
 }
 
@@ -370,14 +417,15 @@ function selectStrategy(index) {
   const openNote = open
     ? `<small class="lots-open-real">${open} posición${open === 1 ? '' : 'es'} real${open === 1 ? '' : 'es'} emparejada${open === 1 ? '' : 's'} seguía${open === 1 ? '' : 'n'} abierta${open === 1 ? '' : 's'} al terminar el periodo. Su pareja del tester cerró sólo porque se acabó el rango del backtest, así que ninguna de las dos se dibuja.</small>`
     : '';
+  const manual = group.attributed.length ? ` · ${group.attributed.length} ATRIBUIDA${group.attributed.length === 1 ? '' : 'S'}` : '';
   const badge = open
-    ? `${settled} DEMO · ${group.real.length} REAL · ${open} SIN CERRAR, FUERA`
-    : `${settled} DEMO · ${group.real.length} REAL EMPAREJADA${group.real.length === 1 ? '' : 'S'}`;
+    ? `${settled} DEMO · ${group.real.length} REAL${manual} · ${open} SIN CERRAR, FUERA`
+    : `${settled} DEMO · ${group.real.length} REAL EMPAREJADA${group.real.length === 1 ? '' : 'S'}${manual}`;
   document.querySelector('#strategy-heading').innerHTML = `<div><strong>${escapeHtml(group.symbol)}</strong><p>${escapeHtml(name)}</p><small>${escapeHtml(lots)}</small>${openNote}</div><span class="badge idle">${escapeHtml(badge)}</span>`;
   renderChart(
     'strategy-chart',
     splitPending(sideSeries(group.demo, group.strategy, 'demo')).settled,
-    sideSeries(group.real, group.strategy, 'real'),
+    sideSeries(groupRealTrades(group), group.strategy, 'real'),
   );
 }
 
@@ -482,10 +530,13 @@ function reproductionCounts(group) {
   const summary = strategySummaries[group.strategy] || {};
   const missing = Number(summary.missing_real || 0);
   const open = group.openReal.length;
-  const few = Boolean(group.real.length) && group.real.length < REPRODUCTION_FEW_PAIRS;
+  // Lo atribuido a mano respalda el importe real igual que una pareja, así que
+  // cuenta para decidir si el veredicto lo decide una sola operación.
+  const backing = groupRealTrades(group).length;
+  const few = Boolean(backing) && backing < REPRODUCTION_FEW_PAIRS;
   return {
     deviations: Number(summary.with_deviations || 0), missing, open, few,
-    pairs: group.real.length,
+    pairs: backing, attributed: group.attributed.length,
     caveats: [
       missing ? `${missing} sin pareja` : '',
       open ? `${open} sin cerrar en real` : '',
@@ -521,7 +572,7 @@ function reproductionRow(group, currency) {
     <td><strong>${escapeHtml(money(numbers.demo, currency))}</strong></td>
     <td><strong>${escapeHtml(money(numbers.real, currency))}</strong></td>
     <td><strong>${escapeHtml(`${sign}${money(numbers.real - numbers.demo, currency)}`)}</strong><small>${escapeHtml(differenceNote(numbers))}</small></td>
-    <td><strong>${escapeHtml(group.real.length)} emparejadas</strong>${counts.deviations ? `<small class="degradation-off">${escapeHtml(counts.deviations)} con desviación</small>` : ''}${partial}</td>
+    <td><strong>${escapeHtml(group.real.length)} emparejadas</strong>${counts.attributed ? `<small class="lots-autolot-note">+ ${escapeHtml(counts.attributed)} atribuidas a mano</small>` : ''}${counts.deviations ? `<small class="degradation-off">${escapeHtml(counts.deviations)} con desviación</small>` : ''}${partial}</td>
     <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span>${fewPairsChip(counts)}<small>${escapeHtml(help)}</small>${fewPairsNote(counts)}</td>
   </tr>`;
 }
@@ -552,6 +603,57 @@ function renderReproduction() {
     : `${criterion} La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: pulsa «Escalar demo al lote real» para comparar comportamiento.`;
 }
 
+const unaccountedStates = {
+  excluded: ['FUERA DEL PORTAFOLIO', 'info'],
+  pending: ['PENDIENTE DE INVESTIGACIÓN', 'warn'],
+};
+
+function unaccountedRow(row, currency) {
+  const {state, reason} = attributionOf(row);
+  const [label, tone] = unaccountedStates[state];
+  const trade = row.real;
+  const help = state === 'excluded'
+    ? (reason || 'Marcada como ajena al portafolio en el Excel.')
+    : 'El Excel no dice nada de esta operación: no suma en ninguna estrategia y sigue en la curva Real.';
+  return `<tr>
+    <th><strong>${escapeHtml(trade.symbol)} · ${escapeHtml(number(trade.volume, 4))} lotes</strong><small>${escapeHtml(trade.side)}</small>${trade.position_id ? `<small>ticket ${escapeHtml(trade.position_id)}</small>` : ''}</th>
+    <td>${escapeHtml(dateTime(trade.open_time))}</td>
+    <td>${escapeHtml(dateTime(trade.close_time))}</td>
+    <td><strong>${escapeHtml(money(trade.profit, currency))}</strong></td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(help)}</small></td>
+  </tr>`;
+}
+
+// El objetivo es que todo cuadre: cada real cerrada acaba emparejada, atribuida
+// a una estrategia, o aquí, dicha con su motivo. Nada se pierde en silencio.
+function renderUnaccounted() {
+  const currency = chartContext.currency;
+  const rows = unmatchedRows(currentResult)
+    .filter(row => attributionOf(row).state !== 'attributed')
+    .sort((a, b) => new Date(a.real.open_time) - new Date(b.real.open_time));
+  document.querySelector('#unaccounted-body').innerHTML = rows.length
+    ? rows.map(row => unaccountedRow(row, currency)).join('')
+    : '<tr><td colspan="5" class="audit-analysis-empty">Todas las reales del portafolio están emparejadas o atribuidas a su estrategia.</td></tr>';
+  const pending = rows.filter(row => attributionOf(row).state === 'pending');
+  const excluded = rows.filter(row => attributionOf(row).state === 'excluded');
+  const sum = list => list.reduce((total, row) => total + Number(row.real.profit || 0), 0);
+  const badge = document.querySelector('#unaccounted-count');
+  badge.textContent = pending.length
+    ? `${pending.length} POR INVESTIGAR` : rows.length ? `${rows.length} FUERA` : 'TODO CUADRADO';
+  badge.className = `badge ${pending.length ? 'pending' : 'idle'}`;
+  const attributed = unmatchedRows(currentResult)
+    .filter(row => attributionOf(row).state === 'attributed');
+  document.querySelector('#unaccounted-note').textContent = [
+    attributed.length
+      ? `${attributed.length} reales sin pareja (${money(sum(attributed), currency)}) ya están atribuidas y suman en el real de su estrategia.` : '',
+    excluded.length
+      ? `${excluded.length} (${money(sum(excluded), currency)}) quedan fuera por indicación tuya: no están en la curva Real ni en ninguna estrategia.` : '',
+    pending.length
+      ? `${pending.length} (${money(sum(pending), currency)}) siguen sin explicar: cuentan en la curva Real porque la cuenta movió ese dinero, pero no en ninguna estrategia.`
+      : 'No queda ninguna real sin explicar.',
+  ].filter(Boolean).join(' ');
+}
+
 function renderCurves() {
   const currency = chartContext.currency;
   const trades = globalTrades(currentResult, strategyRows);
@@ -571,6 +673,7 @@ function renderCurves() {
   if (strategyRows.length) selectStrategy(Math.min(active, strategyRows.length - 1));
   else document.querySelector('#strategy-chart').innerHTML = '<p class="audit-analysis-empty">No hay estrategias en este resultado.</p>';
   renderReproduction();
+  renderUnaccounted();
   renderSimulationNotice();
 }
 
@@ -756,7 +859,7 @@ function openLotsDialog() {
     automatic ? `La cuenta real lleva la batuta: ${fromReal} de ${totalDemo} operaciones demo se escalan al lote que la cuenta ejecutó de verdad, no al teórico.` : '',
     estimated ? `Las ${estimated} que no tienen pareja en real usan el autolote —saldo de la cuenta real en su apertura— porque no hay lote ejecutado que copiar.` : '',
     'El PnL se reescala en proporción al lote, así que da por supuesto que el mismo precio se habría llenado con cualquier tamaño: no modela deslizamiento, margen ni stop out.',
-    extras ? `Las ${extras} reales sin pareja no pertenecen a ninguna estrategia del tester y nunca se reescalan.` : '',
+    extras ? `Las ${extras} reales sin pareja nunca se reescalan: esta simulación sólo toca la demo, y una real —atribuida o no— es lo que la cuenta ejecutó.` : '',
   ].filter(Boolean).join(' ');
   document.querySelector('#lots-dialog').showModal();
 }
@@ -797,6 +900,55 @@ document.querySelector('#simulation-notice').addEventListener('click', event => 
   if (event.target.id === 'simulation-reset') applyLots({});
 });
 
+function bytesToBase64(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+  }
+  return btoa(binary);
+}
+
+// El veredicto lo calcula el manager al leer, así que subir el Excel no basta:
+// hay que guardarlo en el uso y volver a pedir el análisis. Las dos cosas van
+// en una sola llamada —`.../attribution` devuelve el resultado ya recalculado—
+// para que no pueda quedarse guardado sin repintar ni repintado sin guardar.
+async function uploadAttribution(file) {
+  const label = document.querySelector('#attribution-upload');
+  const previous = label.textContent;
+  label.textContent = 'Leyendo el Excel…';
+  label.classList.add('is-busy');
+  try {
+    if (file.size > 700000) throw new Error('El Excel no puede superar 700 KB.');
+    const content = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+    const parsed = await jsonResponse(await fetch(
+      `/api/nodes/${encodeURIComponent(nodeId)}/live-audit-attribution-import`,
+      {method: 'POST', headers: {'Content-Type': 'application/json'},
+       body: JSON.stringify({filename: file.name, content_base64: content})},
+    ));
+    label.textContent = 'Recalculando la auditoría…';
+    const state = await jsonResponse(await fetch(
+      `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/attribution`,
+      {method: 'POST', headers: {'Content-Type': 'application/json'},
+       body: JSON.stringify({real_attribution: parsed.real_attribution})},
+    ));
+    const result = (state.audit || state).last_result;
+    if (!result) throw new Error((state.audit || state).analysis_error || 'El manager no devolvió el análisis recalculado.');
+    render(result);
+    await loadDegradation();
+    showAnalysisError('');
+  } finally {
+    label.textContent = previous;
+    label.classList.remove('is-busy');
+    document.querySelector('#attribution-file').value = '';
+  }
+}
+
+document.querySelector('#attribution-file').addEventListener('change', event => {
+  const file = event.target.files?.[0];
+  if (file) uploadAttribution(file).catch(error => showAnalysisError(error.message));
+});
+
 document.querySelector('#back-link').href = `/live_audit.html?node=${encodeURIComponent(nodeId)}`;
 document.querySelector('#result-link').href = `/live_audit_result.html?node=${encodeURIComponent(nodeId)}&audit=${encodeURIComponent(auditId)}`;
 document.querySelector('#strategy-list').addEventListener('click', event => {
@@ -804,8 +956,4 @@ document.querySelector('#strategy-list').addEventListener('click', event => {
   if (!button) return;
   selectStrategy(Number(button.dataset.strategyKey));
 });
-loadAnalysis().catch(error => {
-  const element = document.querySelector('#analysis-error');
-  element.textContent = error.message;
-  element.hidden = false;
-});
+loadAnalysis().catch(error => showAnalysisError(error.message));

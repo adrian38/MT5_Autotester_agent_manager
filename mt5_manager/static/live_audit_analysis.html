@@ -16,6 +16,7 @@
     </div>
     <div class="header-actions">
       <button id="open-lots" type="button" class="secondary">Lotes por estrategia</button>
+      <label id="attribution-upload" class="button secondary" title="Excel con la columna que dice a qué estrategia pertenece cada real sin pareja">Atribuir reales sin pareja<input id="attribution-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
       <a id="result-link" class="button secondary" href="#">Ver detalle de operaciones</a>
       <a id="back-link" class="button secondary" href="/">Volver al auditor</a>
     </div>
@@ -60,6 +61,16 @@
         </table>
       </div>
       <p id="reproduction-note" class="audit-analysis-note-text"></p>
+    </section>
+    <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">CUADRE</p><h2>Reales que no cuentan en ninguna estrategia</h2><p class="subtitle">Cierres de la cuenta real que ninguna operación del tester reclamó y que tampoco has atribuido. El auditor no puede decidir de quién son: el magic del terminal real no tiene por qué coincidir con el del <code>.set</code> y aquí ni se publica, y el símbolo sólo basta cuando un único miembro del portafolio lo opera. Sube el Excel con la columna de estrategia y cada una pasa a su sitio; las que marques como ajenas salen también de la curva Real.</p></div><span id="unaccounted-count" class="badge idle">—</span></div>
+      <div class="audit-analysis-table-wrap">
+        <table class="audit-analysis-table">
+          <thead><tr><th>Operación</th><th>Apertura</th><th>Cierre</th><th>PnL</th><th>Estado</th></tr></thead>
+          <tbody id="unaccounted-body"></tbody>
+        </table>
+      </div>
+      <p id="unaccounted-note" class="audit-analysis-note-text"></p>
     </section>
     <section class="panel-card audit-analysis-section">
       <div class="panel-title"><div><p class="eyebrow">CONTRA EL HISTÓRICO</p><h2>¿La estrategia sigue haciendo lo de siempre?</h2><p class="subtitle">Compara lo que cada estrategia hizo en la demo durante el periodo con su backtest guardado en la memoria del agente. Todo <strong>por lote</strong>: el histórico corre a <span id="history-reference-lot">0,01</span> y la auditoría al lote del portafolio, así que el PnL crudo mediría el tamaño de la posición y no el comportamiento. No depende de la simulación de lotes.</p></div><span id="degradation-count" class="badge idle">—</span></div>

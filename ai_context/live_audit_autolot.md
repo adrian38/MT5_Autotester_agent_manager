@@ -241,6 +241,52 @@ contra −0,46 € en real— es el caso que lo motivó. `.DE40Cash` a −55,7 %
 en aviso: sigue ganando dinero en la cuenta y entra en la banda de deterioro
 normal.
 
+## Atribución manual de las reales sin pareja (2026-10-12)
+
+El auditor empareja por símbolo, lado, tiempo y lote. Lo que queda fuera no es
+siempre ajeno al portafolio: en `audit-148` quedaron 20 cierres sin pareja y 14
+eran de la misma estrategia XAUUSD. Sin atribuirlos salía `REPRODUCE` con
+22,09 € de real cuando la cuenta había perdido 67,06 €.
+
+**El magic no sirve y no se intenta.** No tiene por qué coincidir con el del
+`.set` —por eso la pertenencia va por símbolo y lote— y el nodo ni lo publica:
+las 102 reales de esa auditoría traen el campo vacío. El símbolo tampoco decide
+cuando dos miembros lo operan, que era el caso de 17 de las 20. Lo dice el
+usuario y `live_audit_attribution` sólo lee lo que dijo.
+
+El fichero es **la exportación del detalle de operaciones** con una columna
+añadida a mano; no hay que preparar nada. Se usan el `ticket` que la celda de
+mercado ya imprime —único identificador único de la materia prima— y el último
+segmento separado por `;` de la columna nueva, que nombra el `.set`. Lo de
+delante es nota y se conserva. Si ese segmento no nombra a ningún miembro, la
+operación queda **excluida** y el texto pasa a ser el motivo.
+
+**No se inventa ninguna pareja.** La fila sigue siendo `extra` y
+`extra_real_trades` no cambia; sólo queda anotada. Tres destinos:
+
+| Destino | Suma en la estrategia | Suma en la curva Real |
+| --- | --- | --- |
+| Atribuida | Sí | Sí |
+| Excluida | No | **No** |
+| Sin decir nada | No | Sí, y sale en la tabla del final |
+
+Con el fichero real: 81 emparejadas (121,25 €) + 14 atribuidas (−89,15 €) + 0
+pendientes = **curva Real 32,10 €**, y 6 fuera (+9,10 €). Los 20 extras se
+reparten sin perder ninguno, y `XAUUSD_H4` pasa a `NO REPRODUCE`.
+
+**Subir el Excel no basta: hay que guardarlo y reanalizar.** El veredicto lo
+calcula el manager al leer, así que la pantalla no puede aplicarlo sola. Las dos
+cosas van en una llamada —`POST .../live-audits/<id>/attribution` guarda y
+devuelve el análisis ya recalculado— para que no quede guardado sin repintar ni
+repintado sin guardar. Guarda con `set_real_attribution`, que escribe **un solo
+campo**: reenviar el perfil entero desde Análisis borraría lo que esa pantalla
+no conoce (credenciales referenciadas, cuentas, el resto de usos).
+
+Eso rompió una guarda que prohibía cualquier `method: 'POST'` en esa pantalla.
+Protegía algo real —que la simulación de lotes no se guarde en el perfil— así
+que no se borró: ahora comprueba que `applyLots` sólo toca `localStorage` y que
+todos los POST de la pantalla van a `attribution`.
+
 ## Enumerar lotes no escala
 
 Con un lote por apertura, `observedLots` devuelve decenas de valores distintos y
