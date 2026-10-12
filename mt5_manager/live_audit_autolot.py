@@ -65,6 +65,33 @@ def normalize_autolot(value: Any) -> dict[str, Any]:
     return {"enabled": enabled, "source_name": source_name, "source_sha256": source_sha256, "rules": rules}
 
 
+def _rule_key(value: Any) -> str:
+    filename = posixpath.basename(str(value or "").replace("\\", "/")).strip()
+    return filename[:-4].casefold() if filename.casefold().endswith(".set") else filename.casefold()
+
+
+def rules_by_strategy(autolot: Any, members: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """Une las filas del Excel, nombradas por `.set`, con el ID del auditor."""
+    rules = normalize_autolot(autolot)["rules"]
+    indexed = {_rule_key(name): rule for name, rule in rules.items()}
+    bound: dict[str, dict[str, float]] = {}
+    for member in members:
+        strategy = str(member.get("candidate_id") or "").strip()
+        source = str(member.get("set_id") or member.get("set_path") or "").strip()
+        if not strategy:
+            strategy = posixpath.splitext(posixpath.basename(source.replace("\\", "/")))[0]
+        labels = (strategy, member.get("set_name"), source)
+        rule = None
+        for label in labels:
+            key = _rule_key(label)
+            if key in indexed:
+                rule = indexed[key]
+                break
+        if strategy and rule:
+            bound[strategy] = rule
+    return bound
+
+
 def _normalize_rules(value: Any) -> dict[str, dict[str, float]]:
     if value is None:
         return {}
@@ -280,7 +307,9 @@ def expected_volume(
     tester_volume = float(expected.get("volume") or 0.0)
     strategy = str(expected.get("strategy") or "")
     autolot = request.get("autolot") or {}
-    rule = (autolot.get("rules") or {}).get(strategy) if autolot.get("enabled") else None
+    bound = request.get("_autolot_rules_by_strategy")
+    rules = bound if isinstance(bound, dict) else autolot.get("rules") or {}
+    rule = rules.get(strategy) if autolot.get("enabled") else None
     moment = (actual or {}).get("open_time") or expected.get("open_time")
     balance = _balance_at(request.get("_autolot_balance_points") or [], moment) if isinstance(moment, datetime) else None
     if rule and balance is not None:

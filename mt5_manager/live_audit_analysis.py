@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from .live_audit_autolot import dynamic_lot_bands, prepare_request
+from .live_audit_autolot import dynamic_lot_bands, prepare_request, rules_by_strategy
 from .live_audit_engine import (
     LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
     _trade_view, _within_lot_bands,
@@ -260,6 +260,9 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
             request[key] = executed[key]
     request["strategy_set_names"] = strategy_set_names(
         list(payload.get("selected_members") or []),
+    )
+    request["_autolot_rules_by_strategy"] = rules_by_strategy(
+        request.get("autolot"), list(payload.get("selected_members") or []),
     )
     request["_autolot_balance_history"] = profile.get("_autolot_balance_history") or []
     request["_autolot_balance_error"] = profile.get("_autolot_balance_error") or ""

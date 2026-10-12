@@ -25,6 +25,13 @@ baja del mínimo publicado por el broker. El detalle de la operación conserva
 saldo, riesgo, DD, lote bruto, lote ejecutable y la fuente `autolot` para que el
 informe explique el veredicto.
 
+La columna `ESTRATEGIA` del Excel contiene el nombre del `.set` sin extensión,
+mientras las operaciones del auditor se identifican por `candidate_id`/magic
+(`ROBOFOREX/ECN:3758`, por ejemplo). Antes de comparar, el manager enlaza cada
+regla con su miembro mediante `set_name`, `set_id` o `set_path` y usa desde ahí
+el `candidate_id`. Buscar la regla directamente con el magic degrada todas las
+filas al lote manual aunque el Excel tenga las quince estrategias.
+
 La precedencia es: autolote si está activo y la estrategia figura en el Excel;
 lote real manual si no hay regla; lote del tester como último respaldo. Activar
 autolote sin reglas o sin saldo histórico es error visible: nunca se degrada en

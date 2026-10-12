@@ -12,6 +12,7 @@ from mt5_manager.live_audit_settings_schema import normalize_live_audit_settings
 
 
 STRATEGY = "ROBOFOREX/ECN:autolot"
+SET_STEM = "EURUSD_H1_autolot_strategy"
 
 
 def workbook_bytes() -> bytes:
@@ -65,7 +66,10 @@ def audit_payload() -> dict[str, object]:
         "real_trades": [trade(first, 0.1, 10.0), trade(second, 0.2, 20.0)],
         "symbol_points": {"EURUSD": 0.00001}, "strategies": {STRATEGY: 2},
         "qualities": [100.0], "strategy_artifacts": [],
-        "selected_members": [{"candidate_id": STRATEGY, "symbol": "EURUSD", "lot": 0.01}],
+        "selected_members": [{
+            "candidate_id": STRATEGY, "symbol": "EURUSD", "lot": 0.01,
+            "set_name": f"{SET_STEM}.set", "set_id": f"/runs/gen_001/{SET_STEM}.set",
+        }],
         "volume_rules": {"eurusd": {"volume_min": 0.01, "volume_step": 0.01}},
         "account": {}, "real_history_detail": {}, "tester_execution": {},
         "real_account_report": {}, "terminal_restore": [], "open_positions_at_period_end": [],
@@ -116,7 +120,7 @@ class DynamicAuditTests(unittest.TestCase):
         result = analyze(audit_payload(), audit_profile(
             autolot={
                 "enabled": True, "source_name": "riesgo.xlsx", "source_sha256": "a" * 64,
-                "rules": {STRATEGY: {"dd_001": 10.0, "risk_pct": 10.0}},
+                "rules": {SET_STEM: {"dd_001": 10.0, "risk_pct": 10.0}},
             },
             _autolot_balance_history=[
                 # El HTML nativo imprime UTC sin sufijo, mientras la materia
