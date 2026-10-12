@@ -149,20 +149,43 @@ class _TesterMixin:
             terminal_config[f"Terminal.{index}"] = {**profile, "enabled": "1"}
             terminal_names.append(str(profile.get("name") or section))
             self._remember_real_account_terminal(request["audit_key"], section, profile)
-        execution = {
-            "portfolio_type": request["portfolio_type"], "set_count": len(set_files),
-            "workers": workers, "terminal_profiles": terminal_names,
-            "terminal_validations": terminal_validations,
-        }
-        self._update(
-            request["audit_key"], "testing", "Ejecutando Strategy Tester en paralelo.",
-            f"Solo variante {request['portfolio_type']}: {len(set_files)} sets repartidos entre "
-            f"{workers} terminales ({', '.join(terminal_names)})",
+        execution = self._announce_tester_run(
+            request, selected_profiles, terminal_names, workers, len(set_files),
+            terminal_validations,
         )
         path = work / "terminals.ini"
         with path.open("w", encoding="utf-8", newline="\n") as handle:
             terminal_config.write(handle)
         return selected_profiles, journal_snapshot, terminal_validations, execution, path
+
+    def _announce_tester_run(
+        self, request: dict[str, Any], selected_profiles: list[tuple[str, dict[str, str]]],
+        terminal_names: list[str], workers: int, set_count: int,
+        terminal_validations: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Deja dicho qué terminales ejecutan y publica la evidencia del modo."""
+        # Las terminales de este pool son las que hay que cerrar si el usuario
+        # detiene: matar el lanzador deja vivo lo que ya abrió.
+        with self.lock:
+            self.tester_terminal_paths = [
+                str(profile.get("mt5_path") or "") for _section, profile in selected_profiles
+            ]
+        multiterminal = bool(request.get("use_multiterminal"))
+        self._update(
+            request["audit_key"], "testing",
+            "Ejecutando Strategy Tester en paralelo." if multiterminal else
+            "Ejecutando Strategy Tester en la terminal principal.",
+            f"Solo variante {request['portfolio_type']}: {set_count} sets repartidos entre "
+            f"{workers} terminales ({', '.join(terminal_names)})" if multiterminal else
+            f"Solo variante {request['portfolio_type']}: {set_count} sets en serie "
+            f"en {', '.join(terminal_names)}",
+        )
+        return {
+            "portfolio_type": request["portfolio_type"], "set_count": set_count,
+            "workers": workers, "terminal_profiles": terminal_names,
+            "terminal_validations": terminal_validations,
+            "use_multiterminal": multiterminal,
+        }
 
     @staticmethod
     def _tester_command(
@@ -205,11 +228,20 @@ class _TesterMixin:
         journal_snapshot: dict[str, dict[str, int]], terminal_validations: list[dict[str, Any]],
     ) -> None:
         try:
-            completed = subprocess.run(
+            # Popen y no `run`: el botón de detener necesita el mango del
+            # proceso para cortarlo, porque esto es lo que dura horas.
+            process = subprocess.Popen(
                 command, cwd=str(Path(str(self.owner.config["project_dir"])).resolve()),
-                text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=86400,
+                text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
             )
+            with self.lock:
+                self.tester_process = process
+            output, _ = process.communicate(timeout=86400)
+            completed = subprocess.CompletedProcess(command, process.returncode, output, "")
         finally:
+            with self.lock:
+                self.tester_process = None
             self._remove_tester_secrets(template_path, terminal_config_path, configs_dir)
             _redact_log_files(
                 logs_dir, request.get("source_password", ""), request.get("tester_password", "")
@@ -236,6 +268,9 @@ class _TesterMixin:
             request["audit_key"], "testing", "Journals principales de MT5 capturados.",
             "Journal principal guardado para: " + (", ".join(captured) if captured else "ninguna terminal"),
         )
+        # El código de salida de un tester que acabamos de matar no es una
+        # avería que haya que contar: primero se mira si se pidió detener.
+        self._honour_stop_request()
         if completed.returncode:
             tail = "\n".join(runner_output.splitlines()[-20:])
             raise RuntimeError(f"Strategy Tester terminó con código {completed.returncode}: {tail}")

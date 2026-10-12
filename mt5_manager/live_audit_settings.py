@@ -4,11 +4,17 @@ import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from cryptography.fernet import Fernet, InvalidToken
 
 from .common import load_json, save_json, utc_now
+from .live_audit_attribution import (
+    empty_attribution,
+    merge_attribution,
+    remove_source,
+    rewrite_profile_attribution,
+)
 from .live_audit_settings_schema import (
     DEFAULT_LIVE_AUDIT_PROFILE,
     DEFAULT_LIVE_AUDIT_SETTINGS,
@@ -541,6 +547,41 @@ class LiveAuditSettingsStore:
                 "restore_server": str(state["server"]),
                 "restore_password": cipher.decrypt(token.encode("ascii")).decode("utf-8"),
             }
+
+    def _rewrite_attribution(
+        self, node_id: str, audit_id: str, rewrite: Callable[[Any], dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Persiste la atribución reescrita de un uso, y sólo ese campo."""
+        with self.lock:
+            record = self.records.get(node_id) or {}
+            profiles = rewrite_profile_attribution(record, audit_id, rewrite)
+            self.records[node_id] = {**record, "profiles": profiles, "updated_at": utc_now()}
+            save_json(self.path, self.records)
+            return dict(profiles[str(audit_id)]["real_attribution"])
+
+    def set_real_attribution(
+        self, node_id: str, audit_id: str, attribution: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Acumula la atribución manual de un uso.
+
+        Decidir de quién es cada real es trabajo manual que no se repite, así
+        que un Excel nuevo se suma al anterior en vez de sustituirlo, y lo dicho
+        en auditorías pasadas sigue ahí.
+        """
+        return self._rewrite_attribution(
+            node_id, audit_id, lambda stored: merge_attribution(stored, attribution),
+        )
+
+    def drop_real_attribution(
+        self, node_id: str, audit_id: str, sha256: str | None,
+    ) -> dict[str, Any]:
+        """Retira un Excel de atribución, o todos si no se nombra ninguno."""
+        return self._rewrite_attribution(
+            node_id, audit_id,
+            lambda stored: (
+                remove_source(stored, sha256) if sha256 is not None else empty_attribution()
+            ),
+        )
 
     def credentials(self, node_id: str, audit_id: str | int) -> dict[str, str]:
         """Devuelve secretos de un uso auditado solo al orquestador interno."""

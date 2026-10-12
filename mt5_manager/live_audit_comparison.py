@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .live_audit_attribution import annotate_unmatched
 from .live_audit_core import *  # noqa: F403
 
 
@@ -75,19 +76,25 @@ class _ComparisonMixin:
         time_limit = request["trade_time_tolerance_seconds"]
         open_delta = abs((actual["open_time"] - expected["open_time"]).total_seconds())
         close_delta = abs((actual["close_time"] - expected["close_time"]).total_seconds())
-        if open_delta > time_limit and close_delta > time_limit:
-            return None
-        expected_volume, _tester_volume = _expected_real_volume(
-            expected, request.get("real_strategy_lots") or {},
-        )
+        expected_volume, _tester_volume = _expected_real_volume(expected, request, actual)
         volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
         price_limit, _points, _rule = _effective_price_tolerance(
             actual["symbol"], points.get(actual["symbol"], 0.0),
             request["price_tolerance_points"],
         )
+        stops_evidence = _ComparisonMixin._stops_evidence(expected, actual, price_limit)
+        complete_stops = stops_evidence == 0 and all(
+            float(expected.get(key) or 0.0) and float(actual.get(key) or 0.0)
+            for key in ("sl", "tp")
+        )
+        volume_outside = abs(float(actual["volume"]) - expected_volume) > volume_limit
+        if (
+            open_delta > time_limit and close_delta > time_limit
+            and (not complete_stops or volume_outside)
+        ):
+            return None
         return (
-            _ComparisonMixin._stops_evidence(expected, actual, price_limit),
-            int(abs(float(actual["volume"]) - expected_volume) > volume_limit),
+            stops_evidence, int(volume_outside),
             int(open_delta > time_limit), int(close_delta > time_limit),
             open_delta + close_delta,
         )
@@ -125,10 +132,25 @@ class _ComparisonMixin:
     def _missing_comparison(
         expected: dict[str, Any], tester_index: int, strategy: str,
         same_market: list[tuple[float, int]], real: list[dict[str, Any]],
-        time_limit: int, data_issues: list[str],
+        request: dict[str, Any], data_issues: list[str],
     ) -> dict[str, Any]:
+        """La fila de un cierre del tester que ninguna real reclamó.
+
+        Publica igualmente el lote que se esperaba en real. El saldo es siempre
+        el de la **cuenta real** —el tester no tiene autolote: su lote es el
+        fijo con que se ejecutó el backtest—, y lo único que falta sin pareja es
+        el instante en que leerlo. Se usa entonces la hora de apertura del
+        tester, que da el mismo escalón de saldo que habría dado la real: una
+        apertura real sólo puede caer dentro de la tolerancia de tiempo.
+
+        Dejar la fila sin lote esperado la congelaba en el lote del backtest, y
+        la simulación de la pantalla de análisis mezclaba dos escalas en una
+        misma curva.
+        """
+        time_limit = request["trade_time_tolerance_seconds"]
         nearest = min(same_market) if same_market else None
         nearest_trade = real[nearest[1]] if nearest else None
+        volume_detail = _expected_real_volume_detail(expected, request)
         return {
             "tester_index": tester_index, "status": "missing", "strategy": strategy,
             "tester": _trade_view(expected), "real": None,
@@ -137,7 +159,12 @@ class _ComparisonMixin:
             "measurements": {
                 "nearest_open_time_delta_seconds": round(nearest[0], 3) if nearest else None,
             },
-            "limits": {"open_time_seconds": time_limit}, "data_issues": data_issues,
+            "limits": {
+                "open_time_seconds": time_limit,
+                "volume_expected_basis": "real_balance_at_tester_open_time",
+                **_volume_limits(volume_detail),
+            },
+            "data_issues": data_issues,
             "reasons": [
                 "open_time_outside_tolerance" if nearest else "no_real_same_symbol_and_side"
             ],
@@ -202,8 +229,7 @@ class _ComparisonMixin:
     def _matched_limits(
         request: dict[str, Any], price_limit: float | None,
         price_limit_points: float | None, price_limit_rule: str,
-        volume_limit: float, pnl_limit: float, strategy: str,
-        real_lots: dict[str, float], expected_volume: float,
+        volume_limit: float, pnl_limit: float, volume_detail: dict[str, Any],
     ) -> dict[str, Any]:
         return {
             "open_time_seconds": request["trade_time_tolerance_seconds"],
@@ -213,8 +239,7 @@ class _ComparisonMixin:
             "open_price_configured_points": request["price_tolerance_points"],
             "open_price_rule": price_limit_rule, "volume_pct": request["volume_tolerance_pct"],
             "volume_absolute": round(volume_limit, 8),
-            "volume_expected_real": round(expected_volume, 8),
-            "volume_expected_source": "configured_real_lot" if strategy in real_lots else "tester_lot",
+            **_volume_limits(volume_detail),
             "pnl_pct": request["pnl_deviation_warning_pct"],
             "pnl_absolute": round(pnl_limit, 2),
         }
@@ -229,8 +254,9 @@ class _ComparisonMixin:
             actual["symbol"], point, request["price_tolerance_points"],
         )
         strategy = str(expected["strategy"])
-        real_lots = request.get("real_strategy_lots") or {}
-        expected_volume, tester_volume = _expected_real_volume(expected, real_lots)
+        volume_detail = _expected_real_volume_detail(expected, request, actual)
+        expected_volume = float(volume_detail["expected"])
+        tester_volume = float(volume_detail["tester"])
         pnl_scale = expected_volume / tester_volume if tester_volume > 0 else 1.0
         scaled_tester_profit = float(expected["profit"]) * pnl_scale
         volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
@@ -261,7 +287,7 @@ class _ComparisonMixin:
         )
         limits = _ComparisonMixin._matched_limits(
             request, price_limit, price_limit_points, price_limit_rule,
-            volume_limit, float(pnl["limit"]), strategy, real_lots, expected_volume,
+            volume_limit, float(pnl["limit"]), volume_detail,
         )
         return ({
             "tester_index": tester_index, "real_index": real_index + 1,
@@ -296,7 +322,7 @@ class _ComparisonMixin:
             state["operation_comparisons"].append(_ComparisonMixin._missing_comparison(
                 expected, tester_index, strategy,
                 _ComparisonMixin._same_market(expected, real, state["unassigned"]), real,
-                request["trade_time_tolerance_seconds"], data_issues,
+                request, data_issues,
             ))
             return
         state["unused"].remove(index)
@@ -358,6 +384,56 @@ class _ComparisonMixin:
         } for strategy in sorted(strategies)]
 
     @staticmethod
+    def _mark_quality(
+        result: dict[str, Any], artifacts: list[dict[str, Any]], minimum: float,
+    ) -> list[dict[str, Any]]:
+        """Marca los sets sin la calidad exigida en vez de anular la auditoría.
+
+        Una calidad insuficiente la causa el historial de ticks de la terminal
+        que ejecutó ese set, no la cuenta auditada. Anular la comparación
+        entera dejaba sin medir once sets al 100 % por culpa de dos al 66 %.
+        """
+        below = [{
+            "strategy": str(row.get("strategy") or ""),
+            "symbol": str(row.get("symbol") or ""),
+            "history_quality_pct": (
+                None if row.get("history_quality_pct") is None
+                else float(row["history_quality_pct"])
+            ),
+        } for row in artifacts if (
+            row.get("history_quality_pct") is None
+            or float(row["history_quality_pct"]) < minimum
+        )]
+        quality_by_strategy = {
+            str(row.get("strategy") or ""): row.get("history_quality_pct")
+            for row in artifacts
+        }
+        flagged = {row["strategy"] for row in below}
+        for summary in (result.get("comparison_detail") or {}).get("strategy_summary") or []:
+            strategy = str(summary.get("strategy") or "")
+            summary["history_quality_pct"] = quality_by_strategy.get(strategy)
+            summary["quality_ok"] = strategy not in flagged
+        result["minimum_tick_history_quality_pct"] = minimum
+        result["strategies_below_quality"] = below
+        return below
+
+    @staticmethod
+    def _quality_note(below: list[dict[str, Any]], minimum: float) -> str:
+        """Lo que se añade al resumen para que el aviso llegue a la tarjeta."""
+        if not below:
+            return ""
+        detail = ", ".join(
+            f"{row['symbol'] or row['strategy']} "
+            + ("sin calidad informada" if row["history_quality_pct"] is None
+               else f"{row['history_quality_pct']:.2f}%")
+            for row in below[:5]
+        )
+        return (
+            f" {len(below)} set(s) por debajo de la calidad mínima {minimum:.2f}%"
+            f" ({detail}): sus desviaciones pueden ser del historial de ticks."
+        )
+
+    @staticmethod
     def _finalize_comparison(
         real: list[dict[str, Any]], tester: list[dict[str, Any]],
         request: dict[str, Any], strategies: dict[str, int], state: dict[str, Any],
@@ -373,6 +449,12 @@ class _ComparisonMixin:
         )
         unmatched, unmatched_operations = _ComparisonMixin._unmatched_real_operations(
             real, state["unused"],
+        )
+        # El usuario puede haber dicho de quién es cada real que el auditor no
+        # pudo emparejar. No se inventa una pareja: la fila sigue siendo
+        # `extra` y sólo queda anotada.
+        state["attribution_summary"] = annotate_unmatched(
+            unmatched_operations, request.get("_real_attribution_by_ticket") or {},
         )
         set_names = dict(request.get("strategy_set_names") or {})
         _ComparisonMixin._name_strategies(state, set_names)
@@ -404,6 +486,8 @@ class _ComparisonMixin:
         real_dd: float, tester_dd: float, dd_deviation: float,
     ) -> dict[str, Any]:
         time_limit = request["trade_time_tolerance_seconds"]
+        autolot = request.get("autolot") or {}
+        dynamic_lots = bool(autolot.get("enabled"))
         return {
             "matched_by_strategy": state["matched_by_strategy"],
             "within_tolerance_by_strategy": state["within_tolerance_by_strategy"],
@@ -417,13 +501,25 @@ class _ComparisonMixin:
             "time_tolerance_seconds": time_limit,
             "methodology": {
                 "alignment": "Mismo símbolo y lado; el reparto se decide sobre todas las parejas a la vez y cada real se usa una vez, sea un cierre o una posición todavía abierta. Manda la apertura dentro de tolerancia; a igualdad, el cierre dentro de tolerancia; a igualdad, la menor distancia total. Una real que sólo encaja por el cierre se acepta y se marca la apertura como desviación.",
-                "validation": "En parejas cerradas se validan cierre, precio de apertura, volumen y PnL. Una posición real todavía abierta se considera alineada y valida solo apertura, precio y volumen: no se inventan cierre ni PnL. El volumen se compara contra el lote real configurado para la estrategia y el PnL del tester se escala por ese mismo ratio. El drawdown se valida sobre el conjunto.",
+                "validation": (
+                    "En parejas cerradas se validan cierre, precio de apertura, volumen y PnL. Una posición real todavía abierta se considera alineada y valida solo apertura, precio y volumen: no se inventan cierre ni PnL. "
+                    + (
+                        "El volumen se compara contra el lote que el autolote calcula en la apertura de cada operación con el saldo de la cuenta real —saldo real × riesgo % × 0,01 ÷ DD_0.01, ajustado al mínimo y paso del broker— y el PnL del tester se escala por ese mismo ratio: dentro de una misma auditoría dos operaciones de la estrategia pueden esperar lotes distintos. El tester no tiene autolote: su lote es el fijo del backtest. Un cierre del tester sin pareja real lee ese mismo saldo real en la hora de su propia apertura."
+                        if dynamic_lots else
+                        "El volumen se compara contra el lote real configurado para la estrategia y el PnL del tester se escala por ese mismo ratio."
+                    )
+                    + " El drawdown se valida sobre el conjunto."
+                ),
                 "tolerances": {
                     "time_seconds": time_limit, "price_points": request["price_tolerance_points"],
                     "price_policy": "adaptive_by_instrument",
                     "price_absolute_floors": ADAPTIVE_PRICE_TOLERANCE_FLOORS,
                     "volume_pct": request["volume_tolerance_pct"],
-                    "volume_basis": "configured_real_lot",
+                    "volume_basis": "autolot_balance_risk" if dynamic_lots else "configured_real_lot",
+                    "autolot_source": str(autolot.get("source_name") or "") if dynamic_lots else "",
+                    "autolot_strategies": len(
+                        request.get("_autolot_rules_by_strategy") or autolot.get("rules") or {},
+                    ) if dynamic_lots else 0,
                     "pnl_pct": request["pnl_deviation_warning_pct"],
                     "pnl_policy": "adverse_shortfall_only",
                     "pnl_basis": "tester_scaled_to_real_lot",
@@ -433,6 +529,7 @@ class _ComparisonMixin:
             "strategy_summary": strategy_summary,
             "operation_comparisons": state["operation_comparisons"],
             "unmatched_real_operations": unmatched_operations,
+            "real_attribution": state.get("attribution_summary") or {},
             "drawdown": {
                 "real": round(real_dd, 2), "tester": round(tester_dd, 2),
                 "deviation_pct": round(dd_deviation, 2),

@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from .common import load_json, save_json, utc_now
+from .live_audit_autolot import expected_volume as _autolot_expected_volume
 from .mt5_native_history_report import NativeHistoryReportError, export_native_history_report
 
 RUNNING_STATUSES = frozenset({
@@ -26,7 +28,7 @@ STATUS_LABELS = {
     "extracting": "EXTRAYENDO", "testing": "PROBANDO", "comparing": "COMPARANDO",
     "finalizing": "FINALIZANDO", "resuming": "REANUDANDO",
     "completed": "COMPLETADA", "not_comparable": "NO COMPARABLE",
-    "failed": "FALLIDA",
+    "failed": "FALLIDA", "stopped": "DETENIDA",
 }
 PROGRESS = {
     "idle": ("idle", 0), "queued": ("preparing", 5), "pausing": ("preparing", 10),
@@ -34,8 +36,17 @@ PROGRESS = {
     "comparing": ("comparing", 85), "finalizing": ("comparing", 95),
     "resuming": ("comparing", 98),
     "completed": ("completed", 100), "not_comparable": ("completed", 100),
-    "failed": ("completed", 100),
+    "failed": ("completed", 100), "stopped": ("completed", 100),
 }
+
+
+class AuditStopped(RuntimeError):
+    """El usuario pidió parar: no es un fallo y no debe leerse como tal.
+
+    Se lanza en los cortes entre fases, así que la auditoría termina por su
+    `finally` de siempre: restaura la cuenta de cada terminal y reanuda el
+    pipeline que había pausado.
+    """
 
 # Pisos absolutos validados por el usuario. La tolerancia configurada en puntos
 # sigue existiendo y puede ampliar estos límites, pero no reducirlos: un único
@@ -93,6 +104,13 @@ def _as_float(value: Any, name: str, minimum: float = 0.0, maximum: float | None
     if not math.isfinite(result) or result < minimum or (maximum is not None and result > maximum):
         raise ValueError(f"{name} está fuera del rango permitido")
     return result
+
+
+def _as_bool(value: Any) -> bool:
+    """Casilla del manager: ausente es falso, que es «una sola terminal»."""
+    if isinstance(value, bool):
+        return value
+    return str(value if value is not None else "").strip().casefold() in {"1", "true", "on", "si", "sí"}
 
 
 def _normalize_real_strategy_lots(value: Any) -> dict[str, float]:
@@ -196,16 +214,34 @@ def _adaptive_price_tolerance_floor(symbol: str) -> tuple[float | None, str]:
 
 
 def _expected_real_volume(
-    expected: dict[str, Any], real_lots: dict[str, float],
+    expected: dict[str, Any], request: dict[str, Any], actual: dict[str, Any] | None = None,
 ) -> tuple[float, float]:
     """Volumen esperado en real y volumen que usó el tester."""
-    tester_volume = float(expected.get("volume") or 0.0)
-    configured = real_lots.get(str(expected.get("strategy") or ""))
-    try:
-        expected_volume = float(configured) if configured is not None else tester_volume
-    except (TypeError, ValueError):
-        expected_volume = tester_volume
-    return (expected_volume if expected_volume > 0 else tester_volume), tester_volume
+    detail = _expected_real_volume_detail(expected, request, actual)
+    return float(detail["expected"]), float(detail["tester"])
+
+
+def _expected_real_volume_detail(
+    expected: dict[str, Any], request: dict[str, Any], actual: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Incluye la procedencia y los factores del volumen esperado."""
+    return _autolot_expected_volume(expected, request, actual)
+
+
+def _volume_limits(volume_detail: dict[str, Any]) -> dict[str, Any]:
+    """El lote esperado y, si viene del autolote, los factores que lo explican.
+
+    Lo publican las tres clases de fila —pareja cerrada, real todavía abierta y
+    tester sin pareja—, así que vive aquí: un cuarto consumidor no puede volver
+    a copiar la lista de factores y olvidarse de uno.
+    """
+    return {
+        "volume_expected_real": round(float(volume_detail["expected"]), 8),
+        "volume_expected_source": volume_detail["source"],
+        **{key: round(float(volume_detail[key]), 8) for key in (
+            "balance", "dd_001", "risk_pct", "raw_lot",
+        ) if key in volume_detail},
+    }
 
 
 def _matching_open_position(
@@ -240,7 +276,8 @@ def _open_position_comparison(
         str(actual.get("symbol") or expected["symbol"]), point,
         request["price_tolerance_points"],
     )
-    expected_volume, _tester_volume = _expected_real_volume(expected, real_lots)
+    volume_detail = _expected_real_volume_detail(expected, request, actual)
+    expected_volume = float(volume_detail["expected"])
     volume_limit = max(expected_volume, 1e-9) * request["volume_tolerance_pct"] / 100
     price_delta = abs(float(actual.get("open_price") or 0) - float(expected["open_price"]))
     volume_delta = abs(float(actual.get("volume") or 0) - expected_volume)
@@ -271,8 +308,7 @@ def _open_position_comparison(
             "open_price_configured_points": request["price_tolerance_points"],
             "open_price_rule": price_rule, "volume_pct": request["volume_tolerance_pct"],
             "volume_absolute": round(volume_limit, 8),
-            "volume_expected_real": round(expected_volume, 8),
-            "volume_expected_source": "configured_real_lot" if strategy in real_lots else "tester_lot",
+            **_volume_limits(volume_detail),
         },
         "data_issues": data_issues,
         "reasons": ["real_position_still_open_at_period_end", *reasons],
@@ -411,6 +447,7 @@ def normalize_request(payload: dict[str, Any]) -> dict[str, Any]:
         "drawdown_deviation_warning_pct": _as_float(
             value.get("drawdown_deviation_warning_pct"), "drawdown_deviation_warning_pct"
         ),
+        "use_multiterminal": _as_bool(value.get("use_multiterminal")),
         "execution_delay_mode": str(value.get("execution_delay_mode") or "measured"),
         "fixed_delay_ms": _as_int(value.get("fixed_delay_ms", 0), "fixed_delay_ms", 0),
     }

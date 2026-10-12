@@ -12,6 +12,17 @@ class _LifecycleMixin:
                 raw.setdefault("log_lines", []).append(f"[{utc_now()}] {log}")
             self._persist()
 
+    def _honour_stop_request(self) -> None:
+        """Corte entre fases. Lo pide el botón de detener y lo mira el hilo.
+
+        No se interrumpe a mitad de un paso: se sale por el `finally` del
+        `_run`, que restaura la cuenta de cada terminal y reanuda el pipeline.
+        """
+        with self.lock:
+            stopped = self.stop_requested
+        if stopped:
+            raise AuditStopped("Auditoría detenida a petición del usuario")
+
     def _log(self, audit_key: str, line: str) -> None:
         """Registra un hecho sin tocar el estado terminal ya publicado."""
         with self.lock:
@@ -189,24 +200,18 @@ class _LifecycleMixin:
         self, request: dict[str, Any], period_start: datetime, period_end: datetime,
         real_trades: list[dict[str, Any]], tester_trades: list[dict[str, Any]],
         qualities: list[float], symbol_points: dict[str, float], strategies: dict[str, int],
+        strategy_artifacts: list[dict[str, Any]] | None = None,
     ) -> tuple[dict[str, Any], str]:
         quality = min(qualities) if qualities else None
+        minimum = float(request["min_tick_history_quality_pct"])
         result = self._result_base(
             request, period_start, period_end, real_trades, tester_trades, quality,
         )
-        if quality is None or quality < request["min_tick_history_quality_pct"]:
-            result.update(
-                status="not_comparable", status_label="NO COMPARABLE", matched_trades=0,
-                discrepancies=0, stalled_strategies=0,
-                summary=(
-                    "MT5 no informó History Quality." if quality is None else
-                    f"History Quality {quality:.2f}% inferior al mínimo "
-                    f"{request['min_tick_history_quality_pct']:.2f}%."
-                ),
-            )
-            return result, "not_comparable"
         comparison = self._compare(real_trades, tester_trades, symbol_points, request, strategies)
         result.update(comparison)
+        # La calidad marca, no bloquea: el historial de ticks es de la terminal
+        # que ejecutó ese set, no de la cuenta que se está auditando.
+        below = self._mark_quality(result, list(strategy_artifacts or []), minimum)
         invalid_tester = sum(
             (comparison.get("comparison_detail") or {}).get("tester_data_issues", {}).values()
         )
@@ -216,6 +221,7 @@ class _LifecycleMixin:
             f"{comparison['discrepancies']} discrepancias; "
             f"{comparison['stalled_strategies']} estrategia(s) sin continuidad"
             + (f"; {invalid_tester} operación(es) tester con tiempos inválidos." if invalid_tester else ".")
+            + self._quality_note(below, minimum)
         )
         result["status"] = result["status_label"] = "completed"
         result["status_label"] = "COMPLETADA"
@@ -317,18 +323,41 @@ class _LifecycleMixin:
         if getattr(self.owner, "queue", None):
             self.owner._schedule_queue_drain()
 
+    def _abort_status(self, audit_key: str, error: BaseException) -> str:
+        """Lo que se publica cuando la auditoría no llega al final.
+
+        Detener no es fallar: ni `error` ni texto de avería. Lo que queda por
+        hacer sí es lo mismo, restaurar los terminales y reanudar el pipeline.
+        """
+        if isinstance(error, AuditStopped):
+            self._update(
+                audit_key, "finalizing",
+                "Detenida a petición del usuario; restaurando las terminales.",
+                "Auditoría detenida por el usuario antes de terminar.",
+            )
+            return "stopped"
+        self._update(
+            audit_key, "finalizing",
+            f"La auditoría falló; restaurando las terminales: {error}", str(error),
+            error=str(error),
+        )
+        return "failed"
+
     def _run(self, request: dict[str, Any], audit_id: str) -> None:
         audit_key = request["audit_key"]
         paused_by_auditor = False
         terminal_status = "failed"
+        self.single_terminal_audit = not request.get("use_multiterminal", False)
         with self.lock:
             self.real_account_terminals[audit_key] = []
         try:
             paused_by_auditor = self._pause_pipeline_for_audit(audit_key)
+            self._honour_stop_request()
             (
                 period_start, period_end, real_trades, symbol_points, account,
                 real_history_detail, real_account_report,
             ) = self._extract_audit_history(request, audit_id)
+            self._honour_stop_request()
             self._update(
                 audit_key, "testing", "Ejecutando el portafolio con ticks reales en el nodo.",
                 f"{len(real_trades)} cierres reales reconstruidos antes del filtro del portafolio.",
@@ -336,6 +365,7 @@ class _LifecycleMixin:
             tester_trades, qualities, strategies, strategy_artifacts, tester_execution = self._run_tester(
                 request, audit_id, period_start, period_end
             )
+            self._honour_stop_request()
             real_trades = self._filter_real_portfolio_trades(
                 request, real_trades, tester_trades, strategy_artifacts, real_history_detail,
             )
@@ -347,7 +377,7 @@ class _LifecycleMixin:
             )
             result, final_status = self._comparison_result(
                 request, period_start, period_end, real_trades, tester_trades,
-                qualities, symbol_points, strategies,
+                qualities, symbol_points, strategies, strategy_artifacts,
             )
             detail_log = self._attach_audit_evidence(
                 result, request, audit_id, account, real_history_detail,
@@ -359,10 +389,7 @@ class _LifecycleMixin:
                 f"Comparación finalizada" + (f": {detail_log}" if detail_log else ""), last_result=result,
             )
         except Exception as exc:
-            terminal_status = "failed"
-            self._update(
-                audit_key, "finalizing", f"La auditoría falló; restaurando las terminales: {exc}", str(exc),
-                error=str(exc),
-            )
+            terminal_status = self._abort_status(audit_key, exc)
         finally:
             self._finish_audit(request, audit_id, paused_by_auditor, terminal_status)
+            self.single_terminal_audit = False

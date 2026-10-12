@@ -218,7 +218,12 @@ class _ExtractionMixin:
                 mt5.shutdown()
                 self._close_terminal_pids(launched or (self._terminal_pids() - before))
         raise NativeHistoryReportError(
-            "No se pudo obtener el HTML nativo en ninguna terminal IC accesible: "
+            (
+                "No se pudo obtener el HTML nativo y el uso corre con una sola "
+                "terminal, así que no hay ninguna otra donde reintentarlo: "
+                if self.single_terminal_audit else
+                "No se pudo obtener el HTML nativo en ninguna terminal IC accesible: "
+            )
             + " | ".join(errors)
         ) from primary_error
 

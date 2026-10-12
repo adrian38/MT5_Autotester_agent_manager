@@ -16,6 +16,57 @@ except ImportError:
     )
 
 
+# Cada criterio del auditor que tiene que existir en la copia del agente, con
+# lo que se rompe si falta. Vive fuera del método porque la lista crece y la
+# comprobación no puede pasar de 60 líneas por culpa de la tabla.
+AUDITOR_RESTORE_TOKENS = (
+    ("def _restore_tester_login", "la restauración de la cuenta de pruebas"),
+    (
+        "def _persist_terminal_account_retrying",
+        "el segundo intento que salva la carrera del arranque con el INI",
+    ),
+    ("def _remember_real_account_terminal", "el registro de terminales con la cuenta real"),
+    ("def _tester_terminal_pool", "el reparto del tester entre terminales habilitadas"),
+    (
+        "def _multiterminal_worker_limit",
+        "el tope de terminales simultáneas que el nodo ya aplica al pipeline",
+    ),
+    (
+        "def _principal_terminal_only",
+        "la casilla del multiterminal: desmarcada, todo el uso va a la principal",
+    ),
+    ('"use_multiterminal"', "la casilla que el manager manda en el payload del uso"),
+    (
+        "single_terminal_audit",
+        "el modo que leen la cuenta real, el tester, el informe nativo y la restauración",
+    ),
+    (
+        "def _unique_terminal_paths",
+        "el descarte de la instalación repetida, que no es una terminal más",
+    ),
+    (
+        "def _honour_stop_request",
+        "el corte entre fases que atiende el botón de detener",
+    ),
+    (
+        "def _terminate_tester_process",
+        "cortar el lanzador del tester sin forzar el cierre de ninguna terminal",
+    ),
+    (
+        "def _close_tester_terminals",
+        "cerrar las terminales que el tester dejó abiertas al detener",
+    ),
+    ('"stopped"', "el estado DETENIDA, que no es una avería del auditor"),
+    ('"tester_execution"', "la evidencia del modo y del pool de terminales ejecutado"),
+    ('"workers": str(', "el número efectivo de terminales del tester"),
+    ("def _close_terminal_pids_gracefully", "el cierre que deja a MT5 guardar la cuenta"),
+    ('request["restore_login"]', "el login final independiente de la cuenta tester"),
+    ('request["restore_password"]', "la credencial final independiente de la cuenta tester"),
+    ('request["restore_server"]', "el servidor final independiente de la cuenta tester"),
+    ('"finalizing"', "el estado que impide publicar un fin antes de restaurar las terminales"),
+)
+
+
 def _delegates_to_the_manager(project: Path) -> bool:
     return "last_payload=payload" in fork_live_audit_source(project)
 
@@ -126,6 +177,13 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             "def _remember_real_account_terminal",
             "def _tester_terminal_pool",
             "def _multiterminal_worker_limit",
+            "def _principal_terminal_only",
+            '"use_multiterminal"',
+            "single_terminal_audit",
+            "def _honour_stop_request",
+            "def _terminate_tester_process",
+            "def _close_tester_terminals",
+            '"stopped"',
             "def _unique_terminal_paths",
             '"tester_execution"',
             # Sin el nombre de la variable: el fork lo escribe
@@ -150,30 +208,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             '"live_audit_restore_account": True', node_source,
             f"{project}: el runtime nuevo no anuncia al manager la restauración independiente.",
         )
-        for token, hint in (
-            ("def _restore_tester_login", "la restauración de la cuenta de pruebas"),
-            (
-                "def _persist_terminal_account_retrying",
-                "el segundo intento que salva la carrera del arranque con el INI",
-            ),
-            ("def _remember_real_account_terminal", "el registro de terminales con la cuenta real"),
-            ("def _tester_terminal_pool", "el reparto del tester entre terminales habilitadas"),
-            (
-                "def _multiterminal_worker_limit",
-                "el tope de terminales simultáneas que el nodo ya aplica al pipeline",
-            ),
-            (
-                "def _unique_terminal_paths",
-                "el descarte de la instalación repetida, que no es una terminal más",
-            ),
-            ('"tester_execution"', "la evidencia del modo y del pool de terminales ejecutado"),
-            ('"workers": str(', "el número efectivo de terminales del tester"),
-            ("def _close_terminal_pids_gracefully", "el cierre que deja a MT5 guardar la cuenta"),
-            ('request["restore_login"]', "el login final independiente de la cuenta tester"),
-            ('request["restore_password"]', "la credencial final independiente de la cuenta tester"),
-            ('request["restore_server"]', "el servidor final independiente de la cuenta tester"),
-            ('"finalizing"', "el estado que impide publicar un fin antes de restaurar las terminales"),
-        ):
+        for token, hint in AUDITOR_RESTORE_TOKENS:
             self._assert_present(
                 source,
                 re.escape(token),

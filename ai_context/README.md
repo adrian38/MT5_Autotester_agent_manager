@@ -106,6 +106,14 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_pairing_20261004.md`: por qué el auditor emparejaba mal los
   cierres reales, la banda de lote que sustituye al lote exacto y el reparto
   global que sustituye al codicioso por operación.
+- `live_audit_cross_account_symbol_aliases.md`: cuentas real y tester del mismo
+  broker con símbolos distintos (`BTCUSD`/`BTCUSD.sa`) y canonización basada en
+  el miembro del portfolio, sin adivinar sufijos.
+- `live_audit_autolot.md`: importación del DD/riesgo por estrategia, saldo
+  histórico del HTML nativo y lote dinámico por apertura, sólo en el manager.
+- `live_audit_not_comparable_20261012.md`: un uso NO COMPARABLE se leía como
+  COINCIDE; la caché de ticks incompleta de una terminal, la casilla del
+  multiterminal y por qué `completed_at` no es la hora de la ejecución.
 
 ## Manager: interfaz y operación
 

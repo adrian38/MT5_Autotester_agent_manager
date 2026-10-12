@@ -89,6 +89,26 @@ lo que la hace fiable cuando lote y tiempo no distinguen. La fila 21 sigue sin
 pareja porque la cuenta no ejecutó esa operación: no hay ningún EURUSD real en
 esa franja, con stops o sin ellos.
 
+## Stops completos fuera de ambas tolerancias (AXI, 2026-10-09)
+
+La revisión manual de `audit-67-muzhv8jq-1` encontró otra contradicción. La
+operación tester USDJPY del 2026-09-01 15:32:43 aparecía «SIN REAL», mientras
+el ticket real `101653043` quedaba libre. Abría 145 segundos después y cerraba
+754 segundos antes, ambos fuera del límite de 120 segundos, pero coincidían el
+lote y la huella completa de entrada: SL 158,254/158,255 y TP
+160,704/160,705.
+
+`_pair_cost` rechazaba la pareja por tiempo antes de llamar a
+`_stops_evidence`. Ahora una coincidencia completa de SL, TP y lote permite
+alinearla aunque ambos extremos queden fuera de la tolerancia. Sigue marcada
+como desviación de apertura y cierre. Un solo nivel conocido no basta y una
+diferencia de lote tampoco: sin esas tres evidencias, la puerta temporal sigue
+rechazando la pareja.
+
+Reanalizar la misma materia prima pasa de 56 a 57 parejas, de 2 a 1 faltantes,
+de 4 a 3 reales extra y de 25 a 24 discrepancias. No cambia ninguna de las 38
+parejas que estaban dentro de todas las tolerancias.
+
 ## La guarda de paridad estaba roja antes de esto
 
 `test_node_runtime_fork_parity*` fallaba en catorce comprobaciones, todas falsos

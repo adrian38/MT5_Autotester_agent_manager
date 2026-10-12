@@ -29,6 +29,11 @@ class LiveAuditController(
         # última cuenta de cada terminal, así que hay que devolverlos a la cuenta
         # configurada para restauración antes de soltarlos: ver `_restore_tester_login`.
         self.real_account_terminals: dict[str, list[dict[str, str]]] = {}
+        # Botón de detener: una auditoría a la vez, así que la petición y el
+        # proceso del tester que hay que matar caben en el controlador.
+        self.stop_requested = False
+        self.tester_process: Any = None
+        self.tester_terminal_paths: list[str] = []
         if self.state_path.is_file():
             try:
                 stored = load_json(self.state_path)
@@ -81,6 +86,51 @@ class LiveAuditController(
             raise FileNotFoundError(filename)
         return path
 
+    def stop(self, audit_key: str | int = "") -> dict[str, Any]:
+        """Detiene la auditoría en curso: la configuración pudo salir mal.
+
+        No se mata el hilo: se pide parar y se corta el Strategy Tester, que es
+        lo que puede tardar horas. La auditoría sale por su `finally` de
+        siempre, así que deja cada terminal en su cuenta y reanuda el pipeline.
+        """
+        with self.lock:
+            running = [
+                key for key, value in self.states.items()
+                if str(value.get("status")) in RUNNING_STATUSES
+            ]
+            if not running:
+                raise ValueError("No hay ninguna auditoría en curso que detener")
+            requested = str(audit_key)
+            key = requested if requested in running else running[0]
+            self.stop_requested = True
+            process = self.tester_process
+            paths = list(self.tester_terminal_paths)
+            status = str(self.states[key].get("status") or "")
+        if process is not None and process.poll() is None:
+            self._terminate_tester_process(process)
+        closed = self._close_tester_terminals(paths)
+        self._update(
+            key, status, "Deteniendo la auditoría a petición del usuario.",
+            "Detención pedida por el usuario: cortado el lanzador del tester y "
+            f"cerradas {closed} terminal(es) suyas; vuelven a su cuenta configurada.",
+        )
+        return self.state(key)
+
+    def _close_tester_terminals(self, paths: list[str]) -> int:
+        """Cierra las terminales que el tester tenía abiertas, sin perder su cuenta.
+
+        Matar el lanzador no para lo que ya abrió: el backtest sigue corriendo
+        en cada MT5. Se cierran por el camino ordenado, que es el que deja a
+        MT5 escribir su configuración antes de irse.
+        """
+        pids: set[int] = set()
+        for path in paths:
+            if path:
+                pids |= self._terminal_pids_for_path(path)
+        if pids:
+            self._close_terminal_pids_gracefully(pids)
+        return len(pids)
+
     def start(self, payload: dict[str, Any]) -> dict[str, Any]:
         request = normalize_request(payload)
         portfolio_id = request["portfolio_id"]
@@ -90,6 +140,9 @@ class LiveAuditController(
         with self.lock:
             if self.is_running():
                 raise RuntimeError("Ya hay una auditoría utilizando las terminales del nodo")
+            # Una detención pedida sobre la anterior no puede matar a ésta.
+            self.stop_requested = False
+            self.tester_process = None
             audit_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             self.states[audit_key] = {
                 "audit_key": audit_key, "portfolio_id": portfolio_id,

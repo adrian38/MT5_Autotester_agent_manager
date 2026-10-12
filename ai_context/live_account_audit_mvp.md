@@ -1154,3 +1154,199 @@ defectos reales que hay en ese camino. Para la próxima: el error por terminal
 vive en `terminal_restore[].error` del `state.json` del agente y lo pinta la
 pantalla de resultado, así que conviene copiarlo antes de relanzar la
 auditoría, porque la siguiente ejecución lo borra.
+
+## La pestaña Análisis deriva sus curvas del veredicto (2026-10-10)
+
+Cada uso con resultado ofrece `Análisis`, además de `Último resultado`. La nueva
+pestaña no ejecuta otra auditoría ni pide la materia prima que el manager retira
+antes de responder al navegador: deriva el PnL cerrado acumulado de
+`comparison_detail.operation_comparisons`.
+
+- La curva Demo contiene una vez cada operación tester de esas comparaciones.
+- La curva Real global contiene las reales emparejadas y también
+  `unmatched_real_operations`; omitir estas últimas falsearía la ganancia real.
+- El desglose por estrategia atribuye cada operación real a la estrategia
+  tester con la que el auditor la emparejó. Las reales sin pareja sólo pueden
+  figurar en el global porque no hay base fiable para inventarles estrategia.
+- El periodo se toma del resultado ya calculado. PnL y drawdown se calculan
+  sobre las operaciones cerradas que dibuja cada curva; el drawdown repite el
+  criterio de `_drawdown` del motor (equity desde cero, mayor caída pico-valle)
+  y a lotes ejecutados coincide con el del veredicto. Comprobado con AXI #67:
+  24,78 y 69,12 en los dos sitios.
+
+Tres decisiones que no se ven en el código y cuesta volver a deducir:
+
+- **Se agrupa por `strategy`, nunca por `strategy_set`.** El nombre del `.set`
+  es la etiqueta legible, pero dos estrategias pueden compartirlo: agrupando por
+  él se funden en una fila y desaparece la que peor reproduce. La identidad que
+  usa el auditor —y la tabla por estrategia de la pantalla de resultado— es
+  `strategy`.
+- **El eje de tiempo es el periodo auditado, no la extensión de las
+  operaciones.** Así las curvas de dos estrategias son comparables entre sí y
+  con la global. Con la extensión, una auditoría de una sola operación ponía la
+  demo en un extremo y la real en el otro por los segundos de diferencia entre
+  sus cierres, que es cierto y a la vez ilegible.
+- **Sin `operation_comparisons` la pantalla no se dibuja: se explica.** Una
+  ejecución antigua daría curvas planas y PnL cero, que se lee como «la cuenta
+  no ganó nada» en vez de «no hay con qué dibujarlo». Igual que la pantalla de
+  resultado, un `analysis_error` del manager se enseña tal cual en vez de
+  «todavía no hay auditoría», que sería falso cuando el nodo sí la ejecutó.
+
+El botón se habilita con `last_result` **o** `has_payload`: el manager retira la
+materia prima y sólo calcula el veredicto al abrir el detalle, así que el estado
+de la pantalla de configuración puede traer una sola de las dos señales.
+
+La página vive sólo en el manager (`live_audit_analysis.html/js/css`) y reutiliza
+el endpoint del detalle. No requiere port del runtime ni reinicio del agente.
+
+## La tabla de operaciones era asimétrica (2026-10-10)
+
+El veredicto decía «1 tester · 3 reales» sin pareja, pero la tabla de la
+pantalla de resultado **estaba indexada por operación del tester**: una real que
+ningún resultado reclamó no podía salir en ella por construcción. Sólo vivía en
+la sección «4 · REALES SIN PAREJA», más abajo. Visto en AXI, portafolio 67
+(`audit-67-muzhv8jq-1`): 58 filas del tester y 3 reales huérfanas fuera.
+
+Lo caro no era la tabla, era todo lo que colgaba de ella:
+
+- Los filtros tenían «Sin real» y ningún simétrico, y «Problemas» no las contaba.
+- El contador decía «58 FILAS» cuando los hechos auditados eran 61.
+- La búsqueda por símbolo no las alcanzaba.
+- **El CSV se las dejaba fuera**, así que uno se descargaba la auditoría
+  creyéndola completa justo sin las operaciones que la cuenta hizo por su cuenta.
+
+Ahora son filas de la misma tabla, con estado `extra` («REAL SIN TESTER»), su
+filtro, dentro de «Problemas», en el contador y en el CSV. La sección 4 se
+conserva como vista dedicada y dice dónde están las mismas filas.
+
+Dos detalles al tocar esto:
+
+- **El aviso de «resultado antiguo» mira sólo `operation_comparisons`.** Si
+  mirase la lista combinada, una real huérfana en una ejecución sin trazabilidad
+  por operación apagaría el aviso.
+- Una real huérfana trae `reason` en singular, no `reasons`; y su `strategy` es
+  el magic de la cuenta, no una estrategia del portafolio. Se etiqueta «Sin
+  estrategia del tester» y el magic va aparte.
+
+## Simulación de lotes en Análisis (2026-10-10)
+
+«Lotes por estrategia» abre un diálogo con un lote demo y un lote real por
+estrategia y reescala las curvas. Es **sólo de la vista**: no escribe en el
+perfil, no reanaliza y no toca el veredicto ni el detalle de operaciones. Vive
+en `localStorage` bajo `live-audit-lots:<nodo>:<uso>`, con aviso «SIMULACIÓN»
+visible y botón de restablecer.
+
+Para qué sirve, con el caso que lo motivó: en AXI #67 la estrategia de BTCUSD
+corrió **0,03 en el tester y 0,1 en la cuenta real**. El PnL demo era 22,85 € y
+el real 101,79 €, que leído de frente parece una divergencia enorme de
+comportamiento. Simulando la demo a 0,1 sube a **104,80 €**: casi todo el hueco
+era el lote, no la estrategia.
+
+- **Se reescala operación a operación**, `profit / volume * lote`, no con un
+  factor único por estrategia. Si una estrategia operó varios volúmenes, el
+  factor común daría un PnL que nunca existió. Por eso el grupo guarda
+  `demoLots`/`realLots` —la lista de volúmenes observados— y no un lote solo.
+- **Las reales sin pareja nunca se reescalan**: no pertenecen a ninguna
+  estrategia del tester. Sumadas al global, intactas.
+- **El drawdown hay que recalcularlo.** Con otro lote el del veredicto deja de
+  valer. Al hacerlo se vuelve obligatorio recalcularlo también sin simulación,
+  o el mismo número cambiaría de origen según el modo.
+- El modelo es lineal: supone que el mismo precio se habría llenado con
+  cualquier tamaño. No modela deslizamiento, margen ni stop out, y el diálogo lo
+  dice. Lote 0 es válido y responde «¿y si no hubiera operado esto?».
+- No confundirlo con «Lotes usados en la cuenta real» de la pantalla de
+  configuración, que **sí** cambia el veredicto porque el manager reanaliza con
+  esos lotes (tolerancia de volumen y escalado de PnL).
+
+## Qué se guarda y qué se pierde al desmarcar (2026-10-11)
+
+Pregunta del usuario: ¿marcar otro portafolio me hace perder lo configurado y
+su última auditoría? **No**, pero había una trampa cerca.
+
+Lo que persiste, comprobado:
+
+- **Los perfiles no se borran nunca al guardar.** La pantalla manda sólo los
+  usos seleccionados, pero `_update_context` parte de *todos* los perfiles
+  guardados y `update` sólo pisa los enviados: el servidor fusiona, no
+  reemplaza. Un uso desmarcado conserva cuentas, periodo, tolerancias, lotes
+  por estrategia y las dos contraseñas cifradas, que siguen descifrando.
+- **Las auditorías viven en el agente y no se podan.** Una entrada por uso en
+  `runtime/<nodo>/live_audits/state.json`, más una carpeta por ejecución. AXI
+  guardaba cuatro usos, el más viejo del 13 de septiembre, con todas sus
+  ejecuciones.
+- Cada portafolio marcado crea un uso independiente: marcar otro no toca los
+  que ya existen.
+
+Lo que sí pierde algo:
+
+- **Repetir una auditoría pisa el resultado anterior de ese uso.** Sólo se
+  conserva el último. Los ficheros de las ejecuciones previas siguen en disco,
+  pero `artifact_path` sólo sirve los del `audit_id` visible.
+- **Desmarcar y volver a marcar creaba un uso nuevo en blanco** (arreglado).
+  `newAuditId` mina siempre un identificador nuevo y la comprobación sólo
+  miraba los *seleccionados*, así que el perfil viejo y su última auditoría
+  quedaban huérfanos: en disco, pero invisibles para siempre. Ahora
+  `savedAuditFor` recupera el uso guardado de **ese** portafolio.
+  - La pertenencia la decide `portfolio_id` del perfil, **no** el texto del
+    identificador: `audit-64-...` es cosmético y un perfil reasignado lo
+    desmentiría.
+  - Con varios huérfanos del mismo portafolio gana el más reciente, ordenando
+    por la marca de tiempo en base 36 del identificador y el número de secuencia.
+  - «Añadir otro uso» sigue creando uno nuevo a propósito: es su función.
+
+## ¿La estrategia sigue haciendo lo de siempre? (2026-10-11)
+
+La última tabla de Análisis compara lo que cada estrategia hizo en la demo
+durante el periodo con su backtest guardado en la memoria UBS del agente.
+`mt5_manager/live_audit_degradation.py` tiene el criterio;
+`GET /api/nodes/<nodo>/live-audits/<uso>/strategy-history` lo sirve.
+
+**Es sólo del manager.** `/api/v1/portfolios` lo sirve el runtime bifurcado del
+agente, así que por ahí habría hecho falta un port; pero el manager ya lee la
+memoria UBS del agente directamente con `PortfolioSource` —`memory_sources` más
+`connect_memory`, lo mismo que hace `portfolio_source_inventory`— y de ahí sale
+`candidates.metrics_json`. Sin tocar los nodos.
+
+Cuatro cosas que costó averiguar y no están en el código:
+
+- **El histórico está a `StartLots=0,01`.** Comprobado leyendo los `.set`
+  originales de AXI. El periodo auditado corre al lote del portafolio, así que
+  todo se normaliza **por lote** (`beneficio / volumen`): el PnL crudo mediría
+  el tamaño de la posición y no el comportamiento.
+- **La dispersión sale del SQN.** La memoria no guarda la desviación por
+  operación, pero `SQN = media / desviación * raíz(n)` la despeja. Sin ella el
+  veredicto sería una opinión sobre dos medias sueltas.
+- **Por eso el porcentaje a secas engaña.** En AXI #67, ETHUSD cayó un −171 %
+  frente a su media y sale NORMAL: su SQN de 1,83 dice que siempre fue así de
+  ruidosa. XAUUSD cayó un −97 %, menos en porcentaje, y sale AVISO porque su
+  SQN de 8,91 la hacía muy estable. Un umbral sobre el porcentaje habría dado
+  la alarma en la estrategia equivocada.
+- **`raw_net_profit` antes que `net_profit`.** En algunos brokers `net_profit`
+  viene normalizado por nocional (`net_profit_basis:
+  axi_notional_normalization_ref1000`) y entonces no es dinero comparable con
+  el de una cuenta. En AXI coinciden, pero no hay que confiarse.
+
+Decisiones de producto, por si hay que moverlas: los umbrales son ±1σ (aviso) y
+±2σ (degrada/mejor), y por debajo de 8 operaciones no se opina —no es un umbral
+estadístico sino el punto donde el aviso deja de ser accionable—. Están en
+constantes con nombre al principio del módulo.
+
+La tabla **no** depende de la simulación de lotes: la comparación ya es por lote
+y el tamaño que se hubiera operado no cambia el comportamiento medido. Va en su
+propia petición y después de pintar las curvas, porque abre la base del agente y
+esa puede estar bloqueada por una generación; si falla, la tabla lo dice y el
+resto de la pantalla sigue en pie. Y es ruta aparte, no parte del detalle,
+porque la pantalla de configuración sondea el detalle en bucle.
+
+La presentación original decía «por lote» y enseñaba euros a un lote entero,
+aunque el histórico se hubiera ejecutado a 0,01. Era matemáticamente equivalente
+pero no permitía comprobar la escala a simple vista. La tabla enseña ahora la
+media del periodo y la histórica **ambas a 0,01 lotes**, y declara que las dos
+proceden del Strategy Tester. Si el periodo trae volúmenes distintos, cada
+operación se normaliza por separado antes de promediar: sumar primero PnL y
+volumen daba más peso a los cierres grandes que a los pequeños, incompatible con
+la media por operación y el error estándar históricos.
+
+El veredicto también expresa la acción prudente: mantener, vigilar, revisar o no
+decidir aún. Los casos sin muestra, histórico o dispersión cuentan como «sin
+conclusión» en la cabecera; nunca vuelven a quedar resumidos como «sin avisos».

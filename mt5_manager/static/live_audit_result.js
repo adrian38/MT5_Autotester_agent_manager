@@ -13,6 +13,7 @@ const reasonLabels = {
   no_real_same_symbol_and_side: 'No existe una real libre con el mismo símbolo y lado',
   real_position_still_open_at_period_end: 'La posición real seguía abierta al terminar el periodo',
   close_before_open: 'Dato tester inválido: el cierre es anterior a la apertura',
+  not_used_by_any_tester_operation: 'Ninguna operación del tester utilizó esta real',
 };
 const priceRuleLabels = {
   adaptive_indices: 'índices',
@@ -92,8 +93,16 @@ function pnlDelta(measurements, limit) {
 // enseña 0,08 contra 0,04 y un «En contra 50 %» que el motor ya no usa para
 // decidir, y el lector no puede reconstruir por qué la fila está dentro.
 function expectedRealVolumeNote(limits) {
-  if (limits.volume_expected_source !== 'configured_real_lot') return '';
   if (limits.volume_expected_real == null) return '';
+  // El saldo es siempre el de la cuenta real. Sin pareja lo único que falta es
+  // el instante en que leerlo, y se usa la hora de apertura del tester: la
+  // fila tiene que decirlo para que no se lea como un saldo del backtest.
+  const basis = limits.volume_expected_basis === 'real_balance_at_tester_open_time'
+    ? ', leído a la hora de apertura del tester por no tener pareja real' : '';
+  if (limits.volume_expected_source === 'autolot') {
+    return ` · esperado en real ${number(limits.volume_expected_real, 4)} (autolote: saldo real ${number(limits.balance, 2)}, riesgo ${number(limits.risk_pct, 2)} %, DD 0,01 ${number(limits.dd_001, 2)}${basis})`;
+  }
+  if (limits.volume_expected_source !== 'configured_real_lot') return '';
   return ` · esperado en real ${number(limits.volume_expected_real, 4)} (lote configurado)`;
 }
 
@@ -136,10 +145,23 @@ function realTicketNote(real) {
   return ticket ? ` · ticket ${ticket}` : '';
 }
 
-function stopsPair(tester, real) {
-  const level = trade => (Number(trade.sl) || Number(trade.tp))
+function stopsLevel(trade) {
+  return (Number(trade.sl) || Number(trade.tp))
     ? `SL ${number(trade.sl, 8)} / TP ${number(trade.tp, 8)}` : 'sin niveles';
-  return `${level(tester)} · REAL: ${level(real)}`;
+}
+
+function stopsPair(tester, real) {
+  return `${stopsLevel(tester)} · REAL: ${stopsLevel(real)}`;
+}
+
+// Una real sin pareja no tiene con qué formar el par TESTER/REAL, pero sigue
+// siendo una fila de la misma tabla: se escribe el lado que existe.
+function realOnly(value, formatter = value => number(value)) {
+  return `<span class="audit-pair"><small>REAL</small><strong>${escapeHtml(formatter(value))}</strong></span>`;
+}
+
+function extraReason(row) {
+  return reasonLabels[row.reason] || row.reason || 'Ninguna operación del tester utilizó esta real';
 }
 
 function plainPair(tester, real, formatter = value => number(value)) {
@@ -173,7 +195,7 @@ function comparisonCsvRow(row) {
     ? plainPair(tester.open_price, real.open_price, value => number(value, 8))
     : `${plainPair(tester.open_price, real.open_price, value => number(value, 8))} · ${plainDelta(measurements.open_price_delta_points, limits.open_price_points, ' pt')} · límite absoluto ${number(limits.open_price_absolute, 8)} · regla ${priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada'}`;
   const volumeText = row.status === 'missing'
-    ? plainPair(tester.volume, real.volume, value => number(value, 4))
+    ? `${plainPair(tester.volume, real.volume, value => number(value, 4))}${expectedRealVolumeNote(limits)}`
     : `${plainPair(tester.volume, real.volume, value => number(value, 4))} · ${plainDelta(measurements.volume_delta_pct, limits.volume_pct, ' %')}${expectedRealVolumeNote(limits)}`;
   const pnlText = noClosedReal
     ? plainPair(tester.profit, real.profit, value => number(value, 2))
@@ -194,6 +216,28 @@ function comparisonCsvRow(row) {
   ];
 }
 
+function extraCsvRow(row) {
+  const real = row.real || {};
+  const magic = real.strategy ? ` · magic ${real.strategy}` : '';
+  return [
+    `R${row.real_index ?? ''}`,
+    'REAL SIN TESTER',
+    `${real.symbol || '—'} · ${number(real.volume, 4)} lotes · ${real.side || '—'} · sin estrategia del tester${magic}`,
+    `TESTER: sin operación · REAL: ${marketDateTime(real.open_time)}${realTicketNote(real)}`,
+    `TESTER: sin operación · REAL: ${marketDateTime(real.close_time)}`,
+    `TESTER: sin operación · REAL: ${number(real.open_price, 8)}`,
+    `TESTER: sin operación · REAL: ${stopsLevel(real)}`,
+    `TESTER: sin operación · REAL: ${number(real.volume, 4)}`,
+    `TESTER: sin operación · REAL: ${number(real.profit, 2)}`,
+    extraReason(row),
+    '',
+  ];
+}
+
+function csvRowFor(row) {
+  return row.status === 'extra' ? extraCsvRow(row) : comparisonCsvRow(row);
+}
+
 function csvCell(value) {
   let text = String(value ?? '').replace(/\r?\n/g, ' ').trim();
   if (/^[=+\-@]/.test(text)) text = `'${text}`;
@@ -203,7 +247,7 @@ function csvCell(value) {
 function downloadComparisons() {
   if (!comparisonRows.length || !currentResult) return;
   const headers = ['ID', 'Estado', 'Mercado', 'Apertura', 'Cierre', 'Precio apertura', 'SL / TP', 'Volumen', 'PnL', 'Por qué', 'Validación / observaciones'];
-  const csv = `\uFEFF${[headers, ...comparisonRows.map(comparisonCsvRow)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
+  const csv = `\uFEFF${[headers, ...comparisonRows.map(csvRowFor)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
   const fileId = String(currentResult.audit_id || auditId || 'resultado').replace(/[^A-Za-z0-9_-]+/g, '_');
   const start = String(currentResult.period_start || '').slice(0, 10) || 'sin-inicio';
   const end = String(currentResult.period_end || '').slice(0, 10) || 'sin-fin';
@@ -248,7 +292,52 @@ function percent(part, total) {
   return denominator > 0 ? `${number(numerator / denominator * 100, 0)} %` : '—';
 }
 
-function renderVerdict(result) {
+function qualityLabel(row) {
+  const quality = row.history_quality_pct;
+  return quality == null ? 'sin calidad informada' : `${number(quality)} %`;
+}
+
+function qualityChips(result, minimum) {
+  // La calidad ya no anula la auditoría: marca el set cuyo historial de ticks
+  // no da la talla, para no leer sus desviaciones como un fallo de la cuenta.
+  const below = result.strategies_below_quality || [];
+  if (!below.length) return '';
+  return `<strong class="bad-text">Calidad tick por debajo de ${escapeHtml(number(minimum))} %:</strong>`
+    + below.map(row => `<span class="bad-text">${escapeHtml(row.symbol || row.strategy)} · ${escapeHtml(qualityLabel(row))}</span>`).join('');
+}
+
+function qualityFailures(result, minimum) {
+  // Sin comparación no hay resumen por estrategia: lo único que identifica al
+  // culpable son los artefactos, que sí traen la calidad set a set.
+  return (result.strategy_artifacts || []).filter(row => (
+    row.history_quality_pct == null || Number(row.history_quality_pct) < minimum
+  ));
+}
+
+function renderNotComparableVerdict(result, minimum) {
+  const failures = qualityFailures(result, minimum);
+  const quality = result.history_quality_pct;
+  document.querySelector('#verdict-title').textContent =
+    'Sin comparar: la calidad tick a tick no llega al mínimo exigido';
+  document.querySelector('#verdict-explanation').innerHTML =
+    `<strong>${escapeHtml(result.summary || 'MT5 no acreditó la calidad exigida.')}</strong> `
+    + 'La auditoría se detuvo antes de emparejar nada, así que los contadores de '
+    + 'operaciones no significan que todo cuadre: significa que no se midió. '
+    + `Se leyeron <strong>${escapeHtml(result.real_trades ?? '—')}</strong> cierres reales y `
+    + `<strong>${escapeHtml(result.tester_trades ?? '—')}</strong> operaciones del tester.`;
+  document.querySelector('#verdict-grid').innerHTML = [
+    metric('Calidad obtenida', quality == null ? 'NO INFORMADA' : `${number(quality)} %`, 'bad'),
+    metric('Mínimo exigido', `${number(minimum)} %`),
+    metric('Sets por debajo', `${failures.length} de ${(result.strategy_artifacts || []).length}`, failures.length ? 'bad' : ''),
+    metric('Operaciones leídas', `${result.real_trades ?? '—'} reales · ${result.tester_trades ?? '—'} tester`),
+  ].join('');
+  document.querySelector('#reason-list').innerHTML = failures.length
+    ? `<strong>Sets que no acreditan la calidad:</strong>${failures.map(row => `<span>${escapeHtml(row.symbol || row.strategy)} · ${row.history_quality_pct == null ? 'sin calidad informada' : `${escapeHtml(number(row.history_quality_pct))} %`}</span>`).join('')}`
+    : '<strong>MT5 no informó la calidad de ningún set.</strong>';
+}
+
+function renderVerdict(result, minimum) {
+  if (result.status === 'not_comparable') return renderNotComparableVerdict(result, minimum);
   const total = Number(result.tester_trades || 0);
   const aligned = Number(result.matched_trades || 0);
   const correct = Number(result.within_tolerance_trades || 0);
@@ -287,9 +376,9 @@ function renderVerdict(result) {
     pnl: 'PnL desfavorable', drawdown: 'Drawdown',
   };
   const items = Object.entries(reasons).filter(([, count]) => Number(count) > 0);
-  document.querySelector('#reason-list').innerHTML = items.length
+  document.querySelector('#reason-list').innerHTML = (items.length
     ? `<strong>Principales causas:</strong>${items.map(([key, count]) => `<span>${escapeHtml(labels[key] || key)} · ${escapeHtml(count)}</span>`).join('')}`
-    : '<strong class="good-text">No se detectaron desviaciones.</strong>';
+    : '<strong class="good-text">No se detectaron desviaciones.</strong>') + qualityChips(result, minimum);
 }
 
 function testerTerminalValidation(testerExecution) {
@@ -310,20 +399,28 @@ function testerTerminalValidation(testerExecution) {
   ];
 }
 
-function renderSummary(result) {
+function renderSummary(result, minimum) {
   const account = result.account || {};
   const testerExecution = result.tester_execution || {};
   const period = `${marketDateTime(result.period_start)} → ${marketDateTime(result.period_end)} · hora MT5`;
+  const quality = result.history_quality_pct;
+  const qualityFails = quality == null || Number(quality) < minimum;
   document.querySelector('#summary-grid').innerHTML = [
     metric('Periodo auditado', period),
     metric('Modo', modeLabels[result.portfolio_type] || result.portfolio_type),
     metric('Ejecución del tester', testerExecution.workers
       ? `${testerExecution.set_count} sets · ${testerExecution.workers} terminales · ${(testerExecution.terminal_profiles || []).join(' · ')}`
+        + `${testerExecution.use_multiterminal === false ? ' · multiterminal desmarcado: sólo la principal' : ''}`
       : 'NO REGISTRADA · ejecución anterior'),
     metric('Cuenta tester confirmada por terminal', ...testerTerminalValidation(testerExecution)),
     metric('Cuenta real verificada', account.connected ? `${account.login} · ${account.server}` : 'NO VERIFICADA', account.connected ? '' : 'bad'),
     metric('Terminal devuelto a la cuenta final configurada', ...terminalRestore(result)),
-    metric('Calidad tick', result.history_quality_pct == null ? 'NO INFORMADA' : `${number(result.history_quality_pct)} %`),
+    metric(
+      'Calidad tick',
+      quality == null ? `NO INFORMADA · mínimo ${number(minimum)} %`
+        : `${number(quality)} %${qualityFails ? ` · por debajo del mínimo ${number(minimum)} %` : ''}`,
+      qualityFails ? 'bad' : 'good',
+    ),
   ].join('');
 }
 
@@ -332,6 +429,11 @@ function renderMethodology(result) {
   const methodology = detail.methodology || {};
   const tolerances = methodology.tolerances || {};
   const adaptivePrice = tolerances.price_policy === 'adaptive_by_instrument';
+  // El lote esperado es el criterio que más cambia el veredicto de volumen y
+  // de PnL: la metodología tiene que decir cuál se aplicó y de dónde salió.
+  const autolotBasis = tolerances.volume_basis === 'autolot_balance_risk'
+    ? `<span>Lote esperado: autolote por saldo de la cuenta real y riesgo${tolerances.autolot_strategies ? ` · ${escapeHtml(number(tolerances.autolot_strategies, 0))} estrategia${tolerances.autolot_strategies === 1 ? '' : 's'}` : ''}${tolerances.autolot_source ? ` · ${escapeHtml(tolerances.autolot_source)}` : ''}</span>`
+    : '<span>Lote esperado: el lote real configurado por estrategia</span>';
   document.querySelector('#methodology').innerHTML = `
     <ol>
       <li><strong>Alinear.</strong><span>${escapeHtml(methodology.alignment || 'Mismo símbolo y lado, con apertura dentro de la tolerancia temporal. Se usa la real más cercana y no puede reutilizarse.')}</span></li>
@@ -342,6 +444,7 @@ function renderMethodology(result) {
       <span>Tiempo ±${escapeHtml(number(tolerances.time_seconds ?? detail.time_tolerance_seconds, 0))} s</span>
       <span>${adaptivePrice ? 'Precio adaptativo por instrumento · límite efectivo en cada fila' : `Precio ±${escapeHtml(number(tolerances.price_points, 2))} puntos`}</span>
       <span>Volumen ±${escapeHtml(number(tolerances.volume_pct, 2))} %</span>
+      ${autolotBasis}
       <span>${tolerances.pnl_policy === 'adverse_shortfall_only' ? `PnL: alerta si el real empeora más de ${escapeHtml(number(tolerances.pnl_pct, 2))} %` : `PnL ±${escapeHtml(number(tolerances.pnl_pct, 2))} %`}</span>
       <span>Drawdown ±${escapeHtml(number(tolerances.drawdown_pct, 2))} %</span>
     </div>`;
@@ -425,7 +528,25 @@ function renderArtifacts(result) {
   }).join('');
 }
 
-function renderStrategies(result) {
+function qualityBlockedStrategies(result, minimum) {
+  const rows = result.strategy_artifacts || [];
+  if (!rows.length) {
+    return '<tr><td colspan="8" class="audit-empty">Esta ejecución no guardó el detalle por estrategia.</td></tr>';
+  }
+  return rows.map(row => {
+    const quality = row.history_quality_pct;
+    const blocked = quality == null || Number(quality) < minimum;
+    return `<tr>
+      <th><strong>${escapeHtml(row.symbol || row.strategy)}</strong><small>${escapeHtml(row.runtime_set || row.source_set || row.strategy)}</small></th>
+      <td>${escapeHtml(row.tester_trades ?? '—')}</td>
+      <td colspan="4" class="audit-empty">Sin comparación: el uso quedó NO COMPARABLE</td>
+      <td>${quality == null ? 'SIN CALIDAD' : `${escapeHtml(number(quality))} %`}</td>
+      <td><span class="audit-status ${blocked ? 'bad' : 'good'}">${blocked ? 'CALIDAD INSUFICIENTE' : 'CALIDAD OK'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderStrategies(result, minimum) {
   const detail = result.comparison_detail || {};
   const rows = detail.strategy_summary || [];
   const artifacts = new Map((result.strategy_artifacts || []).map(row => [String(row.strategy), row]));
@@ -435,12 +556,20 @@ function renderStrategies(result) {
       const diagnosis = Number(row.missing_real) === Number(row.tester_trades) ? ['SIN CONTINUIDAD', 'bad']
         : Number(row.with_deviations) || Number(row.missing_real) ? ['REVISAR', 'warn']
           : Number(row.open_real) ? ['REAL ABIERTA', 'info'] : ['CORRECTA', 'good'];
+      // La estrategia cuyo historial de ticks no llega al mínimo se marca, pero
+      // sus operaciones se comparan igual que las demás.
+      if (row.quality_ok === false) {
+        return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small class="bad-text">Calidad tick ${escapeHtml(qualityLabel(row))}</small><small>${escapeHtml(row.strategy_set || row.strategy)}</small></th>
+        <td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
+        <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td>${escapeHtml(row.open_real || 0)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
+        <td><span class="audit-status bad">CALIDAD INSUFICIENTE</span><small>${escapeHtml(diagnosis[0])} con el historial que había</small></td>`;
+      }
       return `<th><strong>${escapeHtml(artifact.symbol || row.strategy)}</strong><small>Lote real ${escapeHtml(number(artifact.real_account_lot ?? artifact.tester_lot ?? artifact.configured_lot, 8))} · tester ${escapeHtml(number(artifact.tester_lot ?? artifact.configured_lot, 8))}</small><small>${escapeHtml(row.strategy_set || row.strategy)}</small>${row.strategy_set ? `<small>${escapeHtml(row.strategy)}</small>` : ''}</th>
         <td>${escapeHtml(row.tester_trades)}</td><td>${escapeHtml(row.aligned)}</td>
         <td class="good-text">${escapeHtml(row.within_tolerance)}</td><td>${escapeHtml(row.open_real || 0)}</td><td class="warn-text">${escapeHtml(row.with_deviations)}</td><td class="bad-text">${escapeHtml(row.missing_real)}</td>
         <td><span class="audit-status ${diagnosis[1]}">${diagnosis[0]}</span></td>`;
     })()}
-  </tr>`).join('') : '<tr><td colspan="8" class="audit-empty">Esta ejecución no guardó el detalle por estrategia.</td></tr>';
+  </tr>`).join('') : qualityBlockedStrategies(result, minimum);
 }
 
 function comparisonMarkup(row) {
@@ -453,10 +582,11 @@ function comparisonMarkup(row) {
   const nearestNote = row.status === 'missing' && nearest.open_time ? '<em>Candidato más cercano, no consumido</em>' : '';
   const volumeNote = expectedRealVolumeNote(limits).replace(/^ · /, '');
   const scaleNote = pnlScaleNote(measurements).replace(/^ · /, '');
-  const volumeCell = row.status === 'missing' ? '' : [
-    delta(measurements.volume_delta_pct, limits.volume_pct, ' %'),
-    volumeNote ? `<small>${escapeHtml(volumeNote)}</small>` : '',
-  ].join('');
+  // Un faltante no tiene volumen real contra el que medir, pero sí un lote
+  // esperado: es lo que habría llevado la real que no existe.
+  const expectedVolume = volumeNote ? `<small>${escapeHtml(volumeNote)}</small>` : '';
+  const volumeCell = row.status === 'missing' ? expectedVolume
+    : `${delta(measurements.volume_delta_pct, limits.volume_pct, ' %')}${expectedVolume}`;
   const pnlCell = row.status === 'missing' || openPosition ? '' : [
     pnlDelta(measurements, limits.pnl_pct),
     scaleNote ? `<small>${escapeHtml(scaleNote)}</small>` : '',
@@ -473,12 +603,34 @@ function comparisonMarkup(row) {
   </tr>`;
 }
 
+// Las reales que ningún resultado del tester reclamó son filas de pleno derecho
+// de esta tabla: si sólo viven en su sección, no entran en los filtros, ni en el
+// contador, ni en el CSV, y la auditoría que uno se descarga sale incompleta.
+function extraComparisonMarkup(row) {
+  const real = row.real || {};
+  const ticket = realTicketNote(real).replace(/^ · /, '');
+  return `<tr data-status="extra" data-search="${escapeHtml(`${real.symbol || ''} ${real.strategy || ''}`.toLocaleLowerCase('es'))}">
+    <td><span class="audit-status bad">REAL SIN TESTER</span><small>#R${escapeHtml(row.real_index)}</small>${ticket ? `<small>${escapeHtml(ticket)}</small>` : ''}</td>
+    <td><strong>${escapeHtml(real.symbol)} · ${escapeHtml(number(real.volume, 4))} lotes</strong><span>${escapeHtml(real.side)}</span><small>Sin estrategia del tester</small>${real.strategy ? `<small>magic ${escapeHtml(real.strategy)}</small>` : ''}</td>
+    <td>${realOnly(real.open_time, marketDateTime)}</td>
+    <td>${realOnly(real.close_time, marketDateTime)}</td>
+    <td>${realOnly(real.open_price, value => number(value, 8))}<small>${escapeHtml(stopsLevel(real))}</small></td>
+    <td>${realOnly(real.volume, value => number(value, 4))}</td>
+    <td>${realOnly(real.profit, value => number(value, 2))}</td>
+    <td><ul><li>${escapeHtml(extraReason(row))}</li></ul></td>
+  </tr>`;
+}
+
+function rowMarkup(row) {
+  return row.status === 'extra' ? extraComparisonMarkup(row) : comparisonMarkup(row);
+}
+
 function applyFilters() {
   const query = document.querySelector('#comparison-search').value.trim().toLocaleLowerCase('es');
   let visible = 0;
   document.querySelectorAll('#comparison-body tr[data-status]').forEach(row => {
     const statusMatches = activeFilter === 'all' || row.dataset.status === activeFilter
-      || (activeFilter === 'issues' && ['deviation', 'missing', 'invalid'].includes(row.dataset.status));
+      || (activeFilter === 'issues' && ['deviation', 'missing', 'extra', 'invalid'].includes(row.dataset.status));
     const show = statusMatches && (!query || row.dataset.search.includes(query));
     row.hidden = !show;
     if (show) visible += 1;
@@ -487,18 +639,20 @@ function applyFilters() {
 }
 
 function renderComparisons(detail) {
-  comparisonRows = detail.operation_comparisons || [];
+  const testerRows = detail.operation_comparisons || [];
+  comparisonRows = [...testerRows, ...(detail.unmatched_real_operations || [])];
   const body = document.querySelector('#comparison-body');
   const warning = document.querySelector('#legacy-warning');
   document.querySelector('#download-comparison').disabled = !comparisonRows.length;
-  if (!comparisonRows.length) {
-    body.innerHTML = '<tr><td colspan="8" class="audit-empty">No hay filas de comparación guardadas.</td></tr>';
-    warning.hidden = false;
+  // El aviso de ejecución antigua mira sólo las filas del tester: una real sin
+  // pareja no demuestra que haya trazabilidad por operación.
+  warning.hidden = Boolean(testerRows.length);
+  if (!warning.hidden) {
     warning.innerHTML = '<strong>Resultado antiguo sin trazabilidad por operación.</strong><span>Vuelve a ejecutar esta auditoría con el motor actualizado para ver cada pareja real–tester, sus deltas y la decisión.</span>';
-  } else {
-    warning.hidden = true;
-    body.innerHTML = comparisonRows.map(comparisonMarkup).join('');
   }
+  body.innerHTML = comparisonRows.length
+    ? comparisonRows.map(rowMarkup).join('')
+    : '<tr><td colspan="8" class="audit-empty">No hay filas de comparación guardadas.</td></tr>';
   applyFilters();
 }
 
@@ -521,7 +675,7 @@ function renderResult(result, config, portfolios, auditState = {}) {
   document.title = `${title} · detalle de auditoría`;
   document.querySelector('#result-title').textContent = title;
   const auditedPeriod = `${marketDateTime(result.period_start)} → ${marketDateTime(result.period_end)}`;
-  document.querySelector('#result-subtitle').textContent = `${modeLabels[result.portfolio_type] || result.portfolio_type || 'Sin modo'} · cuenta ${result.account?.login || profile.source_login || '—'} · periodo ${auditedPeriod} · finalizada ${dateTime(result.completed_at)}`;
+  document.querySelector('#result-subtitle').textContent = `${modeLabels[result.portfolio_type] || result.portfolio_type || 'Sin modo'} · cuenta ${result.account?.login || profile.source_login || '—'} · periodo ${auditedPeriod} · finalizada ${dateTime(result.analysis?.executed_at || result.completed_at)}`;
   const staleWarning = document.querySelector('#stale-result-warning');
   const stale = Boolean(auditState.audit_id && result.audit_id && auditState.audit_id !== result.audit_id);
   staleWarning.hidden = !stale;
@@ -530,19 +684,33 @@ function renderResult(result, config, portfolios, auditState = {}) {
     staleWarning.innerHTML = `<strong>Este no es el resultado de la última ejecución.</strong><span>Se muestra la auditoría ${escapeHtml(result.audit_id)} porque la ejecución ${escapeHtml(auditState.audit_id)} terminó ${escapeHtml(currentStatus)} antes de producir una comparación nueva. ${escapeHtml(auditState.error || '')}</span>`;
   }
   const state = document.querySelector('#result-state');
+  // Un resultado sin comparación no tiene contadores: leerlos como ceros
+  // pintaba de verde una auditoría que no llegó a medir nada.
+  const notComparable = result.status === 'not_comparable';
+  const minimumQuality = Number(
+    result.minimum_tick_history_quality_pct
+    ?? result.analysis?.tolerances?.min_tick_history_quality_pct
+    ?? profile.min_tick_history_quality_pct ?? 0
+  );
+  const belowQuality = result.strategies_below_quality || [];
   const needsReview = Number(result.missing_real_trades) || Number(result.extra_real_trades) || Number(result.deviating_pairs);
   const open = Number(result.open_real_trades || 0);
   const successText = open
     ? `${open} posición(es) real(es) siguen abiertas y están alineadas en los datos disponibles.`
     : 'La cuenta y el tester coinciden dentro de todas las tolerancias.';
-  state.innerHTML = `<span class="badge ${result.status === 'failed' ? 'failed' : needsReview ? 'idle' : 'completed'}">${result.status === 'failed' ? 'FALLIDA' : needsReview ? 'REQUIERE REVISIÓN' : 'COINCIDE'}</span><strong>${needsReview ? 'La cuenta pertenece al modo seleccionado, pero la reproducción no es completa.' : successText}</strong>`;
-  renderVerdict(result);
-  renderSummary(result);
+  state.innerHTML = notComparable
+    ? `<span class="badge failed">NO COMPARABLE</span><strong>${escapeHtml(result.summary || 'MT5 no acreditó la calidad tick a tick exigida: no se comparó ninguna operación.')}</strong>`
+    : `<span class="badge ${result.status === 'failed' ? 'failed' : needsReview || belowQuality.length ? 'idle' : 'completed'}">${result.status === 'failed' ? 'FALLIDA' : needsReview ? 'REQUIERE REVISIÓN' : belowQuality.length ? 'REVISAR LA CALIDAD TICK' : 'COINCIDE'}</span><strong>${needsReview ? 'La cuenta pertenece al modo seleccionado, pero la reproducción no es completa.' : successText}</strong>`
+      + (belowQuality.length
+        ? `<span class="bad-text">${escapeHtml(belowQuality.length)} estrategia(s) sin la calidad tick exigida (${escapeHtml(belowQuality.map(row => `${row.symbol || row.strategy} ${qualityLabel(row)}`).join(', '))}): se comparan igual, pero sus desviaciones pueden venir del historial y no de la cuenta.</span>`
+        : '');
+  renderVerdict(result, minimumQuality);
+  renderSummary(result, minimumQuality);
   renderMethodology(result);
   renderHistory(result);
   renderArtifacts(result);
   const detail = result.comparison_detail || {};
-  renderStrategies(result);
+  renderStrategies(result, minimumQuality);
   renderComparisons(detail);
   renderExtras(detail);
   document.querySelector('#raw-result').textContent = JSON.stringify({

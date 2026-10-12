@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Análisis de auditoría · MT5 Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/live_audit_analysis.css">
+</head>
+<body class="audit-analysis-page">
+  <header>
+    <div>
+      <p class="eyebrow">ANÁLISIS DE AUDITORÍA</p>
+      <h1 id="analysis-title">Cargando curvas…</h1>
+      <p id="analysis-subtitle" class="subtitle">Demo / Strategy Tester frente a cuenta real</p>
+    </div>
+    <div class="header-actions">
+      <button id="open-lots" type="button" class="secondary">Lotes por estrategia</button>
+      <!-- El texto va en su propio `span`: escribir en el `textContent` del
+           `label` borraría el `input`, que es hijo suyo, y la subida sólo
+           funcionaría una vez. -->
+      <label id="attribution-upload" class="button secondary" title="Excel con la columna que dice a qué estrategia pertenece cada real sin pareja"><span id="attribution-label">Atribuir reales sin pareja</span><input id="attribution-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
+      <a id="result-link" class="button secondary" href="#">Ver detalle de operaciones</a>
+      <a id="back-link" class="button secondary" href="/">Volver al auditor</a>
+    </div>
+  </header>
+
+  <main id="analysis-main" hidden>
+    <section id="simulation-notice" class="audit-analysis-simulation" role="status" hidden></section>
+    <section class="audit-analysis-summary" aria-label="Resumen comparativo">
+      <article class="panel-card audit-analysis-account demo">
+        <p class="eyebrow">A · DEMO / STRATEGY TESTER</p>
+        <h2>Resultado de referencia</h2>
+        <dl id="demo-summary"></dl>
+      </article>
+      <article class="panel-card audit-analysis-account real">
+        <p class="eyebrow">B · CUENTA REAL</p>
+        <h2>Resultado ejecutado</h2>
+        <dl id="real-summary"></dl>
+      </article>
+    </section>
+
+    <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">VISIÓN GLOBAL</p><h2>Curvas acumuladas</h2><p class="subtitle">PnL cerrado acumulado durante el periodo auditado. La curva real incluye las operaciones reales sin pareja, porque son dinero que la cuenta movió. Cuando la real sigue abierta, su pareja del tester cerró sólo porque se acabó el rango del backtest: ninguna de las dos se dibuja, y el resumen dice cuántas son y cuánto suman.</p></div><span id="global-count" class="badge idle">0 EMPAREJADAS</span></div>
+      <div id="global-chart" class="audit-analysis-chart" aria-label="Curvas globales de Demo y Real"></div>
+    </section>
+
+    <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">DESGLOSE</p><h2>Análisis por estrategia</h2><p class="subtitle">Selecciona una estrategia para comparar su tester con las operaciones reales que el auditor emparejó.</p></div><span id="strategy-count" class="badge idle">0 ESTRATEGIAS</span></div>
+      <div class="audit-analysis-strategies">
+        <nav id="strategy-list" aria-label="Estrategias auditadas"></nav>
+        <div class="audit-analysis-strategy-detail">
+          <div id="strategy-heading" class="audit-analysis-strategy-heading"></div>
+          <div id="strategy-chart" class="audit-analysis-chart" aria-label="Curvas de la estrategia seleccionada"></div>
+        </div>
+      </div>
+    </section>
+    <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">DEMO CONTRA REAL</p><h2>¿Se está comportando en real como en el tester?</h2><p class="subtitle">La misma estrategia, el mismo periodo y —con la simulación activa— el mismo lote: lo que quede de diferencia es reproducción, no tamaño. Ordenada de peor a mejor. Sólo avisa cuando el real <strong>empeora</strong>: que gane más no es un defecto. Las operaciones sin pareja y las que siguen abiertas en real no están en estos importes, así que la fila lo advierte y su comparación es parcial.</p></div><span id="reproduction-count" class="badge idle">—</span></div>
+      <div class="audit-analysis-table-wrap">
+        <table class="audit-analysis-table">
+          <thead><tr><th>Estrategia</th><th>Demo / tester</th><th>Real</th><th>Diferencia</th><th>Operaciones</th><th>Veredicto</th></tr></thead>
+          <tbody id="reproduction-body"></tbody>
+        </table>
+      </div>
+      <p id="reproduction-note" class="audit-analysis-note-text"></p>
+    </section>
+    <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">CUADRE</p><h2>Reales que no cuentan en ninguna estrategia</h2><p class="subtitle">Cierres de la cuenta real que ninguna operación del tester reclamó y que tampoco has atribuido. El auditor no puede decidir de quién son: el magic del terminal real no tiene por qué coincidir con el del <code>.set</code> y aquí ni se publica, y el símbolo sólo basta cuando un único miembro del portafolio lo opera. Sube el Excel con la columna de estrategia y cada una pasa a su sitio; las que marques como ajenas salen también de la curva Real. También salen aquí los cierres que el filtro de lote descartó antes de comparar: ese filtro es una conjetura sobre el tamaño de la posición, así que la última palabra es tuya.</p></div><span id="unaccounted-count" class="badge idle">—</span></div>
+      <div class="audit-analysis-table-wrap">
+        <table class="audit-analysis-table">
+          <thead><tr><th>Operación</th><th>Apertura</th><th>Cierre</th><th>PnL</th><th>Estado</th></tr></thead>
+          <tbody id="unaccounted-body"></tbody>
+        </table>
+      </div>
+      <div id="attribution-sources" class="attribution-sources" hidden></div>
+      <p id="unaccounted-note" class="audit-analysis-note-text"></p>
+    </section>
+    <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">CONTRA EL HISTÓRICO</p><h2>¿La estrategia sigue haciendo lo de siempre?</h2><p class="subtitle">Compara exclusivamente el <strong>Strategy Tester del periodo</strong> con el backtest histórico guardado en la memoria del agente. Para que el tamaño de la posición no engañe, cada operación del periodo se recalcula al mismo lote base del histórico: <strong><span id="history-reference-lot">0,01</span> lotes</strong>. Los importes son el PnL medio por operación a ese lote, no el PnL total, y no dependen de la simulación de lotes.</p></div><span id="degradation-count" class="badge idle">—</span></div>
+      <div id="degradation-warning" class="audit-analysis-note" hidden></div>
+      <div class="audit-analysis-table-wrap">
+        <table class="audit-analysis-table">
+          <thead><tr><th>Estrategia</th><th>Operaciones</th><th>PnL medio al lote histórico</th><th>Desvío</th><th>Histórico</th><th>Conclusión para decidir</th></tr></thead>
+          <tbody id="degradation-body"><tr><td colspan="6" class="audit-analysis-empty">Cargando el histórico de cada estrategia…</td></tr></tbody>
+        </table>
+      </div>
+      <p class="audit-analysis-note-text">El desvío son errores estándar sobre la media histórica por operación, con la dispersión despejada del SQN. Una estrategia muy ruidosa puede caer mucho en porcentaje y seguir dentro de lo normal; una muy estable avisa con mucho menos. Por debajo de <span id="minimum-trades">8</span> operaciones no hay base para cambiar la estrategia: se enseña lo observado, pero la conclusión es esperar más datos.</p>
+    </section>
+  </main>
+
+  <dialog id="lots-dialog" class="lots-dialog" aria-labelledby="lots-title">
+    <div class="dialog-head">
+      <div>
+        <p class="eyebrow">SIMULACIÓN DE LOTES</p>
+        <h2 id="lots-title">¿Y si cada estrategia hubiera operado otro lote?</h2>
+        <p class="subtitle">Reescala el PnL y el drawdown de estas curvas en proporción al lote. <strong>No cambia la auditoría</strong>: ni el veredicto, ni el detalle de operaciones, ni la configuración del uso. Deja un campo vacío para conservar el lote que se ejecutó.</p>
+      </div>
+      <button id="lots-close" type="button" class="icon-button" aria-label="Cerrar">×</button>
+    </div>
+    <div class="lots-table-wrap">
+      <table class="lots-table">
+        <thead><tr><th>Estrategia</th><th>Lote demo / tester</th><th>Lote cuenta real</th></tr></thead>
+        <tbody id="lots-body"></tbody>
+      </table>
+    </div>
+    <p id="lots-caveat" class="lots-caveat"></p>
+    <div class="dialog-actions">
+      <button id="lots-reset" type="button" class="secondary">Restablecer lotes ejecutados</button>
+      <button id="lots-cancel" type="button" class="secondary">Cancelar</button>
+      <button id="lots-autolot" type="button" class="secondary">Escalar demo al lote real</button>
+      <button id="lots-apply" type="button">Aplicar a las curvas</button>
+    </div>
+  </dialog>
+
+  <div id="analysis-error" class="audit-analysis-error" role="alert" hidden></div>
+  <script src="/live_audit_analysis.js"></script>
+</body>
+</html>

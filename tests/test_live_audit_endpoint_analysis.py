@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from mt5_manager.manager_live_audit_routes import analysed_live_audit
+from mt5_manager.manager_live_audit_routes import analysed_live_audit, run_payload
+from tests.test_live_audit_autolot import STRATEGY, audit_payload
 from tests.test_live_audit_analysis import payload, profile
 
 
@@ -73,6 +75,48 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
             "nodo", "audit-148", {"last_payload": payload()},
         )
         self.assertEqual(analysed["last_result"]["status"], "completed")
+
+    def test_autolot_history_is_added_by_the_manager_before_analysis(self) -> None:
+        configured = profile(autolot={
+            "enabled": True, "source_name": "riesgo.xlsx", "source_sha256": "a" * 64,
+            "rules": {STRATEGY: {"dd_001": 10.0, "risk_pct": 10.0}},
+        })
+        history = [
+            {"time": "2026-09-22T09:00:00+00:00", "balance": 1000.0},
+            {"time": "2026-09-22T10:00:00+00:00", "balance": 2000.0},
+        ]
+        with patch(
+            "mt5_manager.manager_live_audit_routes._autolot_balance_history",
+            return_value=history,
+        ):
+            analysed = analysed_live_audit(
+                handler({"audit-148": configured}), "nodo", "audit-148",
+                {"audit": {"last_payload": audit_payload()}}, {},
+            )
+        rows = analysed["audit"]["last_result"]["comparison_detail"]["operation_comparisons"]
+        self.assertEqual([row["limits"]["volume_expected_real"] for row in rows], [0.1, 0.2])
+
+    def test_autolot_configuration_never_leaks_into_the_node_request(self) -> None:
+        configured = {**profile(), "portfolio_id": 148, "autolot": {
+            "enabled": True, "source_name": "riesgo.xlsx", "source_sha256": "a" * 64,
+            "rules": {STRATEGY: {"dd_001": 10.0, "risk_pct": 10.0}},
+        }}
+        settings = SimpleNamespace(
+            state=lambda _node_id: {
+                "configured_audit_ids": ["audit-148"], "profiles": {"audit-148": configured},
+            },
+            credentials=lambda *_args: {"source_password": "real", "tester_password": "test"},
+            restore_credentials=lambda _node_id: {
+                "restore_login": "1", "restore_server": "Broker", "restore_password": "secret",
+            },
+        )
+        endpoint = SimpleNamespace(server=SimpleNamespace(live_audit_settings=settings))
+        with patch(
+            "mt5_manager.manager_http.node_request",
+            return_value=(200, {"capabilities": {"live_audit_restore_account": True}}),
+        ):
+            request = run_payload(endpoint, "nodo", {}, "audit-148")
+        self.assertNotIn("autolot", request)
 
 
 if __name__ == "__main__":

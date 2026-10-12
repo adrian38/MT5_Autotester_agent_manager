@@ -238,6 +238,8 @@ class LocalIntegrationTests(IntegrationTestCase):
             self.assertIn(b"Auditor de cuenta real", response.read())
         with urllib.request.urlopen(self.base + "/live_audit.js", timeout=3) as response:
             self.assertIn(b"live-audit-config", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_autolot.js", timeout=3) as response:
+            self.assertIn(b"live-audit-autolot-import", response.read())
         with urllib.request.urlopen(self.base + "/live_audit.css", timeout=3) as response:
             self.assertIn(b"live-audit-configs", response.read())
         with urllib.request.urlopen(self.base + "/live_audit_result.html?node=test-node&audit=11", timeout=3) as response:
@@ -246,6 +248,12 @@ class LocalIntegrationTests(IntegrationTestCase):
             self.assertIn(b"operation_comparisons", response.read())
         with urllib.request.urlopen(self.base + "/live_audit_result.css", timeout=3) as response:
             self.assertIn(b"audit-operation-table", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_analysis.html?node=test-node&audit=11", timeout=3) as response:
+            self.assertIn(b"Curvas acumuladas", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_analysis.js", timeout=3) as response:
+            self.assertIn(b"cumulativeSeries", response.read())
+        with urllib.request.urlopen(self.base + "/live_audit_analysis.css", timeout=3) as response:
+            self.assertIn(b"audit-analysis-chart", response.read())
 
     def test_manager_serves_and_persists_live_audit_configuration_without_the_node(self) -> None:
         initial = self._assert_initial_live_audit_config()

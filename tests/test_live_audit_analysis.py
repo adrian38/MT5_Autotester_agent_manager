@@ -112,15 +112,61 @@ class LiveAuditAnalysisTests(unittest.TestCase):
         self.assertEqual(result["period_days"], 7)
         self.assertEqual(result["period_start"], "2026-09-21T00:00:00+00:00")
 
-    def test_the_quality_gate_still_blocks_the_comparison(self) -> None:
-        result = analyze(payload(qualities=[42.0]), profile())
-        self.assertEqual(result["status"], "not_comparable")
-        self.assertEqual(result["matched_trades"], 0)
-        self.assertIn("42.00%", result["summary"])
+    def test_insufficient_quality_marks_its_strategy_and_compares_the_rest(self) -> None:
+        # El uso 105 de AXI: dos sets de XAUUSD al 66 % dejaban sin comparar a
+        # los otros once, que estaban al 100 %. La calidad es del historial de
+        # ticks de la terminal que ejecutó ese set, no de la cuenta auditada.
+        artifacts = [
+            {"strategy": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "history_quality_pct": 42.0},
+            {"strategy": "ROBOFOREX/ECN:99999", "symbol": "XAUUSD", "history_quality_pct": 100.0},
+        ]
+        result = analyze(payload(qualities=[42.0, 100.0], strategy_artifacts=artifacts), profile())
 
-        missing = analyze(payload(qualities=[]), profile())
-        self.assertEqual(missing["status"], "not_comparable")
-        self.assertIn("no informó History Quality", missing["summary"])
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["matched_trades"], 1)
+        self.assertEqual(result["minimum_tick_history_quality_pct"], 80.0)
+        self.assertEqual(
+            [row["symbol"] for row in result["strategies_below_quality"]], ["EURUSD"],
+        )
+        self.assertIn("1 set(s) por debajo de la calidad mínima 80.00%", result["summary"])
+        summary = result["comparison_detail"]["strategy_summary"]
+        self.assertEqual([row["quality_ok"] for row in summary], [False])
+        self.assertEqual(summary[0]["history_quality_pct"], 42.0)
+
+    def test_the_closures_discarded_by_lot_are_published_with_their_band(self) -> None:
+        # El filtro de pertenencia descartaba cierres reales en silencio: no
+        # quedaban emparejados, ni sin pareja, ni en ninguna tabla. En el uso
+        # 105 de AXI eran 10 de 35.
+        members = [{"candidate_id": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "lot": 0.08}]
+        foreign = {
+            **payload()["real_trades"][0], "volume": 1.0, "profit": -4.37,
+            "position_id": 46480001,
+        }
+        result = analyze(
+            payload(
+                real_trades=[{**payload()["real_trades"][0], "volume": 0.08}, foreign],
+                selected_members=members,
+            ),
+            profile(),
+        )
+
+        discarded = result["comparison_detail"]["discarded_real_operations"]
+        self.assertEqual(len(discarded), 1)
+        self.assertEqual(discarded[0]["real"]["volume"], 1.0)
+        self.assertEqual(discarded[0]["reason"], "lot_outside_portfolio_bands")
+        self.assertEqual(discarded[0]["portfolio_lot_band"], [0.08, 0.08])
+        self.assertEqual(result["real_history_detail"]["foreign_closures_ignored"], 1)
+        # Sigue sin entrar en la comparación: no es una real «sin pareja».
+        self.assertEqual(result["extra_real_trades"], 0)
+
+    def test_a_set_without_informed_quality_is_marked_too(self) -> None:
+        artifacts = [{"strategy": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "history_quality_pct": None}]
+        missing = analyze(payload(qualities=[], strategy_artifacts=artifacts), profile())
+
+        self.assertEqual(missing["status"], "completed")
+        self.assertEqual(missing["matched_trades"], 1)
+        self.assertIsNone(missing["strategies_below_quality"][0]["history_quality_pct"])
+        self.assertIn("sin calidad informada", missing["summary"])
 
     def test_the_portfolio_filter_discards_closures_of_another_lot(self) -> None:
         members = [{"candidate_id": "ROBOFOREX/ECN:27672", "symbol": "EURUSD", "lot": 0.08}]
@@ -171,6 +217,38 @@ class LiveAuditAnalysisTests(unittest.TestCase):
         members = [{"candidate_id": "s1", "symbol": "NAS100", "lot": 0.01}]
         bands = portfolio_lot_bands(members, {}, {"s1": {"nas100.fs"}}, {"s1": 0.01})
         self.assertEqual(bands, {"nas100.fs": (0.01, 0.01)})
+
+    def test_real_and_tester_accounts_may_use_different_symbol_suffixes(self) -> None:
+        # AXI-US50 informa BTCUSD y AXI-US51 ejecuta BTCUSD.sa. El miembro del
+        # portfolio demuestra la equivalencia; no se adivina quitando sufijos.
+        strategy = "AXI/STANDARD:21175"
+        member = {"candidate_id": strategy, "symbol": "BTCUSD", "lot": 0.03}
+        base = payload()
+        tester = {
+            **base["tester_trades"][0], "strategy": strategy,
+            "symbol": "BTCUSD.sa", "volume": 0.03,
+        }
+        real = {
+            **base["real_trades"][0], "strategy": "1002",
+            "symbol": "BTCUSD", "volume": 0.1,
+        }
+
+        result = analyze(
+            payload(
+                selected_members=[member], tester_trades=[tester], real_trades=[real],
+                symbol_points={"BTCUSD.sa": 0.01}, strategies={strategy: 1},
+                volume_rules={"btcusd": {"volume_min": 0.01, "volume_step": 0.01}},
+            ),
+            profile(real_strategy_lots={strategy: 0.1}),
+        )
+
+        row = result["comparison_detail"]["operation_comparisons"][0]
+        self.assertEqual(result["portfolio_filter"]["portfolio_closures"], 1)
+        self.assertEqual(result["matched_trades"], 1)
+        self.assertEqual(row["real"]["symbol"], "BTCUSD.sa")
+        self.assertEqual(result["portfolio_filter"]["symbol_aliases"], {
+            "btcusd": "BTCUSD.sa", "btcusd.sa": "BTCUSD.sa",
+        })
 
     def test_every_operation_names_the_set_file_of_its_strategy(self) -> None:
         # El magic no dice nada a quien lee el informe; el fichero `.set` sí.

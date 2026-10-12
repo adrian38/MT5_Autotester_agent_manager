@@ -5,6 +5,12 @@ from .live_audit_processes import _ProcessMixin
 
 
 class _TerminalMixin(_ProcessMixin):
+    # Casilla «usar el multiterminal» del uso que está corriendo. El nodo sólo
+    # admite una auditoría a la vez (`is_running`), así que el modo cabe en el
+    # controlador y lo lee todo el camino: cuenta real, tester, informe nativo
+    # y restauración. `_run` lo fija y lo vuelve a dejar en False al terminar.
+    single_terminal_audit = False
+
     def _settings_path(self) -> Path:
         project = Path(str(self.owner.config["project_dir"])).expanduser().resolve()
         path = Path(str(self.owner.config.get("settings_file") or "ui_settings.ini"))
@@ -28,11 +34,29 @@ class _TerminalMixin(_ProcessMixin):
             if path.is_file():
                 profiles.append((section, profile))
         if profiles:
-            return profiles
+            return self._principal_terminal_only(parser, profiles)
         path = Path(parser.get("Paths", "mt5_path", fallback="").strip())
         if path.is_file():
             return [("Terminal.1", {"enabled": "1", "mt5_path": str(path)})]
         raise ValueError("No hay una ruta terminal64.exe habilitada en ICTrading")
+
+    def _principal_terminal_only(
+        self, parser: Any, profiles: list[tuple[str, dict[str, str]]],
+    ) -> list[tuple[str, dict[str, str]]]:
+        """Sin multiterminal, la auditoría entera pasa por la terminal principal.
+
+        No basta con pedir un worker: el pool del tester, la terminal que abre
+        la cuenta real, el informe nativo y la restauración preguntan por su
+        cuenta. Recortando aquí, los cuatro ven la misma, y es siempre la
+        principal: la primera habilitada del broker activo.
+        """
+        if not self.single_terminal_audit:
+            return profiles
+        enabled = [
+            item for item in profiles
+            if parser.getboolean(item[0], "enabled", fallback=False)
+        ]
+        return (enabled or profiles)[:1]
 
     def _terminal_path(self) -> Path:
         return Path(self._terminal_profiles()[0][1]["mt5_path"])

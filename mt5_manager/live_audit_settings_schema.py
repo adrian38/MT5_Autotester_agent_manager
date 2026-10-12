@@ -4,11 +4,16 @@ import math
 from datetime import date
 from typing import Any
 
+from .live_audit_attribution import empty_attribution, normalize_attribution
+from .live_audit_autolot import empty_autolot, normalize_autolot
+
 
 DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "portfolio_id": 0,
     "portfolio_type": "",
     "real_strategy_lots": {},
+    "autolot": empty_autolot(),
+    "real_attribution": empty_attribution(),
     "deployment_name": "",
     "source_login": "",
     "source_server": "",
@@ -20,6 +25,7 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "period_start_date": "",
     "period_end_date": "",
     "audit_interval_days": 1,
+    "use_multiterminal": False,
     "tester_model": "real_ticks",
     "min_tick_history_quality_pct": 80.0,
     "execution_delay_mode": "measured",
@@ -62,6 +68,7 @@ _FLOAT_LIMITS = {
     "pnl_deviation_warning_pct": (0.0, 10_000.0),
     "drawdown_deviation_warning_pct": (0.0, 10_000.0),
 }
+_BOOL_FIELDS = ("use_multiterminal",)
 _LEGACY_SCHEDULE_KEYS = {
     "sync_interval_minutes",
     "daily_audit_time",
@@ -100,6 +107,17 @@ def _number(value: Any, key: str, minimum: float, maximum: float) -> float:
     if not math.isfinite(result) or result < minimum or result > maximum:
         raise ValueError(f"{key} debe estar entre {minimum:g} y {maximum:g}")
     return result
+
+
+def _boolean(value: Any, key: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value if value is not None else "").strip().casefold()
+    if text in {"1", "true", "on", "si", "sí"}:
+        return True
+    if text in {"", "0", "false", "off", "no"}:
+        return False
+    raise ValueError(f"{key} debe ser verdadero o falso")
 
 
 def _real_strategy_lots(value: Any) -> dict[str, float]:
@@ -180,8 +198,13 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
     for key, (minimum, maximum) in _FLOAT_LIMITS.items():
         if key in value:
             normalized[key] = _number(value[key], key, minimum, maximum)
+    for key in _BOOL_FIELDS:
+        if key in value:
+            normalized[key] = _boolean(value[key], key)
     if "real_strategy_lots" in value:
         normalized["real_strategy_lots"] = _real_strategy_lots(value["real_strategy_lots"])
+    normalized["autolot"] = normalize_autolot(value.get("autolot"))
+    normalized["real_attribution"] = normalize_attribution(value.get("real_attribution"))
     return normalized
 
 

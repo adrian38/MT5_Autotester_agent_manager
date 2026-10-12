@@ -79,6 +79,32 @@ function newAuditId(portfolioId) {
   return `audit-${portfolioId}-${Date.now().toString(36)}-${auditSequence}`;
 }
 
+// El orden de creación del uso, sacado de su identificador. Sirve para quedarse
+// con el más reciente cuando un portafolio dejó varios usos sin marcar.
+function auditStamp(auditId) {
+  const match = String(auditId).match(/^audit-\d+-([0-9a-z]+)-(\d+)$/);
+  return match ? [parseInt(match[1], 36) || 0, Number(match[2]) || 0] : [0, 0];
+}
+
+// Desmarcar un portafolio no borra nada: su perfil y sus contraseñas siguen en
+// el manager y su última auditoría en el agente. Al volver a marcarlo hay que
+// recuperar **el uso de ese portafolio**, porque minar un identificador nuevo
+// dejaba todo aquello huérfano y obligaba a reconfigurar cuentas y contraseñas.
+// La pertenencia la decide `portfolio_id` del perfil guardado, nunca el texto
+// del identificador ni lo que estuviera marcado antes.
+function savedAuditFor(portfolioId) {
+  const orphans = Object.keys(profiles).filter(auditId => (
+    Number(profiles[auditId]?.portfolio_id || 0) === Number(portfolioId)
+    && !selectedAuditIds.includes(auditId)
+  ));
+  orphans.sort((a, b) => {
+    const [leftTime, leftSeq] = auditStamp(a);
+    const [rightTime, rightSeq] = auditStamp(b);
+    return leftTime - rightTime || leftSeq - rightSeq;
+  });
+  return orphans.length ? orphans[orphans.length - 1] : '';
+}
+
 function renderPortfolios() {
   const knownIds = new Set(portfolios.map(row => Number(row.id)));
   const selectedPortfolioIds = new Set(selectedAuditIds.map(portfolioForAudit));
@@ -227,6 +253,10 @@ function auditRuntime(id) {
     can_run: Boolean(value.can_run),
     log_lines: Array.isArray(value.log_lines) ? value.log_lines : [],
     last_result: value.last_result || null,
+    // El manager retira la materia prima antes de contestar y deja `has_payload`.
+    // El veredicto lo calcula al abrir el detalle, así que cualquiera de las dos
+    // señales basta para que haya algo que analizar.
+    has_payload: Boolean(value.has_payload),
   };
 }
 
@@ -260,7 +290,9 @@ function auditOperationsMarkup(auditId) {
     <div class="live-audit-stage-list">${stageMarkup}</div>
     <div class="live-audit-operation-actions">
       <button type="button" data-audit-action="run"${canRun ? '' : ' disabled'} title="${escapeHtml(runTitle)}">Auditar ahora</button>
+      <button type="button" class="secondary" data-audit-action="stop"${runtime.running ? '' : ' disabled'} title="${runtime.running ? 'Corta el Strategy Tester, devuelve cada terminal a su cuenta y reanuda el proceso pausado' : 'Sólo mientras la auditoría está en marcha'}">Detener</button>
       <button type="button" class="secondary" data-audit-action="result">Último resultado</button>
+      <button type="button" class="secondary" data-audit-action="analysis"${runtime.last_result || runtime.has_payload ? '' : ' disabled'} title="${runtime.last_result || runtime.has_payload ? 'Curvas acumuladas de la demo frente a la cuenta real' : 'Disponible cuando la auditoría haya producido un resultado'}">Análisis</button>
       <button type="button" class="secondary" data-audit-action="logs">Ver logs</button>
     </div>
   </section>`;
@@ -292,6 +324,8 @@ function profileMarkup(auditId) {
     </div>
     <div class="live-audit-subtitle"><strong>Lotes usados en la cuenta real</strong><span>Por defecto coinciden con el portafolio. Edítalos sólo cuando el EA opere otro lote en real.</span></div>
     ${strategyLotsMarkup(profile)}
+    <div class="live-audit-subtitle"><strong>Autolote según saldo y riesgo</strong><span>El cálculo se aplica operación a operación y puede cambiar varias veces dentro del periodo auditado.</span></div>
+    ${autolotMarkup(profile)}
     <div class="live-audit-subtitle"><strong>Cuentas de esta prueba</strong><span>Puedes reutilizar cualquier cuenta cifrada del nodo en otro portafolio; los logins pueden coincidir.</span></div>
     <div class="live-audit-account-grid">
       <fieldset class="live-audit-account">
@@ -312,10 +346,10 @@ function profileMarkup(auditId) {
       </fieldset>
     </div>
     <p class="live-audit-security"><strong>Catálogo seguro por nodo.</strong> Solo se muestran login y servidor; al reutilizar una cuenta, el manager copia internamente su secreto cifrado y la contraseña nunca vuelve al navegador.</p>
-    <div class="live-audit-subtitle"><strong>Calidad de datos tick a tick</strong><span>Sin calidad informada o por debajo del mínimo, no se realiza la comparación.</span></div>
+    <div class="live-audit-subtitle"><strong>Calidad de datos tick a tick</strong><span>El set que no acredite este porcentaje se marca en el resultado; los demás se comparan igual.</span></div>
     <div class="live-audit-fields live-audit-quality-fields">
       <label>Calidad histórica mínima (%)<input data-field="min_tick_history_quality_pct" type="number" min="0" max="100" step="any" value="${profile.min_tick_history_quality_pct}" required></label>
-      <div class="live-audit-quality-gate"><strong>Puerta obligatoria</strong><span>El resultado se marcará como no comparable si MT5 no acredita este porcentaje de calidad tick a tick.</span></div>
+      <div class="live-audit-quality-gate"><strong>Marca, no anula</strong><span>La calidad la decide el historial de ticks de la terminal que ejecutó cada set, no la cuenta auditada: una estrategia sin calidad suficiente sale en rojo y el resto de la auditoría sigue valiendo.</span></div>
     </div>
     <div class="live-audit-subtitle"><strong>Periodo auditado</strong><span>Cuánto historial se compara en este uso.</span></div>
     <div class="live-audit-fields">
@@ -334,6 +368,11 @@ function profileMarkup(auditId) {
       <label>Tolerancia de volumen (%)<input data-field="volume_tolerance_pct" type="number" min="0" max="100" step="any" value="${profile.volume_tolerance_pct}" required></label>
       <label>Aviso por empeoramiento de PnL (%)<input data-field="pnl_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.pnl_deviation_warning_pct}" required><small>Una mejora del resultado real frente al tester es admisible.</small></label>
       <label>Aviso por desviación de DD (%)<input data-field="drawdown_deviation_warning_pct" type="number" min="0" max="10000" step="any" value="${profile.drawdown_deviation_warning_pct}" required></label>
+    </div>
+    <div class="live-audit-subtitle"><strong>Terminales que usa este uso</strong><span>Desmarcado, el uso entero corre en la terminal principal del nodo: más lento, pero siempre la misma caché de ticks.</span></div>
+    <div class="live-audit-fields">
+      <label class="check"><input data-field="use_multiterminal" type="checkbox"${profile.use_multiterminal ? ' checked' : ''}>Usar el multiterminal del nodo</label>
+      <div class="live-audit-quality-gate"><strong>Una terminal, un historial</strong><span>Con el multiterminal, cada set cae en la terminal que toque y hereda su descarga de ticks: dos sets del mismo símbolo pueden dar calidades distintas.</span></div>
     </div>
     <div class="live-audit-policy"><strong>Terminales del nodo · pausar y reanudar.</strong><p>Esta prueba reutilizará los terminales ya configurados. Si el auditor pausa un proceso activo, lo reanudará al terminar; si ya estaba pausado por el usuario, conservará ese estado.</p></div>
     ${auditOperationsMarkup(auditId)}
@@ -371,10 +410,12 @@ function readCard(card) {
   card.querySelectorAll('[data-strategy-lot]').forEach(input => {
     realStrategyLots[input.dataset.strategyLot] = Number(input.value);
   });
+  const current = profiles[String(card.dataset.profileId)] || {};
   return {
     portfolio_id: portfolioForAudit(card.dataset.profileId),
     portfolio_type: field('portfolio_type').value,
     real_strategy_lots: realStrategyLots,
+    autolot: autolotCardValue(card, current),
     deployment_name: field('deployment_name').value.trim(),
     source_saved_account_id: card.querySelector('[data-saved-account-role="source"]').value,
     source_login: field('source_login').value.trim(),
@@ -387,6 +428,7 @@ function readCard(card) {
     period_days: number('period_days'),
     period_start_date: field('period_start_date').value,
     period_end_date: field('period_end_date').value,
+    use_multiterminal: field('use_multiterminal').checked,
     tester_model: field('tester_model').value,
     min_tick_history_quality_pct: number('min_tick_history_quality_pct'),
     execution_delay_mode: field('execution_delay_mode').value,
@@ -511,6 +553,13 @@ function openLastResult(id) {
   else toast('El navegador bloqueó la pestaña del resultado. Permite ventanas emergentes para este manager.', true);
 }
 
+function openAuditAnalysis(id) {
+  const url = `/live_audit_analysis.html?node=${encodeURIComponent(nodeId)}&audit=${encodeURIComponent(id)}`;
+  const analysisTab = window.open(url, '_blank');
+  if (analysisTab) analysisTab.opener = null;
+  else toast('El navegador bloqueó la pestaña de análisis. Permite ventanas emergentes para este manager.', true);
+}
+
 function openAuditLogs(id) {
   const dialog = document.querySelector('#audit-log-dialog');
   const lines = auditRuntime(id).log_lines;
@@ -557,6 +606,31 @@ async function runAuditNow(id, button) {
     // Si el guardado funcionó pero el nodo rechazó el arranque, la pantalla no
     // debe seguir diciendo que esos valores aún están sin guardar.
     if (savedSettings) applyState(savedSettings);
+    toast(error.message, true);
+  } finally { button.disabled = false; }
+}
+
+async function stopAuditNow(id, button) {
+  // Sin confirmación no: pararla deja el periodo a medias y hay que volver a
+  // lanzarla entera. Con una configuración mal puesta, eso es justo lo que se
+  // quiere, pero que se diga.
+  if (!window.confirm(
+    `¿Detener la auditoría de ${auditTitle(id)}?\n\n`
+    + 'Se corta el Strategy Tester, cada terminal vuelve a su cuenta configurada y '
+    + 'se reanuda el proceso que el auditor hubiera pausado. No habrá resultado de '
+    + 'esta ejecución: hay que lanzarla de nuevo.'
+  )) return;
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(id)}/stop`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    });
+    const data = await jsonResponse(response);
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    auditStates[String(id)] = data.audit || data;
+    renderAuditOperations([id]);
+    toast(`Deteniendo la auditoría de ${auditTitle(id)}; restaurando los terminales.`);
+  } catch (error) {
     toast(error.message, true);
   } finally { button.disabled = false; }
 }
@@ -624,9 +698,15 @@ portfolioList.addEventListener('change', event => {
   captureDrafts();
   if (event.target.checked) {
     if (!selectedAuditIds.some(auditId => portfolioForAudit(auditId) === id)) {
-      const auditId = newAuditId(id);
-      selectedAuditIds.push(auditId);
-      profiles[auditId] = {...defaults, portfolio_id: id, portfolio_type: fixedPortfolioMode(id)};
+      const saved = savedAuditFor(id);
+      if (saved) {
+        selectedAuditIds.push(saved);
+        toast(`Se ha recuperado la configuración guardada de ${portfolioName(id)}, con su última auditoría.`);
+      } else {
+        const auditId = newAuditId(id);
+        selectedAuditIds.push(auditId);
+        profiles[auditId] = {...defaults, portfolio_id: id, portfolio_type: fixedPortfolioMode(id)};
+      }
     }
   } else {
     selectedAuditIds = selectedAuditIds.filter(auditId => portfolioForAudit(auditId) !== id);
@@ -671,6 +751,13 @@ portfolioList.addEventListener('click', event => {
 });
 
 configsEl.addEventListener('click', event => {
+  const autolotImport = event.target.closest('[data-autolot-import]');
+  if (autolotImport) {
+    event.preventDefault();
+    captureDrafts();
+    importAutolotWorkbook(autolotImport).catch(error => toast(error.message, true));
+    return;
+  }
   const remove = event.target.closest('[data-remove-audit]');
   if (remove) {
     captureDrafts();
@@ -687,8 +774,10 @@ configsEl.addEventListener('click', event => {
   const id = String(card?.dataset.profileId || '');
   if (!id) return;
   if (button.dataset.auditAction === 'result') openLastResult(id);
+  else if (button.dataset.auditAction === 'analysis') openAuditAnalysis(id);
   else if (button.dataset.auditAction === 'logs') openAuditLogs(id);
   else if (button.dataset.auditAction === 'run') runAuditNow(id, button);
+  else if (button.dataset.auditAction === 'stop') stopAuditNow(id, button);
 });
 
 document.querySelector('#audit-log-close').addEventListener('click', () => document.querySelector('#audit-log-dialog').close());

@@ -24,6 +24,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .live_audit_attribution import annotate_unmatched, attribution_by_ticket
+from .live_audit_autolot import dynamic_lot_bands, prepare_request, rules_by_strategy
 from .live_audit_engine import (
     LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
     _trade_view, _within_lot_bands,
@@ -38,6 +40,8 @@ REANALYSABLE_TOLERANCES = (
     "drawdown_deviation_warning_pct",
     "min_tick_history_quality_pct",
     "real_strategy_lots",
+    "autolot",
+    "real_attribution",
 )
 # Lo que describe la ejecución y no se puede reinterpretar sin repetirla.
 EXECUTION_FACTS = (
@@ -176,6 +180,58 @@ def _symbols_by_strategy(
     return symbols
 
 
+def _symbol_aliases(
+    members: list[dict[str, Any]], tester_trades: list[dict[str, Any]],
+    strategy_artifacts: list[dict[str, Any]],
+) -> dict[str, str]:
+    """Traduce el símbolo del portfolio al que observó el tester.
+
+    Las cuentas real y tester pueden pertenecer a grupos de servidor distintos
+    del mismo broker: AXI-US50 informa `BTCUSD`, mientras AXI-US51 ejecuta
+    `BTCUSD.sa`. El miembro guardado une ambos nombres sin adivinar sufijos.
+    """
+    effective: dict[str, dict[str, str]] = {}
+    for trade in tester_trades:
+        strategy = str(trade.get("strategy") or "")
+        symbol = str(trade.get("symbol") or "")
+        if strategy and symbol:
+            effective.setdefault(strategy, {}).setdefault(symbol.casefold(), symbol)
+    for artifact in strategy_artifacts or []:
+        strategy = str(artifact.get("strategy") or "")
+        symbol = str(artifact.get("report_symbol") or "")
+        if strategy and symbol:
+            effective.setdefault(strategy, {}).setdefault(symbol.casefold(), symbol)
+    candidates: dict[str, set[str]] = {}
+    spelling: dict[str, str] = {}
+    for member in members:
+        strategy = _member_strategy_id(member)
+        targets = effective.get(strategy) or {}
+        if len(targets) != 1:
+            continue
+        target_key, target = next(iter(targets.items()))
+        source = str(member.get("symbol") or "").casefold()
+        for alias in (source, target_key):
+            if alias:
+                candidates.setdefault(alias, set()).add(target_key)
+                spelling[target_key] = target
+    return {
+        alias: spelling[next(iter(targets))]
+        for alias, targets in candidates.items() if len(targets) == 1
+    }
+
+
+def _apply_symbol_aliases(
+    trades: list[dict[str, Any]], aliases: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Canoniza la copia de análisis; la materia prima observada queda intacta."""
+    for trade in trades:
+        reported = str(trade.get("symbol") or "")
+        canonical = aliases.get(reported.casefold())
+        if canonical and canonical.casefold() != reported.casefold():
+            trade["symbol"] = canonical
+    return trades
+
+
 def _volume_rules(payload: dict[str, Any]) -> dict[str, tuple[float, float]]:
     """Normaliza las especificaciones del broker que publicó el nodo."""
     rules: dict[str, tuple[float, float]] = {}
@@ -207,13 +263,28 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
     request["strategy_set_names"] = strategy_set_names(
         list(payload.get("selected_members") or []),
     )
+    request["_autolot_rules_by_strategy"] = rules_by_strategy(
+        request.get("autolot"), list(payload.get("selected_members") or []),
+    )
+    request["_autolot_balance_history"] = profile.get("_autolot_balance_history") or []
+    request["_autolot_balance_error"] = profile.get("_autolot_balance_error") or ""
+    request["_real_attribution_by_ticket"] = attribution_by_ticket(
+        request.get("real_attribution"), list(payload.get("selected_members") or []),
+    )
     return request
 
 
 def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
-    real_trades = _revive_all(payload.get("real_trades"))
+    request["_autolot_volume_rules"] = _volume_rules(payload)
     tester_trades = _revive_all(payload.get("tester_trades"))
-    open_positions = _revive_all(payload.get("open_positions_at_period_end"))
+    artifacts = list(payload.get("strategy_artifacts") or [])
+    aliases = _symbol_aliases(
+        list(payload.get("selected_members") or []), tester_trades, artifacts,
+    )
+    real_trades = _apply_symbol_aliases(_revive_all(payload.get("real_trades")), aliases)
+    open_positions = _apply_symbol_aliases(
+        _revive_all(payload.get("open_positions_at_period_end")), aliases,
+    )
     request["real_positions_open_at_period_end"] = open_positions
     history_detail = dict(payload.get("real_history_detail") or {})
     history_detail["open_positions_at_period_end"] = [
@@ -232,7 +303,8 @@ def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[s
             str(strategy): int(count or 0)
             for strategy, count in (payload.get("strategies") or {}).items()
         },
-        "strategy_artifacts": list(payload.get("strategy_artifacts") or []),
+        "strategy_artifacts": artifacts,
+        "symbol_aliases": aliases,
         "history_detail": history_detail,
     }
 
@@ -247,10 +319,21 @@ def _filter_portfolio_trades(
         _symbols_by_strategy(inputs["tester_trades"], inputs["strategy_artifacts"]),
         request.get("real_strategy_lots") or {},
     )
-    filter_detail: dict[str, Any] = {"applied": bool(bands)}
+    for symbol, dynamic in dynamic_lot_bands(inputs["tester_trades"], request).items():
+        previous = bands.get(symbol)
+        bands[symbol] = (
+            min(previous[0], dynamic[0]), max(previous[1], dynamic[1])
+        ) if previous else dynamic
+    filter_detail: dict[str, Any] = {
+        "applied": bool(bands), "symbol_aliases": dict(inputs["symbol_aliases"]),
+    }
+    discarded: list[dict[str, Any]] = []
     if bands:
         before = len(real_trades)
-        real_trades = [trade for trade in real_trades if _within_lot_bands(trade, bands)]
+        kept: list[dict[str, Any]] = []
+        for trade in real_trades:
+            (kept if _within_lot_bands(trade, bands) else discarded).append(trade)
+        real_trades = kept
         inputs["history_detail"]["portfolio_closures"] = len(real_trades)
         inputs["history_detail"]["foreign_closures_ignored"] = before - len(real_trades)
         filter_detail.update(
@@ -260,8 +343,32 @@ def _filter_portfolio_trades(
             foreign_closures_ignored=before - len(real_trades),
         )
     inputs["real_trades"] = real_trades
+    inputs["discarded_real_trades"] = discarded
     inputs["filter_detail"] = filter_detail
     return inputs
+
+
+def _attach_discarded_reals(
+    result: dict[str, Any], request: dict[str, Any], inputs: dict[str, Any],
+) -> None:
+    """Dice las reales que el filtro de lote dejó fuera, en vez de perderlas.
+
+    El filtro es una conjetura —«este lote no lo opera el portafolio»— y hasta
+    ahora se las tragaba en silencio: no estaban emparejadas, ni sin pareja, ni
+    en ninguna tabla. Ahora salen en el cuadre como pendientes, que es donde el
+    Excel de atribución puede decir de quién son o que son ajenas.
+    """
+    detail = result.get("comparison_detail")
+    if not isinstance(detail, dict):
+        return
+    bands = (inputs.get("filter_detail") or {}).get("lot_bands") or {}
+    rows = [{
+        "status": "discarded", "real": _trade_view(trade),
+        "reason": "lot_outside_portfolio_bands",
+        "portfolio_lot_band": bands.get(str(trade.get("symbol") or "").casefold()),
+    } for trade in inputs.get("discarded_real_trades") or []]
+    annotate_unmatched(rows, request.get("_real_attribution_by_ticket") or {})
+    detail["discarded_real_operations"] = rows
 
 
 def _analysis_result(
@@ -274,34 +381,31 @@ def _analysis_result(
         request, inputs["period_start"], inputs["period_end"],
         inputs["real_trades"], inputs["tester_trades"], quality,
     )
-    if quality is None or quality < minimum_quality:
-        result.update(
-            status="not_comparable", status_label="NO COMPARABLE", matched_trades=0,
-            discrepancies=0, stalled_strategies=0,
-            summary=(
-                "MT5 no informó History Quality." if quality is None else
-                f"History Quality {quality:.2f}% inferior al mínimo {minimum_quality:.2f}%."
-            ),
-        )
-    else:
-        comparison = LiveAuditController._compare(
-            inputs["real_trades"], inputs["tester_trades"], inputs["symbol_points"],
-            request, inputs["strategies"],
-        )
-        result.update(comparison)
-        invalid_tester = sum(
-            (comparison.get("comparison_detail") or {}).get("tester_data_issues", {}).values()
-        )
-        result["summary"] = (
-            f"{comparison['matched_trades']} parejas alineadas, "
-            f"{comparison['within_tolerance_trades']} dentro de todas las tolerancias y "
-            f"{comparison.get('open_real_trades', 0)} posición(es) real(es) aún abierta(s); "
-            f"{comparison['discrepancies']} discrepancias; "
-            f"{comparison['stalled_strategies']} estrategia(s) sin continuidad"
-            + (f"; {invalid_tester} operación(es) tester con tiempos inválidos." if invalid_tester else ".")
-        )
-        result["status"] = "completed"
-        result["status_label"] = "COMPLETADA"
+    comparison = LiveAuditController._compare(
+        inputs["real_trades"], inputs["tester_trades"], inputs["symbol_points"],
+        request, inputs["strategies"],
+    )
+    result.update(comparison)
+    # La calidad ya no es una puerta: marca el set que no la acredita y la
+    # auditoría sigue, porque el historial malo es de una terminal concreta.
+    below = LiveAuditController._mark_quality(
+        result, inputs["strategy_artifacts"], minimum_quality,
+    )
+    _attach_discarded_reals(result, request, inputs)
+    invalid_tester = sum(
+        (comparison.get("comparison_detail") or {}).get("tester_data_issues", {}).values()
+    )
+    result["summary"] = (
+        f"{comparison['matched_trades']} parejas alineadas, "
+        f"{comparison['within_tolerance_trades']} dentro de todas las tolerancias y "
+        f"{comparison.get('open_real_trades', 0)} posición(es) real(es) aún abierta(s); "
+        f"{comparison['discrepancies']} discrepancias; "
+        f"{comparison['stalled_strategies']} estrategia(s) sin continuidad"
+        + (f"; {invalid_tester} operación(es) tester con tiempos inválidos." if invalid_tester else ".")
+        + LiveAuditController._quality_note(below, minimum_quality)
+    )
+    result["status"] = "completed"
+    result["status_label"] = "COMPLETADA"
     return result
 
 
@@ -331,6 +435,7 @@ def _attach_evidence(
 def analyze(payload: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     """Veredicto reanalizable a partir de hechos del nodo y criterio actual."""
     request = _analysis_request(payload, profile)
+    prepare_request(request)
     inputs = _filter_portfolio_trades(
         payload, request, _analysis_inputs(payload, request),
     )
