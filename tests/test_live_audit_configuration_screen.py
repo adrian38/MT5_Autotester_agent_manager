@@ -306,17 +306,26 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertTrue(self.analysis_page.xpath('//tbody[@id="reproduction-body"]'))
         self.assertTrue(self.analysis_page.xpath('//span[@id="reproduction-count"]'))
         self.assertIn("¿Se está comportando en real como en el tester?", self.analysis_page_text)
-        self.assertIn("function reproductionVerdict(numbers, limit)", self.analysis_script)
-        self.assertIn("if (demo > 0 && real < 0)", self.analysis_script)
+        self.assertIn("function reproductionVerdict(numbers)", self.analysis_script)
+        self.assertIn("if (demo >= 1 && real < 0)", self.analysis_script)
         self.assertIn("'NO REPRODUCE'", self.analysis_script)
         # Sólo avisa si el real empeora, igual que `adverse_shortfall_only` del
         # motor: que la cuenta gane más que el tester no es un defecto.
         self.assertIn("'MEJOR QUE EL TESTER', 'good'", self.analysis_script)
-        self.assertIn("pct > 2 * limit", self.analysis_script)
-        self.assertIn("tolerances?.pnl_pct", self.analysis_script)
+        # La magnitud NO es la del perfil: `pnl_deviation_warning_pct` mide la
+        # desviación de un relleno, no el deterioro agregado de la estrategia.
+        # Perder algo al pasar a real es lo normal y está cuantificado fuera.
+        self.assertIn("const REPRODUCTION_EXPECTED_PCT = 20;", self.analysis_script)
+        self.assertIn("const REPRODUCTION_BROKEN_PCT = 60;", self.analysis_script)
+        self.assertNotIn("tolerances?.pnl_pct", self.analysis_script)
+        self.assertIn("no un umbral canónico", self.analysis_script)
         # Lo que no se compara se dice: faltantes y pendientes no están en los
         # importes, así que la fila avisa de que la comparación es parcial.
         self.assertIn("Comparación parcial", self.analysis_script)
+        # Con pocas parejas no se calla el veredicto: es una comparación de las
+        # mismas operaciones, no un contraste contra una distribución. Lo que se
+        # dice es hasta dónde vale.
+        self.assertIn("vale para éstas, no para la estrategia", self.analysis_script)
         self.assertIn("Math.max(Math.abs(demo), 1)", self.analysis_script)
         self.assertIn("function differenceNote(numbers)", self.analysis_script)
         self.assertIn("renderReproduction();", self.analysis_script)

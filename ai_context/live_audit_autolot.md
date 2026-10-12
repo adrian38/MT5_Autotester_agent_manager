@@ -182,16 +182,36 @@ Con las curvas escaladas al lote real, la diferencia que queda **es**
 reproducción, pero había que ir estrategia por estrategia para verla. La tabla
 la saca a la cara, ordenada de peor a mejor.
 
-El criterio es el mismo del motor para el PnL de cada operación
-—`adverse_shortfall_only`—: sólo es defecto que el real **empeore**, y el límite
-es el `pnl_deviation_warning_pct` del perfil, no una constante nueva.
+**La dirección** sí la hereda del motor (`adverse_shortfall_only`): sólo es
+defecto que el real empeore.
+
+**La magnitud no.** El primer intento usó `pnl_deviation_warning_pct` del
+perfil, y es una confusión: ese 10 % mide cuánto puede desviarse **un relleno**
+de su gemelo del tester —calidad de ejecución—, no el deterioro agregado de una
+estrategia. Perder algo al pasar de backtest a real es lo normal y está
+cuantificado fuera: la «regla del 10-20 %» para estrategias bien construidas,
+15-30 % para un sistema razonablemente modelado, y 20-50 % o 30-60 % como
+deterioro habitual al pasar a capital real. Avisar al 10 % marca como
+sospechosa a una estrategia que se comporta como se esperaba.
 
 | Veredicto | Cuándo |
 | --- | --- |
-| `NO REPRODUCE` | El tester gana y la cuenta real pierde, o el déficit supera el doble del límite |
-| `AVISO` | El déficit supera el límite |
-| `MEJOR QUE EL TESTER` | El real saca más del límite por encima |
-| `REPRODUCE` | Dentro del límite |
+| `NO REPRODUCE` | Déficit ≥ 60 %, o el tester gana (≥ 1 €) y la cuenta real pierde |
+| `AVISO` | Déficit > 20 % |
+| `MEJOR QUE EL TESTER` | El real saca más de un 20 % por encima |
+| `REPRODUCE` | Dentro de ±20 % |
+
+Ninguna fuente fija un umbral canónico: son valores por defecto y hay que
+recalibrarlos contra la población de estrategias de este pipeline. Lo dice la
+nota de la tabla, para que nadie los tome por ley.
+
+**El mínimo de muestra se probó y se retiró.** La tabla del histórico calla por
+debajo de ocho operaciones, pero allí se contrasta contra una *distribución*.
+Aquí se comparan las *mismas* operaciones, emparejadas una a una: con seis
+parejas se puede afirmar que el real devolvió la mitad de lo que el tester hizo
+en esas seis, que es un hecho sobre esas operaciones, no una inferencia. Con el
+mínimo de 8 puesto, 9 de las 15 estrategias de `audit-148` se quedaban sin
+veredicto. Ahora no calla: avisa de hasta dónde vale.
 
 Dos cosas que la tabla tiene que decir y por qué:
 
@@ -204,8 +224,11 @@ Dos cosas que la tabla tiene que decir y por qué:
   no están en ninguno de los dos importes. La fila lo marca en vez de dejar leer
   el veredicto como completo.
 
-Sobre `audit-148`: 8 de 15 a revisar. `.USTECHCASH_H1` +11,38 € en demo contra
-−0,46 € en real es el caso que lo motivó.
+Sobre `audit-148`, con el criterio ya calibrado: **2 no reproducen, 5 avisos**,
+4 reproducen, 3 mejores y una sin datos. `.USTECHCASH_H1` —+11,38 € en demo
+contra −0,46 € en real— es el caso que lo motivó. `.DE40Cash` a −55,7 % se queda
+en aviso: sigue ganando dinero en la cuenta y entra en la banda de deterioro
+normal.
 
 ## Enumerar lotes no escala
 

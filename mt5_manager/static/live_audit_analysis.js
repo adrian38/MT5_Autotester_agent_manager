@@ -421,22 +421,48 @@ function reproductionShortfall(group) {
   return {demo, real, pct: (demo - real) / Math.max(Math.abs(demo), 1) * 100};
 }
 
-// Mismo criterio que el motor para el PnL de cada operación
-// (`adverse_shortfall_only`): sólo es defecto que el real empeore. Un cambio de
-// signo —el tester gana y la cuenta pierde— no admite grado: es el caso que el
-// usuario quiere ver de un vistazo.
-function reproductionVerdict(numbers, limit) {
+// Dirección: igual que el motor para el PnL de cada operación
+// (`adverse_shortfall_only`), sólo es defecto que el real **empeore**.
+//
+// Magnitud: NO la del perfil. `pnl_deviation_warning_pct` mide cuánto puede
+// desviarse **un relleno** de su gemelo del tester —calidad de ejecución, un
+// 10 %—, y aplicarlo al PnL agregado de una estrategia es otra pregunta.
+// Perder algo al pasar de backtest a real no es un defecto: es lo normal, y la
+// literatura lo cuantifica. La «regla del 10-20 %» para estrategias bien
+// construidas, 15-30 % para un sistema razonablemente modelado, y 20-50 % o
+// 30-60 % como deterioro habitual al pasar a capital real. Dentro de esa banda
+// no hay nada que denunciar. Avisar al 10 % marcaría como sospechosa a una
+// estrategia que se está comportando como se esperaba.
+//
+// Ninguna fuente fija un umbral canónico: estos son valores por defecto, y
+// tocará recalibrarlos contra la población de estrategias de este pipeline.
+const REPRODUCTION_EXPECTED_PCT = 20;
+const REPRODUCTION_BROKEN_PCT = 60;
+// La tabla del histórico calla por debajo de ocho operaciones, pero allí se
+// contrasta contra una **distribución** y hace falta muestra. Aquí se comparan
+// las **mismas** operaciones, emparejadas una a una: con seis parejas se puede
+// decir que el real devolvió la mitad de lo que el tester hizo en esas seis,
+// que es un hecho sobre esas operaciones y no una inferencia. Probado el mínimo
+// de 8 sobre la auditoría 148: dejaba sin veredicto a 9 de 15 estrategias. Así
+// que no calla, avisa: el veredicto vale para las parejas que hay.
+const REPRODUCTION_FEW_PAIRS = 8;
+
+function reproductionVerdict(numbers) {
   const {demo, real, pct} = numbers;
   if (!demo && !real) return ['SIN DATOS', 'info', 'Ninguna de las dos partes cerró operaciones comparables.'];
-  if (demo > 0 && real < 0) {
-    return ['NO REPRODUCE', 'bad', 'El tester gana y la cuenta real pierde: no es cuestión de grado.'];
+  if (demo >= 1 && real < 0) {
+    return ['NO REPRODUCE', 'bad', 'El tester gana y la cuenta real pierde: no queda nada de su resultado.'];
   }
-  if (pct > 2 * limit) {
-    return ['NO REPRODUCE', 'bad', `El real se queda más del doble del límite (${number(2 * limit, 2)} %) por debajo del tester.`];
+  if (pct >= REPRODUCTION_BROKEN_PCT) {
+    return ['NO REPRODUCE', 'bad', `El real se deja más del ${number(REPRODUCTION_BROKEN_PCT, 0)} % del tester, por encima del deterioro que se considera normal.`];
   }
-  if (pct > limit) return ['AVISO', 'warn', 'El real empeora más del límite configurado: mirarlo, no concluir.'];
-  if (pct < -limit) return ['MEJOR QUE EL TESTER', 'good', 'La cuenta real saca más que el tester. No es un defecto.'];
-  return ['REPRODUCE', 'good', 'La diferencia cabe dentro del límite configurado.'];
+  if (pct > REPRODUCTION_EXPECTED_PCT) {
+    return ['AVISO', 'warn', `Pierde más del ${number(REPRODUCTION_EXPECTED_PCT, 0)} % que se espera de cualquier paso a real, sin llegar a romperse.`];
+  }
+  if (pct < -REPRODUCTION_EXPECTED_PCT) {
+    return ['MEJOR QUE EL TESTER', 'good', 'La cuenta real saca más que el tester. No es un defecto.'];
+  }
+  return ['REPRODUCE', 'good', `Dentro del ${number(REPRODUCTION_EXPECTED_PCT, 0)} % de deterioro que se da por normal al pasar de backtest a real.`];
 }
 
 // Con la base acotada a 1 €, un tester que movió 1,25 € frente a un real de
@@ -451,20 +477,25 @@ function reproductionCounts(group) {
   const summary = strategySummaries[group.strategy] || {};
   const missing = Number(summary.missing_real || 0);
   const open = group.openReal.length;
+  const few = group.real.length && group.real.length < REPRODUCTION_FEW_PAIRS;
   return {
-    deviations: Number(summary.with_deviations || 0), missing, open,
-    partial: Boolean(missing || open),
+    deviations: Number(summary.with_deviations || 0), missing, open, few,
+    caveats: [
+      few ? `sólo ${group.real.length} parejas: vale para éstas, no para la estrategia` : '',
+      missing ? `${missing} sin pareja` : '',
+      open ? `${open} sin cerrar en real` : '',
+    ].filter(Boolean),
   };
 }
 
-function reproductionRow(group, limit, currency) {
+function reproductionRow(group, currency) {
   const numbers = reproductionShortfall(group);
-  const [label, tone, help] = reproductionVerdict(numbers, limit);
+  const [label, tone, help] = reproductionVerdict(numbers);
   const counts = reproductionCounts(group);
   const sign = numbers.real - numbers.demo >= 0 ? '+' : '';
   const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
-  const partial = counts.partial
-    ? `<small class="degradation-off">Comparación parcial: ${counts.missing ? `${counts.missing} sin pareja` : ''}${counts.missing && counts.open ? ' · ' : ''}${counts.open ? `${counts.open} sin cerrar en real` : ''}</small>`
+  const partial = counts.caveats.length
+    ? `<small class="degradation-off">Comparación parcial: ${counts.caveats.join(' · ')}</small>`
     : '';
   return `<tr>
     <th><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(name)}</small></th>
@@ -478,24 +509,28 @@ function reproductionRow(group, limit, currency) {
 
 function renderReproduction() {
   const currency = chartContext.currency;
-  const limit = Number(
-    currentResult.comparison_detail?.methodology?.tolerances?.pnl_pct,
-  ) || 10;
   const ranked = [...strategyRows].sort((a, b) => (
     reproductionShortfall(b).pct - reproductionShortfall(a).pct
   ));
   document.querySelector('#reproduction-body').innerHTML = ranked.length
-    ? ranked.map(group => reproductionRow(group, limit, currency)).join('')
+    ? ranked.map(group => reproductionRow(group, currency)).join('')
     : '<tr><td colspan="6" class="audit-analysis-empty">No hay estrategias en este resultado.</td></tr>';
-  const flagged = ranked.filter(group => (
-    ['NO REPRODUCE', 'AVISO'].includes(reproductionVerdict(reproductionShortfall(group), limit)[0])
-  )).length;
+  // Grave y aviso no se suman en un único «a revisar»: si lo hicieran, dos
+  // estrategias que no reproducen quedarían escondidas entre seis que sólo
+  // rinden menos, y el badge dejaría de decir con qué urgencia mirarlo.
+  const verdicts = ranked.map(group => reproductionVerdict(reproductionShortfall(group))[0]);
+  const broken = verdicts.filter(label => label === 'NO REPRODUCE').length;
+  const warnings = verdicts.filter(label => label === 'AVISO').length;
   const badge = document.querySelector('#reproduction-count');
-  badge.textContent = flagged ? `${flagged} A REVISAR` : `${ranked.length} SIN AVISOS`;
-  badge.className = `badge ${flagged ? 'pending' : 'idle'}`;
+  badge.textContent = [
+    broken ? `${broken} NO REPRODUCE${broken === 1 ? '' : 'N'}` : '',
+    warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
+  ].filter(Boolean).join(' · ') || `${ranked.length} SIN AVISOS`;
+  badge.className = `badge ${broken ? 'failed' : warnings ? 'pending' : 'idle'}`;
+  const criterion = `Perder algo al pasar de backtest a real es lo normal, así que hasta el ${number(REPRODUCTION_EXPECTED_PCT, 0)} % de déficit se da por bueno; entre ahí y el ${number(REPRODUCTION_BROKEN_PCT, 0)} % avisa, y por encima —o si la cuenta pierde donde el tester ganaba— se marca NO REPRODUCE. Son valores por defecto tomados de las bandas de deterioro publicadas (10-20 % para una estrategia bien construida, 20-60 % habitual), no un umbral canónico: conviene recalibrarlos contra tus propias estrategias. Con menos de ${number(REPRODUCTION_FEW_PAIRS, 0)} parejas el veredicto vale para esas operaciones, no para la estrategia, y la fila lo dice.`;
   document.querySelector('#reproduction-note').textContent = autolotMode()
-    ? `Límite ${number(limit, 2)} % sobre el PnL del tester; por encima del doble se marca NO REPRODUCE. Los importes de la demo están escalados al lote de la cuenta real, así que la diferencia ya no mide el tamaño de la posición.`
-    : `Límite ${number(limit, 2)} % sobre el PnL del tester; por encima del doble se marca NO REPRODUCE. La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: pulsa «Escalar demo al lote real» para comparar comportamiento.`;
+    ? `${criterion} Los importes de la demo están escalados al lote de la cuenta real, así que la diferencia ya no mide el tamaño de la posición.`
+    : `${criterion} La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: pulsa «Escalar demo al lote real» para comparar comportamiento.`;
 }
 
 function renderCurves() {
