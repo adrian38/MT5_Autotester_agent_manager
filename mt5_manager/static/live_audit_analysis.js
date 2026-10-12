@@ -440,12 +440,17 @@ const REPRODUCTION_EXPECTED_PCT = 20;
 const REPRODUCTION_BROKEN_PCT = 60;
 // La tabla del histórico calla por debajo de ocho operaciones, pero allí se
 // contrasta contra una **distribución** y hace falta muestra. Aquí se comparan
-// las **mismas** operaciones, emparejadas una a una: con seis parejas se puede
-// decir que el real devolvió la mitad de lo que el tester hizo en esas seis,
-// que es un hecho sobre esas operaciones y no una inferencia. Probado el mínimo
-// de 8 sobre la auditoría 148: dejaba sin veredicto a 9 de 15 estrategias. Así
-// que no calla, avisa: el veredicto vale para las parejas que hay.
-const REPRODUCTION_FEW_PAIRS = 8;
+// las **mismas** operaciones, emparejadas una a una: con siete parejas se puede
+// decir que el real devolvió todo lo que el tester hizo en esas siete, que es
+// un hecho sobre esas operaciones y no una inferencia. Probado el mínimo de 8
+// sobre la auditoría 148: dejaba sin veredicto a 9 de 15 estrategias.
+//
+// El corte sale de la propia banda: con `n` parejas, una sola operación mueve
+// el total `1/n`. Por debajo de cinco eso supera el 20 % que se da por normal,
+// o sea que una operación suelta puede fabricar el veredicto entero. Ahí el
+// veredicto se sigue dando —y sigue siendo rojo si lo es— pero marcado: con dos
+// parejas, «no reproduce» es un aviso para mirarlo, no un diagnóstico.
+const REPRODUCTION_FEW_PAIRS = Math.ceil(100 / REPRODUCTION_EXPECTED_PCT);
 
 function reproductionVerdict(numbers) {
   const {demo, real, pct} = numbers;
@@ -477,15 +482,29 @@ function reproductionCounts(group) {
   const summary = strategySummaries[group.strategy] || {};
   const missing = Number(summary.missing_real || 0);
   const open = group.openReal.length;
-  const few = group.real.length && group.real.length < REPRODUCTION_FEW_PAIRS;
+  const few = Boolean(group.real.length) && group.real.length < REPRODUCTION_FEW_PAIRS;
   return {
     deviations: Number(summary.with_deviations || 0), missing, open, few,
+    pairs: group.real.length,
     caveats: [
-      few ? `sólo ${group.real.length} parejas: vale para éstas, no para la estrategia` : '',
       missing ? `${missing} sin pareja` : '',
       open ? `${open} sin cerrar en real` : '',
     ].filter(Boolean),
   };
+}
+
+// La salvedad va pegada al veredicto, no escondida en la columna de al lado:
+// quien lee «NO REPRODUCE» en rojo tiene que ver en el mismo sitio que son dos
+// operaciones. Es una segunda etiqueta y no un veredicto distinto, porque el
+// rojo sigue valiendo: hay que mirarlo, sólo que todavía no es un diagnóstico.
+function fewPairsChip(counts) {
+  return counts.few
+    ? `<span class="degradation-status info">POCAS OPERACIONES</span>` : '';
+}
+
+function fewPairsNote(counts) {
+  if (!counts.few) return '';
+  return `<small class="degradation-off">Con ${escapeHtml(counts.pairs)} pareja${counts.pairs === 1 ? '' : 's'}, una sola operación mueve el total más que el ${escapeHtml(number(REPRODUCTION_EXPECTED_PCT, 0))} % que se da por normal: vale para mirarlo, no para concluir sobre la estrategia.</small>`;
 }
 
 function reproductionRow(group, currency) {
@@ -503,7 +522,7 @@ function reproductionRow(group, currency) {
     <td><strong>${escapeHtml(money(numbers.real, currency))}</strong></td>
     <td><strong>${escapeHtml(`${sign}${money(numbers.real - numbers.demo, currency)}`)}</strong><small>${escapeHtml(differenceNote(numbers))}</small></td>
     <td><strong>${escapeHtml(group.real.length)} emparejadas</strong>${counts.deviations ? `<small class="degradation-off">${escapeHtml(counts.deviations)} con desviación</small>` : ''}${partial}</td>
-    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(help)}</small></td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span>${fewPairsChip(counts)}<small>${escapeHtml(help)}</small>${fewPairsNote(counts)}</td>
   </tr>`;
 }
 
@@ -527,7 +546,7 @@ function renderReproduction() {
     warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
   ].filter(Boolean).join(' · ') || `${ranked.length} SIN AVISOS`;
   badge.className = `badge ${broken ? 'failed' : warnings ? 'pending' : 'idle'}`;
-  const criterion = `Perder algo al pasar de backtest a real es lo normal, así que hasta el ${number(REPRODUCTION_EXPECTED_PCT, 0)} % de déficit se da por bueno; entre ahí y el ${number(REPRODUCTION_BROKEN_PCT, 0)} % avisa, y por encima —o si la cuenta pierde donde el tester ganaba— se marca NO REPRODUCE. Son valores por defecto tomados de las bandas de deterioro publicadas (10-20 % para una estrategia bien construida, 20-60 % habitual), no un umbral canónico: conviene recalibrarlos contra tus propias estrategias. Con menos de ${number(REPRODUCTION_FEW_PAIRS, 0)} parejas el veredicto vale para esas operaciones, no para la estrategia, y la fila lo dice.`;
+  const criterion = `Perder algo al pasar de backtest a real es lo normal, así que hasta el ${number(REPRODUCTION_EXPECTED_PCT, 0)} % de déficit se da por bueno; entre ahí y el ${number(REPRODUCTION_BROKEN_PCT, 0)} % avisa, y por encima —o si la cuenta pierde donde el tester ganaba— se marca NO REPRODUCE. Son valores por defecto tomados de las bandas de deterioro publicadas (10-20 % para una estrategia bien construida, 20-60 % habitual), no un umbral canónico: conviene recalibrarlos contra tus propias estrategias. Con menos de ${number(REPRODUCTION_FEW_PAIRS, 0)} parejas una sola operación mueve el total más que esa banda, así que el veredicto se da igual pero marcado POCAS OPERACIONES: sirve para mirarlo, no para concluir.`;
   document.querySelector('#reproduction-note').textContent = autolotMode()
     ? `${criterion} Los importes de la demo están escalados al lote de la cuenta real, así que la diferencia ya no mide el tamaño de la posición.`
     : `${criterion} La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: pulsa «Escalar demo al lote real» para comparar comportamiento.`;

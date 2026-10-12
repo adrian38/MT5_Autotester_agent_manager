@@ -205,13 +205,24 @@ Ninguna fuente fija un umbral canónico: son valores por defecto y hay que
 recalibrarlos contra la población de estrategias de este pipeline. Lo dice la
 nota de la tabla, para que nadie los tome por ley.
 
-**El mínimo de muestra se probó y se retiró.** La tabla del histórico calla por
-debajo de ocho operaciones, pero allí se contrasta contra una *distribución*.
-Aquí se comparan las *mismas* operaciones, emparejadas una a una: con seis
-parejas se puede afirmar que el real devolvió la mitad de lo que el tester hizo
-en esas seis, que es un hecho sobre esas operaciones, no una inferencia. Con el
-mínimo de 8 puesto, 9 de las 15 estrategias de `audit-148` se quedaban sin
-veredicto. Ahora no calla: avisa de hasta dónde vale.
+**El mínimo de muestra no calla el veredicto, lo marca.** La tabla del histórico
+calla por debajo de ocho operaciones, pero allí se contrasta contra una
+*distribución*. Aquí se comparan las *mismas* operaciones, emparejadas una a
+una: con siete parejas se puede afirmar que el real devolvió todo lo que el
+tester hizo en esas siete, y eso es un hecho sobre esas operaciones, no una
+inferencia. Con el mínimo de 8 puesto, 9 de las 15 estrategias de `audit-148` se
+quedaban mudas.
+
+El corte sale de la propia banda y no de otra constante: con `n` parejas una
+sola operación mueve el total `1/n`, así que por debajo de
+`100 / REPRODUCTION_EXPECTED_PCT` = **5** una operación suelta puede fabricar el
+veredicto entero. Ahí la fila añade un segundo distintivo `POCAS OPERACIONES`
+**pegado al veredicto**, no en otra columna: quien lee `NO REPRODUCE` en rojo
+tiene que ver en el mismo sitio que son dos operaciones. El rojo se conserva
+—hay que mirarlo— pero deja de ser un diagnóstico.
+
+`USDJPY_H4` con 2 parejas sale rojo y marcado; `.USTECHCASH_H1` con 7 sale rojo
+y limpio.
 
 Dos cosas que la tabla tiene que decir y por qué:
 

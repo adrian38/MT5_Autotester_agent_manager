@@ -324,8 +324,16 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Comparación parcial", self.analysis_script)
         # Con pocas parejas no se calla el veredicto: es una comparación de las
         # mismas operaciones, no un contraste contra una distribución. Lo que se
-        # dice es hasta dónde vale.
-        self.assertIn("vale para éstas, no para la estrategia", self.analysis_script)
+        # dice es hasta dónde vale, y va pegado al veredicto, no en otra columna.
+        self.assertIn("function fewPairsChip(counts)", self.analysis_script)
+        self.assertIn("POCAS OPERACIONES", self.analysis_script)
+        self.assertIn("vale para mirarlo, no para concluir", self.analysis_script)
+        # El corte sale de la propia banda: con n parejas una operación mueve
+        # 1/n del total, y por debajo de cinco eso supera el 20 % tolerado.
+        self.assertIn(
+            "const REPRODUCTION_FEW_PAIRS = Math.ceil(100 / REPRODUCTION_EXPECTED_PCT);",
+            self.analysis_script,
+        )
         self.assertIn("Math.max(Math.abs(demo), 1)", self.analysis_script)
         self.assertIn("function differenceNote(numbers)", self.analysis_script)
         self.assertIn("renderReproduction();", self.analysis_script)
