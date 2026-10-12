@@ -40,7 +40,13 @@ from .live_audit_autolot import MAX_WORKBOOK_BYTES, _rule_key, _sheet_rows
 
 
 MAX_ATTRIBUTIONS = 5000
-_TICKET = re.compile(r"\bticket\s*[:#]?\s*(\d{1,20})\b", re.IGNORECASE)
+# El ticket pegado a la palabra es lo que exporta la pantalla («· ticket 46430179»),
+# pero la columna la escribe una persona y «ticket real correspondiente: 46430179»
+# es igual de legítimo. Con palabras en medio se exigen cuatro dígitos para no
+# confundir un «ticket pendiente, 2 intentos» con un número de operación.
+_TICKET = re.compile(
+    r"\bticket\s*[:#]?\s*(\d{1,20})\b|\bticket\b\D{1,40}?(\d{4,20})\b", re.IGNORECASE
+)
 
 
 def empty_attribution() -> dict[str, Any]:
@@ -172,7 +178,7 @@ def _row_ticket(row: dict[int, Any]) -> str:
     for value in row.values():
         found = _TICKET.search(str(value or ""))
         if found:
-            return found.group(1)
+            return found.group(1) or found.group(2)
     return ""
 
 
@@ -181,12 +187,20 @@ def _canonical(value: Any) -> str:
     return "".join(char for char in plain.casefold() if char.isalnum())
 
 
+def _names_a_strategy(value: Any) -> bool:
+    """¿Esta celda nombra una estrategia? Un `.set` o un `BROKER/TIPO:id`."""
+    text = str(value or "")
+    return ".set" in text.casefold() or bool(re.search(r"\w/\w+:\d+", text))
+
+
 def _reason_column(header: dict[int, Any], body: list[dict[int, Any]]) -> int:
     """La columna donde el usuario escribió la estrategia.
 
-    Primero por el nombre de la cabecera. Si no la nombra —o la exportación
-    cambia de columnas— se coge la última con contenido, que es donde acaba una
-    columna añadida a mano a la derecha de lo exportado.
+    Primero por el nombre de la cabecera; después, la columna que nombra un
+    `.set` o un identificador del auditor, que es lo único que una estrategia
+    parece. La última con contenido es el último recurso: vale cuando se añade
+    la columna a la derecha de lo exportado, pero no cuando lo añadido es el
+    ticket, y entonces el ticket se tomaba por el nombre de la estrategia.
     """
     named = {
         column for column, value in (header or {}).items()
@@ -198,11 +212,21 @@ def _reason_column(header: dict[int, Any], body: list[dict[int, Any]]) -> int:
         column for row in body for column, value in row.items()
         if str(value or "").strip()
     }
+    strategies = {
+        column for row in body for column, value in row.items()
+        if _names_a_strategy(value)
+    }
+    if strategies:
+        return max(strategies)
     if not candidates:
         raise ValueError(
             "Las filas del Excel no traen ninguna columna con la estrategia de cada operación"
         )
-    return max(candidates)
+    tickets = {
+        column for row in body for column, value in row.items()
+        if _TICKET.search(str(value or ""))
+    }
+    return max(candidates - tickets or candidates)
 
 
 def split_reason(value: Any) -> tuple[str, str]:

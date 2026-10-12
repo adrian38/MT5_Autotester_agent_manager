@@ -27,14 +27,14 @@ MEMBER = {
 }
 
 
-def workbook_bytes(rows: list[tuple[str, str]]) -> bytes:
+def workbook_bytes(rows: list[tuple[str, str]], last_header: str = "Razon") -> bytes:
     """Un libro con la forma de la exportación del detalle de operaciones.
 
     El ticket viaja dentro de la celda de mercado, que es como lo imprime la
     pantalla (`...; magic 123; ticket 123`), y la columna de la derecha es la
     que el usuario añade a mano.
     """
-    shared = ["#", "Estado", "Mercado", "Razon"]
+    shared = ["#", "Estado", "Mercado", last_header]
     for market, reason in rows:
         shared.extend([market, reason])
     strings = "".join(f"<si><t>{value}</t></si>" for value in shared)
@@ -64,8 +64,8 @@ def workbook_bytes(rows: list[tuple[str, str]]) -> bytes:
     return output.getvalue()
 
 
-def imported(rows: list[tuple[str, str]]) -> dict[str, object]:
-    contents = workbook_bytes(rows)
+def imported(rows: list[tuple[str, str]], last_header: str = "Razon") -> dict[str, object]:
+    contents = workbook_bytes(rows, last_header)
     return import_workbook({
         "filename": "auditor.xlsx",
         "content_base64": base64.b64encode(contents).decode("ascii"),
@@ -93,6 +93,30 @@ class WorkbookTests(unittest.TestCase):
                          (SET_STEM, "duplicado, gestionada por mi"))
         self.assertEqual(split_reason("no contabiliza en este portafolio"),
                          ("no contabiliza en este portafolio", ""))
+
+    def test_the_ticket_is_read_even_when_the_column_is_written_by_hand(self) -> None:
+        # `auditor_p105.xlsx`: la columna añadida decía «ticket real
+        # correspondiente: 46430179» y el patrón exigía el número pegado a la
+        # palabra, así que el Excel se rechazaba entero por no traer tickets.
+        rows = [
+            ("BTCUSD · 0,09 lotes; sell; BTCUSD_H1_Bitcoin_f4f272a8_g001_s004_v002.set; AXI/STANDARD:21169",
+             "ticket real correspondiente: 46430179"),
+            ("Tesla+ · 5 lotes; buy; Tesla_M30_Bitcoin_37f12147_g001_s003_v004.set; AXI/STANDARD:32134",
+             "ticket real correspondiente: 46568182"),
+        ]
+        # Sin cabecera en la columna añadida, que es como sale de exportar y
+        # escribir el ticket a la derecha.
+        result = imported(rows, last_header="")
+        self.assertEqual(sorted(result["rules"]), ["46430179", "46568182"])
+        # Y la estrategia sale de la columna que nombra el `.set`, no de la que
+        # el usuario añadió con el ticket: antes se tomaba la última con texto y
+        # la «estrategia» acababa siendo «ticket real correspondiente: …».
+        self.assertEqual(result["rules"]["46430179"]["strategy_set"], "AXI/STANDARD:21169")
+        self.assertEqual(result["rules"]["46568182"]["strategy_set"], "AXI/STANDARD:32134")
+
+    def test_a_number_that_is_not_a_ticket_does_not_pass_as_one(self) -> None:
+        with self.assertRaisesRegex(ValueError, "ticket"):
+            imported([("XAUUSD · 0,02 lotes; sell; sin pareja", "ticket pendiente, 2 intentos")])
 
     def test_a_file_without_tickets_says_what_falta(self) -> None:
         with self.assertRaisesRegex(ValueError, "ticket"):
