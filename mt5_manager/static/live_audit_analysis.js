@@ -139,7 +139,8 @@ function unmatchedReals(result) {
 // estrategia decidiera. Comparar una curva que lo incluye contra otra que no
 // puede incluirlo mide el corte, no la reproducción. Las cinco de la auditoría
 // 148 de RoboForex cierran todas a las 2026-10-09T23:55 y suman -124,88 € sobre
-// 202,25 € de Demo. Fuera de las dos curvas, y a la suya propia.
+// 202,25 € de Demo. Fuera de las dos curvas: el recuento y el importe quedan en
+// el resumen, que es donde informan sin falsear ninguna curva.
 function splitPending(series) {
   return {
     settled: series.filter(point => !point.pending_real),
@@ -252,30 +253,22 @@ function chartLegend(entries) {
   }).join('');
 }
 
-// Las pendientes van en su propia curva, discontinua y de otro color: fuera de
-// la comparación, que es donde falsean, pero visibles, que es donde avisan.
-// Sigue siendo PnL del tester y la leyenda lo dice: de la real abierta no se
-// inventa ningún resultado.
-function renderChart(targetId, demoTrades, realTrades, pendingTrades = []) {
+// Las operaciones cuya real sigue abierta no se dibujan en ningún sitio: su
+// PnL del tester es el corte del rango, no un resultado. El recuento y el
+// importe excluido van en el resumen y en la cabecera, no en el gráfico.
+function renderChart(targetId, demoTrades, realTrades) {
   const {currency, window} = chartContext;
   const target = document.querySelector(`#${targetId}`);
   const demo = cumulativeSeries(demoTrades);
   const real = cumulativeSeries(realTrades);
-  const pending = cumulativeSeries(pendingTrades);
-  if (!demo.length && !real.length && !pending.length) {
+  if (!demo.length && !real.length) {
     target.innerHTML = '<p class="audit-analysis-empty">No hay operaciones cerradas para dibujar esta curva.</p>';
     return;
   }
-  const bounds = chartBounds([demo, real, pending], window);
+  const bounds = chartBounds([demo, real], window);
   const zeroY = 22 + (bounds.maxValue / (bounds.maxValue - bounds.minValue)) * 260;
-  const pendingLine = pending.length
-    ? `<polyline class="audit-analysis-line pending" points="${curvePoints(pending, bounds)}"/>` : '';
-  const legend = chartLegend([
-    ['demo', 'Demo / Tester'], ['real', 'Real'],
-    ...(pending.length
-      ? [['pending', `Tester de ${pending.length} real${pending.length === 1 ? '' : 'es'} sin cerrar`]] : []),
-  ]);
-  target.innerHTML = `<svg viewBox="0 0 930 330" role="img"><title>Comparación de PnL acumulado entre Demo y Real</title>${chartGrid(bounds, currency)}<line class="audit-analysis-zero" x1="58" y1="${zeroY}" x2="878" y2="${zeroY}"/><polyline class="audit-analysis-line demo" points="${curvePoints(demo, bounds)}"/><polyline class="audit-analysis-line real" points="${curvePoints(real, bounds)}"/>${pendingLine}${legend}<text class="audit-analysis-axis" x="58" y="300">${escapeHtml(dateLabel(bounds.minTime))}</text><text class="audit-analysis-axis" x="878" y="300" text-anchor="end">${escapeHtml(dateLabel(bounds.maxTime))}</text></svg>`;
+  const legend = chartLegend([['demo', 'Demo / Tester'], ['real', 'Real']]);
+  target.innerHTML = `<svg viewBox="0 0 930 330" role="img"><title>Comparación de PnL acumulado entre Demo y Real</title>${chartGrid(bounds, currency)}<line class="audit-analysis-zero" x1="58" y1="${zeroY}" x2="878" y2="${zeroY}"/><polyline class="audit-analysis-line demo" points="${curvePoints(demo, bounds)}"/><polyline class="audit-analysis-line real" points="${curvePoints(real, bounds)}"/>${legend}<text class="audit-analysis-axis" x="58" y="300">${escapeHtml(dateLabel(bounds.minTime))}</text><text class="audit-analysis-axis" x="878" y="300" text-anchor="end">${escapeHtml(dateLabel(bounds.maxTime))}</text></svg>`;
 }
 
 function auditedPeriod(result) {
@@ -374,16 +367,16 @@ function selectStrategy(index) {
   // Sin esta frase la pantalla contradice al veredicto: ahí la pareja existe y
   // encaja al segundo, y aquí parecería que la estrategia no había operado.
   const openNote = open
-    ? `<small class="lots-open-real">${open} posición${open === 1 ? '' : 'es'} real${open === 1 ? '' : 'es'} emparejada${open === 1 ? '' : 's'} seguía${open === 1 ? '' : 'n'} abierta${open === 1 ? '' : 's'} al terminar el periodo. Su pareja del tester cerró sólo porque se acabó el rango del backtest, así que ninguna de las dos entra en la comparación: van aparte, en la curva discontinua.</small>`
+    ? `<small class="lots-open-real">${open} posición${open === 1 ? '' : 'es'} real${open === 1 ? '' : 'es'} emparejada${open === 1 ? '' : 's'} seguía${open === 1 ? '' : 'n'} abierta${open === 1 ? '' : 's'} al terminar el periodo. Su pareja del tester cerró sólo porque se acabó el rango del backtest, así que ninguna de las dos se dibuja.</small>`
     : '';
   const badge = open
     ? `${settled} DEMO · ${group.real.length} REAL · ${open} SIN CERRAR, FUERA`
     : `${settled} DEMO · ${group.real.length} REAL EMPAREJADA${group.real.length === 1 ? '' : 'S'}`;
   document.querySelector('#strategy-heading').innerHTML = `<div><strong>${escapeHtml(group.symbol)}</strong><p>${escapeHtml(name)}</p><small>${escapeHtml(lots)}</small>${openNote}</div><span class="badge idle">${escapeHtml(badge)}</span>`;
-  const demoSeries = splitPending(sideSeries(group.demo, group.strategy, 'demo'));
   renderChart(
-    'strategy-chart', demoSeries.settled,
-    sideSeries(group.real, group.strategy, 'real'), demoSeries.pending,
+    'strategy-chart',
+    splitPending(sideSeries(group.demo, group.strategy, 'demo')).settled,
+    sideSeries(group.real, group.strategy, 'real'),
   );
 }
 
@@ -428,7 +421,7 @@ function renderCurves() {
     openReal ? `${openReal} SIN CERRAR, FUERA` : '',
     trades.extras ? `${trades.extras} SIN PAREJA` : '',
   ].filter(Boolean).join(' · ');
-  renderChart('global-chart', trades.demo, trades.real, trades.pending);
+  renderChart('global-chart', trades.demo, trades.real);
   const active = Math.max(0, [...document.querySelectorAll('[data-strategy-key].active')]
     .map(button => Number(button.dataset.strategyKey))[0] || 0);
   document.querySelector('#strategy-count').textContent = `${strategyRows.length} ESTRATEGIA${strategyRows.length === 1 ? '' : 'S'}`;

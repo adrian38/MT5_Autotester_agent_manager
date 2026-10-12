@@ -222,7 +222,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         # operaciones: así las curvas de dos estrategias son comparables entre
         # sí, y una auditoría de una sola operación no se dibuja en los extremos.
         self.assertIn("periodWindow", self.analysis_script)
-        self.assertIn("chartBounds([demo, real, pending], window)", self.analysis_script)
+        self.assertIn("chartBounds([demo, real], window)", self.analysis_script)
         # Sin materia prima no se enseña un PnL de cero, que se leería como que
         # la cuenta no ganó nada; y un fallo del análisis se dice tal cual.
         self.assertIn("El manager no pudo analizar esta ejecución", self.analysis_script)
@@ -280,12 +280,12 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("pending_real: Boolean(row.real_position_still_open)", self.analysis_script)
         self.assertIn("splitPending(series).settled.reduce", self.analysis_script)
         self.assertIn("sólo cerró porque se acabó el\n// rango del backtest", self.analysis_script)
-        # Y aun fuera de la comparación se ven: curva propia, discontinua.
-        self.assertIn("audit-analysis-line pending", self.analysis_script)
-        self.assertIn("Tester de ${pending.length} real", self.analysis_script)
-        self.assertIn(".audit-analysis-line.pending", self.analysis_css)
-        self.assertIn("stroke-dasharray", self.analysis_css)
-        self.assertIn("en la curva discontinua", self.analysis_page_text)
+        # No se dibujan en ningún sitio: el gráfico sólo tiene Demo y Real, y
+        # lo excluido se informa con texto en el resumen y en la cabecera.
+        self.assertIn("chartLegend([['demo', 'Demo / Tester'], ['real', 'Real']])", self.analysis_script)
+        self.assertNotIn("audit-analysis-line pending", self.analysis_script)
+        self.assertNotIn(".audit-analysis-line.pending", self.analysis_css)
+        self.assertIn("ninguna de las dos se dibuja", self.analysis_page_text)
 
     def test_a_real_position_still_open_counts_as_paired_and_not_as_absent(self) -> None:
         # Una real sin cerrar no tiene PnL, así que no entra en la curva; pero
@@ -296,7 +296,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("function openRealMark(group)", self.analysis_script)
         self.assertIn("EMPAREJADA${open === 1 ? '' : 'S'} SIN CERRAR", self.analysis_script)
         self.assertIn("${open} SIN CERRAR, FUERA", self.analysis_script)
-        self.assertIn("ninguna de las dos entra en la comparación", self.analysis_script)
+        self.assertIn("ninguna de las dos se dibuja", self.analysis_script)
         self.assertIn("Fuera: sin cerrar en real", self.analysis_script)
 
     def test_the_verdict_declares_which_lot_it_expected_in_real(self) -> None:

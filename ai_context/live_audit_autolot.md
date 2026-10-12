@@ -169,11 +169,12 @@ real no se han materializado porque la posición sigue viva. Comparar una curva
 que las incluye contra otra que no puede incluirlas mide el corte del rango, no
 la reproducción.
 
-`splitPending` las saca de Demo —de Real ya estaban fuera, no tienen PnL— y las
-dibuja en su **propia curva discontinua ámbar**, con su importe en el resumen
-(`Fuera: sin cerrar en real`). Fuera de la comparación, que es donde falsean;
-visibles, que es donde avisan. Sigue siendo PnL del tester y la leyenda lo dice:
-de la real abierta no se inventa ningún resultado.
+`splitPending` las saca de Demo —de Real ya estaban fuera, no tienen PnL— y **no
+se dibujan en ningún sitio**. Se probó darles una curva propia, discontinua, y
+el usuario la retiró: una tercera línea en un gráfico que ya compara dos es
+ruido. Lo excluido se informa con texto, que es donde no estorba: el resumen
+lleva `Fuera: sin cerrar en real · N op · X €`, la cabecera de la estrategia
+dice por qué, y el contador global marca `N SIN CERRAR, FUERA`.
 
 ## Enumerar lotes no escala
 
