@@ -51,6 +51,7 @@
 .lots-table tbody th { display: grid; gap: 3px; font-weight: 750; }
 .lots-table tbody th small, .lots-table td small { display: block; color: var(--muted); font-weight: 400; font-size: 11px; }
 .lots-table td small { margin-top: 5px; }
+.lots-table td .lots-autolot-note { color: #78f0d0; font-weight: 700; }
 .lots-table input { max-width: 150px; }
 .lots-caveat { margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .audit-analysis-table-wrap { overflow-x: auto; }

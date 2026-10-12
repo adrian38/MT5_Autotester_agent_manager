@@ -57,6 +57,13 @@ se retira del payload que lanza el nodo; el runtime de RoboForex no necesita un
 port. El nodo sigue observando y publicando hechos, y el manager aplica el
 criterio al reanalizar la materia prima guardada.
 
+La simulación de lotes de la pestaña Análisis ofrece además el botón
+`Autolote`. Reescala cada operación demo con el `volume_expected_real` que el
+veredicto calculó para su apertura; no reduce el periodo a un único lote por
+estrategia. La curva real conserva lo ejecutado y las operaciones demo sin un
+cálculo histórico conservan también su volumen original. Es una simulación de
+la vista: no modifica el perfil ni el veredicto.
+
 ## Efecto en el emparejado
 
 Las bandas de pertenencia se amplían con todos los lotes dinámicos esperados

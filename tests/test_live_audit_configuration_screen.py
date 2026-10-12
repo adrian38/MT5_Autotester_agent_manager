@@ -233,7 +233,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertTrue(self.analysis_page.xpath('//button[@id="open-lots"]'))
         self.assertTrue(self.analysis_page.xpath('//dialog[@id="lots-dialog"]'))
         self.assertTrue(self.analysis_page.xpath('//table/tbody[@id="lots-body"]'))
-        for button in ("lots-apply", "lots-reset", "lots-cancel", "lots-close"):
+        for button in ("lots-apply", "lots-autolot", "lots-reset", "lots-cancel", "lots-close"):
             self.assertTrue(self.analysis_page.xpath(f'//button[@id="{button}"]'), button)
         self.assertTrue(self.analysis_page.xpath('//section[@id="simulation-notice"]'))
         # Los dos lados por estrategia, cada uno con su propio lote.
@@ -244,6 +244,14 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         # estrategia daría un PnL inventado cuando operó varios volúmenes.
         self.assertIn("return profit / volume * lot;", self.analysis_script)
         self.assertIn("function observedLots(trades)", self.analysis_script)
+
+    def test_autolot_recalculates_each_demo_operation_with_its_historical_lot(self) -> None:
+        self.assertIn("row.limits?.volume_expected_source === 'autolot'", self.analysis_script)
+        self.assertIn("row.limits.volume_expected_real", self.analysis_script)
+        self.assertIn("trade.autolot_volume", self.analysis_script)
+        self.assertIn("applyLots({$mode: 'autolot'})", self.analysis_script)
+        self.assertIn("las demás conservan el lote ejecutado", self.analysis_script)
+        self.assertIn("La curva Demo usa el autolote histórico de cada operación", self.analysis_script)
 
     def test_the_simulation_recalculates_the_drawdown_and_never_touches_the_audit(self) -> None:
         # Con otro lote el drawdown del veredicto deja de valer, así que se

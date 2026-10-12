@@ -27,6 +27,14 @@ function overrideFor(strategy, side) {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+function autolotMode() {
+  return lotOverrides.$mode === 'autolot';
+}
+
+function autolotLots(group) {
+  return observedLots(group.demo.map(trade => ({volume: trade.autolot_volume})));
+}
+
 // Se reescala operación a operación por su propio volumen, no por un lote único
 // de la estrategia: si una estrategia operó varios volúmenes, un factor común
 // daría un PnL que nunca existió.
@@ -38,8 +46,12 @@ function scaledProfit(trade, lot) {
 }
 
 function sideSeries(trades, strategy, side) {
-  const lot = overrideFor(strategy, side);
-  return trades.map(trade => ({close_time: trade.close_time, profit: scaledProfit(trade, lot)}));
+  const manualLot = overrideFor(strategy, side);
+  return trades.map(trade => {
+    const automaticLot = side === 'demo' && autolotMode() ? Number(trade.autolot_volume) : null;
+    const lot = Number.isFinite(automaticLot) && automaticLot > 0 ? automaticLot : manualLot;
+    return {close_time: trade.close_time, profit: scaledProfit(trade, lot)};
+  });
 }
 
 function escapeHtml(value) {
@@ -119,7 +131,11 @@ function strategyGroups(result) {
     }
     const group = groups.get(key);
     if (group.symbol === '—' && tester.symbol) group.symbol = tester.symbol;
-    if (row.tester?.close_time) group.demo.push(row.tester);
+    if (row.tester?.close_time) {
+      const expected = row.limits?.volume_expected_source === 'autolot'
+        ? Number(row.limits.volume_expected_real) : null;
+      group.demo.push({...row.tester, autolot_volume: Number.isFinite(expected) && expected > 0 ? expected : null});
+    }
     if (row.real?.close_time) group.real.push(row.real);
   });
   return [...groups.values()].map(group => ({
@@ -219,6 +235,7 @@ function groupTotal(group, side) {
 }
 
 function simulatedMark(group) {
+  if (autolotMode() && autolotLots(group).length) return '<small class="lots-changed">AUTOLOTE HISTÓRICO</small>';
   const sides = ['demo', 'real'].filter(side => overrideFor(group.strategy, side) !== null);
   return sides.length ? '<small class="lots-changed">LOTE SIMULADO</small>' : '';
 }
@@ -234,6 +251,10 @@ function lotNote(group, side) {
   const override = overrideFor(group.strategy, side);
   const executed = side === 'demo' ? group.demoLots : group.realLots;
   const label = side === 'demo' ? 'demo' : 'real';
+  const automatic = side === 'demo' && autolotMode() ? autolotLots(group) : [];
+  if (automatic.length) {
+    return `${label} autolote ${automatic.map(lot => number(lot, 8)).join(' · ')} sobre ejecutado ${executed.map(lot => number(lot, 8)).join(' · ') || '—'}`;
+  }
   if (override === null) return `${label} ${executed.map(lot => number(lot, 8)).join(' · ') || '—'}`;
   return `${label} ${number(override, 8)} simulado sobre ${executed.map(lot => number(lot, 8)).join(' · ') || '—'}`;
 }
@@ -253,6 +274,7 @@ function selectStrategy(index) {
 }
 
 function simulatedStrategies() {
+  if (autolotMode()) return strategyRows.filter(group => autolotLots(group).length);
   return strategyRows.filter(group => (
     overrideFor(group.strategy, 'demo') !== null || overrideFor(group.strategy, 'real') !== null
   ));
@@ -266,7 +288,10 @@ function renderSimulationNotice() {
   const detail = changed
     .map(group => `${group.symbol}: ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`)
     .join(' — ');
-  notice.innerHTML = `<span class="badge pending">SIMULACIÓN</span><div><strong>Estas curvas no son las de la auditoría.</strong><span>${escapeHtml(detail)}</span></div><button type="button" id="simulation-reset" class="secondary">Restablecer</button>`;
+  const heading = autolotMode()
+    ? 'La curva Demo usa el autolote histórico de cada operación.'
+    : 'Estas curvas no son las de la auditoría.';
+  notice.innerHTML = `<span class="badge pending">SIMULACIÓN</span><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(detail)}</span></div><button type="button" id="simulation-reset" class="secondary">Restablecer</button>`;
 }
 
 function renderCurves() {
@@ -435,11 +460,14 @@ function lotInput(group, side) {
   const placeholder = executed.length === 1 ? number(executed[0], 8)
     : executed.length ? `varios: ${executed.map(lot => number(lot, 8)).join(' · ')}` : 'sin operaciones';
   const disabled = executed.length ? '' : ' disabled';
+  const automatic = side === 'demo' ? autolotLots(group) : [];
+  const automaticNote = automatic.length
+    ? `<small class="lots-autolot-note">autolote ${escapeHtml(automatic.map(lot => number(lot, 8)).join(' · '))}</small>` : '';
   return `<td><input type="number" min="0" step="0.01" inputmode="decimal"
     data-lot-strategy="${escapeHtml(group.strategy)}" data-lot-side="${side}"
     value="${override === null ? '' : override}" placeholder="${escapeHtml(placeholder)}"
     aria-label="Lote ${side} de ${escapeHtml(group.symbol)}"${disabled}>
-    <small>ejecutado ${escapeHtml(executed.map(lot => number(lot, 8)).join(' · ') || '—')}</small></td>`;
+    <small>ejecutado ${escapeHtml(executed.map(lot => number(lot, 8)).join(' · ') || '—')}</small>${automaticNote}</td>`;
 }
 
 function openLotsDialog() {
@@ -449,7 +477,17 @@ function openLotsDialog() {
     ${lotInput(group, 'demo')}${lotInput(group, 'real')}
   </tr>`).join('') : '<tr><td colspan="3" class="audit-analysis-empty">No hay estrategias en este resultado.</td></tr>';
   const extras = unmatchedReals(currentResult).length;
+  const automatic = strategyRows.reduce((total, group) => (
+    total + group.demo.filter(trade => Number(trade.autolot_volume) > 0).length
+  ), 0);
+  const totalDemo = strategyRows.reduce((total, group) => total + group.demo.length, 0);
+  const button = document.querySelector('#lots-autolot');
+  button.disabled = !automatic;
+  button.title = automatic
+    ? `Recalcular ${automatic} de ${totalDemo} operaciones demo con su lote histórico esperado.`
+    : 'Este resultado no contiene cálculos de autolote.';
   document.querySelector('#lots-caveat').textContent = [
+    automatic ? `Autolote puede recalcular ${automatic} de ${totalDemo} operaciones demo; las demás conservan el lote ejecutado.` : '',
     'El PnL se reescala en proporción al lote, así que da por supuesto que el mismo precio se habría llenado con cualquier tamaño: no modela deslizamiento, margen ni stop out.',
     extras ? `Las ${extras} reales sin pareja no pertenecen a ninguna estrategia del tester y nunca se reescalan.` : '',
   ].filter(Boolean).join(' ');
@@ -478,6 +516,10 @@ document.querySelector('#lots-close').addEventListener('click', () => document.q
 document.querySelector('#lots-cancel').addEventListener('click', () => document.querySelector('#lots-dialog').close());
 document.querySelector('#lots-reset').addEventListener('click', () => {
   applyLots({});
+  document.querySelector('#lots-dialog').close();
+});
+document.querySelector('#lots-autolot').addEventListener('click', () => {
+  applyLots({$mode: 'autolot'});
   document.querySelector('#lots-dialog').close();
 });
 document.querySelector('#lots-apply').addEventListener('click', () => {
