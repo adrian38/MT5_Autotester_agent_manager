@@ -16,7 +16,10 @@
     </div>
     <div class="header-actions">
       <button id="open-lots" type="button" class="secondary">Lotes por estrategia</button>
-      <label id="attribution-upload" class="button secondary" title="Excel con la columna que dice a qué estrategia pertenece cada real sin pareja">Atribuir reales sin pareja<input id="attribution-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
+      <!-- El texto va en su propio `span`: escribir en el `textContent` del
+           `label` borraría el `input`, que es hijo suyo, y la subida sólo
+           funcionaría una vez. -->
+      <label id="attribution-upload" class="button secondary" title="Excel con la columna que dice a qué estrategia pertenece cada real sin pareja"><span id="attribution-label">Atribuir reales sin pareja</span><input id="attribution-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
       <a id="result-link" class="button secondary" href="#">Ver detalle de operaciones</a>
       <a id="back-link" class="button secondary" href="/">Volver al auditor</a>
     </div>

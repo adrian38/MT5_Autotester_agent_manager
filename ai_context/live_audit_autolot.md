@@ -282,6 +282,18 @@ repintado sin guardar. Guarda con `set_real_attribution`, que escribe **un solo
 campo**: reenviar el perfil entero desde Análisis borraría lo que esa pantalla
 no conoce (credenciales referenciadas, cuentas, el resto de usos).
 
+**Lo subido se acumula.** Decidir de quién es cada real es trabajo manual que no
+se repite, así que `merge_attribution` suma el Excel nuevo al guardado en vez de
+sustituirlo: un ticket repetido se queda con lo último —es la corrección— y el
+resto se conserva, auditoría tras auditoría.
+
+**El `input` dentro del `label` sólo dejaba subir una vez.** El rótulo estaba
+como texto directo del `<label>`, con el `<input type="file">` de hermano, así
+que `label.textContent = 'Leyendo…'` **borraba el input**: a la vuelta,
+`querySelector('#attribution-file').value` reventaba con «Cannot set properties
+of null» y el botón no volvía a responder. El rótulo vive ahora en su propio
+`<span>`. Vale para cualquier botón de subida de este proyecto.
+
 Eso rompió una guarda que prohibía cualquier `method: 'POST'` en esa pantalla.
 Protegía algo real —que la simulación de lotes no se guarde en el perfil— así
 que no se borró: ahora comprueba que `applyLots` sólo toca `localStorage` y que

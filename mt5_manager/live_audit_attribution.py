@@ -197,6 +197,24 @@ def _member_keys(member: dict[str, Any]) -> tuple[str, ...]:
     return strategy, str(member.get("set_name") or ""), source
 
 
+def merge_attribution(stored: Any, incoming: Any) -> dict[str, Any]:
+    """Acumula lo subido sobre lo que ya había, por ticket.
+
+    Cada Excel suele cubrir sólo las operaciones de una auditoría, y el trabajo
+    de decidir de quién es cada una no se repite: subir el segundo fichero no
+    puede borrar lo dicho en el primero. Un ticket repetido se queda con lo
+    último subido, que es la correción; el resto se conserva.
+    """
+    previous = normalize_attribution(stored)
+    added = normalize_attribution(incoming)
+    rules = {**previous["rules"], **added["rules"]}
+    return {
+        "source_name": added["source_name"] or previous["source_name"],
+        "source_sha256": added["source_sha256"] or previous["source_sha256"],
+        "rules": rules,
+    }
+
+
 def _trade_ticket(trade: Any) -> str:
     if not isinstance(trade, dict):
         return ""

@@ -365,6 +365,16 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Recalculando la auditoría…", self.analysis_script)
         self.assertIn("render(result);", self.analysis_script)
         self.assertIn("await loadDegradation();", self.analysis_script)
+        # El `input` es hijo del `label`, así que el rótulo tiene que vivir en
+        # su propio `span`: escribir en el `textContent` del `label` borraba el
+        # `input` y la subida sólo funcionaba una vez.
+        self.assertTrue(self.analysis_page.xpath('//label[@id="attribution-upload"]/span[@id="attribution-label"]'))
+        self.assertTrue(self.analysis_page.xpath('//label[@id="attribution-upload"]/input[@id="attribution-file"]'))
+        upload = self.analysis_script.split("async function uploadAttribution(file)", 1)[1]
+        self.assertIn("const label = document.querySelector('#attribution-label')", upload)
+        self.assertNotIn("const label = document.querySelector('#attribution-upload')", upload)
+        # Vaciar el `value` deja volver a elegir el mismo fichero corregido.
+        self.assertIn("document.querySelector('#attribution-file').value = ''", self.analysis_script)
 
     def test_the_verdict_declares_which_lot_it_expected_in_real(self) -> None:
         self.assertIn("tolerances.volume_basis === 'autolot_balance_risk'", self.result_script)

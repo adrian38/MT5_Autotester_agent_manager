@@ -9,7 +9,7 @@ from typing import Any
 from cryptography.fernet import Fernet, InvalidToken
 
 from .common import load_json, save_json, utc_now
-from .live_audit_attribution import normalize_attribution
+from .live_audit_attribution import merge_attribution, normalize_attribution
 from .live_audit_settings_schema import (
     DEFAULT_LIVE_AUDIT_PROFILE,
     DEFAULT_LIVE_AUDIT_SETTINGS,
@@ -546,12 +546,16 @@ class LiveAuditSettingsStore:
     def set_real_attribution(
         self, node_id: str, audit_id: str, attribution: dict[str, Any],
     ) -> dict[str, Any]:
-        """Guarda la atribución manual de un uso sin tocar nada más.
+        """Acumula la atribución manual de un uso sin tocar nada más.
 
         Se sube desde la pantalla de Análisis, que no conoce el resto de la
         configuración. Reenviar el perfil entero desde ahí dejaría fuera lo que
         esa pantalla no sabe —credenciales referenciadas, cuentas, el resto de
         usos— y lo borraría al guardar. Esto escribe un solo campo.
+
+        Y lo **acumula**: decidir de quién es cada real es trabajo manual que no
+        se repite, así que un Excel nuevo se suma al anterior en vez de
+        sustituirlo, y lo dicho en auditorías pasadas sigue ahí.
         """
         with self.lock:
             record = self.records.get(node_id) or {}
@@ -561,7 +565,10 @@ class LiveAuditSettingsStore:
             }
             if str(audit_id) not in profiles:
                 raise KeyError(f"El uso {audit_id} no tiene configuración guardada")
-            profiles[str(audit_id)]["real_attribution"] = normalize_attribution(attribution)
+            merged = merge_attribution(
+                profiles[str(audit_id)].get("real_attribution"), attribution,
+            )
+            profiles[str(audit_id)]["real_attribution"] = normalize_attribution(merged)
             self.records[node_id] = {**record, "profiles": profiles, "updated_at": utc_now()}
             save_json(self.path, self.records)
             return dict(profiles[str(audit_id)]["real_attribution"])

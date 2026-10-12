@@ -643,7 +643,15 @@ function renderUnaccounted() {
   badge.className = `badge ${pending.length ? 'pending' : 'idle'}`;
   const attributed = unmatchedRows(currentResult)
     .filter(row => attributionOf(row).state === 'attributed');
+  // El recuento guardado puede ser mayor que el de esta auditoría: la
+  // atribución se acumula y conserva lo dicho de ejecuciones anteriores.
+  const stored = Number(
+    currentResult.analysis?.tolerances?.real_attribution?.rules
+      && Object.keys(currentResult.analysis.tolerances.real_attribution.rules).length,
+  ) || 0;
   document.querySelector('#unaccounted-note').textContent = [
+    stored
+      ? `Hay ${stored} operacion${stored === 1 ? '' : 'es'} guardada${stored === 1 ? '' : 's'} en la atribución de este uso; cada Excel que subas se suma a lo anterior, no lo reemplaza.` : '',
     attributed.length
       ? `${attributed.length} reales sin pareja (${money(sum(attributed), currency)}) ya están atribuidas y suman en el real de su estrategia.` : '',
     excluded.length
@@ -914,10 +922,14 @@ function bytesToBase64(bytes) {
 // en una sola llamada —`.../attribution` devuelve el resultado ya recalculado—
 // para que no pueda quedarse guardado sin repintar ni repintado sin guardar.
 async function uploadAttribution(file) {
-  const label = document.querySelector('#attribution-upload');
+  const button = document.querySelector('#attribution-upload');
+  // El rótulo es un `span` aparte a propósito: el `input` es hijo del `label`,
+  // así que escribir en su `textContent` lo borraría y la subida funcionaría
+  // una sola vez.
+  const label = document.querySelector('#attribution-label');
   const previous = label.textContent;
   label.textContent = 'Leyendo el Excel…';
-  label.classList.add('is-busy');
+  button.classList.add('is-busy');
   try {
     if (file.size > 700000) throw new Error('El Excel no puede superar 700 KB.');
     const content = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
@@ -939,7 +951,9 @@ async function uploadAttribution(file) {
     showAnalysisError('');
   } finally {
     label.textContent = previous;
-    label.classList.remove('is-busy');
+    button.classList.remove('is-busy');
+    // Vaciarlo deja volver a elegir el mismo fichero: sin esto, repetir la
+    // subida tras corregir el Excel no dispararía `change`.
     document.querySelector('#attribution-file').value = '';
   }
 }

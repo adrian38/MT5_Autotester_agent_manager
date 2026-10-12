@@ -10,6 +10,7 @@ from mt5_manager.live_audit_analysis import analyze
 from mt5_manager.live_audit_attribution import (
     attribution_by_ticket,
     import_workbook,
+    merge_attribution,
     normalize_attribution,
     split_reason,
 )
@@ -105,6 +106,36 @@ class WorkbookTests(unittest.TestCase):
         self.assertEqual(configured["real_attribution"]["rules"]["111"]["strategy_set"], SET_STEM)
         with self.assertRaisesRegex(ValueError, "ticket"):
             normalize_attribution({"rules": {"no-es-un-ticket": {"strategy_set": SET_STEM}}})
+
+
+class MergeTests(unittest.TestCase):
+    def test_a_second_excel_adds_to_the_first_instead_of_replacing_it(self) -> None:
+        # Decidir de quién es cada real es trabajo manual que no se repite:
+        # subir el Excel de la auditoría siguiente no puede borrar lo anterior.
+        first = imported(EXPORTED_ROWS)
+        second = imported([
+            ("XAUUSD · 0,02 lotes; buy; Sin estrategia del tester; magic 333; ticket 333",
+             SET_STEM),
+        ])
+        merged = merge_attribution(first, second)
+        self.assertEqual(sorted(merged["rules"]), ["111", "222", "333"])
+        self.assertEqual(merged["source_name"], "auditor.xlsx")
+
+    def test_the_same_ticket_keeps_the_last_word(self) -> None:
+        first = imported(EXPORTED_ROWS)
+        corrected = imported([
+            ("XAUUSD · 0,02 lotes; sell; Sin estrategia del tester; magic 111; ticket 111",
+             "no contabiliza en este portafolio"),
+        ])
+        merged = merge_attribution(first, corrected)
+        self.assertEqual(
+            merged["rules"]["111"]["strategy_set"], "no contabiliza en este portafolio",
+        )
+        self.assertEqual(sorted(merged["rules"]), ["111", "222"])
+
+    def test_merging_over_nothing_is_the_incoming_file(self) -> None:
+        first = imported(EXPORTED_ROWS)
+        self.assertEqual(merge_attribution(None, first)["rules"], first["rules"])
 
 
 class BindingTests(unittest.TestCase):
