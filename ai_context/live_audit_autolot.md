@@ -140,6 +140,41 @@ Dos cosas más que esa revisión confirmó, por si vuelven a levantar sospecha:
   abrió tres días antes del periodo, el tester no la simula y `_pair_cost`
   descarta la pareja porque apertura y cierre quedan fuera de tolerancia.
 
+## Qué escala el botón de la pantalla Análisis (2026-10-12)
+
+El objetivo del botón **no** es aplicar el autolote: es dejar la curva Demo al
+mismo tamaño que la Real para poder compararlas. **La cuenta real lleva la
+batuta.**
+
+Escalaba al lote que el autolote *calcula*, y eso mete en la comparación la
+desviación que la auditoría está midiendo. En `audit-148-muon8rbd-1` de
+RoboForex, **65 de 94** operaciones ejecutaron un lote distinto del calculado
+—`.DE40Cash` calculaba 0,13/0,17 y ejecutó 0,05/0,10—, así que la curva no era
+la de la cuenta.
+
+El criterio es ahora `scaleTarget(row)`:
+
+1. ¿Hay real, cerrada **o todavía abierta**? El lote es el que **ejecutó**.
+2. ¿No hay pareja? Entonces sí, el autolote: no hay lote ejecutado que copiar.
+
+Medido sobre esa auditoría: 86 operaciones al lote ejecutado, 8 al autolote,
+ninguna sin lote.
+
+## La pareja cuya real sigue abierta no entra en ninguna curva
+
+El tester la cerró **sólo porque se acabó el rango del backtest**, no porque la
+estrategia saliera. Las cinco de `audit-148` cierran todas a las
+`2026-10-09T23:55` y suman **−124,88 €** sobre 202,25 € de Demo: pérdidas que en
+real no se han materializado porque la posición sigue viva. Comparar una curva
+que las incluye contra otra que no puede incluirlas mide el corte del rango, no
+la reproducción.
+
+`splitPending` las saca de Demo —de Real ya estaban fuera, no tienen PnL— y las
+dibuja en su **propia curva discontinua ámbar**, con su importe en el resumen
+(`Fuera: sin cerrar en real`). Fuera de la comparación, que es donde falsean;
+visibles, que es donde avisan. Sigue siendo PnL del tester y la leyenda lo dice:
+de la real abierta no se inventa ningún resultado.
+
 ## Enumerar lotes no escala
 
 Con un lote por apertura, `observedLots` devuelve decenas de valores distintos y

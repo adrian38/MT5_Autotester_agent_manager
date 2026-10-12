@@ -31,12 +31,32 @@ function autolotMode() {
   return lotOverrides.$mode === 'autolot';
 }
 
+// La cuenta real lleva la batuta. Si la operación tiene pareja —cerrada o
+// todavía abierta— el lote al que hay que llevar la demo es el que la cuenta
+// **ejecutó**, no el que el autolote calculó: el objetivo de la pantalla es
+// comparar las dos curvas al mismo tamaño, y el cálculo teórico mete en medio
+// la propia desviación que la auditoría está midiendo. En la auditoría 148 de
+// RoboForex 65 de 94 operaciones ejecutaron un lote distinto del calculado.
+// El autolote cubre sólo lo que la cuenta real no llegó a ejecutar.
+function scaleTarget(row) {
+  const executed = Number((row.real || row.real_position_still_open || {}).volume);
+  if (Number.isFinite(executed) && executed > 0) return {volume: executed, source: 'real'};
+  const expected = row.limits?.volume_expected_source === 'autolot'
+    ? Number(row.limits.volume_expected_real) : null;
+  return Number.isFinite(expected) && expected > 0
+    ? {volume: expected, source: 'autolot'} : {volume: null, source: 'none'};
+}
+
 function autolotLots(group) {
-  return observedLots(group.demo.map(trade => ({volume: trade.autolot_volume})));
+  return observedLots(group.demo.map(trade => ({volume: trade.scale_volume})));
 }
 
 function autolotTrades(group) {
-  return group.demo.filter(trade => Number(trade.autolot_volume) > 0).length;
+  return group.demo.filter(trade => Number(trade.scale_volume) > 0).length;
+}
+
+function scaledBySource(group, source) {
+  return group.demo.filter(trade => trade.scale_source === source).length;
 }
 
 // Con el autolote cada apertura puede tener su propio lote, así que enumerarlos
@@ -61,9 +81,12 @@ function scaledProfit(trade, lot) {
 function sideSeries(trades, strategy, side) {
   const manualLot = overrideFor(strategy, side);
   return trades.map(trade => {
-    const automaticLot = side === 'demo' && autolotMode() ? Number(trade.autolot_volume) : null;
+    const automaticLot = side === 'demo' && autolotMode() ? Number(trade.scale_volume) : null;
     const lot = Number.isFinite(automaticLot) && automaticLot > 0 ? automaticLot : manualLot;
-    return {close_time: trade.close_time, profit: scaledProfit(trade, lot)};
+    return {
+      close_time: trade.close_time, profit: scaledProfit(trade, lot),
+      pending_real: Boolean(trade.pending_real),
+    };
   });
 }
 
@@ -111,11 +134,29 @@ function unmatchedReals(result) {
     .map(trade => ({close_time: trade.close_time, profit: Number(trade.profit || 0)}));
 }
 
+// Si la real sigue abierta, su pareja del tester sólo cerró porque se acabó el
+// rango del backtest: ese PnL es un artefacto del corte, no un resultado que la
+// estrategia decidiera. Comparar una curva que lo incluye contra otra que no
+// puede incluirlo mide el corte, no la reproducción. Las cinco de la auditoría
+// 148 de RoboForex cierran todas a las 2026-10-09T23:55 y suman -124,88 € sobre
+// 202,25 € de Demo. Fuera de las dos curvas, y a la suya propia.
+function splitPending(series) {
+  return {
+    settled: series.filter(point => !point.pending_real),
+    pending: series.filter(point => point.pending_real),
+  };
+}
+
 function globalTrades(result, groups) {
-  const demo = groups.flatMap(group => sideSeries(group.demo, group.strategy, 'demo'));
+  const {settled: demo, pending} = splitPending(
+    groups.flatMap(group => sideSeries(group.demo, group.strategy, 'demo')),
+  );
   const paired = groups.flatMap(group => sideSeries(group.real, group.strategy, 'real'));
   const extras = unmatchedReals(result);
-  return {demo, real: [...paired, ...extras], paired: paired.length, extras: extras.length};
+  return {
+    demo, pending, real: [...paired, ...extras],
+    paired: paired.length, extras: extras.length,
+  };
 }
 
 function cumulativeSeries(trades) {
@@ -145,9 +186,11 @@ function strategyGroups(result) {
     const group = groups.get(key);
     if (group.symbol === '—' && tester.symbol) group.symbol = tester.symbol;
     if (row.tester?.close_time) {
-      const expected = row.limits?.volume_expected_source === 'autolot'
-        ? Number(row.limits.volume_expected_real) : null;
-      group.demo.push({...row.tester, autolot_volume: Number.isFinite(expected) && expected > 0 ? expected : null});
+      const target = scaleTarget(row);
+      group.demo.push({
+        ...row.tester, scale_volume: target.volume, scale_source: target.source,
+        pending_real: Boolean(row.real_position_still_open),
+      });
     }
     if (row.real?.close_time) group.real.push(row.real);
     // Una real todavía abierta SÍ está emparejada: el auditor la alineó con su
@@ -199,18 +242,40 @@ function chartGrid(bounds, currency) {
   }).join('');
 }
 
-function renderChart(targetId, demoTrades, realTrades) {
+function chartLegend(entries) {
+  let x = 72;
+  return entries.map(([tone, label]) => {
+    const dot = `<circle class="audit-analysis-dot ${tone}" cx="${x}" cy="312" r="5"/>`;
+    const text = `<text class="audit-analysis-legend" x="${x + 12}" y="316">${escapeHtml(label)}</text>`;
+    x += 28 + label.length * 7.2;
+    return dot + text;
+  }).join('');
+}
+
+// Las pendientes van en su propia curva, discontinua y de otro color: fuera de
+// la comparación, que es donde falsean, pero visibles, que es donde avisan.
+// Sigue siendo PnL del tester y la leyenda lo dice: de la real abierta no se
+// inventa ningún resultado.
+function renderChart(targetId, demoTrades, realTrades, pendingTrades = []) {
   const {currency, window} = chartContext;
   const target = document.querySelector(`#${targetId}`);
   const demo = cumulativeSeries(demoTrades);
   const real = cumulativeSeries(realTrades);
-  if (!demo.length && !real.length) {
+  const pending = cumulativeSeries(pendingTrades);
+  if (!demo.length && !real.length && !pending.length) {
     target.innerHTML = '<p class="audit-analysis-empty">No hay operaciones cerradas para dibujar esta curva.</p>';
     return;
   }
-  const bounds = chartBounds([demo, real], window);
+  const bounds = chartBounds([demo, real, pending], window);
   const zeroY = 22 + (bounds.maxValue / (bounds.maxValue - bounds.minValue)) * 260;
-  target.innerHTML = `<svg viewBox="0 0 930 330" role="img"><title>Comparación de PnL acumulado entre Demo y Real</title>${chartGrid(bounds, currency)}<line class="audit-analysis-zero" x1="58" y1="${zeroY}" x2="878" y2="${zeroY}"/><polyline class="audit-analysis-line demo" points="${curvePoints(demo, bounds)}"/><polyline class="audit-analysis-line real" points="${curvePoints(real, bounds)}"/><circle class="audit-analysis-dot demo" cx="72" cy="312" r="5"/><text class="audit-analysis-legend" x="84" y="316">Demo / Tester</text><circle class="audit-analysis-dot real" cx="212" cy="312" r="5"/><text class="audit-analysis-legend" x="224" y="316">Real</text><text class="audit-analysis-axis" x="58" y="300">${escapeHtml(dateLabel(bounds.minTime))}</text><text class="audit-analysis-axis" x="878" y="300" text-anchor="end">${escapeHtml(dateLabel(bounds.maxTime))}</text></svg>`;
+  const pendingLine = pending.length
+    ? `<polyline class="audit-analysis-line pending" points="${curvePoints(pending, bounds)}"/>` : '';
+  const legend = chartLegend([
+    ['demo', 'Demo / Tester'], ['real', 'Real'],
+    ...(pending.length
+      ? [['pending', `Tester de ${pending.length} real${pending.length === 1 ? '' : 'es'} sin cerrar`]] : []),
+  ]);
+  target.innerHTML = `<svg viewBox="0 0 930 330" role="img"><title>Comparación de PnL acumulado entre Demo y Real</title>${chartGrid(bounds, currency)}<line class="audit-analysis-zero" x1="58" y1="${zeroY}" x2="878" y2="${zeroY}"/><polyline class="audit-analysis-line demo" points="${curvePoints(demo, bounds)}"/><polyline class="audit-analysis-line real" points="${curvePoints(real, bounds)}"/>${pendingLine}${legend}<text class="audit-analysis-axis" x="58" y="300">${escapeHtml(dateLabel(bounds.minTime))}</text><text class="audit-analysis-axis" x="878" y="300" text-anchor="end">${escapeHtml(dateLabel(bounds.maxTime))}</text></svg>`;
 }
 
 function auditedPeriod(result) {
@@ -239,21 +304,28 @@ function curveDrawdown(series) {
 
 // El periodo es el mismo para las dos cuentas y vive en el subtítulo: aquí sólo
 // lo que las diferencia, y el recuento que explica de dónde sale cada curva.
-function summaryMarkup(trades, currency) {
+function summaryMarkup(trades, currency, pending = []) {
   const gain = trades.reduce((total, trade) => total + Number(trade.profit || 0), 0);
   const drawdown = curveDrawdown(cumulativeSeries(trades));
+  const held = pending.reduce((total, trade) => total + Number(trade.profit || 0), 0);
+  // El importe excluido se dice, no se esconde: es la diferencia entre esta
+  // curva y la que se veía antes, y explica por qué Demo se movió.
+  const heldRow = pending.length
+    ? `<div><dt>Fuera: sin cerrar en real</dt><dd>${escapeHtml(number(pending.length, 0))} op · ${escapeHtml(money(held, currency))}</dd></div>`
+    : '';
   return `<div><dt>PnL cerrado</dt><dd>${escapeHtml(money(gain, currency))}</dd></div>`
     + `<div><dt>Drawdown máximo</dt><dd>${escapeHtml(money(drawdown, currency))}</dd></div>`
-    + `<div><dt>Operaciones cerradas</dt><dd>${escapeHtml(number(trades.length, 0))}</dd></div>`;
+    + `<div><dt>Operaciones cerradas</dt><dd>${escapeHtml(number(trades.length, 0))}</dd></div>`
+    + heldRow;
 }
 
 function groupTotal(group, side) {
-  return sideSeries(side === 'demo' ? group.demo : group.real, group.strategy, side)
-    .reduce((sum, trade) => sum + trade.profit, 0);
+  const series = sideSeries(side === 'demo' ? group.demo : group.real, group.strategy, side);
+  return splitPending(series).settled.reduce((sum, trade) => sum + trade.profit, 0);
 }
 
 function simulatedMark(group) {
-  if (autolotMode() && autolotLots(group).length) return '<small class="lots-changed">AUTOLOTE HISTÓRICO</small>';
+  if (autolotMode() && autolotLots(group).length) return '<small class="lots-changed">ESCALADA AL LOTE REAL</small>';
   const sides = ['demo', 'real'].filter(side => overrideFor(group.strategy, side) !== null);
   return sides.length ? '<small class="lots-changed">LOTE SIMULADO</small>' : '';
 }
@@ -279,9 +351,13 @@ function lotNote(group, side) {
   const label = side === 'demo' ? 'demo' : 'real';
   const automatic = side === 'demo' && autolotMode() ? autolotLots(group) : [];
   if (automatic.length) {
-    const covered = autolotTrades(group);
-    const partial = covered < group.demo.length ? ` en ${covered} de ${group.demo.length}` : '';
-    return `${label} autolote ${lotList(automatic)}${partial} sobre ejecutado ${lotList(executed)}`;
+    const fromReal = scaledBySource(group, 'real');
+    const estimated = scaledBySource(group, 'autolot');
+    const origen = [
+      fromReal ? `${fromReal} al lote ejecutado en real` : '',
+      estimated ? `${estimated} por autolote al no tener pareja` : '',
+    ].filter(Boolean).join(' · ');
+    return `${label} al lote real ${lotList(automatic)} (${origen}) sobre ejecutado ${lotList(executed)}`;
   }
   if (override === null) return `${label} ${lotList(executed)}`;
   return `${label} ${number(override, 8)} simulado sobre ${lotList(executed)}`;
@@ -294,19 +370,20 @@ function selectStrategy(index) {
   const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
   const lots = `Lote ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`;
   const open = group.openReal.length;
+  const settled = group.demo.filter(trade => !trade.pending_real).length;
   // Sin esta frase la pantalla contradice al veredicto: ahí la pareja existe y
-  // encaja al segundo, y aquí parecía que la estrategia no había operado.
+  // encaja al segundo, y aquí parecería que la estrategia no había operado.
   const openNote = open
-    ? `<small class="lots-open-real">${open} posición${open === 1 ? '' : 'es'} real${open === 1 ? '' : 'es'} emparejada${open === 1 ? '' : 's'} seguía${open === 1 ? '' : 'n'} abierta${open === 1 ? '' : 's'} al terminar el periodo: el auditor las alineó con el tester, pero todavía no tienen PnL cerrado que dibujar.</small>`
+    ? `<small class="lots-open-real">${open} posición${open === 1 ? '' : 'es'} real${open === 1 ? '' : 'es'} emparejada${open === 1 ? '' : 's'} seguía${open === 1 ? '' : 'n'} abierta${open === 1 ? '' : 's'} al terminar el periodo. Su pareja del tester cerró sólo porque se acabó el rango del backtest, así que ninguna de las dos entra en la comparación: van aparte, en la curva discontinua.</small>`
     : '';
   const badge = open
-    ? `${group.demo.length} DEMO · ${group.real.length} REAL CERRADA${group.real.length === 1 ? '' : 'S'} · ${open} ABIERTA${open === 1 ? '' : 'S'}`
-    : `${group.demo.length} DEMO · ${group.real.length} REAL EMPAREJADA${group.real.length === 1 ? '' : 'S'}`;
+    ? `${settled} DEMO · ${group.real.length} REAL · ${open} SIN CERRAR, FUERA`
+    : `${settled} DEMO · ${group.real.length} REAL EMPAREJADA${group.real.length === 1 ? '' : 'S'}`;
   document.querySelector('#strategy-heading').innerHTML = `<div><strong>${escapeHtml(group.symbol)}</strong><p>${escapeHtml(name)}</p><small>${escapeHtml(lots)}</small>${openNote}</div><span class="badge idle">${escapeHtml(badge)}</span>`;
+  const demoSeries = splitPending(sideSeries(group.demo, group.strategy, 'demo'));
   renderChart(
-    'strategy-chart',
-    sideSeries(group.demo, group.strategy, 'demo'),
-    sideSeries(group.real, group.strategy, 'real'),
+    'strategy-chart', demoSeries.settled,
+    sideSeries(group.real, group.strategy, 'real'), demoSeries.pending,
   );
 }
 
@@ -327,13 +404,15 @@ function renderSimulationNotice() {
   // un aviso que nadie lee.
   const recalculated = changed.reduce((total, group) => total + autolotTrades(group), 0);
   const demoTrades = strategyRows.reduce((total, group) => total + group.demo.length, 0);
+  const fromReal = changed.reduce((total, group) => total + scaledBySource(group, 'real'), 0);
+  const estimated = changed.reduce((total, group) => total + scaledBySource(group, 'autolot'), 0);
   const detail = autolotMode()
-    ? `${recalculated} de ${demoTrades} operaciones demo recalculadas en ${changed.length} estrategia${changed.length === 1 ? '' : 's'}; el resto conserva su lote de backtest. La curva Real conserva lo ejecutado.`
+    ? `${recalculated} de ${demoTrades} operaciones demo escaladas en ${changed.length} estrategia${changed.length === 1 ? '' : 's'}: ${fromReal} al lote que ejecutó la cuenta real y ${estimated} al autolote por no tener pareja. El resto conserva su lote de backtest y la curva Real conserva lo ejecutado.`
     : changed
       .map(group => `${group.symbol}: ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`)
       .join(' — ');
   const heading = autolotMode()
-    ? 'La curva Demo usa el autolote del saldo real en cada operación.'
+    ? 'La curva Demo está escalada al lote de la cuenta real.'
     : 'Estas curvas no son las de la auditoría.';
   notice.innerHTML = `<span class="badge pending">SIMULACIÓN</span><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(detail)}</span></div><button type="button" id="simulation-reset" class="secondary">Restablecer</button>`;
 }
@@ -341,15 +420,15 @@ function renderSimulationNotice() {
 function renderCurves() {
   const currency = chartContext.currency;
   const trades = globalTrades(currentResult, strategyRows);
-  document.querySelector('#demo-summary').innerHTML = summaryMarkup(trades.demo, currency);
+  document.querySelector('#demo-summary').innerHTML = summaryMarkup(trades.demo, currency, trades.pending);
   document.querySelector('#real-summary').innerHTML = summaryMarkup(trades.real, currency);
   const openReal = strategyRows.reduce((total, group) => total + group.openReal.length, 0);
   document.querySelector('#global-count').textContent = [
     `${trades.paired} EMPAREJADAS`,
-    openReal ? `${openReal} ABIERTAS` : '',
+    openReal ? `${openReal} SIN CERRAR, FUERA` : '',
     trades.extras ? `${trades.extras} SIN PAREJA` : '',
   ].filter(Boolean).join(' · ');
-  renderChart('global-chart', trades.demo, trades.real);
+  renderChart('global-chart', trades.demo, trades.real, trades.pending);
   const active = Math.max(0, [...document.querySelectorAll('[data-strategy-key].active')]
     .map(button => Number(button.dataset.strategyKey))[0] || 0);
   document.querySelector('#strategy-count').textContent = `${strategyRows.length} ESTRATEGIA${strategyRows.length === 1 ? '' : 'S'}`;
@@ -508,9 +587,9 @@ function lotInput(group, side) {
     : executed.length ? `varios: ${lotList(executed)}` : 'sin operaciones';
   const disabled = executed.length ? '' : ' disabled';
   const automatic = side === 'demo' ? autolotLots(group) : [];
-  const covered = side === 'demo' ? autolotTrades(group) : 0;
+  const estimated = side === 'demo' ? scaledBySource(group, 'autolot') : 0;
   const automaticNote = automatic.length
-    ? `<small class="lots-autolot-note">autolote ${escapeHtml(lotList(automatic))} en ${escapeHtml(covered)} de ${escapeHtml(group.demo.length)}</small>` : '';
+    ? `<small class="lots-autolot-note">lote real ${escapeHtml(lotList(automatic))}${estimated ? ` · ${escapeHtml(estimated)} por autolote` : ''}</small>` : '';
   return `<td><input type="number" min="0" step="0.01" inputmode="decimal"
     data-lot-strategy="${escapeHtml(group.strategy)}" data-lot-side="${side}"
     value="${override === null ? '' : override}" placeholder="${escapeHtml(placeholder)}"
@@ -527,14 +606,16 @@ function openLotsDialog() {
   const extras = unmatchedReals(currentResult).length;
   const automatic = strategyRows.reduce((total, group) => total + autolotTrades(group), 0);
   const totalDemo = strategyRows.reduce((total, group) => total + group.demo.length, 0);
+  const fromReal = strategyRows.reduce((total, group) => total + scaledBySource(group, 'real'), 0);
+  const estimated = strategyRows.reduce((total, group) => total + scaledBySource(group, 'autolot'), 0);
   const button = document.querySelector('#lots-autolot');
   button.disabled = !automatic;
   button.title = automatic
-    ? `Recalcular ${automatic} de ${totalDemo} operaciones demo con su lote histórico esperado.`
-    : 'Este resultado no contiene cálculos de autolote.';
+    ? `Llevar ${automatic} de ${totalDemo} operaciones demo al lote de la cuenta real: ${fromReal} al que ejecutó y ${estimated} al que calcula el autolote.`
+    : 'Este resultado no tiene lotes reales ni cálculos de autolote con los que escalar.';
   document.querySelector('#lots-caveat').textContent = [
-    automatic ? `Autolote puede recalcular ${automatic} de ${totalDemo} operaciones demo; las demás conservan el lote ejecutado.` : '',
-    automatic ? 'Entran también las operaciones demo sin pareja en real, con el lote que sale del saldo de la cuenta real a la hora de su apertura: dejarlas con el lote fijo del backtest mezclaría dos escalas en la misma curva.' : '',
+    automatic ? `La cuenta real lleva la batuta: ${fromReal} de ${totalDemo} operaciones demo se escalan al lote que la cuenta ejecutó de verdad, no al teórico.` : '',
+    estimated ? `Las ${estimated} que no tienen pareja en real usan el autolote —saldo de la cuenta real en su apertura— porque no hay lote ejecutado que copiar.` : '',
     'El PnL se reescala en proporción al lote, así que da por supuesto que el mismo precio se habría llenado con cualquier tamaño: no modela deslizamiento, margen ni stop out.',
     extras ? `Las ${extras} reales sin pareja no pertenecen a ninguna estrategia del tester y nunca se reescalan.` : '',
   ].filter(Boolean).join(' ');

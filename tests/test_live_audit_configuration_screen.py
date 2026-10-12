@@ -20,6 +20,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         cls.result_script = (cls.static_dir / "live_audit_result.js").read_text(encoding="utf-8")
         cls.analysis_page_text = (cls.static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
         cls.analysis_script = (cls.static_dir / "live_audit_analysis.js").read_text(encoding="utf-8")
+        cls.analysis_css = (cls.static_dir / "live_audit_analysis.css").read_text(encoding="utf-8")
         cls.manager_script = (cls.static_dir / "app.js").read_text(encoding="utf-8")
         cls.page = html.fromstring(cls.page_text)
         cls.result_page = html.fromstring(cls.result_page_text)
@@ -221,7 +222,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         # operaciones: así las curvas de dos estrategias son comparables entre
         # sí, y una auditoría de una sola operación no se dibuja en los extremos.
         self.assertIn("periodWindow", self.analysis_script)
-        self.assertIn("chartBounds([demo, real], window)", self.analysis_script)
+        self.assertIn("chartBounds([demo, real, pending], window)", self.analysis_script)
         # Sin materia prima no se enseña un PnL de cero, que se leería como que
         # la cuenta no ganó nada; y un fallo del análisis se dice tal cual.
         self.assertIn("El manager no pudo analizar esta ejecución", self.analysis_script)
@@ -245,19 +246,46 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("return profit / volume * lot;", self.analysis_script)
         self.assertIn("function observedLots(trades)", self.analysis_script)
 
-    def test_autolot_recalculates_each_demo_operation_with_its_historical_lot(self) -> None:
+    def test_the_demo_curve_is_scaled_to_the_lot_the_real_account_executed(self) -> None:
+        # La cuenta real lleva la batuta. Escalar al lote que el autolote
+        # calcula mete en la comparación la desviación que la auditoría está
+        # midiendo: en la auditoría 148 de RoboForex, 65 de 94 operaciones
+        # ejecutaron un lote distinto del calculado.
+        self.assertIn("function scaleTarget(row)", self.analysis_script)
+        self.assertIn("row.real || row.real_position_still_open", self.analysis_script)
+        self.assertIn("return {volume: executed, source: 'real'}", self.analysis_script)
+        self.assertIn("trade.scale_volume", self.analysis_script)
+        self.assertIn("applyLots({$mode: 'autolot'})", self.analysis_script)
+        self.assertIn("La curva Demo está escalada al lote de la cuenta real", self.analysis_script)
+        self.assertIn("La cuenta real lleva la batuta", self.analysis_script)
+        self.assertIn("Escalar demo al lote real", self.analysis_page_text)
+
+    def test_only_an_operation_without_a_real_pair_falls_back_to_the_autolot(self) -> None:
+        # Sin pareja no hay lote ejecutado que copiar, y ahí sí entra el
+        # calculo: dejarla con el lote fijo del backtest mezclaria dos escalas.
         self.assertIn("row.limits?.volume_expected_source === 'autolot'", self.analysis_script)
         self.assertIn("row.limits.volume_expected_real", self.analysis_script)
-        self.assertIn("trade.autolot_volume", self.analysis_script)
-        self.assertIn("applyLots({$mode: 'autolot'})", self.analysis_script)
-        self.assertIn("las demás conservan el lote ejecutado", self.analysis_script)
-        self.assertIn("La curva Demo usa el autolote del saldo real", self.analysis_script)
-        # Las demo sin pareja entran en la simulación: el manager les publica el
-        # lote esperado y la pantalla lo dice, en vez de dejarlas en el backtest.
-        self.assertIn("operaciones demo sin pareja en real", self.analysis_script)
-        self.assertIn("saldo de la cuenta real a la hora de su apertura", self.analysis_script)
+        self.assertIn("{volume: expected, source: 'autolot'}", self.analysis_script)
+        self.assertIn("porque no hay lote ejecutado que copiar", self.analysis_script)
         self.assertIn("function lotList(lots)", self.analysis_script)
-        self.assertIn("function autolotTrades(group)", self.analysis_script)
+        self.assertIn("function scaledBySource(group, source)", self.analysis_script)
+
+    def test_a_pair_whose_real_is_still_open_leaves_both_curves(self) -> None:
+        # El tester cerró esa operación sólo porque se acabó el rango del
+        # backtest, así que su PnL mide el corte y no la estrategia. Mientras
+        # estuvo dentro, la curva Demo de la auditoría 148 arrastraba -124,88 €
+        # que en real no se habían materializado.
+        self.assertIn("function splitPending(series)", self.analysis_script)
+        self.assertIn("point.pending_real", self.analysis_script)
+        self.assertIn("pending_real: Boolean(row.real_position_still_open)", self.analysis_script)
+        self.assertIn("splitPending(series).settled.reduce", self.analysis_script)
+        self.assertIn("sólo cerró porque se acabó el\n// rango del backtest", self.analysis_script)
+        # Y aun fuera de la comparación se ven: curva propia, discontinua.
+        self.assertIn("audit-analysis-line pending", self.analysis_script)
+        self.assertIn("Tester de ${pending.length} real", self.analysis_script)
+        self.assertIn(".audit-analysis-line.pending", self.analysis_css)
+        self.assertIn("stroke-dasharray", self.analysis_css)
+        self.assertIn("en la curva discontinua", self.analysis_page_text)
 
     def test_a_real_position_still_open_counts_as_paired_and_not_as_absent(self) -> None:
         # Una real sin cerrar no tiene PnL, así que no entra en la curva; pero
@@ -267,10 +295,9 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("row.real_position_still_open) group.openReal.push", self.analysis_script)
         self.assertIn("function openRealMark(group)", self.analysis_script)
         self.assertIn("EMPAREJADA${open === 1 ? '' : 'S'} SIN CERRAR", self.analysis_script)
-        self.assertIn("REAL CERRADA", self.analysis_script)
-        self.assertIn("todavía no tienen PnL cerrado que dibujar", self.analysis_script)
-        self.assertIn("openReal ? `${openReal} ABIERTAS` : ''", self.analysis_script)
-        self.assertIn("deja fuera las posiciones todavía abiertas", self.analysis_page_text)
+        self.assertIn("${open} SIN CERRAR, FUERA", self.analysis_script)
+        self.assertIn("ninguna de las dos entra en la comparación", self.analysis_script)
+        self.assertIn("Fuera: sin cerrar en real", self.analysis_script)
 
     def test_the_verdict_declares_which_lot_it_expected_in_real(self) -> None:
         self.assertIn("tolerances.volume_basis === 'autolot_balance_risk'", self.result_script)

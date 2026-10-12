@@ -37,7 +37,7 @@
     </section>
 
     <section class="panel-card audit-analysis-section">
-      <div class="panel-title"><div><p class="eyebrow">VISIÓN GLOBAL</p><h2>Curvas acumuladas</h2><p class="subtitle">PnL cerrado acumulado durante el periodo auditado. La curva real incluye las operaciones reales sin pareja, porque son dinero que la cuenta movió, y deja fuera las posiciones todavía abiertas: están emparejadas con el tester, pero su resultado aún no existe.</p></div><span id="global-count" class="badge idle">0 EMPAREJADAS</span></div>
+      <div class="panel-title"><div><p class="eyebrow">VISIÓN GLOBAL</p><h2>Curvas acumuladas</h2><p class="subtitle">PnL cerrado acumulado durante el periodo auditado. La curva real incluye las operaciones reales sin pareja, porque son dinero que la cuenta movió. Cuando la real sigue abierta, su pareja del tester cerró sólo porque se acabó el rango del backtest: ninguna de las dos entra en la comparación y el tester de esas va aparte, en la curva discontinua.</p></div><span id="global-count" class="badge idle">0 EMPAREJADAS</span></div>
       <div id="global-chart" class="audit-analysis-chart" aria-label="Curvas globales de Demo y Real"></div>
     </section>
 
@@ -83,7 +83,7 @@
     <div class="dialog-actions">
       <button id="lots-reset" type="button" class="secondary">Restablecer lotes ejecutados</button>
       <button id="lots-cancel" type="button" class="secondary">Cancelar</button>
-      <button id="lots-autolot" type="button" class="secondary">Autolote</button>
+      <button id="lots-autolot" type="button" class="secondary">Escalar demo al lote real</button>
       <button id="lots-apply" type="button">Aplicar a las curvas</button>
     </div>
   </dialog>

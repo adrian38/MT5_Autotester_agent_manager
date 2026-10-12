@@ -21,8 +21,11 @@
 .audit-analysis-line { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; }
 .audit-analysis-line.demo { stroke: #68a7ff; }
 .audit-analysis-line.real { stroke: #63e6be; }
+/* Discontinua a propósito: es tester, no un resultado real que no existe. */
+.audit-analysis-line.pending { stroke: #ffbe5c; stroke-dasharray: 7 5; }
 .audit-analysis-dot.demo { fill: #68a7ff; }
 .audit-analysis-dot.real { fill: #63e6be; }
+.audit-analysis-dot.pending { fill: #ffbe5c; }
 .audit-analysis-legend { fill: var(--text); font-size: 12px; font-weight: 700; }
 .audit-analysis-zero { stroke: #6c7f8e; stroke-dasharray: 5 5; }
 .audit-analysis-empty { display: grid; place-items: center; min-height: 280px; color: var(--muted); }
