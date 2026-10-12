@@ -4,6 +4,7 @@ const auditId = params.get('audit') || '';
 const modeLabels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
 const lotsKey = `live-audit-lots:${nodeId}:${auditId}`;
 let strategyRows = [];
+let strategySummaries = {};
 let chartContext = {currency: 'EUR', window: []};
 let lotOverrides = {};
 let currentResult = null;
@@ -410,6 +411,93 @@ function renderSimulationNotice() {
   notice.innerHTML = `<span class="badge pending">SIMULACIÓN</span><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(detail)}</span></div><button type="button" id="simulation-reset" class="secondary">Restablecer</button>`;
 }
 
+// El déficit es cuánto se queda el real por debajo del tester, en porcentaje
+// del tester. La base se acota a 1 € igual que en el motor: sin eso, una
+// estrategia que en demo hizo 0,40 € y en real 0,10 € saldría «-75 %» y se
+// colaría por delante de una que perdió cientos.
+function reproductionShortfall(group) {
+  const demo = groupTotal(group, 'demo');
+  const real = groupTotal(group, 'real');
+  return {demo, real, pct: (demo - real) / Math.max(Math.abs(demo), 1) * 100};
+}
+
+// Mismo criterio que el motor para el PnL de cada operación
+// (`adverse_shortfall_only`): sólo es defecto que el real empeore. Un cambio de
+// signo —el tester gana y la cuenta pierde— no admite grado: es el caso que el
+// usuario quiere ver de un vistazo.
+function reproductionVerdict(numbers, limit) {
+  const {demo, real, pct} = numbers;
+  if (!demo && !real) return ['SIN DATOS', 'info', 'Ninguna de las dos partes cerró operaciones comparables.'];
+  if (demo > 0 && real < 0) {
+    return ['NO REPRODUCE', 'bad', 'El tester gana y la cuenta real pierde: no es cuestión de grado.'];
+  }
+  if (pct > 2 * limit) {
+    return ['NO REPRODUCE', 'bad', `El real se queda más del doble del límite (${number(2 * limit, 2)} %) por debajo del tester.`];
+  }
+  if (pct > limit) return ['AVISO', 'warn', 'El real empeora más del límite configurado: mirarlo, no concluir.'];
+  if (pct < -limit) return ['MEJOR QUE EL TESTER', 'good', 'La cuenta real saca más que el tester. No es un defecto.'];
+  return ['REPRODUCE', 'good', 'La diferencia cabe dentro del límite configurado.'];
+}
+
+// Con la base acotada a 1 €, un tester que movió 1,25 € frente a un real de
+// -28,38 € sale «-2.178 %»: cierto y a la vez inservible. Por debajo de ese
+// euro el porcentaje no se enseña, porque el que informa es el importe.
+function differenceNote(numbers) {
+  if (Math.abs(numbers.demo) < 1) return 'El tester apenas movió dinero aquí: mira el importe, no el porcentaje.';
+  return `${numbers.pct > 0 ? '-' : '+'}${number(Math.abs(numbers.pct), 1)} % frente al tester`;
+}
+
+function reproductionCounts(group) {
+  const summary = strategySummaries[group.strategy] || {};
+  const missing = Number(summary.missing_real || 0);
+  const open = group.openReal.length;
+  return {
+    deviations: Number(summary.with_deviations || 0), missing, open,
+    partial: Boolean(missing || open),
+  };
+}
+
+function reproductionRow(group, limit, currency) {
+  const numbers = reproductionShortfall(group);
+  const [label, tone, help] = reproductionVerdict(numbers, limit);
+  const counts = reproductionCounts(group);
+  const sign = numbers.real - numbers.demo >= 0 ? '+' : '';
+  const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
+  const partial = counts.partial
+    ? `<small class="degradation-off">Comparación parcial: ${counts.missing ? `${counts.missing} sin pareja` : ''}${counts.missing && counts.open ? ' · ' : ''}${counts.open ? `${counts.open} sin cerrar en real` : ''}</small>`
+    : '';
+  return `<tr>
+    <th><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(name)}</small></th>
+    <td><strong>${escapeHtml(money(numbers.demo, currency))}</strong></td>
+    <td><strong>${escapeHtml(money(numbers.real, currency))}</strong></td>
+    <td><strong>${escapeHtml(`${sign}${money(numbers.real - numbers.demo, currency)}`)}</strong><small>${escapeHtml(differenceNote(numbers))}</small></td>
+    <td><strong>${escapeHtml(group.real.length)} emparejadas</strong>${counts.deviations ? `<small class="degradation-off">${escapeHtml(counts.deviations)} con desviación</small>` : ''}${partial}</td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(help)}</small></td>
+  </tr>`;
+}
+
+function renderReproduction() {
+  const currency = chartContext.currency;
+  const limit = Number(
+    currentResult.comparison_detail?.methodology?.tolerances?.pnl_pct,
+  ) || 10;
+  const ranked = [...strategyRows].sort((a, b) => (
+    reproductionShortfall(b).pct - reproductionShortfall(a).pct
+  ));
+  document.querySelector('#reproduction-body').innerHTML = ranked.length
+    ? ranked.map(group => reproductionRow(group, limit, currency)).join('')
+    : '<tr><td colspan="6" class="audit-analysis-empty">No hay estrategias en este resultado.</td></tr>';
+  const flagged = ranked.filter(group => (
+    ['NO REPRODUCE', 'AVISO'].includes(reproductionVerdict(reproductionShortfall(group), limit)[0])
+  )).length;
+  const badge = document.querySelector('#reproduction-count');
+  badge.textContent = flagged ? `${flagged} A REVISAR` : `${ranked.length} SIN AVISOS`;
+  badge.className = `badge ${flagged ? 'pending' : 'idle'}`;
+  document.querySelector('#reproduction-note').textContent = autolotMode()
+    ? `Límite ${number(limit, 2)} % sobre el PnL del tester; por encima del doble se marca NO REPRODUCE. Los importes de la demo están escalados al lote de la cuenta real, así que la diferencia ya no mide el tamaño de la posición.`
+    : `Límite ${number(limit, 2)} % sobre el PnL del tester; por encima del doble se marca NO REPRODUCE. La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: pulsa «Escalar demo al lote real» para comparar comportamiento.`;
+}
+
 function renderCurves() {
   const currency = chartContext.currency;
   const trades = globalTrades(currentResult, strategyRows);
@@ -428,6 +516,7 @@ function renderCurves() {
   document.querySelector('#strategy-list').innerHTML = strategyRows.map(strategyButton).join('');
   if (strategyRows.length) selectStrategy(Math.min(active, strategyRows.length - 1));
   else document.querySelector('#strategy-chart').innerHTML = '<p class="audit-analysis-empty">No hay estrategias en este resultado.</p>';
+  renderReproduction();
   renderSimulationNotice();
 }
 
@@ -440,6 +529,9 @@ function render(result) {
   document.querySelector('#analysis-title').textContent = `Portafolio #${result.portfolio_id || '—'} · ${mode}`;
   document.querySelector('#analysis-subtitle').textContent = `${result.account?.login || 'Cuenta real'} · ${result.account?.server || 'servidor no informado'} · periodo ${auditedPeriod(result)}`;
   strategyRows = strategyGroups(result);
+  strategySummaries = Object.fromEntries(
+    (result.comparison_detail?.strategy_summary || []).map(row => [String(row.strategy), row]),
+  );
   lotOverrides = readOverrides();
   renderCurves();
   document.querySelector('#analysis-main').hidden = false;

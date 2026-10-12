@@ -176,6 +176,37 @@ ruido. Lo excluido se informa con texto, que es donde no estorba: el resumen
 lleva `Fuera: sin cerrar en real · N op · X €`, la cabecera de la estrategia
 dice por qué, y el contador global marca `N SIN CERRAR, FUERA`.
 
+## La tabla «Demo contra real» (2026-10-12)
+
+Con las curvas escaladas al lote real, la diferencia que queda **es**
+reproducción, pero había que ir estrategia por estrategia para verla. La tabla
+la saca a la cara, ordenada de peor a mejor.
+
+El criterio es el mismo del motor para el PnL de cada operación
+—`adverse_shortfall_only`—: sólo es defecto que el real **empeore**, y el límite
+es el `pnl_deviation_warning_pct` del perfil, no una constante nueva.
+
+| Veredicto | Cuándo |
+| --- | --- |
+| `NO REPRODUCE` | El tester gana y la cuenta real pierde, o el déficit supera el doble del límite |
+| `AVISO` | El déficit supera el límite |
+| `MEJOR QUE EL TESTER` | El real saca más del límite por encima |
+| `REPRODUCE` | Dentro del límite |
+
+Dos cosas que la tabla tiene que decir y por qué:
+
+- **La base del porcentaje se acota a 1 €**, igual que en el motor. Sin eso, una
+  estrategia que en demo hizo 0,40 € y en real 0,10 € saldría «−75 %» y se
+  colocaría por delante de una que perdió cientos. Y por debajo de ese euro el
+  porcentaje **no se enseña**: `USDJPY_H4` da −2.178 % con demo −1,25 € y real
+  −28,38 €, cierto e inservible. Ahí informa el importe.
+- **La comparación es parcial** cuando hay operaciones sin pareja o sin cerrar:
+  no están en ninguno de los dos importes. La fila lo marca en vez de dejar leer
+  el veredicto como completo.
+
+Sobre `audit-148`: 8 de 15 a revisar. `.USTECHCASH_H1` +11,38 € en demo contra
+−0,46 € en real es el caso que lo motivó.
+
 ## Enumerar lotes no escala
 
 Con un lote por apertura, `observedLots` devuelve decenas de valores distintos y

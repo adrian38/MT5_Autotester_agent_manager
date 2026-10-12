@@ -299,6 +299,28 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("ninguna de las dos se dibuja", self.analysis_script)
         self.assertIn("Fuera: sin cerrar en real", self.analysis_script)
 
+    def test_a_strategy_that_does_not_reproduce_in_real_is_flagged(self) -> None:
+        # `.USTECHCash` H1 de la auditoría 148 hace +11,38 € en el tester y
+        # -0,46 € en real: el cambio de signo no admite grado y tiene que verse
+        # sin abrir estrategia por estrategia.
+        self.assertTrue(self.analysis_page.xpath('//tbody[@id="reproduction-body"]'))
+        self.assertTrue(self.analysis_page.xpath('//span[@id="reproduction-count"]'))
+        self.assertIn("¿Se está comportando en real como en el tester?", self.analysis_page_text)
+        self.assertIn("function reproductionVerdict(numbers, limit)", self.analysis_script)
+        self.assertIn("if (demo > 0 && real < 0)", self.analysis_script)
+        self.assertIn("'NO REPRODUCE'", self.analysis_script)
+        # Sólo avisa si el real empeora, igual que `adverse_shortfall_only` del
+        # motor: que la cuenta gane más que el tester no es un defecto.
+        self.assertIn("'MEJOR QUE EL TESTER', 'good'", self.analysis_script)
+        self.assertIn("pct > 2 * limit", self.analysis_script)
+        self.assertIn("tolerances?.pnl_pct", self.analysis_script)
+        # Lo que no se compara se dice: faltantes y pendientes no están en los
+        # importes, así que la fila avisa de que la comparación es parcial.
+        self.assertIn("Comparación parcial", self.analysis_script)
+        self.assertIn("Math.max(Math.abs(demo), 1)", self.analysis_script)
+        self.assertIn("function differenceNote(numbers)", self.analysis_script)
+        self.assertIn("renderReproduction();", self.analysis_script)
+
     def test_the_verdict_declares_which_lot_it_expected_in_real(self) -> None:
         self.assertIn("tolerances.volume_basis === 'autolot_balance_risk'", self.result_script)
         self.assertIn("Lote esperado: autolote por saldo de la cuenta real y riesgo", self.result_script)
