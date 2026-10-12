@@ -139,7 +139,7 @@ function strategyGroups(result) {
     if (!groups.has(key)) {
       groups.set(key, {
         strategy: key, label: row.strategy_set || key,
-        symbol: tester.symbol || '—', demo: [], real: [],
+        symbol: tester.symbol || '—', demo: [], real: [], openReal: [],
       });
     }
     const group = groups.get(key);
@@ -150,6 +150,11 @@ function strategyGroups(result) {
       group.demo.push({...row.tester, autolot_volume: Number.isFinite(expected) && expected > 0 ? expected : null});
     }
     if (row.real?.close_time) group.real.push(row.real);
+    // Una real todavía abierta SÍ está emparejada: el auditor la alineó con su
+    // operación del tester. Lo que no tiene es PnL cerrado, así que no entra en
+    // la curva. Sin contarla aparte, la pantalla decía «0 REAL EMPAREJADAS» y
+    // se leía como que la estrategia no había operado en real.
+    else if (row.real_position_still_open) group.openReal.push(row.real_position_still_open);
   });
   return [...groups.values()].map(group => ({
     ...group,
@@ -253,11 +258,19 @@ function simulatedMark(group) {
   return sides.length ? '<small class="lots-changed">LOTE SIMULADO</small>' : '';
 }
 
+// Una real emparejada pero sin cerrar no suma PnL, así que «Real 0,00 €» sin
+// más se lee como «no operó». El recuento va al lado del importe.
+function openRealMark(group) {
+  const open = group.openReal.length;
+  if (!open) return '';
+  return `<small class="lots-open-real">${open} REAL${open === 1 ? '' : 'ES'} EMPAREJADA${open === 1 ? '' : 'S'} SIN CERRAR</small>`;
+}
+
 function strategyButton(group, index) {
   const currency = chartContext.currency;
   const demo = money(groupTotal(group, 'demo'), currency);
   const real = money(groupTotal(group, 'real'), currency);
-  return `<button type="button" data-strategy-key="${index}"><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(group.label)}</small><small>Demo ${escapeHtml(demo)} · Real ${escapeHtml(real)}</small>${simulatedMark(group)}</button>`;
+  return `<button type="button" data-strategy-key="${index}"><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(group.label)}</small><small>Demo ${escapeHtml(demo)} · Real ${escapeHtml(real)}</small>${openRealMark(group)}${simulatedMark(group)}</button>`;
 }
 
 function lotNote(group, side) {
@@ -280,7 +293,16 @@ function selectStrategy(index) {
   document.querySelectorAll('[data-strategy-key]').forEach(button => button.classList.toggle('active', Number(button.dataset.strategyKey) === index));
   const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
   const lots = `Lote ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`;
-  document.querySelector('#strategy-heading').innerHTML = `<div><strong>${escapeHtml(group.symbol)}</strong><p>${escapeHtml(name)}</p><small>${escapeHtml(lots)}</small></div><span class="badge idle">${group.demo.length} DEMO · ${group.real.length} REAL EMPAREJADA${group.real.length === 1 ? '' : 'S'}</span>`;
+  const open = group.openReal.length;
+  // Sin esta frase la pantalla contradice al veredicto: ahí la pareja existe y
+  // encaja al segundo, y aquí parecía que la estrategia no había operado.
+  const openNote = open
+    ? `<small class="lots-open-real">${open} posición${open === 1 ? '' : 'es'} real${open === 1 ? '' : 'es'} emparejada${open === 1 ? '' : 's'} seguía${open === 1 ? '' : 'n'} abierta${open === 1 ? '' : 's'} al terminar el periodo: el auditor las alineó con el tester, pero todavía no tienen PnL cerrado que dibujar.</small>`
+    : '';
+  const badge = open
+    ? `${group.demo.length} DEMO · ${group.real.length} REAL CERRADA${group.real.length === 1 ? '' : 'S'} · ${open} ABIERTA${open === 1 ? '' : 'S'}`
+    : `${group.demo.length} DEMO · ${group.real.length} REAL EMPAREJADA${group.real.length === 1 ? '' : 'S'}`;
+  document.querySelector('#strategy-heading').innerHTML = `<div><strong>${escapeHtml(group.symbol)}</strong><p>${escapeHtml(name)}</p><small>${escapeHtml(lots)}</small>${openNote}</div><span class="badge idle">${escapeHtml(badge)}</span>`;
   renderChart(
     'strategy-chart',
     sideSeries(group.demo, group.strategy, 'demo'),
@@ -321,9 +343,12 @@ function renderCurves() {
   const trades = globalTrades(currentResult, strategyRows);
   document.querySelector('#demo-summary').innerHTML = summaryMarkup(trades.demo, currency);
   document.querySelector('#real-summary').innerHTML = summaryMarkup(trades.real, currency);
-  document.querySelector('#global-count').textContent = trades.extras
-    ? `${trades.paired} EMPAREJADAS · ${trades.extras} SIN PAREJA`
-    : `${trades.paired} EMPAREJADAS`;
+  const openReal = strategyRows.reduce((total, group) => total + group.openReal.length, 0);
+  document.querySelector('#global-count').textContent = [
+    `${trades.paired} EMPAREJADAS`,
+    openReal ? `${openReal} ABIERTAS` : '',
+    trades.extras ? `${trades.extras} SIN PAREJA` : '',
+  ].filter(Boolean).join(' · ');
   renderChart('global-chart', trades.demo, trades.real);
   const active = Math.max(0, [...document.querySelectorAll('[data-strategy-key].active')]
     .map(button => Number(button.dataset.strategyKey))[0] || 0);

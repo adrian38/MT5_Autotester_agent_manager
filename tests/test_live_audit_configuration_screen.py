@@ -259,6 +259,19 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("function lotList(lots)", self.analysis_script)
         self.assertIn("function autolotTrades(group)", self.analysis_script)
 
+    def test_a_real_position_still_open_counts_as_paired_and_not_as_absent(self) -> None:
+        # Una real sin cerrar no tiene PnL, así que no entra en la curva; pero
+        # el auditor sí la emparejó. Contarla sólo por `real.close_time` hacía
+        # que la pantalla dijese «0 REAL EMPAREJADAS» de una estrategia que el
+        # veredicto alineaba al segundo, y se leía como que no había operado.
+        self.assertIn("row.real_position_still_open) group.openReal.push", self.analysis_script)
+        self.assertIn("function openRealMark(group)", self.analysis_script)
+        self.assertIn("EMPAREJADA${open === 1 ? '' : 'S'} SIN CERRAR", self.analysis_script)
+        self.assertIn("REAL CERRADA", self.analysis_script)
+        self.assertIn("todavía no tienen PnL cerrado que dibujar", self.analysis_script)
+        self.assertIn("openReal ? `${openReal} ABIERTAS` : ''", self.analysis_script)
+        self.assertIn("deja fuera las posiciones todavía abiertas", self.analysis_page_text)
+
     def test_the_verdict_declares_which_lot_it_expected_in_real(self) -> None:
         self.assertIn("tolerances.volume_basis === 'autolot_balance_risk'", self.result_script)
         self.assertIn("Lote esperado: autolote por saldo de la cuenta real y riesgo", self.result_script)

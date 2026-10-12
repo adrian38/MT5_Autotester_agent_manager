@@ -42,6 +42,8 @@
 .audit-analysis-simulation .badge { flex: none; }
 .audit-analysis-simulation button { flex: none; margin-left: auto; }
 #strategy-list .lots-changed { color: #ffd978; font-weight: 700; letter-spacing: .06em; }
+#strategy-list .lots-open-real { color: #9dcdff; font-weight: 700; letter-spacing: .06em; }
+.audit-analysis-strategy-heading .lots-open-real { display: block; margin-top: 4px; color: #9dcdff; font-size: 11px; font-weight: 400; line-height: 1.45; white-space: normal; }
 .lots-dialog { width: min(760px, calc(100% - 32px)); }
 .lots-dialog .subtitle { max-width: 560px; font-size: 12px; line-height: 1.55; }
 .lots-table-wrap { max-height: min(50vh, 420px); overflow: auto; border: 1px solid var(--line); border-radius: 10px; }

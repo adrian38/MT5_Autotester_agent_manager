@@ -109,6 +109,37 @@ Ahora vale `autolot_balance_risk` cuando está activo y lleva `autolot_source` y
 `autolot_strategies`; el texto de `validation` cambia con él y la pantalla de
 resultado lo enseña junto a las tolerancias.
 
+## «0 REAL EMPAREJADAS» no significaba lo que parecía (2026-10-12)
+
+En `audit-148-muon8rbd-1` de RoboForex, GOOGL (`ROBOFOREX/ECN:25103`) salía en
+la pantalla de Análisis con `2 DEMO · 0 REAL EMPAREJADAS`, `Real 0,00 €` y sin
+curva real. Se lee como que la estrategia no operó en real. **El veredicto dice
+lo contrario**: las dos operaciones del tester están emparejadas con dos
+posiciones reales que seguían **abiertas** al terminar el periodo, y encajan al
+segundo —delta de apertura 0,0 s, mismo lado, mismo lote 0,01, precio a 0 y 2
+puntos—.
+
+La causa era de la pantalla: `strategyGroups` repartía por `row.real.close_time`
+y una posición abierta no tiene cierre, así que no caía en ninguna cesta y
+desaparecía del recuento. Ahora va a `group.openReal` y la pantalla la cuenta
+aparte: badge `2 DEMO · 0 REAL CERRADAS · 2 ABIERTAS`, marca en la lista y una
+frase bajo el título. **La condición es `row.real_position_still_open`, no
+`row.status === 'open'`**: de las cinco abiertas de esa auditoría, una tiene
+estado `deviation` porque además se salía de precio o volumen.
+
+Fuera de la curva siguen estando, y eso es correcto: no tienen PnL cerrado que
+dibujar. Lo que no puede es parecer que no existen.
+
+Dos cosas más que esa revisión confirmó, por si vuelven a levantar sospecha:
+
+- El autolote de GOOGL da 0,01 porque el lote bruto sale por debajo del mínimo
+  (saldo 1.632,51 × 7 % × 0,01 ÷ 135 = 0,00846) y `_executable_lot` lo sube al
+  mínimo del broker. El nodo no publicó `volume_rules` para GOOGL, así que el
+  mínimo y el paso son los de por defecto, 0,01. Coincide con lo ejecutado.
+- La única GOOGL real que sí cerró (18-09 → 21-09, −6,67 €) queda como `extra`:
+  abrió tres días antes del periodo, el tester no la simula y `_pair_cost`
+  descarta la pareja porque apertura y cierre quedan fuera de tolerancia.
+
 ## Enumerar lotes no escala
 
 Con un lote por apertura, `observedLots` devuelve decenas de valores distintos y
