@@ -28,6 +28,13 @@ const EXCLUSION_REASONS = [
     detail: 'Se marca Final Tick 6M como rechazado, que es justo lo que mide esa prueba. Se borra la regresión, y score y pesos se recalculan sin ella.',
     warning: 'Se guarda una copia del estado anterior: volver a otro estado devuelve Final Tick 6M y la regresión tal y como estaban.',
   },
+  {
+    code: 'live_mismatch',
+    label: 'No funciona en real',
+    title: 'Excluir porque no funciona en real con este bróker',
+    detail: 'Se marca el candidato como rechazado en la memoria de este bróker y se borran sus cuatro etapas. Queda constancia en el linaje: al generar desde su padre o desde sus hijos, el agente ve que aquí no funcionó.',
+    warning: 'Sólo afecta a este bróker: cada cuenta tiene su propia memoria. Se guarda una copia del estado anterior, así que volver a otro estado devuelve el candidato y sus cuatro etapas tal y como estaban.',
+  },
 ];
 
 /* El pool no es un motivo de exclusión: es la salida de la cuarentena. Vive
@@ -64,14 +71,14 @@ function reasonEsc(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
 }
 
-/* Reparte la cuarentena en las tres tablas de la pantalla.
+/* Reparte la cuarentena en las cuatro tablas de la pantalla.
  *
  * Una sola lista mezclaba «no la quiero en este portafolio» con «esta estrategia
  * falló», que tienen consecuencias distintas en la memoria del agente. El
  * reparto es por `reason_code`, no por el texto del motivo.
  */
 function renderQuarantineTables(quarantine) {
-  const groups = {manual: [], degradation: [], ohlc_mismatch: []};
+  const groups = {manual: [], degradation: [], ohlc_mismatch: [], live_mismatch: []};
   (quarantine || []).forEach(row => {
     groups[normalizeExclusionReason(row.reason_code)].push(row);
   });
@@ -95,6 +102,7 @@ function renderQuarantineTables(quarantine) {
   fill('#quarantine-rows', groups.manual, 'No hay estrategias en cuarentena.');
   fill('#quarantine-degradation-rows', groups.degradation, 'Ninguna estrategia rechazada por degradación.');
   fill('#quarantine-ohlc-rows', groups.ohlc_mismatch, 'Ninguna estrategia rechazada por parecido OHLC / every tick.');
+  fill('#quarantine-live-rows', groups.live_mismatch, 'Ninguna estrategia rechazada por no funcionar en real con este bróker.');
 }
 
 /* Un diálogo para las dos preguntas: con qué motivo se excluye, y a qué estado
@@ -148,6 +156,203 @@ function openReasonDialog({title, detail, options, selected, confirmLabel, eyebr
     dialog.addEventListener('close', finish);
     dialog.showModal();
   });
+}
+
+/* Hermanos: los candidatos que salieron del MISMO padre para el MISMO símbolo.
+ *
+ * En el nombre del set son las variantes `v###` de un mismo `g###_s###`. Casi
+ * nunca falla una sola: si la mutación que las separa no resiste, las cinco
+ * hermanas suelen caer igual, y hasta ahora había que buscarlas a mano una por
+ * una. El diálogo las ofrece; marcarlas es decisión del usuario, y por eso
+ * salen todas desmarcadas.
+ *
+ * No es una operación nueva en el backend: cada hermano elegido se excluye con
+ * la misma llamada `exclude` y el mismo motivo, así que no hay nada que portar
+ * al nodo de ningún agente.
+ */
+function siblingRowMarkup(row, index) {
+  // `selectable` lo decide el servidor: las tres pantallas pintan esta misma
+  // lista y la regla de quién se puede arrastrar no puede vivir tres veces.
+  const blocked = !row.selectable;
+  const chip = `<span class="symbol-set-state ${reasonEsc(row.state)}">${reasonEsc(row.state_label)}</span>`;
+  return `<label class="sibling-option${blocked ? ' sibling-done' : ''}">
+    <input type="checkbox" data-sibling="${index}" value="${reasonEsc(row.set_path)}"${blocked ? ' disabled' : ''}>
+    <span><strong title="${reasonEsc(row.set_path)}">${reasonEsc(shortSetName(row.set_name))}</strong>
+    <small>${reasonEsc(row.timeframe || '—')}</small></span>${chip}
+  </label>`;
+}
+
+function siblingDialogNote(data, reasonCode) {
+  const rows = data.siblings || [];
+  const parent = data.seed_name ? `Salieron de ${reasonEsc(shortSetName(data.seed_name))}` : 'Salieron del mismo padre';
+  const free = rows.filter(row => row.selectable).length;
+  const head = `${parent} y corren sobre ${reasonEsc(data.symbol)}.`;
+  if (!free) {
+    // Ninguno arrastrable no es «no hay hermanos»: es que la parentela ya cayó
+    // sola. Decirlo es la mitad de lo que se venía a ver.
+    return `${head} Ninguno sigue en el pool, así que no hay nada que arrastrar: ya cayeron por su cuenta. `
+      + 'Esto es sólo para que lo veas.';
+  }
+  const blocked = rows.length - free;
+  const note = blocked
+    ? ` Otro${blocked === 1 ? '' : 's'} ${blocked} ya no se puede${blocked === 1 ? '' : 'n'} excluir desde aquí y sale${blocked === 1 ? '' : 'n'} sin casilla, con su estado.`
+    : '';
+  return `${head} Los que marques se excluirán con el mismo motivo, `
+    + `«${reasonEsc(exclusionReasonLabel(reasonCode))}».${note}`;
+}
+
+function siblingDialogMarkup(data, reasonCode, setName) {
+  return `
+    <div class="dialog-head">
+      <div><p class="eyebrow">HERMANOS DE LA ESTRATEGIA</p><h2>¿Caen también sus hermanos?</h2></div>
+      <button type="button" class="icon-button" data-sibling-cancel>×</button>
+    </div>
+    <p class="subtitle">${siblingDialogNote(data, reasonCode)}</p>
+    <div class="sibling-toolbar">
+      <span>Excluyendo <strong>${reasonEsc(shortSetName(setName))}</strong></span>
+      <span><button type="button" class="secondary" data-sibling-all${data.siblings.some(row => row.selectable) ? '' : ' disabled'}>Todos</button>
+      <button type="button" class="secondary" data-sibling-none${data.siblings.some(row => row.selectable) ? '' : ' disabled'}>Ninguno</button></span>
+    </div>
+    <form method="dialog" class="sibling-options">
+      ${data.siblings.map(siblingRowMarkup).join('')}
+      <div class="reason-actions">
+        <button type="button" class="secondary" data-sibling-cancel>Cancelar</button>
+        <button type="button" class="danger" data-sibling-confirm>Excluir sólo ésta</button>
+      </div>
+    </form>`;
+}
+
+/* Devuelve las rutas elegidas (puede ser []), o null si se cancela. */
+function openSiblingDialog(data, reasonCode, setName) {
+  let dialog = document.querySelector('#exclusion-sibling-dialog');
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.id = 'exclusion-sibling-dialog';
+    dialog.className = 'log-dialog reason-dialog sibling-dialog';
+    document.body.appendChild(dialog);
+  }
+  dialog.innerHTML = siblingDialogMarkup(data, reasonCode, setName);
+  const inputs = Array.from(dialog.querySelectorAll('input[data-sibling]:not(:disabled)'));
+  const confirm = dialog.querySelector('[data-sibling-confirm]');
+  const chosen = () => inputs.filter(input => input.checked).map(input => input.value);
+  // El botón dice lo que va a pasar: sin esto, «Excluir» con cero marcados y
+  // «Excluir» con cuatro son el mismo cartel para dos cosas muy distintas.
+  const refresh = () => {
+    const count = chosen().length;
+    confirm.textContent = count ? `Excluir ésta y ${count} hermana${count === 1 ? '' : 's'}` : 'Excluir sólo ésta';
+  };
+  inputs.forEach(input => input.addEventListener('change', refresh));
+  dialog.querySelector('[data-sibling-all]').onclick = () => {
+    inputs.forEach(input => { input.checked = true; }); refresh();
+  };
+  dialog.querySelector('[data-sibling-none]').onclick = () => {
+    inputs.forEach(input => { input.checked = false; }); refresh();
+  };
+  refresh();
+  return new Promise(resolve => {
+    let answer = null;
+    const finish = () => { dialog.removeEventListener('close', finish); resolve(answer); };
+    dialog.querySelectorAll('[data-sibling-cancel]').forEach(button => {
+      button.onclick = () => { answer = null; dialog.close(); };
+    });
+    confirm.onclick = () => { answer = chosen(); dialog.close(); };
+    dialog.addEventListener('close', finish);
+    dialog.showModal();
+  });
+}
+
+/* El motivo y, si los hay, los hermanos que corren la misma suerte.
+ *
+ * Devuelve `null` si se cancela en cualquiera de los dos pasos. Que no se
+ * puedan leer los hermanos NO cancela la exclusión: es una oferta, no un
+ * requisito, así que un fallo ahí deja pasar la exclusión de siempre.
+ */
+async function planExclusion({setPath, setName, title, detail} = {}) {
+  const reasonCode = await askExclusionReason({title, detail});
+  if (!reasonCode) return null;
+  let data = null;
+  try {
+    data = await postManager('siblings', {set_path: setPath});
+  } catch (error) {
+    return {reasonCode, siblings: []};
+  }
+  if (!data || !(data.siblings || []).length) {
+    // Sin hermanos no hay ventana. Pero con hermanos la ventana sale AUNQUE
+    // ninguno se pueda arrastrar: el caso real que lo demostró tenía tres, dos
+    // suspendidos en Final Tick y uno rechazado de base, y la pantalla no dijo
+    // nada. Saber que la parentela entera ya cayó es justo lo que se venía a
+    // ver; esconderla porque no hay casillas que marcar era peor que el paso
+    // de más que intentaba ahorrar.
+    return {reasonCode, siblings: []};
+  }
+  const siblings = await openSiblingDialog(data, reasonCode, setName || data.set_name);
+  return siblings === null ? null : {reasonCode, siblings};
+}
+
+/* Excluye la estrategia y detrás los hermanos marcados, con el mismo motivo. */
+async function runExclusion(plan, payload) {
+  await postManager('exclude', payload);
+  for (const path of plan.siblings) {
+    await postManager('exclude', {set_path: path, reason_code: plan.reasonCode});
+  }
+}
+
+/* Cuántas han caído, para el aviso final. */
+function exclusionCountNote(plan) {
+  return plan.siblings.length
+    ? ` Con ${plan.siblings.length} hermana${plan.siblings.length === 1 ? '' : 's'}.`
+    : '';
+}
+
+/* Un miembro de un portafolio guardado que ya está excluido.
+ *
+ * Desde que excluir dejó de tocar el resultado guardado, la fila se queda donde
+ * estaba: es información histórica correcta —eso es lo que se guardó—, pero sin
+ * decirlo la tabla ofrecía «Excluir» sobre algo ya excluido y no había manera de
+ * distinguirla del resto. Va en rojo, con el motivo que tiene puesto, y el botón
+ * se da la vuelta. Lo marca el servidor en `excluded`, no la pantalla.
+ */
+function memberIsExcluded(member) {
+  return Boolean(member && member.excluded);
+}
+
+function excludedRowClass(member) {
+  return memberIsExcluded(member) ? ' class="member-excluded"' : '';
+}
+
+function excludedMemberChip(member) {
+  if (!memberIsExcluded(member)) return '';
+  const label = member.reason_label || exclusionReasonLabel(member.reason_code);
+  return `<small class="member-excluded-chip">Excluida · ${reasonEsc(label)}</small>`;
+}
+
+function memberExclusionButton(member, source, index) {
+  return memberIsExcluded(member)
+    ? `<button type="button" class="secondary table-action" onclick="reinstateStrategy('${source}',${index})">Reintegrar</button>`
+    : `<button type="button" class="danger table-action" onclick="excludeStrategy('${source}',${index})">Excluir</button>`;
+}
+
+/* Reintegrar, que es lo contrario de excluir: devuelve la estrategia al pool y
+ * deshace el veredicto si lo tenía. Es `requalify` al estado `pool`, el mismo
+ * camino que usa la tabla de excluidas, para que no puedan divergir.
+ */
+async function reinstateMember(member) {
+  const name = shortSetName(member.set_name || member.set_path || member.set_id || '');
+  if (!member.quarantine_key) {
+    // Pasa si la cuarentena se levantó desde otra pantalla: la fila que tenemos
+    // es de antes. Decirlo es mejor que mandar una petición que va a fallar.
+    toast(`${name} figura como excluida, pero su fila de cuarentena ya no existe. Recarga la pantalla.`, true);
+    return false;
+  }
+  const verdict = member.reason_code && member.reason_code !== 'manual'
+    ? ` Se le devolverán las etapas que le quitó «${exclusionReasonLabel(member.reason_code)}».`
+    : '';
+  if (!confirm(`${name} volverá al pool y participará otra vez en futuras generaciones.${verdict} ¿Continuar?`)) {
+    return false;
+  }
+  await postManager('requalify', {quarantine_id: member.quarantine_key, reason_code: 'pool'});
+  toast(`${name} reintegrada al pool.`);
+  return true;
 }
 
 /* Con qué motivo se excluye. Devuelve el código elegido, o null si se cancela. */

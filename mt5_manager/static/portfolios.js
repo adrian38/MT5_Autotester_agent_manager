@@ -181,10 +181,12 @@ function jobBadge(job, task = {}) {
   stopButton.textContent = job?.status === 'stopping' ? 'Deteniendo…' : 'Detener';
   document.querySelector('#save-settings').disabled = calculationRunning;
   document.querySelector('#reset-settings').disabled = calculationRunning;
+  document.querySelector('#detail-improve').disabled = active;
+  document.querySelector('#detail-repair').disabled = active;
   document.querySelector('#portfolio-log').disabled = !(job?.log_path || job?.last_log_path);
-  const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : operation === 'improve' ? `Mejora de la base #${job.portfolio_id}` : '';
+  const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'repair' ? `Arreglo del portafolio #${job.portfolio_id}` : operation === 'improve' ? `Mejora de la base #${job.portfolio_id}` : '';
   document.querySelector('#proposal-operation').textContent = opText;
-  document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : operation === 'improve' ? 'Guardar mejora como otro portafolio' : 'Guardar seleccionada';
+  document.querySelector('#save-proposal').textContent = operation === 'repair' ? 'Guardar arreglo como otro portafolio' : operation === 'improve' ? 'Guardar mejora como otro portafolio' : 'Guardar seleccionada';
   renderCalculationMonitor(job || {});
   refreshCalculationLog(true);
   if (active && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadTaskState(); }, 1800);
@@ -325,13 +327,15 @@ document.querySelector('#symbol-set-rows').addEventListener('click', async event
       await postManager('requalify', {scope, quarantine_id: row.quarantine_key, reason_code: target});
       toast(target === 'pool' ? `${shortSetName(row.set_name)} reintegrado al pool.` : `${shortSetName(row.set_name)} movido a «${exclusionReasonLabel(target)}».`);
     } else {
-      const reasonCode = await askExclusionReason({
+      const plan = await planExclusion({
+        setPath: row.set_path,
+        setName: row.set_name,
         title: `Excluir ${shortSetName(row.set_name)}`,
-        detail: 'Elige cuarentena normal, degradación u OHLC ≠ every tick.',
+        detail: 'Elige cuarentena normal, degradación, OHLC ≠ every tick o que no funcione en real.',
       });
-      if (!reasonCode) return;
-      await postManager('exclude', {scope, set_path: row.set_path, reason_code: reasonCode});
-      toast(`${shortSetName(row.set_name)} puesto en «${exclusionReasonLabel(reasonCode)}».`);
+      if (!plan) return;
+      await runExclusion(plan, {scope, set_path: row.set_path, reason_code: plan.reasonCode});
+      toast(`${shortSetName(row.set_name)} puesto en «${exclusionReasonLabel(plan.reasonCode)}».` + exclusionCountNote(plan));
     }
     await loadManagerState();
     await loadManagedSymbolSets(managedSymbol);
@@ -608,21 +612,34 @@ async function excludeStrategy(source, index) {
   const message = saved
     ? `${setName} se pondrá en cuarentena. El portafolio #${selectedId} no se modifica: sigue guardado con esta estrategia.`
     : `${setName} dejará de participar en futuras generaciones completas.`;
-  const reasonCode = await askExclusionReason({title: `Excluir ${setName}`, detail: message});
-  if (!reasonCode) return;
-  const verdict = reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(reasonCode)}`;
+  const plan = await planExclusion({
+    setPath: member.set_path || member.set_id, setName, title: `Excluir ${setName}`, detail: message,
+  });
+  if (!plan) return;
+  const verdict = plan.reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(plan.reasonCode)}`;
   try {
     const affectedPortfolioId = selectedId;
     await withSaveOverlay(
       'Excluyendo estrategia',
       `Poniendo ${setName} en cuarentena…`,
       async () => {
-        await postManager('exclude', {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: reasonCode});
+        await runExclusion(plan, {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: plan.reasonCode});
         selectedProposal = null;
         await Promise.all([loadManagerState(), loadPortfolios(saved ? affectedPortfolioId : null)]);
       },
     );
-    toast(`${setName} puesta en cuarentena.` + verdict);
+    toast(`${setName} puesta en cuarentena.` + verdict + exclusionCountNote(plan));
+  } catch (error) { toast(error.message, true); }
+}
+
+async function reinstateStrategy(source, index) {
+  const member = source === 'proposal' ? proposalMembers[index] : detailMembers[index];
+  if (!member) return;
+  const affectedPortfolioId = selectedId;
+  try {
+    if (await reinstateMember(member)) {
+      await Promise.all([loadManagerState(), loadPortfolios(affectedPortfolioId)]);
+    }
   } catch (error) { toast(error.message, true); }
 }
 
@@ -785,6 +802,7 @@ function renderSavedVariant(portfolio, requestedKey = '') {
   detailMembers = selectedDetailVariant
     ? (portfolio.members || []).filter(member => member.variant_key === selectedDetailVariant)
     : (portfolio.members || []);
+  document.querySelector('#detail-repair').hidden = !detailMembers.some(memberIsExcluded);
   const detailRecentTotals = detailMembers.reduce((totals, member) => {
     const key = member.variant_key || member.variant_label || 'default';
     totals[key] = (totals[key] || 0) + recentContribution(member);
@@ -795,9 +813,11 @@ function renderSavedVariant(portfolio, requestedKey = '') {
     const seasonalText = seasonal.year_count != null ? `${seasonal.positive_year_count}/${seasonal.year_count} años · ${seasonal.trades || 0} trades` : '—';
     const candidate = member.candidate_id || '—';
     const memberVariant = member.variant_key || member.variant_label || 'default';
-    const selectorCell = isBundle ? `<td><input type="checkbox" aria-label="Seleccionar ${esc(member.set_name || member.set_id)}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
-    const excludeAction = isBundle ? '' : `<button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button>`;
-    return `<tr>${selectorCell}<td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, detailRecentTotals[memberVariant] || 0)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="secondary table-action" onclick="exportMemberReports(${index})">Exportar reportes</button>${excludeAction}</div></td></tr>`;
+    // Una ya excluida no se vuelve a marcar: excluirla otra vez sólo le
+    // reescribiría el motivo que ya tiene.
+    const selectorCell = isBundle ? `<td><input type="checkbox"${memberIsExcluded(member) ? ' disabled' : ''} aria-label="Seleccionar ${esc(member.set_name || member.set_id)}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
+    const excludeAction = isBundle && !memberIsExcluded(member) ? '' : memberExclusionButton(member, 'detail', index);
+    return `<tr${excludedRowClass(member)}>${selectorCell}<td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}${excludedMemberChip(member)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, detailRecentTotals[memberVariant] || 0)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="secondary table-action" onclick="exportMemberReports(${index})">Exportar reportes</button>${excludeAction}</div></td></tr>`;
   }).join('') : '<tr><td colspan="16">Esta variante no tiene estrategias guardadas.</td></tr>';
   updateDetailSelection();
   const decisions = selectedDetailVariant && variant.label
@@ -876,8 +896,6 @@ async function loadDetail(id) {
     document.querySelector('#detail-alias-edit').textContent = portfolio.alias ? 'Editar alias' : 'Añadir alias';
     document.querySelector('#detail-meta').textContent = portfolio.created_at;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
-    document.querySelector('#detail-complete').disabled = isBundle || Number(portfolio.active_strategies) >= Number(portfolio.target_strategies || portfolio.active_strategies);
-    document.querySelector('#detail-undo').disabled = !(portfolio.versions || []).length;
     renderSavedVariant(portfolio);
   } catch (error) { toast(error.message, true); }
 }
@@ -901,17 +919,22 @@ async function loadPortfolios(preferredId = null) {
   } catch (error) { listEl.innerHTML = `<div class="portfolio-empty error-text">${esc(error.message)}</div>`; toast(error.message, true); }
 }
 
-async function startSavedOperation(action) {
-  if (!selectedId) return;
-  const label = action === 'complete' ? 'buscar una sustituta conservando las asignaciones actuales' : 'revalidar y calcular tres propuestas nuevas';
-  if (!confirm(`Se va a ${label} para el portafolio #${selectedId}. No se modificará hasta que revises y apliques una propuesta. ¿Continuar?`)) return;
-  const payload = {scope, portfolio_id: selectedId};
-  if (action === 'reoptimize') {
-    payload.dd_reserve_pct = Number(form.elements.dd_reserve_pct.value);
-    payload.search_restarts = Number(form.elements.search_restarts.value);
-  }
-  try { await postManager(action, payload); selectedProposal = null; await loadManagerState(); toast('Cálculo iniciado.'); }
-  catch (error) { toast(error.message, true); }
+async function startRepair() {
+  if (!selectedId || !currentDetail) return;
+  const mode = selectedDetailVariant || String(currentDetail.portfolio_type || '');
+  const excluded = detailMembers.filter(memberIsExcluded).length;
+  if (!excluded) return;
+  if (!confirm(`Se creará otro portafolio sin las ${excluded} estrategia(s) excluida(s), conservando las demás y reajustando sus lotes. Se añadirán sustitutas válidas si hacen falta. ¿Continuar?`)) return;
+  try {
+    await postManager('repair', {
+      scope,
+      portfolio_id: selectedId,
+      repair_portfolio_type: mode,
+    });
+    selectedProposal = null;
+    await loadManagerState();
+    toast('Arreglo iniciado.');
+  } catch (error) { toast(error.message, true); }
 }
 
 async function openReport(index) {
@@ -967,30 +990,12 @@ document.querySelector('#detail-alias-edit').addEventListener('click', async () 
   } catch (error) { toast(error.message, true); }
 });
 
-document.querySelector('#detail-complete').addEventListener('click', () => startSavedOperation('complete'));
+document.querySelector('#detail-repair').addEventListener('click', startRepair);
 document.querySelector('#detail-exclude-selected').addEventListener('click', excludeSelectedStrategies);
 document.querySelector('#detail-select-all').addEventListener('change', event => {
   selectedDetailMembers = event.target.checked ? new Set(detailMembers.map((_, index) => index)) : new Set();
   document.querySelectorAll('#portfolio-members input[type="checkbox"]').forEach(input => { input.checked = event.target.checked; });
   updateDetailSelection();
-});
-document.querySelector('#detail-reoptimize').addEventListener('click', () => startSavedOperation('reoptimize'));
-document.querySelector('#detail-undo').addEventListener('click', async () => {
-  if (!selectedId || !confirm(`Se restaurará la última versión del portafolio #${selectedId}. ¿Continuar?`)) return;
-  try {
-    const portfolioId = selectedId;
-    const data = await withSaveOverlay(
-      'Restaurando portafolio',
-      `Recuperando la última versión del portafolio #${portfolioId} y recalculando sus métricas…`,
-      async () => {
-        const restored = await postManager('undo', {scope, portfolio_id: portfolioId});
-        await Promise.all([loadManagerState(), loadPortfolios(portfolioId)]);
-        return restored;
-      },
-    );
-    toast(`Versión ${data.restored_version} restaurada.`);
-  }
-  catch (error) { toast(error.message, true); }
 });
 document.querySelector('#detail-delete').addEventListener('click', async () => {
   if (!selectedId || !confirm(`Se borrará el portafolio #${selectedId}; sus sets volverán a estar disponibles. ¿Continuar?`)) return;

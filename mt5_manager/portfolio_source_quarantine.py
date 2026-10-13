@@ -1,15 +1,29 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from portfolio_manager.ubs_portfolio import portfolio_display_symbol
+from portfolio_manager.ubs_portfolio import portfolio_display_symbol, portfolio_symbol_key
 
 from . import candidate_verdict
 from .common import safe_int
 from .portfolio_identity import _resolve_source_path
 from .portfolio_schema import _table_exists
+from .portfolio_source_inventory import _pool_symbol
+
+
+def _set_basename(value: Any) -> str:
+    """El nombre del fichero, venga la ruta con `/` o con `\\`.
+
+    `Path(...).name` no vale para esto. El manager corre en Linux dentro de
+    Docker y la memoria del agente guarda rutas de Windows
+    (`C:\\Users\\...\\x.set`): ahí `PurePosixPath` no ve ningún separador y
+    devuelve la ruta entera. Se vio en RoboForex, con el nombre del padre
+    saliendo completo en el diálogo de hermanos. `PureWindowsPath` corta por
+    los dos separadores, así que sirve para las dos formas.
+    """
+    return PureWindowsPath(str(value or "").strip()).name
 
 
 class PortfolioSourceQuarantineMixin:
@@ -55,6 +69,131 @@ class PortfolioSourceQuarantineMixin:
             "timeframe": str(row.get("period") or ""),
         }
 
+    def _children_of_seed(
+        self, memory: Path, seed_path: str, symbol_key: str, origin_id: Any,
+    ) -> list[dict[str, Any]]:
+        """Los candidatos nacidos de esa semilla para ese símbolo, crudos.
+
+        La lista NO puede salir de `candidate_rows`: un hermano al que ya se le
+        aplicó un veredicto perdió sus etapas y no está ahí, y es precisamente el
+        que hay que enseñar para que no parezca que falta. La autoridad es
+        `candidates`, que es quien guarda el padre.
+
+        Se leen las columnas por nombre y no por posición: así no hace falta
+        exigir `target_symbol`, que una memoria vieja puede no tener.
+        """
+        with self.connect_memory(Path(memory).absolute()) as conn:
+            if not _table_exists(conn, "candidates"):
+                return []
+            cursor = conn.execute("select * from candidates where seed_path=?", (seed_path,))
+            names = [str(column[0]) for column in cursor.description]
+            rows = [dict(zip(names, values)) for values in cursor.fetchall()]
+        children: list[dict[str, Any]] = []
+        for row in rows:
+            # El origen se descarta por identificador y no por ruta: la del pool
+            # viene ya resuelta contra el proyecto y la cruda no, así que
+            # compararlas dejaba a la propia estrategia dentro de sus hermanos.
+            if safe_int(row.get("id"), 0) == safe_int(origin_id, -1):
+                continue
+            display = portfolio_display_symbol(
+                str(row.get("target_symbol") or row.get("symbol") or ""),
+                universe_files=[self.universe],
+            )
+            if portfolio_symbol_key(display) != symbol_key:
+                continue
+            children.append({**row, "display_symbol": display})
+        return children
+
+    def _describe_sibling(
+        self,
+        child: dict[str, Any],
+        quarantine: dict[str, Any],
+        pool: set[str],
+        used: set[str],
+    ) -> dict[str, Any]:
+        """Estado de un hermano y si se puede arrastrar con la exclusión.
+
+        `selectable` lo decide aquí y no la interfaz: las tres pantallas pintan
+        la misma lista y la regla no puede estar escrita tres veces.
+
+        La ruta se resuelve contra el proyecto antes de nada. La memoria guarda
+        la del agente y el pool, la cuarentena y los sets usados viajan ya
+        traducidos: comparar la cruda con ésas daba «fuera del pool» para todos.
+        """
+        path = str(_resolve_source_path(str(child.get("set_path") or ""), self.project))
+        path_key = self._path_key(path)
+        excluded = quarantine.get(path_key)
+        if excluded:
+            state, label = "excluded", str(excluded.get("reason_label") or "Excluido")
+        elif path_key not in pool:
+            state, label = "dropped", "Fuera del pool"
+        elif path_key in used:
+            state, label = "used", "Usado en portafolio"
+        else:
+            state, label = "available", "Disponible"
+        return {
+            "set_path": path,
+            "set_name": _set_basename(path),
+            "symbol": child.get("display_symbol") or "",
+            "timeframe": child.get("period") or "",
+            "family": child.get("family") or "",
+            "state": state,
+            "state_label": label,
+            "selectable": state in {"available", "used"},
+        }
+
+    def sibling_candidates(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Los hermanos de un candidato: mismo padre y mismo símbolo.
+
+        «Hermano» es lo que el agente llama descendencia de una misma semilla,
+        `candidates.seed_path` idéntico; en el nombre del set son las variantes
+        `v###` de un mismo `g###_s###`. Se acota al símbolo **a propósito**:
+        un mismo padre explora varios —`EBAY_H4_GOLD_XAUUSD_H4_GOLD_…` sale de
+        un padre XAUUSD—, y arrastrar a ésos por lo que hizo el oro sería otra
+        decisión, no la que se está tomando.
+
+        Salen todos, se puedan excluir o no: el que ya cayó y el que se quedó
+        por el camino van con su estado y sin casilla. Enseñar sólo los
+        excluibles daría una lista corta con pinta de completa.
+
+        Esto sólo **lee**. Excluir a los elegidos es una llamada normal a
+        `exclude` por cada uno, así que no hay nada nuevo que portar al nodo.
+        """
+        origin = self.resolve_pool_candidate(payload)
+        seed_path = str(origin.get("source_seed_path") or "").strip()
+        symbol = portfolio_display_symbol(
+            str(_pool_symbol(origin) or ""), universe_files=[self.universe],
+        )
+        result: dict[str, Any] = {
+            "set_path": str(origin.get("set_path") or ""),
+            "set_name": _set_basename(origin.get("set_path")),
+            "symbol": symbol,
+            "seed_name": _set_basename(seed_path),
+            "siblings": [],
+        }
+        if not seed_path:
+            # Memoria sin `candidates.seed_path`: no hay padre que consultar, así
+            # que no se inventa parentesco ninguno y se excluye sólo ésta.
+            return result
+        memory = Path(str(origin.get("source_memory_path") or self.memory)).absolute()
+        children = self._children_of_seed(
+            memory, seed_path, portfolio_symbol_key(symbol), origin.get("source_candidate_id"),
+        )
+        quarantine = {
+            self._path_key(row.get("set_path")): row for row in self.quarantine_rows()
+        }
+        pool = {
+            self._path_key(row.get("set_path"))
+            for row in self.candidate_rows(include_quarantined=True)
+        }
+        used = {self._path_key(path) for path in self.used_set_paths("full_history")}
+        siblings = [
+            self._describe_sibling(child, quarantine, pool, used) for child in children
+        ]
+        siblings.sort(key=lambda item: str(item["set_name"]).casefold())
+        result["siblings"] = siblings
+        return result
+
     def _stage_restore_snapshot(
         self, candidate_memory: Path, candidate_id: Any, reason_code: str,
     ) -> str | None:
@@ -71,7 +210,9 @@ class PortfolioSourceQuarantineMixin:
         # ya no es el que se va a rechazar.
         with self.connect_memory(candidate_memory, write=True) as read_conn:
             return candidate_verdict.dumps_snapshot(
-                candidate_verdict.snapshot_candidate_stages(read_conn, candidate_id)
+                candidate_verdict.snapshot_candidate_stages(
+                    read_conn, candidate_id, reason_code=reason_code,
+                )
             )
 
     def _write_quarantine_row(
@@ -193,7 +334,9 @@ class PortfolioSourceQuarantineMixin:
             candidate_verdict.restore_candidate_stages(conn, row["restore_json"])
             # 2. Fotografiar el estado ya restaurado, que es el que habrá que
             #    devolver la próxima vez.
-            snapshot = candidate_verdict.snapshot_candidate_stages(conn, row["candidate_id"])
+            snapshot = candidate_verdict.snapshot_candidate_stages(
+                conn, row["candidate_id"], reason_code=target,
+            )
             if target not in {"pool", candidate_verdict.MANUAL}:
                 if not snapshot:
                     raise ValueError(
@@ -227,10 +370,10 @@ class PortfolioSourceQuarantineMixin:
             conn.commit()
 
     def requalify_strategy(self, quarantine_key: str | int, reason_code: str) -> str:
-        """Mueve una estrategia excluida entre los cuatro estados posibles.
+        """Mueve una estrategia excluida entre los cinco estados posibles.
 
-        Los tres motivos de exclusión y el pool son estados de una misma cosa, no
-        operaciones independientes: reclasificar es **deshacer el veredicto
+        Los cuatro motivos de exclusión y el pool son estados de una misma cosa,
+        no operaciones independientes: reclasificar es **deshacer el veredicto
         actual y aplicar el nuevo**, nunca aplicar uno encima de otro.
 
         No pasa por `candidate_rows`: un candidato con veredicto ya no está ahí.

@@ -180,6 +180,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="stop-calculation"', full_page)
         self.assertIn("postManager('stop', {scope})", full_script)
         self.assertIn("['running', 'stopping'].includes(job?.status)", full_script)
+        self.assertIn("document.querySelector('#detail-improve').disabled = active", full_script)
+        self.assertIn("document.querySelector('#detail-repair').disabled = active", full_script)
         monthly_button = monthly_page.xpath('//button[@id="generate-proposals"]')[0]
         self.assertEqual(monthly_button.get("disabled"), "disabled")
         self.assertIn("document.querySelector('#generate-proposals').disabled = true", monthly_script)
@@ -324,8 +326,13 @@ class PortfolioFormTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("El portafolio #${selectedId} no se modifica", script)
-        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        # El botón lo pinta la primitiva compartida y se da la vuelta solo
+        # cuando el miembro ya está excluido.
+        self.assertIn("memberExclusionButton(member, 'detail', index)", script)
         self.assertNotIn("${isBundle ? '' : `<button type=\"button\" class=\"danger table-action\"", script)
+        # En un bundle no hay botón por fila... salvo que la fila esté excluida:
+        # ahí la acción contraria es lo único que se puede hacer desde aquí.
+        self.assertIn("isBundle && !memberIsExcluded(member) ? '' :", script)
 
     def test_saved_bundle_members_support_batch_selection(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -372,7 +379,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("set_paths: members.map", script)
         self.assertNotIn("waitForPortfolioRemoval", script)
         self.assertIn("onchange=\"toggleDetailSelection(${index},this.checked)\"", script)
-        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        self.assertIn("memberExclusionButton(member, 'detail', index)", script)
         self.assertNotIn("const selector = isBundle", script)
         self.assertNotIn("const excludeAction = isBundle", script)
         self.assertIn("El Portafolio UBS mensual #${selectedId} no se modifica", script)
@@ -386,8 +393,12 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="quarantine-rows"', page)
         self.assertIn('id="detail-select-all"', page)
         self.assertIn('id="detail-exclude-selected"', page)
-        self.assertIn("onclick=\"excludeStrategy('proposal',${index})\">Excluir</button>", script)
-        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        # El botón de cada fila lo pinta la primitiva compartida, que lo da la
+        # vuelta cuando el miembro ya está excluido: ahí la acción es la
+        # contraria, reintegrar, y no excluir otra vez lo ya excluido.
+        self.assertIn("memberExclusionButton(member, 'proposal', index)", script)
+        self.assertIn("memberExclusionButton(member, 'detail', index)", script)
+        self.assertIn("async function reinstateStrategy(", script)
         # El botón de la tabla lo pinta ahora la primitiva compartida, que es la
         # misma para los tres ámbitos; la función sigue siendo de esta pantalla.
         self.assertIn("renderQuarantineTables(quarantine);", script)
@@ -444,10 +455,24 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("'Borrando portafolio A/M/C'", script)
         self.assertIn("'Excluyendo estrategia'", script)
         self.assertIn("'Excluyendo estrategias'", script)
-        self.assertIn("'Restaurando portafolio'", script)
+        self.assertNotIn("'Restaurando portafolio'", script)
         self.assertIn("guardado, pero no se pudo actualizar la vista", script)
         self.assertIn(".save-overlay{", styles)
         self.assertIn(".save-spinner{", styles)
+
+    def test_excluded_variant_offers_repair_instead_of_unused_saved_actions(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="detail-repair" type="button" hidden>Arreglar</button>', page)
+        self.assertNotIn('id="detail-complete"', page)
+        self.assertNotIn('id="detail-reoptimize"', page)
+        self.assertNotIn('id="detail-undo"', page)
+        self.assertIn("!detailMembers.some(memberIsExcluded)", script)
+        self.assertIn("postManager('repair'", script)
+        self.assertIn("repair_portfolio_type: mode", script)
+        self.assertIn("Guardar arreglo como otro portafolio", script)
 
     def test_saved_portfolio_alias_is_editable_and_shown_in_the_header(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"

@@ -42,7 +42,7 @@ class PortfolioImportScreenTests(unittest.TestCase):
 
 
 class ExclusionReasonScreenTests(unittest.TestCase):
-    """Las tres pantallas piden el motivo y reparten la cuarentena en tres tablas.
+    """Las tres pantallas piden el motivo y reparten la cuarentena en cuatro tablas.
 
     Los tres ámbitos tienen interfaz separada a propósito, así que sin una prueba
     que los recorra a los tres una mejora se queda en la pantalla donde nació.
@@ -55,21 +55,24 @@ class ExclusionReasonScreenTests(unittest.TestCase):
             Path(__file__).parents[1] / "mt5_manager" / "static" / name
         ).read_text(encoding="utf-8")
 
-    def test_every_scope_has_the_two_verdict_tables(self) -> None:
+    def test_every_scope_has_the_three_verdict_tables(self) -> None:
         for name in self.PAGES:
             page = self.static(f"{name}.html")
             with self.subTest(page=name):
                 self.assertIn('id="quarantine-rows"', page)
                 self.assertIn('id="quarantine-degradation-rows"', page)
                 self.assertIn('id="quarantine-ohlc-rows"', page)
+                self.assertIn('id="quarantine-live-rows"', page)
                 self.assertIn('src="/exclusion_reason.js"', page)
 
-    def test_the_two_verdict_panels_share_a_row_of_equal_columns(self) -> None:
+    def test_the_verdict_panels_share_a_row_of_equal_columns(self) -> None:
         # Sueltos caían en las columnas 1fr/1.3fr del inventario y el de la
-        # izquierda salía estrecho, partiendo la fecha en dos líneas.
+        # izquierda salía estrecho, partiendo la fecha en dos líneas. El número
+        # de columnas no se fija: con el tercer panel, dos fijas dejaban uno
+        # solo en una fila a media anchura.
         styles = self.static("styles.css")
         self.assertIn(".portfolio-inventory-verdicts{grid-column:1/-1", styles)
-        self.assertIn("grid-template-columns:repeat(2,minmax(0,1fr))", styles)
+        self.assertIn("grid-template-columns:repeat(auto-fit,minmax(330px,1fr))", styles)
         for name in self.PAGES:
             page = html.fromstring(self.static(f"{name}.html"))
             with self.subTest(page=name):
@@ -77,7 +80,7 @@ class ExclusionReasonScreenTests(unittest.TestCase):
                 self.assertEqual(len(wrappers), 1)
                 self.assertEqual(
                     [child.get("class") for child in wrappers[0]],
-                    ["inventory-panel", "inventory-panel"],
+                    ["inventory-panel"] * 3,
                 )
 
     def test_the_radio_of_each_option_escapes_the_global_input_rule(self) -> None:
@@ -105,22 +108,73 @@ class ExclusionReasonScreenTests(unittest.TestCase):
             script = self.static(f"{name}.js")
             with self.subTest(script=name):
                 # UBS normal añade la acción por set de la ventana de símbolo;
-                # las otras pantallas conservan las dos exclusiones históricas.
-                expected = 3 if name == "portfolios" else 2
-                self.assertEqual(script.count("reason_code: reasonCode"), expected)
-                self.assertEqual(script.count("await askExclusionReason("), expected)
+                # las otras pantallas tienen una sola exclusión individual.
+                singles = 2 if name == "portfolios" else 1
+                # La individual pasa por `planExclusion`, que pide el motivo y
+                # además ofrece los hermanos. La múltiple se queda con el motivo
+                # a secas: con N estrategias marcadas no hay una sola de la que
+                # colgar el parentesco, y unir los hermanos de todas convertiría
+                # una selección explícita en una lista sorpresa.
+                self.assertEqual(script.count("await planExclusion("), singles)
+                self.assertEqual(script.count("await runExclusion("), singles)
+                self.assertEqual(script.count("await askExclusionReason("), 1)
+                self.assertEqual(script.count("reason_code: reasonCode"), 1)
                 self.assertIn("renderQuarantineTables(quarantine);", script)
 
-    def test_the_three_reason_codes_match_the_python_side(self) -> None:
+    def test_every_scope_paints_an_excluded_member_red_and_flips_its_button(self) -> None:
+        # Un portafolio guardado puede contener una estrategia que ya no es
+        # candidata: excluir dejó de tocar el resultado guardado. Sin marcarla,
+        # la tabla ofrecía «Excluir» sobre algo ya excluido.
+        for name in self.PAGES:
+            script = self.static(f"{name}.js")
+            with self.subTest(script=name):
+                self.assertIn("excludedRowClass(member)", script)
+                self.assertIn("excludedMemberChip(member)", script)
+                self.assertIn("memberExclusionButton(member, 'detail', index)", script)
+                self.assertIn("async function reinstateStrategy(", script)
+                # Ya excluida no se vuelve a marcar para excluirla en lote.
+                self.assertIn("memberIsExcluded(member) ? ' disabled' : ''", script)
+        shared = self.static("exclusion_reason.js")
+        # Reintegrar es `requalify` al pool, el mismo camino que la tabla de
+        # excluidas: dos formas de reintegrar podrían divergir.
+        self.assertIn("reason_code: 'pool'", shared)
+        self.assertIn("quarantine_id: member.quarantine_key", shared)
+        self.assertIn(".member-excluded>td{background:", self.static("styles.css"))
+
+    def test_the_sibling_dialog_is_an_offer_and_never_blocks_the_exclusion(self) -> None:
+        script = self.static("exclusion_reason.js")
+        # Leer los hermanos es una lectura más; si falla, la exclusión de
+        # siempre tiene que seguir saliendo. Un `throw` aquí convertiría una
+        # ayuda en un candado.
+        self.assertIn("return {reasonCode, siblings: []};", script)
+        self.assertIn("postManager('siblings', {set_path: setPath})", script)
+        # Desmarcados por defecto: arrastrar hermanos es decisión del usuario.
+        self.assertNotIn("checked>", script.split("siblingRowMarkup")[1].split("}")[0])
+        self.assertIn("data-sibling-all", script)
+        self.assertIn("data-sibling-none", script)
+        # La ventana sale si HAY hermanos, no si hay alguno arrastrable. Medido
+        # en RoboForex: tres hermanos, ninguno en el pool, y la pantalla no dijo
+        # nada cuando enseñar que la parentela ya cayó era lo que se buscaba.
+        self.assertIn("if (!data || !(data.siblings || []).length)", script)
+        self.assertNotIn("some(row => row.selectable)) {", script)
+        # Un hermano ya excluido se enseña, pero no se vuelve a excluir: eso le
+        # reescribiría el motivo que ya tiene.
+        self.assertIn("input[data-sibling]:not(:disabled)", script)
+
+    def test_every_reason_code_matches_the_python_side(self) -> None:
         script = self.static("exclusion_reason.js")
         from mt5_manager import candidate_verdict
 
         for code in candidate_verdict.REASON_CODES:
             self.assertIn(f"code: '{code}'", script)
+            self.assertIn(f"{code}: []", script)
+            # La etiqueta del selector y la de la tabla son la misma cadena: dos
+            # textos distintos para un mismo estado se leen como dos estados.
+            self.assertIn(f"label: '{candidate_verdict.REASON_LABELS[code]}'", script)
 
-    def test_the_table_button_offers_the_three_reasons_and_the_pool(self) -> None:
+    def test_the_table_button_offers_every_reason_and_the_pool(self) -> None:
         # El botón de la tabla no es «Reintegrar» a secas: mueve la estrategia
-        # entre los tres motivos y el pool, que son estados de la misma cosa.
+        # entre los cuatro motivos y el pool, que son estados de la misma cosa.
         script = self.static("exclusion_reason.js")
         self.assertIn("code: 'pool'", script)
         self.assertIn("options: [...EXCLUSION_REASONS, POOL_TARGET]", script)

@@ -32,9 +32,9 @@ class PortfolioCoordinatorSavedMixin:
         if not any(str(proposal.get("key") or "") == selected_key for proposal in proposals):
             raise ValueError("La propuesta seleccionada ya no está disponible")
         operation = str(job.get("operation") or "generate")
-        standalone_improvement = operation == "improve" and normalize_portfolio_scope(scope) == "full_history"
-        if standalone_improvement and (len(proposals) != 1 or selected_key not in PORTFOLIO_TYPES):
-            raise ValueError("Recalcula la mejora para una sola variante antes de guardar")
+        standalone_derivative = operation in {"improve", "repair"} and normalize_portfolio_scope(scope) == "full_history"
+        if standalone_derivative and (len(proposals) != 1 or selected_key not in PORTFOLIO_TYPES):
+            raise ValueError("Recalcula la propuesta para una sola variante antes de guardar")
         # Un paquete A/M/C incompleto se muestra para poder mirarlo, pero no se
         # guarda: la fila guardada representa las tres variantes de una misma
         # composicion y media fila no es reoptimizable ni comparable.
@@ -43,14 +43,14 @@ class PortfolioCoordinatorSavedMixin:
         # Solo UBS full y Grid nombran sus variantes A/M/C; el mensual usa
         # profit/balanced/margin y comparte el nombre «balanced» por accidente.
         bundle_scope = normalize_portfolio_scope(scope) in {"full_history", "grid"}
-        if bundle_scope and keys and keys < locked_keys and not standalone_improvement:
+        if bundle_scope and keys and keys < locked_keys and not standalone_derivative:
             raise ValueError(
                 f"El paquete A/M/C esta incompleto ({len(keys)}/3 variantes viables: "
                 f"{', '.join(sorted(keys))}). Ajusta los limites y recalcula antes de guardar."
             )
         operation = str(job.get("operation") or "generate")
         target_id = safe_int(job.get("portfolio_id"), 0)
-        if operation in {"reoptimize", "complete", "improve"} and target_id <= 0:
+        if operation in {"reoptimize", "complete", "improve", "repair"} and target_id <= 0:
             raise ValueError("Falta el portafolio que se quiere actualizar")
         request_id = str(job.get("save_request_id") or "")
         if not request_id or str(job.get("save_selected_key") or "") != selected_key:
@@ -62,13 +62,13 @@ class PortfolioCoordinatorSavedMixin:
             self.jobs[key]["save_selected_key"] = selected_key
         # UBS normal guarda la mejora como un portafolio nuevo de un solo modo.
         # El mensual conserva su protocolo anterior mientras siga congelado.
-        wire_operation = "generate" if standalone_improvement else "complete" if operation == "improve" else operation
+        wire_operation = "generate" if standalone_derivative else "complete" if operation == "improve" else operation
         return {
             "scope": scope,
             "selected_key": selected_key,
             "operation": wire_operation,
             "manager_operation": operation,
-            "portfolio_id": None if standalone_improvement else target_id or None,
+            "portfolio_id": None if standalone_derivative else target_id or None,
             "request_id": request_id,
             "proposals": serialize_portfolio_proposals(proposals, request_id),
         }
@@ -297,6 +297,16 @@ class PortfolioCoordinatorSavedMixin:
         for _account, memory in source.memory_sources:
             source._invalidate_remote_snapshot(memory)
         self._drop_cached_proposals(node_id)
+
+    def siblings(self, node_id: str, scope: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Los hermanos de un candidato, para ofrecerlos al excluirlo.
+
+        Va contra `PortfolioSource(node)` y no contra la fuente de cálculo del
+        ámbito, igual que `pool_member_payload`: la pregunta es por el candidato
+        y su memoria, no por el portafolio desde el que se abrió el diálogo.
+        Grid comparte este pool, así que su pantalla ofrece los mismos hermanos.
+        """
+        return PortfolioSource(self._node(node_id)).sibling_candidates(payload)
 
     def release(self, node_id: str, scope: str, quarantine_id: str | int) -> None:
         # La clave de cuarentena lleva la etiqueta de la memoria que la guarda.

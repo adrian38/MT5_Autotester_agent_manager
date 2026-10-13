@@ -178,7 +178,24 @@ class PortfolioSourceSavedMixin:
                     raw = dict(item)
                     members.append({"variant_key": raw.get("variant_key") or "", "variant_label": raw.get("variant_label") or "", "set_id": raw.get("set_path") or "", "candidate_id": raw.get("candidate_id") or "", "symbol": raw.get("symbol") or "", "timeframe": raw.get("period") or "", "units": int(round(float(raw.get("lot") or 0) / .01)), "lot": float(raw.get("lot") or 0), "lot_size_step": float(raw.get("lot_size_step") or .01), "net_profit_contribution": float(raw.get("combined_net_profit") or 0), "standalone_valley_dd": float(raw.get("standalone_dd") or 0), "standalone_point_dd": 0.0, "set_path": raw.get("set_path") or "", "margin_required": 0.0, "margin_pct": 0.0})
         selected["metrics"] = metrics
-        selected["members"] = [{
+        selected["members"] = self._mark_excluded_members(self._detail_members(members, metrics))
+        with self.connect() as conn:
+            versions = [dict(item) for item in conn.execute(
+                "select id,version_no,created_at,reason from portfolio_versions where portfolio_id=? order by version_no desc",
+                (portfolio_id,),
+            ).fetchall()] if _table_exists(conn, "portfolio_versions") else []
+            decisions = [dict(item) for item in conn.execute(
+                "select * from portfolio_decision_log where portfolio_id=? order by step,id",
+                (portfolio_id,),
+            ).fetchall()] if _table_exists(conn, "portfolio_decision_log") else []
+        selected["versions"] = versions
+        selected["decisions"] = decisions
+        return {"node": listing["node"], "scope": listing["scope"], "portfolio": selected, "observed_at": utc_now()}
+
+    @staticmethod
+    def _detail_members(members: list[dict[str, Any]], metrics: dict[str, Any]) -> list[dict[str, Any]]:
+        """Las filas de la tabla de miembros, con los tipos ya puestos."""
+        return [{
             "variant_key": str(raw.get("variant_key") or ""), "variant_label": str(raw.get("variant_label") or ""),
             "set_id": str(raw.get("set_id") or ""), "set_name": Path(str(raw.get("set_path") or raw.get("set_id") or "")).name,
             "set_path": str(raw.get("set_path") or raw.get("set_id") or ""),
@@ -202,18 +219,37 @@ class PortfolioSourceSavedMixin:
             "full_history_report_path": str(raw.get("full_history_report_path") or ""),
             "seasonal": (metrics.get("seasonal_coverage") or {}).get(str(raw.get("set_id") or ""), {}),
         } for raw in members]
-        with self.connect() as conn:
-            versions = [dict(item) for item in conn.execute(
-                "select id,version_no,created_at,reason from portfolio_versions where portfolio_id=? order by version_no desc",
-                (portfolio_id,),
-            ).fetchall()] if _table_exists(conn, "portfolio_versions") else []
-            decisions = [dict(item) for item in conn.execute(
-                "select * from portfolio_decision_log where portfolio_id=? order by step,id",
-                (portfolio_id,),
-            ).fetchall()] if _table_exists(conn, "portfolio_decision_log") else []
-        selected["versions"] = versions
-        selected["decisions"] = decisions
-        return {"node": listing["node"], "scope": listing["scope"], "portfolio": selected, "observed_at": utc_now()}
+
+    def _mark_excluded_members(self, members: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Marca en rojo al miembro que ya está excluido, y con qué motivo.
+
+        Un portafolio guardado puede contener una estrategia que ya no es
+        candidata: desde que excluir dejó de tocar el resultado guardado, la fila
+        se queda donde estaba. Eso es información histórica correcta, pero sin
+        decirlo la tabla ofrecía «Excluir» sobre algo ya excluido y no había
+        forma de ver cuál era. Ver `ai_context/exclusion_verdict.md`.
+
+        `quarantine_key` es lo que permite la acción contraria desde aquí, que es
+        la misma que la de la tabla de excluidas.
+
+        La ruta del miembro se resuelve contra el proyecto antes de comparar:
+        `portfolio_allocations` guarda la del agente y `quarantine_rows` ya la
+        devuelve traducida, así que cruzarlas en crudo no casaba nunca.
+        """
+        # Sin atajo cuando la cuarentena está vacía: la fila tiene que llevar
+        # siempre las mismas claves, o quien la lea vería `excluded` unas veces
+        # sí y otras no y acabaría comprobando las dos cosas.
+        quarantine = {
+            self._path_key(row.get("set_path")): row for row in self.quarantine_rows()
+        }
+        for member in members:
+            path = str(member.get("set_path") or member.get("set_id") or "")
+            row = quarantine.get(self._path_key(_resolve_source_path(path, self.project)))
+            member["excluded"] = row is not None
+            member["reason_code"] = str((row or {}).get("reason_code") or "")
+            member["reason_label"] = str((row or {}).get("reason_label") or "")
+            member["quarantine_key"] = str((row or {}).get("quarantine_key") or (row or {}).get("id") or "")
+        return members
 
     def set_portfolio_alias(self, portfolio_id: int, scope: str, alias: Any) -> str:
         """Persist an optional display alias inside metrics.inputs."""

@@ -1,4 +1,4 @@
-# Excluir con veredicto: degradación y OHLC ≠ every tick
+# Excluir con veredicto: degradación, OHLC ≠ every tick y no funciona en real
 
 ## Qué cambia
 
@@ -7,18 +7,103 @@ Hasta ahora excluir era una decisión del portafolio: la fila iba a
 agente, con su score y su peso intactos. El agente seguía premiando la familia,
 el símbolo y el timeframe que produjeron una estrategia recién descartada.
 
-Ahora la exclusión lleva `reason_code` y hay tres tablas en cada pantalla:
+Ahora la exclusión lleva `reason_code` y hay cuatro tablas en cada pantalla:
 
 | `reason_code` | Tabla | Qué se escribe en la memoria del agente |
 | --- | --- | --- |
 | `manual` | «Estrategias excluidas» | nada: solo la cuarentena, como siempre |
 | `degradation` | «Excluidas por degradación» | `candidate_robustness` → `rejected`; borra Final Tick, Final Tick 6M y regresión |
 | `ohlc_mismatch` | «Excluidas por OHLC ≠ every tick» | `candidate_final_tick_6m` → `rejected`; borra regresión |
+| `live_mismatch` | «Excluidas por no funcionar en real» | `candidates` → `rejected`; borra las cuatro etapas |
 
 Es literalmente lo que hace el FAIL manual de la aplicación del agente
-(`ubs/manual_status.py`: `mark_candidate_robustness` y `mark_candidate_final_tick`
-con `final_tick_stage="six_month"`), que es lo que se pidió: *«es como si hubiera
-fallado el test»*.
+(`ubs/manual_status.py`: `mark_candidate_robustness`, `mark_candidate_final_tick`
+con `final_tick_stage="six_month"` y `mark_candidates`), que es lo que se pidió:
+*«es como si hubiera fallado el test»*.
+
+## `live_mismatch` no marca una etapa, marca el candidato (2026-10-13)
+
+Los otros dos motivos dicen «esta prueba del pipeline la habría suspendido».
+Este dice otra cosa: **en las condiciones reales de mercado de este bróker la
+estrategia no funciona**, y eso no es ninguna etapa del pipeline —el tester no
+lo prueba—. Por eso el veredicto es `mark_candidates(..., "rejected")`, que
+rechaza la fila del candidato y arrastra sus cuatro etapas.
+
+Esa fila es la que había que tocar, y no por simetría: **`candidates.status` es
+lo que recorre el linaje**.
+
+- `ubs/memory_feedback.py::SOURCE_FEEDBACK_SQL` es un CTE recursivo que encadena
+  semilla → candidato (`c.seed_path = s.seed_path`) → descendientes
+  (`c.seed_path = d.set_path`), y lo que agrega de cada eslabón es `d.status`.
+- `ubs/memory_selection.py::discovery_seed_descendant_predictions` puntúa a un
+  **padre** por cómo acabaron sus hijos, leyendo ese mismo `c.status`.
+- `ubs/weights.py::row_stage_outcome` cuenta `status` como la etapa `base`: un
+  `rejected` es un fallo para el grupo (familia, símbolo, timeframe).
+
+Así que rechazar el candidato es exactamente «que conste, para cuando se vaya a
+generar algo de su padre o de sus hijos, que aquí no funcionó». No hizo falta
+ninguna tabla ni ninguna marca nueva.
+
+Y es **específico de este bróker sin pedirlo**: cada cuenta tiene su memoria
+(`ubs/account.py::account_memory_path`), y el veredicto se escribe en la del
+candidato. La misma estrategia sigue intacta en la memoria de otro bróker.
+
+El respaldo tiene que llevar también la fila de `candidates`, o reintegrar la
+dejaría rechazada para siempre. Dos detalles que no se pueden copiar de las
+etapas:
+
+- se restaura con un `update`, no borrando e insertando: `candidates.id` es
+  autoincremental y las cuatro tablas de etapa lo referencian por
+  `candidate_id`;
+- sólo se respaldan `status` y `accepted`. Guardar la fila entera devolvería
+  también `score` y `metrics_json`, que el veredicto no toca, pisando cualquier
+  recálculo posterior.
+
+Por eso `snapshot_candidate_stages` recibe `reason_code`: la fila del candidato
+sólo entra en el respaldo cuando el veredicto que viene es `live_mismatch`.
+Incluirla siempre cambiaría el significado de «el respaldo está vacío», que es
+hoy lo que impide aplicar un veredicto a un candidato que ya no tiene etapas.
+
+## Los hermanos caen con ella si se quiere (2026-10-13)
+
+Elegido el motivo, la exclusión individual abre una segunda ventana con los
+**hermanos** de la estrategia: los candidatos nacidos de la misma semilla
+—`candidates.seed_path` idéntico— que corren sobre **ese** símbolo. En el nombre
+del set son las variantes `v###` de un mismo `g###_s###`. Casi nunca falla una
+sola: si la mutación que las separa no aguanta, suelen caer las cinco, y hasta
+ahora había que ir a buscarlas a mano una por una.
+
+Decisiones que no son obvias y que conviene no deshacer sin motivo:
+
+- **Se acota al símbolo.** Un mismo padre explora varios
+  (`EBAY_H4_GOLD_XAUUSD_H4_GOLD_…` sale de un padre XAUUSD), y arrastrar a ésos
+  por lo que hizo el oro sería otra decisión, no la que se está tomando.
+- **Salen todos, se puedan excluir o no.** El que ya está excluido va con su
+  motivo y el que se quedó por el camino con «Fuera del pool», los dos sin
+  casilla. Enseñar sólo los excluibles daría una lista corta con pinta de
+  completa. Quién es arrastrable lo dice el servidor en `selectable`, porque las
+  tres pantallas pintan la misma lista.
+- **Todos desmarcados.** El diálogo ofrece «Todos» y «Ninguno»; arrastrar
+  hermanos es una decisión del usuario, no un valor por defecto.
+- **La lista sale de `candidates`, no de `candidate_rows`.** A un hermano ya
+  excluido con veredicto se le borraron las etapas, así que no está en el pool
+  —y es justo el que hay que enseñar para que no parezca que falta—.
+- **Leer los hermanos no es un requisito.** Si la lectura falla, se excluye la
+  estrategia como siempre: es una oferta, no un candado.
+- **Sólo en la exclusión individual.** Con N estrategias marcadas por casilla no
+  hay una sola de la que colgar el parentesco, y unir los hermanos de todas
+  convertiría una selección explícita en una lista sorpresa.
+- **La ventana sale si HAY hermanos, no si hay alguno arrastrable.** Primero se
+  escribió al revés, por ahorrar un paso cuando no había nada que marcar, y el
+  primer caso real lo tumbó: `XAUUSD_H4_GOLD_…_g002_s021_v006.set` en RoboForex
+  tiene tres hermanos del mismo símbolo —dos suspendidos en Final Tick y uno
+  rechazado de base— y la pantalla no dijo nada. Que la parentela entera ya
+  cayera es justo lo que se venía a ver.
+
+Y nada de esto toca al nodo: cada hermano elegido se excluye con la llamada
+`exclude` de siempre y el mismo `reason_code`, así que **no hay port**. La ruta
+nueva, `siblings`, es sólo lectura y vive entera en el manager
+(`PortfolioSource.sibling_candidates`).
 
 ## Excluir ya no borra el portafolio guardado
 
@@ -34,14 +119,37 @@ Consecuencia asumida: un portafolio guardado puede contener una estrategia que
 ya no es candidata. Es información histórica correcta —eso es lo que se guardó—
 y el pool, que es lo que decide la siguiente generación, sí la excluye.
 
+### Y por eso la fila va en rojo (2026-10-13)
+
+Esa consecuencia no se veía. La tabla de miembros pintaba igual a la excluida
+que a las demás y le seguía ofreciendo «Excluir», que sobre algo ya excluido
+sólo le reescribe el motivo. Ahora `saved_portfolio_detail` cruza los miembros
+con la cuarentena y cada fila lleva `excluded`, `reason_code`, `reason_label` y
+`quarantine_key`; la interfaz la pinta en rojo con su motivo y **da la vuelta al
+botón**: donde decía «Excluir» dice «Reintegrar».
+
+- Reintegrar es `requalify` al estado `pool`, el mismo camino que usa la tabla
+  de excluidas. Dos formas de reintegrar podrían divergir.
+- En un paquete A/M/C no hay botón por fila —se excluye con casillas—, pero la
+  fila excluida sí lo tiene: es lo único que se puede hacer ahí con ella. Su
+  casilla va deshabilitada por el mismo motivo que arriba.
+- **La ruta del miembro se resuelve antes de cruzar.** `portfolio_allocations`
+  guarda la del agente y `quarantine_rows` la devuelve ya traducida: cruzarlas
+  en crudo no casaba nunca y la marca no salía jamás. Mismo tropiezo que en los
+  hermanos, dos veces en la misma sesión.
+- La fila lleva siempre las cuatro claves, también cuando no hay cuarentena. Un
+  atajo que las omitiera dejaría dos formas de la misma fila.
+- Las propuestas recién calculadas no se marcan: salen del pool, así que no
+  pueden contener una excluida, y no son un portafolio guardado.
+
 La regla vive en `PortfolioSource._quarantine_member`, que además **no pasa por
 `candidate_rows`**: un candidato con veredicto desaparece de ahí, y aun así
 tiene que poder excluirse desde el portafolio que lo contiene.
 
-## Los cuatro estados y el botón de la tabla
+## Los cinco estados y el botón de la tabla
 
-Los tres motivos y el pool son estados de una misma cosa, no operaciones
-distintas. El botón de cada fila excluida abre las cuatro opciones y
+Los cuatro motivos y el pool son estados de una misma cosa, no operaciones
+distintas. El botón de cada fila excluida abre las cinco opciones y
 `PortfolioSource.requalify_strategy` hace el cambio en este orden:
 
 1. deshace el veredicto vigente restaurando `restore_json`;
@@ -124,12 +232,25 @@ y qué hay que portar.
 
 ### Estado del port
 
-| Copia | Veredicto de exclusión |
-| --- | --- |
-| Manager (`mt5_manager/candidate_verdict.py` + `portfolio_service.py` + `node.py`) | sí |
-| ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano el 2026-08-09 |
-| AXI | **no**, pendiente (`F:` no montada) |
-| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+| Copia | Veredicto de exclusión | `live_mismatch` |
+| --- | --- | --- |
+| Manager (`mt5_manager/candidate_verdict.py` + `portfolio_service.py` + `node.py`) | sí | sí, 2026-10-13 |
+| ICTrading | sí, portado a mano el 2026-08-09 | no verificado (no montada en este equipo) |
+| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí, ya estaba portado | sí, 2026-10-13 |
+| RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí, ya estaba portado | **no**, pendiente |
+
+Las dos filas de «ya estaba portado» corrigen lo que decía esta tabla hasta el
+2026-10-13: daba AXI y RoboForex por pendientes «porque `F:` no está montada»,
+y en este equipo las dos lo están y las dos tenían el veredicto. Comprobar el
+checkout antes de fiarse de esta columna.
+
+`test_the_verdict_reason_codes_reach_every_reachable_fork` y
+`test_the_verdict_texts_match_on_every_reachable_fork` **fallan a propósito**
+mientras quede una copia montada sin portar; hoy fallan por RoboForex y el
+fallo es la instrucción. El port son dos cosas en
+`manager_node_runtime/portfolio_verdicts.py`: importar `mark_candidates` de
+`ubs.manual_status` y copiar el motivo, el respaldo de la fila del candidato y
+su restauración. Hay que **reiniciar la aplicación del agente** después.
 
 Hay que **reiniciar la aplicación del agente**: el nodo va embebido en `app_ui.py`
 vía `manager_node_lifecycle.py`.
@@ -210,7 +331,10 @@ pantalla lo dice. No es una operación, pero tiene que notarse que no lo es.
 
 ## Pruebas
 
-- Manager: `tests/test_exclusion_verdict.py` (23, con `RequalifyTests`,
+- Manager: `tests/test_exclusion_siblings.py` (4) y la ruta `siblings` en
+  `tests/test_integration_portfolios.py`. La memoria de juguete que comparten
+  está en `tests/exclusion_memory_fixture.py`.
+- Manager: `tests/test_exclusion_verdict.py` (28, con `RequalifyTests`,
   `RequalifyRoutingTests` y `PoolExclusionRoutingTests`),
   `tests/test_static_portfolio_transfer.py::ExclusionReasonScreenTests`,
   `tests/test_node_runtime_fork_parity.py` (`test_no_fork_deletes_the_saved_portfolio_when_excluding`,
