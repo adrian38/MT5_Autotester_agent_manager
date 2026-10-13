@@ -96,3 +96,8 @@ del diálogo: identifica la variante cuyas exclusiones se están arreglando.
 El cálculo y la persistencia siguen usando contratos ya existentes en el
 manager y el nodo. No se añadió endpoint ni criterio de escritura al runtime
 del agente, así que este cambio no requiere port a `manager_node_runtime/`.
+
+El diálogo vive en `static/portfolio_repair.js`. Añadir el `<script>` al HTML no
+basta: `ManagerHandler` sólo publica los nombres incluidos en `STATIC_FILES`.
+La prueba de integración pide el recurso por HTTP y exige respuesta 200; una
+prueba que sólo lea el fichero local no detecta este tipo de 404.

@@ -45,7 +45,7 @@ STATIC_FILES = {
     "live_audit_analysis.html", "live_audit_analysis.js", "live_audit_analysis.css",
     "portfolios.html", "portfolios.js",
     "portfolios_monthly.html", "portfolios_monthly.js",
-    "portfolio_improvement.js", "portfolio_monthly_improvement.js",
+    "portfolio_improvement.js", "portfolio_monthly_improvement.js", "portfolio_repair.js",
     "portfolio_comparison.js",
     "portfolios_grid.html", "portfolios_grid.js",
     # Primitiva compartida por los tres ambitos: el dialogo del motivo de

@@ -586,10 +586,11 @@ class ImprovementScreenTests(unittest.TestCase):
         self.assertIn("option.value !== target", script)
         self.assertNotIn("option.value !== currentDetail.portfolio_type", script)
 
-    def test_manager_serves_both_new_static_assets(self) -> None:
+    def test_manager_serves_the_operation_specific_static_assets(self) -> None:
         manager = (self.ROOT.parent / "manager_handler.py").read_text(encoding="utf-8")
         self.assertIn('"portfolio_improvement.js"', manager)
         self.assertIn('"portfolio_monthly_improvement.js"', manager)
+        self.assertIn('"portfolio_repair.js"', manager)
 
 
 if __name__ == "__main__":
