@@ -35,6 +35,7 @@
         <label>Símbolos deshabilitados<input name="disabled_symbols" type="text" placeholder="EURUSD, XAUUSD"></label>
       </div>
       <fieldset><legend>Procesamiento y filtros</legend><div class="portfolio-checks">
+        <label title="Para este arreglo fuerza Búsqueda local desactivada y Reinicios búsqueda a 0, aunque arriba se muestren otros valores heredados."><input name="quick_composition" type="checkbox"> Composición rápida</label>
         <label><input name="run_local_search" type="checkbox"> Búsqueda local</label>
         <label><input name="deep_optimization" type="checkbox"> Optimización profunda</label>
         <label><input name="use_correlation" type="checkbox"> Aplicar correlaciones</label>
@@ -91,6 +92,7 @@
     const inherited = inheritedRepairInputs();
     numericNames.forEach(name => setRepairValue(name, inherited[name]));
     booleanNames.forEach(name => setRepairValue(name, inherited[name]));
+    setRepairValue('quick_composition', false);
     setRepairValue('margin_profile', inherited.margin_profile);
     setRepairValue('disabled_symbols', inherited.disabled_symbols || []);
     const allowed = new Set(inherited.allowed_asset_groups || groupNames);
@@ -117,6 +119,10 @@
     };
     numericNames.forEach(name => { payload[name] = optionalNumber(name); });
     booleanNames.forEach(name => { payload[name] = fields[name].checked; });
+    if (fields.quick_composition.checked) {
+      payload.run_local_search = false;
+      payload.search_restarts = 0;
+    }
     return payload;
   }
 

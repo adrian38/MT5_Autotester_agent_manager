@@ -205,6 +205,10 @@ class ImprovementInheritedSettingsScreenTests(unittest.TestCase):
         self.assertIn("improvement_inherited_overrides: inheritedOverrides(chosenGroups)", script)
         self.assertIn("currentDetail?.inherited_inputs", script)
         self.assertNotIn("experimental_full_search", script)
+        self.assertIn('name="quick_composition"', script)
+        self.assertIn("if (fields.quick_composition.checked)", script)
+        self.assertIn("values.run_local_search = false", script)
+        self.assertIn("values.search_restarts = 0", script)
 
 
 if __name__ == "__main__":

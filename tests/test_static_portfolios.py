@@ -500,6 +500,10 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("experimental_full_search", script)
         self.assertNotIn("Examinar todos los candidatos", script)
         self.assertNotIn("confirm(`", script)
+        self.assertIn('name="quick_composition"', script)
+        self.assertIn("if (fields.quick_composition.checked)", script)
+        self.assertIn("payload.run_local_search = false", script)
+        self.assertIn("payload.search_restarts = 0", script)
 
     def test_saved_portfolio_alias_is_editable_and_shown_in_the_header(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"

@@ -201,6 +201,15 @@ del mismo `_PassContext` que usa la pasada greedy. Los reinicios siguen activos
 y pueden mejorar el beneficio, pero ya no reducen la amplitud exigida. La
 optimización compartida conserva la misma regla en UBS normal y mensual.
 
+### Composición rápida en Mejorar (2026-10-14)
+
+El diálogo ofrece una casilla temporal `Composición rápida`. Al marcarla, la
+petición fuerza `run_local_search=false` y `search_restarts=0` por encima de los
+valores heredados que siguen visibles en el formulario. La casilla se reinicia
+desmarcada cada vez que se abre el diálogo y no introduce una clave nueva: los
+dos valores efectivos viajan dentro de `improvement_inherited_overrides` y se
+guardan como la configuración real de la mejora creada.
+
 «Portafolio» sin especificar ámbito significa UBS normal. El mensual permanece
 congelado hasta petición explícita; ver `monthly_portfolio_frozen.md`.
 

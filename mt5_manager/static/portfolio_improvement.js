@@ -35,6 +35,7 @@
         <label>Corr. portafolios máx.<input name="max_portfolio_corr" type="number" min="0" max="1" step="any"></label>
         <label>Símbolos deshabilitados<input name="improvement_disabled_symbols" type="text" placeholder="EURUSD, XAUUSD"></label>
       </div><div class="portfolio-checks">
+        <label title="Para esta mejora fuerza Búsqueda local desactivada y Reinicios búsqueda a 0, aunque arriba se muestren otros valores heredados."><input name="quick_composition" type="checkbox"> Composición rápida</label>
         <label><input name="run_local_search" type="checkbox"> Búsqueda local</label>
         <label><input name="deep_optimization" type="checkbox"> Optimización profunda</label>
         <label><input name="use_correlation" type="checkbox"> Aplicar correlaciones</label>
@@ -114,6 +115,7 @@
     const inherited = effectiveInheritedInputs(mode);
     inheritedNumericNames.forEach(name => setValue(name, inherited[name]));
     setValue('run_local_search', inherited.run_local_search);
+    setValue('quick_composition', false);
     setValue('deep_optimization', inherited.deep_optimization);
     setValue('use_correlation', inherited.use_correlation);
     setValue('validate_margin', inherited.validate_margin);
@@ -198,6 +200,10 @@
       grid_off: fields.improvement_grid_off.checked,
     };
     inheritedNumericNames.forEach(name => { values[name] = optionalNumber(name); });
+    if (fields.quick_composition.checked) {
+      values.run_local_search = false;
+      values.search_restarts = 0;
+    }
     return values;
   }
 
