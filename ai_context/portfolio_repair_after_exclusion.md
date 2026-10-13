@@ -35,6 +35,14 @@ límite. `required_set_ids` conserva la membresía superviviente; el optimizador
 arranca esas estrategias desde su unidad mínima y reconstruye todos sus lotes
 dentro de los límites originales.
 
+Una mejora puede haber creado una composición con excepciones efectivas que no
+reescriben los ajustes base: `improvement_allow_same_symbol=true` eleva el tope
+por símbolo, y su reparto final eleva el tope de sets por grupo y el bootstrap
+del grupo hasta el tamaño seleccionado. Al arreglar un derivado de mejora hay
+que reconstruir esas tres excepciones desde los metadatos `improvement_*`; usar
+otra vez `max_sets_per_symbol=1` o el tope A/M/C por grupo invalida incluso una
+unidad de cada superviviente antes de que el optimizador pueda empezar.
+
 La propuesta guarda `seasonal_validation.portfolio_repair` con las retiradas,
 las conservadas y las incorporaciones. También conserva las claves
 `improvement_*` mínimas como compatibilidad de transporte: los nodos ya

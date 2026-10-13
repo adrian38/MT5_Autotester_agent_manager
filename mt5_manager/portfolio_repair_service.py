@@ -167,14 +167,22 @@ def _repair_optimizer_kwargs(context: _RepairContext) -> dict[str, Any]:
         exclude_portfolio_id=context.portfolio_id,
     )
     kwargs = _optimizer_kwargs(context.inputs, portfolio_type, existing, context.reserve)
-    return optimizer_overrides(kwargs, **{
+    changes: dict[str, Any] = {
         "required_set_ids": survivor_ids,
         "preserve_required_allocations": False,
         "minimum_active_strategies": context.target_count,
         "maximum_active_strategies": context.target_count,
         "prefer_breadth_below_minimum": True,
         "max_total_candidates": None,
-    })
+    }
+    if context.inputs.get("improvement_source_portfolio_id"):
+        changes.update({
+            "max_sets_per_group": context.target_count,
+            "group_unit_cap_bootstrap": max(context.target_count, 1),
+        })
+        if context.inputs.get("improvement_allow_same_symbol"):
+            changes["max_sets_per_symbol"] = context.target_count
+    return optimizer_overrides(kwargs, **changes)
 
 
 def _optimize_repair(

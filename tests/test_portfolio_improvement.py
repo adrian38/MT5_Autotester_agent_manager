@@ -409,6 +409,32 @@ class PortfolioRepairTests(unittest.TestCase):
         self.assertEqual(kwargs["minimum_active_strategies"], 2)
         self.assertEqual(kwargs["maximum_active_strategies"], 2)
 
+    def test_repair_inherits_the_effective_limits_of_an_improvement(self) -> None:
+        source = mock.Mock()
+        context = repair_service._RepairContext(
+            source=source, portfolio_id=148, target="aggressive",
+            detail={"members": []},
+            inputs={
+                "improvement_source_portfolio_id": 137,
+                "improvement_allow_same_symbol": True,
+            },
+            survivor_sets=[SimpleNamespace(set_id="keep.set")], pool=[],
+            rows=[], used=[], warnings=[], excluded=[{"set_id": "gone.set"}],
+            target_count=15, reserve=10.0,
+        )
+        with (
+            mock.patch.object(repair_service, "_optimizer_kwargs", return_value={}),
+            mock.patch.object(
+                repair_service, "optimizer_overrides",
+                side_effect=lambda _base, **changes: changes,
+            ),
+        ):
+            kwargs = repair_service._repair_optimizer_kwargs(context)
+
+        self.assertEqual(kwargs["max_sets_per_symbol"], 15)
+        self.assertEqual(kwargs["max_sets_per_group"], 15)
+        self.assertEqual(kwargs["group_unit_cap_bootstrap"], 15)
+
     def test_repair_proposal_is_new_and_records_removed_and_added_sets(self) -> None:
         keep = SimpleNamespace(set_id="keep.set")
         result = SimpleNamespace(
