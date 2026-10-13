@@ -78,3 +78,21 @@ tocar el evento de cancelación ni el trabajo en curso y la API responde que el
 generador está ocupado y debe intentarse cuando termine. En la pantalla actual
 también quedan deshabilitados Generar, Mejorar y Arreglar mientras haya una
 operación activa. Iniciar otra generación nunca equivale a detener la anterior.
+
+## Confirmación editable de la herencia (2026-10-13)
+
+«Arreglar» ya no empieza con una confirmación ciega. Antes de lanzar el cálculo
+abre un formulario con los valores efectivos heredados por la variante visible:
+riesgo, embudo, límites de unidades, filtros, correlaciones, margen, grupos y
+símbolos deshabilitados. Todos esos valores se pueden cambiar y la petición del
+formulario prevalece sobre los inputs guardados de la variante; la propuesta
+serializa esos valores y pasan a ser la herencia de sus futuros derivados.
+
+El detalle expone `inherited_inputs`, normalizado también para portafolios
+antiguos que no guardaban `metrics.inputs`. En bundles, la interfaz superpone
+después los `inputs` de la variante A/M/C visible. El modo no se cambia dentro
+del diálogo: identifica la variante cuyas exclusiones se están arreglando.
+
+El cálculo y la persistencia siguen usando contratos ya existentes en el
+manager y el nodo. No se añadió endpoint ni criterio de escritura al runtime
+del agente, así que este cambio no requiere port a `manager_node_runtime/`.

@@ -919,24 +919,6 @@ async function loadPortfolios(preferredId = null) {
   } catch (error) { listEl.innerHTML = `<div class="portfolio-empty error-text">${esc(error.message)}</div>`; toast(error.message, true); }
 }
 
-async function startRepair() {
-  if (!selectedId || !currentDetail) return;
-  const mode = selectedDetailVariant || String(currentDetail.portfolio_type || '');
-  const excluded = detailMembers.filter(memberIsExcluded).length;
-  if (!excluded) return;
-  if (!confirm(`Se creará otro portafolio sin las ${excluded} estrategia(s) excluida(s), conservando las demás y reajustando sus lotes. Se añadirán sustitutas válidas si hacen falta. ¿Continuar?`)) return;
-  try {
-    await postManager('repair', {
-      scope,
-      portfolio_id: selectedId,
-      repair_portfolio_type: mode,
-    });
-    selectedProposal = null;
-    await loadManagerState();
-    toast('Arreglo iniciado.');
-  } catch (error) { toast(error.message, true); }
-}
-
 async function openReport(index) {
   const member = detailMembers[index];
   if (!member || !selectedId) return;
@@ -990,7 +972,6 @@ document.querySelector('#detail-alias-edit').addEventListener('click', async () 
   } catch (error) { toast(error.message, true); }
 });
 
-document.querySelector('#detail-repair').addEventListener('click', startRepair);
 document.querySelector('#detail-exclude-selected').addEventListener('click', excludeSelectedStrategies);
 document.querySelector('#detail-select-all').addEventListener('change', event => {
   selectedDetailMembers = event.target.checked ? new Set(detailMembers.map((_, index) => index)) : new Set();

@@ -329,6 +329,20 @@ class ImprovementWireTests(unittest.TestCase):
 
 
 class PortfolioRepairTests(unittest.TestCase):
+    def test_form_values_replace_the_inherited_variant_values(self) -> None:
+        source = mock.Mock()
+        with mock.patch.object(repair_service, "build_margin_model", return_value={"profile": "axi"}):
+            inputs = repair_service._repair_inputs(
+                source,
+                {"capital": 25000, "grid_off": False, "repair_portfolio_type": "balanced"},
+                {"capital": 10000, "grid_off": True, "portfolio_type": "aggressive"},
+                "balanced",
+            )
+
+        self.assertEqual(inputs["capital"], 25000)
+        self.assertFalse(inputs["grid_off"])
+        self.assertEqual(inputs["portfolio_type"], "balanced")
+
     def test_full_history_dispatches_repair_to_its_own_engine(self) -> None:
         expected = ({"repair": True}, [{"key": "balanced"}])
         with mock.patch.object(

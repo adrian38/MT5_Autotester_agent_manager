@@ -32,6 +32,7 @@
 /* UBS normal: identity and saved original/improvement comparison. */
 .portfolio-full-page .improvement-origin{padding:14px 18px;margin:12px 0 16px;border:1px solid var(--accent);border-left:5px solid var(--accent);border-radius:10px;background:#12332d;color:var(--accent2);font-weight:700;font-size:15px}
 .portfolio-full-page .improvement-label{color:var(--accent2);font-weight:700;white-space:normal}
+.portfolio-repair-dialog fieldset{margin:18px 0 0;border:1px solid var(--line);border-radius:10px;padding:14px}.portfolio-repair-dialog legend{padding:0 7px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.portfolio-repair-dialog .portfolio-note{margin:14px 0;line-height:1.5}.portfolio-repair-dialog .portfolio-form-grid{margin-top:18px}
 .portfolio-full-page .portfolio-comparison-dialog{width:min(1200px,calc(100vw - 32px));max-height:92vh;overflow:auto}
 .portfolio-full-page .portfolio-comparison-dialog h3{margin:22px 0 12px}
 .portfolio-full-page .comparison-note{color:var(--muted);font-size:13px;line-height:1.6;margin:12px 0}

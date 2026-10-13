@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from mt5_manager.portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin
+
 from mt5_manager.portfolio_service import (
     STANDARD_ANTIFILLER_REFILL_PASSES,
     PortfolioCoordinator,
@@ -55,6 +57,19 @@ from tests.helpers import ASYNC_TIMEOUT, assert_event, assert_until
 
 
 class PortfolioInventoryTests(unittest.TestCase):
+    def test_full_history_detail_exposes_normalized_inherited_inputs_to_the_form(self) -> None:
+        source = SimpleNamespace(
+            saved_portfolio_detail=lambda _portfolio_id, _scope: {"portfolio": {"id": 7}},
+            saved_inputs=lambda _portfolio_id, _scope: {"capital": 10000, "grid_off": True},
+        )
+        owner = SimpleNamespace(_persistence_source=lambda _node_id, _scope: source)
+
+        detail = PortfolioCoordinatorSavedMixin.saved(owner, "ic", "full_history", 7)
+
+        self.assertEqual(detail["portfolio"]["inherited_inputs"], {
+            "capital": 10000, "grid_off": True,
+        })
+
     @staticmethod
     def _create_axi_inventory_source(project: Path) -> PortfolioSource:
         (project / "outputs").mkdir()
