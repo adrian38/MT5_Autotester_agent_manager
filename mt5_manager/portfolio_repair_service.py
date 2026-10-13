@@ -55,7 +55,6 @@ class _RepairContext:
     used: list[str]
     warnings: list[str]
     excluded: list[dict[str, Any]]
-    target_count: int
     reserve: float
 
 
@@ -155,7 +154,7 @@ def _repair_context(
     reserve = _reserve_pct(float(inputs.get("dd_reserve_pct") or 0), portfolio_type)
     return _RepairContext(
         source, portfolio_id, target, selected, inputs, survivor_sets, pool,
-        rows, used, warnings, excluded, len(members), reserve,
+        rows, used, warnings, excluded, reserve,
     )
 
 
@@ -170,18 +169,17 @@ def _repair_optimizer_kwargs(context: _RepairContext) -> dict[str, Any]:
     changes: dict[str, Any] = {
         "required_set_ids": survivor_ids,
         "preserve_required_allocations": False,
-        "minimum_active_strategies": context.target_count,
-        "maximum_active_strategies": context.target_count,
-        "prefer_breadth_below_minimum": True,
-        "max_total_candidates": None,
     }
     if context.inputs.get("improvement_source_portfolio_id"):
+        inherited_composition_cap = max(
+            len(context.detail.get("members") or []), len(context.survivor_sets), 1,
+        )
         changes.update({
-            "max_sets_per_group": context.target_count,
-            "group_unit_cap_bootstrap": max(context.target_count, 1),
+            "max_sets_per_group": inherited_composition_cap,
+            "group_unit_cap_bootstrap": inherited_composition_cap,
         })
         if context.inputs.get("improvement_allow_same_symbol"):
-            changes["max_sets_per_symbol"] = context.target_count
+            changes["max_sets_per_symbol"] = inherited_composition_cap
     return optimizer_overrides(kwargs, **changes)
 
 
@@ -195,11 +193,9 @@ def _optimize_repair(
     minimum_pct = float(context.inputs.get("min_strategy_recent_contribution_pct") or 0)
     for retry in range(MAX_FILLER_RETRIES + 1):
         pool = [strategy for strategy in context.pool if strategy.set_id not in banned]
-        if len(pool) < context.target_count:
-            raise ValueError("No quedan suficientes candidatas válidas para reconstruir el portafolio")
         if progress:
             progress(
-                f"4/5 · Reconstruyendo {context.target_count} estrategias y reajustando lotes"
+                "4/5 · Recalculando el portafolio y reajustando lotes"
                 + (f" · reintento {retry}" if retry else "")
             )
         kwargs = _repair_optimizer_kwargs(context)
@@ -231,11 +227,6 @@ def _repair_proposal(
     result: PortfolioResult,
     rejected: list[str],
 ) -> dict[str, Any]:
-    if result.active_strategies != context.target_count:
-        raise ValueError(
-            f"No se pudo reconstruir el tamaño original: quedaron "
-            f"{result.active_strategies}/{context.target_count} estrategias"
-        )
     excluded_names = [
         Path(str(member.get("set_path") or member.get("set_id") or "")).name
         for member in context.excluded
@@ -308,7 +299,7 @@ def generate_full_history_repair(
         "repair": {
             "removed": len(context.excluded),
             "retained": len(context.survivor_sets),
-            "target": context.target_count,
+            "result": result.active_strategies,
         },
     })
     return availability, [proposal]

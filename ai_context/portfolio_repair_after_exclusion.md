@@ -20,13 +20,13 @@ reglas:
 2. Todas las no excluidas son obligatorias y no pueden retirarse.
 3. Sus unidades y lotes sí pueden cambiar para volver a cumplir el riesgo,
    margen, correlaciones y demás límites guardados.
-4. Se reconstruye el mismo número de estrategias activas que tenía esa
-   variante. Las plazas vacías se cubren sólo con candidatos que pasan las
-   cuatro etapas aceptadas y los filtros guardados: grupos, símbolos
-   deshabilitados, Grid OFF, tres meses positivos, uso previo y aporte Final
-   Tick 6M.
-5. Si no existe una composición completa válida, no se ofrece un resultado
-   parcial.
+4. No se hereda ni se fuerza el número de estrategias de la variante original.
+   El total final lo decide el optimizador dentro de los límites guardados; las
+   candidatas nuevas deben pasar las cuatro etapas aceptadas y los filtros
+   guardados: grupos, símbolos deshabilitados, Grid OFF, tres meses positivos,
+   uso previo y aporte Final Tick 6M.
+5. El resultado sólo se ofrece si conserva todas las no excluidas y cumple los
+   límites de riesgo, margen, correlación y construcción heredados.
 
 Los lotes guardados no se pasan como `required_initial_allocations`. Esa opción
 hace que el optimizador valide la composición parcial antigua antes de poder
@@ -56,21 +56,19 @@ manager. El nodo sólo recibe el mismo `operation=generate` que ya sabe persisti
 para una propuesta individual. No hay endpoint ni criterio nuevo en
 `manager_node_runtime/`, por lo que este cambio no requiere port al agente.
 
-## El refinamiento profundo también respeta el tamaño (2026-10-13)
+## El refinamiento profundo respeta los topes explícitos (2026-10-13)
 
-El greedy ya recibía `minimum_active_strategies` y
-`maximum_active_strategies` con el tamaño original, pero el refinamiento
-profundo posterior sólo recibía el mínimo. Con «Optimización profunda» activa
-podía añadir candidatas nuevas después de alcanzar el cupo: una reparación de
-16 terminó con 19 y la validación final la rechazó con «No se pudo reconstruir
-el tamaño original».
+El refinamiento profundo debe respetar `maximum_active_strategies` cuando un
+llamante lo configura explícitamente, igual que el greedy. El soporte general
+para ese tope se conserva, pero «Arreglar» no lo rellena con el tamaño del
+portafolio original: esa equivalencia fue una interpretación incorrecta del
+contrato y producía el rechazo «No se pudo reconstruir el tamaño original».
 
-`_deep_refine_allocations` propaga ahora también el máximo. Los movimientos de
+`_deep_refine_allocations` propaga el máximo opcional. Los movimientos de
 adición pueden aumentar unidades de una estrategia ya activa, pero no activar
-otra al alcanzar el cupo; los intercambios siguen permitidos porque conservan
-la amplitud. Es un límite general del optimizador full-history, no una regla
-especial de la pantalla de reparación. El refinamiento mensual estricto usa su
-propio motor y no cambia.
+otra cuando un llamante sí fijó ese cupo; los intercambios siguen permitidos
+porque conservan la amplitud. El refinamiento mensual estricto usa su propio
+motor y no cambia.
 
 ## Exclusión mutua entre cálculos
 
