@@ -183,14 +183,21 @@ function siblingRowMarkup(row, index) {
 }
 
 function siblingDialogNote(data, reasonCode) {
+  const rows = data.siblings || [];
   const parent = data.seed_name ? `Salieron de ${reasonEsc(shortSetName(data.seed_name))}` : 'Salieron del mismo padre';
-  const blocked = (data.siblings || []).filter(row => !row.selectable).length;
-  // Los que no se pueden arrastrar siguen en la lista: una lista corta sin
-  // explicación parece completa, y ésa es la forma de mentir sin decir nada.
+  const free = rows.filter(row => row.selectable).length;
+  const head = `${parent} y corren sobre ${reasonEsc(data.symbol)}.`;
+  if (!free) {
+    // Ninguno arrastrable no es «no hay hermanos»: es que la parentela ya cayó
+    // sola. Decirlo es la mitad de lo que se venía a ver.
+    return `${head} Ninguno sigue en el pool, así que no hay nada que arrastrar: ya cayeron por su cuenta. `
+      + 'Esto es sólo para que lo veas.';
+  }
+  const blocked = rows.length - free;
   const note = blocked
-    ? ` ${blocked} ya no se puede${blocked === 1 ? '' : 'n'} excluir desde aquí y sale${blocked === 1 ? '' : 'n'} sin casilla, con su estado.`
+    ? ` Otro${blocked === 1 ? '' : 's'} ${blocked} ya no se puede${blocked === 1 ? '' : 'n'} excluir desde aquí y sale${blocked === 1 ? '' : 'n'} sin casilla, con su estado.`
     : '';
-  return `${parent} y corren sobre ${reasonEsc(data.symbol)}. Los que marques se excluirán con el mismo motivo, `
+  return `${head} Los que marques se excluirán con el mismo motivo, `
     + `«${reasonEsc(exclusionReasonLabel(reasonCode))}».${note}`;
 }
 
@@ -203,8 +210,8 @@ function siblingDialogMarkup(data, reasonCode, setName) {
     <p class="subtitle">${siblingDialogNote(data, reasonCode)}</p>
     <div class="sibling-toolbar">
       <span>Excluyendo <strong>${reasonEsc(shortSetName(setName))}</strong></span>
-      <span><button type="button" class="secondary" data-sibling-all>Todos</button>
-      <button type="button" class="secondary" data-sibling-none>Ninguno</button></span>
+      <span><button type="button" class="secondary" data-sibling-all${data.siblings.some(row => row.selectable) ? '' : ' disabled'}>Todos</button>
+      <button type="button" class="secondary" data-sibling-none${data.siblings.some(row => row.selectable) ? '' : ' disabled'}>Ninguno</button></span>
     </div>
     <form method="dialog" class="sibling-options">
       ${data.siblings.map(siblingRowMarkup).join('')}
@@ -269,9 +276,13 @@ async function planExclusion({setPath, setName, title, detail} = {}) {
   } catch (error) {
     return {reasonCode, siblings: []};
   }
-  if (!data || !(data.siblings || []).some(row => row.selectable)) {
-    // Sin ninguno que se pueda arrastrar no hay nada que decidir: abrir un
-    // diálogo para leerlo y cerrarlo sería un paso de más en cada exclusión.
+  if (!data || !(data.siblings || []).length) {
+    // Sin hermanos no hay ventana. Pero con hermanos la ventana sale AUNQUE
+    // ninguno se pueda arrastrar: el caso real que lo demostró tenía tres, dos
+    // suspendidos en Final Tick y uno rechazado de base, y la pantalla no dijo
+    // nada. Saber que la parentela entera ya cayó es justo lo que se venía a
+    // ver; esconderla porque no hay casillas que marcar era peor que el paso
+    // de más que intentaba ahorrar.
     return {reasonCode, siblings: []};
   }
   const siblings = await openSiblingDialog(data, reasonCode, setName || data.set_name);

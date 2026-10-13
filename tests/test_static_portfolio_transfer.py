@@ -152,6 +152,11 @@ class ExclusionReasonScreenTests(unittest.TestCase):
         self.assertNotIn("checked>", script.split("siblingRowMarkup")[1].split("}")[0])
         self.assertIn("data-sibling-all", script)
         self.assertIn("data-sibling-none", script)
+        # La ventana sale si HAY hermanos, no si hay alguno arrastrable. Medido
+        # en RoboForex: tres hermanos, ninguno en el pool, y la pantalla no dijo
+        # nada cuando enseñar que la parentela ya cayó era lo que se buscaba.
+        self.assertIn("if (!data || !(data.siblings || []).length)", script)
+        self.assertNotIn("some(row => row.selectable)) {", script)
         # Un hermano ya excluido se enseña, pero no se vuelve a excluir: eso le
         # reescribiría el motivo que ya tiene.
         self.assertIn("input[data-sibling]:not(:disabled)", script)

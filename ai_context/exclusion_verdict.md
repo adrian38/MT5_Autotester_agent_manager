@@ -93,6 +93,12 @@ Decisiones que no son obvias y que conviene no deshacer sin motivo:
 - **Sólo en la exclusión individual.** Con N estrategias marcadas por casilla no
   hay una sola de la que colgar el parentesco, y unir los hermanos de todas
   convertiría una selección explícita en una lista sorpresa.
+- **La ventana sale si HAY hermanos, no si hay alguno arrastrable.** Primero se
+  escribió al revés, por ahorrar un paso cuando no había nada que marcar, y el
+  primer caso real lo tumbó: `XAUUSD_H4_GOLD_…_g002_s021_v006.set` en RoboForex
+  tiene tres hermanos del mismo símbolo —dos suspendidos en Final Tick y uno
+  rechazado de base— y la pantalla no dijo nada. Que la parentela entera ya
+  cayera es justo lo que se venía a ver.
 
 Y nada de esto toca al nodo: cada hermano elegido se excluye con la llamada
 `exclude` de siempre y el mismo `reason_code`, así que **no hay port**. La ruta
