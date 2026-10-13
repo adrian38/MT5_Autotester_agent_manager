@@ -369,7 +369,6 @@ class PortfolioRepairTests(unittest.TestCase):
 
         rebuilt_members = rebuild.call_args.args[1]
         self.assertEqual([row["set_id"] for row in rebuilt_members], ["keep.set"])
-        self.assertEqual(context.target_count, 2)
         self.assertEqual([row["set_id"] for row in context.excluded], ["gone.set"])
 
     def test_optimizer_locks_survivors_without_inheriting_invalid_lots(self) -> None:
@@ -390,7 +389,6 @@ class PortfolioRepairTests(unittest.TestCase):
             used=[],
             warnings=[],
             excluded=[{"set_id": "gone.set"}],
-            target_count=2,
             reserve=15.0,
         )
         with (
@@ -406,21 +404,25 @@ class PortfolioRepairTests(unittest.TestCase):
         self.assertEqual(kwargs["required_set_ids"], ["keep.set"])
         self.assertNotIn("required_initial_allocations", kwargs)
         self.assertFalse(kwargs["preserve_required_allocations"])
-        self.assertEqual(kwargs["minimum_active_strategies"], 2)
-        self.assertEqual(kwargs["maximum_active_strategies"], 2)
+        self.assertNotIn("minimum_active_strategies", kwargs)
+        self.assertNotIn("maximum_active_strategies", kwargs)
+        self.assertNotIn("max_total_candidates", kwargs)
 
     def test_repair_inherits_the_effective_limits_of_an_improvement(self) -> None:
         source = mock.Mock()
         context = repair_service._RepairContext(
             source=source, portfolio_id=148, target="aggressive",
-            detail={"members": []},
+            detail={"members": [
+                {"set_id": f"original-{index}"} for index in range(15)
+            ]},
             inputs={
                 "improvement_source_portfolio_id": 137,
                 "improvement_allow_same_symbol": True,
             },
-            survivor_sets=[SimpleNamespace(set_id="keep.set")], pool=[],
+            survivor_sets=[SimpleNamespace(set_id="keep.set")],
+            pool=[SimpleNamespace(set_id=f"candidate-{index}") for index in range(20)],
             rows=[], used=[], warnings=[], excluded=[{"set_id": "gone.set"}],
-            target_count=15, reserve=10.0,
+            reserve=10.0,
         )
         with (
             mock.patch.object(repair_service, "_optimizer_kwargs", return_value={}),
@@ -435,29 +437,33 @@ class PortfolioRepairTests(unittest.TestCase):
         self.assertEqual(kwargs["max_sets_per_group"], 15)
         self.assertEqual(kwargs["group_unit_cap_bootstrap"], 15)
 
-    def test_repair_proposal_is_new_and_records_removed_and_added_sets(self) -> None:
+    def test_repair_proposal_can_grow_beyond_original_and_records_added_sets(self) -> None:
         keep = SimpleNamespace(set_id="keep.set")
         result = SimpleNamespace(
-            active_strategies=2,
+            active_strategies=3,
             allocations=[
                 SimpleNamespace(set_id="keep.set", units=2),
                 SimpleNamespace(set_id="new.set", units=1),
+                SimpleNamespace(set_id="another.set", units=1),
             ],
             seasonal_validation={},
         )
         context = repair_service._RepairContext(
             source=mock.Mock(), portfolio_id=7, target="balanced",
-            detail={"members": []}, inputs={}, survivor_sets=[keep], pool=[],
+            detail={"members": [
+                {"set_id": "keep.set"}, {"set_id": "gone.set", "excluded": True},
+            ]},
+            inputs={}, survivor_sets=[keep], pool=[],
             rows=[], used=[], warnings=[],
             excluded=[{"set_id": "gone.set", "set_path": "gone.set"}],
-            target_count=2, reserve=15.0,
+            reserve=15.0,
         )
         with mock.patch.object(repair_service, "settings_inputs", return_value={}):
             proposal = repair_service._repair_proposal(context, result, [])
 
         audit = result.seasonal_validation["portfolio_repair"]
         self.assertEqual(audit["excluded_removed"], ["gone.set"])
-        self.assertEqual(audit["added_sets"], ["new.set"])
+        self.assertEqual(audit["added_sets"], ["new.set", "another.set"])
         self.assertEqual(proposal["inputs"]["repair_source_portfolio_id"], 7)
         self.assertEqual(proposal["inputs"]["improvement_source_portfolio_id"], 7)
         self.assertIn("Arreglo del portafolio #7", proposal["inputs"]["improvement_label"])
