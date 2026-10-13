@@ -25,6 +25,7 @@ from portfolio_manager.ubs_portfolio import (
 
 from .portfolio_improvement_common import (
     allocation_units,
+    improvement_inherited_overrides,
     improvement_options as _shared_improvement_options,
     member_rows,
     recent_positive_candidates,
@@ -32,6 +33,7 @@ from .portfolio_improvement_common import (
     used_paths_for_improvement,
     validate_and_attach_improvement_audit,
 )
+from .portfolio_settings import normalize_settings
 from .portfolio_service import (
     ACCOUNT_LEVERAGE_CHOICES,
     ASSET_GROUPS,
@@ -110,6 +112,7 @@ def _merged_attempt_inputs(
     saved_inputs: dict[str, Any],
     target: str,
 ) -> dict[str, Any]:
+    overrides = improvement_inherited_overrides(requested)
     inputs = {
         **requested,
         **saved_inputs,
@@ -117,9 +120,11 @@ def _merged_attempt_inputs(
             key: value for key, value in requested.items()
             if key.startswith("improvement_") or key.startswith("_improvement_")
         },
+        **overrides,
         "portfolio_type": target,
-        "use_correlation": True,
     }
+    inputs.pop("improvement_inherited_overrides", None)
+    inputs = normalize_settings("full_history", inputs, getattr(source, "broker", "ICTRADING"))
     profile = improvement_margin_profile(inputs)
     if profile:
         inputs["margin_profile"] = profile
@@ -155,8 +160,11 @@ def _attempt_context(
     maximum_target = len(original_ids) + options.max_additions
     base_type = PORTFOLIO_TYPES[str(inputs["portfolio_type"])]
     configured_reserve = float(inputs.get("dd_reserve_pct") or 0)
+    inherited_overrides = requested.get("improvement_inherited_overrides") or {}
     reserve = (
-        float(saved_inputs["dd_reserve_pct"])
+        configured_reserve
+        if "dd_reserve_pct" in inherited_overrides
+        else float(saved_inputs["dd_reserve_pct"])
         if "dd_reserve_pct" in saved_inputs
         else _reserve_pct(configured_reserve, base_type)
     )
@@ -216,8 +224,6 @@ def _selection_kwargs(context: _AttemptContext) -> dict[str, Any]:
             context.maximum_target
             if options.allow_same_symbol else int(inputs["max_sets_per_symbol"])
         ),
-        "run_local_search": False,
-        "search_restarts": 0,
     })
 
 
@@ -365,13 +371,19 @@ def _attach_attempt_audit(
     actual_additions: int,
     rejected: list[str],
 ) -> dict[str, Any]:
+    audit_inputs = context.inputs
+    if not audit_inputs.get("use_correlation", True):
+        audit_inputs = {
+            **audit_inputs,
+            "_improvement_enforce_general_correlation": False,
+        }
     audit = validate_and_attach_improvement_audit(
         result=result,
         baseline=baseline,
         all_sets=selected_sets,
         original_ids=context.original_ids,
         options=context.options,
-        inputs=context.inputs,
+        inputs=audit_inputs,
         scope="full_history",
         minimum_gain_pct=context.options.min_efficiency_gain_pct,
     )

@@ -48,6 +48,11 @@
 .audit-strategy-table th strong { display: block; font-size: 14px; }
 .audit-strategy-table { min-width: 760px; }
 .audit-report-link { display: inline-flex; white-space: nowrap; }
+.audit-report-upload { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 20px 16px; padding: 14px; border: 1px solid #35506a; border-radius: 10px; background: #0b1722; }
+.audit-report-upload > div { display: grid; gap: 5px; min-width: 0; }
+.audit-report-upload span { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.audit-report-upload label { flex: 0 0 auto; cursor: pointer; }
+.audit-report-upload input { display: none; }
 #real-report-action { display: grid; justify-items: end; gap: 5px; }
 #real-report-action small { color: var(--muted); font-size: 10px; }
 .audit-table td > span:not(.audit-status):not(.audit-pair):not(.audit-delta), .audit-table td > small { display: block; margin-top: 4px; color: var(--muted); }
@@ -93,4 +98,5 @@
   .audit-summary-grid div:nth-child(4), .audit-summary-grid div:nth-child(6) { grid-column: auto; }
   .audit-result-state { align-items: flex-start; flex-direction: column; }
   #real-report-action { justify-items: start; }
+  .audit-report-upload { align-items: stretch; flex-direction: column; }
 }

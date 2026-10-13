@@ -380,8 +380,8 @@ class JobController(GuidedControllerMixin):
                 "task_queue": True,
                 "application_restart": bool(getattr(self, "application_restart_available", False)),
                 "historical_cleanup": bool(historical_cleanup_scripts(self.config, required=False)),
-                "live_account_audit": True,
-                "live_audit_restore_account": True,
+                "live_account_audit": True, "live_audit_restore_account": True,
+                "live_audit_manual_reports": True,
             },
             "observed_at": utc_now(),
         }

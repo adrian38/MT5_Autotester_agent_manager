@@ -117,6 +117,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_not_comparable_20261012.md`: un uso NO COMPARABLE se leía como
   COINCIDE; la caché de ticks incompleta de una terminal, la casilla del
   multiterminal y por qué `completed_at` no es la hora de la ejecución.
+- `live_audit_manual_reports.md`: contrato de nombres y validación para sustituir
+  reportes tester al 100 % sin relanzar MT5 ni alterar otras estrategias.
 
 ## Manager: interfaz y operación
 

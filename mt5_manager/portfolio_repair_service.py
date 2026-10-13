@@ -75,7 +75,11 @@ def _repair_inputs(
     saved: dict[str, Any],
     target: str,
 ) -> dict[str, Any]:
-    inputs = {**requested, **saved, "portfolio_type": target}
+    # El formulario de arreglo parte de lo heredado, pero sus valores son el
+    # nuevo contrato del portafolio resultante. Por eso la petición gana sobre
+    # la variante guardada; antes ocurría al revés y cualquier edición visible
+    # habría sido ignorada silenciosamente.
+    inputs = {**saved, **requested, "portfolio_type": target}
     inputs["margin_model"] = build_margin_model(source, inputs)
     return inputs
 

@@ -346,6 +346,10 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("function pnlDelta(measurements, limit)", self.result_script)
         self.assertIn("A favor +", self.result_script)
         self.assertIn("PnL: alerta si el real empeora más de", self.result_script)
+        self.assertTrue(self.result_page.xpath('//*[@id="manual-report-files"]'))
+        self.assertIn("Renombra cada archivo exactamente así", self.result_script)
+        self.assertIn("/reports`", self.result_script)
+        self.assertIn("CARGADO MANUALMENTE · 100%", self.result_script)
 
     def test_a_use_can_choose_the_principal_terminal_instead_of_the_multiterminal(self) -> None:
         self.assertIn('data-field="use_multiterminal" type="checkbox"', self.script)

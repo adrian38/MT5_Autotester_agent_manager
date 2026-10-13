@@ -102,7 +102,7 @@ class PortfolioFormTests(unittest.TestCase):
                     script,
                 )
 
-    def test_symbol_dialog_uses_one_disable_control_for_all_three_flows(self) -> None:
+    def test_symbol_dialog_and_saved_operations_use_their_effective_disabled_symbols(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
         script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
@@ -117,7 +117,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("chain_improvement_disabled_symbols", script)
         self.assertIn("postManager('settings', payload)", script)
         self.assertIn("improvement_disabled_symbols", improvement)
-        self.assertIn("formPayload().disabled_symbols", improvement)
+        self.assertIn('name="improvement_disabled_symbols"', improvement)
+        self.assertIn("disabled_symbols: fields.improvement_disabled_symbols.value", improvement)
 
     def test_symbol_dialog_lists_and_exports_selected_family_sets(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -464,15 +465,41 @@ class PortfolioFormTests(unittest.TestCase):
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
         script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        repair = (static_dir / "portfolio_repair.js").read_text(encoding="utf-8")
 
         self.assertIn('id="detail-repair" type="button" hidden>Arreglar</button>', page)
         self.assertNotIn('id="detail-complete"', page)
         self.assertNotIn('id="detail-reoptimize"', page)
         self.assertNotIn('id="detail-undo"', page)
         self.assertIn("!detailMembers.some(memberIsExcluded)", script)
-        self.assertIn("postManager('repair'", script)
-        self.assertIn("repair_portfolio_type: mode", script)
+        self.assertIn('<script src="/portfolio_repair.js"></script>', page)
+        self.assertIn("postManager('repair'", repair)
+        self.assertIn("repair_portfolio_type: repairMode()", repair)
         self.assertIn("Guardar arreglo como otro portafolio", script)
+
+    def test_repair_confirms_every_effective_inherited_setting_before_starting(self) -> None:
+        script = (
+            Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolio_repair.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("currentDetail?.inherited_inputs", script)
+        self.assertIn("metrics?.variants?.[repairMode()]?.inputs", script)
+        for name in (
+            "capital", "valley_dd_pct", "top_k_per_symbol", "max_total_candidates",
+            "min_trades_2020_2026", "min_strategy_recent_contribution_pct",
+            "max_units_per_set", "max_total_units", "max_units_per_symbol",
+            "max_sets_per_symbol", "dd_reserve_pct", "search_restarts",
+            "margin_profile", "account_leverage", "max_margin_pct",
+            "max_pair_corr", "max_downside_corr", "max_dd_overlap",
+            "max_portfolio_corr", "disabled_symbols", "run_local_search",
+            "deep_optimization", "use_correlation", "validate_margin",
+            "require_3_positive_months_6m", "grid_off",
+            "exclude_used_sets", "allowed_asset_groups",
+        ):
+            self.assertIn(name, script)
+        self.assertNotIn("experimental_full_search", script)
+        self.assertNotIn("Examinar todos los candidatos", script)
+        self.assertNotIn("confirm(`", script)
 
     def test_saved_portfolio_alias_is_editable_and_shown_in_the_header(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"

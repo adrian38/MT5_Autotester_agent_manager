@@ -90,7 +90,12 @@ class PortfolioCoordinatorSavedMixin:
 
     def saved(self, node_id: str, scope: str, portfolio_id: int | None = None) -> dict[str, Any]:
         source = self._persistence_source(node_id, scope)
-        return source.saved_portfolio_detail(portfolio_id, scope) if portfolio_id is not None else source.saved_portfolios(scope)
+        if portfolio_id is None:
+            return source.saved_portfolios(scope)
+        detail = source.saved_portfolio_detail(portfolio_id, scope)
+        if scope == "full_history":
+            detail["portfolio"]["inherited_inputs"] = source.saved_inputs(portfolio_id, scope)
+        return detail
 
     def set_alias(self, node_id: str, scope: str, portfolio_id: int, alias: Any) -> str:
         """Write the alias where the portfolio DB is locally owned."""

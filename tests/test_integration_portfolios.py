@@ -29,6 +29,13 @@ from tests.integration_test_base import IntegrationTestCase
 
 
 class PortfolioIntegrationTests(IntegrationTestCase):
+    def test_manager_serves_the_portfolio_repair_dialog_script(self) -> None:
+        with urllib.request.urlopen(self.base + "/portfolio_repair.js", timeout=3) as response:
+            script = response.read().decode("utf-8")
+
+        self.assertEqual(response.status, 200)
+        self.assertIn("portfolio-repair-dialog", script)
+
     def test_export_folder_endpoint_opens_the_manager_picker(self) -> None:
         # El modo se fija aqui a proposito. Antes se heredaba del entorno y
         # MT5_MANAGER_EXPORT_MODE=download (lo que pone docker-compose) hacia que
@@ -462,6 +469,12 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                     "improvement_additions": 2,
                     "improvement_exclude_used_sets": True,
                     "improvement_allow_same_symbol": True,
+                    "improvement_inherited_overrides": {
+                        "capital": 9000,
+                        "use_correlation": False,
+                        "run_local_search": True,
+                        "search_restarts": 6,
+                    },
                 },
             )
 
@@ -477,6 +490,12 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                 "improvement_additions": 2,
                 "improvement_exclude_used_sets": True,
                 "improvement_allow_same_symbol": True,
+                "improvement_inherited_overrides": {
+                    "capital": 9000,
+                    "use_correlation": False,
+                    "run_local_search": True,
+                    "search_restarts": 6,
+                },
             },
         )
 

@@ -580,6 +580,7 @@ def _safe_state(raw: dict[str, Any]) -> dict[str, Any]:
         "finished_at": raw.get("finished_at"),
         "can_run": status not in RUNNING_STATUSES,
         "log_lines": list(raw.get("log_lines") or [])[-500:],
+        "last_payload": raw.get("last_payload"),
         "last_result": raw.get("last_result"),
         "terminal_restore": raw.get("terminal_restore"),
         "error": raw.get("error"),

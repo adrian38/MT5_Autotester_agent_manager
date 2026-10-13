@@ -329,6 +329,20 @@ class ImprovementWireTests(unittest.TestCase):
 
 
 class PortfolioRepairTests(unittest.TestCase):
+    def test_form_values_replace_the_inherited_variant_values(self) -> None:
+        source = mock.Mock()
+        with mock.patch.object(repair_service, "build_margin_model", return_value={"profile": "axi"}):
+            inputs = repair_service._repair_inputs(
+                source,
+                {"capital": 25000, "grid_off": False, "repair_portfolio_type": "balanced"},
+                {"capital": 10000, "grid_off": True, "portfolio_type": "aggressive"},
+                "balanced",
+            )
+
+        self.assertEqual(inputs["capital"], 25000)
+        self.assertFalse(inputs["grid_off"])
+        self.assertEqual(inputs["portfolio_type"], "balanced")
+
     def test_full_history_dispatches_repair_to_its_own_engine(self) -> None:
         expected = ({"repair": True}, [{"key": "balanced"}])
         with mock.patch.object(
@@ -538,10 +552,10 @@ class ImprovementScreenTests(unittest.TestCase):
         self.assertIn("improvement_margin_profile: fields.improvement_margin_profile.value", script)
         self.assertIn('name="improvement_account_leverage"', script)
         self.assertIn("improvement_account_leverage: Number(fields.improvement_account_leverage.value)", script)
-        self.assertIn("variantSaved.account_leverage", script)
+        self.assertIn("inherited.account_leverage", script)
         self.assertIn("las carteras antiguas pueden no conservar la elección original", script)
         # Llega puesto con el de la base, no con el del formulario central.
-        self.assertIn("variantSaved.margin_profile || saved.margin_profile", script)
+        self.assertIn("inherited.improvement_margin_profile || inherited.margin_profile", script)
         self.assertIn("son siempre los del broker de origen", script)
         # El mensual sigue congelado: no gana selector.
         monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
@@ -551,7 +565,7 @@ class ImprovementScreenTests(unittest.TestCase):
     def test_normal_dialog_controls_grid_off_for_new_candidates(self) -> None:
         script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
         self.assertIn('name="improvement_grid_off" type="checkbox"', script)
-        self.assertIn("variantSaved.grid_off ?? saved.grid_off", script)
+        self.assertIn("inherited.improvement_grid_off ?? inherited.grid_off", script)
         self.assertIn("improvement_grid_off: fields.improvement_grid_off.checked", script)
         self.assertIn("Las estrategias originales no se retiran", script)
         monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
@@ -572,10 +586,11 @@ class ImprovementScreenTests(unittest.TestCase):
         self.assertIn("option.value !== target", script)
         self.assertNotIn("option.value !== currentDetail.portfolio_type", script)
 
-    def test_manager_serves_both_new_static_assets(self) -> None:
+    def test_manager_serves_the_operation_specific_static_assets(self) -> None:
         manager = (self.ROOT.parent / "manager_handler.py").read_text(encoding="utf-8")
         self.assertIn('"portfolio_improvement.js"', manager)
         self.assertIn('"portfolio_monthly_improvement.js"', manager)
+        self.assertIn('"portfolio_repair.js"', manager)
 
 
 if __name__ == "__main__":

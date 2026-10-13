@@ -30,6 +30,9 @@ const priceRuleLabels = {
 let comparisonRows = [];
 let activeFilter = 'all';
 let currentResult = null;
+let currentConfig = {};
+let currentPortfolios = {};
+let currentAuditState = {};
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -467,8 +470,23 @@ function artifactUrl(result, filename) {
   return `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(result.audit_key)}/artifacts/${encodeURIComponent(result.audit_id)}/${encodeURIComponent(filename)}`;
 }
 
+function canonicalManualReportName(row) {
+  return String(row.source_set || '').replace(/\.set$/i, '.htm');
+}
+
+function renderManualReportUpload(rows) {
+  const pending = rows.filter(row => Number(row.history_quality_pct) < 99.995);
+  const names = pending.map(canonicalManualReportName).filter(Boolean);
+  const target = document.querySelector('#manual-report-names');
+  target.textContent = names.length
+    ? `Renombra cada archivo exactamente así: ${names.join(' · ')}`
+    : 'Todos los reportes visibles acreditan ya el 100% de calidad.';
+  document.querySelector('#manual-report-files').disabled = !names.length;
+}
+
 function renderArtifacts(result) {
   const rows = result.strategy_artifacts || [];
+  renderManualReportUpload(rows);
   const warning = document.querySelector('#artifact-warning');
   const real = result.real_account_report || {};
   const fallbackVolumes = new Map();
@@ -514,7 +532,8 @@ function renderArtifacts(result) {
     const setTone = brokerAdjusted ? 'warn' : matches ? 'good' : 'bad';
     const reportVolumeLabel = row.volumeMatches == null ? 'SIN OPERACIONES' : row.volumeMatches ? 'REPORTE = SET' : 'REPORTE ≠ SET';
     const reportVolumeTone = row.volumeMatches == null ? 'warn' : row.volumeMatches ? 'good' : 'bad';
-    const report = row.report_file ? `<a class="button secondary audit-report-link" target="_blank" rel="noopener" href="${escapeHtml(artifactUrl(result, row.report_file))}">Abrir reporte MT5</a>` : '<span class="bad-text">Sin reporte</span>';
+    const manual = row.report_source === 'manual_upload' ? '<small class="good-text">CARGADO MANUALMENTE · 100%</small>' : '';
+    const report = row.report_file ? `<a class="button secondary audit-report-link" target="_blank" rel="noopener" href="${escapeHtml(artifactUrl(result, row.report_file))}">Abrir reporte MT5</a>${manual}` : '<span class="bad-text">Sin reporte</span>';
     return `<tr>
       <th><strong>${escapeHtml(row.symbol)}</strong><small>${escapeHtml(row.strategy)}</small><details><summary>Archivos y magic</summary><small>Magic: ${escapeHtml(row.magic || '—')}</small><small>Origen: ${escapeHtml(row.source_set)}</small><small>Copia: ${escapeHtml(row.runtime_set)}</small></details></th>
       <td>${escapeHtml(number(row.configured_lot, 8))}<small>${escapeHtml(row.portfolio_units ?? '—')} unidad(es) informativa(s)</small></td>
@@ -669,6 +688,9 @@ function renderExtras(detail) {
 
 function renderResult(result, config, portfolios, auditState = {}) {
   currentResult = result;
+  currentConfig = config;
+  currentPortfolios = portfolios;
+  currentAuditState = auditState;
   const profile = (config.profiles || {})[auditId] || {};
   const portfolio = (portfolios.portfolios || []).find(row => Number(row.id) === Number(profile.portfolio_id || result.portfolio_id));
   const title = profile.deployment_name || portfolio?.name || `Portafolio #${result.portfolio_id}`;
@@ -744,6 +766,45 @@ async function loadResult() {
   renderResult(result, config, portfolios, state);
 }
 
+function bytesToBase64(bytes) {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function uploadManualReports(files) {
+  const status = document.querySelector('#manual-report-status');
+  const label = document.querySelector('#manual-report-label');
+  const selected = [...files];
+  const total = selected.reduce((sum, file) => sum + file.size, 0);
+  if (!selected.length) return;
+  if (selected.some(file => file.size > 500000) || total > 700000) {
+    throw new Error('Cada reporte puede ocupar 500 KB y la selección completa 700 KB como máximo.');
+  }
+  label.textContent = 'Validando reportes…';
+  status.hidden = true;
+  try {
+    const reports = await Promise.all(selected.map(async file => ({
+      filename: file.name,
+      content_base64: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
+    })));
+    const data = await jsonResponse(await fetch(
+      `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reports`,
+      {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({reports})},
+    ));
+    const auditState = data.audit || data;
+    if (!auditState.last_result) throw new Error(auditState.analysis_error || 'No se pudo recalcular el resultado.');
+    renderResult(auditState.last_result, currentConfig, currentPortfolios, auditState);
+    status.hidden = false;
+    status.innerHTML = `<strong>Reportes aplicados.</strong><span>${escapeHtml(selected.length)} estrategia(s) se recalcularon sin volver a ejecutar MT5.</span>`;
+  } finally {
+    label.textContent = 'Seleccionar HTML de MT5';
+    document.querySelector('#manual-report-files').value = '';
+  }
+}
+
 document.querySelectorAll('[data-status-filter]').forEach(button => button.addEventListener('click', () => {
   activeFilter = button.dataset.statusFilter;
   document.querySelectorAll('[data-status-filter]').forEach(item => item.classList.toggle('active', item === button));
@@ -751,6 +812,13 @@ document.querySelectorAll('[data-status-filter]').forEach(button => button.addEv
 }));
 document.querySelector('#comparison-search').addEventListener('input', applyFilters);
 document.querySelector('#download-comparison').addEventListener('click', downloadComparisons);
+document.querySelector('#manual-report-files').addEventListener('change', event => {
+  uploadManualReports(event.target.files).catch(error => {
+    const status = document.querySelector('#manual-report-status');
+    status.hidden = false;
+    status.innerHTML = `<strong>No se aplicaron los reportes.</strong><span>${escapeHtml(error.message)}</span>`;
+  });
+});
 
 loadResult().catch(error => {
   const target = document.querySelector('#result-error');
