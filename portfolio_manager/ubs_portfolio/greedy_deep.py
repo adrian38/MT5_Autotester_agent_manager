@@ -102,9 +102,16 @@ def _deep_add_move(
     allocations: dict[str, int],
     current: PortfolioEvaluation,
     limits: SearchLimits,
+    maximum_active_strategies: int | None,
     scan: _DeepScan,
 ) -> None:
     """Prueba anadir una unidad a la candidata."""
+    if (
+        maximum_active_strategies is not None
+        and current.active_strategies >= maximum_active_strategies
+        and allocations.get(target.set_id, 0) <= 0
+    ):
+        return
     if not _caps_allow(working_sets, target, allocations, limits):
         return
     if allocations.get(target.set_id, 0) <= 0:
@@ -196,6 +203,7 @@ def _best_deep_move(
     current: PortfolioEvaluation,
     limits: SearchLimits,
     minimum_active_strategies: int | None,
+    maximum_active_strategies: int | None,
     protected_set_ids: set[str],
 ) -> _DeepScan:
     """Recorre las candidatas por puntuacion y se queda con el mejor movimiento."""
@@ -207,7 +215,10 @@ def _best_deep_move(
     )
     for target in ordered_targets:
         scan.attempts += 1
-        _deep_add_move(target, working_sets, allocations, current, limits, scan)
+        _deep_add_move(
+            target, working_sets, allocations, current, limits,
+            maximum_active_strategies, scan,
+        )
         active_sources = [
             source for source in working_sets if allocations.get(source.set_id, 0) > 0
         ]
@@ -255,6 +266,7 @@ def _deep_refine_allocations(
     current: PortfolioEvaluation,
     *,
     minimum_active_strategies: int | None,
+    maximum_active_strategies: int | None = None,
     protected_set_ids: Sequence[str] | None = None,
     max_iterations: int = 160,
     limits: SearchLimits = SearchLimits(),
@@ -270,7 +282,7 @@ def _deep_refine_allocations(
     for iteration in range(1, max_iterations + 1):
         scan = _best_deep_move(
             working_sets, allocations, current, limits, minimum_active_strategies,
-            protected_ids,
+            maximum_active_strategies, protected_ids,
         )
         attempts += scan.attempts
         if scan.best is None:
