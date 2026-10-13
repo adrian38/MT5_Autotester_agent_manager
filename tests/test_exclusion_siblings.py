@@ -107,6 +107,24 @@ class SiblingCandidateTests(unittest.TestCase):
             self.assertEqual(rows["a_v3.set"]["state"], "available")
             self.assertTrue(rows["a_v3.set"]["selectable"])
 
+    def test_a_windows_path_from_the_agent_still_yields_a_file_name(self) -> None:
+        # El manager corre en Linux dentro de Docker y la memoria del agente
+        # guarda rutas de Windows. `Path(...).name` no ve el separador ahí y
+        # devolvía la ruta entera: medido en RoboForex, el nombre del padre
+        # salía completo en el diálogo.
+        with broker_project() as (source, memory):
+            with_siblings(memory)
+            with contextlib.closing(sqlite3.connect(memory)) as conn:
+                conn.execute(
+                    "update candidates set seed_path=? where seed_path='seeds/padre.set'",
+                    ("C:\\Users\\Adrian\\TRADING\\outputs\\gen_001\\padre.set",),
+                )
+                conn.commit()
+
+            result = source.sibling_candidates({"set_path": "sets/a.set"})
+
+            self.assertEqual(result["seed_name"], "padre.set")
+
     def test_a_memory_without_the_parent_column_offers_nothing(self) -> None:
         # Una memoria vieja no tiene `candidates.seed_path`. Sin padre no hay
         # parentesco que inventar: se excluye sólo la estrategia elegida.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from portfolio_manager.ubs_portfolio import portfolio_display_symbol, portfolio_symbol_key
@@ -11,6 +11,19 @@ from .common import safe_int
 from .portfolio_identity import _resolve_source_path
 from .portfolio_schema import _table_exists
 from .portfolio_source_inventory import _pool_symbol
+
+
+def _set_basename(value: Any) -> str:
+    """El nombre del fichero, venga la ruta con `/` o con `\\`.
+
+    `Path(...).name` no vale para esto. El manager corre en Linux dentro de
+    Docker y la memoria del agente guarda rutas de Windows
+    (`C:\\Users\\...\\x.set`): ahí `PurePosixPath` no ve ningún separador y
+    devuelve la ruta entera. Se vio en RoboForex, con el nombre del padre
+    saliendo completo en el diálogo de hermanos. `PureWindowsPath` corta por
+    los dos separadores, así que sirve para las dos formas.
+    """
+    return PureWindowsPath(str(value or "").strip()).name
 
 
 class PortfolioSourceQuarantineMixin:
@@ -120,7 +133,7 @@ class PortfolioSourceQuarantineMixin:
             state, label = "available", "Disponible"
         return {
             "set_path": path,
-            "set_name": Path(path).name,
+            "set_name": _set_basename(path),
             "symbol": child.get("display_symbol") or "",
             "timeframe": child.get("period") or "",
             "family": child.get("family") or "",
@@ -153,9 +166,9 @@ class PortfolioSourceQuarantineMixin:
         )
         result: dict[str, Any] = {
             "set_path": str(origin.get("set_path") or ""),
-            "set_name": Path(str(origin.get("set_path") or "")).name,
+            "set_name": _set_basename(origin.get("set_path")),
             "symbol": symbol,
-            "seed_name": Path(seed_path).name if seed_path else "",
+            "seed_name": _set_basename(seed_path),
             "siblings": [],
         }
         if not seed_path:
