@@ -27,6 +27,36 @@ def package():
     return value
 
 
+def cross_broker_package():
+    value=package();item=value['candidates'][0]
+    value['version']=2
+    item['parent_candidate_id']=68885
+    item['parent_provenance']={
+        'kind':'cross_broker_final','broker':'ROBOFOREX_ECN','run_id':282,
+        'source_symbol':'.USTECHCASH','set_fingerprint':'b'*64,
+        'report_sha256':'c'*64,'window':['2026.01.01','2026.06.30'],
+        'active_days':67,
+    }
+    value['batch_id']=protocol.batch_identity(value)
+    return value
+
+
+def local_seed_package():
+    value=package();item=value['candidates'][0]
+    value['version']=3
+    item.update(mode='seed_exploration',
+                parent_provenance={'kind':'local_seed','broker':'ICTRADING_STANDARD','seed_id':1})
+    value['batch_id']=protocol.batch_identity(value)
+    return value
+
+
+def local_lineage_package():
+    value=local_seed_package();item=value['candidates'][0]
+    item['parent_provenance']={'kind':'local_candidate','broker':'ICTRADING_STANDARD','run_id':1}
+    value['batch_id']=protocol.batch_identity(value)
+    return value
+
+
 def symbol_package():
     value=package();item=value['candidates'][0]
     parent=base64.b64decode(item['parent_b64']);raw=parent.replace(b'ForceSymbol=US30',b'ForceSymbol=EURUSD')
@@ -66,6 +96,36 @@ class GuidedNodeTests(unittest.TestCase):
         p=package();p['candidates']*=2;p['batch_id']=protocol.batch_identity(p)
         with self.assertRaises(ValueError):protocol.validate_package(p,'ICTRADING','STANDARD')
         with self.assertRaises(ValueError):protocol.batch_dir(self.root,'../../escape')
+
+    def test_cross_broker_parent_requires_complete_final_6m_provenance(self):
+        protocol.validate_package(cross_broker_package(),'ICTRADING','STANDARD')
+        for change,message in (
+                (lambda p:p['candidates'][0]['parent_provenance'].pop('report_sha256'),'Procedencia'),
+                (lambda p:p['candidates'][0]['parent_provenance'].update(broker='ICTRADING_STANDARD'),'Transferencia'),
+                (lambda p:p['candidates'][0]['parent_provenance'].update(active_days=0),'Evidencia')):
+            with self.subTest(message=message):
+                p=cross_broker_package();change(p);p['batch_id']=protocol.batch_identity(p)
+                with self.assertRaisesRegex(ValueError,message):
+                    protocol.validate_package(p,'ICTRADING','STANDARD')
+
+    def test_local_seed_requires_v3_matching_seed_identity_and_mode(self):
+        protocol.validate_package(local_seed_package(),'ICTRADING','STANDARD')
+        for field,value in (('seed_id',2),('broker','AXI_STANDARD')):
+            p=local_seed_package();p['candidates'][0]['parent_provenance'][field]=value
+            p['batch_id']=protocol.batch_identity(p)
+            with self.assertRaisesRegex(ValueError,'semilla'):
+                protocol.validate_package(p,'ICTRADING','STANDARD')
+        p=local_seed_package();p['candidates'][0]['mode']='exploration'
+        p['batch_id']=protocol.batch_identity(p)
+        with self.assertRaisesRegex(ValueError,'semilla'):
+            protocol.validate_package(p,'ICTRADING','STANDARD')
+
+    def test_local_lineage_parent_requires_v3_and_destination_broker(self):
+        protocol.validate_package(local_lineage_package(),'ICTRADING','STANDARD')
+        p=local_lineage_package();p['candidates'][0]['parent_provenance']['broker']='AXI_STANDARD'
+        p['batch_id']=protocol.batch_identity(p)
+        with self.assertRaisesRegex(ValueError,'linaje'):
+            protocol.validate_package(p,'ICTRADING','STANDARD')
 
     def test_symbol_exploration_is_an_allowed_discovery_mode(self):
         p=symbol_package()

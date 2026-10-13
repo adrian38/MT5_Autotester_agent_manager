@@ -49,6 +49,25 @@ class RequiredSetRefinementTests(unittest.TestCase):
         self.assertEqual(allocations, self.allocations)
         self.assertEqual(log, [])
 
+    def test_deep_refinement_cannot_exceed_the_active_strategy_limit(self) -> None:
+        sets = [
+            _curve_set("first.set", "EURUSD", 10.0),
+            _curve_set("second.set", "USDJPY", 20.0),
+            _curve_set("third.set", "GBPUSD", 100.0),
+        ]
+        allocations = {"first.set": 1, "second.set": 1, "third.set": 0}
+        current = evaluate_portfolio(sets, allocations, 1000.0, 1000.0)
+
+        refined, evaluation, _log, _attempts = _deep_refine_allocations(
+            sets, allocations, current,
+            minimum_active_strategies=2,
+            maximum_active_strategies=2,
+            limits=SearchLimits(max_total_units=3, enforce_point_dd=False),
+        )
+
+        self.assertEqual(evaluation.active_strategies, 2)
+        self.assertEqual(sum(units > 0 for units in refined.values()), 2)
+
     def test_multi_start_cannot_perturb_away_the_last_required_unit(self) -> None:
         allocations, _evaluation, log, valid_restarts = improve_with_multi_start_search(
             self.sets, self.allocations, self.current, 1000.0, 1000.0,

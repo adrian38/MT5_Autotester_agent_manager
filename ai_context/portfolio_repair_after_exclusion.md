@@ -56,6 +56,22 @@ manager. El nodo sólo recibe el mismo `operation=generate` que ya sabe persisti
 para una propuesta individual. No hay endpoint ni criterio nuevo en
 `manager_node_runtime/`, por lo que este cambio no requiere port al agente.
 
+## El refinamiento profundo también respeta el tamaño (2026-10-13)
+
+El greedy ya recibía `minimum_active_strategies` y
+`maximum_active_strategies` con el tamaño original, pero el refinamiento
+profundo posterior sólo recibía el mínimo. Con «Optimización profunda» activa
+podía añadir candidatas nuevas después de alcanzar el cupo: una reparación de
+16 terminó con 19 y la validación final la rechazó con «No se pudo reconstruir
+el tamaño original».
+
+`_deep_refine_allocations` propaga ahora también el máximo. Los movimientos de
+adición pueden aumentar unidades de una estrategia ya activa, pero no activar
+otra al alcanzar el cupo; los intercambios siguen permitidos porque conservan
+la amplitud. Es un límite general del optimizador full-history, no una regla
+especial de la pantalla de reparación. El refinamiento mensual estricto usa su
+propio motor y no cambia.
+
 ## Exclusión mutua entre cálculos
 
 Un nodo sólo puede tener un cálculo de portafolio activo, aunque el segundo

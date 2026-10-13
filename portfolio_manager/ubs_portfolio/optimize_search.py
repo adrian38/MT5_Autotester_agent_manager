@@ -330,6 +330,7 @@ def _apply_deep_refinement(
         allocations,
         current,
         minimum_active_strategies=ctx.minimum_active_strategies,
+        maximum_active_strategies=ctx.maximum_active_strategies,
         protected_set_ids=ctx.required_ids,
         limits=limits,
     )
