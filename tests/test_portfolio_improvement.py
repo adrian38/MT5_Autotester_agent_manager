@@ -372,7 +372,7 @@ class PortfolioRepairTests(unittest.TestCase):
         self.assertEqual(context.target_count, 2)
         self.assertEqual([row["set_id"] for row in context.excluded], ["gone.set"])
 
-    def test_optimizer_locks_survivors_but_can_change_their_lots(self) -> None:
+    def test_optimizer_locks_survivors_without_inheriting_invalid_lots(self) -> None:
         source = mock.Mock()
         survivor = SimpleNamespace(set_id="keep.set")
         context = repair_service._RepairContext(
@@ -404,7 +404,7 @@ class PortfolioRepairTests(unittest.TestCase):
             kwargs = repair_service._repair_optimizer_kwargs(context)
 
         self.assertEqual(kwargs["required_set_ids"], ["keep.set"])
-        self.assertEqual(kwargs["required_initial_allocations"], {"keep.set": 3})
+        self.assertNotIn("required_initial_allocations", kwargs)
         self.assertFalse(kwargs["preserve_required_allocations"])
         self.assertEqual(kwargs["minimum_active_strategies"], 2)
         self.assertEqual(kwargs["maximum_active_strategies"], 2)

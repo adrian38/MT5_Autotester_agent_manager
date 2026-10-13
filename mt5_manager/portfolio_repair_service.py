@@ -161,11 +161,6 @@ def _repair_context(
 
 def _repair_optimizer_kwargs(context: _RepairContext) -> dict[str, Any]:
     survivor_ids = [strategy.set_id for strategy in context.survivor_sets]
-    saved_units = {
-        str(member.get("set_path") or member.get("set_id") or ""): int(member.get("units") or 0)
-        for member in context.detail["members"] if not member.get("excluded")
-    }
-    initial = {strategy.set_id: saved_units.get(strategy.set_id, 1) for strategy in context.survivor_sets}
     portfolio_type = PORTFOLIO_TYPES[context.target]
     existing = context.source.saved_curves(
         monthly=False, portfolio_type=portfolio_type,
@@ -174,7 +169,6 @@ def _repair_optimizer_kwargs(context: _RepairContext) -> dict[str, Any]:
     kwargs = _optimizer_kwargs(context.inputs, portfolio_type, existing, context.reserve)
     return optimizer_overrides(kwargs, **{
         "required_set_ids": survivor_ids,
-        "required_initial_allocations": initial,
         "preserve_required_allocations": False,
         "minimum_active_strategies": context.target_count,
         "maximum_active_strategies": context.target_count,

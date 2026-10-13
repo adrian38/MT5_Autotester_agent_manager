@@ -28,6 +28,13 @@ reglas:
 5. Si no existe una composición completa válida, no se ofrece un resultado
    parcial.
 
+Los lotes guardados no se pasan como `required_initial_allocations`. Esa opción
+hace que el optimizador valide la composición parcial antigua antes de poder
+reducirla y falla precisamente cuando, tras las exclusiones, ya incumple un
+límite. `required_set_ids` conserva la membresía superviviente; el optimizador
+arranca esas estrategias desde su unidad mínima y reconstruye todos sus lotes
+dentro de los límites originales.
+
 La propuesta guarda `seasonal_validation.portfolio_repair` con las retiradas,
 las conservadas y las incorporaciones. También conserva las claves
 `improvement_*` mínimas como compatibilidad de transporte: los nodos ya
