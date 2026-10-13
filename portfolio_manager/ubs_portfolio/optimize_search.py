@@ -256,6 +256,7 @@ def _multi_start_pass(
         target_valley_dd=ctx.target_valley_dd,
         target_point_dd=ctx.target_point_dd,
         restarts=int(search_restarts),
+        protected_set_ids=ctx.required_ids,
         # Sin minimum_active_strategies a proposito: esta fase nunca lo recibio.
         limits=limits,
     )
@@ -329,6 +330,7 @@ def _apply_deep_refinement(
         allocations,
         current,
         minimum_active_strategies=ctx.minimum_active_strategies,
+        protected_set_ids=ctx.required_ids,
         limits=limits,
     )
     outcome = _DeepRefinement(

@@ -150,9 +150,12 @@ def _deep_swap_move(
     current: PortfolioEvaluation,
     limits: SearchLimits,
     minimum_active_strategies: int | None,
+    protected_set_ids: set[str],
     scan: _DeepScan,
 ) -> None:
     """Prueba mover una unidad de una estrategia activa a la candidata."""
+    if source.set_id in protected_set_ids and allocations.get(source.set_id, 0) <= 1:
+        return
     temp_allocations = allocations.copy()
     temp_allocations[source.set_id] -= 1
     temp_allocations[target.set_id] = temp_allocations.get(target.set_id, 0) + 1
@@ -193,6 +196,7 @@ def _best_deep_move(
     current: PortfolioEvaluation,
     limits: SearchLimits,
     minimum_active_strategies: int | None,
+    protected_set_ids: set[str],
 ) -> _DeepScan:
     """Recorre las candidatas por puntuacion y se queda con el mejor movimiento."""
     scan = _DeepScan()
@@ -213,7 +217,7 @@ def _best_deep_move(
             scan.attempts += 1
             _deep_swap_move(
                 source, target, working_sets, allocations, current, limits,
-                minimum_active_strategies, scan,
+                minimum_active_strategies, protected_set_ids, scan,
             )
     return scan
 
@@ -251,6 +255,7 @@ def _deep_refine_allocations(
     current: PortfolioEvaluation,
     *,
     minimum_active_strategies: int | None,
+    protected_set_ids: Sequence[str] | None = None,
     max_iterations: int = 160,
     limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision], int]:
@@ -260,10 +265,12 @@ def _deep_refine_allocations(
         for strategy in working_sets
     }
     decision_log: list[OptimizationDecision] = []
+    protected_ids = {str(set_id) for set_id in (protected_set_ids or ())}
     attempts = 0
     for iteration in range(1, max_iterations + 1):
         scan = _best_deep_move(
             working_sets, allocations, current, limits, minimum_active_strategies,
+            protected_ids,
         )
         attempts += scan.attempts
         if scan.best is None:
