@@ -87,6 +87,9 @@ riesgo, embudo, límites de unidades, filtros, correlaciones, margen, grupos y
 símbolos deshabilitados. Todos esos valores se pueden cambiar y la petición del
 formulario prevalece sobre los inputs guardados de la variante; la propuesta
 serializa esos valores y pasan a ser la herencia de sus futuros derivados.
+El formulario sólo presenta ajustes que el motor de arreglo consume. En
+particular, no muestra `experimental_full_search`: esa ruta pertenece a la
+generación ordinaria de la composición base A/M/C y el arreglo no la ejecuta.
 
 El detalle expone `inherited_inputs`, normalizado también para portafolios
 antiguos que no guardaban `metrics.inputs`. En bundles, la interfaz superpone

@@ -491,11 +491,13 @@ class PortfolioFormTests(unittest.TestCase):
             "margin_profile", "account_leverage", "max_margin_pct",
             "max_pair_corr", "max_downside_corr", "max_dd_overlap",
             "max_portfolio_corr", "disabled_symbols", "run_local_search",
-            "deep_optimization", "experimental_full_search", "use_correlation",
-            "validate_margin", "require_3_positive_months_6m", "grid_off",
+            "deep_optimization", "use_correlation", "validate_margin",
+            "require_3_positive_months_6m", "grid_off",
             "exclude_used_sets", "allowed_asset_groups",
         ):
             self.assertIn(name, script)
+        self.assertNotIn("experimental_full_search", script)
+        self.assertNotIn("Examinar todos los candidatos", script)
         self.assertNotIn("confirm(`", script)
 
     def test_saved_portfolio_alias_is_editable_and_shown_in_the_header(self) -> None:

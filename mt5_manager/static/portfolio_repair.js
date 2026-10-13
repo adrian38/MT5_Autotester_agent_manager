@@ -37,7 +37,6 @@
       <fieldset><legend>Procesamiento y filtros</legend><div class="portfolio-checks">
         <label><input name="run_local_search" type="checkbox"> Búsqueda local</label>
         <label><input name="deep_optimization" type="checkbox"> Optimización profunda</label>
-        <label><input name="experimental_full_search" type="checkbox"> Examinar todos los candidatos</label>
         <label><input name="use_correlation" type="checkbox"> Aplicar correlaciones</label>
         <label><input name="validate_margin" type="checkbox"> Validar margen</label>
         <label><input name="require_3_positive_months_6m" type="checkbox"> Exigir 3 meses positivos</label>
@@ -62,8 +61,8 @@
     'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr',
   ];
   const booleanNames = [
-    'run_local_search', 'deep_optimization', 'experimental_full_search',
-    'use_correlation', 'validate_margin', 'require_3_positive_months_6m',
+    'run_local_search', 'deep_optimization', 'use_correlation',
+    'validate_margin', 'require_3_positive_months_6m',
     'grid_off', 'exclude_used_sets', 'improvement_allow_same_symbol',
   ];
   dialog.querySelector('#repair-groups').innerHTML = groupNames
