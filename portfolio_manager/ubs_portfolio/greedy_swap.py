@@ -279,6 +279,7 @@ def _perturbation_move(
     target_valley_dd: float,
     target_point_dd: float,
     protected_set_ids: set[str],
+    minimum_active_strategies: int | None,
 ) -> tuple[dict[str, int], PortfolioEvaluation] | None:
     """Movimiento de perturbacion valido. A diferencia de la busqueda local, no
     se le exige mejorar: la gracia es salir del optimo local."""
@@ -287,7 +288,9 @@ def _perturbation_move(
     temp_allocations = trial_allocations.copy()
     temp_allocations[source.set_id] -= 1
     temp_allocations[target.set_id] += 1
-    if not _swap_respects_caps(sets, target, temp_allocations, limits, None):
+    if not _swap_respects_caps(
+        sets, target, temp_allocations, limits, minimum_active_strategies,
+    ):
         return None
     if not _swap_respects_correlation(sets, target, trial_allocations, temp_allocations, limits):
         return None
@@ -346,6 +349,7 @@ def _perturbed_trial(
     target_valley_dd: float,
     target_point_dd: float,
     protected_set_ids: set[str],
+    minimum_active_strategies: int | None,
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision]]:
     """Sacude la cartera con movimientos validos hasta que ninguno lo sea."""
     trial_allocations = allocations.copy()
@@ -367,6 +371,7 @@ def _perturbed_trial(
                 target_valley_dd=target_valley_dd,
                 target_point_dd=target_point_dd,
                 protected_set_ids=protected_set_ids,
+                minimum_active_strategies=minimum_active_strategies,
             )
             if moved is None:
                 continue
@@ -392,6 +397,7 @@ def improve_with_multi_start_search(
     restarts: int,
     perturbations: int = 2,
     protected_set_ids: Sequence[str] | None = None,
+    minimum_active_strategies: int | None = None,
     limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision], int]:
     if restarts <= 0 or perturbations <= 0 or len(sets) < 2:
@@ -414,6 +420,7 @@ def improve_with_multi_start_search(
             target_valley_dd=target_valley_dd,
             target_point_dd=target_point_dd,
             protected_set_ids=protected_ids,
+            minimum_active_strategies=minimum_active_strategies,
         )
         if not perturb_log:
             continue
@@ -425,6 +432,7 @@ def improve_with_multi_start_search(
             target_valley_dd=target_valley_dd,
             target_point_dd=target_point_dd,
             protected_set_ids=protected_ids,
+            minimum_active_strategies=minimum_active_strategies,
             limits=limits,
             max_iterations=200,
         )

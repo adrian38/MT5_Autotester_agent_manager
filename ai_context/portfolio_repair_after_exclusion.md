@@ -100,6 +100,15 @@ El cálculo y la persistencia siguen usando contratos ya existentes en el
 manager y el nodo. No se añadió endpoint ni criterio de escritura al runtime
 del agente, así que este cambio no requiere port a `manager_node_runtime/`.
 
+## Composición rápida (2026-10-14)
+
+El diálogo de Arreglar ofrece una casilla temporal `Composición rápida`. Al
+marcarla, el payload fuerza `run_local_search=false` y `search_restarts=0` por
+encima de los valores heredados que continúan visibles. La casilla vuelve a
+estar desmarcada cada vez que se abre el diálogo; no altera la configuración
+del portafolio origen ni añade un campo al backend. El arreglo nuevo conserva
+como efectivos los dos valores enviados.
+
 El diálogo vive en `static/portfolio_repair.js`. Añadir el `<script>` al HTML no
 basta: `ManagerHandler` sólo publica los nombres incluidos en `STATIC_FILES`.
 La prueba de integración pide el recurso por HTTP y exige respuesta 200; una

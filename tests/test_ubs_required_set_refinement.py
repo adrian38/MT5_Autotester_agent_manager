@@ -1,12 +1,16 @@
 import unittest
 
 from portfolio_manager.ubs_portfolio import (
+    CandidateFunnel,
     PeriodReport,
+    PortfolioType,
     SearchLimits,
+    SearchPlan,
     _deep_refine_allocations,
     build_robust_strategy_set,
     evaluate_portfolio,
     improve_with_multi_start_search,
+    optimize_portfolio,
 )
 
 
@@ -80,6 +84,34 @@ class RequiredSetRefinementTests(unittest.TestCase):
         self.assertEqual(allocations, self.allocations)
         self.assertEqual(log, [])
         self.assertEqual(valid_restarts, 0)
+
+    def test_multi_start_preserves_the_minimum_active_strategies(self) -> None:
+        sets = [
+            _curve_set("low.set", "EURUSD", 10.0),
+            _curve_set("high.set", "USDJPY", 100.0),
+        ]
+
+        result = optimize_portfolio(
+            sets, 1000.0, 100.0, 100.0, PortfolioType.BALANCED,
+            SearchLimits(max_total_units=2, enforce_point_dd=False),
+            CandidateFunnel(
+                min_trades_2020_2026=0,
+                top_k_per_symbol=2,
+                max_total_candidates=2,
+            ),
+            SearchPlan(
+                run_local_search=False,
+                search_restarts=20,
+                minimum_active_strategies=2,
+                maximum_active_strategies=2,
+                prefer_breadth_below_minimum=True,
+            ),
+        )
+
+        self.assertEqual(result.active_strategies, 2)
+        self.assertEqual(
+            sum(allocation.units > 0 for allocation in result.allocations), 2,
+        )
 
 
 if __name__ == "__main__":
