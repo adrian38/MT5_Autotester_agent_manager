@@ -208,6 +208,26 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         self.assertEqual(body, archive["content"])
         export_archive.assert_called_once_with("test-node", "full_history", 9)
 
+    def test_the_siblings_of_a_candidate_are_a_read_before_excluding_it(self) -> None:
+        # La ventana que ofrece arrastrar a los hermanos pregunta por aquí. Es
+        # sólo lectura: cada hermano elegido se excluye con `exclude`, el mismo
+        # de siempre, así que esto no añade nada que portar a ningún nodo.
+        answer = {
+            "set_path": "a.set", "set_name": "a.set", "symbol": "NFLX",
+            "seed_name": "padre.set",
+            "siblings": [{"set_path": "b.set", "set_name": "b.set", "selectable": True}],
+        }
+        with mock.patch.object(
+            self.manager.portfolios, "siblings", return_value=answer
+        ) as siblings:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/siblings",
+                {"scope": "full_history", "set_path": "a.set"},
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, answer)
+        siblings.assert_called_once_with("test-node", "full_history", {"set_path": "a.set"})
+
     def test_symbol_family_can_be_listed_and_downloaded_as_a_selected_zip(self) -> None:
         family = {"symbol": "NFLX", "total": 2, "sets": [{"set_path": "a.set"}, {"set_path": "b.set"}]}
         with mock.patch.object(

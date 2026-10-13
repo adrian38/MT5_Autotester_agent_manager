@@ -148,9 +148,14 @@ def _accepted_candidate_sql(conn: sqlite3.Connection) -> str | None:
         "ft6.real_tick_metrics_json",
         "null",
     )
+    # El padre de cada candidato, que es lo que agrupa a los hermanos. Opcional
+    # como las metricas: una memoria vieja puede no tener la columna, y sin ella
+    # la fila sigue sirviendo para todo lo demas.
+    seed_path_sql = _sql_when(_has_column(conn, "candidates", "seed_path"), "c.seed_path", "null")
     return f"""
         select ? as account_type, ? || ':' || c.id as candidate_id,
                c.id as source_candidate_id, c.set_path, c.symbol, c.target_symbol,
+               {seed_path_sql} as source_seed_path,
                c.period, c.family, c.report_path as is_report_path,
                cr.report_path as oos_report_path,
                ft.real_tick_report_path as full_history_report_path,

@@ -403,22 +403,24 @@ async function excludeStrategy(source, index) {
   const message = saved
     ? `${name} se pondrá en cuarentena. El paquete Grid A/M/C #${selectedId} no se modifica: sigue guardado con esta estrategia.`
     : `${name} dejará de participar en futuras generaciones Grid.`;
-  const reasonCode = await askExclusionReason({title: `Excluir ${name}`, detail: message});
-  if (!reasonCode) return;
-  const verdict = reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(reasonCode)}`;
+  const plan = await planExclusion({
+    setPath: member.set_path || member.set_id, setName: name, title: `Excluir ${name}`, detail: message,
+  });
+  if (!plan) return;
+  const verdict = plan.reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(plan.reasonCode)}`;
   const affectedPortfolioId = selectedId;
   try {
     await withOverlay(
       'Excluyendo estrategia Grid',
       `Poniendo ${name} en cuarentena…`,
       async () => {
-        await postManager('exclude', {set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: reasonCode});
+        await runExclusion(plan, {set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: plan.reasonCode});
         selectedProposal = null;
         if (saved) selectedId = null;
         await Promise.all([loadManagerState(), loadPortfolios()]);
       },
     );
-    toast((saved ? `${name} puesta en cuarentena y paquete Grid #${affectedPortfolioId} borrado.` : `${name} puesta en cuarentena.`) + verdict);
+    toast((saved ? `${name} puesta en cuarentena y paquete Grid #${affectedPortfolioId} borrado.` : `${name} puesta en cuarentena.`) + verdict + exclusionCountNote(plan));
   } catch (error) { toast(error.message, true); }
 }
 

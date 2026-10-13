@@ -64,6 +64,41 @@ sólo entra en el respaldo cuando el veredicto que viene es `live_mismatch`.
 Incluirla siempre cambiaría el significado de «el respaldo está vacío», que es
 hoy lo que impide aplicar un veredicto a un candidato que ya no tiene etapas.
 
+## Los hermanos caen con ella si se quiere (2026-10-13)
+
+Elegido el motivo, la exclusión individual abre una segunda ventana con los
+**hermanos** de la estrategia: los candidatos nacidos de la misma semilla
+—`candidates.seed_path` idéntico— que corren sobre **ese** símbolo. En el nombre
+del set son las variantes `v###` de un mismo `g###_s###`. Casi nunca falla una
+sola: si la mutación que las separa no aguanta, suelen caer las cinco, y hasta
+ahora había que ir a buscarlas a mano una por una.
+
+Decisiones que no son obvias y que conviene no deshacer sin motivo:
+
+- **Se acota al símbolo.** Un mismo padre explora varios
+  (`EBAY_H4_GOLD_XAUUSD_H4_GOLD_…` sale de un padre XAUUSD), y arrastrar a ésos
+  por lo que hizo el oro sería otra decisión, no la que se está tomando.
+- **Salen todos, se puedan excluir o no.** El que ya está excluido va con su
+  motivo y el que se quedó por el camino con «Fuera del pool», los dos sin
+  casilla. Enseñar sólo los excluibles daría una lista corta con pinta de
+  completa. Quién es arrastrable lo dice el servidor en `selectable`, porque las
+  tres pantallas pintan la misma lista.
+- **Todos desmarcados.** El diálogo ofrece «Todos» y «Ninguno»; arrastrar
+  hermanos es una decisión del usuario, no un valor por defecto.
+- **La lista sale de `candidates`, no de `candidate_rows`.** A un hermano ya
+  excluido con veredicto se le borraron las etapas, así que no está en el pool
+  —y es justo el que hay que enseñar para que no parezca que falta—.
+- **Leer los hermanos no es un requisito.** Si la lectura falla, se excluye la
+  estrategia como siempre: es una oferta, no un candado.
+- **Sólo en la exclusión individual.** Con N estrategias marcadas por casilla no
+  hay una sola de la que colgar el parentesco, y unir los hermanos de todas
+  convertiría una selección explícita en una lista sorpresa.
+
+Y nada de esto toca al nodo: cada hermano elegido se excluye con la llamada
+`exclude` de siempre y el mismo `reason_code`, así que **no hay port**. La ruta
+nueva, `siblings`, es sólo lectura y vive entera en el manager
+(`PortfolioSource.sibling_candidates`).
+
 ## Excluir ya no borra el portafolio guardado
 
 Antes, excluir un miembro borraba el A/M/C o el mes entero, y en un
@@ -267,6 +302,9 @@ pantalla lo dice. No es una operación, pero tiene que notarse que no lo es.
 
 ## Pruebas
 
+- Manager: `tests/test_exclusion_siblings.py` (4) y la ruta `siblings` en
+  `tests/test_integration_portfolios.py`. La memoria de juguete que comparten
+  está en `tests/exclusion_memory_fixture.py`.
 - Manager: `tests/test_exclusion_verdict.py` (28, con `RequalifyTests`,
   `RequalifyRoutingTests` y `PoolExclusionRoutingTests`),
   `tests/test_static_portfolio_transfer.py::ExclusionReasonScreenTests`,

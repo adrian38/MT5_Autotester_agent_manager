@@ -298,6 +298,16 @@ class PortfolioCoordinatorSavedMixin:
             source._invalidate_remote_snapshot(memory)
         self._drop_cached_proposals(node_id)
 
+    def siblings(self, node_id: str, scope: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Los hermanos de un candidato, para ofrecerlos al excluirlo.
+
+        Va contra `PortfolioSource(node)` y no contra la fuente de cálculo del
+        ámbito, igual que `pool_member_payload`: la pregunta es por el candidato
+        y su memoria, no por el portafolio desde el que se abrió el diálogo.
+        Grid comparte este pool, así que su pantalla ofrece los mismos hermanos.
+        """
+        return PortfolioSource(self._node(node_id)).sibling_candidates(payload)
+
     def release(self, node_id: str, scope: str, quarantine_id: str | int) -> None:
         # La clave de cuarentena lleva la etiqueta de la memoria que la guarda.
         # En Grid esa memoria es la base del manager, que solo aparece en las

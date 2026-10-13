@@ -325,13 +325,15 @@ document.querySelector('#symbol-set-rows').addEventListener('click', async event
       await postManager('requalify', {scope, quarantine_id: row.quarantine_key, reason_code: target});
       toast(target === 'pool' ? `${shortSetName(row.set_name)} reintegrado al pool.` : `${shortSetName(row.set_name)} movido a «${exclusionReasonLabel(target)}».`);
     } else {
-      const reasonCode = await askExclusionReason({
+      const plan = await planExclusion({
+        setPath: row.set_path,
+        setName: row.set_name,
         title: `Excluir ${shortSetName(row.set_name)}`,
-        detail: 'Elige cuarentena normal, degradación u OHLC ≠ every tick.',
+        detail: 'Elige cuarentena normal, degradación, OHLC ≠ every tick o que no funcione en real.',
       });
-      if (!reasonCode) return;
-      await postManager('exclude', {scope, set_path: row.set_path, reason_code: reasonCode});
-      toast(`${shortSetName(row.set_name)} puesto en «${exclusionReasonLabel(reasonCode)}».`);
+      if (!plan) return;
+      await runExclusion(plan, {scope, set_path: row.set_path, reason_code: plan.reasonCode});
+      toast(`${shortSetName(row.set_name)} puesto en «${exclusionReasonLabel(plan.reasonCode)}».` + exclusionCountNote(plan));
     }
     await loadManagerState();
     await loadManagedSymbolSets(managedSymbol);
@@ -608,21 +610,23 @@ async function excludeStrategy(source, index) {
   const message = saved
     ? `${setName} se pondrá en cuarentena. El portafolio #${selectedId} no se modifica: sigue guardado con esta estrategia.`
     : `${setName} dejará de participar en futuras generaciones completas.`;
-  const reasonCode = await askExclusionReason({title: `Excluir ${setName}`, detail: message});
-  if (!reasonCode) return;
-  const verdict = reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(reasonCode)}`;
+  const plan = await planExclusion({
+    setPath: member.set_path || member.set_id, setName, title: `Excluir ${setName}`, detail: message,
+  });
+  if (!plan) return;
+  const verdict = plan.reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(plan.reasonCode)}`;
   try {
     const affectedPortfolioId = selectedId;
     await withSaveOverlay(
       'Excluyendo estrategia',
       `Poniendo ${setName} en cuarentena…`,
       async () => {
-        await postManager('exclude', {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: reasonCode});
+        await runExclusion(plan, {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: plan.reasonCode});
         selectedProposal = null;
         await Promise.all([loadManagerState(), loadPortfolios(saved ? affectedPortfolioId : null)]);
       },
     );
-    toast(`${setName} puesta en cuarentena.` + verdict);
+    toast(`${setName} puesta en cuarentena.` + verdict + exclusionCountNote(plan));
   } catch (error) { toast(error.message, true); }
 }
 

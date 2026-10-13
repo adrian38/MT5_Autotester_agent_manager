@@ -158,6 +158,141 @@ function openReasonDialog({title, detail, options, selected, confirmLabel, eyebr
   });
 }
 
+/* Hermanos: los candidatos que salieron del MISMO padre para el MISMO símbolo.
+ *
+ * En el nombre del set son las variantes `v###` de un mismo `g###_s###`. Casi
+ * nunca falla una sola: si la mutación que las separa no resiste, las cinco
+ * hermanas suelen caer igual, y hasta ahora había que buscarlas a mano una por
+ * una. El diálogo las ofrece; marcarlas es decisión del usuario, y por eso
+ * salen todas desmarcadas.
+ *
+ * No es una operación nueva en el backend: cada hermano elegido se excluye con
+ * la misma llamada `exclude` y el mismo motivo, así que no hay nada que portar
+ * al nodo de ningún agente.
+ */
+function siblingRowMarkup(row, index) {
+  // `selectable` lo decide el servidor: las tres pantallas pintan esta misma
+  // lista y la regla de quién se puede arrastrar no puede vivir tres veces.
+  const blocked = !row.selectable;
+  const chip = `<span class="symbol-set-state ${reasonEsc(row.state)}">${reasonEsc(row.state_label)}</span>`;
+  return `<label class="sibling-option${blocked ? ' sibling-done' : ''}">
+    <input type="checkbox" data-sibling="${index}" value="${reasonEsc(row.set_path)}"${blocked ? ' disabled' : ''}>
+    <span><strong title="${reasonEsc(row.set_path)}">${reasonEsc(shortSetName(row.set_name))}</strong>
+    <small>${reasonEsc(row.timeframe || '—')}</small></span>${chip}
+  </label>`;
+}
+
+function siblingDialogNote(data, reasonCode) {
+  const parent = data.seed_name ? `Salieron de ${reasonEsc(shortSetName(data.seed_name))}` : 'Salieron del mismo padre';
+  const blocked = (data.siblings || []).filter(row => !row.selectable).length;
+  // Los que no se pueden arrastrar siguen en la lista: una lista corta sin
+  // explicación parece completa, y ésa es la forma de mentir sin decir nada.
+  const note = blocked
+    ? ` ${blocked} ya no se puede${blocked === 1 ? '' : 'n'} excluir desde aquí y sale${blocked === 1 ? '' : 'n'} sin casilla, con su estado.`
+    : '';
+  return `${parent} y corren sobre ${reasonEsc(data.symbol)}. Los que marques se excluirán con el mismo motivo, `
+    + `«${reasonEsc(exclusionReasonLabel(reasonCode))}».${note}`;
+}
+
+function siblingDialogMarkup(data, reasonCode, setName) {
+  return `
+    <div class="dialog-head">
+      <div><p class="eyebrow">HERMANOS DE LA ESTRATEGIA</p><h2>¿Caen también sus hermanos?</h2></div>
+      <button type="button" class="icon-button" data-sibling-cancel>×</button>
+    </div>
+    <p class="subtitle">${siblingDialogNote(data, reasonCode)}</p>
+    <div class="sibling-toolbar">
+      <span>Excluyendo <strong>${reasonEsc(shortSetName(setName))}</strong></span>
+      <span><button type="button" class="secondary" data-sibling-all>Todos</button>
+      <button type="button" class="secondary" data-sibling-none>Ninguno</button></span>
+    </div>
+    <form method="dialog" class="sibling-options">
+      ${data.siblings.map(siblingRowMarkup).join('')}
+      <div class="reason-actions">
+        <button type="button" class="secondary" data-sibling-cancel>Cancelar</button>
+        <button type="button" class="danger" data-sibling-confirm>Excluir sólo ésta</button>
+      </div>
+    </form>`;
+}
+
+/* Devuelve las rutas elegidas (puede ser []), o null si se cancela. */
+function openSiblingDialog(data, reasonCode, setName) {
+  let dialog = document.querySelector('#exclusion-sibling-dialog');
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.id = 'exclusion-sibling-dialog';
+    dialog.className = 'log-dialog reason-dialog sibling-dialog';
+    document.body.appendChild(dialog);
+  }
+  dialog.innerHTML = siblingDialogMarkup(data, reasonCode, setName);
+  const inputs = Array.from(dialog.querySelectorAll('input[data-sibling]:not(:disabled)'));
+  const confirm = dialog.querySelector('[data-sibling-confirm]');
+  const chosen = () => inputs.filter(input => input.checked).map(input => input.value);
+  // El botón dice lo que va a pasar: sin esto, «Excluir» con cero marcados y
+  // «Excluir» con cuatro son el mismo cartel para dos cosas muy distintas.
+  const refresh = () => {
+    const count = chosen().length;
+    confirm.textContent = count ? `Excluir ésta y ${count} hermana${count === 1 ? '' : 's'}` : 'Excluir sólo ésta';
+  };
+  inputs.forEach(input => input.addEventListener('change', refresh));
+  dialog.querySelector('[data-sibling-all]').onclick = () => {
+    inputs.forEach(input => { input.checked = true; }); refresh();
+  };
+  dialog.querySelector('[data-sibling-none]').onclick = () => {
+    inputs.forEach(input => { input.checked = false; }); refresh();
+  };
+  refresh();
+  return new Promise(resolve => {
+    let answer = null;
+    const finish = () => { dialog.removeEventListener('close', finish); resolve(answer); };
+    dialog.querySelectorAll('[data-sibling-cancel]').forEach(button => {
+      button.onclick = () => { answer = null; dialog.close(); };
+    });
+    confirm.onclick = () => { answer = chosen(); dialog.close(); };
+    dialog.addEventListener('close', finish);
+    dialog.showModal();
+  });
+}
+
+/* El motivo y, si los hay, los hermanos que corren la misma suerte.
+ *
+ * Devuelve `null` si se cancela en cualquiera de los dos pasos. Que no se
+ * puedan leer los hermanos NO cancela la exclusión: es una oferta, no un
+ * requisito, así que un fallo ahí deja pasar la exclusión de siempre.
+ */
+async function planExclusion({setPath, setName, title, detail} = {}) {
+  const reasonCode = await askExclusionReason({title, detail});
+  if (!reasonCode) return null;
+  let data = null;
+  try {
+    data = await postManager('siblings', {set_path: setPath});
+  } catch (error) {
+    return {reasonCode, siblings: []};
+  }
+  if (!data || !(data.siblings || []).some(row => row.selectable)) {
+    // Sin ninguno que se pueda arrastrar no hay nada que decidir: abrir un
+    // diálogo para leerlo y cerrarlo sería un paso de más en cada exclusión.
+    return {reasonCode, siblings: []};
+  }
+  const siblings = await openSiblingDialog(data, reasonCode, setName || data.set_name);
+  return siblings === null ? null : {reasonCode, siblings};
+}
+
+/* Excluye la estrategia y detrás los hermanos marcados, con el mismo motivo. */
+async function runExclusion(plan, payload) {
+  await postManager('exclude', payload);
+  for (const path of plan.siblings) {
+    await postManager('exclude', {set_path: path, reason_code: plan.reasonCode});
+  }
+}
+
+/* Cuántas han caído, para el aviso final. */
+function exclusionCountNote(plan) {
+  return plan.siblings.length
+    ? ` Con ${plan.siblings.length} hermana${plan.siblings.length === 1 ? '' : 's'}.`
+    : '';
+}
+
 /* Con qué motivo se excluye. Devuelve el código elegido, o null si se cancela. */
 function askExclusionReason({title, detail} = {}) {
   return openReasonDialog({

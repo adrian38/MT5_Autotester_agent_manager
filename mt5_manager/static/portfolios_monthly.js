@@ -421,21 +421,23 @@ async function excludeStrategy(source, index) {
   const message = saved
     ? `${setName} se pondrá en cuarentena. El Portafolio UBS mensual #${selectedId} no se modifica: sigue guardado con esta estrategia.`
     : `${setName} dejará de participar en futuras generaciones mensuales.`;
-  const reasonCode = await askExclusionReason({title: `Excluir ${setName}`, detail: message});
-  if (!reasonCode) return;
-  const verdict = reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(reasonCode)}`;
+  const plan = await planExclusion({
+    setPath: member.set_path || member.set_id, setName, title: `Excluir ${setName}`, detail: message,
+  });
+  if (!plan) return;
+  const verdict = plan.reasonCode === 'manual' ? '' : ` · ${exclusionReasonLabel(plan.reasonCode)}`;
   try {
     const affectedPortfolioId = selectedId;
     await withSaveOverlay(
       'Excluyendo estrategia',
       `Poniendo ${setName} en cuarentena…`,
       async () => {
-        await postManager('exclude', {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: reasonCode});
+        await runExclusion(plan, {scope, set_path: member.set_path || member.set_id, portfolio_id: saved ? affectedPortfolioId : null, reason_code: plan.reasonCode});
         selectedProposal = null;
         await Promise.all([loadManagerState(), loadPortfolios(saved ? affectedPortfolioId : null)]);
       },
     );
-    toast(`${setName} puesta en cuarentena.` + verdict);
+    toast(`${setName} puesta en cuarentena.` + verdict + exclusionCountNote(plan));
   } catch (error) { toast(error.message, true); }
 }
 

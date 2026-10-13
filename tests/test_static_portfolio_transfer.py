@@ -108,11 +108,33 @@ class ExclusionReasonScreenTests(unittest.TestCase):
             script = self.static(f"{name}.js")
             with self.subTest(script=name):
                 # UBS normal añade la acción por set de la ventana de símbolo;
-                # las otras pantallas conservan las dos exclusiones históricas.
-                expected = 3 if name == "portfolios" else 2
-                self.assertEqual(script.count("reason_code: reasonCode"), expected)
-                self.assertEqual(script.count("await askExclusionReason("), expected)
+                # las otras pantallas tienen una sola exclusión individual.
+                singles = 2 if name == "portfolios" else 1
+                # La individual pasa por `planExclusion`, que pide el motivo y
+                # además ofrece los hermanos. La múltiple se queda con el motivo
+                # a secas: con N estrategias marcadas no hay una sola de la que
+                # colgar el parentesco, y unir los hermanos de todas convertiría
+                # una selección explícita en una lista sorpresa.
+                self.assertEqual(script.count("await planExclusion("), singles)
+                self.assertEqual(script.count("await runExclusion("), singles)
+                self.assertEqual(script.count("await askExclusionReason("), 1)
+                self.assertEqual(script.count("reason_code: reasonCode"), 1)
                 self.assertIn("renderQuarantineTables(quarantine);", script)
+
+    def test_the_sibling_dialog_is_an_offer_and_never_blocks_the_exclusion(self) -> None:
+        script = self.static("exclusion_reason.js")
+        # Leer los hermanos es una lectura más; si falla, la exclusión de
+        # siempre tiene que seguir saliendo. Un `throw` aquí convertiría una
+        # ayuda en un candado.
+        self.assertIn("return {reasonCode, siblings: []};", script)
+        self.assertIn("postManager('siblings', {set_path: setPath})", script)
+        # Desmarcados por defecto: arrastrar hermanos es decisión del usuario.
+        self.assertNotIn("checked>", script.split("siblingRowMarkup")[1].split("}")[0])
+        self.assertIn("data-sibling-all", script)
+        self.assertIn("data-sibling-none", script)
+        # Un hermano ya excluido se enseña, pero no se vuelve a excluir: eso le
+        # reescribiría el motivo que ya tiene.
+        self.assertIn("input[data-sibling]:not(:disabled)", script)
 
     def test_every_reason_code_matches_the_python_side(self) -> None:
         script = self.static("exclusion_reason.js")
