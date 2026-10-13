@@ -182,9 +182,9 @@ function jobBadge(job, task = {}) {
   document.querySelector('#save-settings').disabled = calculationRunning;
   document.querySelector('#reset-settings').disabled = calculationRunning;
   document.querySelector('#portfolio-log').disabled = !(job?.log_path || job?.last_log_path);
-  const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'reoptimize' ? `Reoptimización del portafolio #${job.portfolio_id}` : operation === 'complete' ? `Completar portafolio #${job.portfolio_id}` : operation === 'improve' ? `Mejora de la base #${job.portfolio_id}` : '';
+  const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'repair' ? `Arreglo del portafolio #${job.portfolio_id}` : operation === 'improve' ? `Mejora de la base #${job.portfolio_id}` : '';
   document.querySelector('#proposal-operation').textContent = opText;
-  document.querySelector('#save-proposal').textContent = operation === 'reoptimize' ? 'Aplicar reoptimización' : operation === 'complete' ? 'Aplicar sustitución' : operation === 'improve' ? 'Guardar mejora como otro portafolio' : 'Guardar seleccionada';
+  document.querySelector('#save-proposal').textContent = operation === 'repair' ? 'Guardar arreglo como otro portafolio' : operation === 'improve' ? 'Guardar mejora como otro portafolio' : 'Guardar seleccionada';
   renderCalculationMonitor(job || {});
   refreshCalculationLog(true);
   if (active && !pollTimer) pollTimer = setTimeout(() => { pollTimer = null; loadTaskState(); }, 1800);
@@ -800,6 +800,7 @@ function renderSavedVariant(portfolio, requestedKey = '') {
   detailMembers = selectedDetailVariant
     ? (portfolio.members || []).filter(member => member.variant_key === selectedDetailVariant)
     : (portfolio.members || []);
+  document.querySelector('#detail-repair').hidden = !detailMembers.some(memberIsExcluded);
   const detailRecentTotals = detailMembers.reduce((totals, member) => {
     const key = member.variant_key || member.variant_label || 'default';
     totals[key] = (totals[key] || 0) + recentContribution(member);
@@ -893,8 +894,6 @@ async function loadDetail(id) {
     document.querySelector('#detail-alias-edit').textContent = portfolio.alias ? 'Editar alias' : 'Añadir alias';
     document.querySelector('#detail-meta').textContent = portfolio.created_at;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
-    document.querySelector('#detail-complete').disabled = isBundle || Number(portfolio.active_strategies) >= Number(portfolio.target_strategies || portfolio.active_strategies);
-    document.querySelector('#detail-undo').disabled = !(portfolio.versions || []).length;
     renderSavedVariant(portfolio);
   } catch (error) { toast(error.message, true); }
 }
@@ -918,17 +917,22 @@ async function loadPortfolios(preferredId = null) {
   } catch (error) { listEl.innerHTML = `<div class="portfolio-empty error-text">${esc(error.message)}</div>`; toast(error.message, true); }
 }
 
-async function startSavedOperation(action) {
-  if (!selectedId) return;
-  const label = action === 'complete' ? 'buscar una sustituta conservando las asignaciones actuales' : 'revalidar y calcular tres propuestas nuevas';
-  if (!confirm(`Se va a ${label} para el portafolio #${selectedId}. No se modificará hasta que revises y apliques una propuesta. ¿Continuar?`)) return;
-  const payload = {scope, portfolio_id: selectedId};
-  if (action === 'reoptimize') {
-    payload.dd_reserve_pct = Number(form.elements.dd_reserve_pct.value);
-    payload.search_restarts = Number(form.elements.search_restarts.value);
-  }
-  try { await postManager(action, payload); selectedProposal = null; await loadManagerState(); toast('Cálculo iniciado.'); }
-  catch (error) { toast(error.message, true); }
+async function startRepair() {
+  if (!selectedId || !currentDetail) return;
+  const mode = selectedDetailVariant || String(currentDetail.portfolio_type || '');
+  const excluded = detailMembers.filter(memberIsExcluded).length;
+  if (!excluded) return;
+  if (!confirm(`Se creará otro portafolio sin las ${excluded} estrategia(s) excluida(s), conservando las demás y reajustando sus lotes. Se añadirán sustitutas válidas si hacen falta. ¿Continuar?`)) return;
+  try {
+    await postManager('repair', {
+      scope,
+      portfolio_id: selectedId,
+      repair_portfolio_type: mode,
+    });
+    selectedProposal = null;
+    await loadManagerState();
+    toast('Arreglo iniciado.');
+  } catch (error) { toast(error.message, true); }
 }
 
 async function openReport(index) {
@@ -984,30 +988,12 @@ document.querySelector('#detail-alias-edit').addEventListener('click', async () 
   } catch (error) { toast(error.message, true); }
 });
 
-document.querySelector('#detail-complete').addEventListener('click', () => startSavedOperation('complete'));
+document.querySelector('#detail-repair').addEventListener('click', startRepair);
 document.querySelector('#detail-exclude-selected').addEventListener('click', excludeSelectedStrategies);
 document.querySelector('#detail-select-all').addEventListener('change', event => {
   selectedDetailMembers = event.target.checked ? new Set(detailMembers.map((_, index) => index)) : new Set();
   document.querySelectorAll('#portfolio-members input[type="checkbox"]').forEach(input => { input.checked = event.target.checked; });
   updateDetailSelection();
-});
-document.querySelector('#detail-reoptimize').addEventListener('click', () => startSavedOperation('reoptimize'));
-document.querySelector('#detail-undo').addEventListener('click', async () => {
-  if (!selectedId || !confirm(`Se restaurará la última versión del portafolio #${selectedId}. ¿Continuar?`)) return;
-  try {
-    const portfolioId = selectedId;
-    const data = await withSaveOverlay(
-      'Restaurando portafolio',
-      `Recuperando la última versión del portafolio #${portfolioId} y recalculando sus métricas…`,
-      async () => {
-        const restored = await postManager('undo', {scope, portfolio_id: portfolioId});
-        await Promise.all([loadManagerState(), loadPortfolios(portfolioId)]);
-        return restored;
-      },
-    );
-    toast(`Versión ${data.restored_version} restaurada.`);
-  }
-  catch (error) { toast(error.message, true); }
 });
 document.querySelector('#detail-delete').addEventListener('click', async () => {
   if (!selectedId || !confirm(`Se borrará el portafolio #${selectedId}; sus sets volverán a estar disponibles. ¿Continuar?`)) return;

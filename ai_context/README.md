@@ -65,6 +65,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   puede borrar el portafolio original (2026-09-17).
 - `portfolio_improvement_review_20260905.md`: revisión de «Mejorar base» en UBS
   normal, y que «portafolio» a secas significa UBS completo.
+- `portfolio_repair_after_exclusion.md`: contrato de «Arreglar» una variante
+  con estrategias excluidas, conservación de las restantes y guardado como un
+  portafolio nuevo sin cambiar el protocolo del nodo.
 
 ## Riesgo, margen y ejecución
 

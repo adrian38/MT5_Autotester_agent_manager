@@ -480,6 +480,29 @@ class PortfolioIntegrationTests(IntegrationTestCase):
             },
         )
 
+    def test_saved_portfolio_repair_reaches_the_independent_job(self) -> None:
+        job = {"id": "repair-33", "status": "running", "operation": "repair"}
+        with mock.patch.object(
+            self.manager.portfolios,
+            "start_saved_operation",
+            return_value=job,
+        ) as start:
+            status, payload = self.request(
+                "/api/nodes/test-node/portfolio-manager/repair",
+                {
+                    "scope": "full_history",
+                    "portfolio_id": 33,
+                    "repair_portfolio_type": "conservative",
+                },
+            )
+
+        self.assertEqual(status, 202)
+        self.assertEqual(payload, {"job": job})
+        start.assert_called_once_with(
+            "test-node", "full_history", 33, "repair",
+            {"repair_portfolio_type": "conservative"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

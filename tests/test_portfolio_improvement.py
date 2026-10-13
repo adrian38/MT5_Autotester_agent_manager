@@ -15,8 +15,10 @@ from mt5_manager.portfolio_improvement_common import (
     validate_and_attach_improvement_audit,
 )
 from mt5_manager.portfolio_service import PortfolioCoordinator
+from mt5_manager import portfolio_service
 from mt5_manager import portfolio_improvement_service as full_improvement
 from mt5_manager import portfolio_monthly_improvement_service as monthly_improvement
+from mt5_manager import portfolio_repair_service as repair_service
 
 
 class ImprovementOptionsTests(unittest.TestCase):
@@ -304,6 +306,135 @@ class ImprovementWireTests(unittest.TestCase):
         self.assertEqual(payload["operation"], "generate")
         self.assertEqual(payload["manager_operation"], "improve")
         self.assertIsNone(payload["portfolio_id"])
+
+    def test_full_repair_also_creates_a_new_single_mode_portfolio(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            coordinator = PortfolioCoordinator(
+                [{"id": "node-1"}], Path(folder) / "settings.json"
+            )
+            key = coordinator._key("node-1", "full_history")
+            coordinator.jobs[key] = {"operation": "repair", "portfolio_id": 41}
+            coordinator.proposals[key] = [{"key": "balanced"}]
+            with mock.patch(
+                "mt5_manager.portfolio_coordinator_saved.serialize_portfolio_proposals",
+                return_value=[{"serialized": True}],
+            ):
+                payload = coordinator.prepare_save(
+                    "node-1", "full_history", "balanced"
+                )
+
+        self.assertEqual(payload["operation"], "generate")
+        self.assertEqual(payload["manager_operation"], "repair")
+        self.assertIsNone(payload["portfolio_id"])
+
+
+class PortfolioRepairTests(unittest.TestCase):
+    def test_full_history_dispatches_repair_to_its_own_engine(self) -> None:
+        expected = ({"repair": True}, [{"key": "balanced"}])
+        with mock.patch.object(
+            repair_service, "generate_full_history_repair", return_value=expected
+        ) as repair:
+            actual = portfolio_service._run_portfolio_operation(
+                mock.Mock(), "full_history", "repair", 7,
+                {"repair_portfolio_type": "balanced"}, mock.Mock(),
+            )
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(repair.call_args.args[1:3], (7, {"repair_portfolio_type": "balanced"}))
+
+    def test_context_removes_only_excluded_members_before_rebuilding(self) -> None:
+        source = mock.Mock()
+        source.saved_portfolio_detail.return_value = {"portfolio": {
+            "id": 7,
+            "portfolio_type": "balanced",
+            "metrics": {"inputs": {"capital": 10000, "dd_reserve_pct": 15}},
+            "members": [
+                {"set_id": "keep.set", "set_path": "keep.set", "units": 2, "excluded": False},
+                {"set_id": "gone.set", "set_path": "gone.set", "units": 1, "excluded": True},
+            ],
+        }}
+        survivor = SimpleNamespace(set_id="keep.set")
+        with (
+            mock.patch.object(repair_service, "build_margin_model", return_value={}),
+            mock.patch.object(
+                repair_service, "_survivor_sets", return_value=([survivor], [])
+            ) as rebuild,
+            mock.patch.object(
+                repair_service, "_repair_pool", return_value=([survivor], [], [])
+            ),
+        ):
+            context = repair_service._repair_context(
+                source, 7, {"repair_portfolio_type": "balanced"}, None
+            )
+
+        rebuilt_members = rebuild.call_args.args[1]
+        self.assertEqual([row["set_id"] for row in rebuilt_members], ["keep.set"])
+        self.assertEqual(context.target_count, 2)
+        self.assertEqual([row["set_id"] for row in context.excluded], ["gone.set"])
+
+    def test_optimizer_locks_survivors_but_can_change_their_lots(self) -> None:
+        source = mock.Mock()
+        survivor = SimpleNamespace(set_id="keep.set")
+        context = repair_service._RepairContext(
+            source=source,
+            portfolio_id=7,
+            target="balanced",
+            detail={"members": [{
+                "set_id": "keep.set", "set_path": "keep.set",
+                "units": 3, "excluded": False,
+            }]},
+            inputs={},
+            survivor_sets=[survivor],
+            pool=[survivor],
+            rows=[],
+            used=[],
+            warnings=[],
+            excluded=[{"set_id": "gone.set"}],
+            target_count=2,
+            reserve=15.0,
+        )
+        with (
+            mock.patch.object(repair_service, "_optimizer_kwargs", return_value={}),
+            mock.patch.object(
+                repair_service,
+                "optimizer_overrides",
+                side_effect=lambda _base, **changes: changes,
+            ),
+        ):
+            kwargs = repair_service._repair_optimizer_kwargs(context)
+
+        self.assertEqual(kwargs["required_set_ids"], ["keep.set"])
+        self.assertEqual(kwargs["required_initial_allocations"], {"keep.set": 3})
+        self.assertFalse(kwargs["preserve_required_allocations"])
+        self.assertEqual(kwargs["minimum_active_strategies"], 2)
+        self.assertEqual(kwargs["maximum_active_strategies"], 2)
+
+    def test_repair_proposal_is_new_and_records_removed_and_added_sets(self) -> None:
+        keep = SimpleNamespace(set_id="keep.set")
+        result = SimpleNamespace(
+            active_strategies=2,
+            allocations=[
+                SimpleNamespace(set_id="keep.set", units=2),
+                SimpleNamespace(set_id="new.set", units=1),
+            ],
+            seasonal_validation={},
+        )
+        context = repair_service._RepairContext(
+            source=mock.Mock(), portfolio_id=7, target="balanced",
+            detail={"members": []}, inputs={}, survivor_sets=[keep], pool=[],
+            rows=[], used=[], warnings=[],
+            excluded=[{"set_id": "gone.set", "set_path": "gone.set"}],
+            target_count=2, reserve=15.0,
+        )
+        with mock.patch.object(repair_service, "settings_inputs", return_value={}):
+            proposal = repair_service._repair_proposal(context, result, [])
+
+        audit = result.seasonal_validation["portfolio_repair"]
+        self.assertEqual(audit["excluded_removed"], ["gone.set"])
+        self.assertEqual(audit["added_sets"], ["new.set"])
+        self.assertEqual(proposal["inputs"]["repair_source_portfolio_id"], 7)
+        self.assertEqual(proposal["inputs"]["improvement_source_portfolio_id"], 7)
+        self.assertIn("Arreglo del portafolio #7", proposal["inputs"]["improvement_label"])
 
 
 class ImprovementMaximumFallbackTests(unittest.TestCase):

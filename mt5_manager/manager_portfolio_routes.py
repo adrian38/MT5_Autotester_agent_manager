@@ -215,7 +215,7 @@ def action_route(handler, action: str, node: dict, node_id: str, scope: str, bod
         handler._send_json(202, {"job": handler.server.portfolios.stop(node_id, scope)})
     elif action == "save":
         save(handler, node, node_id, scope, body)
-    elif action in {"reoptimize", "complete", "improve"}:
+    elif action in {"reoptimize", "complete", "improve", "repair"}:
         portfolio_id = safe_int(body.pop("portfolio_id", 0), 0, minimum=1)
         handler._send_json(202, {"job": handler.server.portfolios.start_saved_operation(
             node_id, scope, portfolio_id, action, body or None

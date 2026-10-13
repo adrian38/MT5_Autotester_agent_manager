@@ -257,7 +257,7 @@ class PortfolioCoordinatorCoreMixin:
     def start_saved_operation(
         self, node_id: str, scope: str, portfolio_id: int, operation: str, changes: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        if operation not in {"reoptimize", "complete", "improve"}:
+        if operation not in {"reoptimize", "complete", "improve", "repair"}:
             raise ValueError("Operación guardada desconocida")
         source = self._persistence_source(node_id, scope)
         detail = source.saved_portfolio_detail(portfolio_id, scope)["portfolio"]

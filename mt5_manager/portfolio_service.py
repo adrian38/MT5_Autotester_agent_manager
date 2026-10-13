@@ -257,6 +257,12 @@ def _run_portfolio_operation(
         from .portfolio_improvement_dispatch import run_full_history_improvement
 
         return run_full_history_improvement(source, portfolio_id, settings, progress)
+    if operation == "repair":
+        if portfolio_id is None:
+            raise ValueError("Falta el portafolio que se quiere arreglar")
+        from .portfolio_repair_service import generate_full_history_repair
+
+        return generate_full_history_repair(source, portfolio_id, settings, progress)
     if operation == "complete":
         if portfolio_id is None:
             raise ValueError("Falta el portafolio que se quiere completar")

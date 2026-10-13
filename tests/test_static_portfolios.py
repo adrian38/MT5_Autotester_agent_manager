@@ -453,10 +453,24 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("'Borrando portafolio A/M/C'", script)
         self.assertIn("'Excluyendo estrategia'", script)
         self.assertIn("'Excluyendo estrategias'", script)
-        self.assertIn("'Restaurando portafolio'", script)
+        self.assertNotIn("'Restaurando portafolio'", script)
         self.assertIn("guardado, pero no se pudo actualizar la vista", script)
         self.assertIn(".save-overlay{", styles)
         self.assertIn(".save-spinner{", styles)
+
+    def test_excluded_variant_offers_repair_instead_of_unused_saved_actions(self) -> None:
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="detail-repair" type="button" hidden>Arreglar</button>', page)
+        self.assertNotIn('id="detail-complete"', page)
+        self.assertNotIn('id="detail-reoptimize"', page)
+        self.assertNotIn('id="detail-undo"', page)
+        self.assertIn("!detailMembers.some(memberIsExcluded)", script)
+        self.assertIn("postManager('repair'", script)
+        self.assertIn("repair_portfolio_type: mode", script)
+        self.assertIn("Guardar arreglo como otro portafolio", script)
 
     def test_saved_portfolio_alias_is_editable_and_shown_in_the_header(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
