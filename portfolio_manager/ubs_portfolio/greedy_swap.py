@@ -278,9 +278,12 @@ def _perturbation_move(
     portfolio_curves: list[Sequence[float]],
     target_valley_dd: float,
     target_point_dd: float,
+    protected_set_ids: set[str],
 ) -> tuple[dict[str, int], PortfolioEvaluation] | None:
     """Movimiento de perturbacion valido. A diferencia de la busqueda local, no
     se le exige mejorar: la gracia es salir del optimo local."""
+    if source.set_id in protected_set_ids and trial_allocations.get(source.set_id, 0) <= 1:
+        return None
     temp_allocations = trial_allocations.copy()
     temp_allocations[source.set_id] -= 1
     temp_allocations[target.set_id] += 1
@@ -342,6 +345,7 @@ def _perturbed_trial(
     portfolio_curves: list[Sequence[float]],
     target_valley_dd: float,
     target_point_dd: float,
+    protected_set_ids: set[str],
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision]]:
     """Sacude la cartera con movimientos validos hasta que ninguno lo sea."""
     trial_allocations = allocations.copy()
@@ -362,6 +366,7 @@ def _perturbed_trial(
                 portfolio_curves=portfolio_curves,
                 target_valley_dd=target_valley_dd,
                 target_point_dd=target_point_dd,
+                protected_set_ids=protected_set_ids,
             )
             if moved is None:
                 continue
@@ -386,6 +391,7 @@ def improve_with_multi_start_search(
     *,
     restarts: int,
     perturbations: int = 2,
+    protected_set_ids: Sequence[str] | None = None,
     limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision], int]:
     if restarts <= 0 or perturbations <= 0 or len(sets) < 2:
@@ -396,6 +402,7 @@ def improve_with_multi_start_search(
     best_log: list[OptimizationDecision] = []
     valid_restarts = 0
     portfolio_curves = list(limits.existing_portfolio_curves or [])
+    protected_ids = {str(set_id) for set_id in (protected_set_ids or ())}
 
     for restart in range(restarts):
         trial_allocations, trial, perturb_log = _perturbed_trial(
@@ -406,6 +413,7 @@ def improve_with_multi_start_search(
             portfolio_curves=portfolio_curves,
             target_valley_dd=target_valley_dd,
             target_point_dd=target_point_dd,
+            protected_set_ids=protected_ids,
         )
         if not perturb_log:
             continue
@@ -416,6 +424,7 @@ def improve_with_multi_start_search(
             current=trial,
             target_valley_dd=target_valley_dd,
             target_point_dd=target_point_dd,
+            protected_set_ids=protected_ids,
             limits=limits,
             max_iterations=200,
         )
