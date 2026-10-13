@@ -214,6 +214,8 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                 ("restore_json", "el respaldo que permite reintegrar"),
                 ("mark_candidate_robustness", "el veredicto de degradación"),
                 ("mark_candidate_final_tick", "el veredicto de Final Tick 6M"),
+                ("live_mismatch", "el motivo «no funciona en real con este bróker»"),
+                ("mark_candidates", "el veredicto que rechaza el candidato entero"),
             ):
                 self._assert_present(
                     source,
@@ -271,6 +273,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         expected = {
             "Excluida por degradación: rechazada en el test de robustez",
             "Excluida porque el OHLC no se parece al every tick: rechazada en Final Tick 6M",
+            "Excluida porque no funciona en las condiciones reales de este bróker: candidato rechazado",
         }
         manager_texts = (MANAGER_ROOT / "mt5_manager" / "candidate_verdict.py").read_text(encoding="utf-8")
         for text in expected:

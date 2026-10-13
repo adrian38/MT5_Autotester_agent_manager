@@ -113,12 +113,12 @@ en un mes guardado es siempre falso: ese fue el segundo candado, en la interfaz.
 Excluir por degradación o por OHLC ≠ every tick escribe estados en la memoria del
 agente (y con ellos score y pesos). Detalle en `exclusion_verdict.md`.
 
-| Copia | Veredicto (`reason_code`) |
-| --- | --- |
-| Manager (`candidate_verdict.py`, `portfolio_service.py`, `node.py`) | sí |
-| ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano |
-| AXI | **no**, pendiente (`F:` no montada) |
-| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+| Copia | Veredicto (`reason_code`) | `live_mismatch` |
+| --- | --- | --- |
+| Manager (`candidate_verdict.py`, `portfolio_service.py`, `node.py`) | sí | sí, 2026-10-13 |
+| ICTrading | sí, portado a mano | no verificado (no montada en este equipo) |
+| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí | sí, 2026-10-13 |
+| RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí | **no**, pendiente |
 
 Aquí el nodo sin portar **no falla en silencio**: devuelve la cuarentena sin
 `verdict_applied` y el manager avisa de que los estados no se tocaron.

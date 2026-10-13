@@ -1,4 +1,4 @@
-# Excluir con veredicto: degradación y OHLC ≠ every tick
+# Excluir con veredicto: degradación, OHLC ≠ every tick y no funciona en real
 
 ## Qué cambia
 
@@ -7,18 +7,62 @@ Hasta ahora excluir era una decisión del portafolio: la fila iba a
 agente, con su score y su peso intactos. El agente seguía premiando la familia,
 el símbolo y el timeframe que produjeron una estrategia recién descartada.
 
-Ahora la exclusión lleva `reason_code` y hay tres tablas en cada pantalla:
+Ahora la exclusión lleva `reason_code` y hay cuatro tablas en cada pantalla:
 
 | `reason_code` | Tabla | Qué se escribe en la memoria del agente |
 | --- | --- | --- |
 | `manual` | «Estrategias excluidas» | nada: solo la cuarentena, como siempre |
 | `degradation` | «Excluidas por degradación» | `candidate_robustness` → `rejected`; borra Final Tick, Final Tick 6M y regresión |
 | `ohlc_mismatch` | «Excluidas por OHLC ≠ every tick» | `candidate_final_tick_6m` → `rejected`; borra regresión |
+| `live_mismatch` | «Excluidas por no funcionar en real» | `candidates` → `rejected`; borra las cuatro etapas |
 
 Es literalmente lo que hace el FAIL manual de la aplicación del agente
-(`ubs/manual_status.py`: `mark_candidate_robustness` y `mark_candidate_final_tick`
-con `final_tick_stage="six_month"`), que es lo que se pidió: *«es como si hubiera
-fallado el test»*.
+(`ubs/manual_status.py`: `mark_candidate_robustness`, `mark_candidate_final_tick`
+con `final_tick_stage="six_month"` y `mark_candidates`), que es lo que se pidió:
+*«es como si hubiera fallado el test»*.
+
+## `live_mismatch` no marca una etapa, marca el candidato (2026-10-13)
+
+Los otros dos motivos dicen «esta prueba del pipeline la habría suspendido».
+Este dice otra cosa: **en las condiciones reales de mercado de este bróker la
+estrategia no funciona**, y eso no es ninguna etapa del pipeline —el tester no
+lo prueba—. Por eso el veredicto es `mark_candidates(..., "rejected")`, que
+rechaza la fila del candidato y arrastra sus cuatro etapas.
+
+Esa fila es la que había que tocar, y no por simetría: **`candidates.status` es
+lo que recorre el linaje**.
+
+- `ubs/memory_feedback.py::SOURCE_FEEDBACK_SQL` es un CTE recursivo que encadena
+  semilla → candidato (`c.seed_path = s.seed_path`) → descendientes
+  (`c.seed_path = d.set_path`), y lo que agrega de cada eslabón es `d.status`.
+- `ubs/memory_selection.py::discovery_seed_descendant_predictions` puntúa a un
+  **padre** por cómo acabaron sus hijos, leyendo ese mismo `c.status`.
+- `ubs/weights.py::row_stage_outcome` cuenta `status` como la etapa `base`: un
+  `rejected` es un fallo para el grupo (familia, símbolo, timeframe).
+
+Así que rechazar el candidato es exactamente «que conste, para cuando se vaya a
+generar algo de su padre o de sus hijos, que aquí no funcionó». No hizo falta
+ninguna tabla ni ninguna marca nueva.
+
+Y es **específico de este bróker sin pedirlo**: cada cuenta tiene su memoria
+(`ubs/account.py::account_memory_path`), y el veredicto se escribe en la del
+candidato. La misma estrategia sigue intacta en la memoria de otro bróker.
+
+El respaldo tiene que llevar también la fila de `candidates`, o reintegrar la
+dejaría rechazada para siempre. Dos detalles que no se pueden copiar de las
+etapas:
+
+- se restaura con un `update`, no borrando e insertando: `candidates.id` es
+  autoincremental y las cuatro tablas de etapa lo referencian por
+  `candidate_id`;
+- sólo se respaldan `status` y `accepted`. Guardar la fila entera devolvería
+  también `score` y `metrics_json`, que el veredicto no toca, pisando cualquier
+  recálculo posterior.
+
+Por eso `snapshot_candidate_stages` recibe `reason_code`: la fila del candidato
+sólo entra en el respaldo cuando el veredicto que viene es `live_mismatch`.
+Incluirla siempre cambiaría el significado de «el respaldo está vacío», que es
+hoy lo que impide aplicar un veredicto a un candidato que ya no tiene etapas.
 
 ## Excluir ya no borra el portafolio guardado
 
@@ -38,10 +82,10 @@ La regla vive en `PortfolioSource._quarantine_member`, que además **no pasa por
 `candidate_rows`**: un candidato con veredicto desaparece de ahí, y aun así
 tiene que poder excluirse desde el portafolio que lo contiene.
 
-## Los cuatro estados y el botón de la tabla
+## Los cinco estados y el botón de la tabla
 
-Los tres motivos y el pool son estados de una misma cosa, no operaciones
-distintas. El botón de cada fila excluida abre las cuatro opciones y
+Los cuatro motivos y el pool son estados de una misma cosa, no operaciones
+distintas. El botón de cada fila excluida abre las cinco opciones y
 `PortfolioSource.requalify_strategy` hace el cambio en este orden:
 
 1. deshace el veredicto vigente restaurando `restore_json`;
@@ -124,12 +168,25 @@ y qué hay que portar.
 
 ### Estado del port
 
-| Copia | Veredicto de exclusión |
-| --- | --- |
-| Manager (`mt5_manager/candidate_verdict.py` + `portfolio_service.py` + `node.py`) | sí |
-| ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano el 2026-08-09 |
-| AXI | **no**, pendiente (`F:` no montada) |
-| RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
+| Copia | Veredicto de exclusión | `live_mismatch` |
+| --- | --- | --- |
+| Manager (`mt5_manager/candidate_verdict.py` + `portfolio_service.py` + `node.py`) | sí | sí, 2026-10-13 |
+| ICTrading | sí, portado a mano el 2026-08-09 | no verificado (no montada en este equipo) |
+| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí, ya estaba portado | sí, 2026-10-13 |
+| RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí, ya estaba portado | **no**, pendiente |
+
+Las dos filas de «ya estaba portado» corrigen lo que decía esta tabla hasta el
+2026-10-13: daba AXI y RoboForex por pendientes «porque `F:` no está montada»,
+y en este equipo las dos lo están y las dos tenían el veredicto. Comprobar el
+checkout antes de fiarse de esta columna.
+
+`test_the_verdict_reason_codes_reach_every_reachable_fork` y
+`test_the_verdict_texts_match_on_every_reachable_fork` **fallan a propósito**
+mientras quede una copia montada sin portar; hoy fallan por RoboForex y el
+fallo es la instrucción. El port son dos cosas en
+`manager_node_runtime/portfolio_verdicts.py`: importar `mark_candidates` de
+`ubs.manual_status` y copiar el motivo, el respaldo de la fila del candidato y
+su restauración. Hay que **reiniciar la aplicación del agente** después.
 
 Hay que **reiniciar la aplicación del agente**: el nodo va embebido en `app_ui.py`
 vía `manager_node_lifecycle.py`.
@@ -210,7 +267,7 @@ pantalla lo dice. No es una operación, pero tiene que notarse que no lo es.
 
 ## Pruebas
 
-- Manager: `tests/test_exclusion_verdict.py` (23, con `RequalifyTests`,
+- Manager: `tests/test_exclusion_verdict.py` (28, con `RequalifyTests`,
   `RequalifyRoutingTests` y `PoolExclusionRoutingTests`),
   `tests/test_static_portfolio_transfer.py::ExclusionReasonScreenTests`,
   `tests/test_node_runtime_fork_parity.py` (`test_no_fork_deletes_the_saved_portfolio_when_excluding`,

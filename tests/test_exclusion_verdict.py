@@ -1,11 +1,15 @@
-"""Exclusión con veredicto: degradación y OHLC ≠ every tick.
+"""Exclusión con veredicto: degradación, OHLC ≠ every tick y no funciona en real.
 
-Excluir por uno de esos dos motivos no es una decisión del portafolio, es el
+Excluir por uno de esos tres motivos no es una decisión del portafolio, es el
 veredicto que el pipeline habría escrito: cambia estados en la memoria del
 agente y, con ellos, score de feedback y pesos (`ubs/weights.py` los calcula
 sobre estas filas, no los guarda). Estas pruebas fijan las tres consecuencias
 que se pueden comprobar aquí: qué se marca, qué se borra y qué devuelve
 «Reintegrar».
+
+El tercero no marca una etapa sino el candidato, porque «en las condiciones
+reales de este bróker no funciona» no es ninguna etapa del pipeline y porque
+`candidates.status` es la fila que recorre el linaje del agente.
 """
 from __future__ import annotations
 
@@ -25,7 +29,7 @@ from mt5_manager.portfolio_service import PortfolioCoordinator, PortfolioSource
 
 SCHEMA = """
 create table candidates(id integer primary key,set_path text,symbol text,target_symbol text,
-    period text,family text,report_path text,status text,score real);
+    period text,family text,report_path text,status text,score real,accepted integer);
 create table candidate_robustness(candidate_id integer primary key,report_path text,status text,
     score real,accepted integer,evaluated_at text);
 create table candidate_final_tick(candidate_id integer primary key,real_tick_report_path text,
@@ -34,8 +38,8 @@ create table candidate_final_tick_6m(candidate_id integer primary key,ohlc_repor
     real_tick_report_path text,from_date text,to_date text,status text,accepted integer,evaluated_at text);
 create table candidate_regression(candidate_id integer primary key,status text,accepted integer,
     points_applied real,evaluated_at text);
-insert into candidates values(1,'sets/a.set','EURUSD','EURUSD','H1','f','reports/a.html','accepted',91.5);
-insert into candidates values(2,'sets/b.set','GBPUSD','GBPUSD','H1','f','reports/b.html','accepted',80.0);
+insert into candidates values(1,'sets/a.set','EURUSD','EURUSD','H1','f','reports/a.html','accepted',91.5,1);
+insert into candidates values(2,'sets/b.set','GBPUSD','GBPUSD','H1','f','reports/b.html','accepted',80.0,1);
 insert into candidate_robustness values(1,'reports/a_oos.html','accepted',88.0,1,'2026-08-01T10:00:00');
 insert into candidate_robustness values(2,'reports/b_oos.html','accepted',70.0,1,'2026-08-01T10:00:00');
 insert into candidate_final_tick values(1,'reports/a_full.html','2020.01.01','2026.06.30','accepted',1,'2026-08-01T11:00:00');
@@ -75,6 +79,12 @@ def stage_rows(memory: Path) -> dict[str, list[tuple]]:
         return result
 
 
+def candidate_rows(memory: Path) -> list[tuple]:
+    """El candidato en sí, que es lo que mira el linaje del agente."""
+    with contextlib.closing(sqlite3.connect(memory)) as conn:
+        return conn.execute("select id,status,accepted from candidates order by id").fetchall()
+
+
 class ExclusionVerdictTests(unittest.TestCase):
     def test_a_degradation_exclusion_rejects_robustness_and_drops_the_later_stages(self) -> None:
         with broker_project() as (source, memory):
@@ -101,6 +111,50 @@ class ExclusionVerdictTests(unittest.TestCase):
             self.assertEqual(stages["candidate_robustness"], [(1, "accepted"), (2, "accepted")])
             self.assertEqual(stages["candidate_final_tick"], [(1, "accepted"), (2, "accepted")])
             self.assertEqual(stages["candidate_regression"], [(2, "accepted")])
+
+    def test_a_live_mismatch_exclusion_rejects_the_candidate_and_drops_every_stage(self) -> None:
+        with broker_project() as (source, memory):
+            source.exclude_strategy({"set_path": "sets/a.set", "reason_code": "live_mismatch"})
+            # No hay etapa que suspender: lo que falló son las condiciones reales
+            # de este bróker, que el pipeline no prueba. Se rechaza el candidato,
+            # igual que `ubs.manual_status.mark_candidates(..., "rejected")`.
+            self.assertEqual(candidate_rows(memory), [(1, "rejected", 0), (2, "accepted", 1)])
+            # Ése es el estado que recorre el linaje del agente, así que al
+            # generar desde su padre o desde sus hijos ya consta que aquí falló.
+            for table, rows in stage_rows(memory).items():
+                self.assertEqual(rows, [(2, "accepted")], table)
+            self.assertEqual(
+                [row["source_candidate_id"] for row in source.candidate_rows(include_quarantined=True)], [2]
+            )
+
+    def test_releasing_a_live_mismatch_restores_the_candidate_and_its_stages(self) -> None:
+        with broker_project() as (source, memory):
+            before_stages, before_candidates = stage_rows(memory), candidate_rows(memory)
+            quarantine_id = source.exclude_strategy(
+                {"set_path": "sets/a.set", "reason_code": "live_mismatch"}
+            )
+            source.release_strategy(f"ICTRADING/STANDARD|{quarantine_id}")
+
+            self.assertEqual(stage_rows(memory), before_stages)
+            self.assertEqual(candidate_rows(memory), before_candidates)
+            self.assertEqual(
+                [row["source_candidate_id"] for row in source.candidate_rows(include_quarantined=False)], [1, 2]
+            )
+
+    def test_the_live_verdict_keeps_the_candidate_id_that_the_stages_point_at(self) -> None:
+        # El respaldo del candidato se devuelve con un `update`, no borrando e
+        # insertando como las etapas: `candidates.id` es autoincremental y las
+        # cuatro tablas de etapa lo referencian por `candidate_id`.
+        with broker_project() as (source, memory):
+            quarantine_id = source.exclude_strategy(
+                {"set_path": "sets/a.set", "reason_code": "live_mismatch"}
+            )
+            source.requalify_strategy(f"ICTRADING/STANDARD|{quarantine_id}", "pool")
+            with contextlib.closing(sqlite3.connect(memory)) as conn:
+                self.assertEqual(
+                    conn.execute("select id,set_path,score from candidates order by id").fetchall(),
+                    [(1, "sets/a.set", 91.5), (2, "sets/b.set", 80.0)],
+                )
 
     def test_a_manual_exclusion_leaves_every_stage_untouched(self) -> None:
         with broker_project() as (source, memory):
@@ -211,6 +265,41 @@ class RequalifyTests(unittest.TestCase):
             self.assertEqual(
                 [row["source_candidate_id"] for row in source.candidate_rows(include_quarantined=False)], [1, 2]
             )
+
+    def test_moving_from_degradation_to_live_mismatch_undoes_the_first_verdict(self) -> None:
+        with broker_project() as (source, memory):
+            before_candidates = candidate_rows(memory)
+            quarantine_id = source.exclude_strategy(
+                {"set_path": "sets/a.set", "reason_code": "degradation"}
+            )
+            key = f"ICTRADING/STANDARD|{quarantine_id}"
+
+            source.requalify_strategy(key, "live_mismatch")
+
+            # Encadenar los dos veredictos habría guardado como «estado anterior»
+            # una memoria sin Final Tick: volver al pool no restauraría nada.
+            self.assertEqual(candidate_rows(memory), [(1, "rejected", 0), (2, "accepted", 1)])
+            row = {item["set_name"]: item for item in source.quarantine_rows()}["a.set"]
+            self.assertEqual(row["reason_code"], "live_mismatch")
+            self.assertTrue(row["restorable"])
+
+            source.requalify_strategy(key, "pool")
+            self.assertEqual(candidate_rows(memory), before_candidates)
+
+    def test_moving_from_live_mismatch_to_a_stage_verdict_gives_the_candidate_back(self) -> None:
+        with broker_project() as (source, memory):
+            before_candidates = candidate_rows(memory)
+            quarantine_id = source.exclude_strategy(
+                {"set_path": "sets/a.set", "reason_code": "live_mismatch"}
+            )
+
+            source.requalify_strategy(f"ICTRADING/STANDARD|{quarantine_id}", "ohlc_mismatch")
+
+            # El candidato vuelve a estar aceptado: lo que ahora falla es el 6M.
+            self.assertEqual(candidate_rows(memory), before_candidates)
+            stages = stage_rows(memory)
+            self.assertEqual(stages["candidate_final_tick_6m"], [(1, "rejected"), (2, "accepted")])
+            self.assertEqual(stages["candidate_robustness"], [(1, "accepted"), (2, "accepted")])
 
     def test_moving_to_quarantine_keeps_the_row_and_drops_the_verdict(self) -> None:
         with broker_project() as (source, memory):

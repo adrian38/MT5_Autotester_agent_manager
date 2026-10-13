@@ -28,6 +28,13 @@ const EXCLUSION_REASONS = [
     detail: 'Se marca Final Tick 6M como rechazado, que es justo lo que mide esa prueba. Se borra la regresión, y score y pesos se recalculan sin ella.',
     warning: 'Se guarda una copia del estado anterior: volver a otro estado devuelve Final Tick 6M y la regresión tal y como estaban.',
   },
+  {
+    code: 'live_mismatch',
+    label: 'No funciona en real',
+    title: 'Excluir porque no funciona en real con este bróker',
+    detail: 'Se marca el candidato como rechazado en la memoria de este bróker y se borran sus cuatro etapas. Queda constancia en el linaje: al generar desde su padre o desde sus hijos, el agente ve que aquí no funcionó.',
+    warning: 'Sólo afecta a este bróker: cada cuenta tiene su propia memoria. Se guarda una copia del estado anterior, así que volver a otro estado devuelve el candidato y sus cuatro etapas tal y como estaban.',
+  },
 ];
 
 /* El pool no es un motivo de exclusión: es la salida de la cuarentena. Vive
@@ -64,14 +71,14 @@ function reasonEsc(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
 }
 
-/* Reparte la cuarentena en las tres tablas de la pantalla.
+/* Reparte la cuarentena en las cuatro tablas de la pantalla.
  *
  * Una sola lista mezclaba «no la quiero en este portafolio» con «esta estrategia
  * falló», que tienen consecuencias distintas en la memoria del agente. El
  * reparto es por `reason_code`, no por el texto del motivo.
  */
 function renderQuarantineTables(quarantine) {
-  const groups = {manual: [], degradation: [], ohlc_mismatch: []};
+  const groups = {manual: [], degradation: [], ohlc_mismatch: [], live_mismatch: []};
   (quarantine || []).forEach(row => {
     groups[normalizeExclusionReason(row.reason_code)].push(row);
   });
@@ -95,6 +102,7 @@ function renderQuarantineTables(quarantine) {
   fill('#quarantine-rows', groups.manual, 'No hay estrategias en cuarentena.');
   fill('#quarantine-degradation-rows', groups.degradation, 'Ninguna estrategia rechazada por degradación.');
   fill('#quarantine-ohlc-rows', groups.ohlc_mismatch, 'Ninguna estrategia rechazada por parecido OHLC / every tick.');
+  fill('#quarantine-live-rows', groups.live_mismatch, 'Ninguna estrategia rechazada por no funcionar en real con este bróker.');
 }
 
 /* Un diálogo para las dos preguntas: con qué motivo se excluye, y a qué estado

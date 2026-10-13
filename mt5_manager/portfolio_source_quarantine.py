@@ -71,7 +71,9 @@ class PortfolioSourceQuarantineMixin:
         # ya no es el que se va a rechazar.
         with self.connect_memory(candidate_memory, write=True) as read_conn:
             return candidate_verdict.dumps_snapshot(
-                candidate_verdict.snapshot_candidate_stages(read_conn, candidate_id)
+                candidate_verdict.snapshot_candidate_stages(
+                    read_conn, candidate_id, reason_code=reason_code,
+                )
             )
 
     def _write_quarantine_row(
@@ -193,7 +195,9 @@ class PortfolioSourceQuarantineMixin:
             candidate_verdict.restore_candidate_stages(conn, row["restore_json"])
             # 2. Fotografiar el estado ya restaurado, que es el que habrá que
             #    devolver la próxima vez.
-            snapshot = candidate_verdict.snapshot_candidate_stages(conn, row["candidate_id"])
+            snapshot = candidate_verdict.snapshot_candidate_stages(
+                conn, row["candidate_id"], reason_code=target,
+            )
             if target not in {"pool", candidate_verdict.MANUAL}:
                 if not snapshot:
                     raise ValueError(
@@ -227,10 +231,10 @@ class PortfolioSourceQuarantineMixin:
             conn.commit()
 
     def requalify_strategy(self, quarantine_key: str | int, reason_code: str) -> str:
-        """Mueve una estrategia excluida entre los cuatro estados posibles.
+        """Mueve una estrategia excluida entre los cinco estados posibles.
 
-        Los tres motivos de exclusión y el pool son estados de una misma cosa, no
-        operaciones independientes: reclasificar es **deshacer el veredicto
+        Los cuatro motivos de exclusión y el pool son estados de una misma cosa,
+        no operaciones independientes: reclasificar es **deshacer el veredicto
         actual y aplicar el nuevo**, nunca aplicar uno encima de otro.
 
         No pasa por `candidate_rows`: un candidato con veredicto ya no está ahí.
