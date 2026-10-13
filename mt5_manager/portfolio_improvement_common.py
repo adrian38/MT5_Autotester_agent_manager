@@ -23,6 +23,29 @@ class ImprovementOptions:
     min_efficiency_gain_pct: float = 3.0
 
 
+IMPROVEMENT_INHERITED_KEYS = frozenset({
+    "capital", "valley_dd_pct", "top_k_per_symbol", "max_total_candidates",
+    "min_trades_2020_2026", "min_strategy_recent_contribution_pct",
+    "max_units_per_set", "max_total_units", "max_units_per_symbol",
+    "max_sets_per_symbol", "dd_reserve_pct", "search_restarts",
+    "margin_profile", "account_leverage", "max_margin_pct", "max_pair_corr",
+    "max_downside_corr", "max_dd_overlap", "max_portfolio_corr",
+    "disabled_symbols", "allowed_asset_groups", "run_local_search",
+    "deep_optimization", "use_correlation", "validate_margin",
+    "require_3_positive_months_6m", "grid_off",
+})
+
+
+def improvement_inherited_overrides(requested: dict[str, Any]) -> dict[str, Any]:
+    overrides = requested.get("improvement_inherited_overrides") or {}
+    if not isinstance(overrides, dict):
+        raise ValueError("Las características heredadas de la mejora no son válidas")
+    unknown = sorted(set(overrides) - IMPROVEMENT_INHERITED_KEYS)
+    if unknown:
+        raise ValueError(f"Característica heredada desconocida: {', '.join(unknown)}")
+    return overrides
+
+
 def improvement_options(inputs: dict[str, Any]) -> ImprovementOptions:
     max_additions = int(inputs.get("improvement_additions") or 2)
     if not 1 <= max_additions <= 5:
@@ -246,6 +269,7 @@ def _candidate_improvement_audit(
     members: _ImprovementMembers,
     options: ImprovementOptions,
     limits: _CorrelationLimits,
+    enforce_general_correlation: bool,
 ) -> dict[str, Any]:
     strategy = members.by_id.get(added_id)
     if strategy is None:
@@ -257,7 +281,11 @@ def _candidate_improvement_audit(
     pearson = _max_or_zero(max(pair.pearson_corr, 0.0) for pair in pairs)
     downside = _max_or_zero(max(pair.downside_corr, 0.0) for pair in pairs)
     overlap = _max_or_zero(pair.dd_overlap for pair in pairs)
-    if (
+    same_symbol = any(
+        portfolio_symbol_key(peer.symbol) == portfolio_symbol_key(strategy.symbol)
+        for peer in members.originals
+    )
+    if (same_symbol or enforce_general_correlation) and (
         pearson > limits.pearson + 1e-9
         or downside > limits.downside + 1e-9
         or overlap > limits.overlap + 1e-9
@@ -268,10 +296,6 @@ def _candidate_improvement_audit(
             f"downside {downside:.2f}/{limits.downside:.2f}, "
             f"solapamiento DD {overlap:.2f}/{limits.overlap:.2f}"
         )
-    same_symbol = any(
-        portfolio_symbol_key(peer.symbol) == portfolio_symbol_key(strategy.symbol)
-        for peer in members.originals
-    )
     if same_symbol and not options.allow_same_symbol:
         raise ValueError(f"{Path(added_id).name} repite símbolo y la opción no está marcada")
     return {
@@ -371,7 +395,13 @@ def validate_and_attach_improvement_audit(
     members = _improvement_members(result, all_sets, original_ids, options)
     limits = _correlation_limits(inputs)
     candidate_audit = [
-        _candidate_improvement_audit(added_id, members, options, limits)
+        _candidate_improvement_audit(
+            added_id,
+            members,
+            options,
+            limits,
+            bool(inputs.get("_improvement_enforce_general_correlation", True)),
+        )
         for added_id in members.added_ids
     ]
     efficiencies = _improvement_efficiency(result, baseline, options, minimum_gain_pct)

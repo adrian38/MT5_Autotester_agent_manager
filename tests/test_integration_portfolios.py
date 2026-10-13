@@ -469,6 +469,12 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                     "improvement_additions": 2,
                     "improvement_exclude_used_sets": True,
                     "improvement_allow_same_symbol": True,
+                    "improvement_inherited_overrides": {
+                        "capital": 9000,
+                        "use_correlation": False,
+                        "run_local_search": True,
+                        "search_restarts": 6,
+                    },
                 },
             )
 
@@ -484,6 +490,12 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                 "improvement_additions": 2,
                 "improvement_exclude_used_sets": True,
                 "improvement_allow_same_symbol": True,
+                "improvement_inherited_overrides": {
+                    "capital": 9000,
+                    "use_correlation": False,
+                    "run_local_search": True,
+                    "search_restarts": 6,
+                },
             },
         )
 

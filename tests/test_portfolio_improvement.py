@@ -552,10 +552,10 @@ class ImprovementScreenTests(unittest.TestCase):
         self.assertIn("improvement_margin_profile: fields.improvement_margin_profile.value", script)
         self.assertIn('name="improvement_account_leverage"', script)
         self.assertIn("improvement_account_leverage: Number(fields.improvement_account_leverage.value)", script)
-        self.assertIn("variantSaved.account_leverage", script)
+        self.assertIn("inherited.account_leverage", script)
         self.assertIn("las carteras antiguas pueden no conservar la elección original", script)
         # Llega puesto con el de la base, no con el del formulario central.
-        self.assertIn("variantSaved.margin_profile || saved.margin_profile", script)
+        self.assertIn("inherited.improvement_margin_profile || inherited.margin_profile", script)
         self.assertIn("son siempre los del broker de origen", script)
         # El mensual sigue congelado: no gana selector.
         monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
@@ -565,7 +565,7 @@ class ImprovementScreenTests(unittest.TestCase):
     def test_normal_dialog_controls_grid_off_for_new_candidates(self) -> None:
         script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
         self.assertIn('name="improvement_grid_off" type="checkbox"', script)
-        self.assertIn("variantSaved.grid_off ?? saved.grid_off", script)
+        self.assertIn("inherited.improvement_grid_off ?? inherited.grid_off", script)
         self.assertIn("improvement_grid_off: fields.improvement_grid_off.checked", script)
         self.assertIn("Las estrategias originales no se retiran", script)
         monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")

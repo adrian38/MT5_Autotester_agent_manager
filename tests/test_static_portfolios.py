@@ -102,7 +102,7 @@ class PortfolioFormTests(unittest.TestCase):
                     script,
                 )
 
-    def test_symbol_dialog_uses_one_disable_control_for_all_three_flows(self) -> None:
+    def test_symbol_dialog_and_saved_operations_use_their_effective_disabled_symbols(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
         script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
@@ -117,7 +117,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("chain_improvement_disabled_symbols", script)
         self.assertIn("postManager('settings', payload)", script)
         self.assertIn("improvement_disabled_symbols", improvement)
-        self.assertIn("formPayload().disabled_symbols", improvement)
+        self.assertIn('name="improvement_disabled_symbols"', improvement)
+        self.assertIn("disabled_symbols: fields.improvement_disabled_symbols.value", improvement)
 
     def test_symbol_dialog_lists_and_exports_selected_family_sets(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"

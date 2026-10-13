@@ -152,6 +152,27 @@ El cálculo ocurre en el manager y el nodo sólo persiste los inputs serializado
 por lo que no requiere cambios en `manager_node_runtime/`. El mensual permanece
 con su interfaz separada y no gana el control de mejora.
 
+### Confirmación completa de la herencia antes de mejorar (2026-10-13)
+
+El diálogo UBS normal conserva sus controles propios —variante A/M/C, mínimo de
+incorporaciones, mejora mínima beneficio/DD y prioridad de selección— y añade
+la confirmación editable de todas las características heredadas del formulario
+de generación. Los valores efectivos salen del portafolio y de la variante
+visible; la petición los transporta en `improvement_inherited_overrides`, se
+normaliza otra vez después de superponerlos a la variante guardada y elimina el
+contenedor antes de serializar. Por tanto, capital, DD, embudo, unidades,
+reinicios, búsqueda local, refinamiento profundo, filtros, correlaciones,
+margen, grupos y símbolos deshabilitados gobiernan la mejora y quedan como
+inputs planos de la nueva cartera para sus descendientes.
+
+La mejora ya no fuerza correlaciones activas ni desactiva búsqueda local y
+reinicios. Esos tres valores obedecen al diálogo. La excepción propia para
+repetir símbolo se conserva: aunque la correlación general esté desactivada, una
+incorporación del mismo símbolo sólo se acepta si Pearson, correlación downside
+y solapamiento de drawdown quedan por debajo de los topes elegidos; la auditoría
+registra las medidas y la justificación de baja dependencia. El mensual no usa
+el nuevo contenedor ni cambia su interfaz.
+
 La UI permite elegir cómo ordenar las propuestas válidas encontradas:
 
 - `balanced`: prefiere probabilidad de excedencia no creciente y, si todas
