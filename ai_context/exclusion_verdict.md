@@ -113,6 +113,29 @@ Consecuencia asumida: un portafolio guardado puede contener una estrategia que
 ya no es candidata. Es información histórica correcta —eso es lo que se guardó—
 y el pool, que es lo que decide la siguiente generación, sí la excluye.
 
+### Y por eso la fila va en rojo (2026-10-13)
+
+Esa consecuencia no se veía. La tabla de miembros pintaba igual a la excluida
+que a las demás y le seguía ofreciendo «Excluir», que sobre algo ya excluido
+sólo le reescribe el motivo. Ahora `saved_portfolio_detail` cruza los miembros
+con la cuarentena y cada fila lleva `excluded`, `reason_code`, `reason_label` y
+`quarantine_key`; la interfaz la pinta en rojo con su motivo y **da la vuelta al
+botón**: donde decía «Excluir» dice «Reintegrar».
+
+- Reintegrar es `requalify` al estado `pool`, el mismo camino que usa la tabla
+  de excluidas. Dos formas de reintegrar podrían divergir.
+- En un paquete A/M/C no hay botón por fila —se excluye con casillas—, pero la
+  fila excluida sí lo tiene: es lo único que se puede hacer ahí con ella. Su
+  casilla va deshabilitada por el mismo motivo que arriba.
+- **La ruta del miembro se resuelve antes de cruzar.** `portfolio_allocations`
+  guarda la del agente y `quarantine_rows` la devuelve ya traducida: cruzarlas
+  en crudo no casaba nunca y la marca no salía jamás. Mismo tropiezo que en los
+  hermanos, dos veces en la misma sesión.
+- La fila lleva siempre las cuatro claves, también cuando no hay cuarentena. Un
+  atajo que las omitiera dejaría dos formas de la misma fila.
+- Las propuestas recién calculadas no se marcan: salen del pool, así que no
+  pueden contener una excluida, y no son un portafolio guardado.
+
 La regla vive en `PortfolioSource._quarantine_member`, que además **no pasa por
 `candidate_rows`**: un candidato con veredicto desaparece de ahí, y aun así
 tiene que poder excluirse desde el portafolio que lo contiene.

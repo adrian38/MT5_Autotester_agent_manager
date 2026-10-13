@@ -262,11 +262,13 @@ function ladderCell(member, risk) {
 
 function memberRow(member, saved = false, index = 0, selectable = false, risk = null) {
   const path = member.set_path || member.set_id || '';
-  const selector = selectable ? `<td><input type="checkbox" aria-label="Seleccionar ${esc(setName(member))}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
+  // Una ya excluida no se vuelve a marcar: excluirla otra vez sólo le
+  // reescribiría el motivo que ya tiene.
+  const selector = selectable ? `<td><input type="checkbox"${memberIsExcluded(member) ? ' disabled' : ''} aria-label="Seleccionar ${esc(setName(member))}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
   const action = saved
-    ? `<td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button></div></td>`
-    : `<td><button type="button" class="danger table-action" onclick="excludeStrategy('proposal',${index})">Excluir</button></td>`;
-  return `<tr>${selector}<td title="${esc(path)}"><strong>${esc(setName(member))}</strong><small>${esc(path)}</small></td><td>${esc(member.candidate_id || '—')}</td><td><strong>${esc(member.symbol || '')}</strong></td><td>${esc(member.timeframe || '—')}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution, 2)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Fuente: ${esc(member.floating_dd_source || '—')}">${number(member.standalone_floating_dd, 2)}</td><td>${number(member.max_balance_dd_001, 2)}</td><td>${number(member.max_equity_dd_001, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td>${ladderCell(member, risk)}${action}</tr>`;
+    ? `<td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button>${memberExclusionButton(member, 'detail', index)}</div></td>`
+    : `<td>${memberExclusionButton(member, 'proposal', index)}</td>`;
+  return `<tr${excludedRowClass(member)}>${selector}<td title="${esc(path)}"><strong>${esc(setName(member))}</strong><small>${esc(path)}</small>${excludedMemberChip(member)}</td><td>${esc(member.candidate_id || '—')}</td><td><strong>${esc(member.symbol || '')}</strong></td><td>${esc(member.timeframe || '—')}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution, 2)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Fuente: ${esc(member.floating_dd_source || '—')}">${number(member.standalone_floating_dd, 2)}</td><td>${number(member.max_balance_dd_001, 2)}</td><td>${number(member.max_equity_dd_001, 2)}</td><td>${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td>${ladderCell(member, risk)}${action}</tr>`;
 }
 
 function renderSelectedProposal() {
@@ -447,6 +449,17 @@ async function excludeSelectedStrategies() {
       },
     );
     toast(`${count} estrategia${count === 1 ? '' : 's'} puesta${count === 1 ? '' : 's'} en cuarentena.`);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function reinstateStrategy(source, index) {
+  const member = source === 'proposal' ? proposalMembers[index] : detailMembers[index];
+  if (!member) return;
+  const affectedPortfolioId = selectedId;
+  try {
+    if (await reinstateMember(member)) {
+      await Promise.all([loadManagerState(), loadPortfolios(affectedPortfolioId)]);
+    }
   } catch (error) { toast(error.message, true); }
 }
 

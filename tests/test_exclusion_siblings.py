@@ -116,5 +116,68 @@ class SiblingCandidateTests(unittest.TestCase):
             self.assertEqual(result["seed_name"], "")
 
 
+class ExcludedMemberTests(unittest.TestCase):
+    """El miembro excluido que sigue dentro de un portafolio guardado.
+
+    Desde que excluir dejó de tocar el resultado guardado, la fila se queda
+    donde estaba. El detalle tiene que decirlo, o la pantalla ofrece «Excluir»
+    sobre algo ya excluido y no hay forma de distinguirla.
+    """
+
+    @staticmethod
+    def _saved_portfolio(source) -> int:
+        with contextlib.closing(sqlite3.connect(source.memory)) as conn:
+            conn.executescript(
+                """
+                create table portfolios(id integer primary key,name text,portfolio_type text,
+                    type text,portfolio_scope text,created_at text,metrics_json text);
+                create table portfolio_allocations(portfolio_id integer,variant_key text,
+                    variant_label text,set_id text,set_path text,candidate_id text,symbol text,
+                    timeframe text,units integer,lot real);
+                insert into portfolios values(1,'cartera','single','single','full_history','2026-10-01','{}');
+                insert into portfolio_allocations values(1,'','','sets/a.set','sets/a.set',
+                    'ICTRADING/STANDARD:1','EURUSD','H1',2,0.02);
+                insert into portfolio_allocations values(1,'','','sets/b.set','sets/b.set',
+                    'ICTRADING/STANDARD:2','GBPUSD','H1',1,0.01);
+                """
+            )
+            conn.commit()
+        return 1
+
+    def test_the_member_that_is_already_excluded_comes_marked_with_its_key(self) -> None:
+        with broker_project() as (source, _memory):
+            portfolio_id = self._saved_portfolio(source)
+            source.exclude_strategy({"set_path": "sets/a.set", "reason_code": "live_mismatch"})
+
+            detail = source.saved_portfolio_detail(portfolio_id, "full_history")
+            members = {row["set_name"]: row for row in detail["portfolio"]["members"]}
+
+            self.assertTrue(members["a.set"]["excluded"])
+            self.assertEqual(members["a.set"]["reason_code"], "live_mismatch")
+            self.assertEqual(members["a.set"]["reason_label"], "No funciona en real")
+            # Sin la clave de cuarentena no hay acción contraria posible.
+            self.assertTrue(members["a.set"]["quarantine_key"])
+            self.assertFalse(members["b.set"]["excluded"])
+            self.assertEqual(members["b.set"]["quarantine_key"], "")
+
+    def test_reintegrating_the_member_clears_the_mark(self) -> None:
+        with broker_project() as (source, _memory):
+            portfolio_id = self._saved_portfolio(source)
+            source.exclude_strategy({"set_path": "sets/a.set", "reason_code": "degradation"})
+            detail = source.saved_portfolio_detail(portfolio_id, "full_history")
+            key = next(
+                row["quarantine_key"] for row in detail["portfolio"]["members"]
+                if row["set_name"] == "a.set"
+            )
+
+            source.requalify_strategy(key, "pool")
+
+            detail = source.saved_portfolio_detail(portfolio_id, "full_history")
+            members = {row["set_name"]: row for row in detail["portfolio"]["members"]}
+            # El portafolio nunca perdió al miembro; lo que cambia es la marca.
+            self.assertEqual(sorted(members), ["a.set", "b.set"])
+            self.assertFalse(members["a.set"]["excluded"])
+
+
 if __name__ == "__main__":
     unittest.main()

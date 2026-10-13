@@ -630,6 +630,17 @@ async function excludeStrategy(source, index) {
   } catch (error) { toast(error.message, true); }
 }
 
+async function reinstateStrategy(source, index) {
+  const member = source === 'proposal' ? proposalMembers[index] : detailMembers[index];
+  if (!member) return;
+  const affectedPortfolioId = selectedId;
+  try {
+    if (await reinstateMember(member)) {
+      await Promise.all([loadManagerState(), loadPortfolios(affectedPortfolioId)]);
+    }
+  } catch (error) { toast(error.message, true); }
+}
+
 async function requalifyStrategy(quarantineId, currentCode) {
   const target = await askQuarantineTarget({
     title: 'Cambiar estado de la estrategia',
@@ -799,9 +810,11 @@ function renderSavedVariant(portfolio, requestedKey = '') {
     const seasonalText = seasonal.year_count != null ? `${seasonal.positive_year_count}/${seasonal.year_count} años · ${seasonal.trades || 0} trades` : '—';
     const candidate = member.candidate_id || '—';
     const memberVariant = member.variant_key || member.variant_label || 'default';
-    const selectorCell = isBundle ? `<td><input type="checkbox" aria-label="Seleccionar ${esc(member.set_name || member.set_id)}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
-    const excludeAction = isBundle ? '' : `<button type="button" class="danger table-action" onclick="excludeStrategy('detail',${index})">Excluir</button>`;
-    return `<tr>${selectorCell}<td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, detailRecentTotals[memberVariant] || 0)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="secondary table-action" onclick="exportMemberReports(${index})">Exportar reportes</button>${excludeAction}</div></td></tr>`;
+    // Una ya excluida no se vuelve a marcar: excluirla otra vez sólo le
+    // reescribiría el motivo que ya tiene.
+    const selectorCell = isBundle ? `<td><input type="checkbox"${memberIsExcluded(member) ? ' disabled' : ''} aria-label="Seleccionar ${esc(member.set_name || member.set_id)}" onchange="toggleDetailSelection(${index},this.checked)"></td>` : '';
+    const excludeAction = isBundle && !memberIsExcluded(member) ? '' : memberExclusionButton(member, 'detail', index);
+    return `<tr${excludedRowClass(member)}>${selectorCell}<td>${esc(member.variant_label || member.variant_key || '—')}</td><td>${esc(candidate)}</td><td title="${esc(member.set_id)}">${esc(member.set_name || member.set_id)}${excludedMemberChip(member)}</td><td><strong>${esc(member.symbol)}</strong></td><td>${esc(member.timeframe)}</td><td>${number(member.units)}</td><td>${number(member.lot, 2)}</td><td>${number(member.net_profit_contribution)}</td><td>${number(member.standalone_valley_dd, 2)}</td><td title="Peor periodo: ${esc(member.floating_dd_source || '—')} · balance ${number(member.max_balance_dd_001, 2)} · equity ${number(member.max_equity_dd_001, 2)} por 0.01">${number(member.standalone_floating_dd, 2)}</td><td>${recentContributionText(member, detailRecentTotals[memberVariant] || 0)}</td><td>${number(member.standalone_point_dd, 2)}</td><td title="Lev. ${number(member.margin_leverage)} · contrato ${number(member.margin_contract_size, 2)} · precio ${number(member.margin_price, 4)}">${number(member.margin_required, 2)}${member.margin_pct ? ` (${number(member.margin_pct, 1)}%)` : ''}</td><td>${esc(seasonalText)}</td><td><div class="table-actions"><button type="button" class="secondary table-action" onclick="openReport(${index})">Abrir reporte</button><button type="button" class="secondary table-action" onclick="exportMemberReports(${index})">Exportar reportes</button>${excludeAction}</div></td></tr>`;
   }).join('') : '<tr><td colspan="16">Esta variante no tiene estrategias guardadas.</td></tr>';
   updateDetailSelection();
   const decisions = selectedDetailVariant && variant.label

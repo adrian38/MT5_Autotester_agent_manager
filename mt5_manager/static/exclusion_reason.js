@@ -293,6 +293,57 @@ function exclusionCountNote(plan) {
     : '';
 }
 
+/* Un miembro de un portafolio guardado que ya está excluido.
+ *
+ * Desde que excluir dejó de tocar el resultado guardado, la fila se queda donde
+ * estaba: es información histórica correcta —eso es lo que se guardó—, pero sin
+ * decirlo la tabla ofrecía «Excluir» sobre algo ya excluido y no había manera de
+ * distinguirla del resto. Va en rojo, con el motivo que tiene puesto, y el botón
+ * se da la vuelta. Lo marca el servidor en `excluded`, no la pantalla.
+ */
+function memberIsExcluded(member) {
+  return Boolean(member && member.excluded);
+}
+
+function excludedRowClass(member) {
+  return memberIsExcluded(member) ? ' class="member-excluded"' : '';
+}
+
+function excludedMemberChip(member) {
+  if (!memberIsExcluded(member)) return '';
+  const label = member.reason_label || exclusionReasonLabel(member.reason_code);
+  return `<small class="member-excluded-chip">Excluida · ${reasonEsc(label)}</small>`;
+}
+
+function memberExclusionButton(member, source, index) {
+  return memberIsExcluded(member)
+    ? `<button type="button" class="secondary table-action" onclick="reinstateStrategy('${source}',${index})">Reintegrar</button>`
+    : `<button type="button" class="danger table-action" onclick="excludeStrategy('${source}',${index})">Excluir</button>`;
+}
+
+/* Reintegrar, que es lo contrario de excluir: devuelve la estrategia al pool y
+ * deshace el veredicto si lo tenía. Es `requalify` al estado `pool`, el mismo
+ * camino que usa la tabla de excluidas, para que no puedan divergir.
+ */
+async function reinstateMember(member) {
+  const name = shortSetName(member.set_name || member.set_path || member.set_id || '');
+  if (!member.quarantine_key) {
+    // Pasa si la cuarentena se levantó desde otra pantalla: la fila que tenemos
+    // es de antes. Decirlo es mejor que mandar una petición que va a fallar.
+    toast(`${name} figura como excluida, pero su fila de cuarentena ya no existe. Recarga la pantalla.`, true);
+    return false;
+  }
+  const verdict = member.reason_code && member.reason_code !== 'manual'
+    ? ` Se le devolverán las etapas que le quitó «${exclusionReasonLabel(member.reason_code)}».`
+    : '';
+  if (!confirm(`${name} volverá al pool y participará otra vez en futuras generaciones.${verdict} ¿Continuar?`)) {
+    return false;
+  }
+  await postManager('requalify', {quarantine_id: member.quarantine_key, reason_code: 'pool'});
+  toast(`${name} reintegrada al pool.`);
+  return true;
+}
+
 /* Con qué motivo se excluye. Devuelve el código elegido, o null si se cancela. */
 function askExclusionReason({title, detail} = {}) {
   return openReasonDialog({

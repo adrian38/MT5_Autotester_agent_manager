@@ -324,8 +324,13 @@ class PortfolioFormTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("El portafolio #${selectedId} no se modifica", script)
-        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        # El botón lo pinta la primitiva compartida y se da la vuelta solo
+        # cuando el miembro ya está excluido.
+        self.assertIn("memberExclusionButton(member, 'detail', index)", script)
         self.assertNotIn("${isBundle ? '' : `<button type=\"button\" class=\"danger table-action\"", script)
+        # En un bundle no hay botón por fila... salvo que la fila esté excluida:
+        # ahí la acción contraria es lo único que se puede hacer desde aquí.
+        self.assertIn("isBundle && !memberIsExcluded(member) ? '' :", script)
 
     def test_saved_bundle_members_support_batch_selection(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
@@ -372,7 +377,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("set_paths: members.map", script)
         self.assertNotIn("waitForPortfolioRemoval", script)
         self.assertIn("onchange=\"toggleDetailSelection(${index},this.checked)\"", script)
-        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        self.assertIn("memberExclusionButton(member, 'detail', index)", script)
         self.assertNotIn("const selector = isBundle", script)
         self.assertNotIn("const excludeAction = isBundle", script)
         self.assertIn("El Portafolio UBS mensual #${selectedId} no se modifica", script)
@@ -386,8 +391,12 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="quarantine-rows"', page)
         self.assertIn('id="detail-select-all"', page)
         self.assertIn('id="detail-exclude-selected"', page)
-        self.assertIn("onclick=\"excludeStrategy('proposal',${index})\">Excluir</button>", script)
-        self.assertIn("onclick=\"excludeStrategy('detail',${index})\">Excluir</button>", script)
+        # El botón de cada fila lo pinta la primitiva compartida, que lo da la
+        # vuelta cuando el miembro ya está excluido: ahí la acción es la
+        # contraria, reintegrar, y no excluir otra vez lo ya excluido.
+        self.assertIn("memberExclusionButton(member, 'proposal', index)", script)
+        self.assertIn("memberExclusionButton(member, 'detail', index)", script)
+        self.assertIn("async function reinstateStrategy(", script)
         # El botón de la tabla lo pinta ahora la primitiva compartida, que es la
         # misma para los tres ámbitos; la función sigue siendo de esta pantalla.
         self.assertIn("renderQuarantineTables(quarantine);", script)

@@ -121,6 +121,26 @@ class ExclusionReasonScreenTests(unittest.TestCase):
                 self.assertEqual(script.count("reason_code: reasonCode"), 1)
                 self.assertIn("renderQuarantineTables(quarantine);", script)
 
+    def test_every_scope_paints_an_excluded_member_red_and_flips_its_button(self) -> None:
+        # Un portafolio guardado puede contener una estrategia que ya no es
+        # candidata: excluir dejó de tocar el resultado guardado. Sin marcarla,
+        # la tabla ofrecía «Excluir» sobre algo ya excluido.
+        for name in self.PAGES:
+            script = self.static(f"{name}.js")
+            with self.subTest(script=name):
+                self.assertIn("excludedRowClass(member)", script)
+                self.assertIn("excludedMemberChip(member)", script)
+                self.assertIn("memberExclusionButton(member, 'detail', index)", script)
+                self.assertIn("async function reinstateStrategy(", script)
+                # Ya excluida no se vuelve a marcar para excluirla en lote.
+                self.assertIn("memberIsExcluded(member) ? ' disabled' : ''", script)
+        shared = self.static("exclusion_reason.js")
+        # Reintegrar es `requalify` al pool, el mismo camino que la tabla de
+        # excluidas: dos formas de reintegrar podrían divergir.
+        self.assertIn("reason_code: 'pool'", shared)
+        self.assertIn("quarantine_id: member.quarantine_key", shared)
+        self.assertIn(".member-excluded>td{background:", self.static("styles.css"))
+
     def test_the_sibling_dialog_is_an_offer_and_never_blocks_the_exclusion(self) -> None:
         script = self.static("exclusion_reason.js")
         # Leer los hermanos es una lectura más; si falla, la exclusión de
