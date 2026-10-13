@@ -1,5 +1,14 @@
 # Auditor de cuenta real: MVP de configuración
 
+## Marca informativa de operación real (2026-10-14)
+
+Cada uso auditado guarda `live_trading`, desmarcado por defecto. La casilla
+«Este uso está operando en real» distingue por cuenta y variante: dos usos del
+mismo portafolio pueden tener estados distintos. El estado público expone
+también `live_audit_ids` y `live_portfolio_ids` para que otras pantallas puedan
+consultarlo sin reinterpretar perfiles. Es una marca del manager; se elimina
+del payload de ejecución y no arranca, detiene ni reconfigura el EA del nodo.
+
 ## Alcance entregado el 2026-08-20
 
 La primera fase existe únicamente en el manager. Cada tarjeta de nodo ofrece

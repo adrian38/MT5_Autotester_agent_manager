@@ -24,6 +24,7 @@ from .live_audit_settings_schema import (
     _portfolio_ids,
     _public_legacy_profile,
     _require_complete_profile,
+    live_profile_ids,
     normalize_live_audit_settings,
     normalize_terminal_restore_account,
 )
@@ -327,6 +328,7 @@ class LiveAuditSettingsStore:
             configured_portfolios = list(dict.fromkeys(
                 int(profiles[audit_id]["portfolio_id"]) for audit_id in configured_ids
             ))
+            live_ids, live_portfolios = live_profile_ids(profiles)
             saved_accounts, _account_sources = self._saved_account_sources(node_id)
             return {
                 "selected_audit_ids": selected,
@@ -338,6 +340,8 @@ class LiveAuditSettingsStore:
                 "credential_state": credential_state,
                 "configured_audit_ids": configured_ids,
                 "configured_portfolio_ids": configured_portfolios,
+                "live_audit_ids": live_ids,
+                "live_portfolio_ids": live_portfolios,
                 "configured": bool(selected) and len(configured_ids) == len(selected),
                 "updated_at": record.get("updated_at") or None,
                 "phase": "configuration_only",

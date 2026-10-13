@@ -43,6 +43,13 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn('data-field="portfolio_type"', self.script)
         self.assertIn("Añadir otro uso", self.script)
 
+    def test_each_use_can_be_marked_as_operating_live(self) -> None:
+        self.assertIn('data-field="live_trading" type="checkbox"', self.script)
+        self.assertIn("Este uso está operando en real", self.script)
+        self.assertIn("Marca informativa: no arranca ni detiene el EA.", self.script)
+        self.assertIn("live_trading: field('live_trading').checked", self.script)
+        self.assertIn("EN REAL", self.script)
+
     def test_each_profile_has_two_accounts_passwords_period_and_tolerances(self) -> None:
         for field in (
             "source_login", "source_server", "source_password", "tester_login", "tester_server",
