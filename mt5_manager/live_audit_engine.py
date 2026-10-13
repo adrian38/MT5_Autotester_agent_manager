@@ -6,6 +6,7 @@ from .live_audit_extraction import _ExtractionMixin
 from .live_audit_lifecycle import _LifecycleMixin
 from .live_audit_terminals import _TerminalMixin
 from .live_audit_tester import _TesterMixin
+from .live_audit_report_upload import replace_tester_reports
 
 
 class LiveAuditController(
@@ -62,6 +63,10 @@ class LiveAuditController(
             key = str(audit_key)
             raw = self.states.get(key) or {"audit_key": key, "status": "idle"}
             return _safe_state(raw)
+
+    def replace_reports(self, audit_key: str | int, payload: Any) -> dict[str, Any]:
+        """Sustituye reportes tester de la ejecución visible, sin relanzar MT5."""
+        return replace_tester_reports(self, str(audit_key), payload)
 
     def artifact_path(self, audit_key: str, audit_id: str, filename: str) -> Path:
         """Resuelve únicamente reportes de la ejecución visible de una auditoría."""

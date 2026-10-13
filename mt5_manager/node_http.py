@@ -159,6 +159,9 @@ class NodeHandler(BaseHTTPRequestHandler):
                 body = self._body()
                 body["portfolio_id"] = portfolio_id
                 self._send(202, {"audit": self.server.controller.live_audits.start(body)})
+            elif self.path.startswith("/api/v1/live-audits/") and self.path.endswith("/reports"):
+                audit_key = urllib.parse.unquote(self.path.strip("/").split("/")[-2])
+                self._send(200, {"audit": self.server.controller.live_audits.replace_reports(audit_key, self._body())})
             elif self.path == "/api/v1/universe/symbols":
                 self._send(200, self.server.controller.update_universe(self._body()))
             elif self.path == "/api/v1/portfolios/save":
