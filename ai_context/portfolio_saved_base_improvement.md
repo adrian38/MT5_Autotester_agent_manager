@@ -185,6 +185,22 @@ de aceptación. No modifican DD, reserva, margen, dependencia, Final Tick 6M ni
 el resto de restricciones. La prioridad, la base y la mejora quedan guardadas
 para que la selección sea reproducible y visible en el detalle y la comparación.
 
+### Los reinicios conservan el mínimo de estrategias (2026-10-14)
+
+Al permitir que la mejora heredase `search_restarts`, el multi-start de la
+selección recibió los reinicios pero no `minimum_active_strategies`. Una
+perturbación podía concentrar dos unidades en una estrategia, mejorar el
+beneficio y sustituir una composición que sí cumplía el mínimo por otra con
+menos estrategias. El caso real #165 -> #166 de RoboForex demostró la
+regresión: el #166 había añadido cuatro estrategias que seguían aceptadas en
+las cuatro etapas, mientras el nuevo cálculo devolvía sólo tres o dos.
+
+`improve_with_multi_start_search` transporta ahora el mínimo tanto a cada
+perturbación como a la búsqueda local posterior, y `_multi_start_pass` lo toma
+del mismo `_PassContext` que usa la pasada greedy. Los reinicios siguen activos
+y pueden mejorar el beneficio, pero ya no reducen la amplitud exigida. La
+optimización compartida conserva la misma regla en UBS normal y mensual.
+
 «Portafolio» sin especificar ámbito significa UBS normal. El mensual permanece
 congelado hasta petición explícita; ver `monthly_portfolio_frozen.md`.
 
