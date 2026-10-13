@@ -181,6 +181,8 @@ function jobBadge(job, task = {}) {
   stopButton.textContent = job?.status === 'stopping' ? 'Deteniendo…' : 'Detener';
   document.querySelector('#save-settings').disabled = calculationRunning;
   document.querySelector('#reset-settings').disabled = calculationRunning;
+  document.querySelector('#detail-improve').disabled = active;
+  document.querySelector('#detail-repair').disabled = active;
   document.querySelector('#portfolio-log').disabled = !(job?.log_path || job?.last_log_path);
   const opText = taskActive && task.operation === 'delete' ? `Borrado del portafolio #${task.portfolio_id}` : operation === 'repair' ? `Arreglo del portafolio #${job.portfolio_id}` : operation === 'improve' ? `Mejora de la base #${job.portfolio_id}` : '';
   document.querySelector('#proposal-operation').textContent = opText;

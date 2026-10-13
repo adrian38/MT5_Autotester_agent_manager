@@ -17,7 +17,7 @@ from .common import load_json, save_json, utc_now
 from .portfolio_persistence import result_payload
 from .portfolio_proposals import proposal_diff, save_portfolio_payload
 from .portfolio_schema import ensure_portfolio_schema
-from .portfolio_scope import SCOPE_LABELS, normalize_portfolio_scope
+from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 from .portfolio_settings import normalize_settings
 from .portfolio_source import PortfolioSource
 
@@ -184,6 +184,13 @@ class PortfolioCoordinatorCoreMixin:
         settings = self.update_settings(node_id, scope, changes)
         return self._start_job(node_id, scope, settings, "generate", None, [])
 
+    def _active_calculation(self, node_id: str) -> dict[str, Any] | None:
+        for candidate_scope in PORTFOLIO_SCOPES:
+            candidate = self.jobs.get(self._key(node_id, candidate_scope)) or {}
+            if candidate.get("status") in {"running", "stopping"}:
+                return candidate
+        return None
+
     def _start_job(
         self,
         node_id: str,
@@ -195,8 +202,11 @@ class PortfolioCoordinatorCoreMixin:
     ) -> dict[str, Any]:
         key = self._key(node_id, scope)
         with self.lock:
-            if (self.jobs.get(key) or {}).get("status") in {"running", "stopping"}:
-                raise ValueError("Ya hay un cálculo de portafolio en curso")
+            if self._active_calculation(node_id):
+                raise ValueError(
+                    "El generador de portafolios está ocupado con otro cálculo; "
+                    "inténtalo de nuevo cuando termine"
+                )
             if any(task.get("status") in {"pending", "running"} for task in self.tasks.get(key, [])):
                 raise ValueError("Hay una tarea de portafolio pendiente o en ejecución")
             stage_total = scope_stage_count(scope, operation)

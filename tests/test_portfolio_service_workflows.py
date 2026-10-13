@@ -55,6 +55,27 @@ from tests.helpers import ASYNC_TIMEOUT, assert_event, assert_until
 
 
 class PortfolioWorkflowTests(unittest.TestCase):
+    def test_a_node_rejects_another_scope_without_stopping_the_active_job(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "outputs").mkdir()
+            (project / "assets").mkdir()
+            (project / "outputs" / "ubs_memory_ICTRADING_STANDARD.sqlite").touch()
+            node = {
+                "id": "ic", "portfolio_project_dir": str(project),
+                "portfolio_broker": "ICTRADING", "portfolio_account_type": "STANDARD",
+            }
+            coordinator = PortfolioCoordinator([node], project / "settings.json")
+            settings = normalize_settings("full_history", {}, "ICTRADING")
+            with patch("threading.Thread.start"):
+                active = coordinator.start("ic", "full_history", settings)
+                with self.assertRaisesRegex(ValueError, "está ocupado.*inténtalo"):
+                    coordinator.start("ic", "monthly", {})
+
+            self.assertEqual(coordinator.jobs["ic:full_history"]["id"], active["id"])
+            self.assertFalse(coordinator.cancellation_events["ic:full_history"].is_set())
+            self.assertNotIn("ic:monthly", coordinator.jobs)
+
     def test_schema_versions_undo_delete_and_export_are_managed_centrally(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)

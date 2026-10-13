@@ -246,7 +246,7 @@ class PortfolioCoordinationTests(unittest.TestCase):
 
             stopping = coordinator.stop("ic", "full_history")
             self.assertEqual(stopping["status"], "stopping")
-            with self.assertRaisesRegex(ValueError, "Ya hay un cálculo"):
+            with self.assertRaisesRegex(ValueError, "está ocupado.*inténtalo"):
                 coordinator.start("ic", "full_history", settings)
 
             coordinator._worker("ic", "full_history", settings)

@@ -180,6 +180,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn('id="stop-calculation"', full_page)
         self.assertIn("postManager('stop', {scope})", full_script)
         self.assertIn("['running', 'stopping'].includes(job?.status)", full_script)
+        self.assertIn("document.querySelector('#detail-improve').disabled = active", full_script)
+        self.assertIn("document.querySelector('#detail-repair').disabled = active", full_script)
         monthly_button = monthly_page.xpath('//button[@id="generate-proposals"]')[0]
         self.assertEqual(monthly_button.get("disabled"), "disabled")
         self.assertIn("document.querySelector('#generate-proposals').disabled = true", monthly_script)

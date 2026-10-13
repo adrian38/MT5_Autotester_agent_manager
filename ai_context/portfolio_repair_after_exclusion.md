@@ -55,3 +55,12 @@ El cálculo vive en `mt5_manager/portfolio_repair_service.py` y lo ejecuta el
 manager. El nodo sólo recibe el mismo `operation=generate` que ya sabe persistir
 para una propuesta individual. No hay endpoint ni criterio nuevo en
 `manager_node_runtime/`, por lo que este cambio no requiere port al agente.
+
+## Exclusión mutua entre cálculos
+
+Un nodo sólo puede tener un cálculo de portafolio activo, aunque el segundo
+inicio llegue desde otro scope (UBS, mensual o Grid). El segundo se rechaza sin
+tocar el evento de cancelación ni el trabajo en curso y la API responde que el
+generador está ocupado y debe intentarse cuando termine. En la pantalla actual
+también quedan deshabilitados Generar, Mejorar y Arreglar mientras haya una
+operación activa. Iniciar otra generación nunca equivale a detener la anterior.
