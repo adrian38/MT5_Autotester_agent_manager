@@ -39,7 +39,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 # el snapshot de la base de cada nodo; sondear eso cada medio minuto desde un
 # móvil no es razonable, así que `/api/pulse` proyecta solo estos campos.
 STATIC_FILES = {
-    "app.js", "styles.css", "universe.html", "universe.js",
+    "app.js", "styles.css", "dashboard.js", "dashboard.css", "dashboard_metrics.js",
+    "universe.html", "universe.js",
     "live_audit.html", "live_audit.js", "live_audit_autolot.js", "live_audit.css",
     "live_audit_result.html", "live_audit_result.js", "live_audit_result.css",
     "live_audit_analysis.html", "live_audit_analysis.js", "live_audit_analysis.css",
@@ -238,6 +239,9 @@ class ManagerHandler(BaseHTTPRequestHandler):
 
     def _get_static_routes(self, parsed: Any, parts: list[str]) -> bool:
         if parsed.path in {"/", "/index.html"}:
+            self._send_file(STATIC_DIR / "dashboard.html")
+            return True
+        if parsed.path == "/generation.html":
             self._send_file(STATIC_DIR / "index.html")
             return True
         relative = parsed.path.lstrip("/")

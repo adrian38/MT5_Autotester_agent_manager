@@ -9,6 +9,14 @@ también `live_audit_ids` y `live_portfolio_ids` para que otras pantallas puedan
 consultarlo sin reinterpretar perfiles. Es una marca del manager; se elimina
 del payload de ejecución y no arranca, detiene ni reconfigura el EA del nodo.
 
+La raíz del manager usa esa marca como inventario operativo: `/` lista una
+tarjeta por uso real con Profit y DD de tester/real y sólo las estrategias con
+veredicto `AVISO` o `NO REPRODUCE` de la última auditoría. La interfaz anterior
+de nodos y generación sigue intacta en `/generation.html`, accesible desde el
+botón superior «Generación». El resumen se deriva de la comparación por
+operación ya analizada por el manager; una auditoría antigua sin ese detalle se
+muestra sin datos, nunca como ceros ni como una reproducción correcta.
+
 ## Alcance entregado el 2026-08-20
 
 La primera fase existe únicamente en el manager. Cada tarjeta de nodo ofrece
