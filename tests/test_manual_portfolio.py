@@ -29,6 +29,10 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("Generar histórico OHLC", page)
         self.assertIn("portfolio-manager/manual-defaults", script)
         self.assertIn("portfolio-manager/manual-history", script)
+        self.assertIn("decodeSet", script)
+        self.assertIn('data-set-field="symbol"', script)
+        self.assertIn('data-set-field="timeframe"', script)
+        self.assertIn("updateSetField(text, 'TimeFrame'", script)
 
     def test_live_audit_preselects_the_new_portfolio_from_the_url(self) -> None:
         script = (ROOT / "mt5_manager" / "static" / "live_audit.js").read_text(encoding="utf-8")

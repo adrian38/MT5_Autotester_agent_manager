@@ -54,3 +54,10 @@
 
 .portfolio-alias{margin:5px 0 3px;color:var(--accent2);font-size:16px;font-weight:700;letter-spacing:.01em}
 .saved-variant-cards{border-bottom:1px solid var(--line)}
+.manual-file-list{display:grid;gap:8px;max-height:360px;overflow:auto}
+.manual-set-card{display:grid;grid-template-columns:minmax(150px,1fr) minmax(140px,1fr) 150px;gap:8px;align-items:end;padding:10px;border-radius:9px;background:var(--panel2)}
+.manual-set-card>strong{align-self:center;overflow:hidden;color:#cfe1e7;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+.manual-set-card label{display:grid;gap:4px;color:var(--muted);font-size:10px}
+.manual-set-card input,.manual-set-card select{padding:8px}
+.manual-set-lot{grid-column:1/-1;color:var(--muted);font-size:10px}
+@media(max-width:700px){.manual-set-card{grid-template-columns:1fr}}

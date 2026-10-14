@@ -6,8 +6,12 @@ La tarjeta del nodo ofrece `Solo portafolio`, una pantalla independiente de
 Portafolio UBS, mensual y Grid. El navegador carga una carpeta mediante
 `webkitdirectory`; sólo transporta los `.set` y limita el lote a 35 MB.
 
-No se importan ni se inventan informes o métricas. Cada set debe declarar
-`ForceSymbol`, `TimeFrame` y un `StartLots` positivo. La composición se guarda
+No se importan ni se inventan informes o métricas. Al seleccionar la carpeta,
+el navegador lee UTF-8 o UTF-16 y muestra `ForceSymbol`, `TimeFrame` y
+`StartLots` por estrategia. Símbolo y timeframe son editables; si falta el
+timeframe intenta inferirlo del nombre (`ScalpH1_C.set` → `H1`). Antes de subir,
+normaliza ambos campos dentro de una copia UTF-16 del set, sin cambiar el
+original del usuario. Cada set debe conservar un `StartLots` positivo. La composición se guarda
 con una unidad por fichero y el lote exacto de `StartLots`; beneficio y DD
 quedan a cero con un aviso explícito de histórico pendiente.
 
