@@ -245,11 +245,11 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
     restore = handler.server.live_audit_settings.restore_credentials(node_id)
     if not restore:
         raise ValueError("Configura y guarda la cuenta que debe quedar en los terminales")
-    # Ni el autolote ni la atribución manual viajan al nodo: los dos son
-    # criterio del manager y se aplican al analizar lo que el nodo observó.
+    # El autolote, la atribución y la marca informativa de operación real son
+    # criterio del manager; el nodo sólo recibe datos necesarios para auditar.
     node_profile = {
         key: value for key, value in profile.items()
-        if key not in {"autolot", "real_attribution"}
+        if key not in {"autolot", "real_attribution", "live_trading"}
     }
     return {
         **node_profile, **credentials, **restore,

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Portafolios en real · MT5 Manager</title>
+  <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">OPERACIÓN REAL</p>
+      <h1>Portafolios activos</h1>
+      <p class="subtitle">Profit y drawdown de la última auditoría frente al tester.</p>
+    </div>
+    <nav class="header-actions" aria-label="Navegación principal">
+      <span id="refresh-state">Actualizando…</span>
+      <button id="refresh" class="secondary" type="button">Actualizar</button>
+      <a class="button generation-link" href="/generation.html">Generación</a>
+      <a class="button experiment-link" href="/experiment.html" target="_blank" rel="noopener">Experimenta</a>
+      <a class="button correlation-link" href="/correlation.html" target="_blank" rel="noopener">Correlación</a>
+      <button id="restart-manager" class="danger" type="button">Reiniciar manager</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="dashboard-summary" class="dashboard-summary" aria-live="polite"></section>
+    <section id="live-portfolios" class="live-portfolios" aria-live="polite">
+      <div class="empty-state">Leyendo portafolios marcados como activos…</div>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/dashboard_metrics.js"></script>
+  <script src="/dashboard.js"></script>
+</body>
+</html>

@@ -112,6 +112,34 @@ class LiveAuditSettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "use_multiterminal"):
             normalize_live_audit_settings({"use_multiterminal": "a ratos"})
 
+    def test_live_trading_is_an_independent_persisted_mark_per_use(self) -> None:
+        self.assertIs(DEFAULT_LIVE_AUDIT_PROFILE["live_trading"], False)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "live_audit_settings.json"
+            store = LiveAuditSettingsStore(path)
+            saved = store.update("node-a", {
+                "selected_audit_ids": ["main", "reserve"],
+                "profiles": {
+                    "main": {
+                        **profile("111", "911", live_trading=True),
+                        "portfolio_id": 11, "portfolio_type": "balanced",
+                        "source_password": "real-a", "tester_password": "test-a",
+                    },
+                    "reserve": {
+                        **profile("222", "922"),
+                        "portfolio_id": 11, "portfolio_type": "conservative",
+                        "source_password": "real-b", "tester_password": "test-b",
+                    },
+                },
+            })
+            reloaded = LiveAuditSettingsStore(path).state("node-a")
+
+        self.assertTrue(saved["profiles"]["main"]["live_trading"])
+        self.assertFalse(saved["profiles"]["reserve"]["live_trading"])
+        self.assertEqual(saved["live_audit_ids"], ["main"])
+        self.assertEqual(saved["live_portfolio_ids"], [11])
+        self.assertEqual(reloaded["live_audit_ids"], ["main"])
+
     def test_real_lot_per_strategy_defaults_empty_and_is_validated(self) -> None:
         self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["real_strategy_lots"], {})
         normalized = normalize_live_audit_settings({

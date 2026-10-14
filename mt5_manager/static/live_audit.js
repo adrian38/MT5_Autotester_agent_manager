@@ -116,7 +116,9 @@ function renderPortfolios() {
     const meta = [row.portfolio_type || 'sin tipo', row.created_at || '', `${row.active_strategies || 0} estrategias`]
       .filter(Boolean).join(' · ');
     const uses = selectedAuditIds.filter(auditId => portfolioForAudit(auditId) === id).length;
-    return `<label class="live-audit-portfolio"><input type="checkbox" data-portfolio-id="${id}"${checked}><span><strong>${escapeHtml(title)}</strong><small>#${id} · ${escapeHtml(meta)} · ${uses} uso${uses === 1 ? '' : 's'}</small></span><button type="button" class="secondary" data-add-portfolio="${id}">Añadir otro uso</button></label>`;
+    const liveUses = Object.values(profiles).filter(profile => Number(profile.portfolio_id) === id && profile.live_trading).length;
+    const liveMeta = liveUses ? ` · ${liveUses} EN REAL` : '';
+    return `<label class="live-audit-portfolio"><input type="checkbox" data-portfolio-id="${id}"${checked}><span><strong>${escapeHtml(title)}</strong><small>#${id} · ${escapeHtml(meta)} · ${uses} uso${uses === 1 ? '' : 's'}${liveMeta}</small></span><button type="button" class="secondary" data-add-portfolio="${id}">Añadir otro uso</button></label>`;
   });
   missingIds.forEach(id => rows.push(`<label class="live-audit-portfolio missing"><input type="checkbox" data-portfolio-id="${id}" checked><span><strong>Portafolio no disponible</strong><small>#${id} · desmárcalo si ya no debe auditarse</small></span></label>`));
   portfolioList.innerHTML = rows.length ? rows.join('') : '<p class="live-audit-empty">No hay portafolios guardados en este nodo.</p>';
@@ -316,11 +318,12 @@ function profileMarkup(auditId) {
     ? `<label>Modo del portafolio<select data-field="portfolio_type" disabled>${option(singleMode, MODE_LABELS[singleMode], singleMode)}</select><small>Este portafolio guarda una sola variante: su modo es el que heredó de la base y no se elige.</small></label>`
     : `<label>Modo del portafolio<select data-field="portfolio_type" required>${option('', 'Selecciona Agresivo / Moderado / Conservador', profile.portfolio_type)}${option('aggressive', 'Agresivo', profile.portfolio_type)}${option('balanced', 'Moderado', profile.portfolio_type)}${option('conservative', 'Conservador', profile.portfolio_type)}</select></label>`;
   return `<section class="panel-card live-audit-card live-audit-profile" data-profile-id="${escapeHtml(auditId)}">
-    <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO #${id} · USO ${escapeHtml(auditId)}</p><h2>${escapeHtml(portfolioName(id))}</h2></div><div><span class="badge ${sourceReady && testerReady ? 'completed' : 'idle'}">${sourceReady && testerReady ? 'CREDENCIALES DISPONIBLES' : 'PENDIENTE'}</span><button type="button" class="secondary" data-remove-audit="${escapeHtml(auditId)}">Quitar uso</button></div></div>
+    <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO #${id} · USO ${escapeHtml(auditId)}</p><h2>${escapeHtml(portfolioName(id))}</h2></div><div>${profile.live_trading ? '<span class="badge completed">EN REAL</span>' : ''}<span class="badge ${sourceReady && testerReady ? 'completed' : 'idle'}">${sourceReady && testerReady ? 'CREDENCIALES DISPONIBLES' : 'PENDIENTE'}</span><button type="button" class="secondary" data-remove-audit="${escapeHtml(auditId)}">Quitar uso</button></div></div>
     <div class="live-audit-subtitle"><strong>Identidad de este uso</strong><span>El mismo portafolio puede repetirse con otro modo y otra cuenta sin sobrescribir esta auditoría.</span></div>
     <div class="live-audit-fields">
       <label>Nombre descriptivo<input data-field="deployment_name" maxlength="120" value="${escapeHtml(profile.deployment_name)}" placeholder="Ej.: Moderado cuenta principal"></label>
       ${modeField}
+      <label class="check"><input data-field="live_trading" type="checkbox"${profile.live_trading ? ' checked' : ''}>Este uso está operando en real<small>Marca informativa: no arranca ni detiene el EA.</small></label>
     </div>
     <div class="live-audit-subtitle"><strong>Lotes usados en la cuenta real</strong><span>Por defecto coinciden con el portafolio. Edítalos sólo cuando el EA opere otro lote en real.</span></div>
     ${strategyLotsMarkup(profile)}
@@ -417,6 +420,7 @@ function readCard(card) {
     real_strategy_lots: realStrategyLots,
     autolot: autolotCardValue(card, current),
     deployment_name: field('deployment_name').value.trim(),
+    live_trading: field('live_trading').checked,
     source_saved_account_id: card.querySelector('[data-saved-account-role="source"]').value,
     source_login: field('source_login').value.trim(),
     source_server: field('source_server').value.trim(),

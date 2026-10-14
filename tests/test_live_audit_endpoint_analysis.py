@@ -96,8 +96,8 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
         rows = analysed["audit"]["last_result"]["comparison_detail"]["operation_comparisons"]
         self.assertEqual([row["limits"]["volume_expected_real"] for row in rows], [0.1, 0.2])
 
-    def test_autolot_configuration_never_leaks_into_the_node_request(self) -> None:
-        configured = {**profile(), "portfolio_id": 148, "autolot": {
+    def test_manager_only_configuration_never_leaks_into_the_node_request(self) -> None:
+        configured = {**profile(), "portfolio_id": 148, "live_trading": True, "autolot": {
             "enabled": True, "source_name": "riesgo.xlsx", "source_sha256": "a" * 64,
             "rules": {STRATEGY: {"dd_001": 10.0, "risk_pct": 10.0}},
         }}
@@ -116,7 +116,8 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
             return_value=(200, {"capabilities": {"live_audit_restore_account": True}}),
         ):
             request = run_payload(endpoint, "nodo", {}, "audit-148")
-        self.assertNotIn("autolot", request)
+        for manager_only in ("autolot", "real_attribution", "live_trading"):
+            self.assertNotIn(manager_only, request)
 
 
 if __name__ == "__main__":

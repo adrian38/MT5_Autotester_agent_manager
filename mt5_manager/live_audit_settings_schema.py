@@ -15,6 +15,7 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "autolot": empty_autolot(),
     "real_attribution": empty_attribution(),
     "deployment_name": "",
+    "live_trading": False,
     "source_login": "",
     "source_server": "",
     "tester_login": "",
@@ -68,7 +69,7 @@ _FLOAT_LIMITS = {
     "pnl_deviation_warning_pct": (0.0, 10_000.0),
     "drawdown_deviation_warning_pct": (0.0, 10_000.0),
 }
-_BOOL_FIELDS = ("use_multiterminal",)
+_BOOL_FIELDS = ("live_trading", "use_multiterminal")
 _LEGACY_SCHEDULE_KEYS = {
     "sync_interval_minutes",
     "daily_audit_time",
@@ -282,6 +283,16 @@ def normalize_live_audit_settings(value: dict[str, Any]) -> dict[str, Any]:
     _validate_period(normalized)
     _validate_fixed_policy_and_logins(value, normalized)
     return normalized
+
+
+def live_profile_ids(profiles: dict[str, dict[str, Any]]) -> tuple[list[str], list[int]]:
+    """Resume los usos y portafolios que el usuario marcó como reales."""
+    audit_ids = [audit_id for audit_id, profile in profiles.items() if profile.get("live_trading")]
+    portfolio_ids = list(dict.fromkeys(
+        int(profiles[audit_id]["portfolio_id"])
+        for audit_id in audit_ids if profiles[audit_id].get("portfolio_id")
+    ))
+    return audit_ids, portfolio_ids
 
 
 def _require_complete_profile(audit_id: str, profile: dict[str, Any]) -> None:
