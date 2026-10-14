@@ -25,11 +25,26 @@
     ));
   }
 
-  function trade(row) {
+  function trade(row, targetVolume = null) {
+    const sourceVolume = Number(row?.volume || 0);
+    const target = Number(targetVolume);
+    const rawProfit = Number(row?.profit || 0);
+    const scaledProfit = Number.isFinite(target) && target > 0 && sourceVolume > 0
+      ? rawProfit / sourceVolume * target : rawProfit;
     return {
       close_time: row?.close_time || '',
-      profit: Number(row?.profit || 0),
+      profit: scaledProfit,
     };
+  }
+
+  // Para juzgar reproducción no se pueden enfrentar euros obtenidos con lotes
+  // distintos. La cuenta real lleva la escala: si hay pareja usamos el lote
+  // ejecutado; si no, el esperado que el análisis ya calculó para esa apertura.
+  function demoTargetVolume(row) {
+    const executed = Number((row?.real || row?.real_position_still_open || {}).volume);
+    if (Number.isFinite(executed) && executed > 0) return executed;
+    const expected = Number(row?.limits?.volume_expected_real);
+    return Number.isFinite(expected) && expected > 0 ? expected : null;
   }
 
   function profit(trades) {
@@ -70,7 +85,9 @@
         demo: [], real: [], quality: quality.get(key) || null,
       });
       const group = groups.get(key);
-      if (tester.close_time && !row.real_position_still_open) group.demo.push(trade(tester));
+      if (tester.close_time && !row.real_position_still_open) {
+        group.demo.push(trade(tester, demoTargetVolume(row)));
+      }
       if (row.real?.close_time) group.real.push(trade(row.real));
     });
     unaccountedRows(result).forEach(row => {
@@ -115,7 +132,7 @@
     const rows = comparisonRows(result);
     if (!rows.length) return {comparable: false, flagged: []};
     const demo = rows.filter(row => row.tester?.close_time && !row.real_position_still_open)
-      .map(row => trade(row.tester));
+      .map(row => trade(row.tester, demoTargetVolume(row)));
     const matchedReal = rows.filter(row => row.real?.close_time).map(row => trade(row.real));
     const extraReal = includedUnmatched(result).map(row => trade(row.real));
     const real = [...matchedReal, ...extraReal];

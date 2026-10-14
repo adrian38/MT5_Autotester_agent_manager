@@ -54,6 +54,12 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("flagged.filter(row => !row.pending_attribution)", self.script)
         self.assertIn("Pendientes de atribuir", self.script)
 
+    def test_dashboard_compares_demo_at_the_real_lot_scale(self) -> None:
+        self.assertIn("function demoTargetVolume(row)", self.metrics)
+        self.assertIn("row?.limits?.volume_expected_real", self.metrics)
+        self.assertEqual(self.metrics.count("trade(row.tester, demoTargetVolume(row))"), 1)
+        self.assertIn("group.demo.push(trade(tester, demoTargetVolume(row)))", self.metrics)
+
     def test_dashboard_assets_are_public(self) -> None:
         for name in ("dashboard.js", "dashboard.css", "dashboard_metrics.js"):
             self.assertIn(name, STATIC_FILES)

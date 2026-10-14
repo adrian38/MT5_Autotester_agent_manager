@@ -121,6 +121,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   reportes tester al 100 % sin relanzar MT5 ni alterar otras estrategias.
 - `live_dashboard_pending_attribution.md`: la portada no convierte un PnL
   parcial en `NO REPRODUCE` mientras haya reales del mismo símbolo sin atribuir.
+- `live_dashboard_reproduction_scale.md`: la portada lleva cada operación demo
+  al lote real antes de calcular PnL, drawdown y reproducción.
 
 ## Manager: interfaz y operación
 
