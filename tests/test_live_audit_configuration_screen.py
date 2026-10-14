@@ -21,6 +21,9 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         cls.result_script = (cls.static_dir / "live_audit_result.js").read_text(encoding="utf-8")
         cls.analysis_page_text = (cls.static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
         cls.analysis_script = (cls.static_dir / "live_audit_analysis.js").read_text(encoding="utf-8")
+        cls.reproduction_script = (cls.static_dir / "live_audit_reproduction.js").read_text(
+            encoding="utf-8",
+        )
         cls.manager_script = (cls.static_dir / "app.js").read_text(encoding="utf-8")
         cls.page = html.fromstring(cls.page_text)
         cls.result_page = html.fromstring(cls.result_page_text)
@@ -250,7 +253,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("sideSeries(group.real, group.strategy, 'real')", self.analysis_script)
         # Se reescala operación a operación por su volumen: un factor único por
         # estrategia daría un PnL inventado cuando operó varios volúmenes.
-        self.assertIn("return profit / volume * lot;", self.analysis_script)
+        self.assertIn("return profit / volume * lot;", self.reproduction_script)
         self.assertIn("function observedLots(trades)", self.analysis_script)
 
     def test_the_verdict_declares_which_lot_it_expected_in_real(self) -> None:

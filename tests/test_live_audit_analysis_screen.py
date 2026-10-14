@@ -19,6 +19,9 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         cls.analysis_page_text = (static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
         cls.analysis_script = (static_dir / "live_audit_analysis.js").read_text(encoding="utf-8")
+        cls.reproduction_script = (static_dir / "live_audit_reproduction.js").read_text(
+            encoding="utf-8",
+        )
         cls.analysis_css = (static_dir / "live_audit_analysis.css").read_text(encoding="utf-8")
         cls.analysis_page = html.fromstring(cls.analysis_page_text)
 
@@ -28,8 +31,8 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # midiendo: en la auditoría 148 de RoboForex, 65 de 94 operaciones
         # ejecutaron un lote distinto del calculado.
         self.assertIn("function scaleTarget(row)", self.analysis_script)
-        self.assertIn("row.real || row.real_position_still_open", self.analysis_script)
-        self.assertIn("return {volume: executed, source: 'real'}", self.analysis_script)
+        self.assertIn("row?.real || row?.real_position_still_open", self.reproduction_script)
+        self.assertIn("return {volume: executed, source: 'real'}", self.reproduction_script)
         self.assertIn("trade.scale_volume", self.analysis_script)
         self.assertIn("applyLots({$mode: 'autolot'})", self.analysis_script)
         self.assertIn("La curva Demo está escalada al lote de la cuenta real", self.analysis_script)
@@ -39,9 +42,9 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
     def test_only_an_operation_without_a_real_pair_falls_back_to_the_autolot(self) -> None:
         # Sin pareja no hay lote ejecutado que copiar, y ahí sí entra el
         # calculo: dejarla con el lote fijo del backtest mezclaria dos escalas.
-        self.assertIn("row.limits?.volume_expected_source === 'autolot'", self.analysis_script)
-        self.assertIn("row.limits.volume_expected_real", self.analysis_script)
-        self.assertIn("{volume: expected, source: 'autolot'}", self.analysis_script)
+        self.assertIn("row?.limits?.volume_expected_source === 'autolot'", self.reproduction_script)
+        self.assertIn("row.limits.volume_expected_real", self.reproduction_script)
+        self.assertIn("{volume: expected, source: 'autolot'}", self.reproduction_script)
         self.assertIn("porque no hay lote ejecutado que copiar", self.analysis_script)
         self.assertIn("function lotList(lots)", self.analysis_script)
         self.assertIn("function scaledBySource(group, source)", self.analysis_script)
@@ -83,16 +86,16 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertTrue(self.analysis_page.xpath('//span[@id="reproduction-count"]'))
         self.assertIn("¿Se está comportando en real como en el tester?", self.analysis_page_text)
         self.assertIn("function reproductionVerdict(numbers)", self.analysis_script)
-        self.assertIn("if (demo >= 1 && real < 0)", self.analysis_script)
-        self.assertIn("'NO REPRODUCE'", self.analysis_script)
+        self.assertIn("if (demo >= 1 && real < 0)", self.reproduction_script)
+        self.assertIn("'NO REPRODUCE'", self.reproduction_script)
         # Sólo avisa si el real empeora, igual que `adverse_shortfall_only` del
         # motor: que la cuenta gane más que el tester no es un defecto.
-        self.assertIn("'MEJOR QUE EL TESTER', 'good'", self.analysis_script)
+        self.assertIn("'MEJOR QUE EL TESTER', 'good'", self.reproduction_script)
         # La magnitud NO es la del perfil: `pnl_deviation_warning_pct` mide la
         # desviación de un relleno, no el deterioro agregado de la estrategia.
         # Perder algo al pasar a real es lo normal y está cuantificado fuera.
-        self.assertIn("const REPRODUCTION_EXPECTED_PCT = 20;", self.analysis_script)
-        self.assertIn("const REPRODUCTION_BROKEN_PCT = 60;", self.analysis_script)
+        self.assertIn("const EXPECTED_SHORTFALL_PCT = 20;", self.reproduction_script)
+        self.assertIn("const BROKEN_SHORTFALL_PCT = 60;", self.reproduction_script)
         self.assertNotIn("tolerances?.pnl_pct", self.analysis_script)
         self.assertIn("no un umbral canónico", self.analysis_script)
         # Lo que no se compara se dice: faltantes y pendientes no están en los
@@ -110,7 +113,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
             "const REPRODUCTION_FEW_PAIRS = Math.ceil(100 / REPRODUCTION_EXPECTED_PCT);",
             self.analysis_script,
         )
-        self.assertIn("Math.max(Math.abs(demo), 1)", self.analysis_script)
+        self.assertIn("Math.max(Math.abs(demo), 1)", self.reproduction_script)
         self.assertIn("function differenceNote(numbers)", self.analysis_script)
         self.assertIn("renderReproduction();", self.analysis_script)
 

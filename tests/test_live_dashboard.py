@@ -16,6 +16,9 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         cls.page_text = (static / "dashboard.html").read_text(encoding="utf-8")
         cls.script = (static / "dashboard.js").read_text(encoding="utf-8")
         cls.metrics = (static / "dashboard_metrics.js").read_text(encoding="utf-8")
+        cls.reproduction = (static / "live_audit_reproduction.js").read_text(encoding="utf-8")
+        cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
+        cls.analysis_page = (static / "live_audit_analysis.html").read_text(encoding="utf-8")
         cls.handler = (root / "mt5_manager" / "manager_handler.py").read_text(encoding="utf-8")
         cls.page = html.fromstring(cls.page_text)
 
@@ -43,25 +46,31 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         for label in ("Profit Test", "Profit Real", "DD Test", "DD Real", "Estrategias a revisar"):
             self.assertIn(label, self.script)
         self.assertIn("['AVISO', 'NO REPRODUCE'].includes(row.verdict)", self.metrics)
-        self.assertIn("EXPECTED_SHORTFALL_PCT = 20", self.metrics)
-        self.assertIn("BROKEN_SHORTFALL_PCT = 60", self.metrics)
+        self.assertIn("EXPECTED_SHORTFALL_PCT = 20", self.reproduction)
+        self.assertIn("BROKEN_SHORTFALL_PCT = 60", self.reproduction)
         self.assertNotIn("MEJOR QUE EL TESTER", self.metrics)
 
-    def test_unreferenced_real_operations_do_not_become_a_final_strategy_verdict(self) -> None:
-        self.assertIn("pending_attribution: pendingSymbols.has(group.symbol)", self.metrics)
-        self.assertIn("row.pending_attribution ? 'ATRIBUCIÓN PENDIENTE'", self.script)
-        self.assertIn("Hay operaciones reales sin referenciar", self.script)
-        self.assertIn("flagged.filter(row => !row.pending_attribution)", self.script)
-        self.assertIn("Pendientes de atribuir", self.script)
+    def test_dashboard_and_analysis_share_the_reproduction_primitive(self) -> None:
+        self.assertIn("LiveAuditReproduction.numbers(group, lotOverrides)", self.analysis)
+        self.assertIn("reproduction.numbers(group, overrides)", self.metrics)
+        self.assertIn("LiveAuditReproduction.readOverrides(entry.node.id, entry.auditId)", self.script)
+        for page, consumer in (
+            (self.page_text, "/dashboard_metrics.js"),
+            (self.analysis_page, "/live_audit_analysis.js"),
+        ):
+            self.assertLess(page.index("/live_audit_reproduction.js"), page.index(consumer))
 
-    def test_dashboard_compares_demo_at_the_real_lot_scale(self) -> None:
-        self.assertIn("function demoTargetVolume(row)", self.metrics)
-        self.assertIn("row?.limits?.volume_expected_real", self.metrics)
-        self.assertEqual(self.metrics.count("trade(row.tester, demoTargetVolume(row))"), 1)
-        self.assertIn("group.demo.push(trade(tester, demoTargetVolume(row)))", self.metrics)
+    def test_initial_restart_button_monitors_completion_and_authentication(self) -> None:
+        self.assertIn("/api/manager/restart?lines=80", self.script)
+        self.assertIn("location.reload()", self.script)
+        self.assertIn("location.href = '/generation.html'", self.script)
+        self.assertIn("monitorManagerRestart()", self.script)
 
     def test_dashboard_assets_are_public(self) -> None:
-        for name in ("dashboard.js", "dashboard.css", "dashboard_metrics.js"):
+        for name in (
+            "dashboard.js", "dashboard.css", "dashboard_metrics.js",
+            "live_audit_reproduction.js",
+        ):
             self.assertIn(name, STATIC_FILES)
             self.assertIn(f'/{name}', self.page_text)
 

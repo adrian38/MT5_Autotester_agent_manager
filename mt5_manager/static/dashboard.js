@@ -4,6 +4,7 @@ const refreshState = document.querySelector('#refresh-state');
 const refreshButton = document.querySelector('#refresh');
 const restartButton = document.querySelector('#restart-manager');
 let refreshing = false;
+let managerRestarting = false;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -81,14 +82,10 @@ function flaggedMarkup(rows, currency) {
   return `<ul class="strategy-alerts">${rows.map(row => {
     const quality = row.quality && row.quality.ok === false
       ? '<span class="quality-warning">CALIDAD TICK INSUFICIENTE</span>' : '';
-    const verdict = row.pending_attribution ? 'ATRIBUCIÓN PENDIENTE' : row.verdict;
-    const tone = row.pending_attribution ? 'info' : row.tone;
-    const attribution = row.pending_attribution
-      ? '<span class="attribution-warning">Hay operaciones reales sin referenciar</span>' : '';
     return `<li><div><strong>${escapeHtml(row.symbol)}</strong><small>${escapeHtml(row.label)}</small></div>`
       + `<div class="strategy-values"><span>Test ${escapeHtml(money(row.demo_profit, currency))}</span>`
       + `<span>Real ${escapeHtml(money(row.real_profit, currency))}</span></div>`
-      + `<div><span class="verdict ${tone}">${escapeHtml(verdict)}</span>${attribution}${quality}</div></li>`;
+      + `<div><span class="verdict ${row.tone}">${escapeHtml(row.verdict)}</span>${quality}</div></li>`;
   }).join('')}</ul>`;
 }
 
@@ -101,25 +98,25 @@ function unavailableMarkup(entry) {
 function cardMarkup(entry) {
   const profile = entry.profile || {};
   const result = entry.result;
-  const summary = result ? LiveDashboardMetrics.summarize(result) : {comparable: false, flagged: []};
+  const overrides = LiveAuditReproduction.readOverrides(entry.node.id, entry.auditId);
+  const summary = result
+    ? LiveDashboardMetrics.summarize(result, overrides) : {comparable: false, flagged: []};
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
     profile.portfolio_type
   ] || profile.portfolio_type || 'Sin modo';
   const title = profile.deployment_name || `Portafolio #${profile.portfolio_id || '—'}`;
   const currency = summary.currency || result?.account?.currency || 'EUR';
-  const pending = summary.flagged.filter(row => row.pending_attribution).length;
-  const confirmed = summary.flagged.filter(row => !row.pending_attribution);
-  const broken = confirmed.filter(row => row.verdict === 'NO REPRODUCE').length;
-  const warnings = confirmed.filter(row => row.verdict === 'AVISO').length;
-  const tone = broken ? 'failed' : warnings || pending ? 'pending' : summary.comparable ? 'completed' : 'idle';
+  const broken = summary.flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
+  const warnings = summary.flagged.filter(row => row.verdict === 'AVISO').length;
+  const tone = broken ? 'failed' : warnings ? 'pending' : summary.comparable ? 'completed' : 'idle';
   const body = summary.comparable ? `<div class="comparison-grid">
     <div><span>Profit Test</span><strong>${escapeHtml(money(summary.demo_profit, currency))}</strong></div>
     <div><span>Profit Real</span><strong>${escapeHtml(money(summary.real_profit, currency))}</strong></div>
     <div><span>DD Test</span><strong>${escapeHtml(money(summary.demo_drawdown, currency))}</strong></div>
     <div><span>DD Real</span><strong>${escapeHtml(money(summary.real_drawdown, currency))}</strong></div>
-  </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar</strong><span>${broken} críticas · ${warnings} avisos · ${pending} por atribuir</span></div>${flaggedMarkup(summary.flagged, currency)}</section>` : unavailableMarkup(entry);
+  </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency)}</section>` : unavailableMarkup(entry);
   const badge = broken ? `${broken} NO REPRODUCE` : warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}`
-    : pending ? `${pending} POR ATRIBUIR` : summary.comparable ? 'SIN AVISOS' : 'SIN DATOS';
+    : summary.comparable ? 'SIN AVISOS' : 'SIN DATOS';
   return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }
 
@@ -127,18 +124,17 @@ function render(entries) {
   const realEntries = entries.filter(entry => entry.auditId);
   const failedConfigs = entries.filter(entry => entry.configError);
   const summaries = realEntries.map(entry => entry.result
-    ? LiveDashboardMetrics.summarize(entry.result) : {flagged: []});
+    ? LiveDashboardMetrics.summarize(
+      entry.result, LiveAuditReproduction.readOverrides(entry.node.id, entry.auditId),
+    ) : {flagged: []});
   const flagged = summaries.flatMap(item => item.flagged);
-  const pending = flagged.filter(row => row.pending_attribution).length;
-  const confirmed = flagged.filter(row => !row.pending_attribution);
-  const broken = confirmed.filter(row => row.verdict === 'NO REPRODUCE').length;
-  const warnings = confirmed.filter(row => row.verdict === 'AVISO').length;
+  const broken = flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
+  const warnings = flagged.filter(row => row.verdict === 'AVISO').length;
   summaryEl.innerHTML = [
     [realEntries.length, 'Usos operando en real'],
     [summaries.filter(item => item.comparable).length, 'Con comparación'],
     [broken, 'Estrategias que no reproducen'],
     [warnings, 'Estrategias con aviso'],
-    [pending, 'Pendientes de atribuir'],
   ].map(([value, label]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join('');
   const cards = realEntries.map(cardMarkup);
   failedConfigs.forEach(entry => cards.push(`<article class="portfolio-card failed">${unavailableMarkup(entry)}</article>`));
@@ -177,6 +173,8 @@ async function restartManager() {
     }));
     restartButton.textContent = 'Reinicio solicitado';
     toast('Sincronización y reinicio del manager solicitados');
+    managerRestarting = true;
+    monitorManagerRestart();
   } catch (error) {
     restartButton.disabled = false;
     restartButton.textContent = 'Reiniciar manager';
@@ -184,7 +182,49 @@ async function restartManager() {
   }
 }
 
+async function managerRestartState() {
+  return jsonResponse(await fetch('/api/manager/restart?lines=80', {cache: 'no-store'}));
+}
+
+async function monitorManagerRestart() {
+  for (let attempt = 0; managerRestarting && attempt < 180; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    let state;
+    try { state = await managerRestartState(); }
+    catch (_error) { continue; } // El contenedor corta la conexión al reemplazarse.
+    if (state.status === 'authentication_required') {
+      location.href = '/generation.html';
+      return;
+    }
+    if (state.status === 'completed') {
+      location.reload();
+      return;
+    }
+    if (state.status === 'failed') {
+      managerRestarting = false;
+      restartButton.disabled = false;
+      restartButton.textContent = 'Reiniciar manager';
+      toast(state.error || 'Falló el reinicio del manager', true);
+      return;
+    }
+  }
+  if (managerRestarting) {
+    managerRestarting = false;
+    restartButton.disabled = false;
+    restartButton.textContent = 'Reiniciar manager';
+    toast('El reinicio no terminó dentro del tiempo esperado', true);
+  }
+}
+
 refreshButton.addEventListener('click', refresh);
 restartButton.addEventListener('click', restartManager);
 refresh();
 setInterval(refresh, 60000);
+managerRestartState().then(state => {
+  if (['starting', 'running', 'authentication_required', 'restarting'].includes(state.status)) {
+    managerRestarting = true;
+    restartButton.disabled = true;
+    restartButton.textContent = 'Reiniciando…';
+    monitorManagerRestart();
+  }
+}).catch(() => {});

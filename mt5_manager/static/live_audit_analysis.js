@@ -24,12 +24,11 @@ function writeOverrides(value) {
 }
 
 function overrideFor(strategy, side) {
-  const value = Number(lotOverrides[strategy]?.[side]);
-  return Number.isFinite(value) && value >= 0 ? value : null;
+  return LiveAuditReproduction.overrideFor(lotOverrides, strategy, side);
 }
 
 function autolotMode() {
-  return lotOverrides.$mode === 'autolot';
+  return LiveAuditReproduction.autolotMode(lotOverrides);
 }
 
 // La cuenta real lleva la batuta. Si la operación tiene pareja —cerrada o
@@ -40,12 +39,7 @@ function autolotMode() {
 // RoboForex 65 de 94 operaciones ejecutaron un lote distinto del calculado.
 // El autolote cubre sólo lo que la cuenta real no llegó a ejecutar.
 function scaleTarget(row) {
-  const executed = Number((row.real || row.real_position_still_open || {}).volume);
-  if (Number.isFinite(executed) && executed > 0) return {volume: executed, source: 'real'};
-  const expected = row.limits?.volume_expected_source === 'autolot'
-    ? Number(row.limits.volume_expected_real) : null;
-  return Number.isFinite(expected) && expected > 0
-    ? {volume: expected, source: 'autolot'} : {volume: null, source: 'none'};
+  return LiveAuditReproduction.scaleTarget(row);
 }
 
 function autolotLots(group) {
@@ -73,22 +67,11 @@ function lotList(lots) {
 // de la estrategia: si una estrategia operó varios volúmenes, un factor común
 // daría un PnL que nunca existió.
 function scaledProfit(trade, lot) {
-  const profit = Number(trade.profit || 0);
-  const volume = Number(trade.volume || 0);
-  if (lot === null || !(volume > 0)) return profit;
-  return profit / volume * lot;
+  return LiveAuditReproduction.scaledProfit(trade, lot);
 }
 
 function sideSeries(trades, strategy, side) {
-  const manualLot = overrideFor(strategy, side);
-  return trades.map(trade => {
-    const automaticLot = side === 'demo' && autolotMode() ? Number(trade.scale_volume) : null;
-    const lot = Number.isFinite(automaticLot) && automaticLot > 0 ? automaticLot : manualLot;
-    return {
-      close_time: trade.close_time, profit: scaledProfit(trade, lot),
-      pending_real: Boolean(trade.pending_real),
-    };
-  });
+  return LiveAuditReproduction.sideSeries(trades, strategy, side, lotOverrides);
 }
 
 function escapeHtml(value) {
@@ -486,9 +469,7 @@ function renderSimulationNotice() {
 // estrategia que en demo hizo 0,40 € y en real 0,10 € saldría «-75 %» y se
 // colaría por delante de una que perdió cientos.
 function reproductionShortfall(group) {
-  const demo = groupTotal(group, 'demo');
-  const real = groupTotal(group, 'real');
-  return {demo, real, pct: (demo - real) / Math.max(Math.abs(demo), 1) * 100};
+  return LiveAuditReproduction.numbers(group, lotOverrides);
 }
 
 // Dirección: igual que el motor para el PnL de cada operación
@@ -506,8 +487,8 @@ function reproductionShortfall(group) {
 //
 // Ninguna fuente fija un umbral canónico: estos son valores por defecto, y
 // tocará recalibrarlos contra la población de estrategias de este pipeline.
-const REPRODUCTION_EXPECTED_PCT = 20;
-const REPRODUCTION_BROKEN_PCT = 60;
+const REPRODUCTION_EXPECTED_PCT = LiveAuditReproduction.EXPECTED_SHORTFALL_PCT;
+const REPRODUCTION_BROKEN_PCT = LiveAuditReproduction.BROKEN_SHORTFALL_PCT;
 // La tabla del histórico calla por debajo de ocho operaciones, pero allí se
 // contrasta contra una **distribución** y hace falta muestra. Aquí se comparan
 // las **mismas** operaciones, emparejadas una a una: con siete parejas se puede
@@ -523,21 +504,7 @@ const REPRODUCTION_BROKEN_PCT = 60;
 const REPRODUCTION_FEW_PAIRS = Math.ceil(100 / REPRODUCTION_EXPECTED_PCT);
 
 function reproductionVerdict(numbers) {
-  const {demo, real, pct} = numbers;
-  if (!demo && !real) return ['SIN DATOS', 'info', 'Ninguna de las dos partes cerró operaciones comparables.'];
-  if (demo >= 1 && real < 0) {
-    return ['NO REPRODUCE', 'bad', 'El tester gana y la cuenta real pierde: no queda nada de su resultado.'];
-  }
-  if (pct >= REPRODUCTION_BROKEN_PCT) {
-    return ['NO REPRODUCE', 'bad', `El real se deja más del ${number(REPRODUCTION_BROKEN_PCT, 0)} % del tester, por encima del deterioro que se considera normal.`];
-  }
-  if (pct > REPRODUCTION_EXPECTED_PCT) {
-    return ['AVISO', 'warn', `Pierde más del ${number(REPRODUCTION_EXPECTED_PCT, 0)} % que se espera de cualquier paso a real, sin llegar a romperse.`];
-  }
-  if (pct < -REPRODUCTION_EXPECTED_PCT) {
-    return ['MEJOR QUE EL TESTER', 'good', 'La cuenta real saca más que el tester. No es un defecto.'];
-  }
-  return ['REPRODUCE', 'good', `Dentro del ${number(REPRODUCTION_EXPECTED_PCT, 0)} % de deterioro que se da por normal al pasar de backtest a real.`];
+  return LiveAuditReproduction.verdict(numbers);
 }
 
 // Con la base acotada a 1 €, un tester que movió 1,25 € frente a un real de
