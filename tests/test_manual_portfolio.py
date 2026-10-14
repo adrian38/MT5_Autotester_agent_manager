@@ -10,6 +10,7 @@ from unittest.mock import patch
 from mt5_manager import manager_portfolio_routes
 from mt5_manager.portfolio_saved import _saved_portfolio_row
 from mt5_manager.portfolio_manual_reports import manual_history_summary
+from mt5_manager.portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin
 
 
 ROOT = Path(__file__).parents[1]
@@ -90,6 +91,18 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertEqual(history["net_profit"], 75.0)
         self.assertEqual(history["max_drawdown"], 25.0)
         self.assertEqual(history["strategies"][0]["history_quality"], "99%")
+
+    def test_manual_detail_does_not_require_ubs_capital_or_dd_inputs(self) -> None:
+        source = SimpleNamespace(
+            saved_portfolio_detail=lambda _portfolio_id, _scope: {
+                "portfolio": {"id": 172, "manual_portfolio": True},
+            },
+            saved_inputs=lambda *_args: self.fail("a manual portfolio must not normalize UBS inputs"),
+        )
+        owner = SimpleNamespace(_persistence_source=lambda _node_id, _scope: source)
+        detail = PortfolioCoordinatorSavedMixin.saved(owner, "robo", "full_history", 172)
+        self.assertEqual(detail["portfolio"]["id"], 172)
+        self.assertNotIn("inherited_inputs", detail["portfolio"])
 
 
 class ManualPortfolioRouteTests(unittest.TestCase):

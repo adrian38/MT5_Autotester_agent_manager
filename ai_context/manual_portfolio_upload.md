@@ -62,3 +62,8 @@ con el HTML homónimo de `<proyecto>/reports` y muestra composición, periodo,
 operaciones, beneficio, drawdown, acierto, profit factor, calidad y desglose
 mensual. La lectura usa la caché por mtime/tamaño; no recorre el directorio de
 reportes, que puede contener miles de artefactos.
+
+El detalle manual no reconstruye `inherited_inputs`: esa normalización exige
+capital y límites DD de una construcción UBS, datos que deliberadamente no
+existen en una carpeta de sets. Aplicarla deja el panel vacío con «Capital y DD
+valle deben ser mayores que 0» aunque el histórico sea válido.

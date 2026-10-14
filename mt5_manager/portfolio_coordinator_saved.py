@@ -93,7 +93,7 @@ class PortfolioCoordinatorSavedMixin:
         if portfolio_id is None:
             return source.saved_portfolios(scope)
         detail = source.saved_portfolio_detail(portfolio_id, scope)
-        if scope == "full_history":
+        if scope == "full_history" and not detail["portfolio"].get("manual_portfolio"):
             detail["portfolio"]["inherited_inputs"] = source.saved_inputs(portfolio_id, scope)
         return detail
 
