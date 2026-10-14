@@ -26,13 +26,16 @@
           <small>Se aceptan únicamente archivos .set. Cada set debe declarar ForceSymbol, TimeFrame y StartLots.</small>
         </div>
         <div id="manual-file-list" class="manual-file-list"></div>
-        <p class="portfolio-note">Este flujo no inventa beneficios ni drawdown. El portafolio nace con su composición y lotes; el histórico se obtiene después mediante Auditor real.</p>
+        <p class="portfolio-note">Este flujo no inventa beneficios ni drawdown. El portafolio nace con su composición y lotes; después puedes generar su histórico OHLC.</p>
         <div class="builder-actions"><button id="manual-submit" type="submit">Crear portafolio</button></div>
       </form>
     </section>
     <section id="manual-created" class="panel-card manual-created" hidden>
       <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO CREADO</p><h2 id="manual-created-title"></h2></div><span id="manual-created-count"></span></div>
-      <div class="manual-created-body"><p>Los sets están guardados en el nodo AXI y ya forman una composición auditable.</p><div class="detail-actions"><a id="manual-audit-link" class="button" href="#">Histórico y auditorías</a><a id="manual-detail-link" class="button secondary" href="#">Ver en Portafolio UBS</a></div></div>
+      <div class="manual-created-body"><p>Los sets están guardados en el nodo AXI. Genera ahora el histórico OHLC para disponer de la referencia previa a futuras auditorías.</p>
+        <div class="portfolio-form-grid manual-history-fields"><label>Fecha inicial<input id="manual-from-date" placeholder="YYYY.MM.DD"></label><label>Fecha final<input id="manual-to-date" placeholder="YYYY.MM.DD"></label></div>
+        <div class="detail-actions"><button id="manual-history-button" type="button">Generar histórico OHLC</button><a id="manual-audit-link" class="button secondary" href="#">Auditorías</a><a id="manual-detail-link" class="button secondary" href="#">Ver en Portafolio UBS</a></div>
+      </div>
     </section>
   </main>
   <div id="save-overlay" class="save-overlay" hidden><div class="save-overlay-card"><span class="save-spinner"></span><div><strong>Guardando sets en AXI</strong><p>Validando la carpeta y registrando el portafolio…</p></div></div></div>

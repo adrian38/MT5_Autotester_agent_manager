@@ -3,6 +3,7 @@ const nodeId = params.get('node') || '';
 const form = document.querySelector('#manual-portfolio-form');
 const input = document.querySelector('#manual-files');
 let setFiles = [];
+let createdPortfolioId = null;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -73,6 +74,7 @@ form.addEventListener('submit', async event => {
 });
 
 function showCreated(data) {
+  createdPortfolioId = data.portfolio_id;
   const section = document.querySelector('#manual-created');
   document.querySelector('#manual-created-title').textContent = `#${data.portfolio_id} · ${data.name}`;
   document.querySelector('#manual-created-count').textContent = `${data.strategies} estrategias`;
@@ -82,4 +84,34 @@ function showCreated(data) {
   section.scrollIntoView({behavior: 'smooth', block: 'center'});
 }
 
+async function loadHistoryDefaults() {
+  if (!nodeId) return;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-defaults`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({scope: 'full_history'}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    document.querySelector('#manual-from-date').value = data.from_date || '';
+    document.querySelector('#manual-to-date').value = data.to_date || '';
+  } catch (error) { toast(error.message, true); }
+}
+
+document.querySelector('#manual-history-button').addEventListener('click', async () => {
+  if (!createdPortfolioId) return;
+  const button = document.querySelector('#manual-history-button');
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-history`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scope: 'full_history', portfolio_id: createdPortfolioId, from_date: document.querySelector('#manual-from-date').value.trim(), to_date: document.querySelector('#manual-to-date').value.trim()}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    toast(data.queued ? 'Histórico OHLC añadido a la cola.' : 'Histórico OHLC iniciado.');
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
+
 document.querySelector('#manual-node').textContent = nodeId || 'Nodo no indicado';
+loadHistoryDefaults();
