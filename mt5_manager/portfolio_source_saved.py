@@ -23,6 +23,7 @@ from .portfolio_identity import (
     normalize_portfolio_alias,
 )
 from .portfolio_report_cache import cached_report
+from .portfolio_manual_reports import manual_history_summary
 from .portfolio_saved import (
     SAVED_INPUT_FALLBACKS,
     _allocation_source_rows,
@@ -179,6 +180,8 @@ class PortfolioSourceSavedMixin:
                     members.append({"variant_key": raw.get("variant_key") or "", "variant_label": raw.get("variant_label") or "", "set_id": raw.get("set_path") or "", "candidate_id": raw.get("candidate_id") or "", "symbol": raw.get("symbol") or "", "timeframe": raw.get("period") or "", "units": int(round(float(raw.get("lot") or 0) / .01)), "lot": float(raw.get("lot") or 0), "lot_size_step": float(raw.get("lot_size_step") or .01), "net_profit_contribution": float(raw.get("combined_net_profit") or 0), "standalone_valley_dd": float(raw.get("standalone_dd") or 0), "standalone_point_dd": 0.0, "set_path": raw.get("set_path") or "", "margin_required": 0.0, "margin_pct": 0.0})
         selected["metrics"] = metrics
         selected["members"] = self._mark_excluded_members(self._detail_members(members, metrics))
+        if selected.get("manual_portfolio"):
+            selected["history"] = manual_history_summary(self.project, selected["members"])
         with self.connect() as conn:
             versions = [dict(item) for item in conn.execute(
                 "select id,version_no,created_at,reason from portfolio_versions where portfolio_id=? order by version_no desc",

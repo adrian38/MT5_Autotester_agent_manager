@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from mt5_manager import manager_portfolio_routes
 from mt5_manager.portfolio_saved import _saved_portfolio_row
+from mt5_manager.portfolio_manual_reports import manual_history_summary
 
 
 ROOT = Path(__file__).parents[1]
@@ -23,7 +27,7 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         manual_script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
         ubs_script = (ROOT / "mt5_manager" / "static" / "portfolios.js").read_text(encoding="utf-8")
         self.assertIn("Portafolios creados desde sets", page)
-        self.assertIn("filter(row => row.manual_portfolio)", manual_script)
+        self.assertIn("filter(row=>row.manual_portfolio)", manual_script)
         self.assertIn("filter(row => !row.manual_portfolio)", ubs_script)
         self.assertIn("/live_audit.html?node=", manual_script)
 
@@ -65,6 +69,27 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("function selectRequestedPortfolio()", script)
         self.assertIn("params.get('portfolio')", script)
         self.assertIn("selectRequestedPortfolio();", script)
+
+    def test_manual_detail_reads_the_generated_history_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "reports").mkdir()
+            (project / "reports" / "one.htm").write_text("report", encoding="utf-8")
+            report = SimpleNamespace(
+                path=project / "reports" / "one.htm", symbol="XAUUSD", timeframe="H1",
+                period_start="01.01.2020", period_end="01.01.2026", initial_deposit=1000,
+                metrics={"Calidad del historial": "99%"}, monthly={2026: {1: 25.0}},
+                trades=[
+                    SimpleNamespace(close_time=datetime(2026, 1, 1), profit_loss=100.0),
+                    SimpleNamespace(close_time=datetime(2026, 1, 2), profit_loss=-25.0),
+                ],
+            )
+            with patch("mt5_manager.portfolio_manual_reports.cached_report", return_value=report):
+                history = manual_history_summary(project, [{"set_id": "one", "set_path": "one.set"}])
+        self.assertEqual(history["available"], 1)
+        self.assertEqual(history["net_profit"], 75.0)
+        self.assertEqual(history["max_drawdown"], 25.0)
+        self.assertEqual(history["strategies"][0]["history_quality"], "99%")
 
 
 class ManualPortfolioRouteTests(unittest.TestCase):

@@ -55,3 +55,10 @@ El histórico sí se ejecuta en el nodo como trabajo `manual_history`. La pantal
 de creación y el inventario manual sondean `/api/nodes` y el log del nodo para
 mostrar cola, ejecución, finalización o fallo. Los hitos del log sólo aproximan
 el porcentaje durante MT5; el estado `completed` es el único que marca 100 %.
+
+El inventario no es una colección de enlaces: replica el patrón maestro-detalle
+de UBS. Al seleccionar una cartera consulta su detalle, relaciona cada `.set`
+con el HTML homónimo de `<proyecto>/reports` y muestra composición, periodo,
+operaciones, beneficio, drawdown, acierto, profit factor, calidad y desglose
+mensual. La lectura usa la caché por mtime/tamaño; no recorre el directorio de
+reportes, que puede contener miles de artefactos.
