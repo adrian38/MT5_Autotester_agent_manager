@@ -30,6 +30,11 @@ from .portfolio_settings import ASSET_GROUPS, COMMON_DEFAULTS, DEFAULT_ACCOUNT_L
 
 def _saved_portfolio_row(row: Any, value: Callable[..., Any], portfolio_scope: str) -> dict[str, Any]:
     """Una fila de `portfolios` como la espera el listado, con tipos ya fijados."""
+    try:
+        metrics = json.loads(value(row, "metrics_json", "{}") or "{}")
+        manual_portfolio = bool((metrics.get("inputs") or {}).get("manual_portfolio"))
+    except (ValueError, TypeError, AttributeError):
+        manual_portfolio = False
     return {
         "id": int(value(row, "id", 0) or 0),
         "created_at": str(value(row, "created_at", "") or ""),
@@ -55,6 +60,7 @@ def _saved_portfolio_row(row: Any, value: Callable[..., Any], portfolio_scope: s
         "target_strategies": int(value(row, "target_strategies", 0) or 0),
         "stop_reason": str(value(row, "stop_reason", "") or ""),
         "binding_constraint": str(value(row, "binding_constraint", "") or ""),
+        "manual_portfolio": manual_portfolio,
     }
 
 def _improvement_origin(

@@ -51,6 +51,7 @@ STATIC_FILES = {
     "portfolio_comparison.js",
     "portfolios_grid.html", "portfolios_grid.js",
     "portfolio_manual.html", "portfolio_manual.js",
+    "manual_portfolios.html", "manual_portfolios.js",
     # Primitiva compartida por los tres ambitos: el dialogo del motivo de
     # exclusion y las etiquetas de sus tres codigos. La interfaz de cada
     # ambito sigue siendo suya; lo que no puede divergir es el codigo que

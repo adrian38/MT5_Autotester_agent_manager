@@ -5,6 +5,7 @@ const input = document.querySelector('#manual-files');
 const timeframes = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M10', 'M12', 'M15', 'M20', 'M30', 'H1', 'H2', 'H3', 'H4', 'H6', 'H8', 'H12', 'D1', 'W1', 'MN1'];
 let setDrafts = [];
 let createdPortfolioId = null;
+let historyPoll = null;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -145,9 +146,52 @@ function showCreated(data) {
   document.querySelector('#manual-created-title').textContent = `#${data.portfolio_id} · ${data.name}`;
   document.querySelector('#manual-created-count').textContent = `${data.strategies} estrategias`;
   document.querySelector('#manual-audit-link').href = `/live_audit.html?node=${encodeURIComponent(nodeId)}&portfolio=${encodeURIComponent(data.portfolio_id)}`;
-  document.querySelector('#manual-detail-link').href = `/portfolios.html?node=${encodeURIComponent(nodeId)}&portfolio=${encodeURIComponent(data.portfolio_id)}`;
+  document.querySelector('#manual-detail-link').href = `/manual_portfolios.html?node=${encodeURIComponent(nodeId)}&portfolio=${encodeURIComponent(data.portfolio_id)}`;
   section.hidden = false;
   section.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+function historyProgress(state, lines) {
+  if (state === 'completed') return 100;
+  const text = lines.join('\n');
+  if (/Copiado a reports|Reportes encontrados/i.test(text)) return 92;
+  const queued = Number(text.match(/Backtests en cola:\s*(\d+)/i)?.[1] || 0);
+  const done = (text.match(/WORKER_JOB_DONE|Finalizado:/gi) || []).length;
+  if (queued) return Math.min(88, 18 + Math.round(70 * done / queued));
+  if (/MT5 sigue activo|Lanzando MT5/i.test(text)) return 45;
+  return state === 'running' ? 18 : 8;
+}
+
+function paintHistory(state, lines = []) {
+  const percent = historyProgress(state, lines);
+  const labels = {queued: 'Histórico en cola', running: 'Generando histórico OHLC', completed: 'Histórico terminado', failed: 'El histórico ha fallado'};
+  document.querySelector('#manual-history-status').hidden = false;
+  document.querySelector('#manual-history-label').textContent = labels[state] || 'Preparando histórico';
+  document.querySelector('#manual-history-percent').textContent = `${percent}%`;
+  document.querySelector('#manual-history-progress').style.width = `${percent}%`;
+  document.querySelector('#manual-history-detail').textContent = lines.slice(-2).join(' · ') || 'Esperando información del nodo…';
+  document.querySelector('#manual-history-button').disabled = ['queued', 'running'].includes(state);
+}
+
+async function pollHistory() {
+  try {
+    const [statusResponse, logResponse] = await Promise.all([fetch('/api/nodes', {cache: 'no-store'}), fetch(`/api/nodes/${encodeURIComponent(nodeId)}/logs?lines=120`, {cache: 'no-store'})]);
+    const statusData = await statusResponse.json();
+    const logData = await logResponse.json();
+    const node = (statusData.nodes || []).find(item => (item.manager_node?.id || item.node?.id) === nodeId) || {};
+    const job = node.job || node.status?.job || {};
+    const matches = job.job_type === 'manual_history' && Number((job.request || {}).portfolio_id) === Number(createdPortfolioId);
+    const state = matches ? (job.state || job.status || 'running') : 'queued';
+    paintHistory(state, logData.lines || []);
+    if (['completed', 'failed', 'interrupted'].includes(state)) { clearInterval(historyPoll); historyPoll = null; }
+  } catch (error) { document.querySelector('#manual-history-detail').textContent = `No se pudo consultar el estado: ${error.message}`; }
+}
+
+function monitorHistory(initialState) {
+  paintHistory(initialState, []);
+  if (historyPoll) clearInterval(historyPoll);
+  pollHistory();
+  historyPoll = setInterval(pollHistory, 1500);
 }
 
 async function loadHistoryDefaults() {
@@ -175,9 +219,11 @@ document.querySelector('#manual-history-button').addEventListener('click', async
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || response.statusText);
     toast(data.queued ? 'Histórico OHLC añadido a la cola.' : 'Histórico OHLC iniciado.');
+    monitorHistory(data.queued ? 'queued' : 'running');
   } catch (error) { toast(error.message, true); }
-  finally { button.disabled = false; }
+  finally { if (!historyPoll) button.disabled = false; }
 });
 
 document.querySelector('#manual-node').textContent = nodeId || 'Nodo no indicado';
+document.querySelector('#manual-list-link').href = `/manual_portfolios.html?node=${encodeURIComponent(nodeId)}`;
 loadHistoryDefaults();

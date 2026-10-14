@@ -906,13 +906,14 @@ async function loadPortfolios(preferredId = null) {
     const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolios?scope=${scope}`, {cache: 'no-store'});
     const data = await jsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
-    portfolioData = data;
+    const rows = (data.portfolios || []).filter(row => !row.manual_portfolio);
+    portfolioData = {...data, portfolios: rows};
     document.querySelector('#portfolio-title').textContent = data.node?.name || nodeId;
     document.querySelector('#portfolio-subtitle').textContent = `${data.node?.broker || ''} · ${data.node?.account_type || ''} · motor central`;
     document.querySelector('#portfolio-list-title').textContent = scopeLabel();
-    const summary = data.summary || {};
-    document.querySelector('#portfolio-summary').innerHTML = [[summary.total || 0, 'Portafolios guardados'], [summary.strategies || 0, 'Estrategias acumuladas'], [summary.latest_id ? `#${summary.latest_id}` : '—', 'Último portafolio'], ['A/M/C', 'Ámbito']].map(([value, label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('');
-    const rows = data.portfolios || [];
+    const strategyTotal = rows.reduce((sum, row) => sum + Number(row.active_strategies || 0), 0);
+    const latestId = rows.reduce((latest, row) => Math.max(latest, Number(row.id || 0)), 0);
+    document.querySelector('#portfolio-summary').innerHTML = [[rows.length, 'Portafolios guardados'], [strategyTotal, 'Estrategias acumuladas'], [latestId ? `#${latestId}` : '—', 'Último portafolio'], ['A/M/C', 'Ámbito']].map(([value, label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('');
     selectedId = preferredId && rows.some(row => row.id === preferredId) ? preferredId : selectedId && rows.some(row => row.id === selectedId) ? selectedId : rows[0]?.id || null;
     renderList();
     if (selectedId) await loadDetail(selectedId); else { currentDetail = null; detailEl.hidden = true; emptyEl.hidden = false; }

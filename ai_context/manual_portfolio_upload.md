@@ -43,3 +43,15 @@ auditoría. El modo elegido al crearla es una sola variante (`aggressive`,
 El botón no ejecuta MT5 ni inicia una auditoría: deja al usuario en la pantalla
 de configuración, donde siguen siendo obligatorias las cuentas, credenciales y
 el periodo.
+
+## Inventario separado y progreso
+
+Las filas manuales conservan `metrics.inputs.manual_portfolio=true`. El listado
+general proyecta esa marca: `Portafolio UBS` excluye esas filas y
+`Portafolios manuales` muestra sólo ellas. Auditorías no aplica el filtro porque
+es el inventario común de ambos orígenes.
+
+El histórico sí se ejecuta en el nodo como trabajo `manual_history`. La pantalla
+de creación y el inventario manual sondean `/api/nodes` y el log del nodo para
+mostrar cola, ejecución, finalización o fallo. Los hitos del log sólo aproximan
+el porcentaje durante MT5; el estado `completed` es el único que marca 100 %.

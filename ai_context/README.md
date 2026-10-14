@@ -125,7 +125,7 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 ## Manager: interfaz y operación
 
 - `manual_portfolio_upload.md`: creación de una cartera auditable desde una
-  carpeta arbitraria de `.set`, persistencia en el nodo y acceso a su histórico.
+  carpeta arbitraria de `.set`, inventario separado de UBS y progreso del histórico.
 - `ictrading_regression_button.md`: contrato de interfaz y proxy para ejecutar únicamente la prueba regresiva en ICTrading.
 - `historical_cleanup_cards.md`: contrato del botón manual y de la limpieza
   automática de datos históricos al terminar cada run.

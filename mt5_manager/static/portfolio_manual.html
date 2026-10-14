@@ -9,7 +9,7 @@
 <body class="portfolio-page manual-portfolio-page">
   <header>
     <div><p class="eyebrow">SOLO PORTAFOLIO</p><h1>Crear desde una carpeta de sets</h1><p class="subtitle">Guarda la composición tal cual para poder auditarla después.</p></div>
-    <div class="header-actions"><a class="button secondary" href="/">Volver al manager</a></div>
+    <div class="header-actions"><a id="manual-list-link" class="button secondary" href="#">Portafolios manuales</a><a class="button secondary" href="/">Volver al manager</a></div>
   </header>
   <main class="manual-portfolio-main">
     <section class="panel-card manual-portfolio-card">
@@ -32,13 +32,14 @@
     </section>
     <section id="manual-created" class="panel-card manual-created" hidden>
       <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO CREADO</p><h2 id="manual-created-title"></h2></div><span id="manual-created-count"></span></div>
-      <div class="manual-created-body"><p>Los sets están guardados en el nodo AXI. Genera ahora el histórico OHLC para disponer de la referencia previa a futuras auditorías.</p>
+      <div class="manual-created-body"><p>Los sets están guardados en el nodo seleccionado. Genera ahora el histórico OHLC para disponer de la referencia previa a futuras auditorías.</p>
         <div class="portfolio-form-grid manual-history-fields"><label>Fecha inicial<input id="manual-from-date" placeholder="YYYY.MM.DD"></label><label>Fecha final<input id="manual-to-date" placeholder="YYYY.MM.DD"></label></div>
-        <div class="detail-actions"><button id="manual-history-button" type="button">Generar histórico OHLC</button><a id="manual-audit-link" class="button secondary" href="#">Auditorías</a><a id="manual-detail-link" class="button secondary" href="#">Ver en Portafolio UBS</a></div>
+        <div class="detail-actions"><button id="manual-history-button" type="button">Generar histórico OHLC</button><a id="manual-audit-link" class="button secondary" href="#">Auditorías</a><a id="manual-detail-link" class="button secondary" href="#">Ver portafolios manuales</a></div>
+        <div id="manual-history-status" class="manual-history-status" hidden><div class="live-execution-head"><strong id="manual-history-label">Preparando histórico…</strong><span id="manual-history-percent">0%</span></div><div class="progress-track"><span id="manual-history-progress" style="width:0%"></span></div><p id="manual-history-detail" class="live-execution-detail"></p></div>
       </div>
     </section>
   </main>
-  <div id="save-overlay" class="save-overlay" hidden><div class="save-overlay-card"><span class="save-spinner"></span><div><strong>Guardando sets en AXI</strong><p>Validando la carpeta y registrando el portafolio…</p></div></div></div>
+  <div id="save-overlay" class="save-overlay" hidden><div class="save-overlay-card"><span class="save-spinner"></span><div><strong>Guardando sets en el nodo</strong><p>Validando la carpeta y registrando el portafolio…</p></div></div></div>
   <div id="toast"></div>
   <script src="/portfolio_manual.js"></script>
 </body>

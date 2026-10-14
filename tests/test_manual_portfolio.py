@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from mt5_manager import manager_portfolio_routes
+from mt5_manager.portfolio_saved import _saved_portfolio_row
 
 
 ROOT = Path(__file__).parents[1]
@@ -13,8 +14,18 @@ ROOT = Path(__file__).parents[1]
 class ManualPortfolioScreenTests(unittest.TestCase):
     def test_node_card_opens_the_dedicated_folder_screen(self) -> None:
         script = (ROOT / "mt5_manager" / "static" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("Solo portafolio", script)
+        self.assertIn("Crear portafolio manual", script)
         self.assertIn("/portfolio_manual.html?node=", script)
+        self.assertIn("/manual_portfolios.html?node=", script)
+
+    def test_manual_inventory_is_separate_from_ubs(self) -> None:
+        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
+        manual_script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        ubs_script = (ROOT / "mt5_manager" / "static" / "portfolios.js").read_text(encoding="utf-8")
+        self.assertIn("Portafolios creados desde sets", page)
+        self.assertIn("filter(row => row.manual_portfolio)", manual_script)
+        self.assertIn("filter(row => !row.manual_portfolio)", ubs_script)
+        self.assertIn("/live_audit.html?node=", manual_script)
 
     def test_screen_uploads_a_directory_and_offers_audit_history(self) -> None:
         page = (ROOT / "mt5_manager" / "static" / "portfolio_manual.html").read_text(encoding="utf-8")
@@ -33,6 +44,21 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn('data-set-field="symbol"', script)
         self.assertIn('data-set-field="timeframe"', script)
         self.assertIn("updateSetField(text, 'TimeFrame'", script)
+        self.assertIn('id="manual-history-status"', page)
+        self.assertIn("function monitorHistory", script)
+
+    def test_saved_row_exposes_manual_origin_from_metrics(self) -> None:
+        row = {
+            "id": 7,
+            "metrics_json": '{"inputs":{"manual_portfolio":true}}',
+        }
+        saved = _saved_portfolio_row(row, lambda item, key, default=None: item.get(key, default), "full_history")
+        self.assertTrue(saved["manual_portfolio"])
+
+    def test_saved_row_defaults_to_non_manual_for_old_or_invalid_metrics(self) -> None:
+        value = lambda item, key, default=None: item.get(key, default)
+        self.assertFalse(_saved_portfolio_row({"id": 1}, value, "full_history")["manual_portfolio"])
+        self.assertFalse(_saved_portfolio_row({"id": 2, "metrics_json": "{"}, value, "full_history")["manual_portfolio"])
 
     def test_live_audit_preselects_the_new_portfolio_from_the_url(self) -> None:
         script = (ROOT / "mt5_manager" / "static" / "live_audit.js").read_text(encoding="utf-8")
