@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Solo portafolio · MT5 Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="portfolio-page manual-portfolio-page">
+  <header>
+    <div><p class="eyebrow">SOLO PORTAFOLIO</p><h1>Crear desde una carpeta de sets</h1><p class="subtitle">Guarda la composición tal cual para poder auditarla después.</p></div>
+    <div class="header-actions"><a class="button secondary" href="/">Volver al manager</a></div>
+  </header>
+  <main class="manual-portfolio-main">
+    <section class="panel-card manual-portfolio-card">
+      <div class="panel-title"><div><p class="eyebrow">1 · IDENTIDAD</p><h2>Datos del portafolio</h2></div><span id="manual-node">Cargando nodo…</span></div>
+      <form id="manual-portfolio-form">
+        <div class="portfolio-form-grid manual-portfolio-fields">
+          <label>Nombre del portafolio<input id="manual-name" maxlength="80" placeholder="Ej.: AXI cuenta principal" required></label>
+          <label>Modo que se auditará<select id="manual-mode"><option value="balanced" selected>Moderado</option><option value="aggressive">Agresivo</option><option value="conservative">Conservador</option></select></label>
+        </div>
+        <div class="manual-folder-zone">
+          <p class="eyebrow">2 · CARPETA DE SETS</p>
+          <input id="manual-files" type="file" accept=".set" multiple webkitdirectory directory required>
+          <strong id="manual-file-count">Ninguna carpeta seleccionada</strong>
+          <small>Se aceptan únicamente archivos .set. Cada set debe declarar ForceSymbol, TimeFrame y StartLots.</small>
+        </div>
+        <div id="manual-file-list" class="manual-file-list"></div>
+        <p class="portfolio-note">Este flujo no inventa beneficios ni drawdown. El portafolio nace con su composición y lotes; el histórico se obtiene después mediante Auditor real.</p>
+        <div class="builder-actions"><button id="manual-submit" type="submit">Crear portafolio</button></div>
+      </form>
+    </section>
+    <section id="manual-created" class="panel-card manual-created" hidden>
+      <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO CREADO</p><h2 id="manual-created-title"></h2></div><span id="manual-created-count"></span></div>
+      <div class="manual-created-body"><p>Los sets están guardados en el nodo AXI y ya forman una composición auditable.</p><div class="detail-actions"><a id="manual-audit-link" class="button" href="#">Histórico y auditorías</a><a id="manual-detail-link" class="button secondary" href="#">Ver en Portafolio UBS</a></div></div>
+    </section>
+  </main>
+  <div id="save-overlay" class="save-overlay" hidden><div class="save-overlay-card"><span class="save-spinner"></span><div><strong>Guardando sets en AXI</strong><p>Validando la carpeta y registrando el portafolio…</p></div></div></div>
+  <div id="toast"></div>
+  <script src="/portfolio_manual.js"></script>
+</body>
+</html>

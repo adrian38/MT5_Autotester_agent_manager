@@ -20,6 +20,24 @@ let schedulerSettings = {};
 let auditSequence = 0;
 let configPhase = 'configuration_only';
 
+function selectRequestedPortfolio() {
+  const portfolioId = Number(params.get('portfolio') || 0);
+  if (!portfolioId || !portfolioRow(portfolioId)) return;
+  if (selectedAuditIds.some(auditId => portfolioForAudit(auditId) === portfolioId)) return;
+  const saved = savedAuditFor(portfolioId);
+  const auditId = saved || newAuditId(portfolioId);
+  selectedAuditIds.push(auditId);
+  if (!saved) {
+    profiles[auditId] = {
+      ...defaults, portfolio_id: portfolioId, portfolio_type: fixedPortfolioMode(portfolioId),
+    };
+  }
+  renderPortfolios();
+  renderProfiles();
+  ensureSelectionDetails();
+  setState('CONFIGURA LA AUDITORÍA', 'pending');
+}
+
 function toast(message, error = false) {
   const element = document.querySelector('#toast');
   element.textContent = message;
@@ -688,6 +706,7 @@ async function loadSettings() {
     portfolioDetailErrors = {};
     document.querySelector('#audit-title').textContent = data.node?.name || nodeId;
     applyState(data);
+    selectRequestedPortfolio();
     applySchedulerState(schedulerData);
   } catch (error) {
     setState('ERROR', 'failed');

@@ -50,6 +50,7 @@ STATIC_FILES = {
     "portfolio_improvement.js", "portfolio_monthly_improvement.js", "portfolio_repair.js",
     "portfolio_comparison.js",
     "portfolios_grid.html", "portfolios_grid.js",
+    "portfolio_manual.html", "portfolio_manual.js",
     # Primitiva compartida por los tres ambitos: el dialogo del motivo de
     # exclusion y las etiquetas de sus tres codigos. La interfaz de cada
     # ambito sigue siendo suya; lo que no puede divergir es el codigo que
@@ -146,8 +147,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _body(self) -> dict[str, Any]:
-        length = safe_int(self.headers.get("Content-Length"), 0, minimum=0, maximum=1_000_000)
+    def _body(self, maximum: int = 1_000_000) -> dict[str, Any]:
+        length = safe_int(self.headers.get("Content-Length"), 0, minimum=0, maximum=maximum)
         value = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
         if not isinstance(value, dict):
             raise ValueError("El cuerpo debe ser un objeto JSON")

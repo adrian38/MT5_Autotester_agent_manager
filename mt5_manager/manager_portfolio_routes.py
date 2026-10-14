@@ -26,6 +26,18 @@ from .portfolio_service import (
 )
 
 
+def create_manual_portfolio(handler, node: dict, body: dict[str, Any]) -> None:
+    """Forward uploaded sets to the node that owns both files and memory."""
+    status, value = manager_http.node_request(
+        node, "POST", "/api/v1/portfolios/manual", body, timeout=120,
+    )
+    if status == 404:
+        raise ValueError(
+            "El nodo todavia no admite portafolios manuales; actualiza AXI y reinicia su app."
+        )
+    handler._send_json(status, value)
+
+
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     """Pantalla de portafolios, estado de su tarea y carteras guardadas."""
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-manager":
@@ -321,9 +333,14 @@ def handle_post(handler, parts: list[str]) -> None:
     try:
         node_id = urllib.parse.unquote(parts[2])
         node = handler._node(node_id)
-        body = handler._body()
-        scope = normalize_portfolio_scope(body.pop("scope", "full_history"))
         action = parts[4]
+        body = handler._body(50_000_000 if action == "manual-create" else 1_000_000)
+        scope = normalize_portfolio_scope(body.pop("scope", "full_history"))
+        if action == "manual-create":
+            if scope != "full_history":
+                raise ValueError("Solo portafolio pertenece al historico completo")
+            create_manual_portfolio(handler, node, body)
+            return
         if not action_route(handler, action, node, node_id, scope, body):
             if not transfer_action(handler, action, node, node_id, scope, body):
                 handler._send_json(404, {"error": "Acción de portafolio desconocida"})
