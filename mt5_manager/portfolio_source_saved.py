@@ -200,7 +200,7 @@ class PortfolioSourceSavedMixin:
         """Las filas de la tabla de miembros, con los tipos ya puestos."""
         return [{
             "variant_key": str(raw.get("variant_key") or ""), "variant_label": str(raw.get("variant_label") or ""),
-            "set_id": str(raw.get("set_id") or ""), "set_name": Path(str(raw.get("set_path") or raw.get("set_id") or "")).name,
+            "set_id": str(raw.get("set_id") or ""), "set_name": Path(str(raw.get("set_path") or raw.get("set_id") or "").replace("\\", "/")).name,
             "set_path": str(raw.get("set_path") or raw.get("set_id") or ""),
             "candidate_id": str(raw.get("candidate_id") or ""), "symbol": str(raw.get("symbol") or ""), "timeframe": str(raw.get("timeframe") or ""),
             "units": int(raw.get("units") or 0), "lot": float(raw.get("lot") or 0), "lot_size_step": float(raw.get("lot_size_step") or 0),

@@ -86,11 +86,12 @@ class ManualPortfolioScreenTests(unittest.TestCase):
                 ],
             )
             with patch("mt5_manager.portfolio_manual_reports.cached_report", return_value=report):
-                history = manual_history_summary(project, [{"set_id": "one", "set_path": "one.set"}])
+                history = manual_history_summary(project, [{"set_id": "one", "set_path": r"runtime\manual_portfolios\uuid\sets\one.set"}])
         self.assertEqual(history["available"], 1)
         self.assertEqual(history["net_profit"], 75.0)
         self.assertEqual(history["max_drawdown"], 25.0)
         self.assertEqual(history["strategies"][0]["history_quality"], "99%")
+        self.assertEqual(history["strategies"][0]["set_name"], "one.set")
 
     def test_manual_detail_does_not_require_ubs_capital_or_dd_inputs(self) -> None:
         source = SimpleNamespace(

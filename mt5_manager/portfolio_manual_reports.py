@@ -9,6 +9,11 @@ from portfolio_manager.mt5_report import StrategyReport
 from .portfolio_report_cache import cached_report
 
 
+def _portable_set_name(value: Any) -> str:
+    """Nombre final tanto si la memoria guarda barras Windows como POSIX."""
+    return Path(str(value or "").replace("\\", "/")).name
+
+
 def _maximum_drawdown(report: StrategyReport) -> float:
     balance = float(report.initial_deposit or 0)
     peak = balance
@@ -34,7 +39,7 @@ def _report_summary(report: StrategyReport, member: dict[str, Any]) -> dict[str,
     gross_loss = abs(sum(value for value in profits if value < 0))
     return {
         "set_id": str(member.get("set_id") or ""),
-        "set_name": Path(str(member.get("set_path") or member.get("set_id") or "")).name,
+        "set_name": _portable_set_name(member.get("set_path") or member.get("set_id")),
         "report_path": str(report.path),
         "symbol": report.symbol or str(member.get("symbol") or ""),
         "timeframe": report.timeframe or str(member.get("timeframe") or ""),
@@ -52,7 +57,7 @@ def _report_summary(report: StrategyReport, member: dict[str, Any]) -> dict[str,
 
 
 def _matching_report(project: Path, member: dict[str, Any]) -> Path | None:
-    stem = Path(str(member.get("set_path") or member.get("set_id") or "")).stem
+    stem = Path(_portable_set_name(member.get("set_path") or member.get("set_id"))).stem
     reports = project / "reports"
     if not stem or not reports.is_dir():
         return None
