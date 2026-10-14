@@ -59,6 +59,9 @@
   function strategyGroups(result) {
     const groups = new Map();
     const quality = strategyQuality(result);
+    const pendingSymbols = new Set(unaccountedRows(result).filter(row => (
+      attributionState(row) === 'pending'
+    )).map(row => String(row.real?.symbol || '')));
     comparisonRows(result).forEach(row => {
       const tester = row.tester || {};
       const key = String(row.strategy || tester.strategy || 'Sin estrategia');
@@ -76,7 +79,14 @@
         groups.get(strategy).real.push(trade(row.real));
       }
     });
-    return [...groups.values()];
+    return [...groups.values()].map(group => ({
+      ...group,
+      // Mientras haya cierres reales del mismo símbolo sin referenciar, no se
+      // sabe a qué estrategia pertenecen. Pueden cambiar su PnL aunque todas
+      // las operaciones del tester ya tengan pareja, así que la portada no
+      // debe convertir ese resultado parcial en un diagnóstico definitivo.
+      pending_attribution: pendingSymbols.has(group.symbol),
+    }));
   }
 
   function verdict(demo, real) {

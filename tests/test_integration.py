@@ -89,7 +89,7 @@ class LocalIntegrationTests(IntegrationTestCase):
 
     def _assert_universe_controls(self) -> None:
         with urllib.request.urlopen(self.base + "/", timeout=3) as response:
-            self.assertIn(b"MT5 Autotester Manager", response.read())
+            self.assertIn(b"Portafolios activos", response.read())
 
         status, universe = self.request("/api/nodes/test-node/universe")
         self.assertEqual(status, 200)

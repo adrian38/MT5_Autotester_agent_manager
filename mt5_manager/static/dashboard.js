@@ -81,10 +81,14 @@ function flaggedMarkup(rows, currency) {
   return `<ul class="strategy-alerts">${rows.map(row => {
     const quality = row.quality && row.quality.ok === false
       ? '<span class="quality-warning">CALIDAD TICK INSUFICIENTE</span>' : '';
+    const verdict = row.pending_attribution ? 'ATRIBUCIÓN PENDIENTE' : row.verdict;
+    const tone = row.pending_attribution ? 'info' : row.tone;
+    const attribution = row.pending_attribution
+      ? '<span class="attribution-warning">Hay operaciones reales sin referenciar</span>' : '';
     return `<li><div><strong>${escapeHtml(row.symbol)}</strong><small>${escapeHtml(row.label)}</small></div>`
       + `<div class="strategy-values"><span>Test ${escapeHtml(money(row.demo_profit, currency))}</span>`
       + `<span>Real ${escapeHtml(money(row.real_profit, currency))}</span></div>`
-      + `<div><span class="verdict ${row.tone}">${escapeHtml(row.verdict)}</span>${quality}</div></li>`;
+      + `<div><span class="verdict ${tone}">${escapeHtml(verdict)}</span>${attribution}${quality}</div></li>`;
   }).join('')}</ul>`;
 }
 
@@ -103,16 +107,20 @@ function cardMarkup(entry) {
   ] || profile.portfolio_type || 'Sin modo';
   const title = profile.deployment_name || `Portafolio #${profile.portfolio_id || '—'}`;
   const currency = summary.currency || result?.account?.currency || 'EUR';
-  const broken = summary.flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
-  const warnings = summary.flagged.filter(row => row.verdict === 'AVISO').length;
-  const tone = broken ? 'failed' : warnings ? 'pending' : summary.comparable ? 'completed' : 'idle';
+  const pending = summary.flagged.filter(row => row.pending_attribution).length;
+  const confirmed = summary.flagged.filter(row => !row.pending_attribution);
+  const broken = confirmed.filter(row => row.verdict === 'NO REPRODUCE').length;
+  const warnings = confirmed.filter(row => row.verdict === 'AVISO').length;
+  const tone = broken ? 'failed' : warnings || pending ? 'pending' : summary.comparable ? 'completed' : 'idle';
   const body = summary.comparable ? `<div class="comparison-grid">
     <div><span>Profit Test</span><strong>${escapeHtml(money(summary.demo_profit, currency))}</strong></div>
     <div><span>Profit Real</span><strong>${escapeHtml(money(summary.real_profit, currency))}</strong></div>
     <div><span>DD Test</span><strong>${escapeHtml(money(summary.demo_drawdown, currency))}</strong></div>
     <div><span>DD Real</span><strong>${escapeHtml(money(summary.real_drawdown, currency))}</strong></div>
-  </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency)}</section>` : unavailableMarkup(entry);
-  return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${broken ? `${broken} NO REPRODUCE` : warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : summary.comparable ? 'SIN AVISOS' : 'SIN DATOS'}</span></div>${body}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
+  </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar</strong><span>${broken} críticas · ${warnings} avisos · ${pending} por atribuir</span></div>${flaggedMarkup(summary.flagged, currency)}</section>` : unavailableMarkup(entry);
+  const badge = broken ? `${broken} NO REPRODUCE` : warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}`
+    : pending ? `${pending} POR ATRIBUIR` : summary.comparable ? 'SIN AVISOS' : 'SIN DATOS';
+  return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }
 
 function render(entries) {
@@ -120,13 +128,17 @@ function render(entries) {
   const failedConfigs = entries.filter(entry => entry.configError);
   const summaries = realEntries.map(entry => entry.result
     ? LiveDashboardMetrics.summarize(entry.result) : {flagged: []});
-  const broken = summaries.flatMap(item => item.flagged).filter(row => row.verdict === 'NO REPRODUCE').length;
-  const warnings = summaries.flatMap(item => item.flagged).filter(row => row.verdict === 'AVISO').length;
+  const flagged = summaries.flatMap(item => item.flagged);
+  const pending = flagged.filter(row => row.pending_attribution).length;
+  const confirmed = flagged.filter(row => !row.pending_attribution);
+  const broken = confirmed.filter(row => row.verdict === 'NO REPRODUCE').length;
+  const warnings = confirmed.filter(row => row.verdict === 'AVISO').length;
   summaryEl.innerHTML = [
     [realEntries.length, 'Usos operando en real'],
     [summaries.filter(item => item.comparable).length, 'Con comparación'],
     [broken, 'Estrategias que no reproducen'],
     [warnings, 'Estrategias con aviso'],
+    [pending, 'Pendientes de atribuir'],
   ].map(([value, label]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join('');
   const cards = realEntries.map(cardMarkup);
   failedConfigs.forEach(entry => cards.push(`<article class="portfolio-card failed">${unavailableMarkup(entry)}</article>`));

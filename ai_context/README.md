@@ -119,6 +119,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   multiterminal y por qué `completed_at` no es la hora de la ejecución.
 - `live_audit_manual_reports.md`: contrato de nombres y validación para sustituir
   reportes tester al 100 % sin relanzar MT5 ni alterar otras estrategias.
+- `live_dashboard_pending_attribution.md`: la portada no convierte un PnL
+  parcial en `NO REPRODUCE` mientras haya reales del mismo símbolo sin atribuir.
 
 ## Manager: interfaz y operación
 

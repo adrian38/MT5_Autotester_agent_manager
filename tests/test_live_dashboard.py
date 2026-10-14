@@ -47,6 +47,13 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("BROKEN_SHORTFALL_PCT = 60", self.metrics)
         self.assertNotIn("MEJOR QUE EL TESTER", self.metrics)
 
+    def test_unreferenced_real_operations_do_not_become_a_final_strategy_verdict(self) -> None:
+        self.assertIn("pending_attribution: pendingSymbols.has(group.symbol)", self.metrics)
+        self.assertIn("row.pending_attribution ? 'ATRIBUCIÓN PENDIENTE'", self.script)
+        self.assertIn("Hay operaciones reales sin referenciar", self.script)
+        self.assertIn("flagged.filter(row => !row.pending_attribution)", self.script)
+        self.assertIn("Pendientes de atribuir", self.script)
+
     def test_dashboard_assets_are_public(self) -> None:
         for name in ("dashboard.js", "dashboard.css", "dashboard_metrics.js"):
             self.assertIn(name, STATIC_FILES)
