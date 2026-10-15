@@ -67,3 +67,17 @@ El detalle manual no reconstruye `inherited_inputs`: esa normalización exige
 capital y límites DD de una construcción UBS, datos que deliberadamente no
 existen en una carpeta de sets. Aplicarla deja el panel vacío con «Capital y DD
 valle deben ser mayores que 0» aunque el histórico sea válido.
+
+## Importar temporalidades desde Word (2026-10-15)
+
+La pantalla de creación admite un DOCX con una tabla que contenga las columnas
+`Nombre del archivo` y `Temporalidad`. El manager lee directamente el XML del
+documento, admite nombres de reporte `.htm`/`.html` y los relaciona con los
+`.set` por su nombre base sin distinguir mayúsculas. Sólo acepta temporalidades
+MT5 conocidas y rechaza asignaciones contradictorias para el mismo nombre.
+
+El documento se puede cargar antes o después de la carpeta: la interfaz conserva
+el mapa, aplica las coincidencias y muestra cuántos sets cambió y cuántas filas
+no encontraron set. La temporalidad importada sigue siendo editable antes de
+crear el portafolio. Esto vive sólo en el manager; el nodo recibe los `.set` ya
+normalizados por el flujo existente y no necesita un cambio de runtime.

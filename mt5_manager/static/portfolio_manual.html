@@ -24,6 +24,7 @@
           <input id="manual-files" type="file" accept=".set" multiple webkitdirectory directory required>
           <strong id="manual-file-count">Ninguna carpeta seleccionada</strong>
           <small>Se aceptan únicamente archivos .set. Al cargarlos podrás revisar y corregir símbolo y timeframe antes de crear el portafolio.</small>
+          <div class="builder-actions"><button id="manual-timeframes-button" class="secondary" type="button">Importar temporalidades</button><input id="manual-timeframes-file" type="file" accept=".docx" hidden><small id="manual-timeframes-status">Admite un DOCX con las columnas Nombre del archivo y Temporalidad.</small></div>
         </div>
         <div id="manual-file-list" class="manual-file-list"></div>
         <p class="portfolio-note">Este flujo no inventa beneficios ni drawdown. El nodo normaliza Risk, lote fijo 0,01, autolote, NFP y UseEveryTick; después puedes generar su histórico OHLC.</p>

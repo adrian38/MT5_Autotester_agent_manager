@@ -4,6 +4,7 @@ const form = document.querySelector('#manual-portfolio-form');
 const input = document.querySelector('#manual-files');
 const timeframes = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M10', 'M12', 'M15', 'M20', 'M30', 'H1', 'H2', 'H3', 'H4', 'H6', 'H8', 'H12', 'D1', 'W1', 'MN1'];
 let setDrafts = [];
+let importedTimeframes = {};
 let createdPortfolioId = null;
 let historyPoll = null;
 
@@ -52,6 +53,26 @@ async function readDraft(file) {
   };
 }
 
+function setKey(name) {
+  return name.replace(/\.(?:html?|set)$/i, '').toLowerCase();
+}
+
+function applyImportedTimeframes() {
+  let matched = 0;
+  setDrafts.forEach(draft => {
+    const timeframe = importedTimeframes[setKey(draft.file.name)];
+    if (!timeframe) return;
+    draft.timeframe = timeframe;
+    draft.inferredTimeframe = false;
+    draft.importedTimeframe = true;
+    matched += 1;
+  });
+  const loaded = Object.keys(importedTimeframes).length;
+  document.querySelector('#manual-timeframes-status').textContent = setDrafts.length
+    ? `${matched} de ${setDrafts.length} sets actualizados · ${loaded - matched} filas del documento sin coincidencia`
+    : `${loaded} temporalidades cargadas; se aplicarán al elegir la carpeta de sets.`;
+}
+
 function renderFiles() {
   const total = setDrafts.reduce((sum, draft) => sum + draft.file.size, 0);
   document.querySelector('#manual-file-count').textContent = setDrafts.length
@@ -64,7 +85,7 @@ function renderFiles() {
       <label>Timeframe<select data-set-index="${index}" data-set-field="timeframe">
         <option value="">Selecciona…</option>${timeframes.map(value => `<option value="${value}"${value === draft.timeframe ? ' selected' : ''}>${value}</option>`).join('')}
       </select></label>
-      <span class="manual-set-lot">Lote origen: ${escapeHtml(draft.lot)} · histórico OHLC: 0,01${draft.inferredTimeframe && draft.timeframe ? ' · timeframe inferido del nombre' : ''}</span>
+      <span class="manual-set-lot">Lote origen: ${escapeHtml(draft.lot)} · histórico OHLC: 0,01${draft.importedTimeframe ? ' · temporalidad importada' : draft.inferredTimeframe && draft.timeframe ? ' · timeframe inferido del nombre' : ''}</span>
     </article>`).join('');
 }
 
@@ -72,12 +93,41 @@ input.addEventListener('change', async () => {
   const files = [...(input.files || [])].filter(file => file.name.toLowerCase().endsWith('.set'));
   try {
     setDrafts = await Promise.all(files.map(readDraft));
+    applyImportedTimeframes();
     renderFiles();
   } catch (error) {
     setDrafts = [];
     renderFiles();
     toast(`No se pudo leer la carpeta: ${error.message}`, true);
   }
+});
+
+document.querySelector('#manual-timeframes-button').addEventListener('click', () => {
+  document.querySelector('#manual-timeframes-file').click();
+});
+
+document.querySelector('#manual-timeframes-file').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const content = await file.arrayBuffer();
+    const bytes = new Uint8Array(content);
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-timeframes`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scope: 'full_history', content: btoa(binary)}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    importedTimeframes = data.timeframes || {};
+    applyImportedTimeframes();
+    renderFiles();
+    toast(`${data.count || 0} temporalidades importadas.`);
+  } catch (error) { toast(`No se pudieron importar las temporalidades: ${error.message}`, true); }
+  finally { event.target.value = ''; }
 });
 
 document.querySelector('#manual-file-list').addEventListener('input', event => {

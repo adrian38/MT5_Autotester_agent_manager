@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import unittest
 import tempfile
+import base64
+import io
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from mt5_manager import manager_portfolio_routes
+from mt5_manager.manager_portfolio_routes import parse_timeframe_document
 from mt5_manager.portfolio_saved import _saved_portfolio_row
 from mt5_manager.portfolio_manual_reports import manual_history_summary
 from mt5_manager.portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin
@@ -54,6 +58,27 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("Risk, lote fijo 0,01, autolote, NFP y UseEveryTick", page)
         self.assertIn('id="manual-history-status"', page)
         self.assertIn("function monitorHistory", script)
+
+    def test_screen_imports_timeframes_from_a_docx(self) -> None:
+        page = (ROOT / "mt5_manager" / "static" / "portfolio_manual.html").read_text(encoding="utf-8")
+        script = (ROOT / "mt5_manager" / "static" / "portfolio_manual.js").read_text(encoding="utf-8")
+        self.assertIn('id="manual-timeframes-button"', page)
+        self.assertIn('accept=".docx"', page)
+        self.assertIn("portfolio-manager/manual-timeframes", script)
+        self.assertIn("applyImportedTimeframes()", script)
+        self.assertIn("temporalidad importada", script)
+
+    def test_docx_table_maps_report_names_to_set_names(self) -> None:
+        xml = '''<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl>
+        <w:tr><w:tc><w:p><w:r><w:t>N.º</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Nombre del archivo</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Temporalidad</w:t></w:r></w:p></w:tc></w:tr>
+        <w:tr><w:tc><w:p><w:r><w:t>1</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Gold_a.HTM</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>D1</w:t></w:r></w:p></w:tc></w:tr>
+        <w:tr><w:tc><w:p><w:r><w:t>2</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>M5_C.htm</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>M5</w:t></w:r></w:p></w:tc></w:tr>
+        </w:tbl></w:body></w:document>'''
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as document:
+            document.writestr("word/document.xml", xml)
+        result = parse_timeframe_document(base64.b64encode(archive.getvalue()).decode())
+        self.assertEqual(result, {"timeframes": {"gold_a": "D1", "m5_c": "M5"}, "count": 2})
 
     def test_saved_row_exposes_manual_origin_from_metrics(self) -> None:
         row = {

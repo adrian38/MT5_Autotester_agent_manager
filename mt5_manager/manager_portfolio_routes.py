@@ -9,10 +9,17 @@ modulo traduce peticiones HTTP en llamadas al coordinador o en un reenvio.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import io
 import json
+import re
 import sqlite3
+import unicodedata
 import urllib.error
 import urllib.parse
+import zipfile
+from xml.etree import ElementTree
 from typing import Any
 
 from . import dev_branch
@@ -24,6 +31,78 @@ from .portfolio_service import (
     PortfolioCoordinator,
     legacy_compatible_portfolio_save_payload,
 )
+
+
+WORD_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+VALID_TIMEFRAMES = {
+    "M1", "M2", "M3", "M4", "M5", "M6", "M10", "M12", "M15", "M20", "M30",
+    "H1", "H2", "H3", "H4", "H6", "H8", "H12", "D1", "W1", "MN1",
+}
+
+
+def _document_label(value: str) -> str:
+    plain = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", plain).strip().casefold()
+
+
+def _document_cell(cell: ElementTree.Element) -> str:
+    namespace = {"w": WORD_NAMESPACE}
+    return "".join(node.text or "" for node in cell.findall(".//w:t", namespace)).strip()
+
+
+def _timeframe_rows(document_xml: bytes) -> list[list[str]]:
+    if len(document_xml) > 2_000_000:
+        raise ValueError("El documento de temporalidades es demasiado grande")
+    try:
+        root = ElementTree.fromstring(document_xml)
+    except ElementTree.ParseError as exc:
+        raise ValueError("El DOCX de temporalidades no contiene XML válido") from exc
+    namespace = {"w": WORD_NAMESPACE}
+    for table in root.findall(".//w:tbl", namespace):
+        rows = [
+            [_document_cell(cell) for cell in row.findall("./w:tc", namespace)]
+            for row in table.findall("./w:tr", namespace)
+        ]
+        if rows and {"nombre del archivo", "temporalidad"}.issubset(
+            {_document_label(cell) for cell in rows[0]}
+        ):
+            return rows
+    raise ValueError("No se encontró una tabla con Nombre del archivo y Temporalidad")
+
+
+def parse_timeframe_document(content: str) -> dict[str, Any]:
+    """Lee la tabla de temporalidades de un DOCX sin depender de Microsoft Word."""
+    try:
+        payload = base64.b64decode(content, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("El documento de temporalidades no está codificado correctamente") from exc
+    if not payload or len(payload) > 5_000_000:
+        raise ValueError("El documento de temporalidades está vacío o supera 5 MB")
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            document = archive.getinfo("word/document.xml")
+            if document.file_size > 2_000_000:
+                raise ValueError("El documento de temporalidades es demasiado grande")
+            rows = _timeframe_rows(archive.read(document))
+    except (KeyError, zipfile.BadZipFile) as exc:
+        raise ValueError("El archivo seleccionado no es un DOCX válido") from exc
+    headings = [_document_label(cell) for cell in rows[0]]
+    name_index = headings.index("nombre del archivo")
+    timeframe_index = headings.index("temporalidad")
+    mapping: dict[str, str] = {}
+    for row in rows[1:]:
+        if len(row) <= max(name_index, timeframe_index):
+            continue
+        name = re.sub(r"\.(?:html?|set)$", "", row[name_index].strip(), flags=re.I).casefold()
+        timeframe = row[timeframe_index].strip().upper()
+        if not name or timeframe not in VALID_TIMEFRAMES:
+            continue
+        if name in mapping and mapping[name] != timeframe:
+            raise ValueError(f"El documento asigna dos temporalidades distintas a {row[name_index]}")
+        mapping[name] = timeframe
+    if not mapping:
+        raise ValueError("La tabla no contiene temporalidades válidas")
+    return {"timeframes": mapping, "count": len(mapping)}
 
 
 def create_manual_portfolio(handler, node: dict, body: dict[str, Any]) -> None:
@@ -344,8 +423,15 @@ def handle_post(handler, parts: list[str]) -> None:
         node_id = urllib.parse.unquote(parts[2])
         node = handler._node(node_id)
         action = parts[4]
-        body = handler._body(50_000_000 if action == "manual-create" else 1_000_000)
+        maximum = (
+            50_000_000 if action == "manual-create"
+            else 7_000_000 if action == "manual-timeframes" else 1_000_000
+        )
+        body = handler._body(maximum)
         scope = normalize_portfolio_scope(body.pop("scope", "full_history"))
+        if action == "manual-timeframes":
+            handler._send_json(200, parse_timeframe_document(str(body.get("content") or "")))
+            return
         if action == "manual-create":
             if scope != "full_history":
                 raise ValueError("Solo portafolio pertenece al historico completo")
