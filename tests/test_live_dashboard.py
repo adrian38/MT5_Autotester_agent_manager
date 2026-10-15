@@ -41,10 +41,16 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("/live-dashboard`,", self.script)
 
     def test_nodes_are_painted_as_they_arrive(self) -> None:
-        self.assertIn("Promise.allSettled(nodes.map(async node", self.script)
-        self.assertIn("entries.push(...await loadNode(node))", self.script)
+        self.assertIn("Promise.allSettled(nodes.filter(nodeIsDue).map(async node", self.script)
+        self.assertIn("recordNodeResult(node, await loadNode(node))", self.script)
         self.assertIn("render(entries)", self.script)
         self.assertNotIn("fetch('/api/nodes'", self.script)
+
+    def test_failed_nodes_back_off_without_erasing_the_last_result(self) -> None:
+        self.assertIn("FAILURE_LIMIT = 3", self.script)
+        self.assertIn("BACKOFF_MS = 5 * 60 * 1000", self.script)
+        self.assertIn("if (!nodeEntries.has(node.id)) nodeEntries.set(node.id, loaded)", self.script)
+        self.assertIn("nodes.filter(nodeIsDue)", self.script)
 
     def test_a_timed_out_node_keeps_its_identity(self) -> None:
         self.assertIn("entry.node?.name || entry.node?.id || 'Nodo desconocido'", self.script)

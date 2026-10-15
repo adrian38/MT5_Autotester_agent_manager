@@ -5,6 +5,11 @@ const refreshButton = document.querySelector('#refresh');
 const restartButton = document.querySelector('#restart-manager');
 let refreshing = false;
 let managerRestarting = false;
+const nodeEntries = new Map();
+const nodeFailures = new Map();
+const nodeRetryAfter = new Map();
+const FAILURE_LIMIT = 3;
+const BACKOFF_MS = 5 * 60 * 1000;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -46,6 +51,28 @@ async function loadNode(node) {
   } catch (error) {
     return [{node, configError: error.message}];
   }
+}
+
+function visibleEntries() {
+  return [...nodeEntries.values()].flat();
+}
+
+function recordNodeResult(node, loaded) {
+  const failed = loaded.length === 1 && loaded[0].configError;
+  if (!failed) {
+    nodeFailures.delete(node.id);
+    nodeRetryAfter.delete(node.id);
+    nodeEntries.set(node.id, loaded);
+    return;
+  }
+  const failures = (nodeFailures.get(node.id) || 0) + 1;
+  nodeFailures.set(node.id, failures);
+  if (failures >= FAILURE_LIMIT) nodeRetryAfter.set(node.id, Date.now() + BACKOFF_MS);
+  if (!nodeEntries.has(node.id)) nodeEntries.set(node.id, loaded);
+}
+
+function nodeIsDue(node) {
+  return (nodeRetryAfter.get(node.id) || 0) <= Date.now();
 }
 
 function money(value, currency) {
@@ -134,10 +161,10 @@ async function refresh() {
   refreshState.textContent = 'Actualizando…';
   try {
     const nodes = (await jsonResponse(await fetch('/api/live-dashboard', {cache: 'no-store'}))).nodes || [];
-    const entries = [];
-    render(entries);
-    await Promise.allSettled(nodes.map(async node => {
-      entries.push(...await loadNode(node));
+    render(visibleEntries());
+    await Promise.allSettled(nodes.filter(nodeIsDue).map(async node => {
+      recordNodeResult(node, await loadNode(node));
+      const entries = visibleEntries();
       render(entries);
       refreshState.textContent = `Actualizando… ${entries.length} uso${entries.length === 1 ? '' : 's'}`;
     }));
