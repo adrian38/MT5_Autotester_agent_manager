@@ -264,7 +264,7 @@ document.querySelector('#manual-history-button').addEventListener('click', async
   try {
     const response = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-history`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({scope: 'full_history', portfolio_id: createdPortfolioId, from_date: document.querySelector('#manual-from-date').value.trim(), to_date: document.querySelector('#manual-to-date').value.trim()}),
+      body: JSON.stringify({scope: 'full_history', portfolio_id: createdPortfolioId, from_date: document.querySelector('#manual-from-date').value.trim(), to_date: document.querySelector('#manual-to-date').value.trim(), use_multiterminal: document.querySelector('#manual-use-multiterminal').checked}),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || response.statusText);

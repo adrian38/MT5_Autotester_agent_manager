@@ -56,6 +56,12 @@ de creación y el inventario manual sondean `/api/nodes` y el log del nodo para
 mostrar cola, ejecución, finalización o fallo. Los hitos del log sólo aproximan
 el porcentaje durante MT5; el estado `completed` es el único que marca 100 %.
 
+Las dos pantallas permiten elegir entre el multiterminal configurado y la
+terminal principal. El nodo conserva la elección en la petición del trabajo:
+multiterminal usa el límite de workers configurado; terminal única fuerza un
+worker. En ambos casos el runtime añade el mapa y los sufijos del broker al
+comando de `run_tests.py`, por ejemplo `.sa` para los símbolos AXI.
+
 El inventario no es una colección de enlaces: replica el patrón maestro-detalle
 de UBS. Al seleccionar una cartera consulta su detalle, relaciona cada `.set`
 con el HTML homónimo de `<proyecto>/reports` y muestra composición, periodo,

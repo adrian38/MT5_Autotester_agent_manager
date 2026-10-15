@@ -144,7 +144,7 @@ async function pollHistory() {
 
 async function startHistory() {
   try {
-    const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-history`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',portfolio_id:selectedId,from_date:document.querySelector('#manual-from-date').value.trim(),to_date:document.querySelector('#manual-to-date').value.trim()})});
+    const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-history`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',portfolio_id:selectedId,from_date:document.querySelector('#manual-from-date').value.trim(),to_date:document.querySelector('#manual-to-date').value.trim(),use_multiterminal:document.querySelector('#manual-use-multiterminal').checked})});
     const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
     paintProgress(data.queued?'queued':'running'); historyTimer=setInterval(pollHistory,1500); pollHistory();
   } catch(error) { toast(error.message,true); }
