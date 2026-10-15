@@ -64,7 +64,7 @@ function renderFiles() {
       <label>Timeframe<select data-set-index="${index}" data-set-field="timeframe">
         <option value="">Selecciona…</option>${timeframes.map(value => `<option value="${value}"${value === draft.timeframe ? ' selected' : ''}>${value}</option>`).join('')}
       </select></label>
-      <span class="manual-set-lot">Lote: ${escapeHtml(draft.lot)}${draft.inferredTimeframe && draft.timeframe ? ' · timeframe inferido del nombre' : ''}</span>
+      <span class="manual-set-lot">Lote origen: ${escapeHtml(draft.lot)} · histórico OHLC: 0,01${draft.inferredTimeframe && draft.timeframe ? ' · timeframe inferido del nombre' : ''}</span>
     </article>`).join('');
 }
 

@@ -49,6 +49,9 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn('data-set-field="symbol"', script)
         self.assertIn('data-set-field="timeframe"', script)
         self.assertIn("updateSetField(text, 'TimeFrame'", script)
+        self.assertIn("Lote origen:", script)
+        self.assertIn("histórico OHLC: 0,01", script)
+        self.assertIn("Risk, lote fijo 0,01, autolote, NFP y UseEveryTick", page)
         self.assertIn('id="manual-history-status"', page)
         self.assertIn("function monitorHistory", script)
 
