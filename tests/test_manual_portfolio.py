@@ -97,6 +97,14 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("function historyProgress", script)
         self.assertIn("node.live_progress||{}", script)
 
+    def test_manual_history_ignores_previous_attempt_without_resetting_detail(self) -> None:
+        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        self.assertIn("function isCurrentHistory", script)
+        self.assertIn("if(!data.queued) historyJobId=", script)
+        self.assertIn("const matches=!node.stale&&isCurrentHistory(job)", script)
+        self.assertIn("if(!matches){paintProgress('queued');return;}", script)
+        self.assertIn("refreshPortfolioResults().catch", script)
+
     def test_screen_imports_timeframes_from_a_docx(self) -> None:
         page = (ROOT / "mt5_manager" / "static" / "portfolio_manual.html").read_text(encoding="utf-8")
         script = (ROOT / "mt5_manager" / "static" / "portfolio_manual.js").read_text(encoding="utf-8")

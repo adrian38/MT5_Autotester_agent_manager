@@ -68,6 +68,13 @@ barra, antes de las métricas y tablas; nunca al final del detalle, porque allí
 parece que el botón no respondió. El progreso usa los eventos reales de jobs
 del nodo para mostrar completados, activos y pendientes.
 
+Cada lanzamiento queda ligado al `job_id` que devuelve el nodo o, si entra en
+cola, a una fecha de solicitud mínima. El sondeo ignora estados cacheados y el
+último trabajo anterior del mismo portafolio: de otro modo un fallo viejo se
+puede presentar como resultado instantáneo del intento nuevo. Al terminar sólo
+se refrescan las métricas y tablas; no se oculta ni se reconstruye el panel de
+ejecución.
+
 El inventario no es una colección de enlaces: replica el patrón maestro-detalle
 de UBS. Al seleccionar una cartera consulta su detalle, relaciona cada `.set`
 con el HTML homónimo de `<proyecto>/reports` y muestra composición, periodo,

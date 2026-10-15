@@ -3,6 +3,8 @@ const nodeId = params.get('node') || '';
 let selectedId = Number(params.get('portfolio') || 0);
 let portfolios = [];
 let historyTimer = null;
+let historyJobId = '';
+let historyRequestedAt = 0;
 let detailView = 'strategy';
 const inventory = document.querySelector('#manual-inventory');
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[char]);
@@ -110,6 +112,12 @@ async function selectPortfolio(id) {
   }
 }
 
+async function refreshPortfolioResults() {
+  const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolios/${selectedId}?scope=full_history`,{cache:'no-store'});
+  const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
+  renderDetail(data.portfolio);
+}
+
 async function loadInventory() {
   if(!nodeId){inventory.textContent='Falta seleccionar el nodo.';return;}
   try {
@@ -154,24 +162,37 @@ function paintProgress(state,lines=[],progress={}) {
   document.querySelector('#manual-progress-detail').textContent=observed.detail||lines.slice(-2).join(' · ')||fallback[state]||'Esperando información del nodo…';
 }
 
+function isCurrentHistory(job) {
+  if(job.job_type!=='manual_history'||Number((job.request||{}).portfolio_id)!==selectedId) return false;
+  if(historyJobId) return job.job_id===historyJobId;
+  const started=Date.parse(job.started_at||'');
+  return Number.isFinite(started)&&started>=historyRequestedAt-60000;
+}
+
 async function pollHistory() {
   const [statusResponse,logResponse]=await Promise.all([fetch('/api/nodes',{cache:'no-store'}),fetch(`/api/nodes/${encodeURIComponent(nodeId)}/logs?lines=100`,{cache:'no-store'})]);
   const status=await statusResponse.json(); const logs=await logResponse.json(); const node=(status.nodes||[]).find(item=>(item.manager_node?.id||item.node?.id)===nodeId)||{}; const job=node.job||{};
   if(!statusResponse.ok||!logResponse.ok) throw new Error('No se pudo consultar el avance del nodo.');
-  const matches=job.job_type==='manual_history'&&Number((job.request||{}).portfolio_id)===selectedId;
-  const state=matches?(job.status||'running'):'queued'; paintProgress(state,logs.lines||[],node.live_progress||{});
-  if(['completed','failed','interrupted'].includes(state)){clearInterval(historyTimer);historyTimer=null;document.querySelector('#manual-history-start').disabled=false;selectPortfolio(selectedId);}
+  const matches=!node.stale&&isCurrentHistory(job);
+  if(!matches){paintProgress('queued');return;}
+  const state=job.status||'running'; paintProgress(state,logs.lines||[],node.live_progress||{});
+  if(['completed','failed','interrupted'].includes(state)){
+    clearInterval(historyTimer); historyTimer=null; document.querySelector('#manual-history-start').disabled=false;
+    refreshPortfolioResults().catch(error=>toast(error.message,true));
+  }
 }
 
 async function startHistory() {
-  const button=document.querySelector('#manual-history-start'); button.disabled=true; paintProgress('starting');
+  const button=document.querySelector('#manual-history-start'); historyJobId=''; historyRequestedAt=Date.now();
+  button.disabled=true; paintProgress('starting');
   try {
     const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-history`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',portfolio_id:selectedId,from_date:document.querySelector('#manual-from-date').value.trim(),to_date:document.querySelector('#manual-to-date').value.trim(),use_multiterminal:document.querySelector('#manual-use-multiterminal').checked})});
     const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
+    if(!data.queued) historyJobId=String(data.job_id||'');
     paintProgress(data.queued?'queued':'running'); clearInterval(historyTimer);
     historyTimer=setInterval(()=>pollHistory().catch(error=>paintProgress('running',[error.message])),1500);
     pollHistory().catch(error=>paintProgress('running',[error.message]));
-  } catch(error) { button.disabled=false; paintProgress('failed',[error.message]); toast(error.message,true); }
+  } catch(error) { historyJobId=''; historyRequestedAt=0; button.disabled=false; paintProgress('failed',[error.message]); toast(error.message,true); }
 }
 
 inventory.addEventListener('click',event=>{const item=event.target.closest('[data-id]');if(item)selectPortfolio(item.dataset.id);});
