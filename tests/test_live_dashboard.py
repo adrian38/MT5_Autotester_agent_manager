@@ -37,10 +37,14 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertTrue(self.page.xpath('//*[@id="restart-manager"]'))
 
     def test_only_profiles_marked_as_live_are_loaded(self) -> None:
-        self.assertIn("config.live_audit_ids", self.script)
-        self.assertIn("config.profiles[id]?.live_trading", self.script)
-        self.assertIn("/live-audit-config", self.script)
-        self.assertIn("/live-audits/${encodeURIComponent(entry.auditId)}", self.script)
+        self.assertIn("/api/live-dashboard", self.script)
+        self.assertIn("/live-dashboard`,", self.script)
+
+    def test_nodes_are_painted_as_they_arrive(self) -> None:
+        self.assertIn("Promise.allSettled(nodes.map(async node", self.script)
+        self.assertIn("entries.push(...await loadNode(node))", self.script)
+        self.assertIn("render(entries)", self.script)
+        self.assertNotIn("fetch('/api/nodes'", self.script)
 
     def test_cards_only_show_profit_drawdown_and_flagged_strategies(self) -> None:
         for label in ("Profit Test", "Profit Real", "DD Test", "DD Real", "Estrategias a revisar"):

@@ -39,3 +39,18 @@ reemplazo, recarga al completar y abre Generación si GitHub necesita
 autorización, donde ya existe el diálogo con el código de dispositivo.
 
 Todo esto vive en el manager; no requiere port a los runtimes de los agentes.
+
+## La portada no sondea el estado general (2026-10-15)
+
+La carga inicial ya no encadena `/api/nodes`, la configuración de cada nodo y
+un detalle por uso. `/api/live-dashboard` devuelve sólo las identidades que el
+manager ya tiene en memoria y cada `/api/nodes/<id>/live-dashboard` hace una
+única lectura de `/api/v1/live-audits`, analiza de ahí los usos marcados como
+reales y elimina la materia prima antes de responder al navegador.
+
+Las peticiones por nodo son independientes y la portada repinta cada vez que
+llega una: un agente lento ya no deja vacías las tarjetas de los demás. La ruta
+general `/api/nodes` conserva su contrato para Generación, pero no participa en
+la portada. Esta mejora vive sólo en el manager y es compatible con el protocolo
+actual de los agentes; una futura ruta resumida en el runtime podría reducir aún
+más los bytes de la única lectura restante.

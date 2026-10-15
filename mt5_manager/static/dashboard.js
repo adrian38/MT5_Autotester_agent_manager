@@ -28,40 +28,23 @@ async function jsonResponse(response) {
   return data;
 }
 
-function nodeIdentity(node) {
-  const id = node.manager_node?.id || node.node?.id;
-  return {id, name: node.manager_node?.name || node.node?.name || id};
-}
-
-async function loadConfig(node) {
-  const identity = nodeIdentity(node);
-  try {
-    const config = await jsonResponse(await fetch(
-      `/api/nodes/${encodeURIComponent(identity.id)}/live-audit-config`, {cache: 'no-store'},
-    ));
-    const ids = config.live_audit_ids || Object.keys(config.profiles || {}).filter(id => (
-      config.profiles[id]?.live_trading
-    ));
-    return ids.map(auditId => ({
-      node: identity, auditId, profile: config.profiles[auditId] || {},
-      phase: config.phase, connectionError: config.connection_error || '',
-    }));
-  } catch (error) {
-    return [{node: identity, configError: error.message}];
-  }
-}
-
-async function loadAudit(entry) {
-  if (!entry.auditId) return entry;
+async function loadNode(node) {
   try {
     const data = await jsonResponse(await fetch(
-      `/api/nodes/${encodeURIComponent(entry.node.id)}/live-audits/${encodeURIComponent(entry.auditId)}`,
-      {cache: 'no-store'},
+      `/api/nodes/${encodeURIComponent(node.id)}/live-dashboard`, {cache: 'no-store'},
     ));
-    const state = data.audit || data;
-    return {...entry, result: state.last_result || null, analysisError: state.analysis_error || ''};
+    const entries = (data.entries || []).map(entry => ({
+      node: data.node || node, auditId: entry.audit_id, profile: entry.profile || {},
+      result: entry.audit?.last_result || null,
+      analysisError: entry.audit?.analysis_error || '',
+      connectionError: data.connection_error || '',
+    }));
+    if (!entries.length && data.connection_error) {
+      return [{node, configError: data.connection_error}];
+    }
+    return entries;
   } catch (error) {
-    return {...entry, auditError: error.message};
+    return [{node, configError: error.message}];
   }
 }
 
@@ -148,10 +131,14 @@ async function refresh() {
   refreshButton.disabled = true;
   refreshState.textContent = 'Actualizando…';
   try {
-    const nodes = (await jsonResponse(await fetch('/api/nodes', {cache: 'no-store'}))).nodes || [];
-    const configs = (await Promise.all(nodes.map(loadConfig))).flat();
-    const entries = await Promise.all(configs.map(loadAudit));
+    const nodes = (await jsonResponse(await fetch('/api/live-dashboard', {cache: 'no-store'}))).nodes || [];
+    const entries = [];
     render(entries);
+    await Promise.allSettled(nodes.map(async node => {
+      entries.push(...await loadNode(node));
+      render(entries);
+      refreshState.textContent = `Actualizando… ${entries.length} uso${entries.length === 1 ? '' : 's'}`;
+    }));
     refreshState.textContent = `Actualizado ${new Date().toLocaleTimeString('es-ES')}`;
   } catch (error) {
     refreshState.textContent = 'Error de conexión';

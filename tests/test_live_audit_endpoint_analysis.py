@@ -4,7 +4,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.manager_live_audit_routes import analysed_live_audit, run_payload
+from mt5_manager.manager_live_audit_routes import (
+    analysed_live_audit, dashboard_node_state, dashboard_nodes, run_payload,
+)
 from tests.test_live_audit_autolot import STRATEGY, audit_payload
 from tests.test_live_audit_analysis import payload, profile
 
@@ -23,6 +25,29 @@ def handler(profiles: dict) -> Endpoint:
 
 
 class LiveAuditEndpointAnalysisTests(unittest.TestCase):
+    def test_dashboard_lists_nodes_without_polling_them(self) -> None:
+        endpoint = SimpleNamespace(server=SimpleNamespace(nodes=[
+            {"id": "ic", "name": "ICTrading", "url": "http://slow"},
+        ]))
+        self.assertEqual(
+            dashboard_nodes(endpoint), {"nodes": [{"id": "ic", "name": "ICTrading"}]},
+        )
+
+    def test_dashboard_reads_all_live_results_in_one_node_request(self) -> None:
+        configured = {**profile(), "live_trading": True}
+        settings = SimpleNamespace(state=lambda _node_id: {
+            "live_audit_ids": ["audit-148"], "profiles": {"audit-148": configured},
+        })
+        endpoint = SimpleNamespace(server=SimpleNamespace(live_audit_settings=settings))
+        raw = {"audits": {"audit-148": {"last_payload": payload()}}}
+        with patch("mt5_manager.manager_http.node_request", return_value=(200, raw)) as request:
+            state = dashboard_node_state(endpoint, "ic", {"id": "ic", "name": "ICTrading"})
+        request.assert_called_once_with(
+            {"id": "ic", "name": "ICTrading"}, "GET", "/api/v1/live-audits", timeout=10,
+        )
+        self.assertEqual(state["entries"][0]["audit"]["last_result"]["status"], "completed")
+        self.assertNotIn("last_payload", state["entries"][0]["audit"])
+
     def test_the_manager_analyses_the_payload_with_the_current_profile(self) -> None:
         node_state = {"audit": {"audit_id": "x", "last_payload": payload()}}
         analysed = handler(

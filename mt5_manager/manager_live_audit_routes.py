@@ -164,8 +164,65 @@ def config_state(handler, node: dict[str, Any], state: dict[str, Any]) -> dict[s
     return state
 
 
+def dashboard_nodes(handler) -> dict[str, Any]:
+    """Identidades configuradas sin consultar el estado ni la memoria de los nodos."""
+    return {"nodes": [
+        {"id": str(node.get("id") or ""), "name": node.get("name") or node.get("id")}
+        for node in handler.server.nodes if node.get("id")
+    ]}
+
+
+def dashboard_node_state(handler, node_id: str, node: dict[str, Any]) -> dict[str, Any]:
+    """Perfiles reales y sus resultados usando una sola lectura del nodo."""
+    settings = handler.server.live_audit_settings.state(node_id)
+    profiles = settings.get("profiles") or {}
+    live_ids = settings.get("live_audit_ids") or [
+        audit_id for audit_id, profile in profiles.items()
+        if isinstance(profile, dict) and profile.get("live_trading")
+    ]
+    result = {"node": {"id": node_id, "name": node.get("name") or node_id}, "entries": []}
+    try:
+        status, value = manager_http.node_request(
+            node, "GET", "/api/v1/live-audits", timeout=10,
+        )
+    except (OSError, urllib.error.URLError, TimeoutError, ValueError) as exc:
+        result["connection_error"] = str(exc)
+        return result
+    if status != 200 or not isinstance(value, dict):
+        result["connection_error"] = str(
+            value.get("error") if isinstance(value, dict) else value
+        )
+        return result
+    audits = value.get("audits") if isinstance(value.get("audits"), dict) else {}
+    for audit_id in live_ids:
+        state = audits.get(audit_id) if isinstance(audits.get(audit_id), dict) else {}
+        analysed = analysed_live_audit(handler, node_id, audit_id, state, node)
+        result["entries"].append({
+            "audit_id": audit_id, "profile": profiles.get(audit_id) or {},
+            "audit": analysed.get("audit") if isinstance(analysed, dict) and isinstance(analysed.get("audit"), dict) else analysed,
+        })
+    return result
+
+
+def handle_dashboard_get(handler, parts: list[str]) -> bool:
+    """Rutas ligeras que alimentan la portada sin consultar el estado general."""
+    if parts == ["api", "live-dashboard"]:
+        handler._send_json(200, dashboard_nodes(handler))
+        return True
+    if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "live-dashboard":
+        try:
+            node_id = urllib.parse.unquote(parts[2])
+            handler._send_json(200, dashboard_node_state(handler, node_id, handler._node(node_id)))
+        except KeyError as exc:
+            handler._send_json(400, {"error": str(exc)})
+        return True
+    return False
+
+
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     """Configuracion de la auditoria en vivo, sus informes y sus artefactos."""
+    if handle_dashboard_get(handler, parts):
+        return True
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audit-config":
         try:
             node_id = urllib.parse.unquote(parts[2])
