@@ -48,6 +48,53 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
     divergir es el criterio de negocio.
     """
 
+    def test_manual_portfolios_reach_every_reachable_fork(self) -> None:
+        # «Solo portafolio» no tiene nada en `mt5_manager/node.py`: el manager
+        # sólo reenvía el lote. Quien guarda los `.set`, registra la composición
+        # en su memoria UBS y encola el histórico OHLC es el runtime del agente,
+        # así que aquí el manager no es la referencia del criterio. Sin el port,
+        # el botón «Crear portafolio» devuelve el 404 del nodo y «Generar
+        # histórico OHLC» no tiene dónde ejecutarse.
+        routes = (
+            "/api/v1/portfolios/manual",
+            "/api/v1/portfolios/manual-defaults",
+            "/api/v1/portfolios/manual-history",
+        )
+        forwarded = (MANAGER_ROOT / "mt5_manager" / "manager_portfolio_routes.py").read_text(
+            encoding="utf-8"
+        )
+        # Las dos últimas se arman con el nombre del endpoint, así que la cadena
+        # literal no aparece: lo que se ancla es el reenvío, no su formato.
+        self.assertIn('"/api/v1/portfolios/manual"', forwarded)
+        self.assertIn('f"/api/v1/portfolios/{endpoint}"', forwarded)
+
+        def check(project: Path, _source: str) -> None:
+            node_source = fork_node_source(project)
+            for route in routes:
+                self._assert_present(
+                    node_source,
+                    re.escape(route),
+                    f"{project}: falta la ruta {route} en manager_node_runtime/node.py. "
+                    "Portar «Solo portafolio» (manual_portfolio.py, "
+                    "manual_portfolio_history.py y la etapa `manual_history` de la cola) "
+                    "y duplicar la prueba en tests/test_manager_node_manual_portfolio.py. "
+                    "Hay que reiniciar la aplicación del agente.",
+                )
+            # La compactación de la cola (`_coalesce_manual_history_queue`) todavía
+            # no llegó a RoboForex; está anotada como pendiente en
+            # ai_context/node_runtime_is_forked_per_agent.md y se añade aquí en
+            # cuanto se porte, no antes: una guarda roja de serie no avisa de nada.
+            tests = project / "tests" / "test_manager_node_manual_portfolio.py"
+            self.assertTrue(
+                tests.is_file(),
+                msg=(
+                    f"{project}: falta tests/test_manager_node_manual_portfolio.py; "
+                    "el port no está terminado sin su prueba en el proyecto del agente."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "portafolios manuales e histórico OHLC")
+
     def test_the_manager_still_owns_the_rules_this_parity_check_tracks(self) -> None:
         # Si alguien renombra o reescribe el lado del manager, las pruebas de abajo
         # dejarían de comparar nada sin avisar. Esta ancla lo impide.

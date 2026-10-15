@@ -61,6 +61,7 @@ def fork_portfolio_source(project: Path) -> str:
 
 
 FORK_CANDIDATES = (
+    Path(r"C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent"),
     Path(r"C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent"),
     Path(r"F:\TRADING\MT5_Autotester_agent_AXI"),
     Path(r"I:\TRADING\MT5_Autotester_agent_IC"),

@@ -14,9 +14,17 @@ Copias conocidas:
 | Proyecto | Fichero |
 | --- | --- |
 | Manager (referencia) | `mt5_manager/node.py` |
-| ICTrading | `I:\TRADING\MT5_Autotester_agent_IC\manager_node_runtime\node.py` |
+| ICTrading (equipo actual) | `C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent\manager_node_runtime\node.py` |
+| ICTrading (montajes anteriores) | `C:\Users\Adrian\Adrian\...` y `I:\TRADING\MT5_Autotester_agent_IC\...` |
 | AXI | `F:\TRADING\MT5_Autotester_agent_AXI\manager_node_runtime\node.py` |
 | RoboForex | `G:\TRADING\MT5_Autotester_agent\manager_node_runtime\node.py` |
+
+La ruta de ICTrading cambia de equipo. La lista viva es `FORK_CANDIDATES` de
+`tests/node_runtime_parity_base.py`: la paridad recorre todas y salta las que no
+están montadas, así que una copia nueva se declara ahí y no aquí. **El árbol de
+directorios no decide**: en este equipo las tres copias (IC, AXI y RoboForex)
+están montadas y en ramas distintas; mirar `git branch` antes de dar una por
+ausente.
 
 ## Consecuencia práctica
 
@@ -235,6 +243,40 @@ los portafolios que guarda este nodo (verificado en #16, #17, #19, #24 y #25).
 Arreglarlo es declarar los campos en las dataclasses del agente y añadirlos a
 los dos `insert`; la escritura la hace el nodo, así que un cambio en el manager
 no sirve. **Pendiente**, no hecho.
+
+## Estado del port de «Solo portafolio» y su histórico OHLC
+
+Contrato completo en `manual_portfolio_upload.md`. Aquí el manager **no es la
+referencia**: `mt5_manager/node.py` no tiene ninguna de las tres rutas y nunca
+las tuvo. El manager sólo reenvía el lote (`manager_portfolio_routes.py`:
+`create_manual_portfolio` y `manual_portfolio_action`); quien guarda los `.set`
+bajo `runtime/<node>/manual_portfolios/<uuid>/sets/`, registra la composición en
+su memoria UBS y encola el histórico es el runtime del agente.
+
+Son cuatro piezas en el proyecto del agente, y falta cualquiera rompe el flujo:
+`manager_node_runtime/manual_portfolio.py`,
+`manager_node_runtime/manual_portfolio_history.py`, las tres rutas de
+`node.py` y la etapa `manual_history` repartida entre `node_jobs_api.py`,
+`node_jobs_pipeline.py`, `node_jobs_queue.py` y `node_jobs_start.py`.
+
+| Copia | Rutas `manual`, `manual-defaults`, `manual-history` | Cola: compactar y no reanudar |
+| --- | --- | --- |
+| Manager (`mt5_manager/node.py`) | no aplica; sólo reenvía | no aplica |
+| ICTrading de este equipo | sí, portado a mano el 2026-10-16 | sí |
+| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí | sí, `c83cec2` |
+| RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí | **no**, pendiente de portar `c83cec2` desde AXI |
+
+El fallo sin las rutas es ruidoso: el manager traduce el 404 del nodo a «El nodo
+todavia no admite portafolios manuales». El de la cola es silencioso, que es el
+caro: `_is_resumable` daba por reanudable un `manual_history` fallido, así que
+el reintento encolado nunca arrancaba, y sin
+`_coalesce_manual_history_queue` un doble clic duplica los backtests del mismo
+portafolio.
+
+`test_manual_portfolios_reach_every_reachable_fork` vigila hoy las tres rutas y
+la prueba propia del agente en toda copia montada. La comprobación de
+`_coalesce_manual_history_queue` se añade a esa misma prueba cuando RoboForex
+esté portado: una guarda que nace roja no avisa de nada.
 
 ## Reinicio completo de la aplicacion desde el manager
 
