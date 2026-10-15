@@ -80,10 +80,18 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                     "y duplicar la prueba en tests/test_manager_node_manual_portfolio.py. "
                     "Hay que reiniciar la aplicación del agente.",
                 )
-            # La compactación de la cola (`_coalesce_manual_history_queue`) todavía
-            # no llegó a RoboForex; está anotada como pendiente en
-            # ai_context/node_runtime_is_forked_per_agent.md y se añade aquí en
-            # cuanto se porte, no antes: una guarda roja de serie no avisa de nada.
+            # La compactación de la cola esperaba a que RoboForex la tuviera para
+            # no nacer roja. Desde el 2026-10-16 las tres copias están a la par,
+            # así que ya se puede exigir: sin ella un doble clic duplica los
+            # backtests del mismo portafolio y nada lo delata.
+            self._assert_present(
+                node_source,
+                r"_coalesce_manual_history_queue",
+                f"{project}: falta `_coalesce_manual_history_queue` en "
+                "manager_node_runtime/node_jobs_queue.py, así que un doble clic en "
+                "«Generar histórico OHLC» encola dos veces el mismo portafolio. "
+                "Portar la compactación de la cola desde otra copia ya portada.",
+            )
             tests = project / "tests" / "test_manager_node_manual_portfolio.py"
             self.assertTrue(
                 tests.is_file(),

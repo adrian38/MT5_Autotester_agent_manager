@@ -264,7 +264,7 @@ Son cuatro piezas en el proyecto del agente, y falta cualquiera rompe el flujo:
 | Manager (`mt5_manager/node.py`) | no aplica; sólo reenvía | no aplica |
 | ICTrading de este equipo | sí, portado a mano el 2026-10-16 | sí |
 | AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí | sí, `c83cec2` |
-| RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí | **no**, pendiente de portar `c83cec2` desde AXI |
+| RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí | sí, desde la convergencia del 2026-10-16 |
 
 El fallo sin las rutas es ruidoso: el manager traduce el 404 del nodo a «El nodo
 todavia no admite portafolios manuales». El de la cola es silencioso, que es el
@@ -273,10 +273,11 @@ el reintento encolado nunca arrancaba, y sin
 `_coalesce_manual_history_queue` un doble clic duplica los backtests del mismo
 portafolio.
 
-`test_manual_portfolios_reach_every_reachable_fork` vigila hoy las tres rutas y
-la prueba propia del agente en toda copia montada. La comprobación de
-`_coalesce_manual_history_queue` se añade a esa misma prueba cuando RoboForex
-esté portado: una guarda que nace roja no avisa de nada.
+`test_manual_portfolios_reach_every_reachable_fork` vigila las tres rutas, la
+compactación de la cola y la prueba propia del agente en toda copia montada. La
+comprobación de `_coalesce_manual_history_queue` esperaba a que RoboForex la
+tuviera —una guarda que nace roja no avisa de nada— y se añadió el 2026-10-16,
+cuando la convergencia de las tres ramas se la llevó.
 
 ## Estado del port de `set_path` en el detalle del portafolio (2026-10-16)
 
@@ -300,17 +301,51 @@ nombre de su único set es único en ese árbol.
 | Manager (`mt5_manager/node_portfolio_api.py`) | sí, desde `6828f33` (2026-07-13) |
 | ICTrading de este equipo | sí, portado a mano el 2026-10-16 |
 | RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí, portado a mano el 2026-10-16 |
-| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | **no**, pendiente de portar desde `IC` |
+| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí, por la convergencia del 2026-10-16 |
 
 Dos avisos:
 
 - El manager llevaba la clave desde julio, así que leer su copia confirmaba un
   contrato que ningún agente cumplía. Es el caso exacto que describe la cabecera
   de esta nota.
-- `test_the_portfolio_detail_publishes_set_path_on_every_reachable_fork` nace
-  roja para AXI a propósito, como ya hizo la del improvement de una sola
-  variante: el port a AXI lo hace el usuario. Cada copia necesita además el
-  reinicio de su aplicación para recargar el módulo.
+- `test_the_portfolio_detail_publishes_set_path_on_every_reachable_fork` nació
+  roja para AXI y se puso verde al converger las tres ramas. Cada copia necesita
+  además el reinicio de su aplicación para recargar el módulo.
+
+## Las tres ramas convergieron el 2026-10-16
+
+`IC`, `AXI` y `dev` son clones distintos del mismo repositorio
+(`adrian38/MT5_Autotester_agent`), uno por agente, y cada uno sólo tiene al día
+**su** rama: sus copias locales de las otras dos se quedan donde estaban el día
+que se clonó o se portó algo a mano. Por eso el `git log` de un checkout no
+sirve para saber qué tiene otro: hay que traer la punta real
+(`git fetch <ruta-del-otro-checkout> <rama>:<rama>`) antes de comparar.
+
+Lo que había acumulado:
+
+| Falta en | Lo que le faltaba |
+| --- | --- |
+| `dev` (RoboForex) | `7340d16` símbolos AXI por cuenta, `59bce6c` símbolos y terminales del histórico manual, `c83cec2` cola del histórico |
+| `IC` | esos tres, más el trío de «Solo portafolio» en su forma mergeada (tenía el port a mano `8f1bd75`) |
+| `AXI` | `a91b470` ajustes de reparación en lotes guiados, `5b6d7bd` ignorar respaldos, y el arreglo de `set_path` |
+
+Convergieron en tres merges, `AXI ← IC`, `dev ← AXI`, `IC ← AXI`, y los tres
+árboles quedaron **idénticos**. Dos cosas que conviene saber la próxima vez:
+
+- El único conflicto es `tests/test_manager_node_manual_portfolio.py`, y es
+  `add/add`: el fichero nació por separado en cada rama —a mano en IC, por el
+  commit original en AXI— así que no tienen antepasado común aunque el contenido
+  coincida casi entero. Se resuelve quedándose con la versión que trae la prueba
+  nueva, después de comprobar con `git diff <rama-a>:<fichero> <rama-b>:<fichero>`
+  que no difieren en nada más.
+- `7340d16` parece específico de una cuenta AXI y lo es, pero no estorba en los
+  otros agentes: la tabla `_ACCOUNT_SYMBOL_SUFFIXES` se consulta por
+  `(login, servidor)` y nunca acierta fuera de esa cuenta. Vale más tener el
+  código idéntico en las tres copias que ahorrar una entrada de diccionario.
+
+El ensayo se hizo en un clon desechable (`git clone --shared --no-checkout`) con
+las tres puntas traídas a ramas temporales: ahí se ven los conflictos y se mide
+el resultado sin tocar ningún checkout que esté ejecutando un agente.
 
 ## Reinicio completo de la aplicacion desde el manager
 
