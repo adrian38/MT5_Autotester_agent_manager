@@ -3,6 +3,7 @@ const nodeId = params.get('node') || '';
 let selectedId = Number(params.get('portfolio') || 0);
 let portfolios = [];
 let historyTimer = null;
+let detailView = 'strategy';
 const inventory = document.querySelector('#manual-inventory');
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[char]);
 const number = value => Number(value || 0).toLocaleString('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -44,6 +45,38 @@ function renderMonthly(history) {
   }).join('');
 }
 
+function combinedMonthly(strategies) {
+  const combined={};
+  strategies.forEach(strategy=>Object.entries(strategy.monthly||{}).forEach(([year,months])=>{
+    combined[year]??={};
+    Object.entries(months||{}).forEach(([month,value])=>{
+      combined[year][month]=(combined[year][month]||0)+Number(value||0);
+    });
+  }));
+  return combined;
+}
+
+function renderPortfolioDetail(history) {
+  const strategies=history?.strategies||[]; const monthly=combinedMonthly(strategies);
+  const starts=strategies.map(item=>item.period_start).filter(Boolean).sort();
+  const ends=strategies.map(item=>item.period_end).filter(Boolean).sort();
+  document.querySelector('#manual-portfolio-period').textContent=strategies.length
+    ? `${strategies.length} históricos combinados · periodo ${starts[0]||'—'} – ${ends.at(-1)||'—'}`
+    : 'Todavía no hay históricos que combinar.';
+  document.querySelector('#manual-portfolio-monthly').innerHTML=Object.entries(monthly).sort(([a],[b])=>a.localeCompare(b)).map(([year,months])=>{
+    const values=Array.from({length:12},(_,index)=>Number(months[String(index+1)]||0));
+    return `<tr><th>${esc(year)}</th>${values.map(value=>`<td>${number(value)}</td>`).join('')}<td><strong>${number(values.reduce((sum,value)=>sum+value,0))}</strong></td></tr>`;
+  }).join('')||'<tr><td colspan="14">Sin resultados mensuales disponibles.</td></tr>';
+}
+
+function showDetailView(view) {
+  detailView=view;
+  document.querySelector('#manual-strategy-detail').hidden=view!=='strategy';
+  document.querySelector('#manual-portfolio-detail').hidden=view!=='portfolio';
+  document.querySelector('#manual-strategy-tab').classList.toggle('secondary',view!=='strategy');
+  document.querySelector('#manual-portfolio-tab').classList.toggle('secondary',view!=='portfolio');
+}
+
 function renderDetail(portfolio) {
   const history=portfolio.history||{};
   document.querySelector('#manual-empty').hidden=true; document.querySelector('#manual-detail').hidden=false;
@@ -53,7 +86,7 @@ function renderDetail(portfolio) {
   document.querySelector('#manual-audit-link').href=`/live_audit.html?node=${encodeURIComponent(nodeId)}&portfolio=${portfolio.id}`;
   document.querySelector('#manual-history-metrics').innerHTML=[detailMetric(number(history.net_profit),'Beneficio neto'),detailMetric(number(history.max_drawdown),'DD máximo combinado'),detailMetric(history.trades||0,'Operaciones'),detailMetric(`${history.available||0}/${history.expected||0}`,'Históricos disponibles')].join('');
   document.querySelector('#manual-history-note').textContent=history.available?'Resultados leídos de los reportes OHLC generados por el nodo.':'Todavía no se encontró ningún reporte histórico para esta composición.';
-  renderMembers(portfolio); renderMonthly(history);
+  renderMembers(portfolio); renderMonthly(history); renderPortfolioDetail(history); showDetailView(detailView);
 }
 
 async function selectPortfolio(id) {
@@ -108,5 +141,7 @@ async function startHistory() {
 inventory.addEventListener('click',event=>{const item=event.target.closest('[data-id]');if(item)selectPortfolio(item.dataset.id);});
 document.querySelector('#manual-history-button').addEventListener('click',()=>showHistoryControls().catch(error=>toast(error.message,true)));
 document.querySelector('#manual-history-start').addEventListener('click',startHistory);
+document.querySelector('#manual-strategy-tab').addEventListener('click',()=>showDetailView('strategy'));
+document.querySelector('#manual-portfolio-tab').addEventListener('click',()=>showDetailView('portfolio'));
 document.querySelector('#manual-create-link').href=`/portfolio_manual.html?node=${encodeURIComponent(nodeId)}`;
 loadInventory();

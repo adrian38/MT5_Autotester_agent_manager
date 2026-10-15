@@ -36,6 +36,17 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("filter(row => !row.manual_portfolio)", ubs_script)
         self.assertIn("/live_audit.html?node=", manual_script)
 
+    def test_manual_detail_switches_between_strategy_and_combined_portfolio_tables(self) -> None:
+        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
+        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        self.assertIn("Detalle / estrategia", page)
+        self.assertIn("Detalle / portafolio", page)
+        self.assertIn('id="manual-strategy-detail"', page)
+        self.assertIn('id="manual-portfolio-detail"', page)
+        self.assertIn("function combinedMonthly", script)
+        self.assertIn("renderPortfolioDetail(history)", script)
+        self.assertIn("showDetailView('portfolio')", script)
+
     def test_screen_uploads_a_directory_and_offers_audit_history(self) -> None:
         page = (ROOT / "mt5_manager" / "static" / "portfolio_manual.html").read_text(encoding="utf-8")
         script = (ROOT / "mt5_manager" / "static" / "portfolio_manual.js").read_text(encoding="utf-8")

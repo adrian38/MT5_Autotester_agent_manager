@@ -81,3 +81,16 @@ el mapa, aplica las coincidencias y muestra cuántos sets cambió y cuántas fil
 no encontraron set. La temporalidad importada sigue siendo editable antes de
 crear el portafolio. Esto vive sólo en el manager; el nodo recibe los `.set` ya
 normalizados por el flujo existente y no necesita un cambio de runtime.
+
+## Detalle por estrategia y combinado (2026-10-15)
+
+El inventario manual conserva como vista inicial `Detalle por estrategia`: la
+composición y todas las tablas mensuales siguen sin cambios. `Detalle del
+portafolio` suma por año y mes los resultados de todos los reportes disponibles
+y añade el total anual. El intervalo mostrado abarca desde el inicio más antiguo
+hasta el final más reciente de los históricos combinados.
+
+Es una proyección de los mismos datos ya leídos por el manager: no vuelve a
+ejecutar MT5, no altera los reportes y no suma drawdowns individuales. El DD
+combinado de la cabecera conserva su cálculo cronológico sobre todas las
+operaciones cerradas.
