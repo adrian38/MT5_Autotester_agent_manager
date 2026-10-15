@@ -452,6 +452,49 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
 
         self._assert_on_every_fork(check, "reparación en dos fases")
 
+    def test_the_portfolio_detail_publishes_set_path_on_every_reachable_fork(self) -> None:
+        # El detalle del nodo es lo único que el auditor tiene para localizar
+        # cada `.set`. En un portafolio UBS da igual qué clave se publique:
+        # `set_id` y `set_path` son la misma ruta `/data/<broker>/…`. En uno
+        # manual no: `set_id` es el nombre pelado del fichero y la ruta vive
+        # sólo en `set_path`. Un fork que proyecte `set_id` y `set_name` pero no
+        # `set_path` entrega «DaytradePro_CHFJPY.set» y el auditor acaba en el
+        # rglob por nombre de `resolve_portfolio_set`, que con homónimos
+        # distintos se niega a elegir. No hay 404 ni traza que lo delate: la
+        # auditoría falla en preparación con «Se encontraron varios sets
+        # distintos para …: N coincidencias», que parece un problema de datos.
+        token = '"set_path": str(raw.get("set_path") or raw.get("set_id") or "")'
+        self.assertIn(
+            token,
+            manager_node_source(),
+            f"El nodo fuente del manager dejó de publicar `set_path`: {token}",
+        )
+
+        def check(project: Path, _source: str) -> None:
+            node_source = fork_node_source(project)
+            self._assert_present(
+                node_source,
+                r'"set_path"\s*:\s*str\(raw\.get\("set_path"\) or raw\.get\("set_id"\) or ""\)',
+                f"{project}: `portfolio_detail` no reexporta `set_path` en "
+                "manager_node_runtime/node_jobs_api.py, así que auditar un portafolio "
+                "manual falla con «Se encontraron varios sets distintos para …». "
+                "Portar la clave desde mt5_manager/node_portfolio_api.py y duplicar la "
+                "prueba en tests/test_manager_node_manual_portfolio.py. Hay que "
+                "reiniciar la aplicación del agente.",
+            )
+            covered = [
+                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                if "set_path" in path.read_text(encoding="utf-8", errors="replace")
+            ]
+            self.assertTrue(
+                covered,
+                msg=(
+                    f"{project}: ninguna prueba del nodo cubre la ruta del set en el "
+                    "detalle; duplicar allí la cobertura de `set_path`."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "la ruta del set en el detalle del portafolio")
 
 
 if __name__ == "__main__":

@@ -27,6 +27,14 @@ Los nombres de fichero deben ser únicos aunque procedan de subcarpetas, porque
 los reportes manuales y los artefactos de auditoría identifican cada estrategia
 por el nombre del set.
 
+Esa identidad por nombre es sólo la etiqueta: `set_id` guarda el nombre pelado y
+la ruta vive **únicamente** en `set_path`. Un portafolio UBS no distingue entre
+las dos columnas —ambas son la ruta `/data/<broker>/…`—, así que cualquier punto
+que proyecte miembros y se quede con `set_id` parece correcto hasta que lo usa
+un portafolio manual. Si el detalle del nodo pierde `set_path`, el auditor sólo
+recibe el nombre y falla con «Se encontraron varios sets distintos para …»:
+detalle y estado del port en `node_runtime_is_forked_per_agent.md`.
+
 ## Histórico y auditorías
 
 Después del guardado, la pantalla ofrece primero `Generar histórico OHLC`. Las

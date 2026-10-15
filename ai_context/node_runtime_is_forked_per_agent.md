@@ -278,6 +278,40 @@ la prueba propia del agente en toda copia montada. La comprobación de
 `_coalesce_manual_history_queue` se añade a esa misma prueba cuando RoboForex
 esté portado: una guarda que nace roja no avisa de nada.
 
+## Estado del port de `set_path` en el detalle del portafolio (2026-10-16)
+
+`portfolio_detail` del agente reproyecta los miembros antes de publicarlos, y
+los tres forks montados reexportaban `set_id` y `set_name` pero **no**
+`set_path`. En un portafolio UBS daba igual —`set_id` y `set_path` son la misma
+ruta `/data/<broker>/…`—, así que la pérdida llevaba meses sin verse. En uno
+manual no son lo mismo: `manual_portfolio._member` guarda `set_id=path.name` y
+la ruta sólo vive en `set_path`.
+
+Consecuencia: el auditor recibía el nombre pelado, `resolve_portfolio_set` no
+podía abrirlo ni mapear ningún prefijo y caía a su `rglob` por nombre. La
+auditoría del portafolio #173 de RoboForex (2026-10-15 22:28 UTC) murió en
+preparación con «Se encontraron varios sets distintos para
+DaytradePro_CHFJPY.set: 12 coincidencias». El resolutor hacía lo correcto: el
+dato le llegó mutilado. El #172, también manual, se salvó de chiripa porque el
+nombre de su único set es único en ese árbol.
+
+| Copia | `set_path` en `node_jobs_api.portfolio_detail` |
+| --- | --- |
+| Manager (`mt5_manager/node_portfolio_api.py`) | sí, desde `6828f33` (2026-07-13) |
+| ICTrading de este equipo | sí, portado a mano el 2026-10-16 |
+| RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí, portado a mano el 2026-10-16 |
+| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | **no**, pendiente de portar desde `IC` |
+
+Dos avisos:
+
+- El manager llevaba la clave desde julio, así que leer su copia confirmaba un
+  contrato que ningún agente cumplía. Es el caso exacto que describe la cabecera
+  de esta nota.
+- `test_the_portfolio_detail_publishes_set_path_on_every_reachable_fork` nace
+  roja para AXI a propósito, como ya hizo la del improvement de una sola
+  variante: el port a AXI lo hace el usuario. Cada copia necesita además el
+  reinicio de su aplicación para recargar el módulo.
+
 ## Reinicio completo de la aplicacion desde el manager
 
 El boton `Reiniciar app` de la tarjeta usa
