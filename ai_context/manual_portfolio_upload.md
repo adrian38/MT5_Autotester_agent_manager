@@ -63,6 +63,10 @@ operaciones, beneficio, drawdown, acierto, profit factor, calidad y desglose
 mensual. La lectura usa la caché por mtime/tamaño; no recorre el directorio de
 reportes, que puede contener miles de artefactos.
 
+Mientras esa consulta prepara el detalle y sus tablas, el panel muestra un
+indicador de carga. Si la petición falla, el indicador se sustituye por un
+mensaje persistente en el propio panel además del aviso temporal.
+
 El detalle manual no reconstruye `inherited_inputs`: esa normalización exige
 capital y límites DD de una construcción UBS, datos que deliberadamente no
 existen en una carpeta de sets. Aplicarla deja el panel vacío con «Capital y DD

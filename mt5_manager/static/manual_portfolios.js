@@ -77,6 +77,14 @@ function showDetailView(view) {
   document.querySelector('#manual-portfolio-tab').classList.toggle('secondary',view!=='portfolio');
 }
 
+function showDetailStatus(message, loading=false) {
+  document.querySelector('#manual-detail').hidden=true;
+  const status=document.querySelector('#manual-empty');
+  status.hidden=false; status.classList.toggle('loading',loading);
+  document.querySelector('#manual-loading-spinner').hidden=!loading;
+  document.querySelector('#manual-empty-text').textContent=message;
+}
+
 function renderDetail(portfolio) {
   const history=portfolio.history||{};
   document.querySelector('#manual-empty').hidden=true; document.querySelector('#manual-detail').hidden=false;
@@ -91,11 +99,15 @@ function renderDetail(portfolio) {
 
 async function selectPortfolio(id) {
   selectedId=Number(id); renderList();
+  showDetailStatus('Cargando detalle y tablas del portafolio…',true);
   try {
     const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolios/${selectedId}?scope=full_history`,{cache:'no-store'});
     const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
     renderDetail(data.portfolio);
-  } catch(error) { toast(error.message,true); }
+  } catch(error) {
+    showDetailStatus(`No se pudo cargar el portafolio: ${error.message}`);
+    toast(error.message,true);
+  }
 }
 
 async function loadInventory() {

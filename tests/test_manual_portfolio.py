@@ -47,6 +47,14 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("renderPortfolioDetail(history)", script)
         self.assertIn("showDetailView('portfolio')", script)
 
+    def test_manual_detail_shows_loading_and_persistent_error_states(self) -> None:
+        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
+        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        self.assertIn('id="manual-loading-spinner"', page)
+        self.assertIn("function showDetailStatus", script)
+        self.assertIn("Cargando detalle y tablas del portafolio", script)
+        self.assertIn("No se pudo cargar el portafolio", script)
+
     def test_screen_uploads_a_directory_and_offers_audit_history(self) -> None:
         page = (ROOT / "mt5_manager" / "static" / "portfolio_manual.html").read_text(encoding="utf-8")
         script = (ROOT / "mt5_manager" / "static" / "portfolio_manual.js").read_text(encoding="utf-8")
