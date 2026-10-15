@@ -4,6 +4,7 @@ let selectedId = Number(params.get('portfolio') || 0);
 let portfolios = [];
 let historyTimer = null;
 let historyJobId = '';
+let historyQueueId = '';
 let historyRequestedAt = 0;
 let detailView = 'strategy';
 const inventory = document.querySelector('#manual-inventory');
@@ -169,12 +170,18 @@ function isCurrentHistory(job) {
   return Number.isFinite(started)&&started>=historyRequestedAt-60000;
 }
 
+function queuedHistoryDetail(node) {
+  const queue=node.task_queue||{}; const items=queue.items||[];
+  const item=items.find(row=>row.id===historyQueueId)||items.find(row=>row.type==='manual_history');
+  return item?`Posición ${item.position} de ${queue.count} en la cola del nodo.`:'Esperando que el nodo publique el trabajo nuevo…';
+}
+
 async function pollHistory() {
   const [statusResponse,logResponse]=await Promise.all([fetch('/api/nodes',{cache:'no-store'}),fetch(`/api/nodes/${encodeURIComponent(nodeId)}/logs?lines=100`,{cache:'no-store'})]);
   const status=await statusResponse.json(); const logs=await logResponse.json(); const node=(status.nodes||[]).find(item=>(item.manager_node?.id||item.node?.id)===nodeId)||{}; const job=node.job||{};
   if(!statusResponse.ok||!logResponse.ok) throw new Error('No se pudo consultar el avance del nodo.');
   const matches=!node.stale&&isCurrentHistory(job);
-  if(!matches){paintProgress('queued');return;}
+  if(!matches){paintProgress('queued',[queuedHistoryDetail(node)]);return;}
   const state=job.status||'running'; paintProgress(state,logs.lines||[],node.live_progress||{});
   if(['completed','failed','interrupted'].includes(state)){
     clearInterval(historyTimer); historyTimer=null; document.querySelector('#manual-history-start').disabled=false;
@@ -183,16 +190,17 @@ async function pollHistory() {
 }
 
 async function startHistory() {
-  const button=document.querySelector('#manual-history-start'); historyJobId=''; historyRequestedAt=Date.now();
+  const button=document.querySelector('#manual-history-start'); historyJobId=''; historyQueueId=''; historyRequestedAt=Date.now();
   button.disabled=true; paintProgress('starting');
   try {
     const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-history`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',portfolio_id:selectedId,from_date:document.querySelector('#manual-from-date').value.trim(),to_date:document.querySelector('#manual-to-date').value.trim(),use_multiterminal:document.querySelector('#manual-use-multiterminal').checked})});
     const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
-    if(!data.queued) historyJobId=String(data.job_id||'');
+    if(data.queued) historyQueueId=String((data.queue_item||{}).id||'');
+    else historyJobId=String(data.job_id||'');
     paintProgress(data.queued?'queued':'running'); clearInterval(historyTimer);
     historyTimer=setInterval(()=>pollHistory().catch(error=>paintProgress('running',[error.message])),1500);
     pollHistory().catch(error=>paintProgress('running',[error.message]));
-  } catch(error) { historyJobId=''; historyRequestedAt=0; button.disabled=false; paintProgress('failed',[error.message]); toast(error.message,true); }
+  } catch(error) { historyJobId=''; historyQueueId=''; historyRequestedAt=0; button.disabled=false; paintProgress('failed',[error.message]); toast(error.message,true); }
 }
 
 inventory.addEventListener('click',event=>{const item=event.target.closest('[data-id]');if(item)selectPortfolio(item.dataset.id);});

@@ -75,6 +75,12 @@ puede presentar como resultado instantáneo del intento nuevo. Al terminar sólo
 se refrescan las métricas y tablas; no se oculta ni se reconstruye el panel de
 ejecución.
 
+Si el nodo devuelve `queued`, la pantalla conserva el id de `queue_item` y
+muestra su posición real. El runtime considera el histórico manual un lote de
+una sola etapa, no resumible tras fallo, y compacta solicitudes repetidas del
+mismo portafolio para que un error anterior no bloquee la cola ni un doble clic
+duplique los backtests.
+
 El inventario no es una colección de enlaces: replica el patrón maestro-detalle
 de UBS. Al seleccionar una cartera consulta su detalle, relaciona cada `.set`
 con el HTML homónimo de `<proyecto>/reports` y muestra composición, periodo,
