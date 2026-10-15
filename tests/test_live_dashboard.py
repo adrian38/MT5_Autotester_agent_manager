@@ -46,6 +46,9 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("render(entries)", self.script)
         self.assertNotIn("fetch('/api/nodes'", self.script)
 
+    def test_a_timed_out_node_keeps_its_identity(self) -> None:
+        self.assertIn("entry.node?.name || entry.node?.id || 'Nodo desconocido'", self.script)
+
     def test_cards_only_show_profit_drawdown_and_flagged_strategies(self) -> None:
         for label in ("Profit Test", "Profit Real", "DD Test", "DD Real", "Estrategias a revisar"):
             self.assertIn(label, self.script)

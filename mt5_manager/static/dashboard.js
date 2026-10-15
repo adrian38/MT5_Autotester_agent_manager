@@ -120,7 +120,9 @@ function render(entries) {
     [warnings, 'Estrategias con aviso'],
   ].map(([value, label]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join('');
   const cards = realEntries.map(cardMarkup);
-  failedConfigs.forEach(entry => cards.push(`<article class="portfolio-card failed">${unavailableMarkup(entry)}</article>`));
+  failedConfigs.forEach(entry => cards.push(`<article class="portfolio-card failed">`
+    + `<p class="eyebrow">${escapeHtml(entry.node?.name || entry.node?.id || 'Nodo desconocido')}</p>`
+    + `${unavailableMarkup(entry)}</article>`));
   cardsEl.innerHTML = cards.length ? cards.join('')
     : '<div class="empty-state"><strong>No hay portafolios activos.</strong><p>Entra en Auditoría desde Generación y marca «Este uso está operando en real».</p></div>';
 }
