@@ -123,31 +123,55 @@ async function loadInventory() {
 }
 
 async function showHistoryControls() {
-  const controls=document.querySelector('#manual-history-controls'); controls.hidden=false;
-  const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-defaults`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history'})});
-  const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
-  document.querySelector('#manual-from-date').value=data.from_date||''; document.querySelector('#manual-to-date').value=data.to_date||'';
+  const controls=document.querySelector('#manual-history-controls'); const button=document.querySelector('#manual-history-button');
+  controls.hidden=false; controls.scrollIntoView({behavior:'smooth',block:'nearest'});
+  button.disabled=true; button.textContent='Consultando el nodo…'; paintProgress('loading');
+  try {
+    const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-defaults`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history'})});
+    const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
+    document.querySelector('#manual-from-date').value=data.from_date||''; document.querySelector('#manual-to-date').value=data.to_date||'';
+    paintProgress('ready');
+  } finally { button.disabled=false; button.textContent='Configurar histórico OHLC'; }
 }
 
-function paintProgress(state,lines=[]) {
-  const values={queued:8,running:45,completed:100,failed:45}; const labels={queued:'Histórico en cola',running:'Generando histórico OHLC',completed:'Histórico terminado',failed:'El histórico ha fallado'};
-  document.querySelector('#manual-progress-label').textContent=labels[state]||'Preparando'; document.querySelector('#manual-progress-percent').textContent=`${values[state]||8}%`;
-  document.querySelector('#manual-progress').style.width=`${values[state]||8}%`; document.querySelector('#manual-progress-detail').textContent=lines.slice(-2).join(' · ')||'Esperando información del nodo…';
+function historyProgress(progress={}) {
+  const completed=Number(progress.jobs_completed||0); const active=Number(progress.active_jobs||0);
+  const remaining=progress.remaining_queue==null?null:Number(progress.remaining_queue); const total=completed+active+Number(remaining||0);
+  const detail=[]; if(total>0) detail.push(`${completed}/${total} completados`);
+  if(active>0) detail.push(`${active} en ejecución`); if(remaining!=null) detail.push(`${remaining} en cola`);
+  return {percent:total>0?Math.min(99,Math.round(completed*100/total)):35,detail:detail.join(' · ')};
+}
+
+function paintProgress(state,lines=[],progress={}) {
+  const values={loading:12,ready:0,starting:5,queued:8,running:35,completed:100,failed:100,interrupted:100};
+  const labels={loading:'Consultando configuración',ready:'Preparado para iniciar',starting:'Enviando trabajo al nodo',queued:'Histórico en cola',running:'Generando histórico OHLC',completed:'Histórico terminado',failed:'El histórico ha fallado',interrupted:'Histórico interrumpido'};
+  const observed=historyProgress(progress); const percent=state==='running'?observed.percent:(values[state]??8);
+  const fallback={loading:'Leyendo fechas del nodo…',ready:'Revisa las fechas y pulsa Iniciar histórico OHLC.',starting:'El nodo está recibiendo la solicitud…',queued:'Esperando turno en el nodo…'};
+  document.querySelector('#manual-progress-label').textContent=labels[state]||'Preparando';
+  document.querySelector('#manual-progress-percent').textContent=state==='running'&&!(progress.jobs_started||progress.jobs_completed)?'En curso':`${percent}%`;
+  document.querySelector('#manual-progress').style.width=`${percent}%`;
+  document.querySelector('#manual-progress-track').classList.toggle('indeterminate',['loading','starting'].includes(state)||(state==='running'&&!progress.jobs_started));
+  document.querySelector('#manual-progress-detail').textContent=observed.detail||lines.slice(-2).join(' · ')||fallback[state]||'Esperando información del nodo…';
 }
 
 async function pollHistory() {
   const [statusResponse,logResponse]=await Promise.all([fetch('/api/nodes',{cache:'no-store'}),fetch(`/api/nodes/${encodeURIComponent(nodeId)}/logs?lines=100`,{cache:'no-store'})]);
   const status=await statusResponse.json(); const logs=await logResponse.json(); const node=(status.nodes||[]).find(item=>(item.manager_node?.id||item.node?.id)===nodeId)||{}; const job=node.job||{};
-  const matches=job.job_type==='manual_history'&&Number((job.request||{}).portfolio_id)===selectedId; const state=matches?(job.status||'running'):'queued'; paintProgress(state,logs.lines||[]);
-  if(['completed','failed','interrupted'].includes(state)){clearInterval(historyTimer);historyTimer=null;if(state==='completed')selectPortfolio(selectedId);}
+  if(!statusResponse.ok||!logResponse.ok) throw new Error('No se pudo consultar el avance del nodo.');
+  const matches=job.job_type==='manual_history'&&Number((job.request||{}).portfolio_id)===selectedId;
+  const state=matches?(job.status||'running'):'queued'; paintProgress(state,logs.lines||[],node.live_progress||{});
+  if(['completed','failed','interrupted'].includes(state)){clearInterval(historyTimer);historyTimer=null;document.querySelector('#manual-history-start').disabled=false;selectPortfolio(selectedId);}
 }
 
 async function startHistory() {
+  const button=document.querySelector('#manual-history-start'); button.disabled=true; paintProgress('starting');
   try {
     const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-history`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',portfolio_id:selectedId,from_date:document.querySelector('#manual-from-date').value.trim(),to_date:document.querySelector('#manual-to-date').value.trim(),use_multiterminal:document.querySelector('#manual-use-multiterminal').checked})});
     const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
-    paintProgress(data.queued?'queued':'running'); historyTimer=setInterval(pollHistory,1500); pollHistory();
-  } catch(error) { toast(error.message,true); }
+    paintProgress(data.queued?'queued':'running'); clearInterval(historyTimer);
+    historyTimer=setInterval(()=>pollHistory().catch(error=>paintProgress('running',[error.message])),1500);
+    pollHistory().catch(error=>paintProgress('running',[error.message]));
+  } catch(error) { button.disabled=false; paintProgress('failed',[error.message]); toast(error.message,true); }
 }
 
 inventory.addEventListener('click',event=>{const item=event.target.closest('[data-id]');if(item)selectPortfolio(item.dataset.id);});

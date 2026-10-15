@@ -84,7 +84,18 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
         script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
         self.assertIn('id="manual-use-multiterminal"', page)
+        self.assertLess(page.index('id="manual-use-multiterminal"'), page.index('id="manual-history-controls"'))
+        self.assertIn('class="check manual-history-mode"', page)
         self.assertIn("use_multiterminal:document.querySelector('#manual-use-multiterminal').checked", script)
+
+    def test_manual_inventory_history_shows_immediate_real_progress(self) -> None:
+        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
+        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        self.assertIn('id="manual-progress-track"', page)
+        self.assertIn("paintProgress('loading')", script)
+        self.assertIn("paintProgress('starting')", script)
+        self.assertIn("function historyProgress", script)
+        self.assertIn("node.live_progress||{}", script)
 
     def test_screen_imports_timeframes_from_a_docx(self) -> None:
         page = (ROOT / "mt5_manager" / "static" / "portfolio_manual.html").read_text(encoding="utf-8")

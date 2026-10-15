@@ -62,6 +62,12 @@ multiterminal usa el límite de workers configurado; terminal única fuerza un
 worker. En ambos casos el runtime añade el mapa y los sufijos del broker al
 comando de `run_tests.py`, por ejemplo `.sa` para los símbolos AXI.
 
+En el inventario, el selector siempre queda visible junto a la acción del
+histórico. Las fechas y el progreso se despliegan inmediatamente debajo de esa
+barra, antes de las métricas y tablas; nunca al final del detalle, porque allí
+parece que el botón no respondió. El progreso usa los eventos reales de jobs
+del nodo para mostrar completados, activos y pendientes.
+
 El inventario no es una colección de enlaces: replica el patrón maestro-detalle
 de UBS. Al seleccionar una cartera consulta su detalle, relaciona cada `.set`
 con el HTML homónimo de `<proyecto>/reports` y muestra composición, periodo,
