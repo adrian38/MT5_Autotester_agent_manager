@@ -97,6 +97,10 @@ class PortfolioCoordinatorSavedMixin:
             detail["portfolio"]["inherited_inputs"] = source.saved_inputs(portfolio_id, scope)
         return detail
 
+    def aliases(self, node_id: str, scope: str, portfolio_ids: Any) -> dict[int, str]:
+        """Read just the human labels of the portfolios the caller names."""
+        return self._persistence_source(node_id, scope).portfolio_aliases(portfolio_ids, scope)
+
     def set_alias(self, node_id: str, scope: str, portfolio_id: int, alias: Any) -> str:
         """Write the alias where the portfolio DB is locally owned."""
         scope = normalize_portfolio_scope(scope)

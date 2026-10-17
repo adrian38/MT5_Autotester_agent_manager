@@ -290,6 +290,39 @@ class PortfolioIntegrationTests(IntegrationTestCase):
             "test-node", "full_history", 36, "Londres estable"
         )
 
+    def test_portfolio_aliases_answer_only_what_the_dashboard_asks_for(self) -> None:
+        # El nodo de prueba no declara `portfolio_project_dir`, asi que la ruta
+        # tiene que preguntarselo al agente en vez de abrir una memoria que el
+        # manager no ve.
+        listing = {"portfolios": [
+            {"id": 148, "alias": "Londres estable"},
+            {"id": 173, "alias": ""},
+            {"id": 99, "alias": "Otro"},
+        ]}
+        with mock.patch(
+            "mt5_manager.manager_http.node_request", return_value=(200, listing)
+        ) as node_request:
+            status, payload = self.request("/api/nodes/test-node/portfolio-aliases?ids=148,173,404")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            payload, {"aliases": {"148": "Londres estable", "173": "", "404": ""}}
+        )
+        self.assertEqual(
+            node_request.call_args.args[1:], ("GET", "/api/v1/portfolios?scope=full_history")
+        )
+
+    def test_portfolio_aliases_read_the_memory_when_the_manager_sees_it(self) -> None:
+        self.manager.nodes[0]["portfolio_project_dir"] = str(self.root)
+        with mock.patch.object(
+            self.manager.portfolios, "aliases", return_value={148: "Londres estable"}
+        ) as aliases:
+            status, payload = self.request("/api/nodes/test-node/portfolio-aliases?ids=148,173")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload, {"aliases": {"148": "Londres estable", "173": ""}})
+        aliases.assert_called_once_with("test-node", "full_history", [148, 173])
+
     def test_batch_exclusion_is_forwarded_to_the_node_api(self) -> None:
         node_result = {
             "quarantine_ids": [4, 7],

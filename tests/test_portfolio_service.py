@@ -91,6 +91,46 @@ class PortfolioServiceTests(unittest.TestCase):
                 source.saved_portfolio_detail(portfolio_id, "full_history")["portfolio"]["alias"], ""
             )
 
+    def test_portfolio_aliases_reads_only_the_labels_of_the_requested_ids(self) -> None:
+        # La portada pide tres o cuatro etiquetas: no puede pagar el listado
+        # guardado entero, que arrastra `metrics_json` de toda la tabla.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            memory = root / "memory.sqlite"
+            memory.touch()
+            source = PortfolioSource({
+                "id": "local",
+                "portfolio_project_dir": str(root),
+                "portfolio_memory_path": str(memory),
+                "portfolio_broker": "TEST",
+                "portfolio_account_type": "DEMO",
+            })
+            ids = []
+            with source.connect(write=True) as conn:
+                for metrics in (
+                    {"inputs": {"portfolio_alias": "Londres estable"}},
+                    {"inputs": {"capital": 10000}},
+                    {"inputs": {"portfolio_alias": "No pedido"}},
+                ):
+                    ids.append(int(conn.execute(
+                        "insert into portfolios(created_at,portfolio_type,portfolio_scope,metrics_json) "
+                        "values(?,?,?,?)",
+                        ("2026-10-17", "aggressive", "full_history", json.dumps(metrics)),
+                    ).lastrowid))
+                conn.execute(
+                    "insert into portfolios(created_at,portfolio_type,portfolio_scope,metrics_json) "
+                    "values(?,?,?,?)",
+                    ("2026-10-17", "aggressive", "monthly", json.dumps({"inputs": {}})),
+                )
+                conn.commit()
+
+            self.assertEqual(
+                source.portfolio_aliases([ids[0], ids[1], 9999], "full_history"),
+                {ids[0]: "Londres estable", ids[1]: ""},
+            )
+            self.assertEqual(source.portfolio_aliases([], "full_history"), {})
+            self.assertEqual(source.portfolio_aliases(ids, "monthly"), {})
+
     def test_decision_audit_converts_non_finite_scores_before_sqlite(self) -> None:
         with sqlite3.connect(":memory:") as conn:
             ensure_portfolio_schema(conn)

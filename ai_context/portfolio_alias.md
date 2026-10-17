@@ -13,6 +13,12 @@
   nodo local de pruebas.
 - El texto se recorta en los extremos, colapsa espacios, admite borrado con cadena
   vacía y tiene un máximo de 80 caracteres.
+- La portada también lo muestra y lo deja editar en cada tarjeta. Lo lee por
+  `GET /api/nodes/<id>/portfolio-aliases?ids=…`, que devuelve solo las etiquetas
+  de los portafolios pedidos: el sondeo de 60 s no puede abrir la memoria del
+  agente, y `saved_portfolios` arrastraría `metrics_json` de la tabla entera.
+  El navegador lo pide una vez por nodo y repinta al guardar; la escritura es la
+  misma de siempre, `POST …/portfolio-manager/alias`.
 - La exportación escribe `Alias:` en el resumen y la importación lo reinserta en
   todas las propuestas reconstruidas, por lo que la etiqueta vuelve con el
   portafolio sin alterar su identidad técnica.

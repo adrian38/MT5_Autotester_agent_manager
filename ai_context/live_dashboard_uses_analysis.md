@@ -48,6 +48,10 @@ manager ya tiene en memoria y cada `/api/nodes/<id>/live-dashboard` hace una
 única lectura de `/api/v1/live-audits`, analiza de ahí los usos marcados como
 reales y elimina la materia prima antes de responder al navegador.
 
+La única excepción es el alias del portafolio, que vive en la memoria UBS del
+agente: se pide por su propia ruta, una vez por nodo y no en cada sondeo
+(`ai_context/portfolio_alias.md`).
+
 Las peticiones por nodo son independientes y la portada repinta cada vez que
 llega una: un agente lento ya no deja vacías las tarjetas de los demás. La ruta
 general `/api/nodes` conserva su contrato para Generación, pero no participa en

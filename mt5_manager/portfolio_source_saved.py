@@ -254,6 +254,39 @@ class PortfolioSourceSavedMixin:
             member["quarantine_key"] = str((row or {}).get("quarantine_key") or (row or {}).get("id") or "")
         return members
 
+    def portfolio_aliases(self, portfolio_ids: Any, scope: str) -> dict[int, str]:
+        """Solo la etiqueta humana de los portafolios pedidos.
+
+        La portada necesita el alias de tres o cuatro portafolios y nada mas.
+        `saved_portfolios` leeria la tabla entera con su `metrics_json`, que es
+        la columna cara, y aqui cada lectura abre la base del agente.
+        """
+        portfolio_scope = normalize_portfolio_scope(scope)
+        ids = sorted({safe_int(value, 0) for value in portfolio_ids or []} - {0})
+        if portfolio_scope != "full_history" or not ids:
+            return {}
+        with self.connect() as conn:
+            if not _table_exists(conn, "portfolios"):
+                return {}
+            rows = conn.execute(
+                "select id,metrics_json from portfolios where id in "
+                f"({','.join('?' * len(ids))}) and "
+                "coalesce(nullif(portfolio_scope,''),'full_history')=?",
+                (*ids, portfolio_scope),
+            ).fetchall()
+        aliases: dict[int, str] = {}
+        for row in rows:
+            try:
+                parsed = json.loads(row["metrics_json"] or "{}")
+                inputs = parsed.get("inputs") if isinstance(parsed, dict) else {}
+                alias = normalize_portfolio_alias(
+                    inputs.get("portfolio_alias") if isinstance(inputs, dict) else ""
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                alias = ""
+            aliases[int(row["id"])] = alias
+        return aliases
+
     def set_portfolio_alias(self, portfolio_id: int, scope: str, alias: Any) -> str:
         """Persist an optional display alias inside metrics.inputs."""
         portfolio_scope = normalize_portfolio_scope(scope)

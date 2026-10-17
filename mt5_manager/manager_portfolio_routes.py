@@ -127,8 +127,47 @@ def manual_portfolio_action(handler, node: dict, action: str, body: dict[str, An
     handler._send_json(status, value)
 
 
+def portfolio_aliases(handler, node: dict, ids: list[int]) -> dict[str, str]:
+    """Alias de los portafolios pedidos, por su numero.
+
+    La portada los pide para rotular sus tarjetas, asi que no puede permitirse
+    el listado completo: `metrics_json` es la columna cara y son tres o cuatro
+    portafolios. Cuando el manager no ve la memoria del agente —sin
+    `portfolio_project_dir`— pregunta al nodo, igual que el listado guardado.
+    """
+    if str(node.get("portfolio_project_dir") or "").strip():
+        found = handler.server.portfolios.aliases(str(node["id"]), "full_history", ids)
+    else:
+        status, value = manager_http.node_request(
+            node, "GET", "/api/v1/portfolios?scope=full_history",
+        )
+        if status != 200 or not isinstance(value, dict):
+            raise ValueError(str(
+                value.get("error") if isinstance(value, dict) else value
+                or f"El nodo devolvió HTTP {status}"
+            ))
+        found = {
+            safe_int(row.get("id"), 0): str(row.get("alias") or "")
+            for row in value.get("portfolios") or [] if isinstance(row, dict)
+        }
+    return {str(portfolio_id): found.get(portfolio_id, "") for portfolio_id in ids}
+
+
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     """Pantalla de portafolios, estado de su tarea y carteras guardadas."""
+    if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-aliases":
+        try:
+            node = handler._node(urllib.parse.unquote(parts[2]))
+            query = urllib.parse.parse_qs(parsed.query)
+            ids = [
+                number for number in (
+                    safe_int(value, 0) for value in query.get("ids", [""])[0].split(",")
+                ) if number > 0
+            ]
+            handler._send_json(200, {"aliases": portfolio_aliases(handler, node, ids)})
+        except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+            handler._send_json(502, {"error": str(exc)})
+        return True
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "portfolio-manager":
         try:
             node_id = urllib.parse.unquote(parts[2])

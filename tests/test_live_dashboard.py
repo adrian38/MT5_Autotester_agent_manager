@@ -63,6 +63,24 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("BROKEN_SHORTFALL_PCT = 60", self.reproduction)
         self.assertNotIn("MEJOR QUE EL TESTER", self.metrics)
 
+    def test_each_card_shows_its_alias_and_lets_you_edit_it_from_there(self) -> None:
+        self.assertIn("aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))", self.script)
+        self.assertIn("'Sin alias'", self.script)
+        self.assertIn("alias ? 'Editar alias' : 'Añadir alias'", self.script)
+        self.assertIn("/portfolio-manager/alias`", self.script)
+        self.assertIn("scope: 'full_history', portfolio_id: portfolioId, alias", self.script)
+        # Las tarjetas se repintan enteras: el oyente tiene que estar en el
+        # contenedor o el boton se queda sin el suyo en la primera recarga.
+        self.assertIn("cardsEl.addEventListener('click'", self.script)
+        self.assertIn("event.target.closest('.alias-edit')", self.script)
+
+    def test_the_alias_is_asked_once_per_node_and_not_on_every_poll(self) -> None:
+        # Leerlo exige abrir la memoria UBS del agente, que es justo lo que la
+        # portada evita en su sondeo de 60 s.
+        self.assertIn("/portfolio-aliases?ids=", self.script)
+        self.assertIn("if (!ids.length || ids.every(portfolioId => portfolioId in known)) return false", self.script)
+        self.assertIn("if (await loadAliases(node)) render(visibleEntries())", self.script)
+
     def test_dashboard_and_analysis_share_the_reproduction_primitive(self) -> None:
         self.assertIn("LiveAuditReproduction.numbers(group, lotOverrides)", self.analysis)
         self.assertIn("reproduction.numbers(group, overrides)", self.metrics)

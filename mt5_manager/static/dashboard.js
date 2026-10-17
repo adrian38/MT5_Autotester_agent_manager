@@ -8,6 +8,9 @@ let managerRestarting = false;
 const nodeEntries = new Map();
 const nodeFailures = new Map();
 const nodeRetryAfter = new Map();
+// El alias vive en la memoria UBS del agente, así que no viaja con el sondeo
+// de 60 s: se pide una vez por nodo y se repinta al editarlo.
+const nodeAliases = new Map();
 const FAILURE_LIMIT = 3;
 const BACKOFF_MS = 5 * 60 * 1000;
 
@@ -57,6 +60,31 @@ function visibleEntries() {
   return [...nodeEntries.values()].flat();
 }
 
+function portfolioIds(entries) {
+  return [...new Set(entries.map(entry => Number(entry.profile?.portfolio_id || 0)))]
+    .filter(portfolioId => portfolioId > 0);
+}
+
+function aliasOf(nodeId, portfolioId) {
+  return (nodeAliases.get(nodeId) || {})[portfolioId] || '';
+}
+
+async function loadAliases(node) {
+  const known = nodeAliases.get(node.id) || {};
+  const ids = portfolioIds(nodeEntries.get(node.id) || []);
+  if (!ids.length || ids.every(portfolioId => portfolioId in known)) return false;
+  try {
+    const data = await jsonResponse(await fetch(
+      `/api/nodes/${encodeURIComponent(node.id)}/portfolio-aliases?ids=${ids.join(',')}`,
+      {cache: 'no-store'},
+    ));
+    nodeAliases.set(node.id, {...known, ...(data.aliases || {})});
+    return true;
+  } catch (_error) {
+    return false; // Una etiqueta que falta no puede dejar la tarjeta sin pintar.
+  }
+}
+
 function recordNodeResult(node, loaded) {
   const failed = loaded.length === 1 && loaded[0].configError;
   if (!failed) {
@@ -99,6 +127,15 @@ function flaggedMarkup(rows, currency) {
   }).join('')}</ul>`;
 }
 
+function aliasMarkup(nodeId, portfolioId) {
+  if (!(portfolioId > 0)) return '';
+  const alias = aliasOf(nodeId, portfolioId);
+  const label = alias ? escapeHtml(alias) : 'Sin alias';
+  return `<p class="card-alias${alias ? '' : ' empty'}"><span>${label}</span>`
+    + `<button type="button" class="alias-edit" data-node="${escapeHtml(nodeId)}"`
+    + ` data-portfolio="${portfolioId}">${alias ? 'Editar alias' : 'Añadir alias'}</button></p>`;
+}
+
 function unavailableMarkup(entry) {
   const message = entry.configError || entry.auditError || entry.analysisError
     || entry.connectionError || 'Todavía no hay un resultado comparable.';
@@ -127,7 +164,7 @@ function cardMarkup(entry) {
   </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency)}</section>` : unavailableMarkup(entry);
   const badge = broken ? `${broken} NO REPRODUCE` : warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}`
     : summary.comparable ? 'SIN AVISOS' : 'SIN DATOS';
-  return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
+  return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }
 
 function render(entries) {
@@ -167,6 +204,7 @@ async function refresh() {
       const entries = visibleEntries();
       render(entries);
       refreshState.textContent = `Actualizando… ${entries.length} uso${entries.length === 1 ? '' : 's'}`;
+      if (await loadAliases(node)) render(visibleEntries());
     }));
     refreshState.textContent = `Actualizado ${new Date().toLocaleTimeString('es-ES')}`;
   } catch (error) {
@@ -176,6 +214,33 @@ async function refresh() {
     refreshing = false;
     refreshButton.disabled = false;
   }
+}
+
+async function editAlias(nodeId, portfolioId) {
+  const entered = prompt(
+    `Alias del portafolio #${portfolioId} (déjalo vacío para quitarlo):`,
+    aliasOf(nodeId, portfolioId),
+  );
+  if (entered === null) return;
+  const alias = entered.trim().replace(/\s+/g, ' ');
+  if (alias.length > 80) {
+    toast('El alias no puede superar 80 caracteres.', true);
+    return;
+  }
+  try {
+    const data = await jsonResponse(await fetch(
+      `/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/alias`,
+      {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({scope: 'full_history', portfolio_id: portfolioId, alias}),
+      },
+    ));
+    nodeAliases.set(nodeId, {
+      ...(nodeAliases.get(nodeId) || {}), [portfolioId]: data.alias || '',
+    });
+    render(visibleEntries());
+    toast(alias ? 'Alias guardado.' : 'Alias eliminado.');
+  } catch (error) { toast(error.message, true); }
 }
 
 async function restartManager() {
@@ -232,6 +297,12 @@ async function monitorManagerRestart() {
   }
 }
 
+// Las tarjetas se repintan enteras en cada actualización, así que el botón de
+// cada alias no puede tener su propio oyente: lo escucha el contenedor.
+cardsEl.addEventListener('click', event => {
+  const button = event.target.closest('.alias-edit');
+  if (button) editAlias(button.dataset.node, Number(button.dataset.portfolio));
+});
 refreshButton.addEventListener('click', refresh);
 restartButton.addEventListener('click', restartManager);
 refresh();
