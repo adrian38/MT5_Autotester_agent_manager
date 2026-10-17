@@ -189,6 +189,24 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         # Sin nada que recuperar se sigue creando un uso en blanco.
         self.assertIn("const auditId = newAuditId(id);", self.script)
 
+    def test_marking_a_portfolio_unmarks_the_one_that_was_marked_before(self) -> None:
+        # Se configura un portafolio cada vez. Antes, «Añadir otro uso» sobre un
+        # portafolio sin marcar lo marcaba callando y dejaba cuatro marcados
+        # cuando sólo se quería uno, con un uso en blanco por cada clic.
+        self.assertIn("function keepOnlyPortfolio(portfolioId)", self.script)
+        self.assertIn(
+            "auditId => portfolioForAudit(auditId) === Number(portfolioId),", self.script,
+        )
+        # Las tres formas de marcar pasan por ahí: la casilla, «Añadir otro uso»
+        # y el `?portfolio=` con el que se llega desde la portada.
+        self.assertEqual(4, self.script.count("keepOnlyPortfolio("))  # la definición y sus tres llamadas
+        self.assertIn("keepOnlyPortfolio(id);\n    if (!selectedAuditIds.length) {", self.script)
+        # Varios usos **del mismo** portafolio siguen conviviendo: para eso está
+        # el botón, y por eso el filtro compara el portafolio y no el uso.
+        self.assertIn("keepOnlyPortfolio(portfolioId);\n  const auditId = newAuditId(portfolioId);", self.script)
+        # Y la pantalla lo dice donde se marca.
+        self.assertIn("al marcar otro, el anterior se desmarca", self.page_text)
+
     def test_the_analysis_tab_opens_whenever_the_agent_published_an_execution(self) -> None:
         # El manager retira la materia prima y calcula el veredicto al abrir el
         # detalle, así que el estado de la pantalla de configuración puede traer

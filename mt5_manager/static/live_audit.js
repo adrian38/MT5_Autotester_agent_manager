@@ -23,14 +23,18 @@ let configPhase = 'configuration_only';
 function selectRequestedPortfolio() {
   const portfolioId = Number(params.get('portfolio') || 0);
   if (!portfolioId || !portfolioRow(portfolioId)) return;
-  if (selectedAuditIds.some(auditId => portfolioForAudit(auditId) === portfolioId)) return;
-  const saved = savedAuditFor(portfolioId);
-  const auditId = saved || newAuditId(portfolioId);
-  selectedAuditIds.push(auditId);
-  if (!saved) {
-    profiles[auditId] = {
-      ...defaults, portfolio_id: portfolioId, portfolio_type: fixedPortfolioMode(portfolioId),
-    };
+  const own = selectedAuditIds.filter(auditId => portfolioForAudit(auditId) === portfolioId);
+  if (own.length && own.length === selectedAuditIds.length) return;
+  keepOnlyPortfolio(portfolioId);
+  if (!selectedAuditIds.length) {
+    const saved = savedAuditFor(portfolioId);
+    const auditId = saved || newAuditId(portfolioId);
+    selectedAuditIds.push(auditId);
+    if (!saved) {
+      profiles[auditId] = {
+        ...defaults, portfolio_id: portfolioId, portfolio_type: fixedPortfolioMode(portfolioId),
+      };
+    }
   }
   renderPortfolios();
   renderProfiles();
@@ -121,6 +125,18 @@ function savedAuditFor(portfolioId) {
     return leftTime - rightTime || leftSeq - rightSeq;
   });
   return orphans.length ? orphans[orphans.length - 1] : '';
+}
+
+// Se configura un portafolio cada vez: marcar uno desmarca el que estuviera
+// marcado antes. Sus usos siguen ahí —el perfil, las contraseñas y la última
+// auditoría se quedan en el manager— y la portada tampoco los pierde, porque
+// `live_audit_ids` sale de los perfiles guardados y no de lo que esté marcado
+// en esta pantalla. Lo que sí se conserva son los varios usos **del mismo**
+// portafolio: eso es para lo que está «Añadir otro uso».
+function keepOnlyPortfolio(portfolioId) {
+  selectedAuditIds = selectedAuditIds.filter(
+    auditId => portfolioForAudit(auditId) === Number(portfolioId),
+  );
 }
 
 function renderPortfolios() {
@@ -720,7 +736,8 @@ portfolioList.addEventListener('change', event => {
   if (!id) return;
   captureDrafts();
   if (event.target.checked) {
-    if (!selectedAuditIds.some(auditId => portfolioForAudit(auditId) === id)) {
+    keepOnlyPortfolio(id);
+    if (!selectedAuditIds.length) {
       const saved = savedAuditFor(id);
       if (saved) {
         selectedAuditIds.push(saved);
@@ -764,6 +781,7 @@ portfolioList.addEventListener('click', event => {
   event.preventDefault();
   captureDrafts();
   const portfolioId = Number(button.dataset.addPortfolio || 0);
+  keepOnlyPortfolio(portfolioId);
   const auditId = newAuditId(portfolioId);
   selectedAuditIds.push(auditId);
   profiles[auditId] = {...defaults, portfolio_id: portfolioId, portfolio_type: fixedPortfolioMode(portfolioId)};
