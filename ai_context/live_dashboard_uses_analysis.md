@@ -22,10 +22,16 @@ convertirse silenciosamente en el criterio permanente de la auditoría.
 - calcular el déficit y resolver `REPRODUCE`, `AVISO`, `NO REPRODUCE` o
   `MEJOR QUE EL TESTER`.
 
-Análisis y la portada cargan esa misma primitiva. La portada lee exactamente
-`live-audit-lots:<nodo>:<uso>` del mismo navegador, por lo que refleja la vista
-que el usuario dejó aplicada en Análisis. Sin simulación guardada muestra el
-veredicto bruto, igual que la tabla al pulsar `Restablecer`.
+Análisis y la portada cargan esa misma primitiva. La portada lee el escalado
+que el usuario dejó aplicado en Análisis; sin nada aplicado muestra el veredicto
+bruto, igual que la tabla al pulsar `Restablecer`.
+
+**Dónde se lee cambió el 2026-10-17.** Estaba en `live-audit-lots:<nodo>:<uso>`
+del mismo navegador, así que la misma auditoría salía reconciliada en el
+escritorio y en bruto en el móvil. Ahora es `view_lot_overrides` del perfil del
+uso, que ya viaja en el payload de la portada
+(`ai_context/live_account_audit_mvp.md`). Lo que sigue en pie es lo de arriba:
+la portada no normaliza por su cuenta: aplica lo que el usuario decidió, o nada.
 
 Las salvedades (`POCAS OPERACIONES`, comparación parcial y calidad tick) siguen
 viviendo en Análisis; no sustituyen el veredicto.

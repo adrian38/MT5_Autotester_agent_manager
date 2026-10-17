@@ -1248,10 +1248,14 @@ Dos detalles al tocar esto:
 ## Simulación de lotes en Análisis (2026-10-10)
 
 «Lotes por estrategia» abre un diálogo con un lote demo y un lote real por
-estrategia y reescala las curvas. Es **sólo de la vista**: no escribe en el
-perfil, no reanaliza y no toca el veredicto ni el detalle de operaciones. Vive
-en `localStorage` bajo `live-audit-lots:<nodo>:<uso>`, con aviso «SIMULACIÓN»
-visible y botón de restablecer.
+estrategia y reescala las curvas. Es **sólo de la vista**: no reanaliza, no
+toca el detalle de operaciones ni los lotes con los que se auditó
+(`real_strategy_lots`, que sí cambian el veredicto porque el manager reanaliza
+con ellos). Aviso «SIMULACIÓN» visible y botón de restablecer.
+
+**Dónde vive cambió el 2026-10-17** (ver «El escalado aplicado se guarda en el
+uso» más abajo): estuvo en `localStorage` bajo `live-audit-lots:<nodo>:<uso>` y
+ahora está en `view_lot_overrides` del perfil del uso.
 
 Para qué sirve, con el caso que lo motivó: en AXI #67 la estrategia de BTCUSD
 corrió **0,03 en el tester y 0,1 en la cuenta real**. El PnL demo era 22,85 € y
@@ -1367,3 +1371,32 @@ la media por operación y el error estándar históricos.
 El veredicto también expresa la acción prudente: mantener, vigilar, revisar o no
 decidir aún. Los casos sin muestra, histórico o dispersión cuentan como «sin
 conclusión» en la cabecera; nunca vuelven a quedar resumidos como «sin avisos».
+
+## El escalado aplicado se guarda en el uso (2026-10-17)
+
+La simulación de lotes vivía en `localStorage` del navegador y la portada leía
+esa misma clave, así que la reconciliación era **por dispositivo**: en el
+escritorio, con «Escalar demo al lote real» aplicado, la tarjeta de RoboForex
+#148 daba Profit Test 174,64 € y 2 estrategias críticas; en el móvil, sin nada
+aplicado, 335,00 € y 5 críticas, con los mismos datos y el mismo lado Real. El
+usuario lo leyó como un error de la portada, y con razón: una misma auditoría
+no puede contestar dos cosas según desde dónde se mire.
+
+Ahora el escalado aplicado es `view_lot_overrides` en el perfil del uso:
+
+- `GET`/`POST /api/nodes/<id>/live-audits/<uso>/view-lots`. Análisis lo lee al
+  cargar y lo guarda al aplicar o restablecer; si el manager lo rechaza, la
+  pantalla vuelve al anterior en vez de enseñar curvas que nadie más verá.
+- La portada **no** pide nada extra: el perfil ya viaja en cada entrada de
+  `/api/nodes/<id>/live-dashboard`.
+- Dos formas, las mismas que antes: `$mode: autolot` —cada operación demo al
+  lote que la cuenta real ejecutó— y un lote demo/real por estrategia. Lote 0
+  sigue siendo válido.
+- **No es normalización automática.** Los dos intentos que se rechazaron
+  (`ai_context/live_dashboard_uses_analysis.md`) escalaban por su cuenta y
+  escondían los `NO REPRODUCE` con comparación parcial. Aquí sigue decidiendo
+  el usuario; lo único que cambió es dónde se guarda su decisión.
+- Sigue sin ser `real_strategy_lots`: el nodo no recibe este campo
+  —`run_payload` lo excluye— y no se reanaliza nada.
+- La pantalla de configuración no manda el campo, así que guardar ahí lo
+  conserva. Hay prueba de ello: era la forma silenciosa de perderlo.

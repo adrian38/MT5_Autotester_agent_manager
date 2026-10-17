@@ -67,16 +67,16 @@
     return ['REPRODUCE', 'good', `Dentro del ${EXPECTED_SHORTFALL_PCT} % de deterioro que se da por normal al pasar de backtest a real.`];
   }
 
-  function readOverrides(nodeId, auditId) {
-    try {
-      const stored = JSON.parse(root.localStorage?.getItem(`live-audit-lots:${nodeId}:${auditId}`) || '{}');
-      return stored && typeof stored === 'object' ? stored : {};
-    } catch (_error) { return {}; }
+  // El escalado aplicado vive en el perfil del uso, no en el navegador: si no,
+  // la misma auditoría enseña un número en el escritorio y otro en el móvil.
+  function storedOverrides(profile) {
+    const stored = profile?.view_lot_overrides;
+    return stored && typeof stored === 'object' ? stored : {};
   }
 
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, autolotMode, numbers,
-    overrideFor, readOverrides, scaleTarget, scaledProfit, sideSeries, verdict,
+    overrideFor, scaleTarget, scaledProfit, sideSeries, storedOverrides, verdict,
   };
   root.LiveAuditReproduction = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

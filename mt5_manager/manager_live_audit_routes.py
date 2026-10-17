@@ -219,9 +219,41 @@ def handle_dashboard_get(handler, parts: list[str]) -> bool:
     return False
 
 
+def _is_view_lots(parts: list[str]) -> bool:
+    return (
+        len(parts) == 6 and parts[:2] == ["api", "nodes"]
+        and parts[3] == "live-audits" and parts[5] == "view-lots"
+    )
+
+
+def _handle_view_lots(handler, parts: list[str], write: bool) -> bool:
+    """Lee o guarda el escalado de lotes que las pantallas aplican al leer.
+
+    Vive en el perfil del uso para que la portada y Analisis coincidan en
+    cualquier navegador. No reanaliza nada: el veredicto se recalcula en el
+    cliente con las mismas primitivas, igual que antes.
+    """
+    if not _is_view_lots(parts):
+        return False
+    try:
+        node_id = urllib.parse.unquote(parts[2])
+        handler._node(node_id)
+        audit_id = urllib.parse.unquote(parts[4])
+        settings = handler.server.live_audit_settings
+        overrides = (
+            settings.set_view_lot_overrides(
+                node_id, audit_id, (handler._body() or {}).get("view_lot_overrides"),
+            ) if write else settings.view_lot_overrides(node_id, audit_id)
+        )
+        handler._send_json(200, {"view_lot_overrides": overrides})
+    except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+        handler._send_json(400, {"error": str(exc)})
+    return True
+
+
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     """Configuracion de la auditoria en vivo, sus informes y sus artefactos."""
-    if handle_dashboard_get(handler, parts):
+    if handle_dashboard_get(handler, parts) or _handle_view_lots(handler, parts, write=False):
         return True
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audit-config":
         try:
@@ -302,11 +334,12 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
     restore = handler.server.live_audit_settings.restore_credentials(node_id)
     if not restore:
         raise ValueError("Configura y guarda la cuenta que debe quedar en los terminales")
-    # El autolote, la atribución y la marca informativa de operación real son
-    # criterio del manager; el nodo sólo recibe datos necesarios para auditar.
+    # El autolote, la atribución, la marca informativa de operación real y el
+    # escalado de la vista son criterio del manager; el nodo sólo recibe datos
+    # necesarios para auditar.
     node_profile = {
         key: value for key, value in profile.items()
-        if key not in {"autolot", "real_attribution", "live_trading"}
+        if key not in {"autolot", "real_attribution", "live_trading", "view_lot_overrides"}
     }
     return {
         **node_profile, **credentials, **restore,
@@ -421,6 +454,7 @@ def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
         _handle_workbook_import(handler, parts)
         or _handle_attribution_save(handler, parts)
         or _handle_manual_reports(handler, parts)
+        or _handle_view_lots(handler, parts, write=True)
     ):
         return True
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] in {

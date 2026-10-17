@@ -125,7 +125,7 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
         configured = {**profile(), "portfolio_id": 148, "live_trading": True, "autolot": {
             "enabled": True, "source_name": "riesgo.xlsx", "source_sha256": "a" * 64,
             "rules": {STRATEGY: {"dd_001": 10.0, "risk_pct": 10.0}},
-        }}
+        }, "view_lot_overrides": {"$mode": "autolot"}}
         settings = SimpleNamespace(
             state=lambda _node_id: {
                 "configured_audit_ids": ["audit-148"], "profiles": {"audit-148": configured},
@@ -141,7 +141,11 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
             return_value=(200, {"capabilities": {"live_audit_restore_account": True}}),
         ):
             request = run_payload(endpoint, "nodo", {}, "audit-148")
-        for manager_only in ("autolot", "real_attribution", "live_trading"):
+        # `view_lot_overrides` es escalado de la vista: el nodo audita con los
+        # lotes configurados y no tiene por qué saber cómo se dibuja después.
+        for manager_only in (
+            "autolot", "real_attribution", "live_trading", "view_lot_overrides",
+        ):
             self.assertNotIn(manager_only, request)
 
 

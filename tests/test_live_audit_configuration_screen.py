@@ -284,23 +284,32 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         # así que una real sin pareja —atribuida o no— nunca se reescala.
         self.assertIn("nunca se reescalan", self.analysis_page_text + self.analysis_script)
         self.assertIn("profit: Number(row.real.profit || 0)", self.analysis_script)
-        # Es una simulación del navegador: no escribe en el perfil ni reanaliza.
-        self.assertIn("live-audit-lots:${nodeId}:${auditId}", self.analysis_script)
+        # El escalado no reanaliza nada y sigue sin tocar `real_strategy_lots`,
+        # que es lo que sí cambiaría el veredicto. Pero ya no vive en el
+        # navegador: con la simulación en `localStorage`, la misma auditoría
+        # salía reconciliada en el escritorio y en bruto en el móvil.
+        self.assertNotIn("localStorage.", self.analysis_script)
+        self.assertIn("const viewLotsUrl = `/api/nodes/", self.analysis_script)
+        self.assertIn("/view-lots`", self.analysis_script)
         self.assertIn("SIMULACIÓN", self.analysis_script)
-        self.assertIn("No cambia la auditoría", self.analysis_page_text)
+        self.assertIn("No reanaliza la auditoría", self.analysis_page_text)
+        self.assertIn("se guarda en el uso", self.analysis_page_text)
         self.assertNotIn("real_strategy_lots", self.analysis_script)
-        # Aplicar lotes sólo toca `localStorage` y repinta. La pantalla sí
-        # escribe para la atribución manual —eso es criterio y vive en el
-        # manager—, así que el candado se pone donde estaba el riesgo: que la
-        # simulación de lotes acabe guardándose en el perfil del uso.
-        apply_lots = self.analysis_script.split("function applyLots(overrides)", 1)[1]
+        # Guardar y pintar no pueden quedar a medias: si el manager rechaza el
+        # escalado, la pantalla vuelve al anterior en vez de enseñar unas curvas
+        # que ningún otro dispositivo va a ver.
+        apply_lots = self.analysis_script.split("async function applyLots(overrides)", 1)[1]
         apply_lots = apply_lots.split("\n}", 1)[0]
-        self.assertIn("writeOverrides(lotOverrides)", apply_lots)
-        self.assertNotIn("fetch", apply_lots)
-        posts = re.findall(r"`(/api/nodes/[^`]*)`,\s*\n?\s*\{method: 'POST'", self.analysis_script)
+        self.assertIn("await writeOverrides(lotOverrides)", apply_lots)
+        self.assertIn("lotOverrides = previous", apply_lots)
+        # Y esta pantalla sólo escribe en esos dos sitios.
+        posts = re.findall(r"fetch\(\s*([^,]+),\s*\{\s*method: 'POST'", self.analysis_script)
         self.assertTrue(posts, "La pantalla ya no hace ningún POST: revisa esta guarda.")
         for url in posts:
-            self.assertIn("attribution", url, f"POST inesperado desde Análisis: {url}")
+            self.assertTrue(
+                "attribution" in url or url.strip() == "viewLotsUrl",
+                f"POST inesperado desde Análisis: {url}",
+            )
         # Y dice lo que el modelo lineal no sabe.
         self.assertIn("no modela deslizamiento, margen ni stop out", self.analysis_script)
 

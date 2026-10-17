@@ -84,7 +84,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
     def test_dashboard_and_analysis_share_the_reproduction_primitive(self) -> None:
         self.assertIn("LiveAuditReproduction.numbers(group, lotOverrides)", self.analysis)
         self.assertIn("reproduction.numbers(group, overrides)", self.metrics)
-        self.assertIn("LiveAuditReproduction.readOverrides(entry.node.id, entry.auditId)", self.script)
+        self.assertIn("LiveAuditReproduction.storedOverrides(entry.profile)", self.script)
         for page, consumer in (
             (self.page_text, "/dashboard_metrics.js"),
             (self.analysis_page, "/live_audit_analysis.js"),

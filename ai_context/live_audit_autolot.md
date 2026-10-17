@@ -306,8 +306,15 @@ of null» y el botón no volvía a responder. El rótulo vive ahora en su propio
 
 Eso rompió una guarda que prohibía cualquier `method: 'POST'` en esa pantalla.
 Protegía algo real —que la simulación de lotes no se guarde en el perfil— así
-que no se borró: ahora comprueba que `applyLots` sólo toca `localStorage` y que
-todos los POST de la pantalla van a `attribution`.
+que no se borró: comprobaba que `applyLots` sólo tocaba `localStorage` y que
+todos los POST de la pantalla iban a `attribution`.
+
+**Esa guarda cambió de contrato el 2026-10-17.** Guardar el escalado en el
+navegador hacía que la portada enseñara una comparación distinta en cada
+dispositivo, así que ahora sí se guarda en el perfil, en `view_lot_overrides`
+(`ai_context/live_account_audit_mvp.md`). Lo que la guarda vigila ahora es lo
+que de verdad no debe pasar: que esta pantalla no escriba `real_strategy_lots`
+—eso reanalizaría— y que sus únicos POST sean `attribution` y `view-lots`.
 
 ## Enumerar lotes no escala
 

@@ -31,6 +31,7 @@ from .live_audit_settings_schema import (
     live_profile_ids,
     normalize_live_audit_settings,
     normalize_terminal_restore_account,
+    normalize_view_lot_overrides,
 )
 _PROFILE_SECRET_KEYS = {"source_password", "tester_password"}
 _RESTORE_SECRET_KEYS = {"restore_password"}
@@ -452,6 +453,37 @@ class LiveAuditSettingsStore(LiveAuditAccountsMixin):
                 "restore_server": str(state["server"]),
                 "restore_password": cipher.decrypt(token.encode("ascii")).decode("utf-8"),
             }
+
+    def view_lot_overrides(self, node_id: str, audit_id: str) -> dict[str, Any]:
+        """La reconciliación de lotes guardada para un uso."""
+        with self.lock:
+            profiles = (self.records.get(node_id) or {}).get("profiles") or {}
+            stored = (profiles.get(str(audit_id)) or {}).get("view_lot_overrides")
+        return normalize_view_lot_overrides(stored)
+
+    def set_view_lot_overrides(
+        self, node_id: str, audit_id: str, overrides: Any,
+    ) -> dict[str, Any]:
+        """Guarda cómo hay que escalar las curvas de un uso al leerlas.
+
+        No es `real_strategy_lots`, que reanaliza y cambia el veredicto: esto
+        es la vista. Vive en el perfil y no en `localStorage` porque si no, la
+        portada y Análisis enseñan números distintos en cada dispositivo. Toca
+        **un solo campo** de **un solo uso**, por lo mismo que la atribución:
+        quien lo cambia no conoce el resto de la configuración.
+        """
+        normalized = normalize_view_lot_overrides(overrides)
+        with self.lock:
+            record = self.records.get(node_id) or {}
+            profiles = {
+                str(key): dict(value) for key, value in (record.get("profiles") or {}).items()
+            }
+            if str(audit_id) not in profiles:
+                raise KeyError(f"El uso {audit_id} no tiene configuración guardada")
+            profiles[str(audit_id)]["view_lot_overrides"] = normalized
+            self.records[node_id] = {**record, "profiles": profiles, "updated_at": utc_now()}
+            save_json(self.path, self.records)
+        return normalized
 
     def _rewrite_attribution(
         self, node_id: str, audit_id: str, rewrite: Callable[[Any], dict[str, Any]],

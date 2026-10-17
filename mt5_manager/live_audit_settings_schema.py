@@ -12,6 +12,11 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "portfolio_id": 0,
     "portfolio_type": "",
     "real_strategy_lots": {},
+    # La reconciliación de lotes que las pantallas aplican al leer. No es
+    # `real_strategy_lots`: aquello reanaliza y cambia el veredicto; esto sólo
+    # reescala las curvas. Vive aquí, y no en el navegador, porque la portada y
+    # Análisis tienen que enseñar lo mismo desde cualquier dispositivo.
+    "view_lot_overrides": {},
     "autolot": empty_autolot(),
     "real_attribution": empty_attribution(),
     "deployment_name": "",
@@ -139,6 +144,47 @@ def _real_strategy_lots(value: Any) -> dict[str, float]:
     return result
 
 
+def _view_lot_side(strategy: str, sides: Any) -> dict[str, float]:
+    if not isinstance(sides, dict):
+        raise ValueError(f"view_lot_overrides[{strategy}] debe ser un objeto JSON")
+    # Lote 0 es una pregunta válida —«¿y si esto no hubiera operado?»—, así que
+    # el mínimo es 0 y no el épsilon de `real_strategy_lots`.
+    return {
+        side: _number(sides[side], f"view_lot_overrides[{strategy}].{side}", 0.0, 1_000_000.0)
+        for side in ("demo", "real") if side in sides
+    }
+
+
+def normalize_view_lot_overrides(value: Any) -> dict[str, Any]:
+    """Valida la reconciliación de lotes que la vista aplica al leer.
+
+    Dos formas: `$mode: autolot`, que lleva cada operación demo al lote que la
+    cuenta real ejecutó, y un lote demo/real por estrategia escrito a mano.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("view_lot_overrides debe ser un objeto JSON")
+    if len(value) > 500:
+        raise ValueError("No se pueden reescalar más de 500 estrategias")
+    normalized: dict[str, Any] = {}
+    for raw_strategy, raw_sides in value.items():
+        if raw_strategy == "$mode":
+            mode = _text(raw_sides, "view_lot_overrides[$mode]", 16)
+            if mode not in {"", "autolot"}:
+                raise ValueError("view_lot_overrides[$mode] solo admite 'autolot'")
+            if mode:
+                normalized["$mode"] = mode
+            continue
+        strategy = _text(raw_strategy, "identificador de estrategia", 512)
+        if not strategy:
+            raise ValueError("Cada lote reescalado debe tener un identificador de estrategia")
+        sides = _view_lot_side(strategy, raw_sides)
+        if sides:
+            normalized[strategy] = sides
+    return normalized
+
+
 def _portfolio_ids(value: Any) -> list[int]:
     if not isinstance(value, list):
         raise ValueError("selected_portfolio_ids debe ser una lista")
@@ -204,6 +250,8 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
             normalized[key] = _boolean(value[key], key)
     if "real_strategy_lots" in value:
         normalized["real_strategy_lots"] = _real_strategy_lots(value["real_strategy_lots"])
+    if "view_lot_overrides" in value:
+        normalized["view_lot_overrides"] = normalize_view_lot_overrides(value["view_lot_overrides"])
     normalized["autolot"] = normalize_autolot(value.get("autolot"))
     normalized["real_attribution"] = normalize_attribution(value.get("real_attribution"))
     return normalized

@@ -2,25 +2,31 @@ const params = new URLSearchParams(location.search);
 const nodeId = params.get('node') || '';
 const auditId = params.get('audit') || '';
 const modeLabels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
-const lotsKey = `live-audit-lots:${nodeId}:${auditId}`;
+const viewLotsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/view-lots`;
 let strategyRows = [];
 let strategySummaries = {};
 let chartContext = {currency: 'EUR', window: []};
 let lotOverrides = {};
 let currentResult = null;
 
-function readOverrides() {
+// El escalado aplicado se guarda en el perfil del uso, no en este navegador.
+// Sigue sin reanalizar nada y sigue sin tocar los lotes con los que se auditó,
+// que son los de la pantalla de configuración; pero la portada y ésta tienen
+// que coincidir desde cualquier dispositivo: guardado en el navegador, el
+// móvil enseñaba la comparación en bruto y el escritorio la reconciliada.
+async function readOverrides() {
   try {
-    const stored = JSON.parse(localStorage.getItem(lotsKey) || '{}');
+    const data = await jsonResponse(await fetch(viewLotsUrl, {cache: 'no-store'}));
+    const stored = data.view_lot_overrides;
     return stored && typeof stored === 'object' ? stored : {};
   } catch (_error) { return {}; }
 }
 
-function writeOverrides(value) {
-  try {
-    if (Object.keys(value).length) localStorage.setItem(lotsKey, JSON.stringify(value));
-    else localStorage.removeItem(lotsKey);
-  } catch (_error) { /* Sin almacenamiento la simulación dura lo que la pestaña. */ }
+async function writeOverrides(value) {
+  await jsonResponse(await fetch(viewLotsUrl, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({view_lot_overrides: value}),
+  }));
 }
 
 function overrideFor(strategy, side) {
@@ -789,7 +795,6 @@ function render(result) {
   strategySummaries = Object.fromEntries(
     (result.comparison_detail?.strategy_summary || []).map(row => [String(row.strategy), row]),
   );
-  lotOverrides = readOverrides();
   renderCurves();
   document.querySelector('#analysis-main').hidden = false;
 }
@@ -926,6 +931,7 @@ async function loadAnalysis() {
   if (!comparisonRows(result).length) {
     throw new Error('Esta ejecución no guardó la comparación operación por operación, así que no hay con qué derivar las curvas. Vuelve a ejecutar la auditoría con el motor actual.');
   }
+  lotOverrides = await readOverrides();
   render(result);
   await loadDegradation();
 }
@@ -983,10 +989,21 @@ function readDialogLots() {
   return next;
 }
 
-function applyLots(overrides) {
+// Guardar y pintar no pueden quedar a medias: si el manager rechaza el
+// escalado, la pantalla vuelve al anterior en vez de enseñar unas curvas que
+// nadie más va a ver.
+async function applyLots(overrides) {
+  const previous = lotOverrides;
   lotOverrides = overrides;
-  writeOverrides(lotOverrides);
   renderCurves();
+  try {
+    await writeOverrides(lotOverrides);
+    showAnalysisError('');
+  } catch (error) {
+    lotOverrides = previous;
+    renderCurves();
+    showAnalysisError(`No se pudo guardar el escalado de lotes: ${error.message}`);
+  }
 }
 
 document.querySelector('#open-lots').addEventListener('click', openLotsDialog);

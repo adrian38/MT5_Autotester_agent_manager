@@ -145,7 +145,7 @@ function unavailableMarkup(entry) {
 function cardMarkup(entry) {
   const profile = entry.profile || {};
   const result = entry.result;
-  const overrides = LiveAuditReproduction.readOverrides(entry.node.id, entry.auditId);
+  const overrides = LiveAuditReproduction.storedOverrides(entry.profile);
   const summary = result
     ? LiveDashboardMetrics.summarize(result, overrides) : {comparable: false, flagged: []};
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
@@ -172,7 +172,7 @@ function render(entries) {
   const failedConfigs = entries.filter(entry => entry.configError);
   const summaries = realEntries.map(entry => entry.result
     ? LiveDashboardMetrics.summarize(
-      entry.result, LiveAuditReproduction.readOverrides(entry.node.id, entry.auditId),
+      entry.result, LiveAuditReproduction.storedOverrides(entry.profile),
     ) : {flagged: []});
   const flagged = summaries.flatMap(item => item.flagged);
   const broken = flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
