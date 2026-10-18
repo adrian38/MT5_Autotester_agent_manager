@@ -5,6 +5,10 @@ completo del manager y, cuando está montado, el contrato guiado del runtime IC.
 También comprueba que ninguna otra sesión cambió HEAD ni el estado tracked de
 los repositorios mientras duró la medición.
 
+La copia de IC se busca en las candidatas de `tools.agent_projects`, nunca
+junto al manager: derivarla de `ROOT.parent` omitía el contrato en silencio en
+todo equipo donde el manager no es su vecino.
+
     python -m tools.verify_project
     python -m tools.verify_project --quick
 """
@@ -15,8 +19,29 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from tools.agent_projects import ic_project, searched_ic_projects
+except ImportError:  # ejecutado como `python tools/verify_project.py`
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from tools.agent_projects import ic_project, searched_ic_projects
+
 ROOT = Path(__file__).resolve().parents[1]
-IC_ROOT = ROOT.parent / "MT5_Autotester_agent_IC" / "MT5_Autotester_agent"
+
+IC_CONTRACT_TESTS = (
+    "tests.test_prepared_candidates",
+    "tests.test_guided_node",
+    "tests.test_guided_http",
+    "tests.test_manager_node_repair_phases",
+)
+
+
+def ic_contract_root() -> Path | None:
+    """La copia de IC que **tiene** las cuatro pruebas focales, o `None`.
+
+    Se exigen los cuatro modulos, no la carpeta: una copia a medio montar daria
+    por ejecutado un contrato que no esta ahi.
+    """
+    return ic_project(*(f"tests/{name.split('.')[-1]}.py" for name in IC_CONTRACT_TESTS))
 
 
 @dataclass(frozen=True)
@@ -24,7 +49,7 @@ class CommandSpec:
     name: str
     cwd: Path
     args: tuple[str, ...]
-    optional_root: Path | None = None
+    skip_reason: str | None = None
 
 
 def command_specs(*, include_full_suite: bool = True) -> list[CommandSpec]:
@@ -51,15 +76,14 @@ def command_specs(*, include_full_suite: bool = True) -> list[CommandSpec]:
         specs.append(CommandSpec(
             "suite manager", ROOT, (python, "-m", "unittest", "discover", "-s", "tests"),
         ))
+    ic_root = ic_contract_root()
     specs.append(CommandSpec(
         "contrato IC",
-        IC_ROOT,
-        (
-            python, "-m", "unittest", "tests.test_prepared_candidates",
-            "tests.test_guided_node", "tests.test_guided_http",
-            "tests.test_manager_node_repair_phases",
+        ic_root or ROOT,
+        (python, "-m", "unittest", *IC_CONTRACT_TESTS),
+        skip_reason=None if ic_root else (
+            f"ninguna copia de ICTrading esta montada; buscadas: {searched_ic_projects()}"
         ),
-        optional_root=IC_ROOT,
     ))
     return specs
 
@@ -78,14 +102,17 @@ def repository_state(root: Path) -> tuple[str, str]:
 
 
 def watched_repositories() -> list[Path]:
-    return [ROOT] + ([IC_ROOT] if (IC_ROOT / ".git").exists() else [])
+    ic_root = ic_contract_root()
+    return [ROOT] + ([ic_root] if ic_root and (ic_root / ".git").exists() else [])
 
 
 def run_spec(spec: CommandSpec) -> bool:
-    if spec.optional_root is not None and not spec.optional_root.is_dir():
-        print(f"\n[OMITIDO] {spec.name}: {spec.optional_root} no está montado", flush=True)
+    """Ejecuta el paso. Devuelve si paso; una omision no es un fallo."""
+    if spec.skip_reason is not None:
+        print(f"\n[OMITIDO] {spec.name}: {spec.skip_reason}", flush=True)
         return True
-    print(f"\n[VERIFICA] {spec.name}", flush=True)
+    where = "" if spec.cwd == ROOT else f" en {spec.cwd}"
+    print(f"\n[VERIFICA] {spec.name}{where}", flush=True)
     return subprocess.run(spec.args, cwd=spec.cwd, check=False).returncode == 0
 
 
@@ -105,8 +132,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     repositories = watched_repositories()
     before = {root: repository_state(root) for root in repositories}
-    failed = [spec.name for spec in command_specs(include_full_suite=include_full_suite)
-              if not run_spec(spec)]
+    specs = command_specs(include_full_suite=include_full_suite)
+    skipped = [spec.name for spec in specs if spec.skip_reason is not None]
+    failed = [spec.name for spec in specs if not run_spec(spec)]
     changed = [root for root in repositories if repository_state(root) != before[root]]
     for root in changed:
         print(f"[CAMBIO CONCURRENTE] HEAD o estado tracked cambió durante la verificación: {root}")
@@ -114,7 +142,12 @@ def main(argv: list[str] | None = None) -> int:
         print("[FALLO] " + ", ".join(failed))
     if failed or changed:
         return 1
-    print("\n[OK] contrato completo del proyecto verificado")
+    # La omision no pone el resultado en rojo —hay equipos sin IC montado— pero
+    # va en la ultima linea: enterrada a mitad de la salida no la ve nadie.
+    if skipped:
+        print(f"\n[OK] contrato verificado SIN: {', '.join(skipped)}")
+    else:
+        print("\n[OK] contrato completo del proyecto verificado")
     return 0
 
 

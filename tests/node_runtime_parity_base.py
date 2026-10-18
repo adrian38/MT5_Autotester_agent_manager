@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.agent_projects import IC_PROJECT_CANDIDATES  # noqa: E402
 
 MANAGER_ROOT = Path(__file__).parents[1]
 MANAGER_RULES = tuple(
@@ -60,13 +64,15 @@ def fork_portfolio_source(project: Path) -> str:
     return _fork_source(project, "portfolio")
 
 
-FORK_CANDIDATES = (
-    Path(r"C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent"),
-    Path(r"C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent"),
+FORK_CANDIDATES = IC_PROJECT_CANDIDATES + (
     Path(r"F:\TRADING\MT5_Autotester_agent_AXI"),
-    Path(r"I:\TRADING\MT5_Autotester_agent_IC"),
     Path(r"G:\TRADING\MT5_Autotester_agent"),
 )
+"""Las copias de IC primero: varias pruebas usan `FORK_CANDIDATES[0]` como «IC».
+
+Las rutas de IC viven en `tools.agent_projects` porque `tools/verify_project.py`
+necesita las mismas para ejecutar su contrato focal, y dos listas se separan.
+"""
 
 
 def _reachable_forks() -> list[tuple[Path, str]]:

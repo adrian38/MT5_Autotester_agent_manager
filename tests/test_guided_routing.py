@@ -7,6 +7,7 @@ from unittest import mock
 from mt5_manager import manager, manager_http, dev_branch
 from mt5_manager.docker_entrypoint import docker_config
 from tests.test_guided_node import package
+from tools.agent_projects import ic_project, searched_ic_projects
 
 
 class GuidedRoutingTests(unittest.TestCase):
@@ -91,8 +92,10 @@ class GuidedRoutingTests(unittest.TestCase):
         # cualquiera de los dos lados (2026-09-03, tras un merge de origin/AXI),
         # sin que el protocolo hubiera divergido en una sola línea.
         root = Path(__file__).parents[1]
-        agent = root.parent/'MT5_Autotester_agent_IC'/'MT5_Autotester_agent'
-        if not agent.is_dir(): self.skipTest('IC checkout unavailable')
+        # No se deriva de `root.parent`: con el manager en otro disco esta
+        # guarda byte a byte se saltaba sola en todos los equipos salvo uno.
+        agent = ic_project('manager_node_runtime/guided_controller.py')
+        if agent is None: self.skipTest(f'IC checkout unavailable: {searched_ic_projects()}')
         for name in ('guided_batches.py', 'guided_controller.py'):
             self.assertEqual((root/'mt5_manager'/name).read_bytes().replace(b'\r\n', b'\n'),
                              (agent/'manager_node_runtime'/name).read_bytes().replace(b'\r\n', b'\n'),
