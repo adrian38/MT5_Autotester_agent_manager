@@ -103,6 +103,50 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
 
         self._assert_on_every_fork(check, "portafolios manuales e histórico OHLC")
 
+    def test_deleting_a_manual_portfolio_frees_its_disk_on_every_reachable_fork(self) -> None:
+        # El borrado quitaba sólo filas de SQLite, así que
+        # `<runtime>/manual_portfolios/<uuid>` quedaba huérfana para siempre: el
+        # portafolio que la nombraba ya no existe y nada vuelve a recorrerla. El
+        # fallo es silencioso —el borrado responde `deleted` igual— y quien
+        # escribe el disco del agente es su runtime, no este repositorio.
+        def check(project: Path, _source: str) -> None:
+            helpers = project / "manager_node_runtime" / "manual_portfolio.py"
+            self.assertTrue(
+                helpers.is_file(),
+                msg=f"{project}: falta manager_node_runtime/manual_portfolio.py.",
+            )
+            source = helpers.read_text(encoding="utf-8", errors="replace")
+            for name in ("manual_portfolio_folder", "discard_manual_portfolio_folders"):
+                self._assert_present(
+                    source,
+                    rf"def {name}\(",
+                    f"{project}: falta `{name}` en "
+                    "manager_node_runtime/manual_portfolio.py, así que borrar un "
+                    "portafolio manual deja sus `.set` en el disco del agente. "
+                    "Portar las tres funciones desde una copia ya portada y llamarlas "
+                    "desde `delete_portfolio` de node_jobs_api.py. Hay que reiniciar "
+                    "la aplicación del agente.",
+                )
+            self._assert_present(
+                fork_node_source(project),
+                r"discard_manual_portfolio_folders\(folders\)",
+                f"{project}: `delete_portfolio` de manager_node_runtime/node_jobs_api.py "
+                "no retira la carpeta del portafolio manual. Las funciones pueden estar "
+                "portadas y no llamarse desde ningún sitio: eso no cambia nada.",
+            )
+            tests = (project / "tests" / "test_manager_node_manual_portfolio.py").read_text(
+                encoding="utf-8", errors="replace"
+            )
+            self.assertIn(
+                "removed_folders", tests,
+                msg=(
+                    f"{project}: ninguna prueba del agente cubre el borrado de los "
+                    "ficheros; duplicar allí la cobertura de `removed_folders`."
+                ),
+            )
+
+        self._assert_on_every_fork(check, "ficheros de un portafolio manual al borrarlo")
+
     def test_the_manager_still_owns_the_rules_this_parity_check_tracks(self) -> None:
         # Si alguien renombra o reescribe el lado del manager, las pruebas de abajo
         # dejarían de comparar nada sin avisar. Esta ancla lo impide.
@@ -118,6 +162,8 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         self.assertIn("def _supported_dataclass_values", self.manager_source)
         self.assertIn("def resolve_pool_candidate", self.manager_source)
         self.assertIn("def pool_member_payload", self.manager_source)
+        self.assertIn("manual_portfolio_folders_only_for", self.manager_source)
+        self.assertIn("discard_manual_portfolio_folders(folders)", self.manager_source)
 
     def test_run_history_pagination_reaches_every_reachable_fork(self) -> None:
         manager_node = manager_node_source()

@@ -126,6 +126,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 
 - `manual_portfolio_upload.md`: creación de una cartera auditable desde una
   carpeta arbitraria de `.set`, inventario separado de UBS y progreso del histórico.
+- `manual_portfolio_files_survive_delete.md`: por qué borrar un portafolio
+  manual dejaba sus `.set` huérfanos en el disco del agente, la regla estrecha
+  que ahora los retira y el estado del port en cada copia.
 - `ictrading_regression_button.md`: contrato de interfaz y proxy para ejecutar únicamente la prueba regresiva en ICTrading.
 - `historical_cleanup_cards.md`: contrato del botón manual y de la limpieza
   automática de datos históricos al terminar cada run.

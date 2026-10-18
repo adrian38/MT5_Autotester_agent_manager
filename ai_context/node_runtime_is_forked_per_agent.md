@@ -273,6 +273,10 @@ el reintento encolado nunca arrancaba, y sin
 `_coalesce_manual_history_queue` un doble clic duplica los backtests del mismo
 portafolio.
 
+Borrar uno de esos portafolios también es cosa del agente: la carpeta
+`<runtime>/manual_portfolios/<uuid>` la escribe su runtime y sólo él puede
+retirarla. Port y regla en `manual_portfolio_files_survive_delete.md`.
+
 `test_manual_portfolios_reach_every_reachable_fork` vigila las tres rutas, la
 compactación de la cola y la prueba propia del agente en toda copia montada. La
 comprobación de `_coalesce_manual_history_queue` esperaba a que RoboForex la

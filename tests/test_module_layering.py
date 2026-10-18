@@ -28,6 +28,7 @@ PORTFOLIO_STACK = [
     "portfolio_scope",
     "portfolio_schema",
     "portfolio_report_cache",
+    "portfolio_manual_files",
     "portfolio_manual_reports",
     "portfolio_identity",
     "portfolio_settings",

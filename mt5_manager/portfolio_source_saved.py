@@ -23,6 +23,10 @@ from .portfolio_identity import (
     normalize_portfolio_alias,
 )
 from .portfolio_report_cache import cached_report
+from .portfolio_manual_files import (
+    discard_manual_portfolio_folders,
+    manual_portfolio_folders_only_for,
+)
 from .portfolio_manual_reports import manual_history_summary
 from .portfolio_saved import (
     SAVED_INPUT_FALLBACKS,
@@ -430,12 +434,18 @@ class PortfolioSourceSavedMixin:
     def delete_portfolio(self, portfolio_id: int, scope: str) -> None:
         self.saved_portfolio_detail(portfolio_id, scope)
         with self.connect(write=True) as conn:
+            # Un portafolio manual tambien tiene sus `.set` en el disco del
+            # agente; sin esto la carpeta queda huerfana para siempre.
+            folders = manual_portfolio_folders_only_for(
+                conn, self.project / "runtime", portfolio_id
+            )
             for table in ("portfolio_decision_log", "portfolio_allocations", "portfolio_members", "portfolio_versions"):
                 conn.execute(f"delete from {table} where portfolio_id=?", (portfolio_id,))
             deleted = conn.execute("delete from portfolios where id=?", (portfolio_id,))
             if deleted.rowcount != 1:
                 raise ValueError("El portafolio ya no existe")
             conn.commit()
+        discard_manual_portfolio_folders(folders)
 
     def _recalculate_saved(self, conn: sqlite3.Connection, portfolio_id: int) -> None:
         portfolio = conn.execute("select * from portfolios where id=?", (portfolio_id,)).fetchone()
