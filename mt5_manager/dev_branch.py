@@ -6,6 +6,13 @@ de este equipo. Los nodos de AXI y RoboForex siguen en la lista, con sus tarjeta
 visibles y sus rutas de otra PC intactas: no son el objeto de las pruebas y
 falla abrirlos igual que antes de este modulo.
 
+El proyecto de ese agente **no es una constante por equipo**: se elige la
+primera copia montada de ``DEV_PROJECT_CANDIDATES``, y ``MT5_MANAGER_DEV_PROJECT_DIR``
+sigue ganando a la lista. Escrita a mano, la ruta se quedo apuntando a una
+maquina donde el usuario era ``Adrian``, con lo que en cualquier otro equipo la
+rama ``dev`` dirigia el nodo a una carpeta inexistente y el candado de abajo
+rechazaba toda escritura al agente real.
+
 Ademas, en ``dev`` la escritura queda acotada: ``assert_writable`` rechaza
 cualquier escritura fuera del proyecto del agente de ICTrading (mas el estado
 propio del manager y los temporales, ver ``writable_roots``). Aunque una tarjeta
@@ -26,14 +33,58 @@ from __future__ import annotations
 import copy
 import os
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 
 DEV_BRANCH = "dev"
 
-# Agente de pruebas de este equipo: el usuario ``test`` que ya se usaba antes.
-DEV_PROJECT_DIR = r"C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent"
+# La bifurcacion que ejecuta el agente. Una carpeta con el nombre correcto pero
+# sin ella no es el proyecto de un agente, asi que no se acepta como destino.
+AGENT_RUNTIME_MARKER = "manager_node_runtime"
+
+DEV_PROJECT_CANDIDATES: tuple[str, ...] = (
+    r"C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent",
+    r"C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent",
+    str(Path(__file__).resolve().parents[2] / "MT5_Autotester_agent_IC" / "MT5_Autotester_agent"),
+)
+"""Checkouts de ICTrading conocidos, en orden de preferencia.
+
+Aqui vivia una sola ruta, la de una maquina donde el usuario era ``Adrian``.
+Donde esta el manager no la predice —en este equipo cuelga de ``I:\\TRADING`` y
+el agente de ``C:\\Users\\13199``—, asi que la ultima candidata, la vecina del
+manager, se conserva para los equipos donde si lo es pero ya no es la unica.
+Anadir un equipo es anadir una linea.
+
+Es el mismo desfase que `tools/agent_projects.py` arreglo para `verify_project`,
+pero no se puede compartir modulo con aquel: la imagen Docker copia
+``mt5_manager`` y no ``tools``. Al reves si, y por eso
+`tools.agent_projects.IC_PROJECT_CANDIDATES` sale de aqui.
+"""
+
+
+def first_mounted_project(candidates: Sequence[str]) -> str:
+    """La primera candidata montada; la primera a secas si no hay ninguna.
+
+    Se decide **una vez**, al importar, y no en cada llamada: el candado de
+    `assert_writable` corre en cada escritura y tocar el disco ahi es lo que
+    hizo que `tests/test_dev_branch.py` pasara de 0,05 s a 27,7 s.
+
+    Sin ninguna montada devuelve la primera. Una ruta que no existe no permite
+    ninguna escritura, que es el lado seguro de fallar: el candado es una lista
+    de permitidas, y quedarse sin ninguna cierra, no abre.
+    """
+    for candidate in candidates:
+        try:
+            if (Path(candidate) / AGENT_RUNTIME_MARKER).is_dir():
+                return candidate
+        except OSError:
+            continue
+    return candidates[0]
+
+
+DEV_PROJECT_DIR = first_mounted_project(DEV_PROJECT_CANDIDATES)
 DEV_BROKER = "ICTRADING"
 
 # ``1``/``0`` fuerzan o desactivan la redireccion sin cambiar de rama; vacio o

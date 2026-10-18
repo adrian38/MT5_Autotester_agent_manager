@@ -194,6 +194,53 @@ class DevBranchTests(unittest.TestCase):
                 self.assertIn(dev_branch.DEV_PROJECT_DIR, str(caught.exception))
                 self.assertIn("memoria UBS", str(caught.exception))
 
+    def test_the_agent_is_the_mounted_checkout_of_this_equipment(self) -> None:
+        # Escrita a mano, la ruta se quedo en la de otra maquina y en este
+        # equipo `dev` apuntaba el nodo a una carpeta inexistente.
+        mounted = [
+            candidate
+            for candidate in dev_branch.DEV_PROJECT_CANDIDATES
+            if (Path(candidate) / dev_branch.AGENT_RUNTIME_MARKER).is_dir()
+        ]
+        if mounted:
+            self.assertEqual(dev_branch.DEV_PROJECT_DIR, mounted[0])
+        else:
+            self.assertEqual(dev_branch.DEV_PROJECT_DIR, dev_branch.DEV_PROJECT_CANDIDATES[0])
+
+    def test_only_the_chosen_candidate_is_writable(self) -> None:
+        # La lista es para encontrar el agente, no para ampliar el candado: las
+        # demas candidatas siguen siendo destinos ajenos.
+        os.environ[dev_branch.OVERRIDE_ENV] = "1"
+        agent_roots = [
+            root for root in dev_branch.writable_roots()
+            if root not in (Path(__file__).resolve().parents[1] / "runtime",
+                            Path(tempfile.gettempdir()).absolute())
+        ]
+        self.assertEqual(agent_roots, [Path(dev_branch.DEV_PROJECT_DIR).absolute()])
+        for candidate in dev_branch.DEV_PROJECT_CANDIDATES:
+            if candidate == dev_branch.DEV_PROJECT_DIR:
+                continue
+            with self.subTest(candidate=candidate):
+                with self.assertRaises(ValueError):
+                    dev_branch.assert_writable(Path(candidate) / "outputs" / "memory.sqlite")
+
+    def test_a_folder_without_the_agent_runtime_is_not_the_agent(self) -> None:
+        # El fallo que de verdad duele es aceptar una carpeta con el nombre
+        # correcto y dar por escribible un proyecto que no esta ahi.
+        impostor = self.root / "impostor"
+        impostor.mkdir()
+        agent = self.root / "agente"
+        (agent / dev_branch.AGENT_RUNTIME_MARKER).mkdir(parents=True)
+
+        self.assertEqual(
+            dev_branch.first_mounted_project((str(impostor), str(agent))), str(agent)
+        )
+        self.assertEqual(
+            dev_branch.first_mounted_project((str(impostor), str(self.root / "no_existe"))),
+            str(impostor),
+            "Sin ninguna montada se devuelve la primera, que no existe y cierra la escritura",
+        )
+
     def test_the_export_folder_chosen_by_the_user_is_not_an_agent_write(self) -> None:
         # Exportar copia `.set` a donde diga el usuario. Tratar eso como una
         # escritura de agente dejaba la exportación inservible en `dev`: elegir

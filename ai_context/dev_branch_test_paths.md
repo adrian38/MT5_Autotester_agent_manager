@@ -29,6 +29,9 @@ es `dev`**:
   falla igual que antes de este módulo. Filtrarlas escondía nodos configurados y
   no aportaba nada a las pruebas.
 - `apply_node_config` fuerza `project_dir` del nodo al mismo agente.
+- **Cuál es «el agente local» no se escribe a mano.** `DEV_PROJECT_CANDIDATES`
+  lista los checkouts de IC conocidos y `first_mounted_project` elige el primero
+  que tiene `manager_node_runtime/`. Ver más abajo.
 - Los puntos de enganche son los dos `main()`: `mt5_manager/manager.py` y
   `mt5_manager/node.py`, justo después de `load_json`.
 
@@ -46,7 +49,7 @@ mensaje visible— cualquier destino fuera de `writable_roots()`:
 
 | Raíz permitida | Por qué |
 | --- | --- |
-| `C:\Users\Adrian\...\MT5_Autotester_agent_IC\MT5_Autotester_agent` | única dirección de nodo escribible en pruebas |
+| el checkout de IC elegido (`DEV_PROJECT_DIR`) | única dirección de nodo escribible en pruebas |
 | `runtime/` de este repositorio | estado propio del manager: preferencias, `portfolio_settings.json`, base Grid, copias de lectura |
 | temporal del sistema | copias de lectura cuando `runtime/` está en un bind mount, y los proyectos ficticios de las pruebas |
 
@@ -61,6 +64,40 @@ un agente:
   lectura, así que la comprobación es exacta.
 - `PortfolioSource.export_portfolio`, que crea la carpeta de exportación y admite
   un destino elegido por el usuario.
+
+### Dónde está el agente: lista, no constante
+
+`DEV_PROJECT_DIR` era una ruta escrita a mano
+(`C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent`),
+la de una máquina donde el usuario era `Adrian`. En este equipo el agente cuelga
+de `C:\Users\13199\...` y el manager de `I:\TRADING`, así que en `dev` el nodo
+quedaba apuntado a una carpeta inexistente **y el candado rechazaba toda
+escritura al agente real**: no es el fallo silencioso de `verify_project`, es la
+rama de pruebas inservible.
+
+Ahora `DEV_PROJECT_CANDIDATES` enumera los checkouts conocidos —el de este
+equipo, el de la máquina `Adrian` y el vecino del manager, que es lo que se
+asumía antes— y `first_mounted_project` devuelve el primero que tiene
+`manager_node_runtime/`. Se exige esa carpeta y no sólo el nombre: una carpeta
+con el nombre correcto pero sin la bifurcación no es el proyecto de un agente.
+Si no hay ninguna montada devuelve la primera, que no existe: el candado es una
+lista de permitidas, así que quedarse sin ninguna **cierra** la escritura.
+
+Dos cosas que no cambian:
+
+- **La elección se hace una vez, al importar.** El candado corre en cada
+  escritura y tocar el disco ahí es justo lo que hay que evitar (ver el apartado
+  siguiente).
+- **El candado sigue teniendo una sola raíz de agente.** La lista sirve para
+  encontrar el agente, no para ampliar lo permitido: las candidatas no elegidas
+  se rechazan igual que `Y:` o `X:`, y hay prueba.
+
+La lista vive en `mt5_manager/dev_branch.py` y `tools/agent_projects.py` la
+reexporta como `IC_PROJECT_CANDIDATES`, no al revés: la imagen Docker copia
+`mt5_manager`, `portfolio_manager`, `ubs` y `assets`, pero no `tools/`, así que
+un import en ese sentido rompería el arranque del contenedor. De ahí cuelgan
+también `FORK_CANDIDATES` y el contrato focal de IC de `verify_project`: una
+sola lista para los tres.
 
 ### El candado no puede resolver el destino
 
@@ -89,7 +126,10 @@ rama y no redirige: allí las rutas ya las decide `.env` mediante los binds
   (por ejemplo para reproducir el reparto de producción).
 - `MT5_MANAGER_DEV_OVERRIDE=1` la activa desde cualquier rama.
 - `MT5_MANAGER_DEV_PROJECT_DIR` cambia la ruta destino sin editar código, útil si
-  el agente de pruebas se mueve de disco.
+  el agente de pruebas se mueve de disco. Gana a `DEV_PROJECT_CANDIDATES`, y el
+  candado lo sigue. **No sustituye a la lista**: hay que ponerla en el entorno de
+  cada proceso (manager, nodo, `app_ui`) y, si se olvida, el síntoma no es un
+  aviso sino que `dev` deja de poder escribir en el agente.
 
 ## Verificación
 
@@ -103,6 +143,11 @@ Del candado cubre: destino permitido, rechazo de `Y:`, `X:`, UNC y de otra copia
 local del agente, el estado propio del manager y los temporales como escribibles,
 el paso libre fuera de `dev`, y que el candado siga a
 `MT5_MANAGER_DEV_PROJECT_DIR` cuando se redirige el agente.
+
+De la elección del checkout cubre: que `DEV_PROJECT_DIR` sea la primera
+candidata montada en el equipo que ejecuta las pruebas (y la primera a secas si
+no hay ninguna), que una carpeta sin `manager_node_runtime/` no se acepte, y que
+las candidatas no elegidas sigan siendo destinos rechazados.
 
 La suite completa se ejecuta con el candado activo —está en `dev`— y sus
 proyectos ficticios viven en el temporal, que es raíz permitida: `Ran 232 tests
