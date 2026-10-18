@@ -97,6 +97,19 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("function historyProgress", script)
         self.assertIn("node.live_progress||{}", script)
 
+    def test_manual_detail_can_delete_the_portfolio_like_ubs(self) -> None:
+        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
+        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        self.assertIn('id="manual-delete"', page)
+        self.assertLess(page.index('id="manual-detail"'), page.index('id="manual-delete"'))
+        self.assertIn("portfolio-manager/delete", script)
+        self.assertIn("scope:'full_history',portfolio_id:portfolioId", script)
+        self.assertIn("confirm(", script)
+        self.assertIn("function waitForDeletion", script)
+        self.assertIn("portfolio-manager/task?scope=full_history", script)
+        self.assertIn("if(task.status==='failed')", script)
+        self.assertIn("await loadInventory();", script)
+
     def test_manual_history_ignores_previous_attempt_without_resetting_detail(self) -> None:
         script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
         self.assertIn("function isCurrentHistory", script)

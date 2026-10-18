@@ -203,7 +203,48 @@ async function startHistory() {
   } catch(error) { historyJobId=''; historyQueueId=''; historyRequestedAt=0; button.disabled=false; paintProgress('failed',[error.message]); toast(error.message,true); }
 }
 
+async function readTask() {
+  const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/task?scope=full_history`,{cache:'no-store'});
+  const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
+  return data.task||{};
+}
+
+// El borrado es la misma tarea en cola que la de Portafolio UBS, asi que puede
+// esperar a que termine el calculo del nodo: se sigue por su `progress` hasta
+// que la cola la cierra.
+async function waitForDeletion(portfolioId, taskId) {
+  for(let attempt=0;attempt<600;attempt+=1) {
+    await new Promise(resolve=>setTimeout(resolve,1000));
+    const task=await readTask();
+    if(String(task.id||'')!==taskId) continue;
+    showDetailStatus(task.progress||`Borrando el portafolio #${portfolioId}…`,true);
+    if(task.status==='completed') return;
+    if(task.status==='failed') throw new Error(task.error||'El nodo no pudo borrar el portafolio.');
+  }
+  throw new Error('El nodo no confirmó el borrado; vuelve a cargar la pantalla.');
+}
+
+async function deletePortfolio() {
+  const portfolioId=selectedId;
+  if(!portfolioId||!confirm(`Se borrará el portafolio manual #${portfolioId} y dejará de estar disponible para auditorías. ¿Continuar?`)) return;
+  const button=document.querySelector('#manual-delete'); button.disabled=true;
+  try {
+    const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/delete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',portfolio_id:portfolioId})});
+    const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
+    showDetailStatus(`Borrado del portafolio #${portfolioId} añadido a tareas pendientes…`,true);
+    await waitForDeletion(portfolioId,String((data.task||{}).id||''));
+    selectedId=0; clearInterval(historyTimer); historyTimer=null;
+    await loadInventory();
+    if(!selectedId) showDetailStatus('Selecciona un portafolio.');
+    toast(`Portafolio #${portfolioId} borrado.`);
+  } catch(error) {
+    showDetailStatus(`No se pudo borrar el portafolio: ${error.message}`);
+    toast(error.message,true);
+  } finally { button.disabled=false; }
+}
+
 inventory.addEventListener('click',event=>{const item=event.target.closest('[data-id]');if(item)selectPortfolio(item.dataset.id);});
+document.querySelector('#manual-delete').addEventListener('click',deletePortfolio);
 document.querySelector('#manual-history-button').addEventListener('click',()=>showHistoryControls().catch(error=>toast(error.message,true)));
 document.querySelector('#manual-history-start').addEventListener('click',startHistory);
 document.querySelector('#manual-strategy-tab').addEventListener('click',()=>showDetailView('strategy'));
