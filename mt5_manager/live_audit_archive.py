@@ -34,17 +34,27 @@ def _slug(value: str) -> str:
     return f"{text}-{digest}"
 
 
+def composite(strategy: Any, strategy_set: Any) -> str:
+    """Identidad de una estrategia entre portafolios: candidato **y** fichero.
+
+    El identificador solo no basta. Una cartera manual numera los suyos
+    `manual:1`, `manual:2`...: dos carteras manuales distintas repiten esos
+    identificadores y enlazar por ahi mezclaria estrategias que no tienen nada
+    que ver. El `.set` es lo que de verdad las distingue.
+    """
+    return f"{str(strategy or '')}|{str(strategy_set or '')}"
+
+
 def strategies_of(detail: dict[str, Any]) -> list[str]:
-    """Los candidatos que aparecen en una comparacion, sin repetir."""
+    """Las estrategias de una comparacion, en su forma `candidato|fichero`."""
     found: dict[str, None] = {}
     for row in detail.get("operation_comparisons") or []:
-        strategy = str(row.get("strategy") or (row.get("tester") or {}).get("strategy") or "")
+        strategy = row.get("strategy") or (row.get("tester") or {}).get("strategy")
         if strategy:
-            found[strategy] = None
+            found[composite(strategy, row.get("strategy_set"))] = None
     for row in detail.get("strategy_summary") or []:
-        strategy = str(row.get("strategy") or "")
-        if strategy:
-            found[strategy] = None
+        if row.get("strategy"):
+            found[composite(row.get("strategy"), row.get("strategy_set"))] = None
     return list(found)
 
 

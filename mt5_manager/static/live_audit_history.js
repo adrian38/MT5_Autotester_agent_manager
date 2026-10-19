@@ -20,10 +20,32 @@
     return typeof strategyGroups === 'function' && typeof window.LiveAuditReproduction === 'object';
   }
 
+  // La identidad entre portafolios es el candidato **y** su `.set`: una
+  // cartera manual numera los suyos `manual:1`, `manual:2`… y dos carteras
+  // manuales distintas repiten esos identificadores.
+  function identity(group) {
+    return `${group.strategy}|${group.label}`;
+  }
+
+  // De un uso ajeno sólo entran las estrategias que este uso tiene o tuvo: un
+  // portafolio hermano puede compartir dos y traer otras ocho que nunca
+  // fueron de éste.
+  function allowed(executions) {
+    const keys = new Set();
+    (typeof strategyRows !== 'undefined' ? strategyRows : []).forEach(group => keys.add(identity(group)));
+    executions.filter(execution => execution.own).forEach(execution => {
+      strategyGroups({comparison_detail: execution.comparison_detail || {}})
+        .forEach(group => keys.add(identity(group)));
+    });
+    return keys;
+  }
+
   function mergeGroups(executions) {
     const merged = new Map();
+    const wanted = allowed(executions);
     executions.forEach(execution => {
       strategyGroups({comparison_detail: execution.comparison_detail || {}}).forEach(group => {
+        if (!execution.own && !wanted.has(identity(group))) return;
         const current = merged.get(group.strategy) || {
           strategy: group.strategy, label: group.label, symbol: group.symbol,
           demo: [], real: [], openReal: [], attributed: [], audits: 0,
@@ -43,7 +65,7 @@
   }
 
   function currentStrategies() {
-    return new Set((typeof strategyRows !== 'undefined' ? strategyRows : []).map(row => row.strategy));
+    return new Set((typeof strategyRows !== 'undefined' ? strategyRows : []).map(identity));
   }
 
   function spanNote() {
@@ -67,7 +89,7 @@
     const [label, tone, help] = LiveAuditReproduction.verdict(numbers);
     const sign = numbers.real - numbers.demo >= 0 ? '+' : '';
     const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
-    const gone = current.has(group.strategy)
+    const gone = current.has(identity(group))
       ? '' : '<small class="degradation-off">Ya no está en el portafolio que se audita; su histórico se conserva.</small>';
     const portfolios = [...group.portfolios].sort((a, b) => a - b);
     const few = LiveAuditReproduction.fewTrades(numbers)

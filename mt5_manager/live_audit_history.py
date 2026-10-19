@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from .live_audit_archive import strategies_of, trimmed_detail
+from .live_audit_archive import composite, strategies_of, trimmed_detail
 from .live_audit_schedule import parse_timestamp
 
 
@@ -46,6 +46,26 @@ def tester_trades_by_strategy(detail: dict[str, Any]) -> dict[str, list[dict[str
             continue
         key = str(row.get("strategy") or tester.get("strategy") or "")
         grouped.setdefault(key, []).append(tester)
+    return grouped
+
+
+def tester_trades_by_identity(
+    detail: dict[str, Any],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    """Igual que la anterior, pero con la identidad `candidato|fichero`.
+
+    Es la que vale para mezclar auditorias de portafolios distintos: ver
+    `live_audit_archive.composite`.
+    """
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in detail.get("operation_comparisons") or []:
+        tester = row.get("tester")
+        if not isinstance(tester, dict) or not tester.get("close_time"):
+            continue
+        strategy = str(row.get("strategy") or tester.get("strategy") or "")
+        grouped.setdefault(
+            (composite(strategy, row.get("strategy_set")), strategy), [],
+        ).append(tester)
     return grouped
 
 
@@ -87,15 +107,24 @@ def accumulate(
     hay que sumar, o las que decida el archivo si no se dan.
     """
     rows = archive.related(node_id, audit_key, strategies_of(detail)) if entries is None else entries
+    # De un uso ajeno sólo se traen las estrategias que este uso tiene o tuvo:
+    # un portafolio hermano puede compartir dos y traer otras ocho que nunca
+    # fueron de éste.
+    wanted = set(strategies_of(detail)).union(*[
+        {str(value) for value in entry.get("strategies") or []}
+        for entry in rows if entry.get("own")
+    ] or [set()])
     grouped: dict[str, list[dict[str, Any]]] = {}
     seen: set[tuple] = set()
     portfolios: dict[int, None] = {}
     for entry in rows:
-        for strategy, trades in tester_trades_by_strategy(
+        for (identity, strategy), trades in tester_trades_by_identity(
             archive.detail(node_id, entry),
         ).items():
+            if not entry.get("own") and identity not in wanted:
+                continue
             for trade in trades:
-                key = _trade_key(strategy, trade)
+                key = _trade_key(identity, trade)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -103,9 +132,9 @@ def accumulate(
         portfolio = int(entry.get("portfolio_id") or 0)
         if portfolio:
             portfolios[portfolio] = None
-    for strategy, trades in tester_trades_by_strategy(detail).items():
+    for (identity, strategy), trades in tester_trades_by_identity(detail).items():
         for trade in trades:
-            key = _trade_key(strategy, trade)
+            key = _trade_key(identity, trade)
             if key not in seen:
                 seen.add(key)
                 grouped.setdefault(strategy, []).append(trade)

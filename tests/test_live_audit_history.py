@@ -59,7 +59,7 @@ class ArchiveTests(unittest.TestCase):
         )
         self.assertTrue(self.archive.knows("nodo/raro", "a-1", "e-1"))
         self.assertFalse(self.archive.knows("nodo/raro", "a-1", "e-2"))
-        self.assertEqual(entry["strategies"], ["ROBOFOREX/ECN:1"])
+        self.assertEqual(entry["strategies"], ["ROBOFOREX/ECN:1|ROBOFOREX/ECN:1.set"])
         stored = self.archive.detail("nodo/raro", entry)
         self.assertEqual(len(stored["operation_comparisons"]), 1)
         # Un identificador con barras no puede salirse de su carpeta.
@@ -93,11 +93,38 @@ class ArchiveTests(unittest.TestCase):
                       "2026-10-08T23:59:59+00:00"),
             detail("S:9", [trade("GBPUSD", "2026-10-05T10:00:00+00:00", 5.0)]),
         )
-        related = self.archive.related("n", "a-148", ["S:1"])
+        related = self.archive.related("n", "a-148", ["S:1|S:1.set"])
         self.assertEqual([row["portfolio_id"] for row in related], [104, 148])
         self.assertEqual([row["own"] for row in related], [False, True])
         # Un portafolio que no comparte ninguna estrategia no se cuela.
         self.assertNotIn(200, [row["portfolio_id"] for row in related])
+
+    def test_two_manual_portfolios_that_repeat_an_id_are_not_the_same_strategy(self) -> None:
+        # Una cartera manual numera los suyos `manual:1`, `manual:2`…, así que
+        # el identificador se repite entre carteras que no tienen nada que ver.
+        # Lo que las distingue es el `.set`.
+        first = {
+            "operation_comparisons": [{
+                "strategy": "manual:4", "strategy_set": "Gold_Phantom_strat2.set",
+                "tester": trade("XAUUSD", "2026-10-05T10:00:00+00:00", 1.0),
+            }],
+        }
+        second = {
+            "operation_comparisons": [{
+                "strategy": "manual:4", "strategy_set": "otra_cosa.set",
+                "tester": trade("EURUSD", "2026-10-05T10:00:00+00:00", 1.0),
+            }],
+        }
+        self.archive.remember(
+            "n", meta("a-1", "e-1", 1, "2026-10-01T00:00:00+00:00",
+                      "2026-10-08T23:59:59+00:00"), first,
+        )
+        self.archive.remember(
+            "n", meta("a-2", "e-2", 2, "2026-10-01T00:00:00+00:00",
+                      "2026-10-08T23:59:59+00:00"), second,
+        )
+        related = self.archive.related("n", "a-2", strategies_of(second))
+        self.assertEqual([row["portfolio_id"] for row in related], [2])
 
 
 class AccumulationTests(unittest.TestCase):
@@ -149,9 +176,30 @@ class AccumulationTests(unittest.TestCase):
         self.assertNotIn("methodology", execution["comparison_detail"])
 
     def test_strategies_are_read_from_both_places_the_node_writes_them(self) -> None:
-        self.assertEqual(strategies_of(detail("S:1", [])), ["S:1"])
+        self.assertEqual(strategies_of(detail("S:1", [])), ["S:1|S:1.set"])
         self.assertEqual(strategies_of({}), [])
         self.assertEqual(trimmed_detail({}), {})
+
+    def test_a_sibling_portfolio_only_lends_the_strategies_this_one_shares(self) -> None:
+        # Comparten `S:1`; las otras del hermano no son de este portafolio y no
+        # pueden aparecer en su acumulado.
+        sibling = {
+            "operation_comparisons": [
+                {"strategy": "S:1", "strategy_set": "S:1.set",
+                 "tester": trade("EURUSD", "2026-09-05T10:00:00+00:00", 1.0)},
+                {"strategy": "S:9", "strategy_set": "S:9.set",
+                 "tester": trade("GBPUSD", "2026-09-05T11:00:00+00:00", 7.0)},
+            ],
+        }
+        self.archive.remember(
+            "n", meta("a-vieja", "e-1", 104, "2026-09-01T00:00:00+00:00",
+                      "2026-09-08T23:59:59+00:00"), sibling,
+        )
+        current = detail("S:1", [trade("EURUSD", "2026-10-05T10:00:00+00:00", 2.0)])
+        accumulated = live_audit_history.accumulate(self.archive, "n", "a-nueva", current)
+        self.assertEqual(sorted(accumulated["trades"]), ["S:1"])
+        self.assertEqual(len(accumulated["trades"]["S:1"]), 2)
+        self.assertEqual(accumulated["inherited"], [104])
 
 
 class DegradationIsCumulativeTests(unittest.TestCase):
