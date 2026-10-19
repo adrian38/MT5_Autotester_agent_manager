@@ -45,6 +45,10 @@ def docker_config(source: dict[str, Any]) -> dict[str, Any]:
     config["export_mode"] = "download"
     config["preferences_file"] = "/app/runtime/launch_preferences.json"
     config["portfolio_settings_file"] = "/app/runtime/portfolio_settings.json"
+    # El certificado vive en el volumen montado, asi que en el equipo es
+    # `runtime/tls/` y lo genera `python -m tools.make_local_cert`. Sin el, el
+    # manager sigue sirviendo http.
+    config["tls_dir"] = "/app/runtime/tls"
     proxy_brokers = {
         item.strip().upper()
         for item in os.environ.get(PROXY_BROKERS_ENV, "").split(",")

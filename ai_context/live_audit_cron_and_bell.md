@@ -128,7 +128,14 @@ Tres decisiones que no se pueden deducir del código:
 - **`Notification` exige contexto seguro.** `http://localhost` lo es; abrir el
   manager por su IP de la red local, no. Ahí el navegador no ofrece permiso
   alguno, así que el botón se deshabilita y dice por qué, en vez de quedarse
-  como un botón que no hace nada.
+  como un botón que no hace nada. La salida es servir `https`: ver
+  `manager_tls.py` y `tools/make_local_cert.py`, documentados en el `README.md`.
+  Dos trampas que costaron tiempo y están resueltas ahí: el certificado
+  necesita `SubjectKeyIdentifier` y `AuthorityKeyIdentifier` o OpenSSL 3 y los
+  navegadores rechazan la cadena aunque la CA esté instalada; y en las pruebas,
+  `mock.patch.dict("os.environ", {}, clear=True)` antes de la primera
+  `ssl.SSLContext()` del proceso la hace fallar en Windows con «unknown error
+  (0xa080024)», porque OpenSSL necesita el entorno del sistema para arrancar.
 - **La marca de agua avanza aunque no haya permiso** (`cron-push-last-id`). Sin
   eso, activar los avisos un martes soltaría de golpe los del sábado. Lo
   pasado ya está en la campana; el escritorio avisa de lo que llegue después.

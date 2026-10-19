@@ -16,7 +16,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from . import live_audit_schedule, live_audit_watch
+from . import live_audit_schedule, live_audit_watch, manager_tls
 from .common import load_json, safe_int, save_json
 from .experiment_service import ExperimentCoordinator
 from .live_audit_archive import LiveAuditArchive
@@ -199,12 +199,41 @@ class ManagerServer(ThreadingHTTPServer):
         )
         self.live_audit_thread.start()
 
+    def _configure_tls(self, config: dict[str, Any]) -> None:
+        """El manager sirve https **solo** si encuentra su certificado.
+
+        Es lo que convierte la pagina en contexto seguro cuando se abre desde
+        otro equipo por la IP de la red local, que es el unico sitio donde el
+        navegador niega los avisos de escritorio. Sin certificado, todo sigue
+        exactamente como antes. Lo genera `tools.make_local_cert`.
+        """
+        config_dir = Path(str(config.get("config_dir") or Path.cwd()))
+        found = manager_tls.paths(config, config_dir)
+        self.tls_context = manager_tls.context(*found) if found else None
+        self.scheme = "https" if self.tls_context else "http"
+        if found:
+            print(f"[manager] TLS activo con {found[0]}", flush=True)
+
+    def get_request(self) -> tuple[Any, Any]:
+        connection, address = super().get_request()
+        if self.tls_context is None:
+            return connection, address
+        try:
+            return manager_tls.wrap(connection, self.tls_context), address
+        except OSError:
+            # Un saludo TLS fallido -o una peticion http contra el puerto
+            # https- cierra esa conexion y nada mas: `socketserver` ignora el
+            # OSError de `get_request` y sigue atendiendo.
+            connection.close()
+            raise
+
     def __init__(self, address: tuple[str, int], config: dict[str, Any]) -> None:
         self._configure_nodes(config)
         self._configure_preferences(config)
         self._configure_live_audit(config)
         self._configure_coordinators(config)
         self._configure_restart(config)
+        self._configure_tls(config)
         super().__init__(address, ManagerHandler)
         self._start_live_audit_scheduler()
 

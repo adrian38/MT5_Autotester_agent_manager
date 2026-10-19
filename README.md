@@ -197,6 +197,45 @@ python -m mt5_manager.node --config node.json
 python -m mt5_manager.manager --config manager.json
 ```
 
+## HTTPS con tu propia CA (opcional)
+
+El manager sirve `http` mientras no encuentre un certificado, y así se queda si
+sólo lo abres en este equipo: `http://localhost:8750` ya es contexto seguro y
+los avisos de escritorio funcionan ahí.
+
+Abierto desde el móvil u otro ordenador por la IP de la red local
+(`http://192.168.1.152:8750`) **no** lo es, y el navegador niega las
+notificaciones. Para arreglarlo, una CA tuya:
+
+```powershell
+python -m tools.make_local_cert
+```
+
+Escribe en `runtime/tls/` —que es lo que el contenedor ve montado— una CA
+(`ca.crt`) y el certificado del manager para `localhost`, `127.0.0.1`, el
+nombre del equipo y sus IPv4. Puedes añadir más: `python -m tools.make_local_cert
+192.168.1.152 manager.casa`.
+
+Después, en **cada dispositivo** desde el que abras el manager, instala
+`runtime/tls/ca.crt` como entidad de certificación raíz de confianza (en
+Windows: doble clic → Instalar certificado → Equipo local). Las claves privadas
+no se copian a ningún sitio.
+
+Al reiniciar, el manager detecta el certificado y pasa a `https://…:8750` en el
+mismo puerto. Vuelve a ejecutar la herramienta cuando añadas una IP: la CA se
+reutiliza y no hay que reinstalar nada.
+
+- Volver a `http`: borra `runtime/tls/` o arranca con `MT5_MANAGER_TLS=off`.
+- Si lo pruebas con `curl` de Windows dirá «the revocation status is unknown»:
+  es cosa de schannel con cualquier CA propia, no del certificado. Añade
+  `--ssl-revoke-best-effort`. Los navegadores no hacen esa comprobación con una
+  CA instalada a mano.
+- **Un vigilante externo que sondee `/api/pulse` por `http` dejará de
+  responder** al cambiar de esquema: apunta ese sondeo a `https` y dale el
+  `ca.crt`, o deja el manager en `http`.
+- Rutas propias: `tls_cert_file` y `tls_key_file` en `manager.json`, o
+  `MT5_MANAGER_TLS_CERT` y `MT5_MANAGER_TLS_KEY`.
+
 ## Manager central con Docker
 
 Dockeriza únicamente el manager central. Los nodos y MT5 continúan ejecutándose

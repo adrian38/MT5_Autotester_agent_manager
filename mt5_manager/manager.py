@@ -60,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config = dev_branch.apply_manager_config(load_json(args.config))
     config_dir = Path(args.config).expanduser().resolve().parent
+    # De aqui cuelgan las rutas por defecto, incluida la del certificado TLS.
+    config.setdefault("config_dir", str(config_dir))
     config.setdefault("manager_repo_dir", str(config_dir))
     config.setdefault("manager_restart_state_file", str(config_dir / "runtime" / "manager_restart.json"))
     config.setdefault("manager_restart_log_file", str(config_dir / "runtime" / "manager_restart.log"))
@@ -83,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     port = safe_int(args.port if args.port is not None else config.get("port"), 8750, minimum=1, maximum=65535)
     server = ManagerServer((host, port), config)
     display_host = "127.0.0.1" if host == "0.0.0.0" else host
-    url = f"http://{display_host}:{port}"
+    url = f"{server.scheme}://{display_host}:{port}"
     print(f"Manager disponible en {url}")
     if not args.no_browser:
         import threading
