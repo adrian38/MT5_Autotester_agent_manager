@@ -3,10 +3,12 @@ const nodeId = params.get('node') || '';
 const auditId = params.get('audit') || '';
 const modeLabels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
 const viewLotsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/view-lots`;
+const reviewsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reviewed-strategies`;
 let strategyRows = [];
 let strategySummaries = {};
 let chartContext = {currency: 'EUR', window: []};
 let lotOverrides = {};
+let reviews = {};
 let currentResult = null;
 
 // El escalado aplicado se guarda en el perfil del uso, no en este navegador.
@@ -26,6 +28,24 @@ async function writeOverrides(value) {
   await jsonResponse(await fetch(viewLotsUrl, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({view_lot_overrides: value}),
+  }));
+}
+
+// Lo mismo con lo ya revisado, y por lo mismo: la portada esconde lo validado
+// y tiene que esconderlo mires desde donde mires. Aquí no cambia nada de lo
+// que la tabla enseña; lo que cambia es qué sigue pidiendo atención fuera.
+async function readReviews() {
+  try {
+    const data = await jsonResponse(await fetch(reviewsUrl, {cache: 'no-store'}));
+    const stored = data.reviewed_strategies;
+    return stored && typeof stored === 'object' ? stored : {};
+  } catch (_error) { return {}; }
+}
+
+async function writeReviews(value) {
+  await jsonResponse(await fetch(reviewsUrl, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reviewed_strategies: value}),
   }));
 }
 
@@ -602,6 +622,39 @@ function fewPairsNote(counts) {
   return `<small class="degradation-off">Con ${escapeHtml(counts.pairs)} pareja${counts.pairs === 1 ? '' : 's'}, una sola operación mueve el total más que el ${escapeHtml(number(REPRODUCTION_EXPECTED_PCT, 0))} % que se da por normal: vale para mirarlo, no para concluir sobre la estrategia.</small>`;
 }
 
+// Sólo lleva casilla lo que tiene un problema: validar es decir «ya la he
+// mirado», y de lo que ya reproduce no hay nada que mirar. Son los mismos dos
+// veredictos que la portada enseña, porque la casilla existe para sacarlos de
+// ahí. Una fila que conserva su marca la sigue llevando aunque haya mejorado,
+// o no habría forma de retirarla.
+const REVIEWABLE_VERDICTS = ['AVISO', 'NO REPRODUCE'];
+
+function reviewDate(value) {
+  const parsed = new Date(value || '');
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleDateString('es-ES');
+}
+
+function reviewNote(mark, done) {
+  if (done) {
+    const since = reviewDate(mark.at);
+    return `<small>Fuera de Portafolios activos${since ? ` desde el ${escapeHtml(since)}` : ''}.</small>`;
+  }
+  if (mark) {
+    return `<small class="degradation-off">La validaste con ${escapeHtml(mark.verdict)} y ha empeorado: vuelve a avisar hasta que la mires otra vez.</small>`;
+  }
+  return '<small>Márcala cuando la hayas revisado: deja de contar en Portafolios activos.</small>';
+}
+
+function reviewCell(group, label) {
+  const mark = reviews[group.strategy];
+  if (!REVIEWABLE_VERDICTS.includes(label) && !mark) {
+    return '<td class="audit-analysis-review"><small>—</small></td>';
+  }
+  const done = LiveAuditReproduction.reviewed(reviews, group.strategy, label);
+  return `<td class="audit-analysis-review"><label><input type="checkbox"
+    data-review="${escapeHtml(group.strategy)}"${done ? ' checked' : ''}><span>Validada</span></label>${reviewNote(mark, done)}</td>`;
+}
+
 function reproductionRow(group, currency) {
   const numbers = reproductionShortfall(group);
   const [label, tone, help] = reproductionVerdict(numbers);
@@ -618,6 +671,7 @@ function reproductionRow(group, currency) {
     <td><strong>${escapeHtml(`${sign}${money(numbers.real - numbers.demo, currency)}`)}</strong><small>${escapeHtml(differenceNote(numbers))}</small></td>
     <td><strong>${escapeHtml(group.real.length)} emparejadas</strong>${counts.attributed ? `<small class="lots-autolot-note">+ ${escapeHtml(counts.attributed)} atribuidas a mano</small>` : ''}${counts.deviations ? `<small class="degradation-off">${escapeHtml(counts.deviations)} con desviación</small>` : ''}${partial}</td>
     <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span>${fewPairsChip(counts)}${qualityChip(group)}<small>${escapeHtml(help)}</small>${fewPairsNote(counts)}${qualityNote(group)}</td>
+    ${reviewCell(group, label)}
   </tr>`;
 }
 
@@ -628,7 +682,7 @@ function renderReproduction() {
   ));
   document.querySelector('#reproduction-body').innerHTML = ranked.length
     ? ranked.map(group => reproductionRow(group, currency)).join('')
-    : '<tr><td colspan="6" class="audit-analysis-empty">No hay estrategias en este resultado.</td></tr>';
+    : '<tr><td colspan="7" class="audit-analysis-empty">No hay estrategias en este resultado.</td></tr>';
   // Grave y aviso no se suman en un único «a revisar»: si lo hicieran, dos
   // estrategias que no reproducen quedarían escondidas entre seis que sólo
   // rinden menos, y el badge dejaría de decir con qué urgencia mirarlo.
@@ -946,7 +1000,9 @@ async function loadAnalysis() {
   if (!comparisonRows(result).length) {
     throw new Error('Esta ejecución no guardó la comparación operación por operación, así que no hay con qué derivar las curvas. Vuelve a ejecutar la auditoría con el motor actual.');
   }
-  lotOverrides = await readOverrides();
+  const [storedLots, storedReviews] = await Promise.all([readOverrides(), readReviews()]);
+  lotOverrides = storedLots;
+  reviews = storedReviews;
   render(result);
   await loadDegradation();
 }
@@ -1119,6 +1175,38 @@ document.querySelector('#attribution-sources').addEventListener('click', event =
     event.target.disabled = false;
     showAnalysisError(error.message);
   });
+});
+
+// Se guarda el veredicto del momento, no un simple «sí»: es lo que permite
+// que la portada vuelva a enseñarla si la auditoría siguiente la empeora.
+// Repinta antes de guardar y se deshace si el guardado falla, igual que el
+// escalado: una casilla marcada que no llegó al perfil sería una estrategia
+// desaparecida de la portada sin que nadie la haya validado.
+async function toggleReview(strategy, label, checked) {
+  const previous = reviews;
+  reviews = {...reviews};
+  if (checked) reviews[strategy] = {verdict: label, at: new Date().toISOString()};
+  else delete reviews[strategy];
+  renderReproduction();
+  try {
+    await writeReviews(reviews);
+    showAnalysisError('');
+  } catch (error) {
+    reviews = previous;
+    renderReproduction();
+    showAnalysisError(`No se pudo guardar la validación: ${error.message}`);
+  }
+}
+
+// Delegado: la tabla se repinta entera con cada cambio, así que un oyente por
+// casilla quedaría colgando del marcado viejo.
+document.querySelector('#reproduction-body').addEventListener('change', event => {
+  const box = event.target.closest('[data-review]');
+  const group = box && strategyRows.find(row => row.strategy === box.dataset.review);
+  if (!group) return;
+  toggleReview(
+    group.strategy, reproductionVerdict(reproductionShortfall(group))[0], box.checked,
+  );
 });
 
 document.querySelector('#back-link').href = `/live_audit.html?node=${encodeURIComponent(nodeId)}`;

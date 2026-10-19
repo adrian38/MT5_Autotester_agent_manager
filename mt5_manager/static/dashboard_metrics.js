@@ -95,8 +95,10 @@
     ));
   }
 
-  function summarize(result, overrides = {}) {
-    if (!comparisonRows(result).length) return {comparable: false, flagged: []};
+  function summarize(result, overrides = {}, reviews = {}) {
+    if (!comparisonRows(result).length) {
+      return {comparable: false, flagged: [], reviewed: 0};
+    }
     const groups = strategyGroups(result);
     const demo = groups.flatMap(group => (
       reproduction.sideSeries(group.demo, group.strategy, 'demo', overrides)
@@ -107,12 +109,20 @@
       )),
       ...pendingRealTrades(result),
     ];
+    // Esta portada es la lista de lo que queda por mirar, así que lo que el
+    // usuario ya validó en Análisis sale de `flagged` y sólo deja su recuento:
+    // esconderlo sin decir cuántos son convertiría «SIN AVISOS» en una
+    // afirmación más fuerte de lo que es.
+    const marked = flaggedStrategies(groups, overrides);
+    const pending = marked.filter(row => !reproduction.reviewed(
+      reviews, row.strategy, row.verdict,
+    ));
     return {
       comparable: true,
       currency: result.account?.currency || 'EUR',
       demo_profit: profit(demo), real_profit: profit(real),
       demo_drawdown: drawdown(demo), real_drawdown: drawdown(real),
-      flagged: flaggedStrategies(groups, overrides),
+      flagged: pending, reviewed: marked.length - pending.length,
     };
   }
 

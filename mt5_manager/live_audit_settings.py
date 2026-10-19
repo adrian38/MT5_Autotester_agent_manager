@@ -30,6 +30,7 @@ from .live_audit_settings_schema import (
     _require_complete_profile,
     live_profile_ids,
     normalize_live_audit_settings,
+    normalize_reviewed_strategies,
     normalize_terminal_restore_account,
     normalize_view_lot_overrides,
 )
@@ -481,6 +482,36 @@ class LiveAuditSettingsStore(LiveAuditAccountsMixin):
             if str(audit_id) not in profiles:
                 raise KeyError(f"El uso {audit_id} no tiene configuración guardada")
             profiles[str(audit_id)]["view_lot_overrides"] = normalized
+            self.records[node_id] = {**record, "profiles": profiles, "updated_at": utc_now()}
+            save_json(self.path, self.records)
+        return normalized
+
+    def reviewed_strategies(self, node_id: str, audit_id: str) -> dict[str, Any]:
+        """Las estrategias que el usuario ya dio por revisadas en un uso."""
+        with self.lock:
+            profiles = (self.records.get(node_id) or {}).get("profiles") or {}
+            stored = (profiles.get(str(audit_id)) or {}).get("reviewed_strategies")
+        return normalize_reviewed_strategies(stored)
+
+    def set_reviewed_strategies(
+        self, node_id: str, audit_id: str, reviewed: Any,
+    ) -> dict[str, Any]:
+        """Guarda qué estrategias de un uso ya miró el usuario.
+
+        No cambia el veredicto ni reanaliza nada: lo que cambia es la portada,
+        que deja de enseñar lo ya revisado. Toca **un solo campo** de **un solo
+        uso**, igual que el escalado de la vista: quien lo cambia está en
+        Análisis y no conoce el resto de la configuración.
+        """
+        normalized = normalize_reviewed_strategies(reviewed)
+        with self.lock:
+            record = self.records.get(node_id) or {}
+            profiles = {
+                str(key): dict(value) for key, value in (record.get("profiles") or {}).items()
+            }
+            if str(audit_id) not in profiles:
+                raise KeyError(f"El uso {audit_id} no tiene configuración guardada")
+            profiles[str(audit_id)]["reviewed_strategies"] = normalized
             self.records[node_id] = {**record, "profiles": profiles, "updated_at": utc_now()}
             save_json(self.path, self.records)
         return normalized

@@ -219,33 +219,42 @@ def handle_dashboard_get(handler, parts: list[str]) -> bool:
     return False
 
 
-def _is_view_lots(parts: list[str]) -> bool:
-    return (
-        len(parts) == 6 and parts[:2] == ["api", "nodes"]
-        and parts[3] == "live-audits" and parts[5] == "view-lots"
-    )
+# Lo que Análisis decide por su cuenta y guarda en el perfil del uso: el
+# escalado que aplica al leer y las estrategias que el usuario ya revisó.
+# Ninguno de los dos reanaliza nada ni viaja al nodo, y los dos viven aquí y no
+# en `localStorage` por el mismo motivo: la portada tiene que enseñar lo mismo
+# que Análisis desde cualquier navegador. El nombre del campo es también el del
+# par de métodos del almacén, así que la tabla basta para enrutar los dos.
+_VIEW_FIELDS = {
+    "view-lots": "view_lot_overrides",
+    "reviewed-strategies": "reviewed_strategies",
+}
 
 
-def _handle_view_lots(handler, parts: list[str], write: bool) -> bool:
-    """Lee o guarda el escalado de lotes que las pantallas aplican al leer.
+def _view_field(parts: list[str]) -> str:
+    if len(parts) != 6 or parts[:2] != ["api", "nodes"] or parts[3] != "live-audits":
+        return ""
+    return _VIEW_FIELDS.get(parts[5], "")
 
-    Vive en el perfil del uso para que la portada y Analisis coincidan en
-    cualquier navegador. No reanaliza nada: el veredicto se recalcula en el
-    cliente con las mismas primitivas, igual que antes.
+
+def _handle_view_field(handler, parts: list[str], write: bool) -> bool:
+    """Lee o guarda uno de esos campos. El veredicto se sigue recalculando en
+    el cliente con las mismas primitivas, igual que antes.
     """
-    if not _is_view_lots(parts):
+    field = _view_field(parts)
+    if not field:
         return False
     try:
         node_id = urllib.parse.unquote(parts[2])
         handler._node(node_id)
         audit_id = urllib.parse.unquote(parts[4])
         settings = handler.server.live_audit_settings
-        overrides = (
-            settings.set_view_lot_overrides(
-                node_id, audit_id, (handler._body() or {}).get("view_lot_overrides"),
-            ) if write else settings.view_lot_overrides(node_id, audit_id)
+        value = (
+            getattr(settings, f"set_{field}")(
+                node_id, audit_id, (handler._body() or {}).get(field),
+            ) if write else getattr(settings, field)(node_id, audit_id)
         )
-        handler._send_json(200, {"view_lot_overrides": overrides})
+        handler._send_json(200, {field: value})
     except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
         handler._send_json(400, {"error": str(exc)})
     return True
@@ -253,7 +262,7 @@ def _handle_view_lots(handler, parts: list[str], write: bool) -> bool:
 
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     """Configuracion de la auditoria en vivo, sus informes y sus artefactos."""
-    if handle_dashboard_get(handler, parts) or _handle_view_lots(handler, parts, write=False):
+    if handle_dashboard_get(handler, parts) or _handle_view_field(handler, parts, write=False):
         return True
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audit-config":
         try:
@@ -334,12 +343,15 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
     restore = handler.server.live_audit_settings.restore_credentials(node_id)
     if not restore:
         raise ValueError("Configura y guarda la cuenta que debe quedar en los terminales")
-    # El autolote, la atribución, la marca informativa de operación real y el
-    # escalado de la vista son criterio del manager; el nodo sólo recibe datos
-    # necesarios para auditar.
+    # El autolote, la atribución, la marca informativa de operación real, el
+    # escalado de la vista y las estrategias ya revisadas son criterio del
+    # manager; el nodo sólo recibe datos necesarios para auditar.
     node_profile = {
         key: value for key, value in profile.items()
-        if key not in {"autolot", "real_attribution", "live_trading", "view_lot_overrides"}
+        if key not in {
+            "autolot", "real_attribution", "live_trading",
+            "view_lot_overrides", "reviewed_strategies",
+        }
     }
     return {
         **node_profile, **credentials, **restore,
@@ -454,7 +466,7 @@ def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
         _handle_workbook_import(handler, parts)
         or _handle_attribution_save(handler, parts)
         or _handle_manual_reports(handler, parts)
-        or _handle_view_lots(handler, parts, write=True)
+        or _handle_view_field(handler, parts, write=True)
     ):
         return True
     if len(parts) == 4 and parts[:2] == ["api", "nodes"] and parts[3] in {

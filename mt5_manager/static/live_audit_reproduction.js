@@ -161,10 +161,28 @@
     return stored && typeof stored === 'object' ? stored : {};
   }
 
+  // Lo que el usuario ya miró en Análisis vive en el mismo sitio y por el
+  // mismo motivo que el escalado: la portada tiene que saberlo desde cualquier
+  // dispositivo.
+  function storedReviews(profile) {
+    const stored = profile?.reviewed_strategies;
+    return stored && typeof stored === 'object' ? stored : {};
+  }
+
+  // Validar no es silenciar para siempre: se guarda el veredicto que la fila
+  // tenía al marcarla y deja de valer en cuanto empeora. Sin eso, una
+  // estrategia validada en AVISO podría pasar a NO REPRODUCE en la auditoría
+  // siguiente sin que nada lo dijera, y la portada es justo la pantalla que
+  // existe para decirlo. Que mejore sí la mantiene fuera: ya se miró.
+  function reviewed(reviews, strategy, label) {
+    const mark = reviews?.[strategy];
+    return Boolean(mark) && (SEVERITY[label] || 0) <= (SEVERITY[mark.verdict] || 0);
+  }
+
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
-    autolotMode, compare, fewTrades, numbers,
-    overrideFor, scaleTarget, scaledProfit, sideSeries, storedOverrides, verdict,
+    autolotMode, compare, fewTrades, numbers, overrideFor, reviewed,
+    scaleTarget, scaledProfit, sideSeries, storedOverrides, storedReviews, verdict,
   };
   root.LiveAuditReproduction = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

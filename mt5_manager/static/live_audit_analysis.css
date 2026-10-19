@@ -79,6 +79,11 @@ td.audit-analysis-empty { display: table-cell; min-height: 0; padding: 26px 16px
 .degradation-status.bad { color: #ff9da5; background: #9a39443b; }
 .degradation-status.info { color: #9dcdff; background: #244e733d; }
 .degradation-off { color: #ffd47c !important; }
+/* La casilla y su rótulo en la misma línea, y el texto debajo como el de
+   las demás columnas: lo que se marca aquí no cambia el veredicto de la
+   fila, sólo si sigue pidiendo atención en la portada. */
+.audit-analysis-review label { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.audit-analysis-review input { width: 15px; height: 15px; accent-color: var(--accent2); cursor: pointer; }
 #attribution-upload { display: inline-flex; align-items: center; cursor: pointer; }
 #attribution-upload.is-busy { opacity: .6; pointer-events: none; }
 /* La `panel-card` no tiene relleno: lo pone cada hijo, y éste se lo había

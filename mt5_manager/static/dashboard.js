@@ -115,8 +115,17 @@ function dateTime(value) {
   return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('es-ES');
 }
 
-function flaggedMarkup(rows, currency) {
-  if (!rows.length) return '<p class="no-alerts">Sin estrategias con aviso.</p>';
+function reviewedNote(reviewed) {
+  return reviewed
+    ? `<small class="reviewed-note">${reviewed} ya validada${reviewed === 1 ? '' : 's'} en Análisis, fuera de esta lista hasta que empeore${reviewed === 1 ? '' : 'n'}.</small>`
+    : '';
+}
+
+function flaggedMarkup(rows, currency, reviewed) {
+  if (!rows.length) {
+    return `<p class="no-alerts">Sin estrategias con aviso${reviewed ? ' pendientes' : ''}.${
+      reviewed ? ` ${reviewed} validada${reviewed === 1 ? '' : 's'} en Análisis.` : ''}</p>`;
+  }
   return `<ul class="strategy-alerts">${rows.map(row => {
     const quality = row.quality && row.quality.ok === false
       ? '<span class="quality-warning">CALIDAD TICK INSUFICIENTE</span>' : '';
@@ -124,7 +133,7 @@ function flaggedMarkup(rows, currency) {
       + `<div class="strategy-values"><span>Test ${escapeHtml(money(row.demo_profit, currency))}</span>`
       + `<span>Real ${escapeHtml(money(row.real_profit, currency))}</span></div>`
       + `<div><span class="verdict ${row.tone}">${escapeHtml(row.verdict)}</span>${quality}</div></li>`;
-  }).join('')}</ul>`;
+  }).join('')}</ul>${reviewedNote(reviewed)}`;
 }
 
 function aliasMarkup(nodeId, portfolioId) {
@@ -146,8 +155,9 @@ function cardMarkup(entry) {
   const profile = entry.profile || {};
   const result = entry.result;
   const overrides = LiveAuditReproduction.storedOverrides(entry.profile);
-  const summary = result
-    ? LiveDashboardMetrics.summarize(result, overrides) : {comparable: false, flagged: []};
+  const summary = result ? LiveDashboardMetrics.summarize(
+    result, overrides, LiveAuditReproduction.storedReviews(entry.profile),
+  ) : {comparable: false, flagged: [], reviewed: 0};
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
     profile.portfolio_type
   ] || profile.portfolio_type || 'Sin modo';
@@ -161,7 +171,7 @@ function cardMarkup(entry) {
     <div><span>Profit Real</span><strong>${escapeHtml(money(summary.real_profit, currency))}</strong></div>
     <div><span>DD Test</span><strong>${escapeHtml(money(summary.demo_drawdown, currency))}</strong></div>
     <div><span>DD Real</span><strong>${escapeHtml(money(summary.real_drawdown, currency))}</strong></div>
-  </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency)}</section>` : unavailableMarkup(entry);
+  </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency, summary.reviewed)}</section>` : unavailableMarkup(entry);
   const badge = broken ? `${broken} NO REPRODUCE` : warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}`
     : summary.comparable ? 'SIN AVISOS' : 'SIN DATOS';
   return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
@@ -173,6 +183,7 @@ function render(entries) {
   const summaries = realEntries.map(entry => entry.result
     ? LiveDashboardMetrics.summarize(
       entry.result, LiveAuditReproduction.storedOverrides(entry.profile),
+      LiveAuditReproduction.storedReviews(entry.profile),
     ) : {flagged: []});
   const flagged = summaries.flatMap(item => item.flagged);
   const broken = flagged.filter(row => row.verdict === 'NO REPRODUCE').length;

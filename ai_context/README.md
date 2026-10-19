@@ -125,6 +125,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   reportes tester al 100 % sin relanzar MT5 ni alterar otras estrategias.
 - `live_dashboard_uses_analysis.md`: portada y Análisis comparten el mismo
   veredicto y simulación de lotes; el reinicio inicial sondea y recarga.
+- `live_audit_reviewed_strategies.md`: la casilla «Validada» de Análisis saca
+  una fila de Portafolios activos sin tocar su veredicto, y por qué la marca
+  guarda el veredicto del momento en vez de un simple «sí».
 
 ## Manager: interfaz y operación
 

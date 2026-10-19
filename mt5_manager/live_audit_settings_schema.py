@@ -17,6 +17,12 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     # reescala las curvas. Vive aquí, y no en el navegador, porque la portada y
     # Análisis tienen que enseñar lo mismo desde cualquier dispositivo.
     "view_lot_overrides": {},
+    # Las estrategias que el usuario ya miró en Análisis. No tocan el
+    # veredicto: lo sacan de la portada, que es la lista de lo que queda por
+    # mirar. Se guarda el veredicto que tenían al validarlas porque validar no
+    # es silenciar para siempre: si la siguiente auditoría empeora el
+    # veredicto, la portada tiene que volver a enseñarla.
+    "reviewed_strategies": {},
     "autolot": empty_autolot(),
     "real_attribution": empty_attribution(),
     "deployment_name": "",
@@ -185,6 +191,49 @@ def normalize_view_lot_overrides(value: Any) -> dict[str, Any]:
     return normalized
 
 
+# Los mismos veredictos que `SEVERITY` de `live_audit_reproduction.js`. Se
+# validan aquí para que un cliente no pueda grabar una etiqueta que la portada
+# no sepa comparar: ahí decidiría «no ha empeorado» sobre algo desconocido.
+_REVIEW_VERDICTS = frozenset({
+    "NO REPRODUCE", "AVISO", "POCO IMPORTE",
+    "REPRODUCE", "MEJOR QUE EL TESTER", "SIN DATOS",
+})
+
+
+def _reviewed_mark(strategy: str, mark: Any) -> dict[str, str]:
+    if not isinstance(mark, dict):
+        raise ValueError(f"reviewed_strategies[{strategy}] debe ser un objeto JSON")
+    verdict = _text(mark.get("verdict"), f"reviewed_strategies[{strategy}].verdict", 32)
+    if verdict not in _REVIEW_VERDICTS:
+        raise ValueError(f"reviewed_strategies[{strategy}].verdict no es un veredicto conocido")
+    return {
+        "verdict": verdict,
+        "at": _text(mark.get("at"), f"reviewed_strategies[{strategy}].at", 40),
+    }
+
+
+def normalize_reviewed_strategies(value: Any) -> dict[str, dict[str, str]]:
+    """Valida las estrategias que el usuario dio por revisadas en Análisis.
+
+    De cada una se guarda el veredicto que tenía al marcarla y cuándo se marcó.
+    El veredicto no es decorado: es lo que permite que la portada vuelva a
+    avisar si la auditoría siguiente la empeora.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("reviewed_strategies debe ser un objeto JSON")
+    if len(value) > 500:
+        raise ValueError("No se pueden validar más de 500 estrategias")
+    normalized: dict[str, dict[str, str]] = {}
+    for raw_strategy, raw_mark in value.items():
+        strategy = _text(raw_strategy, "identificador de estrategia", 512)
+        if not strategy:
+            raise ValueError("Cada estrategia validada debe tener un identificador")
+        normalized[strategy] = _reviewed_mark(strategy, raw_mark)
+    return normalized
+
+
 def _portfolio_ids(value: Any) -> list[int]:
     if not isinstance(value, list):
         raise ValueError("selected_portfolio_ids debe ser una lista")
@@ -252,6 +301,10 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
         normalized["real_strategy_lots"] = _real_strategy_lots(value["real_strategy_lots"])
     if "view_lot_overrides" in value:
         normalized["view_lot_overrides"] = normalize_view_lot_overrides(value["view_lot_overrides"])
+    if "reviewed_strategies" in value:
+        normalized["reviewed_strategies"] = normalize_reviewed_strategies(
+            value["reviewed_strategies"],
+        )
     normalized["autolot"] = normalize_autolot(value.get("autolot"))
     normalized["real_attribution"] = normalize_attribution(value.get("real_attribution"))
     return normalized
