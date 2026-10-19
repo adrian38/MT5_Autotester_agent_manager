@@ -66,6 +66,16 @@
       <p id="reproduction-note" class="audit-analysis-note-text"></p>
     </section>
     <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">DEMO CONTRA REAL · TODO EL HISTÓRICO</p><h2>¿Y en todas las auditorías que llevamos?</h2><p class="subtitle">La misma pregunta de la tabla de arriba, pero sobre <strong>todas las auditorías archivadas</strong> de estas estrategias, no sólo la de este periodo. Una semana con tres operaciones no decide nada; la serie sí, y crece sola cada vez que termina una auditoría. Se mide con los <strong>lotes realmente ejecutados</strong> en cada una: una simulación de lote elegida para hoy no significa nada aplicada a los periodos anteriores. Cuando un portafolio se arregla, el nuevo hereda aquí el histórico de las estrategias que conserva, aunque el portafolio al que sustituye ya no esté activo.</p></div><span id="history-count" class="badge idle">—</span></div>
+      <div class="audit-analysis-table-wrap">
+        <table class="audit-analysis-table">
+          <thead><tr><th>Estrategia</th><th>Auditorías</th><th>Demo / tester</th><th>Real</th><th>Diferencia</th><th>Operaciones</th><th>Veredicto acumulado</th></tr></thead>
+          <tbody id="history-body"><tr><td colspan="7" class="audit-analysis-empty">Leyendo la serie de auditorías…</td></tr></tbody>
+        </table>
+      </div>
+      <p id="history-note" class="audit-analysis-note-text"></p>
+    </section>
+    <section class="panel-card audit-analysis-section">
       <div class="panel-title"><div><p class="eyebrow">CUADRE</p><h2>Reales que no cuentan en ninguna estrategia</h2><p class="subtitle">Cierres de la cuenta real que ninguna operación del tester reclamó y que tampoco has atribuido. El auditor no puede decidir de quién son: el magic del terminal real no tiene por qué coincidir con el del <code>.set</code> y aquí ni se publica, y el símbolo sólo basta cuando un único miembro del portafolio lo opera. Sube el Excel con la columna de estrategia y cada una pasa a su sitio; las que marques como ajenas salen también de la curva Real. También salen aquí los cierres que el filtro de lote descartó antes de comparar: ese filtro es una conjetura sobre el tamaño de la posición, así que la última palabra es tuya.</p></div><span id="unaccounted-count" class="badge idle">—</span></div>
       <div class="audit-analysis-table-wrap">
         <table class="audit-analysis-table">
@@ -77,8 +87,9 @@
       <p id="unaccounted-note" class="audit-analysis-note-text"></p>
     </section>
     <section class="panel-card audit-analysis-section">
-      <div class="panel-title"><div><p class="eyebrow">CONTRA EL HISTÓRICO</p><h2>¿La estrategia sigue haciendo lo de siempre?</h2><p class="subtitle">Compara exclusivamente el <strong>Strategy Tester del periodo</strong> con el backtest histórico guardado en la memoria del agente. Para que el tamaño de la posición no engañe, cada operación del periodo se recalcula al mismo lote base del histórico: <strong><span id="history-reference-lot">0,01</span> lotes</strong>. Los importes son el PnL medio por operación a ese lote, no el PnL total, y no dependen de la simulación de lotes.</p></div><span id="degradation-count" class="badge idle">—</span></div>
+      <div class="panel-title"><div><p class="eyebrow">CONTRA EL HISTÓRICO</p><h2>¿La estrategia sigue haciendo lo de siempre?</h2><p class="subtitle">Compara el <strong>Strategy Tester de todas las auditorías archivadas</strong> con el backtest histórico guardado en la memoria del agente. Es acumulativo a propósito: con las operaciones de una sola semana casi todas las filas contestaban «insuficiente» y la tabla no servía para decidir. Las operaciones repetidas entre dos periodos encadenados se cuentan una sola vez, y las estrategias que vienen de un portafolio arreglado conservan lo medido en el portafolio al que sustituyen. Para que el tamaño de la posición no engañe, cada operación del periodo se recalcula al mismo lote base del histórico: <strong><span id="history-reference-lot">0,01</span> lotes</strong>. Los importes son el PnL medio por operación a ese lote, no el PnL total, y no dependen de la simulación de lotes.</p></div><span id="degradation-count" class="badge idle">—</span></div>
       <div id="degradation-warning" class="audit-analysis-note" hidden></div>
+      <p id="degradation-accumulated" class="audit-analysis-note-text"></p>
       <div class="audit-analysis-table-wrap">
         <table class="audit-analysis-table">
           <thead><tr><th>Estrategia</th><th>Operaciones</th><th>PnL medio al lote histórico</th><th>Desvío</th><th>Histórico</th><th>Conclusión para decidir</th></tr></thead>
@@ -116,5 +127,6 @@
   <div id="analysis-error" class="audit-analysis-error" role="alert" hidden></div>
   <script src="/live_audit_reproduction.js"></script>
   <script src="/live_audit_analysis.js"></script>
+  <script src="/live_audit_history.js"></script>
 </body>
 </html>

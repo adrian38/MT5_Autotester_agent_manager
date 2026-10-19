@@ -18,6 +18,7 @@ from typing import Any
 from . import live_audit_analysis
 from . import live_audit_attribution, live_audit_autolot
 from . import live_audit_degradation
+from . import live_audit_history
 from . import manager_http
 from .common import safe_int
 from .portfolio_service import PortfolioSource
@@ -42,7 +43,20 @@ def strategy_history(handler, node_id: str, audit_id: str) -> dict[str, Any]:
     result = (state or {}).get("last_result")
     if not isinstance(result, dict):
         return {"strategies": [], "reference_lot": live_audit_degradation.REFERENCE_LOT}
-    return degradation_report(PortfolioSource(node), result)
+    # Acumulado, no solo el periodo: tres operaciones en una semana no
+    # concluyen nada y la tabla contestaba «INSUFICIENTE» en todas las filas.
+    accumulated = live_audit_history.accumulate(
+        handler.server.live_audit_archive, node_id, audit_id,
+        result.get("comparison_detail") or {},
+    )
+    report = degradation_report(
+        PortfolioSource(node), result,
+        grouped=accumulated["trades"], days=accumulated["days"],
+    )
+    report["accumulated"] = {
+        key: accumulated[key] for key in ("audits", "days", "portfolios", "since", "inherited")
+    }
+    return report
 
 
 def _period_days(result: dict[str, Any]) -> float:
@@ -55,22 +69,22 @@ def _period_days(result: dict[str, Any]) -> float:
     return max(0.0, span.total_seconds() / 86400)
 
 
-def _tester_trades_by_strategy(result: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    detail = result.get("comparison_detail") or {}
-    for row in detail.get("operation_comparisons") or []:
-        tester = row.get("tester")
-        if not isinstance(tester, dict) or not tester.get("close_time"):
-            continue
-        key = str(row.get("strategy") or tester.get("strategy") or "")
-        grouped.setdefault(key, []).append(tester)
-    return grouped
+def degradation_report(
+    source: Any, result: dict[str, Any],
+    grouped: dict[str, list[dict[str, Any]]] | None = None, days: float | None = None,
+) -> dict[str, Any]:
+    """Compara cada estrategia con su historico en la memoria del agente.
 
-
-def degradation_report(source: Any, result: dict[str, Any]) -> dict[str, Any]:
-    """Compara cada estrategia del periodo con su historico en la memoria."""
-    grouped = _tester_trades_by_strategy(result)
-    days = _period_days(result)
+    Por defecto mide el periodo auditado. `grouped` y `days` permiten medir la
+    serie entera, que es lo que hace la pantalla: el criterio es el mismo y lo
+    unico que cambia es el tamano de la muestra.
+    """
+    if grouped is None:
+        grouped = live_audit_history.tester_trades_by_strategy(
+            result.get("comparison_detail") or {},
+        )
+    if days is None:
+        days = _period_days(result)
     histories = live_audit_degradation.read_histories(source, list(grouped))
     sets = {
         str(row.get("strategy") or ""): str(row.get("strategy_set") or "")

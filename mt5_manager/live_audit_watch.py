@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import live_audit_schedule, manager_http
+from . import live_audit_analysis, live_audit_schedule, manager_http
 from .common import load_json, safe_int, save_json, utc_now
 from .live_audit_core import RUNNING_STATUSES
 
@@ -138,6 +138,53 @@ def node_live_audits(node: dict[str, Any], node_id: str) -> dict[str, Any] | Non
     return value.get("audits") if isinstance(value.get("audits"), dict) else {}
 
 
+def _execution_id(audit: dict[str, Any]) -> str:
+    result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
+    return str(
+        audit.get("audit_id") or result.get("audit_id") or result.get("completed_at") or ""
+    )
+
+
+def archive_execution(
+    server: Any, node_id: str, audit_key: str, audit: dict[str, Any],
+    profile: dict[str, Any],
+) -> None:
+    """Guarda en el diario la ejecución terminada que el nodo enseña.
+
+    Se guarda **el veredicto del manager**, no la materia prima: el Excel de
+    atribución y las parejas decididas a mano ya están aplicados, y así la
+    serie histórica enseña lo mismo que enseñó Análisis ese día.
+
+    Idempotente por ejecución, que es lo que la convierte también en la forma
+    de rescatar lo que ya existía: la primera vuelta archiva la última
+    auditoría de cada uso antes de que la siguiente la sustituya.
+    """
+    archive = getattr(server, "live_audit_archive", None)
+    execution_id = _execution_id(audit)
+    if archive is None or not execution_id:
+        return
+    if archive.knows(node_id, audit_key, execution_id):
+        return
+    analysed = live_audit_analysis.analyse_node_state({"audit": dict(audit)}, profile)
+    result = ((analysed or {}).get("audit") or {}).get("last_result")
+    if not isinstance(result, dict) or not result.get("comparison_detail"):
+        return
+    archive.remember(node_id, {
+        "audit_key": audit_key, "execution_id": execution_id,
+        "portfolio_id": safe_int(result.get("portfolio_id"), 0, minimum=0),
+        "portfolio_type": str(result.get("portfolio_type") or ""),
+        "deployment_name": str(profile.get("deployment_name") or ""),
+        "executed_at": str(
+            (result.get("analysis") or {}).get("executed_at") or result.get("completed_at") or ""
+        ),
+        "completed_at": str(result.get("completed_at") or ""),
+        "period_start": str(result.get("period_start") or ""),
+        "period_end": str(result.get("period_end") or ""),
+        "currency": str((result.get("account") or {}).get("currency") or ""),
+        "status": str(audit.get("status") or ""),
+    }, dict(result.get("comparison_detail") or {}))
+
+
 def _finished_message(audit: dict[str, Any]) -> str:
     error = str(audit.get("error") or "").strip()
     if error:
@@ -164,6 +211,10 @@ def record_transitions(
         status = str(audit.get("status") or "idle")
         key = runs.key(node_id, audit_id)
         record = runs.record(key)
+        if status in FINAL_STATUSES and status != "idle":
+            archive_execution(
+                server, node_id, audit_id, audit, dict(profiles.get(audit_id) or {}),
+            )
         if status == str(record.get("last_status") or ""):
             continue
         changes: dict[str, Any] = {"last_status": status}

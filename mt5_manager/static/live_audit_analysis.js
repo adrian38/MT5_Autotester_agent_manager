@@ -933,7 +933,7 @@ function degradationRow(row, currency) {
   return `<tr>
     <th><strong>${escapeHtml(row.symbol || '—')}</strong><small>${escapeHtml(name)}</small></th>
     <td>${tradesCell(row)}</td>
-    <td><strong>periodo ${escapeHtml(atHistoryLot(row.observed_at_reference_lot, currency))}</strong><small>histórico ${escapeHtml(atHistoryLot(row.history_at_reference_lot, currency))}</small><small>por operación a ${escapeHtml(number(row.reference_lot, 8))} lotes</small></td>
+    <td><strong>acumulado ${escapeHtml(atHistoryLot(row.observed_at_reference_lot, currency))}</strong><small>histórico ${escapeHtml(atHistoryLot(row.history_at_reference_lot, currency))}</small><small>por operación a ${escapeHtml(number(row.reference_lot, 8))} lotes</small></td>
     <td>${deviationCell(row)}</td>
     <td>${historyCell(row, currency)}</td>
     <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(verdictHelp[row.verdict] || '')}</small></td>
@@ -945,6 +945,7 @@ function renderDegradation(report) {
   const currency = chartContext.currency;
   document.querySelector('#history-reference-lot').textContent = number(report.reference_lot, 8);
   document.querySelector('#minimum-trades').textContent = number(report.minimum_trades, 0);
+  renderAccumulatedNote(report.accumulated);
   document.querySelector('#degradation-body').innerHTML = rows.length
     ? rows.map(row => degradationRow(row, currency)).join('')
     : '<tr><td colspan="6" class="audit-analysis-empty">No hay estrategias que comparar en este resultado.</td></tr>';
@@ -960,6 +961,27 @@ function renderDegradation(report) {
     reviewed ? `${reviewed} MANTENER` : '',
   ].filter(Boolean).join(' · ') || 'SIN DATOS';
   badge.className = `badge ${flagged ? 'pending' : 'idle'}`;
+}
+
+// De dónde sale la muestra acumulada. Sin decirlo, una fila con 40
+// operaciones donde el periodo sólo tuvo tres se lee como un error.
+function renderAccumulatedNote(accumulated) {
+  const note = document.querySelector('#degradation-accumulated');
+  if (!note) return;
+  if (!accumulated || !accumulated.audits) {
+    note.textContent = 'Todavía sólo cuenta esta auditoría: la serie empieza a acumular en cuanto termine la siguiente.';
+    return;
+  }
+  const inherited = accumulated.inherited || [];
+  note.textContent = [
+    `Acumulado sobre ${accumulated.audits} auditoría${accumulated.audits === 1 ? '' : 's'}`,
+    accumulated.days ? `${number(accumulated.days, 0)} días auditados en total` : '',
+    (accumulated.portfolios || []).length > 1
+      ? `carteras ${accumulated.portfolios.map(id => `#${id}`).join(', ')}` : '',
+    inherited.length
+      ? `incluye el histórico de ${inherited.map(id => `#${id}`).join(', ')}, que ya no se audita pero comparte estrategias`
+      : '',
+  ].filter(Boolean).join(' · ') + '.';
 }
 
 function degradationUnavailable(message) {
