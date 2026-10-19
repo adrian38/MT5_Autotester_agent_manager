@@ -71,8 +71,14 @@ Mueve 13 de las 53 filas y no ablanda ninguna.
 Dos detalles que no son del porcentaje y estaban escondidos detrás:
 
 - **La tabla ordenaba por el porcentaje**, así que una fila de céntimos con
-  2.000 % encabezaba por delante de un déficit real del 44 %. Ahora ordena por
-  gravedad del veredicto y el porcentaje sólo desempata (`compare`).
+  2.000 % encabezaba por delante de un déficit real del 44 %. Ahora `compare`
+  ordena en tres niveles: gravedad del veredicto, luego el respaldo —dentro de
+  un mismo veredicto, el que se sostiene antes que el marcado `POCAS
+  OPERACIONES`— y el porcentaje sólo desempata al final. El orden que sale es
+  `NO REPRODUCE`, `NO REPRODUCE + POCAS OPERACIONES`, `AVISO`, `AVISO + POCAS
+  OPERACIONES`, `POCO IMPORTE` y el resto. Por eso `FEW_PAIRS` y `fewTrades`
+  viven en el módulo y no en la pantalla: el que ordena necesita el mismo
+  criterio que el que pinta el distintivo.
 - **`POCAS OPERACIONES` se apagaba justo en el caso más dudoso**: el `few` era
   `Boolean(backing) && backing < 5`, que con cero parejas da `false`. Sin
   parejas la muestra son las operaciones del tester sin ejecutar: seis concluyen

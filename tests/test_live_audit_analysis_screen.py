@@ -109,8 +109,14 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("vale para mirarlo, no para concluir", self.analysis_script)
         # El corte sale de la propia banda: con n parejas una operación mueve
         # 1/n del total, y por debajo de cinco eso supera el 20 % tolerado.
+        # El corte vive en el módulo, que es quien ordena la tabla con él: la
+        # pantalla lo reexporta en vez de volver a derivarlo.
         self.assertIn(
-            "const REPRODUCTION_FEW_PAIRS = Math.ceil(100 / REPRODUCTION_EXPECTED_PCT);",
+            "const FEW_PAIRS = Math.ceil(100 / EXPECTED_SHORTFALL_PCT);",
+            self.reproduction_script,
+        )
+        self.assertIn(
+            "const REPRODUCTION_FEW_PAIRS = LiveAuditReproduction.FEW_PAIRS;",
             self.analysis_script,
         )
         self.assertIn("Math.max(Math.abs(demo), 1)", self.reproduction_script)
@@ -134,7 +140,8 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # Y la salvedad de muestra deja de apagarse justo ahí: sin parejas la
         # evidencia son las operaciones del tester sin ejecutar. Seis concluyen
         # —el caso que el usuario revisó—, una sola no.
-        self.assertIn("const evidence = backing || numbers.testerTrades;", self.analysis_script)
+        self.assertIn("return values.pairs || values.testerTrades || 0;", self.reproduction_script)
+        self.assertIn("const few = LiveAuditReproduction.fewTrades(numbers);", self.analysis_script)
         self.assertIn("operaciones`} del tester sin ejecutar", self.analysis_script)
 
     def test_a_verdict_is_not_graded_on_amounts_that_cannot_carry_it(self) -> None:
@@ -161,6 +168,14 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("function compare(left, right)", self.reproduction_script)
         self.assertIn("SEVERITY[verdict(right)[0]]", self.reproduction_script)
         self.assertIn("LiveAuditReproduction.compare(", self.analysis_script)
+        # Y dentro de un mismo veredicto, primero el que se sostiene: «no
+        # reproduce» con seis operaciones de respaldo va antes que «no
+        # reproduce» con una, que es lo que se mira después y no al revés.
+        self.assertIn(
+            "const confidence = Number(fewTrades(left)) - Number(fewTrades(right));",
+            self.reproduction_script,
+        )
+        self.assertIn("return confidence || right.pct - left.pct;", self.reproduction_script)
 
     def test_the_percentage_is_worded_for_the_sign_it_has_in_front(self) -> None:
         # «Se deja el 122 % del tester» era imposible de leer: no se puede

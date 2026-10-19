@@ -503,12 +503,13 @@ const REPRODUCTION_MEANINGFUL_AMOUNT = LiveAuditReproduction.MEANINGFUL_AMOUNT;
 // un hecho sobre esas operaciones y no una inferencia. Probado el mínimo de 8
 // sobre la auditoría 148: dejaba sin veredicto a 9 de 15 estrategias.
 //
-// El corte sale de la propia banda: con `n` parejas, una sola operación mueve
-// el total `1/n`. Por debajo de cinco eso supera el 20 % que se da por normal,
-// o sea que una operación suelta puede fabricar el veredicto entero. Ahí el
-// veredicto se sigue dando —y sigue siendo rojo si lo es— pero marcado: con dos
-// parejas, «no reproduce» es un aviso para mirarlo, no un diagnóstico.
-const REPRODUCTION_FEW_PAIRS = Math.ceil(100 / REPRODUCTION_EXPECTED_PCT);
+// El corte sale de la propia banda y vive en el módulo, que es quien ordena la
+// tabla con él: con `n` operaciones de respaldo, una sola mueve el total `1/n`,
+// y por debajo de cinco eso supera el 20 % que se da por normal, o sea que una
+// operación suelta puede fabricar el veredicto entero. Ahí el veredicto se
+// sigue dando —y sigue siendo rojo si lo es— pero marcado: con dos parejas,
+// «no reproduce» es un aviso para mirarlo, no un diagnóstico.
+const REPRODUCTION_FEW_PAIRS = LiveAuditReproduction.FEW_PAIRS;
 
 function reproductionVerdict(numbers) {
   return LiveAuditReproduction.verdict(numbers);
@@ -534,14 +535,11 @@ function reproductionCounts(group, numbers) {
   const missing = Number(summary.missing_real || 0);
   const open = group.openReal.length;
   // Lo atribuido a mano respalda el importe real igual que una pareja, así que
-  // cuenta para decidir si el veredicto lo decide una sola operación.
+  // cuenta para decidir si el veredicto lo decide una sola operación. El
+  // criterio es del módulo: es el mismo que ordena la tabla, y antes
+  // `Boolean(backing)` lo apagaba justo con cero parejas, donde más falta hace.
   const backing = groupRealTrades(group).length;
-  // Sin una sola pareja la muestra ya no son las parejas: son las operaciones
-  // del tester que se quedaron sin ejecutar. Seis sin ejecutar concluyen; una
-  // sola, no. Antes `Boolean(backing)` apagaba la salvedad justo ahí, que es
-  // donde más falta hace, y a la vez se la ponía a filas de seis parejas.
-  const evidence = backing || numbers.testerTrades;
-  const few = Boolean(evidence) && evidence < REPRODUCTION_FEW_PAIRS;
+  const few = LiveAuditReproduction.fewTrades(numbers);
   return {
     deviations: Number(summary.with_deviations || 0), missing, open, few,
     pairs: backing, unfilled: backing ? 0 : numbers.testerTrades,

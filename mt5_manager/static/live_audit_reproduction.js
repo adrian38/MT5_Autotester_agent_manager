@@ -6,6 +6,11 @@
   // las 26 filas marcadas en las ocho auditorías de los tres brókers, cuatro
   // eran sólo esto.
   const MEANINGFUL_AMOUNT = 5;
+  // El corte sale de la propia banda: con `n` operaciones de respaldo, una sola
+  // mueve el total `1/n`, y por debajo de cinco eso supera el 20 % que se da
+  // por normal. El veredicto se da igual, pero marcado y detrás del mismo
+  // veredicto que sí se sostiene.
+  const FEW_PAIRS = Math.ceil(100 / EXPECTED_SHORTFALL_PCT);
 
   function overrideFor(overrides, strategy, side) {
     const value = Number(overrides?.[strategy]?.[side]);
@@ -115,17 +120,33 @@
     return ['REPRODUCE', 'good', `${note}, dentro del ${EXPECTED_SHORTFALL_PCT} % de deterioro que se da por normal al pasar de backtest a real.`];
   }
 
+  // Cuántas operaciones sostienen el veredicto. Sin una sola pareja la muestra
+  // ya no son las parejas: son las del tester que se quedaron sin ejecutar.
+  // Seis sin ejecutar concluyen; una sola, no.
+  function backing(values) {
+    return values.pairs || values.testerTrades || 0;
+  }
+
+  function fewTrades(values) {
+    const evidence = backing(values);
+    return evidence > 0 && evidence < FEW_PAIRS;
+  }
+
   // El porcentaje ya no puede ordenar solo: una fila de céntimos da 2.000 % y
-  // encabezaría la tabla por delante de un déficit real del 44 %. Primero la
-  // gravedad del veredicto, y el porcentaje sólo desempata dentro de ella.
+  // encabezaría la tabla por delante de un déficit real del 44 %.
   const SEVERITY = {
     'NO REPRODUCE': 3, AVISO: 2, REPRODUCE: 1, 'MEJOR QUE EL TESTER': 1,
     'POCO IMPORTE': 0, 'SIN DATOS': 0,
   };
 
+  // Primero la gravedad; dentro de ella, lo que se sostiene antes que lo
+  // marcado POCAS OPERACIONES, que es lo que se mira después y no al revés;
+  // el porcentaje sólo desempata al final.
   function compare(left, right) {
     const severity = (SEVERITY[verdict(right)[0]] || 0) - (SEVERITY[verdict(left)[0]] || 0);
-    return severity || right.pct - left.pct;
+    if (severity) return severity;
+    const confidence = Number(fewTrades(left)) - Number(fewTrades(right));
+    return confidence || right.pct - left.pct;
   }
 
   // El escalado aplicado vive en el perfil del uso, no en el navegador: si no,
@@ -136,8 +157,8 @@
   }
 
   const api = {
-    EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT,
-    autolotMode, compare, numbers,
+    EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
+    autolotMode, compare, fewTrades, numbers,
     overrideFor, scaleTarget, scaledProfit, sideSeries, storedOverrides, verdict,
   };
   root.LiveAuditReproduction = api;
