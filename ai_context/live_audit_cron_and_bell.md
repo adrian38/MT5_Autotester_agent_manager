@@ -195,3 +195,38 @@ por el cron, lanzamiento bloqueado o rechazado, y reintentos agotados. La
 transición sólo se anuncia cuando se pasa de un estado de ejecución a uno
 final: la primera vuelta después de arrancar el manager se limita a recordar lo
 que ve, para no anunciar como recién hecha una auditoría de hace tres semanas.
+
+## La campana vigila el perfil, no la tarjeta abierta (2026-10-20)
+
+El usuario avisó de que la campana «no dice cuándo ha terminado una auditoría» y
+de que el único aviso que salió parecía aleatorio. Las dos cosas eran el mismo
+fallo: `record_transitions` recorría `configured_audit_ids` y `tick` se saltaba
+entero el nodo que lo tuviera vacío.
+
+**`configured_audit_ids` no es el inventario del nodo: son las tarjetas abiertas
+en el formulario** (`live_audit_settings.py` lo deriva de `selected_audit_ids`).
+Es la misma confusión que ya se arregló para el cálculo de citas y que dejó sin
+arreglar la vigilancia. Con los datos reales del 2026-10-19:
+
+| Nodo | `configured_audit_ids` | `live_audit_ids` |
+| --- | --- | --- |
+| AXI Standard | `audit-67` | `audit-67`, `audit-105`, `audit-108`, `audit-109` |
+| RoboForex ECN | `audit-177` | `audit-177`, `audit-170`, `audit-172`, `audit-173` |
+
+El cron **lanzó** los cuatro de AXI —`scheduled_audit_ids` sí mira el perfil— y
+el agente los terminó los cuatro (`completed`, entre las 22:38 y las 23:11),
+pero la campana sólo anunció el de la tarjeta abierta: un aviso suelto sobre un
+portafolio que el usuario no había tocado, que es exactamente lo que parece
+aleatorio. Peor: sin nadie mirando su estado, los otros tres se quedaron en
+`outcome: running` en `live_audit_schedule_state.json`, y `due_decision`
+devuelve `""` para un turno «corriendo», así que no se reintentaban ni se daban
+por cumplidos **nunca**.
+
+Lo vigilado es ahora `watched_audit_ids`: los perfiles del nodo, más lo
+configurado, más lo marcado como real. Un uso que el nodo no enseña entra como
+`idle` y, al no venir de un estado de ejecución, sólo deja constancia. El
+archivo histórico (`archive_execution`) va en ese mismo bucle, así que también
+deja de perderse la serie de los usos sin tarjeta abierta.
+
+Los avisos del escritorio no tenían nada roto: con una sola transición en todo
+el día no había casi nada que saltar.

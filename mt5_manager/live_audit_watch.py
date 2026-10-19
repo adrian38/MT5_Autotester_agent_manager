@@ -94,6 +94,21 @@ def live_audit_ids(state: dict[str, Any]) -> set[str]:
     return {str(audit_id) for audit_id in marked}
 
 
+def watched_audit_ids(state: dict[str, Any]) -> list[str]:
+    """Todos los usos que el manager conoce de un nodo, para la campana.
+
+    **No es `configured_audit_ids`**, que son sólo las tarjetas abiertas en el
+    formulario del nodo. Con una sola abierta, el 2026-10-19 las auditorías de
+    los otros tres usos reales de AXI terminaron en el agente sin un aviso y su
+    turno se quedó en «corriendo» para siempre: el cron no las reintentaba ni
+    las daba por cumplidas, porque nadie miraba su estado. La misma distinción
+    que ya arregló `scheduled_audit_ids`, que mira el perfil y no la tarjeta.
+    """
+    known = set(state.get("profiles") or {})
+    known |= {str(audit_id) for audit_id in state.get("configured_audit_ids") or []}
+    return sorted(known | live_audit_ids(state))
+
+
 def _profile_is_configured(state: dict[str, Any], audit_id: str) -> bool:
     if audit_id in {str(value) for value in state.get("configured_audit_ids") or []}:
         return True
@@ -267,10 +282,13 @@ def record_transitions(
     Solo avisa de un paso de «corriendo» a «terminado»: la primera vuelta
     despues de arrancar el manager se limita a recordar lo que ve, para no
     anunciar como recien hecha una auditoria de hace tres semanas.
+
+    Mira **todos** los usos del nodo, no los de las tarjetas abiertas: ver
+    `watched_audit_ids`.
     """
     runs = server.live_audit_runs
     profiles = state.get("profiles") or {}
-    for audit_id in [str(value) for value in state.get("configured_audit_ids") or []]:
+    for audit_id in watched_audit_ids(state):
         audit = dict(audits.get(audit_id) or {})
         status = str(audit.get("status") or "idle")
         key = runs.key(node_id, audit_id)
@@ -536,7 +554,7 @@ def tick(server: Any) -> None:
             return
         node_id = str(node.get("id") or "")
         state = server.live_audit_settings.state(node_id)
-        if not state.get("configured_audit_ids"):
+        if not watched_audit_ids(state):
             continue
         audits, issue, message = node_live_audits(node, node_id)
         record_node_issue(server, node, node_id, issue, message)
