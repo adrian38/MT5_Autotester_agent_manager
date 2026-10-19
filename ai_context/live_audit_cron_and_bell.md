@@ -106,6 +106,33 @@ Lo que sí es de cada ejecución son los **HTML del tester subidos a mano**: viv
 en el `last_payload` de esa ejecución y corresponden a su periodo, así que una
 auditoría de un periodo nuevo vuelve a ejecutar el tester y no los arrastra.
 
+## Avisos del escritorio (push del navegador)
+
+Petición del usuario: que el navegador avise, que se pregunte **la primera
+vez** y que la campana tenga un botón para activarlos desde ahí.
+
+Es la API `Notification`, no Web Push: avisa mientras el manager esté abierto
+en alguna pestaña, y no necesita service worker, claves VAPID ni un servicio de
+push al que el manager no podría llegar desde la red local. Para que avisara
+con el navegador cerrado haría falta todo eso.
+
+Tres decisiones que no se pueden deducir del código:
+
+- **Se pregunta con un clic de por medio.** `requestPermission()` lanzada sola
+  al cargar la descartan los navegadores por no salir de un gesto del usuario,
+  y ahí se pierde el permiso para siempre. Por eso la primera vez aparece una
+  tarjeta propia —«¿Quieres que el navegador te avise?»— y el permiso nativo
+  sale al pulsar «Activar». «Ahora no» se recuerda en `localStorage`
+  (`cron-push-asked`) y no vuelve a preguntar: el botón de la campana queda
+  para cuando quiera.
+- **`Notification` exige contexto seguro.** `http://localhost` lo es; abrir el
+  manager por su IP de la red local, no. Ahí el navegador no ofrece permiso
+  alguno, así que el botón se deshabilita y dice por qué, en vez de quedarse
+  como un botón que no hace nada.
+- **La marca de agua avanza aunque no haya permiso** (`cron-push-last-id`). Sin
+  eso, activar los avisos un martes soltaría de golpe los del sábado. Lo
+  pasado ya está en la campana; el escritorio avisa de lo que llegue después.
+
 ## Avisos que emite la campana
 
 Terminó (`completed`), terminó sin comparación (`not_comparable`), falló

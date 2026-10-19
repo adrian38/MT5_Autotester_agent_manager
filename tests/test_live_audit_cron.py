@@ -406,6 +406,30 @@ class CronScreenTests(unittest.TestCase):
         ):
             self.assertIn(token, self.script)
 
+    def test_the_desktop_notices_are_asked_once_and_can_be_turned_on_later(self) -> None:
+        # El navegador descarta la petición de permiso que no sale de un gesto
+        # del usuario, así que se pregunta con un botón, una sola vez, y el de
+        # la campana queda para después.
+        self.assertIn("Notification.requestPermission()", self.script)
+        self.assertIn("cron-push-ask", self.script)
+        self.assertIn("cron-push-now", self.script)
+        self.assertIn("cron-push-later", self.script)
+        self.assertIn("'cron-push-asked'", self.script)
+        self.assertIn("¿Quieres que el navegador te avise?", self.script)
+        # El botón permanente vive en la campana.
+        self.assertIn("field('#cron-push').addEventListener", self.script)
+
+    def test_it_does_not_offer_what_the_browser_cannot_give(self) -> None:
+        # `Notification` exige contexto seguro: por IP de la red local no hay
+        # permiso que pedir, y un botón que no hace nada es peor que decirlo.
+        self.assertIn("window.isSecureContext", self.script)
+        self.assertIn("'unsupported'", self.script)
+        self.assertIn("localhost o con https", self.script)
+
+    def test_the_first_poll_does_not_replay_the_whole_bell(self) -> None:
+        self.assertIn("'cron-push-last-id'", self.script)
+        self.assertIn("pushNew(notifications.events)", self.script)
+
     def test_it_talks_to_the_real_endpoints(self) -> None:
         for endpoint in (
             "/api/live-audit-scheduler-config",

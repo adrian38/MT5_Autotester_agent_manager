@@ -70,12 +70,35 @@
       <div><p class="eyebrow">CAMPANA</p><h2>Avisos de auditoría</h2></div>
       <button type="button" class="secondary" id="cron-panel-close" aria-label="Cerrar">×</button>
     </header>
+    <div class="cron-push-row">
+      <button type="button" class="secondary" id="cron-push">Activar avisos del escritorio</button>
+      <small id="cron-push-note"></small>
+    </div>
     <ul class="cron-events" id="cron-events"></ul>
     <footer>
       <button type="button" class="secondary" id="cron-mark-read">Marcar leídos</button>
       <button type="button" class="secondary" id="cron-clear">Vaciar</button>
     </footer>`;
   document.body.appendChild(panel);
+
+  // Se pregunta una vez, y con un clic de por medio: el navegador descarta la
+  // petición de permiso que no sale de un gesto del usuario, así que lanzarla
+  // sola al cargar es la forma más fácil de quedarse sin avisos para siempre.
+  const ask = document.createElement('aside');
+  ask.className = 'cron-push-ask';
+  ask.id = 'cron-push-ask';
+  ask.hidden = true;
+  ask.innerHTML = `
+    <div>
+      <strong>¿Quieres que el navegador te avise?</strong>
+      <small>Cuando una auditoría termine o falle, el aviso salta aunque estés en otra
+      pestaña. Hace falta tener el manager abierto en alguna.</small>
+    </div>
+    <div class="cron-push-actions">
+      <button type="button" id="cron-push-now">Activar</button>
+      <button type="button" class="secondary" id="cron-push-later">Ahora no</button>
+    </div>`;
+  document.body.appendChild(ask);
 
   const dialog = document.createElement('dialog');
   dialog.className = 'cron-dialog';
@@ -206,6 +229,102 @@
     ));
   }
 
+  // --- Avisos del escritorio ----------------------------------------------
+  const PUSH_ASKED = 'cron-push-asked';
+  const PUSH_LAST = 'cron-push-last-id';
+
+  function stored(key) {
+    try { return localStorage.getItem(key); } catch (_error) { return null; }
+  }
+
+  function remember(key, value) {
+    try { localStorage.setItem(key, value); } catch (_error) { /* modo privado */ }
+  }
+
+  // `Notification` sólo existe en contexto seguro. `http://localhost` lo es;
+  // abrir el manager por su IP de la red local, no, y ahí el navegador no
+  // ofrece el permiso: hay que decirlo en vez de dejar un botón que no hace
+  // nada.
+  function pushState() {
+    if (!('Notification' in window)) return 'unsupported';
+    if (!window.isSecureContext) return 'insecure';
+    return Notification.permission;
+  }
+
+  const PUSH_LABELS = {
+    granted: ['Avisos del escritorio activos', 'El navegador avisará de cada auditoría que termine o falle.'],
+    denied: ['Avisos bloqueados por el navegador', 'Los bloqueaste para esta dirección: vuelve a permitirlos en el candado de la barra de direcciones.'],
+    unsupported: ['Este navegador no tiene avisos de escritorio', 'La campana sigue funcionando igual.'],
+    insecure: ['Avisos del escritorio no disponibles aquí', 'El navegador sólo los permite en localhost o con https. Abre el manager en localhost para activarlos.'],
+    default: ['Activar avisos del escritorio', 'Saltan aunque estés en otra pestaña, mientras tengas el manager abierto.'],
+  };
+
+  // Con la campana abierta no se enseña la tarjeta: se solaparían, y ahí
+  // dentro ya está el mismo botón.
+  function syncAsk() {
+    ask.hidden = pushState() !== 'default' || Boolean(stored(PUSH_ASKED)) || !panel.hidden;
+  }
+
+  function applyPushState() {
+    const state = pushState();
+    const [label, help] = PUSH_LABELS[state] || PUSH_LABELS.default;
+    const button = field('#cron-push');
+    button.textContent = label;
+    button.disabled = state !== 'default';
+    field('#cron-push-note').textContent = help;
+    syncAsk();
+  }
+
+  async function requestPush() {
+    remember(PUSH_ASKED, '1');
+    if (pushState() !== 'default') {
+      applyPushState();
+      return;
+    }
+    try {
+      const result = await Notification.requestPermission();
+      applyPushState();
+      notify(result === 'granted'
+        ? 'Avisos del escritorio activados.'
+        : 'Sin avisos del escritorio: los verás igual en la campana.');
+    } catch (error) { notify(error.message, true); }
+  }
+
+  function pushEvent(event) {
+    const desktop = new Notification(event.title, {
+      body: event.message || '', tag: `cron-${event.id}`,
+    });
+    desktop.onclick = () => {
+      window.focus();
+      panel.hidden = false;
+      desktop.close();
+    };
+  }
+
+  // Lo que sea nuevo desde la última vez que se miró. Sin permiso se apunta
+  // igual por dónde va, así que activarlos un martes no suelta de golpe los
+  // avisos del sábado: la campana ya los tiene y ahí siguen.
+  function pushNew(events) {
+    const highest = events.reduce((top, event) => Math.max(top, Number(event.id) || 0), 0);
+    const last = stored(PUSH_LAST);
+    if (last === null || pushState() !== 'granted') {
+      remember(PUSH_LAST, String(Math.max(highest, Number(last) || 0)));
+      return;
+    }
+    const fresh = events
+      .filter(event => Number(event.id) > Number(last) && !event.read)
+      .sort((left, right) => Number(left.id) - Number(right.id));
+    if (!fresh.length) return;
+    remember(PUSH_LAST, String(Math.max(highest, Number(last))));
+    fresh.slice(-3).forEach(pushEvent);
+    if (fresh.length > 3) {
+      pushEvent({
+        id: `resto-${highest}`, title: `${fresh.length} avisos nuevos de auditoría`,
+        message: 'Ábrelos en la campana del manager.',
+      });
+    }
+  }
+
   // --- Campana ------------------------------------------------------------
   function eventMarkup(event) {
     const link = event.node_id && event.audit_id
@@ -232,6 +351,7 @@
       ? notifications.events.map(eventMarkup).join('')
       : '<li class="cron-empty">Todavía no hay avisos. Aquí aparecerá cada auditoría que '
         + 'termine y cada una que falle.</li>';
+    pushNew(notifications.events);
   }
 
   async function loadNotifications() {
@@ -278,11 +398,25 @@
 
   bell.addEventListener('click', async () => {
     panel.hidden = !panel.hidden;
+    syncAsk();
     if (!panel.hidden) {
       try { await loadNotifications(); } catch (error) { notify(error.message, true); }
     }
   });
-  field('#cron-panel-close').addEventListener('click', () => { panel.hidden = true; });
+  field('#cron-panel-close').addEventListener('click', () => {
+    panel.hidden = true;
+    syncAsk();
+  });
+  field('#cron-push').addEventListener('click', requestPush);
+  field('#cron-push-now').addEventListener('click', async () => {
+    ask.hidden = true;
+    await requestPush();
+  });
+  field('#cron-push-later').addEventListener('click', () => {
+    remember(PUSH_ASKED, '1');
+    ask.hidden = true;
+    notify('Puedes activarlos cuando quieras desde la campana.');
+  });
   field('#cron-mark-read').addEventListener('click', async () => {
     try { applyNotifications(await post('/api/live-audit-notifications/read', {})); }
     catch (error) { notify(error.message, true); }
@@ -293,6 +427,7 @@
     catch (error) { notify(error.message, true); }
   });
 
+  applyPushState();
   loadScheduler().catch(() => {});
   loadNotifications().catch(() => {});
   // El mismo pulso que la portada: un aviso del sábado no puede tardar en
