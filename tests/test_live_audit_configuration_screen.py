@@ -140,7 +140,10 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("tester_saved_account_id", self.script)
         self.assertIn("Cuenta para este uso", self.script)
         self.assertIn("Nueva cuenta · escribir login, servidor y contraseña", self.script)
-        self.assertIn("la contraseña nunca vuelve al navegador", self.script)
+        # La lista nunca lleva secretos; la contraseña vuelve al navegador
+        # sólo cuando el usuario la pide con el ojo de su campo.
+        self.assertIn("La lista solo muestra login y servidor", self.script)
+        self.assertIn("sólo vuelve al navegador cuando la pides con el ojo", self.script)
 
     def test_each_saved_account_is_one_option_with_its_shared_uses(self) -> None:
         options = self.script.split("function savedAccountOptions", 1)[1]

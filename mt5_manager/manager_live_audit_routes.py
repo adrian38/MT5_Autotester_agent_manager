@@ -277,6 +277,25 @@ def _handle_view_field(handler, parts: list[str], write: bool) -> bool:
     return True
 
 
+def _handle_saved_password(handler, parts: list[str]) -> bool:
+    """El ojo de la pantalla pidiendo una contraseña guardada, de una en una.
+
+    La referencia es un id del catálogo de cuentas. Lo que no esté guardado es
+    un 404: un 200 con el campo vacío diría que la contraseña es la vacía.
+    """
+    if len(parts) != 5 or parts[:2] != ["api", "nodes"] or parts[3] != "live-audit-password":
+        return False
+    try:
+        node_id = urllib.parse.unquote(parts[2])
+        handler._node(node_id)
+        handler._send_json(200, {"password": handler.server.live_audit_settings.revealed_password(
+            node_id, urllib.parse.unquote(parts[4]),
+        )})
+    except (KeyError, ValueError) as exc:
+        handler._send_json(404, {"error": str(exc) or "No hay contraseña guardada"})
+    return True
+
+
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     """Configuracion de la auditoria en vivo, sus informes y sus artefactos."""
     if handle_dashboard_get(handler, parts) or _handle_view_field(handler, parts, write=False):
@@ -334,7 +353,7 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
         except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
             handler._send_json(502, {"error": str(exc)})
         return True
-    return False
+    return _handle_saved_password(handler, parts)
 
 
 def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> dict[str, Any]:

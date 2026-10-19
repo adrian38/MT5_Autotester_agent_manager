@@ -2,16 +2,36 @@
 
 Sale de `live_audit_settings.py`, que estaba justo en el techo de 600 lineas.
 Es un bloque cohesionado: toma los perfiles y las credenciales cifradas que ya
-tiene el almacen y responde que cuentas hay, de donde salen y cual es la que
-debe quedar en los terminales. No escribe nada.
+tiene el almacen y responde que cuentas hay, de donde salen, cual es la que
+debe quedar en los terminales y, cuando la pantalla la pide, cual es su
+contrasena. No escribe nada.
 """
 from __future__ import annotations
 
 from typing import Any
 
+from cryptography.fernet import InvalidToken
+
 from .live_audit_settings_schema import DEFAULT_TERMINAL_RESTORE_ACCOUNT
 
 _RESTORE_CREDENTIAL_ID = "__terminal_restore__"
+_RESTORE_ACCOUNT_REFERENCE = "restore:terminal"
+_PROFILE_ROLES = ("source", "tester")
+
+
+def _secret_location(reference: str) -> tuple[str, str]:
+    """Traduce un id del catálogo al registro y el campo que guardan su token.
+
+    Son los mismos ids que `_account_catalog` publica, así que la pantalla pide
+    la contraseña de una cuenta con lo que ya tiene en la mano: el valor del
+    selector de cuentas o el del rol que está editando.
+    """
+    if reference == _RESTORE_ACCOUNT_REFERENCE:
+        return _RESTORE_CREDENTIAL_ID, "restore_password"
+    parts = reference.split(":")
+    if len(parts) == 3 and parts[0] == "profile" and parts[2] in _PROFILE_ROLES:
+        return parts[1], f"{parts[2]}_password"
+    raise KeyError(f"Referencia de cuenta desconocida: {reference}")
 
 
 class LiveAuditAccountsMixin:
@@ -70,7 +90,7 @@ class LiveAuditAccountsMixin:
         )
         if restore["login"] and restore["server"] and token:
             candidates.append({
-                "id": "restore:terminal",
+                "id": _RESTORE_ACCOUNT_REFERENCE,
                 "login": str(restore["login"]),
                 "server": str(restore["server"]),
                 "token": token,
@@ -120,3 +140,30 @@ class LiveAuditAccountsMixin:
         candidates = self._profile_account_candidates(node_id)
         self._append_restore_candidate(node_id, candidates)
         return self._account_catalog(candidates)
+
+    def revealed_password(self, node_id: str, reference: str) -> str:
+        """Descifra una contraseña guardada porque el usuario pide verla.
+
+        Es lo único que devuelve un secreto a la pantalla, y sólo de uno en
+        uno: el estado del uso sigue llevando el sí o el no de siempre. Quien
+        abre el manager ya puede lanzar la auditoría con esa cuenta, así que lo
+        que protege el cifrado es el disco, no a quien tiene la pantalla
+        delante; teclear a ciegas una contraseña larga del bróker y descubrir
+        la errata veinte minutos después no compensaba ese silencio.
+
+        Un token que ya no descifra —clave cambiada o fichero copiado de otro
+        equipo— sale como `ValueError` y no como fallo de `cryptography`: para
+        quien pregunta es lo mismo que no tenerla.
+        """
+        credential_id, key = _secret_location(reference)
+        with self.lock:
+            stored = (self.credential_records.get(node_id) or {}).get(credential_id) or {}
+            token = str(stored.get(key) or "")
+            if not token:
+                raise KeyError(f"No hay contraseña guardada para {reference}")
+            try:
+                return self._cipher(create=False).decrypt(token.encode("ascii")).decode("utf-8")
+            except InvalidToken as exc:
+                raise ValueError(
+                    f"La contraseña guardada de {reference} ya no se puede descifrar",
+                ) from exc

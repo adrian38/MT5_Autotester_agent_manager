@@ -1,9 +1,13 @@
-"""El ojo que enseña la contraseña del terminal mientras se escribe.
+"""El ojo que enseña la contraseña del terminal: la que se escribe y la guardada.
 
 No hay runtime de JavaScript en este equipo, así que lo que se exige es que el
 módulo exista, se sirva, lo carguen las dos pantallas que piden una cuenta de
 terminal, y que no se quede nadie fuera: cualquier `input[type=password]`
 nuevo lo hereda sin tocar esta pieza.
+
+Que el manager devuelva de verdad la contraseña guardada lo comprueba
+`test_live_audit_password_route`; aquí sólo se exige que la pantalla sepa
+pedirla y no se quede con lo prestado.
 """
 from __future__ import annotations
 
@@ -51,7 +55,8 @@ class PasswordRevealTests(unittest.TestCase):
     def test_the_button_toggles_the_type_and_says_what_it_does(self) -> None:
         self.assertIn("'Mostrar la contraseña'", self.script)
         self.assertIn("'Ocultar la contraseña'", self.script)
-        self.assertIn("input.type = input.type === 'password' ? 'text' : 'password';", self.script)
+        self.assertIn("const reveal = input.type === 'password';", self.script)
+        self.assertIn("input.type = reveal ? 'text' : 'password';", self.script)
         # Un botón dentro de un formulario que no declara su tipo lo envía.
         self.assertIn("button.type = 'button';", self.script)
 
@@ -72,11 +77,46 @@ class PasswordRevealTests(unittest.TestCase):
         # El campo deja sitio al botón en vez de quedar tapado por él.
         self.assertRegex(self.styles, re.compile(r"\.password-field>input\{[^}]*padding-right"))
 
-    def test_it_does_not_promise_to_show_what_the_browser_never_receives(self) -> None:
-        # Las guardadas viajan cifradas y el manager sólo devuelve un sí o un
-        # no. El módulo lo dice, para que nadie lo lea como un fallo.
-        self.assertIn("Sólo enseña lo que hay escrito en el navegador", self.script)
-        self.assertNotIn("password_saved", self.script)
+    def test_the_eye_also_asks_the_manager_for_a_password_already_saved(self) -> None:
+        # Lo que se enseña sobre un campo vacío no lo tiene el navegador: hay
+        # que ir a buscarlo, y sólo si el campo dice de dónde.
+        self.assertIn("input.dataset.passwordSource", self.script)
+        self.assertIn("await fetch(url, {cache: 'no-store'})", self.script)
+        self.assertIn("if (reveal) await borrow(input); else forget(input);", self.script)
+
+    def test_a_borrowed_password_disappears_and_is_never_sent_as_a_change(self) -> None:
+        # Un campo vacío significa «conserva la guardada»; si lo que trajo el
+        # ojo se quedara dentro, guardar volvería a cifrar lo mismo.
+        self.assertIn("input.dataset.passwordFetched = 'on';", self.script)
+        self.assertRegex(self.script, re.compile(
+            r"function forget\(input\) \{[^}]*delete input\.dataset\.passwordFetched;"
+            r"\s*input\.value = '';", re.S,
+        ))
+        self.assertIn(
+            "input.addEventListener('input', () => { delete input.dataset.passwordFetched; });",
+            self.script,
+        )
+        for role in ("source", "tester"):
+            self.assertIn(f"{role}_password: typedPassword(card, '{role}'),", self.audit)
+        self.assertIn("window.PasswordReveal?.typed(input)", self.audit)
+
+    def test_the_four_saved_passwords_of_the_audit_screen_say_where_to_ask(self) -> None:
+        # Las dos del uso —propias o heredadas de la cuenta elegida— y la
+        # cuenta final. La de sincronizar símbolos no se guarda: no hay fuente.
+        self.assertIn("live-audit-password/${encodeURIComponent(reference)}", self.audit)
+        self.assertIn("${passwordSource(sourceSecret)}", self.audit)
+        self.assertIn("${passwordSource(testerSecret)}", self.audit)
+        self.assertIn("passwordUrl(account.id)", self.audit)
+        self.assertIn("passwordUrl(`profile:${card.dataset.profileId}:${role}`)", self.audit)
+        self.assertIn("passwordUrl('restore:terminal')", self.audit)
+        self.assertNotIn("data-password-source", self.manager)
+
+    def test_a_failed_request_says_so_instead_of_leaving_the_field_empty(self) -> None:
+        self.assertIn("new CustomEvent('password-reveal-error'", self.script)
+        self.assertIn(
+            "document.addEventListener('password-reveal-error', event => toast(event.detail.message, true));",
+            self.audit,
+        )
 
 
 if __name__ == "__main__":

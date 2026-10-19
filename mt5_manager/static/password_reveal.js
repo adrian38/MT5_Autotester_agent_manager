@@ -5,10 +5,16 @@
  * no es aceptable. Esto le pone a cada `input[type=password]` un botón que la
  * enseña mientras se escribe.
  *
- * **Sólo enseña lo que hay escrito en el navegador.** Las guardadas viajan
- * cifradas y el manager nunca las devuelve: la pantalla recibe `*_password_
- * saved`, un sí o un no, así que sobre un campo vacío el ojo no tiene nada que
- * enseñar. Eso es a propósito y no lo arregla esta pieza.
+ * **También enseña una ya guardada.** Un campo vacío que lleve
+ * `data-password-source` tiene detrás la ruta del manager que la descifra: el
+ * ojo la pide y la pinta. Lo que llega así se marca como prestado, de manera
+ * que al taparlo vuelve a desaparecer y el formulario no lo envía como si el
+ * usuario hubiera escrito una contraseña nueva; en cuanto se teclea encima
+ * deja de ser prestado y pasa a ser suyo.
+ *
+ * Sin esa fuente el ojo sigue enseñando sólo lo que hay escrito. Si la
+ * petición falla, el campo se queda vacío y el input emite
+ * `password-reveal-error`, que la pantalla convierte en aviso.
  *
  * Se aplica solo, también a lo que se pinta después: las tarjetas de uso se
  * vuelven a construir enteras cada vez que cambia el nodo.
@@ -29,6 +35,35 @@
     button.classList.toggle('on', input.type !== 'password');
   }
 
+  // Prestada: vino del manager, no la escribió nadie. Se borra al taparla
+  // para que el campo vacío siga significando «conserva la guardada».
+  function forget(input) {
+    if (!input.dataset.passwordFetched) return;
+    delete input.dataset.passwordFetched;
+    input.value = '';
+  }
+
+  function typed(input) {
+    return input && input.dataset.passwordFetched ? '' : (input ? input.value : '');
+  }
+
+  async function borrow(input) {
+    const url = input.dataset.passwordSource || '';
+    if (!url || input.value) return;
+    try {
+      const response = await fetch(url, {cache: 'no-store'});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.password) throw new Error(data.error || response.statusText);
+      input.value = data.password;
+      input.dataset.passwordFetched = 'on';
+    } catch (error) {
+      input.dispatchEvent(new CustomEvent('password-reveal-error', {
+        bubbles: true,
+        detail: {message: `No se pudo recuperar la contraseña guardada: ${error.message}`},
+      }));
+    }
+  }
+
   function decorate(input) {
     if (input.dataset.passwordReveal || !input.parentNode) return;
     input.dataset.passwordReveal = 'on';
@@ -43,11 +78,14 @@
     // espera un paso intermedio, y con teclado se escribe a ciegas igual.
     button.tabIndex = -1;
     button.innerHTML = EYE;
-    button.addEventListener('click', () => {
-      input.type = input.type === 'password' ? 'text' : 'password';
+    button.addEventListener('click', async () => {
+      const reveal = input.type === 'password';
+      if (reveal) await borrow(input); else forget(input);
+      input.type = reveal ? 'text' : 'password';
       label(button, input);
       input.focus();
     });
+    input.addEventListener('input', () => { delete input.dataset.passwordFetched; });
     label(button, input);
     field.appendChild(button);
   }
@@ -63,6 +101,7 @@
       .querySelectorAll('.password-field > input[type="text"]')
       .forEach(input => {
         input.type = 'password';
+        forget(input);
         const button = input.parentNode.querySelector('.password-reveal');
         if (button) label(button, input);
       });
@@ -83,7 +122,7 @@
     watch();
   }
 
-  window.PasswordReveal = {apply, conceal};
+  window.PasswordReveal = {apply, conceal, typed};
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start);
   } else {

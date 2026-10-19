@@ -44,6 +44,18 @@ booleanos `source_password_saved` y `tester_password_saved` dentro de
 anterior de ese portafolio. Los tres ficheros son estado propio del manager: no
 escriben en ningún proyecto de agente.
 
+Un secreto vuelve al navegador por una sola puerta y de uno en uno:
+`GET /api/nodes/<id>/live-audit-password/<referencia>`, que es lo que pide el
+ojo de cada campo cuando el usuario quiere ver una contraseña ya guardada. La
+referencia es un id del catálogo de cuentas (`profile:<uso>:source|tester` o
+`restore:terminal`), así que la pantalla pide con lo que ya tiene pintado, y lo
+que no esté guardado es un 404. Lo que llega así se marca como prestado en el
+campo: al tapar el ojo desaparece, y el POST no lo manda, que un campo vacío
+sigue significando «conserva la guardada». El cifrado protege el disco, no a
+quien tiene la pantalla delante: quien abre el manager ya puede lanzar la
+auditoría con esa cuenta. Con `host` distinto de `127.0.0.1` el manager no pide
+credenciales a nadie, así que esa puerta queda abierta a toda la red.
+
 El contrato público es por nodo y por portafolio:
 
 - `selected_portfolio_ids`: portafolios cuyas pruebas están seleccionadas;
@@ -401,7 +413,8 @@ El valor inicial visible es login `11637157` y servidor
 público: se guarda como `restore_password` cifrada con la misma clave Fernet en
 el registro reservado `__terminal_restore__`. El estado público solo devuelve
 `password_saved` y `configured`. Guardar una contraseña vacía conserva el
-secreto anterior.
+secreto anterior, y el ojo del diálogo la enseña pidiéndola por la referencia
+`restore:terminal`.
 
 El manager no permite lanzar manual ni automáticamente una auditoría sin una
 cuenta final completa. El runtime IC registra cada ruta donde activó la cuenta

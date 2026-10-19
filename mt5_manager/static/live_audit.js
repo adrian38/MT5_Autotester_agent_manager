@@ -48,6 +48,10 @@ function toast(message, error = false) {
   setTimeout(() => { element.className = ''; }, 3500);
 }
 
+// El ojo pide la contraseña guardada por su cuenta; si el manager no la da,
+// el campo se queda vacío y hay que decir por qué.
+document.addEventListener('password-reveal-error', event => toast(event.detail.message, true));
+
 async function jsonResponse(response) {
   const text = await response.text();
   try { return text ? JSON.parse(text) : {}; }
@@ -333,6 +337,16 @@ function auditOperationsMarkup(auditId) {
   </section>`;
 }
 
+// La ruta que descifra una contraseña guardada, para el ojo del campo. Sin
+// cuenta detrás no se pone el atributo: no hay nada que pedir.
+function passwordUrl(reference) {
+  return `/api/nodes/${encodeURIComponent(nodeId)}/live-audit-password/${encodeURIComponent(reference)}`;
+}
+
+function passwordSource(reference) {
+  return reference ? ` data-password-source="${escapeHtml(passwordUrl(reference))}"` : '';
+}
+
 function profileMarkup(auditId) {
   const profile = {...defaults, ...(profiles[String(auditId)] || {})};
   const id = Number(profile.portfolio_id || 0);
@@ -347,6 +361,8 @@ function profileMarkup(auditId) {
   const testerReference = profile.tester_saved_account_id || '';
   const sourceReady = sourceSaved || Boolean(sourceReference);
   const testerReady = testerSaved || Boolean(testerReference);
+  const sourceSecret = sourceReference || (sourceSaved ? `profile:${auditId}:source` : '');
+  const testerSecret = testerReference || (testerSaved ? `profile:${auditId}:tester` : '');
   const modeField = singleMode
     ? `<label>Modo del portafolio<select data-field="portfolio_type" disabled>${option(singleMode, MODE_LABELS[singleMode], singleMode)}</select><small>Este portafolio guarda una sola variante: su modo es el que heredó de la base y no se elige.</small></label>`
     : `<label>Modo del portafolio<select data-field="portfolio_type" required>${option('', 'Selecciona Agresivo / Moderado / Conservador', profile.portfolio_type)}${option('aggressive', 'Agresivo', profile.portfolio_type)}${option('balanced', 'Moderado', profile.portfolio_type)}${option('conservative', 'Conservador', profile.portfolio_type)}</select></label>`;
@@ -369,7 +385,7 @@ function profileMarkup(auditId) {
         <label>Cuenta para este uso<select data-saved-account-role="source">${savedAccountOptions(sourceReference, sourceSaved)}</select></label>
         <label>Login real<input data-field="source_login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" value="${escapeHtml(profile.source_login)}" data-original-value="${escapeHtml(profile.source_login)}" required></label>
         <label>Servidor real<input data-field="source_server" maxlength="160" autocomplete="off" value="${escapeHtml(profile.source_server)}" data-original-value="${escapeHtml(profile.source_server)}" required></label>
-        <label>Contraseña real<input data-field="source_password" type="password" maxlength="512" autocomplete="new-password" placeholder="${sourceReady ? 'Guardada · no es necesario volver a escribirla' : 'Introduce la contraseña'}"${sourceReady ? '' : ' required'}></label>
+        <label>Contraseña real<input data-field="source_password" type="password" maxlength="512" autocomplete="new-password" placeholder="${sourceReady ? 'Guardada · pulsa el ojo para verla' : 'Introduce la contraseña'}"${sourceReady ? '' : ' required'}${passwordSource(sourceSecret)}></label>
         <small data-account-state-role="source" class="${sourceReady ? 'saved' : ''}">${sourceReference ? 'Se reutilizará la contraseña cifrada de la cuenta elegida' : sourceSaved ? 'Contraseña guardada en este uso' : 'Todavía no guardada'}</small>
       </fieldset>
       <fieldset class="live-audit-account">
@@ -377,11 +393,11 @@ function profileMarkup(auditId) {
         <label>Cuenta para este uso<select data-saved-account-role="tester">${savedAccountOptions(testerReference, testerSaved)}</select></label>
         <label>Login de pruebas<input data-field="tester_login" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" value="${escapeHtml(profile.tester_login)}" data-original-value="${escapeHtml(profile.tester_login)}" required></label>
         <label>Servidor de pruebas<input data-field="tester_server" maxlength="160" autocomplete="off" value="${escapeHtml(profile.tester_server)}" data-original-value="${escapeHtml(profile.tester_server)}" required></label>
-        <label>Contraseña de pruebas<input data-field="tester_password" type="password" maxlength="512" autocomplete="new-password" placeholder="${testerReady ? 'Guardada · no es necesario volver a escribirla' : 'Introduce la contraseña'}"${testerReady ? '' : ' required'}></label>
+        <label>Contraseña de pruebas<input data-field="tester_password" type="password" maxlength="512" autocomplete="new-password" placeholder="${testerReady ? 'Guardada · pulsa el ojo para verla' : 'Introduce la contraseña'}"${testerReady ? '' : ' required'}${passwordSource(testerSecret)}></label>
         <small data-account-state-role="tester" class="${testerReady ? 'saved' : ''}">${testerReference ? 'Se reutilizará la contraseña cifrada de la cuenta elegida' : testerSaved ? 'Contraseña guardada en este uso' : 'Todavía no guardada'}</small>
       </fieldset>
     </div>
-    <p class="live-audit-security"><strong>Catálogo seguro por nodo.</strong> Solo se muestran login y servidor; al reutilizar una cuenta, el manager copia internamente su secreto cifrado y la contraseña nunca vuelve al navegador.</p>
+    <p class="live-audit-security"><strong>Catálogo seguro por nodo.</strong> La lista solo muestra login y servidor, y al reutilizar una cuenta el manager copia internamente su secreto cifrado. La contraseña sólo vuelve al navegador cuando la pides con el ojo de su campo.</p>
     <div class="live-audit-subtitle"><strong>Calidad de datos tick a tick</strong><span>El set que no acredite este porcentaje se marca en el resultado; los demás se comparan igual.</span></div>
     <div class="live-audit-fields live-audit-quality-fields">
       <label>Calidad histórica mínima (%)<input data-field="min_tick_history_quality_pct" type="number" min="0" max="100" step="any" value="${profile.min_tick_history_quality_pct}" required></label>
@@ -478,13 +494,20 @@ function readCard(card) {
   };
 }
 
+function typedPassword(card, role) {
+  const input = card.querySelector(`[data-field="${role}_password"]`);
+  return window.PasswordReveal?.typed(input) ?? input.value;
+}
+
 function captureDrafts() {
   configsEl.querySelectorAll('[data-profile-id]').forEach(card => {
     const id = card.dataset.profileId;
     profiles[id] = readCard(card);
+    // Lo que el ojo trajo del manager no es un cambio: guardarlo volvería a
+    // cifrar la misma contraseña y, al repintar, quedaría a la vista.
     passwordDrafts[id] = {
-      source_password: card.querySelector('[data-field="source_password"]').value,
-      tester_password: card.querySelector('[data-field="tester_password"]').value,
+      source_password: typedPassword(card, 'source'),
+      tester_password: typedPassword(card, 'tester'),
     };
   });
 }
@@ -518,6 +541,9 @@ function applySavedAccount(card, role) {
   const alreadySaved = Boolean(
     credentialState[String(card.dataset.profileId)]?.[`${role}_password_saved`]
   );
+  // La cuenta de este rol cambia: lo que el ojo hubiera traído era de la
+  // anterior. El otro rol no se toca, que su campo es suyo.
+  window.PasswordReveal?.conceal(password.closest('fieldset') || card);
   if (account) {
     login.value = account.login;
     server.value = account.server;
@@ -525,7 +551,8 @@ function applySavedAccount(card, role) {
     server.readOnly = true;
     password.value = '';
     password.required = false;
-    password.placeholder = 'Guardada · no es necesario volver a escribirla';
+    password.placeholder = 'Guardada · pulsa el ojo para verla';
+    password.dataset.passwordSource = passwordUrl(account.id);
     state.textContent = 'Se reutilizará la contraseña cifrada de la cuenta elegida';
     state.classList.add('saved');
     return;
@@ -535,7 +562,12 @@ function applySavedAccount(card, role) {
   login.readOnly = false;
   server.readOnly = false;
   password.required = !alreadySaved;
-  password.placeholder = alreadySaved ? 'Guardada · deja vacío para conservar' : 'Introduce la contraseña';
+  password.placeholder = alreadySaved ? 'Guardada · pulsa el ojo para verla' : 'Introduce la contraseña';
+  if (alreadySaved) {
+    password.dataset.passwordSource = passwordUrl(`profile:${card.dataset.profileId}:${role}`);
+  } else {
+    delete password.dataset.passwordSource;
+  }
   state.textContent = alreadySaved ? 'Contraseña guardada en este uso' : 'Todavía no guardada';
   state.classList.toggle('saved', alreadySaved);
 }
@@ -817,11 +849,16 @@ document.querySelector('#open-restore-account').addEventListener('click', () => 
   document.querySelector('#restore-server').value = restoreAccount.server || '';
   document.querySelector('#restore-password').value = '';
   document.querySelector('#restore-password').required = !restoreAccount.password_saved;
+  if (restoreAccount.password_saved) {
+    document.querySelector('#restore-password').dataset.passwordSource = passwordUrl('restore:terminal');
+  } else {
+    delete document.querySelector('#restore-password').dataset.passwordSource;
+  }
   // El diálogo se reutiliza entre usos: si quedó destapada, la siguiente
   // cuenta se abriría con la contraseña a la vista.
   window.PasswordReveal?.conceal(document.querySelector('#restore-account-dialog'));
   document.querySelector('#restore-password-state').textContent = restoreAccount.password_saved
-    ? 'Contraseña cifrada guardada. Déjala vacía para conservarla.'
+    ? 'Contraseña cifrada guardada. Déjala vacía para conservarla, o pulsa el ojo para verla.'
     : 'Todavía no hay contraseña guardada; es obligatoria antes de auditar.';
   document.querySelector('#restore-account-dialog').showModal();
 });
@@ -836,7 +873,8 @@ document.querySelector('#restore-account-form').addEventListener('submit', async
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
         login: document.querySelector('#restore-login').value.trim(),
         server: document.querySelector('#restore-server').value.trim(),
-        password: document.querySelector('#restore-password').value,
+        password: window.PasswordReveal?.typed(document.querySelector('#restore-password'))
+          ?? document.querySelector('#restore-password').value,
       }),
     });
     const data = await jsonResponse(response);
