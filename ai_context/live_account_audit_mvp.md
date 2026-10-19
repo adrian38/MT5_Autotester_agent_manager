@@ -52,10 +52,10 @@ El contrato público es por nodo y por portafolio:
 - `configured_portfolio_ids`: perfiles seleccionados que están completos.
 
 Desmarcar un portafolio no borra su perfil, su marca `live_trading` ni sus
-credenciales; permite volver a marcarlo sin introducir todo de nuevo. Sin
-embargo, deja de pertenecer al inventario operativo (`live_audit_ids`) hasta que
-vuelva a seleccionarse: un perfil histórico oculto no es un uso activo. La
-migración del primer MVP convierte la
+credenciales; permite volver a marcarlo sin introducir todo de nuevo. La marca
+real es independiente de qué tarjetas estén abiertas en el formulario:
+`live_audit_ids` sigue exponiendo el uso y el cron puede ejecutarlo si su perfil
+y sus credenciales guardadas están completos. La migración del primer MVP convierte la
 configuración compartida en un perfil por cada ID que estuviera seleccionado.
 
 ## Límites deliberados del MVP

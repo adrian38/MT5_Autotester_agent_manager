@@ -175,8 +175,8 @@ class LiveAuditSettingsTests(unittest.TestCase):
         self.assertEqual(saved["live_portfolio_ids"], [11])
         self.assertEqual(reloaded["live_audit_ids"], ["main"])
         self.assertTrue(deselected["profiles"]["main"]["live_trading"])
-        self.assertEqual(deselected["live_audit_ids"], [])
-        self.assertEqual(deselected["live_portfolio_ids"], [])
+        self.assertEqual(deselected["live_audit_ids"], ["main"])
+        self.assertEqual(deselected["live_portfolio_ids"], [11])
 
     def test_real_lot_per_strategy_defaults_empty_and_is_validated(self) -> None:
         self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["real_strategy_lots"], {})

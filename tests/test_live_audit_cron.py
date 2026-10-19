@@ -422,6 +422,24 @@ class WatchTickTests(unittest.TestCase):
         self.assertIn("servidor tester", rows["blocked"][0]["block_reason"])
         self.assertIn("contraseña tester", rows["blocked"][0]["block_reason"])
 
+    def test_a_saved_live_use_does_not_need_to_stay_open_in_the_form(self) -> None:
+        state = audit_state(configured_audit_ids=["22"], live_audit_ids=["11"])
+        state["profiles"]["11"].update({
+            "portfolio_type": "balanced", "source_login": "1",
+            "source_server": "Real", "tester_login": "2", "tester_server": "Tester",
+        })
+        state["credential_state"] = {"11": {
+            "source_password_saved": True, "tester_password_saved": True,
+        }}
+        server = FakeServer(self.root, state)
+
+        self.assertEqual(live_audit_watch.scheduled_audit_ids(
+            state, server.live_audit_scheduler_settings,
+        ), ["11"])
+        rows = live_audit_watch.targets(server)
+        self.assertEqual([row["audit_id"] for row in rows["audits"]], ["11"])
+        self.assertEqual(rows["blocked"], [])
+
     def test_a_missing_final_account_is_visible_before_the_appointment(self) -> None:
         server = FakeServer(
             self.root, audit_state(restore_account={"configured": False}),

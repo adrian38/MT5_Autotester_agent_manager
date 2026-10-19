@@ -94,13 +94,30 @@ def live_audit_ids(state: dict[str, Any]) -> set[str]:
     return {str(audit_id) for audit_id in marked}
 
 
+def _profile_is_configured(state: dict[str, Any], audit_id: str) -> bool:
+    if audit_id in {str(value) for value in state.get("configured_audit_ids") or []}:
+        return True
+    profile = (state.get("profiles") or {}).get(audit_id) or {}
+    credentials = (state.get("credential_state") or {}).get(audit_id) or {}
+    required = (
+        "portfolio_id", "portfolio_type", "source_login", "source_server",
+        "tester_login", "tester_server",
+    )
+    return all(profile.get(key) for key in required) and all((
+        credentials.get("source_password_saved"),
+        credentials.get("tester_password_saved"),
+    ))
+
+
 def scheduled_audit_ids(state: dict[str, Any], settings: dict[str, Any]) -> list[str]:
     """Los usos que le tocan al cron: configurados y, por defecto, solo reales."""
     configured = [str(audit_id) for audit_id in state.get("configured_audit_ids") or []]
     if not settings.get("only_live_trading", True):
         return configured
-    marked = live_audit_ids(state)
-    return [audit_id for audit_id in configured if audit_id in marked]
+    return [
+        audit_id for audit_id in sorted(live_audit_ids(state))
+        if _profile_is_configured(state, audit_id)
+    ]
 
 
 def audit_label(profile: dict[str, Any], audit_id: str) -> str:
@@ -471,7 +488,10 @@ def targets(server: Any) -> dict[str, Any]:
         node_id = str(node.get("id") or "")
         state = server.live_audit_settings.state(node_id)
         profiles = state.get("profiles") or {}
-        configured = {str(value) for value in state.get("configured_audit_ids") or []}
+        configured = {
+            str(audit_id) for audit_id in profiles
+            if _profile_is_configured(state, str(audit_id))
+        }
         chosen = set(scheduled_audit_ids(state, settings))
         watch = server.live_audit_runs.record(LiveAuditRunState.key(
             node_id, "__scheduler_watch__",

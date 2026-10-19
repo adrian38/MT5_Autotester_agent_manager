@@ -56,14 +56,13 @@ También se cerraron cinco contradicciones operativas:
   y entra en la política de reintentos; nunca se anuncia como lanzado.
 
 Una revisión con los datos reales del 2026-10-20 descubrió otra contradicción:
-seis perfiles históricos ya desmarcados conservaban `live_trading=true` y el
-diálogo los contaba como activos para después afirmar, falsamente, que estaban
-incompletos. El inventario operativo ahora exige las dos decisiones del usuario:
-el uso debe estar seleccionado y marcado como real. La marca se conserva al
-desmarcar para poder recuperarla, pero no reaparece en el dashboard ni en la cita
-hasta volver a seleccionar el uso. Los bloqueos reales se muestran en una
-sección separada, enumeran los campos o contraseñas que faltan y enlazan a la
-configuración del nodo.
+seis usos reales completos no estaban abiertos en el formulario y el diálogo
+los acusaba, falsamente, de estar incompletos. `selected_audit_ids` controla las
+tarjetas que se editan; `live_trading` controla el inventario operativo y no
+depende de esa selección. El cron ahora comprueba directamente el perfil y las
+credenciales persistidas de cada uso real, aunque su tarjeta no esté abierta.
+Los bloqueos verdaderos se muestran en una sección separada, enumeran los campos
+o contraseñas que faltan y enlazan a la configuración del nodo.
 
 ## Vigilar siempre, lanzar sólo con el interruptor
 
