@@ -6,6 +6,7 @@ reintentos en vez de relanzar sin parar, y que vigilar no lance nada.
 """
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import threading
@@ -23,6 +24,7 @@ from mt5_manager.live_audit_schedule import (
     normalize_live_audit_scheduler_settings,
 )
 from mt5_manager.live_audit_watch import LiveAuditRunState
+from mt5_manager.manager_server import _scheduler_defaults, _scheduler_settings
 
 
 def settings(**changes: object) -> dict[str, object]:
@@ -40,7 +42,9 @@ class FakeSettingsStore:
         return {"source_password": "s", "tester_password": "t"}
 
     def restore_credentials(self, _node_id: str) -> dict[str, str]:
-        return {"restore_login": "9", "restore_password": "r"}
+        return {
+            "restore_login": "9", "restore_server": "Broker-Test", "restore_password": "r",
+        }
 
 
 class FakeServer:
@@ -61,6 +65,7 @@ def audit_state(**changes: object) -> dict[str, object]:
     return {
         "configured_audit_ids": ["11", "22"],
         "live_audit_ids": ["11"],
+        "restore_account": {"configured": True},
         "profiles": {
             "11": {
                 "portfolio_id": 11, "deployment_name": "Cartera viva",
@@ -125,6 +130,34 @@ class WeeklyCadenceTests(unittest.TestCase):
         self.assertEqual(
             live_audit_schedule.pending_window(interval, None, now), ("sin-ejecutar", True),
         )
+
+    def test_the_description_matches_the_real_scope_period_and_catch_up(self) -> None:
+        live = live_audit_schedule.schedule_description(settings())
+        self.assertIn("marcados «operando en real»", live)
+        self.assertIn("donde terminó la anterior", live)
+        self.assertIn("la recupera", live)
+        every = live_audit_schedule.schedule_description(settings(
+            only_live_trading=False, chain_from_last_audit=False,
+        ))
+        self.assertIn("todos los usos con una auditoría configurada", every)
+        self.assertIn("periodo guardado en su perfil", every)
+
+
+class SchedulerMigrationTests(unittest.TestCase):
+    def test_an_old_saved_interval_does_not_silently_become_weekly(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "scheduler.json"
+            path.write_text(json.dumps({"enabled": True, "interval_days": 17}), encoding="utf-8")
+            migrated = _scheduler_settings(path, settings())
+        self.assertEqual((migrated["mode"], migrated["interval_days"]), ("interval", 17))
+
+    def test_the_old_manager_switch_and_environment_keep_interval_semantics(self) -> None:
+        for config, environment in (
+            ({"live_audit_scheduler_enabled": True}, False),
+            ({}, True),
+        ):
+            defaults = _scheduler_defaults(config, environment)
+            self.assertEqual(settings(**defaults)["mode"], "interval")
 
 
 class RetryPolicyTests(unittest.TestCase):
@@ -340,7 +373,7 @@ class WatchTickTests(unittest.TestCase):
             live_audit_watch.tick(server)
         self.assertEqual(len(posted), 1)
 
-    def test_a_rejected_launch_counts_as_a_failed_attempt(self) -> None:
+    def test_a_409_rejected_launch_counts_as_a_failed_attempt(self) -> None:
         server = FakeServer(self.root, audit_state(), enabled=True)
 
         def rejecting(_node, method, path, payload=None, timeout=0):
@@ -348,7 +381,7 @@ class WatchTickTests(unittest.TestCase):
                 return 200, {"capabilities": {"live_audit_restore_account": True}}
             if method == "GET":
                 return 200, {"audits": {"11": {"status": "idle"}}}
-            return 400, {"error": "El agente está ocupado"}
+            return 409, {"error": "El agente está ocupado"}
 
         with mock.patch("mt5_manager.manager_http.node_request", side_effect=rejecting):
             live_audit_watch.tick(server)
@@ -358,6 +391,21 @@ class WatchTickTests(unittest.TestCase):
         record = server.live_audit_runs.record(LiveAuditRunState.key("n", "11"))
         self.assertEqual((record["outcome"], record["attempts"]), ("failed", 1))
 
+    def test_an_unreachable_node_warns_once_and_reports_its_recovery(self) -> None:
+        server = FakeServer(self.root, audit_state(), enabled=True)
+        with mock.patch("mt5_manager.manager_http.node_request", side_effect=OSError("sin red")):
+            live_audit_watch.tick(server)
+            live_audit_watch.tick(server)
+        self.assertEqual(
+            [event["kind"] for event in server.events()], ["scheduler_node_unavailable"],
+        )
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self.node_answers({"11": {"status": "testing"}}),
+        ):
+            live_audit_watch.tick(server)
+        self.assertEqual(server.events()[0]["kind"], "scheduler_node_recovered")
+
     def test_the_dialog_can_see_what_is_marked_but_not_configured(self) -> None:
         state = audit_state(configured_audit_ids=["22"], live_audit_ids=["11"])
         server = FakeServer(self.root, state)
@@ -365,6 +413,16 @@ class WatchTickTests(unittest.TestCase):
         self.assertEqual([row["audit_id"] for row in rows["audits"]], [])
         self.assertEqual([row["audit_id"] for row in rows["blocked"]], ["11"])
         self.assertEqual(rows["blocked"][0]["label"], "Cartera viva")
+        self.assertIn("configuración", rows["blocked"][0]["block_reason"])
+
+    def test_a_missing_final_account_is_visible_before_the_appointment(self) -> None:
+        server = FakeServer(
+            self.root, audit_state(restore_account={"configured": False}),
+        )
+        rows = live_audit_watch.targets(server)
+        self.assertEqual([row["audit_id"] for row in rows["audits"]], [])
+        self.assertEqual([row["audit_id"] for row in rows["blocked"]], ["11"])
+        self.assertIn("cuenta final", rows["blocked"][0]["block_reason"])
 
 
 class CronScreenTests(unittest.TestCase):
@@ -384,11 +442,12 @@ class CronScreenTests(unittest.TestCase):
         cls.script = (static / "live_audit_schedule.js").read_text(encoding="utf-8")
         cls.dashboard = (static / "dashboard.html").read_text(encoding="utf-8")
         cls.generation = (static / "index.html").read_text(encoding="utf-8")
+        cls.audit = (static / "live_audit.html").read_text(encoding="utf-8")
 
-    def test_the_module_is_served_and_both_headers_load_it(self) -> None:
+    def test_the_module_is_served_and_every_relevant_header_loads_it(self) -> None:
         for name in ("live_audit_schedule.js", "live_audit_schedule.css"):
             self.assertIn(name, self.static_files)
-            for page in (self.dashboard, self.generation):
+            for page in (self.dashboard, self.generation, self.audit):
                 self.assertIn(f'/{name}', page)
 
     def test_the_button_and_the_bell_sit_in_the_top_buttons(self) -> None:
@@ -405,6 +464,11 @@ class CronScreenTests(unittest.TestCase):
             "Encadenar con la última auditoría",
         ):
             self.assertIn(token, self.script)
+
+    def test_the_dialog_exposes_overrides_and_confirms_catch_up(self) -> None:
+        self.assertIn("MT5_MANAGER_LIVE_AUDIT_SCHEDULER impone", self.script)
+        self.assertIn("el cron puede lanzar inmediatamente las citas vencidas", self.script)
+        self.assertIn("scheduler_issues", self.script)
 
     def test_the_desktop_notices_are_asked_once_and_can_be_turned_on_later(self) -> None:
         # El navegador descarta la petición de permiso que no sale de un gesto
@@ -445,6 +509,7 @@ class CronScreenTests(unittest.TestCase):
     def test_the_first_poll_does_not_replay_the_whole_bell(self) -> None:
         self.assertIn("'cron-push-last-id'", self.script)
         self.assertIn("pushNew(notifications.events)", self.script)
+        self.assertIn("event.kind !== 'audit_started'", self.script)
 
     def test_it_talks_to_the_real_endpoints(self) -> None:
         for endpoint in (

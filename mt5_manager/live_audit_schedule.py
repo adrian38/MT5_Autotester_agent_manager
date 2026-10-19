@@ -3,8 +3,8 @@
 Aqui solo hay aritmetica y validacion: ni red, ni ficheros, ni estado. El
 planificador tenia una unica cadencia en dias; ahora tiene ademas la que pidio
 el usuario -un dia de la semana a una hora fija, por defecto el sabado a las
-23:00- y una politica de reintentos. Las dos conviven porque la pantalla de
-configuracion de cada nodo sigue editando los dias.
+23:00- y una politica de reintentos. La cadencia en días se conserva como un
+modo del mismo diálogo general para no romper configuraciones anteriores.
 
 La hora es **hora de pared de una zona horaria explicita**. El contenedor del
 manager corre en UTC, asi que «las 23:00» sin zona serian las 00:00 o la 01:00
@@ -196,6 +196,25 @@ def schedule_label(settings: dict[str, Any]) -> str:
     return (
         f"cada {weekday} a las {int(settings.get('hour', 23)):02d}:"
         f"{int(settings.get('minute', 0)):02d} ({settings.get('timezone') or 'UTC'})"
+    )
+
+
+def schedule_description(settings: dict[str, Any]) -> str:
+    """Resumen fiel al alcance, periodo y recuperación de citas del cron."""
+    scope = (
+        "los usos marcados «operando en real»"
+        if settings.get("only_live_trading", True)
+        else "todos los usos con una auditoría configurada"
+    )
+    period = (
+        "Cada ejecución arranca donde terminó la anterior."
+        if settings.get("chain_from_last_audit", True)
+        else "Cada ejecución usa el periodo guardado en su perfil."
+    )
+    return (
+        f"El manager audita {scope} {schedule_label(settings)}, de uno en uno por agente. "
+        "Nunca duplica una auditoría en curso. Si una cita venció mientras el manager "
+        f"estaba apagado o el cron desarmado, la recupera al volver a estar disponible. {period}"
     )
 
 

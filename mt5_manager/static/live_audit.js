@@ -16,7 +16,6 @@ let passwordDrafts = {};
 let selectedAuditIds = [];
 let configuredAuditIds = new Set();
 let restoreAccount = {};
-let schedulerSettings = {};
 let auditSequence = 0;
 let configPhase = 'configuration_only';
 
@@ -573,17 +572,6 @@ function applyState(data) {
   else setState(configured ? `${configured} CONFIGURADO${configured === 1 ? '' : 'S'}` : 'PENDIENTE', configured ? 'completed' : 'idle');
 }
 
-function applySchedulerState(data) {
-  schedulerSettings = data || {};
-  document.querySelector('#scheduler-enabled').checked = Boolean(schedulerSettings.enabled);
-  document.querySelector('#scheduler-interval-days').value = schedulerSettings.interval_days ?? 30;
-  document.querySelector('#scheduler-description').textContent = schedulerSettings.description || '';
-  const source = document.querySelector('#scheduler-source');
-  source.textContent = schedulerSettings.environment_override
-    ? `La variable MT5_MANAGER_LIVE_AUDIT_SCHEDULER manda sobre este interruptor. Estado efectivo: ${schedulerSettings.effective_enabled ? 'ACTIVO' : 'DESACTIVADO'}.`
-    : `Estado efectivo: ${schedulerSettings.effective_enabled ? 'ACTIVO' : 'DESACTIVADO'}. Los cambios se aplican inmediatamente.`;
-}
-
 function openLastResult(id) {
   const url = `/live_audit_result.html?node=${encodeURIComponent(nodeId)}&audit=${encodeURIComponent(id)}`;
   const resultTab = window.open(url, '_blank');
@@ -706,24 +694,21 @@ async function loadSettings() {
   }
   try {
     const encoded = encodeURIComponent(nodeId);
-    const [configResponse, portfoliosResponse, schedulerResponse] = await Promise.all([
+    const [configResponse, portfoliosResponse] = await Promise.all([
       fetch(`/api/nodes/${encoded}/live-audit-config`, {cache: 'no-store'}),
       fetch(`/api/nodes/${encoded}/portfolios?scope=full_history`, {cache: 'no-store'}),
-      fetch('/api/live-audit-scheduler-config', {cache: 'no-store'}),
     ]);
-    const [data, portfolioData, schedulerData] = await Promise.all([
-      jsonResponse(configResponse), jsonResponse(portfoliosResponse), jsonResponse(schedulerResponse),
+    const [data, portfolioData] = await Promise.all([
+      jsonResponse(configResponse), jsonResponse(portfoliosResponse),
     ]);
     if (!configResponse.ok) throw new Error(data.error || configResponse.statusText);
     if (!portfoliosResponse.ok) throw new Error(portfolioData.error || portfoliosResponse.statusText);
-    if (!schedulerResponse.ok) throw new Error(schedulerData.error || schedulerResponse.statusText);
     portfolios = portfolioData.portfolios || [];
     portfolioDetails = {};
     portfolioDetailErrors = {};
     document.querySelector('#audit-title').textContent = data.node?.name || nodeId;
     applyState(data);
     selectRequestedPortfolio();
-    applySchedulerState(schedulerData);
   } catch (error) {
     setState('ERROR', 'failed');
     portfolioList.innerHTML = '<p class="live-audit-empty">No se pudieron cargar los portafolios.</p>';
@@ -838,11 +823,6 @@ document.querySelector('#open-restore-account').addEventListener('click', () => 
   document.querySelector('#restore-account-dialog').showModal();
 });
 
-document.querySelector('#open-scheduler').addEventListener('click', () => {
-  applySchedulerState(schedulerSettings);
-  document.querySelector('#scheduler-dialog').showModal();
-});
-
 document.querySelector('#restore-account-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (!event.currentTarget.reportValidity()) return;
@@ -865,27 +845,6 @@ document.querySelector('#restore-account-form').addEventListener('submit', async
     }
     document.querySelector('#restore-account-dialog').close();
     toast('Cuenta final guardada y cifrada. Se aplicará a todos los terminales usados.');
-  } catch (error) { toast(error.message, true); }
-  finally { button.disabled = false; }
-});
-
-document.querySelector('#scheduler-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  if (!event.currentTarget.reportValidity()) return;
-  const button = document.querySelector('#save-scheduler');
-  button.disabled = true;
-  try {
-    const response = await fetch('/api/live-audit-scheduler-config', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
-        enabled: document.querySelector('#scheduler-enabled').checked,
-        interval_days: Number(document.querySelector('#scheduler-interval-days').value),
-      }),
-    });
-    const data = await jsonResponse(response);
-    if (!response.ok) throw new Error(data.error || response.statusText);
-    applySchedulerState(data);
-    document.querySelector('#scheduler-dialog').close();
-    toast(`Programación guardada: ${data.effective_enabled ? 'automática activa' : 'solo manual'}.`);
   } catch (error) { toast(error.message, true); }
   finally { button.disabled = false; }
 });

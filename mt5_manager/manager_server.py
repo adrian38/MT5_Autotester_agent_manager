@@ -36,6 +36,34 @@ from .manager_restart import ManagerRestartController
 from .portfolio_service import PortfolioCoordinator
 
 
+_LEGACY_SCHEDULER_CONFIG_KEYS = (
+    "live_audit_scheduler_enabled", "live_audit_scheduler_interval_days",
+)
+
+
+def _scheduler_defaults(config: dict[str, Any], legacy_environment: bool) -> dict[str, Any]:
+    """Conserva la cadencia en días de despliegues anteriores al cron semanal."""
+    legacy = legacy_environment or any(key in config for key in _LEGACY_SCHEDULER_CONFIG_KEYS)
+    return {
+        "enabled": _truthy(config.get("live_audit_scheduler_enabled")),
+        "interval_days": safe_int(
+            config.get("live_audit_scheduler_interval_days"), 30,
+            minimum=1, maximum=3650,
+        ),
+        **({"mode": "interval"} if legacy else {}),
+    }
+
+
+def _scheduler_settings(path: Path, defaults: dict[str, Any]) -> dict[str, Any]:
+    """Carga el JSON y reconoce el contrato antiguo `{enabled, interval_days}`."""
+    if not path.is_file():
+        return normalize_live_audit_scheduler_settings({}, defaults)
+    stored = load_json(path)
+    if "mode" not in stored and "interval_days" in stored:
+        stored = {**stored, "mode": "interval"}
+    return normalize_live_audit_scheduler_settings(stored, defaults)
+
+
 class ManagerServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -95,32 +123,26 @@ class ManagerServer(ThreadingHTTPServer):
             Path(scheduler_file).expanduser().resolve()
             if scheduler_file else live_audit_settings_path.with_name("live_audit_scheduler.json")
         )
-        scheduler_defaults = {
-            "enabled": _truthy(config.get("live_audit_scheduler_enabled")),
-            "interval_days": safe_int(
-                config.get("live_audit_scheduler_interval_days"), 30,
-                minimum=1, maximum=3650,
-            ),
-        }
-        # Normalizado aunque no haya fichero: `manager.json` solo puede
-        # adelantar el interruptor y los días, y el resto del cron tiene que
-        # estar completo desde el primer arranque.
-        self.live_audit_scheduler_settings = normalize_live_audit_scheduler_settings(
-            {}, scheduler_defaults,
-        )
-        if self.live_audit_scheduler_path.is_file():
-            try:
-                self.live_audit_scheduler_settings = normalize_live_audit_scheduler_settings(
-                    load_json(self.live_audit_scheduler_path), scheduler_defaults,
-                )
-            except ValueError as exc:
-                print(f"[live-audit-scheduler] configuración ignorada: {exc}", flush=True)
         raw_scheduler_environment = os.environ.get("MT5_MANAGER_LIVE_AUDIT_SCHEDULER")
         self.live_audit_scheduler_environment = (
             str(raw_scheduler_environment).strip()
             if raw_scheduler_environment is not None and str(raw_scheduler_environment).strip()
             else None
         )
+        defaults = _scheduler_defaults(
+            config,
+            self.live_audit_scheduler_environment is not None
+            and not self.live_audit_scheduler_path.is_file(),
+        )
+        try:
+            self.live_audit_scheduler_settings = _scheduler_settings(
+                self.live_audit_scheduler_path, defaults,
+            )
+        except ValueError as exc:
+            print(f"[live-audit-scheduler] configuración ignorada: {exc}", flush=True)
+            self.live_audit_scheduler_settings = normalize_live_audit_scheduler_settings(
+                {}, defaults,
+            )
 
     def _configure_coordinators(self, config: dict[str, Any]) -> None:
         portfolio_settings_file = str(config.get("portfolio_settings_file") or "").strip()
@@ -258,14 +280,10 @@ class ManagerServer(ThreadingHTTPServer):
                 live_audit_schedule.next_occurrence(now, settings).isoformat()
                 if settings.get("mode") == "weekly" else ""
             ),
+            "catch_up_missed_runs": True,
             "timezone_warning": timezone_warning,
             **live_audit_watch.targets(self),
-            "description": (
-                "El manager audita los usos marcados «operando en real» "
-                f"{live_audit_schedule.schedule_label(settings)}, de uno en uno por "
-                "agente. Nunca vuelve a iniciar una auditoría que ya esté "
-                "ejecutándose, y cada ejecución arranca donde terminó la anterior."
-            ),
+            "description": live_audit_schedule.schedule_description(settings),
         }
 
     def update_live_audit_scheduler(self, changes: dict[str, Any]) -> dict[str, Any]:
@@ -292,8 +310,8 @@ class ManagerServer(ThreadingHTTPServer):
         return self.live_audit_scheduler_state()
 
     def _live_audit_schedule_loop(self) -> None:
-        # La espera inicial y el sondeo son detalles internos; el usuario solo
-        # configura la cadencia real en días.
+        # La espera inicial y el sondeo son detalles internos; el usuario
+        # configura la cita semanal o la cadencia en días, no este pulso.
         if self.live_audit_stop.wait(_LIVE_AUDIT_INTERNAL_STARTUP_DELAY_SECONDS):
             return
         while not self.live_audit_stop.is_set():

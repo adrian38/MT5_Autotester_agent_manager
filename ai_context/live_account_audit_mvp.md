@@ -407,11 +407,14 @@ registradas incluso tras un fallo, verifica login y servidor por terminal y
 cierra respetuosamente solo los procesos que tuvo que arrancar. La restauración
 ocurre antes de reanudar el pipeline.
 
-El antiguo interruptor oculto del programador tiene ahora el botón
-`⚙ Programación`. Su diálogo solo permite activar/desactivar y editar cada
-cuántos días se ejecutan todas las auditorías configuradas. Se persiste en
-`runtime/live_audit_scheduler.json` (relativo al directorio de la configuración
-efectiva), se aplica sin reiniciar el manager y sigue desactivado por defecto.
+El antiguo interruptor oculto del programador tuvo primero el botón
+`⚙ Programación`, con un diálogo que sólo permitía activar/desactivar y editar
+cada cuántos días se ejecutaban las auditorías. Desde 2026-10-19 ese diálogo
+quedó sustituido por el único botón general «Auditoría programada»: ofrece
+semanal e intervalo sin que dos pantallas escriban el mismo registro. Se
+persiste en `runtime/live_audit_scheduler.json` (relativo al directorio de la
+configuración efectiva), se aplica sin reiniciar el manager y sigue
+desactivado por defecto.
 La espera inicial de 30 segundos y el sondeo interno de 5 minutos son detalles
 fijos, no opciones públicas. Los antiguos timers y cadencias por perfil solo se
 aceptan para migración y no vuelven a guardarse. `MT5_MANAGER_LIVE_AUDIT_SCHEDULER`

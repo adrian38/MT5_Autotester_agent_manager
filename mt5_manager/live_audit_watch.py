@@ -109,8 +109,10 @@ def audit_label(profile: dict[str, Any], audit_id: str) -> str:
     return name or (f"Portafolio #{portfolio_id}" if portfolio_id else f"Uso {audit_id}")
 
 
-def node_live_audits(node: dict[str, Any], node_id: str) -> dict[str, Any] | None:
-    """Los usos que el nodo declara, o `None` si no se le puede preguntar.
+def node_live_audits(
+    node: dict[str, Any], node_id: str,
+) -> tuple[dict[str, Any] | None, str, str]:
+    """Los usos del nodo y, si no se pudieron leer, código y explicación.
 
     Un agente con el auditor anterior no cuenta como error: se anota y se
     salta, porque lo que le falta es un reinicio, no configuracion.
@@ -124,18 +126,52 @@ def node_live_audits(node: dict[str, Any], node_id: str) -> dict[str, Any] | Non
             if status_status == 200 and isinstance(node_state, dict) else {}
         )
         if not isinstance(capabilities, dict) or not capabilities.get("live_audit_restore_account"):
-            sys.stderr.write(
-                f"[live-audit-scheduler] {node_id}: auditor antiguo; pendiente reiniciar el agente\n"
-            )
-            return None
+            message = "El agente tiene un auditor antiguo; hay que reiniciarlo o portarlo."
+            sys.stderr.write(f"[live-audit-scheduler] {node_id}: {message}\n")
+            return None, "old_runtime", message
         status, value = manager_http.node_request(node, "GET", "/api/v1/live-audits", timeout=10)
     except (OSError, urllib.error.URLError, TimeoutError, ValueError) as exc:
-        sys.stderr.write(f"[live-audit-scheduler] {node_id}: no se pudo consultar el nodo: {exc}\n")
-        return None
+        message = f"No se pudo consultar el agente: {exc}"
+        sys.stderr.write(f"[live-audit-scheduler] {node_id}: {message}\n")
+        return None, "unreachable", message
     if status != 200 or not isinstance(value, dict):
-        sys.stderr.write(f"[live-audit-scheduler] {node_id}: GET devolvió HTTP {status}: {value}\n")
-        return None
-    return value.get("audits") if isinstance(value.get("audits"), dict) else {}
+        message = f"La consulta de auditorías devolvió HTTP {status}: {value}"
+        sys.stderr.write(f"[live-audit-scheduler] {node_id}: {message}\n")
+        return None, "http_error", message
+    audits = value.get("audits") if isinstance(value.get("audits"), dict) else {}
+    return audits, "", ""
+
+
+def record_node_issue(
+    server: Any, node: dict[str, Any], node_id: str, code: str, message: str,
+) -> None:
+    """Avisa una vez por caída y otra al recuperarse, sólo con el cron armado."""
+    runs = server.live_audit_runs
+    key = runs.key(node_id, "__scheduler_watch__")
+    previous = str(runs.record(key).get("watch_issue") or "")
+    if code:
+        if not server.live_audit_scheduler_enabled:
+            return
+        if code == previous:
+            return
+        runs.update(key, watch_issue=code, watch_message=message)
+        level = "warning" if code == "old_runtime" else "error"
+        server.live_audit_notifications.add(
+            level, f"El cron no puede consultar {node.get('name') or node_id}", message,
+            node_id=node_id, node_name=str(node.get("name") or node_id),
+            kind="scheduler_node_unavailable",
+        )
+        return
+    if not previous:
+        return
+    runs.update(key, watch_issue="", watch_message="")
+    if server.live_audit_scheduler_enabled:
+        server.live_audit_notifications.add(
+            "success", f"El cron vuelve a ver {node.get('name') or node_id}",
+            "El agente ya responde y las citas pendientes vuelven a poder lanzarse.",
+            node_id=node_id, node_name=str(node.get("name") or node_id),
+            kind="scheduler_node_recovered",
+        )
 
 
 def _execution_id(audit: dict[str, Any]) -> str:
@@ -285,11 +321,12 @@ def launch(
     payload = _launch_payload(
         server, node_id, audit_id, profile, context["audit"], context["now"],
     )
-    if not payload.get("restore_password") or not payload["portfolio_id"]:
+    restore_fields = ("restore_login", "restore_server", "restore_password")
+    if not all(payload.get(field) for field in restore_fields) or not payload["portfolio_id"]:
         runs.update(key, **base, outcome="failed")
         server.live_audit_notifications.add(
             "error", f"No se pudo lanzar: {label}",
-            "Falta la cuenta de restauración de terminales o el portafolio del uso.",
+            "Falta completar la cuenta final de terminales o el portafolio del uso.",
             kind="launch_blocked", **common,
         )
         return
@@ -304,7 +341,7 @@ def launch(
             "error", f"No se pudo lanzar: {label}", str(exc), kind="launch_error", **common,
         )
         return
-    if status >= 400 and status != 409:
+    if status >= 400:
         runs.update(key, **base, outcome="failed")
         server.live_audit_notifications.add(
             "error", f"El agente rechazó la auditoría: {label}",
@@ -386,35 +423,59 @@ def launch_due(
         return
 
 
+def _target_block_reason(
+    state: dict[str, Any], audit_id: str, configured: set[str], chosen: set[str],
+) -> str:
+    if audit_id not in configured:
+        return "La configuración del uso o sus credenciales no está completa."
+    restore = state.get("restore_account") or {}
+    if not isinstance(restore, dict) or not restore.get("configured"):
+        return "Falta configurar la cuenta final que debe quedar en los terminales."
+    if audit_id not in chosen:
+        return "Este uso no entra en el alcance actual de la programación."
+    return ""
+
+
 def targets(server: Any) -> dict[str, Any]:
     """A quien alcanza el cron hoy, sin preguntarle nada a ningun nodo.
 
     Lo usa el diálogo para que el usuario vea lo que va a pasar antes de
-    activarlo. `blocked` son los usos marcados «en real» que el cron **no**
-    puede lanzar porque su configuración no está completa: es la diferencia
-    entre «no le toca» y «no puede», y sin enseñarla el sábado no pasa nada y
-    nadie sabe por qué.
+    activarlo. `blocked` son los usos del alcance que el cron **no** puede
+    lanzar porque el perfil, sus credenciales o la cuenta final no están
+    completos. `scheduler_issues` enseña agentes inaccesibles o antiguos: sin
+    esas diferencias visibles, el sábado no pasa nada y nadie sabe por qué.
     """
     settings = server.live_audit_scheduler_settings
     scheduled: list[dict[str, Any]] = []
     blocked: list[dict[str, Any]] = []
+    issues: list[dict[str, str]] = []
     for node in server.nodes:
         node_id = str(node.get("id") or "")
         state = server.live_audit_settings.state(node_id)
         profiles = state.get("profiles") or {}
         configured = {str(value) for value in state.get("configured_audit_ids") or []}
-        chosen = scheduled_audit_ids(state, settings)
-        for audit_id in sorted(live_audit_ids(state) | set(chosen)):
+        chosen = set(scheduled_audit_ids(state, settings))
+        watch = server.live_audit_runs.record(LiveAuditRunState.key(
+            node_id, "__scheduler_watch__",
+        ))
+        if watch.get("watch_issue"):
+            issues.append({
+                "node_id": node_id, "node_name": str(node.get("name") or node_id),
+                "message": str(watch.get("watch_message") or "El agente no responde."),
+            })
+        for audit_id in sorted(live_audit_ids(state) | chosen):
             profile = dict(profiles.get(audit_id) or {})
+            reason = _target_block_reason(state, audit_id, configured, chosen)
             row = {
                 "node_id": node_id, "node_name": str(node.get("name") or node_id),
                 "audit_id": audit_id, "label": audit_label(profile, audit_id),
                 "portfolio_id": safe_int(profile.get("portfolio_id"), 0, minimum=0),
                 "live_trading": bool(profile.get("live_trading")),
+                "block_reason": reason,
                 **server.live_audit_runs.record(LiveAuditRunState.key(node_id, audit_id)),
             }
-            (scheduled if audit_id in chosen and audit_id in configured else blocked).append(row)
-    return {"audits": scheduled, "blocked": blocked}
+            (blocked if reason else scheduled).append(row)
+    return {"audits": scheduled, "blocked": blocked, "scheduler_issues": issues}
 
 
 def tick(server: Any) -> None:
@@ -427,7 +488,8 @@ def tick(server: Any) -> None:
         state = server.live_audit_settings.state(node_id)
         if not state.get("configured_audit_ids"):
             continue
-        audits = node_live_audits(node, node_id)
+        audits, issue, message = node_live_audits(node, node_id)
+        record_node_issue(server, node, node_id, issue, message)
         if audits is None:
             continue
         record_transitions(server, node, node_id, state, audits)

@@ -49,7 +49,11 @@ VALID_VALUES = {
     "volume_tolerance_pct": (0, 1, 1.5, 100),
     "pnl_deviation_warning_pct": (0, 10, 10.5, 10000),
     "drawdown_deviation_warning_pct": (0, 15, 15.5, 10000),
-    "scheduler-interval-days": (1, 30, 3650),
+    "cron-hour": (0, 12, 23),
+    "cron-minute": (0, 30, 59),
+    "cron-interval-days": (1, 30, 3650),
+    "cron-retry-attempts": (0, 3, 10),
+    "cron-retry-delay": (1, 10, 720),
     # Laboratorio «Experimenta». Los topes de la pantalla son los que
     # `experiment_service.normalize_settings` recorta al recibirlos.
     "target_equity": (1, 250000, 1000000.5),
@@ -256,6 +260,10 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         for markup in re.findall(r'<input data-field="[^"]+" type="number"[^>]*>', script):
             field = html.fragment_fromstring(markup)
             fields.setdefault(field.get("data-field"), []).append(("live_audit.js", field))
+        schedule = (static_dir / "live_audit_schedule.js").read_text(encoding="utf-8")
+        for markup in re.findall(r'<input id="cron-[^"]+" type="number"[^>]*>', schedule):
+            field = html.fragment_fromstring(markup)
+            fields.setdefault(field.get("id"), []).append(("live_audit_schedule.js", field))
 
     def _assert_representative_values(self, fields) -> None:
         for key, values in VALID_VALUES.items():

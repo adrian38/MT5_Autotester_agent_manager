@@ -15,9 +15,11 @@ reintentaba, no avisaba de nada y relanzaba cada cinco minutos una auditoría
 que fallaba, porque «vencida» se medía sólo por la fecha de la última
 completada y un fallo no deja ninguna.
 
-La cadencia en días **sigue existiendo** como `mode: "interval"`: es lo que
-edita el diálogo «⚙ Programación» de la pantalla de configuración de cada nodo.
-El cron nuevo es `mode: "weekly"`, que es el de fábrica.
+La cadencia en días **sigue existiendo** como `mode: "interval"`, seleccionable
+en el mismo diálogo general que la semanal. El cron nuevo es `mode: "weekly"`,
+que es el de fábrica. Ya no hay un segundo diálogo dentro de la configuración
+de cada nodo: representaba sólo los días, escribía el mismo registro global y,
+si el modo guardado era semanal, cambiar el número no cambiaba la cadencia.
 
 ## Reparto
 
@@ -27,7 +29,31 @@ El cron nuevo es `mode: "weekly"`, que es el de fábrica.
 | `live_audit_notifications.py` | La campana: diario JSON de 300 avisos con marca de leído. |
 | `live_audit_watch.py` | La vuelta: lee cada nodo una vez, anota transiciones y lanza lo que toque. |
 | `manager_schedule_routes.py` | `/api/live-audit-scheduler-config` y `/api/live-audit-notifications[/read|/clear]`. |
-| `static/live_audit_schedule.{js,css}` | Botón, diálogo y campana; se montan solos sobre `.header-actions` de la portada y de Generación. |
+| `static/live_audit_schedule.{js,css}` | Botón, diálogo y campana; se montan solos sobre `.header-actions` de la portada, Generación y la configuración del auditor. |
+
+## Revisión de coherencia del botón (2026-10-19)
+
+La primera entrega dejó visibles dos interfaces incompatibles para el mismo
+registro: el botón general semanal y el antiguo «⚙ Programación» por nodo. Se
+unificaron en `live_audit_schedule.js`, que ahora se carga también en la página
+del auditor. El diálogo antiguo, su petición duplicada y su HTML desaparecen.
+
+También se cerraron cinco contradicciones operativas:
+
+- Un `live_audit_scheduler.json` antiguo con `{enabled, interval_days}` y los
+  interruptores antiguos de `manager.json`/entorno conservan `mode: interval`;
+  no se convierten silenciosamente en sábado a las 23:00 al actualizar.
+- `MT5_MANAGER_LIVE_AUDIT_SCHEDULER` se enseña como override, bloquea sólo el
+  interruptor que domina y deja editables los demás campos.
+- El cron recupera citas vencidas. Activarlo o cambiar su cadencia puede lanzar
+  una inmediatamente: el diálogo lo explica y pide confirmación antes de
+  guardar. «Siguiente cita semanal» ya no finge que no hay turnos pendientes.
+- Un uso sin la cuenta final del agente aparece bloqueado antes de la cita. Un
+  agente inaccesible o antiguo deja un único aviso persistente en la campana y
+  otro cuando se recupera, sin repetirlo en cada sondeo.
+- HTTP 409 significa que el agente rechazó el arranque —es el código con que el
+  nodo publica `ValueError`/`RuntimeError`—, así que cuenta como intento fallido
+  y entra en la política de reintentos; nunca se anuncia como lanzado.
 
 ## Vigilar siempre, lanzar sólo con el interruptor
 

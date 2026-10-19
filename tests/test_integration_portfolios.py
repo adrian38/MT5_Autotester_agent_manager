@@ -120,7 +120,8 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                 mock.patch.object(server.live_audit_settings, "credentials", return_value={}),
                 mock.patch.object(
                     server.live_audit_settings, "restore_credentials",
-                    return_value={"restore_password": "saved"},
+                    return_value={"restore_login": "9", "restore_server": "Broker-Test",
+                                  "restore_password": "saved"},
                 ),
                 mock.patch(
                     "mt5_manager.manager_http.node_request", side_effect=reachable,
@@ -207,7 +208,8 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                 mock.patch.object(server.live_audit_settings, "credentials", return_value={}),
                 mock.patch.object(
                     server.live_audit_settings, "restore_credentials",
-                    return_value={"restore_password": "saved"},
+                    return_value={"restore_login": "9", "restore_server": "Broker-Test",
+                                  "restore_password": "saved"},
                 ),
                 mock.patch("mt5_manager.manager_http.node_request", side_effect=request) as node_request,
             ):

@@ -16,6 +16,9 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         cls.static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         cls.page_text = (cls.static_dir / "live_audit.html").read_text(encoding="utf-8")
         cls.script = (cls.static_dir / "live_audit.js").read_text(encoding="utf-8")
+        cls.schedule_script = (cls.static_dir / "live_audit_schedule.js").read_text(
+            encoding="utf-8",
+        )
         cls.autolot_script = (cls.static_dir / "live_audit_autolot.js").read_text(encoding="utf-8")
         cls.result_page_text = (cls.static_dir / "live_audit_result.html").read_text(encoding="utf-8")
         cls.result_script = (cls.static_dir / "live_audit_result.js").read_text(encoding="utf-8")
@@ -503,19 +506,21 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("NO REGISTRADO", self.result_script)
         self.assertIn("SIN RESTAURAR", self.result_script)
 
-    def test_restore_account_and_scheduler_have_explicit_editable_dialogs(self) -> None:
+    def test_restore_account_and_the_global_scheduler_have_one_interface_each(self) -> None:
         self.assertTrue(self.page.xpath('//button[@id="open-restore-account"]'))
-        self.assertTrue(self.page.xpath('//button[@id="open-scheduler"]'))
         self.assertTrue(self.page.xpath('//dialog[@id="restore-account-dialog"]'))
-        self.assertTrue(self.page.xpath('//dialog[@id="scheduler-dialog"]'))
-        for token in (
-            "/live-audit-restore-account", "/api/live-audit-scheduler-config",
-            "restoreAccount.configured", "todos los terminales usados",
-            "interval_days", "scheduler-interval-days", "environment_override",
-        ):
+        self.assertFalse(self.page.xpath('//button[@id="open-scheduler"]'))
+        self.assertFalse(self.page.xpath('//dialog[@id="scheduler-dialog"]'))
+        self.assertIn('/live_audit_schedule.js', self.page_text)
+        self.assertIn('/live_audit_schedule.css', self.page_text)
+        for token in ("/live-audit-restore-account", "restoreAccount.configured",
+                      "todos los terminales usados"):
             self.assertIn(token, self.page_text + self.script)
+        for token in ("/api/live-audit-scheduler-config", "interval_days",
+                      "cron-interval-days", "environment_override"):
+            self.assertIn(token, self.schedule_script)
         for obsolete in ("scheduler-check-minutes", "scheduler-startup-delay", "check_interval_minutes", "startup_delay_seconds"):
-            self.assertNotIn(obsolete, self.page_text + self.script)
+            self.assertNotIn(obsolete, self.page_text + self.script + self.schedule_script)
 
     def test_tick_quality_marks_the_strategy_instead_of_voiding_the_audit(self) -> None:
         # Era una puerta: un set por debajo del mínimo dejaba sin comparar a los
