@@ -288,8 +288,13 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # había dejado, así que «EXCEL SUBIDOS» arrancaba veinte píxeles a la
         # izquierda del título y de la nota entre los que vive. Medido sobre la
         # auditoría 170: la etiqueta en x=52 y el título en x=72.
+        #
+        # Y el de abajo iguala el margen de arriba: lo que sigue a la fila es
+        # el borde superior de la nota, no un hueco, así que sin relleno los
+        # chips quedaban pegados al filete. Medido a 1830px: 15px arriba
+        # contra 1px abajo; con el relleno, 15 y 15.
         self.assertIn(
-            "gap: 8px; margin-top: 14px; padding: 0 20px; }",
+            "gap: 8px; margin-top: 14px; padding: 0 20px 14px; }",
             (Path(__file__).parents[1] / "mt5_manager" / "static"
              / "live_audit_analysis.css").read_text(encoding="utf-8"),
         )
