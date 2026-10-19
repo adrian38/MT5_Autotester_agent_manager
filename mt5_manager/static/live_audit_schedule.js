@@ -189,7 +189,8 @@
     const rows = (state.audits || []).map(row => `<li>${escapeHtml(row.node_name)} · `
       + `${escapeHtml(row.label)}${row.outcome ? ` · último turno: ${escapeHtml(row.outcome)}` : ''}</li>`);
     const blocked = (state.blocked || []).map(row => `<li class="blocked">${escapeHtml(row.node_name)} · `
-      + `${escapeHtml(row.label)} · ${escapeHtml(row.block_reason || 'el cron no puede lanzarlo')}</li>`);
+      + `${escapeHtml(row.label)} · ${escapeHtml(row.block_reason || 'el cron no puede lanzarlo')} `
+      + `<a href="/live_audit.html?node=${encodeURIComponent(row.node_id)}">Configurar</a></li>`);
     const issues = (state.scheduler_issues || []).map(row => `<li class="blocked">${escapeHtml(row.node_name)} · `
       + `${escapeHtml(row.message || 'el agente no responde')}</li>`);
     if (!rows.length && !blocked.length) {
@@ -198,8 +199,13 @@
         : 'No hay ninguna auditoría configurada y lista.';
       return [`<li>${empty}</li>`, ...issues].join('');
     }
-    return [`<li><strong>${rows.length} uso${rows.length === 1 ? '' : 's'} en la cita</strong></li>`,
-      ...rows, ...blocked, ...issues].join('');
+    const readyHeading = rows.length
+      ? [`<li class="cron-target-heading"><strong>${rows.length} uso${rows.length === 1 ? '' : 's'} se ejecutará${rows.length === 1 ? '' : 'n'}</strong></li>`]
+      : [];
+    const blockedHeading = blocked.length
+      ? [`<li class="cron-target-heading blocked"><strong>${blocked.length} uso${blocked.length === 1 ? '' : 's'} no se ejecutará${blocked.length === 1 ? '' : 'n'}</strong></li>`]
+      : [];
+    return [...readyHeading, ...rows, ...blockedHeading, ...blocked, ...issues].join('');
   }
 
   function applyScheduler(data) {

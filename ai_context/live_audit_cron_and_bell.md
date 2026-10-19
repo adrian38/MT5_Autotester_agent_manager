@@ -55,6 +55,16 @@ También se cerraron cinco contradicciones operativas:
   nodo publica `ValueError`/`RuntimeError`—, así que cuenta como intento fallido
   y entra en la política de reintentos; nunca se anuncia como lanzado.
 
+Una revisión con los datos reales del 2026-10-20 descubrió otra contradicción:
+seis perfiles históricos ya desmarcados conservaban `live_trading=true` y el
+diálogo los contaba como activos para después afirmar, falsamente, que estaban
+incompletos. El inventario operativo ahora exige las dos decisiones del usuario:
+el uso debe estar seleccionado y marcado como real. La marca se conserva al
+desmarcar para poder recuperarla, pero no reaparece en el dashboard ni en la cita
+hasta volver a seleccionar el uso. Los bloqueos reales se muestran en una
+sección separada, enumeran los campos o contraseñas que faltan y enlazan a la
+configuración del nodo.
+
 ## Vigilar siempre, lanzar sólo con el interruptor
 
 El hilo **arranca siempre**. Antes no arrancaba si el cron estaba apagado, y la

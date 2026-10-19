@@ -164,12 +164,19 @@ class LiveAuditSettingsTests(unittest.TestCase):
                 },
             })
             reloaded = LiveAuditSettingsStore(path).state("node-a")
+            deselected = store.update("node-a", {
+                "selected_audit_ids": ["reserve"],
+                "profiles": {"reserve": saved["profiles"]["reserve"]},
+            })
 
         self.assertTrue(saved["profiles"]["main"]["live_trading"])
         self.assertFalse(saved["profiles"]["reserve"]["live_trading"])
         self.assertEqual(saved["live_audit_ids"], ["main"])
         self.assertEqual(saved["live_portfolio_ids"], [11])
         self.assertEqual(reloaded["live_audit_ids"], ["main"])
+        self.assertTrue(deselected["profiles"]["main"]["live_trading"])
+        self.assertEqual(deselected["live_audit_ids"], [])
+        self.assertEqual(deselected["live_portfolio_ids"], [])
 
     def test_real_lot_per_strategy_defaults_empty_and_is_validated(self) -> None:
         self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["real_strategy_lots"], {})

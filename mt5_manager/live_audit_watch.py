@@ -423,11 +423,29 @@ def launch_due(
         return
 
 
+def _incomplete_target_reason(state: dict[str, Any], audit_id: str) -> str:
+    profile = (state.get("profiles") or {}).get(audit_id) or {}
+    credentials = (state.get("credential_state") or {}).get(audit_id) or {}
+    labels = {
+        "portfolio_id": "portafolio", "portfolio_type": "variante",
+        "source_login": "login real", "source_server": "servidor real",
+        "tester_login": "login tester", "tester_server": "servidor tester",
+    }
+    missing = [label for key, label in labels.items() if not profile.get(key)]
+    if credentials and not credentials.get("source_password_saved"):
+        missing.append("contraseña real")
+    if credentials and not credentials.get("tester_password_saved"):
+        missing.append("contraseña tester")
+    if not missing:
+        return "La configuración del uso o sus credenciales no está completa."
+    return f"Falta configurar: {', '.join(missing)}."
+
+
 def _target_block_reason(
     state: dict[str, Any], audit_id: str, configured: set[str], chosen: set[str],
 ) -> str:
     if audit_id not in configured:
-        return "La configuración del uso o sus credenciales no está completa."
+        return _incomplete_target_reason(state, audit_id)
     restore = state.get("restore_account") or {}
     if not isinstance(restore, dict) or not restore.get("configured"):
         return "Falta configurar la cuenta final que debe quedar en los terminales."

@@ -232,7 +232,10 @@ class LiveAuditSettingsStore(LiveAuditAccountsMixin):
             configured_portfolios = list(dict.fromkeys(
                 int(profiles[audit_id]["portfolio_id"]) for audit_id in configured_ids
             ))
-            live_ids, live_portfolios = live_profile_ids(profiles)
+            selected_profiles = {
+                audit_id: profiles[audit_id] for audit_id in selected if audit_id in profiles
+            }
+            live_ids, live_portfolios = live_profile_ids(selected_profiles)
             saved_accounts, _account_sources = self._saved_account_sources(node_id)
             return {
                 "selected_audit_ids": selected,

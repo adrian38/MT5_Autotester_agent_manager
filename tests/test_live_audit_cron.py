@@ -407,13 +407,20 @@ class WatchTickTests(unittest.TestCase):
         self.assertEqual(server.events()[0]["kind"], "scheduler_node_recovered")
 
     def test_the_dialog_can_see_what_is_marked_but_not_configured(self) -> None:
-        state = audit_state(configured_audit_ids=["22"], live_audit_ids=["11"])
+        state = audit_state(
+            configured_audit_ids=["22"], live_audit_ids=["11"],
+            credential_state={"11": {
+                "source_password_saved": True, "tester_password_saved": False,
+            }},
+        )
+        state["profiles"]["11"]["tester_server"] = ""
         server = FakeServer(self.root, state)
         rows = live_audit_watch.targets(server)
         self.assertEqual([row["audit_id"] for row in rows["audits"]], [])
         self.assertEqual([row["audit_id"] for row in rows["blocked"]], ["11"])
         self.assertEqual(rows["blocked"][0]["label"], "Cartera viva")
-        self.assertIn("configuración", rows["blocked"][0]["block_reason"])
+        self.assertIn("servidor tester", rows["blocked"][0]["block_reason"])
+        self.assertIn("contraseña tester", rows["blocked"][0]["block_reason"])
 
     def test_a_missing_final_account_is_visible_before_the_appointment(self) -> None:
         server = FakeServer(
@@ -519,6 +526,12 @@ class CronScreenTests(unittest.TestCase):
             "/api/live-audit-notifications/clear",
         ):
             self.assertIn(endpoint, self.script)
+
+    def test_targets_are_grouped_and_blocked_uses_can_be_fixed(self) -> None:
+        self.assertIn("uso${rows.length === 1 ? '' : 's'} se ejecutará", self.script)
+        self.assertIn("uso${blocked.length === 1 ? '' : 's'} no se ejecutará", self.script)
+        self.assertIn("/live_audit.html?node=${encodeURIComponent(row.node_id)}", self.script)
+        self.assertIn("Configurar</a>", self.script)
 
 
 class DefaultsTests(unittest.TestCase):

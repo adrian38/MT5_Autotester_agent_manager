@@ -57,6 +57,10 @@
 .cron-dialog .cron-note{color:var(--muted,#91a4b5);font-size:12px;line-height:1.5}
 .cron-dialog .cron-warning{color:var(--warn,#ffd166);font-size:12px;line-height:1.5}
 .cron-dialog .cron-targets{display:grid;gap:6px;margin:0;padding:12px;border:1px solid var(--line,#27394b);border-radius:10px;background:#0b1520;list-style:none;font-size:12px}
+.cron-dialog .cron-targets .cron-target-heading{margin-top:5px;padding-top:8px;border-top:1px solid var(--line,#27394b)}
+.cron-dialog .cron-targets .cron-target-heading:first-child{margin-top:0;padding-top:0;border-top:0}
 .cron-dialog .cron-targets li.blocked{color:var(--warn,#ffd166)}
+.cron-dialog .cron-targets a{color:var(--blue,#68a7ff);font-weight:700;text-decoration:none}
+.cron-dialog .cron-targets a:hover{text-decoration:underline}
 .cron-dialog .cron-actions{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid var(--line,#27394b)}
 @media(max-width:600px){.cron-panel{width:100vw}}
