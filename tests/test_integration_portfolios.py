@@ -73,14 +73,14 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         # aunque manager.json diga otra cosa.
         nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
         with mock.patch.dict("os.environ", {"MT5_MANAGER_EXPORT_MODE": "download"}):
-            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes, "export_mode": "folder"})
+            server = self.disposable_manager({"nodes": nodes, "export_mode": "folder"})
         try:
             self.assertEqual(server.export_mode, "download")
         finally:
             server.server_close()
 
         with mock.patch.dict("os.environ", {}, clear=True):
-            server = ManagerServer(("127.0.0.1", 0), {"nodes": nodes})
+            server = self.disposable_manager({"nodes": nodes})
         try:
             self.assertEqual(server.export_mode, "folder")
         finally:
@@ -98,7 +98,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
         scheduler_file = str(self.root / "scheduler-safety-test.json")
         with mock.patch.dict("os.environ", {}, clear=True):
-            server = ManagerServer(("127.0.0.1", 0), {
+            server = self.disposable_manager({
                 "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
             })
         state = {
@@ -146,7 +146,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         scheduler_file = str(self.root / "scheduler-switch-test.json")
         for switch in ({"live_audit_scheduler_enabled": True}, {"live_audit_scheduler_enabled": "si"}):
             with mock.patch.dict("os.environ", {}, clear=True):
-                server = ManagerServer(("127.0.0.1", 0), {
+                server = self.disposable_manager({
                     "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file, **switch,
                 })
             try:
@@ -157,7 +157,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
 
         # El entorno también rearma, para el contenedor.
         with mock.patch.dict("os.environ", {"MT5_MANAGER_LIVE_AUDIT_SCHEDULER": "1"}, clear=True):
-            server = ManagerServer(("127.0.0.1", 0), {
+            server = self.disposable_manager({
                 "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
             })
         try:
@@ -168,7 +168,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         # Un valor que no se reconoce NO arma nada: un typo no puede lanzar
         # auditorías desatendidas.
         with mock.patch.dict("os.environ", {}, clear=True):
-            server = ManagerServer(("127.0.0.1", 0), {
+            server = self.disposable_manager({
                 "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
                 "live_audit_scheduler_enabled": "quizá",
             })
@@ -179,7 +179,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
 
     def test_the_scheduler_uses_its_single_global_interval_in_days(self) -> None:
         nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
-        server = ManagerServer(("127.0.0.1", 0), {
+        server = self.disposable_manager({
             "nodes": nodes,
             "live_audit_scheduler_settings_file": str(self.root / "scheduler-global-days.json"),
         })

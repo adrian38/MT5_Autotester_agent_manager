@@ -92,6 +92,19 @@ enabled=0
         self.node.server_close()
         self.temp.cleanup()
 
+    def disposable_manager(self, config: dict) -> ManagerServer:
+        """Un manager de usar y tirar, con su diario dentro del temporal.
+
+        Sin `live_audit_settings_file` el manager cae en el `runtime/` del
+        repositorio, que es justo el que monta el contenedor de producción: el
+        suite metía ocho avisos de «Portafolio #11» en la campana del manager
+        de verdad, y salían de golpe en el siguiente reinicio.
+        """
+        return ManagerServer(("127.0.0.1", 0), {
+            "live_audit_settings_file": str(self.live_audit_settings_path),
+            **config,
+        })
+
     def request(self, path: str, payload: dict | None = None) -> tuple[int, dict]:
         request = urllib.request.Request(
             self.base + path,

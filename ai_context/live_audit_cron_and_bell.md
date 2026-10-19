@@ -230,3 +230,29 @@ deja de perderse la serie de los usos sin tarjeta abierta.
 
 Los avisos del escritorio no tenían nada roto: con una sola transición en todo
 el día no había casi nada que saltar.
+
+## El aviso aleatorio lo escribía el suite (2026-10-20)
+
+`runtime/` de este repositorio **es** `/app/runtime` del contenedor: está
+montado ahí. `ManagerServer` sin `live_audit_settings_file` cae en
+`Path.cwd()/runtime/live_audit_settings.json`, y de esa ruta cuelgan la
+campana, el estado del cron y el histórico de auditorías.
+
+Siete llamadas de `test_integration_portfolios.py` lo hacían. Cada pasada del
+suite dejaba ocho avisos del nodo inventado `n` sobre un «Portafolio #11» que
+no existe y pisaba el estado real del cron; el 2026-10-20 había 117 esperando a
+salir en el siguiente reinicio. Es exactamente la «notificación aleatoria» que
+vio el usuario, y no se nota antes porque el manager sólo lee esos ficheros al
+arrancar: mientras corre, su copia en memoria los tapa.
+
+- Lo vigila `tests/test_tests_keep_out_of_runtime.py`, por AST. Exige la clave
+  escrita: un `**algo` no cuenta —el `**switch` de
+  `test_only_an_explicit_switch_arms_the_launches` dejaba pasar justo la
+  llamada que faltaba—.
+- Para reparar los ficheros después de una pasada así, el manager vivo es la
+  fuente: `GET /api/live-audit-notifications?limit=300` y
+  `GET /api/live-audit-scheduler-config` devuelven lo que tiene en memoria, que
+  es lo que el fichero debería contener.
+- Perder `live_audit_schedule_state.json` no relanza auditorías ya hechas:
+  `pending_window` mira la hora de terminación que informa el nodo, no el
+  estado guardado. Lo que se pierde es la cuenta de reintentos.
