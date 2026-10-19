@@ -76,7 +76,10 @@ Dos detalles que no son del porcentaje y estaban escondidos detrás:
   un mismo veredicto, el que se sostiene antes que el marcado `POCAS
   OPERACIONES`— y el porcentaje sólo desempata al final. El orden que sale es
   `NO REPRODUCE`, `NO REPRODUCE + POCAS OPERACIONES`, `AVISO`, `AVISO + POCAS
-  OPERACIONES`, `POCO IMPORTE` y el resto. Por eso `FEW_PAIRS` y `fewTrades`
+  OPERACIONES`, `POCO IMPORTE`, y por debajo `REPRODUCE` y `MEJOR QUE EL
+  TESTER`, con `SIN DATOS` al final. **`POCO IMPORTE` va por encima de
+  `REPRODUCE` a propósito**: no es un aprobado, es que no se puede decir, y eso
+  se mira antes que lo que ya se sabe que va bien. Por eso `FEW_PAIRS` y `fewTrades`
   viven en el módulo y no en la pantalla: el que ordena necesita el mismo
   criterio que el que pinta el distintivo.
 - **`POCAS OPERACIONES` se apagaba justo en el caso más dudoso**: el `few` era

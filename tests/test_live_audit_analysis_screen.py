@@ -167,6 +167,13 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # céntimos daba 2.000 % y encabezaba por delante de un déficit del 44 %.
         self.assertIn("function compare(left, right)", self.reproduction_script)
         self.assertIn("SEVERITY[verdict(right)[0]]", self.reproduction_script)
+        # POCO IMPORTE va por encima de REPRODUCE: no es un aprobado, es que no
+        # se puede decir, y eso se mira antes que lo que ya se sabe que va bien.
+        self.assertIn("'NO REPRODUCE': 4, AVISO: 3, 'POCO IMPORTE': 2,", self.reproduction_script)
+        self.assertIn(
+            "REPRODUCE: 1, 'MEJOR QUE EL TESTER': 1, 'SIN DATOS': 0,",
+            self.reproduction_script,
+        )
         self.assertIn("LiveAuditReproduction.compare(", self.analysis_script)
         # Y dentro de un mismo veredicto, primero el que se sostiene: «no
         # reproduce» con seis operaciones de respaldo va antes que «no

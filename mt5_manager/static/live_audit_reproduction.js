@@ -134,9 +134,14 @@
 
   // El porcentaje ya no puede ordenar solo: una fila de céntimos da 2.000 % y
   // encabezaría la tabla por delante de un déficit real del 44 %.
+  //
+  // POCO IMPORTE va por encima de REPRODUCE porque no es un aprobado: es que
+  // no se puede decir, y eso se mira antes que lo que ya se sabe que está
+  // bien. Debajo quedan los dos veredictos que sí afirman algo, y al final
+  // SIN DATOS, donde no ocurrió nada en ninguna de las dos partes.
   const SEVERITY = {
-    'NO REPRODUCE': 3, AVISO: 2, REPRODUCE: 1, 'MEJOR QUE EL TESTER': 1,
-    'POCO IMPORTE': 0, 'SIN DATOS': 0,
+    'NO REPRODUCE': 4, AVISO: 3, 'POCO IMPORTE': 2,
+    REPRODUCE: 1, 'MEJOR QUE EL TESTER': 1, 'SIN DATOS': 0,
   };
 
   // Primero la gravedad; dentro de ella, lo que se sostiene antes que lo
