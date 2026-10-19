@@ -284,6 +284,15 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # Si se acumula, tiene que poder deshacerse: cada regla recuerda de qué
         # fichero salió, así que se retira uno sin perder los demás.
         self.assertTrue(self.analysis_page.xpath('//div[@id="attribution-sources"]'))
+        # La `panel-card` no tiene relleno: lo pone cada hijo. Esta fila se lo
+        # había dejado, así que «EXCEL SUBIDOS» arrancaba veinte píxeles a la
+        # izquierda del título y de la nota entre los que vive. Medido sobre la
+        # auditoría 170: la etiqueta en x=52 y el título en x=72.
+        self.assertIn(
+            "gap: 8px; margin-top: 14px; padding: 0 20px; }",
+            (Path(__file__).parents[1] / "mt5_manager" / "static"
+             / "live_audit_analysis.css").read_text(encoding="utf-8"),
+        )
         self.assertIn("function attributionSources()", self.analysis_script)
         self.assertIn("data-remove-source", self.analysis_script)
         self.assertIn("data-clear-attribution", self.analysis_script)

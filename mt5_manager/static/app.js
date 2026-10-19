@@ -723,7 +723,9 @@ async function openRepair(id, name) {
   updateRepairSelectionState();
   repairRunsOffset = 0;
   repairLoadedRunIds = new Set();
-  container.textContent = 'Cargando runs terminados…';
+  // El relleno de esta lista lo ponen sus `.repair-run`, así que un texto
+  // suelto sale pegado al borde: va envuelto, igual que el vacío y el error.
+  container.innerHTML = '<p class="portfolio-empty">Cargando runs terminados…</p>';
   repairDialog.showModal();
   await loadRepairRuns();
 }
@@ -917,7 +919,7 @@ async function openRegression(id, name) {
   updateRegressionSelectionState();
   regressionRunsOffset = 0;
   regressionLoadedRunIds = new Set();
-  container.textContent = 'Cargando runs terminados…';
+  container.innerHTML = '<p class="portfolio-empty">Cargando runs terminados…</p>';
   regressionDialog.showModal();
   await loadRegressionRuns();
 }

@@ -81,7 +81,10 @@ td.audit-analysis-empty { display: table-cell; min-height: 0; padding: 26px 16px
 .degradation-off { color: #ffd47c !important; }
 #attribution-upload { display: inline-flex; align-items: center; cursor: pointer; }
 #attribution-upload.is-busy { opacity: .6; pointer-events: none; }
-.attribution-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+/* La `panel-card` no tiene relleno: lo pone cada hijo, y éste se lo había
+   dejado. El resultado es que «EXCEL SUBIDOS» arrancaba pegado al borde,
+   veinte píxeles a la izquierda del título y de la nota que lo rodean. */
+.attribution-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding: 0 20px; }
 .attribution-sources > span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
 .attribution-source { display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px 6px 11px; border: 1px solid var(--line); border-radius: 999px; background: #0b141e; font-size: 12px; }
 .attribution-source small { color: var(--muted); }

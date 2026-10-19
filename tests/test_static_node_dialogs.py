@@ -64,6 +64,35 @@ VALID_VALUES = {
 
 
 class NodeDialogAndNumberInputTests(unittest.TestCase):
+    def test_a_loading_list_is_padded_like_its_empty_and_error_states(self) -> None:
+        # Estas listas no tienen relleno propio: lo ponen sus filas
+        # (`.repair-run`, `.portfolio-list-item`). El vacío y el error ya iban
+        # envueltos en `.portfolio-empty`, pero el «Cargando…» era texto suelto
+        # y salía pegado al borde del panel. Es el único estado que se ve en
+        # cada carga, así que era el único que se notaba.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        script = (static_dir / "app.js").read_text(encoding="utf-8")
+        pages = {
+            name: (static_dir / name).read_text(encoding="utf-8")
+            for name in ("index.html", "portfolios.html", "manual_portfolios.html")
+        }
+
+        self.assertIn('class="repair-runs"><p class="portfolio-empty">', pages["index.html"])
+        self.assertEqual(pages["index.html"].count('class="repair-runs"><p'), 2)
+        self.assertIn(
+            'class="portfolio-list"><p class="portfolio-empty">', pages["portfolios.html"])
+        self.assertIn(
+            'class="portfolio-list"><p class="portfolio-empty">', pages["manual_portfolios.html"])
+        self.assertIn(
+            'container.innerHTML = \'<p class="portfolio-empty">Cargando runs terminados…</p>\'',
+            script,
+        )
+        # Ninguna de las tres listas puede volver a recibir el texto suelto.
+        self.assertNotIn("container.textContent = 'Cargando", script)
+        for name, page in pages.items():
+            for container in ('class="repair-runs">', 'class="portfolio-list">'):
+                self.assertNotIn(f"{container}Cargando", page, name)
+
     def test_regression_card_features_follow_node_capabilities_and_use_their_own_job(self) -> None:
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")
