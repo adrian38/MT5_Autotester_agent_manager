@@ -116,6 +116,18 @@ class WeeklyCadenceTests(unittest.TestCase):
         self.assertTrue(pending_before)
         self.assertEqual(window, occurrence.isoformat())
 
+    def test_a_use_created_after_the_appointment_does_not_inherit_it(self) -> None:
+        now = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
+        occurrence = live_audit_schedule.previous_occurrence(now, settings())
+        _window, pending = live_audit_schedule.pending_window(
+            settings(), None, now, occurrence + timedelta(minutes=1),
+        )
+        self.assertFalse(pending)
+        _window, older_pending = live_audit_schedule.pending_window(
+            settings(), None, now, occurrence - timedelta(minutes=1),
+        )
+        self.assertTrue(older_pending)
+
     def test_the_cadence_in_days_keeps_its_own_window(self) -> None:
         now = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
         interval = settings(mode="interval", interval_days=7)
@@ -130,12 +142,18 @@ class WeeklyCadenceTests(unittest.TestCase):
         self.assertEqual(
             live_audit_schedule.pending_window(interval, None, now), ("sin-ejecutar", True),
         )
+        created = now - timedelta(days=2)
+        _window, new_pending = live_audit_schedule.pending_window(
+            interval, None, now, created,
+        )
+        self.assertFalse(new_pending)
 
     def test_the_description_matches_the_real_scope_period_and_catch_up(self) -> None:
         live = live_audit_schedule.schedule_description(settings())
         self.assertIn("marcados «operando en real»", live)
         self.assertIn("donde terminó la anterior", live)
         self.assertIn("la recupera", live)
+        self.assertIn("ya existían en esa cita", live)
         every = live_audit_schedule.schedule_description(settings(
             only_live_trading=False, chain_from_last_audit=False,
         ))
@@ -372,6 +390,11 @@ class WatchTickTests(unittest.TestCase):
         ):
             live_audit_watch.tick(server)
         self.assertEqual(len(posted), 1)
+
+    def test_the_modern_use_id_keeps_its_creation_time(self) -> None:
+        created = live_audit_watch._audit_use_created_at("audit-170-mvdscovr-2")
+        self.assertEqual(created.isoformat(), "2026-10-18T12:12:24.183000+00:00")
+        self.assertIsNone(live_audit_watch._audit_use_created_at("170"))
 
     def test_a_409_rejected_launch_counts_as_a_failed_attempt(self) -> None:
         server = FakeServer(self.root, audit_state(), enabled=True)

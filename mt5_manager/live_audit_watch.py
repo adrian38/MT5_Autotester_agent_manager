@@ -126,6 +126,17 @@ def audit_label(profile: dict[str, Any], audit_id: str) -> str:
     return name or (f"Portafolio #{portfolio_id}" if portfolio_id else f"Uso {audit_id}")
 
 
+def _audit_use_created_at(audit_id: str) -> datetime | None:
+    """Fecha del ID moderno que crea la UI; los IDs heredados no la inventan."""
+    try:
+        _prefix, stamp, sequence = audit_id.rsplit("-", 2)
+        if not sequence.isdigit():
+            return None
+        return datetime.fromtimestamp(int(stamp, 36) / 1000, timezone.utc)
+    except (ValueError, OSError, OverflowError):
+        return None
+
+
 def node_live_audits(
     node: dict[str, Any], node_id: str,
 ) -> tuple[dict[str, Any] | None, str, str]:
@@ -417,7 +428,7 @@ def launch_due(
         key = runs.key(node_id, audit_id)
         record = runs.record(key)
         window, pending = live_audit_schedule.pending_window(
-            settings, _completion(audit), now,
+            settings, _completion(audit), now, _audit_use_created_at(audit_id),
         )
         if not pending:
             if str(record.get("window") or "") != window:

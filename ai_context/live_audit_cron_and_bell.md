@@ -112,6 +112,13 @@ cuenta de restauración. También `idle` después de haber estado corriendo: un
 agente reiniciado olvida la auditoría que tenía a medias, y para el cron eso es
 un intento perdido, no un turno cumplido.
 
+Un uso nuevo, reparado o mejorado no hereda una cita anterior a su existencia.
+Los IDs modernos de uso incorporan la hora en que la UI los creó; el cron la usa
+como inicio de elegibilidad. En semanal, si nació después del sábado a las 23:00,
+espera al sábado siguiente. En intervalo, su primer plazo se cuenta desde esa
+creación. Los IDs heredados sin fecha mantienen el comportamiento anterior: no
+se inventa una fecha que el estado no conserva.
+
 ## El periodo se engancha con el de la auditoría anterior
 
 Petición del usuario en la misma sesión. Las operaciones reales se filtran por

@@ -214,12 +214,14 @@ def schedule_description(settings: dict[str, Any]) -> str:
     return (
         f"El manager audita {scope} {schedule_label(settings)}, de uno en uno por agente. "
         "Nunca duplica una auditoría en curso. Si una cita venció mientras el manager "
-        f"estaba apagado o el cron desarmado, la recupera al volver a estar disponible. {period}"
+        "estaba apagado o el cron desarmado, la recupera al volver a estar disponible, "
+        f"pero sólo para usos que ya existían en esa cita. {period}"
     )
 
 
 def pending_window(
     settings: dict[str, Any], previous_completion: datetime | None, now: datetime,
+    eligible_since: datetime | None = None,
 ) -> tuple[str, bool]:
     """`(clave de la ventana vigente, si la auditoria sigue pendiente en ella)`.
 
@@ -230,10 +232,17 @@ def pending_window(
     """
     if str(settings.get("mode") or "") == "interval":
         if previous_completion is None:
+            if eligible_since is not None:
+                opened = eligible_since + timedelta(
+                    days=int(settings.get("interval_days", 30)),
+                )
+                return opened.isoformat(), now >= opened
             return "sin-ejecutar", True
         opened = previous_completion + timedelta(days=int(settings.get("interval_days", 30)))
         return opened.isoformat(), now >= opened
     occurrence = previous_occurrence(now, settings)
+    if eligible_since is not None and eligible_since > occurrence:
+        return occurrence.isoformat(), False
     if previous_completion is not None and previous_completion >= occurrence:
         return occurrence.isoformat(), False
     return occurrence.isoformat(), True
