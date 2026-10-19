@@ -425,6 +425,9 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("window.isSecureContext", self.script)
         self.assertIn("'unsupported'", self.script)
         self.assertIn("localhost o con https", self.script)
+        # Desde otro equipo el certificado no está a mano: lo sirve el manager.
+        self.assertIn('href="/ca.crt"', self.script)
+        self.assertIn("cron-authority", self.script)
 
     def test_a_click_that_the_browser_swallows_still_says_something(self) -> None:
         # Chrome descarta en silencio la peticion de permiso en una pagina con

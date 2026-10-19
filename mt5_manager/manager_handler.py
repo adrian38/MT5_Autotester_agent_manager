@@ -28,6 +28,7 @@ from . import manager_live_audit_routes
 from . import manager_portfolio_routes
 from . import manager_pulse
 from . import manager_schedule_routes
+from . import manager_tls
 from .common import json_bytes, safe_int, utc_now
 from .manager_http import NODE_CONTROL_ACTIONS, NODE_CONTROL_TIMEOUT, submit_guided_to_node, submit_repair_request
 from .manager_restart import RestartAlreadyRunning
@@ -250,7 +251,29 @@ class ManagerHandler(BaseHTTPRequestHandler):
             or manager_live_audit_routes.handle_post(self, parsed, parts)
         )
 
+    def _send_authority(self) -> bool:
+        """La CA local, para instalarla desde el dispositivo que la necesita.
+
+        Sin esto hay que llegar al disco del manager, y desde un movil o desde
+        otro PC eso no es una instruccion, es un problema. Se publica solo el
+        certificado -nunca la clave-, y el nombre es fijo.
+        """
+        path = manager_tls.authority(getattr(self.server, "tls_certificate", None))
+        if path is None:
+            return False
+        body = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-x509-ca-cert")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", 'attachment; filename="ca.crt"')
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+        return True
+
     def _get_static_routes(self, parsed: Any, parts: list[str]) -> bool:
+        if parsed.path == "/ca.crt" and self._send_authority():
+            return True
         if parsed.path in {"/", "/index.html"}:
             self._send_file(STATIC_DIR / "dashboard.html")
             return True

@@ -73,6 +73,7 @@
     <div class="cron-push-row">
       <button type="button" class="secondary" id="cron-push">Activar avisos del escritorio</button>
       <small id="cron-push-note"></small>
+      <a id="cron-authority" href="/ca.crt" download hidden>Descargar el certificado e instalarlo en este dispositivo</a>
     </div>
     <ul class="cron-events" id="cron-events"></ul>
     <footer>
@@ -288,6 +289,9 @@
     button.textContent = label;
     button.disabled = state !== 'default';
     field('#cron-push-note').textContent = hint || help;
+    // Desde otro equipo, el certificado que falta instalar no está a mano: el
+    // manager lo sirve, y aquí está el enlace para bajarlo donde hace falta.
+    field('#cron-authority').hidden = location.protocol !== 'https:' || state === 'granted';
     syncAsk();
   }
 

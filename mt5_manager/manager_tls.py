@@ -66,6 +66,20 @@ def paths(config: dict[str, Any], config_dir: Path | None) -> tuple[Path, Path] 
     return (certificate, key) if certificate.is_file() and key.is_file() else None
 
 
+def authority(certificate: Path | None) -> Path | None:
+    """La CA que firmo este certificado, si esta al lado y es legible.
+
+    Se sirve en `/ca.crt` para que cualquier dispositivo de la casa pueda
+    instalarla sin tener acceso al disco del manager. Es la parte **publica**:
+    la clave nunca se publica, y el nombre es fijo, asi que esta ruta no puede
+    convertirse en una forma de leer otros ficheros.
+    """
+    if certificate is None:
+        return None
+    found = Path(certificate).parent / "ca.crt"
+    return found if found.is_file() else None
+
+
 def context(certificate: Path, key: Path) -> ssl.SSLContext:
     secure = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     secure.minimum_version = ssl.TLSVersion.TLSv1_2

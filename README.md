@@ -216,10 +216,21 @@ Escribe en `runtime/tls/` —que es lo que el contenedor ve montado— una CA
 nombre del equipo y sus IPv4. Puedes añadir más: `python -m tools.make_local_cert
 192.168.1.152 manager.casa`.
 
-Después, en **cada dispositivo** desde el que abras el manager, instala
-`runtime/tls/ca.crt` como entidad de certificación raíz de confianza (en
-Windows: doble clic → Instalar certificado → Equipo local). Las claves privadas
-no se copian a ningún sitio.
+Después, en **cada dispositivo** desde el que abras el manager, instala la CA
+como entidad de certificación raíz de confianza. Desde otro equipo no hace
+falta llegar al disco del manager: él mismo la sirve en **`/ca.crt`** —sólo el
+certificado; la clave no se publica nunca— y la campana enseña el enlace
+mientras falte. En ese equipo, con PowerShell:
+
+```powershell
+[Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+Invoke-WebRequest https://192.168.1.152:8750/ca.crt -OutFile "$env:TEMP\ca.crt"
+Import-Certificate -FilePath "$env:TEMP\ca.crt" -CertStoreLocation Cert:\CurrentUser\Root
+```
+
+Cierra el navegador del todo y vuelve a abrirlo: lee el almacén al arrancar.
+En el móvil, abre `https://<ip>:8750/ca.crt`, acepta el aviso y instálalo desde
+Ajustes. Las claves privadas no se copian a ningún sitio.
 
 Al reiniciar, el manager detecta el certificado y pasa a `https://…:8750` en el
 mismo puerto. Vuelve a ejecutar la herramienta cuando añadas una IP: la CA se

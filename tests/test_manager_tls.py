@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 from pathlib import Path
 from unittest import mock
@@ -177,6 +178,36 @@ class HttpsServerTests(unittest.TestCase):
         with urllib.request.urlopen(url, timeout=10, context=trust) as response:
             self.assertEqual(response.status, 200)
             self.assertEqual(json.loads(response.read())["total"], 0)
+
+    def test_it_serves_its_authority_so_other_devices_can_trust_it(self) -> None:
+        # Desde otro PC o desde el móvil, el `ca.crt` no está a mano: llegar al
+        # disco del manager no es una instrucción, es un problema.
+        directory = self.root / "runtime" / "tls"
+        issue_server_certificate(directory, ["localhost", "127.0.0.1"])
+        server = self._serve({})
+        trust = ssl.create_default_context(cafile=str(directory / "ca.crt"))
+        url = f"https://127.0.0.1:{server.server_address[1]}/ca.crt"
+        with urllib.request.urlopen(url, timeout=10, context=trust) as response:
+            body = response.read()
+            self.assertEqual(response.headers["Content-Type"], "application/x-x509-ca-cert")
+        self.assertEqual(body, (directory / "ca.crt").read_bytes())
+        # Lo que nunca se publica es la clave.
+        self.assertNotIn(b"PRIVATE KEY", body)
+        for path in ("/ca.key", "/manager.key", "/tls/ca.key"):
+            with self.assertRaises(urllib.error.HTTPError) as refused:
+                urllib.request.urlopen(
+                    f"https://127.0.0.1:{server.server_address[1]}{path}",
+                    timeout=10, context=trust,
+                )
+            self.assertEqual(refused.exception.code, 404)
+
+    def test_without_a_certificate_there_is_no_authority_to_download(self) -> None:
+        server = self._serve({})
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{server.server_address[1]}/ca.crt", timeout=10,
+            )
+        self.assertEqual(refused.exception.code, 404)
 
     def test_without_certificates_it_keeps_answering_plain_http(self) -> None:
         server = self._serve({})

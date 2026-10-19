@@ -210,6 +210,7 @@ class ManagerServer(ThreadingHTTPServer):
         configured = str(config.get("config_dir") or "").strip()
         found = manager_tls.paths(config, Path(configured) if configured else None)
         self.tls_context = manager_tls.context(*found) if found else None
+        self.tls_certificate = found[0] if found else None
         self.scheme = "https" if self.tls_context else "http"
         if found:
             print(f"[manager] TLS activo con {found[0]}", flush=True)

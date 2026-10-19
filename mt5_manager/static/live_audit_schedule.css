@@ -26,6 +26,9 @@
 .cron-panel .cron-push-row{display:grid;gap:7px;padding:12px 16px;border-bottom:1px solid var(--line,#27394b);background:#0b1520}
 .cron-panel .cron-push-row button{width:100%;font-size:12px}
 .cron-panel .cron-push-row small{color:var(--muted,#91a4b5);font-size:11px;line-height:1.45}
+.cron-panel .cron-push-row a{color:var(--blue,#68a7ff);font-size:11px;font-weight:700;text-decoration:none}
+.cron-panel .cron-push-row a:hover{text-decoration:underline}
+.cron-panel .cron-push-row a[hidden]{display:none}
 .cron-push-ask{position:fixed;right:24px;bottom:84px;z-index:45;display:grid;gap:12px;width:min(360px,calc(100vw - 48px));padding:16px;border:1px solid var(--line,#27394b);border-radius:13px;background:var(--panel,#111b27);box-shadow:0 16px 48px #0009}
 .cron-push-ask[hidden]{display:none}
 .cron-push-ask strong{display:block;margin-bottom:5px;font-size:14px}
