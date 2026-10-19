@@ -131,7 +131,12 @@ que entonces seguían abiertas y no se podían comparar.
 hoy. Las dos fechas en UTC, porque el nodo las convierte en días completos UTC
 (`_audit_period`). El último día se repite a propósito: la auditoría anterior se
 ejecutó a media noche de ese día y lo que cerró después todavía no estaba en el
-historial del terminal. Sin auditoría previa manda el periodo del perfil.
+historial del terminal. Sin auditoría previa manda el periodo del perfil, salvo
+que el portafolio tenga padres: un reparado o mejorado arranca donde los suyos
+lo dejaron, estrategia a estrategia, y eso lo decide `inherited_period_end` de
+`live_audit_lineage.py` —detalle en `live_audit_history_series.md`—. La cita no
+se hereda, sólo la ventana: la fecha de alta del uso sigue mandando en
+`launch_due`.
 
 No hace falta portar nada al runtime del agente: `fixed_dates` ya es parte del
 contrato que el nodo entiende.

@@ -250,6 +250,7 @@ def pending_window(
 
 def chained_period(
     settings: dict[str, Any], audit: dict[str, Any], now: datetime,
+    inherited_end: datetime | None = None,
 ) -> dict[str, str]:
     """El periodo de la proxima auditoria, enganchado al final de la anterior.
 
@@ -265,7 +266,7 @@ def chained_period(
     if not settings.get("chain_from_last_audit", True):
         return {}
     result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
-    previous_end = parse_timestamp(result.get("period_end"))
+    previous_end = parse_timestamp(result.get("period_end")) or inherited_end
     if previous_end is None:
         return {}
     # En UTC las dos, porque el nodo convierte estas fechas en dias completos

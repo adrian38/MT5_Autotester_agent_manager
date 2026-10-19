@@ -37,24 +37,59 @@ enseña lo mismo que enseñó Análisis ese día. Se recorta al servirlo
 (`trimmed_detail`), no al guardarlo: lo que la pantalla pida mañana ya está en
 el fichero.
 
-## La herencia entre portafolios es por estrategia
+## La herencia tiene dos candados: genealogía e identidad
 
-`LiveAuditArchive.related` devuelve las ejecuciones del mismo uso **y** las de
-cualquier otro uso del nodo que comparta alguna estrategia con la que se está
-mirando. Eso es el enlace que pidió el usuario, sin tener que resolver la
-genealogía de mejoras: un portafolio arreglado nace con otro identificador y
-otro uso, pero conserva las estrategias del que sustituye.
+Primera versión (2026-10-19): `LiveAuditArchive.related` enlazaba con
+**cualquier** uso del nodo que compartiera una estrategia. El usuario lo acotó
+al día siguiente: lo que se hereda son «los históricos de los portafolios de
+donde se mejoraron o donde se arreglaron, y sólo de las estrategias que se
+mantienen». Compartir un candidato no es parentesco —dos portafolios
+independientes pueden llevar el mismo— y una estrategia que la reparación dejó
+fuera no puede seguir contando.
 
-Comprobado sobre datos reales el 2026-10-19: en RoboForex, los portafolios #104
-y #148 comparten estrategias, y acumular lleva a #148 de 26 a 37 operaciones y
-a #104 de 11 a 37. En AXI, #64 y #73 no comparten ninguna y no se mezclan, que
-es la otra mitad de la prueba: el enlace no es indiscriminado.
+Los dos candados viven en `mt5_manager/live_audit_lineage.py`:
 
-La acumulación por estrategia sólo toma las filas de esa estrategia, así que
-las estrategias ajenas de un portafolio hermano nunca se cuelan. Las que
-estaban en el portafolio viejo y ya no están en el nuevo sí aparecen en la
-tabla, marcadas «ya no está en el portafolio que se audita»: perderlas de vista
-era justo lo que había que evitar.
+- **Genealogía.** `ancestor_portfolio_ids` lee la que el guardado ya dejaba
+  escrita en `metrics`: `repair_source_portfolio_id` (reparación),
+  `improvement_source_portfolio_id`, `improvement_root_portfolio_id` e
+  `improvement_lineage` (mejora y cadena), más el `improvement_origin` que el
+  listado anota. No se deduce nada: un portafolio sin esos campos no tiene
+  padres y se queda con su propia serie.
+- **Identidad.** `member_strategies` devuelve los miembros de **la variante
+  auditada**, en la forma `candidato|fichero.set` del archivo. Reutiliza
+  `_member_strategy_id` y `_member_set_name` de `live_audit_core` a propósito:
+  son las mismas primitivas con las que la comparación arma
+  `strategy_set_names`, y deducirlo aquí de otra forma dejaría la herencia
+  caída en silencio.
+
+`related` recibe los padres como cuarto argumento y **por defecto no hereda
+nada**: quien no resuelva la genealogía se queda con su propia serie. Esa es la
+dirección segura; el defecto antiguo (`None` = heredar de cualquiera) era un
+cepo para el siguiente llamante.
+
+La pantalla recorta igual: `series` sirve cada ejecución pasada por
+`_retained_detail`, con sus filas limitadas a las estrategias que siguen
+presentes, y `live_audit_history.js` sólo pinta las de `strategyRows`. Por eso
+desapareció el aviso «ya no está en el portafolio que se audita»: ya no puede
+llegar ninguna fila así.
+
+## La ventana del cron también se hereda
+
+La fecha de alta del uso no puede cortar la continuidad. Un portafolio reparado
+nace con un uso nuevo y sin `last_result`, así que `chained_period` no tenía de
+dónde engancharse y volvía al periodo configurado en el perfil: el tramo entre
+la última auditoría del padre y el arreglo no se auditaba nunca.
+
+`inherited_period_end` lo resuelve mirando **estrategia por estrategia** cuál
+es el corte más viejo que los padres dejaron pendiente, y `chained_period` lo
+usa sólo como respaldo: una ejecución propia siempre manda sobre la heredada.
+Las estrategias nuevas no aportan corte —su histórico empieza con el uso—, y si
+ninguna hereda nada, vuelve a mandar el perfil.
+
+El uso conserva su propia fecha de alta para lo demás: `_audit_use_created_at`
+sigue evitando que un uso recién creado ejecute citas anteriores a su
+existencia (`launch_due`). Lo que se hereda es la ventana del periodo, no la
+cita.
 
 ## Deduplicación y días cubiertos
 

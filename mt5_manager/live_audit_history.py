@@ -100,20 +100,17 @@ def covered_days(entries: list[dict[str, Any]]) -> float:
 def accumulate(
     archive: Any, node_id: str, audit_key: str, detail: dict[str, Any],
     entries: list[dict[str, Any]] | None = None,
+    inherited_portfolio_ids: tuple[int, ...] | list[int] = (),
 ) -> dict[str, Any]:
     """Operaciones del tester por estrategia en toda la serie, sin repetir.
 
     `detail` es la comparacion vigente; `entries` las entradas del indice que
     hay que sumar, o las que decida el archivo si no se dan.
     """
-    rows = archive.related(node_id, audit_key, strategies_of(detail)) if entries is None else entries
-    # De un uso ajeno sólo se traen las estrategias que este uso tiene o tuvo:
-    # un portafolio hermano puede compartir dos y traer otras ocho que nunca
-    # fueron de éste.
-    wanted = set(strategies_of(detail)).union(*[
-        {str(value) for value in entry.get("strategies") or []}
-        for entry in rows if entry.get("own")
-    ] or [set()])
+    wanted = set(strategies_of(detail))
+    rows = archive.related(
+        node_id, audit_key, list(wanted), inherited_portfolio_ids,
+    ) if entries is None else entries
     grouped: dict[str, list[dict[str, Any]]] = {}
     seen: set[tuple] = set()
     portfolios: dict[int, None] = {}
@@ -121,7 +118,7 @@ def accumulate(
         for (identity, strategy), trades in tester_trades_by_identity(
             archive.detail(node_id, entry),
         ).items():
-            if not entry.get("own") and identity not in wanted:
+            if identity not in wanted:
                 continue
             for trade in trades:
                 key = _trade_key(identity, trade)
@@ -148,14 +145,36 @@ def accumulate(
     }
 
 
-def series(archive: Any, node_id: str, audit_key: str, detail: dict[str, Any]) -> dict[str, Any]:
+def _retained_detail(detail: dict[str, Any], wanted: set[str]) -> dict[str, Any]:
+    """Recorta una ejecucion historica a las estrategias que siguen presentes."""
+    trimmed = trimmed_detail(detail)
+    for key in ("operation_comparisons", "strategy_summary"):
+        trimmed[key] = [
+            row for row in trimmed.get(key) or []
+            if composite(
+                row.get("strategy") or (row.get("tester") or {}).get("strategy"),
+                row.get("strategy_set"),
+            ) in wanted
+        ]
+    return trimmed
+
+
+def series(
+    archive: Any, node_id: str, audit_key: str, detail: dict[str, Any],
+    inherited_portfolio_ids: tuple[int, ...] | list[int] = (),
+) -> dict[str, Any]:
     """Lo que la pantalla necesita para la tabla «demo contra real» historica."""
-    entries = archive.related(node_id, audit_key, strategies_of(detail))
+    wanted = set(strategies_of(detail))
+    entries = archive.related(
+        node_id, audit_key, list(wanted), inherited_portfolio_ids,
+    )
     executions = [{
         **{key: value for key, value in entry.items() if key != "file"},
-        "comparison_detail": trimmed_detail(archive.detail(node_id, entry)),
+        "comparison_detail": _retained_detail(archive.detail(node_id, entry), wanted),
     } for entry in entries]
-    summary = accumulate(archive, node_id, audit_key, detail, entries)
+    summary = accumulate(
+        archive, node_id, audit_key, detail, entries, inherited_portfolio_ids,
+    )
     return {
         "executions": executions,
         "audits": len(executions),

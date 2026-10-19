@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import live_audit_analysis, live_audit_schedule, manager_http
+from . import live_audit_analysis, live_audit_lineage, live_audit_schedule, manager_http
 from .common import load_json, safe_int, save_json, utc_now
 from .live_audit_core import RUNNING_STATUSES
 
@@ -311,10 +311,11 @@ def _launch_payload(
         key: value for key, value in profile.items()
         if key not in live_audit_schedule.MANAGER_ONLY_PROFILE_KEYS
     }
+    inherited_end = live_audit_lineage.inherited_period_end(server, node_id, profile)
     return {
         **node_profile,
         **live_audit_schedule.chained_period(
-            server.live_audit_scheduler_settings, audit, now,
+            server.live_audit_scheduler_settings, audit, now, inherited_end,
         ),
         **server.live_audit_settings.credentials(node_id, audit_id),
         **server.live_audit_settings.restore_credentials(node_id),

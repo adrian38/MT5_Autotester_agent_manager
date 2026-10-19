@@ -18,7 +18,7 @@ from typing import Any
 from . import live_audit_analysis
 from . import live_audit_attribution, live_audit_autolot
 from . import live_audit_degradation
-from . import live_audit_history
+from . import live_audit_history, live_audit_lineage
 from . import manager_http
 from .common import safe_int
 from .portfolio_service import PortfolioSource
@@ -48,6 +48,9 @@ def strategy_history(handler, node_id: str, audit_id: str) -> dict[str, Any]:
     accumulated = live_audit_history.accumulate(
         handler.server.live_audit_archive, node_id, audit_id,
         result.get("comparison_detail") or {},
+        inherited_portfolio_ids=live_audit_lineage.ancestors_of(
+            handler.server, node_id, audit_id,
+        ),
     )
     report = degradation_report(
         PortfolioSource(node), result,

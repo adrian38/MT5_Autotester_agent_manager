@@ -129,8 +129,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   reportes tester al 100 % sin relanzar MT5 ni alterar otras estrategias.
 - `live_audit_history_series.md`: el diario de auditorías del manager, la
   segunda tabla con toda la serie, la tabla «contra el histórico» ya
-  acumulativa y por qué un portafolio arreglado hereda el histórico de las
-  estrategias del que sustituye.
+  acumulativa, y los dos candados de la herencia —genealogía del portafolio e
+  identidad de la estrategia— que también mueven la ventana del cron.
 - `live_audit_cron_and_bell.md`: el cron general de los portafolios activos
   —sábado a las 23:00 con reintentos—, la campana de avisos, por qué el hilo
   vigila siempre pero sólo lanza con el interruptor, y el periodo que se

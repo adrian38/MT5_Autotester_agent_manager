@@ -93,11 +93,43 @@ class ArchiveTests(unittest.TestCase):
                       "2026-10-08T23:59:59+00:00"),
             detail("S:9", [trade("GBPUSD", "2026-10-05T10:00:00+00:00", 5.0)]),
         )
-        related = self.archive.related("n", "a-148", ["S:1|S:1.set"])
+        related = self.archive.related("n", "a-148", ["S:1|S:1.set"], [104])
         self.assertEqual([row["portfolio_id"] for row in related], [104, 148])
         self.assertEqual([row["own"] for row in related], [False, True])
         # Un portafolio que no comparte ninguna estrategia no se cuela.
         self.assertNotIn(200, [row["portfolio_id"] for row in related])
+
+    def test_sharing_a_strategy_without_being_a_parent_lends_nothing(self) -> None:
+        # Dos portafolios independientes pueden llevar el mismo candidato. Sin
+        # genealogía que los una, el histórico de uno no es el del otro.
+        for portfolio, key, execution in ((104, "a-104", "e-1"), (148, "a-148", "e-2")):
+            self.archive.remember(
+                "n", meta(key, execution, portfolio, "2026-09-01T00:00:00+00:00",
+                          "2026-09-08T23:59:59+00:00"),
+                detail("S:1", [trade("EURUSD", "2026-09-05T10:00:00+00:00", 2.0)]),
+            )
+        self.assertEqual(
+            [row["portfolio_id"] for row in self.archive.related("n", "a-148", ["S:1|S:1.set"])],
+            [148],
+        )
+
+    def test_a_parent_only_lends_the_strategies_that_survive_in_the_child(self) -> None:
+        # El padre llevaba dos; la reparación se quedó con una. La que se fue
+        # no vuelve por la puerta de atrás.
+        parent = {
+            "operation_comparisons": [
+                {"strategy": "S:1", "strategy_set": "S:1.set",
+                 "tester": trade("EURUSD", "2026-09-05T10:00:00+00:00", 1.0)},
+                {"strategy": "S:9", "strategy_set": "S:9.set",
+                 "tester": trade("GBPUSD", "2026-09-05T11:00:00+00:00", 7.0)},
+            ],
+        }
+        self.archive.remember(
+            "n", meta("a-104", "e-1", 104, "2026-09-01T00:00:00+00:00",
+                      "2026-09-08T23:59:59+00:00"), parent,
+        )
+        related = self.archive.related("n", "a-148", ["S:1|S:1.set"], [104])
+        self.assertEqual([row["shared_strategies"] for row in related], [["S:1|S:1.set"]])
 
     def test_two_manual_portfolios_that_repeat_an_id_are_not_the_same_strategy(self) -> None:
         # Una cartera manual numera los suyos `manual:1`, `manual:2`…, así que
@@ -180,9 +212,9 @@ class AccumulationTests(unittest.TestCase):
         self.assertEqual(strategies_of({}), [])
         self.assertEqual(trimmed_detail({}), {})
 
-    def test_a_sibling_portfolio_only_lends_the_strategies_this_one_shares(self) -> None:
-        # Comparten `S:1`; las otras del hermano no son de este portafolio y no
-        # pueden aparecer en su acumulado.
+    def test_a_parent_portfolio_only_lends_the_strategies_this_one_keeps(self) -> None:
+        # Comparten `S:1`; las otras del padre ya no están en este portafolio y
+        # no pueden aparecer en su acumulado.
         sibling = {
             "operation_comparisons": [
                 {"strategy": "S:1", "strategy_set": "S:1.set",
@@ -196,10 +228,16 @@ class AccumulationTests(unittest.TestCase):
                       "2026-09-08T23:59:59+00:00"), sibling,
         )
         current = detail("S:1", [trade("EURUSD", "2026-10-05T10:00:00+00:00", 2.0)])
-        accumulated = live_audit_history.accumulate(self.archive, "n", "a-nueva", current)
+        accumulated = live_audit_history.accumulate(
+            self.archive, "n", "a-nueva", current, inherited_portfolio_ids=(104,),
+        )
         self.assertEqual(sorted(accumulated["trades"]), ["S:1"])
         self.assertEqual(len(accumulated["trades"]["S:1"]), 2)
         self.assertEqual(accumulated["inherited"], [104])
+        # Sin genealogía, el mismo archivo sólo devuelve lo propio.
+        alone = live_audit_history.accumulate(self.archive, "n", "a-nueva", current)
+        self.assertEqual(len(alone["trades"]["S:1"]), 1)
+        self.assertEqual(alone["inherited"], [])
 
 
 class DegradationIsCumulativeTests(unittest.TestCase):
@@ -325,9 +363,17 @@ class HistoryScreenTests(unittest.TestCase):
         self.assertIn("strategyGroups(", self.script)
         self.assertIn("/history", self.script)
 
-    def test_it_says_when_a_row_comes_from_a_portfolio_that_is_no_longer_audited(self) -> None:
-        self.assertIn("Ya no está en el portafolio que se audita", self.script)
+    def test_it_says_which_portfolios_it_inherits_from_and_with_what_limit(self) -> None:
         self.assertIn("inherited_portfolios", self.script)
+        self.assertIn("hereda el histórico de", self.script)
+        self.assertIn("sólo de las estrategias que conserva", self.script)
+
+    def test_the_table_only_shows_the_strategies_the_portfolio_keeps(self) -> None:
+        # El servidor ya recorta; la pantalla no puede volver a abrir la mano
+        # con las ejecuciones propias, que era lo que hacía antes.
+        self.assertIn("function retained()", self.script)
+        self.assertIn("if (wanted.size && !wanted.has(identity(group))) return;", self.script)
+        self.assertNotIn("execution.own", self.script)
 
     def test_the_degradation_table_announces_that_it_accumulates(self) -> None:
         self.assertIn("renderAccumulatedNote", self.analysis)

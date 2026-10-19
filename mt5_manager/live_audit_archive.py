@@ -131,21 +131,32 @@ class LiveAuditArchive:
 
     def related(
         self, node_id: str, audit_key: str, strategies: list[str],
+        inherited_portfolio_ids: tuple[int, ...] | list[int] = (),
     ) -> list[dict[str, Any]]:
-        """Ejecuciones de este uso **y** las que comparten alguna estrategia.
+        """Ejecuciones propias y las de los padres que ceden una estrategia.
 
         Ese segundo grupo es el enlace que pidio el usuario: un portafolio
         arreglado nace con otro identificador y otro uso, pero conserva las
         estrategias del portafolio al que sustituye. El portafolio viejo deja de
         estar activo y no vuelve a auditarse nunca mas; su historico tiene que
         seguir contando en el de las estrategias que siguen vivas.
+
+        Compartir una estrategia **no** basta para ser padre: dos portafolios
+        independientes del mismo nodo pueden llevar el mismo candidato sin que
+        uno venga del otro. Los padres los decide la genealogia guardada
+        (`live_audit_lineage`), y por eso el valor por defecto no hereda nada:
+        quien no la resuelva se queda con su propia serie, nunca con la ajena.
         """
         wanted = {str(value) for value in strategies if value}
+        parents = {
+            int(value) for value in inherited_portfolio_ids if int(value) > 0
+        }
         rows = []
         for entry in self.index(node_id):
             same = str(entry.get("audit_key")) == str(audit_key)
             shared = wanted.intersection(str(value) for value in entry.get("strategies") or [])
-            if same or shared:
+            inherited = bool(shared) and int(entry.get("portfolio_id") or 0) in parents
+            if (same and (not wanted or shared)) or inherited:
                 rows.append({**entry, "own": same, "shared_strategies": sorted(shared)})
         rows.sort(key=lambda row: str(row.get("executed_at") or ""))
         return rows

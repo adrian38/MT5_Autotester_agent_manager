@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 from typing import Any
 
-from . import live_audit_history, live_audit_watch, manager_http
+from . import live_audit_history, live_audit_lineage, live_audit_watch, manager_http
 from . import manager_live_audit_routes
 from .common import safe_int
 
@@ -46,20 +46,19 @@ def _audit_history(handler, node_id: str, audit_key: str) -> dict[str, Any]:
     state = analysed.get("audit") if isinstance(analysed, dict) and isinstance(
         analysed.get("audit"), dict,
     ) else analysed
-    profile = dict(
-        (handler.server.live_audit_settings.state(node_id).get("profiles") or {}).get(audit_key)
-        or {},
-    )
+    profile = live_audit_lineage.audit_profile(handler.server, node_id, audit_key)
     live_audit_watch.archive_execution(
         handler.server, node_id, audit_key, dict(state or {}), profile,
     )
     result = (state or {}).get("last_result")
+    lineage = live_audit_lineage.audit_lineage(handler.server, node_id, profile)
     return {
         "node": {"id": node_id, "name": node.get("name") or node_id},
         "audit_key": audit_key,
         **live_audit_history.series(
             handler.server.live_audit_archive, node_id, audit_key,
             (result or {}).get("comparison_detail") or {},
+            lineage.ancestors,
         ),
     }
 

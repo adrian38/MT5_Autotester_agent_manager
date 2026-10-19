@@ -27,25 +27,21 @@
     return `${group.strategy}|${group.label}`;
   }
 
-  // De un uso ajeno sólo entran las estrategias que este uso tiene o tuvo: un
-  // portafolio hermano puede compartir dos y traer otras ocho que nunca
-  // fueron de éste.
-  function allowed(executions) {
-    const keys = new Set();
-    (typeof strategyRows !== 'undefined' ? strategyRows : []).forEach(group => keys.add(identity(group)));
-    executions.filter(execution => execution.own).forEach(execution => {
-      strategyGroups({comparison_detail: execution.comparison_detail || {}})
-        .forEach(group => keys.add(identity(group)));
-    });
-    return keys;
+  // Sólo entran las estrategias que el portafolio auditado conserva. El
+  // servidor ya recorta cada ejecución, así que esto es una red: si la
+  // pantalla todavía no sabe cuáles son, no esconde nada.
+  function retained() {
+    return new Set(
+      (typeof strategyRows !== 'undefined' ? strategyRows : []).map(identity),
+    );
   }
 
   function mergeGroups(executions) {
     const merged = new Map();
-    const wanted = allowed(executions);
+    const wanted = retained();
     executions.forEach(execution => {
       strategyGroups({comparison_detail: execution.comparison_detail || {}}).forEach(group => {
-        if (!execution.own && !wanted.has(identity(group))) return;
+        if (wanted.size && !wanted.has(identity(group))) return;
         const current = merged.get(group.strategy) || {
           strategy: group.strategy, label: group.label, symbol: group.symbol,
           demo: [], real: [], openReal: [], attributed: [], audits: 0,
@@ -64,10 +60,6 @@
     return [...merged.values()];
   }
 
-  function currentStrategies() {
-    return new Set((typeof strategyRows !== 'undefined' ? strategyRows : []).map(identity));
-  }
-
   function spanNote() {
     const days = Math.round(Number(series?.covered_days || 0));
     const audits = Number(series?.audits || 0);
@@ -76,26 +68,23 @@
       `${audits} auditoría${audits === 1 ? '' : 's'}`,
       days ? `${days} día${days === 1 ? '' : 's'} cubiertos` : '',
       inherited.length
-        ? `incluye el histórico de ${inherited.map(id => `#${id}`).join(', ')}, que ya `
-          + `no ${inherited.length === 1 ? 'está activo' : 'están activos'} y comparte${
-            inherited.length === 1 ? '' : 'n'} estrategias con éste`
+        ? `hereda el histórico de ${inherited.map(id => `#${id}`).join(', ')}, de donde `
+          + 'salió este portafolio, y sólo de las estrategias que conserva'
         : '',
     ];
     return parts.filter(Boolean).join(' · ');
   }
 
-  function row(group, currency, current) {
+  function row(group, currency) {
     const numbers = LiveAuditReproduction.numbers(group, EXECUTED_LOTS);
     const [label, tone, help] = LiveAuditReproduction.verdict(numbers);
     const sign = numbers.real - numbers.demo >= 0 ? '+' : '';
     const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
-    const gone = current.has(identity(group))
-      ? '' : '<small class="degradation-off">Ya no está en el portafolio que se audita; su histórico se conserva.</small>';
     const portfolios = [...group.portfolios].sort((a, b) => a - b);
     const few = LiveAuditReproduction.fewTrades(numbers)
       ? '<small class="degradation-off">Pocas operaciones todavía: sirve para mirarlo, no para concluir.</small>' : '';
     return `<tr>
-      <th><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(name)}</small>${gone}</th>
+      <th><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(name)}</small></th>
       <td><strong>${escapeHtml(group.audits)}</strong><small>${
         escapeHtml(portfolios.map(id => `#${id}`).join(' · '))}</small></td>
       <td><strong>${escapeHtml(money(numbers.demo, currency))}</strong></td>
@@ -114,7 +103,6 @@
     if (!body || !series) return;
     const currency = (typeof chartContext === 'object' && chartContext?.currency)
       || series.executions?.[0]?.currency || 'EUR';
-    const current = currentStrategies();
     const ranked = mergeGroups(series.executions || []).sort((left, right) => (
       LiveAuditReproduction.compare(
         LiveAuditReproduction.numbers(left, EXECUTED_LOTS),
@@ -122,7 +110,7 @@
       )
     ));
     body.innerHTML = ranked.length
-      ? ranked.map(group => row(group, currency, current)).join('')
+      ? ranked.map(group => row(group, currency)).join('')
       : '<tr><td colspan="7" class="audit-analysis-empty">Todavía no hay auditorías archivadas. '
         + 'Cada una que termine se guardará aquí, también las lanzadas a mano.</td></tr>';
     const verdicts = ranked.map(group => LiveAuditReproduction.verdict(
