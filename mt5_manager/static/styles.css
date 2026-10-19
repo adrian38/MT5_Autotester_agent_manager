@@ -53,6 +53,10 @@
 .experiment-link:hover{filter:brightness(1.25)}
 .correlation-link{background:linear-gradient(135deg,#123554,#123c33);color:#b8dcff;border:1px solid #315f87}
 .correlation-link:hover{filter:brightness(1.2)}
+/* La vuelta a la raíz. Mismo verde que el «Generación» de la raíz, en
+   `dashboard.css`, para que el par de ida y vuelta se lea como uno solo. */
+.dashboard-link{background:linear-gradient(135deg,#16483b,#12322b);color:#a9ffe1;border:1px solid #397861}
+.dashboard-link:hover{filter:brightness(1.25)}
 
 .portfolio-alias{margin:5px 0 3px;color:var(--accent2);font-size:16px;font-weight:700;letter-spacing:.01em}
 .saved-variant-cards{border-bottom:1px solid var(--line)}

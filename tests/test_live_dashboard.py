@@ -19,6 +19,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         cls.reproduction = (static / "live_audit_reproduction.js").read_text(encoding="utf-8")
         cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
         cls.analysis_page = (static / "live_audit_analysis.html").read_text(encoding="utf-8")
+        cls.generation_page = (static / "index.html").read_text(encoding="utf-8")
         cls.handler = (root / "mt5_manager" / "manager_handler.py").read_text(encoding="utf-8")
         cls.page = html.fromstring(cls.page_text)
 
@@ -35,6 +36,27 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertEqual(links["Correlación"], "/correlation.html")
         self.assertTrue(self.page.xpath('//*[@id="refresh"]'))
         self.assertTrue(self.page.xpath('//*[@id="restart-manager"]'))
+
+    def test_every_screen_can_get_back_to_the_root(self) -> None:
+        # La raíz dejó de ser `/generation.html` y pasó a ser el inventario de
+        # portafolios, pero la generación se quedó sin vuelta: era la única
+        # pantalla sin salida —el resto ya enlazaban a `/`— y desde ella sólo
+        # se volvía escribiendo la dirección a mano.
+        generation = html.fromstring(self.generation_page)
+        links = {anchor.text_content().strip(): anchor.get("href")
+                 for anchor in generation.xpath("//header//a")}
+        self.assertEqual(links["Portafolios activos"], "/")
+        # Y el par de ida y vuelta se mira junto: la raíz enlaza aquí.
+        self.assertEqual(
+            {anchor.text_content().strip(): anchor.get("href")
+             for anchor in self.page.xpath("//nav//a")}["Generación"],
+            "/generation.html",
+        )
+        for name in sorted(STATIC_FILES):
+            if not name.endswith(".html") or name == "dashboard.html":
+                continue
+            page = (Path(__file__).parents[1] / "mt5_manager" / "static" / name)
+            self.assertIn('href="/"', page.read_text(encoding="utf-8"), name)
 
     def test_only_profiles_marked_as_live_are_loaded(self) -> None:
         self.assertIn("/api/live-dashboard", self.script)
