@@ -3,8 +3,33 @@
 @AGENTS.md
 
 Las reglas de trabajo están en `AGENTS.md`. Aquí sólo lo que depende de **este
-equipo**: cómo se llama el proyecto en el índice y cómo desatascar
-`codebase-memory-mcp` cuando falla.
+equipo**: dónde está cada agente, cómo se llama el proyecto en el índice y cómo
+desatascar `codebase-memory-mcp` cuando falla.
+
+## Rutas de los agentes en este equipo
+
+Todas escribibles (`AGENTS.md`, «Alcance obligatorio»). Comprobado el
+2026-10-16; la rama de cada checkout manda más que la carpeta, así que mirar
+`git branch` antes de dar una copia por no montada.
+
+| Agente | Ruta | Rama ese día |
+| --- | --- | --- |
+| Manager (este repositorio) | `I:\TRADING\MT5_Autotester_agent_manager` | `main` |
+| ICTrading | `C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent` | `IC` |
+| FUTURE | `C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_FUTURE` | `future` |
+| AXI | `F:\TRADING\MT5_Autotester_agent_AXI` | `AXI` |
+| RoboForex / genérico | `G:\TRADING\MT5_Autotester_agent` | `dev` |
+
+**No son las rutas que dan por buenas `mt5_manager/dev_branch.py` ni las notas
+viejas de `ai_context/`**, escritas en una máquina donde el manager colgaba de
+`C:\Users\Adrian\Adrian\TRADING`. Aquí el manager está en `I:` y el usuario es
+`13199`. Los agentes de AXI y RoboForex **corren en esta misma máquina** desde
+esos checkouts, no en otra PC.
+
+El acceso del asistente a `C:\Users\13199\Adrian\TRADING`, `F:\TRADING` y
+`G:\TRADING` está concedido en `~/.claude/settings.json`
+(`permissions.additionalDirectories`), no en el `settings.local.json` del
+repositorio: ése está trackeado y arrastraría estas rutas a los demás equipos.
 
 ## Nombres del índice en este equipo
 

@@ -3,30 +3,21 @@
 ## Alcance obligatorio
 
 - Este repositorio es `MT5_Autotester_agent_manager`.
-- En `dev` sólo se puede escribir aquí y en la copia ICTrading de este equipo:
-  `C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent`.
-- **La copia ICTrading se debe modificar** cuando el comportamiento pedido se
+- **Todos los checkouts de agente montados en el equipo son escribibles, en
+  cualquier rama.** El usuario lo autorizó el 2026-10-16; antes sólo lo era la
+  copia de ICTrading y sólo en `dev`. Ya no hay matriz de escritura por rama: la
+  rama del manager no decide dónde se puede escribir.
+- Las rutas cambian de equipo, así que no se escriben aquí: están en `CLAUDE.md`,
+  que es lo que depende de la máquina. Confirmarlas antes de usarlas.
+- **La copia del agente se debe modificar** cuando el comportamiento pedido se
   ejecuta en su `manager_node_runtime/`. Un cambio equivalente en
   `mt5_manager/node.py` o `live_audit_engine.py` **no** lo sustituye.
-- En `dev` no tocar AXI, RoboForex ni la copia genérica `MT5_Autotester_agent`.
-  Fuera de `dev` no inferir permiso sobre otra copia: debe estar autorizada
-  explícitamente para la tarea.
-- El usuario porta los commits de `IC` hacia AXI y RoboForex y reinicia esos
-  agentes. El asistente sólo comunica el commit preparado en `IC`; nunca hace
-  ese porting ni toca esos checkouts.
-- Preservar cambios ajenos; limitar cada modificación al objetivo pedido.
-
-### Matriz de escritura por rama
-
-| Rama del manager | Manager | ICTrading local | AXI, RoboForex y copia genérica |
-| --- | --- | --- | --- |
-| `dev` | Sí | Sí, sólo para el comportamiento que ejecuta su runtime | Nunca |
-| `refactor` | Sí | Sólo con autorización explícita o si la tarea exige el par de protocolo/runtime | Nunca |
-| `main` | Sí | Sólo con autorización explícita para esa tarea | Nunca |
-| Cualquier otra | Sí | Sólo con autorización explícita para esa tarea | Nunca |
-
-La rama permite una ubicación; no amplía el objetivo pedido. Un checkout externo
-que no figure como escribible en esta tabla requiere autorización explícita.
+- Poder escribir no es poder reiniciar. Parar o reiniciar un agente lo hace el
+  usuario; la entrega dice qué agentes lo necesitan y por qué.
+- Preservar cambios ajenos; limitar cada modificación al objetivo pedido. La
+  autorización amplía **la ubicación**, nunca el objetivo.
+- Cada checkout tiene su rama y su commit: un cambio que toca tres agentes son
+  tres commits hermanos, y la entrega los nombra todos.
 
 ## El nodo NO ejecuta este repositorio
 
