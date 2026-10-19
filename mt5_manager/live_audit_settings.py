@@ -15,6 +15,7 @@ from .live_audit_attribution import (
     remove_source,
     rewrite_profile_attribution,
 )
+from .live_audit_manual_pairs import normalize_manual_pairs
 from .live_audit_settings_accounts import (
     _RESTORE_CREDENTIAL_ID,
     LiveAuditAccountsMixin,
@@ -455,6 +456,28 @@ class LiveAuditSettingsStore(LiveAuditAccountsMixin):
                 "restore_password": cipher.decrypt(token.encode("ascii")).decode("utf-8"),
             }
 
+    def _set_profile_field(
+        self, node_id: str, audit_id: str, field: str, value: Any,
+    ) -> Any:
+        """Persiste un campo de un solo uso, y sólo ese campo.
+
+        Quien cambia uno de estos campos está en una pantalla de lectura y no
+        conoce el resto de la configuración del uso: un guardado completo
+        borraría lo que esa pantalla no tenía que enviar.
+        """
+        with self.lock:
+            record = self.records.get(node_id) or {}
+            profiles = {
+                str(key): dict(stored)
+                for key, stored in (record.get("profiles") or {}).items()
+            }
+            if str(audit_id) not in profiles:
+                raise KeyError(f"El uso {audit_id} no tiene configuración guardada")
+            profiles[str(audit_id)][field] = value
+            self.records[node_id] = {**record, "profiles": profiles, "updated_at": utc_now()}
+            save_json(self.path, self.records)
+        return value
+
     def view_lot_overrides(self, node_id: str, audit_id: str) -> dict[str, Any]:
         """La reconciliación de lotes guardada para un uso."""
         with self.lock:
@@ -473,18 +496,10 @@ class LiveAuditSettingsStore(LiveAuditAccountsMixin):
         **un solo campo** de **un solo uso**, por lo mismo que la atribución:
         quien lo cambia no conoce el resto de la configuración.
         """
-        normalized = normalize_view_lot_overrides(overrides)
-        with self.lock:
-            record = self.records.get(node_id) or {}
-            profiles = {
-                str(key): dict(value) for key, value in (record.get("profiles") or {}).items()
-            }
-            if str(audit_id) not in profiles:
-                raise KeyError(f"El uso {audit_id} no tiene configuración guardada")
-            profiles[str(audit_id)]["view_lot_overrides"] = normalized
-            self.records[node_id] = {**record, "profiles": profiles, "updated_at": utc_now()}
-            save_json(self.path, self.records)
-        return normalized
+        return self._set_profile_field(
+            node_id, audit_id, "view_lot_overrides",
+            normalize_view_lot_overrides(overrides),
+        )
 
     def reviewed_strategies(self, node_id: str, audit_id: str) -> dict[str, Any]:
         """Las estrategias que el usuario ya dio por revisadas en un uso."""
@@ -503,18 +518,31 @@ class LiveAuditSettingsStore(LiveAuditAccountsMixin):
         uso**, igual que el escalado de la vista: quien lo cambia está en
         Análisis y no conoce el resto de la configuración.
         """
-        normalized = normalize_reviewed_strategies(reviewed)
+        return self._set_profile_field(
+            node_id, audit_id, "reviewed_strategies",
+            normalize_reviewed_strategies(reviewed),
+        )
+
+    def manual_pairs(self, node_id: str, audit_id: str) -> dict[str, Any]:
+        """Las parejas tester–real que el usuario decidió a mano en un uso."""
         with self.lock:
-            record = self.records.get(node_id) or {}
-            profiles = {
-                str(key): dict(value) for key, value in (record.get("profiles") or {}).items()
-            }
-            if str(audit_id) not in profiles:
-                raise KeyError(f"El uso {audit_id} no tiene configuración guardada")
-            profiles[str(audit_id)]["reviewed_strategies"] = normalized
-            self.records[node_id] = {**record, "profiles": profiles, "updated_at": utc_now()}
-            save_json(self.path, self.records)
-        return normalized
+            profiles = (self.records.get(node_id) or {}).get("profiles") or {}
+            stored = (profiles.get(str(audit_id)) or {}).get("manual_pairs")
+        return normalize_manual_pairs(stored)
+
+    def set_manual_pairs(
+        self, node_id: str, audit_id: str, pairs: Any,
+    ) -> dict[str, Any]:
+        """Guarda qué real le toca a qué operación del tester.
+
+        A diferencia del escalado de la vista y de las estrategias validadas,
+        esto **sí** cambia el veredicto: la fila deja de ser «SIN REAL» y pasa a
+        medirse con las tolerancias de siempre. Por eso quien la guarda vuelve a
+        pedir el análisis en la misma llamada.
+        """
+        return self._set_profile_field(
+            node_id, audit_id, "manual_pairs", normalize_manual_pairs(pairs),
+        )
 
     def _rewrite_attribution(
         self, node_id: str, audit_id: str, rewrite: Callable[[Any], dict[str, Any]],

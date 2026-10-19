@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .live_audit_attribution import annotate_unmatched
 from .live_audit_core import *  # noqa: F403
+from .live_audit_manual_pairs import forced_assignment, note_manual_pairs
 
 
 class _ComparisonMixin:
@@ -102,7 +103,7 @@ class _ComparisonMixin:
     @staticmethod
     def _assign_real_trades(
         tester: list[dict[str, Any]], real: list[dict[str, Any]], request: dict[str, Any],
-        points: dict[str, float],
+        points: dict[str, float], forced: dict[int, int] | None = None,
     ) -> dict[int, int]:
         """Reparte los cierres reales entre las operaciones del tester.
 
@@ -111,6 +112,9 @@ class _ComparisonMixin:
         el cierre de la segunda y ninguna de las dos quedaba dentro de
         tolerancia. El reparto se decide ahora sobre todas las parejas a la vez,
         de la mejor a la peor, y cada real se consume una sola vez.
+
+        Las parejas que decidió el usuario entran antes que cualquier coste y
+        consumen su real: lo que el auditor no supo ver no se vuelve a repartir.
         """
         costs = sorted(
             (*cost, tester_index, real_index)
@@ -119,8 +123,8 @@ class _ComparisonMixin:
             for cost in [_ComparisonMixin._pair_cost(expected, actual, request, points)]
             if cost is not None
         )
-        assignment: dict[int, int] = {}
-        taken: set[int] = set()
+        assignment: dict[int, int] = dict(forced or {})
+        taken: set[int] = set(assignment.values())
         for *_cost, tester_index, real_index in costs:
             if tester_index in assignment or real_index in taken:
                 continue
@@ -336,6 +340,11 @@ class _ComparisonMixin:
             expected, actual, tester_index, index, open_time_delta,
             points.get(actual["symbol"], 0.0), request, data_issues,
         )
+        # La pareja forzada se mide igual que cualquier otra, pero la fila dice
+        # quién la decidió: un lector tiene que poder distinguir lo que encontró
+        # el auditor de lo que le dijeron.
+        if tester_index - 1 in (state.get("forced") or {}):
+            row["manual_pair"] = True
         if reasons:
             state["deviations"] += 1
             _ComparisonMixin._increment(state["deviating_by_strategy"], strategy)
@@ -465,6 +474,7 @@ class _ComparisonMixin:
             request, state, unmatched, unmatched_operations, strategy_summary,
             real_dd, tester_dd, dd_deviation,
         )
+        note_manual_pairs(detail, state.get("forced") or {})
         missing = len(tester) - state["matched"]
         extra = len(state["unused"])
         return {
@@ -544,8 +554,11 @@ class _ComparisonMixin:
         request: dict[str, Any], strategies: dict[str, int],
     ) -> dict[str, Any]:
         state = _ComparisonMixin._comparison_state(real, request)
+        state["forced"] = forced_assignment(
+            tester, real, request.get("manual_pairs") or {},
+        )
         state["assignment"] = _ComparisonMixin._assign_real_trades(
-            tester, real, request, points,
+            tester, real, request, points, state["forced"],
         )
         state["unassigned"] = set(range(len(real))) - set(state["assignment"].values())
         for tester_index, expected in enumerate(tester, 1):

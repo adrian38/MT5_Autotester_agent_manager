@@ -84,6 +84,11 @@
 .audit-raw summary { padding: 16px 20px; cursor: pointer; color: var(--muted); }
 .audit-raw pre { max-height: 32rem; overflow: auto; margin: 0; padding: 18px 20px; border-top: 1px solid var(--line); background: #07111f; color: #d8e7f7; white-space: pre-wrap; }
 .audit-result-error { max-width: 760px; margin: 40px auto; padding: 20px; border: 1px solid #9a3944; border-radius: 12px; background: #241016; color: #ffb5bc; }
+.manual-pair { display: grid; gap: 4px; margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.manual-pair select { width: 100%; max-width: 22rem; }
+.manual-pair.is-set { color: #bdd9f3; }
+.manual-pair.is-set strong { color: var(--accent2); }
+.manual-pair button { justify-self: start; padding: 2px 8px; font-size: 11px; }
 .audit-technical { overflow: hidden; }
 .audit-technical > summary { padding: 18px 20px; cursor: pointer; color: #bdd9f3; font-weight: 700; }
 .audit-technical[open] > summary { border-bottom: 1px solid var(--line); }

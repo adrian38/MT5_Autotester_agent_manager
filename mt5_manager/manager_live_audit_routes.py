@@ -344,13 +344,14 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
     if not restore:
         raise ValueError("Configura y guarda la cuenta que debe quedar en los terminales")
     # El autolote, la atribución, la marca informativa de operación real, el
-    # escalado de la vista y las estrategias ya revisadas son criterio del
-    # manager; el nodo sólo recibe datos necesarios para auditar.
+    # escalado de la vista, las estrategias ya revisadas y las parejas decididas
+    # a mano son criterio del manager; el nodo sólo recibe datos necesarios para
+    # auditar.
     node_profile = {
         key: value for key, value in profile.items()
         if key not in {
             "autolot", "real_attribution", "live_trading",
-            "view_lot_overrides", "reviewed_strategies",
+            "view_lot_overrides", "reviewed_strategies", "manual_pairs",
         }
     }
     return {
@@ -400,23 +401,42 @@ def _apply_attribution_change(handler, node_id: str, audit_id: str, body: Any) -
         settings.set_real_attribution(node_id, audit_id, change.get("real_attribution"))
 
 
-def _handle_attribution_save(handler, parts: list[str]) -> bool:
-    """Cambia la atribución de un uso y devuelve el veredicto ya recalculado.
+def _apply_manual_pairs_change(handler, node_id: str, audit_id: str, body: Any) -> None:
+    """Sustituye las parejas manuales del uso por las que manda la pantalla.
+
+    Sustituir y no acumular, al revés que la atribución: la pantalla tiene el
+    mapa entero delante y deshacer una pareja es mandarlo sin ella.
+    """
+    change = body if isinstance(body, dict) else {}
+    handler.server.live_audit_settings.set_manual_pairs(
+        node_id, audit_id, change.get("manual_pairs"),
+    )
+
+
+# Lo que una pantalla cambia del criterio del manager y obliga a reanalizar.
+_SAVED_CRITERION = {
+    "attribution": _apply_attribution_change,
+    "manual-pairs": _apply_manual_pairs_change,
+}
+
+
+def _handle_saved_criterion(handler, parts: list[str]) -> bool:
+    """Cambia un criterio de un uso y devuelve el veredicto ya recalculado.
 
     En una sola llamada: el criterio vive en el manager y se aplica al leer, de
     modo que guardar y volver a pedir son dos pasos que no pueden quedar a
     medias. La pantalla recibe el resultado nuevo y repinta con él.
     """
     if not (
-        len(parts) == 6 and parts[:2] == ["api", "nodes"]
-        and parts[3] == "live-audits" and parts[5] == "attribution"
+        len(parts) == 6 and parts[:2] == ["api", "nodes"] and parts[3] == "live-audits"
+        and parts[5] in _SAVED_CRITERION
     ):
         return False
     try:
         node_id = urllib.parse.unquote(parts[2])
         audit_id = urllib.parse.unquote(parts[4])
         node = handler._node(node_id)
-        _apply_attribution_change(handler, node_id, audit_id, handler._body())
+        _SAVED_CRITERION[parts[5]](handler, node_id, audit_id, handler._body())
         status, value = manager_http.node_request(
             node, "GET", f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}",
             timeout=10,
@@ -464,7 +484,7 @@ def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
     """Configuracion del auditor, cuenta de restauracion y lanzar un uso."""
     if (
         _handle_workbook_import(handler, parts)
-        or _handle_attribution_save(handler, parts)
+        or _handle_saved_criterion(handler, parts)
         or _handle_manual_reports(handler, parts)
         or _handle_view_field(handler, parts, write=True)
     ):

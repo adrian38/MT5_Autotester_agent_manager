@@ -28,6 +28,7 @@ const priceRuleLabels = {
   unavailable: 'sin regla disponible',
 };
 let comparisonRows = [];
+let candidateReals = [];
 let activeFilter = 'all';
 let currentResult = null;
 let currentConfig = {};
@@ -148,6 +149,49 @@ function realTicketNote(real) {
   return ticket ? ` · ticket ${ticket}` : '';
 }
 
+// La misma huella que `tester_pair_key` del manager, carácter por carácter: el
+// `#T6` de la pantalla es la posición en la lista y se mueve en cuanto la
+// auditoría se vuelve a ejecutar, así que no sirve para guardar nada.
+function testerPairKey(tester) {
+  return [tester.strategy, tester.symbol, tester.side, tester.open_time, tester.close_time]
+    .map(value => String(value || '')).join('|');
+}
+
+function manualPairs() {
+  return currentResult?.analysis?.tolerances?.manual_pairs || {};
+}
+
+// Una fila «SIN REAL» no siempre es una real que no existe: en `audit-170` tres
+// de las cuatro tenían su real apartada por la banda de lote. Se ofrecen las
+// que quedaron libres y las descartadas, la más cercana en el tiempo primero.
+function manualPairCandidates(detail) {
+  return [
+    ...(detail.unmatched_real_operations || []),
+    ...(detail.discarded_real_operations || []),
+  ].map(row => row.real || {}).filter(real => real.position_id ?? real.ticket);
+}
+
+function manualPairPicker(tester) {
+  if (!candidateReals.length) return '<small>No queda ninguna real que ofrecer.</small>';
+  const opened = Date.parse(tester.open_time);
+  const options = [...candidateReals]
+    .sort((left, right) => Math.abs(Date.parse(left.open_time) - opened)
+      - Math.abs(Date.parse(right.open_time) - opened))
+    .map(real => {
+      const ticket = String(real.position_id ?? real.ticket);
+      const label = `${real.symbol} ${real.side} ${number(real.volume, 4)} · ${marketDateTime(real.open_time)} · ticket ${ticket}`;
+      return `<option value="${escapeHtml(ticket)}">${escapeHtml(label)}</option>`;
+    }).join('');
+  return `<label class="manual-pair"><span>Emparejar a mano</span><select data-manual-pair="${escapeHtml(testerPairKey(tester))}"><option value="">— sin pareja —</option>${options}</select></label>`;
+}
+
+function manualPairControl(row, tester) {
+  if (row.manual_pair) {
+    return `<p class="manual-pair is-set"><strong>Pareja decidida a mano.</strong> Se mide con las mismas tolerancias que cualquier otra. <button type="button" data-undo-pair="${escapeHtml(testerPairKey(tester))}">Deshacer</button></p>`;
+  }
+  return row.status === 'missing' ? manualPairPicker(tester) : '';
+}
+
 function stopsLevel(trade) {
   return (Number(trade.sl) || Number(trade.tp))
     ? `SL ${number(trade.sl, 8)} / TP ${number(trade.tp, 8)}` : 'sin niveles';
@@ -189,7 +233,10 @@ function comparisonCsvRow(row) {
   const limits = row.limits || {};
   const openReal = real.open_time || nearest.open_time;
   const openDelta = measurements.open_time_delta_seconds ?? measurements.nearest_open_time_delta_seconds;
-  const reasonText = reasons.length ? reasons.join('; ') : 'Todos los límites se cumplen';
+  // Quien se descarga el CSV tiene que poder distinguir lo que emparejó el
+  // auditor de lo que le dijeron: en la pantalla lo dice la fila.
+  const reasonText = (reasons.length ? reasons.join('; ') : 'Todos los límites se cumplen')
+    + (row.manual_pair ? ' · pareja decidida a mano' : '');
   const noClosedReal = row.status === 'missing' || Boolean(row.real_position_still_open);
   const closeText = noClosedReal
     ? plainPair(tester.close_time, real.close_time, marketDateTime)
@@ -618,7 +665,7 @@ function comparisonMarkup(row) {
     <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : `${delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}<small>Límite absoluto ${escapeHtml(number(limits.open_price_absolute, 8))} · regla ${escapeHtml(priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada')}</small>`}<small>${escapeHtml(stopsPair(tester, real))}</small></td>
     <td>${pair(tester.volume, real.volume, value => number(value, 4))}${volumeCell}</td>
     <td>${pair(tester.profit, real.profit, value => number(value, 2))}${pnlCell}${openPosition ? '<small>Pendiente hasta el cierre real</small>' : ''}</td>
-    <td>${reasons.length ? `<ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : '<strong class="good-text">Todos los límites se cumplen</strong>'}</td>
+    <td>${reasons.length ? `<ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : '<strong class="good-text">Todos los límites se cumplen</strong>'}${manualPairControl(row, tester)}</td>
   </tr>`;
 }
 
@@ -659,6 +706,7 @@ function applyFilters() {
 
 function renderComparisons(detail) {
   const testerRows = detail.operation_comparisons || [];
+  candidateReals = manualPairCandidates(detail);
   comparisonRows = [...testerRows, ...(detail.unmatched_real_operations || [])];
   const body = document.querySelector('#comparison-body');
   const warning = document.querySelector('#legacy-warning');
@@ -804,6 +852,48 @@ async function uploadManualReports(files) {
     document.querySelector('#manual-report-files').value = '';
   }
 }
+
+function showPairError(message) {
+  const target = document.querySelector('#result-error');
+  target.hidden = !message;
+  target.textContent = message;
+}
+
+// El veredicto lo calcula el manager al leer, así que guardar la pareja no
+// basta: hay que volver a pedir el análisis. Las dos cosas van en una sola
+// llamada —`.../manual-pairs` devuelve el resultado recalculado— para que no
+// pueda quedarse guardada sin repintar ni repintada sin guardar.
+async function saveManualPairs(pairs) {
+  const data = await jsonResponse(await fetch(
+    `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/manual-pairs`,
+    {method: 'POST', headers: {'Content-Type': 'application/json'},
+     body: JSON.stringify({manual_pairs: pairs})},
+  ));
+  const auditState = data.audit || data;
+  if (!auditState.last_result) {
+    throw new Error(auditState.analysis_error || 'El manager no devolvió el análisis recalculado.');
+  }
+  renderResult(auditState.last_result, currentConfig, currentPortfolios, auditState);
+  showPairError('');
+}
+
+function changeManualPair(key, positionId) {
+  const pairs = {...manualPairs()};
+  if (positionId) pairs[key] = {position_id: positionId, at: new Date().toISOString()};
+  else delete pairs[key];
+  saveManualPairs(pairs).catch(error => showPairError(error.message));
+}
+
+// Delegados: la tabla se repinta entera con cada recálculo, así que escuchar en
+// los controles dejaría los oyentes colgando del marcado viejo.
+document.querySelector('#comparison-body').addEventListener('change', event => {
+  const select = event.target.closest('[data-manual-pair]');
+  if (select) changeManualPair(select.dataset.manualPair, select.value);
+});
+document.querySelector('#comparison-body').addEventListener('click', event => {
+  const undo = event.target.closest('[data-undo-pair]');
+  if (undo) changeManualPair(undo.dataset.undoPair, '');
+});
 
 document.querySelectorAll('[data-status-filter]').forEach(button => button.addEventListener('click', () => {
   activeFilter = button.dataset.statusFilter;

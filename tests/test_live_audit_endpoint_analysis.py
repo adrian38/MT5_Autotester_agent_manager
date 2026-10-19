@@ -142,13 +142,14 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
             return_value=(200, {"capabilities": {"live_audit_restore_account": True}}),
         ):
             request = run_payload(endpoint, "nodo", {}, "audit-148")
-        # `view_lot_overrides` es escalado de la vista y `reviewed_strategies`
-        # es qué ha mirado ya el usuario: el nodo audita con los lotes
-        # configurados y no tiene por qué saber cómo se dibuja después ni qué
-        # filas siguen pidiendo atención en la portada.
+        # `view_lot_overrides` es escalado de la vista, `reviewed_strategies`
+        # es qué ha mirado ya el usuario y `manual_pairs` qué real le tocaba a
+        # qué operación: el nodo audita con los lotes configurados y no tiene
+        # por qué saber cómo se dibuja después, qué filas siguen pidiendo
+        # atención en la portada ni qué parejas corrigió el usuario.
         for manager_only in (
             "autolot", "real_attribution", "live_trading",
-            "view_lot_overrides", "reviewed_strategies",
+            "view_lot_overrides", "reviewed_strategies", "manual_pairs",
         ):
             self.assertNotIn(manager_only, request)
 

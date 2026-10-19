@@ -30,6 +30,9 @@ from .live_audit_engine import (
     LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
     _trade_view, _within_lot_bands,
 )
+from .live_audit_manual_pairs import (
+    normalize_manual_pairs, real_pair_id, rescued_position_ids,
+)
 
 # Lo que el usuario puede cambiar y volver a aplicar sobre una ejecución guardada.
 REANALYSABLE_TOLERANCES = (
@@ -42,6 +45,10 @@ REANALYSABLE_TOLERANCES = (
     "real_strategy_lots",
     "autolot",
     "real_attribution",
+    # Las parejas que decidió el usuario. Es criterio, no hecho observado: se
+    # aplica sobre la materia prima guardada sin repetir la auditoría, igual
+    # que una tolerancia nueva o la atribución.
+    "manual_pairs",
 )
 # Lo que describe la ejecución y no se puede reinterpretar sin repetirla.
 EXECUTION_FACTS = (
@@ -271,6 +278,7 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
     request["_real_attribution_by_ticket"] = attribution_by_ticket(
         request.get("real_attribution"), list(payload.get("selected_members") or []),
     )
+    request["manual_pairs"] = normalize_manual_pairs(request.get("manual_pairs"))
     return request
 
 
@@ -328,11 +336,16 @@ def _filter_portfolio_trades(
         "applied": bool(bands), "symbol_aliases": dict(inputs["symbol_aliases"]),
     }
     discarded: list[dict[str, Any]] = []
+    # Una real que el usuario emparejó a mano no la puede apartar la banda de
+    # lote: la conjetura de pertenencia ya quedó contestada, y sin esto el
+    # emparejamiento manual no alcanzaría al caso más frecuente.
+    rescued = rescued_position_ids(request.get("manual_pairs"))
     if bands:
         before = len(real_trades)
         kept: list[dict[str, Any]] = []
         for trade in real_trades:
-            (kept if _within_lot_bands(trade, bands) else discarded).append(trade)
+            belongs = _within_lot_bands(trade, bands) or real_pair_id(trade) in rescued
+            (kept if belongs else discarded).append(trade)
         real_trades = kept
         inputs["history_detail"]["portfolio_closures"] = len(real_trades)
         inputs["history_detail"]["foreign_closures_ignored"] = before - len(real_trades)
@@ -341,6 +354,9 @@ def _filter_portfolio_trades(
             closures_before=before,
             portfolio_closures=len(real_trades),
             foreign_closures_ignored=before - len(real_trades),
+            manually_paired_kept=sum(
+                1 for trade in real_trades if not _within_lot_bands(trade, bands)
+            ),
         )
     inputs["real_trades"] = real_trades
     inputs["discarded_real_trades"] = discarded

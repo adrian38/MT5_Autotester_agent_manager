@@ -6,6 +6,7 @@ from typing import Any
 
 from .live_audit_attribution import empty_attribution, normalize_attribution
 from .live_audit_autolot import empty_autolot, normalize_autolot
+from .live_audit_manual_pairs import empty_manual_pairs, normalize_manual_pairs
 
 
 DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
@@ -23,6 +24,10 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     # es silenciar para siempre: si la siguiente auditoría empeora el
     # veredicto, la portada tiene que volver a enseñarla.
     "reviewed_strategies": {},
+    # Las parejas tester–real que decidió el usuario cuando el auditor no
+    # encontró ninguna. Sí cambian el veredicto, porque la fila deja de ser
+    # «SIN REAL» y pasa a medirse con las tolerancias de siempre.
+    "manual_pairs": empty_manual_pairs(),
     "autolot": empty_autolot(),
     "real_attribution": empty_attribution(),
     "deployment_name": "",
@@ -307,6 +312,7 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
         )
     normalized["autolot"] = normalize_autolot(value.get("autolot"))
     normalized["real_attribution"] = normalize_attribution(value.get("real_attribution"))
+    normalized["manual_pairs"] = normalize_manual_pairs(value.get("manual_pairs"))
     return normalized
 
 
