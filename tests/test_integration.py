@@ -171,16 +171,34 @@ class LocalIntegrationTests(IntegrationTestCase):
         status, scheduler = self.request("/api/live-audit-scheduler-config")
         self.assertEqual(status, 200)
         self.assertFalse(scheduler["effective_enabled"])
+        # Sin guardar nada, la cita que propone el cron es la que pidió el
+        # usuario, y la respuesta dice cuándo cae la próxima.
+        self.assertEqual(
+            [scheduler["mode"], scheduler["weekday"], scheduler["hour"]], ["weekly", 5, 23],
+        )
+        self.assertIn("sábado a las 23:00", scheduler["schedule_label"])
+        self.assertTrue(scheduler["next_run_at"])
         status, scheduler = self.request("/api/live-audit-scheduler-config", {
-            "enabled": False, "interval_days": 17,
+            "enabled": False, "weekday": 2, "hour": 7, "retry_attempts": 2,
+            "retry_delay_minutes": 15, "interval_days": 17,
         })
         self.assertEqual(status, 200)
         self.assertEqual(scheduler["interval_days"], 17)
         self.assertNotIn("check_interval_minutes", scheduler)
         self.assertNotIn("startup_delay_seconds", scheduler)
+        # La campana contesta desde el primer arranque: vacía, no 404.
+        status, bell = self.request("/api/live-audit-notifications")
+        self.assertEqual(status, 200)
+        self.assertEqual(bell, {"events": [], "unread": 0, "total": 0})
+        status, bell = self.request("/api/live-audit-notifications/read", {})
+        self.assertEqual((status, bell["unread"]), (200, 0))
         scheduler_path = self.live_audit_settings_path.with_name("live_audit_scheduler.json")
         persisted_scheduler = json.loads(scheduler_path.read_text(encoding="utf-8"))
-        self.assertEqual(persisted_scheduler, {"enabled": False, "interval_days": 17})
+        self.assertEqual(persisted_scheduler, {
+            "enabled": False, "mode": "weekly", "weekday": 2, "hour": 7, "minute": 0,
+            "timezone": "Europe/Madrid", "interval_days": 17, "only_live_trading": True,
+            "retry_attempts": 2, "retry_delay_minutes": 15, "chain_from_last_audit": True,
+        })
 
     @staticmethod
     def _live_audit_profiles(defaults: dict[str, object]) -> dict[str, dict[str, object]]:

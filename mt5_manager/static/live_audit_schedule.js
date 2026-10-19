@@ -1,0 +1,301 @@
+// El botón superior «Auditoría programada» y la campana de avisos.
+//
+// Se monta solo sobre `.header-actions`, así que la portada y Generación sólo
+// tienen que incluir el script: la cita y los avisos son del manager entero,
+// no de una pantalla, y tienen que verse igual desde cualquiera de las dos.
+(() => {
+  const actions = document.querySelector('.header-actions');
+  if (!actions) return;
+
+  const WEEKDAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+  let scheduler = {};
+  let notifications = {events: [], unread: 0, total: 0};
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+    })[character]);
+  }
+
+  function notify(message, error = false) {
+    const element = document.querySelector('#toast');
+    if (!element) {
+      if (error) window.alert(message);
+      return;
+    }
+    element.textContent = message;
+    element.className = error ? 'show error' : 'show';
+    setTimeout(() => { element.className = ''; }, 4000);
+  }
+
+  async function jsonResponse(response) {
+    const text = await response.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; }
+    catch (_error) { throw new Error(`Respuesta no válida (HTTP ${response.status})`); }
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    return data;
+  }
+
+  const post = (url, body) => fetch(url, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {}),
+  }).then(jsonResponse);
+
+  // --- Botón, campana y contenedores -------------------------------------
+  const bell = document.createElement('button');
+  bell.type = 'button';
+  bell.className = 'cron-bell';
+  bell.id = 'cron-bell';
+  bell.title = 'Avisos de las auditorías';
+  bell.innerHTML = '🔔<span class="cron-unread" id="cron-unread" hidden>0</span>';
+
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'cron-link';
+  open.id = 'open-cron';
+  open.textContent = 'Auditoría programada';
+  open.title = 'Programar la auditoría de todos los portafolios marcados como activos';
+
+  const restart = actions.querySelector('#restart-manager');
+  actions.insertBefore(open, restart || null);
+  actions.insertBefore(bell, restart || null);
+
+  const panel = document.createElement('aside');
+  panel.className = 'cron-panel';
+  panel.id = 'cron-panel';
+  panel.hidden = true;
+  panel.innerHTML = `
+    <header>
+      <div><p class="eyebrow">CAMPANA</p><h2>Avisos de auditoría</h2></div>
+      <button type="button" class="secondary" id="cron-panel-close" aria-label="Cerrar">×</button>
+    </header>
+    <ul class="cron-events" id="cron-events"></ul>
+    <footer>
+      <button type="button" class="secondary" id="cron-mark-read">Marcar leídos</button>
+      <button type="button" class="secondary" id="cron-clear">Vaciar</button>
+    </footer>`;
+  document.body.appendChild(panel);
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'cron-dialog';
+  dialog.id = 'cron-dialog';
+  dialog.innerHTML = `
+    <form id="cron-form" method="dialog">
+      <div class="cron-head">
+        <div>
+          <p class="eyebrow">CRON GENERAL</p>
+          <h2>Auditoría programada</h2>
+          <p class="cron-note" id="cron-description"></p>
+        </div>
+        <button type="button" class="secondary" id="cron-close" aria-label="Cerrar">×</button>
+      </div>
+      <div class="cron-body">
+        <label class="cron-switch">
+          <input id="cron-enabled" type="checkbox">
+          <span><strong>Activar la auditoría automática</strong>
+            <small>Desactivada, sólo funciona «Auditar ahora». La campana avisa igual.</small></span>
+        </label>
+        <div class="cron-grid">
+          <label>Cadencia
+            <select id="cron-mode">
+              <option value="weekly">Un día fijo de la semana</option>
+              <option value="interval">Cada X días</option>
+            </select>
+          </label>
+          <label id="cron-weekday-field">Día
+            <select id="cron-weekday">${
+              WEEKDAYS.map((name, index) => `<option value="${index}">${name}</option>`).join('')
+            }</select>
+          </label>
+          <label id="cron-hour-field">Hora<input id="cron-hour" type="number" min="0" max="23" required></label>
+          <label id="cron-minute-field">Minuto<input id="cron-minute" type="number" min="0" max="59" required></label>
+          <label id="cron-interval-field" hidden>Cada (días)
+            <input id="cron-interval-days" type="number" min="1" max="3650">
+          </label>
+          <label>Zona horaria<input id="cron-timezone" placeholder="Europe/Madrid" required></label>
+          <label>Reintentos si falla<input id="cron-retry-attempts" type="number" min="0" max="10" required></label>
+          <label>Esperar entre reintentos (min)
+            <input id="cron-retry-delay" type="number" min="1" max="720" required>
+          </label>
+        </div>
+        <label class="cron-switch">
+          <input id="cron-only-live" type="checkbox">
+          <span><strong>Sólo los portafolios marcados como activos</strong>
+            <small>Los que salen en «Portafolios activos», es decir los que operan en real.</small></span>
+        </label>
+        <label class="cron-switch">
+          <input id="cron-chain" type="checkbox">
+          <span><strong>Encadenar con la última auditoría</strong>
+            <small>Cada ejecución arranca donde terminó la anterior, así entran las
+            operaciones que entonces seguían abiertas y ya han cerrado. Los Excel de
+            atribución, las parejas enlazadas a mano y las estrategias ya validadas se
+            conservan: son criterio del manager y se aplican al leer.</small></span>
+        </label>
+        <p class="cron-note" id="cron-next"></p>
+        <p class="cron-warning" id="cron-timezone-warning" hidden></p>
+        <ul class="cron-targets" id="cron-targets"></ul>
+      </div>
+      <div class="cron-actions">
+        <button type="button" class="secondary" id="cron-cancel">Cancelar</button>
+        <button type="submit" id="cron-save">Guardar programación</button>
+      </div>
+    </form>`;
+  document.body.appendChild(dialog);
+
+  const field = id => document.querySelector(id);
+
+  // --- Programación -------------------------------------------------------
+  function applyMode() {
+    const weekly = field('#cron-mode').value === 'weekly';
+    for (const id of ['#cron-weekday-field', '#cron-hour-field', '#cron-minute-field']) {
+      field(id).hidden = !weekly;
+    }
+    field('#cron-interval-field').hidden = weekly;
+  }
+
+  function localDate(value) {
+    if (!value) return '';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('es-ES');
+  }
+
+  function targetsMarkup(state) {
+    const rows = (state.audits || []).map(row => `<li>${escapeHtml(row.node_name)} · `
+      + `${escapeHtml(row.label)}${row.outcome ? ` · último turno: ${escapeHtml(row.outcome)}` : ''}</li>`);
+    const blocked = (state.blocked || []).map(row => `<li class="blocked">${escapeHtml(row.node_name)} · `
+      + `${escapeHtml(row.label)} · marcado activo pero sin configuración completa: el cron no puede lanzarlo</li>`);
+    if (!rows.length && !blocked.length) {
+      return '<li>Ningún portafolio marcado como activo tiene auditoría configurada.</li>';
+    }
+    return [`<li><strong>${rows.length} uso${rows.length === 1 ? '' : 's'} en la cita</strong></li>`,
+      ...rows, ...blocked].join('');
+  }
+
+  function applyScheduler(data) {
+    scheduler = data || {};
+    field('#cron-enabled').checked = Boolean(scheduler.enabled);
+    field('#cron-mode').value = scheduler.mode || 'weekly';
+    field('#cron-weekday').value = String(scheduler.weekday ?? 5);
+    field('#cron-hour').value = scheduler.hour ?? 23;
+    field('#cron-minute').value = scheduler.minute ?? 0;
+    field('#cron-interval-days').value = scheduler.interval_days ?? 30;
+    field('#cron-timezone').value = scheduler.timezone || 'Europe/Madrid';
+    field('#cron-retry-attempts').value = scheduler.retry_attempts ?? 3;
+    field('#cron-retry-delay').value = scheduler.retry_delay_minutes ?? 10;
+    field('#cron-only-live').checked = scheduler.only_live_trading !== false;
+    field('#cron-chain').checked = scheduler.chain_from_last_audit !== false;
+    field('#cron-description').textContent = scheduler.description || '';
+    field('#cron-next').textContent = scheduler.effective_enabled
+      ? `Próxima auditoría: ${localDate(scheduler.next_run_at) || scheduler.schedule_label || ''}`
+      : 'Sin activar: no se lanzará ninguna auditoría sola.';
+    const warning = field('#cron-timezone-warning');
+    warning.textContent = scheduler.timezone_warning || '';
+    warning.hidden = !scheduler.timezone_warning;
+    field('#cron-targets').innerHTML = targetsMarkup(scheduler);
+    open.classList.toggle('armed', Boolean(scheduler.effective_enabled));
+    open.title = scheduler.effective_enabled
+      ? `Auditoría automática activa: ${scheduler.schedule_label || ''}`
+      : 'Programar la auditoría de todos los portafolios marcados como activos';
+    applyMode();
+  }
+
+  async function loadScheduler() {
+    applyScheduler(await jsonResponse(
+      await fetch('/api/live-audit-scheduler-config', {cache: 'no-store'}),
+    ));
+  }
+
+  // --- Campana ------------------------------------------------------------
+  function eventMarkup(event) {
+    const link = event.node_id && event.audit_id
+      ? `<a href="/live_audit_analysis.html?node=${encodeURIComponent(event.node_id)}`
+        + `&audit=${encodeURIComponent(event.audit_id)}">Ver análisis</a>`
+      : '';
+    return `<li class="${escapeHtml(event.level)}${event.read ? '' : ' unread'}">`
+      + `<strong>${escapeHtml(event.title)}</strong>`
+      + (event.message ? `<p>${escapeHtml(event.message)}</p>` : '')
+      + `<small>${escapeHtml(localDate(event.created_at))}`
+      + (event.node_name ? ` · ${escapeHtml(event.node_name)}` : '') + `</small>${link}</li>`;
+  }
+
+  function applyNotifications(data) {
+    notifications = data || {events: [], unread: 0};
+    const unread = Number(notifications.unread || 0);
+    const badge = field('#cron-unread');
+    badge.textContent = unread > 99 ? '99+' : String(unread);
+    badge.hidden = !unread;
+    bell.title = unread
+      ? `${unread} aviso${unread === 1 ? '' : 's'} sin leer`
+      : 'Avisos de las auditorías';
+    field('#cron-events').innerHTML = notifications.events.length
+      ? notifications.events.map(eventMarkup).join('')
+      : '<li class="cron-empty">Todavía no hay avisos. Aquí aparecerá cada auditoría que '
+        + 'termine y cada una que falle.</li>';
+  }
+
+  async function loadNotifications() {
+    applyNotifications(await jsonResponse(
+      await fetch('/api/live-audit-notifications?limit=50', {cache: 'no-store'}),
+    ));
+  }
+
+  // --- Oyentes ------------------------------------------------------------
+  open.addEventListener('click', async () => {
+    try { await loadScheduler(); } catch (error) { notify(error.message, true); }
+    dialog.showModal();
+  });
+  field('#cron-close').addEventListener('click', () => dialog.close());
+  field('#cron-cancel').addEventListener('click', () => dialog.close());
+  field('#cron-mode').addEventListener('change', applyMode);
+
+  field('#cron-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = field('#cron-save');
+    button.disabled = true;
+    try {
+      const saved = await post('/api/live-audit-scheduler-config', {
+        enabled: field('#cron-enabled').checked,
+        mode: field('#cron-mode').value,
+        weekday: Number(field('#cron-weekday').value),
+        hour: Number(field('#cron-hour').value),
+        minute: Number(field('#cron-minute').value),
+        interval_days: Number(field('#cron-interval-days').value),
+        timezone: field('#cron-timezone').value.trim(),
+        retry_attempts: Number(field('#cron-retry-attempts').value),
+        retry_delay_minutes: Number(field('#cron-retry-delay').value),
+        only_live_trading: field('#cron-only-live').checked,
+        chain_from_last_audit: field('#cron-chain').checked,
+      });
+      applyScheduler(saved);
+      dialog.close();
+      notify(saved.effective_enabled
+        ? `Auditoría automática activa: ${saved.schedule_label}.`
+        : 'Programación guardada. La auditoría automática sigue desactivada.');
+    } catch (error) { notify(error.message, true); }
+    finally { button.disabled = false; }
+  });
+
+  bell.addEventListener('click', async () => {
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) {
+      try { await loadNotifications(); } catch (error) { notify(error.message, true); }
+    }
+  });
+  field('#cron-panel-close').addEventListener('click', () => { panel.hidden = true; });
+  field('#cron-mark-read').addEventListener('click', async () => {
+    try { applyNotifications(await post('/api/live-audit-notifications/read', {})); }
+    catch (error) { notify(error.message, true); }
+  });
+  field('#cron-clear').addEventListener('click', async () => {
+    if (!window.confirm('¿Vaciar todos los avisos?')) return;
+    try { applyNotifications(await post('/api/live-audit-notifications/clear', {})); }
+    catch (error) { notify(error.message, true); }
+  });
+
+  loadScheduler().catch(() => {});
+  loadNotifications().catch(() => {});
+  // El mismo pulso que la portada: un aviso del sábado no puede tardar en
+  // aparecer más que la tarjeta que lo explica.
+  setInterval(() => { loadNotifications().catch(() => {}); }, 60000);
+})();

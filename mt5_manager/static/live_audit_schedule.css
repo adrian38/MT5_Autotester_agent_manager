@@ -1,0 +1,46 @@
+/* Botón superior «Auditoría programada» y su campana. Vive aparte porque lo
+   usan la portada y Generación, que tienen hojas de estilo distintas; por eso
+   cada variable lleva su respaldo literal. */
+.cron-bell{position:relative;padding:10px 12px;border:1px solid var(--line,#27394b);border-radius:9px;background:transparent;color:var(--text,#edf5f7);font-size:15px;line-height:1}
+.cron-bell:hover{border-color:var(--accent,#20c997)}
+.cron-bell .cron-unread{position:absolute;top:-6px;right:-6px;min-width:18px;padding:2px 5px;border-radius:999px;background:var(--danger,#ff6b6b);color:#2a0a0a;font-size:10px;font-weight:800}
+.cron-bell .cron-unread[hidden]{display:none}
+.cron-link{border:1px solid #4b3a7a;background:linear-gradient(135deg,#231a45,#12303c);color:var(--accent2,#63e6be)}
+.cron-link.armed{border-color:#397861;background:linear-gradient(135deg,#16483b,#12322b);color:#a9ffe1}
+
+.cron-panel{position:fixed;top:0;right:0;z-index:40;display:flex;flex-direction:column;width:min(430px,100vw);height:100vh;border-left:1px solid var(--line,#27394b);background:var(--panel,#111b27);box-shadow:-18px 0 60px #0009}
+.cron-panel[hidden]{display:none}
+.cron-panel header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line,#27394b)}
+.cron-panel h2{font-size:17px}
+.cron-panel .cron-events{flex:1;overflow-y:auto;margin:0;padding:12px;list-style:none}
+.cron-panel .cron-events li{display:grid;gap:4px;padding:12px;border:1px solid var(--line,#27394b);border-left-width:4px;border-radius:10px;margin-bottom:9px;background:#0b1520}
+.cron-panel .cron-events li.unread{background:#101f2c}
+.cron-panel .cron-events li.success{border-left-color:var(--accent,#20c997)}
+.cron-panel .cron-events li.error{border-left-color:var(--danger,#ff6b6b)}
+.cron-panel .cron-events li.warning{border-left-color:var(--warn,#ffd166)}
+.cron-panel .cron-events li.info{border-left-color:var(--blue,#68a7ff)}
+.cron-panel .cron-events strong{font-size:13px}
+.cron-panel .cron-events p{color:var(--muted,#91a4b5);font-size:12px;line-height:1.45}
+.cron-panel .cron-events small{color:var(--muted,#91a4b5);font-size:11px}
+.cron-panel .cron-events a{color:var(--blue,#68a7ff);font-size:11px;font-weight:700;text-decoration:none}
+.cron-panel footer{display:flex;gap:9px;padding:14px 20px;border-top:1px solid var(--line,#27394b)}
+.cron-panel footer button{flex:1;font-size:12px}
+.cron-empty{padding:40px 20px;color:var(--muted,#91a4b5);font-size:13px;text-align:center}
+
+.cron-dialog{width:min(620px,94vw);max-height:92vh;padding:0;border:1px solid var(--line,#27394b);border-radius:15px;background:var(--panel,#111b27);color:var(--text,#edf5f7)}
+.cron-dialog::backdrop{background:#04080cd0}
+.cron-dialog form{display:flex;flex-direction:column;max-height:92vh}
+.cron-dialog .cron-head{display:flex;align-items:start;justify-content:space-between;gap:16px;padding:20px 22px;border-bottom:1px solid var(--line,#27394b)}
+.cron-dialog .cron-body{overflow-y:auto;display:grid;gap:14px;padding:20px 22px}
+.cron-dialog .cron-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.cron-dialog label{display:grid;gap:6px;color:var(--muted,#91a4b5);font-size:12px}
+.cron-dialog input,.cron-dialog select{padding:9px 10px;border:1px solid var(--line,#27394b);border-radius:8px;background:#0b1520;color:var(--text,#edf5f7);font:inherit}
+.cron-dialog .cron-switch{display:flex;align-items:start;gap:10px;padding:12px;border:1px solid var(--line,#27394b);border-radius:10px;color:var(--text,#edf5f7)}
+.cron-dialog .cron-switch input{width:18px;height:18px}
+.cron-dialog .cron-switch small{display:block;margin-top:3px;color:var(--muted,#91a4b5);font-size:11px}
+.cron-dialog .cron-note{color:var(--muted,#91a4b5);font-size:12px;line-height:1.5}
+.cron-dialog .cron-warning{color:var(--warn,#ffd166);font-size:12px;line-height:1.5}
+.cron-dialog .cron-targets{display:grid;gap:6px;margin:0;padding:12px;border:1px solid var(--line,#27394b);border-radius:10px;background:#0b1520;list-style:none;font-size:12px}
+.cron-dialog .cron-targets li.blocked{color:var(--warn,#ffd166)}
+.cron-dialog .cron-actions{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid var(--line,#27394b)}
+@media(max-width:600px){.cron-panel{width:100vw}}

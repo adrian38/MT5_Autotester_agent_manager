@@ -1,7 +1,8 @@
 """El servidor HTTP del manager: que ruta atiende que, y como responde.
 
 Las rutas de cada area viven en su modulo (`manager_portfolio_routes`,
-`manager_live_audit_routes`, `correlation_routes`, `experiment_routes`); aqui
+`manager_live_audit_routes`, `manager_schedule_routes`, `correlation_routes`,
+`experiment_routes`); aqui
 quedan el despacho, las respuestas y lo que se reenvia al nodo tal cual.
 """
 from __future__ import annotations
@@ -26,6 +27,7 @@ from . import manager_http
 from . import manager_live_audit_routes
 from . import manager_portfolio_routes
 from . import manager_pulse
+from . import manager_schedule_routes
 from .common import json_bytes, safe_int, utc_now
 from .manager_http import NODE_CONTROL_ACTIONS, NODE_CONTROL_TIMEOUT, submit_guided_to_node, submit_repair_request
 from .manager_restart import RestartAlreadyRunning
@@ -41,6 +43,9 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_FILES = {
     "app.js", "styles.css", "dashboard.js", "dashboard.css", "dashboard_metrics.js",
     "live_audit_reproduction.js",
+    # El boton superior «Auditoria programada» y su campana: los montan la
+    # portada y Generacion, porque la cita es del manager entero.
+    "live_audit_schedule.js", "live_audit_schedule.css",
     "universe.html", "universe.js",
     "live_audit.html", "live_audit.js", "live_audit_autolot.js", "live_audit.css",
     "live_audit_result.html", "live_audit_result.js", "live_audit_result.css",
@@ -168,14 +173,11 @@ class ManagerHandler(BaseHTTPRequestHandler):
         return manager_pulse.pulse(self)
 
     def _get_manager_routes(self, parsed: Any, parts: list[str]) -> bool:
-        """Estado del manager entero: reinicio, planificador, nodos y pulso."""
+        """Estado del manager entero: reinicio, nodos y pulso."""
         if parsed.path == "/api/manager/restart":
             query = urllib.parse.parse_qs(parsed.query)
             lines = safe_int(query.get("lines", [120])[0], 120, minimum=1, maximum=1000)
             self._send_json(200, self.server.manager_restart.status(log_lines=lines))
-            return True
-        if parsed.path == "/api/live-audit-scheduler-config":
-            self._send_json(200, self.server.live_audit_scheduler_state())
             return True
         if parsed.path == "/api/nodes":
             self._send_json(200, {"nodes": self._all_status(), "observed_at": utc_now()})
@@ -235,10 +237,16 @@ class ManagerHandler(BaseHTTPRequestHandler):
         return manager_portfolio_routes.handle_get(self, parsed, parts)
 
     def _get_live_audit_routes(self, parsed: Any, parts: list[str]) -> bool:
-        return manager_live_audit_routes.handle_get(self, parsed, parts)
+        return (
+            manager_schedule_routes.handle_get(self, parsed, parts)
+            or manager_live_audit_routes.handle_get(self, parsed, parts)
+        )
 
     def _post_live_audit_routes(self, parsed: Any, parts: list[str]) -> bool:
-        return manager_live_audit_routes.handle_post(self, parsed, parts)
+        return (
+            manager_schedule_routes.handle_post(self, parsed, parts)
+            or manager_live_audit_routes.handle_post(self, parsed, parts)
+        )
 
     def _get_static_routes(self, parsed: Any, parts: list[str]) -> bool:
         if parsed.path in {"/", "/index.html"}:
@@ -275,7 +283,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def _post_manager_routes(self, parsed: Any, parts: list[str]) -> bool:
-        """Lotes guiados, reinicio, planificador, cola y preferencias."""
+        """Lotes guiados, reinicio, cola y preferencias."""
         if len(parts)==4 and parts[:2]==["api","nodes"] and parts[3]=="guided-batches":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -294,12 +302,6 @@ class ManagerHandler(BaseHTTPRequestHandler):
                 self._send_json(409, {"error": str(exc)})
             except (ValueError, OSError, RuntimeError) as exc:
                 self._send_json(503, {"error": str(exc)})
-            return True
-        if parsed.path == "/api/live-audit-scheduler-config":
-            try:
-                self._send_json(200, self.server.update_live_audit_scheduler(self._body()))
-            except (ValueError, OSError, json.JSONDecodeError) as exc:
-                self._send_json(400, {"error": str(exc)})
             return True
         if len(parts) == 5 and parts[:2] == ["api", "nodes"] and parts[3:] == ["queue", "cancel"]:
             try:

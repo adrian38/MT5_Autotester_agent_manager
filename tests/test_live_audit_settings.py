@@ -16,21 +16,52 @@ from mt5_manager.live_audit_settings import (
 
 
 class LiveAuditSchedulerSettingsTests(unittest.TestCase):
-    def test_the_only_public_cadence_is_interval_days(self) -> None:
-        self.assertEqual(
-            normalize_live_audit_scheduler_settings({"enabled": True, "interval_days": 7}),
-            {"enabled": True, "interval_days": 7},
+    def test_the_default_cadence_is_every_saturday_at_eleven_at_night(self) -> None:
+        # Lo que pidió el usuario, y lo que ve quien abre el diálogo sin haber
+        # guardado nunca: sábado a las 23:00 hora española, tres reintentos de
+        # diez minutos y sólo los portafolios marcados como activos.
+        normalized = normalize_live_audit_scheduler_settings({})
+        self.assertEqual(normalized, {
+            "enabled": False, "mode": "weekly", "weekday": 5, "hour": 23, "minute": 0,
+            "timezone": "Europe/Madrid", "interval_days": 30, "only_live_trading": True,
+            "retry_attempts": 3, "retry_delay_minutes": 10, "chain_from_last_audit": True,
+        })
+
+    def test_the_cadence_in_days_still_exists_as_its_own_mode(self) -> None:
+        normalized = normalize_live_audit_scheduler_settings(
+            {"enabled": True, "mode": "interval", "interval_days": 7},
         )
+        self.assertEqual(normalized["mode"], "interval")
+        self.assertEqual(normalized["interval_days"], 7)
         with self.assertRaisesRegex(ValueError, "interval_days"):
             normalize_live_audit_scheduler_settings({"interval_days": 0})
+        with self.assertRaisesRegex(ValueError, "mode"):
+            normalize_live_audit_scheduler_settings({"mode": "cada rato"})
+
+    def test_every_number_of_the_cron_is_bounded(self) -> None:
+        for field, value in (
+            ("weekday", 7), ("hour", 24), ("minute", 60),
+            ("retry_attempts", 11), ("retry_delay_minutes", 0),
+        ):
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, field):
+                normalize_live_audit_scheduler_settings({field: value})
+        with self.assertRaisesRegex(ValueError, "timezone"):
+            normalize_live_audit_scheduler_settings({"timezone": "Europa/Madrid; rm -rf"})
+
+    def test_a_partial_change_keeps_everything_else(self) -> None:
+        saved = normalize_live_audit_scheduler_settings({"weekday": 2, "hour": 7})
+        self.assertEqual(
+            normalize_live_audit_scheduler_settings({"enabled": True}, saved),
+            {**saved, "enabled": True},
+        )
 
     def test_old_technical_timers_are_migrated_without_remaining_public(self) -> None:
-        self.assertEqual(
-            normalize_live_audit_scheduler_settings({
-                "enabled": False, "check_interval_minutes": 5, "startup_delay_seconds": 30,
-            }),
-            {"enabled": False, "interval_days": 30},
-        )
+        normalized = normalize_live_audit_scheduler_settings({
+            "enabled": False, "check_interval_minutes": 5, "startup_delay_seconds": 30,
+        })
+        self.assertNotIn("check_interval_minutes", normalized)
+        self.assertNotIn("startup_delay_seconds", normalized)
+        self.assertEqual(normalized["interval_days"], 30)
 
 
 def profile(source_login: str, tester_login: str, **changes: object) -> dict[str, object]:

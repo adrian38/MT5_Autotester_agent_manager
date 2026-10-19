@@ -60,6 +60,7 @@ MANAGER_STACK = [
     "manager_pulse",
     "manager_live_audit_routes",
     "manager_portfolio_routes",
+    "manager_schedule_routes",
     "manager_handler",
     "manager_server",
     "manager",

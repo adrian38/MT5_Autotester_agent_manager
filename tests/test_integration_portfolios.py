@@ -90,24 +90,59 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         # La auditoría pausa el pipeline del agente, corre y lo reanuda. Sin
         # nadie delante eso es una ejecución desatendida sobre terminales MT5
         # reales: el 2026-08-21 dejó un terminal sin cuenta y dos días de
-        # discovery puntuando 0 supervivientes. Se lanza a mano hasta que el MVP
-        # esté cerrado, así que por defecto ni se arranca el hilo.
+        # discovery puntuando 0 supervivientes. Desde que existe la campana el
+        # hilo sí arranca siempre, porque avisar de que una auditoría terminó
+        # no puede depender de que haya un navegador abierto; lo que sigue
+        # detrás del interruptor es **lanzar**. Por eso la guarda ya no mira si
+        # hay hilo, sino que ninguna petición cambie nada en el agente.
         nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
         scheduler_file = str(self.root / "scheduler-safety-test.json")
         with mock.patch.dict("os.environ", {}, clear=True):
             server = ManagerServer(("127.0.0.1", 0), {
                 "nodes": nodes, "live_audit_scheduler_settings_file": scheduler_file,
             })
+        state = {
+            "configured_audit_ids": ["11"], "live_audit_ids": ["11"],
+            "profiles": {"11": {"portfolio_id": 11, "live_trading": True}},
+        }
+
+        def reachable(_node, method, path, payload=None, timeout=0):
+            if path == "/api/v1/status":
+                return 200, {"capabilities": {"live_audit_restore_account": True}}
+            if method == "GET":
+                return 200, {"audits": {"11": {"status": "idle"}}}
+            return 202, {"audit": {"status": "queued"}}
+
         try:
             self.assertFalse(server.live_audit_scheduler_enabled)
-            self.assertIsNone(server.live_audit_thread)
-            # Y aunque se llame al barrido a mano, no sale ninguna petición.
-            with mock.patch("mt5_manager.manager_http.node_request") as node_request:
+            with (
+                mock.patch.object(server.live_audit_settings, "state", return_value=state),
+                mock.patch.object(server.live_audit_settings, "credentials", return_value={}),
+                mock.patch.object(
+                    server.live_audit_settings, "restore_credentials",
+                    return_value={"restore_password": "saved"},
+                ),
+                mock.patch(
+                    "mt5_manager.manager_http.node_request", side_effect=reachable,
+                ) as node_request,
+            ):
                 server._run_due_live_audits()
-            node_request.assert_not_called()
+                self.assertEqual(
+                    [], [call for call in node_request.call_args_list if call.args[1] != "GET"],
+                )
+                # Con el interruptor puesto, ese mismo barrido sí lo lanza.
+                node_request.reset_mock()
+                server.live_audit_scheduler_enabled = True
+                server._run_due_live_audits()
+                self.assertEqual(
+                    1, len([call for call in node_request.call_args_list if call.args[1] == "POST"]),
+                )
         finally:
             server.server_close()
 
+    def test_only_an_explicit_switch_arms_the_launches(self) -> None:
+        nodes = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
+        scheduler_file = str(self.root / "scheduler-switch-test.json")
         for switch in ({"live_audit_scheduler_enabled": True}, {"live_audit_scheduler_enabled": "si"}):
             with mock.patch.dict("os.environ", {}, clear=True):
                 server = ManagerServer(("127.0.0.1", 0), {
@@ -148,10 +183,10 @@ class PortfolioIntegrationTests(IntegrationTestCase):
             "live_audit_scheduler_settings_file": str(self.root / "scheduler-global-days.json"),
         })
         state = {
-            "configured_audit_ids": ["11"],
+            "configured_audit_ids": ["11"], "live_audit_ids": ["11"],
             "profiles": {"11": {
                 "portfolio_id": 11, "portfolio_type": "aggressive",
-                "source_login": "1", "audit_interval_days": 999,
+                "source_login": "1", "audit_interval_days": 999, "live_trading": True,
             }},
         }
         completed_at = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
@@ -176,6 +211,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                 ),
                 mock.patch("mt5_manager.manager_http.node_request", side_effect=request) as node_request,
             ):
+                server.live_audit_scheduler_settings["mode"] = "interval"
                 server.live_audit_scheduler_settings["interval_days"] = 7
                 server._run_due_live_audits()
                 self.assertFalse(any(call.args[1] == "POST" for call in node_request.call_args_list))

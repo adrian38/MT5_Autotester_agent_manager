@@ -1,8 +1,8 @@
 """El proceso del manager: configuracion, coordinadores y planificador.
 
-Se arma por pasos con nombre en vez de un `__init__` de 123 lineas. El
-planificador de auditoria en vivo arranca **apagado** a proposito: ver el
-comentario de `_start_live_audit_scheduler`.
+Se arma por pasos con nombre en vez de un `__init__` de 123 lineas. El hilo de
+la auditoria en vivo **vigila siempre y lanza solo si el interruptor esta
+puesto**: ver el comentario de `_start_live_audit_scheduler`.
 """
 from __future__ import annotations
 
@@ -11,16 +11,17 @@ import os
 import sqlite3
 import sys
 import threading
-import urllib.error
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from . import manager_http
+from . import live_audit_schedule, live_audit_watch
 from .common import load_json, safe_int, save_json
 from .experiment_service import ExperimentCoordinator
+from .live_audit_notifications import LiveAuditNotificationStore
 from .live_audit_settings import LiveAuditSettingsStore
+from .live_audit_watch import LiveAuditRunState
 from .manager_config import (
     BOOL_PREFERENCE_KEYS,
     LAUNCH_PREFERENCE_KEYS,
@@ -75,6 +76,14 @@ class ManagerServer(ThreadingHTTPServer):
             else Path.cwd() / "runtime" / "live_audit_settings.json"
         )
         self.live_audit_settings = LiveAuditSettingsStore(live_audit_settings_path)
+        # La campana y la memoria del cron viven al lado de la configuracion:
+        # un aviso del sabado por la noche tiene que seguir ahi el lunes.
+        self.live_audit_notifications = LiveAuditNotificationStore(
+            live_audit_settings_path.with_name("live_audit_notifications.json"),
+        )
+        self.live_audit_runs = LiveAuditRunState(
+            live_audit_settings_path.with_name("live_audit_schedule_state.json"),
+        )
         scheduler_file = str(config.get("live_audit_scheduler_settings_file") or "").strip()
         self.live_audit_scheduler_path = (
             Path(scheduler_file).expanduser().resolve()
@@ -87,7 +96,12 @@ class ManagerServer(ThreadingHTTPServer):
                 minimum=1, maximum=3650,
             ),
         }
-        self.live_audit_scheduler_settings = dict(scheduler_defaults)
+        # Normalizado aunque no haya fichero: `manager.json` solo puede
+        # adelantar el interruptor y los días, y el resto del cron tiene que
+        # estar completo desde el primer arranque.
+        self.live_audit_scheduler_settings = normalize_live_audit_scheduler_settings(
+            {}, scheduler_defaults,
+        )
         if self.live_audit_scheduler_path.is_file():
             try:
                 self.live_audit_scheduler_settings = normalize_live_audit_scheduler_settings(
@@ -144,12 +158,18 @@ class ManagerServer(ThreadingHTTPServer):
         )
 
     def _start_live_audit_scheduler(self) -> None:
-        # La auditoría en vivo se dispara **solo a mano** mientras el MVP no esté
-        # cerrado. Automática pausaba el pipeline del agente, corría sola y lo
-        # reanudaba sin nadie delante; el 2026-08-21 una ejecución desatendida
-        # dejó un terminal sin cuenta y dos días de discovery a cero. Para
-        # rearmarla: `live_audit_scheduler_enabled: true` en manager.json, o
-        # MT5_MANAGER_LIVE_AUDIT_SCHEDULER=1.
+        # El hilo hace dos cosas distintas y solo una toca al agente:
+        #
+        # - **Vigilar** es leer el estado de los usos para poder avisar en la
+        #   campana de que uno terminó o falló. Solo son GET y corre siempre,
+        #   porque un aviso que necesita un navegador abierto no sirve para
+        #   contar lo que pasó el sábado por la noche.
+        # - **Lanzar** sigue detrás del interruptor. Una auditoría pausa el
+        #   pipeline del agente, corre y lo reanuda: el 2026-08-21 una
+        #   ejecución desatendida dejó un terminal sin cuenta y dos días de
+        #   discovery a cero. Se arma con el botón «Auditoría programada», con
+        #   `live_audit_scheduler_enabled: true` en manager.json o con
+        #   MT5_MANAGER_LIVE_AUDIT_SCHEDULER=1.
         self.live_audit_scheduler_enabled = (
             _truthy(self.live_audit_scheduler_environment)
             if self.live_audit_scheduler_environment is not None
@@ -157,15 +177,16 @@ class ManagerServer(ThreadingHTTPServer):
         )
         self.live_audit_stop = threading.Event()
         self.live_audit_wakeup = threading.Event()
-        self.live_audit_thread: threading.Thread | None = None
-        if not self.live_audit_scheduler_enabled:
-            print(
-                "[live-audit-scheduler] desactivado: la auditoría solo se lanza a mano. "
-                "Para rearmarlo, live_audit_scheduler_enabled=true en manager.json.",
-                flush=True,
-            )
-            return
-        self.live_audit_thread = threading.Thread(
+        print(
+            "[live-audit-scheduler] "
+            + (
+                f"activo: {live_audit_schedule.schedule_label(self.live_audit_scheduler_settings)}"
+                if self.live_audit_scheduler_enabled
+                else "sin armar: solo vigila para la campana; nada se lanza solo."
+            ),
+            flush=True,
+        )
+        self.live_audit_thread: threading.Thread | None = threading.Thread(
             target=self._live_audit_schedule_loop,
             daemon=True,
             name="live-audit-scheduler",
@@ -187,15 +208,27 @@ class ManagerServer(ThreadingHTTPServer):
         super().server_close()
 
     def live_audit_scheduler_state(self) -> dict[str, Any]:
-        """Contrato público y explícito del antiguo «cron» interno."""
+        """Contrato público y explícito del «cron» interno."""
+        settings = dict(self.live_audit_scheduler_settings)
+        _zone, timezone_warning = live_audit_schedule.resolve_zone(settings.get("timezone"))
+        now = datetime.now(timezone.utc)
         return {
-            **dict(self.live_audit_scheduler_settings),
+            **settings,
             "effective_enabled": bool(self.live_audit_scheduler_enabled),
             "source": "environment" if self.live_audit_scheduler_environment is not None else "saved",
             "environment_override": self.live_audit_scheduler_environment is not None,
+            "schedule_label": live_audit_schedule.schedule_label(settings),
+            "next_run_at": (
+                live_audit_schedule.next_occurrence(now, settings).isoformat()
+                if settings.get("mode") == "weekly" else ""
+            ),
+            "timezone_warning": timezone_warning,
+            **live_audit_watch.targets(self),
             "description": (
-                "El manager ejecuta las auditorías configuradas cada X días. "
-                "Nunca vuelve a iniciar una que ya esté ejecutándose."
+                "El manager audita los usos marcados «operando en real» "
+                f"{live_audit_schedule.schedule_label(settings)}, de uno en uno por "
+                "agente. Nunca vuelve a iniciar una auditoría que ya esté "
+                "ejecutándose, y cada ejecución arranca donde terminó la anterior."
             ),
         }
 
@@ -211,7 +244,7 @@ class ManagerServer(ThreadingHTTPServer):
             if self.live_audit_scheduler_environment is not None
             else bool(normalized["enabled"])
         )
-        if self.live_audit_scheduler_enabled and self.live_audit_thread is None:
+        if self.live_audit_thread is None:
             self.live_audit_thread = threading.Thread(
                 target=self._live_audit_schedule_loop,
                 daemon=True,
@@ -221,16 +254,6 @@ class ManagerServer(ThreadingHTTPServer):
         else:
             self.live_audit_wakeup.set()
         return self.live_audit_scheduler_state()
-
-    @staticmethod
-    def _audit_timestamp(value: object) -> datetime | None:
-        text = str(value or "").strip()
-        if not text:
-            return None
-        try:
-            return datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            return None
 
     def _live_audit_schedule_loop(self) -> None:
         # La espera inicial y el sondeo son detalles internos; el usuario solo
@@ -245,103 +268,14 @@ class ManagerServer(ThreadingHTTPServer):
             self.live_audit_wakeup.wait(_LIVE_AUDIT_INTERNAL_CHECK_INTERVAL_SECONDS)
             self.live_audit_wakeup.clear()
 
-    def _node_live_audits(self, node: dict[str, Any], node_id: str) -> dict[str, Any] | None:
-        """Los usos que el nodo declara, o ``None`` si no se le puede preguntar.
-
-        Un agente con el auditor anterior no cuenta como error: se anota y se
-        salta, porque lo que le falta es un reinicio, no configuracion.
-        """
-        try:
-            status_status, node_state = manager_http.node_request(node, "GET", "/api/v1/status", timeout=10)
-            capabilities = (
-                node_state.get("capabilities")
-                if status_status == 200 and isinstance(node_state, dict) else {}
-            )
-            if not isinstance(capabilities, dict) or not capabilities.get("live_audit_restore_account"):
-                sys.stderr.write(
-                    f"[live-audit-scheduler] {node_id}: auditor antiguo; pendiente reiniciar el agente\n"
-                )
-                return None
-            status, value = manager_http.node_request(node, "GET", "/api/v1/live-audits", timeout=10)
-        except (OSError, urllib.error.URLError, TimeoutError, ValueError) as exc:
-            sys.stderr.write(f"[live-audit-scheduler] {node_id}: no se pudo consultar el nodo: {exc}\n")
-            return None
-        if status != 200 or not isinstance(value, dict):
-            sys.stderr.write(f"[live-audit-scheduler] {node_id}: GET devolvió HTTP {status}: {value}\n")
-            return None
-        return value.get("audits") if isinstance(value.get("audits"), dict) else {}
-
-    def _live_audit_is_due(self, audit: dict[str, Any], now: datetime) -> bool:
-        """Falso si el uso esta corriendo o si aun no ha cumplido el intervalo."""
-        if str(audit.get("status") or "") in {
-            "queued", "pausing", "extracting", "testing", "comparing", "finalizing", "resuming",
-        }:
-            return False
-        result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
-        previous = self._audit_timestamp(result.get("completed_at") or audit.get("finished_at"))
-        if previous is None:
-            return True
-        if previous.tzinfo is None:
-            previous = previous.replace(tzinfo=timezone.utc)
-        interval = int(self.live_audit_scheduler_settings["interval_days"])
-        return now - previous >= timedelta(days=interval)
-
-    def _start_due_audit(
-        self, node: dict[str, Any], node_id: str, audit_id: str, profile: dict[str, Any],
-    ) -> None:
-        portfolio_id = safe_int(profile.get("portfolio_id"), 0, minimum=1)
-        payload = {
-            **profile,
-            **self.live_audit_settings.credentials(node_id, audit_id),
-            **self.live_audit_settings.restore_credentials(node_id),
-            "audit_key": audit_id,
-            "portfolio_id": portfolio_id,
-        }
-        if not payload.get("restore_password"):
-            sys.stderr.write(
-                f"[live-audit-scheduler] {node_id}/{audit_id}: "
-                "falta la cuenta de restauración de terminales\n"
-            )
-            return
-        sys.stderr.write(
-            f"[live-audit-scheduler] iniciando {node_id}/{audit_id}: "
-            f"portafolio #{portfolio_id}, variante {profile.get('portfolio_type')}, "
-            f"cuenta {profile.get('source_login')}\n"
-        )
-        start_status, response = manager_http.node_request(
-            node, "POST", f"/api/v1/live-audits/{portfolio_id}/run", payload, timeout=30
-        )
-        if start_status >= 400 and start_status != 409:
-            sys.stderr.write(
-                f"[live-audit-scheduler] {node_id}/{audit_id}/#{portfolio_id}: HTTP {start_status} {response}\n"
-            )
-
     def _run_due_live_audits(self) -> None:
-        # Segundo candado: aunque alguien arranque el bucle, sin el interruptor
-        # no se lanza ninguna auditoría.
-        if not self.live_audit_scheduler_enabled:
-            return
-        now = datetime.now(timezone.utc)
-        for node in self.nodes:
-            if not self.live_audit_scheduler_enabled or self.live_audit_stop.is_set():
-                return
-            node_id = str(node.get("id") or "")
-            state = self.live_audit_settings.state(node_id)
-            configured = list(state.get("configured_audit_ids") or [])
-            if not configured:
-                continue
-            audits = self._node_live_audits(node, node_id)
-            if audits is None:
-                continue
-            for audit_id in configured:
-                if not self.live_audit_scheduler_enabled or self.live_audit_stop.is_set():
-                    return
-                if not self._live_audit_is_due(dict(audits.get(str(audit_id)) or {}), now):
-                    continue
-                self._start_due_audit(
-                    node, node_id, audit_id,
-                    dict((state.get("profiles") or {}).get(str(audit_id)) or {}),
-                )
+        """Una vuelta del vigilante: avisos siempre, lanzamientos si toca.
+
+        El reparto esta en `live_audit_watch`; aqui queda el nombre que usan el
+        bucle y las pruebas. El segundo candado sigue dentro: sin el
+        interruptor, `tick` lee los nodos y no les pide nada.
+        """
+        live_audit_watch.tick(self)
 
     def preferences_for(self, node_id: str) -> dict[str, Any]:
         with self.preferences_lock:

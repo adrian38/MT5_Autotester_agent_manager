@@ -1,7 +1,9 @@
 """Ajustes del manager que no dependen de ningun nodo.
 
-Normalizacion del planificador de auditoria, claves de preferencias y el
-selector de carpeta del escritorio. Nada de aqui habla por red.
+Claves de preferencias, temporizadores internos del vigilante y el selector de
+carpeta del escritorio. Nada de aqui habla por red. La configuracion del cron
+de auditoria vive en `live_audit_schedule`, que es pura aritmetica; aqui se
+reexporta porque `manager.py` y sus llamantes la importan de este modulo.
 """
 from __future__ import annotations
 
@@ -10,6 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from .common import safe_int
+from .live_audit_schedule import (  # noqa: F401  (reexportado: manager.py lo importa de aqui)
+    DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS,
+    normalize_live_audit_scheduler_settings,
+)
 
 
 FOLDER_PICKER_LOCK = threading.Lock()
@@ -34,15 +40,6 @@ LAUNCH_PREFERENCE_KEYS = (
 # Preferencias que el diálogo relee desde launch_defaults en lugar de launch_preferences.
 LAUNCH_DEFAULT_OVERRIDE_KEYS = ("generations", "variants_per_seed", "max_seeds")
 
-DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS = {
-    "enabled": False,
-    "interval_days": 30,
-}
-
-_LEGACY_LIVE_AUDIT_SCHEDULER_KEYS = frozenset({
-    "check_interval_minutes", "startup_delay_seconds",
-})
-
 _LIVE_AUDIT_INTERNAL_STARTUP_DELAY_SECONDS = 30
 
 _LIVE_AUDIT_INTERNAL_CHECK_INTERVAL_SECONDS = 300
@@ -60,37 +57,6 @@ def _truthy(*values: Any) -> bool:
             return value
         return str(value).strip().casefold() in {"1", "true", "yes", "on", "si", "sí"}
     return False
-
-def normalize_live_audit_scheduler_settings(
-    value: dict[str, Any], defaults: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Normaliza la configuración persistente del programador interno."""
-    if not isinstance(value, dict):
-        raise ValueError("La configuración automática debe ser un objeto JSON")
-    # Las claves técnicas de la primera versión se aceptan solo para migrar un
-    # JSON antiguo. Ya no forman parte de la configuración pública ni se guardan.
-    value = {key: item for key, item in value.items() if key not in _LEGACY_LIVE_AUDIT_SCHEDULER_KEYS}
-    defaults = {
-        key: item for key, item in dict(defaults or {}).items()
-        if key not in _LEGACY_LIVE_AUDIT_SCHEDULER_KEYS
-    }
-    unknown = set(value) - set(DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS)
-    if unknown:
-        raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
-    normalized = {**DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS, **defaults}
-    if "enabled" in value:
-        if not isinstance(value["enabled"], bool):
-            raise ValueError("enabled debe ser true o false")
-        normalized["enabled"] = value["enabled"]
-    if "interval_days" in value:
-        try:
-            interval_days = int(value["interval_days"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("interval_days debe ser un entero") from exc
-        if isinstance(value["interval_days"], bool) or not 1 <= interval_days <= 3650:
-            raise ValueError("interval_days debe estar entre 1 y 3650")
-        normalized["interval_days"] = interval_days
-    return normalized
 
 def choose_directory(
     initial_directory: str | None = None,
