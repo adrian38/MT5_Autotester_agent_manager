@@ -207,8 +207,8 @@ class ManagerServer(ThreadingHTTPServer):
         navegador niega los avisos de escritorio. Sin certificado, todo sigue
         exactamente como antes. Lo genera `tools.make_local_cert`.
         """
-        config_dir = Path(str(config.get("config_dir") or Path.cwd()))
-        found = manager_tls.paths(config, config_dir)
+        configured = str(config.get("config_dir") or "").strip()
+        found = manager_tls.paths(config, Path(configured) if configured else None)
         self.tls_context = manager_tls.context(*found) if found else None
         self.scheme = "https" if self.tls_context else "http"
         if found:

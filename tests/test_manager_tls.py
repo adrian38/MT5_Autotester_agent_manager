@@ -112,6 +112,17 @@ class TlsConfigurationTests(unittest.TestCase):
         with without_manager_variables():
             self.assertIsNone(manager_tls.paths({}, self.root))
 
+    def test_a_server_built_by_hand_never_picks_up_a_stray_certificate(self) -> None:
+        # Pasó de verdad: al generar el certificado de este equipo, las pruebas
+        # que levantan un ManagerServer sin configuración empezaron a servir
+        # https —el certificado estaba en el directorio de trabajo— y sus
+        # clientes http se encontraron la conexión cortada. Quién sirve TLS lo
+        # decide `--config`, nunca desde dónde se ejecuta.
+        issue_server_certificate(self.root / "runtime" / "tls", ["localhost"])
+        with without_manager_variables():
+            self.assertIsNone(manager_tls.paths({}, None))
+            self.assertIsNotNone(manager_tls.paths({}, self.root))
+
     def test_the_certificate_in_the_default_folder_is_enough(self) -> None:
         issue_server_certificate(self.root / "runtime" / "tls", ["localhost"])
         with without_manager_variables():

@@ -426,6 +426,15 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("'unsupported'", self.script)
         self.assertIn("localhost o con https", self.script)
 
+    def test_a_click_that_the_browser_swallows_still_says_something(self) -> None:
+        # Chrome descarta en silencio la peticion de permiso en una pagina con
+        # el certificado en rojo: la promesa vuelve en `default` sin preguntar
+        # y el boton parecia roto.
+        self.assertIn("Pidiendo permiso…", self.script)
+        self.assertIn("blockedHint", self.script)
+        self.assertIn("instala runtime/tls/ca.crt", self.script)
+        self.assertIn("result === 'default'", self.script)
+
     def test_the_first_poll_does_not_replay_the_whole_bell(self) -> None:
         self.assertIn("'cron-push-last-id'", self.script)
         self.assertIn("pushNew(notifications.events)", self.script)

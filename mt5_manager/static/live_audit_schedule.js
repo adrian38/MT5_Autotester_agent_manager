@@ -255,7 +255,7 @@
     granted: ['Avisos del escritorio activos', 'El navegador avisará de cada auditoría que termine o falle.'],
     denied: ['Avisos bloqueados por el navegador', 'Los bloqueaste para esta dirección: vuelve a permitirlos en el candado de la barra de direcciones.'],
     unsupported: ['Este navegador no tiene avisos de escritorio', 'La campana sigue funcionando igual.'],
-    insecure: ['Avisos del escritorio no disponibles aquí', 'El navegador sólo los permite en localhost o con https. Abre el manager en localhost para activarlos.'],
+    insecure: ['Avisos del escritorio no disponibles aquí', 'El navegador sólo los permite en localhost o con https. Ábrelo en localhost, o sirve el manager por https con tu CA: README, «HTTPS con tu propia CA».'],
     default: ['Activar avisos del escritorio', 'Saltan aunque estés en otra pestaña, mientras tengas el manager abierto.'],
   };
 
@@ -265,13 +265,29 @@
     ask.hidden = pushState() !== 'default' || Boolean(stored(PUSH_ASKED)) || !panel.hidden;
   }
 
+  // Lo que el navegador no cuenta. Chrome descarta en silencio la peticion de
+  // permiso en una pagina cuyo certificado no se valida -la barra pone «No
+  // seguro»-: la promesa se resuelve en `default` sin haber preguntado nada, y
+  // el boton parecia no hacer nada. Es el caso probable aqui, porque la CA del
+  // manager hay que instalarla en cada dispositivo.
+  function blockedHint() {
+    return location.protocol === 'https:'
+      ? 'El navegador ni siquiera ha preguntado. Suele ser el certificado: si la '
+        + 'barra de direcciones dice «No seguro», instala runtime/tls/ca.crt en este '
+        + 'dispositivo como entidad de certificación raíz de confianza y reinicia el navegador.'
+      : 'El navegador no da avisos en http por IP. Abre el manager en localhost, o '
+        + 'sírvelo por https con tu CA (README, «HTTPS con tu propia CA»).';
+  }
+
+  let hint = '';
+
   function applyPushState() {
     const state = pushState();
     const [label, help] = PUSH_LABELS[state] || PUSH_LABELS.default;
     const button = field('#cron-push');
     button.textContent = label;
     button.disabled = state !== 'default';
-    field('#cron-push-note').textContent = help;
+    field('#cron-push-note').textContent = hint || help;
     syncAsk();
   }
 
@@ -281,13 +297,21 @@
       applyPushState();
       return;
     }
+    const button = field('#cron-push');
+    button.disabled = true;
+    button.textContent = 'Pidiendo permiso…';
     try {
       const result = await Notification.requestPermission();
+      hint = result === 'default' ? blockedHint() : '';
+      if (result === 'granted') notify('Avisos del escritorio activados.');
+      else if (result === 'denied') notify('Sin avisos del escritorio: los verás igual en la campana.');
+      else notify(blockedHint(), true);
+    } catch (error) {
+      hint = `${error.message}. ${blockedHint()}`;
+      notify(hint, true);
+    } finally {
       applyPushState();
-      notify(result === 'granted'
-        ? 'Avisos del escritorio activados.'
-        : 'Sin avisos del escritorio: los verás igual en la campana.');
-    } catch (error) { notify(error.message, true); }
+    }
   }
 
   function pushEvent(event) {

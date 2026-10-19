@@ -34,26 +34,35 @@ def _truthy_off(value: str | None) -> bool:
     return str(value or "").strip().casefold() in {"0", "off", "false", "no"}
 
 
-def paths(config: dict[str, Any], config_dir: Path) -> tuple[Path, Path] | None:
+def paths(config: dict[str, Any], config_dir: Path | None) -> tuple[Path, Path] | None:
     """Certificado y clave a usar, o `None` para seguir en HTTP.
 
     Orden: el interruptor de entorno manda, despues las rutas explicitas
     -entorno y `manager.json`- y por ultimo `<config>/runtime/tls`, que es donde
     escribe la herramienta y lo que el contenedor ve montado.
+
+    **Sin `config_dir` no se busca en ningun sitio.** Lo pone el arranque a
+    partir de `--config`, asi que un `ManagerServer` creado a mano -una prueba-
+    no puede acabar sirviendo https porque quien lo ejecuta tenga un
+    certificado en su directorio de trabajo.
     """
     if _truthy_off(os.environ.get("MT5_MANAGER_TLS")):
         return None
-    directory = Path(str(config.get("tls_dir") or (config_dir / "runtime" / "tls")))
+    directory = config.get("tls_dir") or (
+        config_dir / "runtime" / "tls" if config_dir else None
+    )
     certificate = (
         _environment_path("MT5_MANAGER_TLS_CERT")
         or (Path(str(config["tls_cert_file"])) if config.get("tls_cert_file") else None)
-        or directory / CERTIFICATE_NAME
+        or (Path(str(directory)) / CERTIFICATE_NAME if directory else None)
     )
     key = (
         _environment_path("MT5_MANAGER_TLS_KEY")
         or (Path(str(config["tls_key_file"])) if config.get("tls_key_file") else None)
-        or directory / KEY_NAME
+        or (Path(str(directory)) / KEY_NAME if directory else None)
     )
+    if certificate is None or key is None:
+        return None
     return (certificate, key) if certificate.is_file() and key.is_file() else None
 
 
