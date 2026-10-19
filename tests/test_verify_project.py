@@ -28,9 +28,21 @@ class VerifyProjectTests(unittest.TestCase):
             parse_args(["--silenciar-fallos"])
 
     def test_agents_contract_documents_the_enforced_workflow(self) -> None:
+        """Cada cadena exigida tiene detrás algo que falla solo.
+
+        Exigía además `### Matriz de escritura por rama`, la tabla de qué
+        checkout era escribible según la rama del manager. Esa tabla describía
+        un equipo que ya no existe —el manager repartido entre dos PC, `dev` y
+        `main`— y el usuario la retiró el 2026-10-16 al autorizar todos los
+        checkouts montados. Detrás no quedaba ninguna guarda: la única
+        referencia a la cadena en todo el repositorio era esta línea, así que
+        pedía documentación de un flujo que nadie aplica. En su lugar se exige
+        la paridad con el fork, que es la trampa de la que este repositorio
+        avisa más veces y sí falla sola.
+        """
         rules = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         for required in (
-            "### Matriz de escritura por rama",
+            "tests/test_node_runtime_fork_parity.py",
             "python -m tools.verify_project",
             "## Definición de terminado y entrega",
             "ALLOWED_STAR_IMPORTS",

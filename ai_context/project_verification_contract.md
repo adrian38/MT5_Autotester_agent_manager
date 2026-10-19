@@ -47,8 +47,19 @@ una importación estrella nueva y una excepción que ya no se use fallan.
 
 ## Ramas, espejos y pruebas
 
-La matriz de `AGENTS.md` define qué checkout es escribible en cada rama. La
-rama nunca amplía el objetivo del usuario. Los dos ficheros guiados de
+**Ya no hay matriz de escritura por rama.** Describía el manager repartido
+entre dos PC —una en `dev` y otra en `main`— y el usuario la retiró el
+2026-10-16: todos los checkouts montados son escribibles, en cualquier rama.
+La autorización amplía la ubicación y nunca el objetivo pedido.
+
+`test_agents_contract_documents_the_enforced_workflow` exigía esa cabecera
+aunque detrás no quedase ninguna guarda; desde el 2026-10-19 exige
+`tests/test_node_runtime_fork_parity.py`, que sí falla sola. El candado de
+`mt5_manager/dev_branch.py` sigue en el árbol e inerte fuera de `dev`: la rama
+no se usa hoy, pero el raíl importa más con los tres agentes en el mismo
+equipo que cuando estaban repartidos.
+
+Los dos ficheros guiados de
 producción son espejos byte a byte y requieren commits hermanos cuando cambian;
 las pruebas específicas de manager o IC no son espejos y pueden corregirse en
 el repositorio que contiene su contrato.
