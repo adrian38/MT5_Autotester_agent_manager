@@ -37,6 +37,10 @@ STATIC = Path(__file__).parents[1] / "mt5_manager" / "static"
 TICKET = "772550823"
 
 
+SET_NAME = "EURUSD_H1_Advanced_Scalper_g001_s027_v010.set"
+STRATEGY = "ROBOFOREX/ECN:27672"
+
+
 def discarded_payload() -> dict:
     """Una real que el filtro de lote aparta y ninguna operación reclama.
 
@@ -55,10 +59,23 @@ def discarded_payload() -> dict:
     return payload(
         real_trades=[real],
         selected_members=[{
-            "symbol": "EURUSD", "lot": 0.08,
-            "set_name": "EURUSD_H1_Advanced_Scalper_g001_s027_v010.set",
+            "symbol": "EURUSD", "lot": 0.08, "candidate_id": STRATEGY,
+            "set_name": SET_NAME,
         }],
     )
+
+
+# La regla que el selector aplica, portada de `offerableTo` de
+# `live_audit_result.js`. El port sólo vale si la expresión que mide está
+# literalmente en el fichero, y eso lo exige
+# `test_the_ported_offer_rule_is_the_one_the_screen_runs`.
+def offerable_to(row: dict, strategy: str) -> bool:
+    attribution = row.get("attribution")
+    if not attribution:
+        return True
+    if attribution.get("excluded"):
+        return False
+    return str(attribution.get("strategy") or "") == strategy
 
 
 def analysed(pairs: dict | None = None) -> dict:
@@ -195,6 +212,52 @@ class ManualPairAnalysisTests(unittest.TestCase):
         )
 
 
+class ManualPairOfferTests(unittest.TestCase):
+    """Lo que el usuario ya dijo por Excel manda sobre lo que se le ofrece.
+
+    En `audit-170` había repartido por Excel ocho de las nueve reales libres,
+    así que la fila EURUSD de `ROBOFOREX/ECN:32807` llegaba a ofrecer los
+    USDJPY y los AUDUSD que él mismo había dado a otras estrategias.
+    """
+
+    def attributed_analysis(self, strategy_set: str) -> dict:
+        return analyze(discarded_payload(), profile(real_attribution={
+            "rules": {TICKET: {"strategy_set": strategy_set, "reason": ""}},
+        }))
+
+    def test_a_discarded_real_carries_what_the_excel_said_about_it(self) -> None:
+        # La mitad no evidente: la atribución anota también las descartadas por
+        # banda de lote, que es de donde salen casi todas las candidatas.
+        detail = self.attributed_analysis(SET_NAME)["comparison_detail"]
+        row = detail["discarded_real_operations"][0]
+        self.assertEqual(row["attribution"]["strategy"], STRATEGY)
+        self.assertFalse(row["attribution"]["excluded"])
+
+    def test_a_real_already_given_to_this_strategy_is_offered(self) -> None:
+        detail = self.attributed_analysis(SET_NAME)["comparison_detail"]
+        row = detail["discarded_real_operations"][0]
+        self.assertTrue(offerable_to(row, STRATEGY))
+
+    def test_a_real_given_to_another_strategy_is_not_offered(self) -> None:
+        detail = self.attributed_analysis(SET_NAME)["comparison_detail"]
+        row = detail["discarded_real_operations"][0]
+        self.assertFalse(offerable_to(row, "ROBOFOREX/ECN:99999"))
+
+    def test_a_real_declared_foreign_is_never_offered(self) -> None:
+        # «no contabiliza en este portafolio»: ningún miembro reclama ese
+        # nombre, así que `attribution_by_ticket` la deja excluida.
+        detail = self.attributed_analysis("no contabiliza en este portafolio")
+        row = detail["comparison_detail"]["discarded_real_operations"][0]
+        self.assertTrue(row["attribution"]["excluded"])
+        for strategy in (STRATEGY, "", "ROBOFOREX/ECN:99999"):
+            self.assertFalse(offerable_to(row, strategy))
+
+    def test_a_real_nobody_claimed_stays_offered_to_any_row(self) -> None:
+        row = analysed()["comparison_detail"]["discarded_real_operations"][0]
+        self.assertIsNone(row.get("attribution"))
+        self.assertTrue(offerable_to(row, "ROBOFOREX/ECN:99999"))
+
+
 class ManualPairRouteTests(unittest.TestCase):
     """Guardar y reanalizar son un solo viaje, igual que la atribución."""
 
@@ -272,6 +335,26 @@ class ManualPairScreenTests(unittest.TestCase):
         self.assertIn("detail.discarded_real_operations", self.source)
         self.assertIn("data-manual-pair=", self.source)
         self.assertIn("data-undo-pair=", self.source)
+
+    def test_the_ported_offer_rule_is_the_one_the_screen_runs(self) -> None:
+        # `offerable_to` de este fichero mide la regla; si la pantalla la
+        # reescribe, esta prueba se cae en vez de medir algo que ya no existe.
+        self.assertIn(
+            "if (attribution.excluded) return {state: 'excluded', strategy: ''};",
+            self.source,
+        )
+        self.assertIn(
+            "return owner.state === 'free'\n"
+            "    || (owner.state === 'attributed' && owner.strategy === strategy);",
+            self.source,
+        )
+        self.assertIn(".filter(candidate => offerableTo(candidate, strategy))", self.source)
+
+    def test_the_row_says_why_it_has_nothing_to_offer(self) -> None:
+        # Un desplegable vacío sin motivo se lee como «no hay ninguna real»,
+        # que es falso cuando las hay y están atribuidas a otra estrategia.
+        self.assertIn("ya están atribuidas a otra estrategia o excluidas", self.source)
+        self.assertIn("ya atribuida a esta estrategia", self.source)
 
     def test_saving_and_repainting_are_the_same_call(self) -> None:
         self.assertIn("/manual-pairs", self.source)

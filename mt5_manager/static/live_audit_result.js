@@ -162,26 +162,65 @@ function manualPairs() {
 }
 
 // Una fila «SIN REAL» no siempre es una real que no existe: en `audit-170` tres
-// de las cuatro tenían su real apartada por la banda de lote. Se ofrecen las
-// que quedaron libres y las descartadas, la más cercana en el tiempo primero.
+// de las cuatro tenían su real apartada por la banda de lote. Se parte de las
+// que quedaron libres y las descartadas, conservando la fila entera porque lo
+// que el usuario dijo de cada una viaja en `attribution`.
 function manualPairCandidates(detail) {
   return [
     ...(detail.unmatched_real_operations || []),
     ...(detail.discarded_real_operations || []),
-  ].map(row => row.real || {}).filter(real => real.position_id ?? real.ticket);
+  ].filter(row => (row.real || {}).position_id ?? (row.real || {}).ticket);
 }
 
-function manualPairPicker(tester) {
-  if (!candidateReals.length) return '<small>No queda ninguna real que ofrecer.</small>';
-  const opened = Date.parse(tester.open_time);
-  const options = [...candidateReals]
-    .sort((left, right) => Math.abs(Date.parse(left.open_time) - opened)
-      - Math.abs(Date.parse(right.open_time) - opened))
-    .map(real => {
-      const ticket = String(real.position_id ?? real.ticket);
-      const label = `${real.symbol} ${real.side} ${number(real.volume, 4)} · ${marketDateTime(real.open_time)} · ticket ${ticket}`;
-      return `<option value="${escapeHtml(ticket)}">${escapeHtml(label)}</option>`;
-    }).join('');
+// El Excel de atribución de Análisis manda sobre lo que este selector ofrece.
+// Una real excluida no es del portafolio, y una atribuida ya tiene dueño: en
+// `audit-170` el usuario había repartido ocho de las nueve candidatas, así que
+// la fila EURUSD llegaba a ofrecer los USDJPY y AUDUSD de otras estrategias.
+function candidateOwner(row) {
+  const attribution = row.attribution;
+  if (!attribution) return {state: 'free', strategy: ''};
+  if (attribution.excluded) return {state: 'excluded', strategy: ''};
+  return {state: 'attributed', strategy: String(attribution.strategy || '')};
+}
+
+function offerableTo(row, strategy) {
+  const owner = candidateOwner(row);
+  return owner.state === 'free'
+    || (owner.state === 'attributed' && owner.strategy === strategy);
+}
+
+function manualPairOption(row, strategy, tester) {
+  const real = row.real || {};
+  const ticket = String(real.position_id ?? real.ticket);
+  const owned = candidateOwner(row).strategy === strategy;
+  const label = `${real.symbol} ${real.side} ${number(real.volume, 4)} · ${marketDateTime(real.open_time)} · ticket ${ticket}`
+    + (owned ? ' · ya atribuida a esta estrategia' : '');
+  return {
+    ticket, label, owned,
+    // El símbolo no filtra —las cuentas real y tester del mismo broker pueden
+    // nombrarlo distinto— pero sí ordena.
+    sameSymbol: String(real.symbol || '').toLocaleLowerCase('es')
+      === String(tester.symbol || '').toLocaleLowerCase('es'),
+    distance: Math.abs(Date.parse(real.open_time) - Date.parse(tester.open_time)),
+  };
+}
+
+function manualPairPicker(row, tester) {
+  const strategy = String(row.strategy || '');
+  const offered = candidateReals
+    .filter(candidate => offerableTo(candidate, strategy))
+    .map(candidate => manualPairOption(candidate, strategy, tester))
+    // Las que el usuario ya dio a esta estrategia van primero: son las únicas
+    // de las que ya ha dicho que son suyas.
+    .sort((left, right) => (right.owned - left.owned)
+      || (right.sameSymbol - left.sameSymbol) || (left.distance - right.distance));
+  if (!offered.length) {
+    return `<small>${escapeHtml(candidateReals.length
+      ? 'Las reales que quedan libres ya están atribuidas a otra estrategia o excluidas del portafolio.'
+      : 'No queda ninguna real que ofrecer.')}</small>`;
+  }
+  const options = offered.map(option =>
+    `<option value="${escapeHtml(option.ticket)}">${escapeHtml(option.label)}</option>`).join('');
   return `<label class="manual-pair"><span>Emparejar a mano</span><select data-manual-pair="${escapeHtml(testerPairKey(tester))}"><option value="">— sin pareja —</option>${options}</select></label>`;
 }
 
@@ -189,7 +228,7 @@ function manualPairControl(row, tester) {
   if (row.manual_pair) {
     return `<p class="manual-pair is-set"><strong>Pareja decidida a mano.</strong> Se mide con las mismas tolerancias que cualquier otra. <button type="button" data-undo-pair="${escapeHtml(testerPairKey(tester))}">Deshacer</button></p>`;
   }
-  return row.status === 'missing' ? manualPairPicker(tester) : '';
+  return row.status === 'missing' ? manualPairPicker(row, tester) : '';
 }
 
 function stopsLevel(trade) {

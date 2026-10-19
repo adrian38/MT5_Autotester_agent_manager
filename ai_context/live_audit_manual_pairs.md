@@ -33,6 +33,37 @@ a las que quedaron libres**, que era la decisión de diseño en juego.
   empareja `_matching_open_position` por su cuenta y con su propia tolerancia;
   forzarlas exigía un camino paralelo y no había caso medido que lo pidiera.
 
+## El Excel de atribución manda sobre lo que se ofrece
+
+La primera versión ofrecía las nueve candidatas en todas las filas, y el
+usuario lo señaló enseguida: **ya las había repartido por Excel en Análisis**.
+En `audit-170` tenía ocho de las nueve atribuidas, así que la fila `EURUSD` de
+`ROBOFOREX/ECN:32807` ofrecía los dos `USDJPY` de `12667`, los dos `AUDUSD` de
+`28591` y los `.JP225Cash` de `68954`. Pedir dos veces el mismo trabajo, y la
+segunda con la respuesta ya escrita, es peor que no ofrecer nada.
+
+Lo que decide es `attribution`, que `annotate_unmatched` pone en cada real sin
+pareja **y también en las descartadas** (`_attach_discarded_reals`):
+
+| Lo que dijo el Excel | Qué se ofrece |
+| --- | --- |
+| Nada | A cualquier fila: el usuario no se ha pronunciado |
+| Esta estrategia | Sólo a sus filas, la primera de la lista y etiquetada |
+| Otra estrategia | A ninguna: contradecía lo que el usuario escribió |
+| «no contabiliza en este portafolio» | A ninguna: la declaró ajena |
+
+Medido sobre `audit-170`, por fila: `#T12` y `#T13` pasan de 9 opciones a 3,
+con sus dos `EURUSD` atribuidas arriba; `#T17` de 9 a 3; `#T6` de 9 a 1.
+
+**El símbolo no filtra, sólo ordena.** Las cuentas real y tester del mismo
+broker pueden nombrarlo distinto (`live_audit_cross_account_symbol_aliases.md`),
+así que descartar por símbolo cerraría el caso que el emparejamiento manual
+existe para resolver.
+
+Y la fila dice por qué no ofrece nada cuando no ofrece nada: un desplegable
+vacío se lee como «no hay ninguna real», que es falso si las hay y están
+atribuidas a otra estrategia.
+
 ## No afloja ninguna tolerancia
 
 Es lo que distingue esto de subir el límite de tiempo o de ensanchar la banda.
