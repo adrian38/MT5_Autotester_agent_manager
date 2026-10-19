@@ -495,6 +495,7 @@ function reproductionShortfall(group) {
 // tocará recalibrarlos contra la población de estrategias de este pipeline.
 const REPRODUCTION_EXPECTED_PCT = LiveAuditReproduction.EXPECTED_SHORTFALL_PCT;
 const REPRODUCTION_BROKEN_PCT = LiveAuditReproduction.BROKEN_SHORTFALL_PCT;
+const REPRODUCTION_MEANINGFUL_AMOUNT = LiveAuditReproduction.MEANINGFUL_AMOUNT;
 // La tabla del histórico calla por debajo de ocho operaciones, pero allí se
 // contrasta contra una **distribución** y hace falta muestra. Aquí se comparan
 // las **mismas** operaciones, emparejadas una a una: con siete parejas se puede
@@ -513,25 +514,38 @@ function reproductionVerdict(numbers) {
   return LiveAuditReproduction.verdict(numbers);
 }
 
-// Con la base acotada a 1 €, un tester que movió 1,25 € frente a un real de
-// -28,38 € sale «-2.178 %»: cierto y a la vez inservible. Por debajo de ese
-// euro el porcentaje no se enseña, porque el que informa es el importe.
+// El porcentaje sólo se enseña donde significa algo: con las dos partes del
+// mismo signo y moviendo importe suficiente. Fuera de ahí era cierto y a la vez
+// inservible —un tester de -0,62 € contra un real de 9,19 € daba «-981 %»— y
+// además decidía el orden de la tabla, que ahora ordena por gravedad.
 function differenceNote(numbers) {
-  if (Math.abs(numbers.demo) < 1) return 'El tester apenas movió dinero aquí: mira el importe, no el porcentaje.';
+  if (!numbers.pairs) return 'Ninguna operación del tester se ejecutó en la cuenta real.';
+  if (Math.max(Math.abs(numbers.demo), Math.abs(numbers.real)) < REPRODUCTION_MEANINGFUL_AMOUNT) {
+    return 'Las dos partes apenas mueven dinero aquí: mira el importe, no el porcentaje.';
+  }
+  if ((numbers.demo >= 0) !== (numbers.real >= 0)) {
+    return 'El resultado cambia de signo: el porcentaje no lo mide.';
+  }
   return `${numbers.pct > 0 ? '-' : '+'}${number(Math.abs(numbers.pct), 1)} % frente al tester`;
 }
 
-function reproductionCounts(group) {
+function reproductionCounts(group, numbers) {
   const summary = strategySummaries[group.strategy] || {};
   const missing = Number(summary.missing_real || 0);
   const open = group.openReal.length;
   // Lo atribuido a mano respalda el importe real igual que una pareja, así que
   // cuenta para decidir si el veredicto lo decide una sola operación.
   const backing = groupRealTrades(group).length;
-  const few = Boolean(backing) && backing < REPRODUCTION_FEW_PAIRS;
+  // Sin una sola pareja la muestra ya no son las parejas: son las operaciones
+  // del tester que se quedaron sin ejecutar. Seis sin ejecutar concluyen; una
+  // sola, no. Antes `Boolean(backing)` apagaba la salvedad justo ahí, que es
+  // donde más falta hace, y a la vez se la ponía a filas de seis parejas.
+  const evidence = backing || numbers.testerTrades;
+  const few = Boolean(evidence) && evidence < REPRODUCTION_FEW_PAIRS;
   return {
     deviations: Number(summary.with_deviations || 0), missing, open, few,
-    pairs: backing, attributed: group.attributed.length,
+    pairs: backing, unfilled: backing ? 0 : numbers.testerTrades,
+    attributed: group.attributed.length,
     caveats: [
       missing ? `${missing} sin pareja` : '',
       open ? `${open} sin cerrar en real` : '',
@@ -584,13 +598,16 @@ function fewPairsChip(counts) {
 
 function fewPairsNote(counts) {
   if (!counts.few) return '';
+  if (counts.unfilled) {
+    return `<small class="degradation-off">${counts.unfilled === 1 ? 'Es 1 operación' : `Son ${escapeHtml(counts.unfilled)} operaciones`} del tester sin ejecutar: vale para mirarlo, no para concluir sobre la estrategia.</small>`;
+  }
   return `<small class="degradation-off">Con ${escapeHtml(counts.pairs)} pareja${counts.pairs === 1 ? '' : 's'}, una sola operación mueve el total más que el ${escapeHtml(number(REPRODUCTION_EXPECTED_PCT, 0))} % que se da por normal: vale para mirarlo, no para concluir sobre la estrategia.</small>`;
 }
 
 function reproductionRow(group, currency) {
   const numbers = reproductionShortfall(group);
   const [label, tone, help] = reproductionVerdict(numbers);
-  const counts = reproductionCounts(group);
+  const counts = reproductionCounts(group, numbers);
   const sign = numbers.real - numbers.demo >= 0 ? '+' : '';
   const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
   const partial = counts.caveats.length
@@ -609,7 +626,7 @@ function reproductionRow(group, currency) {
 function renderReproduction() {
   const currency = chartContext.currency;
   const ranked = [...strategyRows].sort((a, b) => (
-    reproductionShortfall(b).pct - reproductionShortfall(a).pct
+    LiveAuditReproduction.compare(reproductionShortfall(a), reproductionShortfall(b))
   ));
   document.querySelector('#reproduction-body').innerHTML = ranked.length
     ? ranked.map(group => reproductionRow(group, currency)).join('')
@@ -626,7 +643,7 @@ function renderReproduction() {
     warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
   ].filter(Boolean).join(' · ') || `${ranked.length} SIN AVISOS`;
   badge.className = `badge ${broken ? 'failed' : warnings ? 'pending' : 'idle'}`;
-  const criterion = `Perder algo al pasar de backtest a real es lo normal, así que hasta el ${number(REPRODUCTION_EXPECTED_PCT, 0)} % de déficit se da por bueno; entre ahí y el ${number(REPRODUCTION_BROKEN_PCT, 0)} % avisa, y por encima —o si la cuenta pierde donde el tester ganaba— se marca NO REPRODUCE. Son valores por defecto tomados de las bandas de deterioro publicadas (10-20 % para una estrategia bien construida, 20-60 % habitual), no un umbral canónico: conviene recalibrarlos contra tus propias estrategias. Con menos de ${number(REPRODUCTION_FEW_PAIRS, 0)} parejas una sola operación mueve el total más que esa banda, así que el veredicto se da igual pero marcado POCAS OPERACIONES: sirve para mirarlo, no para concluir.`;
+  const criterion = `Perder algo al pasar de backtest a real es lo normal, así que hasta el ${number(REPRODUCTION_EXPECTED_PCT, 0)} % de déficit se da por bueno; entre ahí y el ${number(REPRODUCTION_BROKEN_PCT, 0)} % avisa, y por encima —o si la cuenta pierde donde el tester ganaba— se marca NO REPRODUCE. Son valores por defecto tomados de las bandas de deterioro publicadas (10-20 % para una estrategia bien construida, 20-60 % habitual), no un umbral canónico: conviene recalibrarlos contra tus propias estrategias. Antes de graduar nada se miran dos cosas: si la cuenta no ejecutó ninguna operación del tester es NO REPRODUCE aunque el tester perdiera dinero —no hay deterioro que medir, no hay nada ejecutado—, y si las dos partes mueven menos de ${number(REPRODUCTION_MEANINGFUL_AMOUNT, 0)} US$ se marca POCO IMPORTE y no se gradúa, porque ahí un céntimo mueve el porcentaje decenas de puntos. El porcentaje sólo se enseña con las dos partes del mismo signo; cruzadas, lo dice el veredicto con palabras. Con menos de ${number(REPRODUCTION_FEW_PAIRS, 0)} operaciones de respaldo —parejas, o las del tester sin ejecutar— una sola mueve el total más que esa banda, así que el veredicto se da igual pero marcado POCAS OPERACIONES: sirve para mirarlo, no para concluir.`;
   // Una estrategia cuyo backtest corrió sobre un historial incompleto no se
   // puede retirar por su déficit: el déficit puede ser del dato.
   const doubtful = ranked.filter(group => group.quality

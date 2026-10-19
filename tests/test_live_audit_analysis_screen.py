@@ -86,7 +86,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertTrue(self.analysis_page.xpath('//span[@id="reproduction-count"]'))
         self.assertIn("¿Se está comportando en real como en el tester?", self.analysis_page_text)
         self.assertIn("function reproductionVerdict(numbers)", self.analysis_script)
-        self.assertIn("if (demo >= 1 && real < 0)", self.reproduction_script)
+        self.assertIn("if (demo >= 0 && real < 0) {", self.reproduction_script)
         self.assertIn("'NO REPRODUCE'", self.reproduction_script)
         # Sólo avisa si el real empeora, igual que `adverse_shortfall_only` del
         # motor: que la cuenta gane más que el tester no es un defecto.
@@ -116,6 +116,60 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("Math.max(Math.abs(demo), 1)", self.reproduction_script)
         self.assertIn("function differenceNote(numbers)", self.analysis_script)
         self.assertIn("renderReproduction();", self.analysis_script)
+
+    def test_a_real_account_that_executed_nothing_never_comes_out_green(self) -> None:
+        # Medido sobre las ocho auditorías de los tres brókers: de las 26 filas
+        # marcadas, 15 eran esto, y había otras cinco **en verde** por el mismo
+        # motivo con el signo cambiado. `EURUSD` de ICTrading: el tester cerró
+        # doce operaciones, la cuenta no ejecutó ninguna, y como el tester
+        # perdía 42,27 € la pantalla decía «MEJOR QUE EL TESTER».
+        #
+        # Que no se ejecutara nada es un hecho, no un déficit: el signo del
+        # tester no lo gradúa y el porcentaje (±100 % por construcción) no
+        # informa, así que lo que se enseña es el recuento.
+        self.assertIn("function noFills(testerTrades)", self.reproduction_script)
+        self.assertIn("if (!pairs) return noFills(testerTrades);", self.reproduction_script)
+        self.assertIn("no ejecutó ninguna de las ${testerTrades} operaciones", self.reproduction_script)
+        self.assertIn("pairs: realTrades.length, testerTrades: demoTrades.length,", self.reproduction_script)
+        # Y la salvedad de muestra deja de apagarse justo ahí: sin parejas la
+        # evidencia son las operaciones del tester sin ejecutar. Seis concluyen
+        # —el caso que el usuario revisó—, una sola no.
+        self.assertIn("const evidence = backing || numbers.testerTrades;", self.analysis_script)
+        self.assertIn("operaciones`} del tester sin ejecutar", self.analysis_script)
+
+    def test_a_verdict_is_not_graded_on_amounts_that_cannot_carry_it(self) -> None:
+        # Cuatro de las 26 filas marcadas eran rojas por uno o tres dólares:
+        # `NAS100.fs` con el tester en 1,36 US$ y el real en 0,37 US$ salía
+        # «73 %, NO REPRODUCE». Por debajo del importe mínimo no se gradúa.
+        self.assertIn("const MEANINGFUL_AMOUNT = 5;", self.reproduction_script)
+        self.assertIn(
+            "if (Math.max(Math.abs(demo), Math.abs(real)) < MEANINGFUL_AMOUNT) {",
+            self.reproduction_script,
+        )
+        self.assertIn("'POCO IMPORTE', 'info'", self.reproduction_script)
+        # Con los signos cruzados el cociente no mide nada: el tester a -0,62 €
+        # contra un real de 9,19 € daba «-981 %». Ahí lo dice el veredicto con
+        # palabras y la fila no enseña porcentaje.
+        self.assertIn("function crossedSigns(demo, real)", self.reproduction_script)
+        self.assertIn(
+            "if ((demo >= 0) !== (real >= 0)) return crossedSigns(demo, real);",
+            self.reproduction_script,
+        )
+        self.assertIn("El resultado cambia de signo: el porcentaje no lo mide.", self.analysis_script)
+        # Y el porcentaje deja de ordenar la tabla él solo: una fila de
+        # céntimos daba 2.000 % y encabezaba por delante de un déficit del 44 %.
+        self.assertIn("function compare(left, right)", self.reproduction_script)
+        self.assertIn("SEVERITY[verdict(right)[0]]", self.reproduction_script)
+        self.assertIn("LiveAuditReproduction.compare(", self.analysis_script)
+
+    def test_the_percentage_is_worded_for_the_sign_it_has_in_front(self) -> None:
+        # «Se deja el 122 % del tester» era imposible de leer: no se puede
+        # ceder más del 100 % de nada. Lo que pasaba en esa fila es que la
+        # pérdida se había doblado, y eso es lo que tiene que decir.
+        self.assertIn("function keptNote(demo, real)", self.reproduction_script)
+        self.assertIn("conserva el ${Math.round(real / demo * 100)} % de lo que ganó el tester", self.reproduction_script)
+        self.assertIn("veces lo que perdía el tester", self.reproduction_script)
+        self.assertNotIn("se deja más del", self.reproduction_script)
 
     def test_every_closed_real_ends_up_accounted_or_said(self) -> None:
         # El objetivo es que cuadre: cada real cerrada acaba emparejada,

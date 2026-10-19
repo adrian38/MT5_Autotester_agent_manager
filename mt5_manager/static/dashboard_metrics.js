@@ -88,10 +88,10 @@
       const [verdict, tone] = reproduction.verdict(numbers);
       return {
         ...group, demo_profit: numbers.demo, real_profit: numbers.real,
-        verdict, tone, shortfall_pct: numbers.pct,
+        verdict, tone, shortfall_pct: numbers.pct, numbers,
       };
     }).filter(row => ['AVISO', 'NO REPRODUCE'].includes(row.verdict)).sort((left, right) => (
-      right.shortfall_pct - left.shortfall_pct
+      reproduction.compare(left.numbers, right.numbers)
     ));
   }
 
