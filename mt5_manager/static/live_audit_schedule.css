@@ -34,6 +34,10 @@
 .cron-dialog .cron-body{overflow-y:auto;display:grid;gap:14px;padding:20px 22px}
 .cron-dialog .cron-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
 .cron-dialog label{display:grid;gap:6px;color:var(--muted,#91a4b5);font-size:12px}
+/* `display:grid` en el label gana al `display:none` que el navegador da al
+   atributo `hidden`, y la portada no define la regla que sí tiene styles.css:
+   sin esto, «cada X días» seguía visible en la cadencia semanal. */
+.cron-dialog [hidden]{display:none!important}
 .cron-dialog input,.cron-dialog select{padding:9px 10px;border:1px solid var(--line,#27394b);border-radius:8px;background:#0b1520;color:var(--text,#edf5f7);font:inherit}
 .cron-dialog .cron-switch{display:flex;align-items:start;gap:10px;padding:12px;border:1px solid var(--line,#27394b);border-radius:10px;color:var(--text,#edf5f7)}
 .cron-dialog .cron-switch input{width:18px;height:18px}
