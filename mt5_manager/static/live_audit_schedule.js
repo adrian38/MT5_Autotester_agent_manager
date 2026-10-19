@@ -304,6 +304,15 @@
     const button = field('#cron-push');
     button.disabled = true;
     button.textContent = 'Pidiendo permiso…';
+    // Chrome puede pedirlo «en silencio»: en vez de la ventana modal pone un
+    // icono en la barra de direcciones y deja la promesa esperando a que la
+    // pulses. Sin decirlo, el boton se queda en «Pidiendo permiso...» para
+    // siempre y parece colgado.
+    const quiet = setTimeout(() => {
+      field('#cron-push-note').textContent = 'Si no ha salido la ventana del navegador, '
+        + 'lo está pidiendo en silencio: pulsa el icono de campana de la barra de '
+        + 'direcciones, a la derecha de la URL, y elige «Permitir».';
+    }, 4000);
     try {
       const result = await Notification.requestPermission();
       hint = result === 'default' ? blockedHint() : '';
@@ -314,6 +323,7 @@
       hint = `${error.message}. ${blockedHint()}`;
       notify(hint, true);
     } finally {
+      clearTimeout(quiet);
       applyPushState();
     }
   }

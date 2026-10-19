@@ -434,6 +434,10 @@ class CronScreenTests(unittest.TestCase):
         # el certificado en rojo: la promesa vuelve en `default` sin preguntar
         # y el boton parecia roto.
         self.assertIn("Pidiendo permiso…", self.script)
+        # Y si lo pide en silencio -un icono en la barra en vez de la ventana-,
+        # la promesa se queda esperando y el botón parecía colgado.
+        self.assertIn("lo está pidiendo en silencio", self.script)
+        self.assertIn("clearTimeout(quiet)", self.script)
         self.assertIn("blockedHint", self.script)
         self.assertIn("instala runtime/tls/ca.crt", self.script)
         self.assertIn("result === 'default'", self.script)
