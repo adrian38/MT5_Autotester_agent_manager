@@ -67,3 +67,4 @@
 .manual-set-card input,.manual-set-card select{padding:8px}
 .manual-set-lot{grid-column:1/-1;color:var(--muted);font-size:10px}
 @media(max-width:700px){.manual-set-card{grid-template-columns:1fr}}
+.password-field{position:relative;display:block}.password-field>input{width:100%;padding-right:42px}.password-reveal{position:absolute;top:50%;right:7px;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:none;color:var(--muted);transform:translateY(-50%);cursor:pointer}.password-reveal:hover{color:var(--text);background:#16273a}.password-reveal.on{color:var(--accent2)}.password-reveal svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}.password-reveal-slash{display:none}.password-reveal.on .password-reveal-slash{display:inline}

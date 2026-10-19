@@ -43,6 +43,9 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 # móvil no es razonable, así que `/api/pulse` proyecta solo estos campos.
 STATIC_FILES = {
     "app.js", "styles.css", "dashboard.js", "dashboard.css", "dashboard_metrics.js",
+    # El ojo de las contraseñas, en las dos pantallas que piden una cuenta de
+    # terminal: la portada (sincronizar simbolos) y la de auditoria.
+    "password_reveal.js",
     "live_audit_reproduction.js",
     # El boton superior «Auditoria programada» y su campana: los montan la
     # portada y Generacion, porque la cita es del manager entero.

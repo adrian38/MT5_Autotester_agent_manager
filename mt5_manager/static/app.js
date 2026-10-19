@@ -511,6 +511,7 @@ document.querySelector('#symbol-sync-credentials').addEventListener('submit', ev
   const payload = symbolSyncCredentialsPayload();
   // Credentials belong only to this request, never to card preferences.
   document.querySelector('#symbol-sync-password').value = '';
+  window.PasswordReveal?.conceal(document.querySelector('#symbol-sync-credentials'));
   withSymbolOperation(async () => {
     symbolSyncMessage('Sincronizando con el servidor MT5… No se están lanzando backtests.');
     try {

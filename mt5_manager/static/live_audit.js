@@ -817,6 +817,9 @@ document.querySelector('#open-restore-account').addEventListener('click', () => 
   document.querySelector('#restore-server').value = restoreAccount.server || '';
   document.querySelector('#restore-password').value = '';
   document.querySelector('#restore-password').required = !restoreAccount.password_saved;
+  // El diálogo se reutiliza entre usos: si quedó destapada, la siguiente
+  // cuenta se abriría con la contraseña a la vista.
+  window.PasswordReveal?.conceal(document.querySelector('#restore-account-dialog'));
   document.querySelector('#restore-password-state').textContent = restoreAccount.password_saved
     ? 'Contraseña cifrada guardada. Déjala vacía para conservarla.'
     : 'Todavía no hay contraseña guardada; es obligatoria antes de auditar.';
