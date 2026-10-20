@@ -510,6 +510,14 @@ la campana y la barra de actividad. El botón de programación sólo se inserta 
 la cabecera marcada con `data-live-audit-schedule`; quitar el script entero
 rompería los avisos.
 
+## Los meses se comparan en paralelo (2026-10-21)
+
+En cada tarjeta de «Cuentas en real», «Hoy» conserva todo el ancho y el mes
+actual y el anterior aparecen en dos columnas contiguas. Beneficio y drawdown
+siguen uno debajo del otro dentro de cada mes, para que la lectura no vuelva a
+ser en zigzag. Sólo por debajo de 480 px los meses se apilan para no truncar los
+importes.
+
 ## La recuperación conserva el instante del corte (2026-10-20)
 
 La primera recuperación guardaba sólo `2026-10-17` y al continuar la cola lo

@@ -180,7 +180,8 @@ function cardMarkup(card) {
   const currency = card.currency || '';
   const [tone, label] = badgeOf(card);
   const rows = card.state === 'blocked' ? '' : dailyRow(card, currency)
-    + monthlyRow(card, currency) + earlierRow(card, currency);
+    + '<div class="month-comparison">'
+    + monthlyRow(card, currency) + earlierRow(card, currency) + '</div>';
   return `<article class="account-card ${escapeHtml(card.state || '')}">`
     + '<div class="card-head"><div>'
     + `<p class="eyebrow">${escapeHtml(card.node_name)}</p>`

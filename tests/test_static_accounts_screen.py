@@ -159,15 +159,16 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("missing_rates", SCRIPT)
         self.assertIn("no se suman", SCRIPT)
 
-    def test_every_tramo_of_the_card_goes_under_the_previous_one(self) -> None:
-        """Una cosa debajo de la otra, que es como se pidio.
-
-        En dos columnas la tarjeta se leia en zigzag y los importes largos
-        partian la linea.
-        """
+    def test_the_two_months_are_side_by_side_but_their_metrics_are_vertical(self) -> None:
         css = (STATIC / "accounts.css").read_text(encoding="utf-8")
+        self.assertIn('<div class="month-comparison">', SCRIPT)
+        self.assertIn(
+            ".month-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));",
+            css,
+        )
         self.assertIn(".metric-row{display:grid;gap:12px;", css)
         self.assertNotIn(".metric-row{display:grid;grid-template-columns:", css)
+        self.assertIn("@media(max-width:480px){.month-comparison{grid-template-columns:1fr}}", css)
 
 
 if __name__ == "__main__":
