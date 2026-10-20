@@ -19,6 +19,34 @@
 - Cada checkout tiene su rama y su commit: un cambio que toca tres agentes son
   tres commits hermanos, y la entrega los nombra todos.
 
+## Todo lo del manager se commitea en `main`
+
+Este repositorio no tiene ramas de trabajo. Cada unidad se commitea en `main`,
+que es donde está el código que se despliega. **Nada de ramas de sesión
+(`claude/<nombre>`) ni de worktrees por sesión**: una rama paralela parece
+trabajo terminado y no lo está, y nadie la ve hasta que el grafo de commits
+delata la bifurcación.
+
+Pasó el 2026-10-20: el arreglo de la primera ejecución del cron —el encadenado
+que leía `last_result.period_end` y los usos con autolote que no se archivaban—
+se quedó una noche en `claude/keen-kowalevski-df0086`, dentro de
+`.claude/worktrees/`, mientras `main` seguía con otros tres commits. Se integró
+después con `git cherry-pick` (96cdbc0), sin conflictos pero con tres ficheros
+ya tocados por medio.
+
+- Si una sesión arranca con worktree, no se da por terminada hasta que su
+  trabajo está en `main` y el worktree ya no existe: `git worktree remove` y
+  `git branch -D`.
+- **Un worktree vivo rompe la verificación.** `tools/source_files.py` recorre el
+  árbol entero, así que con `.claude/worktrees/<algo>/` delante
+  `tools.undefined_names` ve dos copias de cada fichero y
+  `test_only_the_declared_facades_may_use_star_imports` falla señalando rutas
+  `.claude/worktrees/...` que no son del cambio. No se arregla metiéndolas en
+  `SKIP_PARTS` —son código nuestro, y esa lista es para el ajeno—: se arregla no
+  dejando worktrees.
+- Esto no contradice «cada checkout tiene su rama»: eso vale para los agentes,
+  que viven en `IC`, `future`, `AXI` o `dev`. El manager es `main`.
+
 ## El nodo NO ejecuta este repositorio
 
 Tres reincidencias ya (pausa/reanudación, exclusión del 20-07, exclusión
