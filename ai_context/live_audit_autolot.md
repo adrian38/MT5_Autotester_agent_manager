@@ -322,3 +322,15 @@ Con un lote por apertura, `observedLots` devuelve decenas de valores distintos y
 el aviso de simulación los listaba todos, estrategia por estrategia. `lotList`
 resume por encima de tres (`0,01 — 0,37 (12 lotes)`) y el aviso pasa a ser un
 recuento; el detalle por estrategia vive en el diálogo de lotes.
+
+## AXI puede elevar 0,01 al mínimo ejecutable (2026-10-20)
+
+En la recuperación de AXI #109, cinco estrategias de USTECH y US30 llevaban
+`StartLots=0.01` en el SET y el HTML de MT5 publicó `0.10`. No es por sí solo un
+fallo del autolote ni del tester: en AXI esos símbolos tienen **0,10 como lote
+mínimo**, de modo que el servidor eleva la orden al mínimo ejecutable.
+
+`REPORT ≠ SET` sigue siendo una observación cierta y útil —dice que el volumen
+ejecutado no fue el literal del SET—, pero no debe interpretarse como error si
+la diferencia coincide con el mínimo del símbolo del broker. El mínimo es una
+propiedad del broker, no del perfil de margen ni de la fórmula de autolote.
