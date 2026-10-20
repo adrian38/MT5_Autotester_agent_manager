@@ -68,6 +68,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `portfolio_repair_after_exclusion.md`: contrato de «Arreglar» una variante
   con estrategias excluidas, conservación de las restantes y guardado como un
   portafolio nuevo sin cambiar el protocolo del nodo.
+- `portfolio_job_bell_notices.md`: por qué la campana y el aviso del escritorio
+  anuncian también el final de una generación, un arreglo o una mejora, y por
+  qué esto sí lo ejecuta el manager.
 
 ## Riesgo, margen y ejecución
 

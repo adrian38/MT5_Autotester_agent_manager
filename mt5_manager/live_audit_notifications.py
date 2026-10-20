@@ -56,15 +56,23 @@ class LiveAuditNotificationStore:
         audit_id: str = "",
         portfolio_id: int = 0,
         kind: str = "",
+        link: str = "",
+        link_text: str = "",
     ) -> dict[str, Any]:
-        """Anota un aviso y lo devuelve ya numerado."""
+        """Anota un aviso y lo devuelve ya numerado.
+
+        `link` es la pantalla a la que lleva el aviso cuando no se puede
+        deducir de `node_id`/`audit_id`: un cálculo de portafolio no tiene uso
+        de auditoría al que enlazar, pero sí una pantalla donde mirarlo.
+        """
         event = {
             "id": 0, "created_at": utc_now(),
             "level": level if level in LEVELS else "info",
             "kind": str(kind or level), "title": str(title),
             "message": str(message), "node_id": str(node_id),
             "node_name": str(node_name or node_id), "audit_id": str(audit_id),
-            "portfolio_id": int(portfolio_id or 0), "read": False,
+            "portfolio_id": int(portfolio_id or 0),
+            "link": str(link), "link_text": str(link_text), "read": False,
         }
         with self.lock:
             event["id"] = self.next_id

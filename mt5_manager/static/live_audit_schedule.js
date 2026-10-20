@@ -47,7 +47,7 @@
   bell.type = 'button';
   bell.className = 'cron-bell';
   bell.id = 'cron-bell';
-  bell.title = 'Avisos de las auditorías';
+  bell.title = 'Avisos del manager';
   bell.innerHTML = '🔔<span class="cron-unread" id="cron-unread" hidden>0</span>';
 
   const open = document.createElement('button');
@@ -82,7 +82,7 @@
   panel.hidden = true;
   panel.innerHTML = `
     <header>
-      <div><p class="eyebrow">CAMPANA</p><h2>Avisos de auditoría</h2></div>
+      <div><p class="eyebrow">CAMPANA</p><h2>Avisos del manager</h2></div>
       <button type="button" class="secondary" id="cron-panel-close" aria-label="Cerrar">×</button>
     </header>
     <div class="cron-push-row">
@@ -107,8 +107,9 @@
   ask.innerHTML = `
     <div>
       <strong>¿Quieres que el navegador te avise?</strong>
-      <small>Cuando una auditoría termine, falle o el cron no pueda lanzarla, el aviso
-      salta aunque estés en otra pestaña. Hace falta tener el manager abierto en alguna.</small>
+      <small>Cuando un portafolio termine de generarse, arreglarse o mejorarse, y cuando
+      una auditoría acabe, falle o el cron no pueda lanzarla, el aviso salta aunque
+      estés en otra pestaña. Hace falta tener el manager abierto en alguna.</small>
     </div>
     <div class="cron-push-actions">
       <button type="button" id="cron-push-now">Activar</button>
@@ -429,7 +430,7 @@
     fresh.slice(-3).forEach(pushEvent);
     if (fresh.length > 3) {
       pushEvent({
-        id: `resto-${highest}`, title: `${fresh.length} avisos nuevos de auditoría`,
+        id: `resto-${highest}`, title: `${fresh.length} avisos nuevos del manager`,
         message: 'Ábrelos en la campana del manager.',
       });
     }
@@ -437,10 +438,13 @@
 
   // --- Campana ------------------------------------------------------------
   function eventMarkup(event) {
-    const link = event.node_id && event.audit_id
+    const own = event.link
+      ? `<a href="${escapeHtml(event.link)}">${escapeHtml(event.link_text || 'Abrir')}</a>`
+      : '';
+    const link = own || (event.node_id && event.audit_id
       ? `<a href="/live_audit_analysis.html?node=${encodeURIComponent(event.node_id)}`
         + `&audit=${encodeURIComponent(event.audit_id)}">Ver análisis</a>`
-      : '';
+      : '');
     return `<li class="${escapeHtml(event.level)}${event.read ? '' : ' unread'}">`
       + `<strong>${escapeHtml(event.title)}</strong>`
       + (event.message ? `<p>${escapeHtml(event.message)}</p>` : '')
@@ -456,11 +460,11 @@
     badge.hidden = !unread;
     bell.title = unread
       ? `${unread} aviso${unread === 1 ? '' : 's'} sin leer`
-      : 'Avisos de las auditorías';
+      : 'Avisos del manager';
     field('#cron-events').innerHTML = notifications.events.length
       ? notifications.events.map(eventMarkup).join('')
-      : '<li class="cron-empty">Todavía no hay avisos. Aquí aparecerá cada auditoría que '
-        + 'termine y cada una que falle.</li>';
+      : '<li class="cron-empty">Todavía no hay avisos. Aquí aparecerá cada cálculo de '
+        + 'portafolio y cada auditoría, cuando termine y cuando falle.</li>';
     pushNew(notifications.events);
   }
 

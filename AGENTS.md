@@ -170,6 +170,7 @@ como en `ubs_portfolio`, **el orden es el de dependencia**:
 `portfolio_source_connection` → `portfolio_source_inventory` →
 `portfolio_source_quarantine` →
 `portfolio_source_saved` → `portfolio_source_reports` → `portfolio_source` →
+`portfolio_job_notices` →
 `portfolio_coordinator_core` → `portfolio_coordinator_saved` →
 `portfolio_import_match` → `portfolio_import_build` → `portfolio_service`
 

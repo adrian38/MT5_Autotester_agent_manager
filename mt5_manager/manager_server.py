@@ -152,6 +152,9 @@ class ManagerServer(ThreadingHTTPServer):
             else Path.cwd() / "runtime" / "portfolio_settings.json"
         )
         self.portfolios = PortfolioCoordinator(self.nodes, portfolio_settings_path)
+        # La campana es del manager entero, no de la auditoría: un cálculo de
+        # portafolio que termina de madrugada avisa por el mismo sitio.
+        self.portfolios.notifications = self.live_audit_notifications
         # Laboratorio «Experimenta»: vive aparte del coordinador de portafolios
         # a propósito, porque no guarda nada en la memoria de ningún agente.
         self.experiments = ExperimentCoordinator(

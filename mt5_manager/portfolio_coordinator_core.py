@@ -14,6 +14,7 @@ from typing import Any
 from portfolio_manager.ubs_portfolio import PortfolioResult
 
 from .common import load_json, save_json, utc_now
+from .portfolio_job_notices import job_notice, notice_link
 from .portfolio_persistence import result_payload
 from .portfolio_proposals import proposal_diff, save_portfolio_payload
 from .portfolio_schema import ensure_portfolio_schema
@@ -67,6 +68,10 @@ class PortfolioCoordinatorCoreMixin:
         self.tasks: dict[str, list[dict[str, Any]]] = {}
         self.task_workers: set[str] = set()
         self.cancellation_events: dict[str, threading.Event] = {}
+        # La campana del manager, que `ManagerServer` le presta al construirlo.
+        # Sin ella el coordinador funciona igual y no avisa de nada: los tests
+        # que lo montan sueltos no tienen que saber de avisos.
+        self.notifications: Any = None
         if settings_path.is_file():
             try:
                 loaded = load_json(settings_path)
@@ -305,6 +310,38 @@ class PortfolioCoordinatorCoreMixin:
         except OSError:
             pass
 
+    def _announce_job(self, key: str) -> None:
+        """Deja en la campana del manager lo que acaba de pasar con el cálculo.
+
+        Generar, arreglar o mejorar dura horas y acaba sin nadie delante: el
+        aviso es lo que convierte «ya está» en algo de lo que el usuario se
+        entera, en la campana y en el escritorio.
+
+        Nunca puede tumbar el trabajo que acaba de terminar. Un fallo al
+        escribir el diario dentro de `_mark_job_completed` saldría por el
+        `except` del worker y marcaría como fallido un cálculo correcto, así
+        que aquí no se escapa nada.
+        """
+        store = self.notifications
+        if store is None:
+            return
+        node_id, _, scope = key.rpartition(":")
+        with self.lock:
+            job = dict(self.jobs.get(key) or {})
+        try:
+            notice = job_notice(scope, job)
+            if notice is None:
+                return
+            store.add(
+                notice["level"], notice["title"], notice["message"],
+                node_id=node_id,
+                node_name=str((self.nodes.get(node_id) or {}).get("name") or node_id),
+                portfolio_id=notice["portfolio_id"], kind=notice["kind"],
+                link=notice_link(scope, node_id), link_text=notice["link_text"],
+            )
+        except Exception:
+            pass
+
     def _mark_job_stopped(self, key: str) -> None:
         """Deja el job como detenido por el usuario y lo anota en su log."""
         with self.lock:
@@ -315,6 +352,7 @@ class PortfolioCoordinatorCoreMixin:
             })
             log_path = str(job.get("log_path") or "")
         self._append_job_log(log_path, "DETENIDO por el usuario")
+        self._announce_job(key)
 
     def _mark_job_failed(
         self,
@@ -340,6 +378,7 @@ class PortfolioCoordinatorCoreMixin:
             )
         except Exception:
             pass
+        self._announce_job(key)
 
     def _job_log_path(self, key: str, source: Any, scope: str, operation: str) -> Path:
         """El log del trabajo: el que dejo preparado quien lo encolo, o uno nuevo."""
@@ -365,6 +404,7 @@ class PortfolioCoordinatorCoreMixin:
                 "availability": availability, "proposal_count": len(proposals),
                 "stage": stage_total or self.jobs[key].get("stage", 0),
             })
+        self._announce_job(key)
 
     def state(self, node_id: str, scope: str) -> dict[str, Any]:
         status = self.task_state(node_id, scope)
