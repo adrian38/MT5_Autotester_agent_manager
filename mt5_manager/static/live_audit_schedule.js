@@ -1,11 +1,12 @@
-// El botón superior «Auditoría programada» y la campana de avisos.
+// El botón contextual «Auditoría programada» y la campana de avisos.
 //
-// Se monta solo sobre `.header-actions`, así que la portada y Generación sólo
-// tienen que incluir el script: la cita y los avisos son del manager entero,
-// no de una pantalla, y tienen que verse igual desde cualquiera de las dos.
+// La campana se monta en toda pantalla que carga el script. La programación
+// sólo se muestra en la cabecera marcada con `data-live-audit-schedule`: es
+// configuración de «Portafolios activos», no navegación global.
 (() => {
   const actions = document.querySelector('.header-actions');
   if (!actions) return;
+  const showsAuditSchedule = actions.hasAttribute('data-live-audit-schedule');
 
   const WEEKDAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
   let scheduler = {};
@@ -82,7 +83,7 @@
   // mientras en la portada salían bien. Lo vigila `test_header_actions_order`.
   const anchor = actions.querySelector('#restart-manager')
     || actions.querySelector('a[href="/"]');
-  actions.insertBefore(open, anchor || null);
+  if (showsAuditSchedule) actions.insertBefore(open, anchor || null);
   actions.insertBefore(bell, anchor || null);
 
   // La barra va pegada al título, antes de los botones: entre ellos se perdía

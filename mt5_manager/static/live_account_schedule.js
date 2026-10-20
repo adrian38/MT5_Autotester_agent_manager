@@ -1,10 +1,9 @@
-// Los botones superiores «Sondeo de cuentas» y «Sondear ahora».
+// El botón superior «Sondeo de cuentas» y su acción manual.
 //
-// Se montan solos sobre `.header-actions`, igual que «Auditoría programada»:
-// el sondeo es del manager entero, no de una pantalla, y desde Generación hay
-// que poder lanzarlo sin pasar antes por la portada. Reutiliza las clases
-// `cron-*` de `live_audit_schedule.css` para no tener dos diálogos que se
-// parecen y se comportan distinto.
+// Este script sólo lo carga la portada de cuentas. «Sondear ahora» vive dentro
+// del diálogo: es una acción del sondeo, no otra sección de la cabecera.
+// Reutiliza las clases `cron-*` de `live_audit_schedule.css` para no tener
+// dos diálogos que se parecen y se comportan distinto.
 (() => {
   const actions = document.querySelector('.header-actions');
   if (!actions) return;
@@ -53,22 +52,11 @@
   open.textContent = 'Sondeo de cuentas';
   open.title = 'Programar la lectura diaria de las cuentas reales';
 
-  const launch = document.createElement('button');
-  launch.type = 'button';
-  launch.className = 'cron-link account-cron-link';
-  launch.id = 'account-snapshot-now';
-  launch.textContent = 'Sondear ahora';
-  launch.title = 'Leer ahora las cuentas reales, sin esperar a la cita';
-
-  // El mismo anclaje que la cita de auditoría: «Reiniciar manager» manda a la
-  // derecha del todo y, donde no lo hay, el enlace de vuelta.
+  // «Reiniciar manager» manda a la derecha del todo y, donde no lo hay, el
+  // enlace de vuelta.
   const anchor = actions.querySelector('#restart-manager')
     || actions.querySelector('a[href="/"]');
-  // En este orden: los dos entran antes del ancla, asi que el primero que se
-  // inserta queda a la izquierda. «Sondeo de cuentas» primero y «Sondear
-  // ahora» pegado a el, que es como los modela `test_header_actions_order`.
   actions.insertBefore(open, anchor || null);
-  actions.insertBefore(launch, anchor || null);
 
   const dialog = document.createElement('dialog');
   dialog.className = 'cron-dialog';
@@ -118,6 +106,7 @@
         <ul class="cron-targets" id="account-cron-targets"></ul>
       </div>
       <div class="cron-actions">
+        <button type="button" class="secondary" id="account-snapshot-now">Sondear ahora</button>
         <button type="button" class="secondary" id="account-cron-cancel">Cancelar</button>
         <button type="submit" id="account-cron-save">Guardar sondeo</button>
       </div>
@@ -125,6 +114,7 @@
   document.body.appendChild(dialog);
 
   const field = id => document.querySelector(id);
+  const launch = field('#account-snapshot-now');
 
   function localDate(value) {
     if (!value) return '';

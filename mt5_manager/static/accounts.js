@@ -2,10 +2,9 @@
 // los tonos, el prorrateo del mes y la conversión de moneda vienen calculados
 // del manager a propósito, para que no haya dos criterios del mismo número.
 //
-// Los botones del sondeo —programarlo y lanzarlo— **no** están aquí: los monta
-// `live_account_schedule.js` en la cabecera de todas las pantallas, igual que
-// «Auditoría programada», porque lanzarlo no puede exigir pasar antes por esta
-// página.
+// Los controles del sondeo no están aquí: `live_account_schedule.js` monta
+// «Sondeo de cuentas» en esta cabecera y deja «Sondear ahora» dentro de su
+// diálogo.
 const cardsEl = document.querySelector('#accounts');
 const refreshState = document.querySelector('#refresh-state');
 const refreshButton = document.querySelector('#refresh');

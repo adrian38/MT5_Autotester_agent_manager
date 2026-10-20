@@ -74,13 +74,8 @@ class PageTests(unittest.TestCase):
         for identifier in ("refresh", "refresh-state"):
             self.assertTrue(TREE.xpath(f'//*[@id="{identifier}"]'), identifier)
 
-    def test_the_snapshot_buttons_are_not_of_this_page(self) -> None:
-        """Los monta el script compartido, como «Auditoria programada».
-
-        Tenerlos aqui los dejaba fuera de Generacion, que es donde el usuario
-        estaba cuando los busco: lanzar el sondeo no puede exigir pasar antes
-        por la portada.
-        """
+    def test_the_snapshot_controls_belong_only_to_the_accounts_page(self) -> None:
+        """La cabecera abre el sondeo y la acción manual vive en su diálogo."""
         page = PAGE.read_text(encoding="utf-8")
         self.assertNotIn('id="snapshot-now"', page)
         self.assertNotIn('id="schedule-dialog"', page)
@@ -111,15 +106,21 @@ class PageTests(unittest.TestCase):
         self.assertIn("no tiene ninguna fuente de cambios", MOUNTED)
         self.assertIn("no se suma", MOUNTED)
 
-    def test_the_buttons_mount_themselves_on_every_header(self) -> None:
+    def test_the_schedule_button_mounts_only_on_the_accounts_header(self) -> None:
         self.assertIn(".header-actions", MOUNTED)
         self.assertIn("Sondear ahora", MOUNTED)
         self.assertIn("Sondeo de cuentas", MOUNTED)
-        for name in ("index.html", "dashboard.html", "accounts.html"):
-            self.assertIn(
+        self.assertIn("/live_account_schedule.js", PAGE.read_text(encoding="utf-8"))
+        for name in ("index.html", "dashboard.html"):
+            self.assertNotIn(
                 "/live_account_schedule.js",
                 (STATIC / name).read_text(encoding="utf-8"), name,
             )
+        self.assertIn('id="account-snapshot-now"', MOUNTED)
+        self.assertLess(
+            MOUNTED.index('id="account-snapshot-now"'),
+            MOUNTED.index('id="account-cron-save"'),
+        )
 
     def test_the_page_loads_the_bell_of_the_audit_cron(self) -> None:
         sources = TREE.xpath("//script/@src")

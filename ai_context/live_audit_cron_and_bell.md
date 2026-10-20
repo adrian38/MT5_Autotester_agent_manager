@@ -496,6 +496,20 @@ junto a «Auditoría programada», escondido mientras no hay nada, que lee
   mano desde su pantalla también enciende el chip, y entonces la barra es su
   propio porcentaje porque no hay tanda que medir.
 
+## Los botones de programación son contextuales (2026-10-21)
+
+La campana y la actividad siguen siendo globales, pero las dos configuraciones
+ya no ocupan todas las cabeceras:
+
+- «Sondeo de cuentas» sólo aparece en la portada «Cuentas en real», y
+  «Sondear ahora» está dentro de ese diálogo porque es una acción del sondeo.
+- «Auditoría programada» sólo aparece en «Portafolios activos».
+
+`live_audit_schedule.js` sigue cargándose en las demás pantallas para mantener
+la campana y la barra de actividad. El botón de programación sólo se inserta en
+la cabecera marcada con `data-live-audit-schedule`; quitar el script entero
+rompería los avisos.
+
 ## La recuperación conserva el instante del corte (2026-10-20)
 
 La primera recuperación guardaba sólo `2026-10-17` y al continuar la cola lo

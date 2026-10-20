@@ -44,6 +44,15 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("cron-bell", self.script)
         self.assertIn("cron-unread", self.script)
 
+    def test_only_the_active_portfolios_header_shows_the_schedule_button(self) -> None:
+        self.assertIn("data-live-audit-schedule", self.dashboard)
+        self.assertNotIn("data-live-audit-schedule", self.generation)
+        self.assertNotIn("data-live-audit-schedule", self.audit)
+        self.assertIn(
+            "if (showsAuditSchedule) actions.insertBefore(open, anchor || null)",
+            self.script,
+        )
+
     def test_the_dialog_edits_every_piece_the_user_asked_for(self) -> None:
         for token in (
             "cron-weekday", "cron-hour", "cron-minute", "cron-timezone",

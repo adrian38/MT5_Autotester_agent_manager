@@ -35,14 +35,13 @@ CRON = "Auditoría programada"
 BELL = "🔔"
 
 ACCOUNT_CRON = "Sondeo de cuentas"
-ACCOUNT_NOW = "Sondear ahora"
 
 # Cada script que se monta solo, con lo que inserta antes del ancla. El orden
 # en que corren es el de sus etiquetas `<script>`, así que el que va primero
 # acaba más lejos del ancla: por eso se leen del HTML y no de esta lista.
 MOUNTS = {
-    "live_account_schedule.js": (ACCOUNT_CRON, ACCOUNT_NOW),
-    "live_audit_schedule.js": (CRON, BELL),
+    "live_account_schedule.js": (ACCOUNT_CRON,),
+    "live_audit_schedule.js": (BELL,),
 }
 
 
@@ -119,8 +118,11 @@ def rendered_order(page: str) -> list[str]:
     for name in _mount_order(source):
         anchor = _first(children, RESTART) or _first(children, BACK_LINK)
         index = children.index(anchor) if anchor else len(children)
+        labels = MOUNTS[name]
+        if name == "live_audit_schedule.js" and "data-live-audit-schedule" in source:
+            labels = (CRON, *labels)
         children[index:index] = [
-            {"id": "", "href": "", "text": label} for label in MOUNTS[name]
+            {"id": "", "href": "", "text": label} for label in labels
         ]
     if "live_audit_schedule.js" not in source:
         return [child["text"] or child["id"] for child in children]
@@ -137,26 +139,24 @@ def rendered_order(page: str) -> list[str]:
 
 class HeaderActionsOrderTests(unittest.TestCase):
     EXPECTED = {
-        # Las tres pantallas que montan los dos crones. El de cuentas se carga
-        # antes, así que queda por fuera y la campana sigue pegada a la salida.
         "accounts.html": [
             "Actualizando…", "Actualizar", "Portafolios activos", "Generación",
-            ACCOUNT_CRON, ACCOUNT_NOW, CRON, BELL,
+            ACCOUNT_CRON, BELL,
         ],
         "dashboard.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Generación",
-            "Experimenta", "Correlación", ACCOUNT_CRON, ACCOUNT_NOW, CRON, BELL,
+            "Experimenta", "Correlación", CRON, BELL,
             "Reiniciar manager",
         ],
         "index.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Portafolios activos",
-            "Experimenta", "Correlación", ACCOUNT_CRON, ACCOUNT_NOW, CRON, BELL,
+            "Experimenta", "Correlación", BELL,
             "Reiniciar manager",
         ],
-        "live_audit.html": ["⚙ Cuenta final", CRON, BELL, "Volver al manager"],
-        "portfolios.html": ["Actualizar", CRON, BELL, "Volver al manager"],
-        "portfolios_grid.html": ["Actualizar", CRON, BELL, "Volver al manager"],
-        "portfolios_monthly.html": ["Actualizar", CRON, BELL, "Volver al manager"],
+        "live_audit.html": ["⚙ Cuenta final", BELL, "Volver al manager"],
+        "portfolios.html": ["Actualizar", BELL, "Volver al manager"],
+        "portfolios_grid.html": ["Actualizar", BELL, "Volver al manager"],
+        "portfolios_monthly.html": ["Actualizar", BELL, "Volver al manager"],
     }
 
     def test_every_screen_that_loads_the_script_is_declared_here(self) -> None:
@@ -166,20 +166,18 @@ class HeaderActionsOrderTests(unittest.TestCase):
         }
         self.assertEqual(loaders, set(self.EXPECTED))
 
-    def test_the_cron_and_the_bell_always_close_the_row(self) -> None:
+    def test_each_screen_has_only_its_contextual_controls(self) -> None:
         for page, expected in self.EXPECTED.items():
             with self.subTest(page=page):
                 self.assertEqual(rendered_order(page), expected)
 
-    def test_the_last_one_is_the_restart_or_the_way_back(self) -> None:
-        # La regla en una frase: la campana va pegada a la salida de la
-        # pantalla, sea «Reiniciar manager» o el enlace de vuelta. La portada
-        # de cuentas no tiene salida —es la raíz—, y entonces cierra ella.
+    def test_only_active_portfolios_has_the_audit_schedule(self) -> None:
         for page, expected in self.EXPECTED.items():
             with self.subTest(page=page):
-                tail = expected[-2:] if expected[-1] == BELL else expected[-3:-1]
-                self.assertEqual(tail, [CRON, BELL])
+                self.assertEqual(CRON in expected, page == "dashboard.html")
+                self.assertIn(BELL, expected)
                 if expected[-1] != BELL:
+                    self.assertEqual(expected[-2], BELL)
                     self.assertIn(expected[-1], {"Reiniciar manager", "Volver al manager"})
 
     def test_updating_is_always_the_first_pair(self) -> None:
@@ -187,29 +185,18 @@ class HeaderActionsOrderTests(unittest.TestCase):
             with self.subTest(page=page):
                 self.assertIn(expected[0], {"Actualizando…", "Actualizar", "⚙ Cuenta final"})
 
-    def test_the_account_cron_mounts_with_the_same_anchor(self) -> None:
-        """El segundo script tiene que anclar igual que el primero.
-
-        Si no, los dos pares de botones aterrizan en sitios distintos según la
-        pantalla, que es exactamente el fallo que esta guarda existe para no
-        repetir.
-        """
+    def test_the_account_cron_mounts_one_header_button(self) -> None:
         script = (STATIC / "live_account_schedule.js").read_text(encoding="utf-8")
         for expression in (
             f"actions.querySelector('{RESTART}')",
             f"actions.querySelector('{BACK_LINK}')",
             "actions.insertBefore(open, anchor || null)",
-            "actions.insertBefore(launch, anchor || null)",
         ):
             with self.subTest(expression=expression):
                 self.assertIn(expression, script)
-        # Y en ese orden, que es el que decide cual queda a la izquierda. Sin
-        # esto el modelo de arriba mediria un orden que el script no hace.
-        self.assertLess(
-            script.index("actions.insertBefore(open, anchor || null)"),
-            script.index("actions.insertBefore(launch, anchor || null)"),
-        )
-        self.assertEqual(MOUNTS["live_account_schedule.js"], (ACCOUNT_CRON, ACCOUNT_NOW))
+        self.assertNotIn("actions.insertBefore(launch, anchor || null)", script)
+        self.assertIn('id="account-snapshot-now"', script)
+        self.assertEqual(MOUNTS["live_account_schedule.js"], (ACCOUNT_CRON,))
 
     def test_the_ported_rule_is_the_one_the_script_runs(self) -> None:
         script = (STATIC / "live_audit_schedule.js").read_text(encoding="utf-8")
