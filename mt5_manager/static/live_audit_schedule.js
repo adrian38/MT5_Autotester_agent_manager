@@ -75,7 +75,13 @@
   // «Reiniciar manager» se queda a la derecha del todo y la campana justo a su
   // izquierda; donde no hay reinicio, el último es el enlace de vuelta y la
   // campana va igualmente delante de él.
-  const anchor = actions.querySelector('#restart-manager, a[href="/"]');
+  // Los dos selectores se preguntan por separado y en orden de preferencia.
+  // Juntos en una sola consulta devuelven el primero **del documento**, no el
+  // preferido: en Generación el enlace de vuelta va antes que «Reiniciar
+  // manager», así que la cita y la campana aterrizaban en mitad de la fila
+  // mientras en la portada salían bien. Lo vigila `test_header_actions_order`.
+  const anchor = actions.querySelector('#restart-manager')
+    || actions.querySelector('a[href="/"]');
   actions.insertBefore(open, anchor || null);
   actions.insertBefore(bell, anchor || null);
 
