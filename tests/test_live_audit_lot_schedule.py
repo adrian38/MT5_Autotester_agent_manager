@@ -383,6 +383,19 @@ class LotScheduleScreenTests(unittest.TestCase):
         self.assertIn("function renderLotSchedule()", self.script)
         self.assertIn("data-remove-step=", self.script)
 
+    def test_the_dialog_shows_every_lot_the_account_ran_without_cutting_it(self) -> None:
+        # Declarado el tramo, la estrategia pasa a tener dos lotes ejecutados y
+        # el campo los enseña como marcador. Con el «varios:» que llevaba
+        # delante no cabían en 150px y salía «varios: 0,03 · 0,0», cortado a
+        # media cifra. La lista sola mantiene la estructura con dos lotes y con
+        # quince, porque `lotList` resume por encima de tres.
+        self.assertIn(": executed.length ? lotList(executed) : 'sin operaciones'", self.script)
+        # El literal que llevaba el prefijo, no la palabra: el comentario que
+        # explica por qué se quitó tiene que poder nombrarlo.
+        self.assertNotIn("`varios: ${lotList(executed)}`", self.script)
+        css = (STATIC / "live_audit_analysis.css").read_text(encoding="utf-8")
+        self.assertIn(".lots-table input { width: 100%; max-width: 230px; }", css)
+
     def test_the_screen_goes_through_the_endpoint_that_recalculates(self) -> None:
         self.assertIn("changeCriterion('real-lot-schedule'", self.script)
         self.assertIn("real_lot_schedule: schedule", self.script)

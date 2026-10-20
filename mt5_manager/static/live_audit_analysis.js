@@ -1130,7 +1130,11 @@ function lotInput(group, side) {
   const override = overrideFor(group.strategy, side);
   const executed = side === 'demo' ? group.demoLots : group.realLots;
   const placeholder = executed.length === 1 ? number(executed[0], 8)
-    : executed.length ? `varios: ${lotList(executed)}` : 'sin operaciones';
+    // Sin el «varios:» de antes: con dos lotes ya no cabía en el campo y se
+    // cortaba a media cifra —«varios: 0,03 · 0,0»—, que es peor que no decir
+    // nada. La lista sola tiene la misma estructura con uno o con quince,
+    // porque `lotList` resume por encima de tres.
+    : executed.length ? lotList(executed) : 'sin operaciones';
   const disabled = executed.length ? '' : ' disabled';
   const automatic = side === 'demo' ? autolotLots(group) : [];
   const estimated = side === 'demo' ? scaledBySource(group, 'autolot') : 0;

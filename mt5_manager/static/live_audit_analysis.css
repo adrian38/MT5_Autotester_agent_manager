@@ -63,7 +63,10 @@ td.audit-analysis-empty { display: table-cell; min-height: 0; padding: 26px 16px
 .lots-table tbody th small { margin-top: 3px; }
 .lots-table td small { margin-top: 5px; }
 .lots-table td .lots-autolot-note { color: #78f0d0; font-weight: 700; }
-.lots-table input { max-width: 150px; }
+/* 150px cortaban el marcador en cuanto la estrategia operaba dos lotes: cabía
+   «0,03 · 0,0» y la última cifra se perdía. Llena la columna, que para eso
+   está, y el tope sigue evitando un campo absurdo en pantallas anchas. */
+.lots-table input { width: 100%; max-width: 230px; }
 .lots-caveat { margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .audit-analysis-table-wrap { overflow-x: auto; }
 .audit-analysis-table { width: 100%; min-width: 820px; border-collapse: collapse; }
