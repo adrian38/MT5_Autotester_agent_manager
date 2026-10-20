@@ -12,7 +12,8 @@ import urllib.error
 import urllib.parse
 from typing import Any
 
-from . import live_audit_executions, live_audit_history, live_audit_lineage, live_audit_watch
+from . import live_audit_activity, live_audit_executions, live_audit_history
+from . import live_audit_lineage, live_audit_watch
 from . import manager_http
 from . import manager_live_audit_routes
 from .common import safe_int
@@ -21,6 +22,7 @@ NOTIFICATIONS_PATH = "/api/live-audit-notifications"
 
 SCHEDULER_PATH = "/api/live-audit-scheduler-config"
 CATCH_UP_PATH = "/api/live-audit-scheduler-catch-up"
+ACTIVITY_PATH = "/api/live-audit-activity"
 
 
 def _limit(parsed: Any) -> int:
@@ -84,6 +86,9 @@ def _handle_history(handler, parts: list[str]) -> bool:
 
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     if _handle_history(handler, parts):
+        return True
+    if parsed.path == ACTIVITY_PATH:
+        handler._send_json(200, live_audit_activity.snapshot(handler.server))
         return True
     if parsed.path == SCHEDULER_PATH:
         handler._send_json(200, handler.server.live_audit_scheduler_state())

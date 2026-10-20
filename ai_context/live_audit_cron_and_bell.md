@@ -426,3 +426,28 @@ comprobaba que cupiera en la vida del portafolio. Las mejoradas y arregladas
   explícita del uso, y bloquearla es decisión de alcance, no de periodo.
 - La recuperación descarta el uso cuyo portafolio nació después del corte, y lo
   marca `not_applicable`: no hay hueco que recuperar.
+
+## Barra de actividad en la cabecera (2026-10-20)
+
+El cron lanza un uso por agente y sigue solo cuando ése termina, así que entre
+el clic y el aviso de «terminada» pasaban horas con la cabecera **igual de
+quieta que cuando no pasa nada**. `live_audit_schedule.js` monta ahora un chip
+junto a «Auditoría programada», escondido mientras no hay nada, que lee
+`GET /api/live-audit-activity`.
+
+- **El porcentaje no se inventa**: sale de `PROGRESS` de `live_audit_core.py`,
+  el mismo que ya pinta la pantalla de la auditoría. Dos cuentas distintas del
+  mismo avance es justo lo que no puede haber.
+- La barra mide **la tanda entera**, no el uso que toca: `(hechos + fracción
+  del que corre) / total`. Lo que el usuario quiere saber es cuánto falta para
+  terminar, no cuánto lleva el tercero de cinco.
+- Por eso **la marca `catch_up_until` ya no se borra** al terminar un uso: es el
+  denominador. Lo que decide si queda trabajo es `catch_up_status`, y
+  `launch_pending` sólo mira los `pending`. Un clic nuevo reinicia la tanda.
+- El sondeo es de 5 s mientras algo corre y de 20 s en silencio, y cada vuelta
+  son dos peticiones por agente (`/api/v1/status` y `/api/v1/live-audits`), las
+  mismas que hace el vigilante. Un agente que no contesta sale en `issues` y no
+  rompe la respuesta: de avisar ya se encarga la campana.
+- Cubre cualquier auditoría en marcha, no sólo la recuperación: una lanzada a
+  mano desde su pantalla también enciende el chip, y entonces la barra es su
+  propio porcentaje porque no hay tanda que medir.

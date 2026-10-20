@@ -86,8 +86,13 @@ class CatchUpTests(unittest.TestCase):
         server = FakeServer(self.root, audit_state(), BornOn("2026-10-18T09:00:00"))
         result = live_audit_watch.request_catch_up(server, self.now)
         self.assertEqual(result["queued_count"], 0)
+        # Queda apuntado con el corte de la tanda, no borrado: así el diálogo
+        # dice por qué se quedó fuera y el contador no lo cuenta por lanzar.
         record = server.live_audit_runs.record(LiveAuditRunState.key("n", "11"))
-        self.assertEqual(record.get("catch_up_until", ""), "")
+        self.assertEqual(
+            (record["catch_up_until"], record["catch_up_status"]),
+            ("2026-10-17", "not_applicable"),
+        )
 
     def test_without_history_the_recovery_starts_the_day_it_was_created(self) -> None:
         # El perfil pide los últimos 7 días -el 10 de octubre-, pero el
@@ -108,7 +113,9 @@ class CatchUpTests(unittest.TestCase):
         self.assertEqual(payload["period_end_date"], "2026-10-17")
         self.assertIn("desde que se creó el portafolio", server.events()[0]["message"])
 
-    def test_a_completed_recovery_is_removed_from_the_queue(self) -> None:
+    def test_a_completed_recovery_stops_being_pending_but_keeps_its_mark(self) -> None:
+        # El corte se conserva a propósito: es el denominador del «2 de 5» que
+        # enseña la barra, y borrarlo dejaba la tanda sin forma de contarse.
         server = FakeServer(self.root, audit_state())
         live_audit_watch.request_catch_up(server, self.now)
         covered = published_audit(period_end="2026-10-17T23:59:59+00:00")
@@ -118,7 +125,17 @@ class CatchUpTests(unittest.TestCase):
         ):
             live_audit_watch.tick(server)
         record = server.live_audit_runs.record(LiveAuditRunState.key("n", "11"))
-        self.assertEqual((record["catch_up_until"], record["catch_up_status"]), ("", "success"))
+        self.assertEqual(
+            (record["catch_up_until"], record["catch_up_status"]), ("2026-10-17", "success"),
+        )
+        # Y no se vuelve a lanzar en la vuelta siguiente.
+        posted: list[object] = []
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=live_audit_watch_test_answers({"11": covered}, posted),
+        ):
+            live_audit_watch.tick(server)
+        self.assertEqual(posted, [])
 
 
 class BornOn:

@@ -33,14 +33,16 @@ def request(server: Any, audit_ids: AuditIds, _created_at: CreatedAt,
         profiles = state.get("profiles") or {}
         for audit_id in audit_ids(state, forced):
             profile = dict(profiles.get(audit_id) or {})
-            if _born_after(server, node_id, profile, cutoff):
-                continue
+            born_after = _born_after(server, node_id, profile, cutoff)
             server.live_audit_runs.update(
                 server.live_audit_runs.key(node_id, audit_id),
-                catch_up_until=target, catch_up_status="pending",
+                catch_up_until=target,
+                catch_up_status="not_applicable" if born_after else "pending",
                 catch_up_requested_at=now.isoformat(),
                 window="", attempts=0, outcome="", last_attempt_at="",
             )
+            if born_after:
+                continue
             queued.append({
                 "node_id": node_id, "node_name": str(node.get("name") or node_id),
                 "audit_id": audit_id, "label": audit_label(profile, audit_id),
@@ -82,18 +84,18 @@ def launch_pending(server: Any, node: dict[str, Any], node_id: str,
         key, audit = runs.key(node_id, audit_id), dict(audits.get(audit_id) or {})
         record = runs.record(key)
         target_text = str(record.get("catch_up_until") or "")
-        if not target_text:
+        if not target_text or str(record.get("catch_up_status") or "") != "pending":
             continue
         target = datetime.fromisoformat(f"{target_text}T23:59:59+00:00")
         if _already_covered(audit, target):
-            runs.update(key, catch_up_until="", catch_up_status="success")
+            runs.update(key, catch_up_status="success")
             continue
         created, profile = created_at(audit_id), dict(profiles.get(audit_id) or {})
         if _born_after(server, node_id, profile, target) or (
             live_audit_schedule.previous_period_end(audit) is None
             and created is not None and created > target
         ):
-            runs.update(key, catch_up_until="", catch_up_status="not_applicable")
+            runs.update(key, catch_up_status="not_applicable")
             continue
         if any(str((row or {}).get("status") or "") in RUNNING_STATUSES
                for row in audits.values() if isinstance(row, dict)):
@@ -104,7 +106,7 @@ def launch_pending(server: Any, node: dict[str, Any], node_id: str,
             datetime.now(timezone.utc),
         )
         if decision == "exhausted":
-            runs.update(key, catch_up_until="", catch_up_status="exhausted")
+            runs.update(key, catch_up_status="exhausted")
             continue
         if not decision:
             return True

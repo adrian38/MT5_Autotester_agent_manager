@@ -64,6 +64,29 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("/api/live-audit-scheduler-catch-up", self.script)
         self.assertIn("de una en una por agente", self.script)
 
+    def test_the_bar_shows_what_is_running_and_how_much_is_left(self) -> None:
+        # Escondido mientras no pasa nada, y se pregunta más seguido mientras
+        # algo corre, porque la fase cambia.
+        self.assertIn("cron-activity", self.script)
+        self.assertIn("/api/live-audit-activity", self.script)
+        self.assertIn("activity.hidden = !state.active", self.script)
+        self.assertIn("Recuperación en cola", self.script)
+        self.assertIn("Auditando ${running.length} portafolios", self.script)
+        self.assertIn("ACTIVITY_LIVE_MS", self.script)
+        self.assertIn("ACTIVITY_QUIET_MS", self.script)
+
+    def test_the_bar_measures_the_whole_batch_not_only_the_current_use(self) -> None:
+        self.assertIn("(queue.done + current) / queue.total", self.script)
+        self.assertIn("${queue.done} de ${queue.total}", self.script)
+
+    def test_the_activity_chip_has_its_own_style(self) -> None:
+        static = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+        styles = (static / "live_audit_schedule.css").read_text(encoding="utf-8")
+        for selector in (".cron-activity", ".cron-activity-dot", ".cron-activity-bar"):
+            self.assertIn(selector, styles)
+        # Un punto que late es ruido para quien pidió menos movimiento.
+        self.assertIn("prefers-reduced-motion", styles)
+
     def test_the_dialog_promises_the_creation_floor_and_its_only_exception(self) -> None:
         self.assertIn("Nunca empieza antes", self.script)
         self.assertIn("día en que se creó el portafolio", self.script)

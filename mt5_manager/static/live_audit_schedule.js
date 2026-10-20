@@ -57,10 +57,26 @@
   open.textContent = 'Auditoría programada';
   open.title = 'Programar la auditoría de todos los portafolios marcados como activos';
 
+  // Una auditoría tarda horas y la cola sigue sola: sin esto la barra está
+  // igual de quieta cuando no pasa nada que cuando quedan cuatro por correr.
+  // Va escondido mientras no haya nada, para no gastar sitio en el silencio.
+  const activity = document.createElement('button');
+  activity.type = 'button';
+  activity.className = 'cron-activity';
+  activity.id = 'cron-activity';
+  activity.hidden = true;
+  activity.innerHTML = `
+    <span class="cron-activity-dot" aria-hidden="true"></span>
+    <span class="cron-activity-body">
+      <span class="cron-activity-text" id="cron-activity-text" aria-live="polite"></span>
+      <span class="cron-activity-bar"><i id="cron-activity-fill"></i></span>
+    </span>`;
+
   // «Reiniciar manager» se queda a la derecha del todo y la campana justo a su
   // izquierda; donde no hay reinicio, el último es el enlace de vuelta y la
   // campana va igualmente delante de él.
   const anchor = actions.querySelector('#restart-manager, a[href="/"]');
+  actions.insertBefore(activity, anchor || null);
   actions.insertBefore(open, anchor || null);
   actions.insertBefore(bell, anchor || null);
 
@@ -557,7 +573,76 @@
     ));
   }
 
+  // --- Qué hay corriendo ahora mismo --------------------------------------
+  // Mientras algo corre se pregunta seguido, porque la fase cambia; en
+  // silencio se espacia, porque cada vuelta son dos peticiones por agente y
+  // esto corre en todas las pantallas y en cada pestaña abierta. Tardar medio
+  // minuto en encenderse no molesta: lo que lo lanza desde aquí lo enciende a
+  // mano, sin esperar al pulso.
+  const ACTIVITY_LIVE_MS = 5000;
+  const ACTIVITY_QUIET_MS = 30000;
+
+  function activityQueue(state) {
+    const recovery = state.recovery || {};
+    return recovery.pending ? recovery : null;
+  }
+
+  function activityText(state) {
+    const running = state.running || [];
+    const queue = activityQueue(state);
+    const tail = queue ? ` · ${queue.done} de ${queue.total}` : '';
+    if (!running.length) return `Recuperación en cola${tail}`;
+    if (running.length > 1) return `Auditando ${running.length} portafolios${tail}`;
+    return `${running[0].label} · ${running[0].status_label} ${running[0].percent}%${tail}`;
+  }
+
+  function activityPercent(state) {
+    const running = state.running || [];
+    const queue = activityQueue(state);
+    // Con una tanda en marcha lo que falta es la tanda entera, no el uso que
+    // toca: el que corre sólo aporta su fracción al tramo que le toca.
+    const current = running.length === 1 ? running[0].percent / 100 : 0;
+    if (queue) return Math.min(100, Math.round((queue.done + current) / queue.total * 100));
+    return running.length === 1 ? running[0].percent : 0;
+  }
+
+  function activityTitle(state) {
+    const lines = (state.running || []).map(row =>
+      `${row.node_name}: ${row.label} — ${row.progress_text || row.status_label}`);
+    const queue = activityQueue(state);
+    if (queue) {
+      lines.push(`Recuperación hasta ${queue.target_date}: ${queue.done} de `
+        + `${queue.total} usos, ${queue.pending} por lanzar.`);
+    }
+    return lines.join('\n') || 'Sin auditorías en marcha.';
+  }
+
+  function applyActivity(state) {
+    activity.hidden = !state.active;
+    if (!state.active) return ACTIVITY_QUIET_MS;
+    field('#cron-activity-text').textContent = activityText(state);
+    field('#cron-activity-fill').style.width = `${activityPercent(state)}%`;
+    activity.title = activityTitle(state);
+    return ACTIVITY_LIVE_MS;
+  }
+
+  async function loadActivity() {
+    try {
+      return applyActivity(await jsonResponse(
+        await fetch('/api/live-audit-activity', {cache: 'no-store'}),
+      ));
+    } catch (_error) {
+      activity.hidden = true;
+      return ACTIVITY_QUIET_MS;
+    }
+  }
+
+  function pollActivity() {
+    loadActivity().then(delay => { setTimeout(pollActivity, delay); });
+  }
+
   // --- Oyentes ------------------------------------------------------------
+  activity.addEventListener('click', () => { open.click(); });
   open.addEventListener('click', async () => {
     try {
       await loadScheduler();
@@ -577,6 +662,7 @@
     try {
       const result = await post('/api/live-audit-scheduler-catch-up', {});
       await loadScheduler();
+      loadActivity().catch(() => {});
       notify(result.queued_count
         ? `Recuperación iniciada hasta ${result.target_date}: se revisarán ${result.queued_count} usos activos.`
         : 'No hay ningún uso activo y configurado que pueda recuperarse.');
@@ -659,6 +745,7 @@
   loadAuthority().catch(() => {});
   loadScheduler().catch(() => {});
   loadNotifications().catch(() => {});
+  pollActivity();
   // El mismo pulso que la portada: un aviso del sábado no puede tardar en
   // aparecer más que la tarjeta que lo explica.
   setInterval(() => { loadNotifications().catch(() => {}); }, 60000);

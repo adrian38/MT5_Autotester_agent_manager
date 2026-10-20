@@ -67,5 +67,14 @@
 .cron-dialog .cron-catch-up strong{display:block;font-size:13px}
 .cron-dialog .cron-catch-up small{display:block;margin-top:4px;color:var(--muted,#91a4b5);font-size:11px;line-height:1.45}
 .cron-dialog .cron-catch-up button{justify-self:start}
+.cron-activity{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid #397861;border-radius:8px;background:#0d211d;color:var(--text,#e6edf3);font:inherit;font-size:12px;cursor:pointer}
+.cron-activity:hover{border-color:#4ea88a}
+.cron-activity-dot{width:8px;height:8px;border-radius:50%;background:var(--ok,#3fb950);flex:none;animation:cron-activity-pulse 1.6s ease-in-out infinite}
+.cron-activity-body{display:grid;gap:4px;justify-items:start}
+.cron-activity-text{white-space:nowrap;font-weight:700}
+.cron-activity-bar{width:100%;min-width:120px;height:3px;border-radius:2px;background:#1d3a33;overflow:hidden}
+.cron-activity-bar i{display:block;height:100%;width:0;border-radius:2px;background:var(--ok,#3fb950);transition:width .4s ease}
+@keyframes cron-activity-pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@media(prefers-reduced-motion:reduce){.cron-activity-dot{animation:none}.cron-activity-bar i{transition:none}}
 .cron-dialog .cron-actions{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid var(--line,#27394b)}
 @media(max-width:600px){.cron-panel{width:100vw}}
