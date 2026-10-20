@@ -57,9 +57,24 @@
   open.textContent = 'Auditoría programada';
   open.title = 'Programar la auditoría de todos los portafolios marcados como activos';
 
+  // «Reiniciar manager» se queda a la derecha del todo y la campana justo a su
+  // izquierda; donde no hay reinicio, el último es el enlace de vuelta y la
+  // campana va igualmente delante de él.
   const anchor = actions.querySelector('#restart-manager, a[href="/"]');
   actions.insertBefore(open, anchor || null);
   actions.insertBefore(bell, anchor || null);
+
+  // «Actualizar», el primero de la barra en todas las pantallas. Se recoloca
+  // aquí en vez de confiar sólo en el orden del HTML porque cada pantalla le
+  // pone un id distinto al botón.
+  const refresh = actions.querySelector('#refresh, #reload, #portfolio-refresh, #universe-refresh');
+  if (refresh) {
+    actions.insertBefore(refresh, actions.firstElementChild);
+    // El rótulo de estado («Actualizando…») viaja con su botón: separarlos
+    // dejaría el texto solo en el extremo contrario de la barra.
+    const state = actions.querySelector('#refresh-state, #catalog-state');
+    if (state) actions.insertBefore(state, refresh);
+  }
 
   const panel = document.createElement('aside');
   panel.className = 'cron-panel';

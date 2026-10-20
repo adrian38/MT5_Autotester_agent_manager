@@ -15,6 +15,9 @@
       <p class="subtitle">Generaciones y estado de brokers en la red local</p>
     </div>
     <div class="header-actions">
+      <!-- «Actualizar» abre la barra en todas las pantallas; al otro extremo
+           van la campana y «Reiniciar manager», que cierra.
+           `live_audit_schedule.js` repone este orden aunque aquí se cambie. -->
       <span id="refresh-state">Actualizando…</span>
       <button id="refresh" class="secondary">Actualizar</button>
       <!-- La vuelta a la raíz, en el mismo sitio desde el que la raíz enlaza

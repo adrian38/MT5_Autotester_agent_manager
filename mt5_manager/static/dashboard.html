@@ -15,6 +15,9 @@
       <p class="subtitle">Profit y drawdown de la última auditoría frente al tester.</p>
     </div>
     <nav class="header-actions" aria-label="Navegación principal">
+      <!-- «Actualizar» abre la barra en todas las pantallas; al otro extremo
+           van la campana y «Reiniciar manager», que cierra.
+           `live_audit_schedule.js` repone este orden aunque aquí se cambie. -->
       <span id="refresh-state">Actualizando…</span>
       <button id="refresh" class="secondary" type="button">Actualizar</button>
       <a class="button generation-link" href="/generation.html">Generación</a>
