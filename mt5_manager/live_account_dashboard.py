@@ -146,12 +146,19 @@ def account_card(
                 monthly["drawdown"], expected["drawdown"], higher_is_better=False,
             ),
         },
+        # El tono y la diferencia son de **este** mes contra el anterior, no
+        # del mes anterior: pintarlos sobre su importe hacía leer un septiembre
+        # en verde como «septiembre fue bueno» cuando lo que decían era que
+        # octubre va mejor. La pantalla los enseña como nota, y así un color
+        # sigue significando una sola cosa: contra la media de ese mes.
         "previous_month": {
             **earlier_row, "label": earlier,
             "profit_tone": tone(monthly["profit"], earlier_row["profit"]),
+            "profit_delta": monthly["profit"] - earlier_row["profit"],
             "drawdown_tone": tone(
                 monthly["drawdown"], earlier_row["drawdown"], higher_is_better=False,
             ),
+            "drawdown_delta": monthly["drawdown"] - earlier_row["drawdown"],
         },
         "expected_month": {**expected, "profit_prorated": prorated},
         "expected_previous": _expected(archive, node_id, account["portfolios"], earlier),

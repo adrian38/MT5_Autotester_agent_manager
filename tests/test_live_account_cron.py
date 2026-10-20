@@ -403,9 +403,28 @@ class DashboardTests(unittest.TestCase):
         card = self.card()
         self.assertEqual(card["previous_month"]["label"], "2026-09")
         self.assertAlmostEqual(card["previous_month"]["profit"], 120.0)
-        # 60 este mes contra 120 el pasado: peor.
+        # 60 este mes contra 120 el pasado: peor, y la diferencia a la vista.
         self.assertEqual(card["previous_month"]["profit_tone"], "bad")
+        self.assertAlmostEqual(card["previous_month"]["profit_delta"], -60.0)
         self.assertAlmostEqual(card["expected_previous"]["profit"], 300.0)
+
+    def test_the_comparison_with_the_previous_month_is_about_this_one(self) -> None:
+        """El tono habla de **este** mes, no del anterior.
+
+        Pintado sobre el importe de septiembre, un verde se leia como
+        «septiembre fue bueno» cuando lo que decia era que octubre va mejor.
+        La pantalla lo enseña como nota; aqui se fija que el numero que lo
+        decide es la diferencia entre los dos meses.
+        """
+        card = self.card()
+        self.assertAlmostEqual(
+            card["previous_month"]["profit_delta"],
+            card["monthly"]["profit"] - card["previous_month"]["profit"],
+        )
+        self.assertAlmostEqual(
+            card["previous_month"]["drawdown_delta"],
+            card["monthly"]["drawdown"] - card["previous_month"]["drawdown"],
+        )
 
     def test_without_a_stored_mean_there_is_no_colour(self) -> None:
         self.server.live_accounts.write_expectation("axi", 105, {"months": {}})

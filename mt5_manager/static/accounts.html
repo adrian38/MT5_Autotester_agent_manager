@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cuentas en real · MT5 Manager</title>
+  <link rel="stylesheet" href="/accounts.css">
+  <link rel="stylesheet" href="/live_audit_schedule.css">
+  <!-- El manifiesto y el icono no son adorno: son lo que permite instalar el
+       manager en la pantalla de inicio, y en iOS eso es lo único que hace que
+       Safari acepte avisos. -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">OPERACIÓN REAL</p>
+      <h1>Cuentas en real</h1>
+      <p class="subtitle">Beneficio y drawdown de cada cuenta, contra la media de este mes en el backtest.</p>
+    </div>
+    <nav class="header-actions" aria-label="Navegación principal">
+      <!-- «Actualizar» abre la barra en todas las pantallas; al otro extremo
+           van la campana y el resto, que cierran.
+           `live_audit_schedule.js` repone este orden aunque aquí se cambie. -->
+      <span id="refresh-state">Actualizando…</span>
+      <button id="refresh" class="secondary" type="button">Actualizar</button>
+      <a class="button dashboard-link" href="/live_portfolios.html">Portafolios activos</a>
+      <a class="button generation-link" href="/generation.html">Generación</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="totals" class="totals" aria-live="polite">
+      <div class="total-card">
+        <span>Total hoy</span>
+        <strong id="total-daily">—</strong>
+        <small id="total-daily-note"></small>
+      </div>
+      <div class="total-card">
+        <span>Total del mes</span>
+        <strong id="total-monthly">—</strong>
+        <small id="total-monthly-note"></small>
+      </div>
+      <div class="total-card wide">
+        <span>Conversión</span>
+        <strong id="total-currency">—</strong>
+        <small id="total-rates"></small>
+      </div>
+    </section>
+    <section id="accounts" class="accounts" aria-live="polite">
+      <div class="empty-state">Leyendo las cuentas de los portafolios activos…</div>
+    </section>
+  </main>
+
+  <div id="toast" role="status"></div>
+  <script src="/accounts.js"></script>
+  <script src="/live_account_schedule.js"></script>
+  <script src="/web_push.js"></script>
+  <script src="/live_audit_schedule.js"></script>
+</body>
+</html>

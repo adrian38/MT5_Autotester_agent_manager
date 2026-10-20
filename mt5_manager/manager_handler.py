@@ -50,6 +50,9 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 # móvil no es razonable, así que `/api/pulse` proyecta solo estos campos.
 STATIC_FILES = {
     "app.js", "styles.css", "dashboard.js", "dashboard.css", "dashboard_metrics.js",
+    # La portada de cuentas reales, que es la raiz. `dashboard.html` sigue
+    # servido en `/live_portfolios.html`, con su enlace en la cabecera.
+    "accounts.js", "accounts.css",
     # El ojo de las contraseñas, en las dos pantallas que piden una cuenta de
     # terminal: la portada (sincronizar simbolos) y la de auditoria.
     "password_reveal.js",
@@ -57,6 +60,9 @@ STATIC_FILES = {
     # El boton superior «Auditoria programada» y su campana: los montan la
     # portada y Generacion, porque la cita es del manager entero.
     "live_audit_schedule.js", "live_audit_schedule.css",
+    # Y el del sondeo diario de cuentas, que se monta en las mismas
+    # cabeceras: lanzarlo no puede exigir pasar antes por la portada.
+    "live_account_schedule.js",
     # Los avisos del dispositivo. `sw.js` se sirve desde la raiz a proposito:
     # un service worker solo manda en su carpeta y en las de debajo, asi que
     # colgado de cualquier subruta no veria el resto del manager. El manifiesto
@@ -295,7 +301,13 @@ class ManagerHandler(BaseHTTPRequestHandler):
     def _get_static_routes(self, parsed: Any, parts: list[str]) -> bool:
         if parsed.path == "/ca.crt" and self._send_authority():
             return True
+        # La portada es la de cuentas reales desde que existe: es la primera
+        # pregunta («como va la cuenta hoy»), y la comparacion con el tester
+        # vive un clic mas alla, en «Portafolios activos».
         if parsed.path in {"/", "/index.html"}:
+            self._send_file(STATIC_DIR / "accounts.html")
+            return True
+        if parsed.path == "/live_portfolios.html":
             self._send_file(STATIC_DIR / "dashboard.html")
             return True
         if parsed.path == "/generation.html":

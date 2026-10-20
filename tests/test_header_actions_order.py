@@ -34,6 +34,17 @@ REFRESH_STATE = "#refresh-state, #catalog-state"
 CRON = "Auditoría programada"
 BELL = "🔔"
 
+ACCOUNT_CRON = "Sondeo de cuentas"
+ACCOUNT_NOW = "Sondear ahora"
+
+# Cada script que se monta solo, con lo que inserta antes del ancla. El orden
+# en que corren es el de sus etiquetas `<script>`, así que el que va primero
+# acaba más lejos del ancla: por eso se leen del HTML y no de esta lista.
+MOUNTS = {
+    "live_account_schedule.js": (ACCOUNT_CRON, ACCOUNT_NOW),
+    "live_audit_schedule.js": (CRON, BELL),
+}
+
 
 VOID_TAGS = frozenset({"br", "hr", "img", "input", "link", "meta", "source"})
 
@@ -95,13 +106,24 @@ def _first(children: list[dict[str, str]], selector: str) -> dict[str, str] | No
     return next((child for child in children if _match(child, selector)), None)
 
 
+def _mount_order(source: str) -> list[str]:
+    """Los scripts que esta página monta, en el orden en que corren."""
+    found = [(source.index(f"/{name}"), name) for name in MOUNTS if f"/{name}" in source]
+    return [name for _position, name in sorted(found)]
+
+
 def rendered_order(page: str) -> list[str]:
-    """La fila tal y como queda después de que el script la recoloque."""
+    """La fila tal y como queda después de que los scripts la recoloquen."""
     children = header_actions(page)
-    anchor = _first(children, RESTART) or _first(children, BACK_LINK)
-    index = children.index(anchor) if anchor else len(children)
-    children[index:index] = [{"id": "open-cron", "href": "", "text": CRON},
-                             {"id": "cron-bell", "href": "", "text": BELL}]
+    source = (STATIC / page).read_text(encoding="utf-8")
+    for name in _mount_order(source):
+        anchor = _first(children, RESTART) or _first(children, BACK_LINK)
+        index = children.index(anchor) if anchor else len(children)
+        children[index:index] = [
+            {"id": "", "href": "", "text": label} for label in MOUNTS[name]
+        ]
+    if "live_audit_schedule.js" not in source:
+        return [child["text"] or child["id"] for child in children]
     refresh = _first(children, REFRESH)
     if refresh is not None:
         children.remove(refresh)
@@ -115,13 +137,21 @@ def rendered_order(page: str) -> list[str]:
 
 class HeaderActionsOrderTests(unittest.TestCase):
     EXPECTED = {
+        # Las tres pantallas que montan los dos crones. El de cuentas se carga
+        # antes, así que queda por fuera y la campana sigue pegada a la salida.
+        "accounts.html": [
+            "Actualizando…", "Actualizar", "Portafolios activos", "Generación",
+            ACCOUNT_CRON, ACCOUNT_NOW, CRON, BELL,
+        ],
         "dashboard.html": [
-            "Actualizando…", "Actualizar", "Generación", "Experimenta",
-            "Correlación", CRON, BELL, "Reiniciar manager",
+            "Actualizando…", "Actualizar", "Cuentas en real", "Generación",
+            "Experimenta", "Correlación", ACCOUNT_CRON, ACCOUNT_NOW, CRON, BELL,
+            "Reiniciar manager",
         ],
         "index.html": [
-            "Actualizando…", "Actualizar", "Portafolios activos", "Experimenta",
-            "Correlación", CRON, BELL, "Reiniciar manager",
+            "Actualizando…", "Actualizar", "Cuentas en real", "Portafolios activos",
+            "Experimenta", "Correlación", ACCOUNT_CRON, ACCOUNT_NOW, CRON, BELL,
+            "Reiniciar manager",
         ],
         "live_audit.html": ["⚙ Cuenta final", CRON, BELL, "Volver al manager"],
         "portfolios.html": ["Actualizar", CRON, BELL, "Volver al manager"],
@@ -143,17 +173,43 @@ class HeaderActionsOrderTests(unittest.TestCase):
 
     def test_the_last_one_is_the_restart_or_the_way_back(self) -> None:
         # La regla en una frase: la campana va pegada a la salida de la
-        # pantalla, sea «Reiniciar manager» o el enlace de vuelta.
+        # pantalla, sea «Reiniciar manager» o el enlace de vuelta. La portada
+        # de cuentas no tiene salida —es la raíz—, y entonces cierra ella.
         for page, expected in self.EXPECTED.items():
             with self.subTest(page=page):
-                self.assertIn(expected[-1], {"Reiniciar manager", "Volver al manager"})
-                self.assertEqual(expected[-2], BELL)
-                self.assertEqual(expected[-3], CRON)
+                tail = expected[-2:] if expected[-1] == BELL else expected[-3:-1]
+                self.assertEqual(tail, [CRON, BELL])
+                if expected[-1] != BELL:
+                    self.assertIn(expected[-1], {"Reiniciar manager", "Volver al manager"})
 
     def test_updating_is_always_the_first_pair(self) -> None:
         for page, expected in self.EXPECTED.items():
             with self.subTest(page=page):
                 self.assertIn(expected[0], {"Actualizando…", "Actualizar", "⚙ Cuenta final"})
+
+    def test_the_account_cron_mounts_with_the_same_anchor(self) -> None:
+        """El segundo script tiene que anclar igual que el primero.
+
+        Si no, los dos pares de botones aterrizan en sitios distintos según la
+        pantalla, que es exactamente el fallo que esta guarda existe para no
+        repetir.
+        """
+        script = (STATIC / "live_account_schedule.js").read_text(encoding="utf-8")
+        for expression in (
+            f"actions.querySelector('{RESTART}')",
+            f"actions.querySelector('{BACK_LINK}')",
+            "actions.insertBefore(open, anchor || null)",
+            "actions.insertBefore(launch, anchor || null)",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, script)
+        # Y en ese orden, que es el que decide cual queda a la izquierda. Sin
+        # esto el modelo de arriba mediria un orden que el script no hace.
+        self.assertLess(
+            script.index("actions.insertBefore(open, anchor || null)"),
+            script.index("actions.insertBefore(launch, anchor || null)"),
+        )
+        self.assertEqual(MOUNTS["live_account_schedule.js"], (ACCOUNT_CRON, ACCOUNT_NOW))
 
     def test_the_ported_rule_is_the_one_the_script_runs(self) -> None:
         script = (STATIC / "live_audit_schedule.js").read_text(encoding="utf-8")

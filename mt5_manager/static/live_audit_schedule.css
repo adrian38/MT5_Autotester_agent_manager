@@ -82,3 +82,13 @@
 @media(prefers-reduced-motion:reduce){.cron-activity-dot{animation:none}.cron-activity-bar i{transition:none}}
 .cron-dialog .cron-actions{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid var(--line,#27394b)}
 @media(max-width:600px){.cron-panel{width:100vw}}
+
+/* El sondeo de cuentas reutiliza este dialogo: sus dos bloques propios son los dias de la semana y la tabla de cambios. */
+.account-cron-link{border-color:#315f87;color:#b8dcff}
+.cron-weekdays,.cron-rates{margin:0;padding:13px;border:1px solid var(--line,#27394b);border-radius:11px}
+.cron-weekdays legend,.cron-rates legend{padding:0 7px;color:var(--accent2,#63e6be);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+.cron-weekdays{display:flex;gap:14px;flex-wrap:wrap}
+.cron-dialog .cron-day{display:flex;align-items:center;gap:7px;color:var(--text,#edf5f7);font-size:13px}
+.cron-dialog .cron-day input{width:16px;height:16px}
+.cron-dialog .cron-rates div{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:9px}
+.cron-rates small{color:var(--muted,#91a4b5);font-size:11px;line-height:1.5}
