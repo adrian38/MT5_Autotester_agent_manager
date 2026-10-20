@@ -25,7 +25,7 @@ from . import live_account_ingest, live_account_inventory, live_account_schedule
 from . import manager_http
 from .common import utc_now
 from .live_account_ingest import SNAPSHOT_KEY
-from .live_audit_core import RUNNING_STATUSES
+from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
 
 _NODE_UNAVAILABLE_CONFIRMATION_POLLS = 3
 """Lo mismo que en el cron de auditoría: un timeout no es una desconexión."""
@@ -252,7 +252,7 @@ def tick(server: Any, now: datetime | None = None) -> None:
         if collected is not None:
             announce_collected(server, node, node_id, collected)
         live_account_ingest.refresh_expectations(server, node, node_id, accounts, moment)
-        if str(state.get("status") or "") in RUNNING_STATUSES:
+        if str(state.get("status") or "") in RUNNING_SNAPSHOT_STATUSES:
             continue
         if not server.live_account_scheduler_enabled or server.live_account_stop.is_set():
             continue

@@ -51,9 +51,28 @@ class FakeInfo:
         self.equity = 1012.5
 
 
+class FakeTerminal:
+    connected = True
+
+
 class FakeMt5:
-    def __init__(self) -> None:
+    """Lo justo que el sondeo le pide a MT5: quién es y si está conectado.
+
+    La comprobación de la cuenta la hace el propio módulo del sondeo, que no
+    la toma del auditor: así el fichero se porta idéntico a los agentes, donde
+    esa función no siempre existe suelta. Por eso el doble la tiene que pasar.
+    """
+
+    def __init__(self, login: str = "0", server: str = "") -> None:
+        self.login = login
+        self.server = server
         self.shutdowns = 0
+
+    def account_info(self) -> FakeInfo:
+        return FakeInfo(self.login, self.server)
+
+    def terminal_info(self) -> FakeTerminal:
+        return FakeTerminal()
 
     def shutdown(self) -> None:
         self.shutdowns += 1
@@ -129,7 +148,10 @@ class SnapshotRunTests(unittest.TestCase):
             str(remember_for), "Terminal.1",
             {"name": "MT5_1", "mt5_path": r"C:\MT5\terminal64.exe"},
         )
-        return FakeMt5(), "Terminal.1", {"name": "MT5_1", "mt5_path": r"C:\MT5\terminal64.exe"}, set()
+        return (
+            FakeMt5(login, server), "Terminal.1",
+            {"name": "MT5_1", "mt5_path": r"C:\MT5\terminal64.exe"}, set(),
+        )
 
     def _export(self, *, mt5, request, profile_name, terminal_path, login, server,
                 period_start, period_end, destination):
@@ -147,11 +169,7 @@ class SnapshotRunTests(unittest.TestCase):
         self.restored.append(dict(request))
         return [{"terminal": "MT5_1", "restored": True, "error": None}]
 
-    def _confirm(self, mt5, request):
-        return FakeInfo(request["source_login"], request["source_server"]), request["source_server"]
-
     def _wait(self) -> dict:
-        self.controller._confirmed_real_account = self._confirm
         last: dict = {}
 
         def finished() -> bool:
@@ -167,7 +185,6 @@ class SnapshotRunTests(unittest.TestCase):
         return last
 
     def test_it_reads_every_account_and_restores_and_resumes(self) -> None:
-        self.controller._confirmed_real_account = self._confirm
         self.controller.start_account_snapshot(payload())
         state = self._wait()
         self.assertEqual(state["status"], "completed")
@@ -177,7 +194,6 @@ class SnapshotRunTests(unittest.TestCase):
         self.assertEqual(self.restored[0]["restore_login"], "333")
 
     def test_each_account_publishes_its_report_and_its_balance(self) -> None:
-        self.controller._confirmed_real_account = self._confirm
         self.controller.start_account_snapshot(payload())
         state = self._wait()
         row = state["accounts"]["111@Axi-US50-Live"]
@@ -188,7 +204,6 @@ class SnapshotRunTests(unittest.TestCase):
 
     def test_a_failing_account_does_not_take_the_batch_down(self) -> None:
         self.failing = {"111"}
-        self.controller._confirmed_real_account = self._confirm
         self.controller.start_account_snapshot(payload())
         state = self._wait()
         self.assertEqual(state["status"], "completed")
@@ -198,7 +213,6 @@ class SnapshotRunTests(unittest.TestCase):
         self.assertEqual(self.owner.resume_calls, 1)
 
     def test_the_terminals_come_back_even_when_the_whole_batch_fails(self) -> None:
-        self.controller._confirmed_real_account = self._confirm
         self.controller._login_terminal = lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("ninguna terminal aceptó el login"),
         )
@@ -209,7 +223,6 @@ class SnapshotRunTests(unittest.TestCase):
         self.assertEqual(self.owner.resume_calls, 1)
 
     def test_the_published_state_never_carries_a_password(self) -> None:
-        self.controller._confirmed_real_account = self._confirm
         self.controller.start_account_snapshot(payload())
         state = self._wait()
         self.assertNotIn("real-secret", repr(state))
@@ -223,7 +236,6 @@ class SnapshotRunTests(unittest.TestCase):
         owner = FakeOwner("idle")
         controller = LiveAuditController(owner, Path(self.folder.name) / "idle")
         controller._login_terminal = self._login
-        controller._confirmed_real_account = self._confirm
         controller._synchronised_history = lambda *_args: ([], {})
         controller._export_native_account_report = self._export
         controller._close_terminal_pids = lambda *_args: None

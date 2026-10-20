@@ -28,7 +28,7 @@ from typing import Any
 
 from . import live_account_expectation, live_account_report, manager_http
 from .common import utc_now
-from .live_audit_core import RUNNING_STATUSES
+from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
 from .portfolio_identity import _resolve_source_path
 from .portfolio_report_cache import cached_report
 from .portfolio_service import PortfolioSource
@@ -108,7 +108,7 @@ def collect(
     status = str(state.get("status") or "")
     runs = server.live_account_runs
     key = runs.key(node_id, SNAPSHOT_KEY)
-    if not snapshot_id or status in RUNNING_STATUSES or status == "idle":
+    if not snapshot_id or status in RUNNING_SNAPSHOT_STATUSES or status == "idle":
         return None
     if str(runs.record(key).get("ingested") or "") == snapshot_id:
         return None

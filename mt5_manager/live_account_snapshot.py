@@ -35,7 +35,17 @@ from pathlib import Path
 from typing import Any
 
 from .common import load_json, save_json, utc_now
-from .live_audit_core import RUNNING_STATUSES
+
+RUNNING_SNAPSHOT_STATUSES = frozenset({
+    "queued", "pausing", "extracting", "finalizing", "resuming",
+})
+"""Los estados en que el sondeo tiene cogidas las terminales.
+
+Son suyos y no los de la auditoria, aunque coincidan en los nombres: son dos
+maquinas de estados distintas y compartir la constante las ataria sin motivo.
+Ademas es lo que deja este modulo **sin un solo import del auditor**, y por eso
+puede portarse identico a los cuatro agentes.
+"""
 
 MAXIMUM_ACCOUNTS = 24
 """Cuentas por tanda. Hoy son nueve; el tope es para que un payload raro no
@@ -147,6 +157,30 @@ def public_state(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _confirmed_account(mt5: Any, account: dict[str, str]) -> tuple[Any, str]:
+    """Que MT5 esta de verdad en esa cuenta y conectado al broker.
+
+    Escrito aqui y no tomado del auditor porque no todas las copias lo tienen
+    como funcion suelta: la del manager si, la de ICTrading lo hace dentro de
+    su extraccion. Son ocho lineas, y copiarlas mantiene este fichero portable.
+    """
+    info = mt5.account_info()
+    if info is None or int(info.login) != int(account["login"]):
+        raise RuntimeError("MT5 no confirmó el login de la cuenta real")
+    actual_server = str(getattr(info, "server", "") or "")
+    if actual_server.casefold() != str(account["server"]).casefold():
+        raise RuntimeError(
+            f"MT5 confirmó el login, pero en el servidor {actual_server!r} y no "
+            f"{account['server']!r}"
+        )
+    terminal = mt5.terminal_info()
+    if terminal is None or not bool(getattr(terminal, "connected", False)):
+        raise RuntimeError(
+            "MT5 confirmó el login local, pero el terminal no está conectado al broker"
+        )
+    return info, actual_server
+
+
 class _AccountSnapshotMixin:
     """Mezclado en `LiveAuditController`: comparte terminales y candado."""
 
@@ -162,7 +196,7 @@ class _AccountSnapshotMixin:
             stored = load_json(path)
         except ValueError:
             return {"status": "idle", "accounts": {}}
-        if str(stored.get("status") or "") in RUNNING_STATUSES:
+        if str(stored.get("status") or "") in RUNNING_SNAPSHOT_STATUSES:
             stored.update(
                 status="failed", finished_at=utc_now(),
                 error="Sondeo interrumpido al reiniciar el agente",
@@ -283,7 +317,7 @@ class _AccountSnapshotMixin:
             remember_for=snapshot_id,
         )
         try:
-            info, actual_server = self._confirmed_real_account(mt5, single)
+            info, actual_server = _confirmed_account(mt5, account)
             self._synchronised_history(mt5, start, end)
             destination = self._snapshot_reports_dir(snapshot_id) / report_filename(
                 account["account_key"]

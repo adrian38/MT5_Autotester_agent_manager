@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .live_audit_core import *  # noqa: F403
-from .live_account_snapshot import _AccountSnapshotMixin
+from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES, _AccountSnapshotMixin
 from .live_audit_comparison import _ComparisonMixin
 from .live_audit_extraction import _ExtractionMixin
 from .live_audit_lifecycle import _LifecycleMixin
@@ -73,7 +73,7 @@ class LiveAuditController(
         with self.lock:
             return (
                 any(str(item.get("status")) in RUNNING_STATUSES for item in self.states.values())
-                or str(self.account_snapshot.get("status") or "") in RUNNING_STATUSES
+                or str(self.account_snapshot.get("status") or "") in RUNNING_SNAPSHOT_STATUSES
             )
 
     def all_states(self) -> dict[str, Any]:
