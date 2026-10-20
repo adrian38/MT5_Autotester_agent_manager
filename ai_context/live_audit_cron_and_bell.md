@@ -514,3 +514,17 @@ código posterior ya dejó de borrarla, pero las marcas vacías quedaron en el
 JSON. `LiveAuditRunState` las migra desde la ventana exacta conservada y guarda
 el resultado; así la barra vuelve a poder reconstruir aquella tanda tras
 reiniciar el manager.
+
+## Un intento fallido no es una auditoría histórica (2026-10-20)
+
+Los nodos conservan el `last_payload` de la última ejecución completa cuando un
+intento nuevo falla antes de producir materia prima. El vigilante tomaba el
+`audit_id` del intento fallido y lo combinaba con ese payload anterior: en el
+histórico aparecía una ejecución nueva con periodo, hora y reportes manuales de
+la anterior. Ocurrió en los primeros intentos de AXI #105, #109 y #67.
+
+Los estados `failed`, `stopped` e `idle` ya no entran en el archivo de
+comparaciones. Su error y sus reintentos siguen en la campana y en el estado del
+cron, que son sus diarios correctos. `LiveAuditArchive.index` omite también las
+filas antiguas con esos estados, por lo que el recuento y la serie dejan de
+enseñar las tres entradas contaminadas sin borrar los JSON originales.

@@ -23,6 +23,7 @@ from typing import Any
 
 from . import live_audit_analysis, live_audit_autolot, live_audit_manual_inherit, manager_http
 from .common import safe_int
+from .live_audit_archive import NON_ARCHIVABLE_STATUSES
 
 BALANCE_ERRORS = (KeyError, ValueError, OSError, urllib.error.URLError, TimeoutError)
 """Lo que puede fallar al bajar el informe nativo. No impide analizar: queda
@@ -199,7 +200,10 @@ def archive_execution(
     """
     archive = getattr(server, "live_audit_archive", None)
     execution_id = _execution_id(audit)
-    if archive is None or not execution_id:
+    if (
+        archive is None or not execution_id
+        or str(audit.get("status") or "") in NON_ARCHIVABLE_STATUSES
+    ):
         return
     if archive.knows(node_id, audit_key, execution_id, manual_evidence(audit)):
         return

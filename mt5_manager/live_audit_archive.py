@@ -24,6 +24,9 @@ from .common import load_json, save_json
 MAXIMUM_EXECUTIONS = 400
 """Ejecuciones conservadas por nodo. A una por semana y uso son anos."""
 
+NON_ARCHIVABLE_STATUSES = frozenset({"failed", "stopped", "idle"})
+"""Finales sin una comparación propia que pueda entrar en la serie."""
+
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -78,7 +81,11 @@ class LiveAuditArchive:
             stored = load_json(path)
         except ValueError:
             return []
-        return [row for row in (stored.get("executions") or []) if isinstance(row, dict)]
+        return [
+            row for row in (stored.get("executions") or [])
+            if isinstance(row, dict)
+            and str(row.get("status") or "") not in NON_ARCHIVABLE_STATUSES
+        ]
 
     def knows(
         self, node_id: str, audit_key: str, execution_id: str, evidence: str = "",
@@ -189,4 +196,7 @@ def trimmed_detail(detail: dict[str, Any], rows: int = 4000) -> dict[str, Any]:
     }
 
 
-__all__ = ["LiveAuditArchive", "MAXIMUM_EXECUTIONS", "strategies_of", "trimmed_detail"]
+__all__ = [
+    "LiveAuditArchive", "MAXIMUM_EXECUTIONS", "NON_ARCHIVABLE_STATUSES",
+    "strategies_of", "trimmed_detail",
+]

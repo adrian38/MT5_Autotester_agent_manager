@@ -17,6 +17,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mt5_manager import live_audit_executions, live_audit_history, live_audit_watch
+from mt5_manager.common import save_json
 from mt5_manager.live_audit_archive import LiveAuditArchive, strategies_of, trimmed_detail
 from tests.test_live_audit_autolot import SET_STEM, STRATEGY, audit_payload, audit_profile
 from tests.live_audit_cron_base import FakeServer as CronServer, audit_state
@@ -68,6 +69,20 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(len(stored["operation_comparisons"]), 1)
         # Un identificador con barras no puede salirse de su carpeta.
         self.assertEqual(len(list((Path(self.temporary.name) / "history").iterdir())), 1)
+
+    def test_failed_legacy_rows_are_not_part_of_the_comparison_series(self) -> None:
+        path = self.archive._index_path("n")
+        path.parent.mkdir(parents=True)
+        save_json(path, {"executions": [
+            {**meta("11", "failed-attempt", 11, "2026-10-01", "2026-10-11"),
+             "status": "failed", "file": "stale.json"},
+            {**meta("11", "completed-attempt", 11, "2026-10-11", "2026-10-17"),
+             "status": "completed", "file": "current.json"},
+        ]})
+        self.assertEqual(
+            [row["execution_id"] for row in self.archive.index("n")],
+            ["completed-attempt"],
+        )
 
     def test_rewriting_the_same_execution_does_not_duplicate_the_index(self) -> None:
         for _attempt in range(3):
@@ -210,6 +225,15 @@ class MutableExecutionArchiveTests(unittest.TestCase):
         stored = self.archive.detail("n", entries[0])
         first = stored["operation_comparisons"][0]
         self.assertEqual(first["tester"]["profit"], 9.0)
+
+    def test_a_failed_attempt_cannot_archive_the_previous_success_payload(self) -> None:
+        failed = self._audit(1.0)
+        failed["status"] = "failed"
+        failed["audit_id"] = "new-failed-attempt"
+        live_audit_executions.archive_execution(
+            self.server, {}, "n", "11", failed, audit_profile(portfolio_id=11),
+        )
+        self.assertEqual(self.archive.index("n"), [])
 
 
 class AccumulationTests(unittest.TestCase):
