@@ -284,6 +284,97 @@ class ChainedPeriodTests(unittest.TestCase):
         ), {})
 
 
+class CreationFloorTests(unittest.TestCase):
+    """Un portafolio no se audita antes del día en que se creó.
+
+    La petición del usuario (2026-10-20). Antes de existir no tiene
+    operaciones reales, así que esa parte de la ventana enfrenta al tester con
+    una cuenta vacía: la diferencia que sale no significa nada. El único
+    permiso para bajar del suelo es el linaje de una mejora o un arreglo, que
+    rescata el histórico de las estrategias que conserva.
+    """
+
+    def setUp(self) -> None:
+        self.now = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
+        self.settings = {"chain_from_last_audit": True}
+        self.born = live_audit_schedule.parse_timestamp("2026-09-09T00:07:00+00:00")
+
+    def test_the_creation_date_travels_with_the_lineage(self) -> None:
+        server = FakeServer(FakePortfolios({
+            "created_at": "2026-09-09T00:07:00", "members": [member("C:1", "uno.set")],
+        }))
+        inherited, created = live_audit_lineage.audit_period_bounds(
+            server, "n", {"portfolio_id": 73, "portfolio_type": "balanced"},
+        )
+        self.assertIsNone(inherited)
+        self.assertEqual(created, self.born)
+
+    def test_its_own_previous_period_cannot_start_before_the_portfolio(self) -> None:
+        # El caso del #73 de AXI: creado el 9 de septiembre y auditado desde
+        # el 31 de agosto, así que encadenar desde ese final seguiría atrasado.
+        period = live_audit_schedule.chained_period(
+            self.settings, published_audit(period_end="2026-09-05T23:59:59+00:00"),
+            self.now, None, self.born,
+        )
+        self.assertEqual(period["period_start_date"], "2026-09-09")
+
+    def test_an_improvement_may_still_reach_behind_its_own_creation(self) -> None:
+        # El permiso explícito: lo que se rescata es el histórico de las
+        # estrategias que el padre ya auditó, no operaciones inventadas.
+        period = live_audit_schedule.chained_period(
+            self.settings, {}, self.now,
+            live_audit_schedule.parse_timestamp("2026-09-03T23:59:59+00:00"), self.born,
+        )
+        self.assertEqual(period["period_start_date"], "2026-09-03")
+
+    def test_a_rolling_window_is_raised_to_the_creation_day(self) -> None:
+        period = live_audit_schedule.creation_period(
+            {"period_mode": "rolling_days", "period_days": 90}, self.born, self.now,
+        )
+        self.assertEqual(
+            (period["period_mode"], period["period_start_date"], period["period_end_date"]),
+            ("fixed_dates", "2026-09-09", "2026-10-20"),
+        )
+
+    def test_a_window_that_already_starts_later_is_left_alone(self) -> None:
+        self.assertEqual(live_audit_schedule.creation_period(
+            {"period_mode": "rolling_days", "period_days": 7}, self.born, self.now,
+        ), {})
+        self.assertEqual(live_audit_schedule.creation_period(
+            {
+                "period_mode": "fixed_dates", "period_start_date": "2026-09-10",
+                "period_end_date": "2026-10-01",
+            }, self.born, self.now,
+        ), {})
+
+    def test_a_calendar_window_keeps_its_own_end(self) -> None:
+        period = live_audit_schedule.creation_period(
+            {
+                "period_mode": "fixed_dates", "period_start_date": "2026-08-31",
+                "period_end_date": "2026-10-01",
+            }, self.born, self.now,
+        )
+        self.assertEqual(period["period_start_date"], "2026-09-09")
+        self.assertEqual(period["period_end_date"], "2026-10-01")
+
+    def test_without_a_creation_date_nothing_is_raised(self) -> None:
+        # Un agente que no publica `created_at` no puede quedarse sin auditar:
+        # manda el periodo del perfil, como antes de que existiera el suelo.
+        self.assertEqual(live_audit_schedule.creation_period(
+            {"period_mode": "rolling_days", "period_days": 90}, None, self.now,
+        ), {})
+
+    def test_a_window_entirely_previous_to_the_creation_stays_as_configured(self) -> None:
+        # Levantar el arranque lo dejaría después del final. Es una elección
+        # explícita del uso, y el cron no la reescribe: sólo sube el suelo.
+        self.assertEqual(live_audit_schedule.creation_period(
+            {
+                "period_mode": "fixed_dates", "period_start_date": "2026-08-01",
+                "period_end_date": "2026-09-01",
+            }, self.born, self.now,
+        ), {})
+
+
 class _SavedPortfolio:
     """La memoria del agente contestando por el portafolio de un uso."""
 

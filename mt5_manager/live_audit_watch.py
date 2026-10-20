@@ -280,7 +280,7 @@ def record_transitions(
 def _launch_payload(
     server: Any, node_id: str, audit_id: str, profile: dict[str, Any],
     audit: dict[str, Any], now: datetime, period: dict[str, str] | None = None,
-) -> tuple[dict[str, Any], dict[str, str]]:
+) -> tuple[dict[str, Any], dict[str, str], dict[str, str]]:
     """Lo que viaja al nodo y, aparte, el periodo que de verdad se encadeno.
 
     El periodo encadenado se devuelve suelto porque **el perfil tambien puede
@@ -291,29 +291,58 @@ def _launch_payload(
     Lo que se queda aqui -Excel de atribucion, parejas a mano, estrategias ya
     revisadas y escalado de la vista- no se pierde: vive en el perfil del uso y
     se aplica al leer el resultado, asi que la ejecucion nueva lo hereda.
+
+    El tercer valor es el suelo de creacion, que solo entra cuando no hay nada
+    a lo que engancharse; se devuelve suelto por lo mismo que el encadenado,
+    para que el aviso de la campana diga de donde sale la fecha de arranque.
     """
     node_profile = {
         key: value for key, value in profile.items()
         if key not in live_audit_schedule.MANAGER_ONLY_PROFILE_KEYS
     }
-    inherited_end = live_audit_lineage.inherited_period_end(server, node_id, profile)
+    inherited_end, created_at = live_audit_lineage.audit_period_bounds(
+        server, node_id, profile,
+    )
     chained = period or live_audit_schedule.chained_period(
-        server.live_audit_scheduler_settings, audit, now, inherited_end,
+        server.live_audit_scheduler_settings, audit, now, inherited_end, created_at,
+    )
+    floored = {} if chained else live_audit_schedule.creation_period(
+        profile, created_at, now,
     )
     return {
         **node_profile,
         **chained,
+        **floored,
         **server.live_audit_settings.credentials(node_id, audit_id),
         **server.live_audit_settings.restore_credentials(node_id),
         "audit_key": audit_id,
         "portfolio_id": safe_int(profile.get("portfolio_id"), 0, minimum=1),
-    }, chained
+    }, chained, floored
 
 
 def _attempt_text(attempts: int, settings: dict[str, Any]) -> str:
     if attempts <= 1:
         return "intento 1"
     return f"reintento {attempts - 1} de {int(settings.get('retry_attempts', 3))}"
+
+
+def _period_text(chained: dict[str, str], floored: dict[str, str]) -> str:
+    """De donde sale la fecha de arranque, dicho en la campana.
+
+    Las tres respuestas son distintas y al usuario le importan: engancharse a
+    la auditoria anterior, arrancar el dia que nacio el portafolio porque no
+    habia nada a lo que engancharse, o usar el periodo que el escribio.
+    """
+    for period, origin in (
+        (chained, "enganchado al final de la última auditoría"),
+        (floored, "desde que se creó el portafolio"),
+    ):
+        if period:
+            return (
+                f"periodo {period['period_start_date']} a "
+                f"{period['period_end_date']}, {origin}"
+            )
+    return "periodo configurado en el uso"
 
 
 def launch(
@@ -333,7 +362,7 @@ def launch(
         "window": context["window"], "attempts": attempts,
         "last_attempt_at": utc_now(),
     }
-    payload, chained = _launch_payload(
+    payload, chained, floored = _launch_payload(
         server, node_id, audit_id, profile, context["audit"], context["now"],
         context.get("period"),
     )
@@ -365,11 +394,7 @@ def launch(
         )
         return
     runs.update(key, **base, outcome="running", last_status="queued")
-    period = (
-        f"periodo {chained['period_start_date']} a {chained['period_end_date']}, "
-        "enganchado al final de la última auditoría"
-        if chained else "periodo configurado en el uso"
-    )
+    period = _period_text(chained, floored)
     title = "Recuperación lanzada" if context.get("catch_up") else "Auditoría programada lanzada"
     server.live_audit_notifications.add(
         "info", f"{title}: {label}",

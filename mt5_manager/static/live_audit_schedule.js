@@ -181,8 +181,10 @@
         <section class="cron-catch-up">
           <div><strong>Recuperar periodos pendientes</strong>
             <small>Revisa los portafolios activos y encadena cada auditoría desde donde
-            terminó la anterior hasta el último corte ya vencido. Se ejecutan de
-            uno en uno por agente y la cola continúa aunque cierres esta ventana.</small></div>
+            terminó la anterior hasta el último corte ya vencido. Nunca empieza antes
+            del día en que se creó el portafolio: sólo una mejora o un arreglo rescata
+            el histórico de las estrategias que conserva. Se ejecutan de uno en uno por
+            agente y la cola continúa aunque cierres esta ventana.</small></div>
           <button type="button" class="secondary" id="cron-catch-up">Lanzar recuperación ahora</button>
         </section>
       </div>

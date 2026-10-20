@@ -80,6 +80,34 @@ class CatchUpTests(unittest.TestCase):
         self.assertEqual(payload["period_end_date"], "2026-10-17")
         self.assertIn("Recuperación lanzada", server.events()[0]["title"])
 
+    def test_a_portfolio_born_after_the_cutoff_has_no_gap_to_recover(self) -> None:
+        # No se puede auditar un portafolio antes de que exista: el corte es
+        # el 17 y éste nació el 18, así que no hay nada que recuperar.
+        server = FakeServer(self.root, audit_state(), BornOn("2026-10-18T09:00:00"))
+        result = live_audit_watch.request_catch_up(server, self.now)
+        self.assertEqual(result["queued_count"], 0)
+        record = server.live_audit_runs.record(LiveAuditRunState.key("n", "11"))
+        self.assertEqual(record.get("catch_up_until", ""), "")
+
+    def test_without_history_the_recovery_starts_the_day_it_was_created(self) -> None:
+        # El perfil pide los últimos 7 días -el 10 de octubre-, pero el
+        # portafolio es del 14: antes no tiene operaciones reales con las que
+        # comparar al tester. Es lo que pasó con el #109 de AXI.
+        server = FakeServer(self.root, audit_state(), BornOn("2026-10-14T18:00:00"))
+        live_audit_watch.request_catch_up(server, self.now)
+        posted: list[object] = []
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=live_audit_watch_test_answers({"11": {"status": "idle"}}, posted),
+        ):
+            live_audit_watch.tick(server)
+        self.assertEqual(len(posted), 1)
+        _path, payload = posted[0]
+        self.assertEqual(payload["period_mode"], "fixed_dates")
+        self.assertEqual(payload["period_start_date"], "2026-10-14")
+        self.assertEqual(payload["period_end_date"], "2026-10-17")
+        self.assertIn("desde que se creó el portafolio", server.events()[0]["message"])
+
     def test_a_completed_recovery_is_removed_from_the_queue(self) -> None:
         server = FakeServer(self.root, audit_state())
         live_audit_watch.request_catch_up(server, self.now)
@@ -91,6 +119,16 @@ class CatchUpTests(unittest.TestCase):
             live_audit_watch.tick(server)
         record = server.live_audit_runs.record(LiveAuditRunState.key("n", "11"))
         self.assertEqual((record["catch_up_until"], record["catch_up_status"]), ("", "success"))
+
+
+class BornOn:
+    """La memoria del agente contestando cuándo nació el portafolio."""
+
+    def __init__(self, created_at: str) -> None:
+        self.created_at = created_at
+
+    def saved(self, _node_id: str, _scope: str, _portfolio_id: int) -> dict[str, object]:
+        return {"portfolio": {"created_at": self.created_at}}
 
 
 def live_audit_watch_test_answers(audits: dict[str, object],

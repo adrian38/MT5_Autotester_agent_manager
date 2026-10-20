@@ -33,6 +33,8 @@ def request(server: Any, audit_ids: AuditIds, _created_at: CreatedAt,
         profiles = state.get("profiles") or {}
         for audit_id in audit_ids(state, forced):
             profile = dict(profiles.get(audit_id) or {})
+            if _born_after(server, node_id, profile, cutoff):
+                continue
             server.live_audit_runs.update(
                 server.live_audit_runs.key(node_id, audit_id),
                 catch_up_until=target, catch_up_status="pending",
@@ -48,9 +50,18 @@ def request(server: Any, audit_ids: AuditIds, _created_at: CreatedAt,
 
 def _period(server: Any, node_id: str, profile: dict[str, Any],
             audit: dict[str, Any], target: datetime) -> dict[str, str]:
-    inherited = live_audit_lineage.inherited_period_end(server, node_id, profile)
+    inherited, created = live_audit_lineage.audit_period_bounds(server, node_id, profile)
     forced = {**server.live_audit_scheduler_settings, "chain_from_last_audit": True}
-    return live_audit_schedule.chained_period(forced, audit, target, inherited)
+    return live_audit_schedule.chained_period(forced, audit, target, inherited, created)
+
+
+def _born_after(server: Any, node_id: str, profile: dict[str, Any],
+                target: datetime) -> bool:
+    """Si el portafolio nacio despues del corte no hay hueco que recuperar."""
+    _inherited, created = live_audit_lineage.audit_period_bounds(server, node_id, profile)
+    return created is not None and (
+        created.astimezone(timezone.utc).date() > target.date()
+    )
 
 
 def _already_covered(audit: dict[str, Any], target: datetime) -> bool:
@@ -77,9 +88,10 @@ def launch_pending(server: Any, node: dict[str, Any], node_id: str,
         if _already_covered(audit, target):
             runs.update(key, catch_up_until="", catch_up_status="success")
             continue
-        created = created_at(audit_id)
-        if live_audit_schedule.previous_period_end(audit) is None and (
-            created is not None and created > target
+        created, profile = created_at(audit_id), dict(profiles.get(audit_id) or {})
+        if _born_after(server, node_id, profile, target) or (
+            live_audit_schedule.previous_period_end(audit) is None
+            and created is not None and created > target
         ):
             runs.update(key, catch_up_until="", catch_up_status="not_applicable")
             continue
@@ -96,7 +108,6 @@ def launch_pending(server: Any, node: dict[str, Any], node_id: str,
             continue
         if not decision:
             return True
-        profile = dict(profiles.get(audit_id) or {})
         launch(server, node, node_id, audit_id, profile, {
             "window": window, "audit": audit, "now": target,
             "attempts": int(record.get("attempts") or 0) + 1 if decision == "retry" else 1,

@@ -21,6 +21,7 @@ class AuditLineage:
     portfolio_id: int
     ancestors: tuple[int, ...]
     strategies: tuple[str, ...]
+    created_at: datetime | None = None
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -105,11 +106,14 @@ def audit_lineage(server: Any, node_id: str, profile: dict[str, Any]) -> AuditLi
         return empty
     ancestors = tuple(value for value in ancestor_portfolio_ids(detail) if value != portfolio_id)
     strategies = member_strategies(detail, str(profile.get("portfolio_type") or ""))
-    return AuditLineage(portfolio_id, ancestors, strategies)
+    return AuditLineage(
+        portfolio_id, ancestors, strategies, parse_timestamp(detail.get("created_at")),
+    )
 
 
 def inherited_period_end(
     server: Any, node_id: str, profile: dict[str, Any],
+    context: AuditLineage | None = None,
 ) -> datetime | None:
     """El corte mas antiguo que los padres dejaron pendiente.
 
@@ -119,7 +123,7 @@ def inherited_period_end(
     su historico empieza con el uso, y mientras alguna hermana herede, la
     ventana ya las cubre. Sin nada que heredar manda el periodo configurado.
     """
-    context = audit_lineage(server, node_id, profile)
+    context = context or audit_lineage(server, node_id, profile)
     archive = getattr(server, "live_audit_archive", None)
     if archive is None or not context.ancestors or not context.strategies:
         return None
@@ -138,6 +142,21 @@ def inherited_period_end(
     return min(ends) if ends else None
 
 
+def audit_period_bounds(
+    server: Any, node_id: str, profile: dict[str, Any],
+) -> tuple[datetime | None, datetime | None]:
+    """El corte heredado y el dia en que nacio el portafolio, de una lectura.
+
+    Los dos acotan por abajo la ventana que se le pide al nodo, y tiran en
+    sentidos opuestos: la creacion es el suelo -antes de existir el portafolio
+    no tiene operaciones reales con las que comparar al tester- y la herencia
+    es el unico permiso para bajar de el, porque una mejora o un arreglo si
+    puede rescatar el historico de las estrategias que conserva del padre.
+    """
+    context = audit_lineage(server, node_id, profile)
+    return inherited_period_end(server, node_id, profile, context), context.created_at
+
+
 def ancestors_of(server: Any, node_id: str, audit_key: str) -> tuple[int, ...]:
     """Padres portables del portafolio que audita ese uso, o vacio."""
     return audit_lineage(server, node_id, audit_profile(server, node_id, audit_key)).ancestors
@@ -145,5 +164,6 @@ def ancestors_of(server: Any, node_id: str, audit_key: str) -> tuple[int, ...]:
 
 __all__ = [
     "AuditLineage", "ancestor_portfolio_ids", "ancestors_of", "audit_lineage",
-    "audit_profile", "inherited_period_end", "member_strategies",
+    "audit_period_bounds", "audit_profile", "inherited_period_end",
+    "member_strategies",
 ]

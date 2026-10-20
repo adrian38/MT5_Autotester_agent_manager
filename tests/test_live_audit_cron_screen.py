@@ -64,6 +64,11 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("/api/live-audit-scheduler-catch-up", self.script)
         self.assertIn("de una en una por agente", self.script)
 
+    def test_the_dialog_promises_the_creation_floor_and_its_only_exception(self) -> None:
+        self.assertIn("Nunca empieza antes", self.script)
+        self.assertIn("día en que se creó el portafolio", self.script)
+        self.assertIn("sólo una mejora o un arreglo rescata", self.script)
+
     def test_the_desktop_notices_are_asked_once_and_can_be_turned_on_later(self) -> None:
         # El navegador descarta la petición de permiso que no sale de un gesto
         # del usuario, así que se pregunta con un botón, una sola vez, y el de

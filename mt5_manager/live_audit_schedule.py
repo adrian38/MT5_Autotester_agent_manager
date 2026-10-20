@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .common import safe_int
+
 DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS = {
     "enabled": False,
     "mode": "weekly",
@@ -273,7 +275,7 @@ def previous_period_end(audit: dict[str, Any]) -> datetime | None:
 
 def chained_period(
     settings: dict[str, Any], audit: dict[str, Any], now: datetime,
-    inherited_end: datetime | None = None,
+    inherited_end: datetime | None = None, created_at: datetime | None = None,
 ) -> dict[str, str]:
     """El periodo de la proxima auditoria, enganchado al final de la anterior.
 
@@ -283,12 +285,21 @@ def chained_period(
     auditoria anterior se ejecuto a media noche de ese dia y lo que cerro
     despues no estaba todavia en el historial del terminal.
 
+    `created_at` levanta el arranque propio hasta el dia en que el portafolio
+    se creo. `inherited_end` **no** se toca: rescatar el historico de las
+    estrategias que una mejora o un arreglo conserva del padre es justo el
+    permiso para empezar antes de que esta copia existiera.
+
     Devuelve un diccionario vacio cuando no hay auditoria previa: entonces
-    manda el periodo que el usuario configuro en el perfil del uso.
+    manda el periodo que el usuario configuro en el perfil del uso, ya pasado
+    por `creation_period`.
     """
     if not settings.get("chain_from_last_audit", True):
         return {}
-    previous_end = previous_period_end(audit) or inherited_end
+    own_end = previous_period_end(audit)
+    if own_end is not None and created_at is not None and created_at > own_end:
+        own_end = created_at
+    previous_end = own_end or inherited_end
     if previous_end is None:
         return {}
     # En UTC las dos, porque el nodo convierte estas fechas en dias completos
@@ -300,6 +311,49 @@ def chained_period(
     return {
         "period_mode": "fixed_dates",
         "period_start_date": start_date.isoformat(),
+        "period_end_date": end_date.isoformat(),
+    }
+
+
+def _configured_start(profile: dict[str, Any], now: datetime) -> datetime | None:
+    """Donde arranca el periodo que el usuario dejo escrito en el uso."""
+    if str(profile.get("period_mode") or "rolling_days") == "fixed_dates":
+        return parse_timestamp(profile.get("period_start_date"))
+    return now - timedelta(days=safe_int(profile.get("period_days"), 0, minimum=0))
+
+
+def creation_period(
+    profile: dict[str, Any], created_at: datetime | None, now: datetime,
+) -> dict[str, str]:
+    """El periodo del perfil, levantado hasta el dia en que nacio el portafolio.
+
+    Sin auditoria propia ni historico heredado manda el periodo configurado en
+    el uso, y nada impedia que arrancase antes de que el portafolio existiera:
+    el #109 de AXI, creado el 15 de octubre de 2026, se audito desde el 5, y el
+    #73 y el #172 hicieron lo mismo. Esa parte de la ventana enfrenta el tester
+    a una cuenta sin operaciones, asi que la diferencia que sale no significa
+    nada. Lo anterior a la creacion solo se rescata por linaje, y ese camino no
+    pasa por aqui.
+
+    Devuelve vacio cuando no hay nada que levantar y entonces manda el perfil
+    tal cual, incluida la ventana que termina antes de la creacion: esa es una
+    eleccion explicita del uso, no algo que el cron componga.
+    """
+    if created_at is None:
+        return {}
+    floor = created_at.astimezone(timezone.utc).date()
+    configured = _configured_start(profile, now)
+    if configured is not None and configured.astimezone(timezone.utc).date() >= floor:
+        return {}
+    end = parse_timestamp(profile.get("period_end_date")) if str(
+        profile.get("period_mode") or "rolling_days"
+    ) == "fixed_dates" else None
+    end_date = (end or now).astimezone(timezone.utc).date()
+    if floor > end_date:
+        return {}
+    return {
+        "period_mode": "fixed_dates",
+        "period_start_date": floor.isoformat(),
         "period_end_date": end_date.isoformat(),
     }
 

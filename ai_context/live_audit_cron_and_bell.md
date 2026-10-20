@@ -389,3 +389,40 @@ retroactivamente una cita que el estado ya considera terminada. El diálogo
 - Repetir el clic reinicia los intentos de esa recuperación. Los fallos usan la
   misma cantidad de reintentos y espera que el cron; al cubrir el corte se vacía
   la marca persistida y la programación normal vuelve a mandar.
+
+## El suelo es la creación del portafolio (2026-10-20)
+
+Nada se audita antes del día en que el portafolio se creó. Antes de existir no
+tiene operaciones reales, así que esa parte de la ventana enfrenta al tester con
+una cuenta vacía y **la diferencia que sale no significa nada**. No era una
+hipótesis: el 20 de octubre de 2026, tres de las doce carteras auditadas lo
+habían hecho ya.
+
+| Cartera | Creada | Primer periodo auditado |
+| --- | --- | --- |
+| #73 `A/M/C Base Moderado` (AXI) | 2026-09-09 | desde 2026-08-31 |
+| #109 `Christmas_Axi` (AXI) | 2026-10-15 | desde 2026-10-05 |
+| #172 `Scalper_C_Robo` (Robo) | 2026-10-14 | desde 2026-10-05 |
+
+Las tres son carteras **sin padre**, y ésa es la pista: el daño no estaba en el
+encadenado sino en lo que pasa cuando no hay nada a lo que engancharse. Sin
+auditoría propia y sin herencia mandaba el periodo fijo del perfil, y nadie
+comprobaba que cupiera en la vida del portafolio. Las mejoradas y arregladas
+(#105, #108, #148, #170) no aparecen en la lista.
+
+- **La única excepción es el linaje**, y es deliberada: una mejora o un arreglo
+  sí rescata el histórico de las estrategias que conserva del padre, que es
+  justo lo que calcula `inherited_period_end`. Por eso `chained_period` levanta
+  el final **propio** hasta la creación y **no toca** el heredado.
+- Sin auditoría previa ni herencia, el suelo se aplica sobre el periodo del
+  perfil en `creation_period`: sube el arranque y conserva el final. Un
+  `rolling_days` se convierte en `fixed_dates` al hacerlo.
+- La fecha sale de `created_at` del portafolio guardado, en la **misma** lectura
+  que ya hacía el linaje: `audit_period_bounds` devuelve las dos cosas. No se
+  guarda con zona, así que se interpreta UTC como todo lo demás; sólo importaría
+  en una cartera creada a medianoche.
+- Hueco que queda: una ventana del perfil que **termina** antes de la creación
+  se deja como está, porque levantarla la dejaría del revés. Es una elección
+  explícita del uso, y bloquearla es decisión de alcance, no de periodo.
+- La recuperación descarta el uso cuyo portafolio nació después del corte, y lo
+  marca `not_applicable`: no hay hueco que recuperar.

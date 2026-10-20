@@ -48,8 +48,10 @@ class FakeSettingsStore:
 
 
 class FakeServer:
-    def __init__(self, root: Path, state: dict[str, object], **changes: object) -> None:
+    def __init__(self, root: Path, state: dict[str, object],
+                 portfolios: object = None, **changes: object) -> None:
         self.nodes = [{"id": "n", "name": "Nodo N", "url": "http://127.0.0.1:1", "token": "t"}]
+        self.portfolios = portfolios
         self.live_audit_settings = FakeSettingsStore(state)
         self.live_audit_scheduler_settings = settings(**changes)
         self.live_audit_scheduler_enabled = bool(changes.get("enabled"))
