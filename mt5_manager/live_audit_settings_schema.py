@@ -6,6 +6,7 @@ from typing import Any
 
 from .live_audit_attribution import empty_attribution, normalize_attribution
 from .live_audit_autolot import empty_autolot, normalize_autolot
+from .live_audit_lot_schedule import empty_lot_schedule, normalize_lot_schedule
 from .live_audit_manual_pairs import empty_manual_pairs, normalize_manual_pairs
 
 
@@ -13,6 +14,11 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     "portfolio_id": 0,
     "portfolio_type": "",
     "real_strategy_lots": {},
+    # Los lotes que el usuario subió a mano a mitad del periodo, cada uno con
+    # la fecha desde la que rige. No sustituyen a `real_strategy_lots`: lo
+    # continúan, para que lo ejecutado antes del cambio se siga midiendo con el
+    # lote de entonces y lo de después deje de salir como ajeno.
+    "real_lot_schedule": empty_lot_schedule(),
     # La reconciliación de lotes que las pantallas aplican al leer. No es
     # `real_strategy_lots`: aquello reanaliza y cambia el veredicto; esto sólo
     # reescala las curvas. Vive aquí, y no en el navegador, porque la portada y
@@ -313,6 +319,7 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
     normalized["autolot"] = normalize_autolot(value.get("autolot"))
     normalized["real_attribution"] = normalize_attribution(value.get("real_attribution"))
     normalized["manual_pairs"] = normalize_manual_pairs(value.get("manual_pairs"))
+    normalized["real_lot_schedule"] = normalize_lot_schedule(value.get("real_lot_schedule"))
     return normalized
 
 

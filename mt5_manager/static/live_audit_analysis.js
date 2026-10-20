@@ -491,8 +491,9 @@ function renderSimulationNotice() {
   const demoTrades = strategyRows.reduce((total, group) => total + group.demo.length, 0);
   const fromReal = changed.reduce((total, group) => total + scaledBySource(group, 'real'), 0);
   const estimated = changed.reduce((total, group) => total + scaledBySource(group, 'autolot'), 0);
+  const declared = changed.reduce((total, group) => total + scaledBySource(group, 'schedule'), 0);
   const detail = autolotMode()
-    ? `${recalculated} de ${demoTrades} operaciones demo escaladas en ${changed.length} estrategia${changed.length === 1 ? '' : 's'}: ${fromReal} al lote que ejecutó la cuenta real y ${estimated} al autolote por no tener pareja. El resto conserva su lote de backtest y la curva Real conserva lo ejecutado.`
+    ? `${recalculated} de ${demoTrades} operaciones demo escaladas en ${changed.length} estrategia${changed.length === 1 ? '' : 's'}: ${fromReal} al lote que ejecutó la cuenta real${estimated ? `, ${estimated} al autolote por no tener pareja` : ''}${declared ? `, ${declared} al lote que declaraste vigente en su fecha` : ''}. El resto conserva su lote de backtest y la curva Real conserva lo ejecutado.`
     : changed
       .map(group => `${group.symbol}: ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`)
       .join(' — ');
@@ -739,6 +740,32 @@ function storedAttribution() {
   return currentResult.analysis?.tolerances?.real_attribution || {};
 }
 
+// Los lotes que el usuario declaró vigentes desde una fecha. No son el lote de
+// la cuenta real que se teclea al configurar el uso —ése sigue siendo cosa de
+// la pantalla de configuración, y esta pantalla no lo toca—: éstos lo continúan
+// desde el día en que lo cambió a mano, de modo que lo ejecutado antes del
+// cambio se sigue midiendo con el lote de entonces.
+function storedLotSchedule() {
+  return currentResult.analysis?.tolerances?.real_lot_schedule || {};
+}
+
+function strategyLabel(strategy) {
+  const group = strategyRows.find(row => row.strategy === strategy);
+  return group ? group.label : strategy;
+}
+
+// A quién pertenece el lote nuevo. El Excel manda si ya se pronunció; si no,
+// se ofrecen las estrategias que operan ese símbolo. Cuando son varias no se
+// adivina: la banda de pertenencia va por símbolo justamente porque el magic
+// del terminal real no identifica al miembro.
+function scheduleCandidates(row) {
+  const named = attributionOf(row).strategy;
+  const byName = strategyRows.filter(group => group.strategy === named);
+  if (byName.length) return byName;
+  const symbol = String(row.real.symbol || '').toLowerCase();
+  return strategyRows.filter(group => String(group.symbol || '').toLowerCase() === symbol);
+}
+
 // Cada regla recuerda de qué fichero salió, así que se puede retirar un Excel
 // equivocado sin perder los demás. Lo guardado antes de que existiera ese campo
 // no tiene fichero y se agrupa aparte, para que tampoco quede atrapado.
@@ -770,6 +797,23 @@ function renderAttributionSources() {
     + '<button type="button" class="secondary attribution-clear" data-clear-attribution>Quitar toda la atribución</button>';
 }
 
+// Declarar un lote con la fecha equivocada es el error fácil de este botón,
+// así que cada tramo se enseña con su ✕. Sin esta lista sería una calle de un
+// solo sentido, igual que lo era la atribución antes de recordar su fichero.
+function renderLotSchedule() {
+  const target = document.querySelector('#lot-schedule-sources');
+  const schedule = storedLotSchedule();
+  const chips = Object.entries(schedule).flatMap(([strategy, steps]) => (steps || []).map(
+    (step, index) => `<span class="attribution-source">${escapeHtml(strategyLabel(strategy))}
+      <small>${escapeHtml(number(step.lot, 4))} desde ${escapeHtml(dateTime(step.from))}</small>
+      <button type="button" data-remove-step="${escapeHtml(strategy)}" data-remove-index="${index}"
+        title="Quitar este tramo: la estrategia vuelve al lote anterior desde esa fecha">✕</button></span>`,
+  ));
+  target.hidden = !chips.length;
+  if (target.hidden) return;
+  target.innerHTML = `<span>Lotes declarados</span>${chips.join('')}`;
+}
+
 const unaccountedStates = {
   excluded: ['FUERA DEL PORTAFOLIO', 'info'],
   pending: ['PENDIENTE DE INVESTIGACIÓN', 'warn'],
@@ -779,8 +823,28 @@ function discardedHelp(row) {
   const band = row.portfolio_lot_band;
   const lote = `${number(row.real.volume, 4)} lotes`;
   return band
-    ? `El auditor la descartó antes de comparar: ${lote} queda fuera de lo que el portafolio opera en ${row.real.symbol} (${number(band[0], 4)} a ${number(band[1], 4)}). No está en la curva Real. Si es del portafolio, atribúyela en el Excel.`
-    : `El auditor la descartó antes de comparar porque su lote no es de los que opera el portafolio. No está en la curva Real. Si es del portafolio, atribúyela en el Excel.`;
+    ? `El auditor la descartó antes de comparar: ${lote} queda fuera de lo que el portafolio opera en ${row.real.symbol} (${number(band[0], 4)} a ${number(band[1], 4)}). No está en la curva Real. Si subiste el lote a mano, decláralo aquí; si es de otra estrategia, atribúyela en el Excel.`
+    : `El auditor la descartó antes de comparar porque su lote no es de los que opera el portafolio. No está en la curva Real. Si subiste el lote a mano, decláralo aquí; si es de otra estrategia, atribúyela en el Excel.`;
+}
+
+// El botón que convierte «la descartó el filtro» en «desde aquí opero esto».
+// La fecha no se teclea: es la apertura de esta misma operación, que es la
+// primera que llevó el lote nuevo. Teclearla a mano invita a equivocarse por
+// un día y a dejar fuera justo la operación que se quería recuperar.
+function scheduleControl(row) {
+  const lot = Number(row.real.volume);
+  const candidates = scheduleCandidates(row);
+  if (!(lot > 0) || !candidates.length) return '';
+  const picker = candidates.length > 1
+    ? `<select data-schedule-pick aria-label="Estrategia que pasa a operar ese lote">${candidates
+        .map(group => `<option value="${escapeHtml(group.strategy)}">${escapeHtml(group.label)}</option>`)
+        .join('')}</select>`
+    : `<input type="hidden" data-schedule-pick value="${escapeHtml(candidates[0].strategy)}">`;
+  const named = candidates.length === 1 ? ` en ${escapeHtml(candidates[0].label)}` : '';
+  return `<div class="lot-schedule-offer">${picker}<button type="button" class="secondary"
+    data-schedule-lot="${escapeHtml(number(lot, 8))}"
+    data-schedule-from="${escapeHtml(row.real.open_time)}"
+    >Desde aquí opero ${escapeHtml(number(lot, 4))}${named}</button></div>`;
 }
 
 function unaccountedRow(row, currency) {
@@ -797,7 +861,7 @@ function unaccountedRow(row, currency) {
     <td>${escapeHtml(dateTime(trade.open_time))}</td>
     <td>${escapeHtml(dateTime(trade.close_time))}</td>
     <td><strong>${escapeHtml(money(trade.profit, currency))}</strong></td>
-    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(help)}</small></td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(help)}</small>${discarded ? scheduleControl(row) : ''}</td>
   </tr>`;
 }
 
@@ -809,6 +873,7 @@ function renderUncomparedUnaccounted() {
   badge.textContent = 'SIN COMPARACIÓN';
   badge.className = 'badge pending';
   renderAttributionSources();
+  renderLotSchedule();
   document.querySelector('#unaccounted-note').textContent =
     'El cuadre necesita la comparación del manager. Mientras no exista, que esta '
     + 'lista esté vacía no significa que todas las reales estén explicadas.';
@@ -841,6 +906,7 @@ function renderUnaccounted() {
   // atribución se acumula y conserva lo dicho de ejecuciones anteriores.
   const stored = Object.keys(storedAttribution().rules || {}).length;
   renderAttributionSources();
+  renderLotSchedule();
   document.querySelector('#unaccounted-note').textContent = [
     stored
       ? `Hay ${stored} operacion${stored === 1 ? '' : 'es'} guardada${stored === 1 ? '' : 's'} en la atribución de este uso; cada Excel que subas se suma a lo anterior, no lo reemplaza.` : '',
@@ -1085,14 +1151,16 @@ function openLotsDialog() {
   const totalDemo = strategyRows.reduce((total, group) => total + group.demo.length, 0);
   const fromReal = strategyRows.reduce((total, group) => total + scaledBySource(group, 'real'), 0);
   const estimated = strategyRows.reduce((total, group) => total + scaledBySource(group, 'autolot'), 0);
+  const declared = strategyRows.reduce((total, group) => total + scaledBySource(group, 'schedule'), 0);
   const button = document.querySelector('#lots-autolot');
   button.disabled = !automatic;
   button.title = automatic
-    ? `Llevar ${automatic} de ${totalDemo} operaciones demo al lote de la cuenta real: ${fromReal} al que ejecutó y ${estimated} al que calcula el autolote.`
+    ? `Llevar ${automatic} de ${totalDemo} operaciones demo al lote de la cuenta real: ${fromReal} al que ejecutó, ${estimated} al que calcula el autolote y ${declared} al que declaraste vigente en su fecha.`
     : 'Este resultado no tiene lotes reales ni cálculos de autolote con los que escalar.';
   document.querySelector('#lots-caveat').textContent = [
     automatic ? `La cuenta real lleva la batuta: ${fromReal} de ${totalDemo} operaciones demo se escalan al lote que la cuenta ejecutó de verdad, no al teórico.` : '',
     estimated ? `Las ${estimated} que no tienen pareja en real usan el autolote —saldo de la cuenta real en su apertura— porque no hay lote ejecutado que copiar.` : '',
+    declared ? `Otras ${declared} sin pareja usan el lote que declaraste vigente en su fecha, por el mismo motivo.` : '',
     'El PnL se reescala en proporción al lote, así que da por supuesto que el mismo precio se habría llenado con cualquier tamaño: no modela deslizamiento, margen ni stop out.',
     extras ? `Las ${extras} reales sin pareja nunca se reescalan: esta simulación sólo toca la demo, y una real —atribuida o no— es lo que la cuenta ejecutó.` : '',
   ].filter(Boolean).join(' ');
@@ -1160,9 +1228,9 @@ function bytesToBase64(bytes) {
 // cosas van en una sola llamada —`.../attribution` devuelve el resultado ya
 // recalculado— para que no pueda quedarse guardado sin repintar ni repintado
 // sin guardar. Añadir y quitar hacen el mismo viaje.
-async function changeAttribution(change) {
+async function changeCriterion(criterion, change) {
   const state = await jsonResponse(await fetch(
-    `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/attribution`,
+    `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/${criterion}`,
     {method: 'POST', headers: {'Content-Type': 'application/json'},
      body: JSON.stringify(change)},
   ));
@@ -1174,6 +1242,17 @@ async function changeAttribution(change) {
   render(result);
   await loadDegradation();
   showAnalysisError('');
+}
+
+function changeAttribution(change) {
+  return changeCriterion('attribution', change);
+}
+
+// Guardar el tramo y repintar es el mismo viaje que la atribución, y por el
+// mismo motivo: el criterio vive en el manager y se aplica al leer, así que
+// guardado sin repintar o repintado sin guardar son dos medias verdades.
+function changeLotSchedule(schedule) {
+  return changeCriterion('real-lot-schedule', {real_lot_schedule: schedule});
 }
 
 async function uploadAttribution(file) {
@@ -1223,6 +1302,51 @@ document.querySelector('#attribution-sources').addEventListener('click', event =
   event.target.disabled = true;
   changeAttribution(change).catch(error => {
     event.target.disabled = false;
+    showAnalysisError(error.message);
+  });
+});
+
+// Delegado sobre el cuerpo de la tabla, que se repinta entero con cada
+// recálculo: oyentes colgados de cada botón se quedarían en el marcado viejo.
+document.querySelector('#unaccounted-body').addEventListener('click', event => {
+  const button = event.target.closest('[data-schedule-lot]');
+  if (!button) return;
+  const strategy = String(
+    button.parentElement.querySelector('[data-schedule-pick]')?.value || '',
+  );
+  const lot = Number(button.dataset.scheduleLot);
+  const from = button.dataset.scheduleFrom;
+  if (!strategy || !(lot > 0) || !from) return;
+  if (!window.confirm(
+    `Desde ${dateTime(from)}, ${strategyLabel(strategy)} pasa a operar ${number(lot, 4)} `
+    + 'en la cuenta real. Lo anterior a esa fecha se sigue midiendo con el lote de antes. '
+    + '¿Guardar y recalcular la auditoría?',
+  )) return;
+  const schedule = storedLotSchedule();
+  const next = {...schedule, [strategy]: [...(schedule[strategy] || []), {from, lot}]};
+  button.disabled = true;
+  changeLotSchedule(next).catch(error => {
+    button.disabled = false;
+    showAnalysisError(error.message);
+  });
+});
+
+document.querySelector('#lot-schedule-sources').addEventListener('click', event => {
+  const remove = event.target.closest('[data-remove-step]');
+  if (!remove) return;
+  const strategy = remove.dataset.removeStep;
+  const index = Number(remove.dataset.removeIndex);
+  if (!window.confirm(
+    'Se quitará ese tramo y la estrategia volverá al lote anterior desde esa fecha. ¿Seguir?',
+  )) return;
+  const schedule = storedLotSchedule();
+  const steps = (schedule[strategy] || []).filter((_step, position) => position !== index);
+  const next = {...schedule};
+  if (steps.length) next[strategy] = steps;
+  else delete next[strategy];
+  remove.disabled = true;
+  changeLotSchedule(next).catch(error => {
+    remove.disabled = false;
     showAnalysisError(error.message);
   });
 });

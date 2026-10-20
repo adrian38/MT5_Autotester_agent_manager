@@ -99,6 +99,9 @@ td.audit-analysis-empty { display: table-cell; min-height: 0; padding: 26px 16px
 .attribution-source button { padding: 2px 7px; border-radius: 999px; background: transparent; border: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.2; }
 .attribution-source button:hover { border-color: #9a3944; color: #ff9da5; }
 .attribution-sources .attribution-clear { margin-left: auto; }
+.lot-schedule-offer { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.lot-schedule-offer select { padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: #0b141e; color: inherit; font-size: 12px; }
+.lot-schedule-offer button { padding: 4px 10px; border-radius: 999px; font-size: 12px; }
 .audit-analysis-note { margin: 0 20px 14px; padding: 12px 14px; border: 1px solid #8f681f; border-radius: 10px; background: #1c180e; color: #ffd978; font-size: 12px; }
 .audit-analysis-note-text { margin: 0; padding: 14px 20px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.6; }
 @media (max-width: 560px) {

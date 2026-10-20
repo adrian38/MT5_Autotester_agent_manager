@@ -21,13 +21,19 @@
     return overrides?.$mode === 'autolot';
   }
 
+  // Lo que se puede copiar cuando la operación no tiene real que copiar. Los
+  // dos lotes dependen del instante de la apertura —el autolote por el saldo,
+  // el tramo por la fecha desde la que rige—, así que un único número tecleado
+  // en el diálogo no puede sustituirlos sin mezclar dos escalas en una curva.
+  const EXPECTED_SOURCES = {autolot: 'autolot', real_lot_schedule: 'schedule'};
+
   function scaleTarget(row) {
     const executed = Number((row?.real || row?.real_position_still_open || {}).volume);
     if (Number.isFinite(executed) && executed > 0) return {volume: executed, source: 'real'};
-    const expected = row?.limits?.volume_expected_source === 'autolot'
-      ? Number(row.limits.volume_expected_real) : null;
+    const source = EXPECTED_SOURCES[row?.limits?.volume_expected_source];
+    const expected = source ? Number(row.limits.volume_expected_real) : null;
     return Number.isFinite(expected) && expected > 0
-      ? {volume: expected, source: 'autolot'} : {volume: null, source: 'none'};
+      ? {volume: expected, source} : {volume: null, source: 'none'};
   }
 
   function scaledProfit(trade, lot) {

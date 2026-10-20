@@ -17,6 +17,8 @@ from xml.etree import ElementTree
 
 from portfolio_manager.mt5_report import parse_report
 
+from .live_audit_lot_schedule import scheduled_lot
+
 
 MAX_WORKBOOK_BYTES = 700_000
 MAX_WORKBOOK_UNCOMPRESSED_BYTES = 8_000_000
@@ -320,15 +322,25 @@ def expected_volume(
             "source": "autolot", "balance": balance, "dd_001": float(rule["dd_001"]),
             "risk_pct": float(rule["risk_pct"]), "raw_lot": raw_lot,
         }
-    configured = (request.get("real_strategy_lots") or {}).get(strategy)
+    # Un tramo declarado a mano manda sobre el lote único configurado, pero
+    # sólo desde su fecha: antes del cambio la cuenta operaba el de siempre y
+    # darle el nuevo marcaría como desviado lo que ejecutó bien.
+    scheduled = scheduled_lot(request.get("real_lot_schedule"), strategy, moment)
+    configured = scheduled if scheduled is not None else (
+        request.get("real_strategy_lots") or {}
+    ).get(strategy)
     try:
         expected_volume = float(configured) if configured is not None else tester_volume
     except (TypeError, ValueError):
         expected_volume = tester_volume
+    if configured is None:
+        source = "tester_lot"
+    else:
+        source = "real_lot_schedule" if scheduled is not None else "configured_real_lot"
     return {
         "expected": expected_volume if expected_volume > 0 else tester_volume,
         "tester": tester_volume,
-        "source": "configured_real_lot" if configured is not None else "tester_lot",
+        "source": source,
     }
 
 

@@ -59,6 +59,7 @@ MANAGER_STACK = [
     "manager_config",
     "manager_http",
     "manager_pulse",
+    "manager_live_audit_reports",
     "manager_live_audit_routes",
     "manager_portfolio_routes",
     "manager_schedule_routes",

@@ -31,6 +31,7 @@ from .live_audit_engine import (
     LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
     _trade_view, _within_lot_bands,
 )
+from .live_audit_lot_schedule import normalize_lot_schedule, scheduled_lots
 from .live_audit_manual_pairs import (
     normalize_manual_pairs, real_pair_id, rescued_position_ids,
 )
@@ -44,6 +45,10 @@ REANALYSABLE_TOLERANCES = (
     "drawdown_deviation_warning_pct",
     "min_tick_history_quality_pct",
     "real_strategy_lots",
+    # El lote que el usuario subió a mano a mitad del periodo, con la fecha
+    # desde la que rige. No sustituye a `real_strategy_lots`: lo continúa, para
+    # que las operaciones anteriores al cambio sigan midiéndose con el suyo.
+    "real_lot_schedule",
     "autolot",
     "real_attribution",
     # Las parejas que decidió el usuario. Es criterio, no hecho observado: se
@@ -126,6 +131,7 @@ def portfolio_lot_bands(
     volume_rules: dict[str, tuple[float, float]],
     symbols_by_strategy: dict[str, set[str]],
     real_strategy_lots: dict[str, float],
+    real_lot_schedule: dict[str, Any] | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Banda `símbolo → (lote mínimo, lote máximo)` de los cierres del portafolio.
 
@@ -152,6 +158,14 @@ def portfolio_lot_bands(
             str(member.get("symbol") or "").casefold()
         }
         entries.append((symbols, float(effective_lot), real_lot))
+        # La banda es un prefiltro del periodo entero y no sabe de qué instante
+        # es cada cierre, así que admite **todos** los lotes que la estrategia
+        # llegó a operar. Quién se desvía lo decide después la comparación, que
+        # sí mira la apertura y usa el tramo vigente en ella.
+        entries.extend(
+            (symbols, float(effective_lot), lot)
+            for lot in scheduled_lots(real_lot_schedule, strategy)
+        )
     return _lot_bands(entries)
 
 
@@ -280,6 +294,7 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
         request.get("real_attribution"), list(payload.get("selected_members") or []),
     )
     request["manual_pairs"] = normalize_manual_pairs(request.get("manual_pairs"))
+    request["real_lot_schedule"] = normalize_lot_schedule(request.get("real_lot_schedule"))
     return request
 
 
@@ -369,6 +384,7 @@ def _filter_portfolio_trades(
         _volume_rules(payload),
         _symbols_by_strategy(inputs["tester_trades"], inputs["strategy_artifacts"]),
         request.get("real_strategy_lots") or {},
+        request.get("real_lot_schedule") or {},
     )
     for symbol, dynamic in dynamic_lot_bands(inputs["tester_trades"], request).items():
         previous = bands.get(symbol)

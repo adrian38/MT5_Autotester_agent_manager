@@ -77,7 +77,7 @@
       </div>
     </section>
     <section class="panel-card audit-analysis-section">
-      <div class="panel-title"><div><p class="eyebrow">CUADRE</p><h2>Reales que no cuentan en ninguna estrategia</h2><p class="subtitle">Cierres de la cuenta real que ninguna operación del tester reclamó y que tampoco has atribuido. El auditor no puede decidir de quién son: el magic del terminal real no tiene por qué coincidir con el del <code>.set</code> y aquí ni se publica, y el símbolo sólo basta cuando un único miembro del portafolio lo opera. Sube el Excel con la columna de estrategia y cada una pasa a su sitio; las que marques como ajenas salen también de la curva Real. También salen aquí los cierres que el filtro de lote descartó antes de comparar: ese filtro es una conjetura sobre el tamaño de la posición, así que la última palabra es tuya.</p></div><span id="unaccounted-count" class="badge idle">—</span></div>
+      <div class="panel-title"><div><p class="eyebrow">CUADRE</p><h2>Reales que no cuentan en ninguna estrategia</h2><p class="subtitle">Cierres de la cuenta real que ninguna operación del tester reclamó y que tampoco has atribuido. El auditor no puede decidir de quién son: el magic del terminal real no tiene por qué coincidir con el del <code>.set</code> y aquí ni se publica, y el símbolo sólo basta cuando un único miembro del portafolio lo opera. Sube el Excel con la columna de estrategia y cada una pasa a su sitio; las que marques como ajenas salen también de la curva Real. También salen aquí los cierres que el filtro de lote descartó antes de comparar: ese filtro es una conjetura sobre el tamaño de la posición, así que la última palabra es tuya. Si descartó uno porque <strong>subiste el lote a mano</strong>, no hace falta el Excel ni cambiar la configuración: dile desde esa operación que la estrategia pasa a operar ese tamaño y el lote anterior se queda describiendo lo de antes.</p></div><span id="unaccounted-count" class="badge idle">—</span></div>
       <div class="audit-analysis-table-wrap">
         <table class="audit-analysis-table">
           <thead><tr><th>Operación</th><th>Apertura</th><th>Cierre</th><th>PnL</th><th>Estado</th></tr></thead>
@@ -85,6 +85,7 @@
         </table>
       </div>
       <div id="attribution-sources" class="attribution-sources" hidden></div>
+      <div id="lot-schedule-sources" class="attribution-sources" hidden></div>
       <p id="unaccounted-note" class="audit-analysis-note-text"></p>
     </section>
     <section class="panel-card audit-analysis-section">

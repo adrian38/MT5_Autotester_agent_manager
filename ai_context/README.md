@@ -120,6 +120,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   REAL» con su real descartada por la banda de lote, y por qué la pareja que
   decide el usuario se mide con las mismas tolerancias en vez de darse por
   buena.
+- `live_audit_manual_lot_change.md`: subir el lote de la cuenta real a mitad del
+  periodo sin borrar el anterior; por qué la banda admite todos los lotes
+  declarados y el veredicto sólo el vigente en la apertura.
 - `live_audit_cross_account_symbol_aliases.md`: cuentas real y tester del mismo
   broker con símbolos distintos (`BTCUSD`/`BTCUSD.sa`) y canonización basada en
   el miembro del portfolio, sin adivinar sufijos.

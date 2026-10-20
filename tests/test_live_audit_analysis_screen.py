@@ -42,9 +42,18 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
     def test_only_an_operation_without_a_real_pair_falls_back_to_the_autolot(self) -> None:
         # Sin pareja no hay lote ejecutado que copiar, y ahí sí entra el
         # calculo: dejarla con el lote fijo del backtest mezclaria dos escalas.
-        self.assertIn("row?.limits?.volume_expected_source === 'autolot'", self.reproduction_script)
+        # Y el lote que copia puede venir de dos sitios que dependen del
+        # instante de la apertura: el autolote y el tramo declarado a mano.
+        # Los dos, o la curva mezcla el lote de backtest con el de la cuenta.
+        self.assertIn(
+            "const EXPECTED_SOURCES = {autolot: 'autolot', real_lot_schedule: 'schedule'}",
+            self.reproduction_script,
+        )
+        self.assertIn(
+            "EXPECTED_SOURCES[row?.limits?.volume_expected_source]", self.reproduction_script,
+        )
         self.assertIn("row.limits.volume_expected_real", self.reproduction_script)
-        self.assertIn("{volume: expected, source: 'autolot'}", self.reproduction_script)
+        self.assertIn("{volume: expected, source}", self.reproduction_script)
         self.assertIn("porque no hay lote ejecutado que copiar", self.analysis_script)
         self.assertIn("function lotList(lots)", self.analysis_script)
         self.assertIn("function scaledBySource(group, source)", self.analysis_script)

@@ -326,17 +326,24 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         apply_lots = apply_lots.split("\n}", 1)[0]
         self.assertIn("await writeOverrides(lotOverrides)", apply_lots)
         self.assertIn("lotOverrides = previous", apply_lots)
-        # Y esta pantalla sólo escribe en esos tres sitios: la atribución, el
-        # escalado de la vista y las estrategias que el usuario da por
-        # revisadas. Ninguno reanaliza la auditoría ni toca lo que el nodo
-        # midió; los tres cambian sólo lo que se enseña después.
+        # Y esta pantalla sólo escribe en estos sitios: los criterios que
+        # entran por `_SAVED_CRITERION` —la atribución y los tramos de lote,
+        # que sí reanalizan y por eso devuelven el resultado rehecho en el
+        # mismo viaje—, el escalado de la vista y las estrategias revisadas.
+        # Ninguno reenvía el perfil entero, que es lo que de verdad no puede
+        # pasar: borraría lo que esta pantalla no conoce.
         posts = re.findall(r"fetch\(\s*([^,]+),\s*\{\s*method: 'POST'", self.analysis_script)
         self.assertTrue(posts, "La pantalla ya no hace ningún POST: revisa esta guarda.")
         for url in posts:
             self.assertTrue(
-                "attribution" in url or url.strip() in {"viewLotsUrl", "reviewsUrl"},
+                "${criterion}" in url or "attribution" in url
+                or url.strip() in {"viewLotsUrl", "reviewsUrl"},
                 f"POST inesperado desde Análisis: {url}",
             )
+        # `changeCriterion` es la única puerta, así que la guarda vale aunque
+        # mañana se sume un criterio más: los que pasan por ella están listados.
+        criteria = set(re.findall(r"changeCriterion\('([a-z-]+)'", self.analysis_script))
+        self.assertEqual(criteria, {"attribution", "real-lot-schedule"})
         # Y dice lo que el modelo lineal no sabe.
         self.assertIn("no modela deslizamiento, margen ni stop out", self.analysis_script)
 

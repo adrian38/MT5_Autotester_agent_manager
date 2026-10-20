@@ -3,6 +3,7 @@ from __future__ import annotations
 from .live_audit_attribution import annotate_unmatched
 from .live_audit_core import *  # noqa: F403
 from .live_audit_manual_pairs import forced_assignment, note_manual_pairs
+from .live_audit_methodology import methodology
 
 
 class _ComparisonMixin:
@@ -496,8 +497,6 @@ class _ComparisonMixin:
         real_dd: float, tester_dd: float, dd_deviation: float,
     ) -> dict[str, Any]:
         time_limit = request["trade_time_tolerance_seconds"]
-        autolot = request.get("autolot") or {}
-        dynamic_lots = bool(autolot.get("enabled"))
         return {
             "matched_by_strategy": state["matched_by_strategy"],
             "within_tolerance_by_strategy": state["within_tolerance_by_strategy"],
@@ -509,33 +508,7 @@ class _ComparisonMixin:
             },
             "tester_data_issues": state["tester_data_issues"],
             "time_tolerance_seconds": time_limit,
-            "methodology": {
-                "alignment": "Mismo símbolo y lado; el reparto se decide sobre todas las parejas a la vez y cada real se usa una vez, sea un cierre o una posición todavía abierta. Manda la apertura dentro de tolerancia; a igualdad, el cierre dentro de tolerancia; a igualdad, la menor distancia total. Una real que sólo encaja por el cierre se acepta y se marca la apertura como desviación.",
-                "validation": (
-                    "En parejas cerradas se validan cierre, precio de apertura, volumen y PnL. Una posición real todavía abierta se considera alineada y valida solo apertura, precio y volumen: no se inventan cierre ni PnL. "
-                    + (
-                        "El volumen se compara contra el lote que el autolote calcula en la apertura de cada operación con el saldo de la cuenta real —saldo real × riesgo % × 0,01 ÷ DD_0.01, ajustado al mínimo y paso del broker— y el PnL del tester se escala por ese mismo ratio: dentro de una misma auditoría dos operaciones de la estrategia pueden esperar lotes distintos. El tester no tiene autolote: su lote es el fijo del backtest. Un cierre del tester sin pareja real lee ese mismo saldo real en la hora de su propia apertura."
-                        if dynamic_lots else
-                        "El volumen se compara contra el lote real configurado para la estrategia y el PnL del tester se escala por ese mismo ratio."
-                    )
-                    + " El drawdown se valida sobre el conjunto."
-                ),
-                "tolerances": {
-                    "time_seconds": time_limit, "price_points": request["price_tolerance_points"],
-                    "price_policy": "adaptive_by_instrument",
-                    "price_absolute_floors": ADAPTIVE_PRICE_TOLERANCE_FLOORS,
-                    "volume_pct": request["volume_tolerance_pct"],
-                    "volume_basis": "autolot_balance_risk" if dynamic_lots else "configured_real_lot",
-                    "autolot_source": str(autolot.get("source_name") or "") if dynamic_lots else "",
-                    "autolot_strategies": len(
-                        request.get("_autolot_rules_by_strategy") or autolot.get("rules") or {},
-                    ) if dynamic_lots else 0,
-                    "pnl_pct": request["pnl_deviation_warning_pct"],
-                    "pnl_policy": "adverse_shortfall_only",
-                    "pnl_basis": "tester_scaled_to_real_lot",
-                    "drawdown_pct": request["drawdown_deviation_warning_pct"],
-                },
-            },
+            "methodology": methodology(request),
             "strategy_summary": strategy_summary,
             "operation_comparisons": state["operation_comparisons"],
             "unmatched_real_operations": unmatched_operations,
