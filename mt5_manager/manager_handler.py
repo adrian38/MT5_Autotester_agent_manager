@@ -24,6 +24,7 @@ from . import dev_branch
 from . import experiment_routes
 from . import guided_batches
 from . import manager_http
+from . import manager_account_routes
 from . import manager_live_audit_routes
 from . import manager_portfolio_routes
 from . import manager_pulse
@@ -259,6 +260,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
         return (
             manager_push_routes.handle_get(self, parsed, parts)
             or manager_schedule_routes.handle_get(self, parsed, parts)
+            or manager_account_routes.handle_get(self, parsed, parts)
             or manager_live_audit_routes.handle_get(self, parsed, parts)
         )
 
@@ -266,6 +268,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
         return (
             manager_push_routes.handle_post(self, parsed, parts)
             or manager_schedule_routes.handle_post(self, parsed, parts)
+            or manager_account_routes.handle_post(self, parsed, parts)
             or manager_live_audit_routes.handle_post(self, parsed, parts)
         )
 

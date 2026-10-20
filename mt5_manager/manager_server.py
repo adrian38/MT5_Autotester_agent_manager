@@ -16,9 +16,12 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import live_account_schedule, live_account_watch
 from . import live_audit_schedule, live_audit_watch, manager_tls, web_push
 from .common import load_json, safe_int, save_json
 from .experiment_service import ExperimentCoordinator
+from .live_account_archive import LiveAccountArchive
+from .live_account_schedule import normalize_live_account_scheduler_settings
 from .live_audit_archive import LiveAuditArchive
 from .live_audit_manual_memory import ManualReportMemory
 from .live_audit_notifications import LiveAuditNotificationStore
@@ -150,6 +153,102 @@ class ManagerServer(ThreadingHTTPServer):
             self.live_audit_scheduler_settings = normalize_live_audit_scheduler_settings(
                 {}, defaults,
             )
+        self._configure_live_accounts(config, live_audit_settings_path)
+
+    def _configure_live_accounts(self, config: dict[str, Any], settings_path: Path) -> None:
+        """La serie de las cuentas reales y el cron diario que la alimenta.
+
+        Registro aparte del cron de auditoría a propósito: son dos cadencias
+        distintas —aquél es una cita semanal, éste de lunes a viernes— y
+        compartir el JSON haría que cambiar una moviera la otra. La campana sí
+        es la misma, que es lo que el usuario quiere mirar en un solo sitio.
+        """
+        self.live_accounts = LiveAccountArchive(settings_path.with_name("live_accounts"))
+        self.live_account_runs = LiveAuditRunState(
+            settings_path.with_name("live_account_schedule_state.json"),
+        )
+        account_file = str(config.get("live_account_scheduler_settings_file") or "").strip()
+        self.live_account_scheduler_path = (
+            Path(account_file).expanduser().resolve()
+            if account_file else settings_path.with_name("live_account_scheduler.json")
+        )
+        try:
+            self.live_account_scheduler_settings = (
+                normalize_live_account_scheduler_settings(
+                    load_json(self.live_account_scheduler_path)
+                    if self.live_account_scheduler_path.is_file() else {},
+                )
+            )
+        except ValueError as exc:
+            print(f"[live-account-scheduler] configuración ignorada: {exc}", flush=True)
+            self.live_account_scheduler_settings = (
+                normalize_live_account_scheduler_settings({})
+            )
+
+    def _start_live_account_scheduler(self) -> None:
+        # El mismo candado doble que el cron de auditoría: el hilo recoge
+        # siempre —el nodo guarda un solo sondeo y el siguiente lo sustituye—
+        # y sólo lanza con el interruptor puesto, porque un sondeo entra en las
+        # cuentas reales y pausa el pipeline del agente.
+        self.live_account_scheduler_enabled = bool(
+            self.live_account_scheduler_settings["enabled"]
+        )
+        self.live_account_stop = threading.Event()
+        self.live_account_wakeup = threading.Event()
+        print(
+            "[live-account-scheduler] " + (
+                f"activo: {live_account_schedule.schedule_label(self.live_account_scheduler_settings)}"
+                if self.live_account_scheduler_enabled
+                else "sin armar: sólo recoge lo que el agente ya sondeó."
+            ),
+            flush=True,
+        )
+        self.live_account_thread: threading.Thread | None = threading.Thread(
+            target=self._live_account_schedule_loop,
+            daemon=True,
+            name="live-account-scheduler",
+        )
+        self.live_account_thread.start()
+
+    def _live_account_schedule_loop(self) -> None:
+        if self.live_account_stop.wait(_LIVE_AUDIT_INTERNAL_STARTUP_DELAY_SECONDS):
+            return
+        while not self.live_account_stop.is_set():
+            try:
+                live_account_watch.tick(self)
+            except Exception as exc:
+                sys.stderr.write(f"[live-account-scheduler] {exc}\n")
+            self.live_account_wakeup.wait(_LIVE_AUDIT_INTERNAL_CHECK_INTERVAL_SECONDS)
+            self.live_account_wakeup.clear()
+
+    def live_account_scheduler_state(self) -> dict[str, Any]:
+        """Contrato público del cron de cuentas, con su alcance a la vista."""
+        settings = dict(self.live_account_scheduler_settings)
+        _zone, timezone_warning = live_account_schedule.resolve_zone(settings.get("timezone"))
+        now = datetime.now(timezone.utc)
+        return {
+            **settings,
+            "effective_enabled": bool(self.live_account_scheduler_enabled),
+            "schedule_label": live_account_schedule.schedule_label(settings),
+            "next_run_at": live_account_schedule.next_occurrence(now, settings).isoformat(),
+            "previous_run_at": live_account_schedule.previous_occurrence(
+                now, settings,
+            ).isoformat(),
+            "timezone_warning": timezone_warning,
+            "description": live_account_schedule.schedule_description(settings),
+            **live_account_watch.targets(self),
+        }
+
+    def update_live_account_scheduler(self, changes: dict[str, Any]) -> dict[str, Any]:
+        """Persiste y aplica el cron de cuentas sin reiniciar el manager."""
+        normalized = normalize_live_account_scheduler_settings(
+            changes, self.live_account_scheduler_settings,
+        )
+        save_json(self.live_account_scheduler_path, normalized)
+        self.live_account_scheduler_settings = normalized
+        self.live_account_scheduler_enabled = bool(normalized["enabled"])
+        self.live_account_wakeup.set()
+        return self.live_account_scheduler_state()
 
     def _configure_web_push(self, config: dict[str, Any], settings_path: Path) -> None:
         """Los avisos que llegan con el navegador cerrado.
@@ -289,10 +388,13 @@ class ManagerServer(ThreadingHTTPServer):
         self._configure_tls(config)
         super().__init__(address, ManagerHandler)
         self._start_live_audit_scheduler()
+        self._start_live_account_scheduler()
 
     def server_close(self) -> None:
         self.live_audit_stop.set()
         self.live_audit_wakeup.set()
+        self.live_account_stop.set()
+        self.live_account_wakeup.set()
         super().server_close()
 
     def live_audit_scheduler_state(self) -> dict[str, Any]:

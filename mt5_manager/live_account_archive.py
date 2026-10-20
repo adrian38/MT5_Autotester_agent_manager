@@ -47,6 +47,17 @@ def _slug(value: str) -> str:
     return f"{text}-{digest}"
 
 
+def _number(value: Any, previous: Any) -> float:
+    """El número nuevo, o el que ya había: una lectura sin saldo no lo borra."""
+    for candidate in (value, previous):
+        try:
+            if candidate is not None:
+                return float(candidate)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
 def account_key(login: Any, server: Any) -> str:
     """La identidad de una cuenta: su login en su servidor.
 
@@ -93,7 +104,7 @@ class LiveAccountArchive:
         empty = {
             "account_key": key, "login": "", "server": "", "currency": "",
             "movements": [], "first_day": "", "last_day": "", "updated_at": "",
-            "snapshots": [],
+            "snapshots": [], "balance": 0.0, "equity": 0.0,
         }
         if not path.is_file():
             return empty
@@ -139,7 +150,7 @@ class LiveAccountArchive:
     def merge(
         self, node_id: str, key: str, *, login: Any, server: Any, currency: Any,
         movements: Sequence[tuple[Any, float]], period_start: str, period_end: str,
-        taken_at: str = "",
+        taken_at: str = "", balance: Any = None, equity: Any = None,
     ) -> dict[str, Any]:
         """Mete el sondeo en la serie y devuelve el registro ya guardado."""
         with self.lock:
@@ -169,6 +180,11 @@ class LiveAccountArchive:
                 "last_day": combined[-1][0][:10] if combined else "",
                 "updated_at": taken_at or utc_now(),
                 "snapshots": snapshots,
+                # El saldo y la equidad del momento de la lectura. No son serie
+                # —el informe nativo no los da por día— pero son lo que la
+                # tarjeta necesita para decir de qué tamaño es la cuenta.
+                "balance": _number(balance, stored.get("balance")),
+                "equity": _number(equity, stored.get("equity")),
             }
             path = self._path(node_id, key)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -178,6 +194,33 @@ class LiveAccountArchive:
     def last_day(self, node_id: str, key: str) -> str:
         """Hasta dónde llega la serie, que es desde dónde se vuelve a leer."""
         return str(self.read(node_id, key).get("last_day") or "")
+
+    def _expectation_path(self, node_id: str, portfolio_id: Any) -> Path:
+        return self._node_directory(node_id) / f"expectation-{_slug(str(portfolio_id))}.json"
+
+    def read_expectation(self, node_id: str, portfolio_id: Any) -> dict[str, Any]:
+        """La media estacional guardada de ese portafolio, o vacío.
+
+        Vive junto a la serie porque se usa en el mismo sitio y, sobre todo,
+        porque **no se puede calcular en la portada**: hay que parsear los
+        informes del backtest de cada estrategia, y la pantalla se refresca
+        cada minuto. La calcula el sondeo nocturno y aquí sólo se lee.
+        """
+        path = self._expectation_path(node_id, portfolio_id)
+        if not path.is_file():
+            return {}
+        try:
+            return load_json(path)
+        except ValueError:
+            return {}
+
+    def write_expectation(
+        self, node_id: str, portfolio_id: Any, value: dict[str, Any],
+    ) -> None:
+        with self.lock:
+            path = self._expectation_path(node_id, portfolio_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            save_json(path, {**value, "portfolio_id": portfolio_id, "updated_at": utc_now()})
 
     def day_keys(self, node_id: str, key: str) -> list[str]:
         """Los días con algún cierre, de viejo a nuevo. Para medir, no pintar."""
