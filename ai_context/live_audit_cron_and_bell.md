@@ -523,6 +523,13 @@ sola tarjeta el actual y el anterior, en dos columnas. Ambos se suman en el
 manager después de convertir cada cuenta a la moneda configurada; la pantalla
 sólo los presenta.
 
+Cada tarjeta de cuenta tiene un checkbox «Sumar». Sólo las marcadas participan
+en Total hoy, mes actual y mes anterior; se aplican los tres importes ya
+convertidos por el manager para no duplicar el criterio de moneda. Las cuentas
+parten marcadas y el navegador persiste únicamente las exclusiones bajo
+`live-account-total-exclusions`. Es un filtro de presentación: no cambia el
+sondeo ni la configuración operativa.
+
 ## La recuperación conserva el instante del corte (2026-10-20)
 
 La primera recuperación guardaba sólo `2026-10-17` y al continuar la cola lo

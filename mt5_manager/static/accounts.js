@@ -11,6 +11,9 @@ const refreshButton = document.querySelector('#refresh');
 // El alias vive en la memoria UBS del agente. Se pide una vez por nodo, igual
 // que en «Portafolios activos», y no en cada refresco de las cuentas.
 const nodeAliases = new Map();
+const TOTAL_SELECTION_KEY = 'live-account-total-exclusions';
+const excludedAccounts = new Set(loadExcludedAccounts());
+let latestData = null;
 let refreshing = false;
 
 const MONTHS = [
@@ -65,6 +68,28 @@ function dateTime(value) {
   if (!value) return 'nunca';
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('es-ES');
+}
+
+function loadExcludedAccounts() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TOTAL_SELECTION_KEY) || '[]');
+    return Array.isArray(stored) ? stored.map(String) : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function accountSelectionKey(card) {
+  return `${card.node_id}::${card.account_key}`;
+}
+
+function accountIsIncluded(card) {
+  return !excludedAccounts.has(accountSelectionKey(card));
+}
+
+function persistExcludedAccounts() {
+  try { localStorage.setItem(TOTAL_SELECTION_KEY, JSON.stringify([...excludedAccounts])); }
+  catch (_error) { /* El filtro sigue funcionando durante esta visita. */ }
 }
 
 // «Media de ese mes en el histórico», y cuántos años la promedian: un octubre
@@ -237,8 +262,11 @@ function cardMarkup(card) {
     + `<p class="account-where">${escapeHtml(card.server || '')}`
     + `${currency ? ` · ${escapeHtml(currency)}` : ''}`
     + `${card.balance ? ` · saldo ${escapeHtml(plain(card.balance, currency))}` : ''}</p>`
-    + `${portfoliosMarkup(card)}</div>`
-    + `<span class="badge ${tone}">${escapeHtml(label)}</span></div>`
+    + `${portfoliosMarkup(card)}</div><div class="card-status">`
+    + `<label class="total-check" title="Incluir esta cuenta en los totales">`
+    + `<input type="checkbox" class="total-account-toggle" data-account="${escapeHtml(accountSelectionKey(card))}"`
+    + `${accountIsIncluded(card) ? ' checked' : ''}><span>Sumar</span></label>`
+    + `<span class="badge ${tone}">${escapeHtml(label)}</span></div></div>`
     + `<div class="metric-rows">${rows}</div>`
     + noteMarkup(card)
     + `<footer><span>Última lectura: ${escapeHtml(dateTime(card.last_read))}</span>`
@@ -246,12 +274,31 @@ function cardMarkup(card) {
     + '</footer></article>';
 }
 
+function selectedTotals(data) {
+  const all = data.accounts || [];
+  const selected = all.filter(accountIsIncluded);
+  const sum = key => selected.reduce(
+    (total, card) => total + (card[key] === null ? 0 : Number(card[key] || 0)), 0,
+  );
+  const missingRates = [...new Set(selected.flatMap(card => (
+    ['daily_display', 'monthly_display', 'previous_month_display'].some(
+      key => card[key] === null,
+    ) ? [card.currency || '?'] : []
+  )))].sort();
+  return {
+    ...(data.totals || {}), accounts: selected.length, total_accounts: all.length,
+    daily: sum('daily_display'), monthly: sum('monthly_display'),
+    previous_month: sum('previous_month_display'), missing_rates: missingRates,
+  };
+}
+
 function renderTotals(data) {
-  const totals = data.totals || {};
+  const totals = selectedTotals(data);
   const currency = totals.currency || 'EUR';
   document.querySelector('#total-daily').textContent = money(totals.daily, currency);
   document.querySelector('#total-daily-note').textContent =
-    `${totals.accounts || 0} cuenta${totals.accounts === 1 ? '' : 's'} · ${data.day || ''}`;
+    `${totals.accounts} de ${totals.total_accounts} cuenta${totals.total_accounts === 1 ? '' : 's'}`
+    + ` · ${data.day || ''}`;
   document.querySelector('#total-monthly').textContent = money(totals.monthly, currency);
   document.querySelector('#total-monthly-note').textContent = monthName(data.month);
   document.querySelector('#total-previous-month').textContent = money(
@@ -280,6 +327,7 @@ function renderTotals(data) {
 }
 
 function render(data) {
+  latestData = data;
   renderTotals(data);
   const cards = (data.accounts || []).map(cardMarkup);
   cardsEl.innerHTML = cards.length ? cards.join('')
@@ -310,6 +358,14 @@ async function refresh() {
 // repintarse con la moneda o el alcance recién cambiados sin recargar.
 window.refreshAccounts = refresh;
 
+cardsEl.addEventListener('change', event => {
+  const toggle = event.target.closest('.total-account-toggle');
+  if (!toggle) return;
+  if (toggle.checked) excludedAccounts.delete(toggle.dataset.account);
+  else excludedAccounts.add(toggle.dataset.account);
+  persistExcludedAccounts();
+  if (latestData) renderTotals(latestData);
+});
 refreshButton.addEventListener('click', refresh);
 refresh();
 setInterval(refresh, 60000);

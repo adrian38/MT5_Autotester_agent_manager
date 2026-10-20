@@ -22,6 +22,7 @@ main{padding:26px max(24px,5vw) 64px}
 .account-card.blocked,.account-card.never_read{border-color:#6c5a2c}.account-card.stale{border-color:#704049}
 .card-head{display:flex;align-items:start;justify-content:space-between;gap:18px;padding:20px}.card-head h2{font-size:22px;font-variant-numeric:tabular-nums}
 .card-head .account-where{margin-top:7px;color:var(--muted);font-size:12px}
+.card-status{display:grid;justify-items:end;gap:9px}.total-check{display:flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:11px;cursor:pointer}.total-check input{width:15px;height:15px;margin:0;padding:0;border:0;accent-color:var(--accent)}
 .card-portfolios{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
 .card-portfolios span{padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--accent2);font-size:11px;font-weight:700}
 .badge{flex:0 0 auto;padding:6px 9px;border-radius:999px;background:#253545;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}

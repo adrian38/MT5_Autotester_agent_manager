@@ -92,6 +92,15 @@ class PageTests(unittest.TestCase):
         self.assertIn("totals.previous_month", SCRIPT)
         self.assertIn("data.previous_month", SCRIPT)
 
+    def test_each_account_can_be_included_in_or_excluded_from_the_totals(self) -> None:
+        self.assertIn('class="total-account-toggle"', SCRIPT)
+        self.assertIn("accountIsIncluded(card) ? ' checked' : ''", SCRIPT)
+        self.assertIn("const selected = all.filter(accountIsIncluded)", SCRIPT)
+        for key in ("daily_display", "monthly_display", "previous_month_display"):
+            self.assertIn(f"sum('{key}')", SCRIPT)
+        self.assertIn("live-account-total-exclusions", SCRIPT)
+        self.assertIn("cardsEl.addEventListener('change'", SCRIPT)
+
     def test_the_dialog_can_choose_any_day_of_the_week(self) -> None:
         """Los siete días salen de la lista, no de siete casillas escritas."""
         names = re.search(r"const WEEKDAYS = \[([^\]]+)\]", MOUNTED)
