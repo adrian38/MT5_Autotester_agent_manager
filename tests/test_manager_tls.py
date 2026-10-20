@@ -7,6 +7,7 @@ contexto seguro y no hay ajuste del manager que lo cambie.
 from __future__ import annotations
 
 import contextlib
+import io
 import ipaddress
 import json
 import os
@@ -27,7 +28,7 @@ from cryptography import x509
 from mt5_manager import manager_tls
 from mt5_manager.docker_entrypoint import docker_config
 from mt5_manager.manager import ManagerServer
-from tools.make_local_cert import issue_server_certificate, load_or_create_ca
+from tools.make_local_cert import issue_server_certificate, load_or_create_ca, main
 
 NODES = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]
 
@@ -95,6 +96,31 @@ class LocalCertificateTests(unittest.TestCase):
                 parsed.is_private or parsed.is_loopback or parsed.is_link_local,
                 msg=f"{address} no es de la red local",
             )
+
+    def _issue(self, *names: str) -> list[str]:
+        """Ejecuta la herramienta entera y devuelve los nombres del certificado."""
+        with contextlib.redirect_stdout(io.StringIO()):
+            main(["--out", str(self.directory), *names])
+        certificate = x509.load_pem_x509_certificate((self.directory / "manager.crt").read_bytes())
+        alternative = certificate.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName,
+        ).value
+        return [
+            *alternative.get_values_for_type(x509.DNSName),
+            *(str(address) for address in alternative.get_values_for_type(x509.IPAddress)),
+        ]
+
+    def test_a_renewal_without_arguments_keeps_the_names_given_by_hand(self) -> None:
+        # El dominio por el que se entra desde fuera no sale de esta máquina:
+        # renovar sin argumentos lo perdía, y el manager dejaba de valer por ese
+        # nombre sin un solo mensaje.
+        self._issue("casa.ddns.net")
+        self.assertIn("casa.ddns.net", self._issue())
+
+    def test_it_forgets_a_name_removed_from_the_file(self) -> None:
+        self._issue("casa.ddns.net")
+        (self.directory / "names.txt").write_text("# sin nombres\n", encoding="utf-8")
+        self.assertNotIn("casa.ddns.net", self._issue())
 
     def test_the_server_certificate_is_signed_by_that_authority(self) -> None:
         authority, _key = load_or_create_ca(self.directory)

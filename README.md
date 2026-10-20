@@ -236,6 +236,26 @@ Al reiniciar, el manager detecta el certificado y pasa a `https://…:8750` en e
 mismo puerto. Vuelve a ejecutar la herramienta cuando añadas una IP: la CA se
 reutiliza y no hay que reinstalar nada.
 
+### Si entras desde fuera de casa
+
+El certificado sale con `localhost`, el nombre del equipo y las IP **privadas**
+de la máquina: eso es todo lo que ésta sabe deducir. Si el manager se abre desde
+la calle por un dominio dinámico, ese nombre hay que dárselo a mano **una vez**:
+
+```powershell
+python -m tools.make_local_cert ringaping.ddns.net
+```
+
+Sin él, el puerto responde pero el navegador corta con
+`ERR_CERT_COMMON_NAME_INVALID` aunque la CA esté instalada, porque el
+certificado no dice ser ese nombre. Y como desde el reinicio el puerto **sólo**
+habla TLS, un `http://…:8750` guardado en el móvil deja de responder del todo:
+hay que cambiarlo a `https://`.
+
+Los nombres dados a mano se anotan en `runtime/tls/names.txt` y vuelven a entrar
+en cada renovación, así que un `python -m tools.make_local_cert` sin argumentos
+ya no los pierde. Para quitar uno, borra su línea.
+
 - Volver a `http`: borra `runtime/tls/` o arranca con `MT5_MANAGER_TLS=off`.
 - Si lo pruebas con `curl` de Windows dirá «the revocation status is unknown»:
   es cosa de schannel con cualquier CA propia, no del certificado. Añade

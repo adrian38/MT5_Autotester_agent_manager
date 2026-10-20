@@ -14,6 +14,12 @@ equipo y las IPv4 de la maquina. Se le pueden anadir mas::
 
     python -m tools.make_local_cert 192.168.1.152 manager.casa
 
+**Los nombres anadidos a mano se recuerdan** en ``names.txt``, al lado del
+certificado. Son los que no se pueden deducir de esta maquina -el dominio
+dinamico por el que se entra desde fuera, por ejemplo-, asi que una renovacion
+sin argumentos los perderia y el manager dejaria de valer por ese nombre sin
+decir por que. Para quitar uno, se borra su linea del fichero.
+
 **La CA se reutiliza.** Volver a ejecutarlo renueva solo el certificado del
 servidor, asi que no hay que volver a instalar nada en los dispositivos.
 """
@@ -104,6 +110,31 @@ def _write(path: Path, data: bytes, private: bool) -> None:
             pass  # En Windows no aplica; el fichero queda en el perfil igual.
 
 
+EXTRA_NAMES_FILE = "names.txt"
+"""Los nombres que esta maquina no sabe deducir, para no perderlos al renovar."""
+
+
+def stored_extra_names(directory: Path) -> list[str]:
+    """Nombres anadidos a mano en ejecuciones anteriores."""
+    path = Path(directory) / EXTRA_NAMES_FILE
+    if not path.is_file():
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return [
+        line.strip() for line in lines if line.strip() and not line.strip().startswith("#")
+    ]
+
+
+def remember_extra_names(directory: Path, names: list[str]) -> None:
+    """Guarda esos nombres para la proxima renovacion."""
+    body = "\n".join([
+        "# Nombres del manager que esta maquina no deduce sola.",
+        "# Se vuelven a meter en cada renovacion; borra una linea para quitarlo.",
+        *names,
+    ])
+    _write(Path(directory) / EXTRA_NAMES_FILE, f"{body}\n".encode("utf-8"), False)
+
+
 def _private_key_bytes(key: ec.EllipticCurvePrivateKey) -> bytes:
     return key.private_bytes(
         encoding=serialization.Encoding.PEM,
@@ -191,12 +222,18 @@ def issue_server_certificate(directory: Path, names: list[str]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("names", nargs="*", help="Nombres o IPs adicionales del manager")
+    parser.add_argument("names", nargs="*", help="Nombres o IPs adicionales del manager; se recuerdan en names.txt")
     parser.add_argument("--out", default=str(DEFAULT_DIRECTORY), help="Carpeta de destino")
     arguments = parser.parse_args(argv)
     directory = Path(arguments.out).expanduser().resolve()
-    names = list(dict.fromkeys([*local_addresses(), *arguments.names]))
+    # Los de fuera se arrastran de una renovacion a la siguiente: esta maquina
+    # no sabe deducir el dominio por el que se entra desde la calle, y perderlo
+    # deja el manager inalcanzable por ese nombre sin un solo mensaje.
+    extra = list(dict.fromkeys([*stored_extra_names(directory), *arguments.names]))
+    names = list(dict.fromkeys([*local_addresses(), *extra]))
     issue_server_certificate(directory, names)
+    if extra:
+        remember_extra_names(directory, extra)
     print(f"Certificado para: {', '.join(names)}")
     print(f"Escrito en {directory}")
     print(

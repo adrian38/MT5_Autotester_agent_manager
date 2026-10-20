@@ -153,6 +153,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   automática de datos históricos al terminar cada run.
 - `manager_self_restart.md`: secuencia Git/Compose del botón de reinicio del
   manager, trabajador Docker auxiliar y persistencia del estado/log.
+- `manager_https_desde_fuera.md`: por qué el certificado local dejó el manager
+  inalcanzable desde la calle —el puerto ya no habla `http` y el nombre DDNS no
+  está en el certificado—, cómo distinguirlo de un fallo del router y el
+  `names.txt` que impide perder ese nombre al renovar.
 - `experiment_million_lab.md`: laboratorio «Experimenta» —pool cruzado de los
   tres brokers en una cuenta, simulación a doce meses con recomposición de
   lotes, drawdown relativo a la equity y por qué vive en ficheros aparte.
