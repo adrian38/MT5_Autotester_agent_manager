@@ -21,7 +21,7 @@ import urllib.error
 import urllib.parse
 from typing import Any
 
-from . import live_audit_analysis, live_audit_autolot, manager_http
+from . import live_audit_analysis, live_audit_autolot, live_audit_manual_inherit, manager_http
 from .common import safe_int
 
 BALANCE_ERRORS = (KeyError, ValueError, OSError, urllib.error.URLError, TimeoutError)
@@ -74,15 +74,26 @@ def balance_history(node: dict[str, Any], value: Any) -> list[dict[str, Any]]:
 
 def analysed_node_state(
     node: dict[str, Any], value: Any, profile: dict[str, Any],
+    memory: Any = None, node_id: str = "",
 ) -> Any:
     """Aplica el criterio vigente del manager a la materia prima del nodo.
 
     Es la **unica** forma de analizar una ejecucion: con el autolote activo hay
     que bajar antes el saldo historico del agente, y un camino que se lo salte
     produce un analisis fallido en vez de un veredicto.
+
+    Y es tambien donde se hereda el reporte manual, por lo mismo: la ejecucion
+    nueva tiene que llegar corregida tanto a la pantalla como al archivado del
+    vigilante, o la serie historica guardaria un veredicto peor del real.
     """
     if not live_audit_analysis.has_raw_material(value):
         return value
+    fresh = live_audit_manual_inherit.reapply(node or {}, node_id, memory, value)
+    if fresh is not None:
+        value = (
+            {**value, "audit": fresh}
+            if isinstance(value, dict) and isinstance(value.get("audit"), dict) else fresh
+        )
     profile = dict(profile)
     if (profile.get("autolot") or {}).get("enabled"):
         try:
@@ -170,7 +181,10 @@ def archive_execution(
         return
     if archive.knows(node_id, audit_key, execution_id):
         return
-    analysed = analysed_node_state(node, {"audit": dict(audit)}, profile)
+    analysed = analysed_node_state(
+        node, {"audit": dict(audit)}, profile,
+        memory=getattr(server, "live_audit_manual_memory", None), node_id=node_id,
+    )
     state = (analysed or {}).get("audit") or {}
     result = state.get("last_result")
     if not isinstance(result, dict) or not result.get("comparison_detail"):

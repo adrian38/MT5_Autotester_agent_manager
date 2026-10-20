@@ -130,6 +130,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   multiterminal y por qué `completed_at` no es la hora de la ejecución.
 - `live_audit_manual_reports.md`: contrato de nombres y validación para sustituir
   reportes tester al 100 % sin relanzar MT5 ni alterar otras estrategias.
+- `live_audit_manual_report_inheritance.md`: por qué esa corrección la guarda el
+  manager y cuándo se reaplica sola a la ejecución siguiente.
 - `live_audit_history_series.md`: el diario de auditorías del manager, la
   segunda tabla con toda la serie, la tabla «contra el histórico» ya
   acumulativa, y los dos candados de la herencia —genealogía del portafolio e

@@ -20,6 +20,7 @@ from . import live_audit_schedule, live_audit_watch, manager_tls
 from .common import load_json, safe_int, save_json
 from .experiment_service import ExperimentCoordinator
 from .live_audit_archive import LiveAuditArchive
+from .live_audit_manual_memory import ManualReportMemory
 from .live_audit_notifications import LiveAuditNotificationStore
 from .live_audit_settings import LiveAuditSettingsStore
 from .live_audit_watch import LiveAuditRunState
@@ -117,6 +118,11 @@ class ManagerServer(ThreadingHTTPServer):
         # diario, cada auditoria borraba la anterior y no habia serie.
         self.live_audit_archive = LiveAuditArchive(
             live_audit_settings_path.with_name("live_audit_history"),
+        )
+        # Y solo sirve artefactos de la ejecucion visible: la copia del reporte
+        # manual tiene que quedarse aqui o la siguiente ejecucion la tira.
+        self.live_audit_manual_memory = ManualReportMemory(
+            live_audit_settings_path.with_name("live_audit_manual_reports"),
         )
         scheduler_file = str(config.get("live_audit_scheduler_settings_file") or "").strip()
         self.live_audit_scheduler_path = (

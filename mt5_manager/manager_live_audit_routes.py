@@ -19,6 +19,7 @@ from . import live_audit_attribution, live_audit_autolot
 from . import live_audit_degradation
 from . import live_audit_executions
 from . import live_audit_history, live_audit_lineage
+from . import live_audit_manual_memory
 from . import manager_http
 from .common import safe_int
 from .portfolio_service import PortfolioSource
@@ -125,6 +126,7 @@ def analysed_live_audit(
     settings = handler.server.live_audit_settings.state(node_id)
     return live_audit_executions.analysed_node_state(
         node or {}, value, (settings.get("profiles") or {}).get(audit_id) or {},
+        memory=getattr(handler.server, "live_audit_manual_memory", None), node_id=node_id,
     )
 
 
@@ -458,6 +460,28 @@ def _handle_saved_criterion(handler, parts: list[str]) -> bool:
     return True
 
 
+def _remember_manual_reports(
+    handler, node_id: str, audit_id: str, body: Any, value: Any,
+) -> None:
+    """Guarda la copia del manager, que es la que sobrevive a la ejecución siguiente.
+
+    El agente sólo sirve artefactos de la ejecución visible, así que en cuanto
+    el cron vuelve a ejecutar ese uso el HTML deja de poder pedirse. Sin esta
+    copia no hay nada que heredar.
+    """
+    memory = getattr(handler.server, "live_audit_manual_memory", None)
+    if memory is None:
+        return
+    state = value.get("audit") if isinstance(value, dict) and isinstance(
+        value.get("audit"), dict,
+    ) else value
+    payload = state.get("last_payload") if isinstance(state, dict) else None
+    if isinstance(payload, dict):
+        memory.remember(
+            node_id, audit_id, payload, live_audit_manual_memory.uploaded_contents(body),
+        )
+
+
 def _handle_manual_reports(handler, parts: list[str]) -> bool:
     """Reenvía HTML MT5 al nodo y devuelve el veredicto ya recalculado."""
     if not (
@@ -469,10 +493,11 @@ def _handle_manual_reports(handler, parts: list[str]) -> bool:
         node_id = urllib.parse.unquote(parts[2])
         audit_id = urllib.parse.unquote(parts[4])
         node = handler._node(node_id)
+        body = handler._body()
         status, value = manager_http.node_request(
             node, "POST",
             f"/api/v1/live-audits/{urllib.parse.quote(audit_id, safe='')}/reports",
-            handler._body(), timeout=120,
+            body, timeout=120,
         )
         if status == 404:
             raise ValueError(
@@ -481,6 +506,7 @@ def _handle_manual_reports(handler, parts: list[str]) -> bool:
         if status != 200:
             handler._send_json(status, value)
             return True
+        _remember_manual_reports(handler, node_id, audit_id, body, value)
         handler._send_json(status, analysed_live_audit(handler, node_id, audit_id, value, node))
     except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
         handler._send_json(400, {"error": str(exc)})

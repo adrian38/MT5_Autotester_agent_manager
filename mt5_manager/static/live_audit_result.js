@@ -560,12 +560,25 @@ function canonicalManualReportName(row) {
   return String(row.source_set || '').replace(/\.set$/i, '.htm');
 }
 
+// Un reporte manual se hereda solo mientras la ventana auditada no cambie: el
+// backtest de otras fechas no contiene ni una operación de ésta. Cuando no se
+// puede heredar hay que decirlo, o parece que la carga anterior se perdió.
+function staleManualReportNote(rows) {
+  const stale = rows.filter(row => row.manual_report_other_window);
+  if (!stale.length) return '';
+  const windows = [...new Set(stale.map(row => {
+    const span = row.manual_report_other_window;
+    return `${span.period_start || '—'} → ${span.period_end || '—'}`;
+  }))];
+  return ` Tienes reporte manual guardado para ${stale.length} de ellas, pero cubre otra ventana (${windows.join(' · ')}): hay que repetir el backtest con las fechas de esta auditoría.`;
+}
+
 function renderManualReportUpload(rows) {
   const pending = rows.filter(row => Number(row.history_quality_pct) < 99.995);
   const names = pending.map(canonicalManualReportName).filter(Boolean);
   const target = document.querySelector('#manual-report-names');
   target.textContent = names.length
-    ? `Renombra cada archivo exactamente así: ${names.join(' · ')}`
+    ? `Renombra cada archivo exactamente así: ${names.join(' · ')}${staleManualReportNote(pending)}`
     : 'Todos los reportes visibles acreditan ya el 100% de calidad.';
   document.querySelector('#manual-report-files').disabled = !names.length;
 }
