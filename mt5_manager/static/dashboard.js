@@ -1,5 +1,4 @@
 const cardsEl = document.querySelector('#live-portfolios');
-const summaryEl = document.querySelector('#dashboard-summary');
 const refreshState = document.querySelector('#refresh-state');
 const refreshButton = document.querySelector('#refresh');
 const restartButton = document.querySelector('#restart-manager');
@@ -180,20 +179,6 @@ function cardMarkup(entry) {
 function render(entries) {
   const realEntries = entries.filter(entry => entry.auditId);
   const failedConfigs = entries.filter(entry => entry.configError);
-  const summaries = realEntries.map(entry => entry.result
-    ? LiveDashboardMetrics.summarize(
-      entry.result, LiveAuditReproduction.storedOverrides(entry.profile),
-      LiveAuditReproduction.storedReviews(entry.profile),
-    ) : {flagged: []});
-  const flagged = summaries.flatMap(item => item.flagged);
-  const broken = flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
-  const warnings = flagged.filter(row => row.verdict === 'AVISO').length;
-  summaryEl.innerHTML = [
-    [realEntries.length, 'Usos operando en real'],
-    [summaries.filter(item => item.comparable).length, 'Con comparación'],
-    [broken, 'Estrategias que no reproducen'],
-    [warnings, 'Estrategias con aviso'],
-  ].map(([value, label]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join('');
   const cards = realEntries.map(cardMarkup);
   failedConfigs.forEach(entry => cards.push(`<article class="portfolio-card failed">`
     + `<p class="eyebrow">${escapeHtml(entry.node?.name || entry.node?.id || 'Nodo desconocido')}</p>`

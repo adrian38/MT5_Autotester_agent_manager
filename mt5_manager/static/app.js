@@ -1,5 +1,4 @@
 const nodesEl = document.querySelector('#nodes');
-const summaryEl = document.querySelector('#summary');
 const refreshState = document.querySelector('#refresh-state');
 const startDialog = document.querySelector('#start-dialog');
 const logDialog = document.querySelector('#log-dialog');
@@ -389,15 +388,6 @@ function taskQueueBlock(node, id) {
 }
 
 function render() {
-  const online = nodeData.filter(node => !node.offline).length;
-  const running = nodeData.filter(node => statusOf(node) === 'running').length;
-  const candidates = nodeData.reduce((sum, node) => sum + total(node.database?.stages?.generation), 0);
-  const accepted = nodeData.reduce((sum, node) => sum + Number(node.database?.stages?.generation?.accepted || 0), 0);
-  summaryEl.innerHTML = [
-    [online, 'Nodos conectados'], [running, 'Generaciones activas'],
-    [candidates, 'Candidatos último run'], [accepted, 'Aceptados último run'],
-  ].map(([value, label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('');
-
   nodesEl.innerHTML = nodeData.map(node => {
     const id = node.manager_node?.id || node.node?.id;
     const name = node.manager_node?.name || node.node?.name || id;
