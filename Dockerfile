@@ -39,6 +39,6 @@ EXPOSE 8750
 # comprueba que el proceso contesta, no la confianza, y el nombre con el que se
 # llama a si mismo no tiene por que estar en el.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import pathlib, ssl, urllib.request; s=pathlib.Path('/app/runtime/tls/manager.crt').is_file(); urllib.request.urlopen(('https' if s else 'http')+'://127.0.0.1:8750/', timeout=3, context=ssl._create_unverified_context() if s else None)" || exit 1
+  CMD python -c "import ssl, urllib.request; from mt5_manager import manager_tls; s=manager_tls.paths({'tls_dir': '/app/runtime/tls'}, None) is not None; urllib.request.urlopen(('https' if s else 'http')+'://127.0.0.1:8750/', timeout=3, context=ssl._create_unverified_context() if s else None)" || exit 1
 
 CMD ["python", "-m", "mt5_manager.docker_entrypoint"]

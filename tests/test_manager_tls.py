@@ -169,6 +169,17 @@ class TlsConfigurationTests(unittest.TestCase):
             docker_config({"nodes": NODES})["tls_dir"], "/app/runtime/tls",
         )
 
+    def test_the_healthcheck_asks_the_same_criterion_as_the_server(self) -> None:
+        # Miraba si el fichero existe, no si el manager lo está usando: con
+        # MT5_MANAGER_TLS=off y el certificado todavía en runtime/tls sondeaba
+        # https contra un servidor en http y el contenedor salía «unhealthy».
+        dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(
+            encoding="utf-8",
+        )
+        healthcheck = dockerfile.split("HEALTHCHECK", 1)[1]
+        self.assertIn("manager_tls.paths(", healthcheck)
+        self.assertNotIn("manager.crt').is_file()", healthcheck)
+
 
 class HttpsServerTests(unittest.TestCase):
     """De punta a punta: un navegador que confía en la CA entra sin avisos."""
