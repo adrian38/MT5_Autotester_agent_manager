@@ -977,6 +977,7 @@ const verdictLabels = {
 const verdictHelp = {
   degraded: 'Revisar o sustituir antes de seguir: hay evidencia de deterioro frente a su histórico.',
   warning: 'Mantener en vigilancia; aún no hay base suficiente para cambiarla.',
+  crossed: 'Cruza el umbral pero la evidencia aún no basta para retirarla: vigílala y confirma en la próxima auditoría.',
   normal: 'Mantener: está dentro de lo que esta estrategia siempre ha hecho.',
   better: 'Mantener: rinde por encima de su comportamiento histórico.',
   insufficient: 'No cambiar aún: pocas operaciones; una sola mala arrastraría la media.',
@@ -1021,9 +1022,41 @@ function historyCell(row, currency) {
     + `<small>media ${escapeHtml(atHistoryLot(row.history_at_reference_lot, currency))} por operación a ${escapeHtml(number(row.reference_lot, 8))} lotes</small>`;
 }
 
+// Un cruce de −2 σ no prueba por sí solo que la estrategia cambió: el backtest
+// tiene cola izquierda y rachas, se comparan todas las estrategias del
+// portafolio a la vez y se vuelve a mirar cada semana. El servidor manda en
+// `evidence` lo que ese cruce vale de verdad —ver
+// `live_audit_degradation_evidence`— y aquí se cuenta entero, porque esconder
+// el cruce sería el error contrario a retirar la estrategia por él.
+function percentText(value) {
+  if (value === null || value === undefined) return '—';
+  if (value > 0 && value < 0.001) return 'menos del 0,1 %';
+  return `${number(value * 100, 2)} %`;
+}
+
+function windowsText(windows) {
+  return `${number(windows.worse, 0)} de ${number(windows.windows, 0)} tramos consecutivos`
+    + ` del propio backtest fueron iguales o peores (${percentText(windows.p)}). `;
+}
+
+function evidenceNote(row) {
+  const evidence = row.evidence;
+  if (!evidence || !evidence.crossed) return '';
+  const text = (evidence.windows ? windowsText(evidence.windows) : '')
+    + `Mirando la serie en cada auditoría, lo observado vale ${percentText(evidence.sequential_p)}. `
+    + `El listón es ${percentText(evidence.required)}: ${percentText(evidence.alpha)} repartido `
+    + `entre las ${number(evidence.compared, 0)} estrategias que se comparan a la vez. `
+    + (evidence.confirmed
+      ? 'Las dos pruebas lo confirman.'
+      : 'Por eso se queda en aviso y no en DEGRADA.');
+  return `<small class="degradation-off">${escapeHtml(text)}</small>`;
+}
+
 function degradationRow(row, currency) {
+  const crossed = row.verdict === 'warning' && row.evidence?.crossed;
   const tone = verdictTone[row.verdict] || '';
-  const label = verdictLabels[row.verdict] || row.verdict;
+  const label = crossed ? 'AVISO FUERTE' : (verdictLabels[row.verdict] || row.verdict);
+  const help = crossed ? verdictHelp.crossed : (verdictHelp[row.verdict] || '');
   const name = row.strategy_set && row.strategy_set !== row.strategy
     ? `${row.strategy_set} · ${row.strategy}` : row.strategy;
   return `<tr>
@@ -1032,7 +1065,7 @@ function degradationRow(row, currency) {
     <td><strong>acumulado ${escapeHtml(atHistoryLot(row.observed_at_reference_lot, currency))}</strong><small>histórico ${escapeHtml(atHistoryLot(row.history_at_reference_lot, currency))}</small><small>por operación a ${escapeHtml(number(row.reference_lot, 8))} lotes</small></td>
     <td>${deviationCell(row)}</td>
     <td>${historyCell(row, currency)}</td>
-    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(verdictHelp[row.verdict] || '')}</small></td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(help)}</small>${evidenceNote(row)}</td>
   </tr>`;
 }
 

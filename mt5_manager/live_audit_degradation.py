@@ -64,6 +64,11 @@ class StrategyHistory:
     active_months: float | None
     drawdown: float | None
     profit_factor: float | None
+    # El informe del que salieron esas cifras. Es lo que permite contrastar el
+    # periodo contra los tramos consecutivos del propio backtest en vez de
+    # contra una normal que este histórico no cumple: ver
+    # `live_audit_degradation_evidence`.
+    report_path: str = ""
 
     @property
     def trade_deviation(self) -> float | None:
@@ -113,6 +118,7 @@ def history_from_metrics(metrics: dict[str, Any] | None) -> StrategyHistory | No
         active_months=_number(metrics.get("active_months")),
         drawdown=_number(metrics.get("drawdown")),
         profit_factor=_number(metrics.get("profit_factor")),
+        report_path=str(metrics.get("report_path") or ""),
     )
 
 

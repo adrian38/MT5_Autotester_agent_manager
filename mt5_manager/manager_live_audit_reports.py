@@ -18,6 +18,7 @@ from typing import Any
 
 from . import live_audit_analysis
 from . import live_audit_degradation
+from . import live_audit_degradation_evidence
 from . import live_audit_executions
 from . import live_audit_history, live_audit_lineage
 from . import manager_http
@@ -87,6 +88,15 @@ def _period_days(result: dict[str, Any]) -> float:
     return max(0.0, span.total_seconds() / 86400)
 
 
+def _backtest_series(source: Any, history: Any) -> list[float] | None:
+    """Las operaciones del backtest de esa estrategia, si el informe se deja leer."""
+    if history is None:
+        return None
+    return live_audit_degradation_evidence.backtest_series(
+        source, history, live_audit_degradation.REFERENCE_LOT,
+    )
+
+
 def degradation_report(
     source: Any, result: dict[str, Any],
     grouped: dict[str, list[dict[str, Any]]] | None = None, days: float | None = None,
@@ -96,6 +106,11 @@ def degradation_report(
     Por defecto mide el periodo auditado. `grouped` y `days` permiten medir la
     serie entera, que es lo que hace la pantalla: el criterio es el mismo y lo
     unico que cambia es el tamano de la muestra.
+
+    El veredicto de `compare` es **provisional**: cruzar −2 σ es la condicion
+    de entrada, no la prueba. `live_audit_degradation_evidence.confirm` la
+    contrasta aqui, que es el unico sitio donde estan todas las estrategias
+    comparadas y por tanto se sabe entre cuantas hay que repartir el nivel.
     """
     if grouped is None:
         grouped = live_audit_history.tester_trades_by_strategy(
@@ -117,6 +132,10 @@ def degradation_report(
         "symbol": symbols.get(strategy, ""),
         **live_audit_degradation.compare(histories.get(strategy), trades, days),
     } for strategy, trades in grouped.items()]
+    live_audit_degradation_evidence.confirm(
+        strategies, lambda row: _backtest_series(source, histories.get(row["strategy"])),
+        live_audit_degradation.DEGRADED_SIGMA,
+    )
     strategies.sort(key=lambda row: (row["symbol"], row["strategy_set"], row["strategy"]))
     return {
         "strategies": strategies, "period_days": days,

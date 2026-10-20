@@ -338,6 +338,25 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # Lo guardado antes de que existiera el campo no puede quedar atrapado.
         self.assertIn("Subidas anteriores", self.analysis_script)
 
+    def test_a_crossing_the_backtest_itself_repeats_is_not_sold_as_degradation(self) -> None:
+        # `AXI/STANDARD:10751` cruzó −2,12 σ con nueve operaciones y 90 de los
+        # 1.355 tramos de nueve de su propio backtest fueron iguales o peores.
+        # La fila tiene que contar las dos cosas: que cruzó, y por qué eso no
+        # basta para retirarla. Esconder cualquiera de las dos es el error.
+        self.assertIn("function evidenceNote(row)", self.analysis_script)
+        self.assertIn("row.verdict === 'warning' && row.evidence?.crossed", self.analysis_script)
+        self.assertIn("'AVISO FUERTE'", self.analysis_script)
+        self.assertIn("tramos consecutivos", self.analysis_script)
+        self.assertIn("del propio backtest fueron iguales o peores", self.analysis_script)
+        self.assertIn("Mirando la serie en cada auditoría", self.analysis_script)
+        self.assertIn("estrategias que se comparan a la vez", self.analysis_script)
+        self.assertIn("Por eso se queda en aviso y no en DEGRADA", self.analysis_script)
+        self.assertIn("Las dos pruebas lo confirman", self.analysis_script)
+        self.assertIn("menos del 0,1 %", self.analysis_script)
+        # Y la pantalla explica el criterio, no solo el caso.
+        self.assertIn("Cruzar −2 σ abre el expediente, no lo cierra.", self.analysis_page_text)
+        self.assertIn("raro entre los tramos consecutivos del propio backtest", self.analysis_page_text)
+
 
 if __name__ == "__main__":
     unittest.main()

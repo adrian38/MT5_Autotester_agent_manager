@@ -38,9 +38,16 @@ HISTORY = {
     "active_months": 60, "drawdown": 100.0, "profit_factor": 1.5,
 }
 
-# A 0,01 lotes el historico rinde 200 por lote. Con doce operaciones, -10 por
-# operacion son -2,9 sigma (DEGRADA) y -4 son -1,5 (AVISO).
-DEGRADED_PROFIT = -10.0
+# A 0,01 lotes el historico rinde 200 por lote. Con doce operaciones, -20 por
+# operacion son -5,4 sigma y -4 son -1,5 (AVISO).
+#
+# -10 bastaba cuando DEGRADA era cruzar -2 sigma. Ya no: el cruce es la
+# condicion de entrada y `live_audit_degradation_evidence` lo contrasta contra
+# una frontera que aguanta mirar cada semana, que con doce operaciones pide
+# ~4,1 sigma. Aqui se comprueba el camino del aviso, no el criterio -ese vive
+# en `test_live_audit_degradation_evidence`-, asi que la estrategia rota lo
+# esta sin lugar a dudas.
+DEGRADED_PROFIT = -20.0
 WARNING_PROFIT = -4.0
 
 
@@ -175,6 +182,22 @@ class DegradationAlertTests(unittest.TestCase):
             self.review()
         self.assertEqual(len(self.server.events()), 1)
         self.assertEqual(source.call_count, 1)
+
+    def test_a_change_of_criterion_remeasures_what_is_already_archived(self) -> None:
+        # El candado es el `execution_id`: sin la marca del criterio, cambiarlo
+        # no llega a la tarjeta hasta la auditoria siguiente y la portada se
+        # queda una semana enseñando un DEGRADA que el criterio nuevo no firma.
+        self.archive("run-1", detail((DEGRADING, "uno.set", "EURUSD", DEGRADED_PROFIT, 12)))
+        with memory(DEGRADING) as source:
+            self.review()
+            with mock.patch.object(live_audit_degradation_alerts, "CRITERION", "otro"):
+                self.review()
+        self.assertEqual(source.call_count, 2)
+        runs = self.server.live_audit_runs
+        record = runs.record(runs.key("n", "11"))
+        self.assertTrue(str(record["degradation_execution"]).endswith("@otro"))
+        # Y lo ya anunciado no se vuelve a anunciar por haber vuelto a medir.
+        self.assertEqual(len(self.server.events()), 1)
 
     def test_a_strategy_that_keeps_degrading_is_not_announced_again(self) -> None:
         # Una lista de avisos que no se puede vaciar deja de leerse: lo nuevo

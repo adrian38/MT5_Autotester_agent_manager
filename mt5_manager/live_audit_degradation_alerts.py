@@ -45,6 +45,16 @@ WATCHED = "warning"
 NAMED_IN_MESSAGE = 3
 """Estrategias que el aviso nombra; del resto da el número."""
 
+CRITERION = "evidence-1"
+"""Con qué criterio se midió lo que hay guardado.
+
+El candado es el `execution_id`, así que sin esto un cambio de criterio no
+llega a la tarjeta hasta la auditoría siguiente: se quedaría enseñando un
+DEGRADA que el criterio nuevo no firma, y una semana es mucho tiempo para una
+fila que dice «retírala». Al cambiarlo, la primera vuelta tras el despliegue
+vuelve a medir lo ya archivado, que es justo lo que hace la primera vuelta
+después de reiniciar el manager."""
+
 REPORT_ERRORS = (AttributeError, KeyError, OSError, TypeError, ValueError)
 """Lo que puede fallar al leer la memoria UBS del agente. Un histórico que no
 se deja leer no puede tumbar la vuelta del vigilante ni inventar un veredicto:
@@ -173,9 +183,10 @@ def review(
         return
     entry = _last_archived(archive, node_id, audit_key)
     identifier = str(entry.get("execution_id") or "")
+    measured = f"{identifier}@{CRITERION}" if identifier else ""
     key = runs.key(node_id, audit_key)
     record = runs.record(key)
-    if not identifier or str(record.get("degradation_execution") or "") == identifier:
+    if not measured or str(record.get("degradation_execution") or "") == measured:
         return
     report = _report(server, node, node_id, audit_key, archive.detail(node_id, entry))
     if report is None:
@@ -186,7 +197,7 @@ def review(
         for row in record.get("degradation") or [] if isinstance(row, dict)
     }
     runs.update(
-        key, degradation_execution=identifier, degradation=degraded,
+        key, degradation_execution=measured, degradation=degraded,
         degradation_watching=watching, degradation_compared=compared,
         degradation_checked_at=utc_now(),
     )

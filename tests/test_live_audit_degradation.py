@@ -281,6 +281,40 @@ class DegradationReportTests(unittest.TestCase):
         report = degradation_report(FakeSource({}), self.result([open_row]))
         self.assertEqual(report["strategies"], [])
 
+    def test_a_crossing_is_not_a_verdict_until_the_report_confirms_it(self) -> None:
+        # El cruce es la condicion de entrada: quien decide es
+        # `live_audit_degradation_evidence`, y solo puede hacerlo aqui, que es
+        # donde se sabe entre cuantas estrategias hay que repartir el nivel.
+        # -2,4 sigma con veinte operaciones valen 23 % mirando cada semana.
+        import json as json_module
+        from mt5_manager.manager_live_audit_routes import degradation_report
+
+        source = FakeSource({"AXI/STANDARD": [(3813, json_module.dumps(metrics()))]})
+        report = degradation_report(source, self.result(
+            [self.row("AXI/STANDARD:3813", -1.3212) for _ in range(20)]
+        ))
+        row = report["strategies"][0]
+        self.assertAlmostEqual(row["deviations"], -2.4, places=2)
+        self.assertEqual(row["verdict"], "warning")
+        self.assertTrue(row["evidence"]["crossed"])
+        self.assertEqual(row["evidence"]["blocked_by"], ["sequential"])
+        # Sin proyecto en la fuente no hay informe que abrir, y eso no inventa
+        # una prueba de ventanas ni bloquea la otra.
+        self.assertIsNone(row["evidence"]["windows"])
+
+    def test_a_collapse_still_degrades_through_the_report(self) -> None:
+        import json as json_module
+        from mt5_manager.manager_live_audit_routes import degradation_report
+
+        source = FakeSource({"AXI/STANDARD": [(3813, json_module.dumps(metrics()))]})
+        report = degradation_report(source, self.result(
+            [self.row("AXI/STANDARD:3813", -5.314) for _ in range(20)]
+        ))
+        row = report["strategies"][0]
+        self.assertAlmostEqual(row["deviations"], -5.0, places=2)
+        self.assertEqual(row["verdict"], "degraded")
+        self.assertTrue(row["evidence"]["confirmed"])
+
     def test_a_strategy_outside_the_pool_is_reported_without_history(self) -> None:
         from mt5_manager.manager_live_audit_routes import degradation_report
 

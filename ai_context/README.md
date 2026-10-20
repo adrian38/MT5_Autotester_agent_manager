@@ -160,6 +160,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   tarjeta de la portada y al push; por qué se mide sobre el archivo y no sobre
   el nodo, por qué `AVISO` se cuenta pero no se anuncia y por qué una
   estrategia se anuncia una sola vez.
+- `live_audit_degradation_evidence.md`: por qué cruzar −2 σ no basta para decir
+  DEGRADA; los tramos consecutivos del propio backtest, el reparto entre las
+  estrategias comparadas y la frontera que aguanta mirar cada semana.
 
 ## Manager: interfaz y operación
 

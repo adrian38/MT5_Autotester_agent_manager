@@ -99,6 +99,7 @@
         </table>
       </div>
       <p class="audit-analysis-note-text">El desvío son errores estándar sobre la media histórica por operación, con la dispersión despejada del SQN. Una estrategia muy ruidosa puede caer mucho en porcentaje y seguir dentro de lo normal; una muy estable avisa con mucho menos. Por debajo de <span id="minimum-trades">8</span> operaciones no hay base para cambiar la estrategia: se enseña lo observado, pero la conclusión es esperar más datos.</p>
+      <p class="audit-analysis-note-text"><strong>Cruzar −2 σ abre el expediente, no lo cierra.</strong> Ese contraste supone operaciones normales, independientes y una sola mirada, y aquí no se cumple ninguna de las tres: el backtest tiene cola izquierda y rachas, se comparan todas las estrategias del portafolio a la vez, y la serie se vuelve a mirar en cada auditoría. Para decir <strong>DEGRADA</strong> el desvío tiene que ser además <strong>raro entre los tramos consecutivos del propio backtest</strong> —misma longitud que lo observado, en su orden original— y superar una frontera que aguanta mirar cada semana, con el nivel repartido entre las estrategias comparadas. Lo que cruza y no lo supera se queda en <strong>AVISO FUERTE</strong>, con sus números en la fila: es para vigilar y confirmar en la auditoría siguiente, no para retirarla hoy.</p>
     </section>
   </main>
 
