@@ -37,12 +37,12 @@ def artifact(**overrides) -> dict:
     return base
 
 
-def manual_artifact() -> dict:
+def manual_artifact(**overrides) -> dict:
     return artifact(
         report_file=f"manual_{SOURCE[:-4]}.htm", history_quality_pct=100.0,
         report_source="manual_upload", manual_report_original_file=canonical_name(SOURCE),
         manual_report_uploaded_at="2026-10-13T20:43:00+00:00",
-        manual_report_sha256=hashlib.sha256(HTML).hexdigest(),
+        manual_report_sha256=hashlib.sha256(HTML).hexdigest(), **overrides,
     )
 
 
@@ -157,6 +157,31 @@ class ManualReportInheritanceTests(unittest.TestCase):
                         live_audit_manual_inherit.reapply({"id": NODE}, NODE, store, state),
                     )
         self.assertEqual(request.call_count, live_audit_manual_inherit.MAXIMUM_ATTEMPTS)
+
+
+    def test_many_corrected_strategies_travel_in_several_uploads(self) -> None:
+        """El nodo rechaza el lote entero por encima de 700 KB: se parte."""
+        second = "XAUUSD_D1_GOLD_Goldbot_One__dailyK_g001_s016_v004.set"
+        with tempfile.TemporaryDirectory() as temp:
+            store = memory(Path(temp))
+            store.remember(
+                NODE, KEY, payload("run-12", [manual_artifact(source_set=second)]),
+                {canonical_name(second).casefold(): HTML},
+            )
+            rows = [artifact(), artifact(source_set=second, strategy="AXI/STANDARD:1437")]
+            state = {"audit": {"last_payload": payload("run-20", rows)}}
+            corrected = {"audit": {"last_payload": payload("run-20", [manual_artifact()])}}
+            with patch.object(live_audit_manual_inherit, "MAXIMUM_TOTAL_BYTES", len(HTML)), patch(
+                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                return_value=(200, corrected),
+            ) as request:
+                live_audit_manual_inherit.reapply({"id": NODE}, NODE, store, state)
+
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(
+            [call.args[3]["reports"][0]["filename"] for call in request.call_args_list],
+            [canonical_name(SOURCE), canonical_name(second)],
+        )
 
 
 class ManualReportWiringTests(unittest.TestCase):

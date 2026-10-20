@@ -37,6 +37,13 @@ MAXIMUM_ATTEMPTS = 3
 """Reintentos por ejecución y proceso: el agente puede estar apagado un rato,
 pero un bucle de cargas contra un nodo que siempre falla no ayuda a nadie."""
 
+MAXIMUM_REPORT_BYTES = 500_000
+MAXIMUM_TOTAL_BYTES = 700_000
+MAXIMUM_REPORTS = 20
+"""Los mismos límites por carga que aplica el nodo. Se respetan aquí porque un
+uso con muchas estrategias corregidas los pasa sin esfuerzo -siete HTML ya son
+700 KB- y el nodo rechaza **el lote entero**: se manda en varias cargas."""
+
 REAPPLY_ERRORS = (KeyError, ValueError, OSError, urllib.error.URLError, TimeoutError)
 
 _attempts: dict[tuple[str, str, str], int] = {}
@@ -102,9 +109,16 @@ def _upload(
     except REAPPLY_ERRORS as exc:
         artifact["manual_report_error"] = str(exc)
         return None
+    if len(content) > MAXIMUM_REPORT_BYTES:
+        artifact["manual_report_error"] = (
+            f"El reporte guardado ocupa {len(content)} bytes y el nodo acepta "
+            f"{MAXIMUM_REPORT_BYTES} como máximo"
+        )
+        return None
     return {
         "filename": manual_memory.canonical_name(source_set),
         "content_base64": base64.b64encode(content).decode("ascii"),
+        "bytes": len(content),
     }
 
 
@@ -129,25 +143,48 @@ def reapply(node: dict[str, Any], node_id: str, memory: Any, value: Any) -> dict
     return _send(node, node_id, audit_key, memory, reports)
 
 
+def _batches(reports: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Cargas que el nodo puede aceptar: ni más de 20 ni más de 700 KB."""
+    batches: list[list[dict[str, Any]]] = []
+    total = 0
+    for report in reports:
+        if (
+            not batches or len(batches[-1]) >= MAXIMUM_REPORTS
+            or total + report["bytes"] > MAXIMUM_TOTAL_BYTES
+        ):
+            batches.append([])
+            total = 0
+        batches[-1].append(report)
+        total += report["bytes"]
+    return batches
+
+
 def _send(
-    node: dict[str, Any], node_id: str, audit_key: str, memory: Any, reports: list[dict[str, str]],
+    node: dict[str, Any], node_id: str, audit_key: str, memory: Any, reports: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
     """Reenvía los reportes al nodo y anota la ejecución donde quedaron."""
     path = f"/api/v1/live-audits/{urllib.parse.quote(audit_key, safe='')}/reports"
-    try:
-        status, value = manager_http.node_request(node, "POST", path, {"reports": reports}, timeout=120)
-    except REAPPLY_ERRORS as exc:
-        sys.stderr.write(f"[live-audit-manual] {node_id}/{audit_key}: no se pudo reaplicar: {exc}\n")
-        return None
-    if status != 200:
-        detail = value.get("error") if isinstance(value, dict) else value
+    applied: dict[str, Any] | None = None
+    for batch in _batches(reports):
+        body = {"reports": [
+            {"filename": report["filename"], "content_base64": report["content_base64"]}
+            for report in batch
+        ]}
+        try:
+            status, value = manager_http.node_request(node, "POST", path, body, timeout=120)
+        except REAPPLY_ERRORS as exc:
+            sys.stderr.write(f"[live-audit-manual] {node_id}/{audit_key}: no se pudo reaplicar: {exc}\n")
+            break
+        if status != 200:
+            detail = value.get("error") if isinstance(value, dict) else value
+            sys.stderr.write(
+                f"[live-audit-manual] {node_id}/{audit_key}: el nodo rechazó la herencia: {detail}\n"
+            )
+            break
+        memory.remember(node_id, audit_key, _payload(value))
+        applied = _state(value)
         sys.stderr.write(
-            f"[live-audit-manual] {node_id}/{audit_key}: el nodo rechazó la herencia: {detail}\n"
+            f"[live-audit-manual] {node_id}/{audit_key}: {len(batch)} reporte(s) manual(es) "
+            "reaplicados a la ejecución nueva.\n"
         )
-        return None
-    memory.remember(node_id, audit_key, _payload(value))
-    sys.stderr.write(
-        f"[live-audit-manual] {node_id}/{audit_key}: {len(reports)} reporte(s) manual(es) "
-        "reaplicados a la ejecución nueva.\n"
-    )
-    return _state(value)
+    return applied
