@@ -841,8 +841,11 @@ function scheduleControl(row) {
         .join('')}</select>`
     : `<input type="hidden" data-schedule-pick value="${escapeHtml(candidates[0].strategy)}">`;
   const named = candidates.length === 1 ? ` en ${escapeHtml(candidates[0].label)}` : '';
-  return `<div class="lot-schedule-offer">${picker}<button type="button" class="secondary"
-    data-schedule-lot="${escapeHtml(number(lot, 8))}"
+  // El atributo lleva el lote **en crudo**, no `number(lot)`: ése lo formatea
+  // en es-ES y «0,04» con coma vuelve `NaN` al releerlo, así que el botón se
+  // pintaba y al pulsarlo no hacía nada. Formatear es cosa del texto.
+  return `<div class="lot-schedule-offer">${picker}<button type="button" class="lot-schedule-apply"
+    data-schedule-lot="${escapeHtml(lot)}"
     data-schedule-from="${escapeHtml(row.real.open_time)}"
     >Desde aquí opero ${escapeHtml(number(lot, 4))}${named}</button></div>`;
 }

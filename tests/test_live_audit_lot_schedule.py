@@ -18,6 +18,7 @@ ofrece.
 """
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -350,8 +351,18 @@ class LotScheduleScreenTests(unittest.TestCase):
         # Teclearla invita a equivocarse por un día y a dejar fuera justo la
         # operación que se quería recuperar.
         self.assertIn('data-schedule-from="${escapeHtml(row.real.open_time)}"', self.script)
-        self.assertIn('data-schedule-lot="${escapeHtml(number(lot, 8))}"', self.script)
+        self.assertIn('data-schedule-lot="${escapeHtml(lot)}"', self.script)
         self.assertIn("Desde aquí opero", self.script)
+
+    def test_what_the_button_carries_is_the_raw_value_and_not_the_formatted_one(self) -> None:
+        # El botón se pintaba y al pulsarlo no hacía nada: el atributo llevaba
+        # `number(lot, 8)`, que en es-ES da «0,04», y `Number('0,04')` es NaN,
+        # así que el oyente salía por la guarda antes de preguntar nada. Un
+        # `data-*` que se relee como número no puede pasar por el formateador.
+        for attribute in re.findall(r'data-schedule-[a-z]+="([^"]*)"', self.script):
+            self.assertNotIn("number(", attribute)
+        handler = self.script.split("const button = event.target.closest('[data-schedule-lot]')", 1)[1]
+        self.assertIn("Number(button.dataset.scheduleLot)", handler)
 
     def test_the_offer_only_appears_on_a_real_the_lot_filter_discarded(self) -> None:
         self.assertIn("${discarded ? scheduleControl(row) : ''}", self.script)

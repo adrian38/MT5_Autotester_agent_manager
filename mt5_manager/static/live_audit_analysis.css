@@ -99,9 +99,14 @@ td.audit-analysis-empty { display: table-cell; min-height: 0; padding: 26px 16px
 .attribution-source button { padding: 2px 7px; border-radius: 999px; background: transparent; border: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.2; }
 .attribution-source button:hover { border-color: #9a3944; color: #ff9da5; }
 .attribution-sources .attribution-clear { margin-left: auto; }
-.lot-schedule-offer { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-.lot-schedule-offer select { padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: #0b141e; color: inherit; font-size: 12px; }
-.lot-schedule-offer button { padding: 4px 10px; border-radius: 999px; font-size: 12px; }
+/* La oferta vive dentro de la celda de estado, debajo de un badge y de un
+   párrafo de 11px: un botón del tamaño de los del diálogo la parte en dos. Va
+   como pastilla al ritmo de `.degradation-status`, con el verde de acción. */
+.lot-schedule-offer { display: inline-flex; align-items: center; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+.lot-schedule-offer select { padding: 3px 7px; border-radius: 999px; border: 1px solid var(--line); background: #0b141e; color: inherit; font-size: 11px; }
+.lot-schedule-apply { padding: 4px 11px; border-radius: 999px; border: 1px solid #2d8c77; background: #2d8c7726; color: #78f0d0; font-size: 11px; font-weight: 700; line-height: 1.4; }
+.lot-schedule-apply:hover:not(:disabled) { background: #2d8c7747; border-color: #45b093; }
+.lot-schedule-apply:disabled { opacity: .55; }
 .audit-analysis-note { margin: 0 20px 14px; padding: 12px 14px; border: 1px solid #8f681f; border-radius: 10px; background: #1c180e; color: #ffd978; font-size: 12px; }
 .audit-analysis-note-text { margin: 0; padding: 14px 20px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.6; }
 @media (max-width: 560px) {
