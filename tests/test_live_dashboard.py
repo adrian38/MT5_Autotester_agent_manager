@@ -108,6 +108,12 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("strategyAlert(row, 'warn', 'AVISO FUERTE')", self.script)
         self.assertIn("crossing ? `${crossing} EN VIGILANCIA` : ''", self.script)
         self.assertIn(": warnings || crossing ? 'pending'", self.script)
+        # La chapa enseña los dos: son la misma gravedad y cuentan cosas
+        # distintas -reproducir la demo y parecerse al backtest-.
+        self.assertIn(
+            "!broken && !degraded && warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : ''",
+            self.script,
+        )
         # El aviso que no llego a cruzar sigue siendo solo un recuento.
         self.assertIn("sigue sin listarse", self.script)
 

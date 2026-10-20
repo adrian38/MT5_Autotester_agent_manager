@@ -240,9 +240,11 @@ function cardMarkup(entry) {
   const badge = [
     broken ? `${broken} NO REPRODUCE` : '',
     degraded ? `${degraded} DEGRADA${degraded === 1 ? '' : 'N'}` : '',
+    // El aviso de reproducción y el de vigilancia son la misma gravedad y
+    // hablan de cosas distintas: se enseñan los dos. Lo que se calla es el
+    // aviso cuando hay algo crítico encima, que es como estaba.
+    !broken && !degraded && warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
     crossing ? `${crossing} EN VIGILANCIA` : '',
-    !broken && !degraded && !crossing && warnings
-      ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
   ].filter(Boolean).join(' · ') || (summary.comparable ? 'SIN AVISOS' : 'SIN DATOS');
   return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${summary.comparable ? unlinkedMarkup(summary) : ''}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }
