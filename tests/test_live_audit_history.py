@@ -16,9 +16,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mt5_manager import live_audit_history, live_audit_watch
+from mt5_manager import live_audit_executions, live_audit_history, live_audit_watch
 from mt5_manager.live_audit_archive import LiveAuditArchive, strategies_of, trimmed_detail
-from tests.test_live_audit_autolot import SET_STEM, audit_payload, audit_profile
+from tests.test_live_audit_autolot import SET_STEM, STRATEGY, audit_payload, audit_profile
 from tests.test_live_audit_cron import FakeServer as CronServer, audit_state
 
 
@@ -161,6 +161,55 @@ class ArchiveTests(unittest.TestCase):
         )
         related = self.archive.related("n", "a-2", strategies_of(second))
         self.assertEqual([row["portfolio_id"] for row in related], [2])
+
+
+class MutableExecutionArchiveTests(unittest.TestCase):
+    """Una carga manual corrige una ejecución sin cambiar su identificador."""
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        archive = LiveAuditArchive(Path(self.temporary.name) / "history")
+        self.server = type("Server", (), {"live_audit_archive": archive})()
+        self.archive = archive
+
+    @staticmethod
+    def _audit(profit: float, manual_sha: str = "") -> dict[str, object]:
+        payload = audit_payload()
+        payload["request"] = {**payload["request"], "audit_key": "11", "portfolio_id": 11}
+        payload["tester_trades"][0]["profit"] = profit
+        artifact = {
+            "strategy": STRATEGY, "source_set": f"{SET_STEM}.set",
+            "history_quality_pct": 100.0 if manual_sha else 40.0,
+        }
+        if manual_sha:
+            artifact["manual_report_sha256"] = manual_sha
+        payload["strategy_artifacts"] = [artifact]
+        payload["qualities"] = [artifact["history_quality_pct"]]
+        return {
+            "status": "completed", "audit_id": payload["audit_id"],
+            "last_result": None, "last_payload": payload,
+        }
+
+    def test_a_manual_report_replaces_the_verdict_already_archived(self) -> None:
+        profile = audit_profile(portfolio_id=11)
+        live_audit_executions.archive_execution(
+            self.server, {}, "n", "11", self._audit(1.0), profile,
+        )
+        old_entry = self.archive.index("n")[0]
+        old_detail = self.archive.detail("n", old_entry)
+        self.assertEqual(old_detail["operation_comparisons"][0]["tester"]["profit"], 1.0)
+
+        live_audit_executions.archive_execution(
+            self.server, {}, "n", "11", self._audit(9.0, "a" * 64), profile,
+        )
+
+        entries = self.archive.index("n")
+        self.assertEqual(len(entries), 1)
+        self.assertTrue(entries[0]["manual_reports"])
+        stored = self.archive.detail("n", entries[0])
+        first = stored["operation_comparisons"][0]
+        self.assertEqual(first["tester"]["profit"], 9.0)
 
 
 class AccumulationTests(unittest.TestCase):

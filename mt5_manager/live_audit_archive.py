@@ -80,12 +80,24 @@ class LiveAuditArchive:
             return []
         return [row for row in (stored.get("executions") or []) if isinstance(row, dict)]
 
-    def knows(self, node_id: str, audit_key: str, execution_id: str) -> bool:
-        return any(
-            str(row.get("audit_key")) == str(audit_key)
-            and str(row.get("execution_id")) == str(execution_id)
-            for row in self.index(node_id)
-        )
+    def knows(
+        self, node_id: str, audit_key: str, execution_id: str, evidence: str = "",
+    ) -> bool:
+        """¿Está guardada esa ejecución **con esta evidencia**?
+
+        La ejecución no cambia, pero su evidencia sí: un reporte manual
+        sustituye el backtest de una estrategia sin relanzar MT5, y entonces el
+        veredicto guardado se queda viejo. Con `evidence` distinta hay que
+        volver a archivar, o Análisis sigue enseñando el 40 % que ya se
+        corrigió.
+        """
+        for row in self.index(node_id):
+            if (
+                str(row.get("audit_key")) == str(audit_key)
+                and str(row.get("execution_id")) == str(execution_id)
+            ):
+                return str(row.get("manual_reports") or "") == str(evidence or "")
+        return False
 
     def _prune(self, node_id: str, executions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         extra = len(executions) - MAXIMUM_EXECUTIONS

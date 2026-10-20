@@ -112,12 +112,34 @@ def _execution_id(audit: dict[str, Any]) -> str:
     )
 
 
+def manual_evidence(audit: dict[str, Any]) -> str:
+    """Qué reportes manuales lleva esta ejecución, en una sola cadena.
+
+    Una ejecución archivada no se vuelve a archivar, y así es como Análisis
+    seguía enseñando el 40 % de unas estrategias que ya se habían corregido a
+    mano: el veredicto cambia sin que cambie la ejecución. Esto es lo que lo
+    distingue sin tener que analizar otra vez para enterarse.
+    """
+    artifacts: list[Any] = []
+    for holder in ("last_payload", "last_result"):
+        value = audit.get(holder) if isinstance(audit, dict) else None
+        if isinstance(value, dict):
+            artifacts.extend(value.get("strategy_artifacts") or [])
+    marks = sorted({
+        f"{artifact.get('source_set')}:{artifact.get('manual_report_sha256')}"
+        for artifact in artifacts
+        if isinstance(artifact, dict) and artifact.get("manual_report_sha256")
+    })
+    return hashlib.sha1("|".join(marks).encode("utf-8")).hexdigest()[:16] if marks else ""
+
+
 def _archive_entry(
     audit: dict[str, Any], profile: dict[str, Any], audit_key: str, execution_id: str,
     result: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "audit_key": audit_key, "execution_id": execution_id,
+        "manual_reports": manual_evidence(audit),
         "portfolio_id": safe_int(result.get("portfolio_id"), 0, minimum=0),
         "portfolio_type": str(result.get("portfolio_type") or ""),
         "deployment_name": str(profile.get("deployment_name") or ""),
@@ -179,7 +201,7 @@ def archive_execution(
     execution_id = _execution_id(audit)
     if archive is None or not execution_id:
         return
-    if archive.knows(node_id, audit_key, execution_id):
+    if archive.knows(node_id, audit_key, execution_id, manual_evidence(audit)):
         return
     analysed = analysed_node_state(
         node, {"audit": dict(audit)}, profile,

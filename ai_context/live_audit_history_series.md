@@ -37,6 +37,26 @@ enseña lo mismo que enseñó Análisis ese día. Se recorta al servirlo
 (`trimmed_detail`), no al guardarlo: lo que la pantalla pida mañana ya está en
 el fichero.
 
+## Una ejecución corregida sigue siendo la misma ejecución
+
+Confirmado con AXI #105 el 2026-10-20: el nodo conservaba la carga manual de
+`XAUUSD_D1_GOLD_Goldbot_One__dailyK_g001_s016_v004.set`, con calidad 100 % y
+PnL tester -97,55 EUR, pero el archivo del manager seguía guardando el análisis
+anterior, con calidad 40 % y PnL -96,59 EUR. Análisis enseñaba la corrección y
+la tabla histórica no.
+
+La carga manual sustituye el reporte dentro de `last_payload`, pero no relanza
+MT5 y por tanto no cambia `audit_id`. Deduplicar el diario sólo por
+`uso + ejecución` convierte ese ID estable en un falso candado: el vigilante ve
+que ya existe y no vuelve a analizarlo.
+
+Cada entrada archiva ahora también una huella de los
+`manual_report_sha256` aplicados, ligada a su `source_set`. `knows` sólo da la
+ejecución por guardada si coincide también esa evidencia; cuando cambia, el
+manager recalcula y `remember` sustituye la entrada y el detalle anteriores sin
+duplicarlos. Las entradas antiguas, sin huella, se corrigen en la primera
+vuelta del vigilante si el nodo ya publica un reporte manual.
+
 ## La herencia tiene dos candados: genealogía e identidad
 
 Primera versión (2026-10-19): `LiveAuditArchive.related` enlazaba con
