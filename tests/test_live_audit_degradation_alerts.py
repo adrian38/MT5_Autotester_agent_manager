@@ -50,6 +50,10 @@ HISTORY = {
 DEGRADED_PROFIT = -20.0
 WARNING_PROFIT = -4.0
 
+# Y -10 son -2,94 sigma: cruza el umbral y no supera la evidencia. Es el caso
+# que la tarjeta tiene que nombrar sin llevarlo al movil.
+CROSSING_PROFIT = -10.0
+
 
 def detail(*rows: tuple[str, str, str, float, int]) -> dict:
     """Una comparacion con las operaciones del tester de cada estrategia."""
@@ -173,6 +177,32 @@ class DegradationAlertTests(unittest.TestCase):
             self.review()
         self.assertEqual([], self.server.events())
         self.assertEqual([], self.stored()["strategies"])
+        self.assertEqual(self.stored()["watching"], 1)
+
+    def test_a_crossing_is_named_on_the_card_and_kept_off_the_device(self) -> None:
+        # Cruza -2,94 sigma pero la evidencia no lo confirma. La tarjeta tiene
+        # que nombrarlo -el recuento a secas lo escondia- y el movil no, que
+        # es justo la diferencia entre «vigila esto» y «cambia esto».
+        self.archive("run-1", detail((DEGRADING, "uno.set", "EURUSD", CROSSING_PROFIT, 12)))
+        with memory(DEGRADING):
+            self.review()
+        self.assertEqual([], self.server.events())
+        self.assertEqual([], self.pushed)
+        stored = self.stored()
+        self.assertEqual([], stored["strategies"])
+        self.assertEqual(
+            [(row["symbol"], row["verdict"]) for row in stored["crossing"]],
+            [("EURUSD", "warning")],
+        )
+        self.assertLess(stored["crossing"][0]["deviations"], -2)
+        self.assertEqual(stored["watching"], 1)
+
+    def test_an_aviso_that_never_crossed_is_only_counted(self) -> None:
+        # El de -1,5 sigma no se nombra: ahi no ha pasado nada que mirar.
+        self.archive("run-1", detail((STEADY, "dos.set", "GBPUSD", WARNING_PROFIT, 12)))
+        with memory(STEADY):
+            self.review()
+        self.assertEqual([], self.stored()["crossing"])
         self.assertEqual(self.stored()["watching"], 1)
 
     def test_the_same_execution_is_only_measured_once(self) -> None:

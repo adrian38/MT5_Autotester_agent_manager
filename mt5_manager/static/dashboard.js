@@ -147,22 +147,35 @@ function sigma(value) {
 // «DEGRADA» es el veredicto de la tabla «contra el histórico» de Análisis: la
 // estrategia ya no se parece a su propio backtest. Es el único que justifica
 // retirarla, y hasta ahora sólo salía abriendo esa pantalla uso por uso.
-// `AVISO` se cuenta pero no se lista: por definición del criterio todavía no
-// hay base para tocar nada, y una lista llena de eso deja de leerse.
+// El `AVISO` que no llegó a cruzar sigue sin listarse: ahí no ha pasado nada
+// que mirar, y una lista llena de eso deja de leerse.
+function strategyAlert(row, tone, label) {
+  const name = row.strategy_set || row.strategy;
+  return `<li><div><strong>${escapeHtml(row.symbol || '—')}</strong><small>${escapeHtml(name)}</small></div>`
+    + `<div class="strategy-values"><span>${escapeHtml(sigma(row.deviations))}</span>`
+    + `<span>${escapeHtml(row.trades)} operaciones</span></div>`
+    + `<div><span class="verdict ${tone}">${label}</span></div></li>`;
+}
+
+// `AVISO FUERTE` es la que cruzó −2 σ sin que la evidencia lo confirmara.
+// También se nombra: el recuento a secas la escondía, y además sólo se pintaba
+// si había alguna degradada, así que una estrategia podía estar cruzando
+// semana tras semana sin que la portada dijera nada. Al móvil sigue sin ir:
+// no hay base para tocar nada hoy, y un push semanal sobre eso vacía de
+// sentido a los que sí importan.
 function degradationMarkup(entry) {
   const rows = entry.degradation?.strategies || [];
-  if (!rows.length) return '';
+  const crossing = entry.degradation?.crossing || [];
+  if (!rows.length && !crossing.length) return '';
   const watching = Number(entry.degradation?.watching || 0);
-  const alerts = rows.map(row => {
-    const name = row.strategy_set || row.strategy;
-    return `<li><div><strong>${escapeHtml(row.symbol || '—')}</strong><small>${escapeHtml(name)}</small></div>`
-      + `<div class="strategy-values"><span>${escapeHtml(sigma(row.deviations))}</span>`
-      + `<span>${escapeHtml(row.trades)} operaciones</span></div>`
-      + `<div><span class="verdict bad">DEGRADA</span></div></li>`;
-  }).join('');
+  const alerts = rows.map(row => strategyAlert(row, 'bad', 'DEGRADA'))
+    .concat(crossing.map(row => strategyAlert(row, 'warn', 'AVISO FUERTE'))).join('');
+  const counts = [
+    rows.length ? `${rows.length} degrada${rows.length === 1 ? '' : 'n'}` : '',
+    watching ? `${watching} en vigilancia` : '',
+  ].filter(Boolean).join(' · ');
   return `<section class="strategy-section"><div class="section-title"><strong>Contra el histórico</strong>`
-    + `<span>${rows.length} degrada${rows.length === 1 ? '' : 'n'}`
-    + `${watching ? ` · ${watching} en vigilancia` : ''}</span></div>`
+    + `<span>${counts}</span></div>`
     + `<ul class="strategy-alerts">${alerts}</ul></section>`;
 }
 
@@ -215,8 +228,9 @@ function cardMarkup(entry) {
   const broken = summary.flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
   const warnings = summary.flagged.filter(row => row.verdict === 'AVISO').length;
   const degraded = (entry.degradation?.strategies || []).length;
+  const crossing = (entry.degradation?.crossing || []).length;
   const tone = broken || degraded ? 'failed'
-    : warnings ? 'pending' : summary.comparable ? 'completed' : 'idle';
+    : warnings || crossing ? 'pending' : summary.comparable ? 'completed' : 'idle';
   const body = summary.comparable ? `<div class="comparison-grid">
     <div><span>Profit Test</span><strong>${escapeHtml(money(summary.demo_profit, currency))}</strong></div>
     <div><span>Profit Real</span><strong>${escapeHtml(money(summary.real_profit, currency))}</strong></div>
@@ -226,7 +240,9 @@ function cardMarkup(entry) {
   const badge = [
     broken ? `${broken} NO REPRODUCE` : '',
     degraded ? `${degraded} DEGRADA${degraded === 1 ? '' : 'N'}` : '',
-    !broken && !degraded && warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
+    crossing ? `${crossing} EN VIGILANCIA` : '',
+    !broken && !degraded && !crossing && warnings
+      ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
   ].filter(Boolean).join(' · ') || (summary.comparable ? 'SIN AVISOS' : 'SIN DATOS');
   return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${summary.comparable ? unlinkedMarkup(summary) : ''}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }

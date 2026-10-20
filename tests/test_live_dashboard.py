@@ -97,6 +97,20 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # Degradar pinta la tarjeta como crítica, igual que NO REPRODUCE.
         self.assertIn("const tone = broken || degraded ? 'failed'", self.script)
 
+    def test_a_crossing_that_is_not_confirmed_is_named_too(self) -> None:
+        # Desde que cruzar −2 σ dejó de ser el veredicto, el recuento «en
+        # vigilancia» escondía la estrategia que cruzó, y encima sólo se
+        # pintaba si había alguna degradada: la portada se quedaba muda
+        # mientras una estrategia cruzaba semana tras semana. Se nombra, con
+        # su chapa ámbar, y la tarjeta deja de estar verde.
+        self.assertIn("entry.degradation?.crossing || []", self.script)
+        self.assertIn("if (!rows.length && !crossing.length) return ''", self.script)
+        self.assertIn("strategyAlert(row, 'warn', 'AVISO FUERTE')", self.script)
+        self.assertIn("crossing ? `${crossing} EN VIGILANCIA` : ''", self.script)
+        self.assertIn(": warnings || crossing ? 'pending'", self.script)
+        # El aviso que no llego a cruzar sigue siendo solo un recuento.
+        self.assertIn("sigue sin listarse", self.script)
+
     def test_the_card_does_not_open_the_agent_memory_to_know_it(self) -> None:
         # El histórico vive en la memoria UBS del agente y la portada se
         # repinta cada minuto: lo mide el vigilante al archivar y la tarjeta

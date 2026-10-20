@@ -16,15 +16,21 @@ auditorías; nadie contaba esto.
 | Veredicto | Tarjeta | Campana y push |
 | --- | --- | --- |
 | `degraded` (DEGRADA) | fila con su σ y sus operaciones | sí, una vez por estrategia |
-| `warning` (AVISO) | sólo el recuento «N en vigilancia» | no |
+| `warning` que cruzó −2 σ (AVISO FUERTE) | fila con su σ y sus operaciones, en ámbar | no |
+| `warning` que no cruzó (AVISO) | sólo el recuento «N en vigilancia» | no |
 | el resto | nada | no |
 
 **Desde el 2026-10-20 `DEGRADA` ya no es cruzar −2 σ**, sino cruzarlo y
 superar además las dos pruebas de `live_audit_degradation_evidence`: el detalle
-y los números están en `live_audit_degradation_evidence.md`. Lo que cruza y no
-las supera se queda en `AVISO` —la pantalla lo llama `AVISO FUERTE`— y por lo
-tanto **no** sale a la campana ni al móvil. Esta tabla no cambia; cambia qué
-filas entran en la primera fila de ella.
+y los números están en `live_audit_degradation_evidence.md`.
+
+Eso partió en dos la fila de `AVISO`. La que cruza y no se confirma **se
+nombra en la tarjeta** —`degradation_crossing` en el estado del cron,
+`crossing` en el payload— y deja la tarjeta en ámbar. Dejarla sólo en el
+recuento la escondía, y como la sección únicamente se pintaba habiendo alguna
+degradada, la portada se quedaba **muda** mientras una estrategia cruzaba
+semana tras semana: exactamente lo que este aviso vino a arreglar. Al móvil
+sigue sin ir, que es la diferencia entre «vigila esto» y «cambia esto».
 
 `AVISO` es, por el propio criterio, «mantener en vigilancia; aún no hay base
 suficiente para cambiarla». Llevarlo al móvil sería un aviso semanal sobre el

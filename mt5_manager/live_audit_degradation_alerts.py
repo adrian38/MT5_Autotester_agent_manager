@@ -86,12 +86,29 @@ def _row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def flagged(report: dict[str, Any]) -> tuple[list[dict[str, Any]], int, int]:
-    """Las degradadas, cuántas están en vigilancia y cuántas se compararon."""
+def _crossed(row: dict[str, Any]) -> bool:
+    """Si cruzó el umbral aunque la evidencia no lo confirmara."""
+    evidence = row.get("evidence")
+    return bool(isinstance(evidence, dict) and evidence.get("crossed"))
+
+
+def flagged(
+    report: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
+    """Degradadas, las que cruzaron sin confirmar, en vigilancia y comparadas.
+
+    Las que cruzan sin confirmarse se listan aparte porque la tarjeta tiene
+    que **nombrarlas**: desde que cruzar −2 σ dejó de ser el veredicto, el
+    recuento a secas las escondía —y el recuento sólo se pintaba si había
+    alguna degradada, así que la portada no decía nada en absoluto—. Al móvil
+    no van: `_announce` sólo recibe las degradadas.
+    """
     rows = [row for row in report.get("strategies") or [] if isinstance(row, dict)]
+    watched = [row for row in rows if str(row.get("verdict") or "") == WATCHED]
     return (
         [_row(row) for row in rows if str(row.get("verdict") or "") == DEGRADED],
-        sum(1 for row in rows if str(row.get("verdict") or "") == WATCHED),
+        [_row(row) for row in watched if _crossed(row)],
+        len(watched),
         len(rows),
     )
 
@@ -191,13 +208,14 @@ def review(
     report = _report(server, node, node_id, audit_key, archive.detail(node_id, entry))
     if report is None:
         return
-    degraded, watching, compared = flagged(report)
+    degraded, crossing, watching, compared = flagged(report)
     announced = {
         str(row.get("strategy") or "")
         for row in record.get("degradation") or [] if isinstance(row, dict)
     }
     runs.update(
         key, degradation_execution=measured, degradation=degraded,
+        degradation_crossing=crossing,
         degradation_watching=watching, degradation_compared=compared,
         degradation_checked_at=utc_now(),
     )
@@ -213,6 +231,9 @@ def stored(server: Any, node_id: str, audit_key: str) -> dict[str, Any]:
     return {
         "strategies": [
             row for row in record.get("degradation") or [] if isinstance(row, dict)
+        ],
+        "crossing": [
+            row for row in record.get("degradation_crossing") or [] if isinstance(row, dict)
         ],
         "watching": safe_int(record.get("degradation_watching"), 0, minimum=0),
         "compared": safe_int(record.get("degradation_compared"), 0, minimum=0),
