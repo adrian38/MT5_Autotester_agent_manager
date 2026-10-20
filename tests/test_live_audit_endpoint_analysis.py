@@ -111,7 +111,7 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
             {"time": "2026-09-22T10:00:00+00:00", "balance": 2000.0},
         ]
         with patch(
-            "mt5_manager.manager_live_audit_routes._autolot_balance_history",
+            "mt5_manager.live_audit_executions.balance_history",
             return_value=history,
         ):
             analysed = analysed_live_audit(

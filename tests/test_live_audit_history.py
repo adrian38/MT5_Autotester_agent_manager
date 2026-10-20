@@ -7,15 +7,19 @@ nada sobre una estrategia.
 """
 from __future__ import annotations
 
+import hashlib
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mt5_manager import live_audit_history
+from mt5_manager import live_audit_history, live_audit_watch
 from mt5_manager.live_audit_archive import LiveAuditArchive, strategies_of, trimmed_detail
+from tests.test_live_audit_autolot import SET_STEM, audit_payload, audit_profile
+from tests.test_live_audit_cron import FakeServer as CronServer, audit_state
 
 
 def trade(symbol: str, close: str, profit: float, volume: float = 0.01) -> dict[str, object]:
@@ -350,6 +354,100 @@ class HistoryRouteTests(unittest.TestCase):
         # Y servirla otra vez no la duplica.
         self._get(FakeHandler(self.archive))
         self.assertEqual(len(self.archive.index("n")), 1)
+
+
+def native_report_html() -> bytes:
+    """El HTML nativo de MT5 del que sale el saldo histórico del autolote."""
+    headers = [
+        "Time", "Deal", "Symbol", "Type", "Direction", "Volume", "Price",
+        "Order", "Commission", "Swap", "Profit", "Balance", "Comment",
+    ]
+    rows = [
+        ["2026.09.22 09:00:00", "1", "", "balance", "", "0", "0", "", "0", "0",
+         "1000", "1000", "deposit"],
+        ["2026.09.22 10:00:00", "2", "EURUSD", "buy", "out", "0.1", "1.1", "1", "0", "0",
+         "1000", "2000", ""],
+    ]
+    cell = lambda values: "<tr>" + "".join(f"<td>{value}</td>" for value in values) + "</tr>"
+    return ("<html><body>" + cell(["Deals"]) + cell(headers)
+            + "".join(cell(row) for row in rows) + "</body></html>").encode()
+
+
+def autolot_execution(report: dict[str, object]) -> dict[str, object]:
+    """Un uso con autolote terminado, tal y como lo enseña el agente."""
+    payload = audit_payload()
+    payload["request"] = {**payload["request"], "audit_key": "11"}
+    payload["real_account_report"] = report
+    return {
+        "status": "completed", "audit_id": payload["audit_id"],
+        "finished_at": "2026-09-22T12:30:00+00:00",
+        "last_result": None, "last_payload": payload,
+    }
+
+
+class WatchedArchiveTests(unittest.TestCase):
+    """El vigilante archiva lo mismo que la pantalla, autolote incluido.
+
+    Medido el 2026-10-20: de los usos con autolote (#109, #173, #170 y #148)
+    ninguno había entrado en la serie, porque el vigilante analizaba sin el
+    saldo histórico del informe nativo y el análisis se negaba a inventar un
+    lote esperado. El nodo guarda un único payload por uso, así que esa semana
+    se perdía para siempre en cuanto corría la cita siguiente.
+    """
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        root = Path(self.temporary.name)
+        state = audit_state()
+        state["profiles"]["11"] = {
+            **audit_profile(), "portfolio_id": 11, "deployment_name": "Cartera viva",
+            "live_trading": True, "autolot": {
+                "enabled": True, "source_name": "riesgo.xlsx", "source_sha256": "a" * 64,
+                "rules": {SET_STEM: {"dd_001": 10.0, "risk_pct": 10.0}},
+            },
+        }
+        self.server = CronServer(root, state)
+        self.server.live_audit_archive = LiveAuditArchive(root / "historico")
+
+    def _tick(self, audit: dict[str, object], artifact: tuple) -> None:
+        def request(_node, _method, path, payload=None, timeout=0):
+            if path == "/api/v1/status":
+                return 200, {"capabilities": {"live_audit_restore_account": True}}
+            return 200, {"audits": {"11": audit}}
+
+        with mock.patch("mt5_manager.manager_http.node_request", side_effect=request), \
+                mock.patch(
+                    "mt5_manager.manager_http.node_artifact_request", return_value=artifact,
+                ):
+            live_audit_watch.tick(self.server)
+
+    def test_the_watcher_downloads_the_balance_the_autolot_needs(self) -> None:
+        contents = native_report_html()
+        self._tick(
+            autolot_execution({
+                "filename": "real.html", "sha256": hashlib.sha256(contents).hexdigest(),
+            }),
+            (200, contents, "text/html"),
+        )
+        self.assertTrue(self.server.live_audit_archive.knows("n", "11", "run-autolot"))
+        entry = self.server.live_audit_archive.index("n")[0]
+        self.assertEqual(entry["period_end"], "2026-09-22T23:59:59+00:00")
+        self.assertEqual(entry["deployment_name"], "Cartera viva")
+
+    def test_an_archive_that_cannot_be_done_leaves_a_trace_once(self) -> None:
+        # Volver callando es lo que dejó la serie semanal a medias sin que
+        # nadie pudiera enterarse hasta mirar la carpeta.
+        self._tick(autolot_execution({}), (404, b"", "text/plain"))
+        self.assertEqual(self.server.live_audit_archive.index("n"), [])
+        events = [row for row in self.server.events() if row["kind"] == "archive_failed"]
+        self.assertEqual(len(events), 1)
+        self.assertIn("Cartera viva", events[0]["title"])
+        self.assertIn("autolote", events[0]["message"])
+        self._tick(autolot_execution({}), (404, b"", "text/plain"))
+        self.assertEqual(
+            1, len([row for row in self.server.events() if row["kind"] == "archive_failed"]),
+        )
 
 
 class HistoryScreenTests(unittest.TestCase):

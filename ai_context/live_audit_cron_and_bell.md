@@ -256,3 +256,91 @@ arrancar: mientras corre, su copia en memoria los tapa.
 - Perder `live_audit_schedule_state.json` no relanza auditorías ya hechas:
   `pending_window` mira la hora de terminación que informa el nodo, no el
   estado guardado. Lo que se pierde es la cuenta de reintentos.
+
+## Los dos fallos de la primera ejecución real (2026-10-20)
+
+La cita vencida del sábado 2026-10-17 se recuperó la noche del 19 al 20 y lanzó
+cinco auditorías (AXI #105, #108, #109, #67; RoboForex #173), todas
+completadas, sin fallos ni reintentos. Comparadas con los datos reales de los
+nodos aparecieron dos fallos, **y los dos son la misma raíz**: el manager leía
+el estado del agente como si el agente todavía calculase el veredicto.
+
+Desde que la comparación se movió al manager (`live_audit_analysis`), el nodo
+publica **sólo materia prima**: `last_payload`, con su `period_end` y su
+`request`. `last_result` llega **siempre a null**, y lo rellena el manager al
+analizar. Es la trampa de «El nodo NO ejecuta este repositorio» en su versión
+más silenciosa: aquí no hay código duplicado, hay un contrato que cambió de
+lado y dos lecturas que se quedaron en el lado viejo.
+
+### 1. El periodo no se encadenaba nunca
+
+`chained_period` sacaba el final de la ventana anterior de
+`audit["last_result"]["period_end"]`. Con `last_result` a null no encontraba
+nada, devolvía `{}` y mandaba **el periodo guardado en el perfil**: #67 del 1
+de septiembre al 4 de octubre, #105 del 1 al 11, #108 del 12 al 15, #109 y #173
+del 5 al 11. Las cinco repitieron una ventana ya auditada y **nada posterior al
+15 de octubre se auditó**. El encadenado, que es lo que justifica el cron
+semanal, estaba muerto desde que existe.
+
+`previous_period_end` es ahora quien lo decide, y mira las tres formas en que
+puede llegar: el `period_end` del veredicto (un agente antiguo que todavía lo
+calcula), el `period_end` del payload (todos los de hoy) y, como último
+recurso, el `finished_at` de la ejecución. `inherited_period_end` sigue
+después: la ventana del padre sólo manda cuando el uso no tiene ninguna
+ejecución propia.
+
+El aviso de la campana afirmaba el encadenado por su cuenta: leía
+`period_mode == "fixed_dates"` en el payload que iba al nodo, **que es lo que
+trae un perfil con fechas fijas**. Así que decía «periodo 2026-10-01 a
+2026-10-11, enganchado al final de la última auditoría» sobre unas fechas
+escritas a mano meses antes. `_launch_payload` devuelve ahora el periodo
+encadenado aparte, y el aviso sólo lo nombra cuando viene de ahí.
+
+### 2. Los usos con autolote no entraban en la serie
+
+`archive_execution` analizaba con `analyse_node_state` a secas. Con el autolote
+activo, el análisis exige el saldo histórico del informe nativo de MT5 —el lote
+esperado depende del saldo en cada apertura— y se niega, con razón, a inventarlo:
+«El autolote no pudo leer el saldo histórico del informe nativo de MT5». El
+resultado quedaba sin `comparison_detail` y la función **volvía en silencio**.
+
+Medido: de los usos con autolote (#109, #173, #170 y el viejo #148) ninguno
+estaba en `runtime/runtime/live_audit_history`; los demás sí. Sólo se salvaban
+si alguien abría la pantalla de Análisis antes de la cita siguiente, porque esa
+ruta sí baja el informe (`_autolot_balance_history`) y archiva lo que sirve. Y
+como el nodo guarda **un** payload por uso, cada cita que pasaba borraba la
+semana anterior para siempre.
+
+La primitiva es ahora una sola, `live_audit_executions`: baja el saldo, aplica
+el criterio y archiva. La ruta de pantalla y el vigilante la comparten, y
+`archive_execution` recibe el `node` porque sin él no hay veredicto que
+archivar. Un archivado imposible deja rastro —una línea en el log y **un** aviso
+por ejecución en la campana, `kind: archive_failed`— en vez de volver callando.
+
+### Por qué el suite no veía ninguno de los dos
+
+Las 147 pruebas del área estaban en verde y seguirían estándolo: alimentaban
+`{"last_result": {...}}`, **una forma que ningún agente produce desde que la
+comparación se movió aquí**. Un doble de prueba que modela un contrato antiguo
+no prueba nada sobre el de hoy, y encima da confianza.
+
+- El estado del agente en las pruebas del cron se construye ahora con
+  `published_audit()` de `tests/test_live_audit_cron.py`: `last_payload` con su
+  periodo y `last_result` a `None`. Hay una prueba aparte para el agente
+  antiguo, que sí publica veredicto.
+- `tests/test_live_audit_history.py` recorre el camino del vigilante de punta a
+  punta con el autolote activo: el nodo sirve el HTML nativo, el vigilante lo
+  baja y la ejecución acaba en el archivo. Y el caso contrario, que deja aviso
+  una sola vez.
+- Al mover `_autolot_balance_history` a `live_audit_executions.balance_history`
+  hubo que mover también el `patch()` de
+  `tests/test_live_audit_endpoint_analysis.py`, que si no se queda sin efecto y
+  el test sigue verde ejecutando la función real.
+
+Lo que esto deja pendiente para el usuario: el manager corre en Docker, así que
+hasta que su imagen se reconstruya sigue con el código viejo. El `#170` de
+RoboForex es el único uso con autolote todavía sin archivar; su payload vive en
+el nodo hasta la cita siguiente, así que **el vigilante lo rescata solo en la
+primera vuelta después de reconstruir**, y si la cita llega antes se pierde. Con
+el manager viejo la salida sigue siendo abrir su pantalla de Análisis, que es
+como se rescataron #109 y #173 durante la revisión.

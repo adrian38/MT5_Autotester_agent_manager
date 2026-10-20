@@ -248,6 +248,29 @@ def pending_window(
     return occurrence.isoformat(), True
 
 
+def previous_period_end(audit: dict[str, Any]) -> datetime | None:
+    """Hasta donde llego la ultima auditoria de ese uso, como lo cuente el nodo.
+
+    **`last_result` ya no lo escribe ningun agente**: desde que la comparacion
+    se movio al manager (`live_audit_analysis`) el nodo publica la materia
+    prima en `last_payload` y deja `last_result` a null. Mirar solo
+    `last_result` dejaba el encadenado muerto en silencio -las cinco
+    auditorias de la noche del 19 al 20 de octubre de 2026 repitieron la
+    ventana fija del perfil y no auditaron nada posterior a ella-, asi que el
+    `period_end` del payload cuenta igual, y la hora en que acabo la ejecucion
+    como ultimo recurso.
+    """
+    result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
+    payload = audit.get("last_payload") if isinstance(audit.get("last_payload"), dict) else {}
+    for value in (
+        result.get("period_end"), payload.get("period_end"), audit.get("finished_at"),
+    ):
+        parsed = parse_timestamp(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def chained_period(
     settings: dict[str, Any], audit: dict[str, Any], now: datetime,
     inherited_end: datetime | None = None,
@@ -265,8 +288,7 @@ def chained_period(
     """
     if not settings.get("chain_from_last_audit", True):
         return {}
-    result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
-    previous_end = parse_timestamp(result.get("period_end")) or inherited_end
+    previous_end = previous_period_end(audit) or inherited_end
     if previous_end is None:
         return {}
     # En UTC las dos, porque el nodo convierte estas fechas en dias completos

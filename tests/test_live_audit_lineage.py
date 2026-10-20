@@ -19,7 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mt5_manager import live_audit_lineage, live_audit_schedule, live_audit_watch
 from mt5_manager.live_audit_archive import LiveAuditArchive, strategies_of
-from tests.test_live_audit_cron import FakeServer as CronServer, audit_state
+from tests.test_live_audit_cron import (
+    FakeServer as CronServer, audit_state, published_audit,
+)
 
 
 def member(candidate: str, set_name: str, variant: str = "balanced") -> dict[str, object]:
@@ -266,9 +268,10 @@ class ChainedPeriodTests(unittest.TestCase):
         self.assertEqual(period["period_end_date"], "2026-10-20")
 
     def test_its_own_execution_wins_over_the_inherited_one(self) -> None:
-        audit = {"last_result": {"period_end": "2026-10-17T23:59:59+00:00"}}
+        # Con la forma que publica un agente de hoy: `last_payload` y
+        # `last_result` a null. Con la vieja la herencia ganaba siempre.
         period = live_audit_schedule.chained_period(
-            self.settings, audit, self.now,
+            self.settings, published_audit(period_end="2026-10-17T23:59:59+00:00"), self.now,
             live_audit_schedule.parse_timestamp("2026-10-03T23:59:59+00:00"),
         )
         self.assertEqual(period["period_start_date"], "2026-10-17")

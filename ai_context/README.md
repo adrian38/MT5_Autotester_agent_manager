@@ -137,7 +137,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_cron_and_bell.md`: el cron general de los portafolios activos
   —sábado a las 23:00 con reintentos—, la campana de avisos, por qué el hilo
   vigila siempre pero sólo lanza con el interruptor, y el periodo que se
-  engancha con el de la auditoría anterior.
+  engancha con el de la auditoría anterior. Incluye los dos fallos de la
+  primera ejecución real (el periodo que nunca se encadenaba y los usos con
+  autolote que no se archivaban) y por qué el suite no los veía.
 - `live_dashboard_uses_analysis.md`: portada y Análisis comparten el mismo
   veredicto y simulación de lotes; el reinicio inicial sondea y recarga.
 - `live_audit_reviewed_strategies.md`: la casilla «Validada» de Análisis saca

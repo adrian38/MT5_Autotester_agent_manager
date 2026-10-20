@@ -23,9 +23,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import live_audit_analysis, live_audit_lineage, live_audit_schedule, manager_http
+from . import live_audit_executions, live_audit_lineage, live_audit_schedule, manager_http
 from .common import load_json, safe_int, save_json, utc_now
 from .live_audit_core import RUNNING_STATUSES
+from .live_audit_executions import audit_label
 
 # Como se lee cada estado final del nodo: (resultado del intento, nivel del
 # aviso, titulo). `idle` esta aqui porque un agente reiniciado olvida el uso que
@@ -135,12 +136,6 @@ def scheduled_audit_ids(state: dict[str, Any], settings: dict[str, Any]) -> list
     ]
 
 
-def audit_label(profile: dict[str, Any], audit_id: str) -> str:
-    name = str(profile.get("deployment_name") or "").strip()
-    portfolio_id = safe_int(profile.get("portfolio_id"), 0, minimum=1)
-    return name or (f"Portafolio #{portfolio_id}" if portfolio_id else f"Uso {audit_id}")
-
-
 def _audit_use_created_at(audit_id: str) -> datetime | None:
     """Fecha del ID moderno que crea la UI; los IDs heredados no la inventan."""
     try:
@@ -217,53 +212,6 @@ def record_node_issue(
         )
 
 
-def _execution_id(audit: dict[str, Any]) -> str:
-    result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
-    return str(
-        audit.get("audit_id") or result.get("audit_id") or result.get("completed_at") or ""
-    )
-
-
-def archive_execution(
-    server: Any, node_id: str, audit_key: str, audit: dict[str, Any],
-    profile: dict[str, Any],
-) -> None:
-    """Guarda en el diario la ejecución terminada que el nodo enseña.
-
-    Se guarda **el veredicto del manager**, no la materia prima: el Excel de
-    atribución y las parejas decididas a mano ya están aplicados, y así la
-    serie histórica enseña lo mismo que enseñó Análisis ese día.
-
-    Idempotente por ejecución, que es lo que la convierte también en la forma
-    de rescatar lo que ya existía: la primera vuelta archiva la última
-    auditoría de cada uso antes de que la siguiente la sustituya.
-    """
-    archive = getattr(server, "live_audit_archive", None)
-    execution_id = _execution_id(audit)
-    if archive is None or not execution_id:
-        return
-    if archive.knows(node_id, audit_key, execution_id):
-        return
-    analysed = live_audit_analysis.analyse_node_state({"audit": dict(audit)}, profile)
-    result = ((analysed or {}).get("audit") or {}).get("last_result")
-    if not isinstance(result, dict) or not result.get("comparison_detail"):
-        return
-    archive.remember(node_id, {
-        "audit_key": audit_key, "execution_id": execution_id,
-        "portfolio_id": safe_int(result.get("portfolio_id"), 0, minimum=0),
-        "portfolio_type": str(result.get("portfolio_type") or ""),
-        "deployment_name": str(profile.get("deployment_name") or ""),
-        "executed_at": str(
-            (result.get("analysis") or {}).get("executed_at") or result.get("completed_at") or ""
-        ),
-        "completed_at": str(result.get("completed_at") or ""),
-        "period_start": str(result.get("period_start") or ""),
-        "period_end": str(result.get("period_end") or ""),
-        "currency": str((result.get("account") or {}).get("currency") or ""),
-        "status": str(audit.get("status") or ""),
-    }, dict(result.get("comparison_detail") or {}))
-
-
 def _finished_message(audit: dict[str, Any]) -> str:
     error = str(audit.get("error") or "").strip()
     if error:
@@ -294,8 +242,8 @@ def record_transitions(
         key = runs.key(node_id, audit_id)
         record = runs.record(key)
         if status in FINAL_STATUSES and status != "idle":
-            archive_execution(
-                server, node_id, audit_id, audit, dict(profiles.get(audit_id) or {}),
+            live_audit_executions.archive_execution(
+                server, node, node_id, audit_id, audit, dict(profiles.get(audit_id) or {}),
             )
         if status == str(record.get("last_status") or ""):
             continue
@@ -317,9 +265,13 @@ def record_transitions(
 def _launch_payload(
     server: Any, node_id: str, audit_id: str, profile: dict[str, Any],
     audit: dict[str, Any], now: datetime,
-) -> dict[str, Any]:
-    """Lo que viaja al nodo: el perfil sin el criterio del manager y el periodo
-    enganchado al final de la ultima auditoria.
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Lo que viaja al nodo y, aparte, el periodo que de verdad se encadeno.
+
+    El periodo encadenado se devuelve suelto porque **el perfil tambien puede
+    traer `fixed_dates`**: leerlo del payload hacia que el aviso de la campana
+    jurase arrancar donde termino la ultima auditoria mientras repetia las
+    fechas fijas guardadas a mano.
 
     Lo que se queda aqui -Excel de atribucion, parejas a mano, estrategias ya
     revisadas y escalado de la vista- no se pierde: vive en el perfil del uso y
@@ -330,16 +282,17 @@ def _launch_payload(
         if key not in live_audit_schedule.MANAGER_ONLY_PROFILE_KEYS
     }
     inherited_end = live_audit_lineage.inherited_period_end(server, node_id, profile)
+    chained = live_audit_schedule.chained_period(
+        server.live_audit_scheduler_settings, audit, now, inherited_end,
+    )
     return {
         **node_profile,
-        **live_audit_schedule.chained_period(
-            server.live_audit_scheduler_settings, audit, now, inherited_end,
-        ),
+        **chained,
         **server.live_audit_settings.credentials(node_id, audit_id),
         **server.live_audit_settings.restore_credentials(node_id),
         "audit_key": audit_id,
         "portfolio_id": safe_int(profile.get("portfolio_id"), 0, minimum=1),
-    }
+    }, chained
 
 
 def _attempt_text(attempts: int, settings: dict[str, Any]) -> str:
@@ -365,7 +318,7 @@ def launch(
         "window": context["window"], "attempts": attempts,
         "last_attempt_at": utc_now(),
     }
-    payload = _launch_payload(
+    payload, chained = _launch_payload(
         server, node_id, audit_id, profile, context["audit"], context["now"],
     )
     restore_fields = ("restore_login", "restore_server", "restore_password")
@@ -397,10 +350,9 @@ def launch(
         return
     runs.update(key, **base, outcome="running", last_status="queued")
     period = (
-        f"periodo {payload['period_start_date']} a {payload['period_end_date']}, "
+        f"periodo {chained['period_start_date']} a {chained['period_end_date']}, "
         "enganchado al final de la última auditoría"
-        if payload.get("period_mode") == "fixed_dates" and payload.get("period_start_date")
-        else "periodo configurado en el uso"
+        if chained else "periodo configurado en el uso"
     )
     server.live_audit_notifications.add(
         "info", f"Auditoría programada lanzada: {label}",

@@ -79,6 +79,33 @@ def audit_state(**changes: object) -> dict[str, object]:
     }
 
 
+def published_audit(**changes: object) -> dict[str, object]:
+    """Un uso terminado con la forma que publica un agente de hoy.
+
+    Desde que la comparación se movió al manager, el nodo sólo publica
+    `last_payload`: `last_result` llega **siempre** a `None`. Alimentar
+    `{"last_result": {...}}` modelaba un agente que ya no existe, y por eso el
+    suite no vio que el periodo nunca se encadenaba.
+    """
+    payload: dict[str, object] = {
+        "audit_id": "run-1", "audit_key": "11",
+        "completed_at": "2026-01-02T03:00:00+00:00",
+        "period_start": "2026-01-01T00:00:00+00:00",
+        "period_end": "2026-01-01T23:59:59+00:00",
+        "request": {
+            "audit_key": "11", "portfolio_id": 11, "portfolio_type": "balanced",
+            "period_mode": "fixed_dates", "period_days": 7,
+            "period_start_date": "2025-12-26", "period_end_date": "2026-01-01",
+        },
+    }
+    payload.update(changes)
+    return {
+        "status": "completed", "audit_id": payload["audit_id"],
+        "finished_at": "2026-01-02T03:00:00+00:00",
+        "last_result": None, "last_payload": payload,
+    }
+
+
 class WeeklyCadenceTests(unittest.TestCase):
     def test_eleven_at_night_is_spanish_time_not_the_container_clock(self) -> None:
         # El contenedor del manager corre en UTC. Sin zona, «las 23:00» serían
@@ -206,15 +233,16 @@ class RetryPolicyTests(unittest.TestCase):
 
 
 class ChainedPeriodTests(unittest.TestCase):
+    NOW = datetime(2026, 10, 24, 21, 30, tzinfo=timezone.utc)
+
     def test_the_next_audit_starts_where_the_last_one_ended(self) -> None:
         # Las operaciones reales se filtran por hora de cierre: arrancar donde
         # terminó la anterior recoge las que entonces seguían abiertas. El
         # último día se repite a propósito —la auditoría anterior se ejecutó a
         # media noche de ese día y lo que cerró después no estaba todavía en el
         # historial del terminal—, así que no queda hueco entre semanas.
-        now = datetime(2026, 10, 24, 21, 30, tzinfo=timezone.utc)
         period = live_audit_schedule.chained_period(
-            settings(), {"last_result": {"period_end": "2026-10-17T23:59:59+00:00"}}, now,
+            settings(), published_audit(period_end="2026-10-17T23:59:59+00:00"), self.NOW,
         )
         self.assertEqual(period, {
             "period_mode": "fixed_dates",
@@ -222,12 +250,30 @@ class ChainedPeriodTests(unittest.TestCase):
             "period_end_date": "2026-10-24",
         })
 
+    def test_an_agent_that_still_publishes_its_own_verdict_is_read_the_same(self) -> None:
+        # Un nodo sin el reparto nuevo sí trae `last_result`: no se puede
+        # perder ese camino al añadir el de la materia prima.
+        period = live_audit_schedule.chained_period(
+            settings(), {"last_result": {"period_end": "2026-10-17T23:59:59+00:00"}}, self.NOW,
+        )
+        self.assertEqual(period["period_start_date"], "2026-10-17")
+
+    def test_a_payload_without_its_period_closes_with_the_end_of_the_run(self) -> None:
+        audit = published_audit()
+        audit["last_payload"].pop("period_end")
+        audit["finished_at"] = "2026-10-18T02:30:00+00:00"
+        period = live_audit_schedule.chained_period(settings(), audit, self.NOW)
+        self.assertEqual(period["period_start_date"], "2026-10-18")
+
     def test_without_a_previous_audit_the_profile_decides(self) -> None:
-        now = datetime(2026, 10, 24, 21, 30, tzinfo=timezone.utc)
-        self.assertEqual({}, live_audit_schedule.chained_period(settings(), {}, now))
+        self.assertEqual({}, live_audit_schedule.chained_period(settings(), {}, self.NOW))
+        self.assertEqual({}, live_audit_schedule.chained_period(
+            settings(), {"status": "idle", "last_result": None, "last_payload": None},
+            self.NOW,
+        ))
         self.assertEqual({}, live_audit_schedule.chained_period(
             settings(chain_from_last_audit=False),
-            {"last_result": {"period_end": "2026-10-17T23:59:59+00:00"}}, now,
+            published_audit(period_end="2026-10-17T23:59:59+00:00"), self.NOW,
         ))
 
 
@@ -367,14 +413,9 @@ class WatchTickTests(unittest.TestCase):
         # cron vuelva a auditar, y por eso no se le mandan al nodo.
         server = FakeServer(self.root, audit_state(), enabled=True)
         posted: list[object] = []
-        audits = {"11": {
-            "status": "completed",
-            "last_result": {"completed_at": "2026-01-01T00:00:00+00:00",
-                            "period_end": "2026-01-01T23:59:59+00:00"},
-        }}
         with mock.patch(
             "mt5_manager.manager_http.node_request",
-            side_effect=self.node_answers(audits, posted),
+            side_effect=self.node_answers({"11": published_audit()}, posted),
         ):
             live_audit_watch.tick(server)
         _path, payload = posted[0]
@@ -384,9 +425,35 @@ class WatchTickTests(unittest.TestCase):
         self.assertEqual(payload["period_start_date"], "2026-01-01")
         self.assertEqual(payload["audit_key"], "11")
         self.assertEqual(payload["restore_password"], "r")
+        # Y el aviso de la campana cuenta ese periodo como lo que es.
+        started = [row for row in server.events() if row["kind"] == "audit_started"]
+        self.assertIn("periodo 2026-01-01 a", started[0]["message"])
+        self.assertIn("enganchado al final de la última auditoría", started[0]["message"])
         # Y el perfil guardado conserva lo que no viajó.
         profile = server.live_audit_settings.state("n")["profiles"]["11"]
         self.assertEqual(profile["manual_pairs"], {"1": "2"})
+
+    def test_the_bell_only_claims_the_chain_when_the_period_comes_from_it(self) -> None:
+        # «fixed_dates» es justo lo que trae un perfil con fechas fijas. Leerlo
+        # como prueba de encadenado hacía que el aviso jurase arrancar donde
+        # terminó la última auditoría mientras repetía la ventana del perfil.
+        state = audit_state()
+        state["profiles"]["11"].update({
+            "period_mode": "fixed_dates", "period_start_date": "2026-10-01",
+            "period_end_date": "2026-10-11",
+        })
+        server = FakeServer(self.root, state, enabled=True)
+        posted: list[object] = []
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self.node_answers({"11": {"status": "idle"}}, posted),
+        ):
+            live_audit_watch.tick(server)
+        _path, payload = posted[0]
+        self.assertEqual(payload["period_start_date"], "2026-10-01")
+        started = [row for row in server.events() if row["kind"] == "audit_started"]
+        self.assertIn("periodo configurado en el uso", started[0]["message"])
+        self.assertNotIn("enganchado", started[0]["message"])
 
     def test_one_audit_at_a_time_per_agent(self) -> None:
         state = audit_state(live_audit_ids=["11", "22"])
