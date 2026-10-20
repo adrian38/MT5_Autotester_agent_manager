@@ -166,6 +166,25 @@ function degradationMarkup(entry) {
     + `<ul class="strategy-alerts">${alerts}</ul></section>`;
 }
 
+// Lo que la última auditoría no consiguió enlazar. Es el trabajo pendiente del
+// cuadre de Análisis —reales que no cuentan en ninguna estrategia— y su reverso
+// —operaciones del tester que la cuenta no ejecutó—. Se cuentan aparte porque
+// no son el mismo hecho, y la sección desaparece cuando no hay nada, igual que
+// la de degradación: una tarjeta llena de ceros deja de leerse.
+function unlinkedMarkup(summary) {
+  const reales = Number(summary.unlinked_real || 0);
+  const tester = Number(summary.unlinked_tester || 0);
+  if (!reales && !tester) return '';
+  const detalle = [
+    reales ? `${reales} real${reales === 1 ? '' : 'es'} sin explicar` : '',
+    tester ? `${tester} del tester sin ejecutar` : '',
+  ].filter(Boolean).join(' · ');
+  return '<section class="strategy-section unlinked-section">'
+    + '<div class="section-title"><strong>Operaciones sin enlazar</strong>'
+    + '<span>última auditoría</span></div>'
+    + `<p class="unlinked-note">${escapeHtml(detalle)}</p></section>`;
+}
+
 function aliasMarkup(nodeId, portfolioId) {
   if (!(portfolioId > 0)) return '';
   const alias = aliasOf(nodeId, portfolioId);
@@ -209,7 +228,7 @@ function cardMarkup(entry) {
     degraded ? `${degraded} DEGRADA${degraded === 1 ? '' : 'N'}` : '',
     !broken && !degraded && warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
   ].filter(Boolean).join(' · ') || (summary.comparable ? 'SIN AVISOS' : 'SIN DATOS');
-  return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
+  return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${summary.comparable ? unlinkedMarkup(summary) : ''}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }
 
 function render(entries) {

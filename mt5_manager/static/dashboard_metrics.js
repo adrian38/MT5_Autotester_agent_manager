@@ -82,6 +82,24 @@
     )).map(row => trade(row.real));
   }
 
+  // Las reales de la última auditoría que no acabaron en ninguna estrategia:
+  // ni emparejadas, ni atribuidas en el Excel, ni declaradas ajenas. Aquí sí
+  // entran las que el filtro de lote apartó antes de comparar, al revés que
+  // `pendingRealTrades`, que las excluye porque tampoco suman en la curva
+  // Real: son trabajo pendiente igual, y además son las que un tramo de lote
+  // declarado recupera de golpe.
+  function unlinkedReals(result) {
+    return unaccountedRows(result).filter(row => attributionState(row) === 'pending').length;
+  }
+
+  // El mismo corte visto desde el otro lado: lo que el tester cerró y la
+  // cuenta no ejecutó. No es el mismo hecho que el de arriba —una real sin
+  // dueño y una operación que nunca se abrió son problemas distintos—, así
+  // que se cuentan aparte en vez de sumarse.
+  function unlinkedTester(result) {
+    return comparisonRows(result).filter(row => row.status === 'missing').length;
+  }
+
   function flaggedStrategies(groups, overrides) {
     return groups.map(group => {
       const numbers = reproduction.numbers(group, overrides);
@@ -123,6 +141,7 @@
       demo_profit: profit(demo), real_profit: profit(real),
       demo_drawdown: drawdown(demo), real_drawdown: drawdown(real),
       flagged: pending, reviewed: marked.length - pending.length,
+      unlinked_real: unlinkedReals(result), unlinked_tester: unlinkedTester(result),
     };
   }
 

@@ -104,6 +104,34 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("degradation: entry.degradation || {}", self.script)
         self.assertNotIn("strategy-history", self.script)
 
+    def test_the_card_counts_what_the_last_audit_could_not_link(self) -> None:
+        # El cuadre de Análisis era el único sitio donde se veía que una real
+        # no cuenta en ninguna estrategia, y hay que abrirlo uso por uso. Es
+        # trabajo pendiente —atribuirla en el Excel o declarar el lote— y la
+        # portada es la lista de lo que queda por mirar.
+        self.assertIn("function unlinkedMarkup(summary)", self.script)
+        self.assertIn("Operaciones sin enlazar", self.script)
+        self.assertIn("summary.comparable ? unlinkedMarkup(summary) : ''", self.script)
+        # Es de la última auditoría, al revés que la degradación, que es
+        # acumulada: decirlo evita leer un número por el otro.
+        self.assertIn("última auditoría</span>", self.script)
+        self.assertIn("unlinked_real", self.metrics)
+        self.assertIn("unlinked_tester", self.metrics)
+
+    def test_the_two_sides_of_a_broken_link_are_counted_apart(self) -> None:
+        # Una real sin dueño y una operación del tester que la cuenta nunca
+        # abrió son problemas distintos: sumarlos daría un número que no
+        # corresponde a ninguna lista que se pueda abrir.
+        self.assertIn("sin explicar", self.script)
+        self.assertIn("del tester sin ejecutar", self.script)
+        # Las descartadas por lote entran en el recuento aunque no sumen en la
+        # curva Real: son justo las que un tramo de lote recupera de golpe, y
+        # `pendingRealTrades` las excluye a propósito para el PnL.
+        self.assertIn(
+            "unaccountedRows(result).filter(row => attributionState(row) === 'pending').length",
+            self.metrics,
+        )
+
     def test_each_card_shows_its_alias_and_lets_you_edit_it_from_there(self) -> None:
         self.assertIn("aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))", self.script)
         self.assertIn("'Sin alias'", self.script)
