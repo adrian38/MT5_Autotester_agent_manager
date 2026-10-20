@@ -295,6 +295,12 @@ def _launch_payload(
     El tercer valor es el suelo de creacion, que solo entra cuando no hay nada
     a lo que engancharse; se devuelve suelto por lo mismo que el encadenado,
     para que el aviso de la campana diga de donde sale la fecha de arranque.
+
+    El multiterminal lo decide el cron, no el uso: `use_multiterminal` del
+    perfil es la casilla del boton «Auditar ahora», que se marca sabiendo que
+    hay alguien delante. Una cita desatendida de madrugada es otra cosa, asi
+    que la politica del programador pisa la del perfil y por defecto deja la
+    auditoria en la terminal principal.
     """
     node_profile = {
         key: value for key, value in profile.items()
@@ -317,6 +323,9 @@ def _launch_payload(
         **server.live_audit_settings.restore_credentials(node_id),
         "audit_key": audit_id,
         "portfolio_id": safe_int(profile.get("portfolio_id"), 0, minimum=1),
+        "use_multiterminal": bool(
+            server.live_audit_scheduler_settings.get("use_multiterminal", False)
+        ),
     }, chained, floored
 
 

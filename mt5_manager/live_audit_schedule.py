@@ -33,6 +33,7 @@ DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS = {
     "retry_attempts": 3,
     "retry_delay_minutes": 10,
     "chain_from_last_audit": True,
+    "use_multiterminal": False,
 }
 
 MANAGER_ONLY_PROFILE_KEYS = frozenset({
@@ -68,7 +69,9 @@ _INTEGER_FIELDS = {
     "retry_delay_minutes": (1, 720),
 }
 
-_BOOLEAN_FIELDS = ("enabled", "only_live_trading", "chain_from_last_audit")
+_BOOLEAN_FIELDS = (
+    "enabled", "only_live_trading", "chain_from_last_audit", "use_multiterminal",
+)
 
 _TIMEZONE_PATTERN = re.compile(r"[A-Za-z0-9_+/-]{1,64}")
 
@@ -213,11 +216,16 @@ def schedule_description(settings: dict[str, Any]) -> str:
         if settings.get("chain_from_last_audit", True)
         else "Cada ejecución usa el periodo guardado en su perfil."
     )
+    terminals = (
+        "Reparte el tester entre las terminales del nodo."
+        if settings.get("use_multiterminal", False)
+        else "Audita sólo con la terminal principal."
+    )
     return (
         f"El manager audita {scope} {schedule_label(settings)}, de uno en uno por agente. "
         "Nunca duplica una auditoría en curso. Si una cita venció mientras el manager "
         "estaba apagado o el cron desarmado, la recupera al volver a estar disponible, "
-        f"pero sólo para usos que ya existían en esa cita. {period}"
+        f"pero sólo para usos que ya existían en esa cita. {period} {terminals}"
     )
 
 

@@ -204,6 +204,15 @@
             atribución, las parejas enlazadas a mano y las estrategias ya validadas se
             conservan: son criterio del manager y se aplican al leer.</small></span>
         </label>
+        <label class="cron-switch">
+          <input id="cron-multiterminal" type="checkbox">
+          <span><strong>Usar el multiterminal del nodo</strong>
+            <small>Desmarcado, la auditoría entera pasa por la terminal principal: la
+            cuenta real, el tester, el informe nativo y la restauración. Marcado, el
+            tester reparte sus sets entre las terminales habilitadas, hasta el tope de
+            workers del nodo. Manda sobre la casilla de cada uso, que es la del botón
+            «Auditar ahora».</small></span>
+        </label>
         <p class="cron-note" id="cron-next"></p>
         <p class="cron-warning" id="cron-timezone-warning" hidden></p>
         <ul class="cron-targets" id="cron-targets"></ul>
@@ -282,6 +291,7 @@
     field('#cron-retry-delay').value = scheduler.retry_delay_minutes ?? 10;
     field('#cron-only-live').checked = scheduler.only_live_trading !== false;
     field('#cron-chain').checked = scheduler.chain_from_last_audit !== false;
+    field('#cron-multiterminal').checked = scheduler.use_multiterminal === true;
     field('#cron-description').textContent = scheduler.description || '';
     const source = field('#cron-source');
     source.textContent = scheduler.environment_override
@@ -331,6 +341,7 @@
       retry_delay_minutes: Number(field('#cron-retry-delay').value),
       only_live_trading: field('#cron-only-live').checked,
       chain_from_last_audit: field('#cron-chain').checked,
+      use_multiterminal: field('#cron-multiterminal').checked,
     };
   }
 

@@ -48,8 +48,11 @@ class CronScreenTests(unittest.TestCase):
         for token in (
             "cron-weekday", "cron-hour", "cron-minute", "cron-timezone",
             "cron-retry-attempts", "cron-retry-delay", "cron-only-live", "cron-chain",
+            "cron-multiterminal",
             "Sólo los portafolios marcados como activos",
             "Encadenar con la última auditoría",
+            "Usar el multiterminal del nodo",
+            "use_multiterminal: field('#cron-multiterminal').checked,",
         ):
             self.assertIn(token, self.script)
 

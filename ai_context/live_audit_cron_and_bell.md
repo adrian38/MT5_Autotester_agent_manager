@@ -427,6 +427,35 @@ comprobaba que cupiera en la vida del portafolio. Las mejoradas y arregladas
 - La recuperación descarta el uso cuyo portafolio nació después del corte, y lo
   marca `not_applicable`: no hay hueco que recuperar.
 
+## El multiterminal lo decide el cron, no el uso (2026-10-20)
+
+La casilla «Usar el multiterminal del nodo» existía sólo en el perfil de cada
+uso, que es el formulario del botón **«Auditar ahora»**. El cron mandaba ese
+valor tal cual al agente, así que la política de una cita desatendida de
+madrugada la fijaba una casilla marcada con alguien delante, uso por uso, y no
+había forma de verla ni de cambiarla desde el diálogo del cron.
+
+Ahora `use_multiterminal` es también un ajuste del programador, por defecto
+`False`, y **`_launch_payload` lo escribe encima** del que trae el perfil: toda
+cita y toda recuperación salen con la misma política, y desmarcado significa
+que la auditoría entera —cuenta real, tester, informe nativo y restauración—
+pasa por la terminal principal.
+
+- La casilla del uso **no se toca**: sigue mandando en «Auditar ahora». Son dos
+  decisiones distintas y por eso son dos casillas.
+- El valor por defecto es `False` a propósito: una auditoría pausa el pipeline
+  del agente, y repartirla entre terminales sin nadie mirando es justo lo que
+  el 2026-08-21 dejó un terminal sin cuenta.
+- `schedule_description` lo cuenta en el diálogo, igual que cuenta el alcance y
+  el encadenado. Un ajuste del cron que no se ve en su descripción no existe.
+- El tope real de terminales no es esta casilla sino `[Multiterminal]` del
+  `ui_settings.ini` del agente, que `_multiterminal_worker_limit` lee y aplica
+  al pool del tester. Marcar aquí no abre más terminales de las que el usuario
+  configuró allí.
+- `tests/test_live_audit_cron_watch.py` comprueba las dos direcciones: un
+  perfil con la casilla marcada sale igualmente en una terminal, y el cron
+  marcado reparte.
+
 ## Las pruebas del cron son tres ficheros (2026-10-20)
 
 `tests/test_live_audit_cron.py` volvió a pasar de 600 líneas. El reparto es el

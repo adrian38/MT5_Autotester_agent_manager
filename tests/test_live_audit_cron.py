@@ -105,6 +105,11 @@ class WeeklyCadenceTests(unittest.TestCase):
         ))
         self.assertIn("todos los usos con una auditoría configurada", every)
         self.assertIn("periodo guardado en su perfil", every)
+        self.assertIn("sólo con la terminal principal", live)
+        self.assertIn(
+            "Reparte el tester entre las terminales",
+            live_audit_schedule.schedule_description(settings(use_multiterminal=True)),
+        )
 
 
 class SchedulerMigrationTests(unittest.TestCase):

@@ -25,6 +25,7 @@ class LiveAuditSchedulerSettingsTests(unittest.TestCase):
             "enabled": False, "mode": "weekly", "weekday": 5, "hour": 23, "minute": 0,
             "timezone": "Europe/Madrid", "interval_days": 30, "only_live_trading": True,
             "retry_attempts": 3, "retry_delay_minutes": 10, "chain_from_last_audit": True,
+            "use_multiterminal": False,
         })
 
     def test_the_cadence_in_days_still_exists_as_its_own_mode(self) -> None:
