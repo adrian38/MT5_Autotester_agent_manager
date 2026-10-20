@@ -29,7 +29,9 @@ class CatchUpTests(unittest.TestCase):
         self.assertEqual((result["target_date"], result["queued_count"]), ("2026-10-17", 1))
         key = LiveAuditRunState.key("n", "11")
         reopened = LiveAuditRunState(self.root / "cron.json")
-        self.assertEqual(reopened.record(key)["catch_up_until"], "2026-10-17")
+        record = reopened.record(key)
+        self.assertEqual(record["catch_up_until"], "2026-10-17")
+        self.assertEqual(record["catch_up_cutoff"], "2026-10-17T21:00:00+00:00")
 
     def test_the_http_route_queues_and_wakes_the_watcher(self) -> None:
         server = FakeServer(self.root, audit_state())
@@ -62,6 +64,38 @@ class CatchUpTests(unittest.TestCase):
             live_audit_watch.tick(server)
         record = server.live_audit_runs.record(LiveAuditRunState.key("n", audit_id))
         self.assertEqual(record["catch_up_status"], "not_applicable")
+
+    def test_a_use_created_that_same_night_after_eleven_is_not_backfilled(self) -> None:
+        # El #172 nació a las 23:23:26 de Madrid: compartir el día 17 con la
+        # cita de las 23:00 no lo convierte en elegible para esa cita.
+        audit_id = "audit-172-mvcwlhi2-1"
+        state = audit_state(
+            configured_audit_ids=[audit_id], live_audit_ids=[audit_id],
+            profiles={audit_id: {
+                "portfolio_id": 172, "deployment_name": "Posterior al corte",
+                "live_trading": True,
+            }},
+        )
+        server = FakeServer(self.root, state)
+        result = live_audit_watch.request_catch_up(server, self.now)
+        self.assertEqual(result["queued_count"], 0)
+        record = server.live_audit_runs.record(LiveAuditRunState.key("n", audit_id))
+        self.assertEqual(record["catch_up_status"], "not_applicable")
+
+    def test_the_first_recovery_marker_is_migrated_from_its_exact_window(self) -> None:
+        key = LiveAuditRunState.key("n", "11")
+        path = self.root / "cron.json"
+        path.write_text(
+            '{"audits":{"n/11":{"window":"2026-10-17T23:00:00+02:00",'
+            '"catch_up_until":"","catch_up_status":"success",'
+            '"catch_up_requested_at":"2026-10-20T13:36:06+00:00"}}}',
+            encoding="utf-8",
+        )
+        reopened = LiveAuditRunState(path)
+        record = reopened.record(key)
+        self.assertEqual(record["catch_up_until"], "2026-10-17")
+        self.assertEqual(record["catch_up_cutoff"], "2026-10-17T21:00:00+00:00")
+        self.assertEqual(LiveAuditRunState(path).record(key), record)
 
     def test_recovery_runs_with_the_switch_off_and_closes_the_real_gap(self) -> None:
         server = FakeServer(self.root, audit_state())

@@ -66,6 +66,8 @@ class LiveAuditRunState:
                 for key, value in (stored.get("audits") or {}).items()
                 if isinstance(value, dict)
             }
+            if live_audit_catch_up.restore_legacy_markers(self.records):
+                save_json(self.path, {"audits": self.records})
 
     @staticmethod
     def key(node_id: str, audit_id: str) -> str:

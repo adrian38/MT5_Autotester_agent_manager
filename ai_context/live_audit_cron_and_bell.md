@@ -495,3 +495,22 @@ junto a «Auditoría programada», escondido mientras no hay nada, que lee
 - Cubre cualquier auditoría en marcha, no sólo la recuperación: una lanzada a
   mano desde su pantalla también enciende el chip, y entonces la barra es su
   propio porcentaje porque no hay tanda que medir.
+
+## La recuperación conserva el instante del corte (2026-10-20)
+
+La primera recuperación guardaba sólo `2026-10-17` y al continuar la cola lo
+convertía en `2026-10-17T23:59:59Z`. Eso incluyó el uso #172 de RoboForex,
+creado a las 23:23 de Madrid, aunque la cita había sido a las 23:00. El cron
+normal ya comparaba instantes; el botón perdió la hora al persistir la tanda.
+
+Cada petición guarda ahora también `catch_up_cutoff`, el instante UTC exacto
+devuelto por `previous_occurrence`. Tanto la creación del portafolio como la
+hora codificada en el ID moderno del uso se comparan contra ese instante. La
+fecha `catch_up_until` se conserva aparte porque sigue siendo el final inclusivo
+del periodo y la etiqueta visible de la tanda.
+
+La versión que lanzó la tanda real borraba `catch_up_until` al completarla. El
+código posterior ya dejó de borrarla, pero las marcas vacías quedaron en el
+JSON. `LiveAuditRunState` las migra desde la ventana exacta conservada y guarda
+el resultado; así la barra vuelve a poder reconstruir aquella tanda tras
+reiniciar el manager.

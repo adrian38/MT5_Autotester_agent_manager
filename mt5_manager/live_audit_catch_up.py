@@ -14,7 +14,7 @@ CreatedAt = Callable[[str], datetime | None]
 Launch = Callable[[Any, dict[str, Any], str, str, dict[str, Any], dict[str, Any]], None]
 
 
-def request(server: Any, audit_ids: AuditIds, _created_at: CreatedAt,
+def request(server: Any, audit_ids: AuditIds, created_at: CreatedAt,
             now: datetime | None = None) -> dict[str, Any]:
     """Encola los usos reales hasta la ultima cita que ya vencio."""
     now = now or datetime.now(timezone.utc)
@@ -33,10 +33,14 @@ def request(server: Any, audit_ids: AuditIds, _created_at: CreatedAt,
         profiles = state.get("profiles") or {}
         for audit_id in audit_ids(state, forced):
             profile = dict(profiles.get(audit_id) or {})
-            born_after = _born_after(server, node_id, profile, cutoff)
+            use_created = created_at(audit_id)
+            born_after = _born_after(server, node_id, profile, cutoff) or (
+                use_created is not None and use_created > cutoff
+            )
             server.live_audit_runs.update(
                 server.live_audit_runs.key(node_id, audit_id),
                 catch_up_until=target,
+                catch_up_cutoff=cutoff.astimezone(timezone.utc).isoformat(),
                 catch_up_status="not_applicable" if born_after else "pending",
                 catch_up_requested_at=now.isoformat(),
                 window="", attempts=0, outcome="", last_attempt_at="",
@@ -61,9 +65,24 @@ def _born_after(server: Any, node_id: str, profile: dict[str, Any],
                 target: datetime) -> bool:
     """Si el portafolio nacio despues del corte no hay hueco que recuperar."""
     _inherited, created = live_audit_lineage.audit_period_bounds(server, node_id, profile)
-    return created is not None and (
-        created.astimezone(timezone.utc).date() > target.date()
-    )
+    return created is not None and created > target
+
+
+def restore_legacy_markers(records: dict[str, dict[str, Any]]) -> bool:
+    """Recupera la marca que la primera version borraba al terminar la tanda."""
+    changed = False
+    for record in records.values():
+        if not record.get("catch_up_requested_at") or not record.get("catch_up_status"):
+            continue
+        if record.get("catch_up_until"):
+            continue
+        cutoff = live_audit_schedule.parse_timestamp(record.get("window"))
+        if cutoff is None:
+            continue
+        record["catch_up_until"] = cutoff.astimezone(timezone.utc).date().isoformat()
+        record.setdefault("catch_up_cutoff", cutoff.astimezone(timezone.utc).isoformat())
+        changed = True
+    return changed
 
 
 def _already_covered(audit: dict[str, Any], target: datetime) -> bool:
@@ -86,7 +105,9 @@ def launch_pending(server: Any, node: dict[str, Any], node_id: str,
         target_text = str(record.get("catch_up_until") or "")
         if not target_text or str(record.get("catch_up_status") or "") != "pending":
             continue
-        target = datetime.fromisoformat(f"{target_text}T23:59:59+00:00")
+        target = live_audit_schedule.parse_timestamp(record.get("catch_up_cutoff"))
+        if target is None:  # Compatibilidad con una cola creada antes de guardar el instante.
+            target = datetime.fromisoformat(f"{target_text}T23:59:59+00:00")
         if _already_covered(audit, target):
             runs.update(key, catch_up_status="success")
             continue
