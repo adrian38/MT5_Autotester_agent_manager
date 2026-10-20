@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mt5_manager import live_audit_lineage, live_audit_schedule, live_audit_watch
 from mt5_manager.live_audit_archive import LiveAuditArchive, strategies_of
-from tests.test_live_audit_cron import (
+from tests.live_audit_cron_base import (
     FakeServer as CronServer, audit_state, published_audit,
 )
 

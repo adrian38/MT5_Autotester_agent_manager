@@ -349,7 +349,7 @@ comparación se movió aquí**. Un doble de prueba que modela un contrato antigu
 no prueba nada sobre el de hoy, y encima da confianza.
 
 - El estado del agente en las pruebas del cron se construye ahora con
-  `published_audit()` de `tests/test_live_audit_cron.py`: `last_payload` con su
+  `published_audit()` de `tests/live_audit_cron_base.py`: `last_payload` con su
   periodo y `last_result` a `None`. Hay una prueba aparte para el agente
   antiguo, que sí publica veredicto.
 - `tests/test_live_audit_history.py` recorre el camino del vigilante de punta a
@@ -426,6 +426,21 @@ comprobaba que cupiera en la vida del portafolio. Las mejoradas y arregladas
   explícita del uso, y bloquearla es decisión de alcance, no de periodo.
 - La recuperación descarta el uso cuyo portafolio nació después del corte, y lo
   marca `not_applicable`: no hay hueco que recuperar.
+
+## Las pruebas del cron son tres ficheros (2026-10-20)
+
+`tests/test_live_audit_cron.py` volvió a pasar de 600 líneas. El reparto es el
+de siempre, por dependencia:
+
+- `tests/live_audit_cron_base.py` — los dobles (`FakeServer`, `audit_state`,
+  `published_audit`, `settings`). No comprueba nada. Lo importan también
+  `test_live_audit_activity`, `test_live_audit_catch_up`,
+  `test_live_audit_history` y `test_live_audit_lineage`, que antes los sacaban
+  del fichero de pruebas.
+- `tests/test_live_audit_cron.py` — aritmética de citas, migración,
+  reintentos, periodo encadenado y la campana.
+- `tests/test_live_audit_cron_watch.py` — una vuelta del vigilante: lo que lee
+  del agente, lo que le manda y lo que deja escrito.
 
 ## Barra de actividad en la cabecera (2026-10-20)
 

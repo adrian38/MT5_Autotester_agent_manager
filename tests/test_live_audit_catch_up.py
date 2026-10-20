@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mt5_manager import live_audit_watch, manager_schedule_routes
 from mt5_manager.live_audit_watch import LiveAuditRunState
-from tests.test_live_audit_cron import FakeServer, audit_state, published_audit
+from tests.live_audit_cron_base import FakeServer, audit_state, published_audit
 
 
 class CatchUpTests(unittest.TestCase):

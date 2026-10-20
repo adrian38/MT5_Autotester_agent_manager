@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mt5_manager import live_audit_executions, live_audit_history, live_audit_watch
 from mt5_manager.live_audit_archive import LiveAuditArchive, strategies_of, trimmed_detail
 from tests.test_live_audit_autolot import SET_STEM, STRATEGY, audit_payload, audit_profile
-from tests.test_live_audit_cron import FakeServer as CronServer, audit_state
+from tests.live_audit_cron_base import FakeServer as CronServer, audit_state
 
 
 def trade(symbol: str, close: str, profit: float, volume: float = 0.01) -> dict[str, object]:
