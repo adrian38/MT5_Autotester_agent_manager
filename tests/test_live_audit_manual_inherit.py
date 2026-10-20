@@ -147,6 +147,61 @@ class ManualReportInheritanceTests(unittest.TestCase):
         # La ficha pasa a apuntar a la ejecución nueva: la siguiente hereda de ahí.
         self.assertEqual(store.lookup(NODE, KEY, SOURCE)["execution_id"], "run-20")
 
+    def test_a_legacy_upload_is_recovered_and_enters_the_manager_memory(self) -> None:
+        """Las cargas anteriores al almacén no obligan al usuario a repetirlas."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            legacy = (
+                root / "runtime" / NODE / "live_audits" / f"audit_{KEY}"
+                / "run-12" / "reports" / f"manual_{Path(SOURCE).stem}.htm"
+            )
+            legacy.parent.mkdir(parents=True)
+            legacy.write_bytes(HTML)
+            store = ManualReportMemory(root / "manager-memory")
+            state = {"audit": {"last_payload": payload("run-20", [artifact()])}}
+            corrected = {"audit": {"last_payload": payload("run-20", [manual_artifact()])}}
+            with patch(
+                "mt5_manager.live_audit_manual_memory.backtest_range", return_value=BACKTEST,
+            ), patch(
+                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                return_value=(200, corrected),
+            ) as request:
+                fresh = live_audit_manual_inherit.reapply(
+                    {"portfolio_project_dir": str(root)}, NODE, store, state,
+                )
+            remembered = store.content(NODE, KEY, SOURCE)
+
+        self.assertEqual(
+            fresh["last_payload"]["strategy_artifacts"][0]["report_source"], "manual_upload",
+        )
+        self.assertEqual(base64.b64decode(
+            request.call_args.args[3]["reports"][0]["content_base64"],
+        ), HTML)
+        self.assertEqual(remembered, HTML)
+
+    def test_a_legacy_upload_from_another_window_is_not_recovered(self) -> None:
+        later = ("2026-10-12T00:00:00+00:00", "2026-10-19T23:59:59+00:00")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            legacy = (
+                root / "runtime" / NODE / "live_audits" / f"audit_{KEY}"
+                / "run-12" / "reports" / f"manual_{Path(SOURCE).stem}.htm"
+            )
+            legacy.parent.mkdir(parents=True)
+            legacy.write_bytes(HTML)
+            store = ManualReportMemory(root / "manager-memory")
+            state = {"audit": {"last_payload": payload("run-20", [artifact()], later)}}
+            with patch(
+                "mt5_manager.live_audit_manual_memory.backtest_range",
+                return_value=("2026-10-01", "2026-10-11"),
+            ), patch(
+                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+            ) as request:
+                self.assertIsNone(live_audit_manual_inherit.reapply(
+                    {"portfolio_project_dir": str(root)}, NODE, store, state,
+                ))
+        request.assert_not_called()
+
     def test_nothing_is_sent_when_the_new_execution_already_reaches_100(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = memory(Path(temp))

@@ -25,6 +25,7 @@ import sys
 import threading
 import urllib.error
 import urllib.parse
+from pathlib import Path
 from typing import Any
 
 from . import live_audit_manual_memory as manual_memory
@@ -99,6 +100,65 @@ def covers_window(record: dict[str, Any], span: tuple[str, str]) -> bool:
     return start <= span[0][:10] and end >= span[1][:10]
 
 
+def _project_roots(node: dict[str, Any]) -> list[Path]:
+    """Raices visibles para el manager, dentro y fuera del contenedor."""
+    roots: list[Path] = []
+    for field in ("portfolio_project_dir", "node_project_dir"):
+        value = str(node.get(field) or "").strip()
+        if not value:
+            continue
+        try:
+            root = Path(value).expanduser().resolve()
+        except OSError:
+            continue
+        if root.is_dir() and root not in roots:
+            roots.append(root)
+    return roots
+
+
+def _legacy_reports(
+    node: dict[str, Any], node_id: str, audit_key: str, source_set: str,
+) -> list[Path]:
+    """Cargas aceptadas antes de que el manager conservara su propia copia."""
+    stem = Path(source_set).stem
+    expected = {f"manual_{stem}.htm".casefold(), f"manual_{stem}.html".casefold()}
+    found: list[Path] = []
+    for root in _project_roots(node):
+        audit_dir = root / "runtime" / node_id / "live_audits" / f"audit_{audit_key}"
+        try:
+            executions = sorted(
+                (path for path in audit_dir.iterdir() if path.is_dir()), reverse=True,
+            )
+        except OSError:
+            continue
+        for execution in executions:
+            reports = execution / "reports"
+            try:
+                found.extend(
+                    path for path in reports.iterdir()
+                    if path.is_file() and path.name.casefold() in expected
+                )
+            except OSError:
+                continue
+    return found
+
+
+def _legacy_content(
+    node: dict[str, Any], node_id: str, audit_key: str, source_set: str,
+    span: tuple[str, str],
+) -> bytes | None:
+    """El HTML histórico más reciente que realmente cubra esta ejecución."""
+    for path in _legacy_reports(node, node_id, audit_key, source_set):
+        start, end = manual_memory.backtest_range(path)
+        if not covers_window({"backtest_start": start, "backtest_end": end}, span):
+            continue
+        try:
+            return path.read_bytes()
+        except OSError:
+            continue
+    return None
+
+
 def _claim(node_id: str, audit_key: str, execution_id: str) -> bool:
     key = (node_id, audit_key, execution_id)
     with _attempts_lock:
@@ -109,15 +169,19 @@ def _claim(node_id: str, audit_key: str, execution_id: str) -> bool:
 
 
 def _upload(
-    memory: Any, node_id: str, audit_key: str, artifact: dict[str, Any],
+    memory: Any, node: dict[str, Any], node_id: str, audit_key: str, artifact: dict[str, Any],
     span: tuple[str, str], execution_id: str,
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
     """El HTML guardado de esa estrategia, listo para reenviar, si procede."""
     source_set = str(artifact.get("source_set") or "")
     record = memory.lookup(node_id, audit_key, source_set)
-    if not record or str(record.get("execution_id") or "") == execution_id:
-        return None
-    if not covers_window(record, span):
+    content: bytes | None = None
+    if record and str(record.get("execution_id") or "") != execution_id and covers_window(record, span):
+        try:
+            content = memory.content(node_id, audit_key, source_set)
+        except REAPPLY_ERRORS as exc:
+            artifact["manual_report_error"] = str(exc)
+    elif record and not covers_window(record, span):
         artifact["manual_report_other_window"] = {
             "backtest_start": str(record.get("backtest_start") or ""),
             "backtest_end": str(record.get("backtest_end") or ""),
@@ -125,12 +189,12 @@ def _upload(
             "period_end": str(record.get("period_end") or ""),
             "uploaded_at": str(record.get("uploaded_at") or ""),
         }
+    if content is None:
+        content = _legacy_content(node, node_id, audit_key, source_set, span)
+    if content is None:
         return None
-    try:
-        content = memory.content(node_id, audit_key, source_set)
-    except REAPPLY_ERRORS as exc:
-        artifact["manual_report_error"] = str(exc)
-        return None
+    artifact.pop("manual_report_error", None)
+    artifact.pop("manual_report_other_window", None)
     if len(content) > MAXIMUM_REPORT_BYTES:
         artifact["manual_report_error"] = (
             f"El reporte guardado ocupa {len(content)} bytes y el nodo acepta "
@@ -140,6 +204,7 @@ def _upload(
     return {
         "filename": manual_memory.canonical_name(source_set),
         "content_base64": base64.b64encode(content).decode("ascii"),
+        "content": content,
         "bytes": len(content),
     }
 
@@ -156,7 +221,7 @@ def reapply(node: dict[str, Any], node_id: str, memory: Any, value: Any) -> dict
     span = manual_memory.window(payload)
     reports = [
         upload for upload in (
-            _upload(memory, node_id, audit_key, artifact, span, execution_id)
+            _upload(memory, node, node_id, audit_key, artifact, span, execution_id)
             for artifact in pending_artifacts(payload)
         ) if upload
     ]
@@ -203,7 +268,8 @@ def _send(
                 f"[live-audit-manual] {node_id}/{audit_key}: el nodo rechazó la herencia: {detail}\n"
             )
             break
-        memory.remember(node_id, audit_key, _payload(value))
+        contents = {report["filename"].casefold(): report["content"] for report in batch}
+        memory.remember(node_id, audit_key, _payload(value), contents)
         applied = _state(value)
         sys.stderr.write(
             f"[live-audit-manual] {node_id}/{audit_key}: {len(batch)} reporte(s) manual(es) "

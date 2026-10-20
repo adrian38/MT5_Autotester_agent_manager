@@ -87,10 +87,21 @@ quedó vacío y la herencia no hacía nada **sin decir nada** -no encontrar fich
 es el caso normal, no se registra-. Si la herencia no salta, lo primero es
 mirar `index.json` **en la carpeta anidada**.
 
+## Cargas anteriores al almacén
+
+La memoria empieza vacía al desplegar este cambio, pero el usuario no tiene que
+volver a subir lo que el nodo ya había aceptado. Si falta una ficha, el manager
+busca el `manual_<set>.htm` de las ejecuciones anteriores bajo el proyecto del
+nodo, comprueba que su backtest cubra la ventana visible y lo reenvía por el
+mismo endpoint. Sólo después de que el nodo vuelva a validarlo lo incorpora a
+su almacén persistente.
+
+Esto funciona tanto dentro del contenedor (`portfolio_project_dir`, por ejemplo
+`/data/axi`) como ejecutando el manager en el host (`node_project_dir`). No se
+porta al runtime: el nodo sigue siendo quien valida símbolo, timeframe y calidad.
+
 ## Para la próxima
 
-- La memoria empieza vacía: una corrección anterior a este cambio no está
-  guardada en el manager y hay que volver a subirla **una vez**.
 - El umbral es el del nodo (99,995 %), no el `min_tick_history_quality_pct` del
   perfil, que es otra cosa: aquél decide si se puede sustituir, éste si el
   veredicto avisa.
