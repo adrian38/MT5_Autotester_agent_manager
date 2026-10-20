@@ -80,6 +80,11 @@ class StrategyReport:
     raw_deals: list[RawDeal]
     image_paths: dict[str, Path]
     set_path: Path | None
+    # El rango con el que se LANZO el backtest, que no es `period_start`: ese
+    # pasa a ser la primera operacion en cuanto hay alguna. Se necesita para
+    # saber que ventana cubre un reporte, no solo cuando opero dentro de ella.
+    backtest_start: str = ""
+    backtest_end: str = ""
 
 
 def parse_report(path: Path) -> StrategyReport:
@@ -113,6 +118,8 @@ def parse_report(path: Path) -> StrategyReport:
         timeframe=timeframe,
         period_start=start,
         period_end=end,
+        backtest_start=_iso_date(cfg_start),
+        backtest_end=_iso_date(cfg_end),
         initial_deposit=_initial_deposit(deals),
         metrics=metrics,
         monthly={year: dict(months) for year, months in monthly.items()},
@@ -436,6 +443,14 @@ def _parse_datetime(value: str) -> datetime:
 
 def _date_text(value: str) -> str:
     return datetime.strptime(value, "%Y.%m.%d").strftime("%d.%m.%Y")
+
+
+def _iso_date(value: str) -> str:
+    """El mismo dia en ISO, que es como se compara con la ventana auditada."""
+    try:
+        return datetime.strptime(value, "%d.%m.%Y").date().isoformat()
+    except ValueError:
+        return ""
 
 
 def _format_date(value: datetime | None) -> str:

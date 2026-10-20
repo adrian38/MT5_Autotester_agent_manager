@@ -396,10 +396,10 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("Renombra cada archivo exactamente así", self.result_script)
         self.assertIn("/reports`", self.result_script)
         self.assertIn("CARGADO MANUALMENTE · 100%", self.result_script)
-        # Heredarlo solo es posible con la misma ventana, asi que cuando no se
-        # puede la pantalla lo cuenta en vez de volver a pedir el archivo a secas.
+        # Heredarlo exige que el backtest guardado llegue a estas fechas; cuando
+        # no llega, la pantalla lo cuenta en vez de pedir el archivo a secas.
         self.assertIn("row.manual_report_other_window", self.result_script)
-        self.assertIn("pero cubre otra ventana", self.result_script)
+        self.assertIn("no cubre estas fechas", self.result_script)
 
     def test_a_use_can_choose_the_principal_terminal_instead_of_the_multiterminal(self) -> None:
         self.assertIn('data-field="use_multiterminal" type="checkbox"', self.script)

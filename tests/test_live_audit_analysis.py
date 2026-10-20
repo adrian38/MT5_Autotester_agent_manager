@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from mt5_manager.live_audit_analysis import (
     PayloadError, analyze, portfolio_lot_bands, strategy_set_names,
+    tester_trades_in_window,
 )
 
 
@@ -286,6 +287,57 @@ class LiveAuditAnalysisTests(unittest.TestCase):
         self.assertEqual(result["analysis"]["executed_at"], "2026-09-30T23:31:04+00:00")
         self.assertEqual(result["analysis"]["tolerances"]["volume_tolerance_pct"], 60.0)
         self.assertEqual(result["audit_id"], "20261001_012810_063790")
+
+
+class TesterWindowTests(unittest.TestCase):
+    """El lado tester se compara con las mismas operaciones que el lado real.
+
+    Con el reporte que ejecuta el nodo esto no cambia nada -MT5 corre justo la
+    ventana-, y se comprobó sobre 444 operaciones reales de los tres agentes:
+    ni una fuera. Es lo que deja aprovechar un backtest más ancho que la
+    ventana, que es como una corrección manual aguanta las citas siguientes.
+    """
+
+    def setUp(self) -> None:
+        self.start = datetime(2026, 10, 12, tzinfo=timezone.utc)
+        self.end = datetime(2026, 10, 19, 23, 59, 59, tzinfo=timezone.utc)
+
+    def trade(self, opened: int, closed: int) -> dict:
+        return {
+            "strategy": "AXI/STANDARD:1", "symbol": "XAUUSD",
+            "open_time": datetime(2026, 10, opened, 12, tzinfo=timezone.utc),
+            "close_time": datetime(2026, 10, closed, 12, tzinfo=timezone.utc),
+        }
+
+    def test_it_keeps_what_closed_inside_and_what_stayed_open_at_the_end(self) -> None:
+        before = self.trade(2, 3)
+        inside = self.trade(13, 14)
+        open_at_end = self.trade(18, 25)
+        after = self.trade(21, 22)
+        kept = tester_trades_in_window(
+            [before, inside, open_at_end, after], self.start, self.end,
+        )
+        self.assertEqual(kept, [inside, open_at_end])
+
+    def test_an_operation_outside_the_window_does_not_reach_the_verdict(self) -> None:
+        """Ni la cuenta: una ficha que dijese 1 operación mentiría al leerla."""
+        base = payload()
+        outside = dict(base["tester_trades"][0])
+        outside.update(
+            open_time="2026-08-01T09:00:00+00:00", close_time="2026-08-01T10:00:00+00:00",
+        )
+        trimmed = payload(
+            tester_trades=[outside],
+            strategy_artifacts=[{
+                "strategy": outside["strategy"], "source_set": "EURUSD_H1_a.set",
+                "tester_trades": 1, "history_quality_pct": 100.0,
+            }],
+        )
+        result = analyze(trimmed, profile())
+        self.assertEqual(result["tester_trades"], 0)
+        self.assertEqual(result["strategy_artifacts"][0]["tester_trades"], 0)
+        # Y la de dentro sigue contando, que es lo que no se puede romper.
+        self.assertEqual(analyze(base, profile())["tester_trades"], 1)
 
 
 if __name__ == "__main__":

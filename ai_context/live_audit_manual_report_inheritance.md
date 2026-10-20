@@ -34,24 +34,35 @@ mismo endpoint que usa el navegador, así que el nodo lo valida como cualquier
 carga manual: nombre exacto del `.set`, símbolo, timeframe y History Quality
 100 %.
 
-## La ventana manda
+## La ventana no tiene que ser la misma: se aterriza en operaciones
 
-El nodo no mira fechas al aceptar un reporte, así que la comprobación vive en el
-manager: se hereda **sólo si la ventana auditada es la misma**. Un backtest del
-1 al 12 de octubre no contiene ni una operación del 12 al 20; aplicarlo ahí no
-conservaría trabajo, compararía otros días y el veredicto saldría falso.
+Lo que se compara son operaciones, no rangos. Por eso el análisis se queda con
+**las operaciones del tester que pertenecen a la ventana auditada** —las que
+cerraron dentro, más las que seguían abiertas al final, que es exactamente lo
+que trae el lado real— y con eso un backtest **más ancho** que la ventana sirve
+igual. El usuario puede lanzar un backtest largo una vez y que aguante las citas
+siguientes del cron en lugar de rehacerlo cada noche.
 
-Con el encadenado del cron ya arreglado cada noche audita una ventana nueva, así
-que ese caso va a ser el normal: cuando no se puede heredar, la ficha de la
-estrategia lleva `manual_report_other_window` y la pantalla dice qué ventana
-cubre el reporte guardado en vez de pedir el archivo a secas.
+`tester_trades_in_window` no cambia nada de lo que ya había: con el reporte que
+ejecuta el nodo, MT5 corre justo la ventana. Medido sobre los `state.json` de
+los tres agentes el 2026-10-20: 444 operaciones en 11 ejecuciones, **ninguna**
+fuera de su ventana, ni por cierre ni por apertura, y ninguna ficha cambia de
+número.
+
+Lo que sí se comprueba antes de heredar es que el backtest guardado **llegue a
+esas fechas** (`covers_window`, con `backtest_start`/`backtest_end` leídos del
+propio HTML, que no son `period_start`: ése pasa a ser la primera operación en
+cuanto hay alguna). Un reporte que no las cubre no aporta ninguna operación, y
+ahí pedirlo otra vez es lo correcto: la ficha lleva `manual_report_other_window`
+y la pantalla dice hasta dónde llega el que hay guardado.
 
 ## Dónde está
 
 | Pieza | Qué hace |
 | --- | --- |
 | `mt5_manager/live_audit_manual_memory.py` | La copia del HTML, su SHA-256 y la ventana. Una entrada por `nodo/uso/.set`. |
-| `mt5_manager/live_audit_manual_inherit.py` | Decide y reenvía. Tres intentos por ejecución y proceso. |
+| `mt5_manager/live_audit_manual_inherit.py` | Decide y reenvía, en cargas que el nodo pueda aceptar. Tres intentos por ejecución y proceso. |
+| `live_audit_analysis.tester_trades_in_window` | Recorta el lado tester a la ventana auditada: es lo que hace válido un backtest más ancho. |
 | `live_audit_executions.analysed_node_state` | El único sitio donde se engancha: así heredan igual la pantalla y el vigilante del cron. |
 | `manager_live_audit_routes._remember_manual_reports` | Guarda la copia cuando la carga pasa por el manager. |
 

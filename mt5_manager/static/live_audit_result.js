@@ -560,17 +560,18 @@ function canonicalManualReportName(row) {
   return String(row.source_set || '').replace(/\.set$/i, '.htm');
 }
 
-// Un reporte manual se hereda solo mientras la ventana auditada no cambie: el
-// backtest de otras fechas no contiene ni una operación de ésta. Cuando no se
-// puede heredar hay que decirlo, o parece que la carga anterior se perdió.
+// El reporte manual guardado se hereda solo si su backtest llega a las fechas
+// que se auditan: no tiene que ser la misma ventana, pero uno que no las cubre
+// no aporta ni una operación. Cuando pasa eso hay que decirlo, o parece que la
+// carga anterior se perdió.
 function staleManualReportNote(rows) {
   const stale = rows.filter(row => row.manual_report_other_window);
   if (!stale.length) return '';
   const windows = [...new Set(stale.map(row => {
     const span = row.manual_report_other_window;
-    return `${span.period_start || '—'} → ${span.period_end || '—'}`;
+    return `${span.backtest_start || span.period_start || '—'} → ${span.backtest_end || span.period_end || '—'}`;
   }))];
-  return ` Tienes reporte manual guardado para ${stale.length} de ellas, pero cubre otra ventana (${windows.join(' · ')}): hay que repetir el backtest con las fechas de esta auditoría.`;
+  return ` Tienes reporte manual guardado para ${stale.length} de ellas, pero su backtest sólo llega a ${windows.join(' · ')} y no cubre estas fechas: repítelo abarcándolas y se hereda solo en las próximas.`;
 }
 
 function renderManualReportUpload(rows) {

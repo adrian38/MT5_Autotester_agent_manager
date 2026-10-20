@@ -26,6 +26,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from portfolio_manager.mt5_report import parse_report
+
 from .common import load_json, save_json
 from .live_audit_archive import _slug
 
@@ -58,6 +60,20 @@ def uploaded_contents(body: Any) -> dict[str, bytes]:
         except (ValueError, binascii.Error):
             continue
     return contents
+
+
+def backtest_range(path: Path) -> tuple[str, str]:
+    """El rango con el que se lanzó ese backtest, en ISO, o vacío si no se lee.
+
+    Es lo que decide si el reporte sirve para otra ventana. No vale mirar las
+    operaciones: un reporte sin ninguna dentro de la ventana puede ser que no
+    la cubra o que la estrategia no operase, y son cosas distintas.
+    """
+    try:
+        report = parse_report(path)
+    except Exception:  # noqa: BLE001 - lo mismo que hace el nodo al validar
+        return "", ""
+    return str(report.backtest_start or ""), str(report.backtest_end or "")
 
 
 def window(payload: dict[str, Any]) -> tuple[str, str]:
@@ -156,8 +172,12 @@ class ManualReportMemory:
             path.write_bytes(content)
         elif not (self.directory / name).is_file():
             return False
+        covered = backtest_range(self.directory / name) if content is not None else (
+            str(previous.get("backtest_start") or ""), str(previous.get("backtest_end") or ""),
+        )
         self.records[key] = {
             "execution_id": execution_id, "file": name,
+            "backtest_start": covered[0], "backtest_end": covered[1],
             "sha256": hashlib.sha256(content).hexdigest() if content is not None
             else str(previous.get("sha256") or ""),
             "original_file": str(artifact.get("manual_report_original_file") or ""),

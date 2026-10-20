@@ -21,6 +21,7 @@ solo lo que es criterio, y de la ejecución todo lo que es hecho observado.
 """
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
@@ -282,10 +283,55 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
     return request
 
 
+def tester_trades_in_window(
+    trades: list[dict[str, Any]], period_start: datetime, period_end: datetime,
+) -> list[dict[str, Any]]:
+    """Las operaciones del tester que pertenecen a la ventana auditada.
+
+    El lado real son los cierres de la ventana más las posiciones abiertas al
+    final; el lado tester tiene que ser lo mismo, o no se comparan las mismas
+    operaciones. Con el reporte que ejecuta el propio nodo da igual -MT5 corre
+    exactamente la ventana: en las 444 operaciones de las once ejecuciones
+    guardadas en los tres agentes no había ni una fuera-, pero es lo que
+    permite aprovechar un backtest **más
+    ancho** que la ventana: el usuario no tiene que rehacerlo cada noche, basta
+    con que cubra las fechas, porque al final se aterriza en operaciones.
+    """
+    kept = []
+    for trade in trades:
+        opened, closed = trade.get("open_time"), trade.get("close_time")
+        if not isinstance(opened, datetime) or not isinstance(closed, datetime):
+            continue
+        closed_inside = period_start <= closed <= period_end
+        open_at_end = opened <= period_end < closed
+        if closed_inside or open_at_end:
+            kept.append(trade)
+    return kept
+
+
+def _counted_by_strategy(
+    counted: Counter[str], declared: dict[str, Any],
+) -> dict[str, int]:
+    """Las cuentas del payload, recontadas sobre lo que queda en la ventana."""
+    return {
+        **{str(strategy): int(counted.get(str(strategy), 0)) for strategy in declared},
+        **{strategy: count for strategy, count in counted.items() if strategy not in declared},
+    }
+
+
 def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
     request["_autolot_volume_rules"] = _volume_rules(payload)
-    tester_trades = _revive_all(payload.get("tester_trades"))
-    artifacts = list(payload.get("strategy_artifacts") or [])
+    period_start = datetime.fromisoformat(str(payload["period_start"]))
+    period_end = datetime.fromisoformat(str(payload["period_end"]))
+    tester_trades = tester_trades_in_window(
+        _revive_all(payload.get("tester_trades")), period_start, period_end,
+    )
+    counted = Counter(str(trade.get("strategy") or "") for trade in tester_trades)
+    artifacts = [
+        {**artifact, "tester_trades": int(counted.get(str(artifact.get("strategy") or ""), 0))}
+        if isinstance(artifact, dict) and artifact.get("strategy") else artifact
+        for artifact in payload.get("strategy_artifacts") or []
+    ]
     aliases = _symbol_aliases(
         list(payload.get("selected_members") or []), tester_trades, artifacts,
     )
@@ -299,18 +345,15 @@ def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[s
         _trade_view(position) for position in open_positions
     ]
     return {
-        "period_start": datetime.fromisoformat(str(payload["period_start"])),
-        "period_end": datetime.fromisoformat(str(payload["period_end"])),
+        "period_start": period_start,
+        "period_end": period_end,
         "real_trades": real_trades,
         "tester_trades": tester_trades,
         "symbol_points": {
             str(symbol): float(point or 0.0)
             for symbol, point in (payload.get("symbol_points") or {}).items()
         },
-        "strategies": {
-            str(strategy): int(count or 0)
-            for strategy, count in (payload.get("strategies") or {}).items()
-        },
+        "strategies": _counted_by_strategy(counted, payload.get("strategies") or {}),
         "strategy_artifacts": artifacts,
         "symbol_aliases": aliases,
         "history_detail": history_detail,

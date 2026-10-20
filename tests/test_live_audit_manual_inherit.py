@@ -59,12 +59,22 @@ def analysed_payload(artifacts: list[dict]) -> dict:
     return {**analysis_payload(), **payload("run-20", artifacts)}
 
 
-def memory(root: Path) -> ManualReportMemory:
+BACKTEST = ("2026-10-01", "2026-10-31")
+"""El rango con el que se lanzó el backtest guardado: mas ancho que la ventana."""
+
+
+def memory(root: Path, covered: tuple[str, str] = BACKTEST) -> ManualReportMemory:
+    """El almacen con el reporte del 13 de octubre ya dentro.
+
+    `backtest_range` se dobla porque el HTML de prueba no es un informe de MT5
+    de verdad; lo que se quiere probar aqui es la decision, no el parseo.
+    """
     store = ManualReportMemory(root / "live_audit_manual_reports")
-    store.remember(
-        NODE, KEY, payload("run-12", [manual_artifact()]),
-        {canonical_name(SOURCE).casefold(): HTML},
-    )
+    with patch("mt5_manager.live_audit_manual_memory.backtest_range", return_value=covered):
+        store.remember(
+            NODE, KEY, payload("run-12", [manual_artifact()]),
+            {canonical_name(SOURCE).casefold(): HTML},
+        )
     return store
 
 
@@ -89,6 +99,29 @@ class ManualReportMemoryTests(unittest.TestCase):
             (store.directory / store.lookup(NODE, KEY, SOURCE)["file"]).write_bytes(b"otra cosa")
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 store.content(NODE, KEY, SOURCE)
+
+
+class CoverageTests(unittest.TestCase):
+    """La ventana no tiene que ser la misma: lo que cuentan son las operaciones."""
+
+    def test_a_wider_backtest_serves_a_later_window(self) -> None:
+        record = {"backtest_start": "2026-10-01", "backtest_end": "2026-10-31"}
+        self.assertTrue(live_audit_manual_inherit.covers_window(
+            record, ("2026-10-12T00:00:00+00:00", "2026-10-19T23:59:59+00:00"),
+        ))
+
+    def test_a_backtest_that_stops_before_the_window_does_not(self) -> None:
+        record = {"backtest_start": "2026-10-01", "backtest_end": "2026-10-11"}
+        self.assertFalse(live_audit_manual_inherit.covers_window(
+            record, ("2026-10-12T00:00:00+00:00", "2026-10-19T23:59:59+00:00"),
+        ))
+
+    def test_without_a_readable_range_it_falls_back_to_the_same_window(self) -> None:
+        record = {"period_start": WINDOW[0], "period_end": WINDOW[1]}
+        self.assertTrue(live_audit_manual_inherit.covers_window(record, WINDOW))
+        self.assertFalse(live_audit_manual_inherit.covers_window(
+            record, ("2026-10-12T00:00:00+00:00", "2026-10-19T23:59:59+00:00"),
+        ))
 
 
 class ManualReportInheritanceTests(unittest.TestCase):
@@ -128,10 +161,26 @@ class ManualReportInheritanceTests(unittest.TestCase):
                 )
         request.assert_not_called()
 
-    def test_a_report_of_another_window_is_explained_instead_of_applied(self) -> None:
-        other = ("2026-10-12T00:00:00+00:00", "2026-10-19T23:59:59+00:00")
+    def test_a_later_window_inside_the_stored_backtest_is_inherited(self) -> None:
+        """Lo que pidió el usuario: el backtest ancho aguanta las citas siguientes."""
+        later = ("2026-10-12T00:00:00+00:00", "2026-10-19T23:59:59+00:00")
         with tempfile.TemporaryDirectory() as temp:
             store = memory(Path(temp))
+            rows = [artifact()]
+            state = {"audit": {"last_payload": payload("run-20", rows, later)}}
+            corrected = {"audit": {"last_payload": payload("run-20", [manual_artifact()], later)}}
+            with patch(
+                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                return_value=(200, corrected),
+            ) as request:
+                live_audit_manual_inherit.reapply({"id": NODE}, NODE, store, state)
+        self.assertEqual(request.call_count, 1)
+        self.assertNotIn("manual_report_other_window", rows[0])
+
+    def test_a_backtest_that_does_not_reach_these_dates_is_explained(self) -> None:
+        other = ("2026-10-12T00:00:00+00:00", "2026-10-19T23:59:59+00:00")
+        with tempfile.TemporaryDirectory() as temp:
+            store = memory(Path(temp), covered=("2026-10-01", "2026-10-11"))
             rows = [artifact()]
             state = {"audit": {"last_payload": payload("run-20", rows, other)}}
             with patch(
@@ -141,8 +190,7 @@ class ManualReportInheritanceTests(unittest.TestCase):
                     live_audit_manual_inherit.reapply({"id": NODE}, NODE, store, state),
                 )
         request.assert_not_called()
-        self.assertEqual(rows[0]["manual_report_other_window"]["period_start"], WINDOW[0])
-        self.assertEqual(rows[0]["manual_report_other_window"]["period_end"], WINDOW[1])
+        self.assertEqual(rows[0]["manual_report_other_window"]["backtest_end"], "2026-10-11")
 
     def test_a_node_that_refuses_the_report_is_not_retried_for_ever(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -79,6 +79,26 @@ def pending_artifacts(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return pending
 
 
+def covers_window(record: dict[str, Any], span: tuple[str, str]) -> bool:
+    """¿El backtest guardado abarca la ventana que se está auditando?
+
+    No hace falta que sea la misma ventana: lo que se compara son operaciones,
+    y el análisis ya se queda sólo con las de la ventana auditada. Un backtest
+    más ancho sirve igual, y así una corrección manual aguanta las citas
+    siguientes del cron en vez de caducar cada noche.
+
+    Lo que no sirve es un backtest que no llegue a esas fechas: ahí no hay
+    operaciones que aportar, y pedir el reporte otra vez es lo correcto.
+    """
+    start = str(record.get("backtest_start") or "")
+    end = str(record.get("backtest_end") or "")
+    if not start or not end:
+        # Una ficha sin rango -un HTML que no se dejó interpretar- sólo se
+        # hereda sobre la misma ventana para la que se aceptó.
+        return (str(record.get("period_start") or ""), str(record.get("period_end") or "")) == span
+    return start <= span[0][:10] and end >= span[1][:10]
+
+
 def _claim(node_id: str, audit_key: str, execution_id: str) -> bool:
     key = (node_id, audit_key, execution_id)
     with _attempts_lock:
@@ -97,10 +117,12 @@ def _upload(
     record = memory.lookup(node_id, audit_key, source_set)
     if not record or str(record.get("execution_id") or "") == execution_id:
         return None
-    stored = (str(record.get("period_start") or ""), str(record.get("period_end") or ""))
-    if stored != span:
+    if not covers_window(record, span):
         artifact["manual_report_other_window"] = {
-            "period_start": stored[0], "period_end": stored[1],
+            "backtest_start": str(record.get("backtest_start") or ""),
+            "backtest_end": str(record.get("backtest_end") or ""),
+            "period_start": str(record.get("period_start") or ""),
+            "period_end": str(record.get("period_end") or ""),
             "uploaded_at": str(record.get("uploaded_at") or ""),
         }
         return None
