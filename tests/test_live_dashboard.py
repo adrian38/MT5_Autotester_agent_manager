@@ -45,8 +45,9 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         generation = html.fromstring(self.generation_page)
         links = {anchor.text_content().strip(): anchor.get("href")
                  for anchor in generation.xpath("//header//a")}
-        self.assertEqual(links["Portafolios activos"], "/")
-        # Y el par de ida y vuelta se mira junto: la raíz enlaza aquí.
+        self.assertEqual(links["Cuentas en real"], "/")
+        self.assertEqual(links["Portafolios activos"], "/live_portfolios.html")
+        # Y el par de ida y vuelta se mira junto: esta pantalla enlaza aquí.
         self.assertEqual(
             {anchor.text_content().strip(): anchor.get("href")
              for anchor in self.page.xpath("//nav//a")}["Generación"],

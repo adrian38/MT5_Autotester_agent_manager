@@ -16,6 +16,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `node_runtime_is_forked_per_agent.md`: por qué `mt5_manager/node.py` y
   `manager_node_runtime/node.py` de cada agente han divergido y cómo portar un
   endpoint nuevo sin romper ninguna de las dos copias.
+- `future_branch_frozen.md`: FUTURE está congelado desde el 2026-10-21; no se
+  edita, porta, configura ni reinicia hasta autorización explícita del usuario.
 - `ficheros_identicos_al_runtime_de_ic.md`: los dos ficheros del protocolo de
   lotes guiados que no admiten ni un import nuevo, y qué implica al refactorizar.
 - `guided_batches.md`: lotes Discovery preparados desde el laboratorio y

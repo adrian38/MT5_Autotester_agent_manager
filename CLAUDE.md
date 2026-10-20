@@ -16,9 +16,18 @@ Todas escribibles (`AGENTS.md`, «Alcance obligatorio»). Comprobado el
 | --- | --- | --- |
 | Manager (este repositorio) | `I:\TRADING\MT5_Autotester_agent_manager` | `main` |
 | ICTrading | `C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent` | `IC` |
-| FUTURE | `C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_FUTURE` | `future` |
+| FUTURE (**congelado**) | `C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_FUTURE` | `future` |
 | AXI | `F:\TRADING\MT5_Autotester_agent_AXI` | `AXI` |
 | RoboForex / genérico | `G:\TRADING\MT5_Autotester_agent` | `dev` |
+
+### FUTURE no se toca
+
+El usuario congeló FUTURE el 2026-10-21. Aunque la ruta esté montada y sea
+técnicamente escribible, ningún agente debe editarla, commitear, portar cambios,
+cambiar su configuración ni parar/reiniciar su proceso hasta que el usuario lo
+habilite de nuevo de forma explícita. Su punto de partida congelado es
+`121831a`. Para el contrato duradero y el alcance exacto, leer
+`ai_context/future_branch_frozen.md`.
 
 **No son las rutas que dan por buenas `mt5_manager/dev_branch.py` ni las notas
 viejas de `ai_context/`**, escritas en una máquina donde el manager colgaba de

@@ -19,6 +19,20 @@
 - Cada checkout tiene su rama y su commit: un cambio que toca tres agentes son
   tres commits hermanos, y la entrega los nombra todos.
 
+## FUTURE está congelado
+
+- **No modificar el checkout ni la rama `future` hasta que el usuario avise
+  expresamente que vuelve a estar habilitada.** La autorización general de
+  escritura de la sección anterior no alcanza a FUTURE mientras dure esta
+  congelación.
+- Congelado significa: no editar archivos, no crear commits, no portar cambios,
+  no cambiar configuración y no parar ni reiniciar su agente. Se puede leer
+  para diagnóstico, siempre que la lectura no altere su árbol ni su runtime.
+- Una tarea que afecte a «todos los agentes» se porta sólo a IC, AXI y
+  RoboForex/`dev`; la entrega declara FUTURE omitido por congelación.
+- El punto de partida congelado desde el 2026-10-21 es el commit `121831a`.
+  Sólo una instrucción posterior y explícita del usuario levanta esta regla.
+
 ## Todo lo del manager se commitea en `main`
 
 Este repositorio no tiene ramas de trabajo. Cada unidad se commitea en `main`,
@@ -224,7 +238,8 @@ orden de dependencia:
 `manager_config` → `manager_http` → `manager_pulse` →
 `manager_live_audit_reports` → `manager_live_audit_routes` →
 `manager_portfolio_routes` →
-`manager_schedule_routes` → `manager_push_routes` → `manager_handler` →
+`manager_schedule_routes` → `manager_account_routes` →
+`manager_push_routes` → `manager_handler` →
 `manager_server` → `manager`
 
 - `manager.py` sólo arranca y **reexporta**: `from mt5_manager.manager import
