@@ -368,3 +368,24 @@ el nodo hasta la cita siguiente, así que **el vigilante lo rescata solo en la
 primera vuelta después de reconstruir**, y si la cita llega antes se pierde. Con
 el manager viejo la salida sigue siendo abrir su pantalla de Análisis, que es
 como se rescataron #109 y #173 durante la revisión.
+
+## Recuperación explícita de huecos (2026-10-20)
+
+La primera cita real quedó marcada como cumplida aunque repitió los periodos
+fijos del perfil. Corregir el encadenado evita reincidir, pero no vuelve a abrir
+retroactivamente una cita que el estado ya considera terminada. El diálogo
+«Auditoría programada» tiene por eso «Lanzar recuperación ahora».
+
+- El corte semanal es la última cita ya vencida, no el momento del clic: si se
+  pulsa el martes 20, recupera hasta el sábado 17. En modo por intervalo usa el
+  momento del clic.
+- La petición persiste `catch_up_until` por uso en el estado del cron y despierta
+  al vigilante. Se lanza un uso por agente y los demás continúan cuando éste
+  termina, aunque se cierre el diálogo o se reinicie el manager.
+- Es una orden manual y funciona con el interruptor automático apagado. Sólo
+  incluye usos completos marcados `live_trading`; un uso creado después del
+  corte y sin ejecución anterior se descarta, pero uno creado después que ya
+  tenga una auditoría histórica incompleta sí recupera su hueco.
+- Repetir el clic reinicia los intentos de esa recuperación. Los fallos usan la
+  misma cantidad de reintentos y espera que el cron; al cubrir el corte se vacía
+  la marca persistida y la programación normal vuelve a mandar.

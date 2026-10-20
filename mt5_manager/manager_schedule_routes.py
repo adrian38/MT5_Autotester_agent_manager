@@ -12,13 +12,15 @@ import urllib.error
 import urllib.parse
 from typing import Any
 
-from . import live_audit_executions, live_audit_history, live_audit_lineage, manager_http
+from . import live_audit_executions, live_audit_history, live_audit_lineage, live_audit_watch
+from . import manager_http
 from . import manager_live_audit_routes
 from .common import safe_int
 
 NOTIFICATIONS_PATH = "/api/live-audit-notifications"
 
 SCHEDULER_PATH = "/api/live-audit-scheduler-config"
+CATCH_UP_PATH = "/api/live-audit-scheduler-catch-up"
 
 
 def _limit(parsed: Any) -> int:
@@ -95,6 +97,14 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
 
 
 def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
+    if parsed.path == CATCH_UP_PATH:
+        try:
+            result = live_audit_watch.request_catch_up(handler.server)
+            handler.server.live_audit_wakeup.set()
+            handler._send_json(202, result)
+        except (ValueError, OSError) as exc:
+            handler._send_json(400, {"error": str(exc)})
+        return True
     if parsed.path == SCHEDULER_PATH:
         try:
             handler._send_json(

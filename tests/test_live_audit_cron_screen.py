@@ -58,6 +58,12 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("el cron puede lanzar inmediatamente las citas vencidas", self.script)
         self.assertIn("scheduler_issues", self.script)
 
+    def test_the_dialog_can_launch_a_persisted_gap_recovery(self) -> None:
+        self.assertIn("Recuperar periodos pendientes", self.script)
+        self.assertIn("cron-catch-up", self.script)
+        self.assertIn("/api/live-audit-scheduler-catch-up", self.script)
+        self.assertIn("de una en una por agente", self.script)
+
     def test_the_desktop_notices_are_asked_once_and_can_be_turned_on_later(self) -> None:
         # El navegador descarta la petición de permiso que no sale de un gesto
         # del usuario, así que se pregunta con un botón, una sola vez, y el de

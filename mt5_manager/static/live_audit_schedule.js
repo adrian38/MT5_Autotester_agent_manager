@@ -178,6 +178,13 @@
         <p class="cron-note" id="cron-next"></p>
         <p class="cron-warning" id="cron-timezone-warning" hidden></p>
         <ul class="cron-targets" id="cron-targets"></ul>
+        <section class="cron-catch-up">
+          <div><strong>Recuperar periodos pendientes</strong>
+            <small>Revisa los portafolios activos y encadena cada auditoría desde donde
+            terminó la anterior hasta el último corte ya vencido. Se ejecutan de
+            uno en uno por agente y la cola continúa aunque cierres esta ventana.</small></div>
+          <button type="button" class="secondary" id="cron-catch-up">Lanzar recuperación ahora</button>
+        </section>
       </div>
       <div class="cron-actions">
         <button type="button" class="secondary" id="cron-cancel">Cancelar</button>
@@ -205,7 +212,9 @@
 
   function targetsMarkup(state) {
     const rows = (state.audits || []).map(row => `<li>${escapeHtml(row.node_name)} · `
-      + `${escapeHtml(row.label)}${row.outcome ? ` · último turno: ${escapeHtml(row.outcome)}` : ''}</li>`);
+      + `${escapeHtml(row.label)}${row.outcome ? ` · último turno: ${escapeHtml(row.outcome)}` : ''}`
+      + `${row.catch_up_until ? ` · recuperación hasta ${escapeHtml(row.catch_up_until)}: `
+        + escapeHtml(row.catch_up_status || 'pendiente') : ''}</li>`);
     const blocked = (state.blocked || []).map(row => `<li class="blocked">${escapeHtml(row.node_name)} · `
       + `${escapeHtml(row.label)} · ${escapeHtml(row.block_reason || 'el cron no puede lanzarlo')} `
       + `<a href="/live_audit.html?node=${encodeURIComponent(row.node_id)}">Configurar</a></li>`);
@@ -556,6 +565,22 @@
   field('#cron-close').addEventListener('click', () => dialog.close());
   field('#cron-cancel').addEventListener('click', () => dialog.close());
   field('#cron-mode').addEventListener('change', applyMode);
+  field('#cron-catch-up').addEventListener('click', async () => {
+    if (!window.confirm(
+      'Se lanzarán las auditorías necesarias para cubrir los huecos hasta la última '
+      + 'cita ya vencida. Se harán de una en una por agente. ¿Continuar?',
+    )) return;
+    const button = field('#cron-catch-up');
+    button.disabled = true;
+    try {
+      const result = await post('/api/live-audit-scheduler-catch-up', {});
+      await loadScheduler();
+      notify(result.queued_count
+        ? `Recuperación iniciada hasta ${result.target_date}: se revisarán ${result.queued_count} usos activos.`
+        : 'No hay ningún uso activo y configurado que pueda recuperarse.');
+    } catch (error) { notify(error.message, true); }
+    finally { button.disabled = false; }
+  });
 
   field('#cron-form').addEventListener('submit', async event => {
     event.preventDefault();

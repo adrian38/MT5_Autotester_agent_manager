@@ -23,7 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import live_audit_executions, live_audit_lineage, live_audit_schedule, manager_http
+from . import live_audit_catch_up, live_audit_executions, live_audit_lineage
+from . import live_audit_schedule, manager_http
 from .common import load_json, safe_int, save_json, utc_now
 from .live_audit_core import RUNNING_STATUSES
 from .live_audit_executions import audit_label
@@ -278,7 +279,7 @@ def record_transitions(
 
 def _launch_payload(
     server: Any, node_id: str, audit_id: str, profile: dict[str, Any],
-    audit: dict[str, Any], now: datetime,
+    audit: dict[str, Any], now: datetime, period: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Lo que viaja al nodo y, aparte, el periodo que de verdad se encadeno.
 
@@ -296,7 +297,7 @@ def _launch_payload(
         if key not in live_audit_schedule.MANAGER_ONLY_PROFILE_KEYS
     }
     inherited_end = live_audit_lineage.inherited_period_end(server, node_id, profile)
-    chained = live_audit_schedule.chained_period(
+    chained = period or live_audit_schedule.chained_period(
         server.live_audit_scheduler_settings, audit, now, inherited_end,
     )
     return {
@@ -334,6 +335,7 @@ def launch(
     }
     payload, chained = _launch_payload(
         server, node_id, audit_id, profile, context["audit"], context["now"],
+        context.get("period"),
     )
     restore_fields = ("restore_login", "restore_server", "restore_password")
     if not all(payload.get(field) for field in restore_fields) or not payload["portfolio_id"]:
@@ -368,8 +370,9 @@ def launch(
         "enganchado al final de la última auditoría"
         if chained else "periodo configurado en el uso"
     )
+    title = "Recuperación lanzada" if context.get("catch_up") else "Auditoría programada lanzada"
     server.live_audit_notifications.add(
-        "info", f"Auditoría programada lanzada: {label}",
+        "info", f"{title}: {label}",
         f"{note} · {live_audit_schedule.schedule_label(settings)} · {period}",
         kind="audit_started", **common,
     )
@@ -393,6 +396,22 @@ def _completion(audit: dict[str, Any]) -> datetime | None:
     result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
     return live_audit_schedule.parse_timestamp(
         result.get("completed_at") or audit.get("finished_at")
+    )
+
+
+def request_catch_up(server: Any, now: datetime | None = None) -> dict[str, Any]:
+    """Encola los huecos de los usos reales hasta la ultima cita ya vencida."""
+    return live_audit_catch_up.request(
+        server, scheduled_audit_ids, _audit_use_created_at, now,
+    )
+
+
+def launch_catch_up(server: Any, node: dict[str, Any], node_id: str,
+                    state: dict[str, Any], audits: dict[str, Any]) -> bool:
+    """Continua una recuperacion solicitada, como maximo con un uso por nodo."""
+    return live_audit_catch_up.launch_pending(
+        server, node, node_id, state, audits, scheduled_audit_ids,
+        _audit_use_created_at, launch,
     )
 
 
@@ -527,6 +546,8 @@ def tick(server: Any) -> None:
         if audits is None:
             continue
         record_transitions(server, node, node_id, state, audits)
+        if launch_catch_up(server, node, node_id, state, audits):
+            continue
         if not server.live_audit_scheduler_enabled or server.live_audit_stop.is_set():
             continue
         launch_due(server, node, node_id, state, audits, now)
