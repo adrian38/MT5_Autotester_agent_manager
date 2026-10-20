@@ -141,7 +141,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
     EXPECTED = {
         "accounts.html": [
             "Actualizando…", "Actualizar", "Portafolios activos", "Generación",
-            ACCOUNT_CRON, BELL,
+            ACCOUNT_CRON, BELL, "Reiniciar manager",
         ],
         "dashboard.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Generación",

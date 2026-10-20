@@ -74,6 +74,12 @@ class PageTests(unittest.TestCase):
         for identifier in ("refresh", "refresh-state"):
             self.assertTrue(TREE.xpath(f'//*[@id="{identifier}"]'), identifier)
 
+    def test_the_manager_restart_closes_the_header_and_uses_the_real_endpoint(self) -> None:
+        self.assertTrue(TREE.xpath('//*[@id="restart-manager"]'))
+        self.assertIn("restartManagerButton.addEventListener('click', restartManager)", SCRIPT)
+        self.assertIn("fetch('/api/manager/restart'", SCRIPT)
+        self.assertIn("fetch('/api/manager/restart?lines=80'", SCRIPT)
+
     def test_the_snapshot_controls_belong_only_to_the_accounts_page(self) -> None:
         """La cabecera abre el sondeo y la acción manual vive en su diálogo."""
         page = PAGE.read_text(encoding="utf-8")

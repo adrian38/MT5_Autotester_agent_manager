@@ -505,6 +505,11 @@ ya no ocupan todas las cabeceras:
   «Sondear ahora» está dentro de ese diálogo porque es una acción del sondeo.
 - «Auditoría programada» sólo aparece en «Portafolios activos».
 
+«Reiniciar manager» no es una configuración contextual: permanece al final de
+la cabecera tanto en «Cuentas en real» como en las demás portadas que ya lo
+ofrecían. La campana se inserta inmediatamente antes y «Sondeo de cuentas»
+queda antes de la campana en la portada real.
+
 `live_audit_schedule.js` sigue cargándose en las demás pantallas para mantener
 la campana y la barra de actividad. El botón de programación sólo se inserta en
 la cabecera marcada con `data-live-audit-schedule`; quitar el script entero

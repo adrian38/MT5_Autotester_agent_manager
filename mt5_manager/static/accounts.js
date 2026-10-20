@@ -8,6 +8,7 @@
 const cardsEl = document.querySelector('#accounts');
 const refreshState = document.querySelector('#refresh-state');
 const refreshButton = document.querySelector('#refresh');
+const restartManagerButton = document.querySelector('#restart-manager');
 // El alias vive en la memoria UBS del agente. Se pide una vez por nodo, igual
 // que en «Portafolios activos», y no en cada refresco de las cuentas.
 const nodeAliases = new Map();
@@ -15,6 +16,7 @@ const TOTAL_SELECTION_KEY = 'live-account-total-exclusions';
 const excludedAccounts = new Set(loadExcludedAccounts());
 let latestData = null;
 let refreshing = false;
+let managerRestarting = false;
 
 const MONTHS = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
@@ -354,6 +356,60 @@ async function refresh() {
   }
 }
 
+async function managerRestartState() {
+  return jsonResponse(await fetch('/api/manager/restart?lines=80', {cache: 'no-store'}));
+}
+
+async function monitorManagerRestart() {
+  for (let attempt = 0; managerRestarting && attempt < 180; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    let state;
+    try { state = await managerRestartState(); }
+    catch (_error) { continue; } // El contenedor corta la conexión al reemplazarse.
+    if (state.status === 'authentication_required') {
+      location.href = '/generation.html';
+      return;
+    }
+    if (state.status === 'completed') {
+      location.reload();
+      return;
+    }
+    if (state.status === 'failed') {
+      managerRestarting = false;
+      restartManagerButton.disabled = false;
+      restartManagerButton.textContent = 'Reiniciar manager';
+      toast(state.error || 'Falló el reinicio del manager', true);
+      return;
+    }
+  }
+  if (managerRestarting) {
+    managerRestarting = false;
+    restartManagerButton.disabled = false;
+    restartManagerButton.textContent = 'Reiniciar manager';
+    toast('El reinicio no terminó dentro del tiempo esperado', true);
+  }
+}
+
+async function restartManager() {
+  const warning = '¿Reiniciar el manager?\n\nSe sincronizará Git y se reconstruirá el contenedor.';
+  if (!window.confirm(warning)) return;
+  restartManagerButton.disabled = true;
+  restartManagerButton.textContent = 'Preparando…';
+  try {
+    await jsonResponse(await fetch('/api/manager/restart', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    }));
+    restartManagerButton.textContent = 'Reinicio solicitado';
+    toast('Sincronización y reinicio del manager solicitados');
+    managerRestarting = true;
+    monitorManagerRestart();
+  } catch (error) {
+    restartManagerButton.disabled = false;
+    restartManagerButton.textContent = 'Reiniciar manager';
+    toast(error.message, true);
+  }
+}
+
 // Lo llama `live_account_schedule.js` al guardar: la tarjeta tiene que
 // repintarse con la moneda o el alcance recién cambiados sin recargar.
 window.refreshAccounts = refresh;
@@ -367,5 +423,14 @@ cardsEl.addEventListener('change', event => {
   if (latestData) renderTotals(latestData);
 });
 refreshButton.addEventListener('click', refresh);
+restartManagerButton.addEventListener('click', restartManager);
 refresh();
 setInterval(refresh, 60000);
+managerRestartState().then(state => {
+  if (['starting', 'running', 'authentication_required', 'restarting'].includes(state.status)) {
+    managerRestarting = true;
+    restartManagerButton.disabled = true;
+    restartManagerButton.textContent = 'Reiniciando…';
+    monitorManagerRestart();
+  }
+}).catch(() => {});
