@@ -75,6 +75,10 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("ACTIVITY_LIVE_MS", self.script)
         self.assertIn("ACTIVITY_QUIET_MS", self.script)
 
+    def test_the_bar_sits_next_to_the_title_and_not_among_the_buttons(self) -> None:
+        self.assertIn("heading.insertBefore(activity, actions)", self.script)
+        self.assertIn("heading.tagName === 'HEADER'", self.script)
+
     def test_the_bar_measures_the_whole_batch_not_only_the_current_use(self) -> None:
         self.assertIn("(queue.done + current) / queue.total", self.script)
         self.assertIn("${queue.done} de ${queue.total}", self.script)
@@ -84,6 +88,10 @@ class CronScreenTests(unittest.TestCase):
         styles = (static / "live_audit_schedule.css").read_text(encoding="utf-8")
         for selector in (".cron-activity", ".cron-activity-dot", ".cron-activity-bar"):
             self.assertIn(selector, styles)
+        # `dashboard.css` no declara `[hidden]`: sin esta regla el display:flex
+        # de la barra gana y se queda visible y vacía cuando no pasa nada.
+        self.assertIn(".cron-activity[hidden]{display:none}", styles)
+        self.assertIn("margin-right:auto", styles)
         # Un punto que late es ruido para quien pidió menos movimiento.
         self.assertIn("prefers-reduced-motion", styles)
 

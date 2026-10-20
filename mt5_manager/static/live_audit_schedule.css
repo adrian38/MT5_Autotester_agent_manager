@@ -67,7 +67,11 @@
 .cron-dialog .cron-catch-up strong{display:block;font-size:13px}
 .cron-dialog .cron-catch-up small{display:block;margin-top:4px;color:var(--muted,#91a4b5);font-size:11px;line-height:1.45}
 .cron-dialog .cron-catch-up button{justify-self:start}
-.cron-activity{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid #397861;border-radius:8px;background:#0d211d;color:var(--text,#e6edf3);font:inherit;font-size:12px;cursor:pointer}
+.cron-activity{display:flex;align-items:center;gap:8px;align-self:center;margin-right:auto;padding:6px 12px;border:1px solid #397861;border-radius:8px;background:#0d211d;color:var(--text,#e6edf3);font:inherit;font-size:12px;cursor:pointer}
+/* `dashboard.css` no declara `[hidden]`, así que el `display:flex` de arriba
+   ganaba al valor por defecto del navegador y la barra se quedaba visible y
+   vacía cuando no había nada corriendo. */
+.cron-activity[hidden]{display:none}
 .cron-activity:hover{border-color:#4ea88a}
 .cron-activity-dot{width:8px;height:8px;border-radius:50%;background:var(--ok,#3fb950);flex:none;animation:cron-activity-pulse 1.6s ease-in-out infinite}
 .cron-activity-body{display:grid;gap:4px;justify-items:start}

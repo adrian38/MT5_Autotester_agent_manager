@@ -76,9 +76,16 @@
   // izquierda; donde no hay reinicio, el último es el enlace de vuelta y la
   // campana va igualmente delante de él.
   const anchor = actions.querySelector('#restart-manager, a[href="/"]');
-  actions.insertBefore(activity, anchor || null);
   actions.insertBefore(open, anchor || null);
   actions.insertBefore(bell, anchor || null);
+
+  // La barra va pegada al título, antes de los botones: entre ellos se perdía
+  // en la fila. La cabecera es un flex de dos hijos, así que entra como tercero
+  // y `margin-right:auto` la lleva junto al título en vez de dejarla centrada.
+  // Donde la barra de acciones no cuelgue de una cabecera, se queda dentro.
+  const heading = actions.parentElement;
+  if (heading && heading.tagName === 'HEADER') heading.insertBefore(activity, actions);
+  else actions.insertBefore(activity, actions.firstElementChild);
 
   // «Actualizar», el primero de la barra en todas las pantallas. Se recoloca
   // aquí en vez de confiar sólo en el orden del HTML porque cada pantalla le

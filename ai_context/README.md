@@ -137,6 +137,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   acumulativa, y los dos candados de la herencia —genealogía del portafolio e
   identidad de la estrategia— que también mueven la ventana del cron.
 - `live_audit_cron_and_bell.md`: el cron general de los portafolios activos
+- `model4_watchdog_mata_su_propia_sincronizacion.md`: por qué fallaban las
+  auditorías con «MT5 Model=4 volvió a bloquearse», y dónde está la evidencia
   —sábado a las 23:00 con reintentos—, la campana de avisos, por qué el hilo
   vigila siempre pero sólo lanza con el interruptor, y el periodo que se
   engancha con el de la auditoría anterior. Incluye los dos fallos de la
