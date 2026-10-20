@@ -76,6 +76,9 @@ class ManualReportMemoryTests(unittest.TestCase):
             self.assertEqual(record["execution_id"], "run-12")
             self.assertEqual((record["period_start"], record["period_end"]), WINDOW)
             self.assertEqual(store.content(NODE, KEY, SOURCE), HTML)
+            # La ruta guardada es relativa al almacén: el manager corre en Docker
+            # y una ruta de Windows en el índice no se podría abrir desde dentro.
+            self.assertNotIn(":", record["file"])
             # Y lo recuerda un manager recién arrancado, que es el caso del cron.
             revived = ManualReportMemory(Path(temp) / "live_audit_manual_reports")
             self.assertEqual(revived.content(NODE, KEY, SOURCE), HTML)
@@ -83,7 +86,7 @@ class ManualReportMemoryTests(unittest.TestCase):
     def test_a_tampered_copy_is_refused_instead_of_applied(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = memory(Path(temp))
-            Path(store.lookup(NODE, KEY, SOURCE)["path"]).write_bytes(b"otra cosa")
+            (store.directory / store.lookup(NODE, KEY, SOURCE)["file"]).write_bytes(b"otra cosa")
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 store.content(NODE, KEY, SOURCE)
 

@@ -88,9 +88,15 @@ class ManualReportMemory:
     def key(node_id: str, audit_key: str, source_set: str) -> str:
         return f"{node_id}/{audit_key}/{source_set}"
 
-    def _report_path(self, node_id: str, audit_key: str, source_set: str) -> Path:
+    def _report_file(self, node_id: str, audit_key: str, source_set: str) -> str:
+        """Relativo al almacen a proposito: la ruta absoluta no es portable.
+
+        El manager corre en Docker con `runtime/` montado, asi que un indice
+        escrito desde fuera guardaria rutas de Windows que el contenedor no
+        puede abrir -y al reves-.
+        """
         name = f"{_slug(canonical_name(source_set))}.htm"
-        return self.directory / _slug(node_id) / _slug(audit_key) / name
+        return f"{_slug(node_id)}/{_slug(audit_key)}/{name}"
 
     def lookup(self, node_id: str, audit_key: str, source_set: str) -> dict[str, Any]:
         with self.lock:
@@ -100,8 +106,8 @@ class ManualReportMemory:
     def content(self, node_id: str, audit_key: str, source_set: str) -> bytes:
         """El HTML guardado, comprobando que es el mismo que se aceptó."""
         record = self.lookup(node_id, audit_key, source_set)
-        path = Path(str(record.get("path") or ""))
-        if not record or not path.is_file():
+        path = self.directory / str(record.get("file") or "")
+        if not record or not record.get("file") or not path.is_file():
             raise FileNotFoundError(f"No hay reporte manual guardado para {source_set}")
         content = path.read_bytes()
         if hashlib.sha256(content).hexdigest() != str(record.get("sha256") or ""):
@@ -142,17 +148,16 @@ class ManualReportMemory:
         key = self.key(node_id, audit_key, source_set)
         previous = self.records.get(key) or {}
         content = (contents or {}).get(canonical_name(source_set).casefold())
-        path = Path(str(previous.get("path") or "")) if previous else self._report_path(
-            node_id, audit_key, source_set,
-        )
+        name = str(previous.get("file") or "") or self._report_file(node_id, audit_key, source_set)
         if content is not None:
-            path = self._report_path(node_id, audit_key, source_set)
+            name = self._report_file(node_id, audit_key, source_set)
+            path = self.directory / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
-        elif not path.is_file():
+        elif not (self.directory / name).is_file():
             return False
         self.records[key] = {
-            "execution_id": execution_id, "path": str(path),
+            "execution_id": execution_id, "file": name,
             "sha256": hashlib.sha256(content).hexdigest() if content is not None
             else str(previous.get("sha256") or ""),
             "original_file": str(artifact.get("manual_report_original_file") or ""),
