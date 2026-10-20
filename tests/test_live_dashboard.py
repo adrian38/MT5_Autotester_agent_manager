@@ -85,6 +85,25 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("BROKEN_SHORTFALL_PCT = 60", self.reproduction)
         self.assertNotIn("MEJOR QUE EL TESTER", self.metrics)
 
+    def test_the_card_names_the_strategies_that_degrade_against_their_history(self) -> None:
+        # El veredicto DEGRADA de «contra el histórico» sólo salía abriendo
+        # Análisis uso por uso; es el único que justifica retirar una
+        # estrategia, así que la tarjeta lo enseña y la campana lo anuncia.
+        self.assertIn("Contra el histórico", self.script)
+        self.assertIn("degradationMarkup(entry)", self.script)
+        self.assertIn("entry.degradation?.strategies || []", self.script)
+        self.assertIn("en vigilancia", self.script)
+        self.assertIn("DEGRADA${degraded === 1 ? '' : 'N'}", self.script)
+        # Degradar pinta la tarjeta como crítica, igual que NO REPRODUCE.
+        self.assertIn("const tone = broken || degraded ? 'failed'", self.script)
+
+    def test_the_card_does_not_open_the_agent_memory_to_know_it(self) -> None:
+        # El histórico vive en la memoria UBS del agente y la portada se
+        # repinta cada minuto: lo mide el vigilante al archivar y la tarjeta
+        # sólo lee lo que viene en el payload.
+        self.assertIn("degradation: entry.degradation || {}", self.script)
+        self.assertNotIn("strategy-history", self.script)
+
     def test_each_card_shows_its_alias_and_lets_you_edit_it_from_there(self) -> None:
         self.assertIn("aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))", self.script)
         self.assertIn("'Sin alias'", self.script)

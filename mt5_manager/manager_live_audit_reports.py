@@ -43,13 +43,27 @@ def strategy_history(handler, node_id: str, audit_id: str) -> dict[str, Any]:
     result = (state or {}).get("last_result")
     if not isinstance(result, dict):
         return {"strategies": [], "reference_lot": live_audit_degradation.REFERENCE_LOT}
-    # Acumulado, no solo el periodo: tres operaciones en una semana no
-    # concluyen nada y la tabla contestaba «INSUFICIENTE» en todas las filas.
+    return accumulated_degradation(handler.server, node, node_id, audit_id, result)
+
+
+def accumulated_degradation(
+    server: Any, node: dict[str, Any], node_id: str, audit_key: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """El informe «contra el histórico» de toda la serie, no solo del periodo.
+
+    Tres operaciones en una semana no concluyen nada y la tabla contestaba
+    «INSUFICIENTE» en todas las filas.
+
+    Es una sola primitiva porque la pantalla y el aviso de degradación tienen
+    que decir lo mismo: dos cálculos serían dos criterios, y el de la campana
+    acabaría avisando de algo que Análisis no enseña (o al revés).
+    """
     accumulated = live_audit_history.accumulate(
-        handler.server.live_audit_archive, node_id, audit_id,
+        server.live_audit_archive, node_id, audit_key,
         result.get("comparison_detail") or {},
         inherited_portfolio_ids=live_audit_lineage.ancestors_of(
-            handler.server, node_id, audit_id,
+            server, node_id, audit_key,
         ),
     )
     report = degradation_report(

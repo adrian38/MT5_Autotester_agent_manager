@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from mt5_manager.live_audit_watch import LiveAuditRunState
 from mt5_manager.manager_live_audit_routes import (
     analysed_live_audit, dashboard_node_state, dashboard_nodes, run_payload,
 )
@@ -47,6 +50,32 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
         )
         self.assertEqual(state["entries"][0]["audit"]["last_result"]["status"], "completed")
         self.assertNotIn("last_payload", state["entries"][0]["audit"])
+
+    def test_the_dashboard_carries_the_degradation_the_watcher_measured(self) -> None:
+        # La tarjeta no puede abrir la memoria UBS del agente en cada sondeo:
+        # el veredicto «contra el histórico» viaja ya medido en el payload.
+        configured = {**profile(), "live_trading": True}
+        settings = SimpleNamespace(state=lambda _node_id: {
+            "live_audit_ids": ["audit-148"], "profiles": {"audit-148": configured},
+        })
+        with tempfile.TemporaryDirectory() as root:
+            runs = LiveAuditRunState(Path(root) / "cron.json")
+            runs.update(
+                runs.key("ic", "audit-148"), degradation_execution="run-1",
+                degradation=[{"strategy": "X:1", "symbol": "EURUSD", "verdict": "degraded"}],
+                degradation_watching=2, degradation_compared=5,
+                degradation_checked_at="2026-10-20T00:00:00+00:00",
+            )
+            endpoint = SimpleNamespace(server=SimpleNamespace(
+                live_audit_settings=settings, live_audit_runs=runs,
+            ))
+            raw = {"audits": {"audit-148": {"last_payload": payload()}}}
+            with patch("mt5_manager.manager_http.node_request", return_value=(200, raw)):
+                state = dashboard_node_state(endpoint, "ic", {"id": "ic", "name": "ICTrading"})
+        degradation = state["entries"][0]["degradation"]
+        self.assertEqual(degradation["strategies"][0]["symbol"], "EURUSD")
+        self.assertEqual(degradation["watching"], 2)
+        self.assertEqual(degradation["compared"], 5)
 
     def test_the_manager_analyses_the_payload_with_the_current_profile(self) -> None:
         node_state = {"audit": {"audit_id": "x", "last_payload": payload()}}

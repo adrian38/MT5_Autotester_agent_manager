@@ -14,7 +14,7 @@ import urllib.parse
 from typing import Any
 
 from . import live_audit_attribution, live_audit_autolot
-from . import live_audit_manual_memory
+from . import live_audit_degradation_alerts, live_audit_manual_memory
 from . import manager_http
 from .common import safe_int
 # Lo que deriva de una ejecución guardada vive en su propio módulo desde que
@@ -87,6 +87,12 @@ def dashboard_node_state(handler, node_id: str, node: dict[str, Any]) -> dict[st
         result["entries"].append({
             "audit_id": audit_id, "profile": profiles.get(audit_id) or {},
             "audit": analysed.get("audit") if isinstance(analysed, dict) and isinstance(analysed.get("audit"), dict) else analysed,
+            # Lo midió el vigilante al archivar la ejecución y vive en el
+            # estado del cron: abrir la memoria UBS del agente en cada sondeo
+            # de la portada sería abrirla sesenta veces por hora y por uso.
+            "degradation": live_audit_degradation_alerts.stored(
+                handler.server, node_id, audit_id,
+            ),
         })
     return result
 

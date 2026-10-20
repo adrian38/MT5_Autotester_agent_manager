@@ -43,6 +43,9 @@ async function loadNode(node) {
     const entries = (data.entries || []).map(entry => ({
       node: data.node || node, auditId: entry.audit_id, profile: entry.profile || {},
       result: entry.audit?.last_result || null,
+      // Lo midió el vigilante contra el histórico de la memoria del agente al
+      // archivar la última auditoría; aquí sólo se pinta.
+      degradation: entry.degradation || {},
       analysisError: entry.audit?.analysis_error || '',
       connectionError: data.connection_error || '',
     }));
@@ -135,6 +138,34 @@ function flaggedMarkup(rows, currency, reviewed) {
   }).join('')}</ul>${reviewedNote(reviewed)}`;
 }
 
+function sigma(value) {
+  return value === null || value === undefined ? '—' : `${new Intl.NumberFormat('es-ES', {
+    maximumFractionDigits: 1, minimumFractionDigits: 1, signDisplay: 'always',
+  }).format(Number(value))} σ`;
+}
+
+// «DEGRADA» es el veredicto de la tabla «contra el histórico» de Análisis: la
+// estrategia ya no se parece a su propio backtest. Es el único que justifica
+// retirarla, y hasta ahora sólo salía abriendo esa pantalla uso por uso.
+// `AVISO` se cuenta pero no se lista: por definición del criterio todavía no
+// hay base para tocar nada, y una lista llena de eso deja de leerse.
+function degradationMarkup(entry) {
+  const rows = entry.degradation?.strategies || [];
+  if (!rows.length) return '';
+  const watching = Number(entry.degradation?.watching || 0);
+  const alerts = rows.map(row => {
+    const name = row.strategy_set || row.strategy;
+    return `<li><div><strong>${escapeHtml(row.symbol || '—')}</strong><small>${escapeHtml(name)}</small></div>`
+      + `<div class="strategy-values"><span>${escapeHtml(sigma(row.deviations))}</span>`
+      + `<span>${escapeHtml(row.trades)} operaciones</span></div>`
+      + `<div><span class="verdict bad">DEGRADA</span></div></li>`;
+  }).join('');
+  return `<section class="strategy-section"><div class="section-title"><strong>Contra el histórico</strong>`
+    + `<span>${rows.length} degrada${rows.length === 1 ? '' : 'n'}`
+    + `${watching ? ` · ${watching} en vigilancia` : ''}</span></div>`
+    + `<ul class="strategy-alerts">${alerts}</ul></section>`;
+}
+
 function aliasMarkup(nodeId, portfolioId) {
   if (!(portfolioId > 0)) return '';
   const alias = aliasOf(nodeId, portfolioId);
@@ -164,16 +195,21 @@ function cardMarkup(entry) {
   const currency = summary.currency || result?.account?.currency || 'EUR';
   const broken = summary.flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
   const warnings = summary.flagged.filter(row => row.verdict === 'AVISO').length;
-  const tone = broken ? 'failed' : warnings ? 'pending' : summary.comparable ? 'completed' : 'idle';
+  const degraded = (entry.degradation?.strategies || []).length;
+  const tone = broken || degraded ? 'failed'
+    : warnings ? 'pending' : summary.comparable ? 'completed' : 'idle';
   const body = summary.comparable ? `<div class="comparison-grid">
     <div><span>Profit Test</span><strong>${escapeHtml(money(summary.demo_profit, currency))}</strong></div>
     <div><span>Profit Real</span><strong>${escapeHtml(money(summary.real_profit, currency))}</strong></div>
     <div><span>DD Test</span><strong>${escapeHtml(money(summary.demo_drawdown, currency))}</strong></div>
     <div><span>DD Real</span><strong>${escapeHtml(money(summary.real_drawdown, currency))}</strong></div>
   </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency, summary.reviewed)}</section>` : unavailableMarkup(entry);
-  const badge = broken ? `${broken} NO REPRODUCE` : warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}`
-    : summary.comparable ? 'SIN AVISOS' : 'SIN DATOS';
-  return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
+  const badge = [
+    broken ? `${broken} NO REPRODUCE` : '',
+    degraded ? `${degraded} DEGRADA${degraded === 1 ? '' : 'N'}` : '',
+    !broken && !degraded && warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
+  ].filter(Boolean).join(' · ') || (summary.comparable ? 'SIN AVISOS' : 'SIN DATOS');
+  return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }
 
 function render(entries) {

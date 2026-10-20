@@ -23,8 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import live_audit_catch_up, live_audit_executions, live_audit_lineage
-from . import live_audit_schedule, manager_http
+from . import live_audit_catch_up, live_audit_degradation_alerts, live_audit_executions
+from . import live_audit_lineage, live_audit_schedule, manager_http
 from .common import load_json, safe_int, save_json, utc_now
 from .live_audit_core import RUNNING_STATUSES
 from .live_audit_executions import audit_label
@@ -253,6 +253,7 @@ def record_transitions(
     """
     runs = server.live_audit_runs
     profiles = state.get("profiles") or {}
+    live = live_audit_ids(state)
     for audit_id in watched_audit_ids(state):
         audit = dict(audits.get(audit_id) or {})
         status = str(audit.get("status") or "idle")
@@ -262,6 +263,13 @@ def record_transitions(
             live_audit_executions.archive_execution(
                 server, node, node_id, audit_id, audit, dict(profiles.get(audit_id) or {}),
             )
+            # Después de archivar, porque el aviso mide sobre la serie del
+            # archivo. Sólo los usos reales: la tarjeta que lo enseña es la de
+            # «Portafolios activos».
+            if audit_id in live:
+                live_audit_degradation_alerts.review(
+                    server, node, node_id, audit_id, dict(profiles.get(audit_id) or {}),
+                )
         if status == str(record.get("last_status") or ""):
             continue
         changes: dict[str, Any] = {"last_status": status}
