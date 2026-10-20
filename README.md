@@ -197,6 +197,50 @@ python -m mt5_manager.node --config node.json
 python -m mt5_manager.manager --config manager.json
 ```
 
+## Abrirlo desde fuera: proxy con certificado de verdad
+
+Si el manager se abre desde la calle —y sobre todo si lo abre una **app**, no un
+navegador— la CA propia de la sección siguiente no sirve: **desde Android 7 las
+apps ignoran las CA que instalas en Ajustes**, así que una app Java/Kotlin corta
+con `Trust anchor for certification path not found` aunque la CA esté instalada
+y se vea en la lista. No es que falte un paso; por ese camino no se llega.
+
+La salida es un certificado público, que ya viene en el almacén de todos los
+dispositivos. Lo emite y lo renueva Caddy, delante del manager, con tres líneas
+en `.env`:
+
+```
+COMPOSE_PROFILES=proxy
+MANAGER_DOMAIN=casa.ddns.net
+ACME_EMAIL=tu@correo
+MT5_MANAGER_TLS=off
+```
+
+`docker-compose up -d` levanta entonces un segundo contenedor que escucha en el
+**443**, pide el certificado a Let's Encrypt y reenvía al manager por la red
+interna de Docker. El manager vuelve a hablar `http` ahí dentro: quien termina
+TLS es el proxy. Sin esas líneas no cambia nada y Compose levanta sólo el
+manager, como siempre.
+
+Requisitos: que `MANAGER_DOMAIN` apunte ya a este equipo y que el **443** llegue
+desde fuera. **El 80 no hace falta**, y eso no es un detalle: en Windows ese
+puerto suele tenerlo cogido el servicio IP Helper, que contesta un 200 vacío a
+cualquier ruta y haría fallar la validación normal. Por eso el `Caddyfile` lleva
+`disable_http_challenge`: fuerza el desafío TLS-ALPN-01, que viaja por el mismo
+443 que ya se publica.
+
+A partir de ahí hay **una sola URL, dentro y fuera**: `https://casa.ddns.net`,
+sin puerto. También desde casa, porque el certificado público no puede decir ser
+una IP privada. Y ningún dispositivo vuelve a instalar nada.
+
+- Las renovaciones van solas, dos meses antes de caducar, sin reiniciar nada.
+- El certificado y la cuenta viven en el volumen `proxy-data`. Borrarlo obliga a
+  emitir de nuevo, y la emisión tiene límite semanal por dominio.
+- `docker logs mt5-autotester-proxy` cuenta cada emisión y cada renovación.
+- El 8750 sigue publicado para la red local y para `curl` desde este equipo.
+  Si el router tiene una DMZ, ese puerto está abierto al mundo en `http`: con
+  el proxy puesto, lo suyo es quitar la DMZ y dejar reenviado sólo el 443.
+
 ## HTTPS con tu propia CA (opcional)
 
 El manager sirve `http` mientras no encuentre un certificado, y así se queda si

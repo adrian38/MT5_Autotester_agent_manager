@@ -1,0 +1,40 @@
+# Proxy público del manager: termina TLS con un certificado de verdad.
+#
+# Con esto desaparece la CA propia y todo lo que arrastraba —instalarla en cada
+# dispositivo, renovar a mano, reiniciar el manager—. El certificado lo emite
+# Let's Encrypt, lo renueva Caddy solo y lo acepta cualquier cliente: el
+# navegador del móvil y también una app Android, que desde la 7 ignora las CA
+# que instalas en Ajustes y por eso cortaba con «Trust anchor not found».
+#
+# **Sólo se publica el 443, y la emisión va por ahí.** El desafío normal de
+# Let's Encrypt entra por el 80, pero en este equipo ese puerto lo tiene cogido
+# el servicio IP Helper de Windows, que contesta un 200 vacío a cualquier ruta:
+# la validación leería ese vacío y fallaría. `disable_http_challenge` deja sólo
+# TLS-ALPN-01, que viaja por el mismo 443 que ya publicamos, así que no hace
+# falta ni tocar el router ni parar servicios de Windows.
+#
+# Detrás, el manager sigue hablando http en su red interna de Docker: quien
+# termina TLS es este proxy y nadie más. Los avisos de escritorio los decide el
+# navegador por lo que ve él —`https://` y certificado válido—, así que el
+# `http` de dentro no les afecta.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$MANAGER_DOMAIN} {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
+	reverse_proxy manager:8750 {
+		# El manager tarda lo suyo en algunas respuestas -lotes guiados,
+		# auditorías- y un proxy impaciente las cortaría a mitad.
+		transport http {
+			read_timeout 30m
+			write_timeout 30m
+		}
+	}
+}

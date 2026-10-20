@@ -7,6 +7,10 @@ services:
     ports:
       - "8750:8750"
     environment:
+      # Quien termina TLS es el proxy, no el manager. Sin esto, un certificado
+      # olvidado en runtime/tls lo pondría a hablar https por dentro y el
+      # proxy no se entendería con él.
+      MT5_MANAGER_TLS: ${MT5_MANAGER_TLS:-on}
       MT5_MANAGER_EXPORT_MODE: download
       MT5_MANAGER_CONTAINER_NAME: mt5-autotester-manager
       MT5_MANAGER_RESTART_REPO: /workspace/manager-repo
@@ -44,5 +48,32 @@ services:
         source: manager-git-auth
         target: /root/.config/gh
 
+  # Sólo arranca donde se pida -`COMPOSE_PROFILES=proxy` en `.env`-, porque
+  # necesita un dominio propio apuntando a este equipo. Un equipo de agente que
+  # no publica nada sigue levantando el manager solo, como siempre.
+  proxy:
+    image: caddy:2.10-alpine
+    container_name: mt5-autotester-proxy
+    profiles: ["proxy"]
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    environment:
+      MANAGER_DOMAIN: ${MANAGER_DOMAIN:?el dominio público del manager, p.ej. casa.ddns.net}
+      ACME_EMAIL: ${ACME_EMAIL:?correo para los avisos de caducidad de Let's Encrypt}
+    volumes:
+      - type: bind
+        source: ./Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      # El certificado y la cuenta de Let's Encrypt viven aquí. Perder este
+      # volumen es volver a emitir, y la emisión tiene límite por semana.
+      - type: volume
+        source: proxy-data
+        target: /data
+    depends_on:
+      - manager
+
 volumes:
   manager-git-auth:
+  proxy-data:

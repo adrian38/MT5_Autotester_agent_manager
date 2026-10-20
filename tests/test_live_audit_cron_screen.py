@@ -81,6 +81,13 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn('href="/ca.crt"', self.script)
         self.assertIn("cron-authority", self.script)
 
+    def test_it_only_offers_the_authority_when_the_manager_has_one(self) -> None:
+        # Detrás del proxy público el certificado lo firma Let's Encrypt, no
+        # hay CA que instalar y `/ca.crt` da 404: el enlace era una descarga
+        # rota y el consejo de instalarla, falso. Se pregunta antes de ofrecer.
+        self.assertIn("fetch('/ca.crt'", self.script)
+        self.assertIn("field('#cron-authority').hidden = !authority", self.script)
+
     def test_a_click_that_the_browser_swallows_still_says_something(self) -> None:
         # Chrome descarta en silencio la peticion de permiso en una pagina con
         # el certificado en rojo: la promesa vuelve en `default` sin preguntar

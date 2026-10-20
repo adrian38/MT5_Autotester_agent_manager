@@ -344,15 +344,32 @@
   // el boton parecia no hacer nada. Es el caso probable aqui, porque la CA del
   // manager hay que instalarla en cada dispositivo.
   function blockedHint() {
-    return location.protocol === 'https:'
+    if (location.protocol !== 'https:') {
+      return 'El navegador no da avisos en http por IP. Abre el manager en localhost, o '
+        + 'sírvelo por https con tu CA (README, «HTTPS con tu propia CA»).';
+    }
+    // Detrás del proxy público el certificado es de verdad y no hay ninguna CA
+    // que instalar: mandar a instalarla sería mandar a ningún sitio.
+    return authority
       ? 'El navegador ni siquiera ha preguntado. Suele ser el certificado: si la '
         + 'barra de direcciones dice «No seguro», instala runtime/tls/ca.crt en este '
         + 'dispositivo como entidad de certificación raíz de confianza y reinicia el navegador.'
-      : 'El navegador no da avisos en http por IP. Abre el manager en localhost, o '
-        + 'sírvelo por https con tu CA (README, «HTTPS con tu propia CA»).';
+      : 'El navegador ni siquiera ha preguntado. Ábrelo desde el icono del candado de '
+        + 'la barra de direcciones: en «Notificaciones», pon «Permitir».';
   }
 
   let hint = '';
+
+  // Si el manager sirve su propia CA, hay algo que instalar y el enlace vale.
+  // Detrás del proxy público no la hay —el certificado lo firma Let's Encrypt—
+  // y `/ca.crt` da 404: el enlace sería una descarga rota y el consejo, falso.
+  let authority = false;
+
+  async function loadAuthority() {
+    try { authority = (await fetch('/ca.crt', {cache: 'no-store'})).ok; }
+    catch (error) { authority = false; }
+    applyPushState();
+  }
 
   function applyPushState() {
     const state = pushState();
@@ -361,9 +378,9 @@
     button.textContent = label;
     button.disabled = state !== 'default';
     field('#cron-push-note').textContent = hint || help;
-    // Desde otro equipo, el certificado que falta instalar no está a mano: el
-    // manager lo sirve, y aquí está el enlace para bajarlo donde hace falta.
-    field('#cron-authority').hidden = location.protocol !== 'https:' || state === 'granted';
+    // Desde otro equipo, la CA que falta instalar no está a mano: el manager
+    // la sirve, y aquí está el enlace. Sólo cuando de verdad hay una.
+    field('#cron-authority').hidden = !authority || state === 'granted';
     syncAsk();
   }
 
@@ -537,6 +554,7 @@
   });
 
   applyPushState();
+  loadAuthority().catch(() => {});
   loadScheduler().catch(() => {});
   loadNotifications().catch(() => {});
   // El mismo pulso que la portada: un aviso del sábado no puede tardar en

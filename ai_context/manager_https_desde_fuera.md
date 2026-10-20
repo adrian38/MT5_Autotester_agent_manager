@@ -69,3 +69,46 @@ Si el primero da 200, la red está bien y el problema es el certificado o el
 esquema. La validación con nombre hay que hacerla con el `ssl` de Python: el
 `curl` de Windows usa schannel y tapa cualquier error con «the revocation
 status is unknown».
+
+## Y aun así la app seguía sin entrar: Android no es el navegador
+
+Con el nombre ya dentro del certificado, la app del móvil siguió cortando:
+
+```
+java.security.cert.CertPathValidatorException: Trust anchor for certification
+path not found
+```
+
+Ése es otro fallo, no el de arriba, y conviene no confundirlos: el primero es
+el **nombre** y el segundo la **confianza**. Y la confianza no se arregla
+instalando la CA, porque **desde Android 7 (API 24) las apps no usan el almacén
+del usuario**, sólo el del sistema. Instalar `ca.crt` en Ajustes arregla Chrome
+y no arregla ninguna app: la CA aparece en la lista, parece puesta, y la app
+sigue dando exactamente el mismo error. Las salidas serían empaquetar la CA en
+el APK con un `network_security_config`, o tener un certificado público.
+
+## La solución: un proxy delante, no más plomería
+
+Lo resuelto el 2026-10-20 es lo segundo, y de paso se lleva por delante toda la
+plomería de la CA propia. El servicio `proxy` del `docker-compose.yml` es Caddy:
+escucha en el 443, pide el certificado a Let's Encrypt, lo renueva solo y
+reenvía a `manager:8750` por la red interna. El manager vuelve a `http` ahí
+dentro (`MT5_MANAGER_TLS=off`), y el contexto seguro lo decide el navegador por
+lo que ve él, que es `https` con un certificado válido.
+
+Dos cosas que costaron y quedan escritas:
+
+- **El puerto 80 de este equipo no se puede usar**, lo tiene `iphlpsvc` -el IP
+  Helper de Windows-, que responde un 200 vacío a cualquier ruta, incluida
+  `/.well-known/acme-challenge/...`. La validación leería ese vacío y fallaría.
+  No es `netstat` quien lo delata, que sólo dice «svchost»: es
+  `Get-CimInstance Win32_Service -Filter "ProcessId=<pid>"`.
+- **Por eso el `Caddyfile` lleva `disable_http_challenge`**, que fuerza
+  TLS-ALPN-01: el desafío viaja por el 443, el único puerto que se publica. Sin
+  esa línea Caddy intentaría primero el 80 y habría que tocar el router o parar
+  un servicio de Windows en cada renovación.
+
+Con esto, `https://ringaping.ddns.net` -sin puerto- vale dentro y fuera, para el
+navegador y para la app, sin instalar nada en ningún dispositivo. La CA propia
+sigue en el repositorio porque es la única opción de una instalación que no
+publica dominio, pero ya no es el camino de este equipo.
