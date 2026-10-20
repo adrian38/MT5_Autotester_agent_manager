@@ -149,6 +149,12 @@ que la serie pasa de medio año: antes sería la misma prueba contada dos veces.
 Hoy **ninguna de las trece auditorías archivadas llega**, así que es
 protección para cuando aparezca el problema, no un cambio visible ya.
 
+**Lo que se ofreció y el usuario descartó el 2026-10-20**: quitar el reparto
+del nivel entre las estrategias comparadas. Detectaría el caso de −2 € en 6,5
+meses en vez de 9,8, a cambio de subir las falsas alarmas del 1,3 % al 6,3 %
+por estrategia. Prefirió el listón estricto y las dos ventanas. No volver a
+proponerlo sin un motivo nuevo.
+
 ## Y el ritmo, que es la única señal rápida
 
 El beneficio medio es carísimo de medir; el **recuento** no. Con 22,7
