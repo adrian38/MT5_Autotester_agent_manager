@@ -149,12 +149,22 @@ function sigma(value) {
 // retirarla, y hasta ahora sólo salía abriendo esa pantalla uso por uso.
 // El `AVISO` que no llegó a cruzar sigue sin listarse: ahí no ha pasado nada
 // que mirar, y una lista llena de eso deja de leerse.
-function strategyAlert(row, tone, label) {
+function strategyAlert(row, tone, label, values) {
   const name = row.strategy_set || row.strategy;
+  const shown = values || [sigma(row.deviations), `${row.trades} operaciones`];
   return `<li><div><strong>${escapeHtml(row.symbol || '—')}</strong><small>${escapeHtml(name)}</small></div>`
-    + `<div class="strategy-values"><span>${escapeHtml(sigma(row.deviations))}</span>`
-    + `<span>${escapeHtml(row.trades)} operaciones</span></div>`
+    + `<div class="strategy-values">${shown.map(value => `<span>${escapeHtml(value)}</span>`).join('')}</div>`
     + `<div><span class="verdict ${tone}">${label}</span></div></li>`;
+}
+
+// «Opera menos» no es lo mismo que «rinde menos», y se ve muchísimo antes: que
+// el beneficio medio baje pide cientos de operaciones para demostrarse, que el
+// recuento caiga a la mitad se ve en dos meses. Tampoco va al móvil.
+function slowAlert(row) {
+  return strategyAlert(row, 'warn', 'OPERA MENOS', [
+    `${row.observed} operaciones`,
+    `${new Intl.NumberFormat('es-ES', {maximumFractionDigits: 1}).format(Number(row.expected || 0))} esperadas`,
+  ]);
 }
 
 // `AVISO FUERTE` es la que cruzó −2 σ sin que la evidencia lo confirmara.
@@ -166,13 +176,16 @@ function strategyAlert(row, tone, label) {
 function degradationMarkup(entry) {
   const rows = entry.degradation?.strategies || [];
   const crossing = entry.degradation?.crossing || [];
-  if (!rows.length && !crossing.length) return '';
+  const slow = entry.degradation?.slow || [];
+  if (!rows.length && !crossing.length && !slow.length) return '';
   const watching = Number(entry.degradation?.watching || 0);
   const alerts = rows.map(row => strategyAlert(row, 'bad', 'DEGRADA'))
-    .concat(crossing.map(row => strategyAlert(row, 'warn', 'AVISO FUERTE'))).join('');
+    .concat(crossing.map(row => strategyAlert(row, 'warn', 'AVISO FUERTE')))
+    .concat(slow.map(slowAlert)).join('');
   const counts = [
     rows.length ? `${rows.length} degrada${rows.length === 1 ? '' : 'n'}` : '',
     watching ? `${watching} en vigilancia` : '',
+    slow.length ? `${slow.length} opera${slow.length === 1 ? '' : 'n'} menos` : '',
   ].filter(Boolean).join(' · ');
   return `<section class="strategy-section"><div class="section-title"><strong>Contra el histórico</strong>`
     + `<span>${counts}</span></div>`
@@ -229,8 +242,9 @@ function cardMarkup(entry) {
   const warnings = summary.flagged.filter(row => row.verdict === 'AVISO').length;
   const degraded = (entry.degradation?.strategies || []).length;
   const crossing = (entry.degradation?.crossing || []).length;
+  const slow = (entry.degradation?.slow || []).length;
   const tone = broken || degraded ? 'failed'
-    : warnings || crossing ? 'pending' : summary.comparable ? 'completed' : 'idle';
+    : warnings || crossing || slow ? 'pending' : summary.comparable ? 'completed' : 'idle';
   const body = summary.comparable ? `<div class="comparison-grid">
     <div><span>Profit Test</span><strong>${escapeHtml(money(summary.demo_profit, currency))}</strong></div>
     <div><span>Profit Real</span><strong>${escapeHtml(money(summary.real_profit, currency))}</strong></div>
@@ -245,6 +259,7 @@ function cardMarkup(entry) {
     // aviso cuando hay algo crítico encima, que es como estaba.
     !broken && !degraded && warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
     crossing ? `${crossing} EN VIGILANCIA` : '',
+    slow ? `${slow} OPERA${slow === 1 ? '' : 'N'} MENOS` : '',
   ].filter(Boolean).join(' · ') || (summary.comparable ? 'SIN AVISOS' : 'SIN DATOS');
   return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${summary.comparable ? unlinkedMarkup(summary) : ''}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }

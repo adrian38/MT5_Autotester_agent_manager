@@ -32,6 +32,9 @@ esconder el cruce sería el error contrario.
 from __future__ import annotations
 
 import math
+from bisect import bisect_left
+from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -118,6 +121,66 @@ def window_rarity(series: list[float], observed: float, size: int) -> dict[str, 
     }
 
 
+def poisson_tail(observed: int, expected: float) -> float:
+    """`P(X <= observed)` con media `expected`, en logaritmos.
+
+    Es sólo la **criba** del contraste de ritmo: los recuentos de este pipeline
+    están sobredispersos —mediana 1,22 de varianza/media sobre 60 informes
+    reales, con cola hasta 23—, así que un Poisson a secas avisaría de más.
+    Decide `count_rarity`, que no supone nada. Esto sirve para no abrir el
+    informe de las doce estrategias que no tienen nada que mirar.
+    """
+    if expected <= 0:
+        return 1.0
+    if observed >= expected:
+        return 1.0
+    terms = []
+    for count in range(0, observed + 1):
+        terms.append(-expected + count * math.log(expected) - math.lgamma(count + 1))
+    top = max(terms)
+    return min(1.0, math.exp(top) * sum(math.exp(term - top) for term in terms))
+
+
+def count_rarity(
+    times: list[Any], days: float, observed: int,
+) -> dict[str, Any] | None:
+    """Ventanas de `days` días del backtest con tan pocas operaciones como ahora.
+
+    El gemelo de `window_rarity` para el **ritmo**: en vez de preguntar si lo
+    ganado por operación es raro, pregunta si operar tan poco lo es. Las
+    ventanas arrancan un día tras otro y van en su orden, así que traen puestos
+    los parones de agosto, las rachas y la estacionalidad que un Poisson
+    ignora.
+    """
+    if not times or days <= 0:
+        return None
+    span = int((times[-1] - times[0]).days - days) + 1
+    if span < MINIMUM_WINDOWS:
+        return None
+    length = timedelta(days=days)
+    worse = 0
+    for offset in range(span):
+        start = times[0] + timedelta(days=offset)
+        # Medio abierta, `[inicio, inicio + dias)`: con los dos extremos
+        # cerrados una ventana de treinta dias se comia la operacion del dia
+        # treinta y uno, y el recuento no cuadraba con el esperado.
+        inside = bisect_left(times, start + length) - bisect_left(times, start)
+        if inside <= observed:
+            worse += 1
+    return {
+        "windows": span, "worse": worse, "days": days,
+        "p": (worse + 1) / (span + 1), "resolution": 1 / (span + 1),
+    }
+
+
+@dataclass(frozen=True)
+class Backtest:
+    """Lo que el informe del candidato aporta: cuánto y cuándo."""
+
+    series: list[float]
+    times: list[Any]
+
+
 def trade_series(report: Any, reference_lot: float) -> list[float]:
     """Resultado de cada operación del backtest, llevado al lote de referencia.
 
@@ -130,8 +193,8 @@ def trade_series(report: Any, reference_lot: float) -> list[float]:
     ]
 
 
-def backtest_series(source: Any, history: Any, reference_lot: float) -> list[float] | None:
-    """Las operaciones del backtest del candidato, o `None` si no se dejan leer.
+def backtest(source: Any, history: Any, reference_lot: float) -> Backtest | None:
+    """El backtest del candidato, o `None` si el informe no se deja leer.
 
     El informe es el que apunta el propio `metrics_json`, así que la serie y la
     media contra la que se contrasta salen de la misma medición. Si lo que se
@@ -145,22 +208,58 @@ def backtest_series(source: Any, history: Any, reference_lot: float) -> list[flo
     try:
         report = cached_report(Path(_resolve_source_path(stored, source.project)))
         series = trade_series(report, reference_lot)
+        times = sorted(trade.close_time for trade in report.trades if trade.size > 0)
     except WINDOW_ERRORS:
         return None
-    return series if len(series) == getattr(history, "trades", 0) else None
+    if len(series) != getattr(history, "trades", 0):
+        return None
+    return Backtest(series=series, times=times)
 
 
-def _evidence(row: dict[str, Any], compared: int, alpha: float) -> dict[str, Any]:
+def _evidence(
+    row: dict[str, Any], compared: int, alpha: float, required: float,
+) -> dict[str, Any]:
     """La parte de la prueba que no necesita abrir el informe del backtest."""
     deviations = float(row.get("deviations") or 0.0)
     trades = int(row.get("trades") or 0)
     return {
-        "compared": compared, "alpha": alpha,
-        "required": alpha / compared if compared > 0 else alpha,
+        "compared": compared, "alpha": alpha, "required": required,
         "normal_p": one_sided_p(deviations),
         "sequential_p": sequential_p(deviations, trades),
         "windows": None, "confirmed": False, "crossed": False, "blocked_by": [],
     }
+
+
+def _rate(
+    row: dict[str, Any], required: float, days: float,
+    backtest_of: Callable[[dict[str, Any]], Backtest | None],
+) -> None:
+    """Si la estrategia opera mucho menos de lo que solía, y cuánto de raro es.
+
+    Va aparte del veredicto a propósito. El beneficio medio es carísimo de
+    medir —distinguir +0,77 € de 0 pide unas 600 operaciones, seis años al
+    ritmo real—; el recuento no, y «ha dejado de operar» también es dejar de
+    ser la estrategia que se eligió. Se mide hasta en las filas sin desvío:
+    es justo la que deja de operar la que no llega a tener muestra.
+    """
+    expected = row.get("expected_trades")
+    observed = int(row.get("trades") or 0)
+    if not expected or expected <= 0 or days <= 0:
+        # Sin días auditados no hay ritmo que medir. También es como la ventana
+        # reciente pide que no se repita esta prueba: la serie entera tiene más
+        # muestra, y dos recuentos del mismo hecho serían dos avisos.
+        return
+    screen = poisson_tail(observed, float(expected))
+    row["rate"] = {
+        "expected": float(expected), "observed": observed, "days": days,
+        "screen_p": screen, "windows": None, "flagged": False, "required": required,
+    }
+    if screen > required:
+        return
+    found = backtest_of(row)
+    rarity = count_rarity(found.times, days, observed) if found else None
+    row["rate"]["windows"] = rarity
+    row["rate"]["flagged"] = bool(rarity and rarity["p"] <= required)
 
 
 def _blocks(rarity: dict[str, Any] | None, required: float) -> bool:
@@ -178,7 +277,7 @@ def _blocks(rarity: dict[str, Any] | None, required: float) -> bool:
 
 def _confirm_row(
     row: dict[str, Any], evidence: dict[str, Any],
-    series_of: Callable[[dict[str, Any]], list[float] | None],
+    backtest_of: Callable[[dict[str, Any]], Backtest | None],
 ) -> None:
     """Decide una fila que ya cruzó el umbral, y anota qué prueba la frenó.
 
@@ -189,8 +288,9 @@ def _confirm_row(
     """
     evidence["crossed"] = True
     required = evidence["required"]
-    series = series_of(row) or []
-    rarity = window_rarity(series, float(row.get("observed_at_reference_lot") or 0.0),
+    found = backtest_of(row)
+    rarity = window_rarity(found.series if found else [],
+                           float(row.get("observed_at_reference_lot") or 0.0),
                            int(row.get("trades") or 0))
     evidence["windows"] = rarity
     blocked = []
@@ -205,22 +305,29 @@ def _confirm_row(
 
 
 def confirm(
-    rows: list[dict[str, Any]], series_of: Callable[[dict[str, Any]], list[float] | None],
-    sigma: float,
+    rows: list[dict[str, Any]], backtest_of: Callable[[dict[str, Any]], Backtest | None],
+    sigma: float, days: float = 0.0,
 ) -> list[dict[str, Any]]:
-    """Degrada a `AVISO` los cruces que la evidencia no sostiene.
+    """Degrada a `AVISO` los cruces que la evidencia no sostiene, y mide el ritmo.
 
-    El informe del backtest sólo se abre para las filas que ya cruzaron: son
-    las únicas donde la respuesta cambia, y son una o ninguna en una vuelta
-    normal del vigilante.
+    El informe del backtest sólo se abre para las filas que ya cruzaron y para
+    las que la criba de Poisson señala: son las únicas donde la respuesta
+    cambia, y son una o ninguna en una vuelta normal del vigilante.
+
+    El nivel se reparte entre las estrategias que **se han contrastado de
+    verdad** —las que tienen desvío—, no entre todas las filas de la tabla:
+    una con tres operaciones no ha gastado nivel ninguno.
     """
     alpha = alpha_for(sigma)
     comparable = [row for row in rows if row.get("deviations") is not None]
+    required = alpha / len(comparable) if comparable else alpha
+    for row in rows:
+        _rate(row, required, days, backtest_of)
     for row in comparable:
-        evidence = _evidence(row, len(comparable), alpha)
+        evidence = _evidence(row, len(comparable), alpha, required)
         row["evidence"] = evidence
         if row.get("verdict") == "degraded":
-            _confirm_row(row, evidence, series_of)
+            _confirm_row(row, evidence, backtest_of)
     return rows
 
 

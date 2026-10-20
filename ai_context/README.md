@@ -162,7 +162,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   estrategia se anuncia una sola vez.
 - `live_audit_degradation_evidence.md`: por qué cruzar −2 σ no basta para decir
   DEGRADA; los tramos consecutivos del propio backtest, el reparto entre las
-  estrategias comparadas y la frontera que aguanta mirar cada semana.
+  estrategias comparadas y la frontera que aguanta mirar cada semana. Incluye
+  **cuánto detecta de verdad** cada regla, por qué se mira también la ventana
+  reciente y por qué el ritmo de operaciones es la única señal rápida.
 
 ## Manager: interfaz y operación
 

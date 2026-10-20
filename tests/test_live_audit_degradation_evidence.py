@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import sys
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -117,8 +118,12 @@ class WindowTests(unittest.TestCase):
 
 
 class ConfirmTests(unittest.TestCase):
-    def confirm(self, rows: list[dict], series: list[float] | None = None) -> list[dict]:
-        evidence.confirm(rows, lambda _row: series, DEGRADED_SIGMA)
+    def confirm(
+        self, rows: list[dict], series: list[float] | None = None,
+        times: list | None = None, days: float = 0.0,
+    ) -> list[dict]:
+        found = None if series is None else evidence.Backtest(series, times or [])
+        evidence.confirm(rows, lambda _row: found, DEGRADED_SIGMA, days)
         return rows
 
     def test_the_axi_crossing_stays_a_warning_with_its_numbers_a_la_vista(self) -> None:
@@ -163,12 +168,12 @@ class ConfirmTests(unittest.TestCase):
         # permitirse: la memoria del agente ya se abre una vez por uso.
         opened: list[str] = []
 
-        def series_of(measured: dict) -> list[float]:
+        def backtest_of(measured: dict) -> evidence.Backtest:
             opened.append(measured["strategy"])
-            return [1.0] * 200
+            return evidence.Backtest([1.0] * 200, [])
 
         rows = [row(-0.3, 20, verdict="normal", strategy="X:1"), row(-6.0, 30)]
-        evidence.confirm(rows, series_of, DEGRADED_SIGMA)
+        evidence.confirm(rows, backtest_of, DEGRADED_SIGMA)
         self.assertEqual(opened, ["AXI/STANDARD:10751"])
 
     def test_a_report_that_cannot_be_read_leaves_the_sequential_test_deciding(self) -> None:
@@ -197,7 +202,7 @@ class ConfirmTests(unittest.TestCase):
         self.assertEqual(measured["verdict"], "warning")
 
 
-class BacktestSeriesTests(unittest.TestCase):
+class BacktestTests(unittest.TestCase):
     def history(self, trades: int = 3) -> StrategyHistory:
         return StrategyHistory(
             trades=trades, net_profit=30.0, average_trade=10.0, sqn=2.0,
@@ -207,7 +212,11 @@ class BacktestSeriesTests(unittest.TestCase):
 
     def report(self, *pairs: tuple[float, float]) -> SimpleNamespace:
         return SimpleNamespace(trades=[
-            SimpleNamespace(profit_loss=profit, size=size) for profit, size in pairs
+            SimpleNamespace(
+                profit_loss=profit, size=size,
+                close_time=datetime(2026, 1, 1) + timedelta(days=index),
+            )
+            for index, (profit, size) in enumerate(pairs)
         ])
 
     def parsed(self, report: SimpleNamespace):
@@ -217,16 +226,16 @@ class BacktestSeriesTests(unittest.TestCase):
         # Mismo gesto que con las del tester: comparar euros crudos mediria el
         # volumen con el que corrio el backtest, no el comportamiento.
         with self.parsed(self.report((10.0, 0.02), (5.0, 0.01), (1.0, 0.0))):
-            series = evidence.backtest_series(
+            found = evidence.backtest(
                 SimpleNamespace(project=Path("/proyecto")), self.history(trades=2), 0.01,
             )
-        self.assertEqual(series, [5.0, 5.0])
+        self.assertEqual(found.series, [5.0, 5.0])
 
     def test_a_report_that_is_not_the_one_the_memory_measured_is_not_used(self) -> None:
         # Si lo parseado no trae las operaciones que la memoria dice, la media
         # contra la que se contrasta salio de otra medicion: no se mide con el.
         with self.parsed(self.report((10.0, 0.01), (5.0, 0.01))):
-            self.assertIsNone(evidence.backtest_series(
+            self.assertIsNone(evidence.backtest(
                 SimpleNamespace(project=Path("/proyecto")), self.history(trades=1363), 0.01,
             ))
 
@@ -235,15 +244,102 @@ class BacktestSeriesTests(unittest.TestCase):
             trades=10, net_profit=1.0, average_trade=0.1, sqn=1.0,
             active_months=1, drawdown=1.0, profit_factor=1.0,
         )
-        self.assertIsNone(evidence.backtest_series(object(), history, 0.01))
+        self.assertIsNone(evidence.backtest(object(), history, 0.01))
 
     def test_an_unreadable_report_is_not_a_crash(self) -> None:
         with mock.patch.object(evidence, "cached_report", side_effect=OSError("no está")):
-            self.assertIsNone(evidence.backtest_series(
+            self.assertIsNone(evidence.backtest(
                 SimpleNamespace(project=Path("/proyecto")), self.history(), 0.01,
             ))
         # Y una fuente sin proyecto -el doble de las pruebas del informe- tampoco.
-        self.assertIsNone(evidence.backtest_series(object(), self.history(), 0.01))
+        self.assertIsNone(evidence.backtest(object(), self.history(), 0.01))
+
+
+def every(days: float, count: int, start: datetime | None = None) -> list[datetime]:
+    """Un backtest que opera a ritmo constante, uno cada `days` dias."""
+    first = start or datetime(2021, 1, 1)
+    return [first + timedelta(days=days * index) for index in range(count)]
+
+
+class RateTests(unittest.TestCase):
+    """El ritmo: «ha dejado de operar» tambien es dejar de ser la estrategia.
+
+    Es la unica senal rapida que hay. Distinguir +0,77 EUR de 0 por operacion
+    pide ~600 operaciones -seis anos al ritmo real-; que el recuento caiga a la
+    mitad se ve en dos meses.
+    """
+
+    def row(self, trades: int, expected: float) -> dict:
+        return {
+            "strategy": "AXI/STANDARD:10751", "verdict": "insufficient",
+            "trades": trades, "deviations": None, "expected_trades": expected,
+        }
+
+    def test_the_poisson_screen_only_looks_at_the_low_side(self) -> None:
+        self.assertEqual(evidence.poisson_tail(30, 20.0), 1.0)
+        self.assertEqual(evidence.poisson_tail(5, 0.0), 1.0)
+        # 2 contra 10,8 esperadas es el caso real de RoboForex 148 en EURUSD.
+        self.assertAlmostEqual(evidence.poisson_tail(2, 10.8), 0.00143, places=5)
+
+    def test_the_windows_count_operations_not_profit(self) -> None:
+        # Un backtest que opera cada dos dias: en treinta dias hace quince.
+        rarity = evidence.count_rarity(every(2, 300), 30, 3)
+        self.assertGreater(rarity["windows"], 500)
+        self.assertEqual(rarity["worse"], 0)
+        rarity = evidence.count_rarity(every(2, 300), 30, 15)
+        self.assertEqual(rarity["worse"], rarity["windows"])
+
+    def test_a_backtest_too_short_for_that_window_says_nothing(self) -> None:
+        self.assertIsNone(evidence.count_rarity(every(2, 10), 30, 1))
+        self.assertIsNone(evidence.count_rarity([], 30, 1))
+        self.assertIsNone(evidence.count_rarity(every(2, 300), 0, 1))
+
+    def test_a_strategy_that_almost_stopped_trading_is_flagged(self) -> None:
+        rows = [self.row(trades=2, expected=15.0)]
+        evidence.confirm(rows, lambda _row: evidence.Backtest([], every(2, 300)),
+                         DEGRADED_SIGMA, days=30)
+        rate = rows[0]["rate"]
+        self.assertTrue(rate["flagged"])
+        self.assertEqual(rate["observed"], 2)
+        self.assertLess(rate["windows"]["p"], 0.01)
+
+    def test_a_strategy_at_its_usual_rate_is_not(self) -> None:
+        rows = [self.row(trades=14, expected=15.0)]
+        evidence.confirm(rows, lambda _row: evidence.Backtest([], every(2, 300)),
+                         DEGRADED_SIGMA, days=30)
+        self.assertFalse(rows[0]["rate"]["flagged"])
+        # Y ni siquiera se abrio el informe: la criba lo paro antes.
+        self.assertIsNone(rows[0]["rate"]["windows"])
+
+    def test_the_screen_saves_opening_the_report(self) -> None:
+        opened = []
+
+        def backtest_of(_row: dict) -> evidence.Backtest:
+            opened.append(1)
+            return evidence.Backtest([], every(2, 300))
+
+        rows = [self.row(trades=14, expected=15.0), self.row(trades=0, expected=15.0)]
+        evidence.confirm(rows, backtest_of, DEGRADED_SIGMA, days=30)
+        self.assertEqual(len(opened), 1)
+
+    def test_without_audited_days_there_is_no_rate_to_measure(self) -> None:
+        # Es tambien como la ventana reciente pide no repetir esta prueba.
+        rows = [self.row(trades=0, expected=15.0)]
+        evidence.confirm(rows, lambda _row: None, DEGRADED_SIGMA, days=0)
+        self.assertNotIn("rate", rows[0])
+
+    def test_the_backtest_decides_and_not_the_poisson(self) -> None:
+        # Los recuentos estan sobredispersos (mediana 1,22 de varianza/media
+        # sobre 60 informes reales): si el propio backtest hizo tramos asi de
+        # flojos, Poisson se equivoca y manda el backtest.
+        clustered = every(0.5, 100) + every(0.5, 100, datetime(2023, 1, 1))
+        rows = [self.row(trades=2, expected=15.0)]
+        evidence.confirm(rows, lambda _row: evidence.Backtest([], clustered),
+                         DEGRADED_SIGMA, days=30)
+        rate = rows[0]["rate"]
+        self.assertLess(rate["screen_p"], 0.001)
+        self.assertGreater(rate["windows"]["p"], 0.5)
+        self.assertFalse(rate["flagged"])
 
 
 class RealCaseTests(unittest.TestCase):

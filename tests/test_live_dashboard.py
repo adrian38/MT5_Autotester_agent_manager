@@ -104,10 +104,11 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # mientras una estrategia cruzaba semana tras semana. Se nombra, con
         # su chapa ámbar, y la tarjeta deja de estar verde.
         self.assertIn("entry.degradation?.crossing || []", self.script)
-        self.assertIn("if (!rows.length && !crossing.length) return ''", self.script)
+        self.assertIn(
+            "if (!rows.length && !crossing.length && !slow.length) return ''", self.script,
+        )
         self.assertIn("strategyAlert(row, 'warn', 'AVISO FUERTE')", self.script)
         self.assertIn("crossing ? `${crossing} EN VIGILANCIA` : ''", self.script)
-        self.assertIn(": warnings || crossing ? 'pending'", self.script)
         # La chapa enseña los dos: son la misma gravedad y cuentan cosas
         # distintas -reproducir la demo y parecerse al backtest-.
         self.assertIn(
@@ -116,6 +117,19 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         )
         # El aviso que no llego a cruzar sigue siendo solo un recuento.
         self.assertIn("sigue sin listarse", self.script)
+
+    def test_the_card_names_the_strategy_that_stopped_trading(self) -> None:
+        # Que el beneficio medio baje pide cientos de operaciones para
+        # demostrarse; que el recuento caiga a la mitad se ve en dos meses. Es
+        # la unica senal rapida que hay, y hasta ahora no sal�a de Analisis.
+        self.assertIn("entry.degradation?.slow || []", self.script)
+        self.assertIn("function slowAlert(row)", self.script)
+        self.assertIn("'OPERA MENOS'", self.script)
+        self.assertIn("esperadas", self.script)
+        self.assertIn("opera${slow.length === 1 ? '' : 'n'} menos", self.script)
+        self.assertIn("slow ? `${slow} OPERA${slow === 1 ? '' : 'N'} MENOS` : ''", self.script)
+        # Tampoco pinta la tarjeta de rojo: no es un veredicto de retirada.
+        self.assertIn("warnings || crossing || slow ? 'pending'", self.script)
 
     def test_the_card_does_not_open_the_agent_memory_to_know_it(self) -> None:
         # El histórico vive en la memoria UBS del agente y la portada se

@@ -45,7 +45,7 @@ WATCHED = "warning"
 NAMED_IN_MESSAGE = 3
 """Estrategias que el aviso nombra; del resto da el número."""
 
-CRITERION = "evidence-1"
+CRITERION = "evidence-2"
 """Con qué criterio se midió lo que hay guardado.
 
 El candado es el `execution_id`, así que sin esto un cambio de criterio no
@@ -92,25 +92,45 @@ def _crossed(row: dict[str, Any]) -> bool:
     return bool(isinstance(evidence, dict) and evidence.get("crossed"))
 
 
-def flagged(
-    report: dict[str, Any],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
-    """Degradadas, las que cruzaron sin confirmar, en vigilancia y comparadas.
+def _slow_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Lo que la tarjeta necesita de una que opera menos de lo que solía."""
+    rate = row.get("rate") or {}
+    return {
+        **_row(row),
+        "observed": safe_int(rate.get("observed"), 0, minimum=0),
+        "expected": _number(rate.get("expected")),
+    }
 
-    Las que cruzan sin confirmarse se listan aparte porque la tarjeta tiene
-    que **nombrarlas**: desde que cruzar −2 σ dejó de ser el veredicto, el
-    recuento a secas las escondía —y el recuento sólo se pintaba si había
-    alguna degradada, así que la portada no decía nada en absoluto—. Al móvil
-    no van: `_announce` sólo recibe las degradadas.
+
+def _slow(row: dict[str, Any]) -> bool:
+    rate = row.get("rate")
+    return bool(isinstance(rate, dict) and rate.get("flagged"))
+
+
+def flagged(report: dict[str, Any]) -> dict[str, Any]:
+    """Lo que la portada tiene que saber de este informe.
+
+    Tres listas y dos recuentos, porque son tres hechos distintos:
+
+    - `degraded`: el veredicto que justifica retirar la estrategia. Es el
+      único que va a la campana y al móvil.
+    - `crossing`: cruzó −2 σ y la evidencia no lo confirmó. La tarjeta tiene
+      que **nombrarlas**: desde que cruzar dejó de ser el veredicto, el
+      recuento a secas las escondía —y sólo se pintaba si había alguna
+      degradada, así que la portada no decía nada en absoluto—.
+    - `slow`: opera mucho menos de lo que solía. No es el mismo hecho que
+      rendir poco, y se ve mucho antes: dejar de operar también es dejar de
+      ser la estrategia que se eligió.
     """
     rows = [row for row in report.get("strategies") or [] if isinstance(row, dict)]
     watched = [row for row in rows if str(row.get("verdict") or "") == WATCHED]
-    return (
-        [_row(row) for row in rows if str(row.get("verdict") or "") == DEGRADED],
-        [_row(row) for row in watched if _crossed(row)],
-        len(watched),
-        len(rows),
-    )
+    return {
+        "degraded": [_row(row) for row in rows if str(row.get("verdict") or "") == DEGRADED],
+        "crossing": [_row(row) for row in watched if _crossed(row)],
+        "slow": [_slow_row(row) for row in rows if _slow(row)],
+        "watching": len(watched),
+        "compared": len(rows),
+    }
 
 
 def _name(row: dict[str, Any]) -> str:
@@ -208,18 +228,18 @@ def review(
     report = _report(server, node, node_id, audit_key, archive.detail(node_id, entry))
     if report is None:
         return
-    degraded, crossing, watching, compared = flagged(report)
+    found = flagged(report)
     announced = {
         str(row.get("strategy") or "")
         for row in record.get("degradation") or [] if isinstance(row, dict)
     }
     runs.update(
-        key, degradation_execution=measured, degradation=degraded,
-        degradation_crossing=crossing,
-        degradation_watching=watching, degradation_compared=compared,
+        key, degradation_execution=measured, degradation=found["degraded"],
+        degradation_crossing=found["crossing"], degradation_slow=found["slow"],
+        degradation_watching=found["watching"], degradation_compared=found["compared"],
         degradation_checked_at=utc_now(),
     )
-    fresh = [row for row in degraded if row["strategy"] not in announced]
+    fresh = [row for row in found["degraded"] if row["strategy"] not in announced]
     if fresh:
         _announce(server, node, node_id, audit_key, profile, fresh)
 
@@ -234,6 +254,9 @@ def stored(server: Any, node_id: str, audit_key: str) -> dict[str, Any]:
         ],
         "crossing": [
             row for row in record.get("degradation_crossing") or [] if isinstance(row, dict)
+        ],
+        "slow": [
+            row for row in record.get("degradation_slow") or [] if isinstance(row, dict)
         ],
         "watching": safe_int(record.get("degradation_watching"), 0, minimum=0),
         "compared": safe_int(record.get("degradation_compared"), 0, minimum=0),

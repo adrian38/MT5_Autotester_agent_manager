@@ -13,7 +13,7 @@ reexporta los cuatro nombres: quien los importaba de allí no cambia.
 from __future__ import annotations
 
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from . import live_audit_analysis
@@ -22,6 +22,7 @@ from . import live_audit_degradation_evidence
 from . import live_audit_executions
 from . import live_audit_history, live_audit_lineage
 from . import manager_http
+from .live_audit_schedule import parse_timestamp
 from .portfolio_service import PortfolioSource
 
 
@@ -88,13 +89,84 @@ def _period_days(result: dict[str, Any]) -> float:
     return max(0.0, span.total_seconds() / 86400)
 
 
-def _backtest_series(source: Any, history: Any) -> list[float] | None:
-    """Las operaciones del backtest de esa estrategia, si el informe se deja leer."""
-    if history is None:
+RECENT_DAYS = 182.0
+"""La ventana reciente: medio año.
+
+La serie acumulada **diluye**. Medido sobre la serie real del backtest de
+`AXI/STANDARD:10751`, con la cadencia semanal del cron y las dos operaciones
+por semana que es la mediana del archivo: una estrategia que funciona un año y
+se rompe después sólo se caza el 22 % de las veces mirando lo acumulado, y el
+55 % mirando los últimos seis meses. Y cuanto más lleve vigilada, peor: el
+tramo bueno pesa cada vez más. Así que se miden las dos cosas y degrada
+cualquiera de ellas; las falsas alarmas pasan del 1,3 % al 4,1 % por
+estrategia y bienio, que con trece estrategias es media falsa alarma cada dos
+años. Detalle en `ai_context/live_audit_degradation_evidence.md`.
+"""
+
+
+def _backtest_of(source: Any, histories: dict[str, Any]) -> Any:
+    """El cargador perezoso que recibe `confirm`, atado a esta fuente.
+
+    `confirm` sólo lo llama para las filas donde la respuesta puede cambiar,
+    así que el informe de una estrategia tranquila no se abre nunca.
+    """
+    def load(row: dict[str, Any]) -> Any:
+        history = histories.get(str(row.get("strategy") or ""))
+        if history is None:
+            return None
+        return live_audit_degradation_evidence.backtest(
+            source, history, live_audit_degradation.REFERENCE_LOT,
+        )
+    return load
+
+
+def _recent(
+    grouped: dict[str, list[dict[str, Any]]], days: float,
+) -> dict[str, list[dict[str, Any]]] | None:
+    """Las operaciones de los últimos `RECENT_DAYS`, o `None` si sobran.
+
+    El corte se toma del final de lo auditado, no del reloj: una serie que
+    lleva dos semanas sin auditarse no debe perder operaciones por eso. Y si
+    todo lo acumulado cabe en la ventana, no hay segunda medición que hacer:
+    sería la misma prueba contada dos veces.
+    """
+    if days <= RECENT_DAYS:
         return None
-    return live_audit_degradation_evidence.backtest_series(
-        source, history, live_audit_degradation.REFERENCE_LOT,
-    )
+    stamps = [
+        parse_timestamp(trade.get("close_time"))
+        for trades in grouped.values() for trade in trades
+    ]
+    latest = max((stamp for stamp in stamps if stamp), default=None)
+    if latest is None:
+        return None
+    cutoff = latest - timedelta(days=RECENT_DAYS)
+    return {
+        strategy: [
+            trade for trade in trades
+            if (parse_timestamp(trade.get("close_time")) or latest) >= cutoff
+        ]
+        for strategy, trades in grouped.items()
+    }
+
+
+def _merge_recent(rows: list[dict[str, Any]], recent: list[dict[str, Any]]) -> None:
+    """Lleva a cada fila lo que dice su ventana reciente, y quién decidió."""
+    measured = {str(row.get("strategy") or ""): row for row in recent}
+    for row in rows:
+        other = measured.get(str(row.get("strategy") or ""))
+        row["decided"] = "accumulated" if row.get("verdict") == "degraded" else ""
+        if other is None:
+            row["recent"] = None
+            continue
+        row["recent"] = {
+            key: other.get(key) for key in (
+                "trades", "deviations", "difference_pct", "period_days",
+                "observed_at_reference_lot", "verdict", "evidence",
+            )
+        }
+        if other.get("verdict") == "degraded" and row.get("verdict") != "degraded":
+            row["verdict"] = "degraded"
+            row["decided"] = "recent"
 
 
 def degradation_report(
@@ -111,6 +183,10 @@ def degradation_report(
     de entrada, no la prueba. `live_audit_degradation_evidence.confirm` la
     contrasta aqui, que es el unico sitio donde estan todas las estrategias
     comparadas y por tanto se sabe entre cuantas hay que repartir el nivel.
+
+    Y se mide **dos veces**: la serie entera y los ultimos seis meses, porque
+    lo acumulado diluye una rotura reciente (ver `RECENT_DAYS`). Degrada
+    cualquiera de las dos, y la fila dice cual.
     """
     if grouped is None:
         grouped = live_audit_history.tester_trades_by_strategy(
@@ -119,29 +195,52 @@ def degradation_report(
     if days is None:
         days = _period_days(result)
     histories = live_audit_degradation.read_histories(source, list(grouped))
+    labels = _labels(result, grouped)
+    backtest_of = _backtest_of(source, histories)
+    strategies = _measured(grouped, histories, labels, days, backtest_of, rate=True)
+    recent = _recent(grouped, days)
+    _merge_recent(strategies, [] if recent is None else _measured(
+        recent, histories, labels, RECENT_DAYS, backtest_of, rate=False,
+    ))
+    strategies.sort(key=lambda row: (row["symbol"], row["strategy_set"], row["strategy"]))
+    return {
+        "strategies": strategies, "period_days": days,
+        "recent_days": RECENT_DAYS if recent is not None else None,
+        "reference_lot": live_audit_degradation.REFERENCE_LOT,
+        "minimum_trades": live_audit_degradation.MINIMUM_TRADES,
+    }
+
+
+def _labels(
+    result: dict[str, Any], grouped: dict[str, list[dict[str, Any]]],
+) -> dict[str, tuple[str, str]]:
+    """Fichero y simbolo de cada estrategia, que no dependen de la ventana."""
     sets = {
         str(row.get("strategy") or ""): str(row.get("strategy_set") or "")
         for row in (result.get("comparison_detail") or {}).get("strategy_summary") or []
     }
-    symbols = {
-        strategy: str((trades[0] or {}).get("symbol") or "")
-        for strategy, trades in grouped.items() if trades
+    return {
+        strategy: (sets.get(strategy, ""), str((trades[0] or {}).get("symbol") or ""))
+        for strategy, trades in grouped.items()
     }
-    strategies = [{
-        "strategy": strategy, "strategy_set": sets.get(strategy, ""),
-        "symbol": symbols.get(strategy, ""),
+
+
+def _measured(
+    grouped: dict[str, list[dict[str, Any]]], histories: dict[str, Any],
+    labels: dict[str, tuple[str, str]], days: float, backtest_of: Any, rate: bool,
+) -> list[dict[str, Any]]:
+    """Una medicion completa de esa ventana, ya contrastada."""
+    rows = [{
+        "strategy": strategy,
+        "strategy_set": labels.get(strategy, ("", ""))[0],
+        "symbol": labels.get(strategy, ("", ""))[1],
+        "period_days": days,
         **live_audit_degradation.compare(histories.get(strategy), trades, days),
     } for strategy, trades in grouped.items()]
     live_audit_degradation_evidence.confirm(
-        strategies, lambda row: _backtest_series(source, histories.get(row["strategy"])),
-        live_audit_degradation.DEGRADED_SIGMA,
+        rows, backtest_of, live_audit_degradation.DEGRADED_SIGMA, days if rate else 0.0,
     )
-    strategies.sort(key=lambda row: (row["symbol"], row["strategy_set"], row["strategy"]))
-    return {
-        "strategies": strategies, "period_days": days,
-        "reference_lot": live_audit_degradation.REFERENCE_LOT,
-        "minimum_trades": live_audit_degradation.MINIMUM_TRADES,
-    }
+    return rows
 
 
 def analysed_live_audit(

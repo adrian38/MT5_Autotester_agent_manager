@@ -247,13 +247,52 @@ class DegradationReportTests(unittest.TestCase):
         }
 
     def row(self, strategy: str, profit: float, volume: float = 0.02) -> dict:
+        return {"strategy": strategy, "tester": self.operation(strategy, profit, volume=volume)}
+
+    def operation(
+        self, strategy: str, profit: float, day: str = "2026-09-22", volume: float = 0.02,
+    ) -> dict:
         return {
-            "strategy": strategy,
-            "tester": {
-                "strategy": strategy, "symbol": "XAUUSD", "volume": volume,
-                "profit": profit, "close_time": "2026-09-22T10:32:58+00:00",
-            },
+            "strategy": strategy, "symbol": "XAUUSD", "volume": volume,
+            "profit": profit, "close_time": f"{day}T10:32:58+00:00",
         }
+
+    def test_the_recent_window_catches_what_the_accumulated_series_dilutes(self) -> None:
+        # Una estrategia que fue bien un ano y se rompe despues: la media de la
+        # serie entera se queda en -2,9 sigma y la evidencia no la sostiene,
+        # pero los ultimos seis meses solos son -5. Medido sobre la serie real
+        # del backtest de AXI/STANDARD:10751, mirar solo lo acumulado caza el
+        # 22 % de esas roturas y mirar tambien la ventana reciente el 57 %.
+        import json as json_module
+        from mt5_manager.manager_live_audit_routes import degradation_report
+
+        source = FakeSource({"AXI/STANDARD": [(3813, json_module.dumps(metrics()))]})
+        grouped = {"AXI/STANDARD:3813": (
+            [self.operation("AXI/STANDARD:3813", 2.3654, "2025-06-10") for _ in range(40)]
+            + [self.operation("AXI/STANDARD:3813", -5.314, "2026-09-22") for _ in range(20)]
+        )}
+        report = degradation_report(source, self.result([]), grouped=grouped, days=400)
+        row = report["strategies"][0]
+        self.assertEqual(report["recent_days"], 182.0)
+        self.assertEqual(row["trades"], 60)
+        self.assertEqual(row["recent"]["trades"], 20)
+        self.assertAlmostEqual(row["recent"]["deviations"], -5.0, places=1)
+        # La acumulada cruza pero no se sostiene; la reciente si, y manda.
+        self.assertFalse(row["evidence"]["confirmed"])
+        self.assertTrue(row["recent"]["evidence"]["confirmed"])
+        self.assertEqual(row["verdict"], "degraded")
+        self.assertEqual(row["decided"], "recent")
+
+    def test_a_series_that_cabe_entera_en_la_ventana_no_se_mide_dos_veces(self) -> None:
+        import json as json_module
+        from mt5_manager.manager_live_audit_routes import degradation_report
+
+        source = FakeSource({"AXI/STANDARD": [(3813, json_module.dumps(metrics()))]})
+        report = degradation_report(source, self.result(
+            [self.row("AXI/STANDARD:3813", 2.3654) for _ in range(20)]
+        ))
+        self.assertIsNone(report["recent_days"])
+        self.assertIsNone(report["strategies"][0]["recent"])
 
     def test_the_report_groups_the_tester_operations_by_strategy(self) -> None:
         import json as json_module

@@ -990,15 +990,29 @@ function atHistoryLot(value, currency) {
   return value === null || value === undefined ? '—' : money(value, currency, 4);
 }
 
+function sigmaText(value) {
+  return `${value > 0 ? '+' : ''}${number(value, 2)} σ`;
+}
+
+// La serie acumulada diluye: un año bueno tapa un mes roto, y cada semana que
+// pasa lo tapa más. Por eso el servidor mide también los últimos seis meses y
+// la fila enseña las dos cifras; si la que decide es la reciente, se dice.
+function recentNote(row) {
+  const recent = row.recent;
+  if (!recent || recent.deviations === null || recent.deviations === undefined) return '';
+  return `<small>últimos 6 meses: ${escapeHtml(sigmaText(recent.deviations))}`
+    + ` · ${escapeHtml(recent.trades)} operaciones</small>`;
+}
+
 function deviationCell(row) {
   if (row.deviations === null || row.deviations === undefined) {
     return row.difference_pct === null || row.difference_pct === undefined
-      ? '—' : `<small>${escapeHtml(number(row.difference_pct, 0))} % frente a la media</small>`;
+      ? `—${recentNote(row)}`
+      : `<small>${escapeHtml(number(row.difference_pct, 0))} % frente a la media</small>${recentNote(row)}`;
   }
-  const sigma = `${row.deviations > 0 ? '+' : ''}${number(row.deviations, 2)} σ`;
   const percent = row.difference_pct === null || row.difference_pct === undefined
     ? '' : `<small>${escapeHtml(number(row.difference_pct, 0))} % frente a la media</small>`;
-  return `<strong>${escapeHtml(sigma)}</strong>${percent}`;
+  return `<strong>${escapeHtml(sigmaText(row.deviations))}</strong>${percent}${recentNote(row)}`;
 }
 
 // El recuento esperado sale del ritmo histórico. Cuando se despega mucho, la
@@ -1052,11 +1066,29 @@ function evidenceNote(row) {
   return `<small class="degradation-off">${escapeHtml(text)}</small>`;
 }
 
+// El beneficio medio es carísimo de medir: distinguir +0,77 € de 0 por
+// operación pide unas 600 operaciones, que al ritmo real son años. El recuento
+// no: que una estrategia opere la mitad se ve en dos meses. Por eso «opera
+// menos de lo que solía» se cuenta aparte del veredicto, y no en vez de él.
+function rateNote(row) {
+  const rate = row.rate;
+  if (!rate || !rate.flagged) return '';
+  const windows = rate.windows || {};
+  const text = `Opera mucho menos de lo que solía: ${number(rate.observed, 0)} operaciones`
+    + ` en ${number(rate.days, 0)} días contra ${number(rate.expected, 1)} esperadas por su`
+    + ` ritmo histórico. Sólo ${number(windows.worse, 0)} de ${number(windows.windows, 0)}`
+    + ` tramos de esa duración del propio backtest fueron tan flojos`
+    + ` (${percentText(windows.p)}). Que haya dejado de operar también es dejar de ser`
+    + ` la estrategia que se eligió.`;
+  return `<small class="degradation-off">${escapeHtml(text)}</small>`;
+}
+
 function degradationRow(row, currency) {
   const crossed = row.verdict === 'warning' && row.evidence?.crossed;
   const tone = verdictTone[row.verdict] || '';
   const label = crossed ? 'AVISO FUERTE' : (verdictLabels[row.verdict] || row.verdict);
-  const help = crossed ? verdictHelp.crossed : (verdictHelp[row.verdict] || '');
+  const help = (crossed ? verdictHelp.crossed : (verdictHelp[row.verdict] || ''))
+    + (row.decided === 'recent' ? ' Lo decide la ventana de los últimos seis meses: la serie entera lo diluye.' : '');
   const name = row.strategy_set && row.strategy_set !== row.strategy
     ? `${row.strategy_set} · ${row.strategy}` : row.strategy;
   return `<tr>
@@ -1065,7 +1097,7 @@ function degradationRow(row, currency) {
     <td><strong>acumulado ${escapeHtml(atHistoryLot(row.observed_at_reference_lot, currency))}</strong><small>histórico ${escapeHtml(atHistoryLot(row.history_at_reference_lot, currency))}</small><small>por operación a ${escapeHtml(number(row.reference_lot, 8))} lotes</small></td>
     <td>${deviationCell(row)}</td>
     <td>${historyCell(row, currency)}</td>
-    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(help)}</small>${evidenceNote(row)}</td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(help)}</small>${evidenceNote(row)}${rateNote(row)}</td>
   </tr>`;
 }
 
@@ -1078,8 +1110,12 @@ function renderDegradation(report) {
   document.querySelector('#degradation-body').innerHTML = rows.length
     ? rows.map(row => degradationRow(row, currency)).join('')
     : '<tr><td colspan="6" class="audit-analysis-empty">No hay estrategias que comparar en este resultado.</td></tr>';
-  const flagged = rows.filter(row => ['degraded', 'warning'].includes(row.verdict)).length;
-  const undecided = rows.filter(row => [
+  // Una fila sin muestra para opinar del beneficio pero que ha dejado de
+  // operar no es «sin conclusión»: es justo la que hay que mirar.
+  const flagged = rows.filter(
+    row => ['degraded', 'warning'].includes(row.verdict) || row.rate?.flagged,
+  ).length;
+  const undecided = rows.filter(row => !row.rate?.flagged && [
     'insufficient', 'no_trades', 'no_history', 'no_dispersion',
   ].includes(row.verdict)).length;
   const badge = document.querySelector('#degradation-count');

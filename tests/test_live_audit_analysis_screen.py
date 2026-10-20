@@ -357,6 +357,26 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("Cruzar −2 σ abre el expediente, no lo cierra.", self.analysis_page_text)
         self.assertIn("raro entre los tramos consecutivos del propio backtest", self.analysis_page_text)
 
+    def test_the_row_shows_the_recent_window_next_to_the_accumulated_one(self) -> None:
+        # La serie acumulada diluye: un año bueno tapa un mes roto, y cada
+        # semana que pasa lo tapa más. La fila enseña las dos cifras y dice
+        # cuál de las dos ha decidido.
+        self.assertIn("function recentNote(row)", self.analysis_script)
+        self.assertIn("últimos 6 meses", self.analysis_script)
+        self.assertIn("row.decided === 'recent'", self.analysis_script)
+        self.assertIn("la serie entera lo diluye", self.analysis_script)
+
+    def test_a_strategy_that_stopped_trading_is_a_finding_of_its_own(self) -> None:
+        # Distinguir +0,77 € de 0 por operación pide ~600 operaciones; que el
+        # recuento caiga a la mitad se ve en dos meses. Y es el mismo truco:
+        # lo decide el propio backtest, no un Poisson que los recuentos de
+        # este pipeline no cumplen.
+        self.assertIn("function rateNote(row)", self.analysis_script)
+        self.assertIn("Opera mucho menos de lo que solía", self.analysis_script)
+        self.assertIn("esperadas por su", self.analysis_script)
+        self.assertIn("tramos de esa duración del propio backtest", self.analysis_script)
+        self.assertIn("row.rate?.flagged", self.analysis_script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -197,6 +197,26 @@ class DegradationAlertTests(unittest.TestCase):
         self.assertLess(stored["crossing"][0]["deviations"], -2)
         self.assertEqual(stored["watching"], 1)
 
+    def test_the_card_separates_the_three_facts(self) -> None:
+        # Degradar, cruzar sin confirmar y operar menos no son el mismo hecho
+        # y no se deciden igual: solo el primero va al movil.
+        found = live_audit_degradation_alerts.flagged({"strategies": [
+            {"strategy": "a", "symbol": "EURUSD", "verdict": "degraded", "trades": 30},
+            {"strategy": "b", "symbol": "GBPUSD", "verdict": "warning", "trades": 12,
+             "evidence": {"crossed": True}},
+            {"strategy": "c", "symbol": "USDJPY", "verdict": "warning", "trades": 9},
+            {"strategy": "d", "symbol": "XAUUSD", "verdict": "insufficient", "trades": 2,
+             "rate": {"flagged": True, "observed": 2, "expected": 10.8}},
+        ]})
+        self.assertEqual([row["symbol"] for row in found["degraded"]], ["EURUSD"])
+        self.assertEqual([row["symbol"] for row in found["crossing"]], ["GBPUSD"])
+        self.assertEqual([row["symbol"] for row in found["slow"]], ["XAUUSD"])
+        self.assertEqual(found["slow"][0]["observed"], 2)
+        self.assertEqual(found["slow"][0]["expected"], 10.8)
+        # `watching` sigue contando los dos avisos, cruzara o no.
+        self.assertEqual(found["watching"], 2)
+        self.assertEqual(found["compared"], 4)
+
     def test_an_aviso_that_never_crossed_is_only_counted(self) -> None:
         # El de -1,5 sigma no se nombra: ahi no ha pasado nada que mirar.
         self.archive("run-1", detail((STEADY, "dos.set", "GBPUSD", WARNING_PROFIT, 12)))
