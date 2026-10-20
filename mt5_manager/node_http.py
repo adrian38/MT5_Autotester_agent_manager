@@ -72,6 +72,47 @@ class NodeHandler(BaseHTTPRequestHandler):
             raise ValueError("El cuerpo debe ser un objeto JSON")
         return value
 
+    def _dispatch_live_get(self, parsed: Any) -> bool:
+        """Estado y artefactos de auditorías y sondeos, en un sitio.
+
+        Juntas por lo mismo que en `do_POST`: son la misma familia y `do_GET`
+        ya no cabía en 60 líneas con las dos.
+        """
+        parts = parsed.path.strip("/").split("/")
+        audits = self.server.controller.live_audits
+        if parsed.path == "/api/v1/live-audits":
+            self._send(200, {"audits": audits.all_states(), "observed_at": utc_now()})
+            return True
+        if len(parts) == 7 and parts[:3] == ["api", "v1", "live-audits"] and parts[4] == "artifacts":
+            try:
+                self._send_artifact(audits.artifact_path(
+                    urllib.parse.unquote(parts[3]), urllib.parse.unquote(parts[5]),
+                    urllib.parse.unquote(parts[6]),
+                ))
+            except (ValueError, FileNotFoundError):
+                self._send(404, {"error": "Reporte de auditoría no encontrado"})
+            return True
+        if parsed.path == "/api/v1/live-accounts":
+            self._send(200, {
+                "snapshot": audits.account_snapshot_state(), "observed_at": utc_now(),
+            })
+            return True
+        if len(parts) == 6 and parts[:3] == ["api", "v1", "live-accounts"] and parts[4] == "artifacts":
+            try:
+                self._send_artifact(audits.account_snapshot_artifact(
+                    urllib.parse.unquote(parts[3]), urllib.parse.unquote(parts[5]),
+                ))
+            except (ValueError, FileNotFoundError):
+                self._send(404, {"error": "Informe de cuenta no encontrado"})
+            return True
+        if parsed.path.startswith("/api/v1/live-audits/"):
+            audit_key = urllib.parse.unquote(parsed.path.rsplit("/", 1)[-1])
+            self._send(200, {
+                "audit": audits.state(audit_key), "observed_at": utc_now(),
+            })
+            return True
+        return False
+
     def do_GET(self) -> None:
         if not self._authorized():
             self._send(401, {"error": "No autorizado"})
@@ -96,26 +137,8 @@ class NodeHandler(BaseHTTPRequestHandler):
             self._send(200, self.server.controller.runs(limit, offset))
         elif parsed.path == "/api/v1/universe":
             self._send(200, self.server.controller.universe())
-        elif parsed.path == "/api/v1/live-audits":
-            self._send(200, {"audits": self.server.controller.live_audits.all_states(), "observed_at": utc_now()})
-        elif (
-            len(parsed.path.strip("/").split("/")) == 7
-            and parsed.path.strip("/").split("/")[:3] == ["api", "v1", "live-audits"]
-            and parsed.path.strip("/").split("/")[4] == "artifacts"
-        ):
-            parts = parsed.path.strip("/").split("/")
-            try:
-                path = self.server.controller.live_audits.artifact_path(
-                    urllib.parse.unquote(parts[3]),
-                    urllib.parse.unquote(parts[5]),
-                    urllib.parse.unquote(parts[6]),
-                )
-                self._send_artifact(path)
-            except (ValueError, FileNotFoundError):
-                self._send(404, {"error": "Reporte de auditoría no encontrado"})
-        elif parsed.path.startswith("/api/v1/live-audits/"):
-            audit_key = urllib.parse.unquote(parsed.path.rsplit("/", 1)[-1])
-            self._send(200, {"audit": self.server.controller.live_audits.state(audit_key), "observed_at": utc_now()})
+        elif self._dispatch_live_get(parsed):
+            return
         elif parsed.path == "/api/v1/portfolios":
             query = urllib.parse.parse_qs(parsed.query)
             self._send(200, node_portfolio_api.portfolios(self.server.controller, query.get("scope", ["full_history"])[0]))
@@ -125,6 +148,35 @@ class NodeHandler(BaseHTTPRequestHandler):
             self._send(200, node_portfolio_api.portfolio_detail(self.server.controller, portfolio_id, query.get("scope", ["full_history"])[0]))
         else:
             self._send(404, {"error": "Ruta no encontrada"})
+
+    def _dispatch_live_post(self) -> bool:
+        """Las rutas de auditoría y sondeo de cuenta, juntas y aparte.
+
+        Salen de `do_POST` porque ya no cabía en 60 líneas, y salen **juntas**
+        porque son la misma familia: las dos ocupan las terminales del nodo y
+        las dos las devuelven a su cuenta final.
+        """
+        if self.path.startswith("/api/v1/live-audits/") and self.path.endswith("/run"):
+            body = self._body()
+            body["portfolio_id"] = safe_int(self.path.strip("/").split("/")[-2], 0, minimum=1)
+            self._send(202, {"audit": self.server.controller.live_audits.start(body)})
+            return True
+        if self.path.startswith("/api/v1/live-audits/") and self.path.endswith("/reports"):
+            audit_key = urllib.parse.unquote(self.path.strip("/").split("/")[-2])
+            self._send(200, {
+                "audit": self.server.controller.live_audits.replace_reports(
+                    audit_key, self._body(),
+                ),
+            })
+            return True
+        if self.path == "/api/v1/live-accounts/snapshot":
+            self._send(202, {
+                "snapshot": self.server.controller.live_audits.start_account_snapshot(
+                    self._body(),
+                ),
+            })
+            return True
+        return False
 
     def do_POST(self) -> None:
         if not self._authorized():
@@ -154,14 +206,8 @@ class NodeHandler(BaseHTTPRequestHandler):
                 self._send(202, self.server.controller.resume())
             elif self.path == "/api/v1/jobs/queue/cancel":
                 self._send(200, self.server.controller.cancel_queued(str(self._body().get("task_id") or "")))
-            elif self.path.startswith("/api/v1/live-audits/") and self.path.endswith("/run"):
-                portfolio_id = safe_int(self.path.strip("/").split("/")[-2], 0, minimum=1)
-                body = self._body()
-                body["portfolio_id"] = portfolio_id
-                self._send(202, {"audit": self.server.controller.live_audits.start(body)})
-            elif self.path.startswith("/api/v1/live-audits/") and self.path.endswith("/reports"):
-                audit_key = urllib.parse.unquote(self.path.strip("/").split("/")[-2])
-                self._send(200, {"audit": self.server.controller.live_audits.replace_reports(audit_key, self._body())})
+            elif self._dispatch_live_post():
+                return
             elif self.path == "/api/v1/universe/symbols":
                 self._send(200, self.server.controller.update_universe(self._body()))
             elif self.path == "/api/v1/portfolios/save":

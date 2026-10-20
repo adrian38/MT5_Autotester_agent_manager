@@ -367,23 +367,34 @@ class JobController(GuidedControllerMixin):
             "task_queue": task_queue,
             "database": db,
             "launch_defaults": launch_defaults,
-            "capabilities": {
-                "guided_batches_v1": True,
-                "guided_launch_options_v1": True,
-                "worker_override": True,
-                "pipeline_controls": True,
-                "failed_resume": True,
-                "cycles": True,
-                "repair_runs": True,
-                "universe_management": True,
-                "portfolio_views": True,
-                "task_queue": True,
-                "application_restart": bool(getattr(self, "application_restart_available", False)),
-                "historical_cleanup": bool(historical_cleanup_scripts(self.config, required=False)),
-                "live_account_audit": True, "live_audit_restore_account": True,
-                "live_audit_manual_reports": True,
-            },
+            "capabilities": self._capabilities(),
             "observed_at": utc_now(),
+        }
+
+    def _capabilities(self) -> dict[str, Any]:
+        """Lo que este agente sabe hacer, que es lo que el manager consulta.
+
+        Sale de `status` porque allí ya no cabía en 60 líneas. Y es el contrato
+        que evita la cara más tonta de la bifurcación del nodo: con un agente
+        sin portar, el manager pide una ruta que no existe y lee «Ruta no
+        encontrada» como si fuera un fallo del trabajo.
+        """
+        return {
+            "guided_batches_v1": True,
+            "guided_launch_options_v1": True,
+            "worker_override": True,
+            "pipeline_controls": True,
+            "failed_resume": True,
+            "cycles": True,
+            "repair_runs": True,
+            "universe_management": True,
+            "portfolio_views": True,
+            "task_queue": True,
+            "application_restart": bool(getattr(self, "application_restart_available", False)),
+            "historical_cleanup": bool(historical_cleanup_scripts(self.config, required=False)),
+            "live_account_audit": True, "live_audit_restore_account": True,
+            "live_audit_manual_reports": True,
+            "live_account_snapshot": True,
         }
 
     def universe(self) -> dict[str, Any]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .live_audit_core import *  # noqa: F403
+from .live_account_snapshot import _AccountSnapshotMixin
 from .live_audit_comparison import _ComparisonMixin
 from .live_audit_extraction import _ExtractionMixin
 from .live_audit_lifecycle import _LifecycleMixin
@@ -11,8 +12,16 @@ from .live_audit_report_upload import replace_tester_reports
 
 class LiveAuditController(
     _LifecycleMixin, _TesterMixin, _ExtractionMixin, _TerminalMixin, _ComparisonMixin,
+    _AccountSnapshotMixin,
 ):
-    """Ejecuta auditorías en el agente sin persistir las credenciales recibidas."""
+    """Ejecuta auditorías y sondeos de cuenta sin persistir las credenciales.
+
+    El sondeo de cuentas vive aquí y no en un controlador aparte porque usa
+    **las mismas terminales**: entra en una cuenta real, cambia la cuenta
+    guardada del terminal y la restaura. Dos controladores con dos candados
+    podrían hacerlo a la vez, y entonces una auditoría acabaría midiendo con la
+    cuenta que el sondeo dejó puesta.
+    """
 
     history_sync_attempts = 6
     history_sync_delay_seconds = 1.0
@@ -35,6 +44,10 @@ class LiveAuditController(
         self.stop_requested = False
         self.tester_process: Any = None
         self.tester_terminal_paths: list[str] = []
+        # El sondeo de cuentas reales: su propio registro, el mismo candado.
+        # Separado de `states` a propósito, porque no es un uso del auditor y
+        # colarlo ahí lo haría aparecer como una auditoría en toda la pantalla.
+        self.account_snapshot: dict[str, Any] = self._load_account_snapshot()
         if self.state_path.is_file():
             try:
                 stored = load_json(self.state_path)
@@ -51,8 +64,17 @@ class LiveAuditController(
         save_json(self.state_path, self.states)
 
     def is_running(self) -> bool:
+        """Si las terminales están ocupadas, por una auditoría **o** un sondeo.
+
+        El candado es uno porque el recurso es uno: la cuenta guardada de cada
+        terminal. Un sondeo de cuentas a la vez que una auditoría dejaría a la
+        auditoría midiendo con la cuenta que el sondeo puso.
+        """
         with self.lock:
-            return any(str(item.get("status")) in RUNNING_STATUSES for item in self.states.values())
+            return (
+                any(str(item.get("status")) in RUNNING_STATUSES for item in self.states.values())
+                or str(self.account_snapshot.get("status") or "") in RUNNING_STATUSES
+            )
 
     def all_states(self) -> dict[str, Any]:
         with self.lock:
