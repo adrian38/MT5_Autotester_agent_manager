@@ -126,6 +126,18 @@ function dateLabel(value) {
   return Number.isNaN(date.getTime()) ? String(value || '—') : date.toLocaleDateString('es-ES');
 }
 
+// El periodo que abarca lo que se está mirando, en palabras. Un «11 días
+// auditados» no dice cuáles: dos series del mismo tamaño pueden ser de
+// meses distintos, y la de hace medio año no decide sobre hoy.
+function spanLabel(since, until) {
+  const first = new Date(since || '');
+  const last = new Date(until || '');
+  if (Number.isNaN(first.getTime()) || Number.isNaN(last.getTime())) return '';
+  const from = first.toLocaleDateString('es-ES');
+  const to = last.toLocaleDateString('es-ES');
+  return from === to ? `el ${from}` : `del ${from} al ${to}`;
+}
+
 function dateTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value || '—') : date.toLocaleString('es-ES');
@@ -675,8 +687,23 @@ function reproductionRow(group, currency) {
   </tr>`;
 }
 
+// La tabla de abajo habla de un periodo concreto; sin decir cuál, una
+// captura suya no se puede volver a situar.
+function renderPeriodNote() {
+  const note = document.querySelector('#reproduction-period');
+  if (!note || !currentResult) return;
+  const span = spanLabel(currentResult.period_start, currentResult.period_end);
+  const days = Math.round(
+    (new Date(currentResult.period_end) - new Date(currentResult.period_start)) / 86400000,
+  );
+  const length = Number.isFinite(days) && days > 0
+    ? ` · ${days} día${days === 1 ? '' : 's'}` : '';
+  note.textContent = span ? `Periodo auditado: ${span}${length}.` : '';
+}
+
 function renderReproduction() {
   const currency = chartContext.currency;
+  renderPeriodNote();
   const ranked = [...strategyRows].sort((a, b) => (
     LiveAuditReproduction.compare(reproductionShortfall(a), reproductionShortfall(b))
   ));
@@ -975,6 +1002,7 @@ function renderAccumulatedNote(accumulated) {
   const inherited = accumulated.inherited || [];
   note.textContent = [
     `Acumulado sobre ${accumulated.audits} auditoría${accumulated.audits === 1 ? '' : 's'}`,
+    spanLabel(accumulated.since, accumulated.until),
     accumulated.days ? `${number(accumulated.days, 0)} días auditados en total` : '',
     (accumulated.portfolios || []).length > 1
       ? `carteras ${accumulated.portfolios.map(id => `#${id}`).join(', ')}` : '',

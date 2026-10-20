@@ -57,6 +57,7 @@
     </section>
     <section class="panel-card audit-analysis-section">
       <div class="panel-title"><div><p class="eyebrow">DEMO CONTRA REAL</p><h2>¿Se está comportando en real como en el tester?</h2><p class="subtitle">La misma estrategia, el mismo periodo y —con la simulación activa— el mismo lote: lo que quede de diferencia es reproducción, no tamaño. Ordenada de peor a mejor. Sólo avisa cuando el real <strong>empeora</strong>: que gane más no es un defecto. Las operaciones sin pareja y las que siguen abiertas en real no están en estos importes, así que la fila lo advierte y su comparación es parcial. Marca <strong>Validada</strong> la que ya hayas mirado: sale de <em>Portafolios activos</em>, que es la lista de lo que queda por revisar, y vuelve a aparecer sola si una auditoría posterior empeora su veredicto.</p></div><span id="reproduction-count" class="badge idle">—</span></div>
+      <p id="reproduction-period" class="audit-analysis-note-text"></p>
       <div class="audit-analysis-table-wrap">
         <table class="audit-analysis-table">
           <thead><tr><th>Estrategia</th><th>Demo / tester</th><th>Real</th><th>Diferencia</th><th>Operaciones</th><th>Veredicto</th><th>Validada</th></tr></thead>
@@ -67,13 +68,13 @@
     </section>
     <section class="panel-card audit-analysis-section">
       <div class="panel-title"><div><p class="eyebrow">DEMO CONTRA REAL · TODO EL HISTÓRICO</p><h2>¿Y en todas las auditorías que llevamos?</h2><p class="subtitle">La misma pregunta de la tabla de arriba, pero sobre <strong>todas las auditorías archivadas</strong> de estas estrategias, no sólo la de este periodo. Una semana con tres operaciones no decide nada; la serie sí, y crece sola cada vez que termina una auditoría. Se mide con los <strong>lotes realmente ejecutados</strong> en cada una: una simulación de lote elegida para hoy no significa nada aplicada a los periodos anteriores. Cuando un portafolio se arregla, el nuevo hereda aquí el histórico de las estrategias que conserva, aunque el portafolio al que sustituye ya no esté activo.</p></div><span id="history-count" class="badge idle">—</span></div>
+      <p id="history-note" class="audit-analysis-note-text"></p>
       <div class="audit-analysis-table-wrap">
         <table class="audit-analysis-table">
           <thead><tr><th>Estrategia</th><th>Auditorías</th><th>Demo / tester</th><th>Real</th><th>Diferencia</th><th>Operaciones</th><th>Veredicto acumulado</th></tr></thead>
           <tbody id="history-body"><tr><td colspan="7" class="audit-analysis-empty">Leyendo la serie de auditorías…</td></tr></tbody>
         </table>
       </div>
-      <p id="history-note" class="audit-analysis-note-text"></p>
     </section>
     <section class="panel-card audit-analysis-section">
       <div class="panel-title"><div><p class="eyebrow">CUADRE</p><h2>Reales que no cuentan en ninguna estrategia</h2><p class="subtitle">Cierres de la cuenta real que ninguna operación del tester reclamó y que tampoco has atribuido. El auditor no puede decidir de quién son: el magic del terminal real no tiene por qué coincidir con el del <code>.set</code> y aquí ni se publica, y el símbolo sólo basta cuando un único miembro del portafolio lo opera. Sube el Excel con la columna de estrategia y cada una pasa a su sitio; las que marques como ajenas salen también de la curva Real. También salen aquí los cierres que el filtro de lote descartó antes de comparar: ese filtro es una conjetura sobre el tamaño de la posición, así que la última palabra es tuya.</p></div><span id="unaccounted-count" class="badge idle">—</span></div>

@@ -57,7 +57,8 @@ def strategy_history(handler, node_id: str, audit_id: str) -> dict[str, Any]:
         grouped=accumulated["trades"], days=accumulated["days"],
     )
     report["accumulated"] = {
-        key: accumulated[key] for key in ("audits", "days", "portfolios", "since", "inherited")
+        key: accumulated[key]
+        for key in ("audits", "days", "portfolios", "since", "until", "inherited")
     }
     return report
 

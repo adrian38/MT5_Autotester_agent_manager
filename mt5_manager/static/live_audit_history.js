@@ -66,13 +66,14 @@
     const inherited = series?.inherited_portfolios || [];
     const parts = [
       `${audits} auditoría${audits === 1 ? '' : 's'}`,
+      spanLabel(series?.covered_since, series?.covered_until),
       days ? `${days} día${days === 1 ? '' : 's'} cubiertos` : '',
       inherited.length
         ? `hereda el histórico de ${inherited.map(id => `#${id}`).join(', ')}, de donde `
           + 'salió este portafolio, y sólo de las estrategias que conserva'
         : '',
     ];
-    return parts.filter(Boolean).join(' · ');
+    return `${parts.filter(Boolean).join(' · ')}.`;
   }
 
   function row(group, currency) {

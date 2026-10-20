@@ -189,6 +189,21 @@ class AccumulationTests(unittest.TestCase):
         self.assertAlmostEqual(live_audit_history.covered_days(entries), 15.0, places=1)
         self.assertAlmostEqual(live_audit_history.covered_days(entries[:1]), 8.0, places=1)
 
+    def test_the_series_says_which_days_it_covers_not_only_how_many(self) -> None:
+        # El orden del índice es el de ejecución, no el de los periodos: una
+        # auditoría lanzada a mano sobre un rango viejo llega la última.
+        entries = [
+            {"period_start": "2026-10-10T00:00:00+00:00",
+             "period_end": "2026-10-17T23:59:59+00:00"},
+            {"period_start": "2026-10-03T00:00:00+00:00",
+             "period_end": "2026-10-10T23:59:59+00:00"},
+        ]
+        self.assertEqual(
+            live_audit_history.covered_span(entries),
+            ("2026-10-03T00:00:00+00:00", "2026-10-17T23:59:59+00:00"),
+        )
+        self.assertEqual(live_audit_history.covered_span([]), ("", ""))
+
     def test_the_series_carries_each_execution_trimmed(self) -> None:
         self.archive.remember(
             "n", meta("a-1", "e-1", 11, "2026-10-03T00:00:00+00:00",

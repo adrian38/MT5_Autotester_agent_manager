@@ -97,6 +97,23 @@ def covered_days(entries: list[dict[str, Any]]) -> float:
     return total / 86400
 
 
+def covered_span(entries: list[dict[str, Any]]) -> tuple[str, str]:
+    """Primer dia auditado y ultimo, en ISO, o dos cadenas vacias.
+
+    «11 dias auditados» no dice cuales: dos series del mismo tamano pueden ser
+    de meses distintos, y la de hace medio ano no decide sobre hoy. Se toman el
+    minimo y el maximo porque las entradas llegan ordenadas por `executed_at`,
+    que no tiene por que seguir el orden de los periodos.
+    """
+    intervals = list(filter(None, (_interval(entry) for entry in entries)))
+    if not intervals:
+        return "", ""
+    return (
+        min(start for start, _ in intervals).isoformat(),
+        max(end for _, end in intervals).isoformat(),
+    )
+
+
 def accumulate(
     archive: Any, node_id: str, audit_key: str, detail: dict[str, Any],
     entries: list[dict[str, Any]] | None = None,
@@ -135,10 +152,11 @@ def accumulate(
             if key not in seen:
                 seen.add(key)
                 grouped.setdefault(strategy, []).append(trade)
+    since, until = covered_span(rows)
     return {
         "trades": grouped, "days": covered_days(rows), "audits": len(rows),
         "portfolios": sorted(portfolios),
-        "since": str((rows[0] if rows else {}).get("period_start") or ""),
+        "since": since, "until": until,
         "inherited": sorted({
             int(entry.get("portfolio_id") or 0) for entry in rows if not entry.get("own")
         } - {0}),
@@ -181,4 +199,6 @@ def series(
         "portfolios": summary["portfolios"],
         "inherited_portfolios": summary["inherited"],
         "covered_days": summary["days"],
+        "covered_since": summary["since"],
+        "covered_until": summary["until"],
     }

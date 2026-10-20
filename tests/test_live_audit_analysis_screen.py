@@ -193,6 +193,26 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("veces lo que perdía el tester", self.reproduction_script)
         self.assertNotIn("se deja más del", self.reproduction_script)
 
+    def test_each_table_says_which_period_it_is_talking_about(self) -> None:
+        # Las tres tablas contestan la misma pregunta sobre rangos
+        # distintos: la de arriba sobre el periodo auditado y las dos de
+        # abajo sobre toda la serie. Sin el rango escrito, una captura de
+        # cualquiera de ellas no se puede volver a situar.
+        self.assertIn('id="reproduction-period"', self.analysis_page_text)
+        self.assertIn("function spanLabel(since, until)", self.analysis_script)
+        self.assertIn(
+            "spanLabel(currentResult.period_start, currentResult.period_end)",
+            self.analysis_script,
+        )
+        self.assertIn(
+            "spanLabel(accumulated.since, accumulated.until)", self.analysis_script,
+        )
+        self.assertIn(
+            "spanLabel(series?.covered_since, series?.covered_until)",
+            (Path(__file__).parents[1] / "mt5_manager" / "static"
+             / "live_audit_history.js").read_text(encoding="utf-8"),
+        )
+
     def test_every_closed_real_ends_up_accounted_or_said(self) -> None:
         # El objetivo es que cuadre: cada real cerrada acaba emparejada,
         # atribuida a una estrategia, o en la tabla del final con su motivo.
