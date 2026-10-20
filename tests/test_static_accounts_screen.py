@@ -81,9 +81,16 @@ class PageTests(unittest.TestCase):
         self.assertNotIn('id="schedule-dialog"', page)
         self.assertIn("/live_account_schedule.js", page)
 
-    def test_the_totals_are_the_two_the_user_asked_for(self) -> None:
-        self.assertTrue(TREE.xpath('//*[@id="total-daily"]'))
-        self.assertTrue(TREE.xpath('//*[@id="total-monthly"]'))
+    def test_the_totals_cover_today_and_both_months(self) -> None:
+        for identifier in ("total-daily", "total-monthly", "total-previous-month"):
+            self.assertTrue(TREE.xpath(f'//*[@id="{identifier}"]'))
+        month_totals = TREE.xpath('//*[contains(@class, "total-months")]')[0]
+        self.assertEqual(
+            month_totals.xpath('.//strong/@id'),
+            ["total-monthly", "total-previous-month"],
+        )
+        self.assertIn("totals.previous_month", SCRIPT)
+        self.assertIn("data.previous_month", SCRIPT)
 
     def test_the_dialog_can_choose_any_day_of_the_week(self) -> None:
         """Los siete días salen de la lista, no de siete casillas escritas."""
@@ -175,7 +182,8 @@ class CriterionTests(unittest.TestCase):
         )
         self.assertIn(".metric-row{display:grid;gap:12px;", css)
         self.assertNotIn(".metric-row{display:grid;grid-template-columns:", css)
-        self.assertIn("@media(max-width:480px){.month-comparison{grid-template-columns:1fr}}", css)
+        self.assertIn("@media(max-width:480px){", css)
+        self.assertIn(".month-comparison{grid-template-columns:1fr}", css)
 
 
 if __name__ == "__main__":

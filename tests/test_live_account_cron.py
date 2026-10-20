@@ -441,6 +441,7 @@ class DashboardTests(unittest.TestCase):
         )
         totals = self.payload()["totals"]
         self.assertAlmostEqual(totals["daily"], 20.0)
+        self.assertAlmostEqual(totals["previous_month"], 120.0)
         self.assertEqual(totals["currency"], "EUR")
         self.assertEqual(totals["missing_rates"], ["GBP"])
 
@@ -448,11 +449,15 @@ class DashboardTests(unittest.TestCase):
         self.server.live_accounts.merge(
             "axi", account_key("60082303", "Axi-US50-Live"), login="60082303",
             server="Axi-US50-Live", currency="USD",
-            movements=[(datetime(2026, 10, 21, 9, tzinfo=timezone.utc), 100.0)],
+            movements=[
+                (datetime(2026, 9, 21, 9, tzinfo=timezone.utc), 100.0),
+                (datetime(2026, 10, 21, 9, tzinfo=timezone.utc), 100.0),
+            ],
             period_start="", period_end="2026-10-21",
         )
         totals = self.payload()["totals"]
         self.assertAlmostEqual(totals["daily"], 20.0 + 92.0)
+        self.assertAlmostEqual(totals["previous_month"], 120.0 + 92.0)
         self.assertEqual(totals["missing_rates"], [])
 
     def test_an_account_never_read_says_so_instead_of_showing_zeros(self) -> None:

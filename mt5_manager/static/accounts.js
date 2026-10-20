@@ -254,6 +254,12 @@ function renderTotals(data) {
     `${totals.accounts || 0} cuenta${totals.accounts === 1 ? '' : 's'} · ${data.day || ''}`;
   document.querySelector('#total-monthly').textContent = money(totals.monthly, currency);
   document.querySelector('#total-monthly-note').textContent = monthName(data.month);
+  document.querySelector('#total-previous-month').textContent = money(
+    totals.previous_month, currency,
+  );
+  document.querySelector('#total-previous-month-note').textContent = monthName(
+    data.previous_month,
+  );
   document.querySelector('#total-currency').textContent = currency;
   const rates = Object.entries(data.exchange_rates || {})
     .map(([code, rate]) => `${code} ${rate}`).join(' · ');
@@ -262,9 +268,13 @@ function renderTotals(data) {
   document.querySelector('#total-rates').textContent =
     (rates || 'Sin cambios guardados') + missing
     + (data.rates_updated_at ? ` · ${data.rates_updated_at}` : '');
-  for (const id of ['#total-daily', '#total-monthly']) {
+  for (const id of ['#total-daily', '#total-monthly', '#total-previous-month']) {
     const element = document.querySelector(id);
-    const value = Number(id === '#total-daily' ? totals.daily : totals.monthly);
+    const value = Number({
+      '#total-daily': totals.daily,
+      '#total-monthly': totals.monthly,
+      '#total-previous-month': totals.previous_month,
+    }[id]);
     element.className = value > 0 ? 'good' : value < 0 ? 'bad' : '';
   }
 }

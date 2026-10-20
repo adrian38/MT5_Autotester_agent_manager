@@ -518,6 +518,11 @@ siguen uno debajo del otro dentro de cada mes, para que la lectura no vuelva a
 ser en zigzag. Sólo por debajo de 480 px los meses se apilan para no truncar los
 importes.
 
+El resumen superior sigue la misma comparación: «Total del mes» reúne en una
+sola tarjeta el actual y el anterior, en dos columnas. Ambos se suman en el
+manager después de convertir cada cuenta a la moneda configurada; la pantalla
+sólo los presenta.
+
 ## La recuperación conserva el instante del corte (2026-10-20)
 
 La primera recuperación guardaba sólo `2026-10-17` y al continuar la cola lo

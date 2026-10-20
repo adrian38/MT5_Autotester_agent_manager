@@ -167,14 +167,19 @@ def account_card(
         "state": state, "message": message,
         "daily_display": convert(row(days, today)["profit"], currency, settings),
         "monthly_display": convert(monthly["profit"], currency, settings),
+        "previous_month_display": convert(
+            earlier_row["profit"], currency, settings,
+        ),
     }
 
 
 def _totals(cards: list[dict[str, Any]], settings: dict[str, Any]) -> dict[str, Any]:
-    """Los dos totales de arriba, y las monedas que no se pudieron sumar."""
+    """Los totales de arriba, y las monedas que no se pudieron sumar."""
     missing = sorted({
         str(card["currency"] or "?") for card in cards
-        if card["daily_display"] is None or card["monthly_display"] is None
+        if any(card[key] is None for key in (
+            "daily_display", "monthly_display", "previous_month_display",
+        ))
     })
     return {
         "daily": sum(
@@ -183,6 +188,10 @@ def _totals(cards: list[dict[str, Any]], settings: dict[str, Any]) -> dict[str, 
         "monthly": sum(
             card["monthly_display"] for card in cards
             if card["monthly_display"] is not None
+        ),
+        "previous_month": sum(
+            card["previous_month_display"] for card in cards
+            if card["previous_month_display"] is not None
         ),
         "currency": str(settings.get("display_currency") or "EUR"),
         "accounts": len(cards),
