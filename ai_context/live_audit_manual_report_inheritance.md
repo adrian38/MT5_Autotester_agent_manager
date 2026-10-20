@@ -71,6 +71,22 @@ la pantalla, el archivado del vigilante guardaría en la serie histórica un
 veredicto peor que el real, que es la misma trampa que ya costó los usos con
 autolote.
 
+## Dónde está el almacén de verdad
+
+`runtime/runtime/live_audit_manual_reports/`, **con `runtime` dos veces**. Todo
+lo de la auditoría en vivo cuelga de `live_audit_settings.json`, y en el
+contenedor el manager arranca con `--config /app/runtime/manager.docker.json`
+trabajando desde ahí, así que `Path.cwd()/"runtime"/...` cae un nivel más
+abajo. Al lado están `live_audit_settings.json`, `live_audit_history/`,
+`live_audit_credentials.json` y el estado del cron; los `live_audit_*.json`
+sueltos en `runtime/` son restos viejos que ya no lee nadie.
+
+El 2026-10-20 se perdió una hora por esto: los tres HTML del uso 105 se
+sembraron en `runtime/live_audit_manual_reports/`, el almacén del servidor
+quedó vacío y la herencia no hacía nada **sin decir nada** -no encontrar ficha
+es el caso normal, no se registra-. Si la herencia no salta, lo primero es
+mirar `index.json` **en la carpeta anidada**.
+
 ## Para la próxima
 
 - La memoria empieza vacía: una corrección anterior a este cambio no está
