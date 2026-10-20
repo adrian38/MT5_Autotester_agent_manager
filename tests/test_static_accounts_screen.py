@@ -155,6 +155,13 @@ class CriterionTests(unittest.TestCase):
     def test_an_account_with_autolot_says_the_target_moves(self) -> None:
         self.assertIn("Autolote activo", SCRIPT)
 
+    def test_account_cards_reuse_the_active_portfolio_aliases(self) -> None:
+        self.assertIn("/portfolio-aliases?ids=", SCRIPT)
+        self.assertIn("aliasOf(card.node_id, Number(row.portfolio_id || 0))", SCRIPT)
+        self.assertIn("|| row.name || `Portafolio #${row.portfolio_id}`", SCRIPT)
+        self.assertIn("if (await loadAliases(data.accounts || [])) render(data)", SCRIPT)
+        self.assertIn("const missing = [...ids].filter", SCRIPT)
+
     def test_the_totals_say_which_currencies_are_not_summed(self) -> None:
         self.assertIn("missing_rates", SCRIPT)
         self.assertIn("no se suman", SCRIPT)

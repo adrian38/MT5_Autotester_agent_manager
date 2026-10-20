@@ -8,6 +8,9 @@
 const cardsEl = document.querySelector('#accounts');
 const refreshState = document.querySelector('#refresh-state');
 const refreshButton = document.querySelector('#refresh');
+// El alias vive en la memoria UBS del agente. Se pide una vez por nodo, igual
+// que en «Portafolios activos», y no en cada refresco de las cuentas.
+const nodeAliases = new Map();
 let refreshing = false;
 
 const MONTHS = [
@@ -156,12 +159,57 @@ function badgeOf(card) {
   return ['', 'SIN MEDIA'];
 }
 
+function aliasOf(nodeId, portfolioId) {
+  return (nodeAliases.get(nodeId) || {})[portfolioId] || '';
+}
+
+function portfolioLabel(card, row) {
+  return aliasOf(card.node_id, Number(row.portfolio_id || 0))
+    || row.name || `Portafolio #${row.portfolio_id}`;
+}
+
 function portfoliosMarkup(card) {
   if (!(card.portfolios || []).length) return '';
   return '<p class="card-portfolios">' + card.portfolios.map(row => (
-    `<span>${escapeHtml(row.name || `Portafolio #${row.portfolio_id}`)}`
+    `<span title="${escapeHtml(row.name || '')}">${escapeHtml(portfolioLabel(card, row))}`
     + `${row.autolot ? ' · autolote' : ''}</span>`
   )).join('') + '</p>';
+}
+
+function portfolioIdsByNode(cards) {
+  const grouped = new Map();
+  for (const card of cards) {
+    const ids = grouped.get(card.node_id) || new Set();
+    for (const row of card.portfolios || []) {
+      const portfolioId = Number(row.portfolio_id || 0);
+      if (portfolioId > 0) ids.add(portfolioId);
+    }
+    grouped.set(card.node_id, ids);
+  }
+  return grouped;
+}
+
+async function loadNodeAliases(nodeId, ids) {
+  const known = nodeAliases.get(nodeId) || {};
+  const missing = [...ids].filter(portfolioId => !(portfolioId in known));
+  if (!missing.length) return false;
+  try {
+    const data = await jsonResponse(await fetch(
+      `/api/nodes/${encodeURIComponent(nodeId)}/portfolio-aliases?ids=${missing.join(',')}`,
+      {cache: 'no-store'},
+    ));
+    nodeAliases.set(nodeId, {...known, ...(data.aliases || {})});
+    return true;
+  } catch (_error) {
+    return false; // Un alias ausente no puede dejar sin pintar la cuenta.
+  }
+}
+
+async function loadAliases(cards) {
+  const requests = [...portfolioIdsByNode(cards)].map(
+    ([nodeId, ids]) => loadNodeAliases(nodeId, ids),
+  );
+  return (await Promise.all(requests)).some(Boolean);
 }
 
 function noteMarkup(card) {
@@ -235,7 +283,9 @@ async function refresh() {
   refreshButton.disabled = true;
   refreshState.textContent = 'Actualizando…';
   try {
-    render(await jsonResponse(await fetch('/api/live-accounts', {cache: 'no-store'})));
+    const data = await jsonResponse(await fetch('/api/live-accounts', {cache: 'no-store'}));
+    render(data);
+    if (await loadAliases(data.accounts || [])) render(data);
     refreshState.textContent = `Actualizado ${new Date().toLocaleTimeString('es-ES')}`;
   } catch (error) {
     refreshState.textContent = 'Error de conexión';

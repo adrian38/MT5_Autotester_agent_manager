@@ -19,6 +19,11 @@
   agente, y `saved_portfolios` arrastraría `metrics_json` de la tabla entera.
   El navegador lo pide una vez por nodo y repinta al guardar; la escritura es la
   misma de siempre, `POST …/portfolio-manager/alias`.
+- «Cuentas en real» reutiliza esa misma ruta y muestra el alias en la etiqueta
+  de cada portafolio asociado a la cuenta. Conserva `deployment_name` como
+  respaldo y como `title`, pero no vuelve a abrir la memoria UBS en cada
+  refresco: pide los aliases una vez por nodo y los mantiene en memoria hasta
+  recargar la página.
 - La exportación escribe `Alias:` en el resumen y la importación lo reinserta en
   todas las propuestas reconstruidas, por lo que la etiqueta vuelve con el
   portafolio sin alterar su identidad técnica.
