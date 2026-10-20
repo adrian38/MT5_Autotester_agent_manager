@@ -76,7 +76,15 @@ class CronScreenTests(unittest.TestCase):
         # permiso que pedir, y un botón que no hace nada es peor que decirlo.
         self.assertIn("window.isSecureContext", self.script)
         self.assertIn("'unsupported'", self.script)
-        self.assertIn("localhost o con https", self.script)
+        self.assertIn("sólo los permite en localhost o por https", self.script)
+        # En iOS no hay `Notification` en una pestaña normal, así que el caso
+        # de instalar se decide **antes** que el de «este navegador no puede»:
+        # al revés, un iPhone leería que no tiene avisos y es falso.
+        self.assertIn("'needs-install'", self.script)
+        self.assertIn("pantalla de inicio", self.script)
+        self.assertLess(
+            self.script.index("needsInstall()"), self.script.index("'unsupported'"),
+        )
         # Desde otro equipo el certificado no está a mano: lo sirve el manager.
         self.assertIn('href="/ca.crt"', self.script)
         self.assertIn("cron-authority", self.script)

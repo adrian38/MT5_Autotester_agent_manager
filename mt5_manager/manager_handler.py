@@ -27,6 +27,7 @@ from . import manager_http
 from . import manager_live_audit_routes
 from . import manager_portfolio_routes
 from . import manager_pulse
+from . import manager_push_routes
 from . import manager_schedule_routes
 from . import manager_tls
 from .common import json_bytes, safe_int, utc_now
@@ -36,6 +37,11 @@ from .portfolio_scope import normalize_portfolio_scope
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# `mimetypes` no conoce `.webmanifest` en Windows, y ahi `guess_type` devuelve
+# `None`: el manifiesto saldria como `application/octet-stream` y el navegador
+# no lo leeria, asi que no habria nada que instalar en la pantalla de inicio.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 # Lo que un vigilante externo necesita para detectar que algo terminó o falló.
 # `/api/nodes` ronda los 400 KB porque lleva el comando completo, el pipeline y
@@ -50,6 +56,13 @@ STATIC_FILES = {
     # El boton superior «Auditoria programada» y su campana: los montan la
     # portada y Generacion, porque la cita es del manager entero.
     "live_audit_schedule.js", "live_audit_schedule.css",
+    # Los avisos del dispositivo. `sw.js` se sirve desde la raiz a proposito:
+    # un service worker solo manda en su carpeta y en las de debajo, asi que
+    # colgado de cualquier subruta no veria el resto del manager. El manifiesto
+    # y los iconos son lo que iOS exige para instalarlo en la pantalla de
+    # inicio, que es el unico modo de que Safari acepte avisos.
+    "sw.js", "web_push.js", "manifest.webmanifest",
+    "icon-192.png", "icon-512.png", "icon-180.png",
     "universe.html", "universe.js",
     "live_audit.html", "live_audit.js", "live_audit_autolot.js", "live_audit.css",
     "live_audit_result.html", "live_audit_result.js", "live_audit_result.css",
@@ -244,13 +257,15 @@ class ManagerHandler(BaseHTTPRequestHandler):
 
     def _get_live_audit_routes(self, parsed: Any, parts: list[str]) -> bool:
         return (
-            manager_schedule_routes.handle_get(self, parsed, parts)
+            manager_push_routes.handle_get(self, parsed, parts)
+            or manager_schedule_routes.handle_get(self, parsed, parts)
             or manager_live_audit_routes.handle_get(self, parsed, parts)
         )
 
     def _post_live_audit_routes(self, parsed: Any, parts: list[str]) -> bool:
         return (
-            manager_schedule_routes.handle_post(self, parsed, parts)
+            manager_push_routes.handle_post(self, parsed, parts)
+            or manager_schedule_routes.handle_post(self, parsed, parts)
             or manager_live_audit_routes.handle_post(self, parsed, parts)
         )
 

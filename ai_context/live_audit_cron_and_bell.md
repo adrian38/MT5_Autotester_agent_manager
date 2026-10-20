@@ -158,10 +158,19 @@ auditoría de un periodo nuevo vuelve a ejecutar el tester y no los arrastra.
 Petición del usuario: que el navegador avise, que se pregunte **la primera
 vez** y que la campana tenga un botón para activarlos desde ahí.
 
-Es la API `Notification`, no Web Push: avisa mientras el manager esté abierto
-en alguna pestaña, y no necesita service worker, claves VAPID ni un servicio de
-push al que el manager no podría llegar desde la red local. Para que avisara
-con el navegador cerrado haría falta todo eso.
+**Superado el 2026-10-20 por `web_push_avisos_en_cada_dispositivo.md`**, que es
+lo que hay que leer antes de tocar nada de los avisos. Lo de abajo sigue siendo
+cierto del aviso de la pestaña abierta —que se conserva, porque llega antes que
+el push—, pero ya no es todo: el manager entrega el aviso al dispositivo aunque
+no haya ninguna pestaña, y de ahí salen la clave VAPID, el service worker y el
+manifiesto. Dos frases de esta sección eran falsas en cuanto se probó fuera de
+este equipo: `new Notification(...)` **no existe en Android**, y en iOS no hay
+avisos fuera de una web instalada en la pantalla de inicio.
+
+Era la API `Notification`, no Web Push: avisaba mientras el manager estuviera
+abierto en alguna pestaña, y no necesitaba service worker, claves VAPID ni un
+servicio de push. Para que avisara con el navegador cerrado hacía falta todo
+eso, y es lo que se hizo.
 
 Tres decisiones que no se pueden deducir del código:
 

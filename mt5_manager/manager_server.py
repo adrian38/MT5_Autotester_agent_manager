@@ -16,7 +16,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from . import live_audit_schedule, live_audit_watch, manager_tls
+from . import live_audit_schedule, live_audit_watch, manager_tls, web_push
 from .common import load_json, safe_int, save_json
 from .experiment_service import ExperimentCoordinator
 from .live_audit_archive import LiveAuditArchive
@@ -114,6 +114,7 @@ class ManagerServer(ThreadingHTTPServer):
         self.live_audit_runs = LiveAuditRunState(
             live_audit_settings_path.with_name("live_audit_schedule_state.json"),
         )
+        self._configure_web_push(config, live_audit_settings_path)
         # El agente solo conserva la ultima ejecucion de cada uso: sin este
         # diario, cada auditoria borraba la anterior y no habia serie.
         self.live_audit_archive = LiveAuditArchive(
@@ -149,6 +150,26 @@ class ManagerServer(ThreadingHTTPServer):
             self.live_audit_scheduler_settings = normalize_live_audit_scheduler_settings(
                 {}, defaults,
             )
+
+    def _configure_web_push(self, config: dict[str, Any], settings_path: Path) -> None:
+        """Los avisos que llegan con el navegador cerrado.
+
+        Se engancha a la campana en vez de a cada sitio que avisa: asi un
+        aviso nuevo -de una auditoria, de un calculo de portafolio o de lo que
+        venga- sale en el dispositivo sin tocar nada mas.
+
+        El `subject` identifica al manager ante el servicio de push de cada
+        navegador. Se toma del correo que ya hay en `.env` para Let's Encrypt,
+        porque Apple rechaza el JWT si no es un `mailto:` o una URL reales.
+        """
+        self.web_push = web_push.WebPushService(
+            settings_path.with_name("web_push_key.pem"),
+            settings_path.with_name("web_push_subscriptions.json"),
+            str(config.get("web_push_subject") or "").strip() or web_push.default_subject(
+                os.environ.get("MANAGER_DOMAIN", ""), os.environ.get("ACME_EMAIL", ""),
+            ),
+        )
+        self.live_audit_notifications.announce = self.web_push.announce
 
     def _configure_coordinators(self, config: dict[str, Any]) -> None:
         portfolio_settings_file = str(config.get("portfolio_settings_file") or "").strip()

@@ -241,6 +241,35 @@ una IP privada. Y ningún dispositivo vuelve a instalar nada.
   Si el router tiene una DMZ, ese puerto está abierto al mundo en `http`: con
   el proxy puesto, lo suyo es quitar la DMZ y dejar reenviado sólo el 443.
 
+## Avisos en cada dispositivo
+
+Cuando un portafolio termina de generarse, arreglarse o mejorarse, y cuando una
+auditoría acaba, falla o el cron no puede lanzarla, el manager **manda el aviso
+al dispositivo**: no hace falta tener ninguna pestaña abierta ni el navegador
+encendido. Lo entrega el servicio de push del propio navegador, así que el
+móvil lo recibe también fuera de casa.
+
+Los permisos del navegador son **por dirección y por dispositivo**, así que hay
+que activarlos una vez en cada uno. No hay forma de hacerlo desde otro:
+
+1. Abre el manager por su dirección **https** —la del proxy, sin puerto—. Por
+   IP y en `http` el navegador no ofrece el permiso, y el botón lo dice.
+2. Campana → «Activar avisos en este dispositivo» → permitir.
+3. «Probar aviso» entrega uno en el momento y dice qué contestó cada
+   dispositivo. Es la forma de saber que funciona sin esperar a un cálculo.
+
+En **iPhone y iPad** hay un paso antes: Compartir → «Añadir a pantalla de
+inicio», y abrir el manager desde ese icono. Safari no da avisos en una pestaña
+normal, sólo en una web instalada. En **Android** y en el escritorio no hace
+falta instalar nada.
+
+Lo que guarda el manager de cada dispositivo es sólo lo que el navegador le da
+para poder avisarle, en `runtime/web_push_subscriptions.json`, y su identidad de
+firma en `runtime/web_push_key.pem`. **Borrar esa clave obliga a volver a
+activar los avisos en todos los dispositivos**, así que no se regenera sola: si
+el fichero no se puede leer, el manager lo dice y no lo toca. Detalle y motivos
+en `ai_context/web_push_avisos_en_cada_dispositivo.md`.
+
 ## HTTPS con tu propia CA (opcional)
 
 El manager sirve `http` mientras no encuentre un certificado, y así se queda si

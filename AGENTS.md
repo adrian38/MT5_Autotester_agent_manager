@@ -223,7 +223,8 @@ orden de dependencia:
 
 `manager_config` → `manager_http` → `manager_pulse` →
 `manager_live_audit_routes` → `manager_portfolio_routes` →
-`manager_schedule_routes` → `manager_handler` → `manager_server` → `manager`
+`manager_schedule_routes` → `manager_push_routes` → `manager_handler` →
+`manager_server` → `manager`
 
 - `manager.py` sólo arranca y **reexporta**: `from mt5_manager.manager import
   ManagerServer, ManagerHandler, PULSE_JOB_KEYS, ...` sigue funcionando.

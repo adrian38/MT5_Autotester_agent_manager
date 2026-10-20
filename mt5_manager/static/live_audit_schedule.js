@@ -86,7 +86,8 @@
       <button type="button" class="secondary" id="cron-panel-close" aria-label="Cerrar">×</button>
     </header>
     <div class="cron-push-row">
-      <button type="button" class="secondary" id="cron-push">Activar avisos del escritorio</button>
+      <button type="button" class="secondary" id="cron-push">Activar avisos en este dispositivo</button>
+      <button type="button" class="secondary" id="cron-push-test" hidden>Probar aviso</button>
       <small id="cron-push-note"></small>
       <a id="cron-authority" href="/ca.crt" download hidden>Descargar el certificado e instalarlo en este dispositivo</a>
     </div>
@@ -109,7 +110,8 @@
       <strong>¿Quieres que el navegador te avise?</strong>
       <small>Cuando un portafolio termine de generarse, arreglarse o mejorarse, y cuando
       una auditoría acabe, falle o el cron no pueda lanzarla, el aviso salta aunque
-      estés en otra pestaña. Hace falta tener el manager abierto en alguna.</small>
+      estés en otra pestaña o hayas cerrado el navegador: lo manda el manager.
+      Hay que activarlo en cada dispositivo.</small>
     </div>
     <div class="cron-push-actions">
       <button type="button" id="cron-push-now">Activar</button>
@@ -314,22 +316,31 @@
     try { localStorage.setItem(key, value); } catch (_error) { /* modo privado */ }
   }
 
+  const push = () => window.ManagerPush || null;
+
   // `Notification` sólo existe en contexto seguro. `http://localhost` lo es;
   // abrir el manager por su IP de la red local, no, y ahí el navegador no
   // ofrece el permiso: hay que decirlo en vez de dejar un botón que no hace
   // nada.
+  //
+  // Y el orden importa. En iOS no hay `Notification` en una pestaña normal,
+  // así que sin el primer caso un iPhone leería «este navegador no tiene
+  // avisos», que es falso: los tiene en cuanto el manager está instalado en la
+  // pantalla de inicio.
   function pushState() {
+    if (push() && push().needsInstall()) return 'needs-install';
     if (!('Notification' in window)) return 'unsupported';
     if (!window.isSecureContext) return 'insecure';
     return Notification.permission;
   }
 
   const PUSH_LABELS = {
-    granted: ['Avisos del escritorio activos', 'El navegador avisará de resultados, fallos y bloqueos; no de cada arranque correcto.'],
+    granted: ['Avisos activos en este dispositivo', 'Avisa de resultados, fallos y bloqueos, también con el navegador cerrado; no de cada arranque correcto.'],
     denied: ['Avisos bloqueados por el navegador', 'Los bloqueaste para esta dirección: vuelve a permitirlos en el candado de la barra de direcciones.'],
-    unsupported: ['Este navegador no tiene avisos de escritorio', 'La campana sigue funcionando igual.'],
-    insecure: ['Avisos del escritorio no disponibles aquí', 'El navegador sólo los permite en localhost o con https. Ábrelo en localhost, o sirve el manager por https con tu CA: README, «HTTPS con tu propia CA».'],
-    default: ['Activar avisos del escritorio', 'Saltan aunque estés en otra pestaña, mientras tengas el manager abierto.'],
+    unsupported: ['Este navegador no tiene avisos', 'La campana sigue funcionando igual.'],
+    insecure: ['Avisos no disponibles en esta dirección', 'El navegador sólo los permite en localhost o por https. Abre el manager por su dirección https —la del proxy, sin puerto— y vuelve a intentarlo.'],
+    'needs-install': ['Instala el manager para recibir avisos', 'En iPhone y iPad los avisos sólo llegan a una web instalada: pulsa Compartir y «Añadir a pantalla de inicio», abre el manager desde ese icono y activa los avisos ahí.'],
+    default: ['Activar avisos en este dispositivo', 'Llegan aunque cierres el navegador: el aviso lo manda el manager, no la pestaña.'],
   };
 
   // Con la campana abierta no se enseña la tarjeta: se solaparían, y ahí
@@ -346,7 +357,8 @@
   function blockedHint() {
     if (location.protocol !== 'https:') {
       return 'El navegador no da avisos en http por IP. Abre el manager en localhost, o '
-        + 'sírvelo por https con tu CA (README, «HTTPS con tu propia CA»).';
+        + 'por su dirección https —la del proxy, sin puerto—, que es la que vale '
+        + 'desde cualquier equipo y desde el móvil.';
     }
     // Detrás del proxy público el certificado es de verdad y no hay ninguna CA
     // que instalar: mandar a instalarla sería mandar a ningún sitio.
@@ -377,11 +389,38 @@
     const button = field('#cron-push');
     button.textContent = label;
     button.disabled = state !== 'default';
+    // Es el único punto del camino que el usuario puede comprobar: entre
+    // «Activar» y el aviso de un cálculo de horas hay una clave, un JWT, un
+    // cifrado y el servicio de push del navegador. Si algo está mal, sin esto
+    // se descubre de madrugada y sin ningún mensaje.
+    field('#cron-push-test').hidden = state !== 'granted';
     field('#cron-push-note').textContent = hint || help;
     // Desde otro equipo, la CA que falta instalar no está a mano: el manager
     // la sirve, y aquí está el enlace. Sólo cuando de verdad hay una.
     field('#cron-authority').hidden = !authority || state === 'granted';
     syncAsk();
+  }
+
+  // El permiso es sólo la mitad. Sin suscripción el aviso sale únicamente
+  // mientras la pestaña está abierta y despierta, que es justo el caso que no
+  // sirve: en el móvil el navegador congela los temporizadores de una pestaña
+  // en segundo plano, y un cálculo de portafolio dura horas.
+  async function enrol() {
+    if (!push()) {
+      notify('Avisos activados en esta pestaña. Para que lleguen con el navegador '
+        + 'cerrado, recarga la página y vuelve a entrar en la campana.', true);
+      return;
+    }
+    try {
+      const data = await push().activate();
+      hint = '';
+      notify(`Avisos activados en este dispositivo. Suscritos: ${data.total}.`);
+    } catch (error) {
+      hint = `El navegador dio permiso pero no se pudo suscribir: ${error.message}. `
+        + 'Los avisos saldrán sólo con el manager abierto.';
+      notify(hint, true);
+    }
+    applyPushState();
   }
 
   async function requestPush() {
@@ -405,8 +444,8 @@
     try {
       const result = await Notification.requestPermission();
       hint = result === 'default' ? blockedHint() : '';
-      if (result === 'granted') notify('Avisos del escritorio activados.');
-      else if (result === 'denied') notify('Sin avisos del escritorio: los verás igual en la campana.');
+      if (result === 'granted') await enrol();
+      else if (result === 'denied') notify('Sin avisos: los verás igual en la campana.');
       else notify(blockedHint(), true);
     } catch (error) {
       hint = `${error.message}. ${blockedHint()}`;
@@ -417,15 +456,31 @@
     }
   }
 
+  // El aviso de la pestaña abierta, que llega antes que el push porque no
+  // pasa por el servicio del navegador. Mismo `tag` que el del manager: el
+  // que llegue después reemplaza a este en vez de duplicarlo.
+  //
+  // Pasa por `ManagerPush.show` y no por `new Notification` porque **en
+  // Android el constructor no existe**: responde `Illegal constructor` y hay
+  // que usar el del service worker. Esa excepción moría en el `catch` del
+  // sondeo, así que el móvil daba permiso y luego no avisaba de nada.
   function pushEvent(event) {
-    const desktop = new Notification(event.title, {
+    const options = {
       body: event.message || '', tag: `cron-${event.id}`,
-    });
-    desktop.onclick = () => {
-      window.focus();
-      panel.hidden = false;
-      desktop.close();
+      icon: '/icon-192.png', badge: '/icon-192.png',
+      data: {link: event.link || ''},
     };
+    if (!push()) return;
+    push().show(event.title, options).then(shown => {
+      // `registration.showNotification` no devuelve nada y el clic lo atiende
+      // el service worker; el constructor sí, y ahí hay que atenderlo aquí.
+      if (!shown) return;
+      shown.onclick = () => {
+        window.focus();
+        panel.hidden = false;
+        shown.close();
+      };
+    }).catch(error => console.warn('[campana] aviso no mostrado', error));
   }
 
   // Lo que sea nuevo desde la última vez que se miró. Sin permiso se apunta
@@ -534,6 +589,26 @@
     syncAsk();
   });
   field('#cron-push').addEventListener('click', requestPush);
+  field('#cron-push-test').addEventListener('click', async () => {
+    const button = field('#cron-push-test');
+    if (!push()) return;
+    button.disabled = true;
+    try {
+      const result = await push().test();
+      const failed = Object.values(result.failed || {});
+      // Un envío que no llega a ningún dispositivo no es un éxito: es
+      // exactamente el fallo que esta prueba busca, y hay que decirlo así.
+      notify([
+        result.sent
+          ? `Aviso de prueba enviado a ${result.sent} dispositivo${result.sent === 1 ? '' : 's'}.`
+          : 'Ningún dispositivo suscrito: pulsa «Activar» en el que quieras avisar.',
+        result.dropped ? `${result.dropped} suscripción(es) caducada(s) retirada(s).` : '',
+        failed.length ? `Sin entregar: ${failed.join('; ')}.` : '',
+      ].filter(Boolean).join(' '), !result.sent || Boolean(failed.length));
+      applyPushState();
+    } catch (error) { notify(error.message, true); }
+    finally { button.disabled = false; }
+  });
   field('#cron-push-now').addEventListener('click', async () => {
     ask.hidden = true;
     await requestPush();

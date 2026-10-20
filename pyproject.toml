@@ -18,7 +18,12 @@ mt5-manager = "mt5_manager.manager:main"
 mt5-node = "mt5_manager.node:main"
 
 [tool.setuptools.package-data]
-mt5_manager = ["static/*.html", "static/*.css", "static/*.js"]
+mt5_manager = [
+    "static/*.html", "static/*.css", "static/*.js",
+    # El manifiesto y los iconos de los avisos: sin ellos no hay nada que
+    # instalar en la pantalla de inicio, y sin eso iOS no da avisos.
+    "static/*.webmanifest", "static/*.png",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -49,6 +49,13 @@ que portar a `manager_node_runtime/`.**
 
 ## El script tiene que estar en la pantalla del cálculo
 
+**Esta sección vale para el aviso de la pestaña abierta, que se conserva.**
+Desde el 2026-10-20 el aviso lo entrega además el manager por Web Push, que no
+necesita ninguna pestaña: `web_push_avisos_en_cada_dispositivo.md`. El enganche
+está en la campana, así que estos avisos salen en el dispositivo sin tocar nada
+de aquí.
+
+
 `Notification` es del navegador: avisa mientras el manager esté abierto en
 alguna pestaña **con el script cargado**. La pestaña que el usuario deja puesta
 mientras genera es la del portafolio, así que las tres pantallas de portafolio

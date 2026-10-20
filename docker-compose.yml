@@ -18,6 +18,13 @@ services:
       MT5_MANAGER_RESTART_LOG: /app/runtime/manager_restart.log
       MT5_MANAGER_GUIDED_DEV_BROKERS: ${MT5_MANAGER_GUIDED_DEV_BROKERS:-}
       MT5_MANAGER_PROXY_BROKERS: ${MT5_MANAGER_PROXY_BROKERS:-}
+      # Los dos los usan los avisos del dispositivo para decir quién manda el
+      # push: el servicio de push de Apple rechaza el JWT si no lleva un
+      # `mailto:` o una URL de verdad, y los dos valores ya están en `.env`
+      # para el proxy. Sin ellos el manager firma como `mt5-manager@localhost`,
+      # que a Chrome y Firefox les basta y a Safari no.
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      MANAGER_DOMAIN: ${MANAGER_DOMAIN:-}
       GH_CONFIG_DIR: /root/.config/gh
     extra_hosts:
       - "host.docker.internal:host-gateway"

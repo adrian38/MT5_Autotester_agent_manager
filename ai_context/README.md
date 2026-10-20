@@ -142,6 +142,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   engancha con el de la auditoría anterior. Incluye los dos fallos de la
   primera ejecución real (el periodo que nunca se encadenaba y los usos con
   autolote que no se archivaban) y por qué el suite no los veía.
+- `web_push_avisos_en_cada_dispositivo.md`: por qué los avisos salían en una
+  sola PC y nunca en el móvil, y el Web Push que los lleva a cada dispositivo
+  con el navegador cerrado —sobre cifrado, clave VAPID, service worker y qué
+  tiene que hacer el usuario una vez por dispositivo—.
 - `live_dashboard_uses_analysis.md`: portada y Análisis comparten el mismo
   veredicto y simulación de lotes; el reinicio inicial sondea y recarga.
 - `live_audit_reviewed_strategies.md`: la casilla «Validada» de Análisis saca

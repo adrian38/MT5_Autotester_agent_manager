@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .common import load_json, save_json, utc_now
 
@@ -29,6 +29,10 @@ class LiveAuditNotificationStore:
         self.lock = threading.RLock()
         self.events: list[dict[str, Any]] = []
         self.next_id = 1
+        self.announce: Callable[[dict[str, Any]], None] | None = None
+        """Quien lleva el aviso al dispositivo, si hay alguien. Lo pone
+        `manager_server` con `web_push`; aqui es opcional a proposito, porque
+        el diario tiene que seguir funcionando sin avisos y sin clave."""
         if self.path.is_file():
             try:
                 stored = load_json(self.path)
@@ -80,7 +84,23 @@ class LiveAuditNotificationStore:
             self.events.append(event)
             del self.events[:-MAXIMUM_EVENTS]
             self._save()
-            return dict(event)
+            stored = dict(event)
+        self._announce(stored)
+        return stored
+
+    def _announce(self, event: dict[str, Any]) -> None:
+        """Lleva el aviso al dispositivo sin poder romper al que lo anoto.
+
+        `add` se llama desde el `try` del trabajador que calcula el portafolio:
+        una excepcion aqui marcaria como fallido un calculo que termino bien.
+        Es la misma razon por la que `_announce_job` no deja escapar nada.
+        """
+        if self.announce is None:
+            return
+        try:
+            self.announce(event)
+        except Exception as exc:  # noqa: BLE001 - el diario no puede fallar
+            print(f"[campana] aviso no entregado: {exc}", flush=True)
 
     def state(self, limit: int = 50) -> dict[str, Any]:
         """Los ultimos avisos, el mas reciente primero, y cuantos sin leer."""
