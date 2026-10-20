@@ -504,6 +504,19 @@ class WatchTickTests(unittest.TestCase):
         server = FakeServer(self.root, audit_state(), enabled=True)
         with mock.patch("mt5_manager.manager_http.node_request", side_effect=OSError("sin red")):
             live_audit_watch.tick(server)
+        self.assertEqual([], server.events())
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self.node_answers({"11": {"status": "testing"}}),
+        ):
+            live_audit_watch.tick(server)
+        self.assertEqual([], server.events())
+        with mock.patch("mt5_manager.manager_http.node_request", side_effect=OSError("sin red")):
+            live_audit_watch.tick(server)
+            live_audit_watch.tick(server)
+        self.assertEqual([], server.events())
+        with mock.patch("mt5_manager.manager_http.node_request", side_effect=OSError("sin red")):
+            live_audit_watch.tick(server)
             live_audit_watch.tick(server)
         self.assertEqual(
             [event["kind"] for event in server.events()], ["scheduler_node_unavailable"],
@@ -513,7 +526,19 @@ class WatchTickTests(unittest.TestCase):
             side_effect=self.node_answers({"11": {"status": "testing"}}),
         ):
             live_audit_watch.tick(server)
-        self.assertEqual(server.events()[0]["kind"], "scheduler_node_recovered")
+        self.assertEqual(
+            [event["kind"] for event in server.events()],
+            ["scheduler_node_recovered", "scheduler_node_unavailable"],
+        )
+
+    def test_an_old_runtime_warning_does_not_wait_for_network_confirmation(self) -> None:
+        server = FakeServer(self.root, audit_state(), enabled=True)
+        live_audit_watch.record_node_issue(
+            server, server.nodes[0], "n", "old_runtime", "Hay que reiniciar el agente.",
+        )
+        self.assertEqual(
+            [event["kind"] for event in server.events()], ["scheduler_node_unavailable"],
+        )
 
     def test_the_dialog_can_see_what_is_marked_but_not_configured(self) -> None:
         state = audit_state(

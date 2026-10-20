@@ -205,6 +205,21 @@ transición sólo se anuncia cuando se pasa de un estado de ejecución a uno
 final: la primera vuelta después de arrancar el manager se limita a recordar lo
 que ve, para no anunciar como recién hecha una auditoría de hace tres semanas.
 
+## Una desconexión exige tres sondeos fallidos (2026-10-20)
+
+El vigilante consulta cada nodo cada cinco minutos. Un único timeout de red —o
+incluso dos seguidos— no demuestra que el agente se haya desconectado y ya no
+crea un aviso ni un push. La caída se confirma al tercer sondeo fallido
+consecutivo, aproximadamente diez minutos después del primero; desde entonces
+se avisa una sola vez y se anuncia la recuperación cuando vuelve a responder.
+Una respuesta correcta antes del tercero pone la cuenta a cero y no genera un
+falso aviso de recuperación.
+
+`old_runtime` no pasa por esta espera: el agente respondió y confirmó que le
+falta una capacidad, así que ese aviso sigue siendo inmediato. La cuenta de
+fallos vive en la entrada persistente `nodo/__scheduler_watch__`, junto al
+estado que ya impedía duplicar alertas tras reiniciar el manager.
+
 ## La campana vigila el perfil, no la tarjeta abierta (2026-10-20)
 
 El usuario avisó de que la campana «no dice cuándo ha terminado una auditoría» y

@@ -39,6 +39,8 @@ FINAL_STATUSES = {
     "idle": ("failed", "error", "Auditoría interrumpida"),
 }
 
+_NODE_UNAVAILABLE_CONFIRMATION_POLLS = 3
+
 
 class LiveAuditRunState:
     """Lo que el vigilante recuerda de cada uso entre vuelta y vuelta.
@@ -183,16 +185,25 @@ def node_live_audits(
 def record_node_issue(
     server: Any, node: dict[str, Any], node_id: str, code: str, message: str,
 ) -> None:
-    """Avisa una vez por caída y otra al recuperarse, sólo con el cron armado."""
+    """Confirma las caídas transitorias y avisa una vez hasta su recuperación."""
     runs = server.live_audit_runs
     key = runs.key(node_id, "__scheduler_watch__")
-    previous = str(runs.record(key).get("watch_issue") or "")
+    record = runs.record(key)
+    previous = str(record.get("watch_issue") or "")
+    failures = safe_int(record.get("watch_failures"), 0)
     if code:
         if not server.live_audit_scheduler_enabled:
             return
-        if code == previous:
+        if previous:
             return
-        runs.update(key, watch_issue=code, watch_message=message)
+        failures += 1
+        runs.update(key, watch_failures=failures, watch_pending_message=message)
+        if code != "old_runtime" and failures < _NODE_UNAVAILABLE_CONFIRMATION_POLLS:
+            return
+        runs.update(
+            key, watch_issue=code, watch_message=message,
+            watch_pending_message="",
+        )
         level = "warning" if code == "old_runtime" else "error"
         server.live_audit_notifications.add(
             level, f"El cron no puede consultar {node.get('name') or node_id}", message,
@@ -200,10 +211,13 @@ def record_node_issue(
             kind="scheduler_node_unavailable",
         )
         return
-    if not previous:
+    if not previous and not failures:
         return
-    runs.update(key, watch_issue="", watch_message="")
-    if server.live_audit_scheduler_enabled:
+    runs.update(
+        key, watch_issue="", watch_message="", watch_failures=0,
+        watch_pending_message="",
+    )
+    if previous and server.live_audit_scheduler_enabled:
         server.live_audit_notifications.add(
             "success", f"El cron vuelve a ver {node.get('name') or node_id}",
             "El agente ya responde y las citas pendientes vuelven a poder lanzarse.",
