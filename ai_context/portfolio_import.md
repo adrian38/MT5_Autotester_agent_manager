@@ -272,7 +272,7 @@ Las pruebas se reparten por escenario: `test_portfolio_import_summary.py`
 comprueba parseo y transporte; `test_portfolio_import.py`, inventario e ida y
 vuelta del bundle; `test_portfolio_import_identity.py`, identidad portable,
 faltantes y escritura en el nodo. Fixtures y constructores comunes viven en
-`portfolio_import_test_support.py`. En conjunto cubren la ida y vuelta hasta
+`tests/portfolio/portfolio_import_test_support.py`. En conjunto cubren la ida y vuelta hasta
 `save_proposal`, sets comprometidos, números recalculados y no copiados,
 errores con mensaje y una mejora encadenada que conserva etiqueta, raíz, nivel
 y snapshot.

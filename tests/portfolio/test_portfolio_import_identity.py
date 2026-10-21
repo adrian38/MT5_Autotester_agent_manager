@@ -18,7 +18,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import portfolio_import
 from mt5_manager.portfolio_service import (
@@ -34,7 +34,7 @@ from portfolio_manager.ubs_portfolio import (
     build_robust_strategy_set,
 )
 
-from tests.portfolio_import_test_support import (
+from tests.portfolio.portfolio_import_test_support import (
     BLANK_PROFILE_IMPROVEMENT_SUMMARY,
     CHAINED_IMPROVEMENT_SUMMARY,
     IMPROVEMENT_SUMMARY,
