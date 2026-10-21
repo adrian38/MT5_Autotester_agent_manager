@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_audit_notifications import LiveAuditNotificationStore
 from mt5_manager.portfolio_job_notices import job_notice, notice_link
@@ -214,7 +214,7 @@ class PortfolioBellScreenTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.static = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+        cls.static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
         cls.script = (cls.static / "live_audit_schedule.js").read_text(encoding="utf-8")
 
     def test_the_three_portfolio_screens_load_the_bell(self) -> None:
