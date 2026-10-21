@@ -572,3 +572,26 @@ comparaciones. Su error y sus reintentos siguen en la campana y en el estado del
 cron, que son sus diarios correctos. `LiveAuditArchive.index` omite también las
 filas antiguas con esos estados, por lo que el recuento y la serie dejan de
 enseñar las tres entradas contaminadas sin borrar los JSON originales.
+
+## La campana sin su hoja de estilos (2026-10-21)
+
+Petición del usuario: «la campana tiene que ser la misma en todas las
+pantallas, y en alguna no funciona cuando le das click». No era el JavaScript:
+siete pantallas cargaban `live_audit_schedule.js` sin
+`live_audit_schedule.css` —correlación, experimenta, los dos análisis de
+auditoría, portafolios manuales, el manual de portafolio y universo—.
+
+El script monta el panel con `document.body.appendChild`, y quien lo saca del
+flujo es la hoja (`.cron-panel{position:fixed;...}`). Sin ella el botón salía
+sin borde ni contador y, al pulsarlo, el panel se abría **al final del
+documento**, sin fondo ni ancho: en una pantalla larga parecía que el clic no
+hacía nada. Comprobado contra el manager en marcha: `getComputedStyle` daba
+`position: static` y `width: auto`; inyectando la hoja a mano, el mismo clic
+abre el cajón de 430 px pegado a la derecha.
+
+- Lo exige ahora `test_header_actions_order`::`test_the_bell_takes_its_
+  stylesheet_with_it`, que cruza las pantallas que cargan el script con las
+  que enlazan la hoja.
+- Esta clase de fallo es silenciosa en el suite: el JS estaba bien, el HTML
+  era válido y ninguna prueba miraba los `<link>`. Lo mismo que pasó con
+  `STATIC_FILES` y `portfolio_manual_check.js`, que salía y no abría nada.

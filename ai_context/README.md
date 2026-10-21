@@ -147,7 +147,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   segunda tabla con toda la serie, la tabla «contra el histórico» ya
   acumulativa, y los dos candados de la herencia —genealogía del portafolio e
   identidad de la estrategia— que también mueven la ventana del cron.
-- `live_audit_cron_and_bell.md`: el cron general de los portafolios activos
+- `live_audit_cron_and_bell.md`: el cron general de los portafolios activos y
+  la hoja de estilos sin la cual la campana se abre fuera de la vista
 - `model4_watchdog_mata_su_propia_sincronizacion.md`: por qué fallaban las
   auditorías con «MT5 Model=4 volvió a bloquearse», y dónde está la evidencia
   —sábado a las 23:00 con reintentos—, la campana de avisos, por qué el hilo

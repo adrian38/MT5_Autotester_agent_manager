@@ -200,6 +200,27 @@ class HeaderActionsOrderTests(unittest.TestCase):
         }
         self.assertEqual(loaders, set(self.EXPECTED))
 
+    def test_the_bell_takes_its_stylesheet_with_it(self) -> None:
+        """La campana no es la misma campana sin su hoja de estilos.
+
+        El script monta el panel con `document.body.appendChild`, y es
+        `live_audit_schedule.css` quien lo saca del flujo con `position:
+        fixed`. Siete pantallas cargaban el script sin la hoja (correlación,
+        experimenta, los dos análisis de auditoría, los dos de portafolios
+        manuales y universo): el botón salía sin estilo y, al pulsarlo, el
+        panel se abría al final del documento —transparente y fuera de la
+        vista—, así que parecía que el clic no hacía nada.
+        """
+        missing = sorted(
+            page for page in self.EXPECTED
+            if "live_audit_schedule.css" not in (STATIC / page).read_text(encoding="utf-8")
+        )
+        self.assertFalse(
+            missing,
+            "Estas pantallas montan la campana sin su hoja de estilos; añadir "
+            f'<link rel="stylesheet" href="/live_audit_schedule.css">: {missing}',
+        )
+
     def test_each_screen_has_only_its_contextual_controls(self) -> None:
         for page, expected in self.EXPECTED.items():
             with self.subTest(page=page):
