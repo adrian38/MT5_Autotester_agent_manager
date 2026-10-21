@@ -184,7 +184,7 @@ class DateOrderTests(unittest.TestCase):
 
 
 class ScreenTests(unittest.TestCase):
-    STATIC = Path(__file__).parents[1] / "mt5_manager" / "static"
+    STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 
     def test_the_two_buttons_open_their_own_tab(self) -> None:
         page = (self.STATIC / "portfolios.html").read_text(encoding="utf-8")

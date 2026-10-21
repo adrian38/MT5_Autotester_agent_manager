@@ -95,7 +95,7 @@ class PortfolioMemberReportTests(unittest.TestCase):
 
     def test_screen_opens_html_in_browser_and_offers_report_zip(self) -> None:
         script = (
-            Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolios.js"
+            Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolios.js"
         ).read_text(encoding="utf-8")
 
         self.assertIn("window.open('about:blank', '_blank')", script)
