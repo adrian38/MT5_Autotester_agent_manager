@@ -911,9 +911,6 @@ async function loadPortfolios(preferredId = null) {
     document.querySelector('#portfolio-title').textContent = data.node?.name || nodeId;
     document.querySelector('#portfolio-subtitle').textContent = `${data.node?.broker || ''} · ${data.node?.account_type || ''} · motor central`;
     document.querySelector('#portfolio-list-title').textContent = scopeLabel();
-    const strategyTotal = rows.reduce((sum, row) => sum + Number(row.active_strategies || 0), 0);
-    const latestId = rows.reduce((latest, row) => Math.max(latest, Number(row.id || 0)), 0);
-    document.querySelector('#portfolio-summary').innerHTML = [[rows.length, 'Portafolios guardados'], [strategyTotal, 'Estrategias acumuladas'], [latestId ? `#${latestId}` : '—', 'Último portafolio'], ['A/M/C', 'Ámbito']].map(([value, label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join('');
     selectedId = preferredId && rows.some(row => row.id === preferredId) ? preferredId : selectedId && rows.some(row => row.id === selectedId) ? selectedId : rows[0]?.id || null;
     renderList();
     if (selectedId) await loadDetail(selectedId); else { currentDetail = null; detailEl.hidden = true; emptyEl.hidden = false; }
