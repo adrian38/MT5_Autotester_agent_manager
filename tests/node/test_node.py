@@ -1,3 +1,5 @@
+"""Ejecución, comandos y estado básico del nodo."""
+
 from __future__ import annotations
 
 import json

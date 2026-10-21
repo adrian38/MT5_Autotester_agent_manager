@@ -1,3 +1,5 @@
+"""Pausa y reanudación del pipeline del nodo."""
+
 from __future__ import annotations
 
 import json
