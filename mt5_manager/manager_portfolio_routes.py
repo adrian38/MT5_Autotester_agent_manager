@@ -277,7 +277,9 @@ def manual_check_action(handler, action: str, node: dict, node_id: str, scope: s
     """
     portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=0)
     check_id = str(body.get("check_id") or "").strip()
-    if action == "manual-check-preview":
+    if action == "manual-check-settings":
+        handler._send_json(200, handler.server.portfolios.manual_check_settings(node_id))
+    elif action == "manual-check-preview":
         handler._send_json(200, handler.server.portfolios.manual_check_preview(
             node_id, scope, portfolio_id,
         ))
@@ -313,6 +315,34 @@ def manual_check_action(handler, action: str, node: dict, node_id: str, scope: s
     else:
         return False
     return True
+
+
+def _start_automatic_manual_check(
+    handler, node: dict, node_id: str, scope: str, portfolio_id: int,
+    settings: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Encadena la comprobación sin convertir un fallo suyo en fallo del guardado."""
+    if settings is None:
+        return None
+    try:
+        preview = handler.server.portfolios.manual_check_preview(
+            node_id, scope, portfolio_id
+        )
+        if not preview.get("strategies"):
+            return {"status": "skipped", "reason": "no_new_strategies"}
+        request = handler.server.portfolios.manual_check_request(
+            node_id, scope, portfolio_id, settings
+        )
+        status, value = manager_http.node_request(
+            node, "POST", "/api/v1/jobs/manual-check", request, timeout=120,
+        )
+        if status >= 400:
+            error = value.get("error") if isinstance(value, dict) else value
+            return {"status": "failed", "error": str(error or f"HTTP {status}")}
+        queued = bool(value.get("queued")) if isinstance(value, dict) else False
+        return {"status": "queued" if queued else "started"}
+    except Exception as exc:
+        return {"status": "failed", "error": str(exc)}
 
 
 def report_action(handler, action: str, node: dict, node_id: str, scope: str, body: dict,
@@ -378,13 +408,22 @@ def save(handler, node: dict, node_id: str, scope: str, body: dict) -> None:
     selected_id = portfolio_ids.get(selected_key, 0)
     if selected_id <= 0:
         raise ValueError("No se guardó la variante Grid seleccionada")
+    automatic_manual_check = handler.server.portfolios.pending_automatic_manual_check(
+        node_id, scope
+    )
     handler.server.portfolios.confirm_save(
         node_id, scope, str(save_payload["request_id"]), selected_id
     )
-    handler._send_json(201, {
+    manual_check = _start_automatic_manual_check(
+        handler, node, node_id, scope, selected_id, automatic_manual_check
+    )
+    response = {
         "portfolio_id": selected_id,
         "portfolio_ids": portfolio_ids,
-    })
+    }
+    if manual_check is not None:
+        response["manual_check"] = manual_check
+    handler._send_json(201, response)
 
 
 def action_route(handler, action: str, node: dict, node_id: str, scope: str, body: dict,

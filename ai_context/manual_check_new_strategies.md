@@ -157,6 +157,27 @@ entrada por nodo**, y el modal siguiente de ese agente abre con ellos y lo dice.
   ese momento en cada apertura y en cada lanzamiento.
 - Un fichero ilegible no bloquea el modal: se vuelve a los valores de fábrica.
 
+## Encadenada al primer guardado y a «Arreglar» (2026-10-21)
+
+La construcción UBS inicial y el modal «Arreglar» ofrecen una casilla
+«Comprobación manual automática», **marcada por defecto**. Al estar marcada aparece un botón exclusivo para
+configurar periodo, lote, reintentos, multiterminal y modelos antes de que el
+nuevo portafolio tenga identificador.
+
+- La elección viaja dentro del trabajo del constructor, no queda como ajuste
+  permanente de construcción ni depende de que el navegador siga abierto.
+- Se lanza después de que el nodo confirma el guardado y el manager invalida su
+  snapshot. Antes no existe una fila de portafolio desde la que recalcular las
+  estrategias.
+- En una construcción sin antecesor se comprueban todas. En un arreglo se usa
+  el linaje ya guardado y sólo se mandan las incorporadas; las supervivientes
+  no se repiten. Si el arreglo no incorpora ninguna, queda como `skipped` y el
+  guardado sigue siendo correcto.
+- Un fallo al encolar la comprobación no convierte en fallido un portafolio que
+  ya quedó guardado: la respuesta y la pantalla declaran el fallo separado.
+- Usa la ruta `jobs/manual-check` que ya existe en IC, AXI y RoboForex; no añade
+  criterio al runtime del agente. FUTURE sigue omitido por congelación.
+
 ## El primer aviso real no salió (2026-10-21)
 
 La primera comprobación de verdad —portafolio #62, tres estrategias, los dos

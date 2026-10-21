@@ -93,7 +93,7 @@ function hydrate(settings) {
 const numericFields = ['capital', 'valley_dd_pct', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'account_leverage', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];
 const booleanFields = ['run_local_search', 'deep_optimization', 'experimental_full_search', 'use_correlation', 'require_3_positive_months_6m', 'grid_off', 'exclude_used_sets'];
 
-function formPayload() {
+function formPayload(includeAutomaticCheck = false) {
   const payload = {scope, portfolio_type: form.elements.portfolio_type.value, margin_profile: form.elements.margin_profile.value, allowed_asset_groups: groups.filter(group => form.elements[`group_${group}`].checked)};
   numericFields.forEach(key => {
     const field = form.elements[key];
@@ -102,6 +102,9 @@ function formPayload() {
   });
   booleanFields.forEach(key => { const field = form.elements[key]; if (field) payload[key] = field.checked; });
   payload.disabled_symbols = [...(managerState.settings?.disabled_symbols || [])];
+  if (includeAutomaticCheck) {
+    payload.automatic_manual_check = window.manualCheckAutomation?.payload('generation') ?? null;
+  }
   return payload;
 }
 
@@ -545,7 +548,7 @@ form.addEventListener('change', scheduleSettingsSave);
 form.addEventListener('submit', async event => {
   event.preventDefault();
   if (settingsSaveTimer) { clearTimeout(settingsSaveTimer); settingsSaveTimer = null; }
-  try { await postManager('generate', formPayload()); selectedProposal = null; await loadManagerState(); toast('Cálculo iniciado en el manager.'); }
+  try { await postManager('generate', formPayload(true)); selectedProposal = null; await loadManagerState(); toast('Cálculo iniciado en el manager.'); }
   catch (error) { toast(error.message, true); }
 });
 
@@ -597,7 +600,12 @@ document.querySelector('#save-proposal').addEventListener('click', async () => {
   try {
     const data = await withSaveOverlay(title, detail, () => postManager('save', {scope, proposal_key: selectedProposal}));
     selectedProposal = null;
-    toast(`Portafolio #${data.portfolio_id} guardado.`);
+    const check = data.manual_check || {};
+    const checkText = check.status === 'queued' ? ' Comprobación manual encolada.'
+      : check.status === 'started' ? ' Comprobación manual iniciada.'
+        : check.status === 'skipped' ? ' No había estrategias nuevas que comprobar.'
+          : check.status === 'failed' ? ` No se pudo iniciar la comprobación manual: ${check.error}` : '';
+    toast(`Portafolio #${data.portfolio_id} guardado.${checkText}`, check.status === 'failed');
     Promise.all([loadManagerState(), loadPortfolios(data.portfolio_id)]).catch(error => {
       toast(`Portafolio #${data.portfolio_id} guardado, pero no se pudo actualizar la vista: ${error.message}`, true);
     });

@@ -120,6 +120,24 @@ mano en cada portafolio era el trabajo que el usuario pidió quitarse
 """
 
 
+def check_settings(remembered: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Configuración del agente para un portafolio que todavía no existe."""
+    from_date, to_date = default_period()
+    defaults = {
+        "from_date": from_date,
+        "to_date": to_date,
+        "models": list(REPORT_MODELS),
+        "use_multiterminal": True,
+        "lot": 0.01,
+        "retries": DEFAULT_RETRIES,
+    }
+    defaults.update({
+        key: value for key, value in (remembered or {}).items() if key in REMEMBERED_KEYS
+    })
+    defaults["remembered"] = bool(remembered)
+    return defaults
+
+
 def saved_settings(path: Path, node_id: str) -> dict[str, Any]:
     """Lo último que se lanzó en ese agente, si queda algo apuntado."""
     try:
@@ -175,7 +193,6 @@ def new_strategies(
             "candidate_id": str(member.get("candidate_id") or ""),
             "units": safe_int(member.get("units"), 0, minimum=0),
         })
-    from_date, to_date = default_period()
     return {
         "portfolio_id": int(portfolio_id),
         "scope": scope,
@@ -184,14 +201,7 @@ def new_strategies(
         "unreadable_origins": unreadable,
         "total_members": len(members),
         "strategies": rows,
-        "from_date": from_date,
-        "to_date": to_date,
-        "models": list(REPORT_MODELS),
-        "use_multiterminal": True,
-        "lot": 0.01,
-        "retries": DEFAULT_RETRIES,
-        "remembered": bool(remembered),
-        **{key: value for key, value in (remembered or {}).items() if key in REMEMBERED_KEYS},
+        **check_settings(remembered),
     }
 
 

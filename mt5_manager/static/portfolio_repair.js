@@ -46,6 +46,10 @@
         <label id="repair-same-symbol-option"><input name="improvement_allow_same_symbol" type="checkbox"> Conservar excepción de mismo símbolo de la mejora</label>
       </div></fieldset>
       <fieldset><legend>Grupos permitidos</legend><div id="repair-groups" class="portfolio-checks"></div></fieldset>
+      <fieldset><legend>Después de guardar el arreglo</legend><div class="portfolio-checks manual-check-automatic-row">
+        <label title="Relanza en MT5 únicamente las estrategias incorporadas por este arreglo."><input id="repair-manual-check" type="checkbox" checked> Comprobación manual automática</label>
+        <button id="repair-manual-check-configure" type="button" class="secondary">Configurar comprobación manual</button>
+      </div></fieldset>
       <p class="portfolio-note"><span id="repair-excluded-count"></span> Las estrategias no excluidas seguirán siendo obligatorias, aunque sus lotes podrán cambiar. Las excluidas no entrarán en el pool y se podrán añadir sustitutas válidas.</p>
       <div class="builder-actions"><button type="button" class="secondary" data-close>Cancelar</button><button type="submit">Iniciar arreglo</button></div>
     </form>`;
@@ -123,6 +127,7 @@
       payload.run_local_search = false;
       payload.search_restarts = 0;
     }
+    payload.automatic_manual_check = window.manualCheckAutomation?.payload('repair') ?? null;
     return payload;
   }
 

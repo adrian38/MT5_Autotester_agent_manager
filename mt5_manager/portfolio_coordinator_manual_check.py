@@ -37,6 +37,22 @@ class PortfolioCoordinatorManualCheckMixin:
             portfolio_manual_check.saved_settings(self.manual_check_settings_path, node_id),
         )
 
+    def manual_check_settings(self, node_id: str) -> dict[str, Any]:
+        """Los ajustes disponibles antes de que el portafolio exista."""
+        return portfolio_manual_check.check_settings(
+            portfolio_manual_check.saved_settings(self.manual_check_settings_path, node_id)
+        )
+
+    def pending_automatic_manual_check(
+        self, node_id: str, scope: str,
+    ) -> dict[str, Any] | None:
+        """La configuración que debe encadenarse al guardado actual, si existe."""
+        with self.lock:
+            value = (self.jobs.get(self._key(node_id, scope)) or {}).get(
+                "automatic_manual_check"
+            )
+        return dict(value) if isinstance(value, dict) else None
+
     def manual_check_request(
         self, node_id: str, scope: str, portfolio_id: int, payload: dict[str, Any]
     ) -> dict[str, Any]:

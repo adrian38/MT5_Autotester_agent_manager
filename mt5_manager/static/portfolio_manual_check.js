@@ -51,6 +51,19 @@
   const analysisButton = document.querySelector('#detail-manual-analysis');
   let preview = null;
   let latestCheck = null;
+  let dialogMode = 'launch';
+  let automationKind = '';
+  const automationSettings = {generation: null, repair: null};
+  const automationControls = {
+    generation: {
+      check: document.querySelector('#generation-manual-check'),
+      button: document.querySelector('#generation-manual-check-configure'),
+    },
+    repair: {
+      check: document.querySelector('#repair-manual-check'),
+      button: document.querySelector('#repair-manual-check-configure'),
+    },
+  };
 
   const isoDate = value => String(value || '').replace(/\./g, '-');
   const dottedDate = value => String(value || '').replace(/-/g, '.');
@@ -150,6 +163,11 @@
   async function openDialog() {
     if (!selectedId) return;
     preview = null;
+    dialogMode = 'launch';
+    automationKind = '';
+    dialog.querySelector('.manual-check-table-wrap').hidden = false;
+    exportButton.hidden = false;
+    form.querySelector('button[type="submit"]').textContent = 'Lanzar comprobación';
     renderRows([]);
     dialog.querySelector('#manual-check-summary').textContent = 'Cargando…';
     dialog.showModal();
@@ -171,6 +189,40 @@
     }
   }
 
+  function applySettings(data) {
+    fields.from_date.value = isoDate(data.from_date);
+    fields.to_date.value = isoDate(data.to_date);
+    fields.lot.value = data.lot;
+    fields.retries.value = data.retries ?? 3;
+    fields.use_multiterminal.checked = data.use_multiterminal !== false;
+    const models = data.models || [];
+    fields.model_ohlc.checked = models.includes('ohlc');
+    fields.model_tick.checked = models.includes('tick');
+  }
+
+  async function openAutomationDialog(kind) {
+    dialogMode = 'configure';
+    automationKind = kind;
+    preview = null;
+    dialog.querySelector('.manual-check-table-wrap').hidden = true;
+    dialog.querySelector('#manual-check-reports').hidden = true;
+    exportButton.hidden = true;
+    downloadButton.hidden = true;
+    form.querySelector('button[type="submit"]').textContent = 'Guardar configuración';
+    dialog.querySelector('#manual-check-summary').textContent = 'Cargando configuración del agente…';
+    dialog.showModal();
+    try {
+      const settings = automationSettings[kind]
+        || await postManager('manual-check-settings', {scope});
+      applySettings(settings);
+      dialog.querySelector('#manual-check-summary').textContent = kind === 'repair'
+        ? 'Se aplicará al portafolio arreglado y sólo a las estrategias nuevas incorporadas.'
+        : 'Se aplicará al primer portafolio guardado; al no tener antecesor, comprobará todas sus estrategias.';
+    } catch (error) {
+      dialog.querySelector('#manual-check-summary').textContent = error.message;
+    }
+  }
+
   function payload() {
     const models = [];
     if (fields.model_ohlc.checked) models.push('ohlc');
@@ -186,6 +238,27 @@
       models,
     };
   }
+
+  function settingsPayload() {
+    const request = payload();
+    delete request.scope;
+    delete request.portfolio_id;
+    return request;
+  }
+
+  Object.entries(automationControls).forEach(([kind, controls]) => {
+    if (!controls.check || !controls.button) return;
+    controls.check.addEventListener('change', () => {
+      controls.button.hidden = !controls.check.checked;
+    });
+    controls.button.addEventListener('click', () => openAutomationDialog(kind));
+  });
+  window.manualCheckAutomation = {
+    payload(kind) {
+      const controls = automationControls[kind];
+      return controls?.check?.checked ? (automationSettings[kind] || {}) : null;
+    },
+  };
 
   button.addEventListener('click', openDialog);
   dialog.querySelectorAll('[data-close]').forEach(element => {
@@ -215,6 +288,12 @@
     const request = payload();
     if (!request.models.length) {
       toast('Marca al menos un tipo de datos: OHLC o tick a tick.', true);
+      return;
+    }
+    if (dialogMode === 'configure') {
+      automationSettings[automationKind] = settingsPayload();
+      dialog.close();
+      toast('Configuración de la comprobación manual preparada. Se lanzará al guardar el portafolio.');
       return;
     }
     if (!preview || !preview.strategies.length) {

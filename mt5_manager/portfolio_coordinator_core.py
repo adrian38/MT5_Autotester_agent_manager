@@ -186,8 +186,11 @@ class PortfolioCoordinatorCoreMixin:
         return {"settings": settings, "inventory": inventory}
 
     def start(self, node_id: str, scope: str, changes: dict[str, Any]) -> dict[str, Any]:
+        automatic_manual_check = changes.pop("automatic_manual_check", None)
         settings = self.update_settings(node_id, scope, changes)
-        return self._start_job(node_id, scope, settings, "generate", None, [])
+        return self._start_job(
+            node_id, scope, settings, "generate", None, [], automatic_manual_check
+        )
 
     def _active_calculation(self, node_id: str) -> dict[str, Any] | None:
         for candidate_scope in PORTFOLIO_SCOPES:
@@ -204,6 +207,7 @@ class PortfolioCoordinatorCoreMixin:
         operation: str,
         portfolio_id: int | None,
         previous_members: list[dict[str, Any]],
+        automatic_manual_check: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         key = self._key(node_id, scope)
         with self.lock:
@@ -225,6 +229,7 @@ class PortfolioCoordinatorCoreMixin:
                 "progress": prelude,
                 "error": None, "availability": None, "operation": operation,
                 "portfolio_id": portfolio_id, "previous_members": previous_members,
+                "automatic_manual_check": automatic_manual_check,
                 "stage": 0, "stage_total": stage_total,
             }
             self.jobs[key] = job
@@ -278,9 +283,15 @@ class PortfolioCoordinatorCoreMixin:
         detail = source.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
         settings = source.saved_inputs(portfolio_id, scope)
         if changes:
+            automatic_manual_check = changes.pop("automatic_manual_check", None)
             settings.update(changes)
             settings = normalize_settings(scope, settings, source.broker)
-        return self._start_job(node_id, scope, settings, operation, portfolio_id, list(detail.get("members") or []))
+        else:
+            automatic_manual_check = None
+        return self._start_job(
+            node_id, scope, settings, operation, portfolio_id,
+            list(detail.get("members") or []), automatic_manual_check,
+        )
 
     def _record_job_progress(self, key: str, message: str) -> None:
         """Anota el avance del job y, si numera etapas, su posicion.

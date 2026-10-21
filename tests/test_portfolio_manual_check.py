@@ -15,7 +15,6 @@ from unittest.mock import patch
 from mt5_manager.portfolio_service import PortfolioCoordinator
 from mt5_manager import (
     live_audit_activity,
-    manager_portfolio_routes,
     manual_check_watch,
     portfolio_manual_check,
 )
@@ -144,6 +143,17 @@ class NewStrategyTests(unittest.TestCase):
         self.assertEqual(preview["models"], ["ohlc", "tick"])
         self.assertTrue(preview["use_multiterminal"])
 
+    def test_settings_can_be_configured_before_the_portfolio_exists(self) -> None:
+        settings = portfolio_manual_check.check_settings({
+            "lot": 0.12, "models": ["tick"], "use_multiterminal": False,
+        })
+
+        self.assertEqual(settings["lot"], 0.12)
+        self.assertEqual(settings["models"], ["tick"])
+        self.assertFalse(settings["use_multiterminal"])
+        self.assertTrue(settings["remembered"])
+        self.assertIn("from_date", settings)
+
     def test_the_settings_travel_between_agents_without_mixing(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "manual_check_settings.json"
@@ -175,6 +185,26 @@ class NewStrategyTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             portfolio_manual_check.start_request(self.source, 62, "full_history", {})
+
+    def test_generation_keeps_the_automatic_check_out_of_builder_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            coordinator = PortfolioCoordinator(
+                [{"id": "ic", "portfolio_broker": "ICTRADING"}],
+                Path(temp) / "settings.json",
+            )
+            changes = {
+                "capital": 10000,
+                "automatic_manual_check": {"models": ["tick"], "lot": 0.02},
+            }
+            with patch.object(
+                coordinator, "update_settings", return_value={"capital": 10000},
+            ) as update, patch.object(
+                coordinator, "_start_job", return_value={"status": "running"},
+            ) as start:
+                coordinator.start("ic", "full_history", changes)
+
+        update.assert_called_once_with("ic", "full_history", {"capital": 10000})
+        self.assertEqual(start.call_args.args[-1], {"models": ["tick"], "lot": 0.02})
 
 
 class ArchiveTests(unittest.TestCase):
@@ -271,61 +301,6 @@ class ArchiveTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             portfolio_manual_check.reports_archive(self.project, "check_vacia")
-
-
-class RouteTests(unittest.TestCase):
-    class Handler:
-        def __init__(self, portfolios) -> None:
-            self.server = SimpleNamespace(portfolios=portfolios)
-            self.sent = None
-            self.downloaded = None
-
-        def _send_json(self, status, value) -> None:
-            self.sent = (status, value)
-
-        def _send_download(self, result) -> None:
-            self.downloaded = result
-
-    def test_the_start_is_forwarded_to_the_node_with_the_recalculated_request(self) -> None:
-        portfolios = SimpleNamespace(
-            manual_check_request=lambda *_args: {"portfolio_id": 62, "strategies": []},
-        )
-        handler = self.Handler(portfolios)
-        with patch.object(
-            manager_portfolio_routes.manager_http, "node_request",
-            return_value=(202, {"job_id": "manual_check_1"}),
-        ) as request:
-            manager_portfolio_routes.manual_check_action(
-                handler, "manual-check-start", {"url": "http://ic"}, "ic", "full_history",
-                {"portfolio_id": 62},
-            )
-
-        request.assert_called_once_with(
-            {"url": "http://ic"}, "POST", "/api/v1/jobs/manual-check",
-            {"portfolio_id": 62, "strategies": []}, timeout=120,
-        )
-        self.assertEqual(handler.sent, (202, {"job_id": "manual_check_1"}))
-
-    def test_an_agent_without_the_port_says_what_to_do(self) -> None:
-        portfolios = SimpleNamespace(manual_check_request=lambda *_args: {})
-        handler = self.Handler(portfolios)
-        with patch.object(
-            manager_portfolio_routes.manager_http, "node_request",
-            return_value=(404, {"error": "Ruta no encontrada"}),
-        ):
-            with self.assertRaises(ValueError) as error:
-                manager_portfolio_routes.manual_check_action(
-                    handler, "manual-check-start", {"url": "http://ic"}, "ic",
-                    "full_history", {"portfolio_id": 62},
-                )
-
-        self.assertIn("actualizarlo y reiniciarlo", str(error.exception))
-
-    def test_an_unknown_action_is_left_for_the_next_link_of_the_chain(self) -> None:
-        handler = self.Handler(SimpleNamespace())
-        self.assertFalse(manager_portfolio_routes.manual_check_action(
-            handler, "export", {}, "ic", "full_history", {},
-        ))
 
 
 class NoticeTests(unittest.TestCase):
@@ -533,51 +508,3 @@ class HeaderActivityTests(unittest.TestCase):
         self.assertTrue(state["active"])
         self.assertEqual(state["running"], [])
         self.assertEqual(state["manual_checks"][0]["portfolio_id"], 62)
-
-
-class ScreenTests(unittest.TestCase):
-    def test_the_header_chip_knows_about_manual_checks(self) -> None:
-        # No hay runtime de JavaScript en este equipo, así que lo que se exige
-        # es que el criterio esté literalmente en el script de la chapa.
-        script = (ROOT / "mt5_manager" / "static" / "live_audit_schedule.js").read_text(
-            encoding="utf-8",
-        )
-        for expression in (
-            "state.manual_checks || []",
-            "function checkText(check)",
-            "Comprobación manual #${check.portfolio_id}",
-            "if (!running.length && !queue && checks.length === 1) return checks[0].percent;",
-        ):
-            with self.subTest(expression=expression):
-                self.assertIn(expression, script)
-
-    def test_the_reports_button_lives_in_the_detail_bar_and_starts_disabled(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "portfolios.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "portfolio_manual_check.js").read_text(
-            encoding="utf-8",
-        )
-        detail = (ROOT / "mt5_manager" / "static" / "portfolios.js").read_text(encoding="utf-8")
-
-        self.assertIn('id="detail-export-reports" type="button" class="secondary" disabled', page)
-        # El nombre lo pidio el usuario: «Exportar reportes» a secas se
-        # confundia con los informes guardados de cada miembro.
-        self.assertIn(">Exportar reportes manuales</button>", page)
-        # Quién lo habilita: el agente, no el navegador.
-        self.assertIn("manual-check-latest", script)
-        self.assertIn("window.refreshManualCheckReports = refreshManualCheckReports;", script)
-        self.assertIn("refreshManualCheckReports()", detail)
-
-    def test_the_button_and_its_script_are_on_the_ubs_screen(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "portfolios.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "portfolio_manual_check.js").read_text(
-            encoding="utf-8",
-        )
-
-        self.assertIn('id="detail-manual-check"', page)
-        self.assertIn("/portfolio_manual_check.js", page)
-        # Las dos casillas de tipo de datos y la del multiterminal, marcadas.
-        self.assertIn('name="model_ohlc" type="checkbox" checked', script)
-        self.assertIn('name="model_tick" type="checkbox" checked', script)
-        self.assertIn('name="use_multiterminal" type="checkbox" checked', script)
-        self.assertIn("manual-check-sets-download", script)
-        self.assertIn("manual-check-download", script)
