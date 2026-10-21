@@ -83,6 +83,9 @@ STATIC_FILES = {
     "portfolios_monthly.html", "portfolios_monthly.js",
     "portfolio_improvement.js", "portfolio_monthly_improvement.js", "portfolio_repair.js",
     "portfolio_comparison.js", "portfolio_manual_check.js",
+    # El analisis de una comprobacion manual, en su propia pestana: las cifras
+    # de los dos informes de cada estrategia y sus dos curvas.
+    "manual_check_analysis.html", "manual_check_analysis.js", "manual_check_analysis.css",
     "portfolios_grid.html", "portfolios_grid.js",
     "portfolio_manual.html", "portfolio_manual.js",
     "manual_portfolios.html", "manual_portfolios.js",

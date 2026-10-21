@@ -179,6 +179,12 @@ class HeaderActionsOrderTests(unittest.TestCase):
             "Ver detalle de operaciones", AUDITOR_BACK, BELL, RESTART_LABEL,
         ],
         "live_audit_result.html": [AUDITOR_BACK, BELL, RESTART_LABEL],
+        # El análisis de una comprobación manual se abre desde el detalle del
+        # portafolio, así que vuelve allí; el enlace al generador es la salida
+        # a la raíz que toda pantalla tiene que ofrecer.
+        "manual_check_analysis.html": [
+            "Actualizar", "Volver al portafolio", BACK, BELL, RESTART_LABEL,
+        ],
         "manual_portfolios.html": ["Crear portafolio", BACK, BELL, RESTART_LABEL],
         "portfolio_manual.html": ["Portafolios manuales", BACK, BELL, RESTART_LABEL],
         "portfolios.html": ["Actualizar", BACK, BELL, RESTART_LABEL],

@@ -29,9 +29,12 @@ que no está en **ningún** antecesor: `improvement_origin.source_id`,
 | --- | --- |
 | `mt5_manager/portfolio_manual_check.py` | Decide qué se comprueba, arma la petición, lee del disco lo que quedó y hace los dos ZIP. |
 | `mt5_manager/manager_portfolio_routes.py` | `manual-check-preview`, `-start`, `-state`, `-download`, `-sets-download`. El `-start` es un reenvío. |
-| `manager_node_runtime/manual_check.py` de **cada agente** | Copia los `.set`, escribe su `StartLots` y arma la orden de `run_tests.py`. |
+| `manager_node_runtime/manual_check.py` de **cada agente** | Copia los `.set`, escribe su `StartLots` y su `UseEveryTick`, y arma la orden de `run_tests.py`. |
 | `mt5_manager/manual_check_watch.py` | Mira el nodo cada vuelta del vigilante y anuncia el final una sola vez. |
+| `mt5_manager/manual_check_analysis.py` | Lee los dos informes de cada estrategia y devuelve las cinco cifras y las dos curvas. |
+| `mt5_manager/portfolio_coordinator_manual_check.py` | Los métodos del coordinador, fuera de `portfolio_service.py`, que estaba en el techo de 600. |
 | `static/portfolio_manual_check.js` | El modal: fechas, lote, multiterminal, los dos tipos de datos y los dos ZIP. |
+| `static/manual_check_analysis.{html,js,css}` | La pestaña del análisis: OHLC M1 contra tick a tick, estrategia por estrategia. |
 
 **Esto no lo ejecuta el manager**: lanzar MT5 es del agente, así que vive en
 `manager_node_runtime/` y hay tres copias (IC, AXI, RoboForex). FUTURE está
@@ -46,6 +49,51 @@ dejan dos informes por estrategia. Los dos números son contrato: la paridad
 los comprueba literalmente, porque si una copia los cambia el mismo botón mide
 cosas distintas en cada agente. Qué significa esa diferencia, en
 `exclusion_verdict.md`.
+
+## Los sets salen con cada tick marcado (2026-10-21)
+
+Petición del usuario: «en los sets que se van a utilizar para esto manual tiene
+que tener marcado el parámetro check every tick». Es `UseEveryTick`, un input
+del experto, y los sets guardados del portafolio lo traen en `false` —así los
+escribe `guided_batches.py`—.
+
+- Lo pone `_write_check_sets` del runtime del agente, que es quien escribe el
+  `.set` que MT5 abre, con el mismo `_force_set_value` que ya ponía
+  `StartLots`: cambia el valor y conserva el resto de la línea
+  (`clave=valor||min||paso||max||optimizar`). Un set que no lo declare lo
+  recibe añadido; el experto que no lo tenga lo ignora.
+- El original **no se toca**: se modifica la copia de `sets/`.
+- El ZIP de «Exportar estos sets» del manager sale igual
+  (`portfolio_manual_check.mark_every_tick`), porque es el mismo set que la
+  comprobación manda a MT5: abrirlo a mano y obtener otra cosa que el informe
+  de la pantalla sería la peor forma de enterarse de que son dos ficheros.
+- Lo exige la paridad, que busca `"UseEveryTick", "true"` en las tres copias.
+- **La comprobación del #62 del 2026-10-21 es anterior a esto** y corrió con
+  `UseEveryTick=false` en las dos etapas: sus diferencias son sólo las del
+  modelo de datos del tester. Para comparar como ahora, relanzarla.
+
+## El análisis de una comprobación (2026-10-21)
+
+Petición del usuario: un botón que abra en otra pestaña la comparación de OHLC
+contra tick a tick con las cifras del informe y un selector de estrategia.
+Es `static/manual_check_analysis.html`, abierta desde «Análisis manual» del
+detalle del portafolio con `?node=&check=`.
+
+- **Las cifras son las del propio `.htm`**, no un recálculo: «Total de
+  operaciones ejecutadas», «Total de transacciones», «Beneficio Neto»,
+  «Beneficio Bruto» y «Reducción máxima del balance», leídas por su literal
+  del informe. Recalcularlas desde las operaciones daría números parecidos y
+  distintos, y nadie sabría cuál creer.
+- **La curva sí se construye aquí**, porque el informe no la publica como
+  serie: PnL cerrado acumulado, una parada por operación cerrada. Medido
+  contra el #62, su último punto coincide con el «Beneficio Neto» del informe
+  en las seis corridas.
+- La diferencia se colorea sabiendo qué cifra es: en la reducción máxima subir
+  es empeorar, y el número de operaciones no es ni mejor ni peor.
+- **Un tipo de datos que falte se declara**, no se rellena con ceros: se pudo
+  lanzar sólo uno, o el tester no dejó informe de esa corrida.
+- El botón lo enciende el agente, igual que el de exportar informes: abre la
+  comprobación **más reciente** de ese portafolio (`manual-check-latest`).
 
 ## Las carpetas del runner se reapuntan
 

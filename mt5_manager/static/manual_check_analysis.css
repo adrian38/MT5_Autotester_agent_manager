@@ -1,0 +1,15 @@
+/* Lo propio del análisis de una comprobación manual.
+   El esqueleto —rejilla, lista de estrategias, curva— se reaprovecha de
+   `live_audit_analysis.css`, que es la misma pantalla con otros datos. Aquí
+   sólo está lo que esa no tiene: la tabla de las cinco cifras y el color de la
+   diferencia. Va en su propia hoja para no meter nombres genéricos como
+   `.positive` en una que comparte con la auditoría real. */
+.manual-analysis-table { width: 100%; }
+.manual-analysis-table th:first-child, .manual-analysis-table td:first-child { width: 42%; }
+.manual-analysis-table td { font-variant-numeric: tabular-nums; }
+/* Mejor y peor no es lo mismo que más y menos: en la reducción máxima, subir
+   es empeorar. Quien decide el tono es el JS, que sabe de qué cifra habla. */
+.manual-analysis-delta.better { color: var(--accent2); font-weight: 700; }
+.manual-analysis-delta.worse { color: #ff9d9d; font-weight: 700; }
+.manual-analysis-note { padding: 14px 18px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.manual-analysis-note strong { color: var(--text); }

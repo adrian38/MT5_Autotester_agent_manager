@@ -304,6 +304,8 @@ def manual_check_action(handler, action: str, node: dict, node_id: str, scope: s
         ))
     elif action == "manual-check-state":
         handler._send_json(200, handler.server.portfolios.manual_check_state(node_id, check_id))
+    elif action == "manual-check-analysis":
+        handler._send_json(200, handler.server.portfolios.manual_check_analysis(node_id, check_id))
     elif action == "manual-check-download":
         handler._send_download(
             handler.server.portfolios.manual_check_reports_archive(node_id, check_id)

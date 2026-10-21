@@ -47,6 +47,7 @@
   const exportButton = dialog.querySelector('#manual-check-export-sets');
   const downloadButton = dialog.querySelector('#manual-check-download');
   const reportsButton = document.querySelector('#detail-export-reports');
+  const analysisButton = document.querySelector('#detail-manual-analysis');
   let preview = null;
   let latestCheck = null;
 
@@ -66,6 +67,10 @@
       reportsButton.disabled = true;
       reportsButton.title = 'Todavía no hay ninguna comprobación manual de este portafolio';
     }
+    if (analysisButton) {
+      analysisButton.disabled = true;
+      analysisButton.title = 'Todavía no hay ninguna comprobación manual de este portafolio';
+    }
     if (!selectedId) return;
     try {
       const state = await postManager('manual-check-latest', {scope, portfolio_id: selectedId});
@@ -76,9 +81,24 @@
         reportsButton.title = `${state.documents} informe(s) de ${state.check_id}, `
           + 'con las imágenes de sus curvas';
       }
+      if (analysisButton) {
+        analysisButton.disabled = false;
+        analysisButton.title = `Compara OHLC M1 con tick a tick sobre ${state.check_id}`;
+      }
     } catch (_error) {
       // Un agente apagado no tiene que teñir de rojo la pantalla entera.
     }
+  }
+
+  // El análisis se abre en una pestaña propia: son dos informes por estrategia
+  // y una curva, y el modal de lanzar no es sitio para leerlos.
+  function openAnalysis() {
+    if (!latestCheck) return;
+    const url = `/manual_check_analysis.html?node=${encodeURIComponent(nodeId)}`
+      + `&check=${encodeURIComponent(latestCheck.check_id)}`;
+    const tab = window.open(url, '_blank');
+    if (tab) tab.opener = null;
+    else toast('El navegador bloqueó la pestaña del análisis. Permite ventanas emergentes para este manager.', true);
   }
   window.refreshManualCheckReports = refreshManualCheckReports;
 
@@ -185,6 +205,7 @@
   if (reportsButton) {
     reportsButton.addEventListener('click', () => downloadReports(reportsButton));
   }
+  if (analysisButton) analysisButton.addEventListener('click', openAnalysis);
 
   form.addEventListener('submit', async event => {
     event.preventDefault();

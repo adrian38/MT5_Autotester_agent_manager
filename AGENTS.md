@@ -214,6 +214,7 @@ como en `ubs_portfolio`, **el orden es el de dependencia**:
 `portfolio_source_saved` → `portfolio_source_reports` → `portfolio_source` →
 `portfolio_manual_check` → `portfolio_job_notices` →
 `portfolio_coordinator_core` → `portfolio_coordinator_saved` →
+`portfolio_coordinator_manual_check` →
 `portfolio_import_match` → `portfolio_import_build` → `portfolio_service`
 
 - **Los llamantes no cambian:** `portfolio_service` reexporta lo que movió.

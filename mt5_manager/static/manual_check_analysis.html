@@ -1,0 +1,24 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Análisis manual · MT5 Manager</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/live_audit_analysis.css"><link rel="stylesheet" href="/manual_check_analysis.css"><link rel="stylesheet" href="/live_audit_schedule.css"><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icon-180.png"></head>
+<body class="audit-analysis-page">
+  <header><div><p class="eyebrow">ANÁLISIS MANUAL</p><h1 id="analysis-title">Cargando…</h1><p id="analysis-subtitle" class="subtitle">OHLC M1 frente a tick a tick, estrategia por estrategia.</p></div><div class="header-actions"><button id="analysis-refresh" class="secondary">Actualizar</button><a id="analysis-back" class="button secondary" href="/portfolios.html">Volver al portafolio</a><a class="button secondary" href="/generation.html">Volver al generador</a></div></header>
+  <main>
+    <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">CURVAS ACUMULADAS</p><h2 id="chart-heading">Estrategia seleccionada</h2><p class="subtitle">Beneficio cerrado acumulado de la estrategia seleccionada con los dos tipos de datos, sobre el mismo periodo y el mismo lote. La diferencia entre las dos curvas es lo que aporta el tick a tick: las mismas reglas con otro detalle de precio.</p></div><span id="analysis-count" class="badge idle">0 ESTRATEGIAS</span></div>
+      <div id="analysis-chart" class="audit-analysis-chart" aria-label="Curvas acumuladas OHLC y tick a tick"></div>
+    </section>
+
+    <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">DESGLOSE</p><h2>Estrategias comprobadas</h2><p class="subtitle">Las cifras son las del propio informe de MT5, no un recálculo. La diferencia se muestra cuando las dos corridas dejaron informe, y mide lo que cambia al pasar de OHLC M1 a tick a tick.</p></div><span id="analysis-period" class="badge idle"></span></div>
+      <div class="audit-analysis-strategies">
+        <nav id="strategy-list" aria-label="Estrategias de la comprobación"></nav>
+        <div class="audit-analysis-strategy-detail">
+          <div id="strategy-heading" class="audit-analysis-strategy-heading"></div>
+          <div class="universe-table-wrap"><table class="universe-table manual-analysis-table"><thead><tr><th>Dato del informe</th><th>OHLC M1</th><th>Tick a tick</th><th>Diferencia</th></tr></thead><tbody id="strategy-metrics"><tr><td colspan="4">Cargando…</td></tr></tbody></table></div>
+          <p class="manual-analysis-note"><strong>Cada tick marcado.</strong> Los sets de la comprobación manual salen con <code>UseEveryTick=true</code>, así que las dos corridas revisan cada tick por dentro y lo único que cambia entre ellas es el detalle de precio que el tester les da. Una comprobación lanzada antes del 2026-10-21 corrió con el valor que trajera el set.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/manual_check_analysis.js"></script>
+  <script src="/web_push.js"></script><script src="/manager_restart.js"></script><script src="/live_audit_schedule.js"></script></body></html>

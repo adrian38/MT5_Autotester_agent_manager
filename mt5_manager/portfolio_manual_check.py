@@ -211,6 +211,41 @@ def start_request(
     }
 
 
+EVERY_TICK_KEY = "UseEveryTick"
+"""El parámetro del experto que decide si revisa cada tick.
+
+La comprobación manual existe para contrastar OHLC M1 con tick a tick, y un
+set que llega con `UseEveryTick=false` hace que las dos corridas miren lo
+mismo por dentro aunque el tester reciba modelos distintos. El usuario lo pidió
+marcado el 2026-10-21, así que se escribe aquí y en el runtime del agente, que
+es quien copia los sets que MT5 abre de verdad.
+"""
+
+
+def read_set_text(path: Path) -> tuple[str, str]:
+    """Lee un `.set` UTF-8 o UTF-16 sin convertir sus líneas en texto con NUL."""
+    data = path.read_bytes()
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16"), "utf-16"
+    if data[:4096].count(b"\x00") > max(8, len(data[:4096]) // 8):
+        return data.decode("utf-16-le"), "utf-16"
+    return data.decode("utf-8-sig", errors="replace"), "utf-8"
+
+
+def mark_every_tick(text: str) -> str:
+    """Deja `UseEveryTick=true` conservando el resto de la línea.
+
+    Una línea de `.set` es `clave=valor||min||paso||max||optimizar`: sólo se
+    toca el valor, porque el rango y la marca de optimización son del experto.
+    Si el set no declara el parámetro se añade, igual que se hace con
+    `StartLots`: un experto que no lo tenga lo ignora.
+    """
+    pattern = re.compile(rf"(?mi)^{EVERY_TICK_KEY}=([^|\r\n]*)(.*)$")
+    if pattern.search(text):
+        return pattern.sub(lambda match: f"{EVERY_TICK_KEY}=true{match.group(2)}", text, count=1)
+    return f"{text}\n{EVERY_TICK_KEY}=true||false||0||true||N\n"
+
+
 def _safe_name(value: str, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("._")
     return cleaned or fallback
@@ -321,7 +356,13 @@ def reports_archive(project: Path, check_id: str) -> dict[str, Any]:
 
 
 def sets_archive(source: Any, portfolio_id: int, scope: str) -> dict[str, Any]:
-    """El ZIP con sólo los `.set` de las estrategias nuevas."""
+    """El ZIP con sólo los `.set` de las estrategias nuevas, con cada tick marcado.
+
+    Es el mismo set que la comprobación manda a MT5, así que sale con
+    `UseEveryTick=true` como el que escribe el runtime del agente: abrirlo a
+    mano y obtener otra cosa que el informe de la pantalla sería la peor forma
+    de enterarse de que son dos ficheros distintos.
+    """
     preview = new_strategies(source, portfolio_id, scope)
     if not preview["strategies"]:
         raise ValueError("Este portafolio no tiene estrategias nuevas que exportar")
@@ -339,7 +380,8 @@ def sets_archive(source: Any, portfolio_id: int, scope: str) -> dict[str, Any]:
             if path.name.casefold() in written:
                 continue
             written.add(path.name.casefold())
-            archive.write(path, f"{folder}/{path.name}")
+            text, encoding = read_set_text(path)
+            archive.writestr(f"{folder}/{path.name}", mark_every_tick(text).encode(encoding))
             exported += 1
     return {
         "filename": f"{folder}.zip",
