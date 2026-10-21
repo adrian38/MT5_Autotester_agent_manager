@@ -185,6 +185,11 @@ class HeaderActionsOrderTests(unittest.TestCase):
         "manual_check_analysis.html": [
             "Actualizar", "Volver al portafolio", BACK, BELL, RESTART_LABEL,
         ],
+        # El histórico OHLC guardado se abre desde el detalle del portafolio y
+        # vuelve allí, con la misma salida al generador.
+        "portfolio_history.html": [
+            "Actualizar", "Volver al portafolio", BACK, BELL, RESTART_LABEL,
+        ],
         "manual_portfolios.html": ["Crear portafolio", BACK, BELL, RESTART_LABEL],
         "portfolio_manual.html": ["Portafolios manuales", BACK, BELL, RESTART_LABEL],
         "portfolios.html": ["Actualizar", BACK, BELL, RESTART_LABEL],

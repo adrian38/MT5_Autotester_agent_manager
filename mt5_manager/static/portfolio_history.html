@@ -1,0 +1,36 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Histórico OHLC · MT5 Manager</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/live_audit_analysis.css"><link rel="stylesheet" href="/portfolio_history.css"><link rel="stylesheet" href="/live_audit_schedule.css"><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icon-180.png"></head>
+<body class="audit-analysis-page portfolio-history-page">
+  <header><div><p class="eyebrow">HISTÓRICO OHLC</p><h1 id="history-title">Cargando…</h1><p id="history-subtitle" class="subtitle">Base y robustez OOS de cada estrategia del portafolio, escaladas por sus unidades.</p></div><div class="header-actions"><button id="history-refresh" class="secondary">Actualizar</button><a id="history-back" class="button secondary" href="/portfolios.html">Volver al portafolio</a><a class="button secondary" href="/generation.html">Volver al generador</a></div></header>
+  <main>
+    <div class="detail-actions manual-detail-tabs"><button id="tab-strategy" type="button">Detalle / estrategia</button><button id="tab-portfolio" type="button" class="secondary">Detalle / portafolio</button></div>
+    <p id="history-warning" class="portfolio-note" hidden></p>
+
+    <section id="view-strategy" class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">POR ESTRATEGIA</p><h2>Composición y resultados por estrategia</h2><p class="subtitle">Las cifras salen del histórico OHLC que el portafolio ya tiene guardado —base en muestra y robustez fuera de muestra—, multiplicadas por las unidades que el portafolio asigna a cada estrategia. No entra la comprobación manual.</p></div><span id="history-count" class="badge idle">0 ESTRATEGIAS</span></div>
+      <div class="universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members"><thead><tr><th>Set</th><th>Símbolo</th><th>TF</th><th>Unid.</th><th>Lote</th><th>Periodo</th><th>Operaciones</th><th>Beneficio neto</th><th>DD máx.</th><th>Acierto</th><th>Profit factor</th><th>Calidad</th></tr></thead><tbody id="history-members"><tr><td colspan="12">Cargando…</td></tr></tbody></table></div>
+      <div class="panel-title"><div><p class="eyebrow">MENSUAL</p><h2>Resultado mensual por estrategia</h2></div></div>
+      <div id="history-monthly" class="portfolio-history-monthly"></div>
+    </section>
+
+    <section id="view-portfolio" hidden>
+      <section class="panel-card audit-analysis-section">
+        <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO</p><h2>Resultado combinado</h2><p class="subtitle">Todas las estrategias sumadas con sus unidades, sobre el mismo histórico OHLC.</p></div><span id="history-period" class="badge idle"></span></div>
+        <div id="history-totals" class="detail-metrics"></div>
+      </section>
+      <section class="panel-card audit-analysis-section">
+        <div class="panel-title"><div><p class="eyebrow">CURVA</p><h2>Beneficio acumulado</h2><p class="subtitle">PnL cerrado acumulado del portafolio entero. Se dibuja una parada por día con operaciones; el total y los valles se calculan sobre cada operación cerrada.</p></div></div>
+        <div id="history-chart" class="audit-analysis-chart" aria-label="Curva combinada del portafolio"></div>
+      </section>
+      <section class="panel-card audit-analysis-section">
+        <div class="panel-title"><div><p class="eyebrow">VALLES</p><h2>Los cinco descensos más hondos</h2><p class="subtitle">Cada valle va desde que la curva se despega de un máximo hasta que lo recupera. El desglose dice qué aportó cada estrategia dentro de esa ventana, de lo peor a lo mejor: es quién cavó el valle.</p></div></div>
+        <div id="history-valleys" class="portfolio-history-valleys"></div>
+      </section>
+      <section class="panel-card audit-analysis-section">
+        <div class="panel-title"><div><p class="eyebrow">MENSUAL</p><h2>Resultado mensual combinado</h2></div></div>
+        <div class="universe-table-wrap"><table class="universe-table manual-monthly-table"><thead><tr><th>Año</th><th>Ene</th><th>Feb</th><th>Mar</th><th>Abr</th><th>May</th><th>Jun</th><th>Jul</th><th>Ago</th><th>Sep</th><th>Oct</th><th>Nov</th><th>Dic</th><th>Total</th></tr></thead><tbody id="history-portfolio-monthly"></tbody></table></div>
+      </section>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/portfolio_history.js"></script>
+  <script src="/web_push.js"></script><script src="/manager_restart.js"></script><script src="/live_audit_schedule.js"></script></body></html>

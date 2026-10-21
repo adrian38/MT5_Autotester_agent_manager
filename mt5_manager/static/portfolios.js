@@ -996,6 +996,21 @@ document.querySelector('#detail-delete').addEventListener('click', async () => {
   }
   catch (error) { toast(error.message, true); }
 });
+// El histórico OHLC guardado, en su propia pestaña: son dos tablas largas, una
+// curva y el desglose de los valles, y no caben en el panel del detalle.
+function openHistoryDetail(view) {
+  if (!selectedId) return;
+  const url = `/portfolio_history.html?node=${encodeURIComponent(nodeId)}`
+    + `&portfolio=${encodeURIComponent(selectedId)}&scope=${encodeURIComponent(scope)}`
+    + `&view=${encodeURIComponent(view)}`;
+  const tab = window.open(url, '_blank');
+  if (tab) tab.opener = null;
+  else toast('El navegador bloqueó la pestaña del histórico. Permite ventanas emergentes para este manager.', true);
+}
+document.querySelector('#detail-history-strategy')
+  .addEventListener('click', () => openHistoryDetail('strategy'));
+document.querySelector('#detail-history-portfolio')
+  .addEventListener('click', () => openHistoryDetail('portfolio'));
 document.querySelector('#detail-export').addEventListener('click', async () => {
   if (!selectedId) return;
   const button = document.querySelector('#detail-export');

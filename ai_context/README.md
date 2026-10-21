@@ -94,7 +94,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `portfolio_symbol_disable.md`: deshabilitar símbolos desde «Sets disponibles
   por símbolo» en UBS normal.
 - `portfolio_member_reports.md`: abrir el informe de una estrategia guardada sin
-  `os.startfile` en el proceso del manager.
+  `os.startfile` en el proceso del manager, y el histórico OHLC que leen
+  «Detalle / estrategia» y «Detalle / portafolio» —qué informes son, por qué no
+  vale el tramo continuo y cómo se cuentan el mensual y los valles—.
 - `portfolio_cross_broker_correlation.md`: `/correlation.html`, la comparación de
   correlación entre portafolios guardados de distintos brokers.
 - `portfolio_import.md`: reimportar un portafolio exportado meses después, con

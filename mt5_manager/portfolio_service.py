@@ -66,7 +66,13 @@ from portfolio_manager.ubs_portfolio import (
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
-from . import candidate_verdict, dev_branch, portfolio_import, portfolio_manual_check
+from . import (
+    candidate_verdict,
+    dev_branch,
+    portfolio_history_detail,
+    portfolio_import,
+    portfolio_manual_check,
+)
 from .common import load_json, safe_float, safe_int, save_json, utc_now
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 # Reexportados a proposito: el esquema salio a su propio modulo, pero los
@@ -527,6 +533,12 @@ class PortfolioCoordinator(
     ) -> dict[str, Any]:
         return self._persistence_source(node_id, scope).export_member_reports_archive(
             portfolio_id, scope, set_path
+        )
+
+    def history_detail(self, node_id: str, scope: str, portfolio_id: int) -> dict[str, Any]:
+        """El histórico OHLC guardado del portafolio, por estrategia y combinado."""
+        return portfolio_history_detail.history_detail(
+            self._persistence_source(node_id, scope), portfolio_id, scope
         )
 
     def log(self, node_id: str, scope: str, lines: int = 500) -> dict[str, Any]:

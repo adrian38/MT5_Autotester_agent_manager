@@ -483,6 +483,10 @@ def transfer_action(handler, action: str, node: dict, node_id: str, scope: str, 
             str(body.get("destination") or "").strip() or None,
         )
         handler._send_json(200, result)
+    elif action == "history-detail":
+        handler._send_json(200, handler.server.portfolios.history_detail(
+            node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1),
+        ))
     elif action == "export-download":
         result = handler.server.portfolios.export_archive(
             node_id, scope, safe_int(body.get("portfolio_id"), 0, minimum=1)

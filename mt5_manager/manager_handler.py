@@ -86,6 +86,8 @@ STATIC_FILES = {
     # El analisis de una comprobacion manual, en su propia pestana: las cifras
     # de los dos informes de cada estrategia y sus dos curvas.
     "manual_check_analysis.html", "manual_check_analysis.js", "manual_check_analysis.css",
+    # El historico OHLC guardado del portafolio, por estrategia y combinado.
+    "portfolio_history.html", "portfolio_history.js", "portfolio_history.css",
     "portfolios_grid.html", "portfolios_grid.js",
     "portfolio_manual.html", "portfolio_manual.js",
     "manual_portfolios.html", "manual_portfolios.js",
