@@ -290,7 +290,7 @@ puede volver a gastar y la amplitud sobrevive a la regla.
   el pool** antes de fijar la composicion A/M/C».
 
 Verificación: 478 pruebas de `python -m unittest discover -s tests` en verde.
-Tres regresiones nuevas en `tests/test_portfolio_service.py`, las dos primeras
+Tres regresiones nuevas en `tests/portfolio/test_portfolio_service.py`, las dos primeras
 validadas por mutación:
 
 | Prueba | Mutación que la hace fallar |

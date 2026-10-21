@@ -303,7 +303,7 @@ en `tools/source_files.py`, compartidos por las dos guardas.
 
 Al instalarlo: 25 ficheros por encima de 600 sobre 96, 16.798 líneas de exceso.
 Los cuatro grandes son `mt5_manager/portfolio_service.py` (6.045),
-`tests/test_portfolio_service.py` (2.496), `mt5_manager/node.py` (2.174) y
+`tests/portfolio/test_portfolio_service.py` (2.496), `mt5_manager/node.py` (2.174) y
 `mt5_manager/live_audit_engine.py` (2.010).
 
 **600 y no otro número**: a ~12 tokens por línea son ~7k tokens, un módulo

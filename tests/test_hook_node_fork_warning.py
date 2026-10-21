@@ -47,7 +47,7 @@ class HookRoutingTests(unittest.TestCase):
             "mt5_manager/static/portfolios_monthly.js",
             "mt5_manager/manager.py",
             "mt5_manager/portfolio_monthly_service.py",
-            "tests/test_portfolio_service.py",
+            "tests/portfolio/test_portfolio_service.py",
             "mt5_manager/portfolio_service.pyc",
         ):
             with self.subTest(path=path):
