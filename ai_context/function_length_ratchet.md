@@ -247,7 +247,7 @@ pasa también desde la clase de `HEAD`. Salen el fichero y esa función de los
 baselines manteniendo los 32 casos.
 
 Las 1.473 líneas de integración local comparten ahora el ciclo de vida HTTP en
-`integration_test_base.py` y separan API general, portafolios y flujos del nodo
+`tests/integration/integration_test_base.py` y separan API general, portafolios y flujos del nodo
 en tres módulos descubiertos. Treinta y cinco tests no tocados conservan AST
 idéntico; los seis escenarios largos se ejecutaron tanto desde `HEAD` como
 desde sus pasos extraídos, con los doce casos verdes. Se conservan los 41 casos

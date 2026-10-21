@@ -332,7 +332,7 @@ pantalla lo dice. No es una operación, pero tiene que notarse que no lo es.
 ## Pruebas
 
 - Manager: `tests/portfolio/test_exclusion_siblings.py` (7) y la ruta `siblings` en
-  `tests/test_integration_portfolios.py`. La memoria de juguete que comparten
+  `tests/integration/test_integration_portfolios.py`. La memoria de juguete que comparten
   está en `tests/portfolio/exclusion_memory_fixture.py`.
 - Manager: `tests/portfolio/test_exclusion_verdict.py` (28, con `RequalifyTests`,
   `RequalifyRoutingTests` y `PoolExclusionRoutingTests`),

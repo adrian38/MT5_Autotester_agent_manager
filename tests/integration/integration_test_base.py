@@ -1,3 +1,5 @@
+"""Ciclo de vida HTTP compartido por las pruebas de integración."""
+
 from __future__ import annotations
 
 import json

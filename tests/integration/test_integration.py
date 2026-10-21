@@ -24,7 +24,7 @@ from tests.helpers import (
     assert_event,
     wait_until,
 )
-from tests.integration_test_base import IntegrationTestCase
+from tests.integration.integration_test_base import IntegrationTestCase
 
 
 class LocalIntegrationTests(IntegrationTestCase):

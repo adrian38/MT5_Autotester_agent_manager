@@ -10,9 +10,11 @@ ejecuta cuando el usuario la pide explícitamente.
   herramientas de verificación).
 - `portfolio/`: comportamientos del dominio de portafolios. La migración ha
   comenzado por creación, consulta y borrado de portafolios manuales.
+- `integration/`: integración HTTP local entre manager y nodo, separada en API
+  general, portafolios y flujos del nodo.
 - La raíz conserva temporalmente los módulos todavía no migrados.
 - Los siguientes grupos se moverán de forma incremental a `live_audit/`,
-  `manager/`, `node/` e `integration/`; los comportamientos restantes de
+  `manager/` y `node/`; los comportamientos restantes de
   portafolios se incorporarán a `portfolio/` por unidades completas.
 
 Cada carpeta descubierta por `unittest` lleva `__init__.py`. Un traslado agrupa
