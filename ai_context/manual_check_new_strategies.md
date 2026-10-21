@@ -192,3 +192,47 @@ guarda en la misma carpeta que el informe. Los `*.mt5log.txt` que MT5 copia al
 lado de cada uno van en `journals/` dentro del ZIP.
 
 AXI y RoboForex tienen el mismo port pero no se ha lanzado ninguna ahí.
+
+## El bloqueo de MT5 tumbaba la tanda entera (2026-10-21)
+
+La primera comprobación con `UseEveryTick=true` falló:
+`check_20261021_153823_964000` del #62 en ICTrading. OHLC M1 terminó entera en
+60 s; en tick a tick, **XAUUSD H1** se colgó dos veces —1243 s y 1662 s—, el
+watchdog del runner reinició MT5 una vez y al segundo bloqueo escribió
+«MT5 Model=4 volvió a bloquearse tras el reintento automático». Las otras dos
+estrategias ya tenían su `.htm` al lado, pero el trabajo acabó `failed` y el
+aviso dijo «Comprobación manual fallida» sin más.
+
+Es el fallo conocido de `model4_watchdog_mata_su_propia_sincronizacion.md`, que
+`UseEveryTick=true` hace mucho más probable: la corrida tick a tick pasa de
+segundos a decenas de minutos.
+
+- El log dice en qué se quedó: `logs/tick/last_run.log` guarda la última línea
+  del journal de MT5 antes del cuelgue.
+- **2 de 3 informes estaban escritos.** Mirar `reports/<modelo>/*.htm` antes de
+  dar una comprobación por perdida; la pantalla de análisis ya los enseña y
+  declara el que falta.
+
+## Reintentos, 3 por defecto y editables (2026-10-21)
+
+Petición del usuario tras ese fallo. Son intentos **extra**: con 3, una
+estrategia se prueba hasta cuatro veces.
+
+- **Quien reintenta es el agente**, que es el único que ve el código de salida
+  de cada corrida: `JobPipelineMixin._retry_manual_check` relanza la misma
+  etapa antes de darla por terminada. El manager sólo manda el número.
+- **Se repite sólo lo que no tiene `.htm`** (`pending_set_files`): repetir lo
+  que ya salió costaría las mismas horas para reescribir lo mismo. A partir
+  del segundo intento, `build_manual_check_command` recibe `attempt` y filtra
+  los `--set-file`.
+- **Un código de salida distinto de 0 sin informes que falten no se reintenta**:
+  no hay nada que repetir, y repetir la tanda sería no entender el fallo.
+- El reintento se anota en el log del trabajo («Reintento 1 de 3 en
+  manual_check_tick: 1 estrategia(s) sin informe») y **no** dispara el aviso de
+  etapa: un intento que se va a repetir no es el final de la etapa.
+- El contador vive en el paso del pipeline como `manual_attempt`, **no** como
+  `attempt`: ése ya lo usa `_step_label` para las fases de la reparación, y
+  reutilizarlo habría cambiado la clave de `stage_return_codes` en cada
+  intento.
+- El número se recuerda por agente con el resto de ajustes
+  (`REMEMBERED_KEYS`), porque describe cómo se comprueba en ese broker.

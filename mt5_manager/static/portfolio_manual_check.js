@@ -22,6 +22,7 @@
         <label>Fecha inicio<input name="from_date" type="date" required></label>
         <label>Fecha fin<input name="to_date" type="date" required></label>
         <label>Lote por estrategia<input name="lot" type="number" min="0.01" max="100" step="0.01" value="0.01" required></label>
+        <label title="Si MT5 se bloquea y una estrategia se queda sin informe, se repite sólo ésa. Son intentos extra: con 3 se prueba hasta cuatro veces.">Reintentos por estrategia<input name="retries" type="number" min="0" max="10" step="1" value="3" required></label>
       </div>
       <fieldset><legend>Ejecución</legend><div class="portfolio-checks">
         <label title="Reparte los sets entre las terminales que el agente tenga configuradas."><input name="use_multiterminal" type="checkbox" checked> Usar multiterminal</label>
@@ -159,6 +160,7 @@
       fields.from_date.value = isoDate(preview.from_date);
       fields.to_date.value = isoDate(preview.to_date);
       fields.lot.value = preview.lot;
+      fields.retries.value = preview.retries ?? 3;
       fields.use_multiterminal.checked = preview.use_multiterminal !== false;
       const models = preview.models || [];
       fields.model_ohlc.checked = models.includes('ohlc');
@@ -179,6 +181,7 @@
       from_date: dottedDate(fields.from_date.value),
       to_date: dottedDate(fields.to_date.value),
       lot: Number(fields.lot.value),
+      retries: Number(fields.retries.value),
       use_multiterminal: fields.use_multiterminal.checked,
       models,
     };

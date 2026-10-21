@@ -73,6 +73,34 @@ class ManualCheckForkParityTests(NodeRuntimeForkParityBase):
             ),
         )
 
+    def _assert_retries(self, project: Path) -> None:
+        """Los reintentos de lo que quede sin informe.
+
+        Quien ve el código de salida de cada corrida del tester es el agente,
+        así que el manager sólo manda el número. Sin esto, un bloqueo de MT5
+        en **una** estrategia sigue tumbando la comprobación entera, que es
+        justo lo que pasó con el #62 el 2026-10-21.
+        """
+        source = (project / "manager_node_runtime" / "manual_check.py").read_text(
+            encoding="utf-8", errors="replace",
+        )
+        self._assert_present(
+            source, r"def pending_set_files\b",
+            f"{project}: falta `pending_set_files` en manual_check.py; sin ella "
+            "un reintento repetiría también lo que ya dejó informe.",
+        )
+        self._assert_present(
+            source, r"DEFAULT_RETRIES = 3",
+            f"{project}: los reintentos por defecto de la comprobación manual "
+            "no son 3. Hay que reiniciar la aplicación del agente.",
+        )
+        self._assert_present(
+            fork_node_source(project), r"def _retry_manual_check\b",
+            f"{project}: falta `_retry_manual_check` en el pipeline del nodo: "
+            "la etapa no se reintenta y un bloqueo de MT5 en una estrategia "
+            "sigue tumbando la comprobación entera.",
+        )
+
     def test_manual_check_reaches_every_reachable_fork(self) -> None:
         # La comprobación manual no tiene nada en `mt5_manager/node.py`: el
         # manager decide qué estrategias son nuevas y reenvía la petición.
@@ -88,6 +116,7 @@ class ManualCheckForkParityTests(NodeRuntimeForkParityBase):
         def check(project: Path, _source: str) -> None:
             self._assert_node_route(project)
             self._assert_runtime_module(project)
+            self._assert_retries(project)
 
         self._assert_on_every_fork(check, "la comprobación manual")
 

@@ -99,7 +99,18 @@ def default_period(today: date | None = None) -> tuple[str, str]:
     return start.strftime("%Y.%m.%d"), end.strftime("%Y.%m.%d")
 
 
-REMEMBERED_KEYS = ("from_date", "to_date", "lot", "use_multiterminal", "models")
+DEFAULT_RETRIES = 3
+"""Reintentos de lo que quede sin informe, el valor que propone el modal.
+
+Son intentos **extra**: con 3, una estrategia se prueba hasta cuatro veces. Lo
+pidió el usuario el 2026-10-21, después de que un bloqueo de MT5 en Model=4
+dejara sin informe una de las tres estrategias del #62 y tumbara la
+comprobación entera con las otras dos ya escritas al lado. Quien reintenta es
+el agente, que es quien ve el código de salida de cada corrida.
+"""
+
+
+REMEMBERED_KEYS = ("from_date", "to_date", "lot", "use_multiterminal", "models", "retries")
 """Lo que el modal conserva de una comprobación a la siguiente.
 
 Es del **agente**, no del portafolio: el periodo, el lote, el multiterminal y
@@ -178,6 +189,7 @@ def new_strategies(
         "models": list(REPORT_MODELS),
         "use_multiterminal": True,
         "lot": 0.01,
+        "retries": DEFAULT_RETRIES,
         "remembered": bool(remembered),
         **{key: value for key, value in (remembered or {}).items() if key in REMEMBERED_KEYS},
     }
@@ -207,6 +219,11 @@ def start_request(
         "models": [model for model in REPORT_MODELS if model in models] or list(REPORT_MODELS),
         "use_multiterminal": bool(payload.get("use_multiterminal", preview["use_multiterminal"])),
         "lot": payload.get("lot", preview["lot"]),
+        # El rango lo vuelve a comprobar el agente, que es quien reintenta: aquí
+        # sólo se acota para no apuntar un disparate en los ajustes recordados.
+        "retries": safe_int(
+            payload.get("retries", preview["retries"]), DEFAULT_RETRIES, minimum=0, maximum=10,
+        ),
         "strategies": preview["strategies"],
     }
 
