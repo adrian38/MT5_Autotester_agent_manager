@@ -26,6 +26,7 @@ PACKAGE = Path(__file__).resolve().parents[2] / "mt5_manager"
 
 PORTFOLIO_STACK = [
     "portfolio_scope",
+    "portfolio_curve_math",
     "portfolio_schema",
     "portfolio_report_cache",
     "portfolio_manual_files",

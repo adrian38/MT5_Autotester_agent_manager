@@ -203,7 +203,8 @@ es el de dependencia** — cada uno sólo importa de los anteriores:
 `mt5_manager/portfolio_service.py` eran 6.045 líneas. Ahora son trece módulos y,
 como en `ubs_portfolio`, **el orden es el de dependencia**:
 
-`portfolio_scope` → `portfolio_schema` → `portfolio_report_cache` →
+`portfolio_scope` → `portfolio_curve_math` → `portfolio_schema` →
+`portfolio_report_cache` →
 `portfolio_manual_files` → `portfolio_manual_reports` →
 `portfolio_identity` → `portfolio_settings` → `portfolio_transfer` →
 `portfolio_persistence` → `portfolio_valley_floor` → `portfolio_antifiller` →
