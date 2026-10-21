@@ -114,9 +114,39 @@ El nodo no recibe el campo. Igual que el veredicto, el emparejamiento y la
 atribución, esto vive **sólo en el manager** y no hay nada que portar a los
 agentes (`live_audit_pairing_20261004.md`).
 
+## El ticket escrito en el Excel ya es una pareja (2026-10-21)
+
+La exportación de operaciones identifica cada fila del tester como `T12`,
+`T13`, etc. Si el usuario añade en una fila `SIN REAL` una celda como «ticket
+real correspondiente: 771329182», ha decidido la pareja completa, no sólo la
+estrategia de la real. El importador anterior encontraba el ticket pero reducía
+la fila a `ticket real → estrategia`; perdía el `T12` y obligaba a repetir la
+misma decisión en el selector «Emparejar a mano».
+
+La importación conserva ahora `Tn → ticket`. Análisis traduce `Tn` de la
+ejecución que está abierta a la huella estable de `tester_pair_key`, combina
+esas parejas con las que ya hubiera guardadas y envía atribución y parejas en
+una sola llamada. El almacén valida las dos antes de escribirlas y las persiste
+en una única escritura; el veredicto recalculado vuelve en esa misma respuesta.
+Sólo se aceptan como parejas las filas cuyo estado exportado sea `SIN REAL`:
+un `Tn` ya emparejado también lleva ticket en la exportación y no debe pasar a
+ser manual por volver a importar el fichero.
+
+Los Excel anteriores no se guardaban, sólo su nombre, huella y reglas ya
+reducidas. Por eso una subida hecha antes de este cambio no se puede migrar sin
+inventar qué fila nombraba cada ticket: hay que volver a subir ese mismo Excel
+una vez para recuperar las correspondencias explícitas.
+
+La portada aplica el mismo criterio de trabajo pendiente. Una operación `SIN
+REAL` deja de engordar «Operaciones sin enlazar» cuando su estrategia está
+validada en Análisis y ese veredicto sigue vigente. Si el veredicto empeora, la
+validación deja de valer y tanto la estrategia como su operación vuelven a
+avisar.
+
 ## Lo que esto no arregla
 
-La fila `AMZN` del principio sigue «SIN REAL», y debe seguir: la cuenta no
-ejecutó esa operación. Emparejar a mano no inventa una real donde no la hay.
-Lo que sí deja ver es cuántas de las filas «SIN REAL» eran eso y cuántas eran
-un fallo del reparto: en `audit-170`, una y tres.
+La fila `AMZN` del principio sigue «SIN REAL» dentro del detalle, y debe seguir:
+la cuenta no ejecutó esa operación. Emparejar a mano no inventa una real donde
+no la hay. Como su estrategia ya está validada, deja de aparecer como pendiente
+en la tarjeta. Lo que sí deja ver el detalle es cuántas filas «SIN REAL» eran
+eso y cuántas eran un fallo del reparto: en `audit-170`, una y tres.

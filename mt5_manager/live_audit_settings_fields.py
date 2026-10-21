@@ -166,6 +166,21 @@ class LiveAuditProfileFieldsMixin:
             node_id, audit_id, lambda stored: merge_attribution(stored, attribution),
         )
 
+    def set_real_attribution_with_manual_pairs(
+        self, node_id: str, audit_id: str, attribution: dict[str, Any], pairs: Any,
+    ) -> dict[str, Any]:
+        """Guarda en una escritura las dos decisiones que venían en el Excel."""
+        normalized_pairs = normalize_manual_pairs(pairs)
+        with self.lock:
+            record = self.records.get(node_id) or {}
+            profiles = rewrite_profile_attribution(
+                record, audit_id, lambda stored: merge_attribution(stored, attribution),
+            )
+            profiles[str(audit_id)]["manual_pairs"] = normalized_pairs
+            self.records[node_id] = {**record, "profiles": profiles, "updated_at": utc_now()}
+            save_json(self.path, self.records)
+            return dict(profiles[str(audit_id)])
+
     def drop_real_attribution(
         self, node_id: str, audit_id: str, sha256: str | None,
     ) -> dict[str, Any]:

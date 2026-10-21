@@ -121,7 +121,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_manual_pairs.md`: el censo que encontró tres de cuatro filas «SIN
   REAL» con su real descartada por la banda de lote, y por qué la pareja que
   decide el usuario se mide con las mismas tolerancias en vez de darse por
-  buena.
+  buena; también conserva como pareja el ticket correspondiente escrito en la
+  propia fila del Excel, sin pedir la misma decisión dos veces.
 - `live_audit_manual_lot_change.md`: subir el lote de la cuenta real a mitad del
   periodo sin borrar el anterior; por qué la banda admite todos los lotes
   declarados y el veredicto sólo el vigente en la apertura.

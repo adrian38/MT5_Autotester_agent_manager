@@ -167,6 +167,14 @@ class LivePortfolioDashboardTests(unittest.TestCase):
             self.metrics,
         )
 
+    def test_a_reviewed_missing_strategy_is_not_still_pending_on_the_card(self) -> None:
+        # Marcar una estrategia en Análisis ya la saca de la lista de avisos.
+        # Su operación SIN REAL tampoco puede seguir apareciendo debajo como
+        # trabajo pendiente mientras el mismo veredicto continúe validado.
+        self.assertIn("function unlinkedTester(result, reviewed)", self.metrics)
+        self.assertIn("!reviewed.has(String(row.strategy || row.tester?.strategy", self.metrics)
+        self.assertIn("unlinkedTester(result, accepted)", self.metrics)
+
     def test_each_card_shows_its_alias_and_lets_you_edit_it_from_there(self) -> None:
         self.assertIn("aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))", self.script)
         self.assertIn("'Sin alias'", self.script)

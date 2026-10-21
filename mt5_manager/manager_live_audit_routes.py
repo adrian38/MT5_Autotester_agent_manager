@@ -289,8 +289,15 @@ def _handle_workbook_import(handler, parts: list[str]) -> bool:
     read, field, count = reader
     try:
         handler._node(urllib.parse.unquote(parts[2]))
-        imported = read(handler._body())
-        handler._send_json(200, {field: imported, count: len(imported["rules"])})
+        body = handler._body()
+        if field == "real_attribution":
+            imported = live_audit_attribution.import_workbook_bundle(body)
+            handler._send_json(200, {
+                **imported, count: len(imported["real_attribution"]["rules"]),
+            })
+        else:
+            imported = read(body)
+            handler._send_json(200, {field: imported, count: len(imported["rules"])})
     except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
         handler._send_json(400, {"error": str(exc)})
     return True
@@ -309,6 +316,10 @@ def _apply_attribution_change(handler, node_id: str, audit_id: str, body: Any) -
         settings.drop_real_attribution(node_id, audit_id, None)
     elif "remove_source" in change:
         settings.drop_real_attribution(node_id, audit_id, str(change["remove_source"] or ""))
+    elif "manual_pairs" in change:
+        settings.set_real_attribution_with_manual_pairs(
+            node_id, audit_id, change.get("real_attribution"), change.get("manual_pairs"),
+        )
     else:
         settings.set_real_attribution(node_id, audit_id, change.get("real_attribution"))
 

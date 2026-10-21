@@ -11,6 +11,7 @@ from mt5_manager.live_audit_attribution import (
     attribution_by_ticket,
     attribution_sources,
     import_workbook,
+    import_workbook_bundle,
     merge_attribution,
     normalize_attribution,
     remove_source,
@@ -27,7 +28,10 @@ MEMBER = {
 }
 
 
-def workbook_bytes(rows: list[tuple[str, str]], last_header: str = "Razon") -> bytes:
+def workbook_bytes(
+    rows: list[tuple[str, str]], last_header: str = "Razon",
+    row_ids: list[str] | None = None, statuses: list[str] | None = None,
+) -> bytes:
     """Un libro con la forma de la exportación del detalle de operaciones.
 
     El ticket viaja dentro de la celda de mercado, que es como lo imprime la
@@ -45,9 +49,11 @@ def workbook_bytes(rows: list[tuple[str, str]], last_header: str = "Razon") -> b
     for index, _row in enumerate(rows):
         line = index + 3
         market_index, reason_index = 4 + index * 2, 5 + index * 2
+        row_id = row_ids[index] if row_ids else f"R{index + 1}"
+        status = statuses[index] if statuses else "REAL SIN TESTER"
         cells.append(
-            f'<row r="{line}"><c r="A{line}" t="str"><v>R{index + 1}</v></c>'
-            f'<c r="B{line}" t="str"><v>REAL SIN TESTER</v></c>'
+            f'<row r="{line}"><c r="A{line}" t="str"><v>{row_id}</v></c>'
+            f'<c r="B{line}" t="str"><v>{status}</v></c>'
             f'<c r="C{line}" t="s"><v>{market_index}</v></c>'
             f'<c r="D{line}" t="s"><v>{reason_index}</v></c></row>'
         )
@@ -113,6 +119,36 @@ class WorkbookTests(unittest.TestCase):
         # la «estrategia» acababa siendo «ticket real correspondiente: …».
         self.assertEqual(result["rules"]["46430179"]["strategy_set"], "AXI/STANDARD:21169")
         self.assertEqual(result["rules"]["46568182"]["strategy_set"], "AXI/STANDARD:32134")
+
+    def test_a_ticket_written_on_a_missing_tester_row_is_also_kept_as_a_pair(self) -> None:
+        rows = [
+            ("EURUSD · 0,08 lotes; buy; EURUSD_H1.set; ROBOFOREX/ECN:32807",
+             "ticket real correspondiente: 771329182"),
+            ("EURUSD · 0,08 lotes; buy; EURUSD_H1.set; ROBOFOREX/ECN:32807",
+             "ticket real correspondiente: 769643751"),
+        ]
+        contents = workbook_bytes(
+            rows, last_header="", row_ids=["T12", "T13"], statuses=["SIN REAL", "SIN REAL"],
+        )
+        result = import_workbook_bundle({
+            "filename": "auditoria_p170.xlsx",
+            "content_base64": base64.b64encode(contents).decode("ascii"),
+        })
+        self.assertEqual(result["manual_pair_rows"], {
+            "12": "771329182", "13": "769643751",
+        })
+        self.assertEqual(sorted(result["real_attribution"]["rules"]), ["769643751", "771329182"])
+
+    def test_an_already_paired_tester_row_is_not_turned_into_a_manual_pair(self) -> None:
+        contents = workbook_bytes(
+            [("EURUSD · ticket 771329182; ROBOFOREX/ECN:32807", SET_STEM)],
+            row_ids=["T12"], statuses=["DENTRO"],
+        )
+        result = import_workbook_bundle({
+            "filename": "auditoria.xlsx",
+            "content_base64": base64.b64encode(contents).decode("ascii"),
+        })
+        self.assertEqual(result["manual_pair_rows"], {})
 
     def test_a_hand_written_note_still_wins_over_the_set_of_the_exported_row(self) -> None:
         # La celda de mercado de una fila emparejada también nombra su `.set`.

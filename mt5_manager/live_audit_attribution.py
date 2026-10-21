@@ -47,6 +47,7 @@ MAX_ATTRIBUTIONS = 5000
 _TICKET = re.compile(
     r"\bticket\s*[:#]?\s*(\d{1,20})\b|\bticket\b\D{1,40}?(\d{4,20})\b", re.IGNORECASE
 )
+_TESTER_ROW = re.compile(r"^\s*T(\d{1,9})\s*$", re.IGNORECASE)
 
 
 def empty_attribution() -> dict[str, Any]:
@@ -268,7 +269,7 @@ def rules_from_rows(rows: list[dict[int, Any]]) -> dict[str, dict[str, str]]:
     return rules
 
 
-def import_workbook(payload: Any) -> dict[str, Any]:
+def _workbook_payload(payload: Any) -> tuple[str, bytes, list[dict[int, Any]]]:
     if not isinstance(payload, dict):
         raise ValueError("La importación de atribución debe ser un objeto JSON")
     filename = Path(str(payload.get("filename") or "")).name
@@ -280,11 +281,53 @@ def import_workbook(payload: Any) -> dict[str, Any]:
         raise ValueError("El contenido del Excel no está codificado correctamente") from exc
     if not contents or len(contents) > MAX_WORKBOOK_BYTES:
         raise ValueError("El Excel de atribución debe pesar entre 1 byte y 700 KB")
+    return filename, contents, _sheet_rows(contents)
+
+
+def _attribution_from_workbook(
+    filename: str, contents: bytes, rows: list[dict[int, Any]],
+) -> dict[str, Any]:
     return normalize_attribution({
         "source_name": filename[:255],
         "source_sha256": hashlib.sha256(contents).hexdigest(),
-        "rules": rules_from_rows(_sheet_rows(contents)),
+        "rules": rules_from_rows(rows),
     })
+
+
+def manual_pair_rows(rows: list[dict[int, Any]]) -> dict[str, str]:
+    """Las filas SIN REAL donde el usuario escribió su ticket correspondiente."""
+    pairs: dict[str, str] = {}
+    claimed: dict[str, str] = {}
+    for row in rows:
+        if "sinreal" not in {_canonical(value) for value in row.values()}:
+            continue
+        tester = next((
+            match.group(1) for value in row.values()
+            if (match := _TESTER_ROW.fullmatch(str(value or "")))
+        ), "")
+        ticket = _row_ticket(row)
+        if not tester or not ticket:
+            continue
+        if tester in pairs and pairs[tester] != ticket:
+            raise ValueError(f"La fila T{tester} nombra dos operaciones reales distintas")
+        if claimed.setdefault(ticket, tester) != tester:
+            raise ValueError(f"La operación real {ticket} corresponde a más de una fila del tester")
+        pairs[tester] = ticket
+    return pairs
+
+
+def import_workbook(payload: Any) -> dict[str, Any]:
+    filename, contents, rows = _workbook_payload(payload)
+    return _attribution_from_workbook(filename, contents, rows)
+
+
+def import_workbook_bundle(payload: Any) -> dict[str, Any]:
+    """Atribución y correspondencias explícitas conservadas del mismo Excel."""
+    filename, contents, rows = _workbook_payload(payload)
+    return {
+        "real_attribution": _attribution_from_workbook(filename, contents, rows),
+        "manual_pair_rows": manual_pair_rows(rows),
+    }
 
 
 def _member_keys(member: dict[str, Any]) -> tuple[str, ...]:

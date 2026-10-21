@@ -156,6 +156,11 @@ function comparisonRows(result) {
   return result.comparison_detail?.operation_comparisons || [];
 }
 
+function testerPairKey(tester) {
+  return [tester.strategy, tester.symbol, tester.side, tester.open_time, tester.close_time]
+    .map(value => String(value || '')).join('|');
+}
+
 function showAnalysisError(message) {
   const element = document.querySelector('#analysis-error');
   element.textContent = message;
@@ -1324,6 +1329,26 @@ function changeAttribution(change) {
   return changeCriterion('attribution', change);
 }
 
+function manualPairsFromImport(rows) {
+  const pairs = {...(currentResult?.analysis?.tolerances?.manual_pairs || {})};
+  const indexed = new Map(comparisonRows(currentResult).map(row => [String(row.tester_index), row]));
+  const claimed = new Map(Object.entries(pairs).map(([key, pair]) => [String(pair.position_id), key]));
+  Object.entries(rows || {}).forEach(([index, positionId]) => {
+    const row = indexed.get(String(index));
+    if (!row || row.status !== 'missing' || !row.tester) {
+      throw new Error(`El Excel relaciona T${index}, pero esa fila ya no es una operación SIN REAL de esta ejecución.`);
+    }
+    const key = testerPairKey(row.tester);
+    const position = String(positionId || '');
+    if (claimed.has(position) && claimed.get(position) !== key) {
+      throw new Error(`La operación real ${position} ya corresponde a otra fila del tester.`);
+    }
+    pairs[key] = {position_id: position, at: new Date().toISOString()};
+    claimed.set(position, key);
+  });
+  return pairs;
+}
+
 // Guardar el tramo y repintar es el mismo viaje que la atribución, y por el
 // mismo motivo: el criterio vive en el manager y se aplica al leer, así que
 // guardado sin repintar o repintado sin guardar son dos medias verdades.
@@ -1349,7 +1374,12 @@ async function uploadAttribution(file) {
        body: JSON.stringify({filename: file.name, content_base64: content})},
     ));
     label.textContent = 'Recalculando la auditoría…';
-    await changeAttribution({real_attribution: parsed.real_attribution});
+    const importedPairs = parsed.manual_pair_rows || {};
+    await changeAttribution({
+      real_attribution: parsed.real_attribution,
+      ...(Object.keys(importedPairs).length
+        ? {manual_pairs: manualPairsFromImport(importedPairs)} : {}),
+    });
   } finally {
     label.textContent = previous;
     button.classList.remove('is-busy');

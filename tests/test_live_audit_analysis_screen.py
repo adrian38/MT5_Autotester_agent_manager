@@ -309,6 +309,15 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # Vaciar el `value` deja volver a elegir el mismo fichero corregido.
         self.assertIn("document.querySelector('#attribution-file').value = ''", self.analysis_script)
 
+    def test_the_excel_pair_is_not_reduced_to_a_strategy_attribution(self) -> None:
+        self.assertIn("parsed.manual_pair_rows", self.analysis_script)
+        self.assertIn("manual_pairs: manualPairsFromImport(importedPairs)", self.analysis_script)
+        self.assertIn(
+            "[tester.strategy, tester.symbol, tester.side, tester.open_time, tester.close_time]",
+            self.analysis_script,
+        )
+        self.assertIn("row.status !== 'missing'", self.analysis_script)
+
     def test_an_uploaded_excel_can_be_taken_back(self) -> None:
         # Si se acumula, tiene que poder deshacerse: cada regla recuerda de qué
         # fichero salió, así que se retira uno sin perder los demás.

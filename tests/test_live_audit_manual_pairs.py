@@ -283,6 +283,14 @@ class ManualPairRouteTests(unittest.TestCase):
             self.assertTrue(handle_post(handler, None, self.PATH))
         return handler.sent
 
+    def post_attribution(self, body: object) -> tuple[int, object]:
+        handler = RouteHandler(self.store, body)
+        raw = {"audit": {"last_payload": discarded_payload()}}
+        path = ["api", "nodes", "nodo", "live-audits", "real-a", "attribution"]
+        with patch("mt5_manager.manager_http.node_request", return_value=(200, raw)):
+            self.assertTrue(handle_post(handler, None, path))
+        return handler.sent
+
     def test_saving_a_pair_answers_with_the_verdict_already_recalculated(self) -> None:
         tester = discarded_payload()["tester_trades"][0]
         status, body = self.post({"manual_pairs": manual_pair_for(tester)})
@@ -312,6 +320,23 @@ class ManualPairRouteTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn(TICKET, body["error"])
         self.assertEqual(self.store.manual_pairs("nodo", "real-a"), {})
+
+    def test_the_excel_saves_its_attribution_and_pair_in_the_same_trip(self) -> None:
+        tester = discarded_payload()["tester_trades"][0]
+        attribution = {
+            "source_name": "auditoria.xlsx", "source_sha256": "a" * 64,
+            "rules": {TICKET: {"strategy_set": SET_NAME, "reason": ""}},
+        }
+        status, body = self.post_attribution({
+            "real_attribution": attribution,
+            "manual_pairs": manual_pair_for(tester),
+        })
+        self.assertEqual(status, 200)
+        row = body["audit"]["last_result"]["comparison_detail"]["operation_comparisons"][0]
+        self.assertTrue(row["manual_pair"])
+        profile = self.store.state("nodo")["profiles"]["real-a"]
+        self.assertEqual(profile["manual_pairs"], manual_pair_for(tester))
+        self.assertIn(TICKET, profile["real_attribution"]["rules"])
 
 
 class ManualPairScreenTests(unittest.TestCase):

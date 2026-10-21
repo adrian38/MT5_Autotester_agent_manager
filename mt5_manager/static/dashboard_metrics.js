@@ -96,8 +96,11 @@
   // cuenta no ejecutó. No es el mismo hecho que el de arriba —una real sin
   // dueño y una operación que nunca se abrió son problemas distintos—, así
   // que se cuentan aparte en vez de sumarse.
-  function unlinkedTester(result) {
-    return comparisonRows(result).filter(row => row.status === 'missing').length;
+  function unlinkedTester(result, reviewed) {
+    return comparisonRows(result).filter(row => (
+      row.status === 'missing'
+      && !reviewed.has(String(row.strategy || row.tester?.strategy || 'Sin estrategia'))
+    )).length;
   }
 
   function flaggedStrategies(groups, overrides) {
@@ -135,13 +138,16 @@
     const pending = marked.filter(row => !reproduction.reviewed(
       reviews, row.strategy, row.verdict,
     ));
+    const accepted = new Set(marked.filter(row => !pending.includes(row)).map(
+      row => row.strategy,
+    ));
     return {
       comparable: true,
       currency: result.account?.currency || 'EUR',
       demo_profit: profit(demo), real_profit: profit(real),
       demo_drawdown: drawdown(demo), real_drawdown: drawdown(real),
       flagged: pending, reviewed: marked.length - pending.length,
-      unlinked_real: unlinkedReals(result), unlinked_tester: unlinkedTester(result),
+      unlinked_real: unlinkedReals(result), unlinked_tester: unlinkedTester(result, accepted),
     };
   }
 
