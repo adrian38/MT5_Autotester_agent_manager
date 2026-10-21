@@ -82,7 +82,7 @@ depender de un endpoint portado a mano.
 
 ## Pruebas
 
-- `tests/test_exclusion_verdict.py::RequalifyRoutingTests`: a quién se manda la
+- `tests/portfolio/test_exclusion_verdict.py::RequalifyRoutingTests`: a quién se manda la
   escritura, qué dice un nodo sin portar, que un nodo que no confirma no se cree, y
   que la memoria local sigue escribiéndose desde el manager. La última fija la
   traducción del `disk I/O error` a un mensaje accionable.

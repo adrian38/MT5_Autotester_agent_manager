@@ -20,14 +20,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.portfolio_service import PortfolioCoordinator, PortfolioSource
 
 try:
     from .exclusion_memory_fixture import broker_project, candidate_rows, stage_rows
 except ImportError:
-    from exclusion_memory_fixture import broker_project, candidate_rows, stage_rows
+    from tests.portfolio.exclusion_memory_fixture import broker_project, candidate_rows, stage_rows
 
 
 class ExclusionVerdictTests(unittest.TestCase):

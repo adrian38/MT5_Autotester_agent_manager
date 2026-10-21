@@ -16,12 +16,12 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 try:
     from .exclusion_memory_fixture import broker_project
 except ImportError:
-    from exclusion_memory_fixture import broker_project
+    from tests.portfolio.exclusion_memory_fixture import broker_project
 
 
 SIBLING_ROWS = """
