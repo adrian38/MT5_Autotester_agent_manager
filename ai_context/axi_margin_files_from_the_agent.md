@@ -61,7 +61,7 @@ nocional mayor y el margen sale sobreestimado.
 
 ## Al tocar esto
 
-- `tests/test_portfolio_margin_profiles.py` cubre los tres loaders, el
+- `tests/portfolio/test_portfolio_margin_profiles.py` cubre los tres loaders, el
   guardarraíl y `build_margin_model`.
 - El `AGENTS.md` de este repositorio prohíbe modificar la copia de AXI: los
   arreglos del lado agente (normalización, corrección de divisa) se hacen desde

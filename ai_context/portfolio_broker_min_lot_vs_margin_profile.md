@@ -36,7 +36,7 @@ carteras afectadas. La corrección no modifica memorias ni portafolios guardados
 
 ## Verificación
 
-`tests/test_portfolio_margin_profiles.py` comprueba ICTrading con los perfiles
+`tests/portfolio/test_portfolio_margin_profiles.py` comprueba ICTrading con los perfiles
 ICTrading, TTP y RoboForex, en ambos scopes, y la traducción a pasos del EA para
 mínimos 0.01, 0.10 y 1.00. Comprueba también que margen y nocional medidos de AXI
 no se activen al elegir otro perfil.
@@ -102,7 +102,7 @@ a 5.247. Manda el medido, igual que en AXI: el error de divisa era de un orden
 de magnitud y el de precio es del 15%.
 
 Verificación: `python -m unittest discover -s tests` en verde, 482 pruebas.
-Cuatro regresiones nuevas en `tests/test_portfolio_margin_profiles.py`, validadas
+Cuatro regresiones nuevas en `tests/portfolio/test_portfolio_margin_profiles.py`, validadas
 por mutación (quitar la rama TTP devuelve 1:500; no propagar el contract_size
 deja 1,0 en los tres perfiles no-AXI y los dos ámbitos; sin nocional medido el
 margen de USDJPY se multiplica por 186). El cálculo corre en el manager Docker:

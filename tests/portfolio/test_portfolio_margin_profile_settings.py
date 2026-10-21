@@ -313,7 +313,7 @@ class AccountLeverageSettingTests(unittest.TestCase):
         # tres tienen que poder decir con que apalancamiento se mide la cuenta:
         # si uno se queda con el valor por defecto, la misma cuenta valida el
         # margen con dos numeros distintos segun la pantalla.
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         for name in ("portfolios.html", "portfolios_monthly.html", "portfolios_grid.html"):
             page = (static_dir / name).read_text(encoding="utf-8")
             self.assertIn('name="account_leverage"', page, name)

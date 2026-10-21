@@ -200,7 +200,7 @@ class SavedPortfolioAuditTests(unittest.TestCase):
         # y se quedo desactualizado tras corregir el modelo.
         # Se lee el paquete entero, no un modulo: el aviso ha cambiado de sitio
         # una vez y la comprobacion no debe depender de donde viva hoy.
-        package = Path(__file__).parents[1] / "portfolio_manager" / "ubs_portfolio"
+        package = Path(__file__).parents[2] / "portfolio_manager" / "ubs_portfolio"
         source = "\n".join(
             path.read_text(encoding="utf-8") for path in sorted(package.glob("*.py"))
         )
@@ -255,7 +255,7 @@ class SavePayloadTests(unittest.TestCase):
         # Guardia contra volver a colar un dict(inputs) crudo en una propuesta.
         for module in ("portfolio_service", "portfolio_monthly_service"):
             source = (
-                Path(__file__).parents[1] / "mt5_manager" / f"{module}.py"
+                Path(__file__).parents[2] / "mt5_manager" / f"{module}.py"
             ).read_text(encoding="utf-8")
             self.assertNotIn("proposal_inputs = dict(inputs)", source, module)
 
