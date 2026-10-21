@@ -51,60 +51,20 @@ class RouteTests(unittest.TestCase):
 
         self.assertEqual(handler.sent, (200, {"node": "ic"}))
 
-    def test_automatic_check_is_started_after_save_for_the_new_strategies(self) -> None:
-        portfolios = SimpleNamespace(
-            manual_check_preview=lambda *_args: {"strategies": [{"set_name": "nueva.set"}]},
-            manual_check_request=lambda *_args: {
-                "portfolio_id": 63, "strategies": [{"set_name": "nueva.set"}],
-            },
-        )
-        handler = self.Handler(portfolios)
-        with patch.object(
-            manager_portfolio_routes.manager_http, "node_request",
-            return_value=(202, {"queued": True}),
-        ) as request:
-            result = manager_portfolio_routes._start_automatic_manual_check(
-                handler, {"url": "http://ic"}, "ic", "full_history", 63,
-                {"models": ["tick"]},
-            )
-
-        self.assertEqual(result, {"status": "queued"})
-        request.assert_called_once()
-
-    def test_automatic_check_is_skipped_when_the_repair_added_nothing(self) -> None:
-        portfolios = SimpleNamespace(manual_check_preview=lambda *_args: {"strategies": []})
-
-        result = manager_portfolio_routes._start_automatic_manual_check(
-            self.Handler(portfolios), {}, "ic", "full_history", 63, {},
-        )
-
-        self.assertEqual(result, {"status": "skipped", "reason": "no_new_strategies"})
-
     def test_save_confirms_the_portfolio_and_then_reports_the_automatic_check(self) -> None:
         portfolios = SimpleNamespace(
-            prepare_save=lambda *_args: {
-                "selected_key": "balanced", "request_id": "save-1", "proposals": [],
+            save_to_node=lambda *_args: {
+                "portfolio_id": 63,
+                "portfolio_ids": {"balanced": 63},
+                "manual_check": {"status": "started"},
             },
-            pending_automatic_manual_check=lambda *_args: {"models": ["tick"]},
-            confirm_save=lambda *_args: None,
         )
         handler = self.Handler(portfolios)
-        with patch.object(
-            manager_portfolio_routes.manager_http, "node_request",
-            return_value=(201, {"portfolio_id": 63, "request_id": "save-1"}),
-        ), patch.object(
-            manager_portfolio_routes, "_start_automatic_manual_check",
-            return_value={"status": "started"},
-        ) as start:
-            manager_portfolio_routes.save(
-                handler, {"url": "http://ic"}, "ic", "full_history",
-                {"proposal_key": "balanced"},
-            )
-
-        start.assert_called_once_with(
-            handler, {"url": "http://ic"}, "ic", "full_history", 63,
-            {"models": ["tick"]},
+        manager_portfolio_routes.save(
+            handler, {"url": "http://ic"}, "ic", "full_history",
+            {"proposal_key": "balanced"},
         )
+
         self.assertEqual(handler.sent[0], 201)
         self.assertEqual(handler.sent[1]["manual_check"], {"status": "started"})
 

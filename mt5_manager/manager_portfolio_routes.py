@@ -27,10 +27,7 @@ from . import manager_http
 from .common import safe_int
 from .portfolio_scope import PORTFOLIO_SCOPES, normalize_portfolio_scope
 from . import manager_config
-from .portfolio_service import (
-    PortfolioCoordinator,
-    legacy_compatible_portfolio_save_payload,
-)
+from .portfolio_service import PortfolioCoordinator
 
 
 WORD_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -317,34 +314,6 @@ def manual_check_action(handler, action: str, node: dict, node_id: str, scope: s
     return True
 
 
-def _start_automatic_manual_check(
-    handler, node: dict, node_id: str, scope: str, portfolio_id: int,
-    settings: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    """Encadena la comprobación sin convertir un fallo suyo en fallo del guardado."""
-    if settings is None:
-        return None
-    try:
-        preview = handler.server.portfolios.manual_check_preview(
-            node_id, scope, portfolio_id
-        )
-        if not preview.get("strategies"):
-            return {"status": "skipped", "reason": "no_new_strategies"}
-        request = handler.server.portfolios.manual_check_request(
-            node_id, scope, portfolio_id, settings
-        )
-        status, value = manager_http.node_request(
-            node, "POST", "/api/v1/jobs/manual-check", request, timeout=120,
-        )
-        if status >= 400:
-            error = value.get("error") if isinstance(value, dict) else value
-            return {"status": "failed", "error": str(error or f"HTTP {status}")}
-        queued = bool(value.get("queued")) if isinstance(value, dict) else False
-        return {"status": "queued" if queued else "started"}
-    except Exception as exc:
-        return {"status": "failed", "error": str(exc)}
-
-
 def report_action(handler, action: str, node: dict, node_id: str, scope: str, body: dict,
 ) -> bool:
     """Abrir un informe de un miembro, exportarlos todos o leer el log."""
@@ -371,59 +340,14 @@ def report_action(handler, action: str, node: dict, node_id: str, scope: str, bo
 
 def save(handler, node: dict, node_id: str, scope: str, body: dict) -> None:
     """Guarda la propuesta preparada; Grid la persiste en el manager y UBS en el nodo."""
-    save_payload = handler.server.portfolios.prepare_save(
-        node_id, scope, str(body.get("proposal_key") or "")
-    )
+    selected_key = str(body.get("proposal_key") or "")
     if scope == "grid":
+        save_payload = handler.server.portfolios.prepare_save(node_id, scope, selected_key)
         save_grid(handler, node_id, scope, save_payload)
         return
-    portfolio_ids: dict[str, int] = {}
-    for variant_payload in (save_payload,):
-        status, value = manager_http.node_request(
-            node, "POST", "/api/v1/portfolios/save", variant_payload, timeout=120
-        )
-        error_text = str(value.get("error") if isinstance(value, dict) else value or "")
-        if status >= 400 and "unexpected keyword argument" in error_text:
-            status, value = manager_http.node_request(
-                node,
-                "POST",
-                "/api/v1/portfolios/save",
-                legacy_compatible_portfolio_save_payload(variant_payload),
-                timeout=120,
-            )
-        if status == 404:
-            raise ValueError(
-                "El nodo todavía no admite guardado local de portafolios; "
-                "actualiza su código y reinícialo."
-            )
-        if status >= 400 or not isinstance(value, dict):
-            error = value.get("error") if isinstance(value, dict) else value
-            raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
-        portfolio_id = safe_int(value.get("portfolio_id"), 0)
-        request_id = str(value.get("request_id") or "")
-        if portfolio_id <= 0 or request_id != str(variant_payload["request_id"]):
-            raise ValueError("El nodo no confirmó correctamente el guardado")
-        portfolio_ids[str(variant_payload["selected_key"])] = portfolio_id
-    selected_key = str(save_payload["selected_key"])
-    selected_id = portfolio_ids.get(selected_key, 0)
-    if selected_id <= 0:
-        raise ValueError("No se guardó la variante Grid seleccionada")
-    automatic_manual_check = handler.server.portfolios.pending_automatic_manual_check(
-        node_id, scope
-    )
-    handler.server.portfolios.confirm_save(
-        node_id, scope, str(save_payload["request_id"]), selected_id
-    )
-    manual_check = _start_automatic_manual_check(
-        handler, node, node_id, scope, selected_id, automatic_manual_check
-    )
-    response = {
-        "portfolio_id": selected_id,
-        "portfolio_ids": portfolio_ids,
-    }
-    if manual_check is not None:
-        response["manual_check"] = manual_check
-    handler._send_json(201, response)
+    handler._send_json(201, handler.server.portfolios.save_to_node(
+        node_id, scope, selected_key,
+    ))
 
 
 def action_route(handler, action: str, node: dict, node_id: str, scope: str, body: dict,

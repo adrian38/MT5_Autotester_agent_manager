@@ -6,15 +6,15 @@ los mismos métodos, delegando en `portfolio_manual_check` —que decide qué se
 comprueba y lee lo que quedó en disco— y en `manual_check_analysis`, que lee
 los dos informes de cada estrategia.
 
-Quien ejecuta MT5 es el agente, así que nada de esto lanza nada: el arranque
-es un reenvío que vive en `manager_portfolio_routes.py`.
+Quien ejecuta MT5 es el agente: el coordinador sólo reenvía el arranque por
+`manager_http`, tanto desde el botón como desde el guardado automático.
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from . import manual_check_analysis, portfolio_manual_check
+from . import manager_http, manual_check_analysis, portfolio_manual_check
 from .portfolio_source import PortfolioSource
 
 
@@ -52,6 +52,32 @@ class PortfolioCoordinatorManualCheckMixin:
                 "automatic_manual_check"
             )
         return dict(value) if isinstance(value, dict) else None
+
+    def start_automatic_manual_check(
+        self, node_id: str, scope: str, portfolio_id: int,
+        settings: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Encadena la comprobación sin convertir su fallo en fallo del guardado."""
+        if settings is None:
+            return None
+        try:
+            preview = self.manual_check_preview(node_id, scope, portfolio_id)
+            if not preview.get("strategies"):
+                return {"status": "skipped", "reason": "no_new_strategies"}
+            request = self.manual_check_request(
+                node_id, scope, portfolio_id, settings,
+            )
+            status, value = manager_http.node_request(
+                self._node(node_id), "POST", "/api/v1/jobs/manual-check",
+                request, timeout=120,
+            )
+            if status >= 400:
+                error = value.get("error") if isinstance(value, dict) else value
+                return {"status": "failed", "error": str(error or f"HTTP {status}")}
+            queued = bool(value.get("queued")) if isinstance(value, dict) else False
+            return {"status": "queued" if queued else "started"}
+        except Exception as exc:
+            return {"status": "failed", "error": str(exc)}
 
     def manual_check_request(
         self, node_id: str, scope: str, portfolio_id: int, payload: dict[str, Any]

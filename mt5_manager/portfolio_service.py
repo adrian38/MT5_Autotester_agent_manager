@@ -339,9 +339,15 @@ class PortfolioCoordinator(
             )
             raise_if_cancelled()
             self._mark_job_completed(key, availability, proposals)
+            automatic_save = self.automatic_save_completed(node_id, scope, settings)
+            saved_text = (
+                f" · guardado automáticamente como #{automatic_save['portfolio_id']}"
+                if automatic_save and automatic_save.get("status") == "saved" else ""
+            )
             source.notify(
                 f"Portfolio Builder {operation} listo en {source.broker}/{source.account}: "
                 f"{len(proposals)} propuesta(s)" + (f" para portafolio #{portfolio_id}" if portfolio_id else "")
+                + saved_text
             )
         except PortfolioCalculationCancelled:
             self._mark_job_stopped(key)

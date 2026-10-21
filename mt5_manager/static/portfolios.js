@@ -103,6 +103,8 @@ function formPayload(includeAutomaticCheck = false) {
   booleanFields.forEach(key => { const field = form.elements[key]; if (field) payload[key] = field.checked; });
   payload.disabled_symbols = [...(managerState.settings?.disabled_symbols || [])];
   if (includeAutomaticCheck) {
+    payload.automatic_save = document.querySelector('#generation-auto-save').checked;
+    payload.automatic_save_key = document.querySelector('#generation-auto-save-key').value;
     payload.automatic_manual_check = window.manualCheckAutomation?.payload('generation') ?? null;
   }
   return payload;
@@ -207,6 +209,18 @@ async function loadTaskState() {
     managerState.task = data.task || {};
     if (calculationFinished) {
       await loadManagerState(data.job?.status === 'completed');
+      const automatic = data.job?.automatic_save_result || {};
+      if (automatic.status === 'saved') {
+        await loadPortfolios(automatic.portfolio_id);
+        const manual = automatic.manual_check?.status;
+        const suffix = manual === 'queued' ? ' Comprobación manual encolada.'
+          : manual === 'started' ? ' Comprobación manual iniciada.'
+            : manual === 'skipped' ? ' No había estrategias nuevas que comprobar.'
+              : manual === 'failed' ? ` Falló la comprobación manual: ${automatic.manual_check.error}` : '';
+        toast(`Portafolio #${automatic.portfolio_id} guardado automáticamente.${suffix}`, manual === 'failed');
+      } else if (automatic.status === 'failed') {
+        toast(`Falló el guardado automático: ${automatic.error}. La propuesta sigue disponible.`, true);
+      }
       return;
     }
     jobBadge(managerState.job, managerState.task);

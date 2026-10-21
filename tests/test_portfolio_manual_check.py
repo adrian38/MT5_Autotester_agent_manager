@@ -194,6 +194,8 @@ class NewStrategyTests(unittest.TestCase):
             )
             changes = {
                 "capital": 10000,
+                "automatic_save": True,
+                "automatic_save_key": "aggressive",
                 "automatic_manual_check": {"models": ["tick"], "lot": 0.02},
             }
             with patch.object(
@@ -204,7 +206,9 @@ class NewStrategyTests(unittest.TestCase):
                 coordinator.start("ic", "full_history", changes)
 
         update.assert_called_once_with("ic", "full_history", {"capital": 10000})
-        self.assertEqual(start.call_args.args[-1], {"models": ["tick"], "lot": 0.02})
+        self.assertEqual(start.call_args.args[6], {"models": ["tick"], "lot": 0.02})
+        self.assertTrue(start.call_args.args[7])
+        self.assertEqual(start.call_args.args[8], "aggressive")
 
 
 class ArchiveTests(unittest.TestCase):

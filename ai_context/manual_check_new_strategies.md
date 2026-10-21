@@ -157,22 +157,34 @@ entrada por nodo**, y el modal siguiente de ese agente abre con ellos y lo dice.
   ese momento en cada apertura y en cada lanzamiento.
 - Un fichero ilegible no bloquea el modal: se vuelve a los valores de fábrica.
 
-## Encadenada al primer guardado y a «Arreglar» (2026-10-21)
+## Guardado y comprobación encadenados en construcción, mejora y arreglo (2026-10-21)
 
-La construcción UBS inicial y el modal «Arreglar» ofrecen una casilla
-«Comprobación manual automática», **marcada por defecto**. Al estar marcada aparece un botón exclusivo para
-configurar periodo, lote, reintentos, multiterminal y modelos antes de que el
-nuevo portafolio tenga identificador.
+Los tres flujos ofrecen «Guardar portafolio automáticamente», **marcado por
+defecto**. La comprobación manual automática sólo se puede activar mientras
+ese guardado esté activo: necesita que el nodo haya creado primero la fila del
+portafolio.
+
+- Construcción permite configurar periodo, lote, reintentos, multiterminal y
+  modelos, y elegir Agresivo/Moderado/Conservador como composición de
+  referencia. El nodo guarda siempre el paquete completo con las tres
+  propuestas; el selector no elimina las otras dos y queda deshabilitado al
+  desmarcar el guardado automático.
+- Mejora y arreglo heredan la configuración manual recordada para el agente;
+  no muestran un segundo configurador. Sólo deciden si encadenan o no la
+  comprobación al guardado de su propuesta única.
 
 - La elección viaja dentro del trabajo del constructor, no queda como ajuste
   permanente de construcción ni depende de que el navegador siga abierto.
 - Se lanza después de que el nodo confirma el guardado y el manager invalida su
   snapshot. Antes no existe una fila de portafolio desde la que recalcular las
   estrategias.
-- En una construcción sin antecesor se comprueban todas. En un arreglo se usa
-  el linaje ya guardado y sólo se mandan las incorporadas; las supervivientes
-  no se repiten. Si el arreglo no incorpora ninguna, queda como `skipped` y el
-  guardado sigue siendo correcto.
+- En una construcción sin antecesor se comprueban todas. En mejora y arreglo
+  se usa el linaje ya guardado y sólo se mandan las incorporadas; las
+  supervivientes no se repiten. Si no se incorpora ninguna, queda como
+  `skipped` y el guardado sigue siendo correcto.
+- El encadenado vive en el worker del manager, no en el navegador. Si el
+  guardado automático falla, el cálculo continúa como `completed` y conserva
+  las propuestas para poder guardarlas manualmente.
 - Un fallo al encolar la comprobación no convierte en fallido un portafolio que
   ya quedó guardado: la respuesta y la pantalla declaran el fallo separado.
 - Usa la ruta `jobs/manual-check` que ya existe en IC, AXI y RoboForex; no añade

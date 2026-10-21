@@ -47,8 +47,9 @@
       </div></fieldset>
       <fieldset><legend>Grupos permitidos</legend><div id="repair-groups" class="portfolio-checks"></div></fieldset>
       <fieldset><legend>Después de guardar el arreglo</legend><div class="portfolio-checks manual-check-automatic-row">
-        <label title="Relanza en MT5 únicamente las estrategias incorporadas por este arreglo."><input id="repair-manual-check" type="checkbox" checked> Comprobación manual automática</label>
-        <button id="repair-manual-check-configure" type="button" class="secondary">Configurar comprobación manual</button>
+        <label><input id="repair-auto-save" name="repair_auto_save" type="checkbox" checked> Guardar portafolio automáticamente</label>
+        <label title="Relanza en MT5 únicamente las estrategias incorporadas por este arreglo, con la configuración ya guardada para el agente."><input id="repair-manual-check" type="checkbox" checked> Comprobación manual automática</label>
+        <span class="portfolio-note">Hereda la configuración manual del agente.</span>
       </div></fieldset>
       <p class="portfolio-note"><span id="repair-excluded-count"></span> Las estrategias no excluidas seguirán siendo obligatorias, aunque sus lotes podrán cambiar. Las excluidas no entrarán en el pool y se podrán añadir sustitutas válidas.</p>
       <div class="builder-actions"><button type="button" class="secondary" data-close>Cancelar</button><button type="submit">Iniciar arreglo</button></div>
@@ -127,6 +128,7 @@
       payload.run_local_search = false;
       payload.search_restarts = 0;
     }
+    payload.automatic_save = fields.repair_auto_save.checked;
     payload.automatic_manual_check = window.manualCheckAutomation?.payload('repair') ?? null;
     return payload;
   }

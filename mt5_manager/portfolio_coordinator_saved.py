@@ -10,10 +10,13 @@ import urllib.request
 import uuid
 from typing import Any
 
-from . import candidate_verdict
+from . import candidate_verdict, manager_http
 from .common import safe_int, utc_now
 from .portfolio_identity import LOCKED_VARIANTS, PORTFOLIO_TYPES, normalize_portfolio_alias
-from .portfolio_proposals import serialize_portfolio_proposals
+from .portfolio_proposals import (
+    legacy_compatible_portfolio_save_payload,
+    serialize_portfolio_proposals,
+)
 from .portfolio_scope import PORTFOLIO_SCOPES, normalize_portfolio_scope
 from .portfolio_source import PortfolioSource
 
@@ -87,6 +90,84 @@ class PortfolioCoordinatorSavedMixin:
         # del guardado, asi que sin esto el portafolio recien confirmado no
         # aparece. Igual que en _delete_on_node y en exclude.
         self._invalidate_node_snapshots(node_id)
+
+    def _send_save_payload(
+        self, node_id: str, payload: dict[str, Any],
+    ) -> int:
+        """Persiste en el nodo, con compatibilidad para runtimes anteriores."""
+        node = self._node(node_id)
+        status, value = manager_http.node_request(
+            node, "POST", "/api/v1/portfolios/save", payload, timeout=120,
+        )
+        error_text = str(value.get("error") if isinstance(value, dict) else value or "")
+        if status >= 400 and "unexpected keyword argument" in error_text:
+            status, value = manager_http.node_request(
+                node, "POST", "/api/v1/portfolios/save",
+                legacy_compatible_portfolio_save_payload(payload), timeout=120,
+            )
+        if status == 404:
+            raise ValueError(
+                "El nodo todavía no admite guardado local de portafolios; "
+                "actualiza su código y reinícialo."
+            )
+        if status >= 400 or not isinstance(value, dict):
+            error = value.get("error") if isinstance(value, dict) else value
+            raise ValueError(str(error or f"El nodo devolvió HTTP {status}"))
+        portfolio_id = safe_int(value.get("portfolio_id"), 0)
+        if portfolio_id <= 0 or str(value.get("request_id") or "") != str(payload["request_id"]):
+            raise ValueError("El nodo no confirmó correctamente el guardado")
+        return portfolio_id
+
+    def save_to_node(
+        self, node_id: str, scope: str, selected_key: str,
+    ) -> dict[str, Any]:
+        """Guarda una propuesta UBS y encadena su comprobación configurada."""
+        payload = self.prepare_save(node_id, scope, selected_key)
+        settings = self.pending_automatic_manual_check(node_id, scope)
+        portfolio_id = self._send_save_payload(node_id, payload)
+        self.confirm_save(
+            node_id, scope, str(payload["request_id"]), portfolio_id,
+        )
+        manual_check = self.start_automatic_manual_check(
+            node_id, scope, portfolio_id, settings,
+        )
+        response: dict[str, Any] = {
+            "portfolio_id": portfolio_id,
+            "portfolio_ids": {selected_key: portfolio_id},
+        }
+        if manual_check is not None:
+            response["manual_check"] = manual_check
+        return response
+
+    def automatic_save_completed(
+        self, node_id: str, scope: str, settings: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Guarda al acabar; si falla conserva las propuestas para revisión manual."""
+        key = self._key(node_id, scope)
+        with self.lock:
+            job = dict(self.jobs.get(key) or {})
+            proposals = list(self.proposals.get(key) or [])
+        if not job.get("automatic_save") or not proposals:
+            return None
+        proposal_keys = [str(item.get("key") or "") for item in proposals]
+        selected_key = proposal_keys[0] if len(proposal_keys) == 1 else str(
+            job.get("automatic_save_key") or settings.get("portfolio_type") or "balanced"
+        )
+        try:
+            result = self.save_to_node(node_id, scope, selected_key)
+            automatic_result = {"status": "saved", **result}
+            with self.lock:
+                self.jobs[key]["automatic_save_result"] = automatic_result
+            return automatic_result
+        except Exception as exc:
+            automatic_result = {"status": "failed", "error": str(exc)}
+            with self.lock:
+                current = self.jobs.get(key) or {}
+                current["automatic_save_result"] = automatic_result
+                current["progress"] = "Propuestas listas; falló el guardado automático"
+                log_path = str(current.get("log_path") or "")
+            self._append_job_log(log_path, f"ERROR guardado automático · {exc}")
+            return automatic_result
 
     def saved(self, node_id: str, scope: str, portfolio_id: int | None = None) -> dict[str, Any]:
         source = self._persistence_source(node_id, scope)

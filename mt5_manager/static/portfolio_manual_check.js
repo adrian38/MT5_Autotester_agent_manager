@@ -53,15 +53,21 @@
   let latestCheck = null;
   let dialogMode = 'launch';
   let automationKind = '';
-  const automationSettings = {generation: null, repair: null};
+  const automationSettings = {generation: null, improvement: null, repair: null};
   const automationControls = {
     generation: {
+      save: document.querySelector('#generation-auto-save'),
+      selector: document.querySelector('#generation-auto-save-key'),
       check: document.querySelector('#generation-manual-check'),
       button: document.querySelector('#generation-manual-check-configure'),
     },
+    improvement: {
+      save: document.querySelector('#improvement-auto-save'),
+      check: document.querySelector('#improvement-manual-check'),
+    },
     repair: {
+      save: document.querySelector('#repair-auto-save'),
       check: document.querySelector('#repair-manual-check'),
-      button: document.querySelector('#repair-manual-check-configure'),
     },
   };
 
@@ -215,9 +221,12 @@
       const settings = automationSettings[kind]
         || await postManager('manual-check-settings', {scope});
       applySettings(settings);
-      dialog.querySelector('#manual-check-summary').textContent = kind === 'repair'
-        ? 'Se aplicará al portafolio arreglado y sólo a las estrategias nuevas incorporadas.'
-        : 'Se aplicará al primer portafolio guardado; al no tener antecesor, comprobará todas sus estrategias.';
+      const descriptions = {
+        repair: 'Se aplicará al portafolio arreglado y sólo a las estrategias nuevas incorporadas.',
+        improvement: 'Se aplicará al portafolio mejorado y sólo a las estrategias nuevas incorporadas.',
+        generation: 'Se aplicará al primer portafolio guardado; al no tener antecesor, comprobará todas sus estrategias.',
+      };
+      dialog.querySelector('#manual-check-summary').textContent = descriptions[kind];
     } catch (error) {
       dialog.querySelector('#manual-check-summary').textContent = error.message;
     }
@@ -247,16 +256,25 @@
   }
 
   Object.entries(automationControls).forEach(([kind, controls]) => {
-    if (!controls.check || !controls.button) return;
-    controls.check.addEventListener('change', () => {
-      controls.button.hidden = !controls.check.checked;
-    });
-    controls.button.addEventListener('click', () => openAutomationDialog(kind));
+    if (!controls.save || !controls.check) return;
+    const sync = () => {
+      const enabled = controls.save.checked;
+      controls.check.disabled = !enabled;
+      if (controls.button) controls.button.disabled = !enabled || !controls.check.checked;
+      if (controls.selector) controls.selector.disabled = !enabled;
+    };
+    controls.save.addEventListener('change', sync);
+    controls.check.addEventListener('change', sync);
+    if (controls.button) {
+      controls.button.addEventListener('click', () => openAutomationDialog(kind));
+    }
+    sync();
   });
   window.manualCheckAutomation = {
     payload(kind) {
       const controls = automationControls[kind];
-      return controls?.check?.checked ? (automationSettings[kind] || {}) : null;
+      return controls?.save?.checked && controls?.check?.checked
+        ? (automationSettings[kind] || {}) : null;
     },
   };
 
