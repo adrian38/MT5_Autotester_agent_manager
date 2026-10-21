@@ -96,7 +96,7 @@ falta la ruta, rechaza la petición.
 
 ## Verificación
 
-- `python -m unittest tests.test_symbol_sync tests.test_static_portfolios.NodeCardControlsTests -v`: 10 OK.
+- `python -m unittest tests.test_symbol_sync tests.portfolio.test_static_portfolios.NodeCardControlsTests -v`: 10 OK.
 - `python -m unittest discover -s tests -v`: 412 OK.
 - `node --check mt5_manager/static/app.js`: OK.
 - Navegador con servidor simulado: tarjetas con/sin capacidad y apertura del

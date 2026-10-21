@@ -336,7 +336,7 @@ pantalla lo dice. No es una operación, pero tiene que notarse que no lo es.
   está en `tests/exclusion_memory_fixture.py`.
 - Manager: `tests/test_exclusion_verdict.py` (28, con `RequalifyTests`,
   `RequalifyRoutingTests` y `PoolExclusionRoutingTests`),
-  `tests/test_static_portfolio_transfer.py::ExclusionReasonScreenTests`,
+  `tests/portfolio/test_static_portfolio_transfer.py::ExclusionReasonScreenTests`,
   `tests/test_node_runtime_fork_parity.py` (`test_no_fork_deletes_the_saved_portfolio_when_excluding`,
   las dos del veredicto,
   `test_changing_the_state_of_an_excluded_strategy_reaches_every_reachable_fork`

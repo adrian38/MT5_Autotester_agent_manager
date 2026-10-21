@@ -276,7 +276,7 @@ faltantes y escritura en el nodo. Fixtures y constructores comunes viven en
 `save_proposal`, sets comprometidos, números recalculados y no copiados,
 errores con mensaje y una mejora encadenada que conserva etiqueta, raíz, nivel
 y snapshot.
-`tests/test_static_portfolios.py::PortfolioImportScreenTests` fija el botón y el
+`tests/portfolio/test_static_portfolios.py::PortfolioImportScreenTests` fija el botón y el
 transporte en los tres ámbitos.
 
 ## Variante mostrada en un bundle importado (2026-09-13)

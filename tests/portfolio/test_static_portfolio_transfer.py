@@ -13,7 +13,7 @@ class PortfolioImportScreenTests(unittest.TestCase):
 
     def static(self, name: str) -> str:
         return (
-            Path(__file__).parents[1] / "mt5_manager" / "static" / name
+            Path(__file__).parents[2] / "mt5_manager" / "static" / name
         ).read_text(encoding="utf-8")
 
     def test_every_scope_offers_the_import_button(self) -> None:
@@ -52,7 +52,7 @@ class ExclusionReasonScreenTests(unittest.TestCase):
 
     def static(self, name: str) -> str:
         return (
-            Path(__file__).parents[1] / "mt5_manager" / "static" / name
+            Path(__file__).parents[2] / "mt5_manager" / "static" / name
         ).read_text(encoding="utf-8")
 
     def test_every_scope_has_the_three_verdict_tables(self) -> None:
