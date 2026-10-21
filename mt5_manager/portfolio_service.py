@@ -66,7 +66,7 @@ from portfolio_manager.ubs_portfolio import (
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
-from . import candidate_verdict, dev_branch, portfolio_import
+from . import candidate_verdict, dev_branch, portfolio_import, portfolio_manual_check
 from .common import load_json, safe_float, safe_int, save_json, utc_now
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 # Reexportados a proposito: el esquema salio a su propio modulo, pero los
@@ -522,6 +522,36 @@ class PortfolioCoordinator(PortfolioCoordinatorCoreMixin, PortfolioCoordinatorSa
     ) -> dict[str, Any]:
         return self._persistence_source(node_id, scope).export_member_reports_archive(
             portfolio_id, scope, set_path
+        )
+
+    def manual_check_preview(self, node_id: str, scope: str, portfolio_id: int) -> dict[str, Any]:
+        return portfolio_manual_check.new_strategies(
+            self._persistence_source(node_id, scope), portfolio_id, scope
+        )
+
+    def manual_check_request(
+        self, node_id: str, scope: str, portfolio_id: int, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """La petición que el manager manda al nodo, armada con la memoria de ahora."""
+        return portfolio_manual_check.start_request(
+            self._persistence_source(node_id, scope), portfolio_id, scope, payload
+        )
+
+    def manual_check_sets_archive(
+        self, node_id: str, scope: str, portfolio_id: int
+    ) -> dict[str, Any]:
+        return portfolio_manual_check.sets_archive(
+            self._persistence_source(node_id, scope), portfolio_id, scope
+        )
+
+    def manual_check_state(self, node_id: str, check_id: str) -> dict[str, Any]:
+        return portfolio_manual_check.check_state(
+            PortfolioSource(self._node(node_id)).project, check_id
+        )
+
+    def manual_check_reports_archive(self, node_id: str, check_id: str) -> dict[str, Any]:
+        return portfolio_manual_check.reports_archive(
+            PortfolioSource(self._node(node_id)).project, check_id
         )
 
     def log(self, node_id: str, scope: str, lines: int = 500) -> dict[str, Any]:

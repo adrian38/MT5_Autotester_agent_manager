@@ -18,6 +18,7 @@ from typing import Any
 
 from . import live_account_schedule, live_account_watch
 from . import live_audit_schedule, live_audit_watch, manager_tls, web_push
+from . import manual_check_watch
 from .common import load_json, safe_int, save_json
 from .experiment_service import ExperimentCoordinator
 from .live_account_archive import LiveAccountArchive
@@ -451,6 +452,13 @@ class ManagerServer(ThreadingHTTPServer):
                 self._run_due_live_audits()
             except Exception as exc:
                 sys.stderr.write(f"[live-audit-scheduler] {exc}\n")
+            try:
+                # La comprobación manual la ejecuta el agente, así que su final
+                # sólo se ve mirando al nodo. Va en su propio `try`: un agente
+                # caído no puede llevarse por delante la vuelta del auditor.
+                manual_check_watch.tick(self)
+            except Exception as exc:
+                sys.stderr.write(f"[manual-check-watch] {exc}\n")
             self.live_audit_wakeup.wait(_LIVE_AUDIT_INTERNAL_CHECK_INTERVAL_SECONDS)
             self.live_audit_wakeup.clear()
 

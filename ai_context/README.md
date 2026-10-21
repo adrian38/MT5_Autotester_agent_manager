@@ -99,6 +99,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   correlación entre portafolios guardados de distintos brokers.
 - `portfolio_import.md`: reimportar un portafolio exportado meses después, con
   la memoria ya cambiada.
+- `manual_check_new_strategies.md`: el botón «Comprobación manual», qué
+  cuenta como estrategia nueva, las dos ejecuciones del tester (OHLC y tick a
+  tick), las imágenes que viajan con el informe y quién avisa al terminar.
 
 ## Auditoría de cuenta real
 

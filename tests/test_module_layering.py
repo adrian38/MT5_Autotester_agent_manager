@@ -47,6 +47,7 @@ PORTFOLIO_STACK = [
     "portfolio_source_saved",
     "portfolio_source_reports",
     "portfolio_source",
+    "portfolio_manual_check",
     "portfolio_job_notices",
     "portfolio_coordinator_core",
     "portfolio_coordinator_saved",

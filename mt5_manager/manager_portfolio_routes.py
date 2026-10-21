@@ -268,6 +268,47 @@ def save_grid(handler, node_id: str, scope: str, save_payload: dict) -> None:
     return
 
 
+def manual_check_action(handler, action: str, node: dict, node_id: str, scope: str, body: dict,
+) -> bool:
+    """La comprobación manual de las estrategias nuevas de un portafolio.
+
+    El manager decide qué se comprueba y lee lo que quedó en disco; quien
+    ejecuta MT5 es el agente, así que el arranque es un reenvío.
+    """
+    portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=0)
+    check_id = str(body.get("check_id") or "").strip()
+    if action == "manual-check-preview":
+        handler._send_json(200, handler.server.portfolios.manual_check_preview(
+            node_id, scope, portfolio_id,
+        ))
+    elif action == "manual-check-sets-download":
+        handler._send_download(handler.server.portfolios.manual_check_sets_archive(
+            node_id, scope, portfolio_id,
+        ))
+    elif action == "manual-check-start":
+        request = handler.server.portfolios.manual_check_request(
+            node_id, scope, portfolio_id, body,
+        )
+        status, value = manager_http.node_request(
+            node, "POST", "/api/v1/jobs/manual-check", request, timeout=120,
+        )
+        if status == 404:
+            raise ValueError(
+                "Este agente todavía no tiene la comprobación manual: hay que "
+                "actualizarlo y reiniciarlo."
+            )
+        handler._send_json(status, value)
+    elif action == "manual-check-state":
+        handler._send_json(200, handler.server.portfolios.manual_check_state(node_id, check_id))
+    elif action == "manual-check-download":
+        handler._send_download(
+            handler.server.portfolios.manual_check_reports_archive(node_id, check_id)
+        )
+    else:
+        return False
+    return True
+
+
 def report_action(handler, action: str, node: dict, node_id: str, scope: str, body: dict,
 ) -> bool:
     """Abrir un informe de un miembro, exportarlos todos o leer el log."""
@@ -447,7 +488,7 @@ def transfer_action(handler, action: str, node: dict, node_id: str, scope: str, 
             str(body.get("destination") or "").strip() or None,
         )
         handler._send_json(200, result)
-    else:
+    elif not manual_check_action(handler, action, node, node_id, scope, body):
         return report_action(handler, action, node, node_id, scope, body)
     return True
 
