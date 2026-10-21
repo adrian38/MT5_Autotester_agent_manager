@@ -363,7 +363,7 @@ el resultado. Que MT5 conserve esa cuenta en disco tras cerrarse depende del pro
 terminal, y eso solo se puede observar en un pase real del proceso embebido, que
 corre como el usuario `test`. Está portado a
 `manager_node_runtime/live_audit.py` de ICTrading, con guarda de paridad en
-`tests/test_node_runtime_fork_parity.py`.
+`tests/node/test_node_runtime_fork_parity.py`.
 
 ## La auditoría automática queda desarmada (2026-08-23)
 

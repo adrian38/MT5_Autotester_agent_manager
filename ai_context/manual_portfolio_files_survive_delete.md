@@ -90,12 +90,12 @@ vez de dejarlo a medias.
 FUTURE es de una generación anterior: no tiene `manual_portfolio.py` ni las tres
 rutas de «Solo portafolio», así que no puede crear ninguna de estas carpetas. El
 día que converja con las otras ramas se llevará esto en el mismo merge. Por eso
-tampoco está en `FORK_CANDIDATES` de `tests/node_runtime_parity_base.py`.
+tampoco está en `FORK_CANDIDATES` de `tests/node/node_runtime_parity_base.py`.
 
 Las tres copias portadas necesitan **reiniciar la aplicación del agente**: el
 nodo va embebido en `app_ui.py` y no recarga el módulo solo.
 
 `test_deleting_a_manual_portfolio_frees_its_disk_on_every_reachable_fork`
-(`tests/test_node_runtime_fork_parity.py`) exige en toda copia montada las dos
+(`tests/node/test_node_runtime_fork_parity.py`) exige en toda copia montada las dos
 funciones, la llamada desde `delete_portfolio` —portarlas sin llamarlas no
 cambia nada— y la prueba propia del agente.

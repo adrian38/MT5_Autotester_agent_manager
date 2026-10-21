@@ -493,7 +493,7 @@ class PortfolioSourceSavedMixin:
         REGLA DUPLICADA. El agente no ejecuta esto: reimplementa la misma regla en
         `manager_node_runtime/portfolio_save.py::exclude_portfolio_members_payload`.
         Cambiar solo aquí no tiene efecto para el usuario. Portar el cambio y
-        comprobarlo con `tests/test_node_runtime_fork_parity.py`.
+        comprobarlo con `tests/node/test_node_runtime_fork_parity.py`.
         """
         portfolio_id = safe_int(payload.get("portfolio_id"), 0)
         if portfolio_id < 1:
@@ -561,7 +561,7 @@ class PortfolioSourceSavedMixin:
         REGLA DUPLICADA. Igual que `remove_member_to_quarantine`: el agente la
         reimplementa en `manager_node_runtime/portfolio_save.py`, y es la copia del
         agente la que se ejecuta cuando el usuario pulsa el botón. Portar allí todo
-        cambio de criterio; `tests/test_node_runtime_fork_parity.py` lo verifica.
+        cambio de criterio; `tests/node/test_node_runtime_fork_parity.py` lo verifica.
         """
         portfolio_id = safe_int(payload.get("portfolio_id"), 0)
         if portfolio_id < 1:

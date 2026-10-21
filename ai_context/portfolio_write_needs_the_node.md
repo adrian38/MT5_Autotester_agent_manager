@@ -86,5 +86,5 @@ depender de un endpoint portado a mano.
   escritura, qué dice un nodo sin portar, que un nodo que no confirma no se cree, y
   que la memoria local sigue escribiéndose desde el manager. La última fija la
   traducción del `disk I/O error` a un mensaje accionable.
-- `tests/test_node_runtime_fork_parity.py::test_changing_the_state_of_an_excluded_strategy_reaches_every_reachable_fork`.
+- `tests/node/test_node_runtime_fork_parity.py::test_changing_the_state_of_an_excluded_strategy_reaches_every_reachable_fork`.
 - Agente IC: `tests/test_manager_node_portfolio_save.py::ManagerNodeRequalifyTests`.

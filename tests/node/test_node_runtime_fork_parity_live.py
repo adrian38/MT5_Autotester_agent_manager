@@ -10,7 +10,7 @@ try:
         fork_live_audit_source, fork_node_source, manager_node_source,
     )
 except ImportError:
-    from node_runtime_parity_base import (
+    from tests.node.node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
         fork_live_audit_source, fork_node_source, manager_node_source,
     )

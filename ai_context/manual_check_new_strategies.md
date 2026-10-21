@@ -39,7 +39,7 @@ que no está en **ningún** antecesor: `improvement_origin.source_id`,
 **Esto no lo ejecuta el manager**: lanzar MT5 es del agente, así que vive en
 `manager_node_runtime/` y hay tres copias (IC, AXI, RoboForex). FUTURE está
 congelado y queda fuera. Lo exige
-`tests/test_node_runtime_fork_parity.py::test_manual_check_reaches_every_reachable_fork`.
+`tests/node/test_node_runtime_fork_parity.py::test_manual_check_reaches_every_reachable_fork`.
 
 ## Dos ejecuciones, no una
 

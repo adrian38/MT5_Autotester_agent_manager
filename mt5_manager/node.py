@@ -11,7 +11,7 @@ agentes. La copia del agente reimplementa esas reglas en
 `manager_node_runtime/portfolio_save.py` con otros nombres de función, así que no
 la encuentra ni el grafo ni una búsqueda por símbolo: hay que buscarla por el
 texto del mensaje al usuario. Ver `ai_context/node_runtime_is_forked_per_agent.md`
-y `tests/test_node_runtime_fork_parity.py`, que falla si las copias divergen.
+y `tests/node/test_node_runtime_fork_parity.py`, que falla si las copias divergen.
 """
 
 from __future__ import annotations

@@ -31,13 +31,13 @@ MANAGER_WARNING = (
     "buscándola por el TEXTO del mensaje al usuario (no por el nombre de la función), "
     "duplicar la prueba en `tests/test_manager_node_*.py` del agente, reiniciar la "
     "aplicación del agente y comprobar con "
-    "`python -m unittest tests.test_node_runtime_fork_parity`."
+    "`python -m unittest tests.node.test_node_runtime_fork_parity`."
 )
 
 AGENT_WARNING = (
     "Has editado la copia bifurcada del nodo. Comprobar que la regla equivalente del "
     "manager (`mt5_manager/portfolio_service.py`) no se ha quedado atrás y ejecutar "
-    "`python -m unittest tests.test_node_runtime_fork_parity` en el manager."
+    "`python -m unittest tests.node.test_node_runtime_fork_parity` en el manager."
 )
 
 

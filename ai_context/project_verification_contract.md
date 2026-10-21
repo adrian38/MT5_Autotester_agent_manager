@@ -67,7 +67,7 @@ La autorización amplía la ubicación y nunca el objetivo pedido.
 
 `test_agents_contract_documents_the_enforced_workflow` exigía esa cabecera
 aunque detrás no quedase ninguna guarda; desde el 2026-10-19 exige
-`tests/test_node_runtime_fork_parity.py`, que sí falla sola. El candado de
+`tests/node/test_node_runtime_fork_parity.py`, que sí falla sola. El candado de
 `mt5_manager/dev_branch.py` sigue en el árbol e inerte fuera de `dev`: la rama
 no se usa hoy, pero el raíl importa más con los tres agentes en el mismo
 equipo que cuando estaban repartidos.

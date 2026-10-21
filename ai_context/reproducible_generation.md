@@ -64,7 +64,7 @@ Detalles que costaron tiempo y conviene no volver a investigar:
 Arreglado con `if value is None: return` en `_add`, en el manager y en la copia del
 agente. Lo vigilan `tests/node/test_node.py`
 (`test_build_generation_command_omits_the_seed_when_it_is_random`),
-`tests/test_node_runtime_fork_parity.py`
+`tests/node/test_node_runtime_fork_parity.py`
 (`test_optional_cli_values_are_omitted_instead_of_stringified_on_every_fork`) y
 `tests/test_manager_node_regression.py` del agente.
 

@@ -20,7 +20,7 @@ Copias conocidas:
 | RoboForex | `G:\TRADING\MT5_Autotester_agent\manager_node_runtime\node.py` |
 
 La ruta de ICTrading cambia de equipo. La lista viva es `FORK_CANDIDATES` de
-`tests/node_runtime_parity_base.py`: la paridad recorre todas y salta las que no
+`tests/node/node_runtime_parity_base.py`: la paridad recorre todas y salta las que no
 están montadas, así que una copia nueva se declara ahí y no aquí. **El árbol de
 directorios no decide**: en este equipo las tres copias (IC, AXI y RoboForex)
 están montadas y en ramas distintas; mirar `git branch` antes de dar una por

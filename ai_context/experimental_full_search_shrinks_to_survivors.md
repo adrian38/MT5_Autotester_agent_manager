@@ -305,7 +305,7 @@ Las dos pruebas experimentales que doblaban la primitiva (`run_once`,
 
 Nada que portar al fork del nodo: buscando por el texto del mensaje
 (`antirrelleno`, `aporte mínimo`, `reabrir el pool`) en la copia ICTrading solo
-aparece `requirements.md`, y `tests.test_node_runtime_fork_parity` sigue en
+aparece `requirements.md`, y `tests.node.test_node_runtime_fork_parity` sigue en
 verde (17 pruebas). Este cálculo lo ejecuta el manager Docker, así que
 **el cambio no surte efecto hasta reconstruir la imagen y reiniciar el
 manager**; editar el fichero no altera una generación en curso.

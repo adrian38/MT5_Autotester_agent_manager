@@ -9,7 +9,7 @@ una salida muy larga. Es el mismo desfase que tenia escrita a mano
 `ai_context/`.
 
 Por eso hay una **lista de candidatas** que se recorre, como ya hacia
-`tests/node_runtime_parity_base.FORK_CANDIDATES`, y quien la use dice cuales
+`tests/node/node_runtime_parity_base.FORK_CANDIDATES`, y quien la use dice cuales
 salto. Anadir un equipo es anadir una linea; derivarla de donde este el manager
 vuelve a romperlo en silencio.
 

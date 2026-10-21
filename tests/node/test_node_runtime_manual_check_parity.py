@@ -12,7 +12,9 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source
 except ImportError:
-    from node_runtime_parity_base import MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source
+    from tests.node.node_runtime_parity_base import (
+        MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source,
+    )
 
 
 class ManualCheckForkParityTests(NodeRuntimeForkParityBase):

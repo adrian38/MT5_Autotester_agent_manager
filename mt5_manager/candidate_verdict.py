@@ -41,7 +41,7 @@ REGLA DUPLICADA. La escritura la ejecuta el nodo del agente, no este proceso:
 `manager_node_runtime/portfolio_save.py::exclude_portfolio_members_payload`
 reimplementa lo mismo llamando a `ubs.manual_status`. Cambiar solo aquí no tiene
 efecto para el usuario. Ver `ai_context/node_runtime_is_forked_per_agent.md` y
-`tests/test_node_runtime_fork_parity.py`.
+`tests/node/test_node_runtime_fork_parity.py`.
 
 La cascada borra filas, así que el veredicto **no es reversible por sí solo**:
 antes de aplicarlo se guarda una copia literal de las filas afectadas en

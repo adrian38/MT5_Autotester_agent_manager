@@ -46,7 +46,7 @@ class VerifyProjectTests(unittest.TestCase):
         """
         rules = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         for required in (
-            "tests/test_node_runtime_fork_parity.py",
+            "tests/node/test_node_runtime_fork_parity.py",
             "python -m tools.verify_project",
             "python -m tools.verify_project --full",
             "sólo cuando el usuario lo pida explícitamente",

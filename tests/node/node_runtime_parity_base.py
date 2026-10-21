@@ -5,11 +5,11 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.agent_projects import IC_PROJECT_CANDIDATES  # noqa: E402
 
-MANAGER_ROOT = Path(__file__).parents[1]
+MANAGER_ROOT = Path(__file__).parents[2]
 MANAGER_RULES = tuple(
     MANAGER_ROOT / "mt5_manager" / name
     for name in (

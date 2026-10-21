@@ -40,5 +40,5 @@ se rechaza sin decir por qué.
 `mt5_manager/node.py` y sus diez módulos hermanos **no** tienen esa restricción:
 la copia del agente está renombrada y diverge a propósito. Lo único que los une
 es el texto del mensaje al usuario, y de eso se ocupa
-`tests/test_node_runtime_fork_parity*.py` a través de `manager_node_source()`,
+`tests/node/test_node_runtime_fork_parity*.py` a través de `manager_node_source()`,
 que concatena todos los `node*.py` para comparar criterios y no ficheros.
