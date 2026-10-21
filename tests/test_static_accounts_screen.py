@@ -203,14 +203,21 @@ class CriterionTests(unittest.TestCase):
     def test_the_two_months_are_side_by_side_but_their_metrics_are_vertical(self) -> None:
         css = (STATIC / "accounts.css").read_text(encoding="utf-8")
         self.assertIn('<div class="month-comparison">', SCRIPT)
+        self.assertIn(".metric-row{display:grid;gap:12px;", css)
         self.assertIn(
-            ".month-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));",
+            ".month-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));"
+            "grid-template-rows:auto auto auto;column-gap:1px;row-gap:0;",
             css,
         )
-        self.assertIn(".metric-row{display:grid;gap:12px;", css)
+        self.assertIn(
+            ".month-comparison .metric-row{grid-row:span 3;grid-template-rows:subgrid;"
+            "align-content:start}",
+            css,
+        )
+        self.assertIn(".metric{display:grid;align-content:start;gap:4px}", css)
+        self.assertIn(".month-comparison{grid-template-columns:1fr;row-gap:1px}", css)
         self.assertNotIn(".metric-row{display:grid;grid-template-columns:", css)
         self.assertIn("@media(max-width:480px){", css)
-        self.assertIn(".month-comparison{grid-template-columns:1fr}", css)
 
 
 if __name__ == "__main__":

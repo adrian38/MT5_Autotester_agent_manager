@@ -30,11 +30,14 @@ main{padding:26px max(24px,5vw) 64px}
 .metric-rows{display:grid;gap:1px;border-block:1px solid var(--line);background:var(--line)}
 /* Hoy ocupa todo el ancho. Los dos meses van juntos para comparar columna con
    columna; dentro de cada mes, beneficio y drawdown conservan el orden vertical. */
-.month-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line)}
+.month-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto auto auto;column-gap:1px;row-gap:0;background:var(--line)}
 .metric-row{display:grid;gap:12px;padding:15px 20px;background:#0d1721}
+/* Subgrid: los dos meses comparten las tres filas del padre, asi que etiqueta,
+   beneficio y drawdown caen a la misma altura aunque un mes lleve una nota mas. */
+.month-comparison .metric-row{grid-row:span 3;grid-template-rows:subgrid;align-content:start}
 .metric-row>.metric-label{color:var(--muted);font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
 .metric-row.earlier{background:#0a141d}
-.metric{display:grid;gap:4px}.metric span{color:var(--muted);font-size:11px}
+.metric{display:grid;align-content:start;gap:4px}.metric span{color:var(--muted);font-size:11px}
 .metric strong{font-size:19px;font-variant-numeric:tabular-nums}
 .metric strong.good{color:var(--accent2)}.metric strong.bad{color:var(--danger)}
 .metric small{color:var(--muted);font-size:11px;line-height:1.45}.metric small em{font-style:normal;font-weight:750}.metric small em.good{color:var(--accent2)}.metric small em.bad{color:var(--danger)}
@@ -60,4 +63,4 @@ fieldset{margin:0;padding:14px;border:1px solid var(--line);border-radius:11px}l
 dialog footer{display:flex;justify-content:flex-end;gap:10px}
 @media(max-width:900px){header{align-items:start;flex-direction:column}.header-actions{justify-content:flex-start}.accounts{grid-template-columns:1fr}}
 @media(max-width:600px){header,main{padding-inline:18px}.header-actions{width:100%}.header-actions>*{flex:1 1 auto}}
-@media(max-width:480px){.month-comparison{grid-template-columns:1fr}.total-months{gap:12px}.total-months>div+div{padding-left:12px}}
+@media(max-width:480px){.month-comparison{grid-template-columns:1fr;row-gap:1px}.total-months{gap:12px}.total-months>div+div{padding-left:12px}}
