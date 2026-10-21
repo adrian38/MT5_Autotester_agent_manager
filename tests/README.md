@@ -12,10 +12,11 @@ ejecuta cuando el usuario la pide explícitamente.
   comenzado por creación, consulta y borrado de portafolios manuales.
 - `integration/`: integración HTTP local entre manager y nodo, separada en API
   general, portafolios y flujos del nodo.
+- `manager/`: ciclo de vida, estado e infraestructura del proceso manager.
 - La raíz conserva temporalmente los módulos todavía no migrados.
-- Los siguientes grupos se moverán de forma incremental a `live_audit/`,
-  `manager/` y `node/`; los comportamientos restantes de
-  portafolios se incorporarán a `portfolio/` por unidades completas.
+- Los siguientes grupos se moverán de forma incremental a `live_audit/` y
+  `node/`; los comportamientos restantes se incorporarán a `manager/` y
+  `portfolio/` por unidades completas.
 
 Cada carpeta descubierta por `unittest` lleva `__init__.py`. Un traslado agrupa
 un comportamiento completo, actualiza sus imports y comandos, y conserva el

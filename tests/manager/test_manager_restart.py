@@ -146,7 +146,7 @@ class ManagerRestartWorkerTests(unittest.TestCase):
 
 class ManagerRestartDockerContractTests(unittest.TestCase):
     def test_image_and_compose_expose_the_self_restart_dependencies(self) -> None:
-        root = Path(__file__).parents[1]
+        root = Path(__file__).parents[2]
         dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
         compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertIn("apt-get install -y --no-install-recommends ca-certificates git", dockerfile)

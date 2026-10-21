@@ -53,7 +53,7 @@ anotan y vuelven a entrar en cada renovación. Antes, un
 `python -m tools.make_local_cert` sin argumentos —lo que dice el README cuando
 cambia una IP— regeneraba el certificado **sin** el dominio y reaparecía el
 fallo de arriba, a distancia de semanas de su causa. Lo cierra
-`tests/test_manager_tls.py`.
+`tests/manager/test_manager_tls.py`.
 
 ## Antes de culpar al router
 

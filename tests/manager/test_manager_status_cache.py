@@ -1,3 +1,5 @@
+"""Conservación del último estado válido de los nodos en el manager."""
+
 from __future__ import annotations
 
 import threading

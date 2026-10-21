@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from cryptography import x509
 
@@ -173,7 +173,7 @@ class TlsConfigurationTests(unittest.TestCase):
         # Miraba si el fichero existe, no si el manager lo está usando: con
         # MT5_MANAGER_TLS=off y el certificado todavía en runtime/tls sondeaba
         # https contra un servidor en http y el contenedor salía «unhealthy».
-        dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(
+        dockerfile = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text(
             encoding="utf-8",
         )
         healthcheck = dockerfile.split("HEALTHCHECK", 1)[1]

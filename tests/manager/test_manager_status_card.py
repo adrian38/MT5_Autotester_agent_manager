@@ -50,7 +50,7 @@ assert.ok(element('#nodes').innerHTML.includes('Sin conexión'));
 """
         result = subprocess.run(
             [shutil.which("node"), "-e", script],
-            cwd=Path(__file__).resolve().parents[1],
+            cwd=Path(__file__).resolve().parents[2],
             capture_output=True, text=True, encoding="utf-8", timeout=15,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
