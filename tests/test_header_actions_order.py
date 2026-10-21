@@ -44,6 +44,21 @@ MOUNTS = {
     "live_audit_schedule.js": (BELL,),
 }
 
+RESTART_MOUNT = "manager_restart.js"
+"""El unico que **anade al final** en vez de colarse delante del ancla.
+
+Monta `#restart-manager` donde la pantalla no lo trae escrito, y por eso se
+carga el primero: los otros dos se colocan justo delante de ese boton.
+"""
+RESTART_LABEL = "Reiniciar manager"
+BACK = "Volver al generador"
+AUDITOR_BACK = "Volver al auditor"
+"""La vuelta lleva al generador, que es de donde se entra a estas pantallas.
+
+La raiz es la portada de cuentas desde el 2026-10-?? y «Volver al manager»
+dejaba al usuario en otra pantalla distinta de la que venia.
+"""
+
 
 VOID_TAGS = frozenset({"br", "hr", "img", "input", "link", "meta", "source"})
 
@@ -107,7 +122,8 @@ def _first(children: list[dict[str, str]], selector: str) -> dict[str, str] | No
 
 def _mount_order(source: str) -> list[str]:
     """Los scripts que esta página monta, en el orden en que corren."""
-    found = [(source.index(f"/{name}"), name) for name in MOUNTS if f"/{name}" in source]
+    names = [*MOUNTS, RESTART_MOUNT]
+    found = [(source.index(f"/{name}"), name) for name in names if f"/{name}" in source]
     return [name for _position, name in sorted(found)]
 
 
@@ -116,6 +132,10 @@ def rendered_order(page: str) -> list[str]:
     children = header_actions(page)
     source = (STATIC / page).read_text(encoding="utf-8")
     for name in _mount_order(source):
+        if name == RESTART_MOUNT:
+            if _first(children, RESTART) is None:
+                children.append({"id": "restart-manager", "href": "", "text": RESTART_LABEL})
+            continue
         anchor = _first(children, RESTART) or _first(children, BACK_LINK)
         index = children.index(anchor) if anchor else len(children)
         labels = MOUNTS[name]
@@ -141,22 +161,30 @@ class HeaderActionsOrderTests(unittest.TestCase):
     EXPECTED = {
         "accounts.html": [
             "Actualizando…", "Actualizar", "Portafolios activos", "Generación",
-            ACCOUNT_CRON, BELL, "Reiniciar manager",
+            ACCOUNT_CRON, BELL, RESTART_LABEL,
         ],
+        "correlation.html": ["Cargando…", "Actualizar", BACK, BELL, RESTART_LABEL],
         "dashboard.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Generación",
-            "Experimenta", "Correlación", CRON, BELL,
-            "Reiniciar manager",
+            "Experimenta", "Correlación", CRON, BELL, RESTART_LABEL,
         ],
+        "experiment.html": ["Cargando…", "Actualizar", BACK, BELL, RESTART_LABEL],
         "index.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Portafolios activos",
-            "Experimenta", "Correlación", BELL,
-            "Reiniciar manager",
+            "Experimenta", "Correlación", BELL, RESTART_LABEL,
         ],
-        "live_audit.html": ["⚙ Cuenta final", BELL, "Volver al manager"],
-        "portfolios.html": ["Actualizar", BELL, "Volver al manager"],
-        "portfolios_grid.html": ["Actualizar", BELL, "Volver al manager"],
-        "portfolios_monthly.html": ["Actualizar", BELL, "Volver al manager"],
+        "live_audit.html": ["⚙ Cuenta final", BACK, BELL, RESTART_LABEL],
+        "live_audit_analysis.html": [
+            "Lotes por estrategia", "Atribuir reales sin pareja",
+            "Ver detalle de operaciones", AUDITOR_BACK, BELL, RESTART_LABEL,
+        ],
+        "live_audit_result.html": [AUDITOR_BACK, BELL, RESTART_LABEL],
+        "manual_portfolios.html": ["Crear portafolio", BACK, BELL, RESTART_LABEL],
+        "portfolio_manual.html": ["Portafolios manuales", BACK, BELL, RESTART_LABEL],
+        "portfolios.html": ["Actualizar", BACK, BELL, RESTART_LABEL],
+        "portfolios_grid.html": ["Actualizar", BACK, BELL, RESTART_LABEL],
+        "portfolios_monthly.html": ["Actualizar", BACK, BELL, RESTART_LABEL],
+        "universe.html": ["Actualizar", BACK, BELL, RESTART_LABEL],
     }
 
     def test_every_screen_that_loads_the_script_is_declared_here(self) -> None:
@@ -176,14 +204,50 @@ class HeaderActionsOrderTests(unittest.TestCase):
             with self.subTest(page=page):
                 self.assertEqual(CRON in expected, page == "dashboard.html")
                 self.assertIn(BELL, expected)
-                if expected[-1] != BELL:
-                    self.assertEqual(expected[-2], BELL)
-                    self.assertIn(expected[-1], {"Reiniciar manager", "Volver al manager"})
 
     def test_updating_is_always_the_first_pair(self) -> None:
+        # Donde hay boton de actualizar manda la fila; las pantallas que no lo
+        # tienen empiezan por su control propio, no por la vuelta.
         for page, expected in self.EXPECTED.items():
             with self.subTest(page=page):
-                self.assertIn(expected[0], {"Actualizando…", "Actualizar", "⚙ Cuenta final"})
+                if "Actualizar" not in expected:
+                    continue
+                self.assertIn(expected[0], {"Actualizando…", "Cargando…", "Actualizar"})
+                # Como mucho detras de su propio rotulo de estado.
+                self.assertLessEqual(expected.index("Actualizar"), 1)
+
+    def test_the_bell_and_the_restart_reach_every_screen(self) -> None:
+        # Peticion del usuario (2026-10-21): la campana y el reinicio no son de
+        # una pantalla, son del manager entero. El reinicio cierra la fila
+        # siempre, y la campana va justo delante.
+        pages = {page.name for page in STATIC.glob("*.html")}
+        self.assertEqual(set(self.EXPECTED), pages)
+        for page, expected in self.EXPECTED.items():
+            with self.subTest(page=page):
+                self.assertEqual(expected[-1], RESTART_LABEL)
+                self.assertEqual(expected[-2], BELL)
+
+    def test_the_restart_mount_appends_instead_of_jumping_the_queue(self) -> None:
+        script = (STATIC / RESTART_MOUNT).read_text(encoding="utf-8")
+        for expression in (
+            "document.querySelector('#restart-manager')",
+            "actions.appendChild(button)",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, script)
+        # Lo cargan todas menos las tres que ya traen el boton escrito.
+        written = {"accounts.html", "dashboard.html", "index.html"}
+        for page in STATIC.glob("*.html"):
+            source = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.name):
+                self.assertEqual(f"/{RESTART_MOUNT}" in source, page.name not in written)
+                if page.name in written:
+                    continue
+                self.assertLess(
+                    source.index(f"/{RESTART_MOUNT}"), source.index("/live_audit_schedule.js"),
+                    "la campana se coloca delante de `#restart-manager`: si el boton se "
+                    "monta despues, la campana se queda en mitad de la fila",
+                )
 
     def test_the_account_cron_mounts_one_header_button(self) -> None:
         script = (STATIC / "live_account_schedule.js").read_text(encoding="utf-8")

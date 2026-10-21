@@ -69,6 +69,9 @@ STATIC_FILES = {
     # y los iconos son lo que iOS exige para instalarlo en la pantalla de
     # inicio, que es el unico modo de que Safari acepte avisos.
     "sw.js", "web_push.js", "manifest.webmanifest",
+    # El boton «Reiniciar manager» de las pantallas que no lo traen escrito
+    # en su HTML. Se carga antes que la campana, que se coloca delante de el.
+    "manager_restart.js",
     "icon-192.png", "icon-512.png", "icon-180.png",
     "universe.html", "universe.js",
     "live_audit.html", "live_audit.js", "live_audit_autolot.js", "live_audit.css",

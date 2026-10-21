@@ -53,11 +53,18 @@ class LivePortfolioDashboardTests(unittest.TestCase):
              for anchor in self.page.xpath("//nav//a")}["Generación"],
             "/generation.html",
         )
+        # La vuelta de las pantallas de dentro es al generador, que es de
+        # donde se entra a ellas (peticion del usuario, 2026-10-21). No es un
+        # callejon sin salida: el generador si enlaza a la raiz, que es lo que
+        # comprueban las tres lineas de arriba.
         for name in sorted(STATIC_FILES):
             if not name.endswith(".html") or name == "dashboard.html":
                 continue
             page = (Path(__file__).parents[1] / "mt5_manager" / "static" / name)
-            self.assertIn('href="/"', page.read_text(encoding="utf-8"), name)
+            source = page.read_text(encoding="utf-8")
+            self.assertTrue(
+                'href="/"' in source or 'href="/generation.html"' in source, name,
+            )
 
     def test_only_profiles_marked_as_live_are_loaded(self) -> None:
         self.assertIn("/api/live-dashboard", self.script)

@@ -12,7 +12,13 @@ import re
 import unittest
 from pathlib import Path
 
+from mt5_manager.correlation_routes import STATIC_FILES as CORRELATION_FILES
+from mt5_manager.experiment_routes import STATIC_FILES as EXPERIMENT_FILES
 from mt5_manager.manager_handler import STATIC_DIR, STATIC_FILES
+
+
+SERVED = STATIC_FILES | CORRELATION_FILES | EXPERIMENT_FILES
+"""Las tres puertas: la lista general y las dos pantallas con ruta propia."""
 
 
 REFERENCE = re.compile(r"""(?:src|href)=["']/([A-Za-z0-9_.-]+\.(?:js|css|webmanifest))["']""")
@@ -21,13 +27,14 @@ REFERENCE = re.compile(r"""(?:src|href)=["']/([A-Za-z0-9_.-]+\.(?:js|css|webmani
 class StaticAssetsServedTest(unittest.TestCase):
     def test_every_asset_referenced_by_a_page_is_served(self) -> None:
         missing: dict[str, set[str]] = {}
+        # Todas: las que no estan en la lista las sirve su propia ruta
+        # (`/`, `/generation.html`, correlacion, experimenta), y lo que piden
+        # sale igualmente de la lista.
         for page in sorted(STATIC_DIR.glob("*.html")):
-            if page.name not in STATIC_FILES and page.name != "index.html":
-                continue
             referenced = set(REFERENCE.findall(page.read_text(encoding="utf-8")))
             absent = {
                 name for name in referenced
-                if name not in STATIC_FILES and (STATIC_DIR / name).is_file()
+                if name not in SERVED and (STATIC_DIR / name).is_file()
             }
             if absent:
                 missing[page.name] = absent
