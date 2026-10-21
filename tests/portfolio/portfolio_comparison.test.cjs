@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const api = require('../mt5_manager/static/portfolio_comparison.js');
+const api = require('../../mt5_manager/static/portfolio_comparison.js');
 const member = (id, units = 1) => ({candidate_id: id, set_path: `${id}.set`, units, lot: units * .01, symbol: 'EURUSD'});
 const improved = () => ({id: 19, portfolio_type: 'balanced', total_net_profit: 130, actual_valley_dd: 10, members: [member('IC/STANDARD:1', 2), member('2')], metrics: {inputs: {improvement_source_portfolio_id: 9, improvement_portfolio_type: 'balanced'}, seasonal_validation: {portfolio_improvement: {baseline: {net_profit: 100, valley_dd: 12}}}}});
 const original = () => ({id: 9, portfolio_type: 'bundle', capital: 5000, total_net_profit: 99999, metrics: {variants: {balanced: {summary: {total_net_profit: 100, actual_valley_dd: 12}}, aggressive: {summary: {total_net_profit: 99999}}}}, members: [{...member('1'), variant_key:'balanced'}, {...member('other'), variant_key:'aggressive'}]});
