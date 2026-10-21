@@ -35,7 +35,7 @@
           <label title="Guarda el paquete completo con las tres variantes al terminar el cálculo."><input id="generation-auto-save" type="checkbox" checked> Guardar portafolio automáticamente</label>
           <label>Composición de referencia<select id="generation-auto-save-key"><option value="aggressive">Agresiva</option><option value="balanced" selected>Moderada</option><option value="conservative">Conservadora</option></select></label>
           <label title="Al guardar el portafolio, relanza en MT5 únicamente sus estrategias nuevas."><input id="generation-manual-check" type="checkbox" checked> Comprobación manual automática</label>
-          <button id="generation-manual-check-configure" type="button" class="secondary">Configurar comprobación manual</button>
+          <button id="generation-manual-check-configure" type="button" class="secondary" hidden>Configurar comprobación manual</button>
         </div><p class="portfolio-note">El guardado conserva siempre las tres propuestas A/M/C; la selección indica cuál queda como referencia del paquete.</p></fieldset>
         <div class="builder-actions"><button id="portfolio-log" type="button" class="secondary" disabled>Ver log del cálculo</button><button id="stop-calculation" type="button" class="danger" disabled>Detener</button><button id="reset-settings" type="button" class="secondary">Restablecer</button><button id="save-settings" type="button" class="secondary">Guardar configuración</button><button id="generate-proposals" type="submit">Generar propuestas</button></div>
       </form>

@@ -64,10 +64,12 @@
     improvement: {
       save: document.querySelector('#improvement-auto-save'),
       check: document.querySelector('#improvement-manual-check'),
+      button: document.querySelector('#improvement-manual-check-configure'),
     },
     repair: {
       save: document.querySelector('#repair-auto-save'),
       check: document.querySelector('#repair-manual-check'),
+      button: document.querySelector('#repair-manual-check-configure'),
     },
   };
 
@@ -260,7 +262,10 @@
     const sync = () => {
       const enabled = controls.save.checked;
       controls.check.disabled = !enabled;
-      if (controls.button) controls.button.disabled = !enabled || !controls.check.checked;
+      if (controls.button) {
+        controls.button.hidden = !controls.check.checked;
+        controls.button.disabled = !enabled;
+      }
       if (controls.selector) controls.selector.disabled = !enabled;
     };
     controls.save.addEventListener('change', sync);

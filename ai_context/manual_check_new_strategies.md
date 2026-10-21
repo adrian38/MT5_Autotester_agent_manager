@@ -169,9 +169,12 @@ portafolio.
   referencia. El nodo guarda siempre el paquete completo con las tres
   propuestas; el selector no elimina las otras dos y queda deshabilitado al
   desmarcar el guardado automático.
-- Mejora y arreglo heredan la configuración manual recordada para el agente;
-  no muestran un segundo configurador. Sólo deciden si encadenan o no la
-  comprobación al guardado de su propuesta única.
+- Mejora y arreglo conservan el modo del portafolio de origen; el texto que lo
+  indica es informativo porque esa herencia ya formaba parte de ambos flujos.
+  La configuración de la comprobación manual es otra cosa: se puede editar para
+  ese trabajo con «Configurar comprobación manual», visible sólo cuando
+  «Comprobación manual automática» está marcado. El modal parte del ajuste
+  recordado del agente, pero el cambio viaja con ese trabajo y no lo sustituye.
 
 - La elección viaja dentro del trabajo del constructor, no queda como ajuste
   permanente de construcción ni depende de que el navegador siga abierto.

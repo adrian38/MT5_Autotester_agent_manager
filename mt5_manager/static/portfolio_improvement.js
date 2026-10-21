@@ -60,8 +60,9 @@
       </fieldset>
       <fieldset><legend>Al terminar la mejora</legend><div class="portfolio-checks manual-check-automatic-row">
         <label><input id="improvement-auto-save" name="improvement_auto_save" type="checkbox" checked> Guardar portafolio automáticamente</label>
-        <label title="Relanza en MT5 únicamente las estrategias incorporadas por esta mejora, con la configuración ya guardada para el agente."><input id="improvement-manual-check" type="checkbox" checked> Comprobación manual automática</label>
-        <span class="portfolio-note">Hereda la configuración manual del agente.</span>
+        <label title="Relanza en MT5 únicamente las estrategias incorporadas por esta mejora, con la configuración que puedes editar antes de iniciarla."><input id="improvement-manual-check" type="checkbox" checked> Comprobación manual automática</label>
+        <button id="improvement-manual-check-configure" type="button" class="secondary" hidden>Configurar comprobación manual</button>
+        <span class="portfolio-note">Conserva el modo del portafolio de origen.</span>
       </div></fieldset>
       <p class="portfolio-note">Se añadirán al menos las estrategias indicadas, con un límite de cinco incorporaciones por búsqueda. Si no se alcanza el mínimo con candidatas válidas, no habrá propuesta. Cada candidata debe seguir aceptada en las cuatro etapas, aportar beneficio positivo en Final Tick 6M y respetar los límites de dependencia. La cartera debe respetar el DD y mejorar beneficio/DD; esto puede reducir el beneficio total si el DD baja en mayor proporción. «Equilibrada» prefiere no aumentar la probabilidad bootstrap frente a la base y, si todas la aumentan, elige el menor aumento; es una preferencia de selección, no una restricción adicional. Revisarás la propuesta antes de guardarla como otro portafolio.</p>
       <div class="builder-actions"><button type="button" class="secondary" data-close>Cancelar</button><button type="submit">Buscar mejora</button></div>
