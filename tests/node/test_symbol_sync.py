@@ -113,7 +113,7 @@ class SymbolSyncRoutingTests(unittest.TestCase):
             forward.assert_not_called()
 
     def test_manager_reaches_ic_fork_syncs_and_launches_existing_probe(self):
-        agent = Path(__file__).resolve().parents[2] / "MT5_Autotester_agent_IC" / "MT5_Autotester_agent"
+        agent = Path(__file__).resolve().parents[3] / "MT5_Autotester_agent_IC" / "MT5_Autotester_agent"
         if not (agent / "manager_node_runtime/universe_service.py").is_file():
             self.skipTest("Copia ICTrading con universo remoto no montada")
         # The fork must run in its own interpreter: manager and agent have

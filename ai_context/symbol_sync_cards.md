@@ -96,13 +96,13 @@ falta la ruta, rechaza la petición.
 
 ## Verificación
 
-- `python -m unittest tests.test_symbol_sync tests.portfolio.test_static_portfolios.NodeCardControlsTests -v`: 10 OK.
+- `python -m unittest tests.node.test_symbol_sync tests.portfolio.test_static_portfolios.NodeCardControlsTests -v`: 12 OK (1 omitida si IC no está montado).
 - `python -m unittest discover -s tests -v`: 412 OK.
 - `node --check mt5_manager/static/app.js`: OK.
 - Navegador con servidor simulado: tarjetas con/sin capacidad y apertura del
   diálogo verificadas. El control del navegador agotó el tiempo al accionar la
   confirmación nativa; no se verificó la secuencia completa por navegador.
-- `tests.test_symbol_sync` incluye una prueba de extremo a extremo que arranca
+- `tests.node.test_symbol_sync` incluye una prueba de extremo a extremo que arranca
   el runtime real de ICTrading en otro intérprete, reenvía desde ManagerServer,
   sincroniza archivos temporales y ejecuta un CLI simulado hasta completar el
   job/log. Se omite explícitamente si esa copia no está montada.

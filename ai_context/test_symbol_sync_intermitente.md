@@ -1,6 +1,6 @@
 # `test_symbol_sync` falla de vez en cuando y no es del código
 
-`tests/test_symbol_sync.py::test_manager_reaches_ic_fork_syncs_and_launches_existing_probe`
+`tests/node/test_symbol_sync.py::test_manager_reaches_ic_fork_syncs_and_launches_existing_probe`
 falla de forma intermitente al correr el suite entero, y **pasa siempre en
 aislamiento** (comprobado varias veces seguidas el 2026-09-25).
 
