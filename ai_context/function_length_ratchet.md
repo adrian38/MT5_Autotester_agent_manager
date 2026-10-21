@@ -121,7 +121,7 @@ clases y helpers por AST. `BreadthBelowMinimumTests` vive en
 `tests/test_portfolio_breadth.py`; con ese corte el módulo de mejora por modo
 seleccionado baja de 625 a 570 líneas sin fragmentar una prueba por formato.
 Los cinco fixtures del buscador experimental completo viven en
-`tests/portfolio_full_experimental_fixtures.py`; el módulo de escenarios baja
+`tests/portfolio/portfolio_full_experimental_fixtures.py`; el módulo de escenarios baja
 de 645 a 555 líneas y conserva los helpers idénticos por AST.
 Las pruebas estáticas de la pantalla de auditoría en vivo viven en
 `tests/test_live_audit_configuration_screen.py`; su clase se movió literalmente

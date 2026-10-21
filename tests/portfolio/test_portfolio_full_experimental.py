@@ -15,7 +15,7 @@ from mt5_manager.portfolio_service import (
     _locked_full_proposals,
     normalize_settings,
 )
-from tests.portfolio_full_experimental_fixtures import (
+from tests.portfolio.portfolio_full_experimental_fixtures import (
     allocation,
     built_result,
     recent_fillers,

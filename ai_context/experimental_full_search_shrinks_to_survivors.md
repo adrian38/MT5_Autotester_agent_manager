@@ -81,7 +81,7 @@ no en el fork `manager_node_runtime`: no hay problema de paridad de nodo aquí.
 motor experimental completo y `experimental_monthly_search` son módulos
 separados.
 
-Las 5 pruebas de `tests/test_portfolio_full_experimental.py` pasan: ninguna cubre
+Las 5 pruebas de `tests/portfolio/test_portfolio_full_experimental.py` pasan: ninguna cubre
 la interacción entre el motor y la regla de cuota. Revisión sin modificar código
 ejecutable.
 
@@ -134,7 +134,7 @@ primitiva compartida del llamador sigue siendo la red de seguridad.
 
 ## Verificación
 
-Cinco pruebas nuevas en `tests/test_portfolio_full_experimental.py`, las tres
+Cinco pruebas nuevas en `tests/portfolio/test_portfolio_full_experimental.py`, las tres
 centrales validadas por mutación (fallan contra el comportamiento anterior):
 
 | Prueba | Mutación que la hace fallar |
