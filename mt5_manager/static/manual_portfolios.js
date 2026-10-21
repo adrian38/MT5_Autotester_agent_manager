@@ -66,6 +66,10 @@ function renderPortfolioDetail(history) {
   document.querySelector('#manual-portfolio-period').textContent=strategies.length
     ? `${strategies.length} históricos combinados · periodo ${starts[0]||'—'} – ${ends.at(-1)||'—'}`
     : 'Todavía no hay históricos que combinar.';
+  // La curva y los valles son los mismos que los del detalle de un portafolio
+  // UBS guardado, así que los pinta la misma primitiva.
+  PortfolioCurveView.renderCurve(document.querySelector('#manual-portfolio-chart'), history?.curve);
+  PortfolioCurveView.mountValleys(document.querySelector('#manual-portfolio-valleys'), history?.valleys);
   document.querySelector('#manual-portfolio-monthly').innerHTML=Object.entries(monthly).sort(([a],[b])=>a.localeCompare(b)).map(([year,months])=>{
     const values=Array.from({length:12},(_,index)=>Number(months[String(index+1)]||0));
     return `<tr><th>${esc(year)}</th>${values.map(value=>`<td>${number(value)}</td>`).join('')}<td><strong>${number(values.reduce((sum,value)=>sum+value,0))}</strong></td></tr>`;

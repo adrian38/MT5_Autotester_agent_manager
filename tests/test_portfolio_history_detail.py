@@ -200,9 +200,40 @@ class ScreenTests(unittest.TestCase):
         script = (self.STATIC / "portfolio_history.js").read_text(encoding="utf-8")
 
         self.assertIn("Profit total", script)
-        self.assertIn("renderChart", script)
-        self.assertIn("valleyCard", script)
+        self.assertIn("PortfolioCurveView.renderCurve", script)
+        self.assertIn("PortfolioCurveView.mountValleys", script)
         self.assertIn("history-detail", script)
+
+    def test_the_valleys_are_one_table_with_a_selector(self) -> None:
+        # Cinco tablas apiladas obligaban a bajar media pantalla para comparar
+        # dos valles (petición del usuario, 2026-10-21).
+        script = (self.STATIC / "portfolio_curve_view.js").read_text(encoding="utf-8")
+
+        self.assertIn("data-valley", script)
+        self.assertIn("portfolio-history-valley-tabs", script)
+        self.assertIn("Number(button.dataset.valley)", script)
+
+    def test_the_curve_and_the_valleys_are_one_primitive_for_both_screens(self) -> None:
+        """Las dos pantallas dibujan lo mismo, así que lo dibuja el mismo código.
+
+        Lo pidió el usuario para portafolios manuales (2026-10-21). Dos copias
+        del mismo dibujo acaban enseñando dos cosas distintas, igual que dos
+        copias de la misma cuenta acaban dando dos cifras.
+        """
+        shared = (self.STATIC / "portfolio_curve_view.js").read_text(encoding="utf-8")
+        self.assertIn("window.PortfolioCurveView", shared)
+        for page, script in (
+            ("portfolio_history.html", "portfolio_history.js"),
+            ("manual_portfolios.html", "manual_portfolios.js"),
+        ):
+            with self.subTest(page=page):
+                markup = (self.STATIC / page).read_text(encoding="utf-8")
+                self.assertIn("/portfolio_curve_view.js", markup)
+                body = (self.STATIC / script).read_text(encoding="utf-8")
+                self.assertIn("PortfolioCurveView.renderCurve", body)
+                self.assertIn("PortfolioCurveView.mountValleys", body)
+                # Y ninguna conserva su propia copia del dibujo.
+                self.assertNotIn("<polyline", body)
 
 
 if __name__ == "__main__":

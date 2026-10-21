@@ -81,96 +81,9 @@ function renderStrategies() {
   ).join('') || '<p class="portfolio-note">Sin estrategias.</p>';
 }
 
-// --- La curva -------------------------------------------------------------
-function points(curve) {
-  return (curve || []).map(point => ({time: new Date(point.time).getTime(), value: Number(point.value)}))
-    .filter(point => Number.isFinite(point.time));
-}
-
-function bounds(series) {
-  const times = series.map(point => point.time);
-  const values = [0, ...series.map(point => point.value)];
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const padding = Math.max(1, (maxValue - minValue) * 0.12);
-  return {
-    minTime: Math.min(...times), maxTime: Math.max(...times),
-    minValue: minValue - padding, maxValue: maxValue + padding,
-  };
-}
-
-function grid(box) {
-  return [0, 1, 2, 3, 4].map(index => {
-    const y = 22 + index * 65;
-    const value = box.maxValue - index / 4 * (box.maxValue - box.minValue);
-    return `<line class="audit-analysis-grid" x1="78" y1="${y}" x2="898" y2="${y}"/>`
-      + `<text class="audit-analysis-axis" x="70" y="${y + 4}" text-anchor="end">`
-      + `${esc(value.toLocaleString('es-ES', {maximumFractionDigits: 0}))}</text>`;
-  }).join('');
-}
-
-function renderChart(curve) {
-  const target = document.querySelector('#history-chart');
-  const series = points(curve);
-  if (series.length < 2) {
-    target.innerHTML = '<p class="audit-analysis-empty">No hay operaciones cerradas que dibujar.</p>';
-    return;
-  }
-  const box = bounds(series);
-  const x = time => 78 + (time - box.minTime) / Math.max(1, box.maxTime - box.minTime) * 820;
-  const y = value => 22 + (box.maxValue - value) / Math.max(1, box.maxValue - box.minValue) * 260;
-  const line = series.map(point => `${x(point.time).toFixed(1)},${y(point.value).toFixed(1)}`).join(' ');
-  const zeroY = y(0);
-  const label = time => new Date(time).toLocaleDateString('es-ES');
-  target.innerHTML = '<svg viewBox="0 0 930 330" role="img">'
-    + '<title>Beneficio acumulado del portafolio</title>'
-    + `${grid(box)}<line class="audit-analysis-zero" x1="78" y1="${zeroY}" x2="898" y2="${zeroY}"/>`
-    + `<polyline class="audit-analysis-line real" points="${line}"/>`
-    + `<text class="audit-analysis-axis" x="78" y="300">${esc(label(box.minTime))}</text>`
-    + `<text class="audit-analysis-axis" x="898" y="300" text-anchor="end">${esc(label(box.maxTime))}</text>`
-    + '</svg>';
-}
-
-// --- Los valles -----------------------------------------------------------
-function valleyCard(valley, index) {
-  const day = value => (value ? String(value).slice(0, 10) : '');
-  const recovered = valley.recovered_at
-    ? `recuperado el ${esc(day(valley.recovered_at))}`
-    : '<strong>sin recuperar</strong>';
-  const rows = (valley.strategies || []).map(row =>
-    `<tr><td>${esc(row.symbol)} ${esc(row.timeframe)}</td><td>${esc(row.set_name)}</td>`
-    + `<td>${esc(row.units)}</td><td>${esc(row.trades)}</td>`
-    + `<td class="${tone(row.net_profit)}">${esc(number(row.net_profit))}</td></tr>`
-  ).join('') || '<tr><td colspan="5">Sin operaciones dentro del valle.</td></tr>';
-  return `<article class="portfolio-history-valley"><div class="panel-title"><div>`
-    + `<p class="eyebrow">VALLE ${index + 1}</p><h3>−${esc(number(valley.depth))}</h3>`
-    + `<p class="subtitle">Desde el ${esc(day(valley.started_at))} (máximo ${esc(number(valley.peak))}), `
-    + `fondo el ${esc(day(valley.trough_at))}, ${recovered}.</p></div></div>`
-    + '<div class="universe-table-wrap"><table class="universe-table"><thead><tr>'
-    + '<th>Símbolo / TF</th><th>Set</th><th>Unid.</th><th>Operaciones</th><th>Aporte</th>'
-    + `</tr></thead><tbody>${rows}</tbody></table></div></article>`;
-}
-
-function renderPortfolio() {
-  const combined = detail.portfolio || {};
-  document.querySelector('#history-period').textContent =
-    `${combined.period_start || ''} — ${combined.period_end || ''}`;
-  document.querySelector('#history-totals').innerHTML = [
-    ['Profit total', number(combined.net_profit), tone(combined.net_profit)],
-    ['DD máximo', `−${number(combined.max_drawdown)}`, ''],
-    ['Operaciones', String(combined.trades ?? 0), ''],
-    ['Estrategias', String((detail.strategies || []).length), ''],
-  ].map(([label, value, css]) =>
-    `<div class="metric"><strong class="${css}">${esc(value)}</strong><span>${esc(label)}</span></div>`
-  ).join('');
-  renderChart(combined.curve);
-  document.querySelector('#history-valleys').innerHTML =
-    (combined.valleys || []).map(valleyCard).join('')
-    || '<p class="portfolio-note">La curva no se despegó nunca de su máximo.</p>';
-  document.querySelector('#history-portfolio-monthly').innerHTML =
-    monthlyRowsOnly(combined.monthly);
-}
-
+// --- El portafolio --------------------------------------------------------
+// La curva y los valles los pinta `portfolio_curve_view.js`, que es la misma
+// primitiva que usa la pantalla de portafolios manuales.
 function monthlyRowsOnly(monthly) {
   const years = Object.keys(monthly || {}).sort();
   if (!years.length) return '<tr><td colspan="14">Sin meses con operaciones.</td></tr>';
@@ -185,6 +98,24 @@ function monthlyRowsOnly(monthly) {
     );
     return `<tr><th>${esc(year)}</th>${cells}<td class="${tone(total)}">${esc(number(total))}</td></tr>`;
   }).join('');
+}
+
+function renderPortfolio() {
+  const combined = detail.portfolio || {};
+  document.querySelector('#history-period').textContent =
+    `${combined.period_start || ''} — ${combined.period_end || ''}`;
+  document.querySelector('#history-totals').innerHTML = [
+    ['Profit total', number(combined.net_profit), tone(combined.net_profit)],
+    ['DD máximo', `−${number(combined.max_drawdown)}`, ''],
+    ['Operaciones', String(combined.trades ?? 0), ''],
+    ['Estrategias', String((detail.strategies || []).length), ''],
+  ].map(([label, value, css]) =>
+    `<div class="metric"><strong class="${css}">${esc(value)}</strong><span>${esc(label)}</span></div>`
+  ).join('');
+  PortfolioCurveView.renderCurve(document.querySelector('#history-chart'), combined.curve);
+  PortfolioCurveView.mountValleys(document.querySelector('#history-valleys'), combined.valleys);
+  document.querySelector('#history-portfolio-monthly').innerHTML =
+    monthlyRowsOnly(combined.monthly);
 }
 
 // --- La pantalla ----------------------------------------------------------

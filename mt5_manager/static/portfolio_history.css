@@ -3,16 +3,22 @@
    aquí sólo está lo que esa no tiene. */
 .portfolio-history-page main { display: grid; gap: 18px; }
 .portfolio-history-page .detail-actions { margin: 0; }
-/* Ganar o perder, con el mismo par de tonos que el análisis manual. */
-.portfolio-history-page .better { color: var(--accent2); font-weight: 700; }
-.portfolio-history-page .worse { color: #ff9d9d; font-weight: 700; }
+/* Ganar o perder, con el mismo par de tonos que el análisis manual. Los dos
+   ámbitos: esta pantalla y la de portafolios manuales, que comparte la curva y
+   los valles con ella. */
+.portfolio-history-page .better, .manual-portfolio-page .better { color: var(--accent2); font-weight: 700; }
+.portfolio-history-page .worse, .manual-portfolio-page .worse { color: #ff9d9d; font-weight: 700; }
 .portfolio-history-page .universe-table td { font-variant-numeric: tabular-nums; }
 .portfolio-history-missing { display: block; color: var(--warn, #ffd166); font-size: 11px; }
 .portfolio-history-monthly { display: grid; gap: 10px; padding: 0 18px 18px; }
 .portfolio-history-monthly h4 { margin: 10px 0 0; font-size: 13px; }
-.portfolio-history-valleys { display: grid; gap: 14px; padding: 0 18px 18px; }
-.portfolio-history-valley { border: 1px solid var(--line); border-radius: 12px; background: #0b1520; }
-.portfolio-history-valley .panel-title { padding: 14px 16px; }
-.portfolio-history-valley h3 { margin: 0; font-size: 22px; color: #ff9d9d; }
-.portfolio-history-valley .subtitle { font-size: 12px; }
+/* Un selector arriba y una sola tabla: cinco tablas apiladas obligaban a bajar
+   media pantalla para comparar dos valles. */
+.portfolio-history-valleys { display: grid; gap: 12px; padding: 0 18px 18px; }
+.portfolio-history-valley-tabs { display: flex; flex-wrap: wrap; gap: 9px; }
+.portfolio-history-valley-tabs button { display: grid; gap: 2px; padding: 9px 14px; text-align: left; }
+.portfolio-history-valley-tabs button span { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .8; }
+.portfolio-history-valley-tabs button strong { font-size: 14px; }
+.portfolio-history-valley-head h3 { margin: 0; font-size: 22px; color: #ff9d9d; }
+.portfolio-history-valley-head .subtitle { margin-top: 4px; font-size: 12px; }
 .portfolio-history-page #history-totals { padding: 0 18px 18px; }

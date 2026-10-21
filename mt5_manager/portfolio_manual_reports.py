@@ -6,6 +6,7 @@ from typing import Any
 
 from portfolio_manager.mt5_report import StrategyReport
 
+from . import portfolio_curve_math as curve_math
 from .portfolio_report_cache import cached_report
 
 
@@ -32,11 +33,22 @@ def _quality(report: StrategyReport) -> str:
     return ""
 
 
+def _closed_trades(report: StrategyReport) -> list[tuple[Any, float]]:
+    return [
+        (trade.close_time, float(trade.profit_loss or 0))
+        for trade in report.trades if getattr(trade, "close_time", None) is not None
+    ]
+
+
 def _report_summary(report: StrategyReport, member: dict[str, Any]) -> dict[str, Any]:
     profits = [float(item.profit_loss or 0) for item in report.trades]
     wins = sum(1 for value in profits if value > 0)
     gross_profit = sum(value for value in profits if value > 0)
     gross_loss = abs(sum(value for value in profits if value < 0))
+    # El mes es el del cierre de la operación, no el de la transacción que MT5
+    # cuenta en `report.monthly`: así la tabla mensual suma exactamente el
+    # beneficio neto que la misma pantalla enseña arriba.
+    monthly = curve_math.monthly_from_trades(sorted(_closed_trades(report)))
     return {
         "set_id": str(member.get("set_id") or ""),
         "set_name": _portable_set_name(member.get("set_path") or member.get("set_id")),
@@ -52,7 +64,7 @@ def _report_summary(report: StrategyReport, member: dict[str, Any]) -> dict[str,
         "win_rate": wins * 100.0 / len(profits) if profits else 0.0,
         "profit_factor": gross_profit / gross_loss if gross_loss else 0.0,
         "history_quality": _quality(report),
-        "monthly": report.monthly,
+        "monthly": monthly,
     }
 
 
@@ -76,17 +88,24 @@ def manual_history_summary(project: Path, members: list[dict[str, Any]]) -> dict
             strategies.append(_report_summary(cached_report(path), member))
         except (OSError, ValueError, TypeError):
             continue
-    ordered_trades = []
+    rows = []
+    ordered_trades: list[tuple[Any, float]] = []
     for strategy in strategies:
-        report = cached_report(Path(strategy["report_path"]))
-        ordered_trades.extend((trade.close_time, float(trade.profit_loss or 0)) for trade in report.trades)
-    balance = peak = drawdown = 0.0
-    for _closed_at, profit in sorted(ordered_trades):
-        balance += profit
-        peak = max(peak, balance)
-        drawdown = max(drawdown, peak - balance)
+        trades = sorted(_closed_trades(cached_report(Path(strategy["report_path"]))))
+        ordered_trades.extend(trades)
+        rows.append({
+            "set_name": strategy["set_name"], "symbol": strategy["symbol"],
+            "timeframe": strategy["timeframe"], "units": 1, "trades": trades,
+        })
+    ordered_trades.sort()
     return {
         "available": len(strategies), "expected": len(members), "strategies": strategies,
-        "net_profit": sum(item[1] for item in ordered_trades), "max_drawdown": drawdown,
+        "net_profit": sum(item[1] for item in ordered_trades),
+        "max_drawdown": curve_math.drawdown(ordered_trades),
         "trades": len(ordered_trades),
+        # Lo mismo que enseña el detalle de un portafolio UBS guardado, que es
+        # lo que el usuario pidió traer aquí: la curva combinada y los cinco
+        # descensos más hondos con su desglose.
+        "curve": curve_math.daily_curve(ordered_trades),
+        "valleys": curve_math.deepest_valleys(ordered_trades, rows),
     }

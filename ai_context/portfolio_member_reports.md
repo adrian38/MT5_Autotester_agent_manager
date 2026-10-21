@@ -62,3 +62,26 @@ en las tres carteras).
 - La curva se dibuja con una parada por día con operaciones —14.908
   operaciones son 1.652 puntos—, pero el total y los valles se calculan sobre
   cada operación cerrada.
+
+### La curva y los valles también en portafolios manuales (2026-10-21)
+
+Petición del usuario: lo que se añadió en «Detalle / portafolio» de un
+portafolio UBS tenía que estar también en el de los manuales. Son el mismo
+dibujo con los mismos datos, así que no hay dos copias:
+
+- **El cálculo** vive en `mt5_manager/portfolio_curve_math.py`, abajo del todo
+  de la pila y **sin importar nada del paquete**. Lo necesitan
+  `portfolio_history_detail` (UBS guardado) y `portfolio_manual_reports`
+  (manual), que están en escalones distintos: con la cuenta en uno de los dos,
+  el otro tendría que importar hacia arriba o copiarla, y dos copias de la
+  misma cuenta acaban dando dos cifras.
+- **El dibujo** vive en `static/portfolio_curve_view.js`, que cargan las dos
+  pantallas. Lo exige `test_portfolio_history_detail`, que además comprueba que
+  ninguna de las dos conserva su propio `<polyline>`.
+
+El mensual del portafolio manual pasa a contarse igual, por el cierre de la
+operación y no por la transacción. **Cambia los números que esa pantalla venía
+enseñando**, y es a mejor: antes su tabla mensual no sumaba el «Beneficio
+neto» que ella misma pone arriba. Medido en los cuatro portafolios manuales de
+este equipo —AXI #109 y RoboForex #177, #173 y #172—, ahora coinciden al
+céntimo, y el valle más hondo coincide con el DD máximo combinado.

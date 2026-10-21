@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from . import portfolio_curve_math as curve_math
 from .common import safe_int
 from .portfolio_report_cache import cached_report
 from .portfolio_transfer import _resolve_source_path
@@ -34,10 +35,6 @@ HISTORY_STAGES = (
     ("oos_report_path", "Robustez OOS"),
 )
 """Los dos informes OHLC que, juntos, son el histórico de una estrategia."""
-
-TOP_VALLEYS = 5
-"""Cuántos valles se desglosan, que es lo que el usuario pidió ver."""
-
 
 def _report_path(source: Any, raw: Any) -> Path | None:
     text = str(raw or "").strip()
@@ -84,29 +81,6 @@ def _date_key(text: str) -> tuple[int, int, int]:
     return (year, month, day)
 
 
-def _drawdown(trades: list[tuple[datetime, float]]) -> float:
-    balance = peak = worst = 0.0
-    for _closed_at, profit in trades:
-        balance += profit
-        peak = max(peak, balance)
-        worst = max(worst, peak - balance)
-    return worst
-
-
-def _monthly(trades: list[tuple[datetime, float]]) -> dict[int, dict[int, float]]:
-    """El mensual, contado sobre las mismas operaciones que el total.
-
-    El `monthly` del informe lo construye MT5 sumando **transacciones** por su
-    fecha, no operaciones casadas por su cierre. Medido en el #62, la tabla
-    mensual sumaba 20.053,46 y el beneficio neto 18.852,12: dos cifras que no
-    cuadran en la misma pantalla no las cuadra nadie, así que aquí el mes es
-    el del cierre de la operación y la suma de la tabla es el profit total.
-    """
-    monthly: dict[int, dict[int, float]] = {}
-    for closed_at, profit in trades:
-        row = monthly.setdefault(closed_at.year, {})
-        row[closed_at.month] = row.get(closed_at.month, 0.0) + profit
-    return monthly
 
 
 def _strategy_row(source: Any, member: dict[str, Any]) -> dict[str, Any]:
@@ -131,7 +105,7 @@ def _strategy_row(source: Any, member: dict[str, Any]) -> dict[str, Any]:
         starts.append(str(report.period_start or ""))
         ends.append(str(report.period_end or ""))
     trades.sort(key=lambda item: item[0])
-    monthly = _monthly(trades)
+    monthly = curve_math.monthly_from_trades(trades)
     profits = [profit for _closed_at, profit in trades]
     wins = sum(1 for value in profits if value > 0)
     gross_profit = sum(value for value in profits if value > 0)
@@ -147,7 +121,7 @@ def _strategy_row(source: Any, member: dict[str, Any]) -> dict[str, Any]:
         "period_end": max([value for value in ends if value], key=_date_key, default=""),
         "trades": len(profits),
         "net_profit": sum(profits),
-        "max_drawdown": _drawdown(trades),
+        "max_drawdown": curve_math.drawdown(trades),
         "win_rate": wins * 100.0 / len(profits) if profits else 0.0,
         "profit_factor": gross_profit / gross_loss if gross_loss else 0.0,
         "history_quality": _worst_quality(qualities),
@@ -160,90 +134,7 @@ def _strategy_row(source: Any, member: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _daily_curve(trades: list[tuple[datetime, float]]) -> list[dict[str, Any]]:
-    """El PnL cerrado acumulado, una parada por día con operaciones.
 
-    Por operación serían decenas de miles de puntos para dibujar la misma
-    línea. Las cifras —el total y los valles— se siguen calculando sobre cada
-    operación cerrada, que es la convención del resto del repositorio.
-    """
-    total = 0.0
-    points: list[dict[str, Any]] = []
-    for closed_at, profit in trades:
-        total += profit
-        day = closed_at.date().isoformat()
-        if points and points[-1]["time"] == day:
-            points[-1]["value"] = round(total, 2)
-            continue
-        points.append({"time": day, "value": round(total, 2)})
-    return points
-
-
-def _valleys(trades: list[tuple[datetime, float]]) -> list[dict[str, Any]]:
-    """Cada caída desde un máximo hasta que lo recupera, con su hondura.
-
-    Un valle empieza cuando la curva se despega de su máximo y termina cuando
-    vuelve a tocarlo; el último se queda abierto si nunca se recuperó, y eso
-    se dice en vez de cerrarlo a la fuerza.
-    """
-    episodes: list[dict[str, Any]] = []
-    balance = peak = 0.0
-    current: dict[str, Any] | None = None
-    for closed_at, profit in trades:
-        balance += profit
-        if balance >= peak:
-            if current is not None:
-                current["recovered_at"] = closed_at.isoformat()
-                current["end"] = closed_at
-                episodes.append(current)
-                current = None
-            peak = balance
-            continue
-        if current is None:
-            current = {
-                "started_at": closed_at.isoformat(), "start": closed_at,
-                "peak": peak, "depth": 0.0, "trough_at": closed_at.isoformat(),
-                "trough": closed_at, "recovered_at": "", "end": closed_at,
-            }
-        depth = peak - balance
-        if depth > current["depth"]:
-            current["depth"] = depth
-            current["trough_at"] = closed_at.isoformat()
-            current["trough"] = closed_at
-        current["end"] = closed_at
-    if current is not None:
-        episodes.append(current)
-    return episodes
-
-
-def _valley_breakdown(
-    valley: dict[str, Any], strategies: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Quién cavó el valle: lo que aportó cada estrategia **hasta el fondo**.
-
-    La ventana termina en el fondo y no en la recuperación a propósito. Con la
-    recuperación dentro, lo que subió compensa a lo que bajó y el desglose
-    contesta otra pregunta: en el caso de prueba, la estrategia que perdió 40
-    y luego ganó 50 aparecía con +10 como causante de un valle de 40.
-    """
-    rows = []
-    for strategy in strategies:
-        inside = [
-            profit for closed_at, profit in strategy["_trades"]
-            if valley["start"] <= closed_at <= valley["trough"]
-        ]
-        if not inside:
-            continue
-        rows.append({
-            "set_name": strategy["set_name"],
-            "symbol": strategy["symbol"],
-            "timeframe": strategy["timeframe"],
-            "units": strategy["units"],
-            "trades": len(inside),
-            "net_profit": sum(inside),
-        })
-    rows.sort(key=lambda row: row["net_profit"])
-    return rows
 
 
 def _combined(strategies: list[dict[str, Any]]) -> dict[str, Any]:
@@ -252,33 +143,28 @@ def _combined(strategies: list[dict[str, Any]]) -> dict[str, Any]:
     for strategy in strategies:
         trades.extend(strategy["_trades"])
     trades.sort(key=lambda item: item[0])
-    monthly: dict[int, dict[int, float]] = {}
-    for strategy in strategies:
-        for year, months in strategy["monthly"].items():
-            row = monthly.setdefault(int(year), {})
-            for month, value in months.items():
-                row[int(month)] = row.get(int(month), 0.0) + float(value)
-    deepest = sorted(_valleys(trades), key=lambda item: item["depth"], reverse=True)
-    valleys = []
-    for valley in deepest[:TOP_VALLEYS]:
-        valleys.append({
-            "started_at": valley["started_at"],
-            "trough_at": valley["trough_at"],
-            "recovered_at": valley["recovered_at"],
-            "peak": round(valley["peak"], 2),
-            "depth": round(valley["depth"], 2),
-            "strategies": _valley_breakdown(valley, strategies),
-        })
+    # `deepest_valleys` lee las operaciones en `trades`, que en una fila de
+    # estrategia es el **recuento**: por eso se le pasa una lista aparte en
+    # vez de las filas tal cual.
+    rows = [
+        {
+            "set_name": strategy["set_name"], "symbol": strategy["symbol"],
+            "timeframe": strategy["timeframe"], "units": strategy["units"],
+            "trades": strategy["_trades"],
+        }
+        for strategy in strategies
+    ]
+    monthly = curve_math.monthly_from_trades(trades)
     profits = [profit for _closed_at, profit in trades]
     return {
-        "curve": _daily_curve(trades),
+        "curve": curve_math.daily_curve(trades),
         "monthly": {str(year): months for year, months in sorted(monthly.items())},
         "net_profit": sum(profits),
-        "max_drawdown": _drawdown(trades),
+        "max_drawdown": curve_math.drawdown(trades),
         "trades": len(profits),
         "period_start": trades[0][0].date().isoformat() if trades else "",
         "period_end": trades[-1][0].date().isoformat() if trades else "",
-        "valleys": valleys,
+        "valleys": curve_math.deepest_valleys(trades, rows),
     }
 
 

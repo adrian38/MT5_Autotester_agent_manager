@@ -88,6 +88,9 @@ STATIC_FILES = {
     "manual_check_analysis.html", "manual_check_analysis.js", "manual_check_analysis.css",
     # El historico OHLC guardado del portafolio, por estrategia y combinado.
     "portfolio_history.html", "portfolio_history.js", "portfolio_history.css",
+    # La curva y los valles, compartidos con la pantalla de manuales: las dos
+    # dibujan lo mismo y dos copias acabarian enseñando dos cosas distintas.
+    "portfolio_curve_view.js",
     "portfolios_grid.html", "portfolios_grid.js",
     "portfolio_manual.html", "portfolio_manual.js",
     "manual_portfolios.html", "manual_portfolios.js",
