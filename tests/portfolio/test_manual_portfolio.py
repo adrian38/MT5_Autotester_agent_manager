@@ -17,7 +17,7 @@ from mt5_manager.portfolio_manual_reports import manual_history_summary
 from mt5_manager.portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin
 
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).parents[2]
 
 
 class ManualPortfolioScreenTests(unittest.TestCase):
