@@ -1,6 +1,7 @@
 """Comprobación manual: qué se comprueba, qué se exporta y quién avisa."""
 from __future__ import annotations
 
+import ast
 import io
 import json
 import tempfile
@@ -279,7 +280,7 @@ class NoticeTests(unittest.TestCase):
         self.server = SimpleNamespace(
             nodes=[{"id": "ic", "name": "ICTrading", "url": "http://ic"}],
             live_audit_stop=SimpleNamespace(is_set=lambda: False),
-            live_audit_settings_path=Path(self.temp.name) / "live_audit_settings.json",
+            live_audit_scheduler_path=Path(self.temp.name) / "live_audit_scheduler.json",
             live_audit_notifications=SimpleNamespace(
                 add=lambda *args, **kwargs: self.notices.append({"args": args, **kwargs}),
             ),
@@ -335,6 +336,49 @@ class NoticeTests(unittest.TestCase):
         self._tick()
 
         self.assertEqual(self.notices, [])
+
+
+class ServerSurfaceTests(unittest.TestCase):
+    """Lo que el vigilante le pide al servidor tiene que existir de verdad.
+
+    El 2026-10-21 la primera comprobación real terminó sin aviso: `tick` pedía
+    `server.live_audit_settings_path`, que es una variable local del
+    `__init__` del servidor y no un atributo suyo. El `AttributeError` moría
+    en el `try` del bucle —una línea en stderr— y las pruebas pasaban porque
+    el doble de prueba sí tenía ese atributo. Un doble no demuestra que el
+    servidor lo tenga: lo demuestra el servidor.
+    """
+
+    @staticmethod
+    def _server_attributes() -> set[str]:
+        source = (ROOT / "mt5_manager" / "manager_server.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        found: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+                if isinstance(node.value, ast.Name) and node.value.id == "self":
+                    found.add(node.attr)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                found.add(node.name)
+        return found
+
+    @staticmethod
+    def _requested(module: str) -> set[str]:
+        tree = ast.parse((ROOT / "mt5_manager" / f"{module}.py").read_text(encoding="utf-8"))
+        return {
+            node.attr for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name) and node.value.id == "server"
+        }
+
+    def test_the_watcher_only_asks_the_server_for_what_it_has(self) -> None:
+        for module in ("manual_check_watch", "live_audit_activity"):
+            with self.subTest(module=module):
+                missing = sorted(self._requested(module) - self._server_attributes())
+                self.assertFalse(
+                    missing,
+                    f"{module} le pide a ManagerServer atributos que no existen: {missing}",
+                )
 
 
 class HeaderActivityTests(unittest.TestCase):
@@ -419,6 +463,9 @@ class ScreenTests(unittest.TestCase):
         detail = (ROOT / "mt5_manager" / "static" / "portfolios.js").read_text(encoding="utf-8")
 
         self.assertIn('id="detail-export-reports" type="button" class="secondary" disabled', page)
+        # El nombre lo pidio el usuario: «Exportar reportes» a secas se
+        # confundia con los informes guardados de cada miembro.
+        self.assertIn(">Exportar reportes manuales</button>", page)
         # Quién lo habilita: el agente, no el navegador.
         self.assertIn("manual-check-latest", script)
         self.assertIn("window.refreshManualCheckReports = refreshManualCheckReports;", script)

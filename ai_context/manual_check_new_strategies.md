@@ -95,8 +95,38 @@ HTML: ésa es otra ruta y no se ha tocado.
   el PC, y una carpeta borrada en el agente lo apaga en todos los dispositivos.
   Se lleva el `.htm` **y las imágenes de sus curvas**.
 
-## Lo que queda sin probar
+## El primer aviso real no salió (2026-10-21)
 
-Nada lanzó MT5: las pruebas llegan hasta la orden construida. La primera
-ejecución real es la que dirá si el `tester_template.ini` de cada agente
-necesita algo más.
+La primera comprobación de verdad —portafolio #62, tres estrategias, los dos
+tipos de datos— terminó bien y **no anunció nada**. `tick` pedía
+`server.live_audit_settings_path`, que es una variable local del `__init__` del
+servidor y no un atributo suyo: el `AttributeError` moría en el `try` del bucle
+y dejaba una sola línea en stderr.
+
+- El diario cuelga ahora de `live_audit_scheduler_path`, que sí es atributo.
+- Las pruebas pasaban porque el doble de prueba tenía el atributo inventado.
+  **Un doble no demuestra que el servidor lo tenga**: lo comprueba
+  `ServerSurfaceTests`, que cruza por AST los `server.<algo>` del vigilante con
+  los `self.<algo> =` de `ManagerServer`.
+- Mirar primero `docker logs mt5-autotester-manager | grep -a manual-check`: el
+  vigilante no puede romper la vuelta del auditor, así que sus fallos sólo
+  viven ahí.
+
+## El aviso llega hasta cinco minutos tarde, y sólo del trabajo actual
+
+La vuelta del vigilante es de 300 s. Para un trabajo de horas da igual, pero el
+nodo sólo publica **su trabajo actual**: si se lanza otro antes de que pase esa
+vuelta, la comprobación terminada deja de verse y no se anuncia. La carpeta y
+sus informes siguen ahí; lo único que se pierde es el aviso.
+
+## Lo que ya se ha ejecutado de verdad
+
+La comprobación del portafolio #62 en ICTrading (2026-10-21): 3 estrategias
+nuevas, OHLC M1 y tick a tick, `return_code` 0 en las dos corridas. Dejó en
+`runtime/ictrading-standard-test/manual_checks/check_20261021_135246_528000/`
+seis informes y sus cuatro imágenes cada uno —balance, `-hst`, `-mfemae` y
+`-holding`—, que el `.htm` referencia por nombre relativo: por eso el ZIP las
+guarda en la misma carpeta que el informe. Los `*.mt5log.txt` que MT5 copia al
+lado de cada uno van en `journals/` dentro del ZIP.
+
+AXI y RoboForex tienen el mismo port pero no se ha lanzado ninguna ahí.

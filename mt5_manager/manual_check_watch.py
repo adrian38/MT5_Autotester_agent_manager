@@ -40,7 +40,14 @@ importarlas de `mt5_manager/node_*.py` ataría la lectura a la copia señuelo.
 
 
 def notices_path(server: Any):
-    return server.live_audit_settings_path.with_name("manual_check_notices.json")
+    """El diario de lo ya anunciado, al lado del resto del estado del manager.
+
+    Cuelga de `live_audit_scheduler_path` porque es el **atributo** que el
+    servidor conserva: la ruta de los ajustes del auditor es una variable
+    local de su `__init__` y pedírsela al servidor revienta la vuelta entera
+    sin anunciar nada. Pasó el 2026-10-21 con la primera comprobación real.
+    """
+    return server.live_audit_scheduler_path.with_name("manual_check_notices.json")
 
 
 def _remembered(server: Any) -> list[str]:

@@ -254,6 +254,12 @@ def reports_archive(project: Path, check_id: str) -> dict[str, Any]:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, path in files:
+            # El informe y sus curvas, juntos; el journal que MT5 copia al lado
+            # de cada uno —el mismo texto repetido por estrategia— aparte, para
+            # que abrir el ZIP no sea buscar el .htm entre los logs.
+            if path.suffix.casefold() == ".txt":
+                model, filename = name.split("/", 1)
+                name = f"{model}/journals/{filename}"
             archive.write(path, f"{folder}/{name}")
         config = work / "check.json"
         if config.is_file():
