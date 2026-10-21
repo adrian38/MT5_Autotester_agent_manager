@@ -10,7 +10,7 @@ import ast
 import unittest
 from pathlib import Path
 
-PACKAGE = Path(__file__).resolve().parents[1] / "portfolio_manager" / "ubs_portfolio"
+PACKAGE = Path(__file__).resolve().parents[2] / "portfolio_manager" / "ubs_portfolio"
 
 #: De abajo a arriba. Un modulo solo puede importar de los que tiene encima.
 ORDER = [

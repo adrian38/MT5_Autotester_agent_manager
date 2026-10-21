@@ -29,7 +29,7 @@ fondo**. `portfolio_symbol_key`, `portfolio_group_key`, `_row_value`,
 `group_limits_for_portfolio_type` y `_lot_size_step` vivían al final por accidente
 histórico y de ellas depende todo. Hoy están en `symbols`, `models` y `rows`.
 
-Lo hace cumplir `tests/test_ubs_package_layering.py`.
+Lo hace cumplir `tests/repository/test_ubs_package_layering.py`.
 
 ## Lo que rompe un troceo así (y aquí rompió)
 

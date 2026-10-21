@@ -5,23 +5,27 @@ from pathlib import Path
 
 from tools.verify_project import command_specs, parse_args
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class VerifyProjectTests(unittest.TestCase):
-    def test_default_plan_contains_every_required_layer(self) -> None:
+    def test_default_plan_does_not_run_the_full_suite(self) -> None:
         names = [spec.name for spec in command_specs()]
         self.assertEqual(
             names,
             ["exports UBS", "nombres", "funciones", "ficheros", "contexto", "guardas",
-             "suite manager", "contrato IC"],
+             "contrato IC"],
         )
 
-    def test_quick_plan_only_omits_the_repeated_full_suite(self) -> None:
-        names = [spec.name for spec in command_specs(include_full_suite=parse_args(["--quick"]))]
-        self.assertNotIn("suite manager", names)
+    def test_full_suite_requires_the_explicit_flag(self) -> None:
+        names = [spec.name for spec in command_specs(include_full_suite=parse_args(["--full"]))]
+        self.assertIn("suite manager", names)
         self.assertIn("guardas", names)
         self.assertIn("contrato IC", names)
+
+    def test_quick_remains_an_alias_for_the_default_plan(self) -> None:
+        self.assertFalse(parse_args([]))
+        self.assertFalse(parse_args(["--quick"]))
 
     def test_unknown_arguments_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -44,6 +48,9 @@ class VerifyProjectTests(unittest.TestCase):
         for required in (
             "tests/test_node_runtime_fork_parity.py",
             "python -m tools.verify_project",
+            "python -m tools.verify_project --full",
+            "sólo cuando el usuario lo pida explícitamente",
+            "tests/repository/",
             "## Definición de terminado y entrega",
             "ALLOWED_STAR_IMPORTS",
         ):

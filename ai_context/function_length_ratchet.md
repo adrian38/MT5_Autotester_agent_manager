@@ -5,7 +5,7 @@
 El coste real del repositorio no es el número de ficheros, son las funciones
 enormes: `optimize_portfolio` tenía 706 líneas (~9k tokens) y hacía falta leerla
 entera para cambiar tres. La regla y su guarda están en `AGENTS.md`; la medida en
-`tools/function_length.py`, el test en `tests/test_function_length.py` y las
+`tools/function_length.py`, el test en `tests/repository/test_function_length.py` y las
 perdonadas en `tests/function_length_baseline.json`.
 
 Al instalarlo (2026-09-20): 115 funciones por encima de 60 líneas sobre 1653,
@@ -295,7 +295,7 @@ pasó de tener funciones de 464 líneas a ninguna por encima de 172 y siguió
 teniendo 6.045 líneas. Leer el módulo entero sigue costando ~70k tokens, que era
 el problema original.
 
-`tools/file_length.py` + `tests/test_file_length.py` +
+`tools/file_length.py` + `tests/repository/test_file_length.py` +
 `tests/file_length_baseline.json`, con la misma mecánica de trinquete. El
 alcance (`SKIP_PARTS`), el recorrido y las tres formas de romper un trinquete
 —entrada nueva, perdonada que crece, entrada que sobra— viven ahora una sola vez

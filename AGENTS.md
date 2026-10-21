@@ -195,7 +195,7 @@ es el de dependencia** — cada uno sólo importa de los anteriores:
 - **`unittest.mock.patch` necesita el módulo consumidor**, no el paquete:
   `...ubs_portfolio.selection.period_report_from_strategy_report`, porque
   `selection` tiene su propia referencia al nombre.
-- Lo hace cumplir `tests/test_ubs_package_layering.py`: módulo fuera de `ORDER`,
+- Lo hace cumplir `tests/repository/test_ubs_package_layering.py`: módulo fuera de `ORDER`,
   import hacia arriba o nombre sin reexportar, y falla.
 
 ## `portfolio_service` también es una pila
@@ -220,7 +220,7 @@ como en `ubs_portfolio`, **el orden es el de dependencia**:
 - **Los llamantes no cambian:** `portfolio_service` reexporta lo que movió.
 - Los módulos de abajo declaran el tipo `PortfolioSource` con
   `if TYPE_CHECKING:`. Eso no es una dependencia: no existe en ejecución.
-- Lo hace cumplir `tests/test_module_layering.py`, que vigila esta pila y la
+- Lo hace cumplir `tests/repository/test_module_layering.py`, que vigila esta pila y la
   del servidor HTTP.
 
 **Al mover código, el `patch()` de un test se queda sin efecto y el test sigue
@@ -252,7 +252,7 @@ orden de dependencia:
   puesto ahí alcanza a todos los consumidores, estén en el fichero que estén, y
   los tests tienen un único punto que parchear. `manager_http` se importa a sí
   mismo por ese motivo.
-- Lo hace cumplir `tests/test_module_layering.py`.
+- Lo hace cumplir `tests/repository/test_module_layering.py`.
 
 ## El nodo también es una pila (y sigue siendo un señuelo)
 
@@ -271,7 +271,7 @@ dependencia, y `node.py` es la fachada de 56 líneas que arranca y reexporta:
   del runtime de IC, y hay una prueba que lo compara. No se le puede añadir ni
   un import: por eso `_normalize_generation`, `_enqueue` y el resto de la cola
   siguen siendo métodos de `JobController` que delegan.
-- Lo hace cumplir `tests/test_module_layering.py`.
+- Lo hace cumplir `tests/repository/test_module_layering.py`.
 
 ## Tamaño del código: 60 líneas por función, 600 por fichero
 
@@ -281,8 +281,8 @@ junto a sus llamantes. Por encima, cambiar tres líneas obliga a cargar todo.
 
 | Techo | Medida | Guarda | Perdonados |
 | --- | --- | --- | --- |
-| 60 líneas por función | `tools/function_length.py` | `tests/test_function_length.py` | `tests/function_length_baseline.json` |
-| 600 líneas por fichero | `tools/file_length.py` | `tests/test_file_length.py` | `tests/file_length_baseline.json` |
+| 60 líneas por función | `tools/function_length.py` | `tests/repository/test_function_length.py` | `tests/function_length_baseline.json` |
+| 600 líneas por fichero | `tools/file_length.py` | `tests/repository/test_file_length.py` | `tests/file_length_baseline.json` |
 
 El alcance y el trinquete son comunes: `tools/source_files.py`.
 
@@ -366,10 +366,33 @@ no puede pasar por el shell, y el resultado hay que mirarlo:
   caza las dos de arriba y la sobre-captura: una extracción por AST se llevó 180
   líneas de helpers ajenos y sólo se vio al medir el fichero resultante.
 
+## Estrategia y organización de pruebas
+
+- **Durante la iteración se ejecuta sólo el alcance afectado**: primero el caso
+  o la clase, después los módulos del mismo comportamiento. No se repite la
+  suite completa después de cada edición y se evita `-v` salvo diagnóstico.
+- Al cerrar la iteración se puede ejecutar `python -m tools.verify_project`:
+  conserva auditorías, guardas y el contrato focal de IC, pero no ejecuta el
+  suite completo del manager. `--quick` sigue siendo un alias compatible.
+- La suite completa se ejecuta con `python -m tools.verify_project --full`
+  **sólo cuando el usuario lo pida explícitamente**. Ni el cierre de una unidad,
+  ni el commit, ni la entrega autorizan por sí solos esa ejecución.
+- Las pruebas se agrupan por dueño y comportamiento. `tests/repository/`
+  contiene las guardas del propio repositorio; los grupos de producto se migran
+  incrementalmente a carpetas como `portfolio/`, `live_audit/`, `manager/`,
+  `node/` e `integration/`. Cada carpeta lleva `__init__.py`.
+- Un traslado de pruebas es una unidad mecánica: mueve un comportamiento
+  completo, actualiza imports y comandos, conserva el recuento de casos y no se
+  mezcla con cambios de producción. La convención completa vive en
+  `tests/README.md`.
+
 ## Verificación
 
 - Primero pruebas focalizadas con `python -m unittest`.
-- Después `python -m unittest discover -s tests` cuando el alcance lo permita.
+- Después `python -m tools.verify_project` al cerrar la iteración si aporta
+  valor al alcance tocado.
+- `python -m unittest discover -s tests` sólo se ejecuta por petición explícita
+  del usuario, directamente o mediante `python -m tools.verify_project --full`.
 - `pytest` no está entre las dependencias instaladas del workspace.
 - **Un suite verde no prueba equivalencia.** Antes de refactorizar algo
   compartido, medir con `python -m tools.coverage_probe <módulo>:<nombre>` si
@@ -396,13 +419,12 @@ no puede pasar por el shell, y el resultado hay que mirarlo:
   habla por HTTP con el fork de IC y deja un hilo contestando tarde. Volver a
   correrla aislada antes de darle importancia —
   `ai_context/test_symbol_sync_intermitente.md`.
-- Antes de commitear un refactor: `python -m tools.verify_project`, que también
-  sincroniza las reexportaciones UBS. Durante la iteración,
-  `python -m tools.verify_project --quick` omite sólo el suite completo del
-  manager; nunca silencia guardas ni el contrato focal de IC si está montado.
+- `python -m tools.verify_project` sincroniza las reexportaciones UBS y ejecuta
+  auditorías, guardas y el contrato focal de IC. `--full` añade el suite completo
+  únicamente cuando el usuario lo haya pedido de forma explícita.
 - Documentar decisiones y hallazgos duraderos en `ai_context/`, **y añadir su
   línea al `README.md` de esa carpeta**: se presenta como índice y lo exige
-  `tests/test_ai_context_index.py`.
+  `tests/repository/test_ai_context_index.py`.
 
 ### Las herramientas
 

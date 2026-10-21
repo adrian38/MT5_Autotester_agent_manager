@@ -20,9 +20,9 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-PACKAGE = Path(__file__).resolve().parents[1] / "mt5_manager"
+PACKAGE = Path(__file__).resolve().parents[2] / "mt5_manager"
 
 PORTFOLIO_STACK = [
     "portfolio_scope",

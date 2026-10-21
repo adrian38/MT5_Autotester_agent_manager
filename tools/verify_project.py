@@ -1,7 +1,8 @@
 """Verificación única del contrato de trabajo del proyecto.
 
-Ejecuta las cuatro auditorías mecánicas, las guardas arquitectónicas, el suite
-completo del manager y, cuando está montado, el contrato guiado del runtime IC.
+Ejecuta las cuatro auditorías mecánicas, las guardas arquitectónicas y, cuando
+está montado, el contrato guiado del runtime IC. El suite completo del manager
+sólo se añade con ``--full``, después de una petición explícita del usuario.
 También comprueba que ninguna otra sesión cambió HEAD ni el estado tracked de
 los repositorios mientras duró la medición.
 
@@ -10,7 +11,7 @@ junto al manager: derivarla de `ROOT.parent` omitía el contrato en silencio en
 todo equipo donde el manager no es su vecino.
 
     python -m tools.verify_project
-    python -m tools.verify_project --quick
+    python -m tools.verify_project --full
 """
 from __future__ import annotations
 
@@ -52,7 +53,7 @@ class CommandSpec:
     skip_reason: str | None = None
 
 
-def command_specs(*, include_full_suite: bool = True) -> list[CommandSpec]:
+def command_specs(*, include_full_suite: bool = False) -> list[CommandSpec]:
     python = sys.executable
     specs = [
         CommandSpec("exports UBS", ROOT, (python, "-m", "tools.sync_ubs_exports")),
@@ -65,10 +66,15 @@ def command_specs(*, include_full_suite: bool = True) -> list[CommandSpec]:
             ROOT,
             (
                 python, "-m", "unittest",
-                "tests.test_agents_md_stacks", "tests.test_module_layering",
-                "tests.test_guided_routing", "tests.test_function_length",
-                "tests.test_file_length", "tests.test_ai_context_index",
-                "tests.test_undefined_names", "tests.test_verify_project",
+                "tests.repository.test_agents_md_stacks",
+                "tests.repository.test_module_layering",
+                "tests.repository.test_ubs_package_layering",
+                "tests.test_guided_routing",
+                "tests.repository.test_function_length",
+                "tests.repository.test_file_length",
+                "tests.repository.test_ai_context_index",
+                "tests.repository.test_undefined_names",
+                "tests.repository.test_verify_project",
             ),
         ),
     ]
@@ -117,11 +123,11 @@ def run_spec(spec: CommandSpec) -> bool:
 
 
 def parse_args(argv: list[str]) -> bool:
-    if not argv:
-        return True
-    if argv == ["--quick"]:
+    if not argv or argv == ["--quick"]:
         return False
-    raise ValueError("uso: python -m tools.verify_project [--quick]")
+    if argv == ["--full"]:
+        return True
+    raise ValueError("uso: python -m tools.verify_project [--quick|--full]")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -146,6 +152,8 @@ def main(argv: list[str] | None = None) -> int:
     # va en la ultima linea: enterrada a mitad de la salida no la ve nadie.
     if skipped:
         print(f"\n[OK] contrato verificado SIN: {', '.join(skipped)}")
+    elif not include_full_suite:
+        print("\n[OK] contrato focal del proyecto verificado (suite manager no solicitada)")
     else:
         print("\n[OK] contrato completo del proyecto verificado")
     return 0

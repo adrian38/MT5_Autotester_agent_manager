@@ -5,7 +5,7 @@ Recoge las trampas que ni el grafo ni `rg` pueden mostrar, porque no están en e
 código de este repositorio.
 
 **Este índice está completo y hay una prueba que lo exige**
-(`tests/test_ai_context_index.py`). Al añadir una nota, añadir aquí su línea;
+(`tests/repository/test_ai_context_index.py`). Al añadir una nota, añadir aquí su línea;
 `python -m tools.ai_context_index` dice cuáles faltan. Un índice a medias es
 peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 

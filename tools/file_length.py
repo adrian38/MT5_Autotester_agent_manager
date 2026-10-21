@@ -1,6 +1,6 @@
 """Medida unica de longitud de fichero, companera de ``function_length``.
 
-La guarda vive en ``tests/test_file_length.py``. El baseline se regenera con::
+La guarda vive en ``tests/repository/test_file_length.py``. El baseline se regenera con::
 
     python -m tools.file_length --write
 

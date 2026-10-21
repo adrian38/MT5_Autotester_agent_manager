@@ -17,7 +17,7 @@ import re
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 AGENTS = ROOT / "AGENTS.md"
 
 #: Una cadena `a` -> `b` -> `c`, aunque parta lineas.
@@ -49,9 +49,11 @@ class AgentsMdStackTests(unittest.TestCase):
         self.chains = documented_chains()
 
     def guards(self) -> dict[str, list[str]]:
-        layering = ROOT / "tests" / "test_module_layering.py"
+        layering = ROOT / "tests" / "repository" / "test_module_layering.py"
         return {
-            "ubs_portfolio": order_in(ROOT / "tests" / "test_ubs_package_layering.py", "ORDER"),
+            "ubs_portfolio": order_in(
+                ROOT / "tests" / "repository" / "test_ubs_package_layering.py", "ORDER"
+            ),
             "portfolio_service": order_in(layering, "PORTFOLIO_STACK"),
             "manager": order_in(layering, "MANAGER_STACK"),
             "node": order_in(layering, "NODE_STACK"),
@@ -73,7 +75,9 @@ class AgentsMdStackTests(unittest.TestCase):
         """`sync_ubs_exports` reexporta en ese orden: si discrepan, falta uno."""
         self.assertEqual(
             order_in(ROOT / "tools" / "sync_ubs_exports.py", "ORDER"),
-            order_in(ROOT / "tests" / "test_ubs_package_layering.py", "ORDER"),
+            order_in(
+                ROOT / "tests" / "repository" / "test_ubs_package_layering.py", "ORDER"
+            ),
         )
 
     def test_no_stack_is_documented_that_nobody_enforces(self):

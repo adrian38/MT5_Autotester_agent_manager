@@ -1,7 +1,7 @@
 """Regenera los reexports de ``portfolio_manager/ubs_portfolio/__init__.py``.
 
 El paquete reexporta todos sus nombres para que los llamantes no tengan que
-saber en que modulo vive cada cosa, y ``tests/test_ubs_package_layering.py`` lo
+saber en que modulo vive cada cosa, y ``tests/repository/test_ubs_package_layering.py`` lo
 exige. Mantener esa lista a mano al partir una funcion es puro ruido, asi que se
 genera::
 

@@ -1,6 +1,6 @@
 """Medida unica de longitud de funcion, compartida por la guarda y su baseline.
 
-La guarda vive en ``tests/test_function_length.py``. El baseline se regenera con::
+La guarda vive en ``tests/repository/test_function_length.py``. El baseline se regenera con::
 
     python -m tools.function_length --write
 

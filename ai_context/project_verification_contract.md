@@ -1,10 +1,23 @@
 # Contrato único de verificación
 
-`python -m tools.verify_project` es la puerta final del repositorio. Sincroniza
-las reexportaciones UBS y ejecuta las auditorías de nombres, tamaños e índice,
-las guardas arquitectónicas, el suite completo del manager y, si la copia IC
-está montada, sus pruebas focales del pipeline guiado. `--quick` sirve durante
-la iteración y omite únicamente el suite completo del manager.
+`python -m tools.verify_project` sincroniza las reexportaciones UBS y ejecuta
+las auditorías de nombres, tamaños e índice, las guardas arquitectónicas y, si
+la copia IC está montada, sus pruebas focales del pipeline guiado. El suite
+completo del manager sólo se añade con `--full` cuando el usuario lo haya pedido
+explícitamente; `--quick` se conserva como alias del comportamiento normal.
+
+## Iteración focal y disposición de las pruebas
+
+Durante el trabajo se ejecuta el caso, la clase o los módulos del comportamiento
+tocado. `python -m tools.verify_project` conserva las auditorías, las guardas y
+el contrato focal de IC sin ejecutar el suite del manager. El cierre, el commit
+y la entrega no autorizan el suite completo: `--full` sólo se usa tras una
+petición explícita del usuario.
+
+Las guardas del repositorio viven en `tests/repository/`. Es el primer grupo
+migrado desde la raíz plana; el resto se moverá incrementalmente por dueño y
+comportamiento, conservando el recuento de pruebas y sin mezclar el traslado con
+cambios funcionales. `tests/README.md` mantiene la taxonomía y los comandos.
 
 El comando captura `HEAD` y el estado tracked del manager y de IC antes de las
 pruebas. Si otra sesión cambia alguno durante la medición, el resultado falla:
@@ -42,7 +55,7 @@ del `[OK] contrato completo` de siempre.
 
 `tools.undefined_names` no puede demostrar qué nombres aporta un `import *`.
 Por eso sólo admite las seis fachadas históricas de auditoría enumeradas en
-`ALLOWED_STAR_IMPORTS`. `tests/test_undefined_names.py` exige igualdad exacta:
+`ALLOWED_STAR_IMPORTS`. `tests/repository/test_undefined_names.py` exige igualdad exacta:
 una importación estrella nueva y una excepción que ya no se use fallan.
 
 ## Ramas, espejos y pruebas
