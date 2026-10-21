@@ -448,7 +448,7 @@ class GridScopeTests(unittest.TestCase):
             normalize_portfolio_scope("grdi")
 
     def test_broker_cards_link_the_independent_grid_screen(self) -> None:
-        root = Path(__file__).resolve().parents[1]
+        root = Path(__file__).resolve().parents[2]
         app = (root / "mt5_manager" / "static" / "app.js").read_text(encoding="utf-8")
         html = (root / "mt5_manager" / "static" / "portfolios_grid.html").read_text(encoding="utf-8")
         script = (root / "mt5_manager" / "static" / "portfolios_grid.js").read_text(encoding="utf-8")
@@ -458,7 +458,7 @@ class GridScopeTests(unittest.TestCase):
         self.assertIn("const scope = 'grid'", script)
 
     def test_grid_screen_has_progress_readable_sets_and_saved_actions(self) -> None:
-        root = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+        root = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
         html = (root / "portfolios_grid.html").read_text(encoding="utf-8")
         script = (root / "portfolios_grid.js").read_text(encoding="utf-8")
 
