@@ -1,3 +1,5 @@
+"""Restricciones del conjunto UBS requerido durante el refinamiento."""
+
 import unittest
 
 from portfolio_manager.ubs_portfolio import (
