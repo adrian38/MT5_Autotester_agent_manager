@@ -17,7 +17,7 @@ from mt5_manager import portfolio_manual_check
 from mt5_manager.portfolio_manual_check import DEFAULT_RETRIES
 
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).parents[2]
 STATIC = ROOT / "mt5_manager" / "static"
 
 

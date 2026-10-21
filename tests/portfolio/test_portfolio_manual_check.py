@@ -20,7 +20,7 @@ from mt5_manager import (
 )
 
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).parents[2]
 
 
 def _member(candidate: str, name: str, symbol: str = "XAUUSD", **extra) -> dict:

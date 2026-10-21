@@ -20,7 +20,7 @@ from mt5_manager import manager_handler, manager_portfolio_routes, portfolio_man
 from mt5_manager.manual_check_analysis import METRIC_KEYS, analysis
 
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).parents[2]
 STATIC = ROOT / "mt5_manager" / "static"
 
 
