@@ -524,18 +524,38 @@ class PortfolioCoordinator(PortfolioCoordinatorCoreMixin, PortfolioCoordinatorSa
             portfolio_id, scope, set_path
         )
 
+    @property
+    def manual_check_settings_path(self) -> Path:
+        """Los ajustes de la comprobación manual, uno por agente.
+
+        Van con el resto del estado del manager y no con el portafolio: lo que
+        describen —periodo, lote, multiterminal y tipos de datos— es cómo se
+        comprueba en ese broker, no qué tiene dentro una cartera.
+        """
+        return self.settings_path.parent / "manual_check_settings.json"
+
     def manual_check_preview(self, node_id: str, scope: str, portfolio_id: int) -> dict[str, Any]:
         return portfolio_manual_check.new_strategies(
-            self._persistence_source(node_id, scope), portfolio_id, scope
+            self._persistence_source(node_id, scope), portfolio_id, scope,
+            portfolio_manual_check.saved_settings(self.manual_check_settings_path, node_id),
         )
 
     def manual_check_request(
         self, node_id: str, scope: str, portfolio_id: int, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        """La petición que el manager manda al nodo, armada con la memoria de ahora."""
-        return portfolio_manual_check.start_request(
-            self._persistence_source(node_id, scope), portfolio_id, scope, payload
+        """La petición que el manager manda al nodo, armada con la memoria de ahora.
+
+        Lo lanzado queda apuntado: el modal siguiente de ese agente abre con
+        ello, sin repetir a mano el periodo y el lote en cada portafolio.
+        """
+        request = portfolio_manual_check.start_request(
+            self._persistence_source(node_id, scope), portfolio_id, scope, payload,
+            portfolio_manual_check.saved_settings(self.manual_check_settings_path, node_id),
         )
+        portfolio_manual_check.remember_settings(
+            self.manual_check_settings_path, node_id, request
+        )
+        return request
 
     def manual_check_sets_archive(
         self, node_id: str, scope: str, portfolio_id: int

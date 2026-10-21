@@ -95,6 +95,20 @@ HTML: ésa es otra ruta y no se ha tocado.
   el PC, y una carpeta borrada en el agente lo apaga en todos los dispositivos.
   Se lleva el `.htm` **y las imágenes de sus curvas**.
 
+## Los ajustes son del agente y se recuerdan
+
+Petición del usuario (2026-10-21): «estas configuraciones cuando las edito y
+lanzo deberían quedar guardadas por lo menos para todo lo que tenga que ver con
+comprobación manual en ese broker». Periodo, lote, multiterminal y tipos de
+datos se apuntan al lanzar en `runtime/manual_check_settings.json`, **una
+entrada por nodo**, y el modal siguiente de ese agente abre con ellos y lo dice.
+
+- Van con el estado del manager y no con el portafolio: describen **cómo** se
+  comprueba en ese broker, no qué lleva dentro una cartera.
+- **Las estrategias no se recuerdan nunca**: se recalculan contra la memoria de
+  ese momento en cada apertura y en cada lanzamiento.
+- Un fichero ilegible no bloquea el modal: se vuelve a los valores de fábrica.
+
 ## El primer aviso real no salió (2026-10-21)
 
 La primera comprobación de verdad —portafolio #62, tres estrategias, los dos

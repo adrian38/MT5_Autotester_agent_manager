@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from mt5_manager.portfolio_service import PortfolioCoordinator
 from mt5_manager import (
     live_audit_activity,
     manager_portfolio_routes,
@@ -114,6 +115,60 @@ class NewStrategyTests(unittest.TestCase):
         self.assertEqual(request["models"], ["tick"])
         self.assertFalse(request["use_multiterminal"])
         self.assertEqual(request["lot"], 0.05)
+
+    def test_the_settings_of_the_last_check_come_back_in_the_next_one(self) -> None:
+        # Son del agente: el usuario no quiere repetir periodo y lote en cada
+        # portafolio del mismo broker.
+        remembered = {
+            "from_date": "2024.01.01", "to_date": "2024.12.31", "lot": 0.25,
+            "use_multiterminal": False, "models": ["tick"],
+        }
+
+        preview = portfolio_manual_check.new_strategies(
+            self.source, 62, "full_history", remembered,
+        )
+
+        self.assertTrue(preview["remembered"])
+        self.assertEqual(preview["from_date"], "2024.01.01")
+        self.assertEqual(preview["lot"], 0.25)
+        self.assertFalse(preview["use_multiterminal"])
+        self.assertEqual(preview["models"], ["tick"])
+        # Lo que nunca se recuerda: qué estrategias son nuevas.
+        self.assertEqual([row["set_name"] for row in preview["strategies"]], ["tres.set"])
+
+    def test_without_anything_remembered_the_defaults_stand(self) -> None:
+        preview = portfolio_manual_check.new_strategies(self.source, 62, "full_history", {})
+
+        self.assertFalse(preview["remembered"])
+        self.assertEqual(preview["lot"], 0.01)
+        self.assertEqual(preview["models"], ["ohlc", "tick"])
+        self.assertTrue(preview["use_multiterminal"])
+
+    def test_the_settings_travel_between_agents_without_mixing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "manual_check_settings.json"
+            portfolio_manual_check.remember_settings(path, "ic", {
+                "from_date": "2024.01.01", "to_date": "2024.12.31", "lot": 0.25,
+                "use_multiterminal": False, "models": ["tick"],
+                "strategies": [{"set_name": "tres.set"}], "portfolio_id": 62,
+            })
+
+            self.assertEqual(portfolio_manual_check.saved_settings(path, "ic"), {
+                "from_date": "2024.01.01", "to_date": "2024.12.31", "lot": 0.25,
+                "use_multiterminal": False, "models": ["tick"],
+            })
+            # Ni las estrategias ni el portafolio se guardan, y otro agente
+            # sigue con sus valores de fábrica.
+            self.assertEqual(portfolio_manual_check.saved_settings(path, "axi"), {})
+
+    def test_a_broken_settings_file_does_not_block_the_modal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "manual_check_settings.json"
+            path.write_text("{roto", encoding="utf-8")
+
+            self.assertEqual(portfolio_manual_check.saved_settings(path, "ic"), {})
+            portfolio_manual_check.remember_settings(path, "ic", {"lot": 0.02})
+            self.assertEqual(portfolio_manual_check.saved_settings(path, "ic"), {"lot": 0.02})
 
     def test_a_portfolio_without_new_strategies_does_not_start(self) -> None:
         self.source.portfolios[62]["members"] = [_member("IC:1", "uno.set")]
@@ -336,6 +391,47 @@ class NoticeTests(unittest.TestCase):
         self._tick()
 
         self.assertEqual(self.notices, [])
+
+
+class ServiceWiringTests(unittest.TestCase):
+    """El servicio es quien lee y apunta los ajustes; aquí se comprueba eso."""
+
+    def test_the_file_lives_with_the_rest_of_the_manager_state(self) -> None:
+        owner = SimpleNamespace(settings_path=Path("/app/runtime/portfolios.json"))
+
+        path = PortfolioCoordinator.manual_check_settings_path.fget(owner)
+
+        self.assertEqual(path, Path("/app/runtime/manual_check_settings.json"))
+
+    def test_starting_a_check_remembers_what_it_was_launched_with(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            # Un doble con la misma propiedad que el servicio: lo que se
+            # prueba es el cableado, no la clase entera.
+            class Owner:
+                settings_path = Path(temp) / "portfolios.json"
+                manual_check_settings_path = (
+                    PortfolioCoordinator.manual_check_settings_path
+                )
+
+                @staticmethod
+                def _persistence_source(_node_id, _scope):
+                    return FakeSource({
+                        62: {"id": 62, "members": [_member("IC:3", "tres.set")]},
+                    })
+
+            owner = Owner()
+
+            PortfolioCoordinator.manual_check_request(
+                owner, "ic", "full_history", 62,
+                {"from_date": "2024.01.01", "to_date": "2024.12.31", "lot": 0.25,
+                 "use_multiterminal": False, "models": ["tick"]},
+            )
+            preview = PortfolioCoordinator.manual_check_preview(owner, "ic", "full_history", 62)
+
+        self.assertTrue(preview["remembered"])
+        self.assertEqual(preview["from_date"], "2024.01.01")
+        self.assertEqual(preview["lot"], 0.25)
+        self.assertEqual(preview["models"], ["tick"])
 
 
 class ServerSurfaceTests(unittest.TestCase):

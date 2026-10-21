@@ -99,8 +99,51 @@ def default_period(today: date | None = None) -> tuple[str, str]:
     return start.strftime("%Y.%m.%d"), end.strftime("%Y.%m.%d")
 
 
-def new_strategies(source: Any, portfolio_id: int, scope: str) -> dict[str, Any]:
-    """Qué se comprobaría de este portafolio, y por qué sale eso."""
+REMEMBERED_KEYS = ("from_date", "to_date", "lot", "use_multiterminal", "models")
+"""Lo que el modal conserva de una comprobación a la siguiente.
+
+Es del **agente**, no del portafolio: el periodo, el lote, el multiterminal y
+los tipos de datos describen cómo se comprueba en ese broker, y repetirlos a
+mano en cada portafolio era el trabajo que el usuario pidió quitarse
+(2026-10-21). Las estrategias no entran aquí: ésas se recalculan siempre.
+"""
+
+
+def saved_settings(path: Path, node_id: str) -> dict[str, Any]:
+    """Lo último que se lanzó en ese agente, si queda algo apuntado."""
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    remembered = stored.get(str(node_id)) if isinstance(stored, dict) else None
+    if not isinstance(remembered, dict):
+        return {}
+    return {key: remembered[key] for key in REMEMBERED_KEYS if key in remembered}
+
+
+def remember_settings(path: Path, node_id: str, request: dict[str, Any]) -> None:
+    """Apunta la configuración recién lanzada; nunca rompe el lanzamiento."""
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    stored[str(node_id)] = {key: request[key] for key in REMEMBERED_KEYS if key in request}
+    try:
+        path.write_text(json.dumps(stored, indent=2, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def new_strategies(
+    source: Any, portfolio_id: int, scope: str, remembered: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Qué se comprobaría de este portafolio, y con qué ajustes.
+
+    Los ajustes recordados mandan sobre los de fábrica: son los del agente, y
+    es lo que el modal enseña al abrirse.
+    """
     scope = normalize_portfolio_scope(scope)
     detail = source.saved_portfolio_detail(portfolio_id, scope)["portfolio"]
     members = [member for member in detail.get("members") or [] if not member.get("excluded")]
@@ -135,17 +178,22 @@ def new_strategies(source: Any, portfolio_id: int, scope: str) -> dict[str, Any]
         "models": list(REPORT_MODELS),
         "use_multiterminal": True,
         "lot": 0.01,
+        "remembered": bool(remembered),
+        **{key: value for key, value in (remembered or {}).items() if key in REMEMBERED_KEYS},
     }
 
 
-def start_request(source: Any, portfolio_id: int, scope: str, payload: dict[str, Any]) -> dict[str, Any]:
+def start_request(
+    source: Any, portfolio_id: int, scope: str, payload: dict[str, Any],
+    remembered: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """La petición que viaja al nodo, con las estrategias recalculadas aquí.
 
     Las estrategias no se toman del navegador: la pantalla pudo quedarse
     abierta mientras el portafolio cambiaba, y lo que se manda a MT5 tiene que
     salir de la memoria de ahora.
     """
-    preview = new_strategies(source, portfolio_id, scope)
+    preview = new_strategies(source, portfolio_id, scope, remembered)
     if not preview["strategies"]:
         raise ValueError("Este portafolio no tiene estrategias nuevas que comprobar")
     requested = payload.get("models")
@@ -157,7 +205,7 @@ def start_request(source: Any, portfolio_id: int, scope: str, payload: dict[str,
         "from_date": str(payload.get("from_date") or preview["from_date"]).strip(),
         "to_date": str(payload.get("to_date") or preview["to_date"]).strip(),
         "models": [model for model in REPORT_MODELS if model in models] or list(REPORT_MODELS),
-        "use_multiterminal": bool(payload.get("use_multiterminal", True)),
+        "use_multiterminal": bool(payload.get("use_multiterminal", preview["use_multiterminal"])),
         "lot": payload.get("lot", preview["lot"]),
         "strategies": preview["strategies"],
     }

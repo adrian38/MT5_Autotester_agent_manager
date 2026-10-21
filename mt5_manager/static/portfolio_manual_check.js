@@ -103,6 +103,9 @@
     if (data.unreadable_origins.length) {
       parts.push(`Aviso: no se pudieron leer ${data.unreadable_origins.map(id => `#${id}`).join(', ')}, así que puede sobrar alguna.`);
     }
+    // Los ajustes son del agente, no de este portafolio: conviene decirlo,
+    // porque son los de la última comprobación y no los de fábrica.
+    if (data.remembered) parts.push('Periodo, lote y ejecución: los de la última comprobación de este agente.');
     return parts.join(' ');
   }
 
@@ -136,6 +139,10 @@
       fields.from_date.value = isoDate(preview.from_date);
       fields.to_date.value = isoDate(preview.to_date);
       fields.lot.value = preview.lot;
+      fields.use_multiterminal.checked = preview.use_multiterminal !== false;
+      const models = preview.models || [];
+      fields.model_ohlc.checked = models.includes('ohlc');
+      fields.model_tick.checked = models.includes('tick');
       await refreshLastCheck();
     } catch (error) {
       dialog.querySelector('#manual-check-summary').textContent = error.message;
