@@ -531,9 +531,14 @@ sólo los presenta.
 Cada tarjeta de cuenta tiene un checkbox «Sumar». Sólo las marcadas participan
 en Total hoy, mes actual y mes anterior; se aplican los tres importes ya
 convertidos por el manager para no duplicar el criterio de moneda. Las cuentas
-parten marcadas y el navegador persiste únicamente las exclusiones bajo
-`live-account-total-exclusions`. Es un filtro de presentación: no cambia el
-sondeo ni la configuración operativa.
+parten marcadas y el manager persiste las exclusiones en
+`live_accounts/total_selection.json`; `/api/live-accounts` devuelve esa selección
+y `POST /api/live-account-total-selection` cambia una cuenta. Así móvil y
+escritorio comparten el mismo total en su siguiente refresco. La primera carga
+después de este cambio migra una sola vez el antiguo
+`live-account-total-exclusions` de `localStorage`, y después lo borra. Sigue
+siendo un filtro de presentación: no cambia el sondeo ni la configuración
+operativa.
 
 ## La recuperación conserva el instante del corte (2026-10-20)
 

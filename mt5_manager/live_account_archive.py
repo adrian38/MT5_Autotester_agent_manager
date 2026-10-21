@@ -201,6 +201,51 @@ class LiveAccountArchive:
         """Hasta dónde llega la serie, que es desde dónde se vuelve a leer."""
         return str(self.read(node_id, key).get("last_day") or "")
 
+    def _total_selection_path(self) -> Path:
+        return self.directory / "total_selection.json"
+
+    def total_selection(self) -> dict[str, Any]:
+        """Selección compartida por todos los navegadores que abren el manager."""
+        path = self._total_selection_path()
+        if not path.is_file():
+            return {"initialized": False, "excluded_accounts": []}
+        try:
+            stored = load_json(path)
+        except ValueError:
+            return {"initialized": False, "excluded_accounts": []}
+        excluded = sorted({
+            str(value) for value in stored.get("excluded_accounts") or []
+            if isinstance(value, str) and value.strip()
+        })
+        return {"initialized": True, "excluded_accounts": excluded}
+
+    def update_total_selection(self, changes: dict[str, Any]) -> dict[str, Any]:
+        """Migra la selección local una vez o cambia una sola cuenta."""
+        with self.lock:
+            current = self.total_selection()
+            if "excluded_accounts" in changes:
+                values = changes["excluded_accounts"]
+                if not isinstance(values, list) or len(values) > 10_000:
+                    raise ValueError("excluded_accounts debe ser una lista")
+                if current["initialized"]:
+                    return current
+                excluded = {str(value).strip() for value in values if str(value).strip()}
+            else:
+                key = str(changes.get("account") or "").strip()
+                included = changes.get("included")
+                if not key or "::" not in key or len(key) > 400:
+                    raise ValueError("La cuenta seleccionada no es válida")
+                if not isinstance(included, bool):
+                    raise ValueError("included debe ser true o false")
+                excluded = set(current["excluded_accounts"])
+                if included:
+                    excluded.discard(key)
+                else:
+                    excluded.add(key)
+            state = {"initialized": True, "excluded_accounts": sorted(excluded)}
+            save_json(self._total_selection_path(), state)
+            return state
+
     def _expectation_path(self, node_id: str, portfolio_id: Any) -> Path:
         return self._node_directory(node_id) / f"expectation-{_slug(str(portfolio_id))}.json"
 

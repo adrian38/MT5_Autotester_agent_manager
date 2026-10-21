@@ -13,7 +13,7 @@ const restartManagerButton = document.querySelector('#restart-manager');
 // que en «Portafolios activos», y no en cada refresco de las cuentas.
 const nodeAliases = new Map();
 const TOTAL_SELECTION_KEY = 'live-account-total-exclusions';
-const excludedAccounts = new Set(loadExcludedAccounts());
+const excludedAccounts = new Set();
 let latestData = null;
 let refreshing = false;
 let managerRestarting = false;
@@ -72,7 +72,7 @@ function dateTime(value) {
   return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('es-ES');
 }
 
-function loadExcludedAccounts() {
+function loadLegacyExcludedAccounts() {
   try {
     const stored = JSON.parse(localStorage.getItem(TOTAL_SELECTION_KEY) || '[]');
     return Array.isArray(stored) ? stored.map(String) : [];
@@ -89,9 +89,26 @@ function accountIsIncluded(card) {
   return !excludedAccounts.has(accountSelectionKey(card));
 }
 
-function persistExcludedAccounts() {
-  try { localStorage.setItem(TOTAL_SELECTION_KEY, JSON.stringify([...excludedAccounts])); }
-  catch (_error) { /* El filtro sigue funcionando durante esta visita. */ }
+function applyTotalSelection(selection) {
+  excludedAccounts.clear();
+  for (const key of selection.excluded_accounts || []) excludedAccounts.add(String(key));
+}
+
+async function syncTotalSelection(data) {
+  let selection = data.total_selection || {initialized: false, excluded_accounts: []};
+  const legacy = selection.initialized ? [] : loadLegacyExcludedAccounts();
+  if (!selection.initialized && legacy.length) {
+    selection = await jsonResponse(await fetch('/api/live-account-total-selection', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({excluded_accounts: legacy}),
+    }));
+    data.total_selection = selection;
+  }
+  applyTotalSelection(selection);
+  if (selection.initialized) {
+    try { localStorage.removeItem(TOTAL_SELECTION_KEY); }
+    catch (_error) { /* La selección ya está guardada en el manager. */ }
+  }
 }
 
 // «Media de ese mes en el histórico», y cuántos años la promedian: un octubre
@@ -329,6 +346,7 @@ async function refresh() {
   refreshState.textContent = 'Actualizando…';
   try {
     const data = await jsonResponse(await fetch('/api/live-accounts', {cache: 'no-store'}));
+    await syncTotalSelection(data);
     render(data);
     if (await loadAliases(data.accounts || [])) render(data);
     refreshState.textContent = `Actualizado ${new Date().toLocaleTimeString('es-ES')}`;
@@ -399,13 +417,28 @@ async function restartManager() {
 // repintarse con la moneda o el alcance recién cambiados sin recargar.
 window.refreshAccounts = refresh;
 
-cardsEl.addEventListener('change', event => {
+cardsEl.addEventListener('change', async event => {
   const toggle = event.target.closest('.total-account-toggle');
   if (!toggle) return;
-  if (toggle.checked) excludedAccounts.delete(toggle.dataset.account);
-  else excludedAccounts.add(toggle.dataset.account);
-  persistExcludedAccounts();
+  const included = toggle.checked;
+  const account = toggle.dataset.account;
+  if (included) excludedAccounts.delete(account);
+  else excludedAccounts.add(account);
   if (latestData) renderTotals(latestData);
+  toggle.disabled = true;
+  try {
+    await jsonResponse(await fetch('/api/live-account-total-selection', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({account, included}),
+    }));
+  } catch (error) {
+    if (included) excludedAccounts.add(account);
+    else excludedAccounts.delete(account);
+    toggle.checked = !included;
+    toggle.disabled = false;
+    if (latestData) renderTotals(latestData);
+    toast(error.message, true);
+  }
 });
 refreshButton.addEventListener('click', refresh);
 restartManagerButton.addEventListener('click', restartManager);

@@ -114,6 +114,9 @@ class PageTests(unittest.TestCase):
         for key in ("daily_display", "monthly_display", "previous_month_display"):
             self.assertIn(f"sum('{key}')", SCRIPT)
         self.assertIn("live-account-total-exclusions", SCRIPT)
+        self.assertIn("/api/live-account-total-selection", SCRIPT)
+        self.assertIn("await syncTotalSelection(data)", SCRIPT)
+        self.assertIn("localStorage.removeItem(TOTAL_SELECTION_KEY)", SCRIPT)
         self.assertIn("cardsEl.addEventListener('change'", SCRIPT)
 
     def test_the_dialog_can_choose_any_day_of_the_week(self) -> None:

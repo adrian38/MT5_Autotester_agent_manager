@@ -12,10 +12,11 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from mt5_manager import live_account_series
+from mt5_manager import live_account_series, manager_account_routes
 from mt5_manager.live_account_archive import (
     LiveAccountArchive, account_key, stored_movements,
 )
@@ -133,6 +134,36 @@ class ArchiveTests(unittest.TestCase):
     def test_the_last_day_is_where_the_next_snapshot_starts(self) -> None:
         self.merge([(moment("2026-10-20T08:00:00"), 5.0)], "", "2026-10-20")
         self.assertEqual(self.archive.last_day("axi", self.key), "2026-10-20")
+
+    def test_total_selection_is_shared_and_survives_a_restart(self) -> None:
+        selection_key = f"axi::{self.key}"
+        self.assertFalse(self.archive.total_selection()["initialized"])
+        self.archive.update_total_selection({"account": selection_key, "included": False})
+        again = LiveAccountArchive(self.folder.name)
+        self.assertEqual(again.total_selection(), {
+            "initialized": True, "excluded_accounts": [selection_key],
+        })
+        again.update_total_selection({"account": selection_key, "included": True})
+        self.assertEqual(again.total_selection()["excluded_accounts"], [])
+
+    def test_only_the_first_browser_migrates_its_local_selection(self) -> None:
+        first = self.archive.update_total_selection({"excluded_accounts": ["axi::one"]})
+        second = self.archive.update_total_selection({"excluded_accounts": ["axi::two"]})
+        self.assertEqual(first, second)
+
+    def test_the_http_route_persists_one_checkbox_change(self) -> None:
+        response = {}
+        handler = SimpleNamespace(
+            server=SimpleNamespace(live_accounts=self.archive),
+            _body=lambda: {"account": f"axi::{self.key}", "included": False},
+            _send_json=lambda status, body: response.update(status=status, body=body),
+        )
+        handled = manager_account_routes.handle_post(
+            handler, SimpleNamespace(path="/api/live-account-total-selection"), [],
+        )
+        self.assertTrue(handled)
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(response["body"]["excluded_accounts"], [f"axi::{self.key}"])
 
     def test_a_corrupt_row_does_not_take_the_series_down(self) -> None:
         record = self.merge([(moment("2026-10-20T08:00:00"), 5.0)], "", "2026-10-20")

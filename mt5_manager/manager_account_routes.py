@@ -20,6 +20,7 @@ from . import live_account_dashboard, live_account_inventory, live_account_watch
 ACCOUNTS_PATH = "/api/live-accounts"
 SCHEDULER_PATH = "/api/live-account-scheduler-config"
 SNAPSHOT_NOW_PATH = "/api/live-account-snapshot-now"
+TOTAL_SELECTION_PATH = "/api/live-account-total-selection"
 
 
 def _snapshot_now(handler) -> dict[str, Any]:
@@ -69,6 +70,13 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
 
 
 def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
+    if parsed.path == TOTAL_SELECTION_PATH:
+        try:
+            state = handler.server.live_accounts.update_total_selection(handler._body())
+            handler._send_json(200, state)
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            handler._send_json(400, {"error": str(exc)})
+        return True
     if parsed.path == SCHEDULER_PATH:
         try:
             handler._send_json(

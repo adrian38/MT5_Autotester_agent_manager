@@ -223,6 +223,7 @@ def snapshot(server: Any, now: datetime | None = None) -> dict[str, Any]:
         "rates_updated_at": str(settings.get("rates_updated_at") or ""),
         "accounts": cards,
         "totals": _totals(cards, settings),
+        "total_selection": server.live_accounts.total_selection(),
         "month_progress": month_progress(moment),
         "stale_after_hours": safe_int(STALE_AFTER_HOURS, 48, minimum=1),
     }

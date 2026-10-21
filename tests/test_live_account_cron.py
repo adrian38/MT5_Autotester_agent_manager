@@ -445,6 +445,15 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(totals["currency"], "EUR")
         self.assertEqual(totals["missing_rates"], ["GBP"])
 
+    def test_the_payload_carries_the_selection_shared_between_browsers(self) -> None:
+        selection_key = f"axi::{self.key}"
+        self.server.live_accounts.update_total_selection({
+            "account": selection_key, "included": False,
+        })
+        self.assertEqual(self.payload()["total_selection"], {
+            "initialized": True, "excluded_accounts": [selection_key],
+        })
+
     def test_a_dollar_account_is_converted_with_its_stored_rate(self) -> None:
         self.server.live_accounts.merge(
             "axi", account_key("60082303", "Axi-US50-Live"), login="60082303",
