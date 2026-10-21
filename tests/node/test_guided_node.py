@@ -1,3 +1,5 @@
+"""Preparación y ejecución de lotes guiados en el nodo."""
+
 import base64
 import copy
 import json

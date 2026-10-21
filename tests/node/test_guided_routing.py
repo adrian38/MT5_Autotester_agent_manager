@@ -6,7 +6,7 @@ from unittest import mock
 
 from mt5_manager import manager, manager_http, dev_branch
 from mt5_manager.docker_entrypoint import docker_config
-from tests.test_guided_node import package
+from tests.node.test_guided_node import package
 from tools.agent_projects import ic_project, searched_ic_projects
 
 
@@ -54,7 +54,7 @@ class GuidedRoutingTests(unittest.TestCase):
         original = {**self.node, 'portfolio_project_dir': dev_branch.DEV_PROJECT_DIR}
         node = docker_config({'nodes': [original]})['nodes'][0]
         state = {**self.state, 'node': {**self.state['node'], 'project_dir': dev_branch.DEV_PROJECT_DIR}}
-        with mock.patch.dict(manager.os.environ, {'MT5_MANAGER_RESTART_REPO': str(Path(__file__).parents[1])}), \
+        with mock.patch.dict(manager.os.environ, {'MT5_MANAGER_RESTART_REPO': str(Path(__file__).parents[2])}), \
              mock.patch.object(dev_branch, 'assert_writable'), \
              mock.patch.object(dev_branch, 'is_active', return_value=True), \
              mock.patch.object(manager_http, 'node_request', side_effect=[(200, state), (200, {'queued': True})]) as call:
@@ -76,7 +76,7 @@ class GuidedRoutingTests(unittest.TestCase):
         payload['batch_id'] = manager.guided_batches.batch_identity(payload)
         state = {**self.state, 'node': {**self.state['node'], 'broker': 'AXI',
                  'project_dir': node['node_project_dir']}}
-        environment = {'MT5_MANAGER_RESTART_REPO': str(Path(__file__).parents[1]),
+        environment = {'MT5_MANAGER_RESTART_REPO': str(Path(__file__).parents[2]),
                        'MT5_MANAGER_GUIDED_DEV_BROKERS': 'AXI'}
         with mock.patch.dict(manager.os.environ, environment), \
              mock.patch.object(dev_branch, 'assert_writable'), \
@@ -91,7 +91,7 @@ class GuidedRoutingTests(unittest.TestCase):
         # CRLF. La igualdad byte a byte se rompía sola en el primer checkout de
         # cualquiera de los dos lados (2026-09-03, tras un merge de origin/AXI),
         # sin que el protocolo hubiera divergido en una sola línea.
-        root = Path(__file__).parents[1]
+        root = Path(__file__).parents[2]
         # No se deriva de `root.parent`: con el manager en otro disco esta
         # guarda byte a byte se saltaba sola en todos los equipos salvo uno.
         agent = ic_project('manager_node_runtime/guided_controller.py')

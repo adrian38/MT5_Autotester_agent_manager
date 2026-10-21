@@ -43,7 +43,7 @@ el usuario puede habilitar brokers únicamente para este endpoint con
   (`/data/ic`). La identidad anunciada debe coincidir. El endpoint comprueba también
   la rama del checkout montado: `/app` no contiene .git.
 
-Pruebas: manager `test_guided_node`, `test_guided_routing`, `test_docker_entrypoint`;
+Pruebas: manager `tests.node.test_guided_node`, `tests.node.test_guided_routing`, `test_docker_entrypoint`;
 IC `test_prepared_candidates`, `test_guided_http`. HTTP cruza procesos y usa SQLite
 temporal; sus positivos sintéticos NO son resultados MT5.
 

@@ -87,7 +87,7 @@ escritura en la memoria UBS.
 | `tests/node/test_node_runtime_fork_parity.py` | Falla si la copia del agente divergió del criterio del manager. Omite las copias no montadas y lo dice. |
 | `tools/hook_node_fork_warning.py` | Hook `PostToolUse`: avisa al editar `portfolio_service.py`/`node.py` y también al revés. |
 | Docstrings de `node.py` y de las dos `remove_member*_to_quarantine` | El aviso, en el punto exacto donde se edita. |
-| `tests/test_guided_routing.py` | Compara **byte a byte** `guided_batches.py` y `guided_controller.py` con la copia de IC. |
+| `tests/node/test_guided_routing.py` | Compara **byte a byte** `guided_batches.py` y `guided_controller.py` con la copia de IC. |
 
 **Esos dos ficheros de producción sólo se refactorizan cambiando las dos copias
 a la vez**:

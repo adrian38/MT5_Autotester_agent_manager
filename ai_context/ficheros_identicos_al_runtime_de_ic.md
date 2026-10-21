@@ -2,7 +2,7 @@
 
 `mt5_manager/guided_batches.py` y `mt5_manager/guided_controller.py` se comparan
 **byte a byte** contra `manager_node_runtime/` del proyecto de ICTrading en
-`tests/test_guided_routing.py::test_portable_protocol_matches_actual_ic_runtime`
+`tests/node/test_guided_routing.py::test_portable_protocol_matches_actual_ic_runtime`
 (normalizando sólo CRLF, porque la igualdad se rompía sola en el primer checkout
 de cualquiera de los dos lados).
 
