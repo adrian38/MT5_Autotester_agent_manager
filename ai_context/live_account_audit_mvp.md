@@ -1419,3 +1419,33 @@ Ahora el escalado aplicado es `view_lot_overrides` en el perfil del uso:
   —`run_payload` lo excluye— y no se reanaliza nada.
 - La pantalla de configuración no manda el campo, así que guardar ahí lo
   conserva. Hay prueba de ello: era la forma silenciosa de perderlo.
+
+## BTC y ETH de la cuenta AXI 10010194 se presentan a 0,01 (2026-10-21)
+
+El informe nativo confirma que `10010194@Axi-US50-Demo` ejecuta BTCUSD y
+ETHUSD a 0,10. El perfil de auditoría también guarda esos dos lotes reales a
+0,10; por tanto el auditor no estaba forzando la ejecución real a 0,01. Lo que
+sí hace su comparación histórica es llevar cada cierre a la base 0,01 del
+Strategy Tester. La tarjeta de cuentas reales aplica ahora esa misma regla sólo
+a esos dos símbolos de esa cuenta: multiplica comisión, swap y beneficio de
+cada cierre por `0,01 / volumen ejecutado` antes de construir la serie.
+
+No se altera el volumen observado, el saldo, la equidad, el número de cierres,
+otros símbolos ni otras cuentas. Sobre el informe completo del sondeo del
+2026-10-21, la medida cambia octubre de 173,55 a 69,825 EUR, septiembre de
+68,42 a 26,201 EUR y el 20 de octubre de -14,16 a -1,416 EUR. Es una
+normalización de presentación e histórico; no cambia cómo opera el EA.
+
+El archivo persistente lleva una versión de normalización. Al desplegar este
+criterio, la captura completa visible se ingiere de nuevo una sola vez; si sólo
+hubiera una captura parcial, la siguiente cita pide toda la vida de la cuenta
+antes de marcar la versión, para no mezclar meses a dos escalas.
+
+El `attempts=2` visto ese día tampoco prueba un error del primer intento: el
+contador registra lanzamientos del turno, incluidos los manuales. En AXI había
+dos directorios completos, `20261021_011450_162145` y
+`20261021_011604_350654`, ambos con los cuatro HTML y sus PNG. El segundo empezó
+unos treinta segundos después de que el primero terminara; el estado final sólo
+conserva la última captura. Sin los logs anteriores al reinicio no se puede
+atribuir quién hizo el segundo clic, pero la evidencia descarta que faltara el
+resultado del primer sondeo.

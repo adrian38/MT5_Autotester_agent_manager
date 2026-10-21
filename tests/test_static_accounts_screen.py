@@ -98,6 +98,15 @@ class PageTests(unittest.TestCase):
         self.assertIn("totals.previous_month", SCRIPT)
         self.assertIn("data.previous_month", SCRIPT)
 
+    def test_the_previous_month_does_not_repeat_the_comparison_in_words(self) -> None:
+        for phrase in ("Este mes va mejor", "Este mes va peor", "Este mes cae"):
+            self.assertNotIn(phrase, SCRIPT)
+
+    def test_the_manager_restart_is_the_same_red_action_as_on_other_pages(self) -> None:
+        css = (STATIC / "accounts.css").read_text(encoding="utf-8")
+        self.assertIn(".danger{", css)
+        self.assertIn("color:var(--danger)", css)
+
     def test_each_account_can_be_included_in_or_excluded_from_the_totals(self) -> None:
         self.assertIn('class="total-account-toggle"', SCRIPT)
         self.assertIn("accountIsIncluded(card) ? ' checked' : ''", SCRIPT)

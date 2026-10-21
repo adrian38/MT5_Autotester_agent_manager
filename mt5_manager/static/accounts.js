@@ -147,16 +147,6 @@ function monthlyRow(card, currency) {
     ]));
 }
 
-// El mes anterior se enseña **sin color en su importe**: el tono que trae el
-// payload compara este mes con él, y pintarlo encima de su número hacía leer
-// un septiembre en verde como «septiembre fue bueno». Va como nota, y así un
-// color sigue queriendo decir una sola cosa: contra la media de ese mes.
-function comparisonNote(tone, delta, currency, better, worse) {
-  if (!tone) return '';
-  return `<em class="${tone}">${tone === 'good' ? better : worse}`
-    + ` (${escapeHtml(money(delta, currency))})</em>`;
-}
-
 function earlierRow(card, currency) {
   const expected = card.expected_previous || {};
   const earlier = card.previous_month;
@@ -165,13 +155,8 @@ function earlierRow(card, currency) {
   return metricRow(monthName(earlier.label),
     metric('Beneficio', money(earlier.profit, currency), '', [
       plainNote(mean),
-      comparisonNote(earlier.profit_tone, earlier.profit_delta, currency,
-        'Este mes va mejor', 'Este mes va peor'),
     ])
-    + metric('Drawdown', plain(earlier.drawdown, currency), '', [
-      comparisonNote(earlier.drawdown_tone, earlier.drawdown_delta, currency,
-        'Este mes cae menos', 'Este mes cae más'),
-    ]),
+    + metric('Drawdown', plain(earlier.drawdown, currency)),
     'earlier');
 }
 

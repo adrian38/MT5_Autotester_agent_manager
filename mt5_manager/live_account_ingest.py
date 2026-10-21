@@ -78,12 +78,17 @@ def _merge_account(
     body = _artifact(
         node, snapshot_id, str(report.get("filename") or ""), str(report.get("sha256") or ""),
     )
-    found = live_account_report.movements_from_html(body)
+    found = live_account_report.movements_from_html(body, account_key)
+    version = live_account_report.normalization_version(account_key)
+    stored = server.live_accounts.read(node_id, account_key)
+    first_day = str(stored.get("first_day") or "")
+    fully_rewritten = not first_day or not period[0] or period[0] <= first_day
     server.live_accounts.merge(
         node_id, account_key, login=row.get("login"), server=row.get("server"),
         currency=row.get("currency"), movements=found,
         period_start=period[0], period_end=period[1],
         balance=row.get("balance"), equity=row.get("equity"),
+        normalization_version=version if fully_rewritten else None,
     )
     return len(found)
 
@@ -110,7 +115,10 @@ def collect(
     key = runs.key(node_id, SNAPSHOT_KEY)
     if not snapshot_id or status in RUNNING_SNAPSHOT_STATUSES or status == "idle":
         return None
-    if str(runs.record(key).get("ingested") or "") == snapshot_id:
+    collected_key = live_account_report.ingestion_key(
+        snapshot_id, (state.get("accounts") or {}).keys(),
+    )
+    if str(runs.record(key).get("ingested") or "") == collected_key:
         return None
     period = _period(state)
     read, failed, movements = 0, [], 0
@@ -127,7 +135,7 @@ def collect(
             failed.append(f"{account_key}: {exc}")
             sys.stderr.write(f"[live-account-ingest] {node_id}/{account_key}: {exc}\n")
     runs.update(
-        key, ingested=snapshot_id, last_status=status,
+        key, ingested=collected_key, last_status=status,
         completed_at=str(state.get("finished_at") or utc_now()),
         outcome="success" if read and not failed else ("failed" if not read else "partial"),
     )

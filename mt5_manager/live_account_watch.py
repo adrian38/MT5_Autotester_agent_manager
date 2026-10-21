@@ -21,7 +21,12 @@ import urllib.error
 from datetime import datetime, timezone
 from typing import Any
 
-from . import live_account_ingest, live_account_inventory, live_account_schedule
+from . import (
+    live_account_ingest,
+    live_account_inventory,
+    live_account_report,
+    live_account_schedule,
+)
 from . import manager_http
 from .common import utc_now
 from .live_account_ingest import SNAPSHOT_KEY
@@ -126,10 +131,15 @@ def _period(server: Any, node_id: str, accounts: list[dict[str, Any]], now: date
     atrás. Y una cuenta sin serie lo lleva a «toda la vida», que es lo que hace
     que su media y su mes anterior existan desde la primera noche.
     """
-    days = [
-        server.live_accounts.last_day(node_id, account["account_key"])
-        for account in accounts
-    ]
+    days: list[str] = []
+    for account in accounts:
+        key = account["account_key"]
+        stored = server.live_accounts.read(node_id, key)
+        expected = live_account_report.normalization_version(key)
+        days.append(
+            "" if expected and stored.get("normalization_version") != expected
+            else server.live_accounts.last_day(node_id, key)
+        )
     return live_account_schedule.snapshot_period(
         server.live_account_scheduler_settings, "" if not days or "" in days else min(days), now,
     )

@@ -105,6 +105,7 @@ class LiveAccountArchive:
             "account_key": key, "login": "", "server": "", "currency": "",
             "movements": [], "first_day": "", "last_day": "", "updated_at": "",
             "snapshots": [], "balance": 0.0, "equity": 0.0,
+            "normalization_version": "",
         }
         if not path.is_file():
             return empty
@@ -151,6 +152,7 @@ class LiveAccountArchive:
         self, node_id: str, key: str, *, login: Any, server: Any, currency: Any,
         movements: Sequence[tuple[Any, float]], period_start: str, period_end: str,
         taken_at: str = "", balance: Any = None, equity: Any = None,
+        normalization_version: str | None = None,
     ) -> dict[str, Any]:
         """Mete el sondeo en la serie y devuelve el registro ya guardado."""
         with self.lock:
@@ -185,6 +187,10 @@ class LiveAccountArchive:
                 # tarjeta necesita para decir de qué tamaño es la cuenta.
                 "balance": _number(balance, stored.get("balance")),
                 "equity": _number(equity, stored.get("equity")),
+                "normalization_version": (
+                    stored.get("normalization_version")
+                    if normalization_version is None else normalization_version
+                ),
             }
             path = self._path(node_id, key)
             path.parent.mkdir(parents=True, exist_ok=True)
