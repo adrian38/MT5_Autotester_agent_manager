@@ -87,9 +87,15 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("ACTIVITY_LIVE_MS", self.script)
         self.assertIn("ACTIVITY_QUIET_MS", self.script)
 
-    def test_the_bar_sits_next_to_the_title_and_not_among_the_buttons(self) -> None:
-        self.assertIn("heading.insertBefore(activity, actions)", self.script)
-        self.assertIn("heading.tagName === 'HEADER'", self.script)
+    def test_the_bar_sits_above_the_buttons_and_not_among_them(self) -> None:
+        # Petición del usuario (2026-10-21): el sitio tiene que ser fijo. Con
+        # la chapa suelta en la cabecera lo decidía el ancho del título, y
+        # salía en un sitio distinto en la portada y en el detalle del
+        # portafolio. Ahora la fila va envuelta en una columna y la chapa es
+        # su primera línea, pegada a la derecha como los botones.
+        self.assertIn("column.className = 'cron-activity-column'", self.script)
+        self.assertIn("actions.parentElement.insertBefore(column, actions)", self.script)
+        self.assertIn("column.append(activity, actions)", self.script)
 
     def test_the_bar_measures_the_whole_batch_not_only_the_current_use(self) -> None:
         self.assertIn("(queue.done + current) / queue.total", self.script)
@@ -103,7 +109,14 @@ class CronScreenTests(unittest.TestCase):
         # `dashboard.css` no declara `[hidden]`: sin esta regla el display:flex
         # de la barra gana y se queda visible y vacía cuando no pasa nada.
         self.assertIn(".cron-activity[hidden]{display:none}", styles)
-        self.assertIn("margin-right:auto", styles)
+        # La columna que la pone encima de los botones: sin su regla, el
+        # envoltorio que crea el script es un div cualquiera y la chapa vuelve
+        # a quedar donde caiga.
+        self.assertIn(
+            ".cron-activity-column{display:flex;flex-direction:column;"
+            "align-items:flex-end;gap:12px}",
+            styles,
+        )
         # Un punto que late es ruido para quien pidió menos movimiento.
         self.assertIn("prefers-reduced-motion", styles)
 

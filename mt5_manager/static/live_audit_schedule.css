@@ -67,7 +67,19 @@
 .cron-dialog .cron-catch-up strong{display:block;font-size:13px}
 .cron-dialog .cron-catch-up small{display:block;margin-top:4px;color:var(--muted,#91a4b5);font-size:11px;line-height:1.45}
 .cron-dialog .cron-catch-up button{justify-self:start}
-.cron-activity{display:flex;align-items:center;gap:8px;align-self:center;margin-right:auto;padding:6px 12px;border:1px solid #397861;border-radius:8px;background:#0d211d;color:var(--text,#e6edf3);font:inherit;font-size:12px;cursor:pointer}
+/* La chapa y la fila de botones, en columna: la chapa encima y las dos
+   pegadas a la derecha. Es lo que le da un sitio fijo —antes dependía de lo
+   ancho que fuera el título de cada pantalla—. El envoltorio lo crea el
+   script, así que esta regla y la de ahí tienen que ir juntas. */
+.cron-activity-column{display:flex;flex-direction:column;align-items:flex-end;gap:12px}
+/* En móvil la cabecera se apila y la fila de botones ocupa el ancho; el
+   envoltorio tiene que ocuparlo también, o el `width:100%` de `.header-actions`
+   se mide contra una columna del ancho del contenido y no hace nada. */
+@media(max-width:700px){
+  .cron-activity-column{width:100%;align-items:flex-start}
+  .cron-activity-column .header-actions{width:100%}
+}
+.cron-activity{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid #397861;border-radius:8px;background:#0d211d;color:var(--text,#e6edf3);font:inherit;font-size:12px;cursor:pointer}
 /* `dashboard.css` no declara `[hidden]`, así que el `display:flex` de arriba
    ganaba al valor por defecto del navegador y la barra se quedaba visible y
    vacía cuando no había nada corriendo. */

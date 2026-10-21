@@ -595,3 +595,30 @@ abre el cajón de 430 px pegado a la derecha.
 - Esta clase de fallo es silenciosa en el suite: el JS estaba bien, el HTML
   era válido y ninguna prueba miraba los `<link>`. Lo mismo que pasó con
   `STATIC_FILES` y `portfolio_manual_check.js`, que salía y no abría nada.
+
+## La chapa de actividad tenía un sitio que dependía del título (2026-10-21)
+
+Petición del usuario: «el estado sale como quiera, tiene que estar fijo y
+verse bien», con la chapa en mitad de la fila en la portada y pegada al título
+en el detalle del portafolio.
+
+Entraba como **tercer hijo de la cabecera** con `margin-right:auto` y
+`align-self:center`. La cabecera es `display:flex;align-items:end`, así que su
+sitio lo decidían dos cosas de cada pantalla: lo ancho que fuera el bloque del
+título —de ahí el salto horizontal— y cuántas líneas ocupara el `h1` —de ahí
+que flotara a media altura en la portada, donde «MT5 Autotester Manager» se
+parte en dos—.
+
+Ahora el script envuelve `.header-actions` en `.cron-activity-column` y mete la
+chapa dentro como primera línea: queda **encima de los botones y pegada a su
+derecha** (lo eligió el usuario entre tres opciones). Medido en el manager en
+marcha a 1280 px, en la portada y en universo: el borde derecho de la chapa
+coincide al píxel con el de la fila de botones (1201 y 1216) y hay 12 px de
+separación en las dos.
+
+- `.header-actions` **no cambia**: mismos hijos, mismo orden, un nivel más
+  abajo. Por eso `test_header_actions_order`, que lee el primer
+  `.header-actions` del HTML, sigue valiendo sin tocarlo.
+- En móvil (`max-width:700px`) el envoltorio toma el ancho completo y la chapa
+  se va a la izquierda: sin esa regla, el `width:100%` de `.header-actions` se
+  mediría contra una columna del ancho del contenido y no haría nada.

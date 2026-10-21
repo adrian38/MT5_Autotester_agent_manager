@@ -86,13 +86,22 @@
   if (showsAuditSchedule) actions.insertBefore(open, anchor || null);
   actions.insertBefore(bell, anchor || null);
 
-  // La barra va pegada al título, antes de los botones: entre ellos se perdía
-  // en la fila. La cabecera es un flex de dos hijos, así que entra como tercero
-  // y `margin-right:auto` la lleva junto al título en vez de dejarla centrada.
-  // Donde la barra de acciones no cuelgue de una cabecera, se queda dentro.
-  const heading = actions.parentElement;
-  if (heading && heading.tagName === 'HEADER') heading.insertBefore(activity, actions);
-  else actions.insertBefore(activity, actions.firstElementChild);
+  // La chapa va en su propia línea **encima de la fila de botones** y pegada
+  // a su derecha (petición del usuario, 2026-10-21).
+  //
+  // Antes entraba como tercer hijo de la cabecera con `margin-right:auto`, así
+  // que su sitio lo decidía lo ancho que fuera el título: en la portada, con
+  // el título partido en dos líneas, flotaba en mitad de la fila y a media
+  // altura; en el detalle del portafolio salía pegada al título. Un sitio que
+  // depende del título no es un sitio fijo, que es lo que se pidió.
+  //
+  // Envolver la fila en una columna lo fija sin tocar el HTML de quince
+  // pantallas: `.header-actions` sigue siendo el mismo elemento, con sus
+  // mismos hijos y su mismo orden, sólo que un nivel más abajo.
+  const column = document.createElement('div');
+  column.className = 'cron-activity-column';
+  actions.parentElement.insertBefore(column, actions);
+  column.append(activity, actions);
 
   // «Actualizar», el primero de la barra en todas las pantallas. Se recoloca
   // aquí en vez de confiar sólo en el orden del HTML porque cada pantalla le
