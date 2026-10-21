@@ -897,6 +897,9 @@ async function loadDetail(id) {
     document.querySelector('#detail-meta').textContent = portfolio.created_at;
     document.querySelector('#detail-type').textContent = portfolio.portfolio_type || 'sin tipo';
     renderSavedVariant(portfolio);
+    // El botón de exportar los informes de la comprobación manual vive en
+    // `portfolio_manual_check.js`, que sabe si ese portafolio tiene alguna.
+    if (typeof refreshManualCheckReports === 'function') refreshManualCheckReports();
   } catch (error) { toast(error.message, true); }
 }
 

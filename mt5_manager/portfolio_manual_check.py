@@ -185,6 +185,29 @@ def check_dir(project: Path, check_id: str) -> Path:
     raise ValueError(f"No existe la comprobación {safe_id} en este agente")
 
 
+def latest_check(project: Path, portfolio_id: int, scope: str) -> dict[str, Any]:
+    """La comprobación más reciente de ese portafolio, si queda alguna.
+
+    La autoridad es la carpeta del agente y no el navegador: así el botón de
+    exportar informes sabe si hay algo que exportar en cualquier dispositivo,
+    y una comprobación lanzada desde el móvil se ve desde el PC.
+    """
+    scope = normalize_portfolio_scope(scope)
+    found: list[tuple[str, Path, dict[str, Any]]] = []
+    for config in sorted((project / "runtime").glob(f"*/{CHECKS_DIRNAME}/*/check.json")):
+        try:
+            request = json.loads(config.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        same = safe_int(request.get("portfolio_id"), 0) == int(portfolio_id)
+        if same and normalize_portfolio_scope(request.get("scope") or "") == scope:
+            found.append((config.parent.name, config.parent, request))
+    if not found:
+        return {}
+    name, work, _request = max(found, key=lambda row: row[0])
+    return check_state(project, work.name) | {"check_id": name}
+
+
 def _report_files(work: Path) -> list[tuple[str, Path]]:
     files: list[tuple[str, Path]] = []
     for model in REPORT_MODELS:

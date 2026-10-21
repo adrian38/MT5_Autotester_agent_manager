@@ -31,6 +31,12 @@ STATUS_TITLES = {
     "stopped": "Comprobación manual detenida",
 }
 MODEL_LABELS = {"ohlc": "OHLC M1", "tick": "tick a tick"}
+STAGE_MODELS = {"manual_check_ohlc": "ohlc", "manual_check_tick": "tick"}
+"""Las etapas del nodo, repetidas aquí a propósito.
+
+Son el nombre que viaja en su estado, y este repositorio no ejecuta el nodo:
+importarlas de `mt5_manager/node_*.py` ataría la lectura a la copia señuelo.
+"""
 
 
 def notices_path(server: Any):
@@ -88,6 +94,41 @@ def announce(server: Any, node: dict[str, Any], job: dict[str, Any]) -> None:
         link=f"{screen}?node={node_id}",
         link_text="Ver el portafolio",
     )
+
+
+def running_row(node: dict[str, Any]) -> dict[str, Any] | None:
+    """La comprobación que ese agente tiene en marcha, para la chapa del header.
+
+    El porcentaje son etapas terminadas sobre etapas del trabajo: una
+    comprobación son una o dos corridas del tester —una por tipo de datos— y
+    el runner no publica nada más fino que eso. Más vale decir «1 de 2» que
+    inventar un porcentaje dentro de la corrida.
+    """
+    try:
+        status, value = manager_http.node_request(node, "GET", "/api/v1/status")
+    except (ValueError, urllib.error.URLError, TimeoutError, OSError):
+        return None
+    if status >= 400 or not isinstance(value, dict):
+        return None
+    job = value.get("job") if isinstance(value.get("job"), dict) else {}
+    if str(job.get("job_type") or "") != "manual_check":
+        return None
+    if str(job.get("status") or "") not in {"running", "stopping"}:
+        return None
+    request = job.get("request") if isinstance(job.get("request"), dict) else {}
+    total = max(1, len(job.get("pipeline") or request.get("models") or [1]))
+    done = len(job.get("completed_stages") or [])
+    stage = MODEL_LABELS.get(STAGE_MODELS.get(str(job.get("current_stage") or ""), ""), "")
+    node_id = str(node.get("id") or "")
+    return {
+        "node_id": node_id, "node_name": str(node.get("name") or node_id),
+        "portfolio_id": int(request.get("portfolio_id") or 0),
+        "scope": str(request.get("scope") or "full_history"),
+        "strategies": len(request.get("strategies") or []),
+        "stage_label": stage, "done": done, "total": total,
+        "percent": min(100, round(done / total * 100)),
+        "started_at": str(job.get("started_at") or ""),
+    }
 
 
 def tick(server: Any) -> None:

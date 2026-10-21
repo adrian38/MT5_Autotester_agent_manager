@@ -82,9 +82,18 @@ HTML: ésa es otra ruta y no se ha tocado.
   `runtime/manual_check_notices.json` lo ya anunciado. Sin esa memoria el
   mismo final se anunciaría en cada vuelta, porque el nodo conserva su último
   estado hasta que arranca otro trabajo.
-- **El `check_id` lo guarda el navegador** (`localStorage`), que es lo que
-  permite ofrecer «Descargar informes» al reabrir el modal. El manager no
-  lleva registro: la carpeta en el disco del agente es la autoridad.
+- **El progreso va en la chapa de la cabecera**, la misma que ya contaba las
+  auditorías (`#cron-activity`): es la misma espera de horas en el mismo
+  agente, y dos indicadores en la cabecera se tapan el uno al otro. El
+  porcentaje son corridas del tester terminadas sobre corridas del trabajo
+  —«OHLC M1 · 1 de 2»—: el runner no publica nada más fino, y vale más
+  contar etapas que inventar un porcentaje dentro de una.
+- **Exportar los informes es un botón de la barra del detalle**, deshabilitado
+  mientras ese portafolio no tenga ninguna comprobación con informes. Quién lo
+  habilita es el agente (`manual-check-latest` busca su carpeta más reciente),
+  no el navegador: así una comprobación lanzada desde el móvil se exporta desde
+  el PC, y una carpeta borrada en el agente lo apaga en todos los dispositivos.
+  Se lleva el `.htm` **y las imágenes de sus curvas**.
 
 ## Lo que queda sin probar
 

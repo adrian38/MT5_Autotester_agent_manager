@@ -11,7 +11,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager import manager_portfolio_routes, manual_check_watch, portfolio_manual_check
+from mt5_manager import (
+    live_audit_activity,
+    manager_portfolio_routes,
+    manual_check_watch,
+    portfolio_manual_check,
+)
 
 
 ROOT = Path(__file__).parents[1]
@@ -177,6 +182,27 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(state["request"]["portfolio_id"], 62)
         self.assertEqual(len(state["reports"]["ohlc"]), 2)
 
+    def test_the_latest_check_of_a_portfolio_comes_from_the_agent(self) -> None:
+        # El botón de exportar informes no puede fiarse del navegador: la
+        # comprobación pudo lanzarse desde otro dispositivo.
+        self._check_folder()
+        older = (self.project / "runtime" / "nodo"
+                 / portfolio_manual_check.CHECKS_DIRNAME / "check_20261001_120000_000001")
+        (older / "reports" / "ohlc").mkdir(parents=True)
+        (older / "check.json").write_text(
+            json.dumps({"portfolio_id": 62, "scope": "full_history"}), encoding="utf-8",
+        )
+
+        latest = portfolio_manual_check.latest_check(self.project, 62, "full_history")
+
+        self.assertEqual(latest["check_id"], "check_20261021_120000_000001")
+        self.assertEqual(latest["documents"], 2)
+
+    def test_another_portfolio_has_no_check_of_its_own(self) -> None:
+        self._check_folder()
+
+        self.assertEqual(portfolio_manual_check.latest_check(self.project, 48, "full_history"), {})
+
     def test_an_invented_check_identifier_cannot_reach_another_folder(self) -> None:
         for check_id in ("../../etc", "no_existe", ""):
             with self.subTest(check_id=check_id):
@@ -311,7 +337,93 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(self.notices, [])
 
 
+class HeaderActivityTests(unittest.TestCase):
+    """La chapa de progreso de la cabecera también cuenta la comprobación."""
+
+    def setUp(self) -> None:
+        self.node = {"id": "ic", "name": "ICTrading", "url": "http://ic"}
+        self.job = {
+            "job_type": "manual_check", "status": "running",
+            "current_stage": "manual_check_tick",
+            "pipeline": [{"action": "manual_check_ohlc"}, {"action": "manual_check_tick"}],
+            "completed_stages": ["run_None_attempt_None_manual_check_ohlc"],
+            "request": {
+                "portfolio_id": 62, "scope": "full_history",
+                "models": ["ohlc", "tick"], "strategies": [{"set_name": "tres.set"}],
+            },
+        }
+
+    def _row(self):
+        with patch.object(
+            manual_check_watch.manager_http, "node_request",
+            return_value=(200, {"job": self.job}),
+        ):
+            return manual_check_watch.running_row(self.node)
+
+    def test_the_row_counts_finished_runs_and_names_the_current_data_model(self) -> None:
+        row = self._row()
+
+        self.assertEqual(row["portfolio_id"], 62)
+        self.assertEqual(row["stage_label"], "tick a tick")
+        self.assertEqual((row["done"], row["total"]), (1, 2))
+        self.assertEqual(row["percent"], 50)
+        self.assertEqual(row["strategies"], 1)
+
+    def test_a_finished_or_foreign_job_is_not_activity(self) -> None:
+        for changes in ({"status": "completed"}, {"job_type": "generation"}):
+            with self.subTest(changes=changes):
+                self.job.update(changes)
+                self.assertIsNone(self._row())
+
+    def test_the_snapshot_turns_the_light_on_for_a_check_alone(self) -> None:
+        server = SimpleNamespace(
+            nodes=[self.node],
+            live_audit_settings=SimpleNamespace(state=lambda _node_id: {}),
+            live_audit_runs=SimpleNamespace(state=lambda: {}),
+        )
+        with patch.object(
+            live_audit_activity.live_audit_watch, "node_live_audits",
+            return_value=({}, "", ""),
+        ), patch.object(
+            manual_check_watch.manager_http, "node_request",
+            return_value=(200, {"job": self.job}),
+        ):
+            state = live_audit_activity.snapshot(server)
+
+        self.assertTrue(state["active"])
+        self.assertEqual(state["running"], [])
+        self.assertEqual(state["manual_checks"][0]["portfolio_id"], 62)
+
+
 class ScreenTests(unittest.TestCase):
+    def test_the_header_chip_knows_about_manual_checks(self) -> None:
+        # No hay runtime de JavaScript en este equipo, así que lo que se exige
+        # es que el criterio esté literalmente en el script de la chapa.
+        script = (ROOT / "mt5_manager" / "static" / "live_audit_schedule.js").read_text(
+            encoding="utf-8",
+        )
+        for expression in (
+            "state.manual_checks || []",
+            "function checkText(check)",
+            "Comprobación manual #${check.portfolio_id}",
+            "if (!running.length && !queue && checks.length === 1) return checks[0].percent;",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, script)
+
+    def test_the_reports_button_lives_in_the_detail_bar_and_starts_disabled(self) -> None:
+        page = (ROOT / "mt5_manager" / "static" / "portfolios.html").read_text(encoding="utf-8")
+        script = (ROOT / "mt5_manager" / "static" / "portfolio_manual_check.js").read_text(
+            encoding="utf-8",
+        )
+        detail = (ROOT / "mt5_manager" / "static" / "portfolios.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="detail-export-reports" type="button" class="secondary" disabled', page)
+        # Quién lo habilita: el agente, no el navegador.
+        self.assertIn("manual-check-latest", script)
+        self.assertIn("window.refreshManualCheckReports = refreshManualCheckReports;", script)
+        self.assertIn("refreshManualCheckReports()", detail)
+
     def test_the_button_and_its_script_are_on_the_ubs_screen(self) -> None:
         page = (ROOT / "mt5_manager" / "static" / "portfolios.html").read_text(encoding="utf-8")
         script = (ROOT / "mt5_manager" / "static" / "portfolio_manual_check.js").read_text(

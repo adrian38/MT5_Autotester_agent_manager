@@ -298,6 +298,10 @@ def manual_check_action(handler, action: str, node: dict, node_id: str, scope: s
                 "actualizarlo y reiniciarlo."
             )
         handler._send_json(status, value)
+    elif action == "manual-check-latest":
+        handler._send_json(200, handler.server.portfolios.manual_check_latest(
+            node_id, scope, portfolio_id,
+        ))
     elif action == "manual-check-state":
         handler._send_json(200, handler.server.portfolios.manual_check_state(node_id, check_id))
     elif action == "manual-check-download":

@@ -612,10 +612,30 @@
     return recovery.pending ? recovery : null;
   }
 
+  // La comprobación manual de un portafolio corre en el agente y dura horas,
+  // igual que una auditoría: comparte esta chapa en vez de poner otra al lado.
+  // Si coinciden manda la auditoría, que es la que tiene fases de verdad; la
+  // comprobación se cuenta en el título.
+  function activityChecks(state) {
+    return state.manual_checks || [];
+  }
+
+  function checkText(check) {
+    const stage = check.stage_label ? ` · ${check.stage_label}` : '';
+    return `Comprobación manual #${check.portfolio_id}${stage} · `
+      + `${check.done + 1} de ${check.total}`;
+  }
+
   function activityText(state) {
     const running = state.running || [];
     const queue = activityQueue(state);
+    const checks = activityChecks(state);
     const tail = queue ? ` · ${queue.done} de ${queue.total}` : '';
+    if (!running.length && !queue && checks.length) {
+      return checks.length > 1
+        ? `${checks.length} comprobaciones manuales en marcha`
+        : checkText(checks[0]);
+    }
     if (!running.length) return `Recuperación en cola${tail}`;
     if (running.length > 1) return `Auditando ${running.length} portafolios${tail}`;
     return `${running[0].label} · ${running[0].status_label} ${running[0].percent}%${tail}`;
@@ -624,6 +644,8 @@
   function activityPercent(state) {
     const running = state.running || [];
     const queue = activityQueue(state);
+    const checks = activityChecks(state);
+    if (!running.length && !queue && checks.length === 1) return checks[0].percent;
     // Con una tanda en marcha lo que falta es la tanda entera, no el uso que
     // toca: el que corre sólo aporta su fracción al tramo que le toca.
     const current = running.length === 1 ? running[0].percent / 100 : 0;
@@ -634,6 +656,11 @@
   function activityTitle(state) {
     const lines = (state.running || []).map(row =>
       `${row.node_name}: ${row.label} — ${row.progress_text || row.status_label}`);
+    activityChecks(state).forEach(check => {
+      lines.push(`${check.node_name}: comprobación manual del portafolio `
+        + `#${check.portfolio_id} — ${check.strategies} estrategia(s), `
+        + `${checkText(check).split(' · ').pop()}`);
+    });
     const queue = activityQueue(state);
     if (queue) {
       lines.push(`Recuperación hasta ${queue.target_date}: ${queue.done} de `

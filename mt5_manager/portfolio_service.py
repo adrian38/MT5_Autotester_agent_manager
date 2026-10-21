@@ -544,6 +544,11 @@ class PortfolioCoordinator(PortfolioCoordinatorCoreMixin, PortfolioCoordinatorSa
             self._persistence_source(node_id, scope), portfolio_id, scope
         )
 
+    def manual_check_latest(self, node_id: str, scope: str, portfolio_id: int) -> dict[str, Any]:
+        return portfolio_manual_check.latest_check(
+            PortfolioSource(self._node(node_id)).project, portfolio_id, scope
+        )
+
     def manual_check_state(self, node_id: str, check_id: str) -> dict[str, Any]:
         return portfolio_manual_check.check_state(
             PortfolioSource(self._node(node_id)).project, check_id

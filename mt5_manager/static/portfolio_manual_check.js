@@ -46,11 +46,54 @@
   const fields = form.elements;
   const exportButton = dialog.querySelector('#manual-check-export-sets');
   const downloadButton = dialog.querySelector('#manual-check-download');
+  const reportsButton = document.querySelector('#detail-export-reports');
   let preview = null;
+  let latestCheck = null;
 
   const isoDate = value => String(value || '').replace(/\./g, '-');
   const dottedDate = value => String(value || '').replace(/-/g, '.');
-  const checkKey = portfolioId => `manual-check:${nodeId}:${scope}:${portfolioId}`;
+
+  function reportFiles(state) {
+    return Object.values(state?.reports || {}).reduce((total, rows) => total + rows.length, 0);
+  }
+
+  // El botón de la barra lo decide el agente y no el navegador: así una
+  // comprobación lanzada desde el móvil se puede exportar desde el PC, y una
+  // carpeta borrada en el agente deshabilita el botón en todos.
+  async function refreshManualCheckReports() {
+    latestCheck = null;
+    if (reportsButton) {
+      reportsButton.disabled = true;
+      reportsButton.title = 'Todavía no hay ninguna comprobación manual de este portafolio';
+    }
+    if (!selectedId) return;
+    try {
+      const state = await postManager('manual-check-latest', {scope, portfolio_id: selectedId});
+      if (!state?.check_id || !reportFiles(state)) return;
+      latestCheck = state;
+      if (reportsButton) {
+        reportsButton.disabled = false;
+        reportsButton.title = `${state.documents} informe(s) de ${state.check_id}, `
+          + 'con las imágenes de sus curvas';
+      }
+    } catch (_error) {
+      // Un agente apagado no tiene que teñir de rojo la pantalla entera.
+    }
+  }
+  window.refreshManualCheckReports = refreshManualCheckReports;
+
+  async function downloadReports(trigger) {
+    if (!latestCheck) return;
+    trigger.disabled = true;
+    try {
+      const data = await downloadManagerExport(
+        'manual-check-download', {scope, check_id: latestCheck.check_id},
+        `COMPROBACION_${latestCheck.check_id}.zip`,
+      );
+      toast(`Descargados ${data.exported} archivo(s): los informes y las imágenes de sus curvas.`);
+    } catch (error) { toast(error.message, true); }
+    finally { trigger.disabled = false; }
+  }
 
   function describePreview(data) {
     const inherited = Math.max(0, data.total_members - data.strategies.length);
@@ -69,23 +112,15 @@
       : '<tr><td colspan="3">No hay estrategias nuevas.</td></tr>';
   }
 
-  async function refreshLastCheck(portfolioId) {
+  async function refreshLastCheck() {
     const note = dialog.querySelector('#manual-check-reports');
-    const checkId = localStorage.getItem(checkKey(portfolioId));
-    downloadButton.hidden = true;
-    note.hidden = true;
-    if (!checkId) return;
-    try {
-      const state = await postManager('manual-check-state', {scope, check_id: checkId});
-      const files = Object.values(state.reports || {}).reduce((total, rows) => total + rows.length, 0);
-      if (!files) return;
-      note.textContent = `Última comprobación ${state.check_id}: ${state.documents} informe(s) y ${files} archivo(s) con sus gráficos.`;
-      note.hidden = false;
-      downloadButton.hidden = false;
-      downloadButton.dataset.checkId = state.check_id;
-    } catch (_error) {
-      // Una comprobacion borrada del agente no es un fallo de esta pantalla.
-    }
+    await refreshManualCheckReports();
+    downloadButton.hidden = !latestCheck;
+    note.hidden = !latestCheck;
+    if (!latestCheck) return;
+    note.textContent = `Última comprobación ${latestCheck.check_id}: `
+      + `${latestCheck.documents} informe(s) y ${reportFiles(latestCheck)} archivo(s) `
+      + 'contando las imágenes de sus curvas.';
   }
 
   async function openDialog() {
@@ -101,7 +136,7 @@
       fields.from_date.value = isoDate(preview.from_date);
       fields.to_date.value = isoDate(preview.to_date);
       fields.lot.value = preview.lot;
-      await refreshLastCheck(selectedId);
+      await refreshLastCheck();
     } catch (error) {
       dialog.querySelector('#manual-check-summary').textContent = error.message;
     }
@@ -139,17 +174,10 @@
     finally { exportButton.disabled = false; }
   });
 
-  downloadButton.addEventListener('click', async () => {
-    const checkId = downloadButton.dataset.checkId;
-    downloadButton.disabled = true;
-    try {
-      const data = await downloadManagerExport(
-        'manual-check-download', {scope, check_id: checkId}, `COMPROBACION_${checkId}.zip`,
-      );
-      toast(`Descargados ${data.exported} archivo(s): informes y las imágenes de sus gráficos.`);
-    } catch (error) { toast(error.message, true); }
-    finally { downloadButton.disabled = false; }
-  });
+  downloadButton.addEventListener('click', () => downloadReports(downloadButton));
+  if (reportsButton) {
+    reportsButton.addEventListener('click', () => downloadReports(reportsButton));
+  }
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -166,8 +194,6 @@
     submit.disabled = true;
     try {
       const job = await postManager('manual-check-start', request);
-      const checkId = String(job?.request?.check_id || '');
-      if (checkId) localStorage.setItem(checkKey(selectedId), checkId);
       dialog.close();
       await loadManagerState();
       toast(job?.queued
