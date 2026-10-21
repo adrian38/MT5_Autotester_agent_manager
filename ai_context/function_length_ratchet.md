@@ -118,7 +118,7 @@ fachada queda en 539 líneas y sale por completo del baseline de ficheros largos
 
 Los módulos de pruebas también se parten por escenarios completos, conservando
 clases y helpers por AST. `BreadthBelowMinimumTests` vive en
-`tests/test_portfolio_breadth.py`; con ese corte el módulo de mejora por modo
+`tests/portfolio/test_portfolio_breadth.py`; con ese corte el módulo de mejora por modo
 seleccionado baja de 625 a 570 líneas sin fragmentar una prueba por formato.
 Los cinco fixtures del buscador experimental completo viven en
 `tests/portfolio/portfolio_full_experimental_fixtures.py`; el módulo de escenarios baja
