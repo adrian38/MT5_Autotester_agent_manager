@@ -515,7 +515,7 @@ class ImprovementMaximumFallbackTests(unittest.TestCase):
 
 
 class ImprovementScreenTests(unittest.TestCase):
-    ROOT = Path(__file__).parents[1] / "mt5_manager" / "static"
+    ROOT = Path(__file__).parents[2] / "mt5_manager" / "static"
 
     def test_full_and_monthly_keep_independent_improvement_scripts(self) -> None:
         full_page = (self.ROOT / "portfolios.html").read_text(encoding="utf-8")

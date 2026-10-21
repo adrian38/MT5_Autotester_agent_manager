@@ -426,7 +426,7 @@ class ChainForkParityTests(unittest.TestCase):
         }
 
     def test_shared_helpers_are_identical_in_both_engines(self):
-        root = Path(__file__).resolve().parents[1] / "mt5_manager"
+        root = Path(__file__).resolve().parents[2] / "mt5_manager"
         left = self.bodies(root / "portfolio_improvement_support.py")
         right = self.bodies(root / "portfolio_improvement_chain_support.py")
         for name in self.SHARED:
@@ -447,7 +447,7 @@ class ChainForkParityTests(unittest.TestCase):
         entrar en las dos; el día que una se separe de verdad, esta prueba se
         quita a conciencia y se documenta por qué.
         """
-        root = Path(__file__).resolve().parents[1] / "mt5_manager"
+        root = Path(__file__).resolve().parents[2] / "mt5_manager"
         left = self.bodies(root / "portfolio_improvement_attempt.py")
         right = self.bodies(root / "portfolio_improvement_chain_attempt.py")
         for name in self.ATTEMPT_SHARED:

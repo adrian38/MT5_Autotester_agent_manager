@@ -185,7 +185,7 @@ class SameSymbolCorrelationTests(unittest.TestCase):
 
 class ImprovementInheritedSettingsScreenTests(unittest.TestCase):
     def test_dialog_edits_every_real_setting_and_keeps_improvement_criteria(self) -> None:
-        script = (Path(__file__).parents[1] / "mt5_manager" / "static" / "portfolio_improvement.js").read_text(encoding="utf-8")
+        script = (Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolio_improvement.js").read_text(encoding="utf-8")
         for name in (
             "capital", "valley_dd_pct", "top_k_per_symbol", "max_total_candidates",
             "min_trades_2020_2026", "improvement_min_recent_contribution_pct",

@@ -55,7 +55,7 @@ de responder con `Transport closed`, incluido el intento final de reindexación.
 La revisión posterior se verificó sobre fuente directa y pruebas, sin presentar
 el grafo inicial como actualizado.
 
-Las 16 pruebas focalizadas existentes de `tests.test_portfolio_improvement`
+Las 16 pruebas focalizadas existentes de `tests.portfolio.test_portfolio_improvement`
 pasaron antes de los experimentos. No cubren los tres hallazgos anteriores.
 Los experimentos ejecutaron funciones reales con entradas sintéticas y dobles
 controlados para correlaciones/selección; no constituyen un backtest ni una

@@ -322,7 +322,7 @@ composición siguiente del mismo tamaño no relaja ninguna restricción declarad
 Con esto los dos intentos son hoy **el mismo algoritmo**, y la bifurcación sólo
 conserva su propósito declarado: poder cambiar la cadena mañana sin tocar la
 base. Mientras no diverjan de verdad, cualquier arreglo entra en las dos, y eso
-lo vigila `tests/test_portfolio_improvement_chain.py`:
+lo vigila `tests/portfolio/test_portfolio_improvement_chain.py`:
 
 - `ChainForkParityTests.test_shared_helpers_are_identical_in_both_engines` compara
   por AST —ignorando docstrings— las trece funciones auxiliares copiadas.

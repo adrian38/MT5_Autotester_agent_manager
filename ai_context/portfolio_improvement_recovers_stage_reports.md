@@ -77,7 +77,7 @@ un original, sólo que sin decirlo.
 - Los dos motores UBS normal, `portfolio_improvement_service.py` y
   `portfolio_improvement_chain_service.py`, pasan `project=source.project`. El
   cambio es idéntico en ambos porque `_load_full_history_improvement_pool` está
-  en la lista `SHARED` de `tests/test_portfolio_improvement_chain.py`.
+  en la lista `SHARED` de `tests/portfolio/test_portfolio_improvement_chain.py`.
 - `portfolio_monthly_improvement_service.py` **no** pasa `project`: sigue
   congelado y con el comportamiento anterior. La primitiva compartida gana la
   capacidad, no el uso. Si algún día se descongela el mensual, activarla ahí es
@@ -96,7 +96,7 @@ sin avisos de carga. La curva recuperada de XAUUSD da 395,25 en 2020-2024 y
 397,07 en 2025-2026, y entra sin rendimiento 6M, igual que sus seis compañeras
 sin `final_tick_report_path`.
 
-Pruebas en `tests/test_portfolio_improvement.py`: la reproducción del #123, que
+Pruebas en `tests/portfolio/test_portfolio_improvement.py`: la reproducción del #123, que
 los opcionales no se inventan aunque estén en disco, y que una ruta guardada
 manda sobre la recuperación. 71 pruebas focalizadas de mejora en verde y las 499
 del descubrimiento completo salvo los 8 errores de importación previos por falta

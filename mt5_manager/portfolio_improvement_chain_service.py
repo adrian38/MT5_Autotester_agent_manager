@@ -21,7 +21,7 @@ la etiqueta `engine`.
 
 Eso no la hace inútil: es el sitio donde cambiar la cadena sin tocar la base. Pero
 mientras no diverja de verdad, cualquier arreglo tiene que entrar en las dos, y lo
-vigila `ChainForkParityTests` en `tests/test_portfolio_improvement_chain.py`,
+vigila `ChainForkParityTests` en `tests/portfolio/test_portfolio_improvement_chain.py`,
 que compara por AST las funciones copiadas y el intento completo. El día que esta
 copia se separe a conciencia, se quita esa prueba y se documenta el porqué en
 `ai_context/portfolio_saved_base_improvement.md`.
