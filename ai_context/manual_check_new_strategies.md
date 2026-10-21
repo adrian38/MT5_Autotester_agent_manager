@@ -236,3 +236,24 @@ estrategia se prueba hasta cuatro veces.
   intento.
 - El número se recuerda por agente con el resto de ajustes
   (`REMEMBERED_KEYS`), porque describe cómo se comprueba en ese broker.
+
+## Una comprobación fallida dejaba la cola parada (2026-10-21)
+
+Después de aquel fallo, la siguiente comprobación se quedó en «1 PENDIENTE»
+para siempre. El usuario tuvo que darle a **Detener** para que arrancara, y eso
+es justo lo que señala la causa: `failed` está en `RESUMABLE_STATUSES`, así que
+`_is_resumable()` daba verdadero, `_busy()` también, y `_drain_queue` volvía sin
+hacer nada. `stopped` no es reanudable, y por eso detener la liberaba.
+
+- Ahora una comprobación manual reserva el nodo **sólo mientras esté en
+  pausa**, que es una acción deliberada del usuario. Fallada o interrumpida no
+  hay nada que continuar: reanudarla relanzaría la etapa entera, que es lo
+  mismo que volver a lanzarla desde el modal, y sus reintentos ya se agotaron.
+- Es la misma excepción que ya tenía `manual_history` en esa función.
+- **Una generación fallida sigue reservando el nodo**, a propósito: ahí sí hay
+  algo que continuar y son horas de trabajo. El efecto secundario también
+  sigue: si una generación queda `failed` o `interrupted`, lo que haya en la
+  cola espera sin decir por qué. La cola no publica todavía el motivo de la
+  espera.
+- Los reintentos del apartado anterior hacen esto **más** probable, no menos:
+  una comprobación que agota sus intentos acaba en `failed`.

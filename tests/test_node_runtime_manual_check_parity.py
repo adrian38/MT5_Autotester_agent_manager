@@ -94,11 +94,21 @@ class ManualCheckForkParityTests(NodeRuntimeForkParityBase):
             f"{project}: los reintentos por defecto de la comprobación manual "
             "no son 3. Hay que reiniciar la aplicación del agente.",
         )
+        node_source = fork_node_source(project)
         self._assert_present(
-            fork_node_source(project), r"def _retry_manual_check\b",
+            node_source, r"def _retry_manual_check\b",
             f"{project}: falta `_retry_manual_check` en el pipeline del nodo: "
             "la etapa no se reintenta y un bloqueo de MT5 en una estrategia "
             "sigue tumbando la comprobación entera.",
+        )
+        # Y una comprobación fallida no puede reservar el nodo: `failed` está
+        # en RESUMABLE_STATUSES, así que sin esto la siguiente se queda en
+        # «pendiente» hasta que alguien le da a «Detener».
+        self._assert_present(
+            node_source, r'job_type == "manual_check" and str\(self\.state\.get\("status"\)',
+            f"{project}: una comprobación manual fallida sigue reservando el "
+            "nodo y deja la cola parada. Portar la excepción de "
+            "`_is_resumable`. Hay que reiniciar la aplicación del agente.",
         )
 
     def test_manual_check_reaches_every_reachable_fork(self) -> None:
