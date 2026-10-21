@@ -79,7 +79,7 @@ STATIC_FILES = {
     "portfolios.html", "portfolios.js",
     "portfolios_monthly.html", "portfolios_monthly.js",
     "portfolio_improvement.js", "portfolio_monthly_improvement.js", "portfolio_repair.js",
-    "portfolio_comparison.js",
+    "portfolio_comparison.js", "portfolio_manual_check.js",
     "portfolios_grid.html", "portfolios_grid.js",
     "portfolio_manual.html", "portfolio_manual.js",
     "manual_portfolios.html", "manual_portfolios.js",
