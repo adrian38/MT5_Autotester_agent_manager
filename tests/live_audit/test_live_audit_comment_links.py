@@ -33,6 +33,10 @@ from tests.test_live_audit_attribution import imported as excel
 
 STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 COMMENT = "TESLA_M15_006"
+# La celda de mercado que la pantalla exporta para la real huérfana.
+ATTRIBUTED_REAL = (
+    "XAUUSD · 0,02 lotes; sell; Sin estrategia del tester; magic 111; ticket 111"
+)
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
@@ -245,14 +249,13 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
         self.assertEqual(detail["attributed_pairs"], 0)
 
-    def test_the_comment_wins_over_an_excel_that_says_otherwise(self) -> None:
+    def test_the_comment_wins_over_an_excel_that_names_another_owner(self) -> None:
         # El comentario lo escribió el programa que operó; el Excel lo tecleó
         # el usuario cuando no tenía esa señal. Así, subir el documento retira
         # solo lo viejo que lo contradiga.
-        mistaken = excel([
-            ("XAUUSD · 0,02 lotes; sell; Sin estrategia del tester; magic 111; ticket 111",
-             "no contabiliza en este portafolio"),
-        ])
+        # Nombra un `.set`, aunque ya no sea miembro: eso es una
+        # atribución vieja, no una exclusión deliberada.
+        mistaken = excel([(ATTRIBUTED_REAL, "ubs-tsla.nas-h1-tsv99.set")])
         detail = self.analysed(real_attribution=mistaken)["comparison_detail"]
         self.assertEqual(detail["operation_comparisons"][1]["attributed_pair"], "comment")
         self.assertEqual(detail["attributed_pairs"], 1)
@@ -261,6 +264,23 @@ class AnalysisTests(unittest.TestCase):
             commented_payload(), profile(real_attribution=mistaken),
         )["comparison_detail"]
         self.assertTrue(alone["unmatched_real_operations"][0]["attribution"]["excluded"])
+
+    def test_the_comment_does_not_overrule_an_exclusion(self) -> None:
+        # «No contabiliza en este portafolio» no es una conjetura sobre el
+        # dueño sino una afirmación sobre pertenencia, y el comentario sólo
+        # nombra el `.set`: la misma estrategia puede estar operando fuera de
+        # este portafolio. Dejar que ganara devolvía a la curva Real 15
+        # operaciones y −31,01 € que el usuario había sacado a mano.
+        foreign = excel([
+            (ATTRIBUTED_REAL, "no contabiliza en este portafolio"),
+        ])
+        detail = self.analysed(real_attribution=foreign)["comparison_detail"]
+        loose = detail["unmatched_real_operations"]
+        self.assertEqual(len(loose), 1)
+        self.assertTrue(loose[0]["attribution"]["excluded"])
+        self.assertEqual(loose[0]["attribution"]["source"], "manual")
+        self.assertEqual(detail["attributed_pairs"], 0)
+        self.assertEqual(detail["real_attribution"]["excluded"], 1)
 
     def test_the_table_travels_in_the_analysis_so_the_screen_can_show_it(self) -> None:
         analysis = self.analysed()["analysis"]

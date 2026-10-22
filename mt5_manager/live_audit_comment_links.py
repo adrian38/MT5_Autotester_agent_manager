@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
+from .live_audit_attribution import _names_a_strategy
 from .live_audit_autolot import _rule_key
 
 
@@ -228,6 +229,45 @@ def links_by_comment(
                 "strategy": member["strategy"], "strategy_set": set_name,
             }
     return resolved
+
+
+def merged_attribution(
+    excel: dict[str, dict[str, Any]], comments: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """El comentario manda sobre el Excel, **salvo sobre una exclusión**.
+
+    Las dos cosas que el Excel puede decir de un ticket no son del mismo tipo:
+
+    - «es de esta estrategia» es una conjetura sobre su dueño, y ahí el
+      comentario sabe más: lo escribió el programa que abrió la orden.
+    - «no contabiliza en este portafolio» es una afirmación sobre **pertenencia**,
+      y el comentario no está en condiciones de contradecirla: sólo nombra el
+      `.set`, no el portafolio. La misma estrategia puede estar operando fuera
+      de este portafolio, y entonces su comentario es correcto y la operación
+      sigue sin contar aquí.
+
+    Dejar que el comentario ganara también ahí devolvía a la curva Real 15
+    operaciones y −31,01 € que el usuario había sacado a mano en
+    `auditor_18.10.2026_no_contabiliza.xlsx` (medido el 2026-10-22 sobre
+    `Christmas_Axi`), y sin decirlo en ninguna parte.
+
+    Pero una exclusión no siempre es deliberada: `attribution_by_ticket` marca
+    igual lo que **nombra un `.set` que ya no es miembro** de este portafolio,
+    y eso sí es una atribución vieja, justo lo que subir el documento tenía que
+    poder corregir sin ir a mano. Se distinguen por el texto, con el mismo
+    criterio que ya usa el importador para decidir si una celda nombra una
+    estrategia: una frase —«no contabiliza en este portafolio»— manda sobre el
+    comentario; un nombre de `.set` que nadie reclama, no.
+    """
+    merged = dict(excel)
+    for ticket, rule in comments.items():
+        previous = merged.get(ticket) or {}
+        deliberate = previous.get("excluded") and not _names_a_strategy(
+            previous.get("reason"),
+        )
+        if not deliberate:
+            merged[ticket] = rule
+    return merged
 
 
 def attribution_from_comments(

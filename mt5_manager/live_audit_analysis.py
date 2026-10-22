@@ -27,7 +27,9 @@ from typing import Any
 
 from .live_audit_attribution import annotate_unmatched, attribution_by_ticket
 from .live_audit_autolot import dynamic_lot_bands, prepare_request, rules_by_strategy
-from .live_audit_comment_links import attribution_from_comments, links_by_comment
+from .live_audit_comment_links import (
+    attribution_from_comments, links_by_comment, merged_attribution,
+)
 from .live_audit_engine import (
     LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
     _trade_view, _within_lot_bands,
@@ -360,16 +362,15 @@ def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[s
     )
     real_trades = _apply_symbol_aliases(_revive_all(payload.get("real_trades")), aliases)
     # El comentario del EA resuelve a `ticket → estrategia`, igual que el Excel,
-    # y entra por la misma puerta. Va **después** porque manda: lo escribió el
-    # programa que operó, mientras que el Excel lo tecleó el usuario cuando no
-    # tenía esa señal. Así, subir el documento retira solo las atribuciones
-    # viejas que contradigan al EA, sin tener que ir a quitarlas una por una.
-    request["_real_attribution_by_ticket"] = {
-        **(request.get("_real_attribution_by_ticket") or {}),
-        **attribution_from_comments(
+    # y entra por la misma puerta. Manda sobre él —lo escribió el programa que
+    # operó— salvo sobre una exclusión, que es una afirmación sobre pertenencia
+    # al portafolio y el comentario sólo nombra el `.set`.
+    request["_real_attribution_by_ticket"] = merged_attribution(
+        request.get("_real_attribution_by_ticket") or {},
+        attribution_from_comments(
             real_trades, request.get("_comment_links_by_comment") or {},
         ),
-    }
+    )
     open_positions = _apply_symbol_aliases(
         _revive_all(payload.get("open_positions_at_period_end")), aliases,
     )

@@ -51,6 +51,32 @@ programa que operó; el Excel lo tecleó él cuando no tenía esa señal. Así, 
 el documento retira solo las atribuciones viejas que lo contradigan, sin tener
 que ir a quitarlas una por una —que era justo la pega de la opción contraria.
 
+### Salvo sobre una exclusion (2026-10-22, el mismo dia)
+
+«Manda sobre el Excel» se aplico entero y se llevo por delante lo que no debia.
+El usuario subio `auditor_18.10.2026_no_contabiliza.xlsx` marcando 15 reales
+como «no contabiliza en este portafolio», y la tabla las devolvio a la curva
+Real atribuidas a `manual:15`: **−31,01 €** que el habia sacado a mano,
+reaparecidos sin que nada lo dijera. Lo vio el, no una prueba —y habia una
+prueba fijando justo el comportamiento equivocado—.
+
+Las dos cosas que el Excel puede decir de un ticket no son del mismo tipo:
+
+- «es de esta estrategia» es una conjetura sobre el **dueno**, y ahi el
+  comentario sabe mas: lo escribio el programa que abrio la orden.
+- «no contabiliza en este portafolio» es una afirmacion sobre **pertenencia**,
+  y el comentario no esta en condiciones de contradecirla: solo nombra el
+  `.set`, no el portafolio. La misma estrategia puede estar operando fuera de
+  este portafolio, y entonces su comentario es correcto y la operacion sigue
+  sin contar aqui.
+
+Y una exclusion no siempre es deliberada: `attribution_by_ticket` marca igual
+lo que nombra un `.set` que ya **no es miembro**, y eso si es una atribucion
+vieja, justo lo que subir el documento tenia que poder corregir. Se distinguen
+por el texto con `_names_a_strategy`, el mismo criterio que ya usa el
+importador para decidir si una celda nombra una estrategia: una frase manda
+sobre el comentario; un nombre de `.set` que nadie reclama, no.
+
 Por encima de las dos siguen las **parejas del selector**: ésas las decide el
 usuario mirando la fila, y se consumen antes que cualquier coste.
 
