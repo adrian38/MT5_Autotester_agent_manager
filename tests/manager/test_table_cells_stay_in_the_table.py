@@ -30,7 +30,7 @@ def _targets_a_cell(selector: str) -> bool:
 class TableCellDisplayTests(unittest.TestCase):
     def test_no_stylesheet_takes_a_cell_out_of_its_table(self) -> None:
         offenders: list[str] = []
-        static = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static = Path(__file__).parents[2] / "mt5_manager" / "static"
         sheets = sorted(static.glob("*.css"))
         self.assertTrue(sheets, "no se encontró ninguna hoja de estilo que revisar")
         for sheet in sheets:

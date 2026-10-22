@@ -20,9 +20,9 @@ import unittest
 from html.parser import HTMLParser
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-STATIC = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
 
 # El criterio portado. Cada cadena tiene que estar en el .js, y lo comprueba
 # `test_the_ported_rule_is_the_one_the_script_runs`.

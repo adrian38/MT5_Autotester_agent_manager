@@ -1,4 +1,4 @@
-"""Toda pieza que una pantalla pide tiene que estar en la lista que se sirve.
+"""Toda pieza que una pantalla del manager pide tiene que estar en la lista servida.
 
 `STATIC_FILES` es una lista de permitidos: un `.js` nuevo referenciado desde el
 HTML pero sin su línea ahí devuelve 404 y **la pantalla no se rompe a la vista**

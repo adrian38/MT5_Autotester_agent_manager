@@ -589,7 +589,7 @@ hacía nada. Comprobado contra el manager en marcha: `getComputedStyle` daba
 `position: static` y `width: auto`; inyectando la hoja a mano, el mismo clic
 abre el cajón de 430 px pegado a la derecha.
 
-- Lo exige ahora `test_header_actions_order`::`test_the_bell_takes_its_
+- Lo exige ahora `tests.manager.test_header_actions_order`::`test_the_bell_takes_its_
   stylesheet_with_it`, que cruza las pantallas que cargan el script con las
   que enlazan la hoja.
 - Esta clase de fallo es silenciosa en el suite: el JS estaba bien, el HTML
@@ -617,7 +617,7 @@ coincide al píxel con el de la fila de botones (1201 y 1216) y hay 12 px de
 separación en las dos.
 
 - `.header-actions` **no cambia**: mismos hijos, mismo orden, un nivel más
-  abajo. Por eso `test_header_actions_order`, que lee el primer
+  abajo. Por eso `tests.manager.test_header_actions_order`, que lee el primer
   `.header-actions` del HTML, sigue valiendo sin tocarlo.
 - En móvil (`max-width:700px`) el envoltorio toma el ancho completo y la chapa
   se va a la izquierda: sin esa regla, el `width:100%` de `.header-actions` se
