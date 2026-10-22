@@ -1,3 +1,4 @@
+"""Soporte compartido por los contratos del motor de auditoría real."""
 from __future__ import annotations
 
 import threading

@@ -11,7 +11,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from mt5_manager.live_audit_engine import LiveAuditController
-from tests.live_audit_engine_base import request
+from tests.live_audit.live_audit_engine_base import request
 
 START = datetime(2026, 10, 2, 4, 0, 0, tzinfo=timezone.utc)
 

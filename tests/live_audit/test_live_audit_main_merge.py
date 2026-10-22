@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from mt5_manager.live_audit_engine import (
     LiveAuditController, _adaptive_price_tolerance_floor,
 )
-from tests.live_audit_engine_base import FakeOwner, request
+from tests.live_audit.live_audit_engine_base import FakeOwner, request
 
 
 def trade(strategy: str = "s1", volume: float = .08, profit: float = 5.97) -> dict:

@@ -14,7 +14,7 @@ from mt5_manager.live_audit_engine import (
     normalize_request,
 )
 from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
-from tests.live_audit_engine_base import FakeOwner, LiveAuditEngineTestCase, request
+from tests.live_audit.live_audit_engine_base import FakeOwner, LiveAuditEngineTestCase, request
 
 
 class LiveAuditEngineTests(LiveAuditEngineTestCase):

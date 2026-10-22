@@ -224,7 +224,7 @@ coinciden contra `HEAD`. El fichero de 861 líneas y su método de 79 salen de
 los dos baselines conservando los 51 casos descubiertos.
 
 Las pruebas del motor de auditoría comparten su dueño, controlador y espera en
-`live_audit_engine_base.py`; extracción/artefactos se separan del ciclo de vida
+`tests/live_audit/live_audit_engine_base.py`; extracción/artefactos se separan del ciclo de vida
 y comparación. Las 33 definiciones no modificadas conservan AST idéntico. Los
 casos largos de sincronización del historial y restauración del terminal se
 dividen en escenario y aserciones, y ambos pasan también ejecutados desde la
