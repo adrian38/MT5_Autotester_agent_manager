@@ -1,3 +1,4 @@
+"""Contratos de adaptación de la configuración al contenedor manager."""
 from __future__ import annotations
 
 import unittest
