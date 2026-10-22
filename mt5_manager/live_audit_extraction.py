@@ -88,6 +88,7 @@ class _ExtractionMixin:
                 "open_price": float(getattr(deal, "price", 0.0) or 0.0),
                 "volume": float(getattr(deal, "volume", 0.0) or 0.0),
                 "position_id": position_id,
+                "comment": str(getattr(deal, "comment", "") or ""),
             })
         return openings
 
@@ -330,6 +331,12 @@ class _ExtractionMixin:
                 "open_price": float(getattr(first, "price", 0.0) or 0.0),
                 "close_price": float(getattr(deal, "price", 0.0) or 0.0),
                 "volume": volume, "profit": profit, "position_id": position,
+                # El comentario de la orden de apertura es lo único que el EA
+                # escribe en la operación real y que el tester no puede
+                # inventar: en AXI nombra el `.set` que la abrió. Se publica
+                # aparte de `strategy` porque ahí sólo aparece cuando el magic
+                # es 0, y en Tesla no lo es.
+                "comment": str(getattr(first, "comment", "") or ""),
             })
         return trades
 

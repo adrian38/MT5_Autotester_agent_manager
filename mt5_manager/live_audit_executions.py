@@ -24,6 +24,7 @@ from typing import Any
 from . import live_audit_analysis, live_audit_autolot, live_audit_manual_inherit, manager_http
 from .common import safe_int
 from .live_audit_archive import NON_ARCHIVABLE_STATUSES
+from .live_audit_comment_links import comment_links_supported
 
 BALANCE_ERRORS = (KeyError, ValueError, OSError, urllib.error.URLError, TimeoutError)
 """Lo que puede fallar al bajar el informe nativo. No impide analizar: queda
@@ -96,6 +97,10 @@ def analysed_node_state(
             if isinstance(value, dict) and isinstance(value.get("audit"), dict) else fresh
         )
     profile = dict(profile)
+    # Quién puede enlazar por el comentario del EA lo decide el broker, y el
+    # broker lo conoce el nodo, no el análisis. Viaja en el resultado para que
+    # la pantalla enseñe el botón sin tener que preguntar por el nodo aparte.
+    profile["_comment_links_supported"] = comment_links_supported(node or {})
     if (profile.get("autolot") or {}).get("enabled"):
         try:
             profile["_autolot_balance_history"] = balance_history(node or {}, value)

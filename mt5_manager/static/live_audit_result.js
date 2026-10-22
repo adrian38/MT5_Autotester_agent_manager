@@ -224,11 +224,19 @@ function manualPairPicker(row, tester) {
   return `<label class="manual-pair"><span>Emparejar a mano</span><select data-manual-pair="${escapeHtml(testerPairKey(tester))}"><option value="">— sin pareja —</option>${options}</select></label>`;
 }
 
+// Dos pruebas distintas: el comentario lo escribió el EA al abrir la orden y
+// el Excel lo escribió el usuario después. La fila dice cuál de las dos es.
+function attributedPairLabel(row) {
+  return row.attributed_pair === 'comment'
+    ? 'Pareja tomada del comentario del EA: la orden real nombra este setfile.'
+    : 'Pareja tomada del Excel de atribución: esta real ya estaba atribuida a esta estrategia en Análisis.';
+}
+
 function manualPairControl(row, tester) {
-  // La tomada del Excel no se deshace aquí: deshacerla es retirar lo que el
-  // Excel dijo, en Análisis, y un botón que prometiera otra cosa mentiría.
+  // La que no eligió el usuario no se deshace aquí: deshacerla es retirar en
+  // Análisis lo que la ató, y un botón que prometiera otra cosa mentiría.
   if (row.attributed_pair) {
-    return '<p class="manual-pair is-set"><strong>Pareja tomada del Excel de atribución.</strong> Esta real ya estaba atribuida a esta estrategia en Análisis. Se mide con las mismas tolerancias que cualquier otra.</p>';
+    return `<p class="manual-pair is-set"><strong>${escapeHtml(attributedPairLabel(row))}</strong> Se mide con las mismas tolerancias que cualquier otra.</p>`;
   }
   if (row.manual_pair) {
     return `<p class="manual-pair is-set"><strong>Pareja decidida a mano.</strong> Se mide con las mismas tolerancias que cualquier otra. <button type="button" data-undo-pair="${escapeHtml(testerPairKey(tester))}">Deshacer</button></p>`;
@@ -281,7 +289,10 @@ function comparisonCsvRow(row) {
   // auditor de lo que le dijeron: en la pantalla lo dice la fila.
   const reasonText = (reasons.length ? reasons.join('; ') : 'Todos los límites se cumplen')
     + (row.manual_pair ? ' · pareja decidida a mano' : '')
-    + (row.attributed_pair ? ' · pareja tomada del Excel de atribución' : '');
+    + (row.attributed_pair
+      ? ` · ${row.attributed_pair === 'comment'
+        ? 'pareja tomada del comentario del EA' : 'pareja tomada del Excel de atribución'}`
+      : '');
   const noClosedReal = row.status === 'missing' || Boolean(row.real_position_still_open);
   const closeText = noClosedReal
     ? plainPair(tester.close_time, real.close_time, marketDateTime)

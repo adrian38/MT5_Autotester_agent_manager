@@ -505,7 +505,7 @@ def _trade_view(trade: dict[str, Any] | None) -> dict[str, Any] | None:
     ):
         value = trade.get(key)
         result[key] = value.isoformat() if isinstance(value, datetime) else value
-    for key in ("position_id", "ticket", "sl", "tp"):
+    for key in ("position_id", "ticket", "sl", "tp", "comment"):
         if trade.get(key) is not None:
             result[key] = trade[key]
     return result

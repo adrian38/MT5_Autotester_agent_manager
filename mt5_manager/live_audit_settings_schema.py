@@ -6,6 +6,7 @@ from typing import Any
 
 from .live_audit_attribution import empty_attribution, normalize_attribution
 from .live_audit_autolot import empty_autolot, normalize_autolot
+from .live_audit_comment_links import empty_comment_links, normalize_comment_links
 from .live_audit_lot_schedule import empty_lot_schedule, normalize_lot_schedule
 from .live_audit_manual_pairs import empty_manual_pairs, normalize_manual_pairs
 
@@ -34,6 +35,10 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     # encontró ninguna. Sí cambian el veredicto, porque la fila deja de ser
     # «SIN REAL» y pasa a medirse con las tolerancias de siempre.
     "manual_pairs": empty_manual_pairs(),
+    # La tabla «comentario del EA → .set» que el usuario sube para los usos de
+    # AXI. También cambia el veredicto: una real que el comentario reclama deja
+    # de ser ajena y puede emparejar una fila que estaba «SIN REAL».
+    "comment_links": empty_comment_links(),
     "autolot": empty_autolot(),
     "real_attribution": empty_attribution(),
     "deployment_name": "",
@@ -319,6 +324,7 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
     normalized["autolot"] = normalize_autolot(value.get("autolot"))
     normalized["real_attribution"] = normalize_attribution(value.get("real_attribution"))
     normalized["manual_pairs"] = normalize_manual_pairs(value.get("manual_pairs"))
+    normalized["comment_links"] = normalize_comment_links(value.get("comment_links"))
     normalized["real_lot_schedule"] = normalize_lot_schedule(value.get("real_lot_schedule"))
     return normalized
 

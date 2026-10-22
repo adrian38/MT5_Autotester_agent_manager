@@ -27,6 +27,7 @@ from typing import Any
 
 from .live_audit_attribution import annotate_unmatched, attribution_by_ticket
 from .live_audit_autolot import dynamic_lot_bands, prepare_request, rules_by_strategy
+from .live_audit_comment_links import attribution_from_comments, links_by_comment
 from .live_audit_engine import (
     LiveAuditController, _lot_bands, _member_set_name, _member_strategy_id,
     _trade_view, _within_lot_bands,
@@ -55,6 +56,9 @@ REANALYSABLE_TOLERANCES = (
     # aplica sobre la materia prima guardada sin repetir la auditoría, igual
     # que una tolerancia nueva o la atribución.
     "manual_pairs",
+    # La tabla `comentario del EA → .set`. También es criterio: el comentario
+    # lo trae la materia prima y esto sólo dice cómo leerlo.
+    "comment_links",
 )
 # Lo que describe la ejecución y no se puede reinterpretar sin repetirla.
 EXECUTION_FACTS = (
@@ -290,8 +294,12 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
     )
     request["_autolot_balance_history"] = profile.get("_autolot_balance_history") or []
     request["_autolot_balance_error"] = profile.get("_autolot_balance_error") or ""
+    request["_comment_links_supported"] = bool(profile.get("_comment_links_supported"))
     request["_real_attribution_by_ticket"] = attribution_by_ticket(
         request.get("real_attribution"), list(payload.get("selected_members") or []),
+    )
+    request["_comment_links_by_comment"] = links_by_comment(
+        request.get("comment_links"), list(payload.get("selected_members") or []),
     )
     request["manual_pairs"] = normalize_manual_pairs(request.get("manual_pairs"))
     request["real_lot_schedule"] = normalize_lot_schedule(request.get("real_lot_schedule"))
@@ -351,6 +359,17 @@ def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[s
         list(payload.get("selected_members") or []), tester_trades, artifacts,
     )
     real_trades = _apply_symbol_aliases(_revive_all(payload.get("real_trades")), aliases)
+    # El comentario del EA resuelve a `ticket → estrategia`, igual que el Excel,
+    # y entra por la misma puerta. Va **después** porque manda: lo escribió el
+    # programa que operó, mientras que el Excel lo tecleó el usuario cuando no
+    # tenía esa señal. Así, subir el documento retira solo las atribuciones
+    # viejas que contradigan al EA, sin tener que ir a quitarlas una por una.
+    request["_real_attribution_by_ticket"] = {
+        **(request.get("_real_attribution_by_ticket") or {}),
+        **attribution_from_comments(
+            real_trades, request.get("_comment_links_by_comment") or {},
+        ),
+    }
     open_positions = _apply_symbol_aliases(
         _revive_all(payload.get("open_positions_at_period_end")), aliases,
     )
@@ -503,6 +522,10 @@ def _attach_evidence(
         "analysed_by": "manager",
         "executed_at": payload.get("completed_at"),
         "tolerances": {key: request.get(key) for key in REANALYSABLE_TOLERANCES},
+        # Si este uso puede enlazar por el comentario del EA. Lo decide el
+        # broker del nodo y la pantalla no lo conoce: sin esto tendría que
+        # preguntar por el nodo aparte sólo para saber si enseña un botón.
+        "comment_links_supported": bool(request.get("_comment_links_supported")),
     }
     return result
 

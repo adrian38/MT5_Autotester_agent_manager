@@ -13,7 +13,7 @@ import urllib.error
 import urllib.parse
 from typing import Any
 
-from . import live_audit_attribution, live_audit_autolot
+from . import live_audit_attribution, live_audit_autolot, live_audit_comment_links
 from . import live_audit_degradation_alerts, live_audit_manual_memory
 from . import manager_http
 from .common import safe_int
@@ -257,13 +257,14 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
         raise ValueError("Configura y guarda la cuenta que debe quedar en los terminales")
     # El autolote, la atribución, la marca informativa de operación real, el
     # escalado de la vista, las estrategias ya revisadas y las parejas decididas
-    # a mano son criterio del manager; el nodo sólo recibe datos necesarios para
-    # auditar.
+    # a mano y la tabla de comentarios del EA son criterio del manager; el nodo
+    # sólo recibe datos necesarios para auditar.
     node_profile = {
         key: value for key, value in profile.items()
         if key not in {
             "autolot", "real_attribution", "live_trading",
             "view_lot_overrides", "reviewed_strategies", "manual_pairs",
+            "comment_links",
         }
     }
     return {
@@ -271,6 +272,31 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
         "audit_key": audit_id,
         "portfolio_id": safe_int(profile.get("portfolio_id"), 0, minimum=1),
     }
+
+
+def _refuse_outside_axi(node: dict[str, Any]) -> None:
+    """La puerta, y no el análisis: así ningún otro uso llega a tener la tabla."""
+    if not live_audit_comment_links.comment_links_supported(node):
+        raise ValueError(
+            "El enlace por comentario sólo existe en AXI: es su EA quien escribe "
+            "el código del setfile en la orden."
+        )
+
+
+def _handle_comment_links_import(handler, parts: list[str]) -> bool:
+    """Lee el `.docx` con la tabla «setfile ↔ comentario» y la devuelve."""
+    if not (len(parts) == 4 and parts[:2] == ["api", "nodes"]
+            and parts[3] == "live-audit-comment-links-import"):
+        return False
+    try:
+        _refuse_outside_axi(handler._node(urllib.parse.unquote(parts[2])))
+        imported = live_audit_comment_links.import_document(handler._body())
+        handler._send_json(200, {
+            "comment_links": imported, "comment_count": len(imported["rules"]),
+        })
+    except (KeyError, ValueError, OSError, json.JSONDecodeError) as exc:
+        handler._send_json(400, {"error": str(exc)})
+    return True
 
 
 def _handle_workbook_import(handler, parts: list[str]) -> bool:
@@ -350,11 +376,21 @@ def _apply_lot_schedule_change(handler, node_id: str, audit_id: str, body: Any) 
     )
 
 
+def _apply_comment_links_change(handler, node_id: str, audit_id: str, body: Any) -> None:
+    """Guarda la tabla del `.docx`, o la retira si llega vacía."""
+    _refuse_outside_axi(handler._node(node_id))
+    change = body if isinstance(body, dict) else {}
+    handler.server.live_audit_settings.set_comment_links(
+        node_id, audit_id, change.get("comment_links"),
+    )
+
+
 # Lo que una pantalla cambia del criterio del manager y obliga a reanalizar.
 _SAVED_CRITERION = {
     "attribution": _apply_attribution_change,
     "manual-pairs": _apply_manual_pairs_change,
     "real-lot-schedule": _apply_lot_schedule_change,
+    "comment-links": _apply_comment_links_change,
 }
 
 
@@ -446,6 +482,7 @@ def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
     """Configuracion del auditor, cuenta de restauracion y lanzar un uso."""
     if (
         _handle_workbook_import(handler, parts)
+        or _handle_comment_links_import(handler, parts)
         or _handle_saved_criterion(handler, parts)
         or _handle_manual_reports(handler, parts)
         or _handle_view_field(handler, parts, write=True)

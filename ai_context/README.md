@@ -130,6 +130,11 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   decide el usuario se mide con las mismas tolerancias en vez de darse por
   buena; también conserva como pareja el ticket correspondiente escrito en la
   propia fila del Excel, sin pedir la misma decisión dos veces.
+- `live_audit_comment_links.md`: en AXI el EA escribe el código del `.set` en el
+  comentario de la orden, así que una tabla de dos columnas enlaza las reales
+  sin conjeturar ni teclear; por qué resuelve a la misma forma que el Excel en
+  vez de abrir un camino propio, por qué manda sobre él y por qué hizo falta
+  que el nodo publicara el comentario.
 - `live_audit_manual_lot_change.md`: subir el lote de la cuenta real a mitad del
   periodo sin borrar el anterior; por qué la banda admite todos los lotes
   declarados y el veredicto sólo el vigente en la apertura.

@@ -21,6 +21,7 @@ from .live_audit_attribution import (
     rewrite_profile_attribution,
 )
 from .live_audit_lot_schedule import normalize_lot_schedule
+from .live_audit_comment_links import normalize_comment_links
 from .live_audit_manual_pairs import normalize_manual_pairs
 from .live_audit_settings_schema import (
     normalize_reviewed_strategies,
@@ -117,6 +118,28 @@ class LiveAuditProfileFieldsMixin:
         """
         return self._set_profile_field(
             node_id, audit_id, "manual_pairs", normalize_manual_pairs(pairs),
+        )
+
+    def comment_links(self, node_id: str, audit_id: str) -> dict[str, Any]:
+        """La tabla «comentario del EA → `.set`» guardada en un uso."""
+        with self.lock:
+            profiles = (self.records.get(node_id) or {}).get("profiles") or {}
+            stored = (profiles.get(str(audit_id)) or {}).get("comment_links")
+        return normalize_comment_links(stored)
+
+    def set_comment_links(
+        self, node_id: str, audit_id: str, links: Any,
+    ) -> dict[str, Any]:
+        """Guarda la tabla, o la retira si llega vacía.
+
+        Sustituye y no acumula, al revés que la atribución: es un solo
+        documento, el usuario lo mantiene entero y subir la versión corregida
+        tiene que poder quitar una fila, no sólo añadirlas. Sí cambia el
+        veredicto, así que quien la guarda vuelve a pedir el análisis en la
+        misma llamada.
+        """
+        return self._set_profile_field(
+            node_id, audit_id, "comment_links", normalize_comment_links(links),
         )
 
     def real_lot_schedule(self, node_id: str, audit_id: str) -> dict[str, Any]:

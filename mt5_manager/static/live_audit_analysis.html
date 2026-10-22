@@ -21,6 +21,9 @@
            `label` borraría el `input`, que es hijo suyo, y la subida sólo
            funcionaría una vez. -->
       <label id="attribution-upload" class="button secondary" title="Excel con la columna que dice a qué estrategia pertenece cada real sin pareja"><span id="attribution-label">Atribuir reales sin pareja</span><input id="attribution-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
+      <!-- Sólo en AXI: es su EA quien escribe el código del `.set` en el
+           comentario de la orden. Lo dice el análisis, que conoce el nodo. -->
+      <label id="comment-links-upload" class="button secondary" title="Documento Word con la tabla «Nombre del setfile» / «EA_Comment»" hidden><span id="comment-links-label">Enlazar por comentario</span><input id="comment-links-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden></label>
       <a id="result-link" class="button secondary" href="#">Ver detalle de operaciones</a>
       <a id="back-link" class="button secondary" href="/">Volver al auditor</a>
     </div>
@@ -86,6 +89,7 @@
         </table>
       </div>
       <div id="attribution-sources" class="attribution-sources" hidden></div>
+      <div id="comment-links-source" class="attribution-sources" hidden></div>
       <div id="lot-schedule-sources" class="attribution-sources" hidden></div>
       <p id="unaccounted-note" class="audit-analysis-note-text"></p>
     </section>

@@ -408,7 +408,10 @@ def annotate_unmatched(
         profit = float((row.get("real") or {}).get("profit") or 0.0)
         row["attribution"] = {
             "strategy": rule["strategy"], "strategy_set": rule["strategy_set"],
-            "reason": rule["reason"], "excluded": rule["excluded"], "source": "manual",
+            "reason": rule["reason"], "excluded": rule["excluded"],
+            # De dónde salió: el Excel que escribió el usuario («manual») o el
+            # comentario que el EA dejó en la orden («comment»).
+            "source": rule.get("source") or "manual",
         }
         if rule["excluded"]:
             excluded += 1

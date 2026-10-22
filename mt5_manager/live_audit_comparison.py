@@ -349,7 +349,13 @@ class _ComparisonMixin:
         if tester_index - 1 in (state.get("forced") or {}):
             row["manual_pair"] = True
         elif tester_index - 1 in (state.get("attributed") or {}):
-            row["attributed_pair"] = True
+            # «manual» si lo dijo el Excel y «comment» si lo escribió el EA: son
+            # dos pruebas distintas y la fila no puede presentarlas igual.
+            row["attributed_pair"] = str((
+                (request.get("_real_attribution_by_ticket") or {}).get(
+                    str(actual.get("position_id") or actual.get("ticket") or ""),
+                ) or {}
+            ).get("source") or "manual")
         if reasons:
             state["deviations"] += 1
             _ComparisonMixin._increment(state["deviating_by_strategy"], strategy)

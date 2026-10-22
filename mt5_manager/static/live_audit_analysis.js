@@ -805,6 +805,27 @@ function renderAttributionSources() {
 // Declarar un lote con la fecha equivocada es el error fácil de este botón,
 // así que cada tramo se enseña con su ✕. Sin esta lista sería una calle de un
 // solo sentido, igual que lo era la atribución antes de recordar su fichero.
+function storedCommentLinks() {
+  return currentResult.analysis?.tolerances?.comment_links || {};
+}
+
+// El botón sólo existe donde el enlace existe. Enseñarlo en un uso de otro
+// broker ofrecería un criterio que ese EA no escribe y que el manager
+// rechazaría al guardar: mejor que no esté.
+function renderCommentLinks() {
+  document.querySelector('#comment-links-upload').hidden
+    = !currentResult.analysis?.comment_links_supported;
+  const target = document.querySelector('#comment-links-source');
+  const links = storedCommentLinks();
+  const rules = Object.keys(links.rules || {}).length;
+  target.hidden = !rules;
+  if (target.hidden) return;
+  target.innerHTML = '<span>Comentarios del EA</span>'
+    + `<span class="attribution-source">${escapeHtml(links.source_name || 'Documento sin nombre')}
+      <small>${escapeHtml(number(rules, 0))} setfiles</small>
+      <button type="button" data-clear-comment-links title="Quitar la tabla: las reales vuelven a enlazarse sólo por tiempo y lote">✕</button></span>`;
+}
+
 function renderLotSchedule() {
   const target = document.querySelector('#lot-schedule-sources');
   const schedule = storedLotSchedule();
@@ -882,6 +903,7 @@ function renderUncomparedUnaccounted() {
   badge.className = 'badge pending';
   renderAttributionSources();
   renderLotSchedule();
+  renderCommentLinks();
   document.querySelector('#unaccounted-note').textContent =
     'El cuadre necesita la comparación del manager. Mientras no exista, que esta '
     + 'lista esté vacía no significa que todas las reales estén explicadas.';
@@ -915,6 +937,7 @@ function renderUnaccounted() {
   const stored = Object.keys(storedAttribution().rules || {}).length;
   renderAttributionSources();
   renderLotSchedule();
+  renderCommentLinks();
   document.querySelector('#unaccounted-note').textContent = [
     stored
       ? `Hay ${stored} operacion${stored === 1 ? '' : 'es'} guardada${stored === 1 ? '' : 's'} en la atribución de este uso; cada Excel que subas se suma a lo anterior, no lo reemplaza.` : '',
@@ -1388,6 +1411,51 @@ async function uploadAttribution(file) {
     document.querySelector('#attribution-file').value = '';
   }
 }
+
+// Mismo viaje que la atribución: se lee el documento, se guarda la tabla y
+// vuelve el análisis rehecho. Sustituye a la guardada en vez de acumular —es
+// un solo documento, y subir la versión corregida tiene que poder quitar una
+// fila, no sólo añadirlas.
+async function uploadCommentLinks(file) {
+  const button = document.querySelector('#comment-links-upload');
+  const label = document.querySelector('#comment-links-label');
+  const previous = label.textContent;
+  label.textContent = 'Leyendo el documento…';
+  button.classList.add('is-busy');
+  try {
+    if (file.size > 700000) throw new Error('El documento no puede superar 700 KB.');
+    const content = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+    const parsed = await jsonResponse(await fetch(
+      `/api/nodes/${encodeURIComponent(nodeId)}/live-audit-comment-links-import`,
+      {method: 'POST', headers: {'Content-Type': 'application/json'},
+       body: JSON.stringify({filename: file.name, content_base64: content})},
+    ));
+    label.textContent = 'Recalculando la auditoría…';
+    await changeCriterion('comment-links', {comment_links: parsed.comment_links});
+  } finally {
+    label.textContent = previous;
+    button.classList.remove('is-busy');
+    document.querySelector('#comment-links-file').value = '';
+  }
+}
+
+document.querySelector('#comment-links-file').addEventListener('change', event => {
+  const file = event.target.files?.[0];
+  if (file) uploadCommentLinks(file).catch(error => showAnalysisError(error.message));
+});
+
+document.querySelector('#comment-links-source').addEventListener('click', event => {
+  if (!event.target.closest('[data-clear-comment-links]')) return;
+  if (!window.confirm(
+    '¿Quitar la tabla de comentarios de este uso? Las reales que enlazaba vuelven a '
+    + 'quedar sin dueño y las parejas que salían de ella se deshacen.',
+  )) return;
+  event.target.disabled = true;
+  changeCriterion('comment-links', {comment_links: null}).catch(error => {
+    event.target.disabled = false;
+    showAnalysisError(error.message);
+  });
+});
 
 document.querySelector('#attribution-file').addEventListener('change', event => {
   const file = event.target.files?.[0];
