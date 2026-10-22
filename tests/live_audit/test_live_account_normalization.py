@@ -1,4 +1,4 @@
-"""Normalización por lote de la cuenta real que el usuario eligió."""
+"""Normalización por lote de la cuenta real que el usuario eligió en el manager."""
 from __future__ import annotations
 
 import unittest

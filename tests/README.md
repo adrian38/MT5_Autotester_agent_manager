@@ -14,10 +14,11 @@ ejecuta cuando el usuario la pide explícitamente.
   general, portafolios y flujos del nodo.
 - `manager/`: ciclo de vida, estado e infraestructura del proceso manager.
 - `node/`: ejecución y protocolo del nodo, incluida pausa/reanudación.
-- La raíz conserva temporalmente los módulos todavía no migrados.
-- Los siguientes grupos se moverán de forma incremental a `live_audit/`; los
-  comportamientos restantes se incorporarán a `manager/`, `node/` y
-  `portfolio/` por unidades completas.
+- `live_audit/`: auditoría y seguimiento de cuentas reales; la migración ha
+  comenzado por cálculo, persistencia y programación de las capturas.
+- La raíz conserva temporalmente los módulos todavía no migrados. Los grupos
+  restantes se incorporarán a `live_audit/`, `manager/`, `node/` y `portfolio/`
+  por unidades completas.
 
 Cada carpeta descubierta por `unittest` lleva `__init__.py`. Un traslado agrupa
 un comportamiento completo, actualiza sus imports y comandos, y conserva el

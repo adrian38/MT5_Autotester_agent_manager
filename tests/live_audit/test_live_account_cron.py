@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import live_account_dashboard, live_account_inventory, live_account_watch
 from mt5_manager.live_account_archive import LiveAccountArchive, account_key
