@@ -74,7 +74,7 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         # envueltos en `.portfolio-empty`, pero el «Cargando…» era texto suelto
         # y salía pegado al borde del panel. Es el único estado que se ve en
         # cada carga, así que era el único que se notaba.
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")
         pages = {
             name: (static_dir / name).read_text(encoding="utf-8")
@@ -98,7 +98,7 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
                 self.assertNotIn(f"{container}Cargando", page, name)
 
     def test_regression_card_features_follow_node_capabilities_and_use_their_own_job(self) -> None:
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")
         page = (static_dir / "index.html").read_text(encoding="utf-8")
 
@@ -118,7 +118,7 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         self.assertIn("Ejecutar prueba regresiva", page)
 
     def test_cards_expose_manual_and_automatic_historical_cleanup(self) -> None:
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")
         page = (static_dir / "index.html").read_text(encoding="utf-8")
         styles = (static_dir / "styles.css").read_text(encoding="utf-8")
@@ -141,7 +141,7 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         self.assertIn(".card-cleanup-policy", styles)
 
     def test_repair_dialog_can_select_all_runs(self) -> None:
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")
         page = (static_dir / "index.html").read_text(encoding="utf-8")
         styles = (static_dir / "styles.css").read_text(encoding="utf-8")
@@ -172,7 +172,7 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         # Cada intento de reparación se ejecuta en dos fases sobre las mismas
         # etapas, y lo único que las diferencia es cuántos terminales usan a la vez.
         # Los dos diálogos y la tarjeta tienen que poder fijar las dos.
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")
         page = (static_dir / "index.html").read_text(encoding="utf-8")
 
@@ -201,7 +201,7 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         # La etapa regresiva de Reparar dejó de ser obligatoria: la decide una casilla
         # del propio diálogo, que solo aparece en nodos con la capacidad y se recuerda
         # aparte de `run_regression`, la de la nueva ejecución.
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")
         page = (static_dir / "index.html").read_text(encoding="utf-8")
         styles = (static_dir / "styles.css").read_text(encoding="utf-8")
@@ -219,7 +219,7 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         self.assertIn(".repair-regression", styles)
 
     def test_regression_dialog_can_select_all_runs(self) -> None:
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = (static_dir / "app.js").read_text(encoding="utf-8")
         page = (static_dir / "index.html").read_text(encoding="utf-8")
 
@@ -243,7 +243,7 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         self._assert_representative_values(fields)
 
     def _number_fields(self) -> dict[str, list[tuple[str, object]]]:
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         fields: dict[str, list[tuple[str, object]]] = {}
         for path in static_dir.glob("*.html"):
             page = html.fromstring(path.read_text(encoding="utf-8"))
