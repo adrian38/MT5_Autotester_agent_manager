@@ -194,8 +194,13 @@ def degradation_report(
         )
     if days is None:
         days = _period_days(result)
-    histories = live_audit_degradation.read_histories(source, list(grouped))
     labels = _labels(result, grouped)
+    # El nombre del `.set` es lo único que ata un miembro manual con su
+    # histórico: su `manual:N` no está en ninguna memoria del pool.
+    histories = live_audit_degradation.read_histories(
+        source, list(grouped),
+        {strategy: name for strategy, (name, _symbol) in labels.items() if name},
+    )
     backtest_of = _backtest_of(source, histories)
     strategies = _measured(grouped, histories, labels, days, backtest_of, rate=True)
     recent = _recent(grouped, days)

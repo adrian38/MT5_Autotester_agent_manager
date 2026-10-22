@@ -68,13 +68,26 @@ def _report_summary(report: StrategyReport, member: dict[str, Any]) -> dict[str,
     }
 
 
-def _matching_report(project: Path, member: dict[str, Any]) -> Path | None:
-    stem = Path(_portable_set_name(member.get("set_path") or member.get("set_id"))).stem
+def report_for_set(project: Path, set_reference: Any) -> Path | None:
+    """El informe OHLC homónimo de un set, en `<proyecto>/reports/`.
+
+    Es **la** regla de emparejado entre un set manual y su histórico, y vive
+    aquí sola a propósito: el botón «Generar histórico OHLC» deja el informe
+    con el nombre del set, y cualquiera que quiera ese histórico —el resumen
+    del portafolio manual o la tabla «contra el histórico» de la auditoría—
+    tiene que buscarlo igual. Dos reglas serían dos respuestas distintas a la
+    misma pregunta.
+    """
+    stem = Path(_portable_set_name(set_reference)).stem
     reports = project / "reports"
     if not stem or not reports.is_dir():
         return None
     matches = [path for suffix in (".htm", ".html") if (path := reports / f"{stem}{suffix}").is_file()]
     return max(matches, key=lambda path: path.stat().st_mtime) if matches else None
+
+
+def _matching_report(project: Path, member: dict[str, Any]) -> Path | None:
+    return report_for_set(project, member.get("set_path") or member.get("set_id"))
 
 
 def manual_history_summary(project: Path, members: list[dict[str, Any]]) -> dict[str, Any]:

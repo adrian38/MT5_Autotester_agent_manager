@@ -102,3 +102,42 @@ Como el veredicto, el emparejamiento manual y las estrategias validadas, esto
 vive sólo en el manager. El nodo no recibe nada nuevo y no cambia nada de lo que
 audita. El usuario sí tiene que **reconstruir la imagen del manager**, que corre
 en Docker.
+
+## Un portafolio manual tambien tiene historico (2026-10-22)
+
+«Contra el historico» contestaba «SIN HISTORICO» en las 27 filas de
+`Christmas_Axi` (AXI, portafolio 109). El rotulo decia la verdad a medias: no
+hay backtest **de ese candidato en la memoria UBS**, porque un portafolio
+manual no sale del pool —sus miembros son `manual:N`, con `candidate_id` nulo
+en `portfolio_members`— y el scope `manual` no es ninguna memoria.
+
+Pero el historico existe, y lo tenian **las 32** estrategias: lo genera el
+boton «Generar historico OHLC» de la pantalla del portafolio manual, que deja
+el informe en `<proyecto>/reports/` con el nombre del set. La misma regla que
+`manual_history_summary` ya usaba para el resumen de ese portafolio.
+
+`read_histories` recurre ahora a ese informe **solo para lo que la memoria no
+contesto**: un candidato del pool se sigue midiendo contra lo que la memoria
+guarda de el. La regla de emparejado vive en una sola funcion,
+`portfolio_manual_reports.report_for_set`, porque dos reglas serian dos
+respuestas a la misma pregunta.
+
+Lo que la memoria guarda en `metrics_json` se saca de las operaciones del
+informe, que es de donde salio alli: `trades`, `net_profit`, `avg_trade`, el
+SQN (`media / desviacion * raiz(n)`), los meses activos del periodo y el valle
+de la curva **en orden de cierre** —el orden del informe da otro valle—. Se
+conserva el `report_path`, que es lo que permite el contraste contra tramos
+consecutivos del propio backtest (`live_audit_degradation_evidence`).
+
+Medido sobre `Christmas_Axi`: de 0 a **32 de 32** con historico, y 25 de esos
+32 drawdowns caen a menos del 5 % del `dd_001` que el usuario tenia apuntado a
+mano en `riesgo_xmas.xlsx` —una corroboracion independiente de que los
+informes leidos son los suyos—. Los siete que difieren son modestos y el
+numero del Excel no tiene por que ser el mismo: aqui se mide el valle de
+balance cerrado, no el flotante.
+
+**La leccion.** El rotulo era literalmente cierto y por eso lo di por bueno:
+«no hay backtest de este candidato en la memoria del agente». Lo que no decia
+es que ese no es el unico sitio donde un portafolio puede tener historico. Un
+mensaje exacto sobre donde se ha mirado no es un mensaje exacto sobre lo que
+existe.

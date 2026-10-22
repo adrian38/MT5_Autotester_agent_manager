@@ -25,6 +25,9 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+from . import portfolio_manual_reports
+from .portfolio_report_cache import cached_report
+
 # `StartLots` de los sets generados por el pipeline UBS. El histórico de la
 # memoria está medido a este lote; el periodo auditado, al del portafolio.
 REFERENCE_LOT = 0.01
@@ -120,6 +123,83 @@ def history_from_metrics(metrics: dict[str, Any] | None) -> StrategyHistory | No
         profit_factor=_number(metrics.get("profit_factor")),
         report_path=str(metrics.get("report_path") or ""),
     )
+
+
+def _sqn(profits: list[float]) -> float | None:
+    """`media / desviación * raíz(n)`, calculado sobre el propio backtest.
+
+    La memoria UBS lo guarda ya hecho; un informe OHLC no, así que se saca de
+    sus operaciones. Es la misma cifra, no una aproximación: la memoria la
+    calculó del mismo modo sobre el mismo backtest.
+    """
+    if len(profits) < 2:
+        return None
+    mean = sum(profits) / len(profits)
+    variance = sum((value - mean) ** 2 for value in profits) / (len(profits) - 1)
+    deviation = math.sqrt(variance)
+    if deviation <= 0 or not mean:
+        return None
+    return mean / deviation * math.sqrt(len(profits))
+
+
+def history_from_report(report: Any) -> StrategyHistory | None:
+    """El histórico de un set que no es candidato del pool, leído de su informe.
+
+    Un portafolio manual no sale del pool: sus miembros son `manual:N` y la
+    memoria UBS no los conoce, así que `read_histories` no encontraba nada y
+    las 27 filas de `Christmas_Axi` contestaban «SIN HISTÓRICO». Pero el
+    histórico existe —lo genera el botón «Generar histórico OHLC» de la
+    pantalla del portafolio manual, y deja el informe en `<proyecto>/reports/`
+    con el nombre del set—: las 32 estrategias de ese portafolio lo tenían.
+
+    Lo que la memoria guarda en `metrics_json` se saca aquí de las operaciones
+    del informe, que es de donde salió allí. El `report_path` se conserva para
+    que el contraste contra tramos consecutivos del propio backtest
+    (`live_audit_degradation_evidence`) funcione igual que con un candidato.
+    """
+    trades = [float(trade.profit_loss or 0) for trade in getattr(report, "trades", [])]
+    if not trades:
+        return None
+    net = sum(trades)
+    gross_profit = sum(value for value in trades if value > 0)
+    gross_loss = abs(sum(value for value in trades if value < 0))
+    return StrategyHistory(
+        trades=len(trades), net_profit=net, average_trade=net / len(trades),
+        sqn=_sqn(trades), active_months=_active_months(report),
+        drawdown=_report_drawdown(report),
+        profit_factor=gross_profit / gross_loss if gross_loss else None,
+        report_path=str(getattr(report, "path", "") or ""),
+    )
+
+
+def _active_months(report: Any) -> float | None:
+    start, end = getattr(report, "period_start", None), getattr(report, "period_end", None)
+    try:
+        days = (end - start).days
+    except (TypeError, AttributeError):
+        return None
+    return days / AVERAGE_DAYS_PER_MONTH if days > 0 else None
+
+
+def _report_drawdown(report: Any) -> float | None:
+    """Descenso máximo de la curva de balance, en orden de cierre.
+
+    El orden importa y no es el del informe: una curva recorrida en otro orden
+    da otro valle. Es el mismo cálculo que `manual_history_summary` hace para
+    la pantalla del portafolio manual.
+    """
+    closed = sorted(
+        (trade.close_time, float(trade.profit_loss or 0))
+        for trade in getattr(report, "trades", [])
+        if getattr(trade, "close_time", None) is not None
+    )
+    balance = peak = float(getattr(report, "initial_deposit", 0.0) or 0.0)
+    worst = 0.0
+    for _moment, profit in closed:
+        balance += profit
+        peak = max(peak, balance)
+        worst = max(worst, peak - balance)
+    return worst or None
 
 
 def observed_per_lot(trades: list[dict[str, Any]]) -> tuple[float, float] | None:
@@ -229,7 +309,9 @@ def split_candidate_id(candidate_id: str) -> tuple[str, int] | None:
         return None
 
 
-def read_histories(source: Any, candidate_ids: list[str]) -> dict[str, StrategyHistory]:
+def read_histories(
+    source: Any, candidate_ids: list[str], set_names: dict[str, str] | None = None,
+) -> dict[str, StrategyHistory]:
     """Histórico de cada candidato, leído de la memoria UBS del agente.
 
     `source` es un `PortfolioSource`: aporta `memory_sources` —cada cuenta del
@@ -250,6 +332,44 @@ def read_histories(source: Any, candidate_ids: list[str]) -> dict[str, StrategyH
         if not rows:
             continue
         histories.update(_read_memory(source, memory, rows))
+    histories.update(_manual_histories(source, candidate_ids, set_names, histories))
+    return histories
+
+
+def _manual_histories(
+    source: Any, candidate_ids: list[str], set_names: dict[str, str] | None,
+    found: dict[str, StrategyHistory],
+) -> dict[str, StrategyHistory]:
+    """El histórico de lo que la memoria no conoce, leído de su informe OHLC.
+
+    Un portafolio manual no sale del pool: sus miembros son `manual:N` y el
+    scope `manual` no es ninguna memoria, así que arriba no se encuentra nada.
+    El histórico sí existe, con el nombre del set en `<proyecto>/reports/`, que
+    es donde lo deja «Generar histórico OHLC». Se busca con la misma regla que
+    usa la pantalla del portafolio manual, no con una propia.
+
+    Sólo para lo que la memoria no contestó: un candidato del pool sigue
+    midiéndose contra lo que la memoria guarda de él.
+    """
+    project = getattr(source, "project", None)
+    if project is None or not set_names:
+        return {}
+    histories: dict[str, StrategyHistory] = {}
+    for candidate_id in candidate_ids:
+        name = set_names.get(candidate_id)
+        if candidate_id in found or not name:
+            continue
+        path = portfolio_manual_reports.report_for_set(project, name)
+        if path is None:
+            continue
+        try:
+            history = history_from_report(cached_report(path))
+        except (OSError, ValueError, TypeError):
+            # Un informe ilegible no puede tumbar la pantalla: esa estrategia
+            # sale «sin histórico», que es exactamente lo que se sabe.
+            continue
+        if history is not None:
+            histories[candidate_id] = history
     return histories
 
 
