@@ -132,12 +132,15 @@ class LiveAuditController(
             self.stop_requested = True
             process = self.tester_process
             paths = list(self.tester_terminal_paths)
-            status = str(self.states[key].get("status") or "")
         if process is not None and process.poll() is None:
             self._terminate_tester_process(process)
         closed = self._close_tester_terminals(paths)
-        self._update(
-            key, status, "Deteniendo la auditoría a petición del usuario.",
+        # Sin tocar el estado: cortar el tester y cerrar sus terminales tarda
+        # segundos, y en ese hueco el trabajador ya ha pasado a `finalizing`.
+        # Devolver aquí el estado leído antes lo hacía retroceder y la
+        # auditoría no se cerraba nunca.
+        self._note_progress(
+            key, "Deteniendo la auditoría a petición del usuario.",
             "Detención pedida por el usuario: cortado el lanzador del tester y "
             f"cerradas {closed} terminal(es) suyas; vuelven a su cuenta configurada.",
         )

@@ -622,3 +622,38 @@ separación en las dos.
 - En móvil (`max-width:700px`) el envoltorio toma el ancho completo y la chapa
   se va a la izquierda: sin esa regla, el `width:100%` de `.header-actions` se
   mediría contra una columna del ancho del contenido y no haría nada.
+
+## Detener dejaba la auditoria en el limbo (2026-10-22)
+
+Pulsar «Detener» cortaba el tester, cerraba sus terminales y devolvia cada
+cuenta a su sitio, y la pantalla se quedaba en «PROBANDO» con el texto
+«Deteniendo la auditoria a peticion del usuario» para siempre. Volver a pulsar
+repetia lo mismo, porque `testing` sigue en `RUNNING_STATUSES` y la parada no
+se negaba.
+
+La carrera esta en los logs del agente (`audit-109` de AXI):
+
+| Hora | Quien | Que |
+| --- | --- | --- |
+| 14:05:49 | trabajador | recoge `AuditStopped` y pasa a `finalizing` |
+| 14:05:50 | `stop` | escribe el estado que leyo **antes** de cortar el tester: vuelve a `testing` |
+| 14:06:03 | cierre | solo cerraba desde `finalizing`/`resuming`, asi que no fijaba nada |
+
+Dos arreglos, uno por mitad:
+
+- `stop` ya no escribe estado. Usa `_note_progress`, que avanza el texto y el
+  log **sin tocar `status`**: lo unico que esa funcion tiene que contar es lo
+  que hizo, y el estado lo lleva el trabajador.
+- El cierre acepta **cualquier estado en curso**, no solo `finalizing` y
+  `resuming`. Lo que esa guarda protege es un estado terminal ya publicado, y
+  eso se sigue respetando; no cerrar desde `testing` solo servia para dejar la
+  auditoria viva para siempre.
+
+Leer un estado, trabajar unos segundos y volver a escribirlo es la forma
+general del fallo, y no la caza ninguna prueba de resultado: la auditoria hace
+todo lo que tiene que hacer y solo se queda mal el rotulo. Lo cubre
+`tests/live_audit/test_live_audit_stop.py`, que adelanta al trabajador dentro
+del cierre de terminales para reproducir la carrera sin depender del reloj.
+
+Vive en `manager_node_runtime/live_audit.py` de cada agente: tres commits
+hermanos mas el espejo del manager.

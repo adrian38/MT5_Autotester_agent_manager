@@ -23,6 +23,27 @@ class _LifecycleMixin:
         if stopped:
             raise AuditStopped("Auditoría detenida a petición del usuario")
 
+    def _note_progress(self, audit_key: str, text: str, line: str) -> None:
+        """Avanza el texto de la pantalla **sin tocar el estado**.
+
+        `stop_audit` leía el estado antes de cortar el tester y lo volvía a
+        escribir después, y en esos segundos el trabajador ya había pasado a
+        `finalizing`: el estado retrocedía a `testing` y el cierre, que sólo
+        cierra desde `finalizing` o `resuming`, no llegaba a fijar el estado
+        final. La auditoría se quedaba en «PROBANDO» con el texto «Deteniendo
+        la auditoría…» para siempre, y volver a pulsar Detener repetía la misma
+        carrera. Medido el 2026-10-22 en `audit-109` de AXI: parada a las
+        14:05:49, estado pisado a las 14:05:50, cierre sin efecto a las
+        14:06:03.
+        """
+        with self.lock:
+            raw = self.states.get(audit_key)
+            if raw is None:
+                return
+            raw["progress_text"] = text
+            raw.setdefault("log_lines", []).append(f"[{utc_now()}] {line}")
+            self._persist()
+
     def _log(self, audit_key: str, line: str) -> None:
         """Registra un hecho sin tocar el estado terminal ya publicado."""
         with self.lock:
@@ -305,7 +326,11 @@ class _LifecycleMixin:
                 )
         with self.lock:
             raw = self.states[audit_key]
-            if str(raw.get("status")) in {"finalizing", "resuming"}:
+            # Cualquier estado en curso, no sólo `finalizing` y `resuming`: si
+            # algo pisó el estado mientras se restauraban las terminales, no
+            # cerrar aquí deja la auditoría viva para siempre. Lo que esta
+            # guarda protege es un estado **terminal** ya publicado.
+            if str(raw.get("status")) in RUNNING_STATUSES:
                 raw.update(
                     status=terminal_status,
                     progress_text=str(
