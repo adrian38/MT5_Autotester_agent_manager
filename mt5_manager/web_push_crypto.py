@@ -12,7 +12,7 @@ red que no llega al manager. Con el texto dentro, el aviso sale igual.
 **El unico modo de saber que esto esta bien es el vector del RFC.** Un error de
 derivacion no da ningun error aqui: produce un cuerpo que el dispositivo
 descarta en silencio, y no hay traza de eso en ningun sitio. Por eso
-`tests/test_web_push_crypto.py` reproduce el ejemplo de la seccion 5 del RFC
+`tests/manager/test_web_push_crypto.py` reproduce el ejemplo de la seccion 5 del RFC
 8291 campo a campo, y por eso `salt` y `as_private` se pueden inyectar: sin
 eso, el cifrado seria irreproducible y no habria nada que comparar.
 """

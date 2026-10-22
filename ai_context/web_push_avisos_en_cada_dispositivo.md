@@ -55,8 +55,8 @@ y no un parche al aviso de la pestaña.
 - **El cifrado sólo se puede verificar con el vector del RFC.** Una derivación
   mal hecha no lanza ninguna excepción: produce un cuerpo que el dispositivo
   descarta en silencio, y el síntoma es «el móvil no avisa», que es exactamente
-  lo que no se puede depurar. `tests/test_web_push_crypto.py` reproduce el
-  ejemplo de la sección 5 de RFC 8291 octeto a octeto, y `test_web_push.py`
+  lo que no se puede depurar. `tests/manager/test_web_push_crypto.py` reproduce el
+  ejemplo de la sección 5 de RFC 8291 octeto a octeto, y `tests/manager/test_web_push.py`
   monta el dispositivo del otro lado y **descifra** lo que salió por la red.
 - **La clave VAPID se conserva y no se regenera sola.** El navegador la guardó
   al suscribirse y el servicio de push rechaza con 403 un aviso firmado por

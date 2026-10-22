@@ -17,9 +17,9 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-STATIC = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
 
 PAGES = (
     "dashboard.html", "index.html", "live_audit.html",
