@@ -113,20 +113,72 @@ def rescued_position_ids(pairs: Any) -> set[str]:
     } - {""}
 
 
-def note_manual_pairs(detail: dict[str, Any], forced: dict[int, int]) -> None:
+def note_manual_pairs(
+    detail: dict[str, Any], forced: dict[int, int], attributed: dict[int, int],
+) -> None:
     """Dice en la metodología cuántas parejas no las encontró el auditor.
 
     Sin esta línea el informe presenta como alineación medida algo que en parte
-    decidió una persona, y quien lo lea después no puede saberlo.
+    decidió una persona, y quien lo lea después no puede saberlo. Las dos
+    procedencias se cuentan aparte: una la eligió el usuario en la pantalla y
+    la otra sale de lo que ya había escrito en el Excel de Análisis.
     """
     detail["manual_pairs"] = len(forced)
-    if not forced:
-        return
-    detail["methodology"]["alignment"] += (
-        f" {len(forced)} pareja(s) las decidió el usuario a mano sobre reales que"
-        " el reparto no eligió o que el filtro de lote había apartado: se miden"
-        " con las mismas tolerancias y su fila lo dice."
+    detail["attributed_pairs"] = len(attributed)
+    if forced:
+        detail["methodology"]["alignment"] += (
+            f" {len(forced)} pareja(s) las decidió el usuario a mano sobre reales que"
+            " el reparto no eligió o que el filtro de lote había apartado: se miden"
+            " con las mismas tolerancias y su fila lo dice."
+        )
+    if attributed:
+        detail["methodology"]["alignment"] += (
+            f" {len(attributed)} pareja(s) salen del Excel de atribución: la real"
+            " quedó libre y el usuario ya la había dado a esa misma estrategia."
+            " También se miden con las mismas tolerancias."
+        )
+
+
+def attributed_assignment(
+    tester: list[dict[str, Any]],
+    real: list[dict[str, Any]],
+    resolved: dict[str, dict[str, Any]],
+    assignment: dict[int, int],
+) -> dict[int, int]:
+    """Las parejas que el Excel de Análisis ya había decidido sin decirlo así.
+
+    Atribuir una real a una estrategia en el Excel es nombrar a su dueño; si
+    esa misma estrategia tiene además una operación del tester que se quedó sin
+    pareja, pedir otra vez la correspondencia en el selector es pedir dos veces
+    el mismo trabajo. Se empareja por cercanía de apertura, de la mejor pareja
+    a la peor y consumiendo cada real una sola vez, igual que el reparto del
+    auditor. **No afloja ninguna tolerancia**: la fila se mide igual y puede
+    salir con desviación.
+    """
+    if not resolved:
+        return {}
+    taken = set(assignment.values())
+    owners = {}
+    for index, trade in enumerate(real):
+        rule = resolved.get(real_pair_id(trade)) or {}
+        if index not in taken and rule.get("strategy") and not rule.get("excluded"):
+            owners[index] = str(rule["strategy"])
+    candidates = sorted(
+        (
+            abs((real[index]["open_time"] - tester[row]["open_time"]).total_seconds()),
+            row, index,
+        )
+        for row in range(len(tester)) if row not in assignment
+        for index, strategy in owners.items()
+        if strategy == str(tester[row].get("strategy") or "")
     )
+    derived: dict[int, int] = {}
+    used: set[int] = set()
+    for _distance, row, index in candidates:
+        if row not in derived and index not in used:
+            derived[row] = index
+            used.add(index)
+    return derived
 
 
 def forced_assignment(

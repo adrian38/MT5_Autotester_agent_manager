@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from .live_audit_attribution import annotate_unmatched
 from .live_audit_core import *  # noqa: F403
-from .live_audit_manual_pairs import forced_assignment, note_manual_pairs
+from .live_audit_manual_pairs import (
+    attributed_assignment, forced_assignment, note_manual_pairs,
+)
 from .live_audit_methodology import methodology
 
 
@@ -346,6 +348,8 @@ class _ComparisonMixin:
         # el auditor de lo que le dijeron.
         if tester_index - 1 in (state.get("forced") or {}):
             row["manual_pair"] = True
+        elif tester_index - 1 in (state.get("attributed") or {}):
+            row["attributed_pair"] = True
         if reasons:
             state["deviations"] += 1
             _ComparisonMixin._increment(state["deviating_by_strategy"], strategy)
@@ -475,7 +479,9 @@ class _ComparisonMixin:
             request, state, unmatched, unmatched_operations, strategy_summary,
             real_dd, tester_dd, dd_deviation,
         )
-        note_manual_pairs(detail, state.get("forced") or {})
+        note_manual_pairs(
+            detail, state.get("forced") or {}, state.get("attributed") or {},
+        )
         missing = len(tester) - state["matched"]
         extra = len(state["unused"])
         return {
@@ -533,6 +539,17 @@ class _ComparisonMixin:
         state["assignment"] = _ComparisonMixin._assign_real_trades(
             tester, real, request, points, state["forced"],
         )
+        # Segunda pasada: lo que el Excel ya había atribuido sólo se puede
+        # emparejar sabiendo qué quedó suelto, y eso no se sabe hasta repartir.
+        state["attributed"] = attributed_assignment(
+            tester, real, request.get("_real_attribution_by_ticket") or {},
+            state["assignment"],
+        )
+        if state["attributed"]:
+            state["assignment"] = _ComparisonMixin._assign_real_trades(
+                tester, real, request, points,
+                {**state["forced"], **state["attributed"]},
+            )
         state["unassigned"] = set(range(len(real))) - set(state["assignment"].values())
         for tester_index, expected in enumerate(tester, 1):
             _ComparisonMixin._compare_one_operation(

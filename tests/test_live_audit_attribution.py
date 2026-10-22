@@ -328,5 +328,94 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(detail["real_attribution"]["unresolved"], 1)
 
 
+def unpaired_payload() -> dict[str, object]:
+    """Una fila del tester sin pareja y una real libre atribuida a su estrategia.
+
+    Es el `#T6` de `Christmas_Axi` reducido: el tester cierra el 24 y la real
+    abrió el 23, un día fuera de la tolerancia de 120 s, así que el reparto no
+    las junta. El Excel ya dijo que esa real es de esa estrategia.
+    """
+    base = audit_payload()
+    missed = datetime(2026, 9, 24, 9, 0, tzinfo=timezone.utc)
+    base["tester_trades"] = [
+        {**row, "strategy": STRATEGY} for row in base["tester_trades"]
+    ] + [{**trade(missed, 0.02, 7.0, 2), "strategy": STRATEGY}]
+    base["period_end"] = "2026-09-24T23:59:59+00:00"
+    base["request"]["period_end_date"] = "2026-09-24"
+    base["strategies"] = {STRATEGY: 2}
+    return base
+
+
+ATTRIBUTED_ORPHAN = [
+    ("XAUUSD · 0,02 lotes; sell; Sin estrategia del tester; magic 111; ticket 111", SET_STEM),
+]
+
+
+class AttributedPairTests(unittest.TestCase):
+    """Lo que el Excel atribuyó a una estrategia que además tiene filas sin pareja.
+
+    Atribuir una real es nombrar a su dueño. Si ese dueño tiene encima una
+    operación del tester «SIN REAL», volver a pedir la correspondencia en el
+    selector es pedir dos veces el mismo trabajo, y la portada entretanto
+    cuenta la fila como trabajo pendiente.
+    """
+
+    def analysed(self, **changes: object) -> dict:
+        attribution = imported(ATTRIBUTED_ORPHAN)
+        return analyze(
+            unpaired_payload(), profile(real_attribution=attribution, **changes),
+        )
+
+    def test_the_attributed_real_becomes_the_pair_of_the_row_without_one(self) -> None:
+        detail = self.analysed()["comparison_detail"]
+        row = detail["operation_comparisons"][1]
+        self.assertEqual(str(row["real"]["position_id"]), "111")
+        self.assertTrue(row["attributed_pair"])
+        # No es una pareja «a mano»: nadie la eligió en la pantalla.
+        self.assertNotIn("manual_pair", row)
+        self.assertEqual(detail["unmatched_real_operations"], [])
+
+    def test_it_does_not_loosen_any_tolerance(self) -> None:
+        # La real abrió un día antes y perdió 11,00 contra los 7,00 del tester:
+        # la fila sale con esas desviaciones, no en verde.
+        result = self.analysed()
+        row = result["comparison_detail"]["operation_comparisons"][1]
+        self.assertEqual(row["status"], "deviation")
+        self.assertIn("open_time", row["reasons"])
+        self.assertEqual(result["missing_real_trades"], 0)
+        self.assertEqual(result["extra_real_trades"], 0)
+
+    def test_the_methodology_separates_the_two_sources_of_a_forced_pair(self) -> None:
+        detail = self.analysed()["comparison_detail"]
+        self.assertEqual(detail["attributed_pairs"], 1)
+        self.assertEqual(detail["manual_pairs"], 0)
+        self.assertIn("salen del Excel de atribución", detail["methodology"]["alignment"])
+        self.assertNotIn("a mano", detail["methodology"]["alignment"])
+
+    def test_a_real_declared_foreign_is_never_paired(self) -> None:
+        # «No contabiliza en este portafolio» la deja excluida: emparejarla
+        # metería en la curva justo lo que el usuario sacó de ella.
+        foreign = imported([(ATTRIBUTED_ORPHAN[0][0], "no contabiliza en este portafolio")])
+        detail = analyze(
+            unpaired_payload(), profile(real_attribution=foreign),
+        )["comparison_detail"]
+        self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
+        self.assertEqual(detail["attributed_pairs"], 0)
+
+    def test_an_attribution_to_another_strategy_is_not_offered_either(self) -> None:
+        other = imported([(ATTRIBUTED_ORPHAN[0][0], "otro_set_que_no_es_del_portafolio")])
+        detail = analyze(
+            unpaired_payload(), profile(real_attribution=other),
+        )["comparison_detail"]
+        self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
+        self.assertEqual(detail["attributed_pairs"], 0)
+
+    def test_without_the_excel_the_row_keeps_having_no_real(self) -> None:
+        detail = analyze(unpaired_payload(), profile())["comparison_detail"]
+        self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
+        self.assertEqual(detail["attributed_pairs"], 0)
+        self.assertEqual(len(detail["unmatched_real_operations"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

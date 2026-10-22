@@ -143,6 +143,48 @@ validada en Análisis y ese veredicto sigue vigente. Si el veredicto empeora, la
 validación deja de valer y tanto la estrategia como su operación vuelven a
 avisar.
 
+## Atribuir una real ya es emparejarla (2026-10-22)
+
+El importador anterior sólo convertía en pareja el ticket escrito **dentro de
+la fila `SIN REAL`**. Pero la forma normal de usar el Excel es la contraria:
+se atribuye la real en su propia fila, la de `REAL SIN TESTER`. Eso nombra al
+dueño y ahí se quedaba.
+
+El usuario llegó con `Christmas_Axi` (AXI, `audit-109-mvaqt8xd-1`): la fila
+`#T6`, `manual:10` / `ubs-tsla.nas-h1-tsv01.set`, `Tesla+` sell del 15/10
+17:15, salía «SIN REAL» con el desplegable en «— sin pareja —», y la tarjeta de
+la portada la contaba como no asociada. En el perfil, `manual_pairs` estaba
+vacío mientras la atribución de `auditor_22.10.2026_xmas.xlsx` ya daba **dos**
+reales libres a esa misma estrategia, `46873552` y `46877533`. Pedir otra vez
+en el selector una correspondencia ya escrita es el mismo defecto que arregló
+el filtro del selector, un paso más abajo.
+
+`attributed_assignment` forma ahora esas parejas sola. Se empareja por cercanía
+de apertura, de la mejor pareja a la peor y consumiendo cada real una sola vez,
+igual que el reparto del auditor; la ambigüedad de dos candidatas la resuelve
+la distancia, no el orden del Excel. Medido sobre la materia prima de
+`audit-109`: `#T6` → `46877533` (86.399 s) y `#T17` → `46877535`; las seis
+filas `WTI.fs` restantes siguen sin pareja porque su estrategia no tiene
+ninguna real atribuida. Las ocho filas `SIN REAL` pasan a seis.
+
+- **Hace falta repartir antes para saber qué quedó suelto**, así que es una
+  segunda pasada: se reparte, se derivan las parejas y se vuelve a repartir con
+  ellas forzadas. No es un bucle; con una vuelta basta porque lo derivado sólo
+  consume reales que la primera dejó libres.
+- **No afloja ninguna tolerancia.** `#T6` sale con desviación de apertura, no
+  en verde, igual que una pareja elegida a mano.
+- Una real **excluida** («no contabiliza en este portafolio») o atribuida a
+  **otra** estrategia no se empareja nunca: sería meter en la curva justo lo que
+  el usuario sacó de ella.
+- La procedencia se guarda aparte: `manual_pairs` cuenta las que eligió el
+  usuario y `attributed_pairs` las que salen del Excel, y la metodología dice
+  las dos. En la fila, `attributed_pair` en vez de `manual_pair`, y sin botón
+  de «Deshacer»: deshacerla es retirar lo que el Excel dijo, en Análisis.
+- **No rescata del filtro de lote.** El emparejamiento manual sí lo hace
+  (`rescued_position_ids`), porque el usuario señaló esa real una por una.
+  Atribuir es más barato y rescatar por atribución cambiaría el pool entero de
+  la comparación; si alguna vez hace falta, ése es el sitio.
+
 ## Lo que esto no arregla
 
 La fila `AMZN` del principio sigue «SIN REAL» dentro del detalle, y debe seguir:
