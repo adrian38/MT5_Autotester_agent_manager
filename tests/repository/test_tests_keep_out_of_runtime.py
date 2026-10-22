@@ -16,9 +16,9 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-TESTS = Path(__file__).resolve().parent
+TESTS = Path(__file__).resolve().parents[1]
 
 REDIRECT = "live_audit_settings_file"
 """La clave que saca del `runtime/` del repositorio lo que el manager escribe:

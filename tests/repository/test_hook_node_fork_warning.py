@@ -12,7 +12,7 @@ import sys
 import unittest
 from pathlib import Path
 
-REPO = Path(__file__).parents[1]
+REPO = Path(__file__).parents[2]
 sys.path.insert(0, str(REPO))
 
 from tools.hook_node_fork_warning import AGENT_RULES, MANAGER_RULES  # noqa: E402

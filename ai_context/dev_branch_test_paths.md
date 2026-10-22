@@ -104,7 +104,7 @@ sola lista para los tres.
 `assert_writable` resuelve solo las raíces permitidas, jamás la ruta de destino.
 Resolver `Y:\...` o `\\192.168.1.152\...` cuando no responden bloquea segundos
 por llamada, y el candado corre en cada escritura: la primera versión hizo que
-`tests/test_dev_branch.py` pasara de 0,05 s a 27,7 s. Las raíces permitidas sí
+`tests/repository/test_dev_branch.py` pasara de 0,05 s a 27,7 s. Las raíces permitidas sí
 existen, así que resolverlas es inmediato y cubre que lleguen por enlace o por
 letra mapeada. El destino se compara en forma absoluta: una ruta permitida
 expresada de forma exótica se rechazaría, lo que falla del lado seguro.
@@ -133,7 +133,7 @@ rama y no redirige: allí las rutas ya las decide `.env` mediante los binds
 
 ## Verificación
 
-`tests/test_dev_branch.py` cubre detección de rama (normal, worktree, `HEAD`
+`tests/repository/test_dev_branch.py` cubre detección de rama (normal, worktree, `HEAD`
 desprendido, sin repositorio), la corrección en `dev` comprobando que AXI y
 RoboForex siguen en la lista con sus rutas originales, la identidad del objeto en
 `main`, los dos escapes por entorno y el caso de `dev` sin nodo ICTrading (deja

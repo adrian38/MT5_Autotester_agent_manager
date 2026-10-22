@@ -26,7 +26,7 @@ recuento de casos; no se mezcla con cambios funcionales.
 ## Escalera de verificación
 
 1. Caso o clase afectados, por ejemplo
-   `python -m unittest tests.test_dev_branch.DevBranchTests`.
+   `python -m unittest tests.repository.test_dev_branch.DevBranchTests`.
 2. Módulos del comportamiento tocado, sin `-v` salvo que haya que diagnosticar.
 3. Guardas y contratos con `python -m tools.verify_project` si el alcance lo
    justifica; este comando no ejecuta el suite completo.

@@ -213,7 +213,7 @@ class DevBranchTests(unittest.TestCase):
         os.environ[dev_branch.OVERRIDE_ENV] = "1"
         agent_roots = [
             root for root in dev_branch.writable_roots()
-            if root not in (Path(__file__).resolve().parents[1] / "runtime",
+            if root not in (Path(__file__).resolve().parents[2] / "runtime",
                             Path(tempfile.gettempdir()).absolute())
         ]
         self.assertEqual(agent_roots, [Path(dev_branch.DEV_PROJECT_DIR).absolute()])
@@ -292,7 +292,7 @@ class DevBranchTests(unittest.TestCase):
 
     def test_manager_own_state_and_temporary_files_stay_writable(self) -> None:
         os.environ[dev_branch.OVERRIDE_ENV] = "1"
-        runtime = Path(__file__).resolve().parents[1] / "runtime"
+        runtime = Path(__file__).resolve().parents[2] / "runtime"
 
         dev_branch.assert_writable(runtime / "portfolio_settings.json")
         dev_branch.assert_writable(runtime / "grid_portfolios" / "nodo.sqlite")

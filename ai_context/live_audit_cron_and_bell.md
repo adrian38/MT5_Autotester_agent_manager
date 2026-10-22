@@ -269,7 +269,7 @@ salir en el siguiente reinicio. Es exactamente la «notificación aleatoria» qu
 vio el usuario, y no se nota antes porque el manager sólo lee esos ficheros al
 arrancar: mientras corre, su copia en memoria los tapa.
 
-- Lo vigila `tests/test_tests_keep_out_of_runtime.py`, por AST. Exige la clave
+- Lo vigila `tests/repository/test_tests_keep_out_of_runtime.py`, por AST. Exige la clave
   escrita: un `**algo` no cuenta —el `**switch` de
   `test_only_an_explicit_switch_arms_the_launches` dejaba pasar justo la
   llamada que faltaba—.
