@@ -217,6 +217,26 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(row["reasons"], ["no_real_same_symbol_and_side"])
         self.assertEqual(detail["attributed_pairs"], 0)
 
+    def test_it_never_pairs_a_real_of_another_instrument(self) -> None:
+        # Un comentario compartido por varias estrategias —`p_xmas` nombra 47
+        # reales de cinco símbolos en `Christmas_Axi`— emparejaba una fila
+        # XAUUSD con una real GOOGL y salía DESVIACIÓN, sin que ningún motivo
+        # dijera que son instrumentos distintos. Para cuando esto corre, los
+        # alias ya están aplicados, así que exigir el símbolo no cierra nada.
+        other = {**MEMBER, "candidate_id": "otro", "symbol": "GOOGL",
+                 "set_name": "otro.set", "set_id": "/runs/otro.set"}
+        base = commented_payload()
+        base["selected_members"] = [MEMBER, other]
+        base["volume_rules"]["googl"] = {"volume_min": 0.01, "volume_step": 0.01}
+        base["real_trades"] = [
+            {**row, **({"symbol": "GOOGL"} if row["position_id"] == 111 else {})}
+            for row in base["real_trades"]
+        ]
+        links = imported([(f"{SET_STEM}.set", COMMENT)])
+        detail = analyze(base, profile(comment_links=links))["comparison_detail"]
+        self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
+        self.assertEqual(detail["attributed_pairs"], 0)
+
     def test_a_comment_that_no_rule_names_leaves_the_real_as_it_was(self) -> None:
         links = imported([(f"{SET_STEM}.set", "TESLA_M15_999")])
         detail = analyze(

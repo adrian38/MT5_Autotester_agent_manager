@@ -139,6 +139,20 @@ def note_manual_pairs(
         )
 
 
+def _same_market(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
+    """Mismo instrumento y mismo lado, la condición que exige `_pair_cost`.
+
+    Se escribe aparte y con el mismo nombre que allí para que se vea que es la
+    misma regla: una pareja automática que no la cumpliera sería una que el
+    auditor nunca habría formado, y la fila la mediría igual sin decirlo.
+    """
+    return (
+        str(actual.get("symbol") or "").casefold()
+        == str(expected.get("symbol") or "").casefold()
+        and actual.get("side") == expected.get("side")
+    )
+
+
 def attributed_assignment(
     tester: list[dict[str, Any]],
     real: list[dict[str, Any]],
@@ -163,11 +177,19 @@ def attributed_assignment(
     si fuera la misma operación medida con holgura, metiendo en la curva Real
     de la estrategia el resultado de una operación contraria.
 
-    **El símbolo no filtra, sólo ordena**, al revés que el lado: las cuentas
-    real y tester del mismo broker pueden nombrarlo distinto
-    (`live_audit_cross_account_symbol_aliases.md`), y descartar por símbolo
-    cerraría casos que esto existe para resolver. Un `buy` es un `buy` en
-    cualquier broker; `Tesla+` y `TSLA.nas` son el mismo instrumento.
+    **El símbolo filtra también.** Aquí sí, al revés que en el selector: para
+    cuando esto corre, `_apply_symbol_aliases` ya ha canonizado el símbolo de
+    cada real al nombre que usa el tester —por eso `_pair_cost` los compara
+    literalmente—, así que exigirlo no cierra el caso de los alias
+    (`live_audit_cross_account_symbol_aliases.md`). Sin exigirlo, un
+    comentario compartido por varias estrategias —`p_xmas` nombra 47 reales de
+    cinco símbolos en `Christmas_Axi`— emparejaba una fila `XAUUSD` con una
+    real `GOOGL`, y salía `DESVIACIÓN` sin que ningún motivo dijera que son
+    instrumentos distintos.
+
+    El selector sigue ofreciendo otros símbolos a propósito: ahí decide una
+    persona que está mirando la fila, y puede rescatar un alias que el mapa no
+    cubrió. Una regla automática no puede juzgar eso.
     """
     if not resolved:
         return {}
@@ -178,20 +200,15 @@ def attributed_assignment(
         if index not in taken and rule.get("strategy") and not rule.get("excluded"):
             owners[index] = str(rule["strategy"])
     candidates = sorted(
-        (
-            str(real[index].get("symbol") or "").casefold()
-            != str(tester[row].get("symbol") or "").casefold(),
-            abs((real[index]["open_time"] - tester[row]["open_time"]).total_seconds()),
-            row, index,
-        )
+        (abs((real[index]["open_time"] - tester[row]["open_time"]).total_seconds()), row, index)
         for row in range(len(tester)) if row not in assignment
         for index, strategy in owners.items()
         if strategy == str(tester[row].get("strategy") or "")
-        and real[index].get("side") == tester[row].get("side")
+        and _same_market(real[index], tester[row])
     )
     derived: dict[int, int] = {}
     used: set[int] = set()
-    for _other_symbol, _distance, row, index in candidates:
+    for _distance, row, index in candidates:
         if row not in derived and index not in used:
             derived[row] = index
             used.add(index)
