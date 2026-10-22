@@ -60,7 +60,15 @@ persistido es lo que el usuario sube o elige.
 
 ## Sólo AXI, y se comprueba en la puerta
 
-`comment_links_supported` mira el broker del nodo. En los demás el comentario
+`comment_links_supported` mira el broker del nodo, y **el campo es
+`portfolio_broker`**: es el que lleva el registro de `manager.json`. El
+`broker` a secas sólo aparece en lo que el agente dice de sí mismo —con él
+compone `/api/nodes` su respuesta— y no llega hasta aquí. Mirar sólo a `broker`
+dejó el botón oculto también en AXI y **en silencio**: una capacidad que no se
+anuncia no se echa de menos, y sólo se vio porque el usuario preguntó dónde
+estaba el botón. Se aceptan los dos campos porque las dos formas circulan.
+
+En los demás brokers el comentario
 trae lo que ponga el terminal —`[sl 359.87]`, el nombre de la plataforma— y
 leerlo como si nombrara una estrategia enlazaría reales ajenas sin que nada lo
 dijera. Se comprueba en la ruta, no en el análisis: así ningún otro uso llega

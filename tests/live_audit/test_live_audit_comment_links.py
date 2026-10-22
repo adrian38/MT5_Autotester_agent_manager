@@ -132,10 +132,23 @@ class NormalizationTests(unittest.TestCase):
 
 
 class BrokerTests(unittest.TestCase):
+    def test_the_field_is_the_one_the_node_record_carries(self) -> None:
+        # `manager.json` guarda `portfolio_broker`; el `broker` a secas sólo
+        # aparece en lo que el agente dice de sí mismo y no llega hasta aquí.
+        # Mirar sólo a `broker` dejaba el botón oculto también en AXI, y en
+        # silencio: una capacidad que no se anuncia no se echa de menos.
+        self.assertTrue(comment_links_supported({
+            "id": "axi-standard-192-168-1-152", "name": "AXI Standard",
+            "portfolio_broker": "AXI", "portfolio_account_type": "STANDARD",
+        }))
+
     def test_only_axi_writes_the_setfile_in_the_comment(self) -> None:
         self.assertTrue(comment_links_supported({"broker": "AXI"}))
-        self.assertTrue(comment_links_supported({"broker": " axi "}))
-        for other in ({"broker": "ICTRADING"}, {"broker": "ROBOFOREX"}, {}, None):
+        self.assertTrue(comment_links_supported({"portfolio_broker": " axi "}))
+        for other in (
+            {"portfolio_broker": "ICTRADING"}, {"portfolio_broker": "ROBOFOREX"},
+            {"broker": "ROBOFOREX"}, {"id": "axi-standard-192-168-1-152"}, {}, None,
+        ):
             self.assertFalse(comment_links_supported(other))
 
 
