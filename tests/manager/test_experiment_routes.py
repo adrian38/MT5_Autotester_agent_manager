@@ -22,7 +22,7 @@ from unittest import mock
 from mt5_manager.manager import ManagerServer
 
 
-STATIC_DIR = Path(__file__).parents[1] / "mt5_manager" / "static"
+STATIC_DIR = Path(__file__).parents[2] / "mt5_manager" / "static"
 
 
 class ExperimentRouteTests(unittest.TestCase):

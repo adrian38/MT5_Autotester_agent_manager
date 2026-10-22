@@ -1,4 +1,4 @@
-"""Pruebas del laboratorio «Experimenta».
+"""Pruebas unitarias del laboratorio «Experimenta».
 
 Lo que se protege aquí es lo que la pantalla promete y no existía en UBS: la
 ventana se toma de la historia real y no del calendario de hoy, el drawdown se

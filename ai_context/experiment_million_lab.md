@@ -19,8 +19,8 @@ más abajo) y porque un experimento no puede poder romper una generación.
 | `mt5_manager/experiment_service.py` | `ExperimentCoordinator`: lee memorias, margen del destino, hilo, log, último resultado. |
 | `mt5_manager/experiment_routes.py` | `handle_get`/`handle_post`. Devuelven `True` si ya contestaron. |
 | `mt5_manager/static/experiment.{html,css,js}` | La pantalla. |
-| `tests/test_experiment_lab.py` | Reglas del motor. |
-| `tests/test_experiment_routes.py` | Enchufe al manager, en las dos direcciones. |
+| `tests/manager/test_experiment_lab.py` | Reglas del motor. |
+| `tests/manager/test_experiment_routes.py` | Enchufe al manager, en las dos direcciones. |
 
 Tocado de lo que ya existía, y nada más: un `<a>` en la cabecera de
 `index.html`, dos reglas en `styles.css`, el import y el coordinador en
@@ -145,7 +145,7 @@ la causa era el recorte y no AXI.
 Ahora se reparte en ronda entre símbolos y, dentro de cada símbolo, gana el
 `candidate_id` más alto —el mismo criterio con el que
 `load_robust_sets_from_rows` desempata dos versiones del mismo set—. Hay
-pruebas de las dos cosas en `tests/test_experiment_lab.py::CandidateTrimTests`.
+pruebas de las dos cosas en `tests/manager/test_experiment_lab.py::CandidateTrimTests`.
 
 ## Primera medición end-to-end (2026-09-10)
 
