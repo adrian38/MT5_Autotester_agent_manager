@@ -410,6 +410,19 @@ class AttributedPairTests(unittest.TestCase):
         self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
         self.assertEqual(detail["attributed_pairs"], 0)
 
+    def test_it_never_pairs_a_real_of_the_opposite_side(self) -> None:
+        # El símbolo no filtra —las cuentas pueden nombrarlo distinto— pero el
+        # lado sí: `_pair_cost` lo exige, así que la fila emparejada no vuelve
+        # a compararlo y un `buy` contra un `sell` habría salido DESVIACIÓN sin
+        # que ningún motivo dijera que son operaciones contrarias.
+        base = unpaired_payload()
+        base["tester_trades"][1] = {**base["tester_trades"][1], "side": "buy"}
+        detail = analyze(
+            base, profile(real_attribution=imported(ATTRIBUTED_ORPHAN)),
+        )["comparison_detail"]
+        self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
+        self.assertEqual(detail["attributed_pairs"], 0)
+
     def test_without_the_excel_the_row_keeps_having_no_real(self) -> None:
         detail = analyze(unpaired_payload(), profile())["comparison_detail"]
         self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")

@@ -154,6 +154,20 @@ def attributed_assignment(
     a la peor y consumiendo cada real una sola vez, igual que el reparto del
     auditor. **No afloja ninguna tolerancia**: la fila se mide igual y puede
     salir con desviación.
+
+    **El lado sí filtra.** `_pair_cost` exige mismo símbolo y mismo lado, así
+    que nada de lo que empareja el auditor puede cruzarlos, y por eso la fila
+    emparejada no los vuelve a comparar: no hay ningún motivo que diga «lados
+    opuestos». Sin esta condición, un `buy` del tester se emparejaba con un
+    `sell` real y salía `DESVIACIÓN` con desviación de tiempo y de PnL, como
+    si fuera la misma operación medida con holgura, metiendo en la curva Real
+    de la estrategia el resultado de una operación contraria.
+
+    **El símbolo no filtra, sólo ordena**, al revés que el lado: las cuentas
+    real y tester del mismo broker pueden nombrarlo distinto
+    (`live_audit_cross_account_symbol_aliases.md`), y descartar por símbolo
+    cerraría casos que esto existe para resolver. Un `buy` es un `buy` en
+    cualquier broker; `Tesla+` y `TSLA.nas` son el mismo instrumento.
     """
     if not resolved:
         return {}
@@ -165,16 +179,19 @@ def attributed_assignment(
             owners[index] = str(rule["strategy"])
     candidates = sorted(
         (
+            str(real[index].get("symbol") or "").casefold()
+            != str(tester[row].get("symbol") or "").casefold(),
             abs((real[index]["open_time"] - tester[row]["open_time"]).total_seconds()),
             row, index,
         )
         for row in range(len(tester)) if row not in assignment
         for index, strategy in owners.items()
         if strategy == str(tester[row].get("strategy") or "")
+        and real[index].get("side") == tester[row].get("side")
     )
     derived: dict[int, int] = {}
     used: set[int] = set()
-    for _distance, row, index in candidates:
+    for _other_symbol, _distance, row, index in candidates:
         if row not in derived and index not in used:
             derived[row] = index
             used.add(index)

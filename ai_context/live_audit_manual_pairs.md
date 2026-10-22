@@ -180,6 +180,15 @@ ninguna real atribuida. Las ocho filas `SIN REAL` pasan a seis.
   usuario y `attributed_pairs` las que salen del Excel, y la metodología dice
   las dos. En la fila, `attributed_pair` en vez de `manual_pair`, y sin botón
   de «Deshacer»: deshacerla es retirar lo que el Excel dijo, en Análisis.
+- **El lado filtra; el símbolo sólo ordena.** `_pair_cost` exige mismo símbolo
+  y mismo lado, así que la fila emparejada no los vuelve a comparar: no existe
+  ningún motivo que diga «lados opuestos». Sin esa condición, un `buy` del
+  tester se emparejaba con un `sell` real y salía `DESVIACIÓN` con desviación
+  de tiempo y de PnL —como si fuera la misma operación medida con holgura—,
+  metiendo en la curva Real el resultado de la operación contraria. El símbolo
+  no se puede exigir, porque las cuentas real y tester del mismo broker lo
+  nombran distinto, pero el lado sí: un `buy` es un `buy` en cualquier broker.
+  Encontrado revisando, no por una prueba; valía igual para el camino del Excel.
 - **No rescata del filtro de lote.** El emparejamiento manual sí lo hace
   (`rescued_position_ids`), porque el usuario señaló esa real una por una.
   Atribuir es más barato y rescatar por atribución cambiaría el pool entero de

@@ -102,6 +102,24 @@ en `live_audit_extraction.py`, y FUTURE omitido por congelación.
 sin comentarios que casen es indistinguible de un uso que no es de AXI. Para
 aprovecharla hay que reiniciar el agente y volver a ejecutar el uso.
 
+### Y `_trade_view` es la lista blanca que lo tira
+
+Anadirlo al extractor no bastaba. `_trade_view` del agente —`live_audit_helpers.py`—
+filtra por una lista de campos y es **lo ultimo que toca la operacion** antes de
+publicarse en `last_payload`. Con el extractor ya arreglado, el agente reiniciado y la
+auditoria repetida, las 127 operaciones llegaron sin `comment`.
+
+No lo delato ninguna prueba: el extractor era correcto, el manager sabia leer el campo,
+y el unico sitio donde se perdia no lo miraba nadie. Lo caza ahora
+`tests/node/test_node_trade_view_parity.py`, que compara **el conjunto de campos** del
+`_trade_view` del manager con el de cada copia montada: anadir uno en un solo lado
+rompe. Comprobado quitando `comment` de la copia de AXI.
+
+Lo aviso el usuario dos veces —«si no agregas la columna de comentario no creo que se
+guarde»— antes de que yo lo comprobara. La leccion util: cuando un campo nuevo tiene que
+cruzar el limite nodo→manager, el camino son **tres** sitios (extractor, serializador y
+lector), no dos.
+
 El manager no puede sacarlo de otro sitio: el HTML nativo sí trae la columna
 —en UTF-16, en un `td class="hidden"`— pero se queda en el disco del agente y
 nunca sube al manager.

@@ -203,6 +203,20 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("open_time", row["reasons"])
         self.assertEqual(result["missing_real_trades"], 0)
 
+    def test_it_never_pairs_a_real_of_the_opposite_side(self) -> None:
+        # `_pair_cost` exige mismo lado, así que la fila emparejada no vuelve a
+        # compararlo: un `buy` contra un `sell` salía DESVIACIÓN con desviación
+        # de tiempo y PnL, como si fuera la misma operación medida con holgura,
+        # y metía en la curva Real el resultado de la operación contraria.
+        base = commented_payload()
+        base["tester_trades"][1] = {**base["tester_trades"][1], "side": "buy"}
+        links = imported([(f"{SET_STEM}.set", COMMENT)])
+        detail = analyze(base, profile(comment_links=links))["comparison_detail"]
+        row = detail["operation_comparisons"][1]
+        self.assertEqual(row["status"], "missing")
+        self.assertEqual(row["reasons"], ["no_real_same_symbol_and_side"])
+        self.assertEqual(detail["attributed_pairs"], 0)
+
     def test_a_comment_that_no_rule_names_leaves_the_real_as_it_was(self) -> None:
         links = imported([(f"{SET_STEM}.set", "TESLA_M15_999")])
         detail = analyze(
