@@ -5,7 +5,7 @@ las 23:00» sea la hora española y no la del contenedor, que un fallo consuma
 reintentos en vez de relanzar sin parar, y que vigilar no lance nada.
 
 Lo que hace el vigilante en cada vuelta vive en `test_live_audit_cron_watch.py`;
-los dobles que comparten los dos, en `live_audit_cron_base.py`.
+los dobles que comparten los dos, en `tests/live_audit/live_audit_cron_base.py`.
 """
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import live_audit_schedule
 from mt5_manager.live_audit_notifications import MAXIMUM_EVENTS, LiveAuditNotificationStore
 from mt5_manager.live_audit_schedule import DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS
 from mt5_manager.manager_server import _scheduler_defaults, _scheduler_settings
-from tests.live_audit_cron_base import published_audit, settings
+from tests.live_audit.live_audit_cron_base import published_audit, settings
 
 
 class WeeklyCadenceTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 """Los dobles que comparten las pruebas del cron de auditoria.
 
-Salieron de `test_live_audit_cron.py` al pasar ese fichero de 600 lineas por
+Salieron de `tests/live_audit/test_live_audit_cron.py` al pasar ese fichero de 600 lineas por
 segunda vez. Aqui no se comprueba nada: solo esta el servidor falso, su
 almacen de configuracion y las dos formas de estado -el uso configurado y el
 uso ya terminado- que montan tanto la aritmetica de citas como el vigilante.

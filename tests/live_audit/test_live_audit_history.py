@@ -14,13 +14,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import live_audit_executions, live_audit_history, live_audit_watch
 from mt5_manager.common import save_json
 from mt5_manager.live_audit_archive import LiveAuditArchive, strategies_of, trimmed_detail
 from tests.test_live_audit_autolot import SET_STEM, STRATEGY, audit_payload, audit_profile
-from tests.live_audit_cron_base import FakeServer as CronServer, audit_state
+from tests.live_audit.live_audit_cron_base import FakeServer as CronServer, audit_state
 
 
 def trade(symbol: str, close: str, profit: float, volume: float = 0.01) -> dict[str, object]:
@@ -529,7 +529,7 @@ class HistoryScreenTests(unittest.TestCase):
         from mt5_manager.manager_handler import STATIC_FILES
 
         cls.static_files = STATIC_FILES
-        static = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+        static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
         cls.page = (static / "live_audit_analysis.html").read_text(encoding="utf-8")
         cls.script = (static / "live_audit_history.js").read_text(encoding="utf-8")
         cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
