@@ -63,6 +63,9 @@ STATIC_FILES = {
     # Y el del sondeo diario de cuentas, que se monta en las mismas
     # cabeceras: lanzarlo no puede exigir pasar antes por la portada.
     "live_account_schedule.js",
+    # El grafico mes a mes de una cuenta: beneficio contra drawdown desde su
+    # primer cierre. Solo lo carga la portada, que es donde esta el boton.
+    "live_account_monthly.js",
     # Los avisos del dispositivo. `sw.js` se sirve desde la raiz a proposito:
     # un service worker solo manda en su carpeta y en las de debajo, asi que
     # colgado de cualquier subruta no veria el resto del manager. El manifiesto

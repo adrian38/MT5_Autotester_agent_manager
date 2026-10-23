@@ -23,6 +23,7 @@ STATIC = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
 PAGE = STATIC / "accounts.html"
 SCRIPT = (STATIC / "accounts.js").read_text(encoding="utf-8")
 MOUNTED = (STATIC / "live_account_schedule.js").read_text(encoding="utf-8")
+MONTHLY = (STATIC / "live_account_monthly.js").read_text(encoding="utf-8")
 TREE = html.fromstring(PAGE.read_text(encoding="utf-8"))
 
 
@@ -52,7 +53,8 @@ class RoutingTests(unittest.TestCase):
 
     def test_both_assets_are_servable(self) -> None:
         self.assertLessEqual(
-            {"accounts.js", "accounts.css"}, manager_handler.STATIC_FILES,
+            {"accounts.js", "accounts.css", "live_account_monthly.js"},
+            manager_handler.STATIC_FILES,
         )
 
     def test_the_two_front_pages_link_to_each_other(self) -> None:
@@ -195,6 +197,31 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("|| row.name || `Portafolio #${row.portfolio_id}`", SCRIPT)
         self.assertIn("if (await loadAliases(data.accounts || [])) render(data)", SCRIPT)
         self.assertIn("const missing = [...ids].filter", SCRIPT)
+
+    def test_each_card_opens_its_own_month_by_month_chart(self) -> None:
+        self.assertIn('class="month-chart-open"', SCRIPT)
+        self.assertIn("cardsEl.addEventListener('click'", SCRIPT)
+        self.assertIn("window.LiveAccountMonthly.open(", SCRIPT)
+        self.assertIn("/live_account_monthly.js", PAGE.read_text(encoding="utf-8"))
+        # Una cuenta sin credenciales o sin sondear no tiene ningun cierre
+        # guardado: el boton no sale en vez de abrir un grafico vacio.
+        self.assertIn("['blocked', 'never_read'].includes(card.state || '')", SCRIPT)
+
+    def test_the_chart_paints_the_numbers_the_manager_measured(self) -> None:
+        """La pantalla dibuja barras; los importes y la DD vienen medidos."""
+        self.assertIn("/monthly`", MONTHLY)
+        for name in ("totals.drawdown", "totals.worst_month_drawdown", "month.drawdown"):
+            self.assertIn(name, MONTHLY)
+        # Si el grafico midiera por su cuenta, aqui habria una curva acumulada
+        # y un maximo de las filas mensuales. No los hay a proposito.
+        for forbidden in ("balance +=", "Math.max(...months.map(month => month.drawdown"):
+            self.assertNotIn(forbidden, MONTHLY)
+
+    def test_the_drawdown_is_drawn_downwards_and_says_why(self) -> None:
+        css = (STATIC / "accounts.css").read_text(encoding="utf-8")
+        self.assertIn(".monthly-bar.drawdown{fill:var(--warn)}", css)
+        self.assertIn(".monthly-bar.profit{fill:var(--accent)}", css)
+        self.assertIn("no es la suma ni el máximo de los\n      mensuales", MONTHLY)
 
     def test_the_totals_say_which_currencies_are_not_summed(self) -> None:
         self.assertIn("missing_rates", SCRIPT)

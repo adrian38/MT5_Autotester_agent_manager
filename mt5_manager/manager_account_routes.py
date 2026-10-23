@@ -12,10 +12,14 @@ abrir la memoria del agente en cada vuelta.
 from __future__ import annotations
 
 import json
+import urllib.parse
 from datetime import datetime, timezone
 from typing import Any
 
-from . import live_account_dashboard, live_account_inventory, live_account_watch
+from . import (
+    live_account_dashboard, live_account_inventory, live_account_monthly,
+    live_account_watch,
+)
 
 ACCOUNTS_PATH = "/api/live-accounts"
 SCHEDULER_PATH = "/api/live-account-scheduler-config"
@@ -62,6 +66,21 @@ def _snapshot_now(handler) -> dict[str, Any]:
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     if parsed.path == ACCOUNTS_PATH:
         handler._send_json(200, live_account_dashboard.snapshot(handler.server))
+        return True
+    # La serie mes a mes de **una** cuenta: la pide el botón de su tarjeta al
+    # abrirse, nunca el refresco de la portada. Son todos los movimientos de la
+    # vida de la cuenta, así que no puede viajar cada minuto con las demás.
+    if len(parts) == 5 and parts[:2] == ["api", "live-accounts"] and parts[4] == "monthly":
+        try:
+            node_id = urllib.parse.unquote(parts[2])
+            handler._node(node_id)
+            handler._send_json(200, live_account_monthly.monthly_history(
+                handler.server, node_id, urllib.parse.unquote(parts[3]),
+            ))
+        except KeyError as exc:
+            handler._send_json(404, {"error": str(exc)})
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            handler._send_json(400, {"error": str(exc)})
         return True
     if parsed.path == SCHEDULER_PATH:
         handler._send_json(200, handler.server.live_account_scheduler_state())

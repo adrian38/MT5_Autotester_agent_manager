@@ -1,0 +1,127 @@
+"""La serie mes a mes de una cuenta real: beneficio contra drawdown.
+
+Lo pide el botón «Mes a mes» de cada tarjeta de la portada, y no la portada
+entera: son los movimientos de toda la vida de la cuenta, que es justo lo que
+no puede entrar en un payload que se repinta cada minuto.
+
+La aritmética ya existe —`live_account_series.monthly_rows`— y aquí no se
+repite. Lo que añade este módulo son tres cosas:
+
+- **El tramo continuo.** Un mes sin cierres es un cero medido, no un hueco: si
+  faltara la etiqueta, la pantalla tendría que decidir otra vez si pinta un
+  vacío o un cero, y acabaría pintando los meses pegados como si fueran
+  seguidos. La cuenta 10010194 de AXI operó en noviembre de 2025 y no volvió
+  hasta agosto de 2026: son ocho barras a cero, no una barra al lado de otra.
+- **El drawdown del tramo entero**, que **no** es el máximo de los mensuales:
+  una caída puede atravesar el cambio de mes, así que se vuelve a medir sobre
+  los movimientos. Es la misma razón por la que el archivo guarda movimientos y
+  no filas (`live_account_archive`).
+- **Dónde empieza el tramo**: en el primer cierre de la cuenta, no en el
+  `created_at` del portafolio. Medido el 2026-10-23 contra los datos reales: la
+  cuenta 77028839 de RoboForex opera desde el 2025-11-04 y el portafolio que
+  sirve hoy —#183— se guardó el 2026-10-19, porque es la enésima mejora de su
+  cadena. Cortar por esa fecha dejaría un gráfico de una sola barra y escondería
+  once meses de operación real del mismo dinero. La tarjeta es de la **cuenta**
+  (`live_account_inventory`), y la vida de la cuenta es su serie.
+
+Todo se mide en la moneda de la cuenta, como las filas de la tarjeta: la
+conversión de los totales es de arriba y aquí no tiene nada que comparar.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Sequence
+
+from .live_account_archive import ordered_movements
+from .live_account_series import drawdown, month_key, monthly_rows, row
+
+MAXIMUM_MONTHS = 240
+"""Meses devueltos como mucho: veinte años.
+
+Es un tope de seguridad, no una política. El archivo ya limita los movimientos
+que conserva, así que con una serie sana nunca se alcanza; lo que evita es que
+un instante corrupto en el JSON convierta el bucle en un gráfico infinito.
+"""
+
+
+def next_month(label: str) -> str:
+    """El mes siguiente a `YYYY-MM`: el reflejo de `previous_month`."""
+    year, month = (int(part) for part in label.split("-", 1))
+    return f"{year + 1:04d}-01" if month == 12 else f"{year:04d}-{month + 1:02d}"
+
+
+def month_span(first: str, last: str) -> list[str]:
+    """Las etiquetas de `first` a `last`, los meses sin cierres incluidos."""
+    if not first:
+        return []
+    labels = [first]
+    while labels[-1] < last and len(labels) < MAXIMUM_MONTHS:
+        labels.append(next_month(labels[-1]))
+    return labels
+
+
+def _extreme(months: Sequence[dict[str, Any]], best: bool) -> str:
+    """La etiqueta del mejor o del peor mes, entre los que operaron.
+
+    Un mes sin cierres es un cero en el gráfico, pero no es «el peor mes»: con
+    los doce meses en la cuenta 10010194 de AXI —cuatro con operaciones y ocho
+    sin ninguna, medido el 2026-10-23— el mínimo caía en diciembre de 2025, que
+    no operó nunca. Un cero no compite con un resultado.
+    """
+    traded = [month for month in months if int(month["trades"]) > 0]
+    if not traded:
+        return ""
+    chosen = (max if best else min)(traded, key=lambda month: month["profit"])
+    return str(chosen["label"])
+
+
+def totals(
+    ordered: Sequence[tuple[datetime, float]], months: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    """El resumen del tramo. `drawdown` se mide sobre la curva, no sobre filas."""
+    profits = [float(month["profit"]) for month in months]
+    return {
+        "months": len(months),
+        "traded_months": len([month for month in months if int(month["trades"]) > 0]),
+        "trades": sum(int(month["trades"]) for month in months),
+        "profit": sum(profits),
+        "drawdown": drawdown([amount for _moment, amount in ordered]),
+        "worst_month_drawdown": max(
+            (float(month["drawdown"]) for month in months), default=0.0,
+        ),
+        "positive_months": len([value for value in profits if value > 0]),
+        "negative_months": len([value for value in profits if value < 0]),
+        "best_month": _extreme(months, True),
+        "worst_month": _extreme(months, False),
+    }
+
+
+def monthly_history(
+    server: Any, node_id: str, account_key: str, now: datetime | None = None,
+) -> dict[str, Any]:
+    """Beneficio y drawdown de cada mes de la cuenta, del primer cierre a hoy.
+
+    El tramo llega hasta el mes de hoy aunque la cuenta no haya cerrado nada:
+    un mes en blanco al final es un cero medido igual que los de en medio, y
+    recortarlo haría leer la última barra como si fuera la de este mes.
+    """
+    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    stored = server.live_accounts.read(node_id, account_key)
+    ordered = ordered_movements(stored)
+    rows = monthly_rows(ordered)
+    first = min(rows) if rows else ""
+    last = max([month_key(moment), *rows])
+    months = [{"label": label, **row(rows, label)} for label in month_span(first, last)]
+    return {
+        "node_id": node_id,
+        "account_key": account_key,
+        "login": str(stored.get("login") or ""),
+        "server": str(stored.get("server") or ""),
+        "currency": str(stored.get("currency") or ""),
+        "first_day": str(stored.get("first_day") or ""),
+        "last_day": str(stored.get("last_day") or ""),
+        "last_read": str(stored.get("updated_at") or ""),
+        "month": month_key(moment),
+        "months": months,
+        "totals": totals(ordered, months),
+    }

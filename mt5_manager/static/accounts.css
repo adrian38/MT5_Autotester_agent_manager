@@ -43,6 +43,8 @@ main{padding:26px max(24px,5vw) 64px}
 .metric small{color:var(--muted);font-size:11px;line-height:1.45}.metric small em{font-style:normal;font-weight:750}.metric small em.good{color:var(--accent2)}.metric small em.bad{color:var(--danger)}
 .card-note{padding:16px 20px;border-top:1px solid var(--line);color:var(--warn);font-size:12px;line-height:1.5}
 .account-card footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 20px;border-top:1px solid var(--line);background:#0a141dcc;color:var(--muted);font-size:11px}
+.card-footer-right{display:flex;align-items:center;gap:10px}
+.month-chart-open{padding:4px 9px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--blue);font-size:11px;font-weight:750}
 .account-card footer a{color:var(--blue);font-weight:700;text-decoration:none}.account-card footer a:hover{text-decoration:underline}
 .empty-state{grid-column:1/-1;padding:54px 24px;border:1px dashed var(--line);border-radius:16px;color:var(--muted);text-align:center}.empty-state strong{display:block;margin-bottom:7px;color:var(--text);font-size:18px}
 #toast{position:fixed;right:24px;bottom:24px;max-width:min(420px,calc(100vw - 48px));padding:13px 16px;border-radius:10px;background:#253849;box-shadow:0 10px 35px #0008;opacity:0;transform:translateY(15px);pointer-events:none;transition:.2s}#toast.show{opacity:1;transform:none}#toast.error{background:#612f35}
@@ -61,6 +63,22 @@ fieldset{margin:0;padding:14px;border:1px solid var(--line);border-radius:11px}l
 .schedule-targets li{padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:#0a141d;font-size:12px}
 .schedule-targets .blocked li{border-color:#6c5a2c;color:var(--warn)}
 dialog footer{display:flex;justify-content:flex-end;gap:10px}
+/* El gráfico mes a mes. El beneficio sube o baja del cero; el drawdown siempre
+   baja, porque es una caída y pintarlo hacia arriba lo haría leer como ganancia. */
+.monthly-dialog{width:min(1040px,calc(100vw - 32px))}
+.monthly-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.monthly-summary>div{display:grid;gap:4px;padding:13px 14px;border:1px solid var(--line);border-radius:11px;background:#0a141d}
+.monthly-summary span{color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+.monthly-summary strong{font-size:19px;font-variant-numeric:tabular-nums}
+.monthly-summary strong.good{color:var(--accent2)}.monthly-summary strong.bad{color:var(--danger)}
+.monthly-summary small{color:var(--muted);font-size:11px}
+.monthly-chart{padding:10px 4px 0;border:1px solid var(--line);border-radius:12px;background:#0a141d}
+.monthly-chart svg{display:block;width:100%;height:auto}
+.monthly-grid{stroke:#1e2d3c;stroke-width:1}.monthly-grid.zero{stroke:#44607a;stroke-width:1.5}
+.monthly-axis,.monthly-month,.monthly-legend{fill:var(--muted);font-size:11px}
+.monthly-bar.profit{fill:var(--accent)}.monthly-bar.loss{fill:var(--danger)}
+.monthly-bar.drawdown{fill:var(--warn)}
+.monthly-empty{padding:40px 18px;color:var(--muted);font-size:12px;text-align:center}
 @media(max-width:900px){header{align-items:start;flex-direction:column}.header-actions{justify-content:flex-start}.accounts{grid-template-columns:1fr}}
 @media(max-width:600px){header,main{padding-inline:18px}.header-actions{width:100%}.header-actions>*{flex:1 1 auto}}
 @media(max-width:480px){.month-comparison{grid-template-columns:1fr;row-gap:1px}.total-months{gap:12px}.total-months>div+div{padding-left:12px}}

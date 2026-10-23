@@ -253,6 +253,19 @@ function noteMarkup(card) {
   return text ? `<p class="card-note">${escapeHtml(text)}</p>` : '';
 }
 
+// El botón «Mes a mes» de la tarjeta: abre el gráfico de barras de
+// `live_account_monthly.js`. No sale cuando no hay serie que pintar —una cuenta
+// sin credenciales o sin sondear no tiene ningún cierre guardado— porque un
+// botón que sólo puede contestar «no hay nada» no es un botón.
+function monthChartButton(card) {
+  if (['blocked', 'never_read'].includes(card.state || '')) return '';
+  return '<button type="button" class="month-chart-open"'
+    + ` data-node-id="${escapeHtml(card.node_id)}"`
+    + ` data-account-key="${escapeHtml(card.account_key)}"`
+    + ' title="Beneficio contra drawdown, mes a mes, desde el primer cierre">'
+    + 'Mes a mes</button>';
+}
+
 function cardMarkup(card) {
   const currency = card.currency || '';
   const [tone, label] = badgeOf(card);
@@ -274,7 +287,9 @@ function cardMarkup(card) {
     + `<div class="metric-rows">${rows}</div>`
     + noteMarkup(card)
     + `<footer><span>Última lectura: ${escapeHtml(dateTime(card.last_read))}</span>`
-    + `<span>${card.first_day ? `serie desde ${escapeHtml(card.first_day)}` : ''}</span>`
+    + '<span class="card-footer-right">'
+    + `${card.first_day ? `serie desde ${escapeHtml(card.first_day)}` : ''}`
+    + `${monthChartButton(card)}</span>`
     + '</footer></article>';
 }
 
@@ -439,6 +454,20 @@ cardsEl.addEventListener('change', async event => {
     if (latestData) renderTotals(latestData);
     toast(error.message, true);
   }
+});
+// El gráfico se pide al abrirlo y con la tarjeta que ya está pintada: el
+// diálogo no vuelve a preguntar quién es la cuenta.
+cardsEl.addEventListener('click', event => {
+  const button = event.target.closest('.month-chart-open');
+  if (!button || !window.LiveAccountMonthly) return;
+  const key = `${button.dataset.nodeId}::${button.dataset.accountKey}`;
+  const cards = (latestData && latestData.accounts) || [];
+  const card = cards.find(row => accountSelectionKey(row) === key);
+  if (!card) return;
+  window.LiveAccountMonthly.open({
+    nodeId: card.node_id, accountKey: card.account_key, node: card.node_name,
+    title: card.login || 'Cuenta sin informar',
+  });
 });
 refreshButton.addEventListener('click', refresh);
 restartManagerButton.addEventListener('click', restartManager);

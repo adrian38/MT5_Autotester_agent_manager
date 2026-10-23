@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import re
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -85,6 +86,18 @@ def stored_movements(stored: dict[str, Any]) -> list[tuple[str, float]]:
             continue
     found.sort(key=lambda item: item[0])
     return found
+
+
+def ordered_movements(stored: dict[str, Any]) -> list[tuple[datetime, float]]:
+    """Lo mismo, con el instante ya convertido: lo que mide `live_account_series`.
+
+    Vive aquí y no en cada consumidor porque son dos —la portada y el gráfico
+    mes a mes— y los dos tienen que leer la misma serie de la misma forma.
+    """
+    return [
+        (datetime.fromisoformat(stamp), amount)
+        for stamp, amount in stored_movements(stored)
+    ]
 
 
 class LiveAccountArchive:

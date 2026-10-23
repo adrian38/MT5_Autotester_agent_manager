@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .common import safe_int
-from .live_account_archive import stored_movements
+from .live_account_archive import ordered_movements
 from .live_account_expectation import month_expectation
 from .live_account_schedule import convert
 from .live_account_series import (
@@ -39,13 +39,6 @@ from .live_account_series import (
 STALE_AFTER_HOURS = 48
 """Cuándo una serie deja de ser «de hoy». Con el cron diario de lunes a
 viernes, dos días cubren el fin de semana sin acusar a nadie en falso."""
-
-
-def _ordered(stored: dict[str, Any]) -> list[tuple[datetime, float]]:
-    return [
-        (datetime.fromisoformat(stamp), amount)
-        for stamp, amount in stored_movements(stored)
-    ]
 
 
 def month_progress(now: datetime) -> float:
@@ -120,7 +113,7 @@ def account_card(
     """Una tarjeta: la cuenta, lo que lleva hoy, el mes y lo que prometía."""
     archive = server.live_accounts
     stored = archive.read(node_id, account["account_key"])
-    ordered = _ordered(stored)
+    ordered = ordered_movements(stored)
     days, months = daily_rows(ordered), monthly_rows(ordered)
     today = now.astimezone(timezone.utc).date().isoformat()
     label = month_key(now)

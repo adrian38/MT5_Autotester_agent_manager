@@ -161,6 +161,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   segunda tabla con toda la serie, la tabla «contra el histórico» ya
   acumulativa, y los dos candados de la herencia —genealogía del portafolio e
   identidad de la estrategia— que también mueven la ventana del cron.
+- `live_account_monthly_chart.md`: el botón «Mes a mes» de cada tarjeta de la
+  portada; por qué el tramo es la serie de la cuenta y no el `created_at` del
+  portafolio, por qué el drawdown del tramo no es el máximo de los mensuales y
+  qué pasa con los meses que no operaron.
 - `live_audit_cron_and_bell.md`: el cron general de los portafolios activos y
   la hoja de estilos sin la cual la campana se abre fuera de la vista
 - `model4_watchdog_mata_su_propia_sincronizacion.md`: por qué fallaban las
