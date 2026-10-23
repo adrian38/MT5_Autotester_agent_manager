@@ -118,6 +118,46 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(factor, 1.0)
 
 
+class VariantTests(unittest.TestCase):
+    """Un bundle guarda A/M/C en la misma fila: medirlas todas promete el triple."""
+
+    BUNDLE = [
+        member(variant_key="aggressive"),
+        member(variant_key="balanced"),
+        member(variant_key="conservative"),
+    ]
+
+    def test_only_the_audited_variant_is_measured(self) -> None:
+        rows = expectation.audited_members({"members": self.BUNDLE}, "aggressive")
+        self.assertEqual([row["variant_key"] for row in rows], ["aggressive"])
+
+    def test_without_variants_the_whole_row_is_the_portfolio(self) -> None:
+        """Una mejora guarda `variant_key` vacío: la variante es la fila entera."""
+        rows = [member(), member(candidate_id="AXI/STANDARD:2")]
+        self.assertEqual(
+            expectation.audited_members({"members": rows}, "aggressive"), rows,
+        )
+
+    def test_the_bundle_promises_once_and_not_once_per_variant(self) -> None:
+        whole = expectation.build({"id": 67, "members": self.BUNDLE}, read=read)
+        audited = expectation.build(
+            {"id": 67, "members": self.BUNDLE}, read=read, portfolio_type="aggressive",
+        )
+        self.assertEqual(whole["members_read"], 3)
+        self.assertEqual(audited["members_read"], 1)
+        self.assertAlmostEqual(
+            expectation.month_expectation(whole, "2026-10")["profit"],
+            expectation.month_expectation(audited, "2026-10")["profit"] * 3,
+        )
+
+    def test_the_signature_knows_which_variant_was_measured(self) -> None:
+        portfolio = {"id": 67, "members": self.BUNDLE}
+        self.assertNotEqual(
+            expectation.signature(portfolio, {}),
+            expectation.signature(portfolio, {}, "aggressive"),
+        )
+
+
 class BuildTests(unittest.TestCase):
     def build(self, **changes: object) -> dict[str, object]:
         rows = changes.pop("members", [member()])

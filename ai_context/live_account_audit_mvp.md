@@ -1449,3 +1449,47 @@ unos treinta segundos después de que el primero terminara; el estado final sól
 conserva la última captura. Sin los logs anteriores al reinicio no se puede
 atribuir quién hizo el segundo clic, pero la evidencia descarta que faltara el
 resultado del primer sondeo.
+
+### La otra mitad de esa normalización llegó tarde (2026-10-23)
+
+La serie real se llevó a 0,01 el 21 de octubre, pero **la media del backtest se
+siguió midiendo a 0,10**: la tarjeta comparaba una cuenta presentada a una
+escala contra una promesa medida a otra. Lo levantó el usuario mirando su
+tarjeta: «esta cuenta en BTC y Ethereum usaba el lote definido en el auditor,
+que era 0,01».
+
+Y había un segundo error encima, independiente del lote. El #67 es un
+**bundle**: «A/M/C | Base Moderado | 4 sets» son cuatro estrategias en **doce
+filas**, una por variante. La auditoría mide la variante del uso —sus
+`selected_members` son los cuatro agresivos— pero `live_account_expectation`
+recorría las doce. Cada estrategia contaba tres veces.
+
+Medido el 2026-10-23 sobre la memoria de AXI, media de octubre:
+
+| Qué se mide | Media de octubre | DD media |
+| --- | --- | --- |
+| Las 12 filas, lotes del perfil (lo que se enseñaba) | 86,27 € | 62,07 € |
+| Sólo `aggressive`, lotes del perfil | 28,76 € | 20,69 € |
+| Sólo `aggressive`, BTC y ETH a la base 0,01 | **24,05 €** | **6,02 €** |
+
+Septiembre pasa de 93,48 € a 13,09 €, y con eso el mes deja de parecer un
+fracaso: la cuenta hizo 26,20 €, el doble de lo prometido.
+
+Dos piezas, cada una donde ya vivía su mitad:
+
+- `live_account_expectation.audited_members` filtra por `variant_key`, igual que
+  `live_audit_lineage.member_strategies` y por la misma razón. Sin
+  `variant_key` no hay variantes que separar —una mejora guarda la fila
+  entera—, así que se miden todas. La variante entra en `signature`: es lo
+  primero que cambia la media.
+- `live_account_report.base_lots` traduce el mapa de normalización a lotes por
+  candidato, y `live_account_ingest._measured_lots` los pone **por encima** de
+  `real_strategy_lots`. Vive junto a `normalized_deal` a propósito: son las dos
+  mitades de la misma comparación y separarlas es exactamente lo que falló.
+
+De los nueve usos en real sólo cambia el #67; los otros ocho guardan
+`variant_key` vacío y ninguna de sus cuentas normaliza símbolos. Comprobado uno
+a uno: su media de octubre sale idéntica a la guardada.
+
+La media no se repinta sola al desplegar: `EXPECTATION_MAX_AGE_HOURS` la
+recalcula como mucho una vez al día, y la firma nueva la fuerza en esa vuelta.

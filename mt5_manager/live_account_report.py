@@ -46,6 +46,32 @@ def ingestion_key(snapshot_id: str, account_keys: Iterable[str]) -> str:
     return ":".join([snapshot_id, *versions])
 
 
+def base_lots(account_key: str, members: Iterable[Any]) -> dict[str, float]:
+    """El lote de presentación de los miembros que esta cuenta normaliza.
+
+    `normalized_deal` lleva cada cierre de BTCUSD y ETHUSD de esta cuenta a
+    0,01. Si la media del backtest se midiera con el lote que el perfil declara
+    —0,10, que es lo que el EA ejecuta de verdad—, la tarjeta compararía una
+    cuenta presentada a 0,01 contra una promesa medida a 0,10: en esos dos
+    símbolos el objetivo del mes saldría diez veces mayor. Medido el
+    2026-10-23 sobre el #67 de AXI, con la variante ya filtrada: 28,76 € de
+    media en octubre contra los 24,05 € que promete a la base de presentación.
+
+    Vive aquí, junto a la regla que escala la otra mitad de la comparación,
+    para que las dos no puedan separarse: quien cambie una lee la otra.
+    """
+    symbols = ACCOUNT_LOT_NORMALIZATION.get(account_key) or {}
+    if not symbols:
+        return {}
+    found: dict[str, float] = {}
+    for member in members:
+        candidate = str(member.get("candidate_id") or "").strip()
+        lot = symbols.get(str(member.get("symbol") or "").upper())
+        if candidate and lot:
+            found[candidate] = float(lot)
+    return found
+
+
 def normalized_deal(deal: Any, account_key: str) -> Any:
     """Escala el resultado al lote base, como el auditor escala cada pareja."""
     target = ACCOUNT_LOT_NORMALIZATION.get(account_key, {}).get(

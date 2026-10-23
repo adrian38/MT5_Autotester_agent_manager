@@ -208,18 +208,40 @@ def _rebuild(
     portfolio_id = int(portfolio["portfolio_id"])
     detail = source.saved_portfolio_detail(portfolio_id, "full_history")
     stored = server.live_accounts.read_expectation(node_id, portfolio_id)
-    real_lots = dict(account.get("real_strategy_lots") or {})
     saved = detail.get("portfolio") or {}
+    variant = str(portfolio.get("portfolio_type") or "")
+    real_lots = _measured_lots(account, saved, variant)
     if (
         stored.get("signature")
-        and stored["signature"] == live_account_expectation.signature(saved, real_lots)
+        and stored["signature"] == live_account_expectation.signature(
+            saved, real_lots, variant,
+        )
     ):
         server.live_accounts.write_expectation(node_id, portfolio_id, stored)
         return False
     built = live_account_expectation.build(
         saved, read=lambda path: cached_report(Path(path)),
         resolve=lambda stored_path: _resolve_source_path(stored_path, source.project),
-        real_lots=real_lots,
+        real_lots=real_lots, portfolio_type=variant,
     )
     server.live_accounts.write_expectation(node_id, portfolio_id, built)
     return True
+
+
+def _measured_lots(
+    account: dict[str, Any], saved: dict[str, Any], variant: str,
+) -> dict[str, Any]:
+    """Los lotes con los que se mide la promesa, en el orden que manda.
+
+    Manda el lote del perfil —lo que la cuenta ejecuta— salvo en los símbolos
+    que esa cuenta presenta a otra base: ahí la serie real ya viene escalada
+    (`live_account_report.normalized_deal`), así que medir la promesa al lote
+    ejecutado compararía dos escalas distintas.
+    """
+    return {
+        **dict(account.get("real_strategy_lots") or {}),
+        **live_account_report.base_lots(
+            str(account.get("account_key") or ""),
+            live_account_expectation.audited_members(saved, variant),
+        ),
+    }

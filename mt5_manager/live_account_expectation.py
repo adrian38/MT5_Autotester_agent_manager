@@ -40,6 +40,34 @@ RECONCILE_TOLERANCE = 0.25
 emparejar»: es otro informe, y entonces no se escala nada y se dice."""
 
 
+def audited_members(
+    portfolio: dict[str, Any], portfolio_type: str = "",
+) -> list[dict[str, Any]]:
+    """Las filas de la variante que se audita, no las de sus hermanas.
+
+    Un bundle guarda A/M/C en la **misma** fila de la memoria UBS: el #67 de
+    AXI son cuatro estrategias en doce filas. La auditoría mide una sola
+    variante —sus `selected_members` son cuatro— y la promesa tiene que medir
+    esa misma, o promete el triple. Medido el 2026-10-23: la media de octubre
+    salía 86,27 € donde la variante agresiva promete 28,76 €.
+
+    Es el mismo gesto que `live_audit_lineage.member_strategies`, y por la
+    misma razón. Sin `variant_key` no hay variantes que separar: una mejora
+    guarda la fila entera, y entonces se miden todas.
+    """
+    members = [
+        member for member in portfolio.get("members") or []
+        if isinstance(member, dict) and not member.get("excluded")
+    ]
+    variants = {str(member.get("variant_key") or "") for member in members}
+    if not portfolio_type or variants <= {""}:
+        return members
+    return [
+        member for member in members
+        if str(member.get("variant_key") or "") == portfolio_type
+    ]
+
+
 def manual_report_paths(portfolio: dict[str, Any]) -> dict[str, str]:
     """Los informes de una cartera manual, que no están en la fila del miembro.
 
@@ -150,12 +178,15 @@ def _seasonal(values: Sequence[tuple[datetime, float]]) -> dict[str, Any]:
     return months
 
 
-def signature(portfolio: dict[str, Any], real_lots: dict[str, Any]) -> str:
+def signature(
+    portfolio: dict[str, Any], real_lots: dict[str, Any], portfolio_type: str = "",
+) -> str:
     """Huella de lo que haría cambiar la medición, para no repetirla.
 
-    Entran los miembros con su lote y sus informes, la contribución declarada y
-    los lotes reales: cambiar cualquiera de esas cosas cambia la media, y no
-    cambiar ninguna la deja idéntica.
+    Entran los miembros de la variante auditada con su lote y sus informes, la
+    contribución declarada y los lotes reales: cambiar cualquiera de esas cosas
+    cambia la media, y no cambiar ninguna la deja idéntica. La variante entra
+    porque decide **qué filas** se miden, que es lo primero que cambia la media.
     """
     members = [
         [
@@ -163,10 +194,10 @@ def signature(portfolio: dict[str, Any], real_lots: dict[str, Any]) -> str:
             member.get("net_profit_contribution"), bool(member.get("excluded")),
             *[member.get(field) for field in REPORT_FIELDS],
         ]
-        for member in portfolio.get("members") or []
+        for member in audited_members(portfolio, portfolio_type)
     ]
     payload = json.dumps(
-        [portfolio.get("id"), members, sorted((real_lots or {}).items())],
+        [portfolio.get("id"), portfolio_type, members, sorted((real_lots or {}).items())],
         sort_keys=True, default=str,
     )
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
@@ -176,12 +207,14 @@ def build(
     portfolio: dict[str, Any], *, read: Callable[[str], Any],
     resolve: Callable[[str], str] | None = None,
     real_lots: dict[str, Any] | None = None,
+    portfolio_type: str = "",
 ) -> dict[str, Any]:
     """La media estacional del portafolio, o el motivo de que no haya.
 
     `read` parsea un informe y `resolve` traduce la ruta que guardó el nodo;
     se inyectan para que esto no dependa de la memoria del agente ni de la
-    caché, y para poder medirlo sin ficheros.
+    caché, y para poder medirlo sin ficheros. `portfolio_type` es la variante
+    auditada: sin ella un bundle promete tantas veces como variantes guarda.
     """
     real_lots = dict(real_lots or {})
     manual = manual_report_paths(portfolio)
@@ -189,10 +222,7 @@ def build(
     warnings: list[str] = []
     sources: set[str] = set()
     read_members = 0
-    members = [
-        member for member in portfolio.get("members") or []
-        if isinstance(member, dict) and not member.get("excluded")
-    ]
+    members = audited_members(portfolio, portfolio_type)
     for member in members:
         lot, origin = member_lot(member, real_lots)
         paths = member_paths(member, manual)
@@ -218,7 +248,7 @@ def build(
         ),
         "lots": "mixed" if len(sources) > 1 else (sources.pop() if sources else ""),
         "warnings": warnings,
-        "signature": signature(portfolio, real_lots),
+        "signature": signature(portfolio, real_lots, portfolio_type),
     }
 
 

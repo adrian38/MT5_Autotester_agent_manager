@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 from portfolio_manager.mt5_report import RawDeal
-from mt5_manager import live_account_report, live_account_watch
+from mt5_manager import live_account_ingest, live_account_report, live_account_watch
 from mt5_manager.live_account_archive import LiveAccountArchive
 
 
@@ -44,6 +44,47 @@ class AccountLotNormalizationTests(unittest.TestCase):
         self.assertEqual(
             live_account_report.ingestion_key("snapshot-1", ["otra@cuenta"]),
             "snapshot-1",
+        )
+
+    def test_the_promise_is_measured_at_the_same_lot_the_series_is_shown_at(self) -> None:
+        """Las dos mitades de la tarjeta, a la misma escala.
+
+        La serie real de esta cuenta lleva BTCUSD y ETHUSD a 0,01, pero el
+        perfil declara los 0,10 que el EA ejecuta. Medida la promesa a 0,10, el
+        objetivo del mes salía diez veces mayor en esos dos símbolos.
+        """
+        members = [
+            {"candidate_id": "AXI/STANDARD:21175", "symbol": "BTCUSD"},
+            {"candidate_id": "AXI/STANDARD:46978", "symbol": "ETHUSD"},
+            {"candidate_id": "AXI/STANDARD:3813", "symbol": "XAUUSD"},
+        ]
+        self.assertEqual(live_account_report.base_lots(self.KEY, members), {
+            "AXI/STANDARD:21175": 0.01, "AXI/STANDARD:46978": 0.01,
+        })
+        lots = live_account_ingest._measured_lots(
+            {
+                "account_key": self.KEY,
+                "real_strategy_lots": {
+                    "AXI/STANDARD:21175": 0.1, "AXI/STANDARD:46978": 0.1,
+                    "AXI/STANDARD:3813": 0.01,
+                },
+            },
+            {"members": members}, "",
+        )
+        self.assertEqual(lots, {
+            "AXI/STANDARD:21175": 0.01, "AXI/STANDARD:46978": 0.01,
+            "AXI/STANDARD:3813": 0.01,
+        })
+
+    def test_an_account_without_normalization_keeps_the_lot_of_its_profile(self) -> None:
+        members = [{"candidate_id": "RF/ECN:1", "symbol": "BTCUSD"}]
+        self.assertEqual(live_account_report.base_lots("otra@cuenta", members), {})
+        self.assertEqual(
+            live_account_ingest._measured_lots(
+                {"account_key": "otra@cuenta", "real_strategy_lots": {"RF/ECN:1": 0.5}},
+                {"members": members}, "",
+            ),
+            {"RF/ECN:1": 0.5},
         )
 
     def test_an_old_archive_requests_the_full_history_once(self) -> None:
