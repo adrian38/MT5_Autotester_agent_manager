@@ -35,6 +35,22 @@ from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
 _NODE_UNAVAILABLE_CONFIRMATION_POLLS = 3
 """Lo mismo que en el cron de auditoría: un timeout no es una desconexión."""
 
+UNFINISHED_OUTCOMES = {"failed", "partial"}
+"""Lo que deja la cita sin cumplir, aunque el agente diga que terminó.
+
+`live_account_ingest.collect` escribe `completed_at` con el `finished_at` del
+agente pase lo que pase, también cuando el sondeo vuelve con cuentas sin leer.
+Sin esta lista, `pending_window` daba ese turno por cumplido y la política de
+reintentos **ni siquiera se consultaba**: `retry_attempts` y
+`retry_delay_minutes` sólo cubrían los fallos al lanzar —agente inalcanzable,
+sin contraseña, HTTP de error—, que no son los que se ven. El 2026-10-22 el
+sondeo de AXI volvió a las 23:06 con `60357303@Axi-US50-Live` sin leer y nadie
+reintentó hasta que el usuario lo lanzó a mano a la mañana siguiente.
+
+`exhausted` no está aquí a propósito: es el final del turno, no un fallo
+pendiente, y meterlo volvería a lanzar el sondeo hasta la cita siguiente.
+"""
+
 
 def node_snapshot(
     node: dict[str, Any], node_id: str,
@@ -197,6 +213,40 @@ def launch(
     )
 
 
+def retry_record(record: dict[str, Any]) -> dict[str, Any]:
+    """El registro como lo lee la política compartida de reintentos.
+
+    `due_decision` vive en el cron de auditoría, donde un sondeo parcial no
+    existe y donde `stopped` —la auditoría que paró el usuario— no se reintenta
+    a propósito. Ensanchar allí el criterio cambiaría aquello, así que la
+    traducción se hace aquí: para esa política, un sondeo incompleto es un
+    sondeo fallido.
+    """
+    return (
+        {**record, "outcome": "failed"}
+        if str(record.get("outcome") or "") in UNFINISHED_OUTCOMES else record
+    )
+
+
+def completion_of(record: dict[str, Any], state: dict[str, Any]) -> datetime | None:
+    """Cuándo quedó cumplida la cita de este nodo, o `None` si no lo está.
+
+    El `finished_at` del nodo sólo cuenta si **hay** un sondeo detrás: en
+    `idle` es el de una tanda que el agente ya olvidó al reiniciarse, y tomarlo
+    por cumplido dejaría la cita de hoy sin lanzar. Y un sondeo que volvió
+    incompleto no cumple la cita por mucho que el agente diga cuándo terminó.
+    """
+    if str(record.get("outcome") or "") in UNFINISHED_OUTCOMES:
+        return None
+    published = (
+        state.get("finished_at")
+        if str(state.get("status") or "idle") not in {"", "idle"} else ""
+    )
+    return live_account_schedule.parse_timestamp(
+        record.get("completed_at") or published,
+    )
+
+
 def launch_due(
     server: Any, node: dict[str, Any], node_id: str, accounts: list[dict[str, Any]],
     state: dict[str, Any], now: datetime,
@@ -206,28 +256,22 @@ def launch_due(
     settings = server.live_account_scheduler_settings
     key = runs.key(node_id, SNAPSHOT_KEY)
     record = runs.record(key)
-    # El `finished_at` del nodo sólo cuenta si **hay** un sondeo detrás: en
-    # `idle` es el de una tanda que el agente ya olvidó al reiniciarse, y
-    # tomarlo por cumplido dejaría la cita de hoy sin lanzar.
-    published = (
-        state.get("finished_at")
-        if str(state.get("status") or "idle") not in {"", "idle"} else ""
+    window, pending = live_account_schedule.pending_window(
+        settings, completion_of(record, state), now,
     )
-    completion = live_account_schedule.parse_timestamp(
-        record.get("completed_at") or published,
-    )
-    window, pending = live_account_schedule.pending_window(settings, completion, now)
     if not pending:
         if str(record.get("window") or "") != window:
             runs.update(key, window=window, attempts=0, outcome="success")
         return
-    decision = live_account_schedule.due_decision(settings, record, window, now)
+    decision = live_account_schedule.due_decision(
+        settings, retry_record(record), window, now,
+    )
     if decision == "exhausted":
         runs.update(key, window=window, outcome="exhausted")
         server.live_audit_notifications.add(
             "error", f"Reintentos agotados: sondeo de {node.get('name') or node_id}",
-            "El sondeo falló en todos los intentos de este turno. No se vuelve a "
-            "intentar hasta la próxima cita.",
+            "El sondeo falló o volvió con cuentas sin leer en todos los intentos "
+            "de este turno. No se vuelve a intentar hasta la próxima cita.",
             node_id=node_id, node_name=str(node.get("name") or node_id),
             kind="account_snapshot_exhausted",
         )

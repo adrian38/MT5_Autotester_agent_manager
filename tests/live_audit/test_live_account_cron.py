@@ -13,7 +13,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -118,6 +118,24 @@ def snapshot_state(status: str = "completed", **changes: object) -> dict[str, ob
             },
         },
     }
+    row.update(changes)
+    return row
+
+
+def complete_snapshot_state(**changes: object) -> dict[str, object]:
+    """El mismo sondeo, pero con las dos cuentas leídas.
+
+    Es lo que separa un turno cumplido de uno que hay que reintentar, así que
+    no vale con mirar el `finished_at`: las dos formas lo traen.
+    """
+    row = snapshot_state()
+    accounts = dict(row["accounts"])
+    accounts["60082303@Axi-US50-Live"] = {
+        "login": "60082303", "server": "Axi-US50-Live", "currency": "USD",
+        "balance": 800.0, "equity": 805.0, "status": "completed",
+        "report": {"filename": "account_60082303.html", "sha256": SHA},
+    }
+    row["accounts"] = accounts
     row.update(changes)
     return row
 
@@ -335,6 +353,85 @@ class WatchTests(unittest.TestCase):
             live_account_watch.tick(server, NOW)
             live_account_watch.tick(server, NOW)
         self.assertEqual(len([row for row in self.requests if row[0] == "POST"]), 1)
+
+    # --- Reintentos del lado del agente ------------------------------------
+    #
+    # Hasta el 2026-10-23 la política de reintentos sólo cubría los fallos al
+    # **lanzar**. Un sondeo que el agente aceptaba y devolvía con cuentas sin
+    # leer escribía su `completed_at`, cerraba la cita y no se volvía a
+    # intentar: el 2026-10-22 AXI volvió con una cuenta sin leer y el turno se
+    # dio por bueno.
+
+    def _collected(self):
+        return mock.patch(
+            "mt5_manager.live_account_report.movements_from_html",
+            return_value=[(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+        )
+
+    def _no_expectations(self):
+        return mock.patch(
+            "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
+        )
+
+    def _launch_the_turn(self, server: FakeServer) -> None:
+        """La cita de la noche, lanzada y aceptada por el agente."""
+        with self._request(snapshot_state("idle")), self._no_expectations():
+            live_account_watch.tick(server, NOW)
+        # `launch` sella la hora con el reloj de pared, no con el `now` del
+        # vigilante: sin esto la espera entre reintentos mide contra la fecha
+        # real de quien ejecuta la prueba.
+        server.live_account_runs.update(
+            server.live_account_runs.key("axi", live_account_watch.SNAPSHOT_KEY),
+            last_attempt_at=NOW.astimezone(timezone.utc).isoformat(),
+        )
+
+    def _come_back(self, server: FakeServer, state, moment) -> None:
+        with self._request(state), self._no_expectations(), self._collected():
+            live_account_watch.tick(server, moment)
+
+    def test_a_snapshot_that_comes_back_incomplete_is_retried(self) -> None:
+        server = self.server(enabled=True)
+        self._launch_the_turn(server)
+        self._come_back(server, snapshot_state(), NOW + timedelta(minutes=15))
+        posts = [row for row in self.requests if row[0] == "POST"]
+        self.assertEqual(len(posts), 2)
+        record = server.live_account_runs.record(
+            server.live_account_runs.key("axi", live_account_watch.SNAPSHOT_KEY),
+        )
+        self.assertEqual(record["attempts"], 2)
+
+    def test_the_wait_between_retries_is_respected(self) -> None:
+        server = self.server(enabled=True)
+        self._launch_the_turn(server)
+        self._come_back(server, snapshot_state(), NOW + timedelta(minutes=5))
+        self.assertEqual(len([row for row in self.requests if row[0] == "POST"]), 1)
+
+    def test_a_complete_snapshot_closes_the_turn(self) -> None:
+        server = self.server(enabled=True)
+        self._launch_the_turn(server)
+        self._come_back(server, complete_snapshot_state(), NOW + timedelta(minutes=15))
+        self.assertEqual(len([row for row in self.requests if row[0] == "POST"]), 1)
+
+    def test_the_incomplete_turn_stops_at_the_last_retry(self) -> None:
+        server = self.server(enabled=True, retry_attempts=1)
+        self._launch_the_turn(server)
+        self._come_back(server, snapshot_state(), NOW + timedelta(minutes=15))
+        # El reintento trae su propio sondeo, que vuelve igual de incompleto.
+        self._come_back(
+            server, snapshot_state(snapshot_id="20261021_234500_000002"),
+            NOW + timedelta(minutes=30),
+        )
+        self._come_back(
+            server, snapshot_state(snapshot_id="20261021_234500_000002"),
+            NOW + timedelta(minutes=45),
+        )
+        self.assertEqual(len([row for row in self.requests if row[0] == "POST"]), 2)
+        exhausted = [
+            event for event in server.events()
+            if event["kind"] == "account_snapshot_exhausted"
+        ]
+        self.assertEqual(len(exhausted), 1)
+        self.assertIn("sin leer", exhausted[0]["message"])
 
     def test_the_blocked_accounts_are_visible_before_arming_it(self) -> None:
         state = node_state()

@@ -134,6 +134,10 @@ def collect(
         except INGEST_ERRORS as exc:
             failed.append(f"{account_key}: {exc}")
             sys.stderr.write(f"[live-account-ingest] {node_id}/{account_key}: {exc}\n")
+    # `failed` y `partial` los lee `live_account_watch.UNFINISHED_OUTCOMES`:
+    # son los que dejan la cita sin cumplir pese a este `completed_at`, y los
+    # que ponen en marcha los reintentos. Distinguirlos no es decorativo, pero
+    # sí es sólo informativo: para la política de reintentos valen lo mismo.
     runs.update(
         key, ingested=collected_key, last_status=status,
         completed_at=str(state.get("finished_at") or utc_now()),
