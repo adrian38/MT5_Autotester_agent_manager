@@ -423,6 +423,31 @@ class AttributedPairTests(unittest.TestCase):
         self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
         self.assertEqual(detail["attributed_pairs"], 0)
 
+    def test_a_real_that_opened_before_the_window_is_never_paired(self) -> None:
+        # RoboForex `audit-173`: `769632478` está en la materia prima porque
+        # cerró dentro del periodo, pero abrió tres días antes y su operación
+        # del tester es la del backtest anterior. Emparejada con `#T19` salía
+        # con desviación de apertura, cierre, precio, lote y PnL, y metía sus
+        # −17,02 € en la curva Real de la estrategia.
+        base = unpaired_payload()
+        before = datetime(2026, 9, 21, 9, 0, tzinfo=timezone.utc)
+        base["real_trades"] = base["real_trades"][:-1] + [
+            {**trade(before, 0.02, -11.0, 111),
+             "close_time": datetime(2026, 9, 22, 3, 0, tzinfo=timezone.utc).isoformat()},
+        ]
+        detail = analyze(
+            base, profile(real_attribution=imported(ATTRIBUTED_ORPHAN)),
+        )["comparison_detail"]
+
+        self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
+        self.assertEqual(detail["attributed_pairs"], 0)
+        # Sigue contando como real de esa estrategia, que es lo que dijo el
+        # Excel: lo que no es es la pareja de una fila de esta ventana.
+        self.assertEqual(len(detail["unmatched_real_operations"]), 1)
+        self.assertEqual(
+            detail["unmatched_real_operations"][0]["attribution"]["strategy"], STRATEGY,
+        )
+
     def test_without_the_excel_the_row_keeps_having_no_real(self) -> None:
         detail = analyze(unpaired_payload(), profile())["comparison_detail"]
         self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")

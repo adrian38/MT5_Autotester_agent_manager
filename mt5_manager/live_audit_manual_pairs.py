@@ -153,11 +153,58 @@ def _same_market(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
     )
 
 
+def _attributed_owners(
+    real: list[dict[str, Any]], resolved: dict[str, dict[str, Any]],
+    assignment: dict[int, int],
+) -> dict[int, str]:
+    """Las reales libres con dueño declarado, por índice.
+
+    Una real **excluida** («no contabiliza en este portafolio») o ya consumida
+    por el reparto no entra: emparejar la primera sería meter en la curva justo
+    lo que el usuario sacó de ella, y la segunda repartiría el mismo PnL real
+    dos veces.
+    """
+    taken = set(assignment.values())
+    owners: dict[int, str] = {}
+    for index, trade in enumerate(real):
+        rule = resolved.get(real_pair_id(trade)) or {}
+        if index not in taken and rule.get("strategy") and not rule.get("excluded"):
+            owners[index] = str(rule["strategy"])
+    return owners
+
+
+def _opened_inside_window(
+    actual: dict[str, Any], expected: dict[str, Any], period_start: datetime | None,
+) -> bool:
+    """La real abrió dentro de la ventana, o la del tester tampoco abrió dentro.
+
+    Una posición que abrió antes del periodo está en la materia prima porque
+    **cerró** dentro —son las `positions_missing_open_in_period` que el nodo
+    recupera—, pero su operación del tester pertenece al backtest anterior, no a
+    éste. En `audit-173` de RoboForex el Excel atribuyó cinco reales así, y una
+    de ellas, `769632478`, acabó siendo la pareja de `#T19`: vivió del 09/10
+    16:45 al 12/10 03:00, dos días y medio **antes** de que la operación del
+    tester abriera. La fila salía con desviación de apertura, de cierre, de
+    precio, de lote y de PnL, y metía sus −17,02 € en la curva Real de la
+    estrategia. Dos operaciones que no coexistieron no son la misma.
+
+    En las once ejecuciones guardadas de los tres agentes hay 26 reales que
+    abren antes de su ventana y **ninguna** operación del tester: el tester
+    corre exactamente el periodo. La condición se escribe igual de simétrica
+    porque un backtest más ancho sí puede traerlas, y entonces se emparejan
+    entre ellas.
+    """
+    if period_start is None:
+        return True
+    return not (actual["open_time"] < period_start <= expected["open_time"])
+
+
 def attributed_assignment(
     tester: list[dict[str, Any]],
     real: list[dict[str, Any]],
     resolved: dict[str, dict[str, Any]],
     assignment: dict[int, int],
+    period_start: datetime | None = None,
 ) -> dict[int, int]:
     """Las parejas que el Excel de Análisis ya había decidido sin decirlo así.
 
@@ -193,18 +240,14 @@ def attributed_assignment(
     """
     if not resolved:
         return {}
-    taken = set(assignment.values())
-    owners = {}
-    for index, trade in enumerate(real):
-        rule = resolved.get(real_pair_id(trade)) or {}
-        if index not in taken and rule.get("strategy") and not rule.get("excluded"):
-            owners[index] = str(rule["strategy"])
+    owners = _attributed_owners(real, resolved, assignment)
     candidates = sorted(
         (abs((real[index]["open_time"] - tester[row]["open_time"]).total_seconds()), row, index)
         for row in range(len(tester)) if row not in assignment
         for index, strategy in owners.items()
         if strategy == str(tester[row].get("strategy") or "")
         and _same_market(real[index], tester[row])
+        and _opened_inside_window(real[index], tester[row], period_start)
     )
     derived: dict[int, int] = {}
     used: set[int] = set()

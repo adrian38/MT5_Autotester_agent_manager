@@ -43,13 +43,24 @@ class _ComparisonMixin:
     def _stops_evidence(
         expected: dict[str, Any], actual: dict[str, Any], limit: float | None,
     ) -> int:
-        """0 si los stops coinciden, 1 si no hay evidencia, 2 si se contradicen.
+        """0 coinciden, 1 sin evidencia, 2 falla un nivel, 3 fallan los dos.
 
         El SL y el TP con que se coloca la orden son la huella de la operación:
         en el auditado del 2026-10-04 los dos XAUUSD que abren en el mismo
         segundo llevaban 4189,28/4133,78 y 4169,86/4123,54, y sólo uno de los
         dos cierres reales traía cada par. No siempre existen —una orden a
         mercado no declara niveles—, y entonces no dicen nada.
+
+        **Cuántos fallan importa.** Era un sí/no, y con eso la huella dejaba de
+        distinguir en cuanto un solo nivel se pasaba: en `audit-173` de
+        RoboForex, `#T19` declaraba SL a 2,5 puntos del real —dentro del límite
+        de 10,5— y TP a 14,7, fuera por 4,2; `#T21` declaraba 140,4 y 320,8.
+        Las dos caían en el mismo cajón, una diferencia de 56× se perdía, y
+        decidía el campo siguiente, el lote esperado, que con autolote es una
+        simulación y no un hecho observado: se llevó la real la fila cuyo cierre
+        estaba a 47.798 s en vez de la que coincidía al segundo. Un nivel que
+        coincide y otro que no es evidencia más débil que las dos coincidiendo,
+        pero más fuerte que ninguna.
         """
         levels = [
             (float(expected.get(key) or 0.0), float(actual.get(key) or 0.0))
@@ -58,7 +69,8 @@ class _ComparisonMixin:
         known = [(mine, theirs) for mine, theirs in levels if mine and theirs]
         if not known or limit is None:
             return 1
-        return 0 if all(abs(mine - theirs) <= limit for mine, theirs in known) else 2
+        apart = sum(1 for mine, theirs in known if abs(mine - theirs) > limit)
+        return 1 + apart if apart else 0
 
     @staticmethod
     def _pair_cost(
@@ -549,7 +561,7 @@ class _ComparisonMixin:
         # emparejar sabiendo qué quedó suelto, y eso no se sabe hasta repartir.
         state["attributed"] = attributed_assignment(
             tester, real, request.get("_real_attribution_by_ticket") or {},
-            state["assignment"],
+            state["assignment"], request.get("_period_start"),
         )
         if state["attributed"]:
             state["assignment"] = _ComparisonMixin._assign_real_trades(

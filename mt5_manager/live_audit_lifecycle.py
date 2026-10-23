@@ -225,6 +225,9 @@ class _LifecycleMixin:
     ) -> tuple[dict[str, Any], str]:
         quality = min(qualities) if qualities else None
         minimum = float(request["min_tick_history_quality_pct"])
+        # Igual que en el reanálisis: sin la ventana, la pareja derivada del
+        # Excel puede nombrar una real que abrió en el periodo anterior.
+        request["_period_start"] = period_start
         result = self._result_base(
             request, period_start, period_end, real_trades, tester_trades, quality,
         )

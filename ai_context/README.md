@@ -121,6 +121,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_pairing_20261004.md`: por qué el auditor emparejaba mal los
   cierres reales, la banda de lote que sustituye al lote exacto y el reparto
   global que sustituye al codicioso por operación.
+- `live_audit_pairing_20261023.md`: la huella SL/TP era un sí/no y el lote
+  simulado del autolote decidía el reparto, la real que abrió antes de la
+  ventana que acabó siendo pareja, y dónde está la frontera de lo que el Excel
+  puede cambiar.
 - `live_audit_reproduction_verdict.md`: el censo de las 53 filas que demostró
   que 24 de los 26 avisos no eran déficits, los cinco falsos «MEJOR QUE EL
   TESTER» de cuentas que no ejecutaron nada, y por qué promediar el porcentaje

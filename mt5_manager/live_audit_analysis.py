@@ -348,6 +348,9 @@ def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[s
     request["_autolot_volume_rules"] = _volume_rules(payload)
     period_start = datetime.fromisoformat(str(payload["period_start"]))
     period_end = datetime.fromisoformat(str(payload["period_end"]))
+    # La ventana es criterio para `attributed_assignment`: una real que abrió
+    # antes del periodo cerró dentro, pero su tester está en el backtest previo.
+    request["_period_start"] = period_start
     tester_trades = tester_trades_in_window(
         _revive_all(payload.get("tester_trades")), period_start, period_end,
     )

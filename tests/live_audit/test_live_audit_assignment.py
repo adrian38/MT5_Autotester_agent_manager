@@ -35,7 +35,9 @@ def compare(real: list[dict], tester: list[dict], **overrides) -> list[dict]:
     order = {**request(), **overrides}
     strategies = {str(row["strategy"]): 1 for row in tester}
     result = LiveAuditController._compare(
-        real, tester, {"XAUUSD": .01, "EURUSD": .00001, "USDJPY": .001}, order, strategies,
+        real, tester,
+        {"XAUUSD": .01, "EURUSD": .00001, "USDJPY": .001, ".USTECHCash": .1},
+        order, strategies,
     )
     return result["comparison_detail"]["operation_comparisons"]
 
@@ -129,6 +131,45 @@ class LiveAuditAssignmentTests(unittest.TestCase):
         self.assertEqual(
             [row["real"]["strategy"] for row in blind], ["1970212220", "1970212277"],
         )
+
+    def test_one_level_apart_is_better_evidence_than_both_apart(self) -> None:
+        # RoboForex `audit-173`: dos `.USTECHCash` sell del portafolio abren en
+        # el mismo segundo y la cuenta sólo ejecutó una, el ticket 771314830.
+        # Le corresponde a `manual:22`, que cierra en su mismo segundo y declara
+        # el SL a 2,5 puntos del real —dentro del límite de 10,5— con el TP a
+        # 14,7; `manual:23` declara 140,4 y 320,8. La huella era un sí/no, las
+        # dos salían «se contradicen», y decidía el lote esperado: 0,08 es el de
+        # `manual:23` y la real se la llevaba la fila cuyo cierre estaba a
+        # 47.798 s en vez de la que coincidía al segundo.
+        tester = [
+            operation("manual:22", 0, 95_091, symbol=".USTECHCash", price=30_390.1,
+                      sl=30_564.1, tp=29_380.3),
+            operation("manual:23", 0, 47_293, symbol=".USTECHCash", price=30_390.1,
+                      sl=30_707.0, tp=29_686.4),
+        ]
+        real = [operation("771314830", 2, 95_091, volume=.08, symbol=".USTECHCash",
+                          price=30_385.3, sl=30_566.6, tp=29_365.6)]
+        lots = {"manual:22": .02, "manual:23": .08}
+
+        rows = compare(real, tester, real_strategy_lots=lots)
+
+        self.assertEqual(rows[0]["real"]["strategy"], "771314830")
+        self.assertIn("volume", rows[0]["reasons"])
+        self.assertNotIn("close_time", rows[0]["reasons"])
+        self.assertEqual(rows[0]["measurements"]["close_time_delta_seconds"], 0)
+        self.assertEqual(rows[1]["status"], "missing")
+
+        self.assertEqual(LiveAuditController._stops_evidence(tester[0], real[0], 10.5), 2)
+        self.assertEqual(LiveAuditController._stops_evidence(tester[1], real[0], 10.5), 3)
+
+        # Sin niveles que declarar manda el lote esperado, y es la otra fila.
+        blind = compare(
+            [{**row, "sl": 0.0, "tp": 0.0} for row in real],
+            [{**row, "sl": 0.0, "tp": 0.0} for row in tester],
+            real_strategy_lots=lots,
+        )
+        self.assertEqual(blind[0]["status"], "missing")
+        self.assertEqual(blind[1]["real"]["strategy"], "771314830")
 
     def test_stops_that_nobody_declares_do_not_decide_anything(self) -> None:
         # Una orden a mercado no lleva niveles: sin evidencia manda el tiempo.
