@@ -179,6 +179,50 @@ class ManualReportInheritanceTests(unittest.TestCase):
         ), HTML)
         self.assertEqual(remembered, HTML)
 
+    def test_the_legacy_sweep_does_not_ask_about_every_automatic_report(self) -> None:
+        """Busca dos nombres, así que no puede preguntar por toda la carpeta.
+
+        La portada repite este barrido para cada estrategia pendiente y cada
+        sesenta segundos, sobre el disco del agente. Preguntar por cada
+        artefacto automático son 3,4 ms por fichero en el bind mount del
+        contenedor: el uso 109 de AXI costaba 22 s por esto.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            reports = (
+                root / "runtime" / NODE / "live_audits" / f"audit_{KEY}"
+                / "run-12" / "reports"
+            )
+            reports.mkdir(parents=True)
+            (reports / f"manual_{Path(SOURCE).stem}.htm").write_bytes(HTML)
+            for number in range(40):
+                (reports / f"audit_{number:03d}_{Path(SOURCE).stem}.htm").write_bytes(b"")
+            store = ManualReportMemory(root / "manager-memory")
+            state = {"audit": {"last_payload": payload("run-20", [artifact()])}}
+            corrected = {"audit": {"last_payload": payload("run-20", [manual_artifact()])}}
+            asked: list[str] = []
+            answer = Path.is_file
+
+            def counted(self, *args, **kwargs):
+                asked.append(self.name)
+                return answer(self, *args, **kwargs)
+
+            with patch(
+                "mt5_manager.live_audit_manual_memory.backtest_range", return_value=BACKTEST,
+            ), patch(
+                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                return_value=(200, corrected),
+            ), patch.object(Path, "is_file", counted):
+                fresh = live_audit_manual_inherit.reapply(
+                    {"portfolio_project_dir": str(root)}, NODE, store, state,
+                )
+
+        # El heredado se encuentra igual: esto no cambia a quién se hereda.
+        self.assertEqual(
+            fresh["last_payload"]["strategy_artifacts"][0]["report_source"], "manual_upload",
+        )
+        self.assertEqual([name for name in asked if name.startswith("audit_")], [])
+
     def test_a_legacy_upload_from_another_window_is_not_recovered(self) -> None:
         later = ("2026-10-12T00:00:00+00:00", "2026-10-19T23:59:59+00:00")
         with tempfile.TemporaryDirectory() as temp:

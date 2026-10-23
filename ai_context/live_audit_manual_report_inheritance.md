@@ -100,6 +100,12 @@ Esto funciona tanto dentro del contenedor (`portfolio_project_dir`, por ejemplo
 `/data/axi`) como ejecutando el manager en el host (`node_project_dir`). No se
 porta al runtime: el nodo sigue siendo quien valida símbolo, timeframe y calidad.
 
+Ese barrido se hace **por estrategia pendiente y en cada refresco de la
+portada**, sobre un bind mount donde cada `stat` cuesta 3,4 ms: busca dos
+nombres, así que filtra por nombre y sólo pregunta por los que encajan. Al
+revés costaba 22 de los 24 segundos que tardaba la tarjeta de AXI —
+`manager_bind_mount_stat_cost.md`.
+
 ## Para la próxima
 
 - El umbral es el del nodo (99,995 %), no el `min_tick_history_quality_pct` del

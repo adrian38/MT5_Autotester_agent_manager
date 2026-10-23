@@ -134,9 +134,17 @@ def _legacy_reports(
         for execution in executions:
             reports = execution / "reports"
             try:
+                # El nombre antes del `stat`, y no al revés: aquí sólo se
+                # buscan dos nombres, pero estas carpetas guardan además un
+                # artefacto automático por estrategia y ejecución. Preguntar
+                # por todos cuesta 3,4 ms cada uno sobre el bind mount del
+                # proyecto del agente -0,05 ms en el host-, y la portada
+                # repite el barrido por estrategia pendiente cada 60 s: el uso
+                # 109 de AXI eran 7.584 preguntas, 22 de sus 24 segundos.
+                # Medido en `ai_context/manager_bind_mount_stat_cost.md`.
                 found.extend(
                     path for path in reports.iterdir()
-                    if path.is_file() and path.name.casefold() in expected
+                    if path.name.casefold() in expected and path.is_file()
                 )
             except OSError:
                 continue

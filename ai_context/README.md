@@ -205,6 +205,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   automática de datos históricos al terminar cada run.
 - `manager_self_restart.md`: secuencia Git/Compose del botón de reinicio del
   manager, trabajador Docker auxiliar y persistencia del estado/log.
+- `manager_bind_mount_stat_cost.md`: preguntar por un fichero del proyecto de
+  un agente cuesta 3,4 ms desde el contenedor y 0,053 ms en el host; por qué
+  «Portafolios activos» tardaba 24 s sólo en AXI, y cómo se diagnostica.
 - `manager_https_desde_fuera.md`: los tres fallos encadenados al abrir el
   manager desde la calle —el puerto deja de hablar `http`, el certificado no
   incluye el nombre DDNS y las apps de Android ignoran las CA instaladas a
