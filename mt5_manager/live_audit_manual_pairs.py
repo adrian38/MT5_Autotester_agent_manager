@@ -32,6 +32,7 @@ from typing import Any
 
 MAX_MANUAL_PAIRS = 2000
 _MAX_KEY_LENGTH = 256
+_MAX_NOTE_LENGTH = 200
 _FORBIDDEN = "\n\r"
 
 
@@ -65,17 +66,29 @@ def real_pair_id(trade: dict[str, Any] | None) -> str:
 
 
 def _normalize_pair(key: Any, raw: Any) -> tuple[str, dict[str, str]]:
+    """Una pareja guardada: la real, cuándo se decidió y la nota del usuario.
+
+    **El ticket vacío es una decisión, no un dato que falte**: dice que esa
+    operación del tester no tiene real. Hacía falta porque el auditor también
+    se equivoca emparejando de más, y entonces la fila sale con desviaciones
+    inventadas y mete en la curva Real un PnL que no es suyo; sin esto no había
+    forma de deshacerlo, ni por la pantalla ni por el Excel.
+    """
     tester = str(key or "").strip()
     if not tester or len(tester) > _MAX_KEY_LENGTH or any(c in tester for c in _FORBIDDEN):
         raise ValueError("La huella de la operación del tester no es válida")
     pair = raw if isinstance(raw, dict) else {"position_id": raw}
     position = str(pair.get("position_id") or "").strip()
-    if not position.isdigit() or len(position) > 20:
+    if position and (not position.isdigit() or len(position) > 20):
         raise ValueError(f"La pareja de {tester} debe nombrar una operación real")
     marked_at = str(pair.get("at") or "").strip()
     if len(marked_at) > 40 or any(c in marked_at for c in _FORBIDDEN):
         raise ValueError(f"La fecha de la pareja de {tester} no es válida")
-    return tester, {"position_id": position, "at": marked_at}
+    note = str(pair.get("note") or "").strip()[:_MAX_NOTE_LENGTH]
+    return tester, {
+        "position_id": position, "at": marked_at,
+        **({"note": "".join(c for c in note if c not in _FORBIDDEN)} if note else {}),
+    }
 
 
 def normalize_manual_pairs(value: Any) -> dict[str, dict[str, str]]:
@@ -93,12 +106,24 @@ def normalize_manual_pairs(value: Any) -> dict[str, dict[str, str]]:
     claimed: dict[str, str] = {}
     for raw_key, raw_pair in value.items():
         tester, pair = _normalize_pair(raw_key, raw_pair)
-        if claimed.setdefault(pair["position_id"], tester) != tester:
+        # «Sin pareja» no reclama ninguna real, así que varias filas pueden
+        # decirlo: lo que no puede repetirse es un ticket.
+        if pair["position_id"] and claimed.setdefault(
+            pair["position_id"], tester,
+        ) != tester:
             raise ValueError(
                 f"La operación real {pair['position_id']} ya es la pareja de otra fila",
             )
         pairs[tester] = pair
     return pairs
+
+
+def unpaired_keys(pairs: Any) -> frozenset[str]:
+    """Las filas del tester que el usuario declaró sin real."""
+    return frozenset(
+        key for key, pair in (pairs or {}).items()
+        if not str((pair or {}).get("position_id") or "").strip()
+    )
 
 
 def rescued_position_ids(pairs: Any) -> set[str]:
@@ -205,6 +230,7 @@ def attributed_assignment(
     resolved: dict[str, dict[str, Any]],
     assignment: dict[int, int],
     period_start: datetime | None = None,
+    unpaired: frozenset[str] = frozenset(),
 ) -> dict[int, int]:
     """Las parejas que el Excel de Análisis ya había decidido sin decirlo así.
 
@@ -243,7 +269,8 @@ def attributed_assignment(
     owners = _attributed_owners(real, resolved, assignment)
     candidates = sorted(
         (abs((real[index]["open_time"] - tester[row]["open_time"]).total_seconds()), row, index)
-        for row in range(len(tester)) if row not in assignment
+        for row in range(len(tester))
+        if row not in assignment and tester_pair_key(tester[row]) not in unpaired
         for index, strategy in owners.items()
         if strategy == str(tester[row].get("strategy") or "")
         and _same_market(real[index], tester[row])

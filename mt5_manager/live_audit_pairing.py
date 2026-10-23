@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from .live_audit_core import _effective_price_tolerance, _expected_real_volume
+from .live_audit_manual_pairs import tester_pair_key
 
 
 def _stops_evidence(
@@ -62,10 +63,17 @@ def _pair_cost(
     el lote, que identifica a la estrategia dentro de la cuenta igual que en
     el filtro de pertenencia. Después la apertura dentro de tolerancia,
     después el cierre, y a igualdad la menor distancia total.
+
+    Una fila que el usuario declaró **sin real** no admite ninguna pareja: es
+    la única forma de deshacer un emparejado de más, que salía con desviaciones
+    inventadas y metía en la curva Real un PnL ajeno. Se descarta aquí y no
+    después para que la real que tenía vuelva al reparto y pueda irse con la
+    fila a la que de verdad le toca.
     """
     if (
         actual["symbol"].casefold() != expected["symbol"].casefold()
         or actual["side"] != expected["side"]
+        or tester_pair_key(expected) in (request.get("_unpaired_rows") or ())
     ):
         return None
     time_limit = request["trade_time_tolerance_seconds"]

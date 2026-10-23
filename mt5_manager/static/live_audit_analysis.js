@@ -1372,6 +1372,65 @@ function manualPairsFromImport(rows) {
   return pairs;
 }
 
+// El Excel de enlace corrige al auditor, así que alcanza a **cualquier** fila:
+// una `Tn` ya emparejada es justo la que el usuario viene a cambiar, y ahí el
+// importador de la atribución no llega porque exige que sea «SIN REAL». Un
+// ticket vacío deja la fila sin real, que es lo que no se podía expresar ni por
+// aquí ni por el selector.
+function manualPairsFromLinkSheet(rows) {
+  const pairs = {...(currentResult?.analysis?.tolerances?.manual_pairs || {})};
+  const indexed = new Map(
+    comparisonRows(currentResult).map(row => [String(row.tester_index), row]),
+  );
+  const at = new Date().toISOString();
+  Object.entries(rows || {}).forEach(([index, cell]) => {
+    const row = indexed.get(String(index));
+    if (!row || !row.tester) {
+      throw new Error(
+        `El Excel nombra T${index}, que no es una operación del tester de esta ejecución.`,
+      );
+    }
+    const key = testerPairKey(row.tester);
+    const ticket = String(cell.ticket || '');
+    // Si el Excel le da el ticket a otra fila, la que lo tenía se queda sin
+    // real: es lo que el usuario está diciendo, y refusarlo no dejaría salida.
+    if (ticket) {
+      Object.keys(pairs).forEach(other => {
+        if (other !== key && String(pairs[other].position_id || '') === ticket) {
+          delete pairs[other];
+        }
+      });
+    }
+    pairs[key] = {position_id: ticket, at, note: String(cell.note || '')};
+  });
+  return pairs;
+}
+
+async function uploadPairs(file) {
+  const button = document.querySelector('#pairs-upload');
+  const label = document.querySelector('#pairs-label');
+  const previous = label.textContent;
+  label.textContent = 'Leyendo el Excel…';
+  button.classList.add('is-busy');
+  try {
+    if (file.size > 700000) throw new Error('El Excel no puede superar 700 KB.');
+    const content = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+    const parsed = await jsonResponse(await fetch(
+      `/api/nodes/${encodeURIComponent(nodeId)}/live-audit-pairs-import`,
+      {method: 'POST', headers: {'Content-Type': 'application/json'},
+       body: JSON.stringify({filename: file.name, content_base64: content})},
+    ));
+    label.textContent = 'Recalculando la auditoría…';
+    await changeCriterion('manual-pairs', {
+      manual_pairs: manualPairsFromLinkSheet(parsed.rows),
+    });
+  } finally {
+    label.textContent = previous;
+    button.classList.remove('is-busy');
+    document.querySelector('#pairs-file').value = '';
+  }
+}
+
 // Guardar el tramo y repintar es el mismo viaje que la atribución, y por el
 // mismo motivo: el criterio vive en el manager y se aplica al leer, así que
 // guardado sin repintar o repintado sin guardar son dos medias verdades.
@@ -1460,6 +1519,11 @@ document.querySelector('#comment-links-source').addEventListener('click', event 
 document.querySelector('#attribution-file').addEventListener('change', event => {
   const file = event.target.files?.[0];
   if (file) uploadAttribution(file).catch(error => showAnalysisError(error.message));
+});
+
+document.querySelector('#pairs-file').addEventListener('change', event => {
+  const file = event.target.files?.[0];
+  if (file) uploadPairs(file).catch(error => showAnalysisError(error.message));
 });
 
 // Delegado: la lista se repinta con cada recálculo, así que escuchar en los

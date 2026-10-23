@@ -232,14 +232,23 @@ function attributedPairLabel(row) {
     : 'Pareja tomada del Excel de atribución: esta real ya estaba atribuida a esta estrategia en Análisis.';
 }
 
+function manualPairNote(row) {
+  return row.manual_pair_note ? ` «${escapeHtml(row.manual_pair_note)}»` : '';
+}
+
 function manualPairControl(row, tester) {
+  // El Excel de enlace puede decir que una fila no tiene real, y entonces no
+  // es que el auditor no la encontrara: es que se le dijo que no la busque.
+  if (row.manual_unpaired) {
+    return `<p class="manual-pair is-set"><strong>Sin real por decisión tuya.</strong>${manualPairNote(row)} <button type="button" data-undo-pair="${escapeHtml(testerPairKey(tester))}">Deshacer</button></p>`;
+  }
   // La que no eligió el usuario no se deshace aquí: deshacerla es retirar en
   // Análisis lo que la ató, y un botón que prometiera otra cosa mentiría.
   if (row.attributed_pair) {
     return `<p class="manual-pair is-set"><strong>${escapeHtml(attributedPairLabel(row))}</strong> Se mide con las mismas tolerancias que cualquier otra.</p>`;
   }
   if (row.manual_pair) {
-    return `<p class="manual-pair is-set"><strong>Pareja decidida a mano.</strong> Se mide con las mismas tolerancias que cualquier otra. <button type="button" data-undo-pair="${escapeHtml(testerPairKey(tester))}">Deshacer</button></p>`;
+    return `<p class="manual-pair is-set"><strong>Pareja decidida a mano.</strong>${manualPairNote(row)} Se mide con las mismas tolerancias que cualquier otra. <button type="button" data-undo-pair="${escapeHtml(testerPairKey(tester))}">Deshacer</button></p>`;
   }
   return row.status === 'missing' ? manualPairPicker(row, tester) : '';
 }

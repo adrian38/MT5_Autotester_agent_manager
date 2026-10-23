@@ -300,13 +300,20 @@ def _handle_comment_links_import(handler, parts: list[str]) -> bool:
 
 
 def _handle_workbook_import(handler, parts: list[str]) -> bool:
-    """Los dos Excel que el manager lee y guarda en el perfil del uso."""
+    """Los Excel que el manager lee y guarda en el perfil del uso.
+
+    El de enlace es el único que corrige al auditor en vez de completarlo, así
+    que entra por su propia puerta: lee otras columnas y no toca la atribución.
+    """
     readers = {
         "live-audit-autolot-import": (
             live_audit_autolot.import_workbook, "autolot", "strategy_count",
         ),
         "live-audit-attribution-import": (
             live_audit_attribution.import_workbook, "real_attribution", "operation_count",
+        ),
+        "live-audit-pairs-import": (
+            live_audit_attribution.import_pair_workbook, "pair_rows", "row_count",
         ),
     }
     reader = readers.get(parts[3]) if len(parts) == 4 and parts[:2] == ["api", "nodes"] else None
@@ -321,6 +328,9 @@ def _handle_workbook_import(handler, parts: list[str]) -> bool:
             handler._send_json(200, {
                 **imported, count: len(imported["real_attribution"]["rules"]),
             })
+        elif field == "pair_rows":
+            imported = read(body)
+            handler._send_json(200, {**imported, count: len(imported["rows"])})
         else:
             imported = read(body)
             handler._send_json(200, {field: imported, count: len(imported["rules"])})

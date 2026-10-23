@@ -3,7 +3,8 @@ from __future__ import annotations
 from .live_audit_attribution import annotate_unmatched
 from .live_audit_core import *  # noqa: F403
 from .live_audit_manual_pairs import (
-    attributed_assignment, forced_assignment, note_manual_pairs,
+    attributed_assignment, forced_assignment, note_manual_pairs, tester_pair_key,
+    unpaired_keys,
 )
 from .live_audit_methodology import methodology
 from .live_audit_pairing import _assign_real_trades, _pair_cost, _stops_evidence
@@ -215,6 +216,23 @@ class _ComparisonMixin:
         mapping[key] = mapping.get(key, 0) + 1
 
     @staticmethod
+    def _note_decision(
+        row: dict[str, Any], request: dict[str, Any], expected: dict[str, Any],
+    ) -> None:
+        """Lo que el usuario escribió al decidir esta fila, y que lo decidió él.
+
+        La nota viaja con la pareja porque el Excel de enlace la trae: quien
+        lea el informe después tiene que ver por qué esa fila no es lo que el
+        auditor había repartido.
+        """
+        pair = (request.get("manual_pairs") or {}).get(tester_pair_key(expected)) or {}
+        if not pair:
+            return
+        row["manual_unpaired"] = not str(pair.get("position_id") or "").strip()
+        if pair.get("note"):
+            row["manual_pair_note"] = str(pair["note"])
+
+    @staticmethod
     def _compare_one_operation(
         real: list[dict[str, Any]], points: dict[str, float], request: dict[str, Any],
         state: dict[str, Any], tester_index: int, expected: dict[str, Any],
@@ -231,11 +249,13 @@ class _ComparisonMixin:
             ):
                 return
             _ComparisonMixin._increment(state["missing_by_strategy"], strategy)
-            state["operation_comparisons"].append(_ComparisonMixin._missing_comparison(
+            missing = _ComparisonMixin._missing_comparison(
                 expected, tester_index, strategy,
                 _ComparisonMixin._same_market(expected, real, state["unassigned"]), real,
                 request, data_issues,
-            ))
+            )
+            _ComparisonMixin._note_decision(missing, request, expected)
+            state["operation_comparisons"].append(missing)
             return
         state["unused"].remove(index)
         actual = real[index]
@@ -253,6 +273,7 @@ class _ComparisonMixin:
         # el auditor de lo que le dijeron.
         if tester_index - 1 in (state.get("forced") or {}):
             row["manual_pair"] = True
+            _ComparisonMixin._note_decision(row, request, expected)
         elif tester_index - 1 in (state.get("attributed") or {}):
             # «manual» si lo dijo el Excel y «comment» si lo escribió el EA: son
             # dos pruebas distintas y la fila no puede presentarlas igual.
@@ -444,9 +465,9 @@ class _ComparisonMixin:
         request: dict[str, Any], strategies: dict[str, int],
     ) -> dict[str, Any]:
         state = _ComparisonMixin._comparison_state(real, request)
-        state["forced"] = forced_assignment(
-            tester, real, request.get("manual_pairs") or {},
-        )
+        pairs = request.get("manual_pairs") or {}
+        request["_unpaired_rows"] = unpaired_keys(pairs)
+        state["forced"] = forced_assignment(tester, real, pairs)
         state["assignment"] = _assign_real_trades(
             tester, real, request, points, state["forced"],
         )
@@ -455,6 +476,7 @@ class _ComparisonMixin:
         state["attributed"] = attributed_assignment(
             tester, real, request.get("_real_attribution_by_ticket") or {},
             state["assignment"], request.get("_period_start"),
+            request["_unpaired_rows"],
         )
         if state["attributed"]:
             state["assignment"] = _assign_real_trades(

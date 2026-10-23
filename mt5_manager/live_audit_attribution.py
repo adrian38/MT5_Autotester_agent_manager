@@ -316,6 +316,73 @@ def manual_pair_rows(rows: list[dict[int, Any]]) -> dict[str, str]:
     return pairs
 
 
+_NO_REAL = {"", "sinreal", "ninguna", "no", "nada"}
+
+
+def _pair_columns(rows: list[dict[int, Any]]) -> tuple[int, dict[str, int]]:
+    """La cabecera del Excel de enlace: `Fila`, `Ticket` y, si está, `Nota`.
+
+    Por nombre y no por posición: el usuario reordena columnas, y fijar la
+    tercera obligaría a dejarla vacía cuando no tiene nada que anotar.
+    """
+    aliases = {"fila": "row", "ticket": "ticket", "nota": "note"}
+    for index, row in enumerate(rows):
+        found = {
+            aliases[key]: column for column, value in row.items()
+            if (key := _canonical(value)) in aliases
+        }
+        if {"row", "ticket"} <= set(found):
+            return index, found
+    raise ValueError(
+        "El Excel de enlace necesita una cabecera con las columnas Fila y Ticket",
+    )
+
+
+def pair_rows_from_workbook(rows: list[dict[int, Any]]) -> dict[str, dict[str, str]]:
+    """`Tn → ticket` tal y como lo escribió el usuario, con su nota.
+
+    Es el Excel que corrige al auditor, así que **no** mira el estado de la
+    fila: la `Tn` puede estar ya emparejada y lo que el usuario dice es que lo
+    está con la real equivocada. Un ticket vacío dice que esa fila no tiene
+    real, que es lo que no se podía expresar de ninguna otra forma.
+    """
+    header, columns = _pair_columns(rows)
+    pairs: dict[str, dict[str, str]] = {}
+    claimed: dict[str, str] = {}
+    for row in rows[header + 1:]:
+        tester = _TESTER_ROW.fullmatch(str(row.get(columns["row"]) or "").strip())
+        if not tester:
+            continue
+        raw = str(row.get(columns["ticket"]) or "").strip()
+        found = _TICKET.search(raw)
+        ticket = (found.group(1) or found.group(2)) if found else _ticket(raw)
+        if not ticket and _canonical(raw) not in _NO_REAL:
+            raise ValueError(f"La fila T{tester.group(1)} no nombra un ticket válido: {raw}")
+        if tester.group(1) in pairs:
+            raise ValueError(f"La fila T{tester.group(1)} aparece dos veces")
+        if ticket and claimed.setdefault(ticket, tester.group(1)) != tester.group(1):
+            raise ValueError(f"La operación real {ticket} la reclaman dos filas del tester")
+        pairs[tester.group(1)] = {
+            "ticket": ticket,
+            "note": str(row.get(columns.get("note", -1)) or "").strip()[:200],
+        }
+    if not pairs:
+        raise ValueError("Ninguna fila del Excel nombra una operación del tester (T19, T21…)")
+    if len(pairs) > MAX_ATTRIBUTIONS:
+        raise ValueError(f"El Excel de enlace admite como máximo {MAX_ATTRIBUTIONS} filas")
+    return pairs
+
+
+def import_pair_workbook(payload: Any) -> dict[str, Any]:
+    """El Excel que sólo enlaza: ni atribuye estrategias ni excluye reales."""
+    filename, contents, rows = _workbook_payload(payload)
+    return {
+        "source_name": filename[:255],
+        "source_sha256": hashlib.sha256(contents).hexdigest(),
+        "rows": pair_rows_from_workbook(rows),
+    }
+
+
 def import_workbook(payload: Any) -> dict[str, Any]:
     filename, contents, rows = _workbook_payload(payload)
     return _attribution_from_workbook(filename, contents, rows)

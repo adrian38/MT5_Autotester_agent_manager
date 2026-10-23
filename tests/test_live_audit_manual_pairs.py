@@ -103,8 +103,20 @@ class ManualPairNormalizationTests(unittest.TestCase):
     def test_nothing_saved_is_an_empty_map(self) -> None:
         self.assertEqual(normalize_manual_pairs(None), {})
 
+    def test_an_empty_ticket_says_the_row_has_no_real(self) -> None:
+        # No es un dato que falte: es la decisión de que esa fila no tiene real,
+        # la única forma de deshacer un emparejado de más del auditor.
+        self.assertEqual(
+            normalize_manual_pairs({"a|b|sell|1|2": {"position_id": "", "note": "no la operó"}}),
+            {"a|b|sell|1|2": {"position_id": "", "at": "", "note": "no la operó"}},
+        )
+        # Y varias filas pueden decirlo: no reclaman ninguna real.
+        self.assertEqual(
+            len(normalize_manual_pairs({"a|b|sell|1|2": "", "c|d|buy|1|2": ""})), 2,
+        )
+
     def test_what_does_not_name_a_real_operation_is_refused(self) -> None:
-        for broken in ({"a|b|sell|1|2": ""}, {"a|b|sell|1|2": "no-es-un-ticket"},
+        for broken in ({"a|b|sell|1|2": "no-es-un-ticket"},
                        {"": TICKET}, {"a\nb": TICKET}):
             with self.assertRaises(ValueError):
                 normalize_manual_pairs(broken)

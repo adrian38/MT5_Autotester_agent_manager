@@ -121,6 +121,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_pairing_20261004.md`: por qué el auditor emparejaba mal los
   cierres reales, la banda de lote que sustituye al lote exacto y el reparto
   global que sustituye al codicioso por operación.
+- `live_audit_pair_sheet.md`: el Excel que corrige los enlaces ya hechos, por
+  qué el ticket vacío es una decisión y no un dato que falte, y dónde está la
+  plantilla que se entrega.
 - `live_audit_pairing_20261023.md`: la huella SL/TP era un sí/no y el lote
   simulado del autolote decidía el reparto, la real que abrió antes de la
   ventana que acabó siendo pareja, y dónde está la frontera de lo que el Excel
