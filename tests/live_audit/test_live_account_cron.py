@@ -20,7 +20,10 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_account_dashboard, live_account_inventory, live_account_watch
+from mt5_manager import (
+    live_account_dashboard, live_account_inventory, live_account_report,
+    live_account_watch,
+)
 from mt5_manager.live_account_archive import LiveAccountArchive, account_key
 from mt5_manager.live_account_schedule import normalize_live_account_scheduler_settings
 from mt5_manager.live_audit_notifications import LiveAuditNotificationStore
@@ -252,18 +255,19 @@ class WatchTests(unittest.TestCase):
 
     def test_a_second_turn_asks_only_for_the_last_days(self) -> None:
         server = self.server(enabled=True)
-        server.live_accounts.merge(
-            "axi", "60082017@Axi-US50-Live", login="60082017",
-            server="Axi-US50-Live", currency="EUR",
-            movements=[(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 5.0)],
-            period_start="", period_end="2026-10-20",
-        )
-        server.live_accounts.merge(
-            "axi", "60082303@Axi-US50-Live", login="60082303",
-            server="Axi-US50-Live", currency="USD",
-            movements=[(datetime(2026, 10, 19, 8, tzinfo=timezone.utc), 1.0)],
-            period_start="", period_end="2026-10-19",
-        )
+        # Con la version del criterio puesta: una serie guardada con otro
+        # criterio se vuelve a leer entera, y entonces no habria segundo turno
+        # corto que comprobar.
+        for key, login, currency, day, amount in (
+            ("60082017@Axi-US50-Live", "60082017", "EUR", 20, 5.0),
+            ("60082303@Axi-US50-Live", "60082303", "USD", 19, 1.0),
+        ):
+            server.live_accounts.merge(
+                "axi", key, login=login, server="Axi-US50-Live", currency=currency,
+                movements=[(datetime(2026, 10, day, 8, tzinfo=timezone.utc), amount)],
+                period_start="", period_end=f"2026-10-{day}",
+                normalization_version=live_account_report.normalization_version(key),
+            )
         with self._request(snapshot_state("idle")), mock.patch(
             "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
         ):

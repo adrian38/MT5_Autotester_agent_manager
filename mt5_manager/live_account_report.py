@@ -35,9 +35,27 @@ equidad, número de operaciones y el resto de cuentas permanecen observados.
 
 NORMALIZATION_VERSION = "account-lot-normalization-v1"
 
+SERIES_VERSION = "merge-window-v2"
+"""Con qué criterio se armó la serie guardada, normalice o no esa cuenta.
+
+Lo pone **toda** cuenta, y por eso no puede quedar vacío: `_period` pide toda
+la vida cuando no coincide, y esa es la única forma de reparar una serie que se
+construyó mal. La anterior no tenía versión propia —sólo la de normalización, y
+sólo para las cuentas del mapa—, así que el arreglo del solapamiento de
+`LiveAccountArchive._inside` no habría alcanzado a las demás: seguirían con sus
+movimientos duplicados hasta que alguien borrase el fichero a mano.
+"""
+
 
 def normalization_version(account_key: str) -> str:
-    return NORMALIZATION_VERSION if account_key in ACCOUNT_LOT_NORMALIZATION else ""
+    """Los criterios con los que está guardada la serie de esa cuenta.
+
+    Es una sola cadena porque es un solo candado: en cuanto cambia cualquiera
+    de los dos criterios, la serie de esa cuenta se vuelve a leer entera.
+    """
+    if account_key in ACCOUNT_LOT_NORMALIZATION:
+        return f"{SERIES_VERSION}+{NORMALIZATION_VERSION}"
+    return SERIES_VERSION
 
 
 def ingestion_key(snapshot_id: str, account_keys: Iterable[str]) -> str:

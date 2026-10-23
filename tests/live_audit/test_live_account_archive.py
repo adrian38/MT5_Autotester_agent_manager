@@ -81,6 +81,41 @@ class ArchiveTests(unittest.TestCase):
         self.assertAlmostEqual(amounts["2026-10-20"], 9.0)
         self.assertEqual(len(record["movements"]), 2)
 
+    def test_a_close_the_report_brings_from_outside_the_window_is_ignored(self) -> None:
+        """MT5 arma el informe por posición, así que trae fechas de fuera.
+
+        Medido el 2026-10-23: el sondeo del 21 pidió del 17 al 21 de octubre y
+        su informe traía un cierre del día 15. Ese día no se podaba —está fuera
+        de la ventana— pero el cierre sí se añadía encima del que ya estaba, y
+        el mismo instante quedaba contado dos veces. Pasó en tres de las cuatro
+        cuentas de AXI: 66,30 € de más en octubre de 10010194.
+        """
+        self.merge(
+            [
+                (moment("2026-10-15T16:54:43"), 66.30),
+                (moment("2026-10-19T08:00:00"), 1.0),
+            ],
+            "", "2026-10-19",
+        )
+        record = self.merge(
+            [
+                (moment("2026-10-15T16:54:43"), 66.30),
+                (moment("2026-10-20T08:00:00"), 2.0),
+            ],
+            "2026-10-17", "2026-10-21",
+        )
+        days = [row[0][:10] for row in record["movements"]]
+        self.assertEqual(days, ["2026-10-15", "2026-10-20"])
+        self.assertAlmostEqual(sum(row[1] for row in record["movements"]), 68.30)
+
+    def test_a_full_life_snapshot_still_takes_everything_the_report_brings(self) -> None:
+        """Sin periodo no se recorta: esa lectura manda sobre la serie entera."""
+        record = self.merge(
+            [(moment("2026-09-01T08:00:00"), 1.0), (moment("2026-10-20T08:00:00"), 2.0)],
+            "", "2026-10-20",
+        )
+        self.assertEqual(len(record["movements"]), 2)
+
     def test_a_day_that_loses_its_trades_drops_to_zero(self) -> None:
         self.merge([(moment("2026-10-20T08:00:00"), 5.0)], "", "2026-10-20")
         record = self.merge([], "2026-10-20", "2026-10-21")

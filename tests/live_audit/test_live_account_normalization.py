@@ -42,11 +42,11 @@ class AccountLotNormalizationTests(unittest.TestCase):
     def test_the_current_snapshot_is_reingested_once_for_the_new_criterion(self) -> None:
         self.assertEqual(
             live_account_report.ingestion_key("snapshot-1", [self.KEY]),
-            "snapshot-1:account-lot-normalization-v1",
+            "snapshot-1:merge-window-v2+account-lot-normalization-v1",
         )
         self.assertEqual(
             live_account_report.ingestion_key("snapshot-1", ["otra@cuenta"]),
-            "snapshot-1",
+            "snapshot-1:merge-window-v2",
         )
 
     def test_the_promise_is_measured_at_the_same_lot_the_series_is_shown_at(self) -> None:
@@ -110,6 +110,23 @@ class AccountLotNormalizationTests(unittest.TestCase):
         self.assertTrue(live_account_ingest._needs_rebuild(
             {"updated_at": fresh["updated_at"]}, now,
         ))
+
+    def test_every_account_carries_its_criterion_not_only_the_scaled_ones(self) -> None:
+        """Sin versión no hay reparación posible.
+
+        El solapamiento que duplicaba movimientos afectaba a cualquier cuenta,
+        no sólo a las del mapa de lotes. Con la versión vacía, `_period` nunca
+        habría pedido toda la vida de las demás y sus duplicados se habrían
+        quedado ahí hasta que alguien borrase el fichero a mano.
+        """
+        self.assertIn(
+            live_account_report.SERIES_VERSION,
+            live_account_report.normalization_version("otra@cuenta"),
+        )
+        self.assertIn(
+            live_account_report.NORMALIZATION_VERSION,
+            live_account_report.normalization_version(self.KEY),
+        )
 
     def test_an_old_archive_requests_the_full_history_once(self) -> None:
         with TemporaryDirectory() as folder:

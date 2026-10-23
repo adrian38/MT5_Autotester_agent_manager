@@ -161,6 +161,38 @@ class LiveAccountArchive:
             if not start <= row[0][:10] <= (end or "9999-12-31")
         ]
 
+    @staticmethod
+    def _inside(
+        movements: Sequence[Any], start: str, end: str,
+    ) -> list[Any]:
+        """Lo que el informe trae **dentro** del periodo que se le pidió.
+
+        `_kept` poda exactamente el periodo pedido, así que lo que entra tiene
+        que ser exactamente ese periodo o las dos mitades dejan de ser
+        complementarias. Y el informe nativo no se limita a lo pedido: MT5 lo
+        arma por posición, de modo que una abierta antes de la ventana imprime
+        su cierre con la fecha de fuera.
+
+        Pasó el 2026-10-21: el sondeo pidió del 17 al 21 de octubre y el
+        informe trajo un cierre del día 15. Ese día no se podaba —está fuera de
+        la ventana— pero el cierre sí se añadía, encima del que ya estaba desde
+        la lectura de toda la vida. Medido el 2026-10-23 en las cuatro cuentas
+        de AXI: el mismo instante duplicado en tres de ellas, 66,30 € de más en
+        octubre de 10010194 y 101,51 € en 60082017.
+
+        Recortarlo es la mitad segura: el día de fuera ya está completo en la
+        serie, y el informe sólo traía de él la operación que la ventana rozó.
+        Quedarse con esa y tirar las demás perdería el resto del día.
+
+        Sin periodo no se recorta: un sondeo de toda la vida manda sobre todo.
+        """
+        if not start:
+            return list(movements)
+        return [
+            row for row in movements
+            if start <= row[0][:10] <= (end or "9999-12-31")
+        ]
+
     def merge(
         self, node_id: str, key: str, *, login: Any, server: Any, currency: Any,
         movements: Sequence[tuple[Any, float]], period_start: str, period_end: str,
@@ -170,7 +202,7 @@ class LiveAccountArchive:
         """Mete el sondeo en la serie y devuelve el registro ya guardado."""
         with self.lock:
             stored = self.read(node_id, key)
-            fresh = movement_rows(movements)
+            fresh = self._inside(movement_rows(movements), period_start, period_end)
             kept = self._kept(stored_movements(stored), period_start, period_end)
             combined = sorted(
                 [[moment, amount] for moment, amount in kept] + fresh,

@@ -1513,3 +1513,43 @@ decide si lo guardado todavía vale.
 Se sube `CRITERION_VERSION` al cambiar **qué** se mide. Las nueve medias
 guardadas se recalculan una vez en la primera vuelta tras el despliegue: ocho
 salen idénticas —comprobado una a una— y sólo cambia el #67.
+
+### El informe trae fechas de fuera de la ventana y se contaban dos veces (2026-10-23)
+
+Lo levantó el usuario: «octubre dice 140 de beneficio, ¿no dijimos que las
+cryptos contaban por 0,01?». La normalización estaba bien —noviembre de 2025,
+agosto y septiembre cuadran al céntimo con el informe escalado—. Lo que estaba
+mal era octubre, y por otra cosa.
+
+`LiveAccountArchive._kept` poda **exactamente el periodo pedido** y conserva el
+resto; lo que entraba era el informe **entero**. Y el informe nativo no se
+limita a lo pedido: MT5 lo arma por posición, así que una abierta antes de la
+ventana imprime su cierre con la fecha de fuera. El sondeo del 2026-10-21 pidió
+del 17 al 21 y su informe traía un cierre del **15**: ese día no se podaba y el
+cierre se añadía encima del que ya estaba desde la lectura de toda la vida.
+
+Medido contra las cuatro cuentas de AXI, comparando lo guardado con el informe
+completo del 2026-10-21 hasta el día 20:
+
+| Cuenta | Guardados | Informe | De más |
+| --- | --- | --- | --- |
+| 10010194@Axi-US50-Demo | 361 | 360 | +66,30 € (15-10 16:54:43) |
+| 10068103@Axi-US50-Demo | 23 | 22 | −1,40 € (el mismo instante) |
+| 60082017@Axi-US50-Live | 333 | 330 | +101,43 € |
+| 60357303@Axi-US50-Live | 663 | 672 | — |
+
+Octubre de 10010194 eran 140,53 € guardados contra 74,23 € reales: 66,30 € de
+un USDJPY duplicado. No tenía nada que ver con BTC ni con ETH.
+
+`_inside` recorta el informe al periodo pedido, que es lo que hace que las dos
+mitades sean complementarias: lo guardado de fuera más lo leído de dentro. La
+otra opción —ensanchar la poda hasta la fecha más vieja del informe— perdería
+el resto de ese día: el informe sólo traía de él la operación que la ventana
+rozó. Sin periodo no se recorta: una lectura de toda la vida manda sobre todo.
+
+**Y lo guardado se repara solo.** `SERIES_VERSION` la lleva **toda** cuenta,
+normalice o no: antes la versión existía sólo para las del mapa de lotes, así
+que `_period` nunca habría pedido toda la vida de las demás y sus duplicados se
+habrían quedado hasta que alguien borrase el fichero a mano. Con la versión
+nueva, el primer sondeo tras el despliegue relee la vida entera de cada cuenta,
+una sola vez.
