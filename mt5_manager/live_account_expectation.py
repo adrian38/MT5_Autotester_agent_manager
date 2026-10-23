@@ -35,6 +35,22 @@ from .live_account_series import month_key, monthly_rows
 REPORT_FIELDS = ("is_report_path", "oos_report_path")
 """Los dos informes que forman la curva 2020-2026, en ese orden."""
 
+CRITERION_VERSION = "variant-and-presentation-lots-v1"
+"""Con qué criterio se midió esta media. Cambia cuando cambia lo que se mide.
+
+Sin esto, cambiar el criterio no repinta nada. La media guardada se recalcula
+**por edad** —`EXPECTATION_MAX_AGE_HOURS`— y la firma, que sí detectaría el
+cambio, ni siquiera se consulta hasta entonces: calcularla exige abrir la
+memoria del agente, que es justo lo que la edad evita. Medido el 2026-10-23: el
+#67 se arregló a las 15:00 y su media era de 18 horas antes, así que la
+pantalla siguió enseñando los 86,27 € viejos y habría seguido hasta la
+medianoche, con sondeos de por medio que no cambiaban nada.
+
+Es el mismo gesto que `live_account_report.NORMALIZATION_VERSION` hace con la
+serie real: un criterio nuevo fuerza una medición, una sola vez, sin esperar al
+reloj. Se sube al cambiar **qué** se mide; no al corregir un comentario.
+"""
+
 RECONCILE_TOLERANCE = 0.25
 """Hasta dónde se corrige un miembro. Más que esto no es «algún cierre sin
 emparejar»: es otro informe, y entonces no se escala nada y se dice."""
@@ -249,6 +265,7 @@ def build(
         "lots": "mixed" if len(sources) > 1 else (sources.pop() if sources else ""),
         "warnings": warnings,
         "signature": signature(portfolio, real_lots, portfolio_type),
+        "criterion": CRITERION_VERSION,
     }
 
 

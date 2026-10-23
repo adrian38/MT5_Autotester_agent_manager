@@ -1493,3 +1493,23 @@ a uno: su media de octubre sale idéntica a la guardada.
 
 La media no se repinta sola al desplegar: `EXPECTATION_MAX_AGE_HOURS` la
 recalcula como mucho una vez al día, y la firma nueva la fuerza en esa vuelta.
+
+#### Y no se repintó: la edad se traga el criterio nuevo (2026-10-23)
+
+El arreglo de arriba se desplegó y la tarjeta siguió enseñando 86,27 €, con un
+sondeo manual de por medio que no cambió nada. El sondeo no tenía nada que ver:
+`refresh_expectations` corre en **cada vuelta** del vigilante, y quien la paró
+fue `_needs_rebuild`. La media guardada era de 18,0 horas antes y el umbral son
+24, así que ni se miraba la firma —calcularla exige abrir la memoria del
+agente, que es justo lo que la edad evita—. Habría esperado hasta la
+medianoche.
+
+Por eso la media lleva ahora `criterion`, con el mismo gesto que
+`live_account_report.NORMALIZATION_VERSION` hace con la serie real: lo guardado
+con otro criterio se vuelve a medir en la vuelta siguiente, sin esperar al
+reloj. La edad sigue decidiendo cada cuánto se comprueba la firma; el criterio
+decide si lo guardado todavía vale.
+
+Se sube `CRITERION_VERSION` al cambiar **qué** se mide. Las nueve medias
+guardadas se recalculan una vez en la primera vuelta tras el despliegue: ocho
+salen idénticas —comprobado una a una— y sólo cambia el #67.

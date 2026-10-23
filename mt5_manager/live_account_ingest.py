@@ -152,6 +152,12 @@ def collect(
 def _needs_rebuild(stored: dict[str, Any], now: datetime) -> bool:
     if not stored:
         return True
+    # Un criterio nuevo no espera al reloj. La edad decide cada cuánto se
+    # comprueba la firma —abrir la memoria del agente es lo que cuesta— pero
+    # cuando cambia **lo que se mide**, lo guardado ya no es de este criterio y
+    # no hay nada que esperar.
+    if str(stored.get("criterion") or "") != live_account_expectation.CRITERION_VERSION:
+        return True
     try:
         updated = datetime.fromisoformat(str(stored.get("updated_at") or ""))
     except ValueError:

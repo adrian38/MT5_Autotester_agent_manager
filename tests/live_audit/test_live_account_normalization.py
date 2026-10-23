@@ -8,7 +8,10 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 from portfolio_manager.mt5_report import RawDeal
-from mt5_manager import live_account_ingest, live_account_report, live_account_watch
+from mt5_manager import (
+    live_account_expectation, live_account_ingest, live_account_report,
+    live_account_watch,
+)
 from mt5_manager.live_account_archive import LiveAccountArchive
 
 
@@ -86,6 +89,27 @@ class AccountLotNormalizationTests(unittest.TestCase):
             ),
             {"RF/ECN:1": 0.5},
         )
+
+    def test_a_new_criterion_remeasures_without_waiting_for_the_clock(self) -> None:
+        """La edad decide cada cuánto se comprueba; el criterio, si vale.
+
+        El 2026-10-23 la media del #67 se arregló con 18 horas de vida: por
+        edad no tocaba recalcularla hasta la medianoche, así que la pantalla
+        siguió enseñando el número viejo con sondeos de por medio.
+        """
+        now = datetime(2026, 10, 23, 17, tzinfo=timezone.utc)
+        fresh = {
+            "updated_at": "2026-10-23T15:00:00+00:00",
+            "criterion": live_account_expectation.CRITERION_VERSION,
+        }
+        self.assertFalse(live_account_ingest._needs_rebuild(fresh, now))
+        self.assertTrue(live_account_ingest._needs_rebuild(
+            {**fresh, "criterion": "criterio-anterior"}, now,
+        ))
+        # Una media de antes de que existiera el campo tampoco es de ahora.
+        self.assertTrue(live_account_ingest._needs_rebuild(
+            {"updated_at": fresh["updated_at"]}, now,
+        ))
 
     def test_an_old_archive_requests_the_full_history_once(self) -> None:
         with TemporaryDirectory() as folder:
