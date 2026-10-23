@@ -11,6 +11,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from mt5_manager.live_audit_engine import LiveAuditController
+from mt5_manager.live_audit_pairing import _stops_evidence
 from tests.live_audit.live_audit_engine_base import request
 
 START = datetime(2026, 10, 2, 4, 0, 0, tzinfo=timezone.utc)
@@ -159,8 +160,8 @@ class LiveAuditAssignmentTests(unittest.TestCase):
         self.assertEqual(rows[0]["measurements"]["close_time_delta_seconds"], 0)
         self.assertEqual(rows[1]["status"], "missing")
 
-        self.assertEqual(LiveAuditController._stops_evidence(tester[0], real[0], 10.5), 2)
-        self.assertEqual(LiveAuditController._stops_evidence(tester[1], real[0], 10.5), 3)
+        self.assertEqual(_stops_evidence(tester[0], real[0], 10.5), 2)
+        self.assertEqual(_stops_evidence(tester[1], real[0], 10.5), 3)
 
         # Sin niveles que declarar manda el lote esperado, y es la otra fila.
         blind = compare(
