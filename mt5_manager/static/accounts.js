@@ -12,6 +12,15 @@ const restartManagerButton = document.querySelector('#restart-manager');
 // El alias vive en la memoria UBS del agente. Se pide una vez por nodo, igual
 // que en «Portafolios activos», y no en cada refresco de las cuentas.
 const nodeAliases = new Map();
+// Y se recuerda entre recargas. La tarjeta se pinta antes de que el alias
+// llegue —un alias que no responde no puede dejar sin pintar la cuenta—, así
+// que sin esto el primer pintado enseña «Portafolio #67» hasta que contesta el
+// agente. Medido el 2026-10-23 contra el manager en marcha: 4 ms hasta el
+// número, 48 hasta el nombre, y desde el móvil lo que tarde la red.
+const ALIAS_CACHE_KEY = 'live-account-portfolio-aliases';
+// Recordar no es saber: el alias se vuelve a pedir igual una vez por sesión,
+// o un portafolio renombrado se quedaría con el nombre viejo para siempre.
+const askedNodes = new Set();
 const TOTAL_SELECTION_KEY = 'live-account-total-exclusions';
 const excludedAccounts = new Set();
 let latestData = null;
@@ -218,17 +227,43 @@ function portfolioIdsByNode(cards) {
   return grouped;
 }
 
+function restoreAliases() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(ALIAS_CACHE_KEY) || '{}');
+    for (const [nodeId, aliases] of Object.entries(stored)) {
+      if (aliases && typeof aliases === 'object') nodeAliases.set(nodeId, {...aliases});
+    }
+  } catch (_error) { /* Sin lo recordado se pide y se pinta, como siempre. */ }
+}
+
+function rememberAliases() {
+  try {
+    localStorage.setItem(
+      ALIAS_CACHE_KEY, JSON.stringify(Object.fromEntries(nodeAliases)),
+    );
+  } catch (_error) { /* Recordarlo es una comodidad, no un dato. */ }
+}
+
 async function loadNodeAliases(nodeId, ids) {
   const known = nodeAliases.get(nodeId) || {};
   const missing = [...ids].filter(portfolioId => !(portfolioId in known));
-  if (!missing.length) return false;
+  const asked = askedNodes.has(nodeId);
+  if (!missing.length && asked) return false;
+  // La primera vuelta de la sesión pregunta por todos los de la pantalla, no
+  // sólo por los que faltan: es la que comprueba lo que quedó recordado.
+  const wanted = asked ? missing : [...ids];
   try {
     const data = await jsonResponse(await fetch(
-      `/api/nodes/${encodeURIComponent(nodeId)}/portfolio-aliases?ids=${missing.join(',')}`,
+      `/api/nodes/${encodeURIComponent(nodeId)}/portfolio-aliases?ids=${wanted.join(',')}`,
       {cache: 'no-store'},
     ));
-    nodeAliases.set(nodeId, {...known, ...(data.aliases || {})});
-    return true;
+    askedNodes.add(nodeId);
+    const fresh = {...known, ...(data.aliases || {})};
+    nodeAliases.set(nodeId, fresh);
+    rememberAliases();
+    // Repintar sólo si alguna etiqueta se movió: con lo recordado intacto, el
+    // primer pintado ya era el bueno y no hay nada que volver a dibujar.
+    return JSON.stringify(fresh) !== JSON.stringify(known);
   } catch (_error) {
     return false; // Un alias ausente no puede dejar sin pintar la cuenta.
   }
@@ -471,6 +506,7 @@ cardsEl.addEventListener('click', event => {
 });
 refreshButton.addEventListener('click', refresh);
 restartManagerButton.addEventListener('click', restartManager);
+restoreAliases();
 refresh();
 setInterval(refresh, 60000);
 managerRestartState().then(state => {

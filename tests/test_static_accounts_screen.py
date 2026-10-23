@@ -198,6 +198,24 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("if (await loadAliases(data.accounts || [])) render(data)", SCRIPT)
         self.assertIn("const missing = [...ids].filter", SCRIPT)
 
+    def test_the_card_never_flashes_the_number_before_the_name(self) -> None:
+        """La tarjeta se pinta antes de que el alias llegue, a propósito.
+
+        Medido el 2026-10-23 contra el manager en marcha: 4 ms hasta
+        «Portafolio #67» y 48 hasta «AXI-Select_Test». Lo recordado hace que el
+        primer pintado ya sea el bueno, sin bloquear la tarjeta esperándolo.
+        """
+        self.assertIn("restoreAliases();\nrefresh();", SCRIPT)
+        self.assertIn("localStorage.getItem(ALIAS_CACHE_KEY)", SCRIPT)
+        self.assertIn("localStorage.setItem(\n      ALIAS_CACHE_KEY", SCRIPT)
+        # Recordar no es saber: se vuelve a preguntar una vez por sesión, o un
+        # portafolio renombrado se quedaría con el nombre viejo para siempre.
+        self.assertIn("const wanted = asked ? missing : [...ids];", SCRIPT)
+        self.assertIn("askedNodes.add(nodeId);", SCRIPT)
+        self.assertIn(
+            "return JSON.stringify(fresh) !== JSON.stringify(known);", SCRIPT,
+        )
+
     def test_each_card_opens_its_own_month_by_month_chart(self) -> None:
         self.assertIn('class="month-chart-open"', SCRIPT)
         self.assertIn("cardsEl.addEventListener('click'", SCRIPT)
