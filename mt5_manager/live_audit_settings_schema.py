@@ -180,8 +180,12 @@ def _view_lot_side(strategy: str, sides: Any) -> dict[str, float]:
 def normalize_view_lot_overrides(value: Any) -> dict[str, Any]:
     """Valida la reconciliación de lotes que la vista aplica al leer.
 
-    Dos formas: `$mode: autolot`, que lleva cada operación demo al lote que la
-    cuenta real ejecutó, y un lote demo/real por estrategia escrito a mano.
+    Dos formas: `$mode`, que dice qué columna del diálogo lleva la batuta, y un
+    lote demo/real por estrategia escrito a mano. La columna marcada no se
+    toca; se mueve la otra. `autolot` lleva cada operación demo al lote que la
+    cuenta real ejecutó —se llama así porque fue el único sentido que existió y
+    hay perfiles guardados con ese nombre— y `tester` baja cada cierre real al
+    lote con el que su pareja abrió en el backtest.
     """
     if value is None:
         return {}
@@ -193,8 +197,8 @@ def normalize_view_lot_overrides(value: Any) -> dict[str, Any]:
     for raw_strategy, raw_sides in value.items():
         if raw_strategy == "$mode":
             mode = _text(raw_sides, "view_lot_overrides[$mode]", 16)
-            if mode not in {"", "autolot"}:
-                raise ValueError("view_lot_overrides[$mode] solo admite 'autolot'")
+            if mode not in {"", "autolot", "tester"}:
+                raise ValueError("view_lot_overrides[$mode] solo admite 'autolot' o 'tester'")
             if mode:
                 normalized["$mode"] = mode
             continue

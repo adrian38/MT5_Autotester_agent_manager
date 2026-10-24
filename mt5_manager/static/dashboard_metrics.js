@@ -65,7 +65,7 @@
           pending_real: Boolean(row.real_position_still_open),
         });
       }
-      if (row.real?.close_time) group.real.push(row.real);
+      if (row.real?.close_time) group.real.push(reproduction.pairedReal(row));
     });
     unaccountedRows(result).forEach(row => {
       const strategy = String(row.attribution?.strategy || '');

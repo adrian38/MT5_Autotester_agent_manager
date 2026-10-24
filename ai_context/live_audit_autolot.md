@@ -334,3 +334,45 @@ mínimo**, de modo que el servidor eleva la orden al mínimo ejecutable.
 ejecutado no fue el literal del SET—, pero no debe interpretarse como error si
 la diferencia coincide con el mínimo del símbolo del broker. El mínimo es una
 propiedad del broker, no del perfil de margen ni de la fórmula de autolote.
+
+## Qué columna manda lo elige el usuario (2026-10-24)
+
+El botón escalaba siempre en el mismo sentido —la demo sube al lote de la
+cuenta real— y ése era el único sentido que existía. Ahora la cabecera del
+diálogo de lotes lleva **una casilla por columna**, y la marcada es la que
+lleva la batuta: **la marcada no se toca y se mueve la otra curva**.
+
+| Casilla | `$mode` | Qué se mueve |
+| --- | --- | --- |
+| Lote cuenta real | `autolot` | Cada operación demo sube al lote que la cuenta ejecutó |
+| Lote demo / tester | `tester` | Cada cierre real baja al lote con el que su pareja abrió en el backtest |
+| Ninguna | sin `$mode` | Nada: cada parte se dibuja con el lote que ejecutó |
+
+- **`autolot` se llama así por historia, no por lo que hace.** Es el nombre con
+  el que se guardó desde el principio el único sentido que existía y hay
+  perfiles escritos con él, así que renombrarlo sería migrar datos para no
+  ganar nada. El esquema admite los dos y nada más.
+- **Son casillas y no botones de radio.** «Ninguna» tiene que poder alcanzarse
+  con el ratón, y un grupo de radio no se desmarca una vez marcado. La
+  exclusión la impone la pantalla (`LEAD_BOXES`), no el navegador.
+- **El sentido nuevo no estima ningún lote.** Una real emparejada copia el de
+  su pareja del tester, que es un hecho observado; no hay autolote ni tramo que
+  resolver, porque ésos describen la cuenta real y no el backtest. Una real
+  **sin pareja** —atribuida a mano o suelta— no tiene de dónde copiarlo y
+  conserva el suyo, se marque la columna que se marque. El aviso lo dice.
+- **El veredicto no cambia con el sentido.** Medido sobre un par 0,03 tester /
+  0,10 real con 30 € y 90 €: sin marcar, 30 contra 90; con la real al mando,
+  100 contra 90; con el tester al mando, 30 contra 27. Los dos sentidos dan el
+  mismo 10 % de déficit, que es justo la comprobación de que el escalado cambia
+  las unidades y no el comportamiento medido.
+- **La portada escala igual.** `dashboard_metrics.js` tiene su propia copia de
+  `strategyGroups`, así que el lote de la pareja lo apunta `pairedReal` en el
+  módulo compartido y lo llaman las dos. Si sólo lo apuntara Análisis, con el
+  tester al mando la portada enseñaría la curva real en bruto y Análisis la
+  escalada, que es el fallo que `view_lot_overrides` existe para evitar.
+
+**No hay runtime de JavaScript en este equipo**, así que las pruebas comprueban
+el texto de los `.js`. Lo de arriba se midió sirviendo una copia de la pantalla
+con un doble de `fetch` en `http://127.0.0.1:<puerto>` y leyendo el DOM desde el
+navegador: un `file://` no vale, el panel lo pinta como instantánea estática y
+no ejecuta los scripts.

@@ -57,6 +57,12 @@ td.audit-analysis-empty { display: table-cell; min-height: 0; padding: 26px 16px
 /* Nunca `display: grid` en un `th`: deja de ser celda, no se estira a la
    altura de la fila y su borde inferior se dibuja donde acaba su texto, así
    que la fila se parte. El apilado va en los hijos, que es lo que se quería. */
+/* La casilla que decide qué columna manda. El rótulo entero es el objetivo del
+   clic, y la explicación va debajo en minúsculas: la cabecera está en
+   versalitas y una frase entera así no se lee. */
+.lots-table thead th .lots-lead { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.lots-table thead th .lots-lead input { width: auto; margin: 0; accent-color: #78f0d0; cursor: pointer; }
+.lots-table thead th small { display: block; margin-top: 5px; max-width: 230px; color: var(--muted); font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; line-height: 1.45; }
 .lots-table tbody th { font-weight: 750; }
 .lots-table tbody th strong { display: block; }
 .lots-table tbody th small, .lots-table td small { display: block; color: var(--muted); font-weight: 400; font-size: 11px; }

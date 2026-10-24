@@ -17,8 +17,36 @@
     return Number.isFinite(value) && value >= 0 ? value : null;
   }
 
+  // Qué columna del diálogo de lotes lleva la batuta, y por tanto cuál es la
+  // curva que **se mueve**: la marcada no se toca nunca. `autolot` es el
+  // nombre con el que se guardó desde el principio el único sentido que
+  // existía —manda la cuenta real y la demo sube al lote que ejecutó—, y se
+  // conserva para no invalidar lo ya escrito en los perfiles.
+  const SCALED_SIDES = {autolot: 'demo', tester: 'real'};
+
+  function scaledSide(overrides) {
+    return SCALED_SIDES[overrides?.$mode] || null;
+  }
+
   function autolotMode(overrides) {
     return overrides?.$mode === 'autolot';
+  }
+
+  function testerMode(overrides) {
+    return overrides?.$mode === 'tester';
+  }
+
+  // El cierre real con el lote al que puede escalarse apuntado: el que su
+  // pareja del tester abrió en el backtest. Es una pareja, así que el lote no
+  // hay que estimarlo como en el sentido contrario. Una real sin pareja
+  // —atribuida a mano o suelta— no tiene de dónde copiarlo y conserva el suyo.
+  // Lo apuntan las dos pantallas que dibujan esta comparación, Análisis y la
+  // portada, porque tienen que enseñar lo mismo.
+  function pairedReal(row) {
+    const lot = Number(row?.tester?.volume);
+    return lot > 0
+      ? {...row.real, scale_volume: lot, scale_source: 'tester'}
+      : {...row.real};
   }
 
   // Lo que se puede copiar cuando la operación no tiene real que copiar. Los
@@ -46,7 +74,7 @@
   function sideSeries(trades, strategy, side, overrides) {
     const manualLot = overrideFor(overrides, strategy, side);
     return trades.map(trade => {
-      const automatic = side === 'demo' && autolotMode(overrides)
+      const automatic = scaledSide(overrides) === side
         ? Number(trade.scale_volume) : null;
       const lot = Number.isFinite(automatic) && automatic > 0 ? automatic : manualLot;
       return {
@@ -187,8 +215,9 @@
 
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
-    autolotMode, compare, fewTrades, numbers, overrideFor, reviewed,
-    scaleTarget, scaledProfit, sideSeries, storedOverrides, storedReviews, verdict,
+    autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, reviewed,
+    scaleTarget, scaledProfit, scaledSide, sideSeries, storedOverrides, storedReviews,
+    testerMode, verdict,
   };
   root.LiveAuditReproduction = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

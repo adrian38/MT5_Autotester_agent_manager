@@ -57,6 +57,17 @@ function autolotMode() {
   return LiveAuditReproduction.autolotMode(lotOverrides);
 }
 
+function testerMode() {
+  return LiveAuditReproduction.testerMode(lotOverrides);
+}
+
+// Qué curva se mueve, si es que se mueve alguna: la de la columna que **no**
+// manda. Sin columna marcada no se mueve ninguna y cada parte se dibuja con el
+// lote que ejecutó.
+function scaledSide() {
+  return LiveAuditReproduction.scaledSide(lotOverrides);
+}
+
 // La cuenta real lleva la batuta. Si la operación tiene pareja —cerrada o
 // todavía abierta— el lote al que hay que llevar la demo es el que la cuenta
 // **ejecutó**, no el que el autolote calculó: el objetivo de la pantalla es
@@ -74,6 +85,23 @@ function autolotLots(group) {
 
 function autolotTrades(group) {
   return group.demo.filter(trade => Number(trade.scale_volume) > 0).length;
+}
+
+// Lo mismo, pero del lado que de verdad se está moviendo. `autolotLots` mira
+// siempre la demo porque describe el botón de autolote, que sólo va en ese
+// sentido; estas dos siguen a la casilla marcada.
+function scaledTradesOf(group) {
+  const side = scaledSide();
+  if (!side) return [];
+  return side === 'demo' ? group.demo : groupRealTrades(group);
+}
+
+function scaledLots(group) {
+  return observedLots(scaledTradesOf(group).map(trade => ({volume: trade.scale_volume})));
+}
+
+function scaledTrades(group) {
+  return scaledTradesOf(group).filter(trade => Number(trade.scale_volume) > 0).length;
 }
 
 function scaledBySource(group, source) {
@@ -274,7 +302,7 @@ function strategyGroups(result) {
         pending_real: Boolean(row.real_position_still_open),
       });
     }
-    if (row.real?.close_time) group.real.push(row.real);
+    if (row.real?.close_time) group.real.push(LiveAuditReproduction.pairedReal(row));
     // Una real todavía abierta SÍ está emparejada: el auditor la alineó con su
     // operación del tester. Lo que no tiene es PnL cerrado, así que no entra en
     // la curva. Sin contarla aparte, la pantalla decía «0 REAL EMPAREJADAS» y
@@ -414,7 +442,10 @@ function groupTotal(group, side) {
 }
 
 function simulatedMark(group) {
-  if (autolotMode() && autolotLots(group).length) return '<small class="lots-changed">ESCALADA AL LOTE REAL</small>';
+  if (scaledSide() && scaledLots(group).length) {
+    const label = testerMode() ? 'ESCALADA AL LOTE DEL TESTER' : 'ESCALADA AL LOTE REAL';
+    return `<small class="lots-changed">${label}</small>`;
+  }
   const sides = ['demo', 'real'].filter(side => overrideFor(group.strategy, side) !== null);
   return sides.length ? '<small class="lots-changed">LOTE SIMULADO</small>' : '';
 }
@@ -434,20 +465,30 @@ function strategyButton(group, index) {
   return `<button type="button" data-strategy-key="${index}"><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(group.label)}</small><small>Demo ${escapeHtml(demo)} · Real ${escapeHtml(real)}</small>${openRealMark(group)}${simulatedMark(group)}</button>`;
 }
 
+// De dónde salió el lote al que se escala. Con la cuenta real al mando son
+// tres procedencias y hay que distinguirlas, porque sólo la primera es un lote
+// observado; con el tester al mando sólo hay una —el lote con el que la pareja
+// abrió en el backtest—, así que no hay nada que desglosar.
+function scaledLotNote(group, side, automatic, executed) {
+  const label = side === 'demo' ? 'demo' : 'real';
+  if (side === 'real') {
+    return `${label} al lote del tester ${lotList(automatic)} sobre ejecutado ${lotList(executed)}`;
+  }
+  const fromReal = scaledBySource(group, 'real');
+  const estimated = scaledBySource(group, 'autolot');
+  const origen = [
+    fromReal ? `${fromReal} al lote ejecutado en real` : '',
+    estimated ? `${estimated} por autolote al no tener pareja` : '',
+  ].filter(Boolean).join(' · ');
+  return `${label} al lote real ${lotList(automatic)} (${origen}) sobre ejecutado ${lotList(executed)}`;
+}
+
 function lotNote(group, side) {
   const override = overrideFor(group.strategy, side);
   const executed = side === 'demo' ? group.demoLots : group.realLots;
   const label = side === 'demo' ? 'demo' : 'real';
-  const automatic = side === 'demo' && autolotMode() ? autolotLots(group) : [];
-  if (automatic.length) {
-    const fromReal = scaledBySource(group, 'real');
-    const estimated = scaledBySource(group, 'autolot');
-    const origen = [
-      fromReal ? `${fromReal} al lote ejecutado en real` : '',
-      estimated ? `${estimated} por autolote al no tener pareja` : '',
-    ].filter(Boolean).join(' · ');
-    return `${label} al lote real ${lotList(automatic)} (${origen}) sobre ejecutado ${lotList(executed)}`;
-  }
+  const automatic = scaledSide() === side ? scaledLots(group) : [];
+  if (automatic.length) return scaledLotNote(group, side, automatic, executed);
   if (override === null) return `${label} ${lotList(executed)}`;
   return `${label} ${number(override, 8)} simulado sobre ${lotList(executed)}`;
 }
@@ -478,10 +519,48 @@ function selectStrategy(index) {
 }
 
 function simulatedStrategies() {
-  if (autolotMode()) return strategyRows.filter(group => autolotLots(group).length);
+  if (scaledSide()) return strategyRows.filter(group => scaledLots(group).length);
   return strategyRows.filter(group => (
     overrideFor(group.strategy, 'demo') !== null || overrideFor(group.strategy, 'real') !== null
   ));
+}
+
+// En autolote el detalle por estrategia es la tabla del diálogo: aquí sólo el
+// recuento, porque enumerar quince estrategias con su recorrido de lotes deja
+// un aviso que nadie lee.
+function autolotNotice(changed) {
+  const recalculated = changed.reduce((total, group) => total + autolotTrades(group), 0);
+  const demoTrades = strategyRows.reduce((total, group) => total + group.demo.length, 0);
+  const fromReal = changed.reduce((total, group) => total + scaledBySource(group, 'real'), 0);
+  const estimated = changed.reduce((total, group) => total + scaledBySource(group, 'autolot'), 0);
+  const declared = changed.reduce((total, group) => total + scaledBySource(group, 'schedule'), 0);
+  return {
+    heading: 'La curva Demo está escalada al lote de la cuenta real.',
+    detail: `${recalculated} de ${demoTrades} operaciones demo escaladas en ${changed.length} estrategia${changed.length === 1 ? '' : 's'}: ${fromReal} al lote que ejecutó la cuenta real${estimated ? `, ${estimated} al autolote por no tener pareja` : ''}${declared ? `, ${declared} al lote que declaraste vigente en su fecha` : ''}. El resto conserva su lote de backtest y la curva Real conserva lo ejecutado.`,
+  };
+}
+
+// El sentido contrario: manda el tester y la que baja es la real. No hay
+// procedencias que desglosar —cada cierre copia el lote de su pareja— pero sí
+// hay que decir qué se queda fuera: una real sin pareja no tiene lote del que
+// copiar y conserva el suyo, así que la curva mezcla dos escalas si las hay.
+function testerNotice(changed) {
+  const recalculated = changed.reduce((total, group) => total + scaledTrades(group), 0);
+  const realTrades = strategyRows.reduce((total, group) => total + groupRealTrades(group).length, 0);
+  const extras = unmatchedReals(currentResult).length;
+  return {
+    heading: 'La curva Real está escalada al lote del tester.',
+    detail: `${recalculated} de ${realTrades} operaciones reales escaladas en ${changed.length} estrategia${changed.length === 1 ? '' : 's'}: cada una al lote con el que su pareja del backtest abrió. La curva Demo conserva el lote del tester${extras ? `, y las ${extras} reales sin pareja conservan el que ejecutaron porque no hay pareja de la que copiarlo` : ''}.`,
+  };
+}
+
+function manualNotice(changed) {
+  return {
+    heading: 'Estas curvas no son las de la auditoría.',
+    detail: changed
+      .map(group => `${group.symbol}: ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`)
+      .join(' — '),
+  };
 }
 
 function renderSimulationNotice() {
@@ -489,22 +568,8 @@ function renderSimulationNotice() {
   const changed = simulatedStrategies();
   notice.hidden = !changed.length;
   if (notice.hidden) return;
-  // En autolote el detalle por estrategia es la tabla del diálogo: aquí sólo el
-  // recuento, porque enumerar quince estrategias con su recorrido de lotes deja
-  // un aviso que nadie lee.
-  const recalculated = changed.reduce((total, group) => total + autolotTrades(group), 0);
-  const demoTrades = strategyRows.reduce((total, group) => total + group.demo.length, 0);
-  const fromReal = changed.reduce((total, group) => total + scaledBySource(group, 'real'), 0);
-  const estimated = changed.reduce((total, group) => total + scaledBySource(group, 'autolot'), 0);
-  const declared = changed.reduce((total, group) => total + scaledBySource(group, 'schedule'), 0);
-  const detail = autolotMode()
-    ? `${recalculated} de ${demoTrades} operaciones demo escaladas en ${changed.length} estrategia${changed.length === 1 ? '' : 's'}: ${fromReal} al lote que ejecutó la cuenta real${estimated ? `, ${estimated} al autolote por no tener pareja` : ''}${declared ? `, ${declared} al lote que declaraste vigente en su fecha` : ''}. El resto conserva su lote de backtest y la curva Real conserva lo ejecutado.`
-    : changed
-      .map(group => `${group.symbol}: ${lotNote(group, 'demo')} · ${lotNote(group, 'real')}`)
-      .join(' — ');
-  const heading = autolotMode()
-    ? 'La curva Demo está escalada al lote de la cuenta real.'
-    : 'Estas curvas no son las de la auditoría.';
+  const {heading, detail} = testerMode() ? testerNotice(changed)
+    : autolotMode() ? autolotNotice(changed) : manualNotice(changed);
   notice.innerHTML = `<span class="badge pending">SIMULACIÓN</span><div><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(detail)}</span></div><button type="button" id="simulation-reset" class="secondary">Restablecer</button>`;
 }
 
@@ -707,6 +772,20 @@ function renderPeriodNote() {
   note.textContent = span ? `Periodo auditado: ${span}${length}.` : '';
 }
 
+// A qué escala están los importes que la tabla compara. Sin ninguna columna al
+// mando las dos partes corren a lo que ejecutaron, y entonces buena parte de la
+// diferencia es tamaño de posición y no comportamiento: hay que decirlo, o el
+// veredicto se lee como si midiera otra cosa.
+function scalingNote() {
+  if (testerMode()) {
+    return 'Los importes de la cuenta real están escalados al lote del tester, así que la diferencia ya no mide el tamaño de la posición.';
+  }
+  if (autolotMode()) {
+    return 'Los importes de la demo están escalados al lote de la cuenta real, así que la diferencia ya no mide el tamaño de la posición.';
+  }
+  return 'La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: marca una de las dos columnas en la simulación de lotes para comparar comportamiento.';
+}
+
 function renderReproduction() {
   const currency = chartContext.currency;
   renderPeriodNote();
@@ -736,9 +815,7 @@ function renderReproduction() {
   const qualityWarning = doubtful.length
     ? ` ${doubtful.length} estrategia(s) corrieron el tester sin la calidad tick exigida (${doubtful.map(group => `${group.symbol} ${group.quality.pct == null ? 'sin informar' : `${number(group.quality.pct)} %`}`).join(', ')}): su veredicto no sirve para decidir si se retiran.`
     : '';
-  document.querySelector('#reproduction-note').textContent = (autolotMode()
-    ? `${criterion} Los importes de la demo están escalados al lote de la cuenta real, así que la diferencia ya no mide el tamaño de la posición.`
-    : `${criterion} La demo corre al lote del backtest y la real al suyo, así que buena parte de la diferencia es tamaño: pulsa «Escalar demo al lote real» para comparar comportamiento.`) + qualityWarning;
+  document.querySelector('#reproduction-note').textContent = `${criterion} ${scalingNote()}${qualityWarning}`;
 }
 
 function storedAttribution() {
@@ -1244,6 +1321,26 @@ function lotInput(group, side) {
     <small>ejecutado ${escapeHtml(lotList(executed))}</small>${automaticNote}</td>`;
 }
 
+// Son casillas y no botones de radio porque «ninguna» tiene que poder
+// alcanzarse con el ratón: un grupo de radio no se desmarca una vez marcado, y
+// sin marca es justo como se ve lo que cada parte ejecutó. La exclusión la
+// impone este par de líneas, no el navegador.
+const LEAD_BOXES = {tester: '#lots-lead-demo', autolot: '#lots-lead-real'};
+
+function leadBox(mode) {
+  return document.querySelector(LEAD_BOXES[mode]);
+}
+
+function showDialogMode() {
+  Object.keys(LEAD_BOXES).forEach(mode => {
+    leadBox(mode).checked = lotOverrides.$mode === mode;
+  });
+}
+
+function readDialogMode() {
+  return Object.keys(LEAD_BOXES).find(mode => leadBox(mode).checked) || '';
+}
+
 function openLotsDialog() {
   const body = document.querySelector('#lots-body');
   body.innerHTML = strategyRows.length ? strategyRows.map(group => `<tr>
@@ -1261,13 +1358,19 @@ function openLotsDialog() {
   button.title = automatic
     ? `Llevar ${automatic} de ${totalDemo} operaciones demo al lote de la cuenta real: ${fromReal} al que ejecutó, ${estimated} al que calcula el autolote y ${declared} al que declaraste vigente en su fecha.`
     : 'Este resultado no tiene lotes reales ni cálculos de autolote con los que escalar.';
+  const pairedReals = strategyRows.reduce(
+    (total, group) => total + group.real.filter(row => Number(row.scale_volume) > 0).length, 0,
+  );
+  const totalReal = strategyRows.reduce((total, group) => total + groupRealTrades(group).length, 0);
   document.querySelector('#lots-caveat').textContent = [
-    automatic ? `La cuenta real lleva la batuta: ${fromReal} de ${totalDemo} operaciones demo se escalan al lote que la cuenta ejecutó de verdad, no al teórico.` : '',
+    automatic ? `La cuenta real lleva la batuta cuando marcas su columna: ${fromReal} de ${totalDemo} operaciones demo se escalan al lote que la cuenta ejecutó de verdad, no al teórico.` : '',
     estimated ? `Las ${estimated} que no tienen pareja en real usan el autolote —saldo de la cuenta real en su apertura— porque no hay lote ejecutado que copiar.` : '',
     declared ? `Otras ${declared} sin pareja usan el lote que declaraste vigente en su fecha, por el mismo motivo.` : '',
+    pairedReals ? `Marcada la del tester, manda el backtest: ${pairedReals} de ${totalReal} operaciones reales bajan al lote con el que su pareja abrió, y la demo se queda como corrió.` : '',
     'El PnL se reescala en proporción al lote, así que da por supuesto que el mismo precio se habría llenado con cualquier tamaño: no modela deslizamiento, margen ni stop out.',
-    extras ? `Las ${extras} reales sin pareja nunca se reescalan: esta simulación sólo toca la demo, y una real —atribuida o no— es lo que la cuenta ejecutó.` : '',
+    extras ? `Las ${extras} reales sin pareja nunca se reescalan, se marque la columna que se marque: no hay pareja del tester de la que copiar el lote, y lo que la cuenta ejecutó es un hecho.` : '',
   ].filter(Boolean).join(' ');
+  showDialogMode();
   document.querySelector('#lots-dialog').showModal();
 }
 
@@ -1310,8 +1413,16 @@ document.querySelector('#lots-autolot').addEventListener('click', () => {
   applyLots({$mode: 'autolot'});
   document.querySelector('#lots-dialog').close();
 });
+Object.keys(LEAD_BOXES).forEach(mode => {
+  leadBox(mode).addEventListener('change', event => {
+    if (!event.target.checked) return;
+    Object.keys(LEAD_BOXES).filter(other => other !== mode)
+      .forEach(other => { leadBox(other).checked = false; });
+  });
+});
 document.querySelector('#lots-apply').addEventListener('click', () => {
-  applyLots(readDialogLots());
+  const mode = readDialogMode();
+  applyLots(mode ? {...readDialogLots(), $mode: mode} : readDialogLots());
   document.querySelector('#lots-dialog').close();
 });
 document.querySelector('#simulation-notice').addEventListener('click', event => {

@@ -116,13 +116,17 @@
       <div>
         <p class="eyebrow">SIMULACIÓN DE LOTES</p>
         <h2 id="lots-title">¿Y si cada estrategia hubiera operado otro lote?</h2>
-        <p class="subtitle">Reescala el PnL y el drawdown de estas curvas en proporción al lote. <strong>No reanaliza la auditoría</strong>: no toca el detalle de operaciones ni los lotes con los que se auditó. Sí <strong>se guarda en el uso</strong>, así que la portada y cualquier otro dispositivo enseñarán esta misma comparación hasta que la restablezcas. Deja un campo vacío para conservar el lote que se ejecutó.</p>
+        <p class="subtitle">Reescala el PnL y el drawdown de estas curvas en proporción al lote. <strong>No reanaliza la auditoría</strong>: no toca el detalle de operaciones ni los lotes con los que se auditó. Sí <strong>se guarda en el uso</strong>, así que la portada y cualquier otro dispositivo enseñarán esta misma comparación hasta que la restablezcas. Marca una de las dos columnas para decidir <strong>qué lotes mandan</strong>: la marcada no se toca y es la otra curva la que se lleva a ella. Sin ninguna marcada, cada parte se dibuja con el lote que ejecutó. Deja un campo vacío para conservar el lote que se ejecutó.</p>
       </div>
       <button id="lots-close" type="button" class="icon-button" aria-label="Cerrar">×</button>
     </div>
     <div class="lots-table-wrap">
       <table class="lots-table">
-        <thead><tr><th>Estrategia</th><th>Lote demo / tester</th><th>Lote cuenta real</th></tr></thead>
+        <thead><tr>
+          <th>Estrategia</th>
+          <th><label class="lots-lead"><input type="checkbox" id="lots-lead-demo"><span>Lote demo / tester</span></label><small>Marcado, manda el tester: la curva real baja al lote con el que el backtest abrió cada pareja.</small></th>
+          <th><label class="lots-lead"><input type="checkbox" id="lots-lead-real"><span>Lote cuenta real</span></label><small>Marcado, manda la cuenta: la curva demo sube al lote que la cuenta ejecutó de verdad.</small></th>
+        </tr></thead>
         <tbody id="lots-body"></tbody>
       </table>
     </div>

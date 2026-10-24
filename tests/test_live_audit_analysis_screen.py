@@ -39,6 +39,67 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("La cuenta real lleva la batuta", self.analysis_script)
         self.assertIn("Escalar demo al lote real", self.analysis_page_text)
 
+    def test_which_column_leads_is_a_choice_and_either_one_can_be_unmarked(self) -> None:
+        # Las dos casillas de la cabecera deciden qué lotes hacen el escalado.
+        # La marcada no se toca: se mueve la otra curva. Son casillas y no
+        # botones de radio porque «ninguna» tiene que poder alcanzarse con el
+        # ratón, y sin marca es como se ve lo que cada parte ejecutó.
+        self.assertIn('id="lots-lead-demo"', self.analysis_page_text)
+        self.assertIn('id="lots-lead-real"', self.analysis_page_text)
+        self.assertIn('type="checkbox"', self.analysis_page_text)
+        self.assertNotIn('type="radio"', self.analysis_page_text)
+        self.assertIn(
+            "const LEAD_BOXES = {tester: '#lots-lead-demo', autolot: '#lots-lead-real'}",
+            self.analysis_script,
+        )
+        # Una excluye a la otra, y el diálogo vuelve a abrirse con lo elegido.
+        self.assertIn("if (!event.target.checked) return;", self.analysis_script)
+        self.assertIn(
+            "leadBox(mode).checked = lotOverrides.$mode === mode;", self.analysis_script,
+        )
+        # Sin casilla marcada no se escribe `$mode`, y sin `$mode` no se mueve
+        # ninguna curva: cada parte se dibuja con el lote que ejecutó.
+        self.assertIn(
+            "applyLots(mode ? {...readDialogLots(), $mode: mode} : readDialogLots())",
+            self.analysis_script,
+        )
+        self.assertIn("const SCALED_SIDES = {autolot: 'demo', tester: 'real'}", self.reproduction_script)
+        self.assertIn(
+            "return SCALED_SIDES[overrides?.$mode] || null;", self.reproduction_script,
+        )
+
+    def test_with_the_tester_leading_the_real_curve_drops_to_the_backtest_lot(self) -> None:
+        # El sentido contrario al del autolote, y el único lote que puede
+        # copiar: el de su pareja del backtest. Sin pareja no hay de dónde
+        # copiarlo —una atribuida a mano, o una suelta— y conserva el suyo,
+        # que es lo que la cuenta ejecutó de verdad.
+        self.assertIn("function pairedReal(row)", self.reproduction_script)
+        self.assertIn("const lot = Number(row?.tester?.volume);", self.reproduction_script)
+        self.assertIn(
+            "{...row.real, scale_volume: lot, scale_source: 'tester'}", self.reproduction_script,
+        )
+        self.assertIn(": {...row.real};", self.reproduction_script)
+        self.assertIn(
+            "group.real.push(LiveAuditReproduction.pairedReal(row))", self.analysis_script,
+        )
+        # Y la escala la elige el modo, no el lado: antes `sideSeries` sólo
+        # sabía escalar la demo.
+        self.assertIn("const automatic = scaledSide(overrides) === side", self.reproduction_script)
+        self.assertIn("La curva Real está escalada al lote del tester.", self.analysis_script)
+        self.assertIn("ESCALADA AL LOTE DEL TESTER", self.analysis_script)
+        self.assertIn(
+            "Los importes de la cuenta real están escalados al lote del tester",
+            self.analysis_script,
+        )
+
+    def test_the_front_page_scales_the_same_way_as_the_analysis_screen(self) -> None:
+        # La portada dibuja la misma comparación desde el mismo perfil: si no
+        # apunta el lote de la pareja, con el tester al mando enseñaría la
+        # curva real en bruto y Análisis la escalada.
+        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        metrics = (static_dir / "dashboard_metrics.js").read_text(encoding="utf-8")
+        self.assertIn("group.real.push(reproduction.pairedReal(row))", metrics)
+
     def test_only_an_operation_without_a_real_pair_falls_back_to_the_autolot(self) -> None:
         # Sin pareja no hay lote ejecutado que copiar, y ahí sí entra el
         # calculo: dejarla con el lote fijo del backtest mezclaria dos escalas.

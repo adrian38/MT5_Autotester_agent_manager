@@ -76,11 +76,22 @@ class LiveAuditViewLotsStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(KeyError, "no tiene configuración"):
                 store.set_view_lot_overrides("node-a", "otro-uso", {})
 
-    def test_view_lot_scaling_only_admits_autolot_and_positive_lots(self) -> None:
+    def test_view_lot_scaling_only_admits_a_known_lead_and_positive_lots(self) -> None:
         with self.assertRaisesRegex(ValueError, "objeto JSON"):
             normalize_live_audit_settings({"view_lot_overrides": []})
         with self.assertRaisesRegex(ValueError, "autolot"):
             normalize_live_audit_settings({"view_lot_overrides": {"$mode": "lo-que-sea"}})
+        # Los dos sentidos: `autolot` sube la demo al lote que la cuenta
+        # ejecutó y `tester` baja la real al lote del backtest. El nombre del
+        # primero es histórico —fue el único que existió— y se conserva porque
+        # hay perfiles guardados con él.
+        for mode in ("autolot", "tester"):
+            self.assertEqual(
+                normalize_live_audit_settings({"view_lot_overrides": {"$mode": mode}})[
+                    "view_lot_overrides"
+                ],
+                {"$mode": mode},
+            )
         with self.assertRaisesRegex(ValueError, "objeto JSON"):
             normalize_live_audit_settings({"view_lot_overrides": {"eth-grid": 0.1}})
         with self.assertRaisesRegex(ValueError, "entre"):
