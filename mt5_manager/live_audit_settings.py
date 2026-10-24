@@ -92,6 +92,74 @@ class LiveAuditSettingsStore(LiveAuditAccountsMixin, LiveAuditProfileFieldsMixin
         if self.credentials_path.is_file():
             self._load_credentials(load_json(self.credentials_path))
 
+    @staticmethod
+    def _without_retired_fields(profile: dict[str, Any]) -> dict[str, Any]:
+        """Quita del perfil leído del disco los campos que el esquema ya no conoce.
+
+        Lo que hay en el fichero lo escribió este mismo manager, puede que una
+        versión anterior: un campo retirado desde entonces es historia, no una
+        errata. `normalize_live_audit_settings` lo rechaza, y tiene que seguir
+        haciéndolo cuando el campo llega por la API —ahí una errata hay que
+        cantarla—, pero al leer ese rechazo cae en el `except ValueError` de
+        abajo y **se lleva el nodo entero, en silencio**.
+
+        Pasó el 2026-10-24 con `reviewed_open_positions`: lo escribió la
+        versión de las abiertas sin enlazar en los catorce perfiles de AXI y
+        RoboForex, la reversión le quitó el sitio en el esquema, y al
+        reiniciar el manager «Portafolios activos» amaneció vacía sin que
+        nada dijera por qué. Un campo que sobra no puede costar nueve
+        portafolios en real.
+        """
+        unknown = set(profile) - set(DEFAULT_LIVE_AUDIT_PROFILE)
+        if not unknown:
+            return profile
+        return {key: value for key, value in profile.items() if key not in unknown}
+
+    def _stored_profiles(
+        self, record: dict[str, Any],
+    ) -> tuple[list[str], dict[str, dict[str, Any]]]:
+        """Los usos que guarda un registro, sea del contrato que sea.
+
+        Tres formatos conviven en el fichero: el de ahora —un uso por
+        `audit_id`—, el anterior de un uso por `portfolio_id` y el primero de
+        todos, con un único `settings` por nodo. Lo que no encaje en ninguno
+        no tiene usos, y un `ValueError` aquí lo recoge quien llama.
+        """
+        if isinstance(record.get("profiles"), dict):
+            if "selected_audit_ids" in record:
+                return _audit_ids(record.get("selected_audit_ids") or []), {
+                    str(audit_id): normalize_live_audit_settings(
+                        self._without_retired_fields(profile),
+                    )
+                    for audit_id, profile in record["profiles"].items()
+                    if isinstance(profile, dict)
+                }
+            # Contrato anterior: un único uso por portfolio_id. Conservamos
+            # el identificador y la composición que antes elegía el nodo de
+            # forma implícita (Moderado era el valor histórico por defecto).
+            portfolio_ids = _portfolio_ids(record.get("selected_portfolio_ids") or [])
+            profiles = {}
+            for portfolio_id, profile in record["profiles"].items():
+                if not isinstance(profile, dict):
+                    continue
+                numeric_id = _integer(portfolio_id, "portfolio_id", 1, 2_147_483_647)
+                migrated = {"portfolio_id": numeric_id, "portfolio_type": "balanced", **profile}
+                profiles[str(numeric_id)] = normalize_live_audit_settings(
+                    self._without_retired_fields(migrated),
+                )
+            return [str(value) for value in portfolio_ids], profiles
+        if isinstance(record.get("settings"), dict):
+            raw_settings = record["settings"]
+            portfolio_ids = _portfolio_ids(raw_settings.get("selected_portfolio_ids") or [])
+            profile = _public_legacy_profile(raw_settings)
+            return [str(value) for value in portfolio_ids], {
+                str(portfolio_id): normalize_live_audit_settings({
+                    **profile, "portfolio_id": portfolio_id, "portfolio_type": "balanced",
+                })
+                for portfolio_id in portfolio_ids
+            }
+        return [], {}
+
     def _load_settings(self, stored: dict[str, Any]) -> None:
         for raw_node_id, record in stored.items():
             if not isinstance(record, dict):
@@ -103,41 +171,7 @@ class LiveAuditSettingsStore(LiveAuditAccountsMixin, LiveAuditProfileFieldsMixin
                     if isinstance(record.get("restore_account"), dict)
                     else None
                 )
-                if isinstance(record.get("profiles"), dict):
-                    if "selected_audit_ids" in record:
-                        selected = _audit_ids(record.get("selected_audit_ids") or [])
-                        profiles = {
-                            str(audit_id): normalize_live_audit_settings(profile)
-                            for audit_id, profile in record["profiles"].items()
-                            if isinstance(profile, dict)
-                        }
-                    else:
-                        # Contrato anterior: un único uso por portfolio_id. Conservamos
-                        # el identificador y la composición que antes elegía el nodo de
-                        # forma implícita (Moderado era el valor histórico por defecto).
-                        portfolio_ids = _portfolio_ids(record.get("selected_portfolio_ids") or [])
-                        selected = [str(value) for value in portfolio_ids]
-                        profiles = {}
-                        for portfolio_id, profile in record["profiles"].items():
-                            if not isinstance(profile, dict):
-                                continue
-                            numeric_id = _integer(portfolio_id, "portfolio_id", 1, 2_147_483_647)
-                            migrated = {"portfolio_id": numeric_id, "portfolio_type": "balanced", **profile}
-                            profiles[str(numeric_id)] = normalize_live_audit_settings(migrated)
-                elif isinstance(record.get("settings"), dict):
-                    raw_settings = record["settings"]
-                    portfolio_ids = _portfolio_ids(raw_settings.get("selected_portfolio_ids") or [])
-                    selected = [str(value) for value in portfolio_ids]
-                    profile = _public_legacy_profile(raw_settings)
-                    profiles = {
-                        str(portfolio_id): normalize_live_audit_settings({
-                            **profile, "portfolio_id": portfolio_id, "portfolio_type": "balanced",
-                        })
-                        for portfolio_id in portfolio_ids
-                    }
-                else:
-                    selected = []
-                    profiles = {}
+                selected, profiles = self._stored_profiles(record)
             except ValueError:
                 continue
             if not profiles and restore_account is None:
