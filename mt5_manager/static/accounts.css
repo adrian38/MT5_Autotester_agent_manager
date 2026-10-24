@@ -24,7 +24,9 @@ main{padding:26px max(24px,5vw) 64px}
 .card-head .account-where{margin-top:7px;color:var(--muted);font-size:12px}
 .card-status{display:grid;justify-items:end;gap:9px}.total-check{display:flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:11px;cursor:pointer}.total-check input{width:15px;height:15px;margin:0;padding:0;border:0;accent-color:var(--accent)}
 .card-portfolios{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
-.card-portfolios span{padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--accent2);font-size:11px;font-weight:700}
+.card-portfolios span,.card-portfolios a{padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--accent2);font-size:11px;font-weight:700}
+.card-portfolios a{text-decoration:none}
+.card-portfolios a:hover{border-color:var(--accent2);text-decoration:underline}
 .badge{flex:0 0 auto;padding:6px 9px;border-radius:999px;background:#253545;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
 .badge.good{background:#153c33;color:#8ef0ce}.badge.bad{background:#4b272d;color:#ffb2b2}.badge.warn{background:#4d401e;color:#ffe08a}
 .metric-rows{display:grid;gap:1px;border-block:1px solid var(--line);background:var(--line)}
@@ -78,6 +80,11 @@ dialog footer{display:flex;justify-content:flex-end;gap:10px}
 .monthly-axis,.monthly-month,.monthly-legend{fill:var(--muted);font-size:11px}
 .monthly-bar.profit{fill:var(--accent)}.monthly-bar.loss{fill:var(--danger)}
 .monthly-bar.drawdown{fill:var(--warn)}
+/* Antes del portafolio que la cuenta sirve hoy: mismo dinero, otro
+   portafolio. Se atenúan en vez de desaparecer. */
+.monthly-bar.before{opacity:.26}.monthly-bar.partial{opacity:.62}
+.monthly-boundary{stroke:#7fa6c4;stroke-width:1.5;stroke-dasharray:5 4}
+.monthly-boundary-label{fill:#7fa6c4;font-size:10px;font-weight:700}
 .monthly-empty{padding:40px 18px;color:var(--muted);font-size:12px;text-align:center}
 @media(max-width:900px){header{align-items:start;flex-direction:column}.header-actions{justify-content:flex-start}.accounts{grid-template-columns:1fr}}
 @media(max-width:600px){header,main{padding-inline:18px}.header-actions{width:100%}.header-actions>*{flex:1 1 auto}}

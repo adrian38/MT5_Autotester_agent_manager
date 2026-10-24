@@ -27,9 +27,35 @@ def moment(day: str, hour: int = 10) -> datetime:
     return datetime(year, month, number, hour, tzinfo=timezone.utc)
 
 
+class FakeSettings:
+    """Lo mínimo que el inventario le pide al estado del nodo."""
+
+    def __init__(self, profiles: dict[str, object]) -> None:
+        self._state = {
+            "profiles": profiles,
+            "credential_state": {
+                audit_id: {"source_password_saved": True} for audit_id in profiles
+            },
+        }
+
+    def state(self, _node_id: str) -> dict[str, object]:
+        return self._state
+
+
+def profile(portfolio_id: int = 173) -> dict[str, object]:
+    return {
+        "portfolio_id": portfolio_id, "portfolio_type": "balanced",
+        "deployment_name": "Profalgo_Robo", "live_trading": True,
+        "source_login": "77028839", "source_server": "RoboForex-ECN",
+    }
+
+
 class FakeServer:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, profiles: dict[str, object] | None = None) -> None:
         self.live_accounts = LiveAccountArchive(root / "live_accounts")
+        self.live_audit_settings = FakeSettings(
+            {"audit-173": profile()} if profiles is None else profiles,
+        )
 
 
 class MonthSpanTests(unittest.TestCase):
@@ -180,6 +206,91 @@ class RouteTests(unittest.TestCase):
         status, payload = self._get("otro", "77028839%40RoboForex-ECN").sent[0]
         self.assertEqual(status, 404)
         self.assertIn("otro", payload["error"])
+
+
+class TrackedPortfolioTests(unittest.TestCase):
+    """Desde cuándo las barras son del portafolio que la cuenta sirve hoy.
+
+    El tramo **no** se corta por esa fecha: medido el 2026-10-24, seis de los
+    nueve usos en real se guardaron a mediados de octubre sobre cuentas que
+    llevaban meses operando, así que cortar dejaría seis gráficos de una
+    barra. Se marca, que es lo que permite distinguirlas sin perderlas.
+    """
+
+    def setUp(self) -> None:
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.server = FakeServer(Path(self.folder.name))
+        self.server.live_accounts.merge(
+            "roboforex", KEY, login="77028839", server="RoboForex-ECN",
+            currency="EUR", movements=[
+                (moment("2026-08-10"), 50.0), (moment("2026-09-20"), 100.0),
+                (moment("2026-10-05"), -20.0),
+            ],
+            period_start="", period_end="2026-10-23",
+        )
+
+    def created(self, day: str) -> None:
+        self.server.live_accounts.write_expectation(
+            "roboforex", 173,
+            {"portfolio_created_at": f"{day}T02:52:14", "portfolio_name": "Mejora #100"},
+        )
+
+    def history(self) -> dict:
+        return live_account_monthly.monthly_history(
+            self.server, "roboforex", KEY, NOW,
+        )
+
+    def test_the_whole_life_of_the_account_is_still_there(self) -> None:
+        self.created("2026-09-15")
+        months = self.history()["months"]
+        self.assertEqual([month["label"] for month in months][0], "2026-08")
+        self.assertEqual(len(months), 3)
+
+    def test_each_month_says_whether_it_is_of_this_portfolio(self) -> None:
+        self.created("2026-09-15")
+        marks = {
+            month["label"]: (month["tracked"], month["partial"])
+            for month in self.history()["months"]
+        }
+        self.assertEqual(marks["2026-08"], (False, False))
+        # El mes de entrada va a medias: parte de sus cierres son de antes.
+        self.assertEqual(marks["2026-09"], (False, True))
+        self.assertEqual(marks["2026-10"], (True, False))
+
+    def test_the_payload_names_the_portfolio_and_the_day(self) -> None:
+        self.created("2026-09-15")
+        payload = self.history()
+        self.assertEqual(payload["tracked_since"], "2026-09-15")
+        self.assertEqual(
+            payload["portfolios"],
+            [{
+                "portfolio_id": 173, "name": "Mejora #100",
+                "created_day": "2026-09-15", "created_month": "2026-09",
+            }],
+        )
+
+    def test_without_a_measured_promise_nothing_is_marked(self) -> None:
+        """Una cuenta recién sondeada no tiene la fecha todavía: no se inventa."""
+        payload = self.history()
+        self.assertEqual(payload["tracked_since"], "")
+        self.assertEqual(payload["portfolios"], [])
+        self.assertFalse(any(month["tracked"] for month in payload["months"]))
+        self.assertFalse(any(month["partial"] for month in payload["months"]))
+
+    def test_with_two_uses_the_oldest_one_opens_the_tramo(self) -> None:
+        self.server.live_audit_settings = FakeSettings({
+            "audit-173": profile(), "audit-183": profile(183),
+        })
+        self.created("2026-09-15")
+        self.server.live_accounts.write_expectation(
+            "roboforex", 183, {"portfolio_created_at": "2026-10-19T00:00:00"},
+        )
+        payload = self.history()
+        self.assertEqual(payload["tracked_since"], "2026-09-15")
+        self.assertEqual(
+            [row["portfolio_id"] for row in payload["portfolios"]], [173, 183],
+        )
 
 
 if __name__ == "__main__":

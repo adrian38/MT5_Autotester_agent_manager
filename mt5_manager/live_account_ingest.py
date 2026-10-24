@@ -31,7 +31,7 @@ from . import (
     live_account_presentation, live_account_report, live_audit_autolot,
     manager_http,
 )
-from .common import utc_now
+from .common import safe_int, utc_now
 from .live_account_archive import stored_balances
 from .live_account_series import month_key, previous_month
 from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
@@ -347,6 +347,23 @@ def _scenarios(
     return found
 
 
+def _identity(saved: dict[str, Any]) -> dict[str, Any]:
+    """Cuándo y con qué nombre se guardó el portafolio, y de qué cadena viene.
+
+    `improvement_origin.root_id` es la raíz de su cadena de mejoras: #105 es
+    la mejora de #100, que lo es de #73, y la línea empezó a operar con la
+    raíz. Se guarda para poder decirlo, no para cortar la serie por ahí: seis
+    de los nueve usos en real no tienen cadena y se guardaron a mediados de
+    octubre sobre cuentas que llevaban meses operando.
+    """
+    origin = saved.get("improvement_origin") or {}
+    return {
+        "portfolio_created_at": str(saved.get("created_at") or ""),
+        "portfolio_name": str(saved.get("name") or ""),
+        "portfolio_root_id": safe_int(origin.get("root_id"), 0, minimum=0),
+    }
+
+
 def _profile(server: Any, node_id: str, portfolio: dict[str, Any]) -> dict[str, Any]:
     """El perfil del uso, que es donde vive el autolote y su Excel."""
     audit_id = str(portfolio.get("audit_id") or "")
@@ -380,6 +397,11 @@ def _rebuild(
         "mode": _mode(server, node_id, portfolio),
         "presentation_lots": dict(use.symbols),
         "presentation_warnings": list(use.warnings),
+        # Cuándo se guardó el portafolio que la cuenta sirve hoy. Se queda
+        # escrito aquí, como los lotes de presentación, porque esto es lo
+        # único que abre la memoria UBS del agente: la portada se repinta cada
+        # minuto y no puede ir a buscarlo.
+        **_identity(saved),
     }
     # El atajo de la firma sólo vale **dentro del mismo criterio**: la firma
     # resume las entradas, y con un criterio nuevo las mismas entradas dan otro

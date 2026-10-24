@@ -227,11 +227,34 @@ function portfolioLabel(card, row) {
     || row.name || `Portafolio #${row.portfolio_id}`;
 }
 
+// Desde qué día la cuenta sirve **este** portafolio. Casi nunca es el día 1
+// del mes ni el primer cierre de la cuenta: de los nueve usos en real, seis
+// se guardaron a mitad de octubre sobre cuentas que llevaban meses operando,
+// y 10010194 opera desde noviembre de 2025 con un #67 del 20 de agosto. Sin
+// la fecha, el mes de la tarjeta se lee entero como de este portafolio.
+function sinceNote(row) {
+  const day = String(row.created_day || '');
+  if (!day) return '';
+  const parts = day.split('-');
+  return parts.length === 3 ? ` · desde el ${parts[2]}-${parts[1]}` : ` · desde ${day}`;
+}
+
+// El enlace lleva al histórico de ese portafolio, que es donde se verifica
+// cuándo se guardó y qué lleva dentro.
+function portfolioHref(card, row) {
+  return '/portfolio_history.html?node=' + encodeURIComponent(card.node_id)
+    + '&portfolio=' + encodeURIComponent(row.portfolio_id)
+    + '&scope=full_history';
+}
+
 function portfoliosMarkup(card) {
   if (!(card.portfolios || []).length) return '';
   return '<p class="card-portfolios">' + card.portfolios.map(row => (
-    `<span title="${escapeHtml(row.name || '')}">${escapeHtml(portfolioLabel(card, row))}`
-    + `${row.autolot ? ' · autolote' : ''}</span>`
+    `<a href="${escapeHtml(portfolioHref(card, row))}"`
+    + ` title="${escapeHtml(row.saved_name || row.name || '')}">`
+    + `${escapeHtml(portfolioLabel(card, row))}`
+    + `${row.autolot ? ' · autolote' : ''}`
+    + `${escapeHtml(sinceNote(row))}</a>`
   )).join('') + '</p>';
 }
 

@@ -287,6 +287,33 @@ class CriterionTests(unittest.TestCase):
         for forbidden in ("balance +=", "Math.max(...months.map(month => month.drawdown"):
             self.assertNotIn(forbidden, MONTHLY)
 
+    def test_the_chart_marks_where_this_portfolio_starts_instead_of_cutting(self) -> None:
+        """Cortar dejaría seis de nueve cuentas con una sola barra.
+
+        Casi todos los usos en real se guardaron a mediados de octubre sobre
+        cuentas que llevaban meses operando, así que las barras anteriores se
+        atenúan y se marca el mes de entrada: son del mismo dinero pero no de
+        este portafolio.
+        """
+        self.assertIn("month.tracked === false", MONTHLY)
+        self.assertIn("monthly-boundary", MONTHLY)
+        self.assertIn("Antes de este portafolio", MONTHLY)
+        self.assertIn(".monthly-bar.before{opacity:", STYLE)
+        self.assertIn(".monthly-bar.partial{opacity:", STYLE)
+        # Y el récord del tramo dice cuándo es de antes: «mejor mes:
+        # noviembre de 2025» sin más se lee como logro de este portafolio.
+        self.assertIn("el mejor es anterior al portafolio", MONTHLY)
+
+    def test_the_tracked_portfolio_is_linked_to_its_history(self) -> None:
+        """Es donde se verifica cuándo se guardó, y qué lleva dentro."""
+        for source in (SCRIPT, MONTHLY):
+            self.assertIn("/portfolio_history.html?node=", source)
+            self.assertIn("&portfolio=", source)
+        # La tarjeta dice el día del mes, no sólo el mes: un portafolio que
+        # entró el 30 deja septiembre con un día.
+        self.assertIn("row.created_day", SCRIPT)
+        self.assertIn("desde el ${parts[2]}-${parts[1]}", SCRIPT)
+
     def test_the_drawdown_is_drawn_downwards_and_says_why(self) -> None:
         css = (STATIC / "accounts.css").read_text(encoding="utf-8")
         self.assertIn(".monthly-bar.drawdown{fill:var(--warn)}", css)

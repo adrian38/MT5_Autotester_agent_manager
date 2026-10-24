@@ -121,6 +121,32 @@ def _lot_basis(months: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _portfolios(archive: Any, node_id: str, account: dict[str, Any]) -> list[dict[str, Any]]:
+    """Los usos de la cuenta, cada uno con el día en que se guardó.
+
+    La cuenta casi nunca empieza con el portafolio que sirve hoy: de los nueve
+    usos en real medidos el 2026-10-24, seis se guardaron a mediados de
+    octubre sobre cuentas que llevaban meses operando, y la de 10010194 opera
+    desde noviembre de 2025 con un #67 del 20 de agosto. Sin la fecha, el mes
+    de la tarjeta se lee como si todo él fuera de este portafolio.
+
+    La fecha sale de la promesa guardada y no de la memoria del agente: es
+    quien la abre, y la portada se repinta cada minuto.
+    """
+    found: list[dict[str, Any]] = []
+    for portfolio in account.get("portfolios") or []:
+        stored = archive.read_expectation(node_id, portfolio.get("portfolio_id"))
+        created = str(stored.get("portfolio_created_at") or "")
+        found.append({
+            **portfolio,
+            "created_at": created,
+            "created_day": created[:10],
+            "saved_name": str(stored.get("portfolio_name") or ""),
+            "root_id": safe_int(stored.get("portfolio_root_id"), 0, minimum=0),
+        })
+    return found
+
+
 def _state(stored: dict[str, Any], account: dict[str, Any], now: datetime) -> tuple[str, str]:
     """En qué situación está la tarjeta, y qué le pasa dicho en una línea."""
     if account.get("block_reason"):
@@ -184,7 +210,8 @@ def account_card(
         "account_key": account["account_key"], "login": account["login"],
         "server": account["server"], "currency": currency,
         "balance": float(stored.get("balance") or 0.0),
-        "portfolios": account["portfolios"], "autolot": bool(account.get("autolot")),
+        "portfolios": _portfolios(archive, node_id, account),
+        "autolot": bool(account.get("autolot")),
         "daily": {**row(days, today), "day": today},
         "monthly": {
             **monthly, "label": label, "progress": progress,

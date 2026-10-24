@@ -120,7 +120,22 @@ window.LiveAccountMonthly = (() => {
       + `<title>${escapeHtml(label)}</title></rect>`;
   }
 
-  function monthBars(month, index, box, zeroY, currency) {
+  // El tramo **no** se corta por la fecha del portafolio: seis de los nueve
+  // usos en real se guardaron a mediados de octubre sobre cuentas que
+  // llevaban meses operando, y cortar dejaría seis gráficos de una barra. Las
+  // barras de antes son de la misma cuenta y del mismo dinero, pero no de
+  // este portafolio, así que se atenúan en vez de desaparecer.
+  function trackedClass(month) {
+    if (month.partial) return ' partial';
+    return month.tracked === false ? ' before' : '';
+  }
+
+  function trackedNote(month, since) {
+    if (month.partial) return ` · el portafolio entró el ${since}`;
+    return month.tracked === false ? ' · antes de este portafolio' : '';
+  }
+
+  function monthBars(month, index, box, zeroY, currency, since) {
     const slot = PLOT_WIDTH / Math.max(1, box.months);
     const gap = Math.min(6, slot * 0.14);
     // El ancho tiene tope: con tres meses el hueco da barras de 139 px que
@@ -131,18 +146,32 @@ window.LiveAccountMonthly = (() => {
     const drawdown = Number(month.drawdown || 0);
     const upHeight = zeroY - VIEW.top;
     const downHeight = VIEW.height - VIEW.bottom - zeroY;
+    const mark = trackedClass(month);
     const note = `${longMonth(month.label)} · beneficio ${money(profit, currency)}`
       + ` · drawdown ${money(drawdown, currency, false)}`
-      + ` · ${month.trades} cierre${Number(month.trades) === 1 ? '' : 's'}`;
+      + ` · ${month.trades} cierre${Number(month.trades) === 1 ? '' : 's'}`
+      + trackedNote(month, since);
     const profitHeight = profit >= 0
       ? profit / box.up * upHeight : -profit / box.down * downHeight;
     return bar(
-      profit < 0 ? 'loss' : 'profit', start, width,
+      (profit < 0 ? 'loss' : 'profit') + mark, start, width,
       profit >= 0 ? zeroY - profitHeight : zeroY, profitHeight, note,
     ) + bar(
-      'drawdown', start + width + gap, width, zeroY,
+      'drawdown' + mark, start + width + gap, width, zeroY,
       drawdown / box.down * downHeight, note,
     );
+  }
+
+  // La raya vertical donde entra el portafolio: va al borde izquierdo de su
+  // mes, que es el único punto del eje que corresponde a una fecha concreta.
+  function boundary(months, since) {
+    const index = months.findIndex(month => month.partial || month.tracked);
+    if (!since || index <= 0) return '';
+    const x = VIEW.left + (PLOT_WIDTH / Math.max(1, months.length)) * index;
+    return `<line class="monthly-boundary" x1="${x.toFixed(1)}" y1="${VIEW.top}"`
+      + ` x2="${x.toFixed(1)}" y2="${VIEW.height - VIEW.bottom}"/>`
+      + `<text class="monthly-boundary-label" x="${(x + 5).toFixed(1)}"`
+      + ` y="${VIEW.top + 11}">desde ${escapeHtml(since)}</text>`;
   }
 
   // Con muchos meses las etiquetas se pisan, así que se saltan; el primero y el
@@ -159,9 +188,11 @@ window.LiveAccountMonthly = (() => {
     }).join('');
   }
 
-  function legend() {
+  function legend(dimmed) {
     const y = VIEW.height - 20;
-    return [['profit', 'Beneficio del mes', 0], ['drawdown', 'Drawdown del mes', 230]]
+    const items = [['profit', 'Beneficio del mes', 0], ['drawdown', 'Drawdown del mes', 230]];
+    if (dimmed) items.push(['profit before', 'Antes de este portafolio', 460]);
+    return items
       .map(([className, text, offset]) => (
         `<rect class="monthly-bar ${className}" x="${VIEW.left + offset}" y="${y - 10}"`
         + ' width="12" height="12" rx="2"/>'
@@ -178,20 +209,38 @@ window.LiveAccountMonthly = (() => {
     }
     const box = {...bounds(months), months: months.length};
     const zeroY = VIEW.top + PLOT_HEIGHT * (box.up / (box.up + box.down));
+    const since = String(data.tracked_since || '');
+    const dimmed = months.some(month => month.tracked === false);
     return `<svg viewBox="0 0 ${VIEW.width} ${VIEW.height}" role="img">`
       + `<title>Beneficio y drawdown mes a mes de ${escapeHtml(data.login || 'la cuenta')}</title>`
       + axis(box, zeroY)
-      + months.map((month, index) => monthBars(month, index, box, zeroY, data.currency)).join('')
-      + monthLabels(months) + legend() + '</svg>';
+      + months.map(
+        (month, index) => monthBars(month, index, box, zeroY, data.currency, since),
+      ).join('')
+      + boundary(months, since) + monthLabels(months) + legend(dimmed) + '</svg>';
   }
 
   function tone(value) {
     return Number(value) > 0 ? 'good' : Number(value) < 0 ? 'bad' : '';
   }
 
+  // Un mes anterior al portafolio de hoy no es comparable con los suyos, y
+  // «mejor mes: noviembre de 2025» sin más se lee como un logro de este
+  // portafolio. El resumen cubre el tramo entero —se marca, no se corta— así
+  // que lo que toca es decir cuándo el récord es de antes.
+  function beforeTracked(label, since) {
+    return Boolean(since && label && label < since.slice(0, 7));
+  }
+
   function summary(data) {
     const totals = data.totals || {};
     const currency = data.currency;
+    const since = String(data.tracked_since || '');
+    const extremes = [
+      beforeTracked(totals.best_month, since) ? 'el mejor es anterior al portafolio' : '',
+      totals.worst_month ? `peor: ${longMonth(totals.worst_month)}` : '',
+      beforeTracked(totals.worst_month, since) ? 'también anterior' : '',
+    ].filter(Boolean).join(' · ');
     const cells = [
       ['Beneficio del tramo', money(totals.profit, currency), tone(totals.profit),
         `${totals.trades || 0} cierres`],
@@ -200,7 +249,7 @@ window.LiveAccountMonthly = (() => {
       ['Meses en verde', `${totals.positive_months || 0} de ${totals.months || 0}`, '',
         `${totals.negative_months || 0} en rojo · ${totals.traded_months || 0} con cierres`],
       ['Mejor mes', totals.best_month ? longMonth(totals.best_month) : '—', '',
-        totals.worst_month ? `peor: ${longMonth(totals.worst_month)}` : ''],
+        extremes],
     ];
     return cells.map(([label, value, className, note]) => (
       `<div><span>${escapeHtml(label)}</span>`
@@ -209,12 +258,27 @@ window.LiveAccountMonthly = (() => {
     )).join('');
   }
 
+  // Qué portafolio sirve la cuenta y desde cuándo, enlazado a su histórico:
+  // es donde se verifica la fecha en la que se guardó.
+  function trackedMarkup(data) {
+    const rows = data.portfolios || [];
+    if (!rows.length) return '';
+    return ' · sigue a ' + rows.map(row => (
+      `<a href="/portfolio_history.html?node=${encodeURIComponent(data.node_id)}`
+      + `&portfolio=${encodeURIComponent(row.portfolio_id)}&scope=full_history"`
+      + ` title="${escapeHtml(row.name || '')}">#${escapeHtml(row.portfolio_id)}`
+      + ` desde ${escapeHtml(row.created_day)}</a>`
+    )).join(' y ');
+  }
+
   function render(data) {
-    field('#account-monthly-range').textContent = data.months && data.months.length
-      ? `De ${longMonth(data.months[0].label)} a `
+    field('#account-monthly-range').innerHTML = data.months && data.months.length
+      ? escapeHtml(
+        `De ${longMonth(data.months[0].label)} a `
         + `${longMonth(data.months[data.months.length - 1].label)}`
         + ` · serie desde ${data.first_day || '—'}`
-        + `${data.currency ? ` · ${data.currency}` : ''}`
+        + `${data.currency ? ` · ${data.currency}` : ''}`,
+      ) + trackedMarkup(data)
       : 'Sin serie guardada todavía.';
     field('#account-monthly-summary').innerHTML = summary(data);
     field('#account-monthly-chart').innerHTML = chart(data);

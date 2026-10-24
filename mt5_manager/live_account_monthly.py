@@ -32,6 +32,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
+from . import live_account_inventory
 from .live_account_archive import ordered_movements
 from .live_account_series import drawdown, month_key, monthly_rows, row
 
@@ -96,6 +97,36 @@ def totals(
     }
 
 
+def tracked_portfolios(server: Any, node_id: str, account_key: str) -> list[dict[str, Any]]:
+    """Los usos de esa cuenta con el día en que se guardó cada portafolio.
+
+    El tramo **no** se corta por esa fecha, y es deliberado: medido el
+    2026-10-24, seis de los nueve usos en real se guardaron a mediados de
+    octubre sobre cuentas que llevaban meses operando, así que cortar dejaría
+    seis gráficos de una sola barra. Lo que se hace es marcarla: las barras
+    anteriores son de la misma cuenta y del mismo dinero, pero no de este
+    portafolio, y el gráfico tiene que poder distinguirlas.
+    """
+    found: list[dict[str, Any]] = []
+    for account in live_account_inventory.node_accounts(server, node_id):
+        if str(account.get("account_key") or "") != str(account_key):
+            continue
+        for portfolio in account.get("portfolios") or []:
+            stored = server.live_accounts.read_expectation(
+                node_id, portfolio.get("portfolio_id"),
+            )
+            created = str(stored.get("portfolio_created_at") or "")
+            if not created:
+                continue
+            found.append({
+                "portfolio_id": portfolio.get("portfolio_id"),
+                "name": str(stored.get("portfolio_name") or portfolio.get("name") or ""),
+                "created_day": created[:10],
+                "created_month": created[:7],
+            })
+    return sorted(found, key=lambda row: row["created_day"])
+
+
 def monthly_history(
     server: Any, node_id: str, account_key: str, now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -112,6 +143,14 @@ def monthly_history(
     first = min(rows) if rows else ""
     last = max([month_key(moment), *rows])
     months = [{"label": label, **row(rows, label)} for label in month_span(first, last)]
+    tracked = tracked_portfolios(server, node_id, account_key)
+    since = tracked[0]["created_day"] if tracked else ""
+    for month in months:
+        # El mes en que entró el portafolio más antiguo queda a medias: parte
+        # de sus cierres son de lo que la cuenta operaba antes. Se marca
+        # aparte de los anteriores porque no es ni una cosa ni la otra.
+        month["tracked"] = bool(since) and month["label"] > since[:7]
+        month["partial"] = bool(since) and month["label"] == since[:7]
     return {
         "node_id": node_id,
         "account_key": account_key,
@@ -123,5 +162,7 @@ def monthly_history(
         "last_read": str(stored.get("updated_at") or ""),
         "month": month_key(moment),
         "months": months,
+        "portfolios": tracked,
+        "tracked_since": since,
         "totals": totals(ordered, months),
     }

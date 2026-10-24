@@ -37,6 +37,38 @@ es de la **cuenta** (`live_account_inventory`), y la vida de la cuenta es su
 serie. Para el tramo que de verdad pertenece a cada variante existe la
 genealogía de `live_audit_lineage`, que es otra pregunta y otra pantalla.
 
+### Se marca, y por eso no se corta (2026-10-24)
+
+El usuario pidió que el gráfico empezara en la creación del portafolio. Medido
+sobre los nueve usos en real antes de tocar nada:
+
+| Cuenta | Portafolio | Creado | Raíz de su cadena | Serie desde | Barras al cortar |
+| --- | --- | --- | --- | --- | --- |
+| 10010194 | #67 | 2026-08-20 | sin cadena | 2025-11-03 | 3 |
+| 60082017 | #105 | 2026-09-30 | #73 · 09-09 | 2026-08-11 | 2 |
+| 10068103 | #108 | 2026-10-09 | #107 · 09-10 | 2026-10-12 | 1 |
+| 60357303 | #109 | 2026-10-15 | sin cadena | 2026-08-10 | 1 |
+| 77028839 | #173 | 2026-10-15 | sin cadena | 2025-11-04 | 1 |
+| 67205834 | #172 | 2026-10-14 | sin cadena | 2026-08-10 | 1 |
+| 77049426 | #170 | 2026-10-14 | #137 · 17-09 | 2026-06-22 | 1 |
+| 67187867 | #177 | 2026-10-18 | sin cadena | 2026-05-27 | 1 |
+| 67315100 | #183 | 2026-10-19 | #182 · 19-10 | 2026-10-20 | 1 |
+
+**Seis de nueve se quedan con una sola barra**, y seis no tienen cadena que
+seguir hacia atrás: son despliegues nuevos sobre cuentas que llevaban meses
+operando. Cortar convertiría el gráfico en un número.
+
+Así que las barras anteriores se **atenúan** (`.monthly-bar.before`), el mes
+de entrada va a medias (`.partial`, porque parte de sus cierres son de lo que
+la cuenta operaba antes), una raya vertical marca dónde entra y la leyenda lo
+nombra. El resumen de arriba sigue cubriendo el tramo entero, y por eso la
+tarjeta de «Mejor mes» dice cuándo el récord es anterior: «mejor mes:
+noviembre de 2025» sin más se lee como un logro de este portafolio.
+
+La fecha sale de `portfolio_created_at`, que `live_account_ingest` escribe en
+la promesa de cada portafolio. Vive ahí y no se pide a la memoria UBS porque
+es lo único que la abre, igual que `presentation_lots`.
+
 ## El drawdown del tramo no es el máximo de los mensuales
 
 Se vuelve a medir sobre los movimientos, no sobre las filas mensuales, porque
