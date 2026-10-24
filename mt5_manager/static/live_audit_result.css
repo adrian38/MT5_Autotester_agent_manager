@@ -89,6 +89,8 @@
 .manual-pair.is-set { color: #bdd9f3; }
 .manual-pair.is-set strong { color: var(--accent2); }
 .manual-pair button { justify-self: start; padding: 2px 8px; font-size: 11px; }
+.unpaired-review label { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: #bdd9f3; cursor: pointer; }
+.unpaired-review input { width: 15px; height: 15px; accent-color: var(--accent2); cursor: pointer; }
 .audit-technical { overflow: hidden; }
 .audit-technical > summary { padding: 18px 20px; cursor: pointer; color: #bdd9f3; font-weight: 700; }
 .audit-technical[open] > summary { border-bottom: 1px solid var(--line); }

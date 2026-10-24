@@ -27,8 +27,10 @@ const priceRuleLabels = {
   configured_points: 'puntos configurados',
   unavailable: 'sin regla disponible',
 };
+const unpairedReviewsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reviewed-unpaired-tester`;
 let comparisonRows = [];
 let candidateReals = [];
+let unpairedReviews = {};
 let activeFilter = 'all';
 let currentResult = null;
 let currentConfig = {};
@@ -251,6 +253,35 @@ function manualPairControl(row, tester) {
     return `<p class="manual-pair is-set"><strong>Pareja decidida a mano.</strong>${manualPairNote(row)} Se mide con las mismas tolerancias que cualquier otra. <button type="button" data-undo-pair="${escapeHtml(testerPairKey(tester))}">Deshacer</button></p>`;
   }
   return row.status === 'missing' ? manualPairPicker(row, tester) : '';
+}
+
+function reviewDate(value) {
+  const parsed = new Date(value || '');
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleDateString('es-ES');
+}
+
+// La casilla de la fila «SIN REAL», al lado del selector y no en vez de él,
+// porque son dos respuestas distintas a la misma pregunta: emparejar a mano le
+// pone real a la fila y la vuelve a medir con las tolerancias de siempre;
+// validar sólo dice «ya miré ésta». Lo segundo hacía falta porque lo único que
+// había para callarlas era validar la estrategia entera en Análisis, que es
+// demasiado grueso: en `audit-109` de AXI eso ya calla veintidós de sus
+// veintitrés filas SIN REAL sin que nadie las haya abierto.
+//
+// Sale también en la que el usuario declaró sin real a mano: esa decisión dice
+// que no hay real que buscar, no que la fila esté mirada, y el recuento de la
+// portada sigue contándola hasta que alguien lo diga.
+function unpairedReviewControl(row, tester) {
+  if (row.status !== 'missing') return '';
+  const key = testerPairKey(tester);
+  const mark = unpairedReviews[key];
+  const since = mark ? reviewDate(mark.at) : '';
+  const note = mark
+    ? `<small>Fuera de «Operaciones sin enlazar»${since ? ` desde el ${escapeHtml(since)}` : ''}.</small>`
+    : '<small>Márcala cuando la hayas mirado: deja de contar en Portafolios activos.</small>';
+  return `<p class="manual-pair unpaired-review"><label><input type="checkbox"`
+    + ` data-unpaired-review="${escapeHtml(key)}"${mark ? ' checked' : ''}>`
+    + `<span>Validada</span></label>${note}</p>`;
 }
 
 function stopsLevel(trade) {
@@ -744,7 +775,7 @@ function comparisonMarkup(row) {
     <td>${pair(tester.open_price, real.open_price, value => number(value, 8))}${row.status === 'missing' ? '' : `${delta(measurements.open_price_delta_points, limits.open_price_points, ' pt')}<small>Límite absoluto ${escapeHtml(number(limits.open_price_absolute, 8))} · regla ${escapeHtml(priceRuleLabels[limits.open_price_rule] || limits.open_price_rule || 'configurada')}</small>`}<small>${escapeHtml(stopsPair(tester, real))}</small></td>
     <td>${pair(tester.volume, real.volume, value => number(value, 4))}${volumeCell}</td>
     <td>${pair(tester.profit, real.profit, value => number(value, 2))}${pnlCell}${openPosition ? '<small>Pendiente hasta el cierre real</small>' : ''}</td>
-    <td>${reasons.length ? `<ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : '<strong class="good-text">Todos los límites se cumplen</strong>'}${manualPairControl(row, tester)}</td>
+    <td>${reasons.length ? `<ul>${reasons.map(reason => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>` : '<strong class="good-text">Todos los límites se cumplen</strong>'}${manualPairControl(row, tester)}${unpairedReviewControl(row, tester)}</td>
   </tr>`;
 }
 
@@ -877,11 +908,13 @@ async function loadResult() {
   document.querySelector('#back-link').href = nodeId ? `/live_audit.html?node=${encodeURIComponent(nodeId)}` : '/';
   if (!nodeId || !auditId) throw new Error('Faltan el nodo o el identificador de auditoría en la URL.');
   const encodedNode = encodeURIComponent(nodeId);
-  const [config, portfolios, audit] = await Promise.all([
+  const [config, portfolios, audit, reviewed] = await Promise.all([
     fetch(`/api/nodes/${encodedNode}/live-audit-config`, {cache: 'no-store'}).then(jsonResponse),
     fetch(`/api/nodes/${encodedNode}/portfolios?scope=full_history`, {cache: 'no-store'}).then(jsonResponse),
     fetch(`/api/nodes/${encodedNode}/live-audits/${encodeURIComponent(auditId)}`, {cache: 'no-store'}).then(jsonResponse),
+    readUnpairedReviews(),
   ]);
+  unpairedReviews = reviewed;
   const state = audit.audit || {};
   const result = state.last_result;
   // El análisis lo hace el manager al leer. Si falla, hay que decirlo: un
@@ -956,6 +989,46 @@ async function saveManualPairs(pairs) {
   showPairError('');
 }
 
+// La marca no reanaliza nada, así que no pasa por `manual-pairs` ni espera un
+// resultado recalculado: es el mismo campo de perfil que las estrategias
+// validadas de Análisis, en su propia ruta. Que no se pueda leer no es motivo
+// para no enseñar la tabla; lo que no se puede es marcar sin guardar.
+async function readUnpairedReviews() {
+  try {
+    const data = await jsonResponse(await fetch(unpairedReviewsUrl, {cache: 'no-store'}));
+    const stored = data.reviewed_unpaired_tester;
+    return stored && typeof stored === 'object' ? stored : {};
+  } catch (_error) { return {}; }
+}
+
+async function writeUnpairedReviews(value) {
+  await jsonResponse(await fetch(unpairedReviewsUrl, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reviewed_unpaired_tester: value}),
+  }));
+}
+
+// Aquí no hay veredicto que guardar, al revés que al validar una estrategia:
+// una fila sin real no se mide, está o no está, así que la marca es sólo la
+// fecha. Se repinta antes de guardar y se deshace si el guardado falla, porque
+// una casilla marcada que no llegó al perfil sería una operación fuera de la
+// portada que nadie validó.
+async function toggleUnpairedReview(key, checked) {
+  const previous = unpairedReviews;
+  unpairedReviews = {...unpairedReviews};
+  if (checked) unpairedReviews[key] = {at: new Date().toISOString()};
+  else delete unpairedReviews[key];
+  renderComparisons(currentResult?.comparison_detail || {});
+  try {
+    await writeUnpairedReviews(unpairedReviews);
+    showPairError('');
+  } catch (error) {
+    unpairedReviews = previous;
+    renderComparisons(currentResult?.comparison_detail || {});
+    showPairError(`No se pudo guardar la validación: ${error.message}`);
+  }
+}
+
 function changeManualPair(key, positionId) {
   const pairs = {...manualPairs()};
   if (positionId) pairs[key] = {position_id: positionId, at: new Date().toISOString()};
@@ -968,6 +1041,8 @@ function changeManualPair(key, positionId) {
 document.querySelector('#comparison-body').addEventListener('change', event => {
   const select = event.target.closest('[data-manual-pair]');
   if (select) changeManualPair(select.dataset.manualPair, select.value);
+  const box = event.target.closest('[data-unpaired-review]');
+  if (box) toggleUnpairedReview(box.dataset.unpairedReview, box.checked);
 });
 document.querySelector('#comparison-body').addEventListener('click', event => {
   const undo = event.target.closest('[data-undo-pair]');

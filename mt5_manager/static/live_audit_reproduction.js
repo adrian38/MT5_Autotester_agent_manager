@@ -213,11 +213,43 @@
     return Boolean(mark) && (SEVERITY[label] || 0) <= (SEVERITY[mark.verdict] || 0);
   }
 
+  // Las ejecutadas en demo que se quedaron sin real. Van aquí y no en cada
+  // pantalla porque Análisis las enseña y la portada las cuenta: dos listas
+  // distintas serían dos recuentos distintos de lo mismo.
+  function unpairedTester(result) {
+    return (result?.comparison_detail?.operation_comparisons || []).filter(
+      row => row.status === 'missing',
+    );
+  }
+
+  // La misma huella que `tester_pair_key` del manager y que `testerPairKey` de
+  // la pantalla de operaciones, carácter por carácter: el Strategy Tester no
+  // exporta ticket y el `#T6` es la posición en la lista, que se mueve en
+  // cuanto la auditoría se vuelve a ejecutar.
+  function testerPairKey(tester) {
+    return [tester.strategy, tester.symbol, tester.side, tester.open_time, tester.close_time]
+      .map(value => String(value || '')).join('|');
+  }
+
+  function unpairedKey(row) {
+    return testerPairKey(row?.tester || {});
+  }
+
+  function unpairedReviewed(validated, row) {
+    return Boolean(validated?.[unpairedKey(row)]);
+  }
+
+  function storedUnpairedReviews(profile) {
+    const stored = profile?.reviewed_unpaired_tester;
+    return stored && typeof stored === 'object' ? stored : {};
+  }
+
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
     autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, reviewed,
     scaleTarget, scaledProfit, scaledSide, sideSeries, storedOverrides, storedReviews,
-    testerMode, verdict,
+    storedUnpairedReviews, testerMode, testerPairKey, unpairedKey, unpairedReviewed,
+    unpairedTester, verdict,
   };
   root.LiveAuditReproduction = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

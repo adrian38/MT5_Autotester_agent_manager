@@ -96,10 +96,18 @@
   // cuenta no ejecutó. No es el mismo hecho que el de arriba —una real sin
   // dueño y una operación que nunca se abrió son problemas distintos—, así
   // que se cuentan aparte en vez de sumarse.
-  function unlinkedTester(result, reviewed) {
-    return comparisonRows(result).filter(row => (
-      row.status === 'missing'
-      && !reviewed.has(String(row.strategy || row.tester?.strategy || 'Sin estrategia'))
+  //
+  // Dos formas de sacarlas de aquí, porque son dos afirmaciones distintas:
+  // validar la estrategia en `Demo contra real` dice «ya miré sus números» y
+  // se lleva todas las suyas de golpe; validar la fila dice «ya miré esta
+  // operación». La segunda hacía falta porque la primera es demasiado gruesa:
+  // en `audit-109` de AXI, trece estrategias validadas callan veintidós de sus
+  // veintitrés filas SIN REAL, y lo que las calló fue el veredicto de la
+  // estrategia, no que nadie las haya mirado.
+  function unlinkedTester(result, reviewed, validatedRows) {
+    return reproduction.unpairedTester(result).filter(row => (
+      !reviewed.has(String(row.strategy || row.tester?.strategy || 'Sin estrategia'))
+      && !reproduction.unpairedReviewed(validatedRows, row)
     )).length;
   }
 
@@ -116,7 +124,7 @@
     ));
   }
 
-  function summarize(result, overrides = {}, reviews = {}) {
+  function summarize(result, overrides = {}, reviews = {}, unpairedReviews = {}) {
     if (!comparisonRows(result).length) {
       return {comparable: false, flagged: [], reviewed: 0};
     }
@@ -147,7 +155,8 @@
       demo_profit: profit(demo), real_profit: profit(real),
       demo_drawdown: drawdown(demo), real_drawdown: drawdown(real),
       flagged: pending, reviewed: marked.length - pending.length,
-      unlinked_real: unlinkedReals(result), unlinked_tester: unlinkedTester(result, accepted),
+      unlinked_real: unlinkedReals(result),
+      unlinked_tester: unlinkedTester(result, accepted, unpairedReviews),
     };
   }
 

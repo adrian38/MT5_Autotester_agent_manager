@@ -37,6 +37,7 @@ from .live_audit_settings_schema import (
     live_profile_ids,
     normalize_live_audit_settings,
     normalize_reviewed_strategies,
+    normalize_reviewed_unpaired_tester,
     normalize_terminal_restore_account,
     normalize_view_lot_overrides,
 )

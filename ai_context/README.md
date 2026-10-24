@@ -140,6 +140,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   decide el usuario se mide con las mismas tolerancias en vez de darse por
   buena; también conserva como pareja el ticket correspondiente escrito en la
   propia fila del Excel, sin pedir la misma decisión dos veces.
+- `live_audit_reviewed_unpaired_tester.md`: por qué una fila «SIN REAL» se
+  valida una a una y no validando su estrategia entera, qué huella la
+  identifica entre reanálisis y cómo se ejecutó la pantalla de verdad sin
+  runtime de JavaScript.
 - `live_audit_comment_links.md`: en AXI el EA escribe el código del `.set` en el
   comentario de la orden, así que una tabla de dos columnas enlaza las reales
   sin conjeturar ni teclear; por qué resuelve a la misma forma que el Excel en

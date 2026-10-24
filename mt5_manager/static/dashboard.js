@@ -232,6 +232,7 @@ function cardMarkup(entry) {
   const overrides = LiveAuditReproduction.storedOverrides(entry.profile);
   const summary = result ? LiveDashboardMetrics.summarize(
     result, overrides, LiveAuditReproduction.storedReviews(entry.profile),
+    LiveAuditReproduction.storedUnpairedReviews(entry.profile),
   ) : {comparable: false, flagged: [], reviewed: 0};
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
     profile.portfolio_type

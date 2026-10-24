@@ -121,6 +121,7 @@ def handle_dashboard_get(handler, parts: list[str]) -> bool:
 _VIEW_FIELDS = {
     "view-lots": "view_lot_overrides",
     "reviewed-strategies": "reviewed_strategies",
+    "reviewed-unpaired-tester": "reviewed_unpaired_tester",
 }
 
 
@@ -263,8 +264,8 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
         key: value for key, value in profile.items()
         if key not in {
             "autolot", "real_attribution", "live_trading",
-            "view_lot_overrides", "reviewed_strategies", "manual_pairs",
-            "comment_links",
+            "view_lot_overrides", "reviewed_strategies", "reviewed_unpaired_tester",
+            "manual_pairs", "comment_links",
         }
     }
     return {

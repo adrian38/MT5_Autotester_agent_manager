@@ -31,6 +31,11 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     # es silenciar para siempre: si la siguiente auditoría empeora el
     # veredicto, la portada tiene que volver a enseñarla.
     "reviewed_strategies": {},
+    # Las ejecutadas en demo que se quedaron sin real y el usuario ya miró una
+    # a una. Es el mismo gesto que el de arriba sobre otra lista: validar la
+    # estrategia entera decía «ya miré sus números», y esto dice «ya miré esta
+    # operación». La clave es la huella de `tester_pair_key`, no la fila.
+    "reviewed_unpaired_tester": {},
     # Las parejas tester–real que decidió el usuario cuando el auditor no
     # encontró ninguna. Sí cambian el veredicto, porque la fila deja de ser
     # «SIN REAL» y pasa a medirse con las tolerancias de siempre.
@@ -254,6 +259,38 @@ def normalize_reviewed_strategies(value: Any) -> dict[str, dict[str, str]]:
     return normalized
 
 
+def normalize_reviewed_unpaired_tester(value: Any) -> dict[str, dict[str, str]]:
+    """Valida las ejecutadas en demo sin real que el usuario ya miró una a una.
+
+    Aquí no hay veredicto que guardar, al revés que en `reviewed_strategies`:
+    una fila «SIN REAL» no se mide, está o no está. Lo que se guarda es cuándo
+    se validó, que es lo que la pantalla enseña al lado de la casilla.
+
+    La clave es la **huella** de la operación del tester, la misma que
+    `tester_pair_key` de `live_audit_manual_pairs.py` y por el mismo motivo: el
+    Strategy Tester no exporta ticket y el `#T6` de la pantalla es la posición
+    en la lista, que se mueve en cuanto la auditoría se vuelve a ejecutar. Con
+    la huella, lo validado sigue validado si el uso se reanaliza.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("reviewed_unpaired_tester debe ser un objeto JSON")
+    if len(value) > 2000:
+        raise ValueError("No se pueden validar más de 2000 operaciones del tester")
+    normalized: dict[str, dict[str, str]] = {}
+    for raw_key, raw_mark in value.items():
+        key = _text(raw_key, "huella de la operación del tester", 256)
+        if not key:
+            raise ValueError("Cada operación validada debe tener su huella")
+        if not isinstance(raw_mark, dict):
+            raise ValueError(f"reviewed_unpaired_tester[{key}] debe ser un objeto JSON")
+        normalized[key] = {
+            "at": _text(raw_mark.get("at"), f"reviewed_unpaired_tester[{key}].at", 40),
+        }
+    return normalized
+
+
 def _portfolio_ids(value: Any) -> list[int]:
     if not isinstance(value, list):
         raise ValueError("selected_portfolio_ids debe ser una lista")
@@ -324,6 +361,10 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
     if "reviewed_strategies" in value:
         normalized["reviewed_strategies"] = normalize_reviewed_strategies(
             value["reviewed_strategies"],
+        )
+    if "reviewed_unpaired_tester" in value:
+        normalized["reviewed_unpaired_tester"] = normalize_reviewed_unpaired_tester(
+            value["reviewed_unpaired_tester"],
         )
     normalized["autolot"] = normalize_autolot(value.get("autolot"))
     normalized["real_attribution"] = normalize_attribution(value.get("real_attribution"))
