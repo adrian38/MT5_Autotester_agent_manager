@@ -189,7 +189,7 @@ def trimmed_detail(detail: dict[str, Any], rows: int = 4000) -> dict[str, Any]:
     """
     keep = (
         "operation_comparisons", "unmatched_real_operations",
-        "discarded_real_operations", "unmatched_open_positions", "strategy_summary",
+        "discarded_real_operations", "strategy_summary",
     )
     return {
         key: list(detail.get(key) or [])[:rows] for key in keep if detail.get(key)

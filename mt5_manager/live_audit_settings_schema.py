@@ -31,10 +31,6 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     # es silenciar para siempre: si la siguiente auditoría empeora el
     # veredicto, la portada tiene que volver a enseñarla.
     "reviewed_strategies": {},
-    # Las abiertas del terminal que el usuario dio por miradas. Son el mismo
-    # gesto que `reviewed_strategies` sobre otra lista, y por eso van aparte:
-    # una se indexa por estrategia y la otra por posición.
-    "reviewed_open_positions": {},
     # Las parejas tester–real que decidió el usuario cuando el auditor no
     # encontró ninguna. Sí cambian el veredicto, porque la fila deja de ser
     # «SIN REAL» y pasa a medirse con las tolerancias de siempre.
@@ -258,35 +254,6 @@ def normalize_reviewed_strategies(value: Any) -> dict[str, dict[str, str]]:
     return normalized
 
 
-def normalize_reviewed_open_positions(value: Any) -> dict[str, dict[str, str]]:
-    """Valida las posiciones abiertas que el usuario dio por miradas.
-
-    Aquí no hay veredicto que guardar, al revés que en `reviewed_strategies`:
-    una abierta sin enlazar no se mide, sólo está o no está. Lo que se guarda
-    es cuándo se validó, que es lo que la pantalla enseña al lado de la
-    casilla. La clave es la posición —su `position_id`—, así que la marca
-    sigue valiendo en la auditoría siguiente mientras la posición siga
-    abierta: validar una vez es validar esa operación, no esa ejecución.
-    """
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError("reviewed_open_positions debe ser un objeto JSON")
-    if len(value) > 500:
-        raise ValueError("No se pueden validar más de 500 posiciones abiertas")
-    normalized: dict[str, dict[str, str]] = {}
-    for raw_position, raw_mark in value.items():
-        position = _text(raw_position, "identificador de posición", 256)
-        if not position:
-            raise ValueError("Cada posición validada debe tener un identificador")
-        if not isinstance(raw_mark, dict):
-            raise ValueError(f"reviewed_open_positions[{position}] debe ser un objeto JSON")
-        normalized[position] = {
-            "at": _text(raw_mark.get("at"), f"reviewed_open_positions[{position}].at", 40),
-        }
-    return normalized
-
-
 def _portfolio_ids(value: Any) -> list[int]:
     if not isinstance(value, list):
         raise ValueError("selected_portfolio_ids debe ser una lista")
@@ -357,10 +324,6 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
     if "reviewed_strategies" in value:
         normalized["reviewed_strategies"] = normalize_reviewed_strategies(
             value["reviewed_strategies"],
-        )
-    if "reviewed_open_positions" in value:
-        normalized["reviewed_open_positions"] = normalize_reviewed_open_positions(
-            value["reviewed_open_positions"],
         )
     normalized["autolot"] = normalize_autolot(value.get("autolot"))
     normalized["real_attribution"] = normalize_attribution(value.get("real_attribution"))

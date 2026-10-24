@@ -103,16 +103,6 @@
     )).length;
   }
 
-  // El tercer corte: lo que sigue abierto en el terminal y ninguna operación
-  // del tester reclamó. No tiene cierre ni PnL, así que no está en ninguna
-  // curva ni en los dos recuentos de arriba; es trabajo pendiente igual, y
-  // deja de serlo cuando el usuario lo valida en Análisis.
-  function unlinkedOpen(result, validated) {
-    return reproduction.openPositions(result).filter(
-      row => !reproduction.openReviewed(validated, row),
-    ).length;
-  }
-
   function flaggedStrategies(groups, overrides) {
     return groups.map(group => {
       const numbers = reproduction.numbers(group, overrides);
@@ -126,7 +116,7 @@
     ));
   }
 
-  function summarize(result, overrides = {}, reviews = {}, openReviews = {}) {
+  function summarize(result, overrides = {}, reviews = {}) {
     if (!comparisonRows(result).length) {
       return {comparable: false, flagged: [], reviewed: 0};
     }
@@ -158,7 +148,6 @@
       demo_drawdown: drawdown(demo), real_drawdown: drawdown(real),
       flagged: pending, reviewed: marked.length - pending.length,
       unlinked_real: unlinkedReals(result), unlinked_tester: unlinkedTester(result, accepted),
-      unlinked_open: unlinkedOpen(result, openReviews),
     };
   }
 

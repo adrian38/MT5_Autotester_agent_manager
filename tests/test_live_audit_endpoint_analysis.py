@@ -178,8 +178,7 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
         # atención en la portada ni qué parejas corrigió el usuario.
         for manager_only in (
             "autolot", "real_attribution", "live_trading",
-            "view_lot_overrides", "reviewed_strategies", "reviewed_open_positions",
-            "manual_pairs",
+            "view_lot_overrides", "reviewed_strategies", "manual_pairs",
         ):
             self.assertNotIn(manager_only, request)
 
