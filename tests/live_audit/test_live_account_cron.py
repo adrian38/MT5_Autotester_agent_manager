@@ -266,7 +266,7 @@ class WatchTests(unittest.TestCase):
                 "axi", key, login=login, server="Axi-US50-Live", currency=currency,
                 movements=[(datetime(2026, 10, day, 8, tzinfo=timezone.utc), amount)],
                 period_start="", period_end=f"2026-10-{day}",
-                normalization_version=live_account_report.normalization_version(key),
+                normalization_version=live_account_report.series_version({}),
             )
         with self._request(snapshot_state("idle")), mock.patch(
             "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,

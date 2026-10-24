@@ -69,6 +69,12 @@ function plain(value, currency) {
   }).format(Number(value));
 }
 
+// Un lote no es dinero: ni símbolo de moneda ni dos decimales, que dejarían
+// «0,01» en «0,01 €» y «0,005» en «0,01».
+function plainNumber(value) {
+  return new Intl.NumberFormat('es-ES', {maximumFractionDigits: 8}).format(Number(value));
+}
+
 function monthName(label) {
   const parts = String(label || '').split('-');
   const index = Number(parts[1]) - 1;
@@ -276,6 +282,20 @@ async function loadAliases(cards) {
   return (await Promise.all(requests)).some(Boolean);
 }
 
+// Con una columna marcada en la simulación de lotes del portafolio, los € de
+// esos símbolos ya no son el dinero que la cuenta movió: están llevados al
+// lote que manda, igual que la media contra la que se comparan. Tiene que
+// decirlo la tarjeta, o un número reescalado se lee como saldo.
+function presentationNote(card) {
+  const lots = Object.entries((card.presentation || {}).lots || {});
+  if (!lots.length) return '';
+  const detail = lots.sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([symbol, lot]) => `${symbol} a ${plainNumber(lot)}`).join(' · ');
+  return `Beneficio y drawdown presentados al lote del tester en ${detail}: `
+    + 'donde la cuenta ejecutó otro tamaño no son lo que ingresó, sino lo que '
+    + 'habría ingresado a ése. La media del backtest está medida al mismo lote.';
+}
+
 function noteMarkup(card) {
   const notes = [card.message];
   if (card.autolot) {
@@ -284,6 +304,7 @@ function noteMarkup(card) {
       + 'el objetivo del mes se mueve con el saldo.',
     );
   }
+  notes.push(presentationNote(card), ...((card.presentation || {}).warnings || []));
   const text = notes.filter(Boolean).join(' ');
   return text ? `<p class="card-note">${escapeHtml(text)}</p>` : '';
 }

@@ -376,3 +376,62 @@ el texto de los `.js`. Lo de arriba se midió sirviendo una copia de la pantalla
 con un doble de `fetch` en `http://127.0.0.1:<puerto>` y leyendo el DOM desde el
 navegador: un `file://` no vale, el panel lo pinta como instantánea estática y
 no ejecuta los scripts.
+
+## La tarjeta de la cuenta se presenta al lote que marca la casilla (2026-10-24)
+
+La portada de cuentas compara dos cosas que no tienen por qué estar al mismo
+tamaño: el dinero que la cuenta movió y la media que promete el backtest. Eso
+se resolvía con un mapa **cableado** en `live_account_report`, una entrada por
+cuenta y símbolo (`10010194@Axi-US50-Demo`: BTCUSD y ETHUSD a 0,01). Ahora lo
+decide la misma casilla de la simulación de lotes de Análisis, por uso, y el
+criterio vive en `live_account_presentation`.
+
+| Casilla (`$mode`) | Los cierres de la cuenta | La promesa |
+| --- | --- | --- |
+| Lote demo / tester | Se escalan al lote del tester | Se mide a ese mismo lote |
+| Lote cuenta real | Sin tocar: ya son lo ejecutado | Se mide al lote **ejecutado**, no al declarado |
+| Ninguna | Sin tocar | Al lote declarado (`real_strategy_lots`) |
+
+- **El puente con los cierres es el miembro, no el texto del símbolo.** El
+  informe nativo de la cuenta imprime `BTCUSD` y la auditoría `BTCUSD.sa`.
+  Comprobado el 2026-10-24 sobre el informe de `audit-67-muzhv8jq-1`: 48
+  cierres, todos sin sufijo. Así que el símbolo lo pone el miembro del
+  portafolio y la auditoría sólo pone el número. Recortar el sufijo a ojo no
+  vale: en RoboForex hay símbolos que empiezan por punto (`.DE40Cash`).
+- **Un símbolo en disputa sale entero**, sus cierres y la promesa de sus
+  miembros: mover una mitad sin la otra es justo lo que esto existe para
+  evitar. Pasa con dos estrategias del mismo símbolo a lotes distintos, con una
+  que cambió de lote dentro del periodo, y con dos usos de la misma cuenta que
+  piden lotes distintos.
+- **Sin auditoría archivada** el lote del tester es el del miembro —lo declara
+  el propio portafolio— y el ejecutado no se inventa.
+- **El mapa se queda escrito en la promesa de cada portafolio**
+  (`presentation_lots`), que es quien abre la memoria UBS del agente. El sondeo
+  y la ingesta lo leen de ahí en vez de abrirla otra vez por su cuenta.
+- **La versión de la serie es el contenido del mapa**, no una etiqueta:
+  `series_version` le mete un digest, así que cambiar la casilla ya no obliga a
+  acordarse de subir una constante. Cambiada, `_period` pide toda la vida y la
+  serie se relee entera.
+- **Nunca se mezclan dos escalas.** Si llega un tramo parcial y la versión
+  guardada no es la del mapa de ahora, `_merge_account` lo **rechaza** en vez
+  de pegarlo encima: medio mes a 0,01 y medio a 0,03 es un mes que no existió,
+  y no habría nada que lo dijera. El fallo es visible, el reintento relanza y
+  entonces sí entra la vida entera.
+- **La tarjeta lo dice.** Con lotes de presentación, una nota declara a cuál va
+  cada símbolo y que ahí los € no son lo que la cuenta ingresó.
+
+### Medido sobre AXI 10010194, uso `audit-67-muzhv8jq-1`
+
+Lotes observados: XAUUSD 0,01 contra 0,01 · USDJPY 0,01 contra 0,01 · BTCUSD
+**0,03 contra 0,10** · ETHUSD 0,10 contra 0,10. Sobre los 48 cierres del
+informe de esa quincena:
+
+| Presentación | Beneficio | Drawdown |
+| --- | --- | --- |
+| Mapa cableado a 0,01 | 81,01 € | 1,26 € |
+| Casilla del tester | 36,24 € | 7,52 € |
+| Sin escalar (observado) | 167,71 € | 12,64 € |
+
+No es sólo un cambio de unidades: BTCUSD encoge a 0,3 y ETHUSD se queda igual,
+así que la ganancia de BTCUSD pesa menos y la pérdida de ETHUSD pesa entera. La
+promesa se mueve con ellos, que es lo que hace honesta la comparación.

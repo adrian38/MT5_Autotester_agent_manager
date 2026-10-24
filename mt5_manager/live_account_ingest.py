@@ -26,7 +26,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import live_account_expectation, live_account_report, manager_http
+from . import (
+    live_account_expectation, live_account_inventory, live_account_presentation,
+    live_account_report, manager_http,
+)
 from .common import utc_now
 from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
 from .portfolio_identity import _resolve_source_path
@@ -73,16 +76,28 @@ def _artifact(node: dict[str, Any], snapshot_id: str, filename: str, expected: s
 def _merge_account(
     server: Any, node: dict[str, Any], node_id: str, snapshot_id: str,
     account_key: str, row: dict[str, Any], period: tuple[str, str],
+    symbol_lots: dict[str, float],
 ) -> int:
+    version = live_account_report.series_version(symbol_lots)
+    stored = server.live_accounts.read(node_id, account_key)
+    first_day = str(stored.get("first_day") or "")
+    fully_rewritten = not first_day or not period[0] or period[0] <= first_day
+    # Antes de bajar el informe: si hay que rechazarlo, no hay que bajarlo.
+    if not fully_rewritten and str(stored.get("normalization_version") or "") != version:
+        # Un tramo a la escala nueva encima de una serie a la vieja la dejaría
+        # con dos escalas y sin nada que lo dijera: el mes saldría parte en una
+        # y parte en otra. No se mezcla. El sondeo siguiente pide toda la vida
+        # —`live_account_watch._period` ya ve que la versión no coincide— y
+        # entonces sí entra entera y a una sola escala.
+        raise ValueError(
+            "cambió el lote al que se presenta: se releerá la serie entera en "
+            "el próximo sondeo",
+        )
     report = row.get("report") or {}
     body = _artifact(
         node, snapshot_id, str(report.get("filename") or ""), str(report.get("sha256") or ""),
     )
-    found = live_account_report.movements_from_html(body, account_key)
-    version = live_account_report.normalization_version(account_key)
-    stored = server.live_accounts.read(node_id, account_key)
-    first_day = str(stored.get("first_day") or "")
-    fully_rewritten = not first_day or not period[0] or period[0] <= first_day
+    found = live_account_report.movements_from_html(body, symbol_lots)
     server.live_accounts.merge(
         node_id, account_key, login=row.get("login"), server=row.get("server"),
         currency=row.get("currency"), movements=found,
@@ -91,6 +106,22 @@ def _merge_account(
         normalization_version=version if fully_rewritten else None,
     )
     return len(found)
+
+
+def symbol_lots(server: Any, node_id: str) -> dict[str, dict[str, float]]:
+    """A qué lote presenta cada símbolo, por cuenta del nodo.
+
+    Lo deciden los usos que marcaron una columna en la simulación de lotes, y
+    lo dejó escrito la promesa de cada portafolio al medirse. Sin promesa
+    todavía —la primera noche— no hay mapa y la serie entra observada; en la
+    vuelta siguiente la versión ya no coincide y se relee entera, que es el
+    mismo camino que repara cualquier otro cambio de criterio.
+    """
+    return {
+        str(account.get("account_key") or ""):
+            live_account_presentation.account_symbols(server, node_id, account)
+        for account in live_account_inventory.node_accounts(server, node_id)
+    }
 
 
 def _period(state: dict[str, Any]) -> tuple[str, str]:
@@ -115,8 +146,13 @@ def collect(
     key = runs.key(node_id, SNAPSHOT_KEY)
     if not snapshot_id or status in RUNNING_SNAPSHOT_STATUSES or status == "idle":
         return None
+    lots = symbol_lots(server, node_id)
     collected_key = live_account_report.ingestion_key(
-        snapshot_id, (state.get("accounts") or {}).keys(),
+        snapshot_id,
+        (
+            live_account_report.series_version(lots.get(str(account_key)))
+            for account_key in (state.get("accounts") or {})
+        ),
     )
     if str(runs.record(key).get("ingested") or "") == collected_key:
         return None
@@ -129,6 +165,7 @@ def collect(
         try:
             movements += _merge_account(
                 server, node, node_id, snapshot_id, account_key, row, period,
+                lots.get(str(account_key)) or {},
             )
             read += 1
         except INGEST_ERRORS as exc:
@@ -149,8 +186,14 @@ def collect(
     }
 
 
-def _needs_rebuild(stored: dict[str, Any], now: datetime) -> bool:
+def _needs_rebuild(stored: dict[str, Any], now: datetime, mode: str = "") -> bool:
     if not stored:
+        return True
+    # Cambiar la casilla de la simulación cambia a qué lote se presentan las
+    # dos mitades de la tarjeta, así que tampoco espera al reloj: sin esto, el
+    # usuario marca una columna y la portada sigue con la escala vieja hasta
+    # un día después, con sondeos de por medio que no cambian nada.
+    if str(stored.get("mode") or "") != str(mode or ""):
         return True
     # Un criterio nuevo no espera al reloj. La edad decide cada cuánto se
     # comprueba la firma —abrir la memoria del agente es lo que cuesta— pero
@@ -185,6 +228,7 @@ def refresh_expectations(
         if portfolio.get("portfolio_id")
         and _needs_rebuild(
             archive.read_expectation(node_id, portfolio["portfolio_id"]), moment,
+            _mode(server, node_id, portfolio),
         )
     ]
     if not pending:
@@ -216,38 +260,72 @@ def _rebuild(
     stored = server.live_accounts.read_expectation(node_id, portfolio_id)
     saved = detail.get("portfolio") or {}
     variant = str(portfolio.get("portfolio_type") or "")
-    real_lots = _measured_lots(account, saved, variant)
+    use = _presented(server, node_id, portfolio, saved, variant)
+    real_lots = _measured_lots(account, saved, variant, use)
+    presentation = {
+        "mode": _mode(server, node_id, portfolio),
+        "presentation_lots": dict(use.symbols),
+        "presentation_warnings": list(use.warnings),
+    }
     if (
         stored.get("signature")
         and stored["signature"] == live_account_expectation.signature(
             saved, real_lots, variant,
         )
     ):
-        server.live_accounts.write_expectation(node_id, portfolio_id, stored)
+        server.live_accounts.write_expectation(
+            node_id, portfolio_id, {**stored, **presentation},
+        )
         return False
     built = live_account_expectation.build(
         saved, read=lambda path: cached_report(Path(path)),
         resolve=lambda stored_path: _resolve_source_path(stored_path, source.project),
         real_lots=real_lots, portfolio_type=variant,
     )
-    server.live_accounts.write_expectation(node_id, portfolio_id, built)
+    server.live_accounts.write_expectation(
+        node_id, portfolio_id, {**built, **presentation},
+    )
     return True
+
+
+def _mode(server: Any, node_id: str, portfolio: dict[str, Any]) -> str:
+    """Qué columna marcó el usuario en la simulación de lotes de ese uso."""
+    audit_id = str(portfolio.get("audit_id") or "")
+    if not audit_id:
+        return ""
+    profiles = (server.live_audit_settings.state(node_id) or {}).get("profiles") or {}
+    return live_account_presentation.mode_of(profiles.get(audit_id) or {})
+
+
+def _presented(
+    server: Any, node_id: str, portfolio: dict[str, Any],
+    saved: dict[str, Any], variant: str,
+) -> live_account_presentation.UseLots:
+    """A qué lote presenta este uso, resuelto con lo que la auditoría vio."""
+    mode = _mode(server, node_id, portfolio)
+    if not mode:
+        return live_account_presentation.UseLots()
+    return live_account_presentation.use_lots(
+        mode, live_account_expectation.audited_members(saved, variant),
+        live_account_presentation.latest_detail(
+            server, node_id, str(portfolio.get("audit_id") or ""),
+        ),
+    )
 
 
 def _measured_lots(
     account: dict[str, Any], saved: dict[str, Any], variant: str,
+    use: live_account_presentation.UseLots | None = None,
 ) -> dict[str, Any]:
     """Los lotes con los que se mide la promesa, en el orden que manda.
 
-    Manda el lote del perfil —lo que la cuenta ejecuta— salvo en los símbolos
-    que esa cuenta presenta a otra base: ahí la serie real ya viene escalada
-    (`live_account_report.normalized_deal`), así que medir la promesa al lote
-    ejecutado compararía dos escalas distintas.
+    Manda el lote del perfil —lo que el usuario declaró que la cuenta ejecuta—
+    salvo donde la simulación del portafolio dice otra cosa: ahí la serie real
+    ya viene escalada a ese lote (`live_account_report.normalized_deal`), o
+    bien lo que se corrige es el propio lote declarado, y medir la promesa a
+    otro compararía dos escalas distintas.
     """
     return {
         **dict(account.get("real_strategy_lots") or {}),
-        **live_account_report.base_lots(
-            str(account.get("account_key") or ""),
-            live_account_expectation.audited_members(saved, variant),
-        ),
+        **dict((use or live_account_presentation.UseLots()).members),
     }

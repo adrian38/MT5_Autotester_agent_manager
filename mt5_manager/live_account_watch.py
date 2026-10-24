@@ -24,6 +24,7 @@ from typing import Any
 from . import (
     live_account_ingest,
     live_account_inventory,
+    live_account_presentation,
     live_account_report,
     live_account_schedule,
 )
@@ -151,7 +152,9 @@ def _period(server: Any, node_id: str, accounts: list[dict[str, Any]], now: date
     for account in accounts:
         key = account["account_key"]
         stored = server.live_accounts.read(node_id, key)
-        expected = live_account_report.normalization_version(key)
+        expected = live_account_report.series_version(
+            live_account_presentation.account_symbols(server, node_id, account),
+        )
         days.append(
             "" if expected and stored.get("normalization_version") != expected
             else server.live_accounts.last_day(node_id, key)

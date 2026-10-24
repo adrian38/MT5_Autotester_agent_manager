@@ -28,6 +28,7 @@ import calendar
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from . import live_account_presentation
 from .common import safe_int
 from .live_account_archive import ordered_movements
 from .live_account_expectation import month_expectation
@@ -106,6 +107,24 @@ def _state(stored: dict[str, Any], account: dict[str, Any], now: datetime) -> tu
     return "", ""
 
 
+def _presentation(server: Any, node_id: str, account: dict[str, Any]) -> dict[str, Any]:
+    """A qué lote están los importes de esta tarjeta, si no es al ejecutado.
+
+    Tiene que verse. Con una columna marcada en la simulación del portafolio
+    los € dejan de ser el dinero que la cuenta movió en esos símbolos, y una
+    tarjeta que no lo dice miente por omisión —igual que una cuenta que no se
+    sondea y no aparece—.
+    """
+    symbols = live_account_presentation.account_symbols(server, node_id, account)
+    warnings: list[str] = []
+    for portfolio in account.get("portfolios") or []:
+        stored = server.live_accounts.read_expectation(
+            node_id, portfolio.get("portfolio_id") or 0,
+        )
+        warnings.extend(str(value) for value in stored.get("presentation_warnings") or [])
+    return {"lots": symbols, "warnings": sorted(set(warnings))}
+
+
 def account_card(
     server: Any, node: dict[str, Any], node_id: str, account: dict[str, Any],
     settings: dict[str, Any], now: datetime,
@@ -157,6 +176,7 @@ def account_card(
         "expected_previous": _expected(archive, node_id, account["portfolios"], earlier),
         "last_read": str(stored.get("updated_at") or ""),
         "first_day": str(stored.get("first_day") or ""),
+        "presentation": _presentation(server, node_id, account),
         "state": state, "message": message,
         "daily_display": convert(row(days, today)["profit"], currency, settings),
         "monthly_display": convert(monthly["profit"], currency, settings),

@@ -35,7 +35,7 @@ from .live_account_series import month_key, monthly_rows
 REPORT_FIELDS = ("is_report_path", "oos_report_path")
 """Los dos informes que forman la curva 2020-2026, en ese orden."""
 
-CRITERION_VERSION = "variant-and-presentation-lots-v1"
+CRITERION_VERSION = "variant-and-chosen-lots-v2"
 """Con qué criterio se midió esta media. Cambia cuando cambia lo que se mide.
 
 Sin esto, cambiar el criterio no repinta nada. La media guardada se recalcula

@@ -191,6 +191,20 @@ class CriterionTests(unittest.TestCase):
     def test_an_account_with_autolot_says_the_target_moves(self) -> None:
         self.assertIn("Autolote activo", SCRIPT)
 
+    def test_a_rescaled_card_says_its_euros_are_not_what_the_account_made(self) -> None:
+        # Con una columna marcada en la simulación de lotes del portafolio, el
+        # beneficio de esos símbolos está llevado a otro tamaño. Un número
+        # reescalado sin decirlo se lee como saldo.
+        self.assertIn("presentation", SCRIPT)
+        self.assertIn("presentados al lote del tester en", SCRIPT)
+        self.assertIn("donde la cuenta ejecutó otro tamaño no son lo que ingresó", SCRIPT)
+        self.assertIn("La media del backtest está medida al mismo lote", SCRIPT)
+        # Y los avisos de lo que se quedó sin escalar salen con él.
+        self.assertIn("(card.presentation || {}).warnings", SCRIPT)
+        # Un lote no es dinero: sin símbolo de moneda y sin redondeo a dos.
+        self.assertIn("function plainNumber(value)", SCRIPT)
+        self.assertIn("maximumFractionDigits: 8", SCRIPT)
+
     def test_account_cards_reuse_the_active_portfolio_aliases(self) -> None:
         self.assertIn("/portfolio-aliases?ids=", SCRIPT)
         self.assertIn("aliasOf(card.node_id, Number(row.portfolio_id || 0))", SCRIPT)
