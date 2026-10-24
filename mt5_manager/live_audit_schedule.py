@@ -282,6 +282,26 @@ def previous_period_end(audit: dict[str, Any]) -> datetime | None:
     return None
 
 
+def _audit_start_considering_creation(
+    own_end: datetime | None, created_at: datetime | None,
+) -> datetime | None:
+    """Fecha donde debe empezar la auditoria: periodo anterior o creacion del portafolio.
+
+    **Criterio unico para ambos flujos (normal y catch-up)**:
+    - Si hay periodo anterior y creacion es mas reciente: usa creacion
+    - Si hay creacion pero sin periodo anterior: usa creacion (auditar desde creacion)
+    - Si hay periodo anterior y creacion es anterior: usa periodo anterior
+    - Si no hay nada: devuelve None (sin punto de enganche)
+
+    La razon: las operaciones se filtran por cierre, asi que arrancar donde
+    termino la ultima auditoria recoge las que entonces seguian abiertas. Si
+    el portafolio es nuevo, no tiene historico anterior a la creacion.
+    """
+    if own_end is not None and created_at is not None and created_at > own_end:
+        return created_at
+    return own_end or created_at
+
+
 def chained_period(
     settings: dict[str, Any], audit: dict[str, Any], now: datetime,
     inherited_end: datetime | None = None, created_at: datetime | None = None,

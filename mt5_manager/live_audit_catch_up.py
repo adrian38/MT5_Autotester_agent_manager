@@ -34,9 +34,13 @@ def request(server: Any, audit_ids: AuditIds, created_at: CreatedAt,
         for audit_id in audit_ids(state, forced):
             profile = dict(profiles.get(audit_id) or {})
             use_created = created_at(audit_id)
-            born_after = _born_after(server, node_id, profile, cutoff) or (
-                use_created is not None and use_created > cutoff
+            _inherited, inherited_created = live_audit_lineage.audit_period_bounds(
+                server, node_id, profile,
             )
+            audit_start = live_audit_schedule._audit_start_considering_creation(
+                None, use_created or inherited_created,
+            )
+            born_after = audit_start is not None and audit_start > cutoff
             server.live_audit_runs.update(
                 server.live_audit_runs.key(node_id, audit_id),
                 catch_up_until=target,
@@ -59,13 +63,6 @@ def _period(server: Any, node_id: str, profile: dict[str, Any],
     inherited, created = live_audit_lineage.audit_period_bounds(server, node_id, profile)
     forced = {**server.live_audit_scheduler_settings, "chain_from_last_audit": True}
     return live_audit_schedule.chained_period(forced, audit, target, inherited, created)
-
-
-def _born_after(server: Any, node_id: str, profile: dict[str, Any],
-                target: datetime) -> bool:
-    """Si el portafolio nacio despues del corte no hay hueco que recuperar."""
-    _inherited, created = live_audit_lineage.audit_period_bounds(server, node_id, profile)
-    return created is not None and created > target
 
 
 def restore_legacy_markers(records: dict[str, dict[str, Any]]) -> bool:
@@ -112,10 +109,9 @@ def launch_pending(server: Any, node: dict[str, Any], node_id: str,
             runs.update(key, catch_up_status="success")
             continue
         created, profile = created_at(audit_id), dict(profiles.get(audit_id) or {})
-        if _born_after(server, node_id, profile, target) or (
-            live_audit_schedule.previous_period_end(audit) is None
-            and created is not None and created > target
-        ):
+        own_end = live_audit_schedule.previous_period_end(audit)
+        audit_start = live_audit_schedule._audit_start_considering_creation(own_end, created)
+        if audit_start is not None and audit_start > target:
             runs.update(key, catch_up_status="not_applicable")
             continue
         if any(str((row or {}).get("status") or "") in RUNNING_STATUSES
