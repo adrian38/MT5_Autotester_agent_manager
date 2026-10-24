@@ -13,6 +13,7 @@ sobre el resultado de la cuenta, y la única cosa que compartirían es el
 from __future__ import annotations
 
 import hashlib
+import math
 import tempfile
 from dataclasses import replace
 from datetime import datetime
@@ -21,7 +22,7 @@ from typing import Any, Iterable
 
 from portfolio_manager.mt5_report import parse_report
 
-from .live_account_series import movements
+from .live_account_series import as_utc, movements
 
 
 SERIES_VERSION = "merge-window-v3"
@@ -85,16 +86,62 @@ def normalized_deal(deal: Any, symbol_lots: dict[str, float]) -> Any:
     )
 
 
-def movements_from_html(
+def daily_balances(raw_deals: Iterable[Any]) -> list[tuple[str, float]]:
+    """El saldo con el que cerró cada día UTC, según la tabla de la cuenta.
+
+    El mismo dato que `live_audit_autolot.balance_history_from_html` usa para
+    el autolote, y con el mismo descarte de los ceros: MT5 imprime saldo 0 en
+    las filas que no mueven la cuenta. Aquí se queda **el último de cada día**
+    porque es lo que la promesa necesita —el tamaño que tenía la cuenta ese
+    día— y guardar uno por operación multiplicaría el fichero sin añadir nada.
+
+    El saldo **no se reescala** con los lotes de presentación. Es el dinero que
+    el bróker tiene de verdad, que es lo que leen los EAs con autolote;
+    llevarlo a otro lote daría un tamaño de cuenta que no existió.
+    """
+    found: dict[str, tuple[str, float]] = {}
+    for deal in raw_deals:
+        moment = getattr(deal, "timestamp", None)
+        if not isinstance(moment, datetime):
+            continue
+        try:
+            balance = float(getattr(deal, "balance", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(balance) or balance == 0.0:
+            continue
+        stamp = as_utc(moment).isoformat()
+        day = stamp[:10]
+        if day not in found or found[day][0] <= stamp:
+            found[day] = (stamp, balance)
+    return [(day, found[day][1]) for day in sorted(found)]
+
+
+def account_from_html(
     contents: bytes, symbol_lots: dict[str, float] | None = None,
-) -> list[tuple[datetime, float]]:
-    """Los cierres de la cuenta que trae ese informe, ordenados y en UTC."""
+) -> tuple[list[tuple[datetime, float]], list[tuple[str, float]]]:
+    """Los cierres y el saldo diario de ese informe, con una sola lectura.
+
+    Van juntos porque salen de la misma tabla y el informe de una cuenta con
+    años de vida no es barato de parsear: leerlo dos veces, una por cada cosa,
+    sería pagar dos veces lo mismo.
+    """
     if not contents:
         raise ValueError("El informe nativo de la cuenta real está vacío")
     with tempfile.TemporaryDirectory(prefix="mt5-account-") as folder:
         path = Path(folder) / "real_account_report.html"
         path.write_bytes(contents)
         report = parse_report(path)
-    return movements(
-        normalized_deal(deal, symbol_lots or {}) for deal in report.raw_deals
+    return (
+        movements(
+            normalized_deal(deal, symbol_lots or {}) for deal in report.raw_deals
+        ),
+        daily_balances(report.raw_deals),
     )
+
+
+def movements_from_html(
+    contents: bytes, symbol_lots: dict[str, float] | None = None,
+) -> list[tuple[datetime, float]]:
+    """Los cierres de la cuenta que trae ese informe, ordenados y en UTC."""
+    return account_from_html(contents, symbol_lots)[0]

@@ -38,6 +38,9 @@ tira es lo más antiguo y la media del mes de ese año deja de tener ese año.
 MAXIMUM_SNAPSHOTS = 60
 """Lecturas anotadas. Es el diario de «cuándo se leyó esto», no un histórico."""
 
+MAXIMUM_BALANCE_DAYS = 8_000
+"""Días de saldo conservados por cuenta: más de veinte años de calendario."""
+
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -88,6 +91,25 @@ def stored_movements(stored: dict[str, Any]) -> list[tuple[str, float]]:
     return found
 
 
+def stored_balances(stored: dict[str, Any]) -> list[tuple[str, float]]:
+    """El saldo diario guardado: `[("2026-10-23", 6109.55), …]`, ordenado.
+
+    Una cuenta archivada antes de que esto existiera no lo trae, y eso no es
+    un error: la lista vacía significa «no se sabe», y quien la consulte tiene
+    que decirlo en vez de inventarse un tamaño de cuenta.
+    """
+    found: list[tuple[str, float]] = []
+    for row in stored.get("balances") or []:
+        if not isinstance(row, (list, tuple)) or len(row) != 2:
+            continue
+        try:
+            found.append((str(row[0]), float(row[1])))
+        except (TypeError, ValueError):
+            continue
+    found.sort(key=lambda item: item[0])
+    return found
+
+
 def ordered_movements(stored: dict[str, Any]) -> list[tuple[datetime, float]]:
     """Lo mismo, con el instante ya convertido: lo que mide `live_account_series`.
 
@@ -118,7 +140,7 @@ class LiveAccountArchive:
             "account_key": key, "login": "", "server": "", "currency": "",
             "movements": [], "first_day": "", "last_day": "", "updated_at": "",
             "snapshots": [], "balance": 0.0, "equity": 0.0,
-            "normalization_version": "",
+            "balances": [], "normalization_version": "",
         }
         if not path.is_file():
             return empty
@@ -193,10 +215,34 @@ class LiveAccountArchive:
             if start <= row[0][:10] <= (end or "9999-12-31")
         ]
 
+    @classmethod
+    def _merged_balances(
+        cls, stored: dict[str, Any], fresh: Sequence[tuple[str, float]] | None,
+        period_start: str, period_end: str,
+    ) -> list[list[Any]]:
+        """El saldo diario después del sondeo, con la regla de siempre.
+
+        El periodo sondeado manda sobre sus días y lo de fuera se conserva,
+        igual que con los movimientos. Un sondeo que no trae saldos —una
+        lectura vieja, o un informe sin la columna— deja lo guardado intacto:
+        una serie de saldo no se borra por no haberla vuelto a ver.
+        """
+        if fresh is None:
+            return [[day, value] for day, value in stored_balances(stored)]
+        kept = cls._kept(stored_balances(stored), period_start, period_end)
+        arrived = cls._inside(
+            [[str(day), float(value)] for day, value in fresh],
+            period_start, period_end,
+        )
+        merged = {str(day): float(value) for day, value in kept}
+        merged.update({str(row[0]): float(row[1]) for row in arrived})
+        return [[day, merged[day]] for day in sorted(merged)][-MAXIMUM_BALANCE_DAYS:]
+
     def merge(
         self, node_id: str, key: str, *, login: Any, server: Any, currency: Any,
         movements: Sequence[tuple[Any, float]], period_start: str, period_end: str,
         taken_at: str = "", balance: Any = None, equity: Any = None,
+        balances: Sequence[tuple[str, float]] | None = None,
         normalization_version: str | None = None,
     ) -> dict[str, Any]:
         """Mete el sondeo en la serie y devuelve el registro ya guardado."""
@@ -208,6 +254,7 @@ class LiveAccountArchive:
                 [[moment, amount] for moment, amount in kept] + fresh,
                 key=lambda row: row[0],
             )[-MAXIMUM_MOVEMENTS:]
+            days = self._merged_balances(stored, balances, period_start, period_end)
             snapshots = [
                 *(row for row in stored.get("snapshots") or [] if isinstance(row, dict)),
                 {
@@ -232,6 +279,12 @@ class LiveAccountArchive:
                 # tarjeta necesita para decir de qué tamaño es la cuenta.
                 "balance": _number(balance, stored.get("balance")),
                 "equity": _number(equity, stored.get("equity")),
+                # El saldo **sí** es serie, aunque los dos de arriba no lo
+                # sean: la tabla de transacciones del informe nativo publica
+                # el acumulado tras cada operación, y de ahí sale con qué
+                # tamaño operaba la cuenta cada día. Lo necesita la promesa de
+                # una cuenta con autolote, donde el lote lo decide el saldo.
+                "balances": days,
                 "normalization_version": (
                     stored.get("normalization_version")
                     if normalization_version is None else normalization_version

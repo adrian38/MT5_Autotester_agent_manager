@@ -109,12 +109,12 @@ def _merge_account(
     body = _artifact(
         node, snapshot_id, str(report.get("filename") or ""), str(report.get("sha256") or ""),
     )
-    found = live_account_report.movements_from_html(body, symbol_lots)
+    found, balances = live_account_report.account_from_html(body, symbol_lots)
     server.live_accounts.merge(
         node_id, account_key, login=row.get("login"), server=row.get("server"),
         currency=row.get("currency"), movements=found,
         period_start=period[0], period_end=period[1],
-        balance=row.get("balance"), equity=row.get("equity"),
+        balance=row.get("balance"), equity=row.get("equity"), balances=balances,
         normalization_version=version if fully_rewritten else None,
     )
     return len(found)

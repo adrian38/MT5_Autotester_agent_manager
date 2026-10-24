@@ -186,8 +186,11 @@ class NormalizedSeriesTests(unittest.TestCase):
                     )
                 # Toda la vida sí entra: no hay nada viejo con lo que mezclar.
                 with mock.patch.object(
-                    live_account_report, "movements_from_html",
-                    return_value=[(datetime(2026, 10, 19, 9, tzinfo=timezone.utc), 3.0)],
+                    live_account_report, "account_from_html",
+                    return_value=(
+                        [(datetime(2026, 10, 19, 9, tzinfo=timezone.utc), 3.0)],
+                        [("2026-10-19", 1_000.0)],
+                    ),
                 ):
                     live_account_ingest._merge_account(
                         server, {}, "axi", "snap-1", key, {"report": {}},

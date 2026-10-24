@@ -290,8 +290,11 @@ class WatchTests(unittest.TestCase):
         with self._request(snapshot_state()), mock.patch(
             "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
         ), mock.patch(
-            "mt5_manager.live_account_report.movements_from_html",
-            return_value=[(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+            "mt5_manager.live_account_report.account_from_html",
+            return_value=(
+                [(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+                [("2026-10-20", 1_000.0)],
+            ),
         ) as parsed:
             live_account_watch.tick(server, NOW)
             live_account_watch.tick(server, NOW)
@@ -306,8 +309,11 @@ class WatchTests(unittest.TestCase):
         with self._request(snapshot_state()), mock.patch(
             "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
         ), mock.patch(
-            "mt5_manager.live_account_report.movements_from_html",
-            return_value=[(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+            "mt5_manager.live_account_report.account_from_html",
+            return_value=(
+                [(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+                [("2026-10-20", 1_000.0)],
+            ),
         ):
             live_account_watch.tick(server, NOW)
         event = server.events()[0]
@@ -324,8 +330,11 @@ class WatchTests(unittest.TestCase):
         with self._request(snapshot_state()), mock.patch(
             "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
         ), mock.patch(
-            "mt5_manager.live_account_report.movements_from_html",
-            return_value=[(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+            "mt5_manager.live_account_report.account_from_html",
+            return_value=(
+                [(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+                [("2026-10-20", 1_000.0)],
+            ),
         ):
             live_account_watch.tick(server, NOW)
         self.assertIn("Sondeo de cuentas terminado", server.events()[0]["title"])
@@ -449,8 +458,11 @@ class WatchTests(unittest.TestCase):
 
     def _collected(self):
         return mock.patch(
-            "mt5_manager.live_account_report.movements_from_html",
-            return_value=[(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+            "mt5_manager.live_account_report.account_from_html",
+            return_value=(
+                [(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+                [("2026-10-20", 1_000.0)],
+            ),
         )
 
     def _no_expectations(self):

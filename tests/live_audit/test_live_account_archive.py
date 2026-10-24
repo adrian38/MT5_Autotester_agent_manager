@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import live_account_series, manager_account_routes
 from mt5_manager.live_account_archive import (
-    LiveAccountArchive, account_key, stored_movements,
+    LiveAccountArchive, account_key, stored_balances, stored_movements,
 )
 
 
@@ -205,6 +205,64 @@ class ArchiveTests(unittest.TestCase):
         record["movements"].append(["2026-10-21T08:00:00+00:00"])
         record["movements"].append(["2026-10-22T08:00:00+00:00", "mucho"])
         self.assertEqual(len(stored_movements(record)), 1)
+
+
+class BalanceSeriesTests(unittest.TestCase):
+    """El saldo diario: con qué tamaño operaba la cuenta cada día.
+
+    Lo necesita la promesa de una cuenta con autolote, donde el lote sale del
+    saldo. Se guarda con la misma regla que los movimientos —el periodo manda
+    sobre sus días— pero con una excepción: no verlo no es verlo vacío.
+    """
+
+    def setUp(self) -> None:
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.archive = LiveAccountArchive(self.folder.name)
+        self.key = account_key("60082017", "Axi-US50-Live")
+
+    def merge(self, movements, start, end, **extra):
+        return self.archive.merge(
+            "axi", self.key, login="60082017", server="Axi-US50-Live",
+            currency="EUR", movements=movements, period_start=start,
+            period_end=end, **extra,
+        )
+
+    def test_an_account_without_the_series_reads_as_not_known(self) -> None:
+        self.assertEqual(self.archive.read("axi", self.key)["balances"], [])
+
+    def test_the_snapshot_writes_the_balance_of_each_day(self) -> None:
+        record = self.merge(
+            [(moment("2026-10-20T08:00:00"), 5.0)], "", "2026-10-20",
+            balances=[("2026-10-19", 1_000.0), ("2026-10-20", 1_005.0)],
+        )
+        self.assertEqual(
+            stored_balances(record), [("2026-10-19", 1_000.0), ("2026-10-20", 1_005.0)],
+        )
+
+    def test_a_snapshot_rules_over_its_days_and_keeps_the_rest(self) -> None:
+        self.merge(
+            [], "", "2026-10-20",
+            balances=[("2026-10-01", 900.0), ("2026-10-20", 1_000.0)],
+        )
+        record = self.merge(
+            [], "2026-10-20", "2026-10-21", balances=[("2026-10-20", 1_111.0)],
+        )
+        self.assertEqual(
+            stored_balances(record), [("2026-10-01", 900.0), ("2026-10-20", 1_111.0)],
+        )
+
+    def test_a_snapshot_without_balances_does_not_erase_what_is_stored(self) -> None:
+        """Una lectura vieja no borra la serie: no verla no es verla vacía."""
+        self.merge([], "", "2026-10-20", balances=[("2026-10-20", 1_000.0)])
+        record = self.merge([(moment("2026-10-21T08:00:00"), 1.0)], "2026-10-21", "")
+        self.assertEqual(stored_balances(record), [("2026-10-20", 1_000.0)])
+
+    def test_a_corrupt_balance_row_does_not_take_the_series_down(self) -> None:
+        record = self.merge([], "", "2026-10-20", balances=[("2026-10-20", 1_000.0)])
+        record["balances"].append(["2026-10-21"])
+        record["balances"].append(["2026-10-22", "mucho"])
+        self.assertEqual(len(stored_balances(record)), 1)
 
 
 if __name__ == "__main__":
