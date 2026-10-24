@@ -257,6 +257,16 @@ def record_transitions(
     for audit_id in watched_audit_ids(state):
         audit = dict(audits.get(audit_id) or {})
         status = str(audit.get("status") or "idle")
+        if status not in RUNNING_STATUSES and status not in FINAL_STATUSES:
+            # Un estado que el agente nunca deberia mandar: tratarlo como
+            # desconocido y seguir corriendo lo deja «corriendo» para siempre
+            # sin avisar, el mismo fallo silencioso de `watched_audit_ids`.
+            # Se cuenta como intento perdido, igual que `idle`.
+            sys.stderr.write(
+                f"[live-audit-scheduler] {node_id}/{audit_id}: estado "
+                f"desconocido del agente: {status!r}; se trata como «idle».\n"
+            )
+            status = "idle"
         key = runs.key(node_id, audit_id)
         record = runs.record(key)
         if status in FINAL_STATUSES and status != "idle":
@@ -322,7 +332,10 @@ def _launch_payload(
     chained = period or live_audit_schedule.chained_period(
         server.live_audit_scheduler_settings, audit, now, inherited_end, created_at,
     )
-    floored = {} if chained else live_audit_schedule.creation_period(
+    # `chained` llega vacio ({}) cuando no hay auditoria anterior ni heredada
+    # a la que engancharse: solo entonces se levanta el suelo de creacion.
+    has_chained_period = bool(chained)
+    floored = {} if has_chained_period else live_audit_schedule.creation_period(
         profile, created_at, now,
     )
     return {
