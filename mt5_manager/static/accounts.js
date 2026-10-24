@@ -139,11 +139,15 @@ function expectedNote(expected, currency) {
   return `Media de ${plain(expected.profit, currency)} en ${years} año${years === 1 ? '' : 's'}`;
 }
 
+// «Al ritmo del **mes medio**», y no «al ritmo del mes»: lo que este número
+// dice es cuánto llevaría el backtest a estas alturas, no a qué ritmo va la
+// cuenta. Sin la palabra se lee justo al revés.
 function paceNote(card, currency) {
   const expected = card.expected_month || {};
   if (expected.profit_prorated === null || expected.profit_prorated === undefined) return '';
   const percent = Math.round(Number(card.monthly.progress || 0) * 100);
-  return `Al ritmo del mes (${percent} %): ${plain(expected.profit_prorated, currency)}`;
+  return `Al ritmo del mes medio (${percent} % del mes): `
+    + `${plain(expected.profit_prorated, currency)}`;
 }
 
 function metric(label, value, tone, notes) {

@@ -175,6 +175,15 @@ class CriterionTests(unittest.TestCase):
 
     def test_the_pace_of_the_month_comes_prorated_from_the_manager(self) -> None:
         self.assertIn("profit_prorated", SCRIPT)
+
+    def test_the_pace_says_it_is_the_average_month_and_not_this_one(self) -> None:
+        """«Al ritmo del mes» se lee como el ritmo de **este** mes.
+
+        Y es lo contrario: son los € que el mes medio del backtest llevaría a
+        estas alturas. Sin «medio» el número se entiende al revés.
+        """
+        self.assertIn("Al ritmo del mes medio (", SCRIPT)
+        self.assertIn("% del mes)", SCRIPT)
         self.assertNotIn("* 21 / 31", SCRIPT)
 
     def test_the_card_says_how_many_years_the_mean_averages(self) -> None:
