@@ -239,6 +239,14 @@
     return Boolean(validated?.[unpairedKey(row)]);
   }
 
+  // Dos formas de que una fila sin real deje de ser trabajo pendiente, y la
+  // segunda no es una casilla: si el Excel de enlace dijo que esta operación
+  // no tiene real, el usuario ya la resolvió y pedirle que además la valide es
+  // pedirle la misma decisión dos veces.
+  function unpairedAnswered(validated, row) {
+    return Boolean(row?.manual_unpaired) || unpairedReviewed(validated, row);
+  }
+
   function storedUnpairedReviews(profile) {
     const stored = profile?.reviewed_unpaired_tester;
     return stored && typeof stored === 'object' ? stored : {};
@@ -248,8 +256,8 @@
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
     autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, reviewed,
     scaleTarget, scaledProfit, scaledSide, sideSeries, storedOverrides, storedReviews,
-    storedUnpairedReviews, testerMode, testerPairKey, unpairedKey, unpairedReviewed,
-    unpairedTester, verdict,
+    storedUnpairedReviews, testerMode, testerPairKey, unpairedAnswered, unpairedKey,
+    unpairedReviewed, unpairedTester, verdict,
   };
   root.LiveAuditReproduction = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

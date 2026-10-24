@@ -1076,6 +1076,13 @@ function unpairedTesterHelp(row) {
 function unpairedReviewCell(row) {
   const key = testerPairKey(row.tester || {});
   const mark = unpairedReviews[key];
+  // Si el Excel de enlace ya dijo que esta operación no tiene real, la
+  // decisión está tomada: no se vuelve a pedir, y si además la validaste a
+  // mano la casilla sigue ahí para que puedas retirarla.
+  if (row.manual_unpaired && !mark) {
+    return '<td class="audit-analysis-review"><small>Resuelta en el Excel de enlace: '
+      + 'no cuenta en Portafolios activos.</small></td>';
+  }
   const since = mark ? reviewDate(mark.at) : '';
   const note = mark
     ? `<small>Fuera de Portafolios activos${since ? ` desde el ${escapeHtml(since)}` : ''}.</small>`
@@ -1087,7 +1094,8 @@ function unpairedReviewCell(row) {
 function unpairedTesterRow(row, currency) {
   const tester = row.tester || {};
   const validated = LiveAuditReproduction.unpairedReviewed(unpairedReviews, row);
-  const [label, tone] = validated ? ['VALIDADA', 'info'] : ['SIN REAL', 'warn'];
+  const [label, tone] = row.manual_unpaired ? ['RESUELTA EN EL EXCEL', 'info']
+    : validated ? ['VALIDADA', 'info'] : ['SIN REAL', 'warn'];
   return `<tr>
     <th><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><small>${escapeHtml(tester.side)}</small><small>${escapeHtml(row.strategy_set || row.strategy)}</small>${row.strategy_set ? `<small>${escapeHtml(row.strategy)}</small>` : ''}</th>
     <td>${escapeHtml(dateTime(tester.open_time))}</td>
@@ -1106,7 +1114,7 @@ function renderUnlinkedTester() {
   const rows = LiveAuditReproduction.unpairedTester(currentResult).slice().sort(
     (left, right) => new Date(left.tester?.open_time) - new Date(right.tester?.open_time),
   );
-  const pending = rows.filter(row => !LiveAuditReproduction.unpairedReviewed(unpairedReviews, row));
+  const pending = rows.filter(row => !LiveAuditReproduction.unpairedAnswered(unpairedReviews, row));
   document.querySelector('#unlinked-tester-body').innerHTML = rows.length
     ? rows.map(row => unpairedTesterRow(row, currency)).join('')
     : '<tr><td colspan="6" class="audit-analysis-empty">Todas las operaciones que el tester cerró '

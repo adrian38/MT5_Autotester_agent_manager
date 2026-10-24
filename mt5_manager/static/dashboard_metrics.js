@@ -107,7 +107,7 @@
   function unlinkedTester(result, reviewed, validatedRows) {
     return reproduction.unpairedTester(result).filter(row => (
       !reviewed.has(String(row.strategy || row.tester?.strategy || 'Sin estrategia'))
-      && !reproduction.unpairedReviewed(validatedRows, row)
+      && !reproduction.unpairedAnswered(validatedRows, row)
     )).length;
   }
 

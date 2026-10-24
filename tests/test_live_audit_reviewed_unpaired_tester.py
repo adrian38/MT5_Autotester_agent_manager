@@ -50,6 +50,7 @@ def unlinked_tester(rows: list[dict], reviewed: set[str], validated: dict) -> in
         row for row in rows
         if row.get("status") == "missing"
         and str(row.get("strategy") or "Sin estrategia") not in reviewed
+        and not row.get("manual_unpaired")
         and not validated.get(tester_pair_key(row.get("tester") or {}))
     ])
 
@@ -265,13 +266,13 @@ class ReviewedUnpairedTesterScreenTests(unittest.TestCase):
             "  function unlinkedTester(result, reviewed, validatedRows) {\n"
             "    return reproduction.unpairedTester(result).filter(row => (\n"
             "      !reviewed.has(String(row.strategy || row.tester?.strategy || 'Sin estrategia'))\n"
-            "      && !reproduction.unpairedReviewed(validatedRows, row)\n"
+            "      && !reproduction.unpairedAnswered(validatedRows, row)\n"
             "    )).length;",
             self.metrics,
         )
         self.assertIn(
-            "  function unpairedReviewed(validated, row) {\n"
-            "    return Boolean(validated?.[unpairedKey(row)]);\n"
+            "  function unpairedAnswered(validated, row) {\n"
+            "    return Boolean(row?.manual_unpaired) || unpairedReviewed(validated, row);\n"
             "  }",
             self.reproduction,
         )
@@ -293,6 +294,18 @@ class ReviewedUnpairedTesterScreenTests(unittest.TestCase):
         # Y el gesto viejo sigue valiendo: validar la estrategia entera en
         # Análisis se lleva todas las suyas.
         self.assertEqual(unlinked_tester(rows, {"btc-grid"}, validated), 0)
+
+    def test_what_the_excel_already_resolved_is_not_asked_again(self) -> None:
+        # Si el Excel de enlace dijo que esta operación no tiene real, la
+        # decisión está tomada: pedir además la casilla es pedir la misma
+        # decisión dos veces.
+        rows = [{
+            "status": "missing", "strategy": "eth-grid", "tester": TRADE,
+            "manual_unpaired": True,
+        }]
+        self.assertEqual(unlinked_tester(rows, set(), {}), 0)
+        self.assertIn("['RESUELTA EN EL EXCEL', 'info']", self.analysis)
+        self.assertIn("if (row.manual_unpaired && !mark) {", self.analysis)
 
 
 if __name__ == "__main__":
