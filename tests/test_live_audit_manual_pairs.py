@@ -78,6 +78,36 @@ def offerable_to(row: dict, strategy: str) -> bool:
     return str(attribution.get("strategy") or "") == strategy
 
 
+def claimed_payload() -> dict:
+    """La misma descartada, pero con la fila del tester ya emparejada.
+
+    Atribuir una real la saca de la banda de lote, y si la fila del tester
+    sigue sin pareja la atribucion la empareja: eso es justo lo que arreglo
+    `audit-170` y deja al selector sin nada que ofrecer. Lo que el selector
+    filtra son las que quedaron sueltas, asi que aqui el hueco ya esta tapado.
+    """
+    base = discarded_payload()
+    base["real_trades"] = [
+        *base["real_trades"], {**base["tester_trades"][0], "position_id": 900},
+    ]
+    return base
+
+
+# Atribuir una real saca su lote de la conjetura de la banda, así que deja de
+# estar entre las descartadas y pasa a las que quedaron sin pareja. El selector
+# ofrece las dos tablas, y la regla que las filtra es la misma: por eso aquí se
+# busca la fila donde esté y no en una tabla fija.
+def offered_row(detail: dict, ticket: str = TICKET) -> dict:
+    rows = [
+        *(detail.get("unmatched_real_operations") or []),
+        *(detail.get("discarded_real_operations") or []),
+    ]
+    return next(
+        row for row in rows
+        if str((row.get("real") or {}).get("position_id") or "") == ticket
+    )
+
+
 def analysed(pairs: dict | None = None) -> dict:
     return analyze(discarded_payload(), profile(manual_pairs=pairs or {}))
 
@@ -233,27 +263,27 @@ class ManualPairOfferTests(unittest.TestCase):
     """
 
     def attributed_analysis(self, strategy_set: str) -> dict:
-        return analyze(discarded_payload(), profile(real_attribution={
+        return analyze(claimed_payload(), profile(real_attribution={
             "rules": {TICKET: {"strategy_set": strategy_set, "reason": ""}},
         }))
 
-    def test_a_discarded_real_carries_what_the_excel_said_about_it(self) -> None:
-        # La mitad no evidente: la atribución anota también las descartadas por
-        # banda de lote, que es de donde salen casi todas las candidatas.
+    def test_an_attributed_real_carries_what_the_excel_said_about_it(self) -> None:
+        # La mitad no evidente: nombrar al dueño contesta la conjetura de la
+        # banda de lote, así que la real deja de estar descartada. Sigue sin
+        # pareja -abrió 400 s tarde- y la anotación viaja con ella.
         detail = self.attributed_analysis(SET_NAME)["comparison_detail"]
-        row = detail["discarded_real_operations"][0]
+        self.assertEqual(detail["discarded_real_operations"], [])
+        row = offered_row(detail)
         self.assertEqual(row["attribution"]["strategy"], STRATEGY)
         self.assertFalse(row["attribution"]["excluded"])
 
     def test_a_real_already_given_to_this_strategy_is_offered(self) -> None:
         detail = self.attributed_analysis(SET_NAME)["comparison_detail"]
-        row = detail["discarded_real_operations"][0]
-        self.assertTrue(offerable_to(row, STRATEGY))
+        self.assertTrue(offerable_to(offered_row(detail), STRATEGY))
 
     def test_a_real_given_to_another_strategy_is_not_offered(self) -> None:
         detail = self.attributed_analysis(SET_NAME)["comparison_detail"]
-        row = detail["discarded_real_operations"][0]
-        self.assertFalse(offerable_to(row, "ROBOFOREX/ECN:99999"))
+        self.assertFalse(offerable_to(offered_row(detail), "ROBOFOREX/ECN:99999"))
 
     def test_a_real_declared_foreign_is_never_offered(self) -> None:
         # «no contabiliza en este portafolio»: ningún miembro reclama ese

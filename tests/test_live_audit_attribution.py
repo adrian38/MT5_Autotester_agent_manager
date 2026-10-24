@@ -448,6 +448,45 @@ class AttributedPairTests(unittest.TestCase):
             detail["unmatched_real_operations"][0]["attribution"]["strategy"], STRATEGY,
         )
 
+    def discarded_payload(self, volume: float = 0.06) -> dict[str, object]:
+        """La real atribuida, con un lote que la banda del portafolio aparta."""
+        base = unpaired_payload()
+        orphan = datetime(2026, 9, 23, 9, 0, tzinfo=timezone.utc)
+        base["real_trades"] = base["real_trades"][:-1] + [
+            trade(orphan, volume, -11.0, 111),
+        ]
+        return base
+
+    def test_the_lot_band_no_longer_hides_a_real_whose_owner_the_excel_named(self) -> None:
+        # El caso de `audit-170` de RoboForex: las dos `EURUSD` de 0,06 estaban
+        # atribuidas a `ROBOFOREX/ECN:32807`, cuya banda es 0,08–0,12, así que
+        # el filtro de pertenencia las apartaba antes de comparar. Ni el
+        # reparto ni esta segunda pasada podían verlas, y sus dos filas seguían
+        # «SIN REAL» con la respuesta ya escrita en el Excel.
+        result = analyze(
+            self.discarded_payload(), profile(real_attribution=imported(ATTRIBUTED_ORPHAN)),
+        )
+        detail = result["comparison_detail"]
+        self.assertEqual(detail["discarded_real_operations"], [])
+        self.assertEqual(result["portfolio_filter"]["attributed_kept"], 1)
+        self.assertEqual(result["portfolio_filter"]["manually_paired_kept"], 0)
+        row = detail["operation_comparisons"][1]
+        self.assertEqual(str(row["real"]["position_id"]), "111")
+        self.assertTrue(row["attributed_pair"])
+        # No afloja la banda: la fila sale con su desviación de volumen.
+        self.assertEqual(row["status"], "deviation")
+        self.assertIn("volume", row["reasons"])
+
+    def test_a_real_declared_foreign_keeps_being_apart(self) -> None:
+        # «No contabiliza en este portafolio» contesta lo contrario, así que la
+        # banda de lote sigue decidiendo y la real sigue en su tabla.
+        foreign = imported([(ATTRIBUTED_ORPHAN[0][0], "no contabiliza en este portafolio")])
+        result = analyze(self.discarded_payload(), profile(real_attribution=foreign))
+        detail = result["comparison_detail"]
+        self.assertEqual(len(detail["discarded_real_operations"]), 1)
+        self.assertEqual(result["portfolio_filter"]["attributed_kept"], 0)
+        self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")
+
     def test_without_the_excel_the_row_keeps_having_no_real(self) -> None:
         detail = analyze(unpaired_payload(), profile())["comparison_detail"]
         self.assertEqual(detail["operation_comparisons"][1]["status"], "missing")

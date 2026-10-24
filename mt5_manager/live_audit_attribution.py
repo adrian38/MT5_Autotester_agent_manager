@@ -494,6 +494,21 @@ def annotate_unmatched(
     }
 
 
+def owned_position_ids(resolved: dict[str, dict[str, Any]]) -> set[str]:
+    """Las reales cuyo dueño declaró el usuario, excluidas las que dejó fuera.
+
+    Decir «esta real es de esta estrategia» contesta la misma pregunta que la
+    banda de lote conjetura: si la operación pertenece al portafolio. Una real
+    **excluida** («no contabiliza en este portafolio») contesta lo contrario y
+    no entra; una cuyo `.set` ningún miembro reclama tampoco, porque entonces
+    lo escrito dejó de nombrar una estrategia.
+    """
+    return {
+        ticket for ticket, rule in (resolved or {}).items()
+        if (rule or {}).get("strategy") and not (rule or {}).get("excluded")
+    }
+
+
 def attribution_by_ticket(
     attribution: Any, members: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:

@@ -199,10 +199,61 @@ ninguna real atribuida. Las ocho filas `SIN REAL` pasan a seis.
   regla automática no puede juzgar eso.
 - Las dos las encontró una revisión, no una prueba, y valían igual para el
   camino del Excel.
-- **No rescata del filtro de lote.** El emparejamiento manual sí lo hace
+- **No rescataba del filtro de lote.** El emparejamiento manual sí lo hacía
   (`rescued_position_ids`), porque el usuario señaló esa real una por una.
   Atribuir es más barato y rescatar por atribución cambiaría el pool entero de
-  la comparación; si alguna vez hace falta, ése es el sitio.
+  la comparación; si alguna vez hace falta, ése es el sitio. Hizo falta tres
+  días después: la sección siguiente.
+
+## Atribuir también contesta la banda de lote (2026-10-24)
+
+El usuario volvió sobre la cartera 170 de RoboForex: la tarjeta decía «2 del
+tester sin ejecutar» y sólo una de esas operaciones no la ejecutó la cuenta.
+Las otras dos ya las había repartido en el Excel de reales sin tester.
+
+Las dos filas eran `#T12` y `#T13`, `EURUSD` buy 0,08 de
+`ROBOFOREX/ECN:32807`, y sus reales estaban delante en la tabla de
+descartadas: `771329182` abre **en el mismo segundo** que `#T12` y `769643751`
+un segundo después de `#T13`, las dos de 0,06 contra una banda 0,08–0,12, y
+las dos atribuidas en `auditoria_p170_18.10.2026.xlsx` a esa misma estrategia.
+La atribución llegaba tarde: `_filter_portfolio_trades` ya las había apartado,
+así que ni el reparto global ni la segunda pasada del Excel podían verlas.
+
+Lo que cambia es **de quién es la última palabra sobre la pertenencia**, no
+ninguna tolerancia. La banda de lote conjetura si una operación es del
+portafolio; decir en el Excel de qué estrategia es contesta esa misma pregunta
+y con mejor evidencia, igual que ya hacía una pareja elegida a mano. Así que
+`_lot_filter_exemptions` junta las dos: `rescued_position_ids` (parejas a mano)
+y `owned_position_ids` (atribución con dueño, venga del Excel o del comentario
+del EA). Una real **excluida** —«no contabiliza en este portafolio»— contesta
+lo contrario y la banda sigue decidiendo sobre ella; una cuyo `.set` ningún
+miembro reclama queda excluida por `attribution_by_ticket` y tampoco entra.
+
+El pool sí cambia, que era el motivo de no hacerlo. Medido sobre las **once**
+ejecuciones con materia prima de los tres agentes, el cambio alcanza a tres
+reales en total y **nueve ejecuciones salen idénticas**:
+
+| Ejecución | Qué se mueve |
+| --- | --- |
+| `audit-170` RoboForex | `#T12` ← `771329182` y `#T13` ← `769643751`, las dos `DESVIACIÓN` por `volume`; parejas 14 → 16, «SIN REAL» 3 → 1 |
+| `audit-148` RoboForex | `#T65` ← `764866277` (también de `32807`), `DESVIACIÓN` por `volume`; parejas 86 → 87 |
+| Las otras nueve | Sin una sola fila distinta |
+
+Dos cosas que la medida deja claras:
+
+- **Ninguna real cambió de dueño.** En `audit-170`, `#T8` —`EURUSD` de
+  `ROBOFOREX/ECN:27672`, que abre en el mismo segundo que `#T12`— conserva su
+  `771329562`: la de 0,06 le sale peor por lote, así que el reparto global no
+  se la quita. El riesgo existe igual, porque `_pair_cost` no mira la
+  estrategia; lo que no existe es un caso medido donde se materialice.
+- **Las dos parejas de `audit-170` las hace el reparto, no la segunda pasada**,
+  porque las aperturas coinciden al segundo. Por eso la fila no se marca
+  `attributed_pair` y `attributed_pairs` sigue en 1: lo que la atribución hizo
+  fue dejarlas entrar, y eso lo cuenta `portfolio_filter.attributed_kept`.
+
+La real atribuida que **no** encuentra pareja ya no desaparece en las
+descartadas: sale entre las que quedaron sin pareja, con su atribución, y el
+selector la sigue ofreciendo con la misma regla.
 
 ## Lo que esto no arregla
 

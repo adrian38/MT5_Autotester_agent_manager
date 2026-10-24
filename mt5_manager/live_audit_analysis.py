@@ -25,7 +25,9 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
-from .live_audit_attribution import annotate_unmatched, attribution_by_ticket
+from .live_audit_attribution import (
+    annotate_unmatched, attribution_by_ticket, owned_position_ids,
+)
 from .live_audit_autolot import dynamic_lot_bands, prepare_request, rules_by_strategy
 from .live_audit_comment_links import (
     attribution_from_comments, links_by_comment, merged_attribution,
@@ -398,6 +400,30 @@ def _analysis_inputs(payload: dict[str, Any], request: dict[str, Any]) -> dict[s
     }
 
 
+def _lot_filter_exemptions(request: dict[str, Any]) -> tuple[set[str], set[str]]:
+    """Las reales que la banda de lote ya no puede apartar, y por qué.
+
+    La banda es una **conjetura** de pertenencia: «este lote no lo opera el
+    portafolio». Las dos exenciones son respuestas del usuario a esa misma
+    pregunta, así que la conjetura deja de decidir.
+
+    - La que emparejó a mano señala esa real una por una.
+    - La que atribuyó en el Excel —o que el comentario del EA reclama— dice de
+      qué estrategia del uso es. En `audit-170` de RoboForex las dos `EURUSD`
+      de 0,06 estaban atribuidas a `ROBOFOREX/ECN:32807`, cuya banda es
+      0,08–0,12, así que el filtro las apartaba antes de comparar y sus dos
+      filas del tester seguían «SIN REAL» con la respuesta ya escrita: la
+      portada pedía como trabajo pendiente algo que el usuario ya había hecho.
+
+    Se devuelven aparte porque el cuadre cuenta cada procedencia por su lado, y
+    sin la resta una real emparejada a mano **y** atribuida se contaría dos
+    veces.
+    """
+    paired = rescued_position_ids(request.get("manual_pairs"))
+    owned = owned_position_ids(request.get("_real_attribution_by_ticket") or {})
+    return paired, owned - paired
+
+
 def _filter_portfolio_trades(
     payload: dict[str, Any], request: dict[str, Any], inputs: dict[str, Any],
 ) -> dict[str, Any]:
@@ -418,10 +444,8 @@ def _filter_portfolio_trades(
         "applied": bool(bands), "symbol_aliases": dict(inputs["symbol_aliases"]),
     }
     discarded: list[dict[str, Any]] = []
-    # Una real que el usuario emparejó a mano no la puede apartar la banda de
-    # lote: la conjetura de pertenencia ya quedó contestada, y sin esto el
-    # emparejamiento manual no alcanzaría al caso más frecuente.
-    rescued = rescued_position_ids(request.get("manual_pairs"))
+    paired, owned = _lot_filter_exemptions(request)
+    rescued = paired | owned
     if bands:
         before = len(real_trades)
         kept: list[dict[str, Any]] = []
@@ -437,7 +461,12 @@ def _filter_portfolio_trades(
             portfolio_closures=len(real_trades),
             foreign_closures_ignored=before - len(real_trades),
             manually_paired_kept=sum(
-                1 for trade in real_trades if not _within_lot_bands(trade, bands)
+                1 for trade in real_trades
+                if not _within_lot_bands(trade, bands) and real_pair_id(trade) in paired
+            ),
+            attributed_kept=sum(
+                1 for trade in real_trades
+                if not _within_lot_bands(trade, bands) and real_pair_id(trade) in owned
             ),
         )
     inputs["real_trades"] = real_trades
