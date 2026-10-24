@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from lxml import html
+from mt5_manager import manager_live_audit_routes
 from mt5_manager.manager_handler import STATIC_FILES
 
 
@@ -326,26 +327,46 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         apply_lots = apply_lots.split("\n}", 1)[0]
         self.assertIn("await writeOverrides(lotOverrides)", apply_lots)
         self.assertIn("lotOverrides = previous", apply_lots)
-        # Y esta pantalla sólo escribe en estos sitios: los criterios que
-        # entran por `_SAVED_CRITERION` —la atribución y los tramos de lote,
-        # que sí reanalizan y por eso devuelven el resultado rehecho en el
-        # mismo viaje—, el escalado de la vista y las estrategias revisadas.
-        # Ninguno reenvía el perfil entero, que es lo que de verdad no puede
-        # pasar: borraría lo que esta pantalla no conoce.
+        # Y dice lo que el modelo lineal no sabe.
+        self.assertIn("no modela deslizamiento, margen ni stop out", self.analysis_script)
+
+    def test_the_analysis_screen_only_writes_where_it_may(self) -> None:
+        # Esta pantalla sólo escribe en estos sitios: los criterios que entran
+        # por `_SAVED_CRITERION` —la atribución, el enlace manual, los
+        # comentarios y los tramos de lote, que sí reanalizan y por eso
+        # devuelven el resultado rehecho en el mismo viaje—, el escalado de la
+        # vista y las estrategias revisadas. Ninguno reenvía el perfil entero,
+        # que es lo que de verdad no puede pasar: borraría lo que esta pantalla
+        # no conoce.
+        #
+        # Los `*-import` son POST por el Excel que llevan en el cuerpo, no
+        # porque guarden: el manager lo lee, devuelve las filas y quien escribe
+        # es el `changeCriterion` que viene detrás. Van listados uno a uno, no
+        # por el sufijo, para que una puerta nueva tenga que pasar por aquí.
+        importers = {
+            "live-audit-attribution-import",
+            "live-audit-pairs-import",
+            "live-audit-comment-links-import",
+        }
         posts = re.findall(r"fetch\(\s*([^,]+),\s*\{\s*method: 'POST'", self.analysis_script)
         self.assertTrue(posts, "La pantalla ya no hace ningún POST: revisa esta guarda.")
         for url in posts:
+            endpoint = url.strip().strip("`").rsplit("/", 1)[-1]
             self.assertTrue(
-                "${criterion}" in url or "attribution" in url
+                "${criterion}" in url or endpoint in importers
                 or url.strip() in {"viewLotsUrl", "reviewsUrl"},
                 f"POST inesperado desde Análisis: {url}",
             )
         # `changeCriterion` es la única puerta, así que la guarda vale aunque
         # mañana se sume un criterio más: los que pasan por ella están listados.
         criteria = set(re.findall(r"changeCriterion\('([a-z-]+)'", self.analysis_script))
-        self.assertEqual(criteria, {"attribution", "real-lot-schedule"})
-        # Y dice lo que el modelo lineal no sabe.
-        self.assertIn("no modela deslizamiento, margen ni stop out", self.analysis_script)
+        self.assertEqual(
+            criteria,
+            {"attribution", "manual-pairs", "comment-links", "real-lot-schedule"},
+        )
+        # Y que estén listados aquí no basta: el que la pantalla nombre mal
+        # falla al llegar al manager, no al escribir esta lista.
+        self.assertEqual(criteria - set(manager_live_audit_routes._SAVED_CRITERION), set())
 
     def test_the_analysis_compares_each_strategy_with_its_stored_history(self) -> None:
         self.assertTrue(self.analysis_page.xpath('//table/tbody[@id="degradation-body"]'))
