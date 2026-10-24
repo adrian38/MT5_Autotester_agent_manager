@@ -199,6 +199,37 @@ class ReviewedUnpairedTesterScreenTests(unittest.TestCase):
         cls.reproduction = (STATIC / "live_audit_reproduction.js").read_text(encoding="utf-8")
         cls.metrics = (STATIC / "dashboard_metrics.js").read_text(encoding="utf-8")
         cls.dashboard = (STATIC / "dashboard.js").read_text(encoding="utf-8")
+        cls.analysis = (STATIC / "live_audit_analysis.js").read_text(encoding="utf-8")
+        cls.analysis_page = (STATIC / "live_audit_analysis.html").read_text(encoding="utf-8")
+
+    def test_analysis_has_its_own_table_for_them(self) -> None:
+        # La tabla es lo que se pidió: las filas enteras en Análisis, al lado
+        # de la de reales sin dueño, y no sólo la casilla suelta en la pantalla
+        # de operaciones. Las dos son el mismo campo del perfil.
+        self.assertIn('<p class="eyebrow">CUADRE · EJECUTADAS</p>', self.analysis_page)
+        self.assertIn("<h2>Ejecutadas en demo que la cuenta no ejecutó</h2>", self.analysis_page)
+        self.assertIn('<tbody id="unlinked-tester-body"></tbody>', self.analysis_page)
+        self.assertIn("<th>Validada</th>", self.analysis_page)
+        self.assertIn('id="unlinked-tester-count"', self.analysis_page)
+        self.assertIn("function renderUnlinkedTester() {", self.analysis)
+        self.assertIn("  renderUnlinkedTester();", self.analysis)
+        self.assertIn("LiveAuditReproduction.unpairedTester(currentResult)", self.analysis)
+        self.assertIn('colspan="6"', self.analysis)
+
+    def test_the_table_says_why_each_row_has_no_real(self) -> None:
+        # Una candidata más cercana que no se consumió señala al emparejamiento
+        # y no a la cuenta: no es lo mismo que no haya ninguna, y la fila lo
+        # dice distinto para que no se valide a ciegas.
+        self.assertIn("if (row.nearest_unused_real?.open_time) {", self.analysis)
+        self.assertIn("el fallo puede ser `", self.analysis)
+        self.assertIn("Ninguna real libre con el mismo símbolo y lado la reclamó", self.analysis)
+        self.assertIn("La real habría llevado ${number(esperado, 4)} lotes.", self.analysis)
+
+    def test_marking_it_in_analysis_saves_the_same_field(self) -> None:
+        self.assertIn("unpairedReviews[key] = {at: new Date().toISOString()}", self.analysis)
+        self.assertIn("body: JSON.stringify({reviewed_unpaired_tester: value})", self.analysis)
+        self.assertIn("unpairedReviews = previous;", self.analysis)
+        self.assertIn("No se pudo guardar la validación", self.analysis)
 
     def test_the_checkbox_shows_up_on_every_row_without_a_real(self) -> None:
         # También en la que el usuario declaró sin real a mano: esa decisión
@@ -219,10 +250,10 @@ class ReviewedUnpairedTesterScreenTests(unittest.TestCase):
         self.assertIn("No se pudo guardar la validación", self.result)
 
     def test_the_screen_and_the_card_build_the_same_fingerprint(self) -> None:
-        # Tres copias de la misma huella —el manager, esta pantalla y la
+        # Cuatro copias de la misma huella —el manager, las dos pantallas y la
         # portada— y lo que las ata es el texto: si una se separa, la portada
         # cuenta como pendiente lo que la pantalla da por validado.
-        for source in (self.result, self.reproduction):
+        for source in (self.result, self.reproduction, self.analysis):
             self.assertIn(
                 "[tester.strategy, tester.symbol, tester.side, tester.open_time, tester.close_time]",
                 source,

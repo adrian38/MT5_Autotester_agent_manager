@@ -40,6 +40,16 @@ porque son dos respuestas distintas a la misma pregunta:
 Sale también en la fila que el usuario declaró sin real a mano: esa decisión
 dice que no hay real que buscar, no que la fila esté mirada.
 
+## Dónde se ve
+
+En **Análisis**, sección «CUADRE · EJECUTADAS», debajo de la tabla de reales sin
+dueño y con la misma forma: una fila por operación —símbolo, lote, apertura,
+cierre, PnL del tester, por qué no tiene real— y la casilla «Validada» al final.
+La pantalla de operaciones lleva además la misma casilla en su fila «SIN REAL»,
+al lado del selector de emparejado a mano, porque es ahí donde se decide si la
+real existe. Las dos escriben el mismo campo del perfil, así que lo validado en
+una sale marcado en la otra.
+
 ## La huella, no la fila
 
 La marca se guarda contra `tester_pair_key`, la misma huella que las parejas

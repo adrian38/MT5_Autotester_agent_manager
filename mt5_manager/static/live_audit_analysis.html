@@ -97,6 +97,16 @@
       <p id="unaccounted-note" class="audit-analysis-note-text"></p>
     </section>
     <section class="panel-card audit-analysis-section">
+      <div class="panel-title"><div><p class="eyebrow">CUADRE · EJECUTADAS</p><h2>Ejecutadas en demo que la cuenta no ejecutó</h2><p class="subtitle">Operaciones que el <strong>Strategy Tester sí cerró</strong> y para las que el auditor no encontró ninguna real. No es el mismo hecho que la tabla de arriba —aquélla son cierres reales sin dueño y éstas son operaciones que la cuenta nunca llegó a abrir—, así que se cuentan aparte en <em>Portafolios activos</em>. Si crees que su real sí existe, emparejala a mano desde <strong>Ver resultado</strong>: eso le pone real a la fila y la vuelve a medir con las tolerancias de siempre. Marca <strong>Validada</strong> la que ya hayas mirado y no tenga real que buscar: deja de contar en <em>Portafolios activos</em> sin tocar el veredicto. Hasta ahora lo único que las callaba era validar la estrategia entera en <em>Demo contra real</em>, que dice algo mucho más fuerte. La marca es de la operación, no de la fila, así que sigue valiendo cuando el uso se vuelve a auditar.</p></div><span id="unlinked-tester-count" class="badge idle">—</span></div>
+      <div class="audit-analysis-table-wrap">
+        <table class="audit-analysis-table">
+          <thead><tr><th>Operación</th><th>Apertura</th><th>Cierre</th><th>PnL del tester</th><th>Estado</th><th>Validada</th></tr></thead>
+          <tbody id="unlinked-tester-body"></tbody>
+        </table>
+      </div>
+      <p id="unlinked-tester-note" class="audit-analysis-note-text"></p>
+    </section>
+    <section class="panel-card audit-analysis-section">
       <div class="panel-title"><div><p class="eyebrow">CONTRA EL HISTÓRICO</p><h2>¿La estrategia sigue haciendo lo de siempre?</h2><p class="subtitle">Compara el <strong>Strategy Tester de todas las auditorías archivadas</strong> con el backtest histórico guardado en la memoria del agente. Es acumulativo a propósito: con las operaciones de una sola semana casi todas las filas contestaban «insuficiente» y la tabla no servía para decidir. Las operaciones repetidas entre dos periodos encadenados se cuentan una sola vez, y las estrategias que vienen de un portafolio arreglado conservan lo medido en el portafolio al que sustituyen. Para que el tamaño de la posición no engañe, cada operación del periodo se recalcula al mismo lote base del histórico: <strong><span id="history-reference-lot">0,01</span> lotes</strong>. Los importes son el PnL medio por operación a ese lote, no el PnL total, y no dependen de la simulación de lotes.</p></div><span id="degradation-count" class="badge idle">—</span></div>
       <div id="degradation-warning" class="audit-analysis-note" hidden></div>
       <p id="degradation-accumulated" class="audit-analysis-note-text"></p>

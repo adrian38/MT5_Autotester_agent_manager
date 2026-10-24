@@ -4,11 +4,13 @@ const auditId = params.get('audit') || '';
 const modeLabels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
 const viewLotsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/view-lots`;
 const reviewsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reviewed-strategies`;
+const unpairedReviewsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reviewed-unpaired-tester`;
 let strategyRows = [];
 let strategySummaries = {};
 let chartContext = {currency: 'EUR', window: []};
 let lotOverrides = {};
 let reviews = {};
+let unpairedReviews = {};
 let currentResult = null;
 
 // El escalado aplicado se guarda en el perfil del uso, no en este navegador.
@@ -46,6 +48,25 @@ async function writeReviews(value) {
   await jsonResponse(await fetch(reviewsUrl, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({reviewed_strategies: value}),
+  }));
+}
+
+// Y lo mismo con las ejecutadas en demo que se quedaron sin real. Su marca va
+// por operacion y no por estrategia, asi que es otro campo del perfil; el sitio
+// y el motivo son los mismos: la portada tiene que contar lo mismo que esta
+// pantalla desde cualquier dispositivo.
+async function readUnpairedReviews() {
+  try {
+    const data = await jsonResponse(await fetch(unpairedReviewsUrl, {cache: 'no-store'}));
+    const stored = data.reviewed_unpaired_tester;
+    return stored && typeof stored === 'object' ? stored : {};
+  } catch (_error) { return {}; }
+}
+
+async function writeUnpairedReviews(value) {
+  await jsonResponse(await fetch(unpairedReviewsUrl, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reviewed_unpaired_tester: value}),
   }));
 }
 
@@ -1030,6 +1051,80 @@ function renderUnaccounted() {
   ].filter(Boolean).join(' ');
 }
 
+// Por qué esta fila no tiene real. El auditor deja escrito si había una
+// candidata más cercana que no consumió: cuando la hay, el problema es el
+// emparejamiento y no la cuenta, y lo que toca es emparejarla a mano desde Ver
+// resultado. El lote esperado se escribe aunque no exista la real, porque es
+// lo que habría llevado.
+function unpairedTesterHelp(row) {
+  if (row.manual_unpaired) {
+    return 'Dijiste tú que esta operación no tiene real, así que el auditor dejó de buscarla.';
+  }
+  const esperado = Number(row.limits?.volume_expected_real);
+  const lote = Number.isFinite(esperado) && esperado > 0
+    ? ` La real habría llevado ${number(esperado, 4)} lotes.` : '';
+  if (row.nearest_unused_real?.open_time) {
+    const delta = Number(row.measurements?.nearest_open_time_delta_seconds);
+    const fuera = Number.isFinite(delta) ? ` por ${number(delta, 0)} s` : '';
+    return `Había una real libre más cercana que no se consumió${fuera}: el fallo puede ser `
+      + `del emparejamiento y no de la cuenta.${lote}`;
+  }
+  return `Ninguna real libre con el mismo símbolo y lado la reclamó dentro de la `
+    + `tolerancia de tiempo.${lote}`;
+}
+
+function unpairedReviewCell(row) {
+  const key = testerPairKey(row.tester || {});
+  const mark = unpairedReviews[key];
+  const since = mark ? reviewDate(mark.at) : '';
+  const note = mark
+    ? `<small>Fuera de Portafolios activos${since ? ` desde el ${escapeHtml(since)}` : ''}.</small>`
+    : '<small>Márcala cuando la hayas mirado: deja de contar en Portafolios activos.</small>';
+  return `<td class="audit-analysis-review"><label><input type="checkbox"
+    data-unpaired-review="${escapeHtml(key)}"${mark ? ' checked' : ''}><span>Validada</span></label>${note}</td>`;
+}
+
+function unpairedTesterRow(row, currency) {
+  const tester = row.tester || {};
+  const validated = LiveAuditReproduction.unpairedReviewed(unpairedReviews, row);
+  const [label, tone] = validated ? ['VALIDADA', 'info'] : ['SIN REAL', 'warn'];
+  return `<tr>
+    <th><strong>${escapeHtml(tester.symbol)} · ${escapeHtml(number(tester.volume, 4))} lotes</strong><small>${escapeHtml(tester.side)}</small><small>${escapeHtml(row.strategy_set || row.strategy)}</small>${row.strategy_set ? `<small>${escapeHtml(row.strategy)}</small>` : ''}</th>
+    <td>${escapeHtml(dateTime(tester.open_time))}</td>
+    <td>${escapeHtml(dateTime(tester.close_time))}</td>
+    <td>${escapeHtml(money(tester.profit, currency))}</td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(unpairedTesterHelp(row))}</small></td>
+    ${unpairedReviewCell(row)}
+  </tr>`;
+}
+
+// El PnL de estas filas es el del tester y nada más: la cuenta no abrió la
+// operación, así que no hay real que sumar ni restar. Por eso la tabla dice
+// cuánto dejó de mover la cuenta, no cuánto se desvió.
+function renderUnlinkedTester() {
+  const currency = chartContext.currency;
+  const rows = LiveAuditReproduction.unpairedTester(currentResult).slice().sort(
+    (left, right) => new Date(left.tester?.open_time) - new Date(right.tester?.open_time),
+  );
+  const pending = rows.filter(row => !LiveAuditReproduction.unpairedReviewed(unpairedReviews, row));
+  document.querySelector('#unlinked-tester-body').innerHTML = rows.length
+    ? rows.map(row => unpairedTesterRow(row, currency)).join('')
+    : '<tr><td colspan="6" class="audit-analysis-empty">Todas las operaciones que el tester cerró '
+      + 'tienen su real en la cuenta.</td></tr>';
+  const badge = document.querySelector('#unlinked-tester-count');
+  badge.textContent = pending.length ? `${pending.length} POR MIRAR`
+    : rows.length ? `${rows.length} VALIDADA${rows.length === 1 ? '' : 'S'}` : 'TODO ENLAZADO';
+  badge.className = `badge ${pending.length ? 'pending' : 'idle'}`;
+  const suma = rows.reduce((total, row) => total + Number(row.tester?.profit || 0), 0);
+  document.querySelector('#unlinked-tester-note').textContent = rows.length
+    ? `${rows.length} operaci${rows.length === 1 ? 'ón' : 'ones'} sin real, `
+      + `${rows.length - pending.length} ya validada${rows.length - pending.length === 1 ? '' : 's'}. `
+      + `En el tester sumaban ${money(suma, currency)}, que es lo que la cuenta no movió por no `
+      + 'haberlas abierto. Validar no cambia el veredicto: ninguna de éstas tiene real con la que '
+      + 'medirse.'
+    : '';
+}
+
 function renderCurves() {
   const currency = chartContext.currency;
   const trades = globalTrades(currentResult, strategyRows);
@@ -1050,6 +1145,7 @@ function renderCurves() {
   else document.querySelector('#strategy-chart').innerHTML = '<p class="audit-analysis-empty">No hay estrategias en este resultado.</p>';
   renderReproduction();
   renderUnaccounted();
+  renderUnlinkedTester();
   renderSimulationNotice();
 }
 
@@ -1293,9 +1389,12 @@ async function loadAnalysis() {
   if (!comparisonRows(result).length) {
     throw new Error('Esta ejecución no guardó la comparación operación por operación, así que no hay con qué derivar las curvas. Vuelve a ejecutar la auditoría con el motor actual.');
   }
-  const [storedLots, storedReviews] = await Promise.all([readOverrides(), readReviews()]);
+  const [storedLots, storedReviews, storedUnpaired] = await Promise.all([
+    readOverrides(), readReviews(), readUnpairedReviews(),
+  ]);
   lotOverrides = storedLots;
   reviews = storedReviews;
+  unpairedReviews = storedUnpaired;
   render(result);
   await loadDegradation();
 }
@@ -1730,6 +1829,32 @@ document.querySelector('#reproduction-body').addEventListener('change', event =>
   toggleReview(
     group.strategy, reproductionVerdict(reproductionShortfall(group))[0], box.checked,
   );
+});
+
+// Aquí no hay veredicto que guardar, al revés que al validar una estrategia:
+// una operación sin real no se mide, está o no está, así que la marca es sólo
+// la fecha. Se repinta antes de guardar y se deshace si el guardado falla,
+// porque una casilla marcada que no llegó al perfil sería una operación fuera
+// de la portada que nadie validó.
+async function toggleUnpairedReview(key, checked) {
+  const previous = unpairedReviews;
+  unpairedReviews = {...unpairedReviews};
+  if (checked) unpairedReviews[key] = {at: new Date().toISOString()};
+  else delete unpairedReviews[key];
+  renderUnlinkedTester();
+  try {
+    await writeUnpairedReviews(unpairedReviews);
+    showAnalysisError('');
+  } catch (error) {
+    unpairedReviews = previous;
+    renderUnlinkedTester();
+    showAnalysisError(`No se pudo guardar la validación: ${error.message}`);
+  }
+}
+
+document.querySelector('#unlinked-tester-body').addEventListener('change', event => {
+  const box = event.target.closest('[data-unpaired-review]');
+  if (box) toggleUnpairedReview(box.dataset.unpairedReview, box.checked);
 });
 
 document.querySelector('#back-link').href = `/live_audit.html?node=${encodeURIComponent(nodeId)}`;
