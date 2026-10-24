@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Iterable, Sequence
 
@@ -177,6 +178,45 @@ def reconcile(
     return [(moment, amount * factor) for moment, amount in values], factor
 
 
+@dataclass(frozen=True)
+class MemberCurve:
+    """La serie de un miembro y **a qué lote está medida**.
+
+    Guardar el lote al lado de la serie es lo que permite llevarla después a
+    otro tamaño sin volver a abrir el informe: la curva es estrictamente
+    lineal en el lote —`scaled_trades` divide por el volumen de cada operación
+    y multiplica por él—, así que un factor basta.
+    """
+
+    candidate: str
+    lot: float
+    values: tuple[tuple[datetime, float], ...]
+
+
+def seasonal_at(
+    curves: Sequence[MemberCurve], lots: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """La media estacional de esas curvas, llevadas a los lotes que se digan.
+
+    Un miembro que no aparezca en `lots` se queda con el suyo, y el factor es
+    exactamente `1.0`: la media sin escenario tiene que salir idéntica, bit a
+    bit, a la de antes de que esto existiera.
+
+    El escalado **no** puede aplicarse al número final: con factores distintos
+    por miembro la curva combinada cambia de forma, y el drawdown de una suma
+    no es la suma de los drawdowns. Por eso se rehace la combinación.
+    """
+    chosen = dict(lots or {})
+    combined: list[tuple[datetime, float]] = []
+    for curve in curves:
+        target = chosen.get(curve.candidate)
+        factor = 1.0 if not target or curve.lot <= 0 else float(target) / curve.lot
+        combined.extend(
+            (moment, amount * factor) for moment, amount in curve.values
+        )
+    return _seasonal(combined)
+
+
 def _seasonal(values: Sequence[tuple[datetime, float]]) -> dict[str, Any]:
     """De la serie combinada a la media de cada mes del año."""
     rows = monthly_rows(sorted(values, key=lambda item: item[0]))
@@ -234,30 +274,22 @@ def build(
     """
     real_lots = dict(real_lots or {})
     manual = manual_report_paths(portfolio)
-    combined: list[tuple[datetime, float]] = []
     warnings: list[str] = []
     sources: set[str] = set()
-    read_members = 0
     members = audited_members(portfolio, portfolio_type)
+    curves: list[MemberCurve] = []
     for member in members:
-        lot, origin = member_lot(member, real_lots)
-        paths = member_paths(member, manual)
-        label = str(member.get("set_name") or member.get("candidate_id") or "?")
-        if lot <= 0 or not paths:
-            warnings.append(f"{label}: sin informe del backtest o sin lote.")
-            continue
-        values = _member_values(paths, lot, read, resolve, label, warnings)
-        if values is None:
-            continue
-        read_members += 1
-        sources.add(origin)
-        values, _factor = reconcile(
-            values, _declared(member.get("net_profit_contribution")),
+        curve = _member_curve(
+            member, real_lots, manual, read, resolve, warnings, sources,
         )
-        combined.extend(values)
+        if curve is not None:
+            curves.append(curve)
+    combined = [
+        (moment, amount) for curve in curves for moment, amount in curve.values
+    ]
     return {
-        "months": _seasonal(combined),
-        "members_read": read_members, "members_total": len(members),
+        "months": seasonal_at(curves),
+        "members_read": len(curves), "members_total": len(members),
         "measured_profit": sum(amount for _moment, amount in combined),
         "declared_profit": sum(
             _declared(member.get("net_profit_contribution")) for member in members
@@ -274,6 +306,36 @@ def _declared(value: Any) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _member_curve(
+    member: dict[str, Any], real_lots: dict[str, Any], manual: dict[str, str],
+    read: Callable[[str], Any], resolve: Callable[[str], str] | None,
+    warnings: list[str], sources: set[str],
+) -> MemberCurve | None:
+    """La curva de un miembro ya reconciliada, o `None` si no se pudo medir.
+
+    La reconciliación se decide **al lote con el que se midió**, que es el que
+    `net_profit_contribution` describe; llevarla después a otro tamaño no la
+    cambia, porque es una corrección adimensional.
+    """
+    lot, origin = member_lot(member, real_lots)
+    paths = member_paths(member, manual)
+    label = str(member.get("set_name") or member.get("candidate_id") or "?")
+    if lot <= 0 or not paths:
+        warnings.append(f"{label}: sin informe del backtest o sin lote.")
+        return None
+    values = _member_values(paths, lot, read, resolve, label, warnings)
+    if values is None:
+        return None
+    sources.add(origin)
+    values, _factor = reconcile(
+        values, _declared(member.get("net_profit_contribution")),
+    )
+    return MemberCurve(
+        candidate=str(member.get("candidate_id") or ""), lot=lot,
+        values=tuple(values),
+    )
 
 
 def _member_values(
