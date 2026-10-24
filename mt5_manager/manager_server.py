@@ -18,7 +18,7 @@ from typing import Any
 
 from . import live_account_schedule, live_account_watch
 from . import live_audit_schedule, live_audit_watch, manager_tls, web_push
-from . import manual_check_watch
+from . import manual_check_watch, monthly_summary_runtime
 from .common import load_json, safe_int, save_json
 from .experiment_service import ExperimentCoordinator
 from .live_account_archive import LiveAccountArchive
@@ -185,6 +185,11 @@ class ManagerServer(ThreadingHTTPServer):
             self.live_account_scheduler_settings = (
                 normalize_live_account_scheduler_settings({})
             )
+        monthly_summary_runtime.configure(self, config, settings_path)
+
+    def update_monthly_summary(self, changes: dict[str, Any]) -> dict[str, Any]:
+        """Persiste y aplica la cita del resumen sin reiniciar el manager."""
+        return monthly_summary_runtime.update(self, changes)
 
     def _start_live_account_scheduler(self) -> None:
         # El mismo candado doble que el cron de auditoría: el hilo recoge
@@ -390,12 +395,14 @@ class ManagerServer(ThreadingHTTPServer):
         super().__init__(address, ManagerHandler)
         self._start_live_audit_scheduler()
         self._start_live_account_scheduler()
+        monthly_summary_runtime.start(self)
 
     def server_close(self) -> None:
         self.live_audit_stop.set()
         self.live_audit_wakeup.set()
         self.live_account_stop.set()
         self.live_account_wakeup.set()
+        monthly_summary_runtime.stop(self)
         super().server_close()
 
     def live_audit_scheduler_state(self) -> dict[str, Any]:

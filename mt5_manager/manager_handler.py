@@ -30,6 +30,7 @@ from . import manager_portfolio_routes
 from . import manager_pulse
 from . import manager_push_routes
 from . import manager_schedule_routes
+from . import manager_summary_routes
 from . import manager_tls
 from .common import json_bytes, safe_int, utc_now
 from .manager_http import NODE_CONTROL_ACTIONS, NODE_CONTROL_TIMEOUT, submit_guided_to_node, submit_repair_request
@@ -63,6 +64,12 @@ STATIC_FILES = {
     # Y el del sondeo diario de cuentas, que se monta en las mismas
     # cabeceras: lanzarlo no puede exigir pasar antes por la portada.
     "live_account_schedule.js",
+    # El boton «Resumen» del mes cerrado. Solo lo montan las dos pantallas de
+    # operacion real —la portada de cuentas y «Portafolios activos»—, que es
+    # donde se decide si una cartera sigue; en Generacion o Universo seria
+    # ruido. Necesita `live_audit_reproduction.js` y `dashboard_metrics.js`,
+    # que son donde vive el veredicto de reproduccion.
+    "monthly_summary.js", "monthly_summary.css",
     # El grafico mes a mes de una cuenta: beneficio contra drawdown desde su
     # primer cierre. Solo lo carga la portada, que es donde esta el boton.
     "live_account_monthly.js",
@@ -280,6 +287,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
         return (
             manager_push_routes.handle_get(self, parsed, parts)
             or manager_schedule_routes.handle_get(self, parsed, parts)
+            or manager_summary_routes.handle_get(self, parsed, parts)
             or manager_account_routes.handle_get(self, parsed, parts)
             or manager_live_audit_routes.handle_get(self, parsed, parts)
         )
@@ -288,6 +296,7 @@ class ManagerHandler(BaseHTTPRequestHandler):
         return (
             manager_push_routes.handle_post(self, parsed, parts)
             or manager_schedule_routes.handle_post(self, parsed, parts)
+            or manager_summary_routes.handle_post(self, parsed, parts)
             or manager_account_routes.handle_post(self, parsed, parts)
             or manager_live_audit_routes.handle_post(self, parsed, parts)
         )
