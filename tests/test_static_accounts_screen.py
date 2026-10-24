@@ -24,6 +24,7 @@ PAGE = STATIC / "accounts.html"
 SCRIPT = (STATIC / "accounts.js").read_text(encoding="utf-8")
 MOUNTED = (STATIC / "live_account_schedule.js").read_text(encoding="utf-8")
 MONTHLY = (STATIC / "live_account_monthly.js").read_text(encoding="utf-8")
+STYLE = (STATIC / "accounts.css").read_text(encoding="utf-8")
 TREE = html.fromstring(PAGE.read_text(encoding="utf-8"))
 
 
@@ -175,6 +176,7 @@ class CriterionTests(unittest.TestCase):
 
     def test_the_pace_of_the_month_comes_prorated_from_the_manager(self) -> None:
         self.assertIn("profit_prorated", SCRIPT)
+        self.assertNotIn("* 21 / 31", SCRIPT)
 
     def test_the_pace_says_it_is_the_average_month_and_not_this_one(self) -> None:
         """«Al ritmo del mes» se lee como el ritmo de **este** mes.
@@ -184,7 +186,18 @@ class CriterionTests(unittest.TestCase):
         """
         self.assertIn("Al ritmo del mes medio (", SCRIPT)
         self.assertIn("% del mes)", SCRIPT)
-        self.assertNotIn("* 21 / 31", SCRIPT)
+
+    def test_the_pace_is_coloured_with_the_same_verdict_as_the_big_number(self) -> None:
+        """Es la referencia que decide el color de arriba, así que se pinta.
+
+        Verde si la cuenta va igual o por encima y rojo si va por debajo: el
+        criterio es el de `tone()`, no uno nuevo, o la nota y el número
+        podrían discrepar.
+        """
+        self.assertIn('<em class="${escapeHtml(card.monthly.profit_tone', SCRIPT)
+        # El gancho de color ya existía en la hoja y nadie lo usaba.
+        self.assertIn(".metric small em.good", STYLE)
+        self.assertIn(".metric small em.bad", STYLE)
 
     def test_the_card_says_how_many_years_the_mean_averages(self) -> None:
         self.assertIn("años", SCRIPT)

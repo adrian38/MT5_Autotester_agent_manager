@@ -142,12 +142,20 @@ function expectedNote(expected, currency) {
 // «Al ritmo del **mes medio**», y no «al ritmo del mes»: lo que este número
 // dice es cuánto llevaría el backtest a estas alturas, no a qué ritmo va la
 // cuenta. Sin la palabra se lee justo al revés.
+//
+// Va coloreado porque es **la referencia que decide el color de arriba**:
+// `monthly.profit_tone` compara el mes con este número y no con la media
+// completa, así que pintar el grande y dejar gris lo que se le compara deja
+// el verde sin explicación a la vista. Verde si la cuenta va igual o por
+// encima, rojo si va por debajo, que es el mismo criterio de `tone()`.
 function paceNote(card, currency) {
   const expected = card.expected_month || {};
   if (expected.profit_prorated === null || expected.profit_prorated === undefined) return '';
   const percent = Math.round(Number(card.monthly.progress || 0) * 100);
-  return `Al ritmo del mes medio (${percent} % del mes): `
+  const text = `Al ritmo del mes medio (${percent} % del mes): `
     + `${plain(expected.profit_prorated, currency)}`;
+  return `<em class="${escapeHtml(card.monthly.profit_tone || '')}">`
+    + `${escapeHtml(text)}</em>`;
 }
 
 function metric(label, value, tone, notes) {
@@ -178,7 +186,7 @@ function monthlyRow(card, currency) {
   const expected = card.expected_month || {};
   return metricRow(monthName(card.monthly.label),
     metric('Beneficio', money(card.monthly.profit, currency), card.monthly.profit_tone, [
-      plainNote(expectedNote(expected, currency)), plainNote(paceNote(card, currency)),
+      plainNote(expectedNote(expected, currency)), paceNote(card, currency),
     ])
     + metric('Drawdown', plain(card.monthly.drawdown, currency), card.monthly.drawdown_tone, [
       expected.drawdown === null || expected.drawdown === undefined
