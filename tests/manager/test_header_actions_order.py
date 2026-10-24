@@ -32,6 +32,7 @@ REFRESH = "#refresh, #reload, #portfolio-refresh, #universe-refresh"
 REFRESH_STATE = "#refresh-state, #catalog-state"
 
 CRON = "Auditoría programada"
+BACK_ARROW = "←"
 BELL = "🔔"
 
 ACCOUNT_CRON = "Sondeo de cuentas"
@@ -41,7 +42,7 @@ ACCOUNT_CRON = "Sondeo de cuentas"
 # acaba más lejos del ancla: por eso se leen del HTML y no de esta lista.
 MOUNTS = {
     "live_account_schedule.js": (ACCOUNT_CRON,),
-    "live_audit_schedule.js": (BELL,),
+    "live_audit_schedule.js": (BACK_ARROW, BELL),
 }
 
 RESTART_MOUNT = "manager_restart.js"
@@ -161,44 +162,44 @@ class HeaderActionsOrderTests(unittest.TestCase):
     EXPECTED = {
         "accounts.html": [
             "Actualizando…", "Actualizar", "Portafolios activos", "Generación",
-            ACCOUNT_CRON, BELL, RESTART_LABEL,
+            ACCOUNT_CRON, BACK_ARROW, BELL, RESTART_LABEL,
         ],
-        "correlation.html": ["Cargando…", "Actualizar", BACK, BELL, RESTART_LABEL],
+        "correlation.html": ["Cargando…", "Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "dashboard.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Generación",
-            "Experimenta", "Correlación", CRON, BELL, RESTART_LABEL,
+            "Experimenta", "Correlación", CRON, BACK_ARROW, BELL, RESTART_LABEL,
         ],
-        "experiment.html": ["Cargando…", "Actualizar", BACK, BELL, RESTART_LABEL],
+        "experiment.html": ["Cargando…", "Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "index.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Portafolios activos",
-            "Experimenta", "Correlación", BELL, RESTART_LABEL,
+            "Experimenta", "Correlación", BACK_ARROW, BELL, RESTART_LABEL,
         ],
-        "live_audit.html": ["⚙ Cuenta final", BACK, BELL, RESTART_LABEL],
+        "live_audit.html": ["⚙ Cuenta final", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "live_audit_analysis.html": [
             # «Enlazar por comentario» nace oculto: sólo los usos de AXI lo
             # enseñan, y es la pantalla quien lo destapa al leer el análisis.
             "Lotes por estrategia", "Atribuir reales sin pareja",
             "Enlazar por comentario", "Ver detalle de operaciones",
-            AUDITOR_BACK, BELL, RESTART_LABEL,
+            AUDITOR_BACK, BACK_ARROW, BELL, RESTART_LABEL,
         ],
-        "live_audit_result.html": [AUDITOR_BACK, BELL, RESTART_LABEL],
+        "live_audit_result.html": [AUDITOR_BACK, BACK_ARROW, BELL, RESTART_LABEL],
         # El análisis de una comprobación manual se abre desde el detalle del
         # portafolio, así que vuelve allí; el enlace al generador es la salida
         # a la raíz que toda pantalla tiene que ofrecer.
         "manual_check_analysis.html": [
-            "Actualizar", "Volver al portafolio", BACK, BELL, RESTART_LABEL,
+            "Actualizar", "Volver al portafolio", BACK, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         # El histórico OHLC guardado se abre desde el detalle del portafolio y
         # vuelve allí, con la misma salida al generador.
         "portfolio_history.html": [
-            "Actualizar", "Volver al portafolio", BACK, BELL, RESTART_LABEL,
+            "Actualizar", "Volver al portafolio", BACK, BACK_ARROW, BELL, RESTART_LABEL,
         ],
-        "manual_portfolios.html": ["Crear portafolio", BACK, BELL, RESTART_LABEL],
-        "portfolio_manual.html": ["Portafolios manuales", BACK, BELL, RESTART_LABEL],
-        "portfolios.html": ["Actualizar", BACK, BELL, RESTART_LABEL],
-        "portfolios_grid.html": ["Actualizar", BACK, BELL, RESTART_LABEL],
-        "portfolios_monthly.html": ["Actualizar", BACK, BELL, RESTART_LABEL],
-        "universe.html": ["Actualizar", BACK, BELL, RESTART_LABEL],
+        "manual_portfolios.html": ["Crear portafolio", BACK, BACK_ARROW, BELL, RESTART_LABEL],
+        "portfolio_manual.html": ["Portafolios manuales", BACK, BACK_ARROW, BELL, RESTART_LABEL],
+        "portfolios.html": ["Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
+        "portfolios_grid.html": ["Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
+        "portfolios_monthly.html": ["Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
+        "universe.html": ["Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
     }
 
     def test_every_screen_that_loads_the_script_is_declared_here(self) -> None:
@@ -306,6 +307,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
             f"actions.querySelector('{REFRESH_STATE}')",
             "actions.insertBefore(open, anchor || null)",
             "actions.insertBefore(bell, anchor || null)",
+            "actions.insertBefore(back, bell)",
             "actions.insertBefore(refresh, actions.firstElementChild)",
             "actions.insertBefore(state, refresh)",
         ):

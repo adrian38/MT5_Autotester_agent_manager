@@ -44,6 +44,14 @@
   }).then(jsonResponse);
 
   // --- Botón, campana y contenedores -------------------------------------
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'cron-back';
+  back.id = 'cron-back';
+  back.title = 'Volver atrás';
+  back.innerHTML = '←';
+  back.onclick = () => window.history.back();
+
   const bell = document.createElement('button');
   bell.type = 'button';
   bell.className = 'cron-bell';
@@ -85,6 +93,7 @@
     || actions.querySelector('a[href="/"]');
   if (showsAuditSchedule) actions.insertBefore(open, anchor || null);
   actions.insertBefore(bell, anchor || null);
+  actions.insertBefore(back, bell);
 
   // La chapa va en su propia línea **encima de la fila de botones** y pegada
   // a su derecha (petición del usuario, 2026-10-21).

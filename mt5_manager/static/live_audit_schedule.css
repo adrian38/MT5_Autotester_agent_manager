@@ -1,6 +1,8 @@
 /* Botón superior «Auditoría programada» y su campana. Vive aparte porque lo
    usan la portada y Generación, que tienen hojas de estilo distintas; por eso
    cada variable lleva su respaldo literal. */
+.cron-back{padding:8px 9px;border:1px solid var(--line,#27394b);border-radius:7px;background:transparent;color:var(--text,#edf5f7);font-size:14px;line-height:1;cursor:pointer;transition:border-color 150ms}
+.cron-back:hover{border-color:var(--accent,#20c997)}
 .cron-bell{position:relative;padding:10px 12px;border:1px solid var(--line,#27394b);border-radius:9px;background:transparent;color:var(--text,#edf5f7);font-size:15px;line-height:1}
 .cron-bell:hover{border-color:var(--accent,#20c997)}
 .cron-bell .cron-unread{position:absolute;top:-6px;right:-6px;min-width:18px;padding:2px 5px;border-radius:999px;background:var(--danger,#ff6b6b);color:#2a0a0a;font-size:10px;font-weight:800}
