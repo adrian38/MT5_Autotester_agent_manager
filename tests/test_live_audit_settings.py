@@ -506,6 +506,25 @@ class LiveAuditSettingsTests(unittest.TestCase):
                     "profiles": {"11": profile("111", "911")},
                 })
 
+    def test_a_broken_profile_does_not_wipe_the_other_uses_of_the_node(self) -> None:
+        # El 2026-10-24 un campo retirado en un solo perfil rechazaba ese
+        # perfil, el `ValueError` salía de `_stored_profiles` entero y el nodo
+        # amanecía sin ningún uso. `period_days` fuera de rango es un campo
+        # **conocido**, para probar la capa que no depende de qué campo falló.
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "live_audit_settings.json"
+            good = {**profile("111", "911"), "view_lot_overrides": {"$mode": "autolot"}}
+            broken = {**profile("222", "922"), "period_days": 999999}
+            path.write_text(json.dumps({"node-a": {
+                "selected_audit_ids": ["audit-11", "audit-12"],
+                "profiles": {"audit-11": good, "audit-12": broken},
+            }}), encoding="utf-8")
+            state = LiveAuditSettingsStore(path).state("node-a")
+
+        self.assertIn("audit-11", state["profiles"])
+        self.assertEqual(state["profiles"]["audit-11"]["view_lot_overrides"], {"$mode": "autolot"})
+        self.assertNotIn("audit-12", state["profiles"])
+
     def test_unselected_portfolio_profile_is_retained_for_later(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = LiveAuditSettingsStore(Path(temp) / "live_audit_settings.json")
