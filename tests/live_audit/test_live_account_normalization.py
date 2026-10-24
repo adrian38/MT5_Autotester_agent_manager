@@ -177,7 +177,9 @@ class NormalizedSeriesTests(unittest.TestCase):
             )
             server = SimpleNamespace(live_accounts=archive)
             with mock.patch.object(live_account_ingest, "_artifact", return_value=b"<html>"):
-                with self.assertRaisesRegex(ValueError, "se releerá la serie entera"):
+                with self.assertRaisesRegex(
+                    live_account_ingest.ScaleChanged, "leer la serie entera",
+                ):
                     live_account_ingest._merge_account(
                         server, {}, "axi", "snap-1", key, {"report": {}},
                         ("2026-10-18", "2026-10-21"), {"BTCUSD": 0.03},

@@ -635,11 +635,31 @@
       + `${check.done + 1} de ${check.total}`;
   }
 
+  // El sondeo de cuentas reales dura lo que tarde el agente en entrar y salir
+  // de cada cuenta, y pausa el pipeline mientras. Sin esto la cabecera está
+  // igual de quieta que cuando no pasa nada, que es justo lo que no puede ser
+  // en lo único que ocupa las terminales.
+  function activitySnapshots(state) {
+    return state.account_snapshots || [];
+  }
+
+  function snapshotText(snapshot) {
+    const detail = snapshot.status === 'extracting'
+      ? ` · cuenta ${Math.min(snapshot.done + 1, snapshot.total)} de ${snapshot.total}` : '';
+    return `Sondeo de cuentas · ${snapshot.status_label}${detail} ${snapshot.percent}%`;
+  }
+
   function activityText(state) {
     const running = state.running || [];
     const queue = activityQueue(state);
     const checks = activityChecks(state);
+    const snapshots = activitySnapshots(state);
     const tail = queue ? ` · ${queue.done} de ${queue.total}` : '';
+    if (!running.length && !queue && !checks.length && snapshots.length) {
+      return snapshots.length > 1
+        ? `${snapshots.length} sondeos de cuentas en marcha`
+        : snapshotText(snapshots[0]);
+    }
     if (!running.length && !queue && checks.length) {
       return checks.length > 1
         ? `${checks.length} comprobaciones manuales en marcha`
@@ -654,6 +674,10 @@
     const running = state.running || [];
     const queue = activityQueue(state);
     const checks = activityChecks(state);
+    const snapshots = activitySnapshots(state);
+    if (!running.length && !queue && !checks.length && snapshots.length === 1) {
+      return snapshots[0].percent;
+    }
     if (!running.length && !queue && checks.length === 1) return checks[0].percent;
     // Con una tanda en marcha lo que falta es la tanda entera, no el uso que
     // toca: el que corre sólo aporta su fracción al tramo que le toca.
@@ -669,6 +693,11 @@
       lines.push(`${check.node_name}: comprobación manual del portafolio `
         + `#${check.portfolio_id} — ${check.strategies} estrategia(s), `
         + `${checkText(check).split(' · ').pop()}`);
+    });
+    activitySnapshots(state).forEach(snapshot => {
+      lines.push(`${snapshot.node_name}: sondeo de cuentas — `
+        + `${snapshot.progress_text || snapshot.status_label} `
+        + `(${snapshot.done} de ${snapshot.total} leídas)`);
     });
     const queue = activityQueue(state);
     if (queue) {

@@ -657,3 +657,44 @@ del cierre de terminales para reproducir la carrera sin depender del reloj.
 
 Vive en `manager_node_runtime/live_audit.py` de cada agente: tres commits
 hermanos mas el espejo del manager.
+
+## El sondeo de cuentas también se ve y también avisa (2026-10-24)
+
+El usuario lanzó un sondeo y «no se veía nada activo». Dos huecos, los dos del
+manager:
+
+- **La chapa de la cabecera no conocía el sondeo.** `live_audit_activity`
+  juntaba auditorías, comprobaciones manuales y la tanda de recuperación, pero
+  no lo único que además **pausa el pipeline**. Ahora `live_account_watch.
+  running_row` publica su fase y su porcentaje, igual que
+  `manual_check_watch.running_row`, y la chapa lo pinta cuando es lo único en
+  marcha. El tramo largo —entrar y salir de cada cuenta— es el único que se
+  reparte: de 15 a 90 por cuentas leídas; las otras fases son instantes y
+  darles un porcentaje fino sería inventarlo.
+- **El aviso no decía que hubiera terminado.** Era «Sondeo de cuentas de X»;
+  ahora es «Sondeo de cuentas terminado: X». Es el «ya está»: hasta que el
+  manager recoge no hay serie nueva que mirar.
+
+### `stale` no es un fallo, y por eso no gasta reintentos
+
+Al hacer que el lote de presentación salga de la casilla del portafolio
+(`live_audit_autolot.md`), `_merge_account` rechaza un tramo parcial cuya
+escala ya no es la de la serie guardada. Eso llegaba a la campana como error y
+**consumía un reintento**: con `retry_attempts` a 3, tres rechazos seguidos
+dejaban la serie sin reparar hasta la cita siguiente —el lunes—.
+
+No ha fallado nada: la captura llegó entera y lo único que pasa es que hace
+falta **otra** lectura, de toda la vida. Por eso `collect` lo clasifica aparte
+(`ScaleChanged` → `_outcome` → `stale`):
+
+| Final | Qué pasó | Reintentos |
+| --- | --- | --- |
+| `success` | entró todo | — |
+| `partial` | entró algo y algo falló | sí |
+| `failed` | no entró nada y hubo fallos | sí |
+| `stale` | la escala cambió; nada que reprochar | sí, **y los intentos vuelven a cero** |
+
+`stale` sigue en `UNFINISHED_OUTCOMES` —la cita no está cumplida— y la campana
+lo pinta `info`, no rojo. Medido el 2026-10-24: las ocho cuentas de AXI y
+RoboForex quedaron pendientes tras el cambio de criterio y el turno se relanzó
+pidiendo toda la vida.

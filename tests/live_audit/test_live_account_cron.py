@@ -307,6 +307,40 @@ class WatchTests(unittest.TestCase):
         self.assertIn("1 cuenta(s) y 1 cierre(s)", event["message"])
         self.assertIn("no quedó conectada", event["message"])
 
+    def test_the_bell_says_the_snapshot_finished_and_not_only_that_it_happened(self) -> None:
+        # Es el «ya está»: entre el clic y esto el agente lleva un rato dentro
+        # de las terminales y no hay serie nueva que mirar. El usuario lo pidió
+        # el 2026-10-24, después de lanzar un sondeo y no enterarse de nada.
+        server = self.server()
+        with self._request(snapshot_state()), mock.patch(
+            "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
+        ), mock.patch(
+            "mt5_manager.live_account_report.movements_from_html",
+            return_value=[(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
+        ):
+            live_account_watch.tick(server, NOW)
+        self.assertIn("Sondeo de cuentas terminado", server.events()[0]["title"])
+
+    def test_a_scale_change_is_not_a_failure_and_does_not_burn_the_retries(self) -> None:
+        """La captura llegó entera; lo que ya no sirve es su escala.
+
+        Contarlo como fallo gastaba un reintento en una lectura que nunca se
+        iba a poder usar, y con tres de tres la serie se quedaba sin reparar
+        hasta la cita siguiente. Lo que hace falta es **otra** lectura.
+        """
+        self.assertEqual(live_account_ingest._outcome(0, [], ["a: escala"]), "stale")
+        self.assertEqual(live_account_ingest._outcome(2, [], ["a: escala"]), "stale")
+        self.assertEqual(live_account_ingest._outcome(0, ["a: roto"], []), "failed")
+        self.assertEqual(live_account_ingest._outcome(2, ["a: roto"], []), "partial")
+        self.assertEqual(live_account_ingest._outcome(2, [], []), "success")
+        self.assertEqual(live_account_ingest._outcome(0, [], []), "failed")
+        # Sigue dejando la cita sin cumplir: hace falta otra lectura.
+        self.assertIn("stale", live_account_watch.UNFINISHED_OUTCOMES)
+        self.assertEqual(
+            live_account_watch.retry_record({"outcome": "stale"})["outcome"], "failed",
+        )
+        self.assertEqual(live_account_watch.LEVELS_BY_OUTCOME["stale"], "info")
+
     def test_a_report_that_does_not_match_its_hash_is_refused(self) -> None:
         server = self.server()
         def artifact(node, path, timeout=10):

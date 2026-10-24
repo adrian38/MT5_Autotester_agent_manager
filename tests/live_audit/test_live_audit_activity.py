@@ -113,6 +113,61 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(state["issues"][0]["node_id"], "n")
         self.assertIn("No se pudo consultar el agente", state["issues"][0]["message"])
 
+    def test_a_running_account_snapshot_is_activity_too(self) -> None:
+        """Lo único que ocupa las terminales no puede dejar la barra quieta.
+
+        Un sondeo entra y sale de cada cuenta real y pausa el pipeline
+        mientras, así que dura lo suyo. Antes la chapa sólo conocía
+        auditorías y comprobaciones: el usuario lanzaba el sondeo y no veía
+        «nada activo» (2026-10-24).
+        """
+        self.server = FakeServer(self.root, audit_state())
+
+        def request(_node, _method, path, _payload=None, timeout=0):
+            if path == "/api/v1/status":
+                return 200, {"capabilities": {"live_account_snapshot": True}}
+            if path == "/api/v1/live-accounts":
+                return 200, {"snapshot": {
+                    "status": "extracting", "progress_text": "Leyendo la cuenta 3 de 4.",
+                    "started_at": "2026-10-24T13:33:00+00:00",
+                    "accounts": {
+                        "a": {"status": "completed"}, "b": {"status": "completed"},
+                        "c": {"status": "extracting"}, "d": {"status": "queued"},
+                    },
+                }}
+            return 200, {"audits": {"11": {"status": "idle"}}}
+
+        with mock.patch("mt5_manager.manager_http.node_request", side_effect=request):
+            state = live_audit_activity.snapshot(self.server)
+
+        self.assertTrue(state["active"])
+        self.assertEqual(state["running"], [])
+        row = state["account_snapshots"][0]
+        self.assertEqual(row["status_label"], "LEYENDO CUENTAS")
+        self.assertEqual((row["done"], row["total"]), (2, 4))
+        # 15 de arranque y el tramo largo repartido por cuentas leídas:
+        # 15 + 75 × 2/4.
+        self.assertEqual(row["percent"], 52)
+        self.assertEqual(row["progress_text"], "Leyendo la cuenta 3 de 4.")
+
+    def test_a_finished_account_snapshot_is_not_activity(self) -> None:
+        self.server = FakeServer(self.root, audit_state())
+
+        def request(_node, _method, path, _payload=None, timeout=0):
+            if path == "/api/v1/status":
+                return 200, {"capabilities": {"live_account_snapshot": True}}
+            if path == "/api/v1/live-accounts":
+                return 200, {"snapshot": {
+                    "status": "completed", "accounts": {"a": {"status": "completed"}},
+                }}
+            return 200, {"audits": {"11": {"status": "idle"}}}
+
+        with mock.patch("mt5_manager.manager_http.node_request", side_effect=request):
+            state = live_audit_activity.snapshot(self.server)
+
+        self.assertEqual(state["account_snapshots"], [])
+        self.assertFalse(state["active"])
+
     def test_the_route_answers_the_snapshot(self) -> None:
         self.server = FakeServer(self.root, audit_state())
         handler = ActivityHandler(self.server)

@@ -14,7 +14,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from . import live_audit_watch, manual_check_watch
+from . import live_account_watch, live_audit_watch, manual_check_watch
 from .common import utc_now
 from .live_audit_core import PROGRESS, RUNNING_STATUSES, STATUS_LABELS
 from .live_audit_executions import audit_label
@@ -94,13 +94,14 @@ def recovery(server: Any) -> dict[str, Any]:
 def snapshot(server: Any) -> dict[str, Any]:
     """Lo que hay en marcha ahora, con una sola lectura por agente.
 
-    La comprobación manual entra aquí y no en una chapa propia: es la misma
-    espera de horas en el mismo agente, y dos indicadores en la cabecera se
-    taparían el uno al otro.
+    La comprobación manual y el sondeo de cuentas entran aquí y no en una chapa
+    propia: es la misma espera larga en el mismo agente, y tres indicadores en
+    la cabecera se taparían unos a otros.
     """
     running: list[dict[str, Any]] = []
     issues: list[dict[str, str]] = []
     checks: list[dict[str, Any]] = []
+    snapshots: list[dict[str, Any]] = []
     nodes = list(server.nodes)
     with ThreadPoolExecutor(max_workers=max(1, len(nodes))) as executor:
         for rows, issue in executor.map(
@@ -112,12 +113,17 @@ def snapshot(server: Any) -> dict[str, Any]:
         for row in executor.map(manual_check_watch.running_row, nodes):
             if row:
                 checks.append(row)
+        for row in executor.map(live_account_watch.running_row, nodes):
+            if row:
+                snapshots.append(row)
     pending = recovery(server)
     return {
         "running": running,
         "manual_checks": checks,
+        "account_snapshots": snapshots,
         "recovery": pending,
         "issues": issues,
-        "active": bool(running) or bool(checks) or bool(pending.get("pending")),
+        "active": bool(running) or bool(checks) or bool(snapshots)
+        or bool(pending.get("pending")),
         "observed_at": utc_now(),
     }

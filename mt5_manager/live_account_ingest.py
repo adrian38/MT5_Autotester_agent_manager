@@ -36,6 +36,19 @@ from .portfolio_identity import _resolve_source_path
 from .portfolio_report_cache import cached_report
 from .portfolio_service import PortfolioSource
 
+
+class ScaleChanged(ValueError):
+    """La captura ya no sirve: la serie está a otro lote que el de ahora.
+
+    No es un fallo del agente ni de la red: es que entre el lanzamiento y la
+    recogida cambió a qué lote se presenta la cuenta, y pegar ese tramo encima
+    dejaría la serie con dos escalas. Se cuenta aparte de los fallos porque
+    gasta un reintento de balde y porque el aviso tiene que decir otra cosa:
+    lo que hace falta es **otra lectura**, de toda la vida, no insistir con
+    ésta.
+    """
+
+
 INGEST_ERRORS = (
     AttributeError, KeyError, OSError, TypeError, ValueError,
     urllib.error.URLError, TimeoutError,
@@ -89,9 +102,8 @@ def _merge_account(
         # y parte en otra. No se mezcla. El sondeo siguiente pide toda la vida
         # —`live_account_watch._period` ya ve que la versión no coincide— y
         # entonces sí entra entera y a una sola escala.
-        raise ValueError(
-            "cambió el lote al que se presenta: se releerá la serie entera en "
-            "el próximo sondeo",
+        raise ScaleChanged(
+            "cambió el lote al que se presenta: hace falta leer la serie entera",
         )
     report = row.get("report") or {}
     body = _artifact(
@@ -157,7 +169,7 @@ def collect(
     if str(runs.record(key).get("ingested") or "") == collected_key:
         return None
     period = _period(state)
-    read, failed, movements = 0, [], 0
+    read, failed, stale, movements = 0, [], [], 0
     for account_key, row in (state.get("accounts") or {}).items():
         if not isinstance(row, dict) or str(row.get("status") or "") != "completed":
             failed.append(f"{account_key}: {row.get('error') or 'sin leer'}")
@@ -168,22 +180,42 @@ def collect(
                 lots.get(str(account_key)) or {},
             )
             read += 1
+        except ScaleChanged as exc:
+            stale.append(f"{account_key}: {exc}")
         except INGEST_ERRORS as exc:
             failed.append(f"{account_key}: {exc}")
             sys.stderr.write(f"[live-account-ingest] {node_id}/{account_key}: {exc}\n")
-    # `failed` y `partial` los lee `live_account_watch.UNFINISHED_OUTCOMES`:
-    # son los que dejan la cita sin cumplir pese a este `completed_at`, y los
-    # que ponen en marcha los reintentos. Distinguirlos no es decorativo, pero
-    # sí es sólo informativo: para la política de reintentos valen lo mismo.
+    # `failed`, `partial` y `stale` los lee `live_account_watch`: son los que
+    # dejan la cita sin cumplir pese a este `completed_at`, y los que ponen en
+    # marcha otra lectura. Distinguirlos no es decorativo: con `stale` no ha
+    # fallado nada, así que el turno vuelve a empezar de cero en vez de gastar
+    # un reintento en una captura que nunca se va a poder usar.
+    outcome = _outcome(read, failed, stale)
     runs.update(
         key, ingested=collected_key, last_status=status,
         completed_at=str(state.get("finished_at") or utc_now()),
-        outcome="success" if read and not failed else ("failed" if not read else "partial"),
+        outcome=outcome, **({"attempts": 0} if outcome == "stale" else {}),
     )
     return {
         "snapshot_id": snapshot_id, "accounts": read, "movements": movements,
-        "failed": failed, "period": period, "status": status,
+        "failed": failed, "stale": stale, "period": period, "status": status,
+        "outcome": outcome,
     }
+
+
+def _outcome(read: int, failed: list[str], stale: list[str]) -> str:
+    """Cómo acabó la recogida, en los términos de la política de reintentos.
+
+    `stale` manda sobre `success` aunque entren cuentas: mientras quede una
+    serie a otra escala, la cita no está cumplida. Y manda sobre `failed`
+    cuando no hay fallos de verdad, porque lo que hace falta es otra lectura,
+    no insistir con ésta.
+    """
+    if failed:
+        return "partial" if read else "failed"
+    if stale:
+        return "stale"
+    return "success" if read else "failed"
 
 
 def _needs_rebuild(stored: dict[str, Any], now: datetime, mode: str = "") -> bool:

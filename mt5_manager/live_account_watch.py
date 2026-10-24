@@ -36,7 +36,7 @@ from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
 _NODE_UNAVAILABLE_CONFIRMATION_POLLS = 3
 """Lo mismo que en el cron de auditoría: un timeout no es una desconexión."""
 
-UNFINISHED_OUTCOMES = {"failed", "partial"}
+UNFINISHED_OUTCOMES = {"failed", "partial", "stale"}
 """Lo que deja la cita sin cumplir, aunque el agente diga que terminó.
 
 `live_account_ingest.collect` escribe `completed_at` con el `finished_at` del
@@ -50,6 +50,12 @@ reintentó hasta que el usuario lo lanzó a mano a la mañana siguiente.
 
 `exhausted` no está aquí a propósito: es el final del turno, no un fallo
 pendiente, y meterlo volvería a lanzar el sondeo hasta la cita siguiente.
+
+`stale` sí está, y es el único que no viene de algo que saliera mal: la
+captura llegó entera pero se presenta a otro lote que la serie guardada
+(`live_account_ingest.ScaleChanged`). Hace falta otra lectura, de toda la
+vida, así que la cita sigue pendiente; lo que no hace falta es gastar
+reintentos, y por eso `collect` pone los intentos a cero en ese caso.
 """
 
 
@@ -119,26 +125,90 @@ def record_node_issue(
         )
 
 
+LEVELS_BY_OUTCOME = {
+    "success": "success", "stale": "info", "partial": "warning", "failed": "error",
+}
+"""Con qué color sale cada final en la campana.
+
+`stale` es `info` a propósito: no ha fallado nada, el sondeo leyó las cuentas y
+lo único que pasa es que su escala ya no es la de la serie guardada. Pintarlo
+de rojo manda a mirar un fallo que no existe.
+"""
+
+
 def announce_collected(
     server: Any, node: dict[str, Any], node_id: str, collected: dict[str, Any],
 ) -> None:
-    """Un aviso por sondeo recogido, con lo que entró y lo que no."""
+    """Un aviso por sondeo terminado, con lo que entró y lo que no.
+
+    Es el «ya está» del sondeo: entre el clic y esto pasa el rato que el agente
+    tarda en entrar y salir de cada cuenta, y hasta aquí no hay serie nueva que
+    mirar. Va siempre, también cuando no entró nada.
+    """
     name = str(node.get("name") or node_id)
-    failed = collected["failed"]
-    level = "success" if collected["accounts"] and not failed else (
-        "error" if not collected["accounts"] else "warning"
-    )
+    failed, stale = collected["failed"], collected.get("stale") or []
     period = " a ".join(part for part in collected["period"] if part) or "toda la vida"
     detail = (
         f"{collected['accounts']} cuenta(s) y {collected['movements']} cierre(s), "
         f"periodo {period}."
     )
+    if stale:
+        detail += (
+            f" {len(stale)} cuenta(s) esperan a leerse enteras porque cambió el "
+            "lote al que se presentan; se pide en la lectura siguiente."
+        )
     if failed:
         detail += " Sin leer: " + "; ".join(failed[:4])
     server.live_audit_notifications.add(
-        level, f"Sondeo de cuentas de {name}", detail,
+        LEVELS_BY_OUTCOME.get(str(collected.get("outcome") or ""), "warning"),
+        f"Sondeo de cuentas terminado: {name}", detail,
         node_id=node_id, node_name=name, kind="account_snapshot_collected",
     )
+
+
+SNAPSHOT_PHASES = {
+    "queued": (4, "EN COLA"), "pausing": (10, "PAUSANDO"),
+    "extracting": (15, "LEYENDO CUENTAS"), "finalizing": (94, "RESTAURANDO"),
+    "resuming": (97, "REANUDANDO"),
+}
+"""Qué parte del sondeo va en cada fase, y cómo se llama en la chapa.
+
+El tramo de lectura es el largo —una cuenta tras otra, entrando y saliendo del
+terminal— así que es el único que se reparte: de 15 a 90 por cuentas leídas.
+Las otras fases son instantes, y darles un porcentaje fino sería inventarlo.
+"""
+
+
+def running_row(node: dict[str, Any], node_id: str = "") -> dict[str, Any] | None:
+    """El sondeo que ese agente tiene en marcha, para la chapa de la cabecera.
+
+    Un sondeo dura lo que tarde en entrar en nueve cuentas y pausa el pipeline
+    mientras: sin esto, la cabecera está igual de quieta cuando no pasa nada
+    que cuando el agente lleva veinte minutos dentro de las terminales. Es lo
+    mismo que ya hacen la auditoría y la comprobación manual.
+    """
+    identifier = node_id or str(node.get("id") or "")
+    state, _issue, _message = node_snapshot(node, identifier)
+    if not isinstance(state, dict):
+        return None
+    status = str(state.get("status") or "")
+    if status not in RUNNING_SNAPSHOT_STATUSES:
+        return None
+    accounts = state.get("accounts") or {}
+    total = max(1, len(accounts))
+    done = sum(
+        1 for value in accounts.values()
+        if str((value or {}).get("status") or "") == "completed"
+    )
+    base, label = SNAPSHOT_PHASES.get(status, (0, status.upper()))
+    return {
+        "node_id": identifier, "node_name": str(node.get("name") or identifier),
+        "status": status, "status_label": label,
+        "percent": round(base + 75 * done / total) if status == "extracting" else base,
+        "progress_text": str(state.get("progress_text") or ""),
+        "started_at": str(state.get("started_at") or ""),
+        "done": done, "total": total,
+    }
 
 
 def _period(server: Any, node_id: str, accounts: list[dict[str, Any]], now: datetime) -> tuple[str, str]:

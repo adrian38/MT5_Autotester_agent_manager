@@ -87,6 +87,19 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("ACTIVITY_LIVE_MS", self.script)
         self.assertIn("ACTIVITY_QUIET_MS", self.script)
 
+    def test_the_bar_also_counts_the_account_snapshot(self) -> None:
+        # El sondeo entra y sale de cada cuenta real y pausa el pipeline
+        # mientras: es lo que más tiempo tiene las terminales ocupadas y la
+        # chapa no lo conocía, así que el usuario lanzaba el sondeo y no veía
+        # «nada activo» (2026-10-24).
+        self.assertIn("state.account_snapshots || []", self.script)
+        self.assertIn("function snapshotText(snapshot)", self.script)
+        self.assertIn("Sondeo de cuentas · ${snapshot.status_label}", self.script)
+        self.assertIn("sondeos de cuentas en marcha", self.script)
+        # Y aporta su porcentaje cuando es lo único que corre.
+        self.assertIn("snapshots.length === 1", self.script)
+        self.assertIn("return snapshots[0].percent;", self.script)
+
     def test_the_bar_sits_above_the_buttons_and_not_among_them(self) -> None:
         # Petición del usuario (2026-10-21): el sitio tiene que ser fijo. Con
         # la chapa suelta en la cabecera lo decidía el ancho del título, y
