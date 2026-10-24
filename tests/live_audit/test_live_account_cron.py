@@ -21,8 +21,8 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import (
-    live_account_dashboard, live_account_ingest, live_account_inventory,
-    live_account_report, live_account_watch,
+    live_account_dashboard, live_account_expectation, live_account_ingest,
+    live_account_inventory, live_account_report, live_account_watch,
 )
 from mt5_manager.live_account_archive import LiveAccountArchive, account_key
 from mt5_manager.live_account_schedule import normalize_live_account_scheduler_settings
@@ -85,6 +85,15 @@ class FakeSettingsStore:
             "restore_login": "60268704", "restore_server": "Axi-US51-Live",
             "restore_password": "final",
         }
+
+
+class FakeSource:
+    """Lo mínimo que `_rebuild` le pide a la memoria del agente."""
+
+    project = ""
+
+    def saved_portfolio_detail(self, portfolio_id, scope):
+        return {"portfolio": {"id": portfolio_id, "members": []}}
 
 
 class FakeServer:
@@ -340,6 +349,44 @@ class WatchTests(unittest.TestCase):
             live_account_watch.retry_record({"outcome": "stale"})["outcome"], "failed",
         )
         self.assertEqual(live_account_watch.LEVELS_BY_OUTCOME["stale"], "info")
+
+    def test_a_new_criterion_is_measured_once_and_not_every_turn(self) -> None:
+        """El atajo de la firma sólo vale dentro del mismo criterio.
+
+        La firma resume las **entradas**; con un criterio nuevo las mismas
+        entradas dan otro número. Reescribir lo guardado le devolvía su
+        criterio viejo, así que `_needs_rebuild` volvía a pedirlo en la vuelta
+        siguiente y la memoria UBS del agente se abría cada minuto. Medido el
+        2026-10-24: ocho portafolios se quedaron en el criterio anterior
+        después de subirlo.
+        """
+        server = self.server()
+        stored = {
+            "signature": "firma", "criterion": "criterio-anterior",
+            "months": {"10": {"profit": 1.0, "drawdown": 0.0, "years": [2020]}},
+        }
+        server.live_accounts.write_expectation("axi", 105, stored)
+        calls = []
+        with mock.patch(
+            "mt5_manager.live_account_expectation.signature", return_value="firma",
+        ), mock.patch(
+            "mt5_manager.live_account_expectation.build",
+            side_effect=lambda *args, **kwargs: calls.append(1) or {
+                "signature": "firma",
+                "criterion": live_account_expectation.CRITERION_VERSION,
+                "months": {},
+            },
+        ):
+            live_account_ingest._rebuild(
+                server, FakeSource(), "axi",
+                {"account_key": "x", "real_strategy_lots": {}},
+                {"portfolio_id": 105, "portfolio_type": "", "audit_id": "audit-105"},
+            )
+        self.assertEqual(calls, [1])
+        self.assertEqual(
+            server.live_accounts.read_expectation("axi", 105)["criterion"],
+            live_account_expectation.CRITERION_VERSION,
+        )
 
     def test_a_report_that_does_not_match_its_hash_is_refused(self) -> None:
         server = self.server()

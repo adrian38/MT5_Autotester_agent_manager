@@ -299,8 +299,15 @@ def _rebuild(
         "presentation_lots": dict(use.symbols),
         "presentation_warnings": list(use.warnings),
     }
+    # El atajo de la firma sólo vale **dentro del mismo criterio**: la firma
+    # resume las entradas, y con un criterio nuevo las mismas entradas dan otro
+    # número. Sin esta condición, reescribir lo guardado le devolvía su
+    # criterio viejo y `_needs_rebuild` volvía a pedirlo en la vuelta
+    # siguiente: la medición «una sola vez» que promete `CRITERION_VERSION` no
+    # terminaba nunca y abría la memoria UBS del agente cada minuto.
     if (
-        stored.get("signature")
+        str(stored.get("criterion") or "") == live_account_expectation.CRITERION_VERSION
+        and stored.get("signature")
         and stored["signature"] == live_account_expectation.signature(
             saved, real_lots, variant,
         )
