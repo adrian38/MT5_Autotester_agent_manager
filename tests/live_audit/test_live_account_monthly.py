@@ -271,12 +271,21 @@ class TrackedPortfolioTests(unittest.TestCase):
         )
 
     def test_without_a_measured_promise_nothing_is_marked(self) -> None:
-        """Una cuenta recién sondeada no tiene la fecha todavía: no se inventa."""
+        """Sin fecha no se marca: ni se inventa el corte ni se niega el tramo.
+
+        `tracked=False` lo lee el gráfico como «anterior a este portafolio»:
+        atenúa la barra y añade la leyenda. Con la fecha todavía sin escribir
+        —las nueve cuentas reales el 2026-10-24, porque la promesa guardada es
+        de antes de que la ingesta la escribiera— eso pintaba la serie entera
+        como anterior a su propio portafolio.
+        """
         payload = self.history()
         self.assertEqual(payload["tracked_since"], "")
         self.assertEqual(payload["portfolios"], [])
-        self.assertFalse(any(month["tracked"] for month in payload["months"]))
         self.assertFalse(any(month["partial"] for month in payload["months"]))
+        self.assertEqual(
+            [month["tracked"] for month in payload["months"]], [True, True, True],
+        )
 
     def test_with_two_uses_the_oldest_one_opens_the_tramo(self) -> None:
         self.server.live_audit_settings = FakeSettings({

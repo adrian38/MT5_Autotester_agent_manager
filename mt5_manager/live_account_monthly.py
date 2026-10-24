@@ -149,7 +149,14 @@ def monthly_history(
         # El mes en que entró el portafolio más antiguo queda a medias: parte
         # de sus cierres son de lo que la cuenta operaba antes. Se marca
         # aparte de los anteriores porque no es ni una cosa ni la otra.
-        month["tracked"] = bool(since) and month["label"] > since[:7]
+        #
+        # Sin fecha **no se marca nada**: `tracked=False` significa «este mes
+        # es anterior al portafolio», no «no se sabe». Mientras la ingesta no
+        # había reescrito `portfolio_created_at` —todas las cuentas reales el
+        # 2026-10-24— salían los doce meses en falso, y el gráfico atenuaba la
+        # serie entera y declaraba en la leyenda que la cuenta era anterior a
+        # su propio portafolio.
+        month["tracked"] = month["label"] > since[:7] if since else True
         month["partial"] = bool(since) and month["label"] == since[:7]
     return {
         "node_id": node_id,

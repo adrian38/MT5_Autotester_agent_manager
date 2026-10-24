@@ -262,6 +262,7 @@ class MeasuredPromiseTests(unittest.TestCase):
         fresh = {
             "updated_at": "2026-10-23T15:00:00+00:00",
             "criterion": live_account_expectation.CRITERION_VERSION,
+            "portfolio_created_at": "",
         }
         self.assertFalse(live_account_ingest._needs_rebuild(fresh, now))
         self.assertTrue(live_account_ingest._needs_rebuild(
@@ -277,6 +278,29 @@ class MeasuredPromiseTests(unittest.TestCase):
         # Una media de antes de que existiera el campo tampoco es de ahora.
         self.assertTrue(live_account_ingest._needs_rebuild(
             {"updated_at": fresh["updated_at"]}, now,
+        ))
+
+    def test_a_promise_without_the_portfolio_date_is_measured_again(self) -> None:
+        """Sin la clave no hay fecha que marcar, y por edad tardaría un día.
+
+        Las nueve promesas en real del 2026-10-24 se habían escrito horas
+        antes de que la ingesta empezara a guardar `portfolio_created_at`, así
+        que el gráfico no tenía desde cuándo la cuenta sirve al portafolio y
+        «Sondear ahora» no la reponía: por edad no tocaba hasta el día
+        siguiente. Vacío sí es una respuesta y no se vuelve a medir, o la
+        memoria UBS del agente se abriría en cada vuelta.
+        """
+        now = datetime(2026, 10, 23, 17, tzinfo=timezone.utc)
+        stored = {
+            "updated_at": "2026-10-23T15:00:00+00:00",
+            "criterion": live_account_expectation.CRITERION_VERSION,
+        }
+        self.assertTrue(live_account_ingest._needs_rebuild(stored, now))
+        self.assertFalse(live_account_ingest._needs_rebuild(
+            {**stored, "portfolio_created_at": ""}, now,
+        ))
+        self.assertFalse(live_account_ingest._needs_rebuild(
+            {**stored, "portfolio_created_at": "2026-08-20T02:52:14"}, now,
         ))
 
     def test_each_portfolio_only_presents_its_own_symbols(self) -> None:

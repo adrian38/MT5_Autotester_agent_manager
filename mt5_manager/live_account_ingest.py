@@ -236,6 +236,14 @@ def _needs_rebuild(stored: dict[str, Any], now: datetime, mode: str = "") -> boo
     # no hay nada que esperar.
     if str(stored.get("criterion") or "") != live_account_expectation.CRITERION_VERSION:
         return True
+    # Una promesa escrita antes de que existiera la identidad del portafolio
+    # no tiene la clave, y sin ella el gráfico no puede marcar desde cuándo la
+    # cuenta sirve a este portafolio. Se mira la **ausencia** de la clave y no
+    # su valor vacío: vacío es una respuesta —ese portafolio no tiene fecha
+    # guardada— y reconstruirlo por eso abriría la memoria UBS del agente en
+    # cada vuelta, que es lo que el resto de este guardián existe para evitar.
+    if "portfolio_created_at" not in stored:
+        return True
     # Una promesa medida al lote de cada mes caduca al cambiar de mes: el día
     # 1 la tarjeta pide noviembre y lo guardado llega hasta octubre. Sin esto
     # enseñaría la media al lote declarado hasta la medianoche siguiente, que

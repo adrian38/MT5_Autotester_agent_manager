@@ -103,3 +103,27 @@ que suma cuentas de monedas distintas.
 El botón no sale en las tarjetas `blocked` ni `never_read`: sin credenciales o
 sin sondear no hay ningún cierre guardado, y un botón que sólo puede contestar
 «no hay nada» no es un botón.
+
+### Sin fecha no se marca nada (2026-10-24)
+
+El primer día con la marca puesta, las nueve cuentas salieron **enteras**
+atenuadas y con la leyenda «antes de este portafolio»: el gráfico decía que la
+cuenta era anterior a su propio portafolio. Dos causas encadenadas, y las dos
+silenciosas:
+
+- `tracked=False` significa «este mes es anterior al portafolio», no «no se
+  sabe». Con `since` vacío, `bool(since) and ...` daba falso en los doce meses
+  y el dibujo los leía a todos como anteriores. Sin fecha no se marca: ni se
+  atenúa, ni se pinta la raya, ni la leyenda la nombra.
+- Las promesas guardadas eran de las 14:38 y la ingesta empezó a escribir
+  `portfolio_created_at` a las 17:07, así que no tenían la clave. `Sondear
+  ahora` tampoco la reponía: `_needs_rebuild` decide por edad y quedaban
+  veinticuatro horas. Ahora la **ausencia** de la clave pide medir de nuevo.
+  La ausencia, no el valor vacío: vacío es una respuesta —ese portafolio no
+  tiene `created_at` guardado— y reconstruir por eso abriría la memoria UBS
+  del agente en cada vuelta.
+
+La lección general es la primera: un campo nuevo que la ingesta escribe llega
+a la pantalla un día tarde, y mientras tanto la pantalla tiene que saber
+callarse. Un tercer estado —«todavía no medido»— no se puede representar con
+un booleano que ya significa otra cosa.
