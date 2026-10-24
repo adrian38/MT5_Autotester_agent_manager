@@ -435,3 +435,46 @@ informe de esa quincena:
 No es sólo un cambio de unidades: BTCUSD encoge a 0,3 y ETHUSD se queda igual,
 así que la ganancia de BTCUSD pesa menos y la pérdida de ETHUSD pesa entera. La
 promesa se mueve con ellos, que es lo que hace honesta la comparación.
+
+## Una posición abierta entraba en la serie como un cierre (2026-10-24)
+
+Salió comparando la tarjeta con Análisis: en USDJPY el informe de la cuenta
+traía **68,54 €** y el auditor sólo emparejaba **1,84 €**. Los 66,70 € de
+diferencia eran **una sola fila inventada**.
+
+`mt5_report._parse_raw_deals` entraba en la tabla «Transacciones» y **no salía
+nunca**. El informe de una cuenta real no termina ahí: detrás vienen
+«Posiciones abiertas» y «Órdenes de trabajo». Sus filas se emparejaban con la
+cabecera de las transacciones por `zip`, así que cada columna caía una casilla
+corrida:
+
+| Columna leída | Lo que había de verdad |
+| --- | --- |
+| Dirección = `0.01` | el Volumen |
+| Volumen = `157.579` | el Precio |
+| Swap = `usdjpy_p67ag` | el **comentario** |
+
+Y `_to_float` le saca un número a cualquier texto, así que del comentario
+`usdjpy_p67ag` salió **67**. Con la comisión, `net_profit` = 66,70 €: una
+posición **abierta**, que en el informe declaraba −3,39 € de flotante, entraba
+en la serie de la cuenta como un cierre de +66,70 €.
+
+- **El importe cambiaba entre capturas**, porque el número sale del comentario
+  pero la fila sólo existe mientras la posición siga abierta: 66,70 € en el
+  informe de la auditoría y 66,60 € en la captura del sondeo del 21.
+- **No es un caso raro.** De 169 informes de cuenta mirados, 93 cambian al
+  arreglarlo. En `60357303@Axi-US50-Live`, nueve posiciones abiertas de Tesla+
+  metían +134 € inventados.
+- **El tester no estaba afectado**: su informe termina en «Transacciones».
+  Comprobado sobre **1.200 informes** de AXI y RoboForex: ni uno cambia.
+- El autolote se salvó de rebote: `balance_history_from_html` descarta los
+  saldos a cero, y la fila inventada traía balance 0.
+
+El arreglo es el mismo gesto que `_parse_order_stops` ya hacía: salir de la
+sección cuando llega el título de la siguiente, que es una fila de una sola
+celda. Y un segundo candado, porque el reparto por `zip` es silencioso: una
+fila que no llena la cabecera no es una transacción.
+
+**Esto obliga a releer las series guardadas**, que llevan esos cierres dentro:
+por eso `SERIES_VERSION` sube a `merge-window-v3`. Es justo para lo que esa
+constante existe.

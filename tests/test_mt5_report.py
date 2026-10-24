@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 import unittest
 
-from portfolio_manager.mt5_report import RawDeal, _build_trades, _parse_order_stops
+from portfolio_manager.mt5_report import (
+    RawDeal, _build_trades, _parse_order_stops, _parse_raw_deals,
+)
 
 
 def raw_deal(
@@ -78,6 +80,60 @@ class MT5ReportParserTests(unittest.TestCase):
         ]
 
         self.assertEqual(_parse_order_stops(rows), {"5": {"sl": 77133.96, "tp": 76466.87}})
+
+    def test_an_open_position_is_not_a_closed_deal(self) -> None:
+        """El informe de una cuenta real no termina en «Transacciones».
+
+        Detrás vienen «Posiciones abiertas» y «Órdenes de trabajo», y el
+        parser no salía de la sección: sus filas se emparejaban con la cabecera
+        de las transacciones y cada columna caía una casilla corrida. El
+        comentario `usdjpy_p67ag` aterrizaba en Swap, `_to_float` le sacaba un
+        67 y una posición **abierta** entraba en la serie de la cuenta como
+        66,70 € cerrados. Filas reales del informe de `audit-67-muzhv8jq-1` de
+        AXI, 2026-10-24.
+        """
+        rows = [
+            ["Transacciones"],
+            ["Fecha/Hora", "Transacción", "Símbolo", "Tipo", "Dirección", "Volumen",
+             "Precio", "Orden", "Coste", "Comisión", "Tasa", "Swap", "Beneficio",
+             "Balance", "Comentario"],
+            ["2026.10.15 16:54:43", "96262605", "USDJPY", "sell", "in", "0.01",
+             "157.579", "126258833", "", "0.00", "0.00", "0.00", "0.00",
+             "5 371.33", "usdjpy_p67ag"],
+            ["Posiciones abiertas"],
+            ["Fecha/Hora", "Posición", "Símbolo", "Tipo", "Volumen", "Precio",
+             "S / L", "T / P", "Precio de mercado", "Swap", "Beneficio", "Comentario"],
+            ["2026.10.15 16:54:43", "126258833", "USDJPY", "sell", "0.01", "157.579",
+             "159.479", "157.079", "158.181", "-0.30", "-3.39", "usdjpy_p67ag"],
+        ]
+
+        deals = _parse_raw_deals(rows)
+
+        self.assertEqual([deal.ticket for deal in deals], ["96262605"])
+        self.assertEqual(deals[0].direction, "in")
+        self.assertAlmostEqual(deals[0].volume, 0.01)
+        self.assertAlmostEqual(deals[0].net_profit, 0.0)
+
+    def test_a_deals_row_that_does_not_fill_its_header_is_not_a_deal(self) -> None:
+        # El segundo candado: una tabla de otra sección con tantas columnas
+        # como ésta tampoco se cuela. El corte por título la aparta antes, pero
+        # el reparto por `zip` es silencioso y no puede ser lo único que mire.
+        rows = [
+            ["Transacciones"],
+            ["Fecha/Hora", "Transacción", "Símbolo", "Tipo", "Dirección", "Volumen",
+             "Precio", "Orden", "Coste", "Comisión", "Tasa", "Swap", "Beneficio",
+             "Balance", "Comentario"],
+            ["2026.10.15 16:54:43", "96262605", "USDJPY", "sell", "out", "0.01",
+             "157.579", "126258833", "", "0.00", "0.00", "0.00", "1.50",
+             "5 371.33", "usdjpy_p67ag"],
+            ["2026.10.16 10:00:00", "96262606", "USDJPY", "sell", "0.01", "157.579",
+             "159.479", "157.079", "158.181", "-0.30", "-3.39", "usdjpy_p67ag"],
+        ]
+
+        deals = _parse_raw_deals(rows)
+
+        self.assertEqual([deal.ticket for deal in deals], ["96262605"])
+        self.assertAlmostEqual(deals[0].net_profit, 1.5)
 
 
 if __name__ == "__main__":

@@ -214,7 +214,19 @@ def _parse_raw_deals(rows: list[list[str]]) -> list[RawDeal]:
         if headers is None:
             headers = cells
             continue
-        if len(cells) < 12:
+        # El informe de una CUENTA REAL no termina en «Transacciones»: detrás
+        # vienen «Posiciones abiertas» y «Órdenes de trabajo», y sin salir de
+        # la seccion sus filas se emparejaban con esta cabecera. Las columnas
+        # caian una casilla corridas, asi que el comentario `usdjpy_p67ag`
+        # aterrizaba en Swap y `_to_float` le sacaba un 67: una posicion
+        # ABIERTA entraba en la serie de la cuenta como 66,70 EUR cerrados.
+        # Medido el 2026-10-24 sobre el informe de `audit-67-muzhv8jq-1` de
+        # AXI. El titulo de cada seccion es una fila de una sola celda, que es
+        # justo lo que `_parse_order_stops` ya usaba para cortar.
+        if len(cells) == 1:
+            in_deals = False
+            continue
+        if len(cells) < 12 or len(cells) != len(headers):
             continue
         if not _looks_like_datetime(cells[0]):
             continue

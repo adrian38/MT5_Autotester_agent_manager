@@ -24,8 +24,14 @@ from portfolio_manager.mt5_report import parse_report
 from .live_account_series import movements
 
 
-SERIES_VERSION = "merge-window-v2"
+SERIES_VERSION = "merge-window-v3"
 """Con qué criterio se armó la serie guardada, normalice o no esa cuenta.
+
+La v3 es el arreglo del parser: hasta la v2, una **posición abierta** del
+informe nativo entraba en la serie como un cierre, con un importe sacado de su
+comentario (`mt5_report._parse_raw_deals`). Toda serie construida antes lleva
+esos cierres inventados y hay que releerla entera; es exactamente para lo que
+esta constante existe.
 
 Lo pone **toda** cuenta, y por eso no puede quedar vacío: `_period` pide toda
 la vida cuando no coincide, y esa es la única forma de reparar una serie que se
