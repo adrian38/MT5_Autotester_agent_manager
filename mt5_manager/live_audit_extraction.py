@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from . import live_audit_autolot
 from .live_audit_core import *  # noqa: F403
 from .live_audit_sets import resolve_portfolio_set
 
@@ -364,29 +365,15 @@ class _ExtractionMixin:
         return detail, matching
 
     def _broker_volume_rules(self) -> dict[str, tuple[float, float]]:
-        """Carga volume_min/volume_step publicados por el agente del broker."""
-        project = Path(str(self.owner.config["project_dir"])).expanduser().resolve()
-        broker = str(self.owner.config.get("broker") or "ICTRADING").strip().lower()
-        path = project / "assets" / f"{broker}_symbol_specs.json"
-        try:
-            data = load_json(path)
-        except (OSError, ValueError):
-            return {}
-        symbols = data.get("symbols") if isinstance(data, dict) else None
-        if not isinstance(symbols, dict):
-            return {}
-        rules: dict[str, tuple[float, float]] = {}
-        for symbol, raw in symbols.items():
-            if not isinstance(raw, dict):
-                continue
-            try:
-                volume_min = float(raw.get("volume_min") or 0.0)
-                volume_step = float(raw.get("volume_step") or volume_min or 0.0)
-            except (TypeError, ValueError):
-                continue
-            if volume_min > 0:
-                rules[str(symbol).casefold()] = (volume_min, volume_step if volume_step > 0 else volume_min)
-        return rules
+        """Carga volume_min/volume_step publicados por el agente del broker.
+
+        El cargador vive en `live_audit_autolot` porque la promesa de la
+        portada necesita las mismas reglas para redondear igual.
+        """
+        return live_audit_autolot.broker_volume_rules(
+            Path(str(self.owner.config["project_dir"])).expanduser().resolve(),
+            str(self.owner.config.get("broker") or "ICTRADING"),
+        )
 
     @staticmethod
     def _tester_lot(

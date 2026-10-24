@@ -51,6 +51,10 @@ REPORTS = {
         trade("2021-10-05T10:00:00", 6.0),
     ]),
     "/data/axi/reports/oos.htm": Report([trade("2025-10-07T10:00:00", 10.0)]),
+    # Para el escenario por mes hace falta un backtest que vea los dos.
+    "/data/axi/reports/dos-meses.htm": Report([
+        trade("2025-09-10T10:00:00", 5.0), trade("2025-10-10T10:00:00", 7.0),
+    ]),
 }
 
 
@@ -214,6 +218,74 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(
             self.build(real_lots={"AXI/STANDARD:1437": 0.5})["lots"], "real",
         )
+
+    def test_a_scenario_measures_the_same_backtest_at_another_lot(self) -> None:
+        """Con autolote el lote lo decide el saldo, no `real_strategy_lots`.
+
+        La media de siempre se queda —un mes sin escenario la necesita— y la
+        del mes se mide aparte, al tamaño que la cuenta tuvo ese mes.
+        """
+        built = self.build(scenarios={
+            "2026-10": {
+                "lots": {"AXI/STANDARD:1437": 0.08}, "basis": "autolot_mean_balance",
+                "balance": 6_203.14, "without_rule": [],
+            },
+        })
+        plain = expectation.month_expectation({"months": built["months"]}, "2026-10")
+        scaled = expectation.month_expectation(built, "2026-10")
+        # El miembro se midió a 0,02 y el escenario pide 0,08: por cuatro.
+        self.assertAlmostEqual(scaled["profit"], plain["profit"] * 4)
+        self.assertAlmostEqual(scaled["drawdown"], plain["drawdown"] * 4)
+        self.assertEqual(scaled["years"], plain["years"])
+        self.assertEqual(scaled["basis"], "autolot_mean_balance")
+        self.assertAlmostEqual(scaled["balance"], 6_203.14)
+
+    def test_a_month_without_a_scenario_still_reads_the_usual_mean(self) -> None:
+        built = self.build(scenarios={
+            "2026-10": {"lots": {"AXI/STANDARD:1437": 0.08}, "basis": "x"},
+        })
+        september = expectation.month_expectation(built, "2026-09")
+        self.assertIsNone(september["profit"])
+        self.assertEqual(expectation.month_expectation(built, "2026-10")["basis"], "x")
+
+    def test_each_month_keeps_its_own_lot(self) -> None:
+        """Septiembre no se mide al tamaño que la cuenta tiene hoy.
+
+        Si lo hiciera, cada subida de saldo reescribiría lo bien que fue el
+        mes pasado. Medido sobre 77028839: 6.203,14 € de media en octubre
+        contra 3.208,51 € en septiembre, casi la mitad.
+        """
+        built = self.build(
+            members=[member(
+                is_report_path="/data/axi/reports/dos-meses.htm", oos_report_path="",
+            )],
+            scenarios={
+                "2026-10": {"lots": {"AXI/STANDARD:1437": 0.08}},
+                "2026-09": {"lots": {"AXI/STANDARD:1437": 0.04}},
+            },
+        )
+        self.assertEqual(
+            sorted(built["months_at"]), ["2026-09", "2026-10"],
+        )
+        self.assertEqual(built["months_at"]["2026-10"]["lots"], {"AXI/STANDARD:1437": 0.08})
+        self.assertEqual(built["months_at"]["2026-09"]["lots"], {"AXI/STANDARD:1437": 0.04})
+
+    def test_a_scenario_for_a_month_without_backtest_is_not_invented(self) -> None:
+        built = self.build(scenarios={
+            "2026-04": {"lots": {"AXI/STANDARD:1437": 0.08}},
+        })
+        self.assertEqual(built["months_at"], {})
+        self.assertIsNone(expectation.month_expectation(built, "2026-04")["profit"])
+
+    def test_the_signature_follows_the_lot_of_the_month(self) -> None:
+        """Sin esto la media no se vuelve a medir cuando el saldo la mueve."""
+        first = self.build(scenarios={
+            "2026-10": {"lots": {"AXI/STANDARD:1437": 0.08}},
+        })["signature"]
+        self.assertNotEqual(first, self.build(scenarios={
+            "2026-10": {"lots": {"AXI/STANDARD:1437": 0.09}},
+        })["signature"])
+        self.assertNotEqual(first, self.build()["signature"])
 
     def test_the_resolver_translates_the_path_the_node_stored(self) -> None:
         seen: list[str] = []

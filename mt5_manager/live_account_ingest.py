@@ -27,10 +27,13 @@ from pathlib import Path
 from typing import Any
 
 from . import (
-    live_account_expectation, live_account_inventory, live_account_presentation,
-    live_account_report, manager_http,
+    live_account_expectation, live_account_inventory, live_account_month_lots,
+    live_account_presentation, live_account_report, live_audit_autolot,
+    manager_http,
 )
 from .common import utc_now
+from .live_account_archive import stored_balances
+from .live_account_series import month_key, previous_month
 from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
 from .portfolio_identity import _resolve_source_path
 from .portfolio_report_cache import cached_report
@@ -233,6 +236,13 @@ def _needs_rebuild(stored: dict[str, Any], now: datetime, mode: str = "") -> boo
     # no hay nada que esperar.
     if str(stored.get("criterion") or "") != live_account_expectation.CRITERION_VERSION:
         return True
+    # Una promesa medida al lote de cada mes caduca al cambiar de mes: el día
+    # 1 la tarjeta pide noviembre y lo guardado llega hasta octubre. Sin esto
+    # enseñaría la media al lote declarado hasta la medianoche siguiente, que
+    # es justo el número que los escenarios existen para no enseñar.
+    months_at = stored.get("months_at") or {}
+    if months_at and month_key(now) not in months_at:
+        return True
     try:
         updated = datetime.fromisoformat(str(stored.get("updated_at") or ""))
     except ValueError:
@@ -269,7 +279,9 @@ def refresh_expectations(
     source = PortfolioSource(node)
     for account, portfolio in pending:
         try:
-            written += int(_rebuild(server, source, node_id, account, portfolio))
+            written += int(
+                _rebuild(server, source, node_id, account, portfolio, moment)
+            )
         except INGEST_ERRORS as exc:
             sys.stderr.write(
                 f"[live-account-expectation] {node_id}/#{portfolio['portfolio_id']}: {exc}\n"
@@ -277,9 +289,76 @@ def refresh_expectations(
     return written
 
 
+def _scenarios(
+    server: Any, source: Any, node_id: str, account: dict[str, Any],
+    portfolio: dict[str, Any], saved: dict[str, Any], variant: str,
+    use: live_account_presentation.UseLots, moment: datetime,
+) -> dict[str, dict[str, Any]]:
+    """Los lotes con los que la cuenta operó el mes en curso y el anterior.
+
+    Sólo con autolote: sin él `real_strategy_lots` ya describe el tamaño de
+    toda la vida de la cuenta y no hay nada que corregir. Y nunca con la
+    columna del tester marcada, porque entonces los cierres de la cuenta ya
+    están escalados al lote del backtest y mover la promesa los separaría.
+
+    Lo observado manda sobre la fórmula donde se sepa: `use.members` sale de
+    lo que la auditoría vio ejecutar, que es un hecho, y la fórmula sólo
+    rellena lo que no se pudo medir —que con autolote es casi todo, porque
+    ahí no hay «un» lote que observar—.
+    """
+    profile = _profile(server, node_id, portfolio)
+    autolot = profile.get("autolot") or {}
+    mode = live_account_presentation.mode_of(profile)
+    if not autolot.get("enabled") or mode == live_account_presentation.TESTER_LEADS:
+        return {}
+    members = live_account_expectation.audited_members(saved, variant)
+    try:
+        rules = live_audit_autolot.rules_by_strategy(autolot, members)
+    except ValueError:
+        # Un autolote mal configurado —activo sin Excel— no puede dejar a la
+        # cartera sin promesa: se mide al lote declarado, como antes de que
+        # los escenarios existieran, y la tarjeta sigue diciendo que está a un
+        # lote fijo. Quien tiene que gritar es el veredicto, que es donde se
+        # configuró; aquí sólo se deja de corregir.
+        return {}
+    if not rules:
+        return {}
+    balances = stored_balances(
+        server.live_accounts.read(node_id, account["account_key"]),
+    )
+    volume_rules = live_audit_autolot.broker_volume_rules(
+        source.project, getattr(source, "broker", ""),
+    )
+    label = month_key(moment)
+    found: dict[str, dict[str, Any]] = {}
+    for target in (label, previous_month(label)):
+        balance = live_account_month_lots.month_balance(balances, target)
+        if balance <= 0:
+            continue
+        measured = live_account_month_lots.month_lots(
+            members, rules, target, balance, volume_rules,
+        )
+        found[target] = {
+            "basis": live_account_month_lots.LOT_BASIS,
+            "balance": measured.balance,
+            "lots": {**measured.lots, **dict(use.members)},
+            "without_rule": list(measured.without_rule),
+        }
+    return found
+
+
+def _profile(server: Any, node_id: str, portfolio: dict[str, Any]) -> dict[str, Any]:
+    """El perfil del uso, que es donde vive el autolote y su Excel."""
+    audit_id = str(portfolio.get("audit_id") or "")
+    if not audit_id:
+        return {}
+    profiles = (server.live_audit_settings.state(node_id) or {}).get("profiles") or {}
+    return dict(profiles.get(audit_id) or {})
+
+
 def _rebuild(
     server: Any, source: Any, node_id: str, account: dict[str, Any],
-    portfolio: dict[str, Any],
+    portfolio: dict[str, Any], moment: datetime,
 ) -> bool:
     """Mide un portafolio y lo guarda si la firma cambió.
 
@@ -294,6 +373,9 @@ def _rebuild(
     variant = str(portfolio.get("portfolio_type") or "")
     use = _presented(server, node_id, portfolio, saved, variant)
     real_lots = _measured_lots(account, saved, variant, use)
+    scenarios = _scenarios(
+        server, source, node_id, account, portfolio, saved, variant, use, moment,
+    )
     presentation = {
         "mode": _mode(server, node_id, portfolio),
         "presentation_lots": dict(use.symbols),
@@ -309,7 +391,7 @@ def _rebuild(
         str(stored.get("criterion") or "") == live_account_expectation.CRITERION_VERSION
         and stored.get("signature")
         and stored["signature"] == live_account_expectation.signature(
-            saved, real_lots, variant,
+            saved, real_lots, variant, scenarios,
         )
     ):
         server.live_accounts.write_expectation(
@@ -319,7 +401,7 @@ def _rebuild(
     built = live_account_expectation.build(
         saved, read=lambda path: cached_report(Path(path)),
         resolve=lambda stored_path: _resolve_source_path(stored_path, source.project),
-        real_lots=real_lots, portfolio_type=variant,
+        real_lots=real_lots, portfolio_type=variant, scenarios=scenarios,
     )
     server.live_accounts.write_expectation(
         node_id, portfolio_id, {**built, **presentation},

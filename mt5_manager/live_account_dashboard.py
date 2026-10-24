@@ -65,24 +65,59 @@ def _expected(archive: Any, node_id: str, portfolios: list[dict[str, Any]], labe
     Una cuenta con dos portafolios promete lo que prometen los dos. Los años se
     unen y se cuentan: la tarjeta tiene que poder decir que un octubre con dos
     años no es un octubre con seis.
+
+    `lots` resume a qué tamaño se midió, que con autolote no es el declarado
+    sino el que la cuenta operó ese mes. La tarjeta lo dice: una media que se
+    mueve con el saldo y no lo declara se lee como si fuera la de siempre.
     """
     profit = drawdown = 0.0
     years: set[int] = set()
     measured = 0
+    months: list[dict[str, Any]] = []
     for portfolio in portfolios:
         stored = archive.read_expectation(node_id, portfolio.get("portfolio_id"))
         month = month_expectation(stored, label)
         if month["profit"] is None:
             continue
         measured += 1
+        months.append(month)
         profit += month["profit"]
         drawdown += month["drawdown"]
         years |= set(month["years"])
     if not measured:
-        return {"profit": None, "drawdown": None, "years": [], "portfolios": 0}
+        return {
+            "profit": None, "drawdown": None, "years": [], "portfolios": 0,
+            **_lot_basis([]),
+        }
     return {
         "profit": profit, "drawdown": drawdown, "years": sorted(years),
-        "portfolios": measured,
+        "portfolios": measured, **_lot_basis(months),
+    }
+
+
+def _lot_basis(months: list[dict[str, Any]]) -> dict[str, Any]:
+    """A qué lote quedó medida la promesa de ese mes, para poder decirlo.
+
+    Con dos usos en la misma cuenta puede estar medida de las dos formas; eso
+    no se promedia, se declara `mixed`, porque la frase que lo explica no
+    sirve para los dos a la vez.
+    """
+    bases = {str(month.get("basis") or "") for month in months}
+    lots = sorted(
+        value for month in months for value in (month.get("lots") or {}).values()
+        if value > 0
+    )
+    return {
+        "lot_basis": bases.pop() if len(bases) == 1 else ("mixed" if bases else ""),
+        "lot_balance": max(
+            [float(month.get("balance") or 0.0) for month in months] or [0.0],
+        ),
+        "lot_low": lots[0] if lots else 0.0,
+        "lot_high": lots[-1] if lots else 0.0,
+        "without_rule": sorted({
+            str(name) for month in months
+            for name in (month.get("without_rule") or [])
+        }),
     }
 
 

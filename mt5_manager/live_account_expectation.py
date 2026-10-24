@@ -36,7 +36,7 @@ from .live_account_series import month_key, monthly_rows
 REPORT_FIELDS = ("is_report_path", "oos_report_path")
 """Los dos informes que forman la curva 2020-2026, en ese orden."""
 
-CRITERION_VERSION = "variant-and-chosen-lots-v2"
+CRITERION_VERSION = "month-lots-v3"
 """Con qué criterio se midió esta media. Cambia cuando cambia lo que se mide.
 
 Sin esto, cambiar el criterio no repinta nada. La media guardada se recalcula
@@ -236,6 +236,7 @@ def _seasonal(values: Sequence[tuple[datetime, float]]) -> dict[str, Any]:
 
 def signature(
     portfolio: dict[str, Any], real_lots: dict[str, Any], portfolio_type: str = "",
+    scenarios: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     """Huella de lo que haría cambiar la medición, para no repetirla.
 
@@ -243,6 +244,10 @@ def signature(
     contribución declarada y los lotes reales: cambiar cualquiera de esas cosas
     cambia la media, y no cambiar ninguna la deja idéntica. La variante entra
     porque decide **qué filas** se miden, que es lo primero que cambia la media.
+
+    Los escenarios entran igual, y por eso la media de una cuenta con autolote
+    se vuelve a medir cuando el saldo mueve el lote: sin ellos la firma diría
+    que nada ha cambiado mientras la cuenta opera a otro tamaño.
     """
     members = [
         [
@@ -253,7 +258,14 @@ def signature(
         for member in audited_members(portfolio, portfolio_type)
     ]
     payload = json.dumps(
-        [portfolio.get("id"), portfolio_type, members, sorted((real_lots or {}).items())],
+        [
+            portfolio.get("id"), portfolio_type, members,
+            sorted((real_lots or {}).items()),
+            sorted(
+                (label, sorted((scenario.get("lots") or {}).items()))
+                for label, scenario in (scenarios or {}).items()
+            ),
+        ],
         sort_keys=True, default=str,
     )
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
@@ -264,6 +276,7 @@ def build(
     resolve: Callable[[str], str] | None = None,
     real_lots: dict[str, Any] | None = None,
     portfolio_type: str = "",
+    scenarios: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """La media estacional del portafolio, o el motivo de que no haya.
 
@@ -271,6 +284,12 @@ def build(
     se inyectan para que esto no dependa de la memoria del agente ni de la
     caché, y para poder medirlo sin ficheros. `portfolio_type` es la variante
     auditada: sin ella un bundle promete tantas veces como variantes guarda.
+
+    `scenarios` son medidas **del mismo backtest a otros lotes**, una por mes
+    objetivo: `{"2026-10": {"lots": {...}, …}}`. Salen aparte y no sustituyen
+    a `months` porque sólo valen para su mes —el lote de una cuenta con
+    autolote es el que tuvo **ese** mes— y porque un mes sin escenario tiene
+    que poder seguir leyendo la media de siempre.
     """
     real_lots = dict(real_lots or {})
     manual = manual_report_paths(portfolio)
@@ -289,6 +308,7 @@ def build(
     ]
     return {
         "months": seasonal_at(curves),
+        "months_at": _scenarios(curves, scenarios),
         "members_read": len(curves), "members_total": len(members),
         "measured_profit": sum(amount for _moment, amount in combined),
         "declared_profit": sum(
@@ -296,9 +316,39 @@ def build(
         ),
         "lots": "mixed" if len(sources) > 1 else (sources.pop() if sources else ""),
         "warnings": warnings,
-        "signature": signature(portfolio, real_lots, portfolio_type),
+        "signature": signature(portfolio, real_lots, portfolio_type, scenarios),
         "criterion": CRITERION_VERSION,
     }
+
+
+def _scenarios(
+    curves: Sequence[MemberCurve], scenarios: dict[str, dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """La media de cada mes objetivo, medida a los lotes de ese mes.
+
+    Se guarda **sólo la fila de su mes**: el escenario de octubre no dice nada
+    sobre mayo, y guardar la tabla estacional entera doce veces engordaría el
+    fichero con once filas que nadie puede leer.
+    """
+    measured: dict[str, Any] = {}
+    for label, scenario in (scenarios or {}).items():
+        lots = {
+            key: float(value) for key, value in (scenario.get("lots") or {}).items()
+        }
+        if not lots:
+            continue
+        row = seasonal_at(curves, lots).get(label.split("-", 1)[-1]) or {}
+        if not row.get("years"):
+            continue
+        measured[label] = {
+            "profit": float(row["profit"]), "drawdown": float(row["drawdown"]),
+            "years": list(row["years"]), "lots": lots,
+            **{
+                key: scenario[key] for key in ("basis", "balance", "without_rule")
+                if key in scenario
+            },
+        }
+    return measured
 
 
 def _declared(value: Any) -> float:
@@ -363,15 +413,34 @@ def month_expectation(expectation: dict[str, Any], label: str) -> dict[str, Any]
 
     Sin años no hay media y se dice: un octubre con dos años no es un octubre
     con seis, y la tarjeta tiene que poder enseñar la diferencia.
+
+    Manda el escenario de **ese** mes si existe: con autolote la media de
+    siempre está medida a un lote que la cuenta no corrió. Un mes sin
+    escenario lee la de siempre, y `basis` dice cuál de las dos se devolvió
+    para que la tarjeta no tenga que adivinarlo.
     """
+    scenario = ((expectation or {}).get("months_at") or {}).get(label)
+    if isinstance(scenario, dict) and scenario.get("years"):
+        return _month_row(scenario, str(scenario.get("basis") or ""))
     months = (expectation or {}).get("months") or {}
     row = months.get(label.split("-", 1)[1] if "-" in label else label)
     if not isinstance(row, dict) or not row.get("years"):
-        return {"profit": None, "drawdown": None, "years": []}
+        return {"profit": None, "drawdown": None, "years": [], "basis": ""}
+    return _month_row(row, "")
+
+
+def _month_row(row: dict[str, Any], basis: str) -> dict[str, Any]:
+    """Una fila de media, venga del escenario del mes o de la de siempre."""
     return {
         "profit": float(row.get("profit") or 0.0),
         "drawdown": float(row.get("drawdown") or 0.0),
         "years": list(row.get("years") or []),
+        "basis": basis,
+        "balance": float(row.get("balance") or 0.0),
+        "lots": {
+            key: float(value) for key, value in (row.get("lots") or {}).items()
+        },
+        "without_rule": list(row.get("without_rule") or []),
     }
 
 

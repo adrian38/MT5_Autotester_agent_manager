@@ -390,6 +390,7 @@ class WatchTests(unittest.TestCase):
                 server, FakeSource(), "axi",
                 {"account_key": "x", "real_strategy_lots": {}},
                 {"portfolio_id": 105, "portfolio_type": "", "audit_id": "audit-105"},
+                NOW,
             )
         self.assertEqual(calls, [1])
         self.assertEqual(

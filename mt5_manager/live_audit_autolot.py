@@ -17,6 +17,7 @@ from xml.etree import ElementTree
 
 from portfolio_manager.mt5_report import parse_report
 
+from .common import load_json
 from .live_audit_lot_schedule import scheduled_lot
 
 
@@ -294,13 +295,48 @@ def _balance_at(points: list[tuple[datetime, float]], moment: datetime) -> float
     return points[0][1] if points else None
 
 
-def _executable_lot(raw_lot: float, rule: tuple[float, float] | None) -> float:
+def executable_lot(raw_lot: float, rule: tuple[float, float] | None) -> float:
+    """El lote bruto llevado al paso del bróker, sin bajar de su mínimo.
+
+    Es público porque la promesa de la portada tiene que redondear igual que
+    el veredicto: dos redondeos distintos del mismo lote compararían dos
+    tamaños de cuenta que no son el mismo.
+    """
     minimum, step = rule or (0.01, 0.01)
     step = step if step > 0 else minimum
     units = (Decimal(str(max(raw_lot, minimum))) / Decimal(str(step))).quantize(
         Decimal("1"), rounding=ROUND_HALF_UP,
     )
     return round(float(units * Decimal(str(step))), 8)
+
+
+def broker_volume_rules(project: Any, broker: str) -> dict[str, tuple[float, float]]:
+    """`volume_min`/`volume_step` que el agente del bróker dejó en su proyecto.
+
+    Puede no existir —RoboForex no publica el fichero— y entonces el
+    redondeo cae en el 0,01 por defecto de `executable_lot`, que es lo que ya
+    hacía el veredicto.
+    """
+    name = str(broker or "ICTRADING").strip().lower()
+    try:
+        data = load_json(Path(project) / "assets" / f"{name}_symbol_specs.json")
+    except (OSError, ValueError):
+        return {}
+    symbols = data.get("symbols") if isinstance(data, dict) else None
+    if not isinstance(symbols, dict):
+        return {}
+    rules: dict[str, tuple[float, float]] = {}
+    for symbol, raw in symbols.items():
+        if not isinstance(raw, dict):
+            continue
+        try:
+            minimum = float(raw.get("volume_min") or 0.0)
+            step = float(raw.get("volume_step") or minimum or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if minimum > 0:
+            rules[str(symbol).casefold()] = (minimum, step if step > 0 else minimum)
+    return rules
 
 
 def expected_volume(
@@ -318,7 +354,7 @@ def expected_volume(
         raw_lot = balance * float(rule["risk_pct"]) / 100.0 * 0.01 / float(rule["dd_001"])
         volume_rule = (request.get("_autolot_volume_rules") or {}).get(str(expected.get("symbol") or "").casefold())
         return {
-            "expected": _executable_lot(raw_lot, volume_rule), "tester": tester_volume,
+            "expected": executable_lot(raw_lot, volume_rule), "tester": tester_volume,
             "source": "autolot", "balance": balance, "dd_001": float(rule["dd_001"]),
             "risk_pct": float(rule["risk_pct"]), "raw_lot": raw_lot,
         }

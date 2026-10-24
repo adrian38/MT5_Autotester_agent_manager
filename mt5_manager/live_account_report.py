@@ -25,8 +25,14 @@ from portfolio_manager.mt5_report import parse_report
 from .live_account_series import as_utc, movements
 
 
-SERIES_VERSION = "merge-window-v3"
+SERIES_VERSION = "balance-series-v4"
 """Con qué criterio se armó la serie guardada, normalice o no esa cuenta.
+
+La v4 no cambia ni un cierre: añade el **saldo diario**, que sale de la misma
+tabla y antes se tiraba. Sube igual porque un sondeo incremental sólo trae su
+ventana, así que sin forzar la lectura de toda la vida el saldo de septiembre
+no llegaría nunca y la promesa de una cartera con autolote sólo tendría con
+qué medir los últimos días. Es exactamente para lo que esta constante existe.
 
 La v3 es el arreglo del parser: hasta la v2, una **posición abierta** del
 informe nativo entraba en la serie como un cierre, con un importe sacado de su

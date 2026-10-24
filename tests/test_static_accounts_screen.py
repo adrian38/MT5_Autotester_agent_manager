@@ -190,6 +190,22 @@ class CriterionTests(unittest.TestCase):
 
     def test_an_account_with_autolot_says_the_target_moves(self) -> None:
         self.assertIn("Autolote activo", SCRIPT)
+        self.assertIn("está medida a un lote fijo", SCRIPT)
+
+    def test_a_promise_measured_at_the_month_lot_says_so(self) -> None:
+        """La frase cambia cuando la media ya está al lote del mes.
+
+        Decir «medida a un lote fijo» cuando ya no lo está sería peor que no
+        decir nada: el usuario corregiría a ojo una comparación ya corregida.
+        """
+        self.assertIn("const AUTOLOT_BASIS = 'autolot_mean_balance'", SCRIPT)
+        self.assertIn("expected.lot_basis !== AUTOLOT_BASIS", SCRIPT)
+        self.assertIn("medida al lote que la cuenta", SCRIPT)
+        self.assertIn("su saldo medio de", SCRIPT)
+        # El rango de lotes es lote y no dinero, y las que se quedaron sin
+        # regla en el Excel se cuentan en vez de callarse.
+        self.assertIn("plainNumber(expected.lot_low)", SCRIPT)
+        self.assertIn("sin regla en el Excel", SCRIPT)
 
     def test_a_rescaled_card_says_its_euros_are_not_what_the_account_made(self) -> None:
         # Con una columna marcada en la simulación de lotes del portafolio, el

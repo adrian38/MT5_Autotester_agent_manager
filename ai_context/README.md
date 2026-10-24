@@ -111,6 +111,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 
 - `live_account_audit_mvp.md`: la primera fase vive sólo en el manager; qué
   ofrece cada tarjeta de nodo.
+- `live_account_autolot_month_lot.md`: por qué la media del backtest de una
+  cuenta con autolote se mide al lote de **cada mes** y no al declarado, de
+  dónde sale ese lote y qué cambió en las cuatro carteras reales.
 - `ictrading_run_86_audit_20260730.md`: auditoría del run 86 de ICTrading, con
   la memoria y los números concretos que se usaron.
 - `invalid_stops_agent_results.md`: `no_trades` con stops inválidos en el run 445

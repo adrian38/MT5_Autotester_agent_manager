@@ -170,6 +170,58 @@ class DashboardTests(unittest.TestCase):
         )
         self.assertAlmostEqual(card["balance"], 1200.0)
 
+    def test_without_a_scenario_the_card_does_not_claim_one(self) -> None:
+        card = self.card()
+        self.assertEqual(card["expected_month"]["lot_basis"], "")
+        self.assertEqual(card["expected_month"]["lot_high"], 0.0)
+
+    def test_the_card_says_at_what_lot_the_month_was_measured(self) -> None:
+        """Con autolote la media ya no es la de siempre, y hay que decirlo.
+
+        La tarjeta sólo puede enseñar «medida al lote que la cuenta operó» si
+        el servidor le dice cuál fue, así que el lote y el saldo con el que
+        salió viajan con la media.
+        """
+        self.server.live_accounts.write_expectation("axi", 105, {
+            "signature": "abc",
+            "months": {"10": {"profit": 600.0, "drawdown": 150.0, "years": [2020]}},
+            "months_at": {"2026-10": {
+                "profit": 1_200.0, "drawdown": 300.0, "years": [2020],
+                "basis": "autolot_mean_balance", "balance": 6_203.14,
+                "lots": {"a": 0.01, "b": 0.09}, "without_rule": ["EURUSD_e"],
+            }},
+        })
+        expected = self.card()["expected_month"]
+        self.assertAlmostEqual(expected["profit"], 1_200.0)
+        self.assertEqual(expected["lot_basis"], "autolot_mean_balance")
+        self.assertAlmostEqual(expected["lot_balance"], 6_203.14)
+        self.assertAlmostEqual(expected["lot_low"], 0.01)
+        self.assertAlmostEqual(expected["lot_high"], 0.09)
+        self.assertEqual(expected["without_rule"], ["EURUSD_e"])
+
+    def test_the_previous_month_is_not_measured_at_this_month_lot(self) -> None:
+        """Septiembre se compara con el tamaño que la cuenta tenía entonces."""
+        self.server.live_accounts.write_expectation("axi", 105, {
+            "signature": "abc",
+            "months": {
+                "10": {"profit": 600.0, "drawdown": 150.0, "years": [2020]},
+                "09": {"profit": 300.0, "drawdown": 100.0, "years": [2020]},
+            },
+            "months_at": {
+                "2026-10": {
+                    "profit": 1_200.0, "drawdown": 300.0, "years": [2020],
+                    "basis": "autolot_mean_balance", "lots": {"a": 0.02},
+                },
+                "2026-09": {
+                    "profit": 450.0, "drawdown": 150.0, "years": [2020],
+                    "basis": "autolot_mean_balance", "lots": {"a": 0.01},
+                },
+            },
+        })
+        card = self.card()
+        self.assertAlmostEqual(card["expected_month"]["profit"], 1_200.0)
+        self.assertAlmostEqual(card["expected_previous"]["profit"], 450.0)
+
 
 if __name__ == "__main__":
     unittest.main()

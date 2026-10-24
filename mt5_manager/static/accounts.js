@@ -23,6 +23,9 @@ const ALIAS_CACHE_KEY = 'live-account-portfolio-aliases';
 const askedNodes = new Set();
 const TOTAL_SELECTION_KEY = 'live-account-total-exclusions';
 const excludedAccounts = new Set();
+// `live_account_month_lots.LOT_BASIS`: la media de ese mes está medida al
+// lote que sale del saldo medio de la cuenta, no al declarado.
+const AUTOLOT_BASIS = 'autolot_mean_balance';
 let latestData = null;
 let refreshing = false;
 let managerRestarting = false;
@@ -296,13 +299,30 @@ function presentationNote(card) {
     + 'habría ingresado a ése. La media del backtest está medida al mismo lote.';
 }
 
-function noteMarkup(card) {
+// Con autolote el lote lo decide el saldo, así que la media del backtest se
+// mide al tamaño que la cuenta tuvo **ese** mes y no al declarado. Tiene que
+// decirlo: una media que se mueve se lee como la de siempre.
+function autolotNote(card, currency) {
+  const expected = card.expected_month || {};
+  if (expected.lot_basis !== AUTOLOT_BASIS) {
+    return 'Autolote activo: la media del backtest está medida a un lote fijo, así que '
+      + 'el objetivo del mes se mueve con el saldo.';
+  }
+  const pending = (expected.without_rule || []).length;
+  return `Autolote activo: la media del backtest está medida al lote que la cuenta `
+    + `operó en ${monthName(card.monthly.label)} `
+    + `(${plainNumber(expected.lot_low)} a ${plainNumber(expected.lot_high)}), `
+    + `calculado con su saldo medio de ${plain(expected.lot_balance, currency)}. `
+    + (pending
+      ? `${pending} estrategia${pending === 1 ? '' : 's'} sin regla en el Excel `
+        + 'conserva su lote declarado.'
+      : 'El mes anterior se compara con el lote que tuvo entonces.');
+}
+
+function noteMarkup(card, currency) {
   const notes = [card.message];
   if (card.autolot) {
-    notes.push(
-      'Autolote activo: la media del backtest está medida a un lote fijo, así que '
-      + 'el objetivo del mes se mueve con el saldo.',
-    );
+    notes.push(autolotNote(card, currency));
   }
   notes.push(presentationNote(card), ...((card.presentation || {}).warnings || []));
   const text = notes.filter(Boolean).join(' ');
@@ -341,7 +361,7 @@ function cardMarkup(card) {
     + `${accountIsIncluded(card) ? ' checked' : ''}><span>Sumar</span></label>`
     + `<span class="badge ${tone}">${escapeHtml(label)}</span></div></div>`
     + `<div class="metric-rows">${rows}</div>`
-    + noteMarkup(card)
+    + noteMarkup(card, currency)
     + `<footer><span>Última lectura: ${escapeHtml(dateTime(card.last_read))}</span>`
     + '<span class="card-footer-right">'
     + `${card.first_day ? `serie desde ${escapeHtml(card.first_day)}` : ''}`
