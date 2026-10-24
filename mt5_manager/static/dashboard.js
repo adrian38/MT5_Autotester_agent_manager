@@ -200,10 +200,15 @@ function degradationMarkup(entry) {
 function unlinkedMarkup(summary) {
   const reales = Number(summary.unlinked_real || 0);
   const tester = Number(summary.unlinked_tester || 0);
-  if (!reales && !tester) return '';
+  const abiertas = Number(summary.unlinked_open || 0);
+  if (!reales && !tester && !abiertas) return '';
   const detalle = [
     reales ? `${reales} real${reales === 1 ? '' : 'es'} sin explicar` : '',
     tester ? `${tester} del tester sin ejecutar` : '',
+    // La tercera procedencia: lo que sigue abierto en el terminal y ninguna
+    // operación del tester reclamó. Se cuenta aparte por lo mismo que las
+    // otras dos, y se va cuando el usuario la valida en Análisis.
+    abiertas ? `${abiertas} abierta${abiertas === 1 ? '' : 's'} sin enlazar` : '',
   ].filter(Boolean).join(' · ');
   return '<section class="strategy-section unlinked-section">'
     + '<div class="section-title"><strong>Operaciones sin enlazar</strong>'
@@ -232,6 +237,7 @@ function cardMarkup(entry) {
   const overrides = LiveAuditReproduction.storedOverrides(entry.profile);
   const summary = result ? LiveDashboardMetrics.summarize(
     result, overrides, LiveAuditReproduction.storedReviews(entry.profile),
+    LiveAuditReproduction.storedOpenReviews(entry.profile),
   ) : {comparable: false, flagged: [], reviewed: 0};
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
     profile.portfolio_type

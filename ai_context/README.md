@@ -186,6 +186,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_reviewed_strategies.md`: la casilla «Validada» de Análisis saca
   una fila de Portafolios activos sin tocar su veredicto, y por qué la marca
   guarda el veredicto del momento en vez de un simple «sí».
+- `live_audit_unlinked_open_positions.md`: las posiciones que seguían abiertas
+  al acabar el periodo y ninguna operación del tester reclamó se calculaban y
+  se tiraban; qué publica ahora el cuadre, por qué no mueven el veredicto y por
+  qué su casilla «Validada» se guarda contra la posición y sin veredicto.
 - `live_audit_degradation_alert.md`: el veredicto DEGRADA sale de Análisis a la
   tarjeta de la portada y al push; por qué se mide sobre el archivo y no sobre
   el nodo, por qué `AVISO` se cuenta pero no se anuncia y por qué una

@@ -4,11 +4,13 @@ const auditId = params.get('audit') || '';
 const modeLabels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'};
 const viewLotsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/view-lots`;
 const reviewsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reviewed-strategies`;
+const openReviewsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reviewed-open-positions`;
 let strategyRows = [];
 let strategySummaries = {};
 let chartContext = {currency: 'EUR', window: []};
 let lotOverrides = {};
 let reviews = {};
+let openReviews = {};
 let currentResult = null;
 
 // El escalado aplicado se guarda en el perfil del uso, no en este navegador.
@@ -46,6 +48,25 @@ async function writeReviews(value) {
   await jsonResponse(await fetch(reviewsUrl, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({reviewed_strategies: value}),
+  }));
+}
+
+// Y lo mismo con las abiertas del terminal que nadie reclamó. Su marca va por
+// posición y no por estrategia, así que es otro campo del perfil; el sitio y
+// el motivo son los mismos: la portada tiene que saberlo mires desde donde
+// mires, y la posición sigue abierta la semana que viene.
+async function readOpenReviews() {
+  try {
+    const data = await jsonResponse(await fetch(openReviewsUrl, {cache: 'no-store'}));
+    const stored = data.reviewed_open_positions;
+    return stored && typeof stored === 'object' ? stored : {};
+  } catch (_error) { return {}; }
+}
+
+async function writeOpenReviews(value) {
+  await jsonResponse(await fetch(openReviewsUrl, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reviewed_open_positions: value}),
   }));
 }
 
@@ -1030,6 +1051,85 @@ function renderUnaccounted() {
   ].filter(Boolean).join(' ');
 }
 
+// La banda de lote del portafolio para ese símbolo, que es lo único que esta
+// pantalla puede decir sobre si la abierta es suya. El filtro de lote no llega
+// a las abiertas —sólo aparta cierres antes de comparar—, así que aquí no
+// descarta nada: informa.
+function openPositionBand(row) {
+  const bands = currentResult?.portfolio_filter?.lot_bands || {};
+  return bands[String(row.real.symbol || '').toLowerCase()] || null;
+}
+
+function openPositionHelp(row) {
+  const band = openPositionBand(row);
+  const lot = Number(row.real.volume);
+  if (band && Number.isFinite(lot) && (lot < Number(band[0]) || lot > Number(band[1]))) {
+    return `Ninguna operación del tester la reclamó y además ${number(lot, 4)} lotes `
+      + `queda fuera de lo que el portafolio opera en ${row.real.symbol} `
+      + `(${number(band[0], 4)} a ${number(band[1], 4)}): puede no ser suya.`;
+  }
+  return 'Ninguna operación del tester la reclamó dentro de la tolerancia de tiempo. '
+    + 'Sigue abierta, así que no tiene cierre ni PnL y no está en ninguna curva.';
+}
+
+function openReviewCell(row) {
+  const key = LiveAuditReproduction.openPositionKey(row);
+  const mark = openReviews[key];
+  const since = mark ? reviewDate(mark.at) : '';
+  const note = mark
+    ? `<small>Fuera de Portafolios activos${since ? ` desde el ${escapeHtml(since)}` : ''}.</small>`
+    : '<small>Márcala cuando la hayas mirado: deja de contar en Portafolios activos.</small>';
+  return `<td class="audit-analysis-review"><label><input type="checkbox"
+    data-open-review="${escapeHtml(key)}"${mark ? ' checked' : ''}><span>Validada</span></label>${note}</td>`;
+}
+
+function unlinkedOpenRow(row) {
+  const trade = row.real;
+  const validated = LiveAuditReproduction.openReviewed(openReviews, row);
+  const [label, tone] = validated ? ['VALIDADA', 'info'] : ['SIN ENLAZAR', 'warn'];
+  return `<tr>
+    <th><strong>${escapeHtml(trade.symbol)} · ${escapeHtml(number(trade.volume, 4))} lotes</strong><small>${escapeHtml(trade.side)}</small>${trade.position_id ? `<small>ticket ${escapeHtml(trade.position_id)}</small>` : ''}</th>
+    <td>${escapeHtml(dateTime(trade.open_time))}</td>
+    <td>${escapeHtml(number(trade.open_price, 5))}</td>
+    <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(openPositionHelp(row))}</small></td>
+    ${openReviewCell(row)}
+  </tr>`;
+}
+
+// Una ejecución archivada antes de que esto se midiera no tiene la lista, y
+// una lista vacía diría que no hay ninguna. Son cosas distintas y la tabla las
+// dice distinto: lo contrario es la mentira que ya tapó `renderUncomparedUnaccounted`.
+function renderUnlinkedOpen() {
+  const body = document.querySelector('#unlinked-open-body');
+  const badge = document.querySelector('#unlinked-open-count');
+  const note = document.querySelector('#unlinked-open-note');
+  if (!LiveAuditReproduction.measuredOpenPositions(currentResult)) {
+    body.innerHTML = '<tr><td colspan="5" class="audit-analysis-empty">Esta ejecución no '
+      + 'publicó la lista: o no llegó a comparar, o es anterior a este cuadre.</td></tr>';
+    badge.textContent = 'SIN MEDIR';
+    badge.className = 'badge idle';
+    note.textContent = 'Que esta lista esté vacía no significa que todas las abiertas '
+      + 'del terminal estén emparejadas: vuelve a auditar y se medirán.';
+    return;
+  }
+  const rows = LiveAuditReproduction.openPositions(currentResult)
+    .slice()
+    .sort((a, b) => new Date(a.real.open_time) - new Date(b.real.open_time));
+  body.innerHTML = rows.length ? rows.map(unlinkedOpenRow).join('')
+    : '<tr><td colspan="5" class="audit-analysis-empty">Todas las posiciones que seguían '
+      + 'abiertas al terminar el periodo están emparejadas con su operación del tester.</td></tr>';
+  const pending = rows.filter(row => !LiveAuditReproduction.openReviewed(openReviews, row));
+  badge.textContent = pending.length ? `${pending.length} POR MIRAR`
+    : rows.length ? `${rows.length} VALIDADA${rows.length === 1 ? '' : 'S'}` : 'TODO ENLAZADO';
+  badge.className = `badge ${pending.length ? 'pending' : 'idle'}`;
+  note.textContent = rows.length
+    ? `${rows.length} abierta${rows.length === 1 ? '' : 's'} sin enlazar, `
+      + `${rows.length - pending.length} ya validada${rows.length - pending.length === 1 ? '' : 's'}. `
+      + 'Validar no cambia la comparación: ninguna de éstas suma en las curvas ni en el '
+      + 'veredicto hasta que cierre y una auditoría posterior la empareje.'
+    : '';
+}
+
 function renderCurves() {
   const currency = chartContext.currency;
   const trades = globalTrades(currentResult, strategyRows);
@@ -1050,6 +1150,7 @@ function renderCurves() {
   else document.querySelector('#strategy-chart').innerHTML = '<p class="audit-analysis-empty">No hay estrategias en este resultado.</p>';
   renderReproduction();
   renderUnaccounted();
+  renderUnlinkedOpen();
   renderSimulationNotice();
 }
 
@@ -1293,9 +1394,12 @@ async function loadAnalysis() {
   if (!comparisonRows(result).length) {
     throw new Error('Esta ejecución no guardó la comparación operación por operación, así que no hay con qué derivar las curvas. Vuelve a ejecutar la auditoría con el motor actual.');
   }
-  const [storedLots, storedReviews] = await Promise.all([readOverrides(), readReviews()]);
+  const [storedLots, storedReviews, storedOpenReviews] = await Promise.all([
+    readOverrides(), readReviews(), readOpenReviews(),
+  ]);
   lotOverrides = storedLots;
   reviews = storedReviews;
+  openReviews = storedOpenReviews;
   render(result);
   await loadDegradation();
 }
@@ -1730,6 +1834,32 @@ document.querySelector('#reproduction-body').addEventListener('change', event =>
   toggleReview(
     group.strategy, reproductionVerdict(reproductionShortfall(group))[0], box.checked,
   );
+});
+
+// Aquí no hay veredicto que guardar: una abierta sin enlazar no se mide, está
+// o no está, así que la marca es sólo la fecha. Lo demás es igual que en
+// `toggleReview`, y por el mismo motivo: una casilla marcada que no llegó al
+// perfil sería una operación fuera de la portada que nadie validó.
+async function toggleOpenReview(key, checked) {
+  const previous = openReviews;
+  openReviews = {...openReviews};
+  if (checked) openReviews[key] = {at: new Date().toISOString()};
+  else delete openReviews[key];
+  renderUnlinkedOpen();
+  try {
+    await writeOpenReviews(openReviews);
+    showAnalysisError('');
+  } catch (error) {
+    openReviews = previous;
+    renderUnlinkedOpen();
+    showAnalysisError(`No se pudo guardar la validación: ${error.message}`);
+  }
+}
+
+document.querySelector('#unlinked-open-body').addEventListener('change', event => {
+  const box = event.target.closest('[data-open-review]');
+  if (!box) return;
+  toggleOpenReview(box.dataset.openReview, box.checked);
 });
 
 document.querySelector('#back-link').href = `/live_audit.html?node=${encodeURIComponent(nodeId)}`;

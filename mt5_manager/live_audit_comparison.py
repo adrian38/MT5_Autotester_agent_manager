@@ -308,6 +308,29 @@ class _ComparisonMixin:
         return unmatched, operations
 
     @staticmethod
+    def _unmatched_open_positions(state: dict[str, Any]) -> list[dict[str, Any]]:
+        """Las abiertas del terminal que ninguna operación del tester reclamó.
+
+        El reverso de `_unmatched_real_operations` para el lado que no cerró.
+        Hasta ahora se calculaban —`unused_open` las va descontando conforme
+        `_consume_open_position` empareja— y se tiraban al terminar: no estaban
+        emparejadas, ni sin pareja, ni en ninguna tabla, exactamente el agujero
+        que `_attach_discarded_reals` tapó para los cierres descartados por
+        lote. En la materia prima guardada de los tres agentes hay una en
+        `audit-106` de AXI, otra en `audit-170` de RoboForex y otra en
+        `audit-53` de IC.
+
+        No tienen cierre ni PnL, así que no entran en ninguna curva ni en las
+        discrepancias: son trabajo pendiente de mirar, no una desviación
+        medida. Por eso se publican aparte y no se suman a `extra_real_trades`.
+        """
+        return [{
+            "open_real_index": index + 1, "status": "open_extra",
+            "real": _trade_view(state["still_open"][index]),
+            "reason": "not_claimed_by_any_tester_operation",
+        } for index in sorted(state["unused_open"])]
+
+    @staticmethod
     def _name_strategies(state: dict[str, Any], set_names: dict[str, str]) -> None:
         """Pone en cada operación el `.set` con el que se probó su estrategia."""
         for row in state["operation_comparisons"]:
@@ -410,6 +433,9 @@ class _ComparisonMixin:
         detail = _ComparisonMixin._comparison_detail(
             request, state, unmatched, unmatched_operations, strategy_summary,
             real_dd, tester_dd, dd_deviation,
+        )
+        detail["unmatched_open_positions"] = _ComparisonMixin._unmatched_open_positions(
+            state,
         )
         note_manual_pairs(
             detail, state.get("forced") or {}, state.get("attributed") or {},

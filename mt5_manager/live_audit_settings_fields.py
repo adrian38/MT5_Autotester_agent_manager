@@ -24,6 +24,7 @@ from .live_audit_lot_schedule import normalize_lot_schedule
 from .live_audit_comment_links import normalize_comment_links
 from .live_audit_manual_pairs import normalize_manual_pairs
 from .live_audit_settings_schema import (
+    normalize_reviewed_open_positions,
     normalize_reviewed_strategies,
     normalize_view_lot_overrides,
 )
@@ -97,6 +98,29 @@ class LiveAuditProfileFieldsMixin:
         return self._set_profile_field(
             node_id, audit_id, "reviewed_strategies",
             normalize_reviewed_strategies(reviewed),
+        )
+
+    def reviewed_open_positions(self, node_id: str, audit_id: str) -> dict[str, Any]:
+        """Las abiertas sin enlazar que el usuario ya dio por miradas."""
+        with self.lock:
+            profiles = (self.records.get(node_id) or {}).get("profiles") or {}
+            stored = (profiles.get(str(audit_id)) or {}).get("reviewed_open_positions")
+        return normalize_reviewed_open_positions(stored)
+
+    def set_reviewed_open_positions(
+        self, node_id: str, audit_id: str, reviewed: Any,
+    ) -> dict[str, Any]:
+        """Guarda qué posiciones abiertas sin enlazar ya miró el usuario.
+
+        Mismo contrato que las estrategias validadas: no reanaliza nada, no
+        cambia la comparación y sólo deja de pedir atención en la portada. La
+        clave es la posición y no la ejecución, así que una abierta validada
+        hoy sigue validada en la auditoría de la semana que viene si la cuenta
+        la mantiene abierta.
+        """
+        return self._set_profile_field(
+            node_id, audit_id, "reviewed_open_positions",
+            normalize_reviewed_open_positions(reviewed),
         )
 
     def manual_pairs(self, node_id: str, audit_id: str) -> dict[str, Any]:

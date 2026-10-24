@@ -213,11 +213,47 @@
     return Boolean(mark) && (SEVERITY[label] || 0) <= (SEVERITY[mark.verdict] || 0);
   }
 
+  // Las abiertas del terminal que ninguna operación del tester reclamó. Van
+  // aquí y no en cada pantalla porque Análisis las enseña y la portada las
+  // cuenta: dos listas distintas serían dos recuentos distintos de lo mismo.
+  // `undefined` no es lo mismo que `[]`: una ejecución archivada antes de que
+  // esto existiera no dice que no haya ninguna, dice que no se midieron.
+  function openPositions(result) {
+    const rows = result?.comparison_detail?.unmatched_open_positions;
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  function measuredOpenPositions(result) {
+    return Array.isArray(result?.comparison_detail?.unmatched_open_positions);
+  }
+
+  // La posición, no la fila: el índice cambia de una auditoría a otra y la
+  // marca dejaría de valer en cuanto la cuenta abriera otra antes. Mientras la
+  // posición siga abierta es la misma operación, así que validarla una vez
+  // basta.
+  function openPositionKey(row) {
+    const real = row?.real || {};
+    return String(
+      real.position_id || real.ticket
+      || `${real.symbol || '?'}|${real.open_time || ''}`,
+    );
+  }
+
+  function openReviewed(validated, row) {
+    return Boolean(validated?.[openPositionKey(row)]);
+  }
+
+  function storedOpenReviews(profile) {
+    const stored = profile?.reviewed_open_positions;
+    return stored && typeof stored === 'object' ? stored : {};
+  }
+
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
-    autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, reviewed,
-    scaleTarget, scaledProfit, scaledSide, sideSeries, storedOverrides, storedReviews,
-    testerMode, verdict,
+    autolotMode, compare, fewTrades, measuredOpenPositions, numbers, openPositionKey,
+    openPositions, openReviewed, overrideFor, pairedReal, reviewed,
+    scaleTarget, scaledProfit, scaledSide, sideSeries, storedOpenReviews,
+    storedOverrides, storedReviews, testerMode, verdict,
   };
   root.LiveAuditReproduction = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
