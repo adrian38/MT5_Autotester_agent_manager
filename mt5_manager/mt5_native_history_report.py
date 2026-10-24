@@ -327,14 +327,31 @@ class _WindowsTerminalReportExporter:
             self.kernel32.VirtualFreeEx(process, pointer, 0, MEM_RELEASE)
             self.kernel32.CloseHandle(process)
 
-    def _dialog(self, pid: int, required_ids: tuple[int, ...]) -> int:
+    def _dialog(
+        self, pid: int, required_ids: tuple[int, ...],
+        required_classes: dict[int, str] | None = None,
+    ) -> int:
+        """Encuentra el diálogo #32770 con los IDs pedidos.
+
+        `required_classes` exige además la clase exacta de ese ID: sin ella,
+        dos IDs tan convencionales como IDOK=1 e IDCANCEL=2 hacen que
+        cualquier diálogo ajeno (una alerta de MT5, por ejemplo) se confunda
+        con el que se busca, y el fallo sólo se descubre después, al pedir el
+        control por clase con `_descendant`.
+        """
+        required_classes = required_classes or {}
         for hwnd in self._top_windows(pid):
             if self._class_name(hwnd) != "#32770" or not self.user32.IsWindowVisible(hwnd):
                 continue
             descendants = self._children(hwnd)
             ids = {self.user32.GetDlgCtrlID(child) for child in descendants}
             ids.add(self.user32.GetDlgCtrlID(hwnd))
-            if all(control_id in ids for control_id in required_ids):
+            if not all(control_id in ids for control_id in required_ids):
+                continue
+            if all(
+                self._descendant(hwnd, control_id, class_name)
+                for control_id, class_name in required_classes.items()
+            ):
                 return hwnd
         return 0
 
@@ -390,7 +407,7 @@ class _WindowsTerminalReportExporter:
             raise NativeHistoryReportError(f"El destino del reporte MT5 ya existe: {destination.name}")
         self.user32.PostMessageW(main, WM_COMMAND, HTML_REPORT_COMMAND, 0)
         dialog = int(self._wait(
-            lambda: self._dialog(pid, (1, 2, 1001)),
+            lambda: self._dialog(pid, (1, 2, 1001), {1: "Button", 2: "Button", 1001: "Edit"}),
             "MT5 no abrió Guardar como para el reporte HTML",
         ))
         edit = self._descendant(dialog, 1001, "Edit")
