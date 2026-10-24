@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from portfolio_manager.mt5_account_history import read_native_account_history
+
 from . import live_audit_autolot
 from .live_audit_core import *  # noqa: F403
 from .live_audit_sets import resolve_portfolio_set
@@ -173,10 +175,58 @@ class _ExtractionMixin:
                     login=str(info.login), server=actual_server, period_start=period_start,
                     period_end=period_end, destination=native_report_path,
                 )
+                trades, points, history_detail = self._contrasted_with_native_report(
+                    mt5, native_report_path, trades, points, history_detail,
+                    period_start, period_end,
+                )
+                account["history_detail"] = history_detail
             return trades, points, account
         finally:
             mt5.shutdown()
             self._close_terminal_pids(launched_pids)
+
+    def _contrasted_with_native_report(
+        self, mt5: Any, native_report_path: Path, trades: list[dict[str, Any]],
+        points: dict[str, float], history_detail: dict[str, Any],
+        period_start: datetime, period_end: datetime,
+    ) -> tuple[list[dict[str, Any]], dict[str, float], dict[str, Any]]:
+        """Contrasta lo que dio la API con el informe que escribió el terminal.
+
+        `history_deals_get` devuelve una caché que puede estar vacía cuando el
+        terminal acaba de cambiar de login: el 2026-10-24 dio 0 deals de la
+        cuenta 77049426 mientras este mismo HTML traía 50 posiciones cerradas,
+        y la auditoría publicó «0 reales» como si la cuenta no hubiera operado.
+
+        Cuando la API no trae nada y el informe sí, manda el informe. Si trae
+        algo no se toca: una discrepancia parcial puede ser el borde del
+        periodo —el informe se pide por fechas, sin hora— y sólo se anota.
+        """
+        try:
+            native = read_native_account_history(native_report_path, period_start, period_end)
+        except (OSError, ValueError, SyntaxError) as exc:
+            history_detail["native_history_error"] = str(exc)
+            if not trades:
+                raise RuntimeError(
+                    "MT5 no devolvió ninguna operación de la cuenta real y su informe "
+                    f"nativo no se pudo leer para contrastarlo: {exc}"
+                ) from exc
+            return trades, points, history_detail
+        history_detail["native_closed_positions"] = len(native.closed)
+        history_detail["native_open_positions_at_period_end"] = len(native.open_at_end)
+        if trades or not (native.closed or native.open_at_end):
+            return trades, points, history_detail
+        history_detail["real_trades_source"] = "native_terminal_report"
+        history_detail["trades_reconstructed"] = len(native.closed)
+        history_detail["positions_open_at_period_end"] = len(native.open_at_end)
+        history_detail["open_positions_at_period_end"] = native.open_at_end
+        return native.closed, self._symbol_points(mt5, native.closed), history_detail
+
+    @staticmethod
+    def _symbol_points(mt5: Any, trades: list[dict[str, Any]]) -> dict[str, float]:
+        return {
+            symbol: float(getattr(mt5.symbol_info(symbol), "point", 0.0) or 0.0)
+            for symbol in {str(trade["symbol"]) for trade in trades}
+        }
 
     def _export_isolated_native_report(
         self, *, mt5: Any, request: dict[str, Any], excluded_path: Path,

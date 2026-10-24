@@ -329,6 +329,47 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
 
         self._assert_on_every_fork(check, "stops de entrada de cada cierre real")
 
+    def test_every_fork_falls_back_to_the_native_report_when_the_api_is_empty(self) -> None:
+        # `history_deals_get` devuelve una caché que puede estar vacía justo
+        # después de cambiar de login. El 2026-10-24 dio 0 deals de la cuenta
+        # 77049426 y la auditoría publicó «0 reales» mientras el HTML que ese
+        # mismo terminal acababa de escribir traía 50 posiciones cerradas. El
+        # dato sólo lo ve el nodo: sin el port, esa copia sigue publicando
+        # ceros y el manager no tiene con qué desmentirlos.
+        tokens = (
+            "def _contrasted_with_native_report", "read_native_account_history",
+            '"real_trades_source"', '"native_closed_positions"',
+        )
+        manager_engine = self._manager_auditor_source()
+        for token in tokens:
+            self.assertIn(token, manager_engine, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            source = fork_live_audit_source(project)
+            if not source:
+                return
+            for token in tokens:
+                self._assert_present(
+                    source, re.escape(token),
+                    f"{project}: falta `{token}` en el auditor real. Portar "
+                    "`_contrasted_with_native_report` desde "
+                    "mt5_manager/live_audit_extraction.py y duplicar la prueba en "
+                    "tests/test_manager_node_live_audit.py.",
+                )
+            parser = project / "portfolio_manager" / "mt5_account_history.py"
+            self.assertTrue(
+                parser.is_file(),
+                f"{project}: falta portfolio_manager/mt5_account_history.py, que es "
+                "quien lee el informe nativo del terminal.",
+            )
+            self.assertIn(
+                "def read_native_account_history",
+                parser.read_text(encoding="utf-8"),
+                f"{project}: su copia del lector del informe nativo no publica la función.",
+            )
+
+        self._assert_on_every_fork(check, "informe nativo como red de la API vacía")
+
     def test_broker_prefixed_symbols_keep_their_price_floor_on_every_ported_fork(self) -> None:
         tokens = ("_NIKKEI_SYMBOL_PREFIXES", '"nikkei"', r're.sub(r"^[^A-Z0-9]+"')
         for token in tokens:

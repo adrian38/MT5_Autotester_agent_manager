@@ -160,6 +160,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   el miembro del portfolio, sin adivinar sufijos.
 - `live_audit_autolot.md`: importación del DD/riesgo por estrategia, saldo
   histórico del HTML nativo y lote dinámico por apertura, sólo en el manager.
+- `live_audit_empty_history_20261024.md`: `history_deals_get` devolvió una caché
+  vacía y la auditoría publicó «0 reales» con 50 operaciones en el HTML nativo;
+  el lector del informe del terminal como red y por qué sólo salta con la API a
+  cero.
 - `live_audit_not_comparable_20261012.md`: un uso NO COMPARABLE se leía como
   COINCIDE; la caché de ticks incompleta de una terminal, la casilla del
   multiterminal y por qué `completed_at` no es la hora de la ejecución.
