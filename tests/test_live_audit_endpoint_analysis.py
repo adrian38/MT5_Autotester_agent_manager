@@ -30,10 +30,11 @@ def handler(profiles: dict) -> Endpoint:
 class LiveAuditEndpointAnalysisTests(unittest.TestCase):
     def test_dashboard_lists_nodes_without_polling_them(self) -> None:
         endpoint = SimpleNamespace(server=SimpleNamespace(nodes=[
-            {"id": "ic", "name": "ICTrading", "url": "http://slow"},
+            {"id": "ic", "name": "ICTrading", "url": "http://slow", "portfolio_broker": "ICTRADING"},
         ]))
         self.assertEqual(
-            dashboard_nodes(endpoint), {"nodes": [{"id": "ic", "name": "ICTrading"}]},
+            dashboard_nodes(endpoint),
+            {"nodes": [{"id": "ic", "name": "ICTrading", "broker": "ICTRADING"}]},
         )
 
     def test_dashboard_reads_all_live_results_in_one_node_request(self) -> None:

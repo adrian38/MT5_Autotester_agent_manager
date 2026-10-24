@@ -207,8 +207,8 @@ def account_card(
     currency = str(stored.get("currency") or "")
     return {
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
-        "account_key": account["account_key"], "login": account["login"],
-        "server": account["server"], "currency": currency,
+        "node_broker": node.get("portfolio_broker"), "account_key": account["account_key"],
+        "login": account["login"], "server": account["server"], "currency": currency,
         "balance": float(stored.get("balance") or 0.0),
         "portfolios": _portfolios(archive, node_id, account),
         "autolot": bool(account.get("autolot")),

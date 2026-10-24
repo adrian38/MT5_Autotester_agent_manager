@@ -71,6 +71,42 @@ function aliasOf(nodeId, portfolioId) {
   return (nodeAliases.get(nodeId) || {})[portfolioId] || '';
 }
 
+// Los colores del borde son del broker, no del estado: AXI en rojo, RoboForex
+// en azul, ICTrading en verde, y lo que no reconoce se queda sin franja.
+const BROKER_CLASSES = {
+  AXI: 'broker-axi', ROBOFOREX: 'broker-roboforex', ICTRADING: 'broker-ictrading',
+};
+function brokerClass(broker) {
+  return BROKER_CLASSES[String(broker || '').toUpperCase()] || '';
+}
+
+// «prop» manda sobre el broker: una cuenta prop se agrupa al final de la
+// pantalla sin importar de qué broker sea, porque es la pregunta que se hace
+// primero al mirar la portada.
+function isPropLabel(text) {
+  return /prop/i.test(text || '');
+}
+
+function entryIsProp(entry) {
+  const profile = entry.profile || {};
+  const title = profile.deployment_name || '';
+  const alias = aliasOf(entry.node?.id, Number(profile.portfolio_id || 0));
+  return isPropLabel(title) || isPropLabel(alias);
+}
+
+// Agrupa por broker y deja las prop al final; dentro de cada grupo, por nodo.
+function sortEntries(entries) {
+  return [...entries].sort((left, right) => {
+    const propLeft = entryIsProp(left) ? 1 : 0;
+    const propRight = entryIsProp(right) ? 1 : 0;
+    if (propLeft !== propRight) return propLeft - propRight;
+    const brokerLeft = String(left.node?.broker || '').toUpperCase();
+    const brokerRight = String(right.node?.broker || '').toUpperCase();
+    if (brokerLeft !== brokerRight) return brokerLeft.localeCompare(brokerRight);
+    return String(left.node?.name || '').localeCompare(String(right.node?.name || ''));
+  });
+}
+
 async function loadAliases(node) {
   const known = nodeAliases.get(node.id) || {};
   const ids = portfolioIds(nodeEntries.get(node.id) || []);
@@ -262,11 +298,11 @@ function cardMarkup(entry) {
     crossing ? `${crossing} EN VIGILANCIA` : '',
     slow ? `${slow} OPERA${slow === 1 ? '' : 'N'} MENOS` : '',
   ].filter(Boolean).join(' · ') || (summary.comparable ? 'SIN AVISOS' : 'SIN DATOS');
-  return `<article class="portfolio-card ${tone}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${summary.comparable ? unlinkedMarkup(summary) : ''}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
+  return `<article class="portfolio-card ${tone} ${brokerClass(entry.node.broker)}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${summary.comparable ? unlinkedMarkup(summary) : ''}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }
 
 function render(entries) {
-  const realEntries = entries.filter(entry => entry.auditId);
+  const realEntries = sortEntries(entries.filter(entry => entry.auditId));
   const failedConfigs = entries.filter(entry => entry.configError);
   const cards = realEntries.map(cardMarkup);
   failedConfigs.forEach(entry => cards.push(`<article class="portfolio-card failed">`

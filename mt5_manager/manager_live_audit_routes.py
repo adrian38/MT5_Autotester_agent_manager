@@ -54,7 +54,10 @@ def config_state(handler, node: dict[str, Any], state: dict[str, Any]) -> dict[s
 def dashboard_nodes(handler) -> dict[str, Any]:
     """Identidades configuradas sin consultar el estado ni la memoria de los nodos."""
     return {"nodes": [
-        {"id": str(node.get("id") or ""), "name": node.get("name") or node.get("id")}
+        {
+            "id": str(node.get("id") or ""), "name": node.get("name") or node.get("id"),
+            "broker": node.get("portfolio_broker"),
+        }
         for node in handler.server.nodes if node.get("id")
     ]}
 
@@ -67,7 +70,13 @@ def dashboard_node_state(handler, node_id: str, node: dict[str, Any]) -> dict[st
         audit_id for audit_id, profile in profiles.items()
         if isinstance(profile, dict) and profile.get("live_trading")
     ]
-    result = {"node": {"id": node_id, "name": node.get("name") or node_id}, "entries": []}
+    result = {
+        "node": {
+            "id": node_id, "name": node.get("name") or node_id,
+            "broker": node.get("portfolio_broker"),
+        },
+        "entries": [],
+    }
     try:
         status, value = manager_http.node_request(
             node, "GET", "/api/v1/live-audits", timeout=10,

@@ -227,6 +227,41 @@ function portfolioLabel(card, row) {
     || row.name || `Portafolio #${row.portfolio_id}`;
 }
 
+// Los colores del borde son del broker, no del estado de la cuenta: AXI en
+// rojo, RoboForex en azul, ICTrading en verde, igual que en «Portafolios
+// activos».
+const BROKER_CLASSES = {
+  AXI: 'broker-axi', ROBOFOREX: 'broker-roboforex', ICTRADING: 'broker-ictrading',
+};
+function brokerClass(broker) {
+  return BROKER_CLASSES[String(broker || '').toUpperCase()] || '';
+}
+
+// «prop» manda sobre el broker: una cuenta prop se agrupa al final de la
+// pantalla sin importar de qué broker sea.
+function isPropLabel(text) {
+  return /prop/i.test(text || '');
+}
+
+function cardIsProp(card) {
+  return (card.portfolios || []).some(row => isPropLabel(portfolioLabel(card, row)));
+}
+
+// Agrupa por broker y deja las prop al final; dentro de cada grupo, por nodo
+// y cuenta.
+function sortAccounts(cards) {
+  return [...cards].sort((left, right) => {
+    const propLeft = cardIsProp(left) ? 1 : 0;
+    const propRight = cardIsProp(right) ? 1 : 0;
+    if (propLeft !== propRight) return propLeft - propRight;
+    const brokerLeft = String(left.node_broker || '').toUpperCase();
+    const brokerRight = String(right.node_broker || '').toUpperCase();
+    if (brokerLeft !== brokerRight) return brokerLeft.localeCompare(brokerRight);
+    return String(left.node_name || '').localeCompare(String(right.node_name || ''))
+      || String(left.login || '').localeCompare(String(right.login || ''));
+  });
+}
+
 // Desde qué día la cuenta sirve **este** portafolio. Casi nunca es el día 1
 // del mes ni el primer cierre de la cuenta: de los nueve usos en real, seis
 // se guardaron a mitad de octubre sobre cuentas que llevaban meses operando,
@@ -383,7 +418,7 @@ function cardMarkup(card) {
   const rows = card.state === 'blocked' ? '' : dailyRow(card, currency)
     + '<div class="month-comparison">'
     + monthlyRow(card, currency) + earlierRow(card, currency) + '</div>';
-  return `<article class="account-card ${escapeHtml(card.state || '')}">`
+  return `<article class="account-card ${escapeHtml(card.state || '')} ${brokerClass(card.node_broker)}">`
     + '<div class="card-head"><div>'
     + `<p class="eyebrow">${escapeHtml(card.node_name)}</p>`
     + `<h2>${escapeHtml(card.login || 'Cuenta sin informar')}</h2>`
@@ -459,7 +494,7 @@ function renderTotals(data) {
 function render(data) {
   latestData = data;
   renderTotals(data);
-  const cards = (data.accounts || []).map(cardMarkup);
+  const cards = sortAccounts(data.accounts || []).map(cardMarkup);
   cardsEl.innerHTML = cards.length ? cards.join('')
     : '<div class="empty-state"><strong>No hay cuentas en real.</strong>'
     + '<p>Entra en Auditoría desde Generación y marca «Este uso está operando en real».</p></div>';
