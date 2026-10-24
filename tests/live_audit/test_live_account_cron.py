@@ -262,6 +262,33 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(body["period_start_date"], "")
         self.assertEqual(body["period_end_date"], "2026-10-21")
 
+    def test_an_account_just_added_waits_for_the_next_appointment(self) -> None:
+        """2026-10-24: un portafolio nuevo en ICTrading lanzó el sondeo en
+        sábado, fuera de lunes-viernes, porque el nodo no tenía ninguna cuenta
+        hasta entonces y la cita del viernes parecía incumplida desde
+        siempre. La cuenta nació el sábado por la mañana (`audit-62-mvm3z7k0-1`
+        = 2026-10-24T08:00:00Z); el sábado a las 23:07 de Madrid no debe
+        lanzar nada, porque la cita vigente para una cuenta tan nueva es la
+        del lunes siguiente, no la del viernes anterior.
+        """
+        state = {
+            "configured_audit_ids": ["audit-62-mvm3z7k0-1"],
+            "profiles": {
+                "audit-62-mvm3z7k0-1": profile(
+                    portfolio_id=62, deployment_name="Nuevo", source_login="99999",
+                ),
+            },
+            "credential_state": {"audit-62-mvm3z7k0-1": {"source_password_saved": True}},
+            "restore_account": {"configured": True},
+        }
+        server = FakeServer(Path(self.folder.name), state, enabled=True)
+        saturday_night = datetime(2026, 10, 24, 23, 7, tzinfo=ZoneInfo("Europe/Madrid"))
+        with self._request(snapshot_state("idle", accounts={})), mock.patch(
+            "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
+        ):
+            live_account_watch.tick(server, saturday_night)
+        self.assertEqual([row for row in self.requests if row[0] == "POST"], [])
+
     def test_a_second_turn_asks_only_for_the_last_days(self) -> None:
         server = self.server(enabled=True)
         # Con la version del criterio puesta: una serie guardada con otro

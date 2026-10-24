@@ -320,6 +320,29 @@ def completion_of(record: dict[str, Any], state: dict[str, Any]) -> datetime | N
     )
 
 
+def _accounts_eligible_since(accounts: list[dict[str, Any]]) -> datetime | None:
+    """Desde cuándo hay al menos una cuenta rastreada en este nodo.
+
+    Un nodo sin cuentas no entra en `tick` ([`tick`]), así que su primera
+    cuenta nunca tuvo una cita anterior que cumplir. Sin esto, `pending_window`
+    veía `previous_completion=None` y daba por vencida la última ocasión
+    pasada aunque la cuenta acabara de llegar: el 2026-10-24 un portafolio
+    nuevo en ICTrading lanzó el sondeo el sábado, fuera de lunes-viernes,
+    porque la cita de viernes parecía incumplida desde siempre.
+
+    Se toma el mínimo entre las `audit_ids` de todas las cuentas del nodo, no
+    el máximo: una cuenta vieja basta para que la cita de hoy siga valiendo
+    igual que antes, y sólo cuando *todas* son recientes se aplaza al próximo
+    turno.
+    """
+    timestamps = [
+        created for account in accounts
+        for audit_id in account.get("audit_ids") or []
+        if (created := live_account_schedule.audit_id_created_at(audit_id)) is not None
+    ]
+    return min(timestamps) if timestamps else None
+
+
 def launch_due(
     server: Any, node: dict[str, Any], node_id: str, accounts: list[dict[str, Any]],
     state: dict[str, Any], now: datetime,
@@ -330,7 +353,7 @@ def launch_due(
     key = runs.key(node_id, SNAPSHOT_KEY)
     record = runs.record(key)
     window, pending = live_account_schedule.pending_window(
-        settings, completion_of(record, state), now,
+        settings, completion_of(record, state), now, _accounts_eligible_since(accounts),
     )
     if not pending:
         if str(record.get("window") or "") != window:

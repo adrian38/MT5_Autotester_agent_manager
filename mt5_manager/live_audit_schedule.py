@@ -259,6 +259,22 @@ def pending_window(
     return occurrence.isoformat(), True
 
 
+def audit_id_created_at(audit_id: str) -> datetime | None:
+    """Fecha del ID moderno que crea la UI; los IDs heredados no la inventan.
+
+    Compartida entre el cron semanal de auditorías y el sondeo diario de
+    cuentas: ambos la usan como `eligible_since` para que un uso recién creado
+    no cuente como vencido desde una cita que pasó antes de que existiera.
+    """
+    try:
+        _prefix, stamp, sequence = audit_id.rsplit("-", 2)
+        if not sequence.isdigit():
+            return None
+        return datetime.fromtimestamp(int(stamp, 36) / 1000, timezone.utc)
+    except (ValueError, OSError, OverflowError):
+        return None
+
+
 def previous_period_end(audit: dict[str, Any]) -> datetime | None:
     """Hasta donde llego la ultima auditoria de ese uso, como lo cuente el nodo.
 

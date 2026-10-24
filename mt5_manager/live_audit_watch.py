@@ -141,15 +141,9 @@ def scheduled_audit_ids(state: dict[str, Any], settings: dict[str, Any]) -> list
     ]
 
 
-def _audit_use_created_at(audit_id: str) -> datetime | None:
-    """Fecha del ID moderno que crea la UI; los IDs heredados no la inventan."""
-    try:
-        _prefix, stamp, sequence = audit_id.rsplit("-", 2)
-        if not sequence.isdigit():
-            return None
-        return datetime.fromtimestamp(int(stamp, 36) / 1000, timezone.utc)
-    except (ValueError, OSError, OverflowError):
-        return None
+_audit_use_created_at = live_audit_schedule.audit_id_created_at
+"""Alias local: la decodificación del ID vive en `live_audit_schedule`,
+compartida con el sondeo de cuentas."""
 
 
 def node_live_audits(
