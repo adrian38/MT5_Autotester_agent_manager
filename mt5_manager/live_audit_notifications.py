@@ -7,6 +7,19 @@ sin leer y lo devuelve ordenado del mas reciente al mas antiguo.
 Vive en el manager y no en el navegador a proposito: el aviso de que la
 auditoria del sabado por la noche fallo tiene que seguir ahi el lunes, desde
 cualquier navegador y aunque nadie tuviera la pagina abierta.
+
+**`add` es la unica puerta, y por eso la campana y el movil nunca se separan.**
+Todo aviso de este manager —el de la auditoria, el del sondeo de cuentas, el de
+la estrategia que degrada y el del resumen del dia 1— se escribe con `add`, y
+`add` llama a `_announce` sin preguntar quien lo escribio: el enganche que
+`manager_server` le pone es `web_push.announce`. Asi, publicar no es un paso
+que cada sitio tenga que acordarse de dar, sino algo que ya ha pasado cuando
+`add` vuelve. Quien quiera un aviso nuevo solo tiene que anotarlo.
+
+Lo unico que no despierta un movil es lo que `web_push.SKIPPED_KINDS` nombra,
+que hoy es un solo `kind` y esta razonado alli. Lo vigila
+`tests/manager/test_notice_single_door.py`, que ademas comprueba que ningun
+modulo se fabrique un aviso por su cuenta.
 """
 from __future__ import annotations
 

@@ -61,12 +61,22 @@ del veredicto de reproducción que éste arrastra.
   otra cosa. El aviso de la campana lleva a ella con su mes puesto
   (`?month=2026-09`), para que al abrirlo tres días después desde el móvil
   salga el mes que se anunció y no el último guardado.
+- **El aviso del día 1 es también un aviso al móvil, y no por hacer nada**:
+  `LiveAuditNotificationStore.add` es la única puerta de la campana y
+  anuncia por su cuenta —`manager_server` le enchufa `web_push.announce`—,
+  así que publicar no es un paso que este cron tenga que acordarse de dar.
+  Lo vigila `tests/manager/test_notice_single_door.py`, que además impide
+  que un módulo se fabrique un aviso por su cuenta y que `SKIPPED_KINDS`
+  crezca sin que nadie lo decida. Es **un** aviso por resumen y no uno por
+  cuenta: el resumen existe justamente para leer las doce de una vez.
 - **El veredicto de reproducción no se porta a Python.** Vive en
   `static/live_audit_reproduction.js` y lo comparten Análisis y la portada; una
   segunda copia acabaría diciendo otra cosa. El panel lo pinta con la función
-  original, y por eso carga también `dashboard_metrics.js`. Es lo único del
-  resumen que entra en el nodo, así que se pide **después** de pintar las
-  tarjetas: que falle deja una tarjeta sin esa línea, nunca sin tarjeta.
+  original, y por eso carga también `dashboard_metrics.js`. Junto con el alias
+  del portafolio —que vive en la memoria UBS del agente y va pegado al
+  nombre, como en la portada— es lo único del resumen que entra en el nodo,
+  así que los dos se piden **después** de pintar las tarjetas: que fallen
+  dejan una tarjeta sin esa línea, nunca sin tarjeta.
 - **«Dejó de operar» se quedó fuera** (petición del usuario, 2026-10-24). Se
   sigue midiendo y guardando en el estado del cron, pero es una señal rápida
   que ya se ve en la tarjeta de la portada y aquí sólo añadiría una línea más

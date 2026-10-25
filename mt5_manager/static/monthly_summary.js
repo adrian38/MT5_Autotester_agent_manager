@@ -28,8 +28,9 @@
   let current = {};
   // El veredicto de reproducción por uso, cuando se ha podido leer. Se guarda
   // entre recargas de la tabla porque la lectura entra en el nodo: cambiar de
-  // mes no la repite.
+  // mes no la repite. El alias del portafolio viaja igual y por lo mismo.
   const reproduction = new Map();
+  const aliases = new Map();
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -119,14 +120,22 @@
 
   // Los portafolios que operan la cuenta. La cuenta es la unidad —el beneficio
   // y el drawdown del mes son suyos—, así que aquí sólo se nombran y se les
-  // cuelga el veredicto de reproducción, que sí es de cada uso.
+  // cuelga lo que sí es de cada uso: su alias y su veredicto de reproducción.
+  //
+  // El alias va pegado al nombre, que es como se reconoce un uso de un vistazo:
+  // «Moderado 173» es el nombre con el que se guardó y «Cuenta prop 50k» lo que
+  // el usuario llama a eso. Lo pinta `dashboard.js` igual en la portada.
   function portfoliosMarkup(card) {
     const rows = (card.portfolios || []).map(portfolio => {
       const mark = reproduction.get(`${card.node_id}|${portfolio.audit_id}`);
       const state = mark ? `<span class="summary-reproduction ${mark.tone}">${escapeHtml(mark.text)}</span>` : '';
       const name = portfolio.name || `Portafolio #${portfolio.portfolio_id || '—'}`;
+      const alias = aliases.get(`${card.node_id}|${portfolio.portfolio_id}`);
+      const label = alias
+        ? `<span class="summary-alias">${escapeHtml(alias)}</span>` : '';
       return `<li><a href="/live_audit_analysis.html?node=${encodeURIComponent(card.node_id)}`
-        + `&audit=${encodeURIComponent(portfolio.audit_id)}">${escapeHtml(name)}</a>${state}</li>`;
+        + `&audit=${encodeURIComponent(portfolio.audit_id)}">${escapeHtml(name)}</a>`
+        + `${label}${state}</li>`;
     });
     if (!rows.length) return '';
     return `<ul class="summary-portfolios">${rows.join('')}</ul>`;
@@ -232,15 +241,37 @@
     return {tone: 'completed', text: 'reproduce'};
   }
 
-  async function loadReproduction(report) {
+  async function loadReproduction(nodeId) {
+    const data = await get(`/api/nodes/${encodeURIComponent(nodeId)}/live-dashboard`);
+    (data.entries || []).forEach(entry => {
+      const mark = reproductionMark(entry);
+      if (mark) reproduction.set(`${nodeId}|${entry.audit_id}`, mark);
+    });
+  }
+
+  // El alias vive en la memoria UBS del agente, así que tampoco viaja con el
+  // informe: se pide por nodo y sólo para los portafolios de este mes.
+  async function loadAliases(nodeId, report) {
+    const ids = [...new Set((report.accounts || [])
+      .filter(card => card.node_id === nodeId)
+      .flatMap(card => (card.portfolios || []).map(row => Number(row.portfolio_id || 0)))
+      .filter(portfolioId => portfolioId > 0))];
+    if (!ids.length) return;
+    const data = await get(
+      `/api/nodes/${encodeURIComponent(nodeId)}/portfolio-aliases?ids=${ids.join(',')}`,
+    );
+    Object.entries(data.aliases || {}).forEach(([portfolioId, alias]) => {
+      if (alias) aliases.set(`${nodeId}|${portfolioId}`, alias);
+    });
+  }
+
+  // Lo que no trae el informe, pedido después de pintar y por nodo: que falle
+  // deja una tarjeta sin esa línea, nunca sin tarjeta.
+  async function loadDetails(report) {
     const nodes = [...new Set((report.accounts || []).map(card => card.node_id))];
-    await Promise.allSettled(nodes.map(async nodeId => {
-      const data = await get(`/api/nodes/${encodeURIComponent(nodeId)}/live-dashboard`);
-      (data.entries || []).forEach(entry => {
-        const mark = reproductionMark(entry);
-        if (mark) reproduction.set(`${nodeId}|${entry.audit_id}`, mark);
-      });
-    }));
+    await Promise.allSettled(nodes.flatMap(nodeId => [
+      loadReproduction(nodeId), loadAliases(nodeId, report),
+    ]));
     if (current === report) renderReport(report);
   }
 
@@ -257,7 +288,7 @@
     if (label && (answer.unread || []).includes(label)) {
       renderMonths(await post('/api/monthly-summary/read', {month: label}));
     }
-    loadReproduction(answer.report || {});
+    loadDetails(answer.report || {});
   }
 
   function refresh(month) {
@@ -279,7 +310,7 @@
       const answer = await post('/api/monthly-summary/run', month ? {month} : {});
       applyAnswer(answer);
       notify('Resumen recalculado.');
-      loadReproduction(answer.report || {});
+      loadDetails(answer.report || {});
     } catch (error) { notify(error.message, true); }
     finally { run.disabled = false; }
   }

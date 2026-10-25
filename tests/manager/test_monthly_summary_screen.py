@@ -198,8 +198,23 @@ class ScriptTests(unittest.TestCase):
         # El cálculo entra en el nodo: se pide después de pintar, nunca antes.
         self.assertIn("loadReproduction", SCRIPT)
         self.assertLess(
-            SCRIPT.index("renderReport(answer"), SCRIPT.index("loadReproduction(answer"),
+            SCRIPT.index("renderReport(answer"), SCRIPT.index("loadDetails(answer"),
         )
+
+    def test_the_alias_goes_next_to_the_name_of_its_portfolio(self) -> None:
+        # El alias vive en la memoria UBS del agente, así que tampoco viaja con
+        # el informe: se pide por nodo y sólo para los portafolios del mes.
+        for expression in (
+            "/portfolio-aliases?ids=", "class=\"summary-alias\"",
+            "aliases.set(`${nodeId}|${portfolioId}`, alias)",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, SCRIPT)
+        self.assertIn(".summary-alias{", STYLE)
+        # Pegado al nombre y antes del veredicto, que es el orden en que se
+        # reconoce un uso: cómo lo llamo yo, y después cómo va.
+        markup = SCRIPT[SCRIPT.index("function portfoliosMarkup"):]
+        self.assertLess(markup.index("${label}"), markup.index("${state}"))
 
     def test_recalculating_asks_first(self) -> None:
         # El resumen guardado es la foto de lo que se sabía al cerrar el mes.

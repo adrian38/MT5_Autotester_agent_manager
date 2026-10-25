@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import unittest.mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from mt5_manager import monthly_summary_coverage as coverage
 from mt5_manager import monthly_summary_evidence as evidence
 from mt5_manager import monthly_summary_notices as notices
+from mt5_manager import monthly_summary_watch
 from mt5_manager.monthly_summary_schedule import (
     DEFAULT_MONTHLY_SUMMARY_SETTINGS, month_label, month_name, next_occurrence,
     normalize_monthly_summary_settings, previous_occurrence, shift_month,
@@ -174,6 +176,96 @@ class CoverageTests(unittest.TestCase):
             {"updated_at": "2026-09-20T00:00:00+00:00"}, MONTH,
         )["stale"])
         self.assertTrue(coverage.series_coverage({}, MONTH)["never_read"])
+
+
+class AnnouncementTests(unittest.TestCase):
+    """El día 1 deja un aviso en la campana, y la campana es el móvil.
+
+    Publicar no se decide aquí: `LiveAuditNotificationStore.add` anuncia por su
+    cuenta y `manager_server` le enchufa `web_push`. Lo que se comprueba es que
+    el resumen **pase por esa puerta** y con qué, porque un aviso que no se
+    escribe no se publica —y el del mes cerrado es el único que no tiene una
+    pantalla delante en la que se vea solo. La puerta la vigila
+    `tests/manager/test_notice_single_door.py`.
+    """
+
+    def setUp(self) -> None:
+        self.written: list[dict] = []
+        self.delivered: list[dict] = []
+        notice = self
+
+        class Bell:
+            def add(self, level, title, message="", **extra):
+                event = {"level": level, "title": title, "message": message, **extra}
+                notice.written.append(event)
+                # Lo que hace el almacén de verdad en cuanto anota.
+                notice.delivered.append(event)
+                return event
+
+        class Server:
+            live_audit_notifications = Bell()
+            monthly_summaries = None
+
+        self.server = Server()
+
+    def report(self, change: int = 2, watch: int = 1, unknown: int = 0) -> dict:
+        return {
+            "month": MONTH,
+            "counts": {
+                notices.CHANGE: change, notices.WATCH: watch,
+                notices.UNKNOWN: unknown, notices.KEEP: 1,
+            },
+            "accounts": [{"verdict": notices.CHANGE}] * (change + watch + unknown + 1),
+        }
+
+    def test_the_summary_leaves_one_notice_and_not_one_per_account(self) -> None:
+        # El resumen existe justamente para que las doce tarjetas se lean de
+        # una vez; doce avisos serían lo contrario.
+        monthly_summary_watch._announce(self.server, self.report())
+        self.assertEqual(len(self.written), 1)
+        self.assertEqual(len(self.delivered), 1)
+
+    def test_what_it_says_is_cuantas_piden_decision(self) -> None:
+        monthly_summary_watch._announce(self.server, self.report())
+        event = self.written[0]
+        self.assertIn("septiembre de 2026", event["title"])
+        self.assertIn("2 piden decisión", event["message"])
+        self.assertIn("1 a vigilar", event["message"])
+        self.assertEqual(event["level"], "warning")
+        self.assertEqual(event["kind"], "monthly_summary")
+
+    def test_a_month_with_nothing_to_decide_is_an_info(self) -> None:
+        monthly_summary_watch._announce(self.server, self.report(0, 0, 0))
+        event = self.written[0]
+        self.assertEqual(event["level"], "info")
+        self.assertIn("nada que decidir", event["message"])
+
+    def test_the_notice_carries_the_month_to_its_screen(self) -> None:
+        # Abierto tres días después desde el móvil, tiene que salir el mes que
+        # se anunció y no el último guardado.
+        monthly_summary_watch._announce(self.server, self.report())
+        self.assertEqual(
+            self.written[0]["link"], f"{monthly_summary_watch.LINK}?month={MONTH}",
+        )
+        self.assertEqual(self.written[0]["link_text"], "Ver resumen")
+
+    def test_the_automatic_turn_announces_and_the_manual_one_does_not(self) -> None:
+        # Quien pulsa «Volver a calcular» está mirando la pantalla: ya lo tiene
+        # delante.
+        stored = {"month": MONTH, "counts": {}, "accounts": []}
+
+        class Store:
+            def remember(self, report):
+                return dict(report)
+
+        self.server.monthly_summaries = Store()
+        with unittest.mock.patch.object(
+            monthly_summary_watch.monthly_summary_build, "build", return_value=stored,
+        ):
+            monthly_summary_watch.run(self.server, MONTH)
+            self.assertEqual(len(self.written), 1)
+            monthly_summary_watch.run(self.server, MONTH, announce=False)
+            self.assertEqual(len(self.written), 1)
 
 
 class NoticeTests(unittest.TestCase):
