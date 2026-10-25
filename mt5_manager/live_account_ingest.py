@@ -453,7 +453,8 @@ def _presented(
     saved: dict[str, Any], variant: str,
 ) -> live_account_presentation.UseLots:
     """A qué lote presenta este uso, resuelto con lo que la auditoría vio."""
-    mode = _mode(server, node_id, portfolio)
+    profile = _profile(server, node_id, portfolio)
+    mode = live_account_presentation.mode_of(profile)
     if not mode:
         return live_account_presentation.UseLots()
     return live_account_presentation.use_lots(
@@ -461,6 +462,7 @@ def _presented(
         live_account_presentation.latest_detail(
             server, node_id, str(portfolio.get("audit_id") or ""),
         ),
+        autolot=bool((profile.get("autolot") or {}).get("enabled")),
     )
 
 

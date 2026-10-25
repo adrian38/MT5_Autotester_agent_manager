@@ -123,7 +123,29 @@ def _member_lot(member: dict[str, Any], mode: str, lots: dict[str, set[float]]) 
     return _lot(member.get("lot"))
 
 
-def use_lots(mode: str, members: list[dict[str, Any]], detail: dict[str, Any]) -> UseLots:
+def _missing_lot_warning(missing: int, autolot: bool) -> list[str]:
+    """Una línea por las estrategias sin lote único, y ninguna con autolote.
+
+    Con autolote el lote lo decide el saldo trato a trato, así que **ninguna**
+    estrategia tiene un tamaño único que observar: el aviso saldría para todas,
+    siempre, y no hay nada que corregir. Sin autolote sí es una anomalía, pero
+    se dice una vez: once frases con el `candidate_id` crudo tapan la nota que
+    de verdad explica a qué lote está la tarjeta.
+    """
+    if not missing or autolot:
+        return []
+    if missing == 1:
+        return ["Una estrategia sin un lote único que presentar: se deja como se ejecutó."]
+    return [
+        f"{missing} estrategias sin un lote único que presentar: se dejan "
+        "como se ejecutaron.",
+    ]
+
+
+def use_lots(
+    mode: str, members: list[dict[str, Any]], detail: dict[str, Any],
+    autolot: bool = False,
+) -> UseLots:
     """Lo que un uso pide presentar, ya resuelto a números."""
     if mode not in {TESTER_LEADS, REAL_LEADS}:
         return UseLots()
@@ -131,20 +153,22 @@ def use_lots(mode: str, members: list[dict[str, Any]], detail: dict[str, Any]) -
     found: dict[str, float] = {}
     symbols: dict[str, float] = {}
     conflicts: set[str] = set()
-    warnings: list[str] = []
+    missing = 0
     for member in members:
         candidate = str(member.get("candidate_id") or "").strip()
         symbol = str(member.get("symbol") or "").strip().upper()
         lot = _member_lot(member, mode, observed.get(candidate) or {})
         if not candidate or not lot:
-            warnings.append(f"{candidate or 'sin identificador'}: sin un lote único que presentar.")
+            missing += 1
             continue
         found[candidate] = lot
         if mode != TESTER_LEADS or not symbol:
             continue
         if symbols.setdefault(symbol, lot) != lot:
             conflicts.add(symbol)
-    return _without_conflicts(symbols, found, members, conflicts, warnings)
+    return _without_conflicts(
+        symbols, found, members, conflicts, _missing_lot_warning(missing, autolot),
+    )
 
 
 def _without_conflicts(

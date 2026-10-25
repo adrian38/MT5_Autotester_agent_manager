@@ -121,6 +121,40 @@ class PresentationLotsTests(unittest.TestCase):
         self.assertEqual(use.symbols, {})
         self.assertEqual(use.members, {})
 
+    def test_the_strategies_without_a_single_lot_are_said_once(self) -> None:
+        """Tres miembros sin medir son un aviso, no tres.
+
+        Lo que la tarjeta tiene que decir es que no se escaló nada; repetir el
+        `candidate_id` de cada uno no añade nada y tapa la nota de al lado.
+        """
+        use = live_account_presentation.use_lots(
+            live_account_presentation.REAL_LEADS, MEMBERS, {},
+        )
+        self.assertEqual(
+            use.warnings,
+            ("3 estrategias sin un lote único que presentar: se dejan como se "
+             "ejecutaron.",),
+        )
+
+    def test_with_autolot_the_missing_lot_is_not_an_anomaly(self) -> None:
+        # El saldo decide el lote trato a trato: ninguna estrategia tiene un
+        # tamaño único, así que el aviso saldría siempre y para todas.
+        use = live_account_presentation.use_lots(
+            live_account_presentation.REAL_LEADS, MEMBERS, {}, autolot=True,
+        )
+        self.assertEqual(use.warnings, ())
+
+    def test_a_disputed_symbol_is_still_named_with_autolot(self) -> None:
+        # Lo que se calla es el lote que no se pudo medir, no el conflicto:
+        # ahí sí hay dos números y el usuario los puede arreglar.
+        members = [*MEMBERS, {
+            "candidate_id": "AXI/STANDARD:99", "symbol": "BTCUSD", "lot": 0.05,
+        }]
+        use = live_account_presentation.use_lots(
+            live_account_presentation.TESTER_LEADS, members, DETAIL, autolot=True,
+        )
+        self.assertTrue(any("BTCUSD" in warning for warning in use.warnings))
+
 
 class NormalizedSeriesTests(unittest.TestCase):
     LOTS = {"BTCUSD": 0.03, "ETHUSD": 0.1}
