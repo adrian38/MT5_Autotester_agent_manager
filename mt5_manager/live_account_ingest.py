@@ -236,6 +236,15 @@ def _needs_rebuild(stored: dict[str, Any], now: datetime, mode: str = "") -> boo
     # no hay nada que esperar.
     if str(stored.get("criterion") or "") != live_account_expectation.CRITERION_VERSION:
         return True
+    # Y lo mismo con lo que la tarjeta **dice**: los lotes de presentación y
+    # sus avisos se guardan aquí, así que cambiar el criterio de la nota sin
+    # caducar lo escrito deja la nota vieja en pantalla hasta que al uso le
+    # toque por edad. La firma no lo cubre: resume lo medido, no lo redactado.
+    if (
+        str(stored.get("presentation_criterion") or "")
+        != live_account_presentation.PRESENTATION_VERSION
+    ):
+        return True
     # Una promesa escrita antes de que existiera la identidad del portafolio
     # no tiene la clave, y sin ella el gráfico no puede marcar desde cuándo la
     # cuenta sirve a este portafolio. Se mira la **ausencia** de la clave y no
@@ -405,6 +414,7 @@ def _rebuild(
         "mode": _mode(server, node_id, portfolio),
         "presentation_lots": dict(use.symbols),
         "presentation_warnings": list(use.warnings),
+        "presentation_criterion": live_account_presentation.PRESENTATION_VERSION,
         # Cuándo se guardó el portafolio que la cuenta sirve hoy. Se queda
         # escrito aquí, como los lotes de presentación, porque esto es lo
         # único que abre la memoria UBS del agente: la portada se repinta cada

@@ -296,6 +296,7 @@ class MeasuredPromiseTests(unittest.TestCase):
         fresh = {
             "updated_at": "2026-10-23T15:00:00+00:00",
             "criterion": live_account_expectation.CRITERION_VERSION,
+            "presentation_criterion": live_account_presentation.PRESENTATION_VERSION,
             "portfolio_created_at": "",
         }
         self.assertFalse(live_account_ingest._needs_rebuild(fresh, now))
@@ -314,6 +315,30 @@ class MeasuredPromiseTests(unittest.TestCase):
             {"updated_at": fresh["updated_at"]}, now,
         ))
 
+    def test_a_new_note_criterion_also_expires_what_the_card_says(self) -> None:
+        """La nota se guarda, así que un criterio nuevo tiene que caducarla.
+
+        El 2026-10-25 se dejaron de avisar los lotes sin medir con autolote y
+        la tarjeta siguió enseñando los once avisos viejos: la medida no había
+        cambiado, la firma coincidía y por edad no tocaba hasta el día
+        siguiente. Un arreglo que no se ve es un arreglo que no está.
+        """
+        now = datetime(2026, 10, 23, 17, tzinfo=timezone.utc)
+        fresh = {
+            "updated_at": "2026-10-23T15:00:00+00:00",
+            "criterion": live_account_expectation.CRITERION_VERSION,
+            "presentation_criterion": live_account_presentation.PRESENTATION_VERSION,
+            "portfolio_created_at": "",
+        }
+        self.assertFalse(live_account_ingest._needs_rebuild(fresh, now))
+        self.assertTrue(live_account_ingest._needs_rebuild(
+            {**fresh, "presentation_criterion": "lot-notes-v1"}, now,
+        ))
+        self.assertTrue(live_account_ingest._needs_rebuild(
+            {key: value for key, value in fresh.items()
+             if key != "presentation_criterion"}, now,
+        ))
+
     def test_a_promise_without_the_portfolio_date_is_measured_again(self) -> None:
         """Sin la clave no hay fecha que marcar, y por edad tardaría un día.
 
@@ -328,6 +353,7 @@ class MeasuredPromiseTests(unittest.TestCase):
         stored = {
             "updated_at": "2026-10-23T15:00:00+00:00",
             "criterion": live_account_expectation.CRITERION_VERSION,
+            "presentation_criterion": live_account_presentation.PRESENTATION_VERSION,
         }
         self.assertTrue(live_account_ingest._needs_rebuild(stored, now))
         self.assertFalse(live_account_ingest._needs_rebuild(

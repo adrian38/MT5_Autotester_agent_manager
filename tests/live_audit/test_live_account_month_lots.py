@@ -204,6 +204,8 @@ class IngestScenarioTests(unittest.TestCase):
     def test_a_promise_from_last_month_is_measured_again(self) -> None:
         """El día 1 la tarjeta pide un mes que lo guardado no tiene."""
         stored = {"criterion": live_account_expectation.CRITERION_VERSION,
+                  "presentation_criterion":
+                      live_account_presentation.PRESENTATION_VERSION,
                   "updated_at": NOW.isoformat(),
                   "portfolio_created_at": "",
                   "months_at": {"2026-09": {"profit": 1.0}}}

@@ -51,6 +51,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+PRESENTATION_VERSION = "lot-notes-v2"
+"""Qué criterio escribió los avisos y los lotes guardados de una tarjeta.
+
+La portada no recalcula: pinta lo que `_rebuild` dejó escrito, y lo escrito
+sobrevive al reinicio. Sin esto, cambiar qué se avisa deja la nota vieja en
+pantalla hasta que al uso le toque reconstruirse por edad —un día entero—, y
+el arreglo parece no haber hecho nada. Subir el número lo caduca al vuelo,
+igual que `live_account_expectation.CRITERION_VERSION` caduca la medida.
+"""
+
 TESTER_LEADS = "tester"
 REAL_LEADS = "autolot"
 """Los dos valores de `view_lot_overrides.$mode`.
