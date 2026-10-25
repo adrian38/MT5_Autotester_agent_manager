@@ -1,23 +1,37 @@
-/* Lo propio del panel del resumen mensual.
+/* Lo propio del resumen del mes: su pantalla y la chapa de su boton.
  *
- * El diálogo, la rejilla de campos y los avisos de color ya los viste en
- * `live_audit_schedule.css`: aquí sólo está lo que no existía —la chapa del
- * botón, la tarjeta por cuenta y el veredicto— y se apoya en sus mismas
- * variables para que las dos pantallas no tengan dos verdes distintos.
+ * La rejilla de campos y los avisos de color ya los viste en
+ * `live_audit_schedule.css`: aqui se reutilizan sus clases `cron-*` y sus
+ * variables, para que las dos pantallas no tengan dos verdes distintos.
  *
  * El veredicto manda el color del borde, no el broker: esta pantalla existe
- * para decidir, y lo que se mira primero es qué pide decisión.
+ * para decidir, y lo que se mira primero es que pide decision.
  */
 .summary-link{position:relative}
 .summary-link .summary-badge{position:absolute;top:-6px;right:-6px;min-width:18px;padding:2px 5px;border-radius:999px;background:var(--danger,#ff6b6b);color:#2a0a0a;font-size:10px;font-weight:800}
 .summary-link .summary-badge[hidden]{display:none}
 .summary-link.has-unread{border-color:var(--danger,#ff6b6b)}
 
-.summary-dialog{width:min(860px,96vw)}
-.summary-dialog .summary-toolbar{display:flex;align-items:end;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.summary-dialog .summary-toolbar label{min-width:200px}
-.summary-dialog .summary-counts{margin:0;color:var(--text,#edf5f7);font-size:13px;font-weight:700}
-.summary-dialog .summary-cards{display:grid;gap:12px}
+/* La pantalla propia. El `main` de `styles.css` ya centra y limita el ancho;
+ * aqui solo se ordenan sus tres bloques. */
+.summary-page main{display:grid;gap:16px}
+.summary-page .summary-toolbar{display:flex;align-items:end;gap:16px;flex-wrap:wrap;padding:14px;border:1px solid var(--line,#27394b);border-radius:12px;background:var(--panel,#111b27)}
+.summary-page .summary-toolbar label{display:grid;gap:6px;min-width:200px;color:var(--muted,#91a4b5);font-size:12px}
+.summary-page .summary-toolbar select{padding:9px 10px;border:1px solid var(--line,#27394b);border-radius:8px;background:#0b1520;color:var(--text,#edf5f7);font:inherit}
+.summary-page .summary-toolbar .summary-counts{flex:1 1 240px}
+.summary-page .summary-toolbar .cron-note,.summary-page .summary-config .cron-note{color:var(--muted,#91a4b5);font-size:12px;line-height:1.5}
+.summary-page .summary-config .cron-warning{color:var(--warn,#ffd166);font-size:12px;line-height:1.5}
+.summary-page .summary-config form{display:grid;gap:12px;margin-top:12px}
+.summary-page .summary-config .cron-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.summary-page .summary-config label{display:grid;gap:6px;color:var(--muted,#91a4b5);font-size:12px}
+.summary-page .summary-config input{padding:9px 10px;border:1px solid var(--line,#27394b);border-radius:8px;background:#0b1520;color:var(--text,#edf5f7);font:inherit}
+.summary-page .summary-config .cron-switch{display:flex;align-items:start;gap:10px;padding:12px;border:1px solid var(--line,#27394b);border-radius:10px;color:var(--text,#edf5f7)}
+.summary-page .summary-config .cron-switch input{width:18px;height:18px}
+.summary-page .summary-config .cron-switch small{display:block;margin-top:3px;color:var(--muted,#91a4b5);font-size:11px}
+.summary-page .summary-config [hidden]{display:none!important}
+.summary-page .summary-config button{justify-self:start}
+.summary-counts{margin:0;color:var(--text,#edf5f7);font-size:13px;font-weight:700}
+.summary-cards{display:grid;gap:12px}
 
 .summary-card{display:grid;gap:12px;padding:14px;border:1px solid var(--line,#27394b);border-left-width:4px;border-radius:12px;background:#0b1520}
 .summary-card.change{border-left-color:var(--danger,#ff6b6b)}
@@ -25,7 +39,7 @@
 .summary-card.unknown{border-left-color:var(--blue,#68a7ff)}
 .summary-card.keep{border-left-color:var(--accent,#20c997)}
 .summary-card-head{display:flex;align-items:start;justify-content:space-between;gap:12px}
-.summary-card-head h3{margin:2px 0 0;font-size:15px}
+.summary-card-head h2{margin:2px 0 0;font-size:15px}
 .summary-card-head .eyebrow{margin:0;color:var(--muted,#91a4b5);font-size:11px;letter-spacing:.08em}
 
 .summary-verdict{padding:5px 9px;border-radius:999px;font-size:11px;font-weight:800;white-space:nowrap}

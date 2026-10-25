@@ -1,19 +1,19 @@
-// El botón «Resumen del mes» y su panel, que es la otra mitad del cron.
+// La pantalla del resumen del mes cerrado. Sólo la carga `monthly_summary.html`.
 //
-// Lo monta la portada de cuentas y «Portafolios activos», que es donde se
-// decide si una cartera sigue. Reutiliza las clases `cron-*` de
-// `live_audit_schedule.css` para no tener dos diálogos que se parecen y se
-// comportan distinto; lo propio está en `monthly_summary.css`.
+// Es una ventana propia y no un diálogo encima de la portada (petición del
+// usuario, 2026-10-25): el resumen se lee con las tarjetas de las cuentas
+// delante y tiene doce cuentas con tres avisos cada una, así que un modal
+// obligaba a cerrarlo para mirar cualquier otra cosa.
 //
 // Aquí no se mide nada. Los veredictos, los avisos y sus frases vienen hechos
 // de `monthly_summary_notices.py`: la pantalla los pinta y los ordena, que es
-// lo que evita que el panel y la campana digan cosas distintas del mismo mes.
-// La única excepción es el veredicto de reproducción, que vive en
+// lo que evita que esta ventana y la campana digan cosas distintas del mismo
+// mes. La única excepción es el veredicto de reproducción, que vive en
 // `live_audit_reproduction.js` desde antes y se pide aparte: portarlo a Python
 // sería un segundo criterio para el mismo número.
 (() => {
-  const actions = document.querySelector('.header-actions');
-  if (!actions) return;
+  const cards = document.querySelector('#monthly-summary-cards');
+  if (!cards) return;
 
   const SUMMARY = '/api/monthly-summary';
   const CONFIG = '/api/monthly-summary-config';
@@ -27,8 +27,8 @@
   let config = {};
   let current = {};
   // El veredicto de reproducción por uso, cuando se ha podido leer. Se guarda
-  // entre aperturas porque la lectura entra en el nodo: no se repite por abrir
-  // el panel dos veces.
+  // entre recargas de la tabla porque la lectura entra en el nodo: cambiar de
+  // mes no la repite.
   const reproduction = new Map();
 
   function escapeHtml(value) {
@@ -76,76 +76,9 @@
     return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('es-ES');
   }
 
-  // --- Botón --------------------------------------------------------------
-  const open = document.createElement('button');
-  open.type = 'button';
-  open.className = 'cron-link summary-link';
-  open.id = 'open-monthly-summary';
-  open.textContent = 'Resumen del mes';
-  open.title = 'El mes cerrado contra lo que ese mes prometía el backtest';
-  open.innerHTML += '<span class="summary-badge" id="monthly-summary-badge" hidden>0</span>';
-
-  // El mismo ancla que los otros dos botones de la barra, preguntado en el
-  // mismo orden: «Reiniciar manager» cierra la fila y, donde no lo hay, el
-  // enlace de vuelta. Lo vigila `test_header_actions_order`.
-  const anchor = actions.querySelector('#restart-manager')
-    || actions.querySelector('a[href="/"]');
-  actions.insertBefore(open, anchor || null);
-
-  const dialog = document.createElement('dialog');
-  dialog.className = 'cron-dialog summary-dialog';
-  dialog.id = 'monthly-summary-dialog';
-  dialog.innerHTML = `
-    <form method="dialog" id="monthly-summary-form">
-      <div class="cron-head">
-        <div><p class="eyebrow">RESUMEN MENSUAL</p><h2 id="monthly-summary-title">Mes cerrado</h2></div>
-        <button type="button" class="secondary" id="monthly-summary-close" aria-label="Cerrar">×</button>
-      </div>
-      <div class="cron-body">
-        <div class="summary-toolbar">
-          <label>Mes<select id="monthly-summary-month"></select></label>
-          <p class="cron-note" id="monthly-summary-generated"></p>
-        </div>
-        <p class="summary-counts" id="monthly-summary-counts"></p>
-        <div class="summary-cards" id="monthly-summary-cards"></div>
-        <details class="summary-config">
-          <summary>Cuándo se calcula solo</summary>
-          <p class="cron-note" id="monthly-summary-description"></p>
-          <label class="cron-switch">
-            <input id="monthly-summary-enabled" type="checkbox">
-            <span><strong>Calcular el resumen cada mes</strong>
-              <small>Sólo lee lo que ya está archivado en el disco del manager: no entra
-              en ningún agente ni pausa ningún pipeline. Si el manager estuvo apagado
-              el día de la cita, la primera vuelta al arrancar la recupera.</small></span>
-          </label>
-          <div class="cron-grid">
-            <label>Día del mes<input id="monthly-summary-day" type="number" min="1" max="28" required></label>
-            <label>Hora<input id="monthly-summary-hour" type="number" min="0" max="23" required></label>
-            <label>Minuto<input id="monthly-summary-minute" type="number" min="0" max="59" required></label>
-            <label>Zona horaria<input id="monthly-summary-timezone" placeholder="Europe/Madrid" required></label>
-            <label>Meses seguidos por debajo que piden decisión
-              <input id="monthly-summary-streak" type="number" min="2" max="12" required></label>
-            <label>Reintentos si falla
-              <input id="monthly-summary-retries" type="number" min="0" max="10" required></label>
-            <label>Esperar entre reintentos (min)
-              <input id="monthly-summary-retry-delay" type="number" min="1" max="720" required></label>
-          </div>
-          <p class="cron-note" id="monthly-summary-next"></p>
-          <p class="cron-warning" id="monthly-summary-timezone-warning" hidden></p>
-          <p class="cron-warning" id="monthly-summary-last-error" hidden></p>
-        </details>
-      </div>
-      <div class="cron-actions">
-        <button type="button" class="secondary" id="monthly-summary-run">Volver a calcular</button>
-        <button type="button" class="secondary" id="monthly-summary-cancel">Cerrar</button>
-        <button type="submit" id="monthly-summary-save">Guardar cita</button>
-      </div>
-    </form>`;
-  document.body.appendChild(dialog);
-
   const field = id => document.querySelector(id);
-  const badge = field('#monthly-summary-badge');
   const run = field('#monthly-summary-run');
+  const state = field('#refresh-state');
 
   // --- Pintado ------------------------------------------------------------
   function amount(value, currency) {
@@ -205,7 +138,7 @@
     return `<article class="summary-card ${escapeHtml(verdict)}">
       <div class="summary-card-head">
         <div><p class="eyebrow">${escapeHtml(card.node_name || card.node_id)}${autolot}</p>
-          <h3>${escapeHtml(card.login || '')} · ${escapeHtml(card.server || '')}</h3></div>
+          <h2>${escapeHtml(card.login || '')} · ${escapeHtml(card.server || '')}</h2></div>
         <span class="summary-verdict ${escapeHtml(verdict)}">${escapeHtml(VERDICTS[verdict] || verdict)}</span>
       </div>
       ${figuresMarkup(card)}
@@ -228,20 +161,21 @@
   function renderReport(report) {
     current = report || {};
     const month = String(current.month || '');
-    field('#monthly-summary-title').textContent = month
-      ? `Resumen de ${monthName(month)}` : 'Todavía no hay ningún resumen';
+    document.title = month
+      ? `Resumen de ${monthName(month)} · MT5 Manager`
+      : 'Resumen del mes · MT5 Manager';
     field('#monthly-summary-generated').textContent = current.generated_at
       ? `Calculado el ${localDate(current.generated_at)}.` : '';
     field('#monthly-summary-counts').textContent = countsMarkup(current);
-    field('#monthly-summary-cards').innerHTML = (current.accounts || []).map(cardMarkup).join('')
+    cards.innerHTML = (current.accounts || []).map(cardMarkup).join('')
       || '<p class="cron-note">Sin tarjetas: ninguna cuenta real activa tenía este mes.</p>';
   }
 
-  function renderMonths(state) {
+  function renderMonths(answer) {
     const select = field('#monthly-summary-month');
-    const months = state.months || [];
-    const unread = new Set(state.unread || []);
-    const chosen = String((state.report || {}).month || '');
+    const months = answer.months || [];
+    const unread = new Set(answer.unread || []);
+    const chosen = String((answer.report || {}).month || '');
     select.innerHTML = months.map(label => (
       `<option value="${escapeHtml(label)}"${label === chosen ? ' selected' : ''}>`
       + `${escapeHtml(monthName(label))}${unread.has(label) ? ' •' : ''}</option>`
@@ -249,21 +183,14 @@
     select.disabled = !months.length;
   }
 
-  function renderBadge(state) {
-    const pending = (state.unread || []).length;
-    badge.hidden = !pending;
-    badge.textContent = String(pending);
-    open.classList.toggle('has-unread', Boolean(pending));
+  function applyAnswer(answer) {
+    renderMonths(answer);
+    renderReport(answer.report || {});
+    state.textContent = `Actualizado ${new Date().toLocaleTimeString('es-ES')}`;
   }
 
-  function applyState(state) {
-    renderMonths(state);
-    renderReport(state.report || {});
-    renderBadge(state);
-  }
-
-  function applyConfig(state) {
-    config = state || {};
+  function applyConfig(answer) {
+    config = answer || {};
     field('#monthly-summary-description').textContent = config.description || '';
     field('#monthly-summary-enabled').checked = Boolean(config.enabled);
     field('#monthly-summary-day').value = config.day ?? 1;
@@ -319,32 +246,29 @@
 
   // --- Acciones -----------------------------------------------------------
   async function show(month) {
+    state.textContent = 'Cargando…';
     const url = month ? `${SUMMARY}?month=${encodeURIComponent(month)}` : SUMMARY;
-    const state = await get(url);
-    applyState(state);
-    const label = String((state.report || {}).month || '');
+    const answer = await get(url);
+    applyAnswer(answer);
     // Abrir un mes es haberlo mirado. La respuesta trae el estado ya sin él,
-    // así que se repintan los dos sitios donde se nota —la chapa y el punto
-    // del selector—: con uno solo, el mes abierto seguiría marcado.
-    if (label && (state.unread || []).includes(label)) {
-      const read = await post('/api/monthly-summary/read', {month: label});
-      renderMonths(read);
-      renderBadge(read);
+    // así que el selector se repinta: con la marca puesta, el mes que se tiene
+    // delante seguiría apareciendo como pendiente.
+    const label = String((answer.report || {}).month || '');
+    if (label && (answer.unread || []).includes(label)) {
+      renderMonths(await post('/api/monthly-summary/read', {month: label}));
     }
-    loadReproduction(state.report || {});
+    loadReproduction(answer.report || {});
   }
 
-  async function openDialog(month) {
-    try {
-      applyConfig(await get(CONFIG));
-      await show(month || '');
-      if (!dialog.open) dialog.showModal();
-    } catch (error) { notify(error.message, true); }
+  function refresh(month) {
+    show(month || field('#monthly-summary-month').value || '').catch(error => {
+      state.textContent = 'No se pudo leer';
+      notify(error.message, true);
+    });
   }
 
   async function recalculate() {
-    const month = field('#monthly-summary-month').value
-      || String(current.month || '');
+    const month = field('#monthly-summary-month').value || String(current.month || '');
     const warning = '¿Volver a calcular este mes?\n\n'
       + 'El resumen guardado es la foto de lo que se sabía al cerrar el mes. '
       + 'Recalcularlo lo sustituye por lo que se sabe hoy, que no es lo mismo: '
@@ -352,10 +276,10 @@
     if (!window.confirm(warning)) return;
     run.disabled = true;
     try {
-      const state = await post('/api/monthly-summary/run', month ? {month} : {});
-      applyState(state);
+      const answer = await post('/api/monthly-summary/run', month ? {month} : {});
+      applyAnswer(answer);
       notify('Resumen recalculado.');
-      loadReproduction(state.report || {});
+      loadReproduction(answer.report || {});
     } catch (error) { notify(error.message, true); }
     finally { run.disabled = false; }
   }
@@ -377,23 +301,13 @@
     } catch (error) { notify(error.message, true); }
   }
 
-  open.addEventListener('click', () => openDialog(''));
   run.addEventListener('click', recalculate);
-  field('#monthly-summary-month').addEventListener('change', event => {
-    show(event.target.value).catch(error => notify(error.message, true));
-  });
-  field('#monthly-summary-close').addEventListener('click', () => dialog.close());
-  field('#monthly-summary-cancel').addEventListener('click', () => dialog.close());
+  field('#refresh').addEventListener('click', () => refresh(''));
+  field('#monthly-summary-month').addEventListener('change', event => refresh(event.target.value));
   field('#monthly-summary-form').addEventListener('submit', save);
 
-  // La chapa se pone sin abrir nada: el día 1 el botón ya dice que hay algo
-  // que mirar aunque el usuario entre a otra cosa. Que falle no puede dejar la
-  // pantalla a medias, así que se calla.
-  get(SUMMARY).then(renderBadge).catch(() => {});
-
-  // El aviso de la campana lleva a `?summary=1`, que es el panel abierto en el
-  // mes que anunció.
-  if (new URLSearchParams(window.location.search).get('summary')) {
-    openDialog('');
-  }
+  // El aviso de la campana puede nombrar su mes (`?month=2026-09`); sin él se
+  // abre el último guardado, que es lo que se quiere al entrar por el botón.
+  get(CONFIG).then(applyConfig).catch(error => notify(error.message, true));
+  refresh(new URLSearchParams(window.location.search).get('month') || '');
 })();

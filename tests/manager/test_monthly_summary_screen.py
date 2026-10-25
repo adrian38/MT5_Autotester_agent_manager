@@ -1,12 +1,18 @@
-"""El panel del resumen mensual: sus rutas, su almacén y lo que no recalcula.
+"""La pantalla del resumen mensual: sus rutas, su almacén y lo que no recalcula.
 
 En este equipo no hay runtime de JavaScript, así que la pantalla se comprueba
-por el texto de su fichero. Lo que importa aquí es que el panel **pinte y no
-decida**: los veredictos, los avisos y sus frases vienen hechos de
+por el texto de sus ficheros. Lo que importa aquí es que **pinte y no decida**:
+los veredictos, los avisos y sus frases vienen hechos de
 `monthly_summary_notices.py`, y dos criterios para el mismo número acabarían
 diciendo cosas distintas del mismo mes. La única excepción es el veredicto de
-reproducción, que vive en `live_audit_reproduction.js` desde antes y que el
-panel pide prestado en vez de copiar.
+reproducción, que vive en `live_audit_reproduction.js` desde antes y que la
+pantalla pide prestado en vez de copiar.
+
+El resumen es una **ventana propia** desde el 2026-10-25, no un diálogo sobre
+la portada, y eso parte el JavaScript en dos: `monthly_summary_button.js`
+monta el botón en las dos pantallas de operación real y `monthly_summary.js`
+pinta la pantalla. Que la portada no cargue el pintado que nunca usa es parte
+del contrato, y por eso se comprueba.
 
 Del lado del manager se comprueba lo que decide: que un `?month=` a medias no
 pase por mes, que recalcular borre la marca de leído —lo que el usuario miró
@@ -26,23 +32,29 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import manager_handler, manager_summary_routes, monthly_summary_runtime
+from mt5_manager import monthly_summary_watch
 from mt5_manager.monthly_summary_store import MAXIMUM_MONTHS, MonthlySummaryStore
 
 STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
+PAGE = (STATIC / "monthly_summary.html").read_text(encoding="utf-8")
 SCRIPT = (STATIC / "monthly_summary.js").read_text(encoding="utf-8")
+BUTTON = (STATIC / "monthly_summary_button.js").read_text(encoding="utf-8")
 STYLE = (STATIC / "monthly_summary.css").read_text(encoding="utf-8")
 HOSTS = ("accounts.html", "dashboard.html")
+"""Las dos pantallas de operación real, que son las que montan el botón."""
 
 
 def ids_of(script: str) -> set[str]:
-    """Los ids que el script pide, por `querySelector` y por su atajo `field`."""
+    """Los ids que el guion pide, por `querySelector` y por su atajo `field`."""
     return set(re.findall(r"(?:querySelector|field)\('#([\w-]+)'\)", script))
 
 
-def declared_ids(script: str) -> set[str]:
-    return set(re.findall(r'id="([\w-]+)"', script)) | set(
-        re.findall(r"\.id = '([\w-]+)'", script),
-    )
+def declared_ids(*sources: str) -> set[str]:
+    found: set[str] = set()
+    for source in sources:
+        found |= set(re.findall(r'id="([\w-]+)"', source))
+        found |= set(re.findall(r"\.id = '([\w-]+)'", source))
+    return found
 
 
 class FakeHandler:
@@ -89,49 +101,79 @@ def report(month: str, verdict: str = "keep") -> dict:
 
 
 class RoutingTests(unittest.TestCase):
-    def test_both_assets_are_servable(self) -> None:
+    def test_the_page_and_its_three_assets_are_servable(self) -> None:
         self.assertLessEqual(
-            {"monthly_summary.js", "monthly_summary.css"}, manager_handler.STATIC_FILES,
+            {
+                "monthly_summary.html", "monthly_summary.js",
+                "monthly_summary_button.js", "monthly_summary.css",
+            },
+            manager_handler.STATIC_FILES,
         )
 
-    def test_only_the_two_real_operation_screens_mount_it(self) -> None:
+    def test_only_the_two_real_operation_screens_mount_the_button(self) -> None:
         for page in STATIC.glob("*.html"):
             source = page.read_text(encoding="utf-8")
             with self.subTest(page=page.name):
-                self.assertEqual("/monthly_summary.js" in source, page.name in HOSTS)
-
-    def test_the_panel_takes_its_stylesheet_and_its_borrowed_rules_with_it(self) -> None:
-        # El panel se monta con `appendChild`, así que sin su hoja saldría al
-        # final del documento y sin estilo; y sin los dos ficheros del
-        # veredicto de reproducción las tarjetas se quedarían sin esa línea.
-        for page in HOSTS:
-            source = (STATIC / page).read_text(encoding="utf-8")
-            with self.subTest(page=page):
-                for asset in (
-                    "/monthly_summary.css", "/live_audit_schedule.css",
-                    "/live_audit_reproduction.js", "/dashboard_metrics.js",
-                ):
-                    self.assertIn(asset, source)
-                self.assertLess(
-                    source.index("/live_audit_reproduction.js"),
-                    source.index("/monthly_summary.js"),
-                    "el panel lee `window.LiveAuditReproduction` al abrirse",
+                self.assertEqual(
+                    "/monthly_summary_button.js" in source, page.name in HOSTS,
                 )
 
-    def test_the_bell_link_lands_on_a_page_that_exists(self) -> None:
-        from mt5_manager import monthly_summary_watch
+    def test_only_its_own_page_loads_the_painting(self) -> None:
+        # La portada no carga lo que nunca usa: son 300 líneas y los dos
+        # ficheros del veredicto de reproducción detrás.
+        for page in STATIC.glob("*.html"):
+            source = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.name):
+                self.assertEqual(
+                    '"/monthly_summary.js"' in source, page.name == "monthly_summary.html",
+                )
 
-        page, _, query = monthly_summary_watch.LINK.partition("?")
-        source = Path(manager_handler.__file__).read_text(encoding="utf-8")
-        self.assertIn(f'if parsed.path == "{page}":', source)
-        self.assertIn(query.partition("=")[0], SCRIPT)
+    def test_the_page_brings_its_stylesheet_and_its_borrowed_rules(self) -> None:
+        for asset in (
+            "/monthly_summary.css", "/live_audit_schedule.css", "/styles.css",
+            "/live_audit_reproduction.js", "/dashboard_metrics.js",
+        ):
+            with self.subTest(asset=asset):
+                self.assertIn(asset, PAGE)
+        self.assertLess(
+            PAGE.index("/live_audit_reproduction.js"), PAGE.index("/monthly_summary.js"),
+            "la pantalla lee `window.LiveAuditReproduction` al cargarse",
+        )
+
+    def test_the_button_opens_a_window_instead_of_a_dialog(self) -> None:
+        for expression in (
+            "const PAGE = '/monthly_summary.html'", "open.target = '_blank'",
+            "open.rel = 'noopener'",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, BUTTON)
+        # Lo que fue un diálogo y ya no lo es.
+        self.assertNotIn("showModal", BUTTON + SCRIPT)
+
+    def test_the_button_takes_the_same_anchor_as_the_other_two(self) -> None:
+        for expression in (
+            "actions.querySelector('#restart-manager')",
+            'actions.querySelector(\'a[href="/"]\')',
+            "actions.insertBefore(open, anchor || null)",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, BUTTON)
+
+    def test_the_bell_lands_on_the_page_with_its_month(self) -> None:
+        self.assertEqual(monthly_summary_watch.LINK, "/monthly_summary.html")
+        self.assertIn("monthly_summary.html", manager_handler.STATIC_FILES)
+        source = Path(monthly_summary_watch.__file__).read_text(encoding="utf-8")
+        self.assertIn('link=f"{LINK}?month=', source)
+        # Y la pantalla lo lee, que es la otra mitad del enlace.
+        self.assertIn("URLSearchParams(window.location.search).get('month')", SCRIPT)
 
 
 class ScriptTests(unittest.TestCase):
-    def test_every_id_it_asks_for_is_one_it_creates(self) -> None:
-        # `#toast` y `#restart-manager` son de la pantalla, no del panel.
-        asked = ids_of(SCRIPT) - {"toast", "restart-manager"}
-        self.assertLessEqual(asked, declared_ids(SCRIPT))
+    def test_every_id_it_asks_for_is_one_the_page_declares(self) -> None:
+        # `#restart-manager` es el ancla de la barra y lo pone cada pantalla
+        # (o `manager_restart.js`); el resto sale de este HTML y estos guiones.
+        asked = (ids_of(SCRIPT) | ids_of(BUTTON)) - {"restart-manager"}
+        self.assertLessEqual(asked, declared_ids(PAGE, SCRIPT, BUTTON))
         self.assertIn("monthly-summary-cards", asked)
 
     def test_the_verdict_and_the_notices_come_from_the_manager(self) -> None:
@@ -141,7 +183,7 @@ class ScriptTests(unittest.TestCase):
 
     def test_it_does_not_measure_the_month_again(self) -> None:
         # Las cuatro cosas que el manager ya decidió. Si alguna se calculase
-        # aquí, el panel y la campana podrían decir distinto del mismo mes.
+        # aquí, la pantalla y la campana podrían decir distinto del mismo mes.
         for forbidden in ("below_promise", "COVERAGE_MINIMUM", "quantile", "worse_than"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, SCRIPT)
@@ -155,7 +197,9 @@ class ScriptTests(unittest.TestCase):
                 self.assertIn(expression, SCRIPT)
         # El cálculo entra en el nodo: se pide después de pintar, nunca antes.
         self.assertIn("loadReproduction", SCRIPT)
-        self.assertLess(SCRIPT.index("renderReport(state"), SCRIPT.index("loadReproduction(state"))
+        self.assertLess(
+            SCRIPT.index("renderReport(answer"), SCRIPT.index("loadReproduction(answer"),
+        )
 
     def test_recalculating_asks_first(self) -> None:
         # El resumen guardado es la foto de lo que se sabía al cerrar el mes.
@@ -172,7 +216,8 @@ class ScriptTests(unittest.TestCase):
     def test_the_badge_is_painted_without_opening_anything(self) -> None:
         # El día 1 el botón ya dice que hay algo que mirar, y que falle no
         # puede dejar la pantalla a medias.
-        self.assertIn("get(SUMMARY).then(renderBadge).catch(() => {})", SCRIPT)
+        self.assertIn("/api/monthly-summary", BUTTON)
+        self.assertIn(".catch(() => {})", BUTTON)
 
 
 class MonthTests(unittest.TestCase):

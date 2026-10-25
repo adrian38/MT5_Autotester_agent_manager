@@ -2,8 +2,8 @@
 
 Lo que se mira el día 1 para decidir si una cartera sigue, se vigila o se
 cambia. Un cron lo calcula solo, lo guarda y deja un aviso en la campana; el
-botón «Resumen del mes» de la portada de cuentas y de «Portafolios activos» lo
-abre.
+botón «Resumen del mes» de la portada de cuentas y de «Portafolios activos»
+abre **su propia ventana**, `/monthly_summary.html`.
 
 Los módulos, en orden de dependencia:
 
@@ -12,7 +12,11 @@ Los módulos, en orden de dependencia:
 `monthly_summary_store` → `monthly_summary_build` → `monthly_summary_watch` →
 `monthly_summary_runtime` → `manager_summary_routes`
 
-Y la pantalla: `static/monthly_summary.js` con `static/monthly_summary.css`.
+Y la pantalla: `static/monthly_summary.html` con `static/monthly_summary.js` y
+`static/monthly_summary.css`; el botón que la abre es
+`static/monthly_summary_button.js`, que es otro fichero a propósito: la
+portada no tiene por qué cargar el pintado que nunca usa, ni los dos ficheros
+del veredicto de reproducción que éste arrastra.
 
 ## Lo que mide, y por qué estas cosas
 
@@ -51,6 +55,12 @@ Y la pantalla: `static/monthly_summary.js` con `static/monthly_summary.css`.
   el archivo ya tiene auditorías que entonces no estaban. «Volver a calcular»
   existe, avisa de eso y **borra la marca de leído**: lo que el usuario miró ya
   no es lo que hay.
+- **Es una ventana, no un diálogo** (petición del usuario, 2026-10-25). El
+  resumen se lee con las tarjetas de las cuentas delante y son doce cuentas
+  con tres avisos cada una: un modal obligaba a cerrarlo para mirar cualquier
+  otra cosa. El aviso de la campana lleva a ella con su mes puesto
+  (`?month=2026-09`), para que al abrirlo tres días después desde el móvil
+  salga el mes que se anunció y no el último guardado.
 - **El veredicto de reproducción no se porta a Python.** Vive en
   `static/live_audit_reproduction.js` y lo comparten Análisis y la portada; una
   segunda copia acabaría diciendo otra cosa. El panel lo pinta con la función

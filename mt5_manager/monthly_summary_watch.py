@@ -40,9 +40,12 @@ BUILD_ERRORS = (AttributeError, KeyError, OSError, TypeError, ValueError)
 que no se deja calcular no puede tumbar el hilo ni inventarse: deja aviso y se
 reintenta."""
 
-LINK = "/live_portfolios.html?summary=1"
-"""A dónde lleva el aviso. «Portafolios activos» es donde está el botón y donde
-ya se mira la comparación con el tester."""
+LINK = "/monthly_summary.html"
+"""A dónde lleva el aviso: la pantalla del resumen, que es una ventana propia.
+
+El aviso nombra su mes en el enlace (`?month=`) para que al llegar desde el
+móvil tres días después se abra el mes que se anunció y no el último guardado,
+que para entonces puede ser otro."""
 
 
 def _announce(server: Any, report: dict[str, Any]) -> None:
@@ -67,7 +70,8 @@ def _announce(server: Any, report: dict[str, Any]) -> None:
         "warning" if change else "info",
         f"Resumen de {month_name(str(report.get('month') or ''))}",
         f"{total} cuenta{'' if total == 1 else 's'} en real: {detail}.",
-        kind="monthly_summary", link=LINK, link_text="Ver resumen",
+        kind="monthly_summary", link_text="Ver resumen",
+        link=f"{LINK}?month={report.get('month') or ''}",
     )
 
 

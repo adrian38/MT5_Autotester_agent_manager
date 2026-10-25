@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Resumen del mes · MT5 Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/live_audit_schedule.css">
+  <link rel="stylesheet" href="/monthly_summary.css">
+  <!-- El manifiesto y el icono no son adorno: son lo que permite instalar el
+       manager en la pantalla de inicio, y en iOS eso es lo único que hace que
+       Safari acepte avisos. -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+</head>
+<body class="summary-page">
+  <header>
+    <div>
+      <p class="eyebrow">OPERACIÓN REAL</p>
+      <h1>Resumen del mes</h1>
+      <p class="subtitle">El mes cerrado de cada cuenta contra lo que ese mes prometía el backtest, y qué pide decisión.</p>
+    </div>
+    <nav class="header-actions" aria-label="Navegación principal">
+      <!-- «Actualizar» abre la barra en todas las pantallas; al otro extremo
+           van la campana y «Reiniciar manager», que cierra. -->
+      <span id="refresh-state">Cargando…</span>
+      <button id="refresh" class="secondary" type="button">Actualizar</button>
+      <a class="button" href="/">Cuentas en real</a>
+      <a class="button" href="/live_portfolios.html">Portafolios activos</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="summary-toolbar" aria-label="Mes y estado del resumen">
+      <label>Mes<select id="monthly-summary-month"></select></label>
+      <p class="summary-counts" id="monthly-summary-counts">Leyendo el último resumen guardado…</p>
+      <p class="cron-note" id="monthly-summary-generated"></p>
+      <button type="button" class="secondary" id="monthly-summary-run">Volver a calcular</button>
+    </section>
+
+    <section class="summary-cards" id="monthly-summary-cards" aria-live="polite">
+      <p class="cron-note">Leyendo el último resumen guardado…</p>
+    </section>
+
+    <details class="summary-config">
+      <summary>Cuándo se calcula solo</summary>
+      <form id="monthly-summary-form">
+        <p class="cron-note" id="monthly-summary-description"></p>
+        <label class="cron-switch">
+          <input id="monthly-summary-enabled" type="checkbox">
+          <span><strong>Calcular el resumen cada mes</strong>
+            <small>Sólo lee lo que ya está archivado en el disco del manager: no entra
+            en ningún agente ni pausa ningún pipeline. Si el manager estuvo apagado el
+            día de la cita, la primera vuelta al arrancar la recupera.</small></span>
+        </label>
+        <div class="cron-grid">
+          <label>Día del mes<input id="monthly-summary-day" type="number" min="1" max="28" required></label>
+          <label>Hora<input id="monthly-summary-hour" type="number" min="0" max="23" required></label>
+          <label>Minuto<input id="monthly-summary-minute" type="number" min="0" max="59" required></label>
+          <label>Zona horaria<input id="monthly-summary-timezone" placeholder="Europe/Madrid" required></label>
+          <label>Meses seguidos por debajo que piden decisión
+            <input id="monthly-summary-streak" type="number" min="2" max="12" required></label>
+          <label>Reintentos si falla
+            <input id="monthly-summary-retries" type="number" min="0" max="10" required></label>
+          <label>Esperar entre reintentos (min)
+            <input id="monthly-summary-retry-delay" type="number" min="1" max="720" required></label>
+        </div>
+        <p class="cron-note" id="monthly-summary-next"></p>
+        <p class="cron-warning" id="monthly-summary-timezone-warning" hidden></p>
+        <p class="cron-warning" id="monthly-summary-last-error" hidden></p>
+        <button type="submit" id="monthly-summary-save">Guardar cita</button>
+      </form>
+    </details>
+  </main>
+
+  <div id="toast" role="status"></div>
+  <!-- El veredicto de reproducción no se recalcula aquí: vive en estos dos
+       ficheros y los comparte con Análisis y la portada. -->
+  <script src="/live_audit_reproduction.js"></script>
+  <script src="/dashboard_metrics.js"></script>
+  <script src="/monthly_summary.js"></script>
+  <script src="/web_push.js"></script>
+  <script src="/manager_restart.js"></script>
+  <script src="/live_audit_schedule.js"></script>
+</body>
+</html>

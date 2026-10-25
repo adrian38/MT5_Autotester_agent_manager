@@ -43,7 +43,7 @@ SUMMARY = "Resumen del mes"
 # acaba más lejos del ancla: por eso se leen del HTML y no de esta lista.
 MOUNTS = {
     "live_account_schedule.js": (ACCOUNT_CRON,),
-    "monthly_summary.js": (SUMMARY,),
+    "monthly_summary_button.js": (SUMMARY,),
     "live_audit_schedule.js": (BACK_ARROW, BELL),
 }
 
@@ -197,6 +197,12 @@ class HeaderActionsOrderTests(unittest.TestCase):
         # vuelve allí, con la misma salida al generador.
         "portfolio_history.html": [
             "Actualizar", "Volver al portafolio", BACK, BACK_ARROW, BELL, RESTART_LABEL,
+        ],
+        # La pantalla propia del resumen: se abre en una ventana nueva desde
+        # las dos de operacion real, asi que su barra lleva de vuelta a ambas.
+        "monthly_summary.html": [
+            "Cargando…", "Actualizar", "Cuentas en real", "Portafolios activos",
+            BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "manual_portfolios.html": ["Crear portafolio", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "portfolio_manual.html": ["Portafolios manuales", BACK, BACK_ARROW, BELL, RESTART_LABEL],
