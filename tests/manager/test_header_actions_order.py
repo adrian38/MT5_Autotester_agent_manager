@@ -36,12 +36,14 @@ BACK_ARROW = "←"
 BELL = "🔔"
 
 ACCOUNT_CRON = "Sondeo de cuentas"
+SUMMARY = "Resumen del mes"
 
 # Cada script que se monta solo, con lo que inserta antes del ancla. El orden
 # en que corren es el de sus etiquetas `<script>`, así que el que va primero
 # acaba más lejos del ancla: por eso se leen del HTML y no de esta lista.
 MOUNTS = {
     "live_account_schedule.js": (ACCOUNT_CRON,),
+    "monthly_summary.js": (SUMMARY,),
     "live_audit_schedule.js": (BACK_ARROW, BELL),
 }
 
@@ -162,12 +164,12 @@ class HeaderActionsOrderTests(unittest.TestCase):
     EXPECTED = {
         "accounts.html": [
             "Actualizando…", "Actualizar", "Portafolios activos", "Generación",
-            ACCOUNT_CRON, BACK_ARROW, BELL, RESTART_LABEL,
+            ACCOUNT_CRON, SUMMARY, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "correlation.html": ["Cargando…", "Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "dashboard.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Generación",
-            "Experimenta", "Correlación", CRON, BACK_ARROW, BELL, RESTART_LABEL,
+            "Experimenta", "Correlación", SUMMARY, CRON, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "experiment.html": ["Cargando…", "Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "index.html": [

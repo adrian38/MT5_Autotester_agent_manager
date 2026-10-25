@@ -206,6 +206,11 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   estrategias comparadas y la frontera que aguanta mirar cada semana. Incluye
   **cuánto detecta de verdad** cada regla, por qué se mira también la ventana
   reciente y por qué el ritmo de operaciones es la única señal rápida.
+- `monthly_summary.md`: el resumen del mes cerrado que el cron del día 1 deja en
+  la campana; qué mide y por qué (racha, drawdown inédito, cobertura que tapa
+  al resto), por qué la unidad es la cuenta y no el portafolio, por qué se
+  guarda el resultado y no la receta, y por qué el veredicto de reproducción se
+  pide prestado al JavaScript en vez de portarse.
 
 ## Manager: interfaz y operación
 
