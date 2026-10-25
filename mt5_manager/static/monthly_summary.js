@@ -323,8 +323,13 @@
     const state = await get(url);
     applyState(state);
     const label = String((state.report || {}).month || '');
+    // Abrir un mes es haberlo mirado. La respuesta trae el estado ya sin él,
+    // así que se repintan los dos sitios donde se nota —la chapa y el punto
+    // del selector—: con uno solo, el mes abierto seguiría marcado.
     if (label && (state.unread || []).includes(label)) {
-      renderBadge(await post('/api/monthly-summary/read', {month: label}));
+      const read = await post('/api/monthly-summary/read', {month: label});
+      renderMonths(read);
+      renderBadge(read);
     }
     loadReproduction(state.report || {});
   }
