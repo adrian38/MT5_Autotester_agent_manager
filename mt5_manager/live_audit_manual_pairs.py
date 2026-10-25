@@ -140,6 +140,7 @@ def rescued_position_ids(pairs: Any) -> set[str]:
 
 def note_manual_pairs(
     detail: dict[str, Any], forced: dict[int, int], attributed: dict[int, int],
+    commented: dict[str, str] | None = None,
 ) -> None:
     """Dice en la metodología cuántas parejas no las encontró el auditor.
 
@@ -147,9 +148,24 @@ def note_manual_pairs(
     decidió una persona, y quien lo lea después no puede saberlo. Las dos
     procedencias se cuentan aparte: una la eligió el usuario en la pantalla y
     la otra sale de lo que ya había escrito en el Excel de Análisis.
+
+    `commented` no son parejas sino **restricciones**: las reales cuyo
+    comentario nombra a su dueño, que el reparto no puede dar a ninguna otra
+    estrategia. No cambia cuántas parejas hay, cambia cuáles son posibles, y
+    el informe tiene que decirlo o presentará como libre un reparto que no lo
+    era.
     """
+    commented = commented or {}
     detail["manual_pairs"] = len(forced)
     detail["attributed_pairs"] = len(attributed)
+    detail["commented_reals"] = len(commented)
+    if commented:
+        detail["methodology"]["alignment"] += (
+            f" {len(commented)} real(es) llevan en el comentario el código del `.set`"
+            " que las abrió: el reparto sólo puede darlas a esa estrategia, y si"
+            " ninguna de sus filas las admite se quedan sin pareja en vez de pasar a"
+            " otra."
+        )
     if forced:
         detail["methodology"]["alignment"] += (
             f" {len(forced)} pareja(s) las decidió el usuario a mano sobre reales que"

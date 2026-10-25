@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .live_audit_attribution import annotate_unmatched
+from .live_audit_comment_links import comment_owners
 from .live_audit_core import *  # noqa: F403
 from .live_audit_manual_pairs import (
     attributed_assignment, forced_assignment, note_manual_pairs, tester_pair_key,
@@ -413,6 +414,7 @@ class _ComparisonMixin:
         )
         note_manual_pairs(
             detail, state.get("forced") or {}, state.get("attributed") or {},
+            request.get("_comment_owners") or {},
         )
         missing = len(tester) - state["matched"]
         extra = len(state["unused"])
@@ -467,14 +469,19 @@ class _ComparisonMixin:
         state = _ComparisonMixin._comparison_state(real, request)
         pairs = request.get("manual_pairs") or {}
         request["_unpaired_rows"] = unpaired_keys(pairs)
+        attribution = request.get("_real_attribution_by_ticket") or {}
         state["forced"] = forced_assignment(tester, real, pairs)
+        # El comentario del EA manda sobre el reparto geométrico: no elige la
+        # fila —eso lo sigue decidiendo el coste—, pero sí prohíbe que la real
+        # acabe en una estrategia que no es la que él nombra.
+        request["_comment_owners"] = comment_owners(attribution)
         state["assignment"] = _assign_real_trades(
             tester, real, request, points, state["forced"],
         )
         # Segunda pasada: lo que el Excel ya había atribuido sólo se puede
         # emparejar sabiendo qué quedó suelto, y eso no se sabe hasta repartir.
         state["attributed"] = attributed_assignment(
-            tester, real, request.get("_real_attribution_by_ticket") or {},
+            tester, real, attribution,
             state["assignment"], request.get("_period_start"),
             request["_unpaired_rows"],
         )

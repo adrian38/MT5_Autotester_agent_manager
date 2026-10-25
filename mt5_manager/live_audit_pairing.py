@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from .live_audit_core import _effective_price_tolerance, _expected_real_volume
-from .live_audit_manual_pairs import tester_pair_key
+from .live_audit_manual_pairs import real_pair_id, tester_pair_key
 
 
 def _stops_evidence(
@@ -64,6 +64,13 @@ def _pair_cost(
     el filtro de pertenencia. Después la apertura dentro de tolerancia,
     después el cierre, y a igualdad la menor distancia total.
 
+    **El comentario del EA, si lo hay, decide a qué estrategia puede ir la
+    real.** No elige la fila —dentro de esa estrategia sigue mandando el coste
+    de abajo— pero cierra la puerta a las demás: el comentario lo escribió el
+    programa que abrió la orden, así que llevar su PnL a otra estrategia
+    porque geométricamente encajara mejor es meter en una curva lo que el dato
+    más fiable que hay dice que no es suyo. Sin dueño declarado, nada cambia.
+
     Una fila que el usuario declaró **sin real** no admite ninguna pareja: es
     la única forma de deshacer un emparejado de más, que salía con desviaciones
     inventadas y metía en la curva Real un PnL ajeno. Se descarta aquí y no
@@ -75,6 +82,9 @@ def _pair_cost(
         or actual["side"] != expected["side"]
         or tester_pair_key(expected) in (request.get("_unpaired_rows") or ())
     ):
+        return None
+    owner = (request.get("_comment_owners") or {}).get(real_pair_id(actual))
+    if owner and owner != str(expected.get("strategy") or ""):
         return None
     time_limit = request["trade_time_tolerance_seconds"]
     open_delta = abs((actual["open_time"] - expected["open_time"]).total_seconds())

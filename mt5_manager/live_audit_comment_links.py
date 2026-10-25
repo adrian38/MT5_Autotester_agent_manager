@@ -270,6 +270,31 @@ def merged_attribution(
     return merged
 
 
+def comment_owners(attribution: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """El dueño que el comentario declara para cada real, por ticket.
+
+    El Excel y el comentario llegan mezclados por `merged_attribution` y los
+    dos se parecen —ticket → estrategia—, pero no valen lo mismo a la hora de
+    emparejar: el Excel lo tecleó el usuario y es una conjetura más, mientras
+    que el comentario lo escribió el programa que abrió la orden. Los
+    distingue el `source` que puso `attribution_from_comments`.
+
+    Esto es lo que hace que el documento mande sobre el reparto geométrico.
+    **No elige la fila**: dentro de la estrategia que el comentario nombra
+    sigue decidiendo el coste de `_pair_cost`, que es quien sabe de lotes,
+    stops y tiempos. Lo que prohíbe es que la real acabe en otra estrategia
+    porque geométricamente encajara mejor ahí. Si su dueño no tiene ninguna
+    fila que la admita, la real se queda sin pareja y visible, que es lo que
+    el usuario tiene que ver.
+    """
+    owners: dict[str, str] = {}
+    for ticket, rule in (attribution or {}).items():
+        strategy = str((rule or {}).get("strategy") or "")
+        if strategy and not rule.get("excluded") and rule.get("source") == "comment":
+            owners[str(ticket)] = strategy
+    return owners
+
+
 def attribution_from_comments(
     real_trades: list[dict[str, Any]], resolved: dict[str, dict[str, str]],
 ) -> dict[str, dict[str, Any]]:

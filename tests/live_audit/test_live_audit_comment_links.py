@@ -282,6 +282,43 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(detail["attributed_pairs"], 0)
         self.assertEqual(detail["real_attribution"]["excluded"], 1)
 
+    def _two_strategies_one_real(self) -> dict:
+        """Una sola real, que el comentario da a `STRATEGY` y la geometría a otra.
+
+        Es el `audit-109` de `Christmas_Axi` en pequeño: varias estrategias del
+        mismo símbolo y un comentario que nombra a una de ellas. Sin el
+        documento, la real se va con la fila que mejor encaja; de las 55 reales
+        con comentario `TESLA_M15_*` el documento sólo decidía el dueño de la
+        única que se quedaba suelta.
+        """
+        opened = datetime(2026, 9, 22, 9, 0, tzinfo=timezone.utc)
+        other = {**MEMBER, "candidate_id": "otro", "set_name": "otro.set",
+                 "set_id": "/runs/otro.set"}
+        base = audit_payload()
+        base["selected_members"] = [MEMBER, other]
+        base["strategies"] = {"otro": 1}
+        base["tester_trades"] = [{**trade(opened, 0.02, 5.0, 1), "strategy": "otro"}]
+        base["real_trades"] = [{**trade(opened, 0.02, 4.0, 900), "comment": COMMENT}]
+        return base
+
+    def test_the_comment_keeps_the_real_away_from_another_strategy(self) -> None:
+        base = self._two_strategies_one_real()
+        # Sin el documento manda la geometría y la real acaba en «otro».
+        loose = analyze(base, profile())["comparison_detail"]
+        self.assertEqual(loose["operation_comparisons"][0]["status"], "matched")
+        # Con él, la real sólo puede ir a la estrategia que su comentario
+        # nombra: la fila de «otro» se queda sin real y la real sin pareja.
+        links = imported([(f"{SET_STEM}.set", COMMENT)])
+        detail = analyze(base, profile(comment_links=links))["comparison_detail"]
+        row = detail["operation_comparisons"][0]
+        self.assertIsNone(row["real"])
+        self.assertEqual(row["status"], "missing")
+        self.assertEqual(len(detail["unmatched_real_operations"]), 1)
+        self.assertEqual(
+            detail["unmatched_real_operations"][0]["attribution"]["source"], "comment",
+        )
+        self.assertEqual(detail["commented_reals"], 1)
+
     def test_the_table_travels_in_the_analysis_so_the_screen_can_show_it(self) -> None:
         analysis = self.analysed()["analysis"]
         self.assertEqual(list(analysis["tolerances"]["comment_links"]["rules"]), [COMMENT.casefold()])
