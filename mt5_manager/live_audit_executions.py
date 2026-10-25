@@ -19,7 +19,10 @@ import hashlib
 import sys
 import urllib.error
 import urllib.parse
-from typing import Any
+from datetime import datetime
+from typing import Any, Callable
+
+from portfolio_manager import mt5_account_history
 
 from . import live_audit_analysis, live_audit_autolot, live_audit_manual_inherit, manager_http
 from .common import safe_int
@@ -45,17 +48,20 @@ def _node_payload(value: Any) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def balance_history(node: dict[str, Any], value: Any) -> list[dict[str, Any]]:
-    """El saldo historico del informe nativo de MT5 que el autolote necesita."""
-    payload = _node_payload(value)
-    if not payload:
-        raise ValueError("La ejecución no publicó materia prima para calcular el autolote")
+def _native_report_source(
+    node: dict[str, Any], payload: dict[str, Any], purpose: str,
+) -> tuple[Callable[[], bytes], str]:
+    """Como bajar del agente el HTML nativo de esta ejecucion, y su clave.
+
+    El sha256 guardado es lo que ata el archivo al uso: sin comprobarlo, una
+    ejecucion podria analizarse con el informe de otra.
+    """
     report = payload.get("real_account_report") or {}
     filename = str(report.get("filename") or "")
     audit_key = str((payload.get("request") or {}).get("audit_key") or payload.get("audit_key") or "")
     execution_id = str(payload.get("audit_id") or "")
     if not filename or not audit_key or not execution_id:
-        raise ValueError("La ejecución no publicó el HTML nativo necesario para calcular el autolote")
+        raise ValueError(f"La ejecución no publicó el HTML nativo necesario para {purpose}")
     encoded = [urllib.parse.quote(item, safe="") for item in (audit_key, execution_id, filename)]
 
     def load() -> bytes:
@@ -64,14 +70,77 @@ def balance_history(node: dict[str, Any], value: Any) -> list[dict[str, Any]]:
             timeout=120,
         )
         if status != 200:
-            raise ValueError(f"El nodo devolvió {status} al leer el HTML nativo para el autolote")
+            raise ValueError(f"El nodo devolvió {status} al leer el HTML nativo para {purpose}")
         expected_sha = str(report.get("sha256") or "").lower()
         if expected_sha and hashlib.sha256(body).hexdigest() != expected_sha:
-            raise ValueError("El HTML nativo del autolote no coincide con la ejecución guardada")
+            raise ValueError(f"El HTML nativo de {purpose} no coincide con la ejecución guardada")
         return body
 
-    cache_key = str(report.get("sha256") or f"{audit_key}:{execution_id}:{filename}")
+    return load, str(report.get("sha256") or f"{audit_key}:{execution_id}:{filename}")
+
+
+def balance_history(node: dict[str, Any], value: Any) -> list[dict[str, Any]]:
+    """El saldo historico del informe nativo de MT5 que el autolote necesita."""
+    payload = _node_payload(value)
+    if not payload:
+        raise ValueError("La ejecución no publicó materia prima para calcular el autolote")
+    load, cache_key = _native_report_source(node, payload, "el autolote")
     return live_audit_autolot.cached_balance_history(cache_key, load)
+
+
+def recover_real_trades(node: dict[str, Any], value: Any) -> int:
+    """Rellena con el informe nativo una ejecucion guardada sin ninguna real.
+
+    El nodo ya contrasta las dos fuentes al extraer, pero las ejecuciones
+    anteriores a eso quedaron guardadas con `real_trades` vacio porque
+    `history_deals_get` devolvio una cache vacia: el uso #170 del 18→24/10
+    publico cero con 50 posiciones cerradas en su propio HTML. Como el
+    veredicto lo calcula el manager al leer, aqui se recuperan sin relanzar
+    nada.
+
+    Devuelve cuantas operaciones se recuperaron; 0 si no habia nada que
+    recuperar. No levanta: una ejecucion guardada tiene que poder leerse
+    aunque su agente este apagado.
+    """
+    payload = _node_payload(value)
+    if not payload or payload.get("real_trades") or not payload.get("real_account_report"):
+        return 0
+    try:
+        load, _cache_key = _native_report_source(node, payload, "las operaciones reales")
+        native = mt5_account_history.read_native_account_history_bytes(
+            load(), _moment(payload.get("period_start")), _moment(payload.get("period_end")),
+        )
+    except (*BALANCE_ERRORS, SyntaxError) as exc:
+        payload.setdefault("real_history_detail", {})["native_history_error"] = str(exc)
+        return 0
+    if not (native.closed or native.open_at_end):
+        return 0
+    payload["real_trades"] = [_transportable(trade) for trade in native.closed]
+    detail = payload.setdefault("real_history_detail", {})
+    detail["real_trades_source"] = "native_terminal_report"
+    detail["native_closed_positions"] = len(native.closed)
+    detail["trades_reconstructed"] = len(native.closed)
+    detail["positions_open_at_period_end"] = len(native.open_at_end)
+    # La clave que lee el análisis es ésta y está al nivel del payload, no en
+    # `real_history_detail` ni con el prefijo `real_`: ahí la pone después él
+    # mismo. Escribirla donde no es deja las posiciones vivas sin contar y sus
+    # operaciones del tester salen como faltantes.
+    payload["open_positions_at_period_end"] = [
+        _transportable(row) for row in native.open_at_end
+    ]
+    return len(native.closed)
+
+
+def _moment(value: Any) -> datetime:
+    return value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+
+
+def _transportable(trade: dict[str, Any]) -> dict[str, Any]:
+    """La materia prima viaja en JSON, así que las horas van en ISO."""
+    return {
+        key: value.isoformat() if isinstance(value, datetime) else value
+        for key, value in trade.items()
+    }
 
 
 def analysed_node_state(
@@ -101,6 +170,7 @@ def analysed_node_state(
     # broker lo conoce el nodo, no el análisis. Viaja en el resultado para que
     # la pantalla enseñe el botón sin tener que preguntar por el nodo aparte.
     profile["_comment_links_supported"] = comment_links_supported(node or {})
+    recover_real_trades(node or {}, value)
     if (profile.get("autolot") or {}).get("enabled"):
         try:
             profile["_autolot_balance_history"] = balance_history(node or {}, value)

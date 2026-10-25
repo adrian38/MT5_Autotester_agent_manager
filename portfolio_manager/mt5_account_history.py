@@ -14,7 +14,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 from lxml import html
 
@@ -54,7 +56,23 @@ def read_native_account_history(
     `deal.time`: las dos copias comparan contra reportes del tester escritos
     en ese mismo reloj.
     """
-    rows = _report_rows(path)
+    return _history(_report_rows(str(path)), period_start, period_end)
+
+
+def read_native_account_history_bytes(
+    content: bytes, period_start: datetime, period_end: datetime,
+) -> NativeAccountHistory:
+    """Lo mismo, con el informe en memoria.
+
+    El manager lo baja del agente por HTTP para reanalizar una ejecucion ya
+    guardada, asi que nunca llega a tener un fichero.
+    """
+    return _history(_report_rows(BytesIO(content)), period_start, period_end)
+
+
+def _history(
+    rows: list[list[str]], period_start: datetime, period_end: datetime,
+) -> NativeAccountHistory:
     comments = _entry_comments(rows)
     positions = [
         trade for cells in _section(rows, CLOSED_TITLES)
@@ -82,9 +100,9 @@ def read_native_account_history(
     return NativeAccountHistory(closed=closed, open_at_end=open_at_end)
 
 
-def _report_rows(path: Path) -> list[list[str]]:
+def _report_rows(source: Any) -> list[list[str]]:
     """Celdas visibles de cada fila; MT5 mete separadores ocultos con colspan."""
-    document = html.parse(str(path))
+    document = html.parse(source)
     rows: list[list[str]] = []
     for row in document.xpath("//tr"):
         rows.append([
