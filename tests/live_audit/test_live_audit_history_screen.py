@@ -42,6 +42,11 @@ class HistoryScreenTests(unittest.TestCase):
         self.assertIn("reproduction.compare(left.numbers, right.numbers)", self.verdicts)
         self.assertIn("/history", self.script)
 
+    def test_few_operations_uses_the_same_visible_badge_as_the_period(self) -> None:
+        badge = '<span class="degradation-status info">POCAS OPERACIONES</span>'
+        self.assertIn(badge, self.analysis)
+        self.assertIn(badge, self.script)
+
     def test_the_table_and_the_card_share_one_single_calculation(self) -> None:
         """Dos cálculos daban dos respuestas: la tarjeta marcaba «NO
         REPRODUCE» tres EURUSD del #173 que la tabla daba por buenos.

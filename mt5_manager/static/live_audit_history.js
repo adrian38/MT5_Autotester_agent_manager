@@ -152,6 +152,8 @@
     const sign = numbers.real - numbers.demo >= 0 ? '+' : '';
     const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
     const portfolios = [...group.portfolios].sort((a, b) => a - b);
+    const fewChip = group.few
+      ? '<span class="degradation-status info">POCAS OPERACIONES</span>' : '';
     const few = group.few
       ? '<small class="degradation-off">Pocas operaciones todavía: sirve para mirarlo, no para concluir.</small>' : '';
     return `<tr>
@@ -163,7 +165,7 @@
       <td><strong>${escapeHtml(`${sign}${money(numbers.real - numbers.demo, currency)}`)}</strong></td>
       <td><strong>${escapeHtml(numbers.pairs)} emparejadas</strong><small>${
         escapeHtml(numbers.testerTrades)} del tester</small></td>
-      <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${
+      <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span>${fewChip}<small>${
         escapeHtml(help)}</small>${few}</td>
       ${reviewCell(group)}
     </tr>`;
