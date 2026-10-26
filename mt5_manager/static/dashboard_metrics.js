@@ -70,10 +70,13 @@
       if (row.real?.close_time) group.real.push(reproduction.pairedReal(row));
     });
     unaccountedRows(result).forEach(row => {
-      const strategy = String(row.attribution?.strategy || '');
-      if (attributionState(row) === 'attributed' && groups.has(strategy)) {
-        groups.get(strategy).attributed.push(row.real);
-      }
+      const owner = reproduction.attributedOwner(row);
+      if (!owner) return;
+      if (!groups.has(owner.strategy)) groups.set(owner.strategy, {
+        ...owner, demo: [], real: [], attributed: [],
+        quality: quality.get(owner.strategy) || null,
+      });
+      groups.get(owner.strategy).attributed.push(row.real);
     });
     return [...groups.values()];
   }

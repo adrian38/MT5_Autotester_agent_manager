@@ -99,3 +99,18 @@ hace `strategyGroups` de `dashboard_metrics.js`.
 pantallas comprueban el *texto* de los `.js` y no los ejecutan. Medir el criterio
 exige portarlo a Python; para que el port no se aleje en silencio, exigirle antes
 que cada expresión portada esté literalmente en el fichero.
+
+## Una real atribuida puede ser la primera fila de su estrategia (2026-10-26)
+
+El Excel y los comentarios del EA pueden atribuir una operación real cerrada a
+un miembro aunque el tester no haya cerrado ninguna operación de ese miembro en
+el periodo. Es una atribución válida y no inventa una pareja. Las tres vistas
+creaban, sin embargo, los grupos únicamente desde `operation_comparisons` y
+después añadían la real sólo si el grupo ya existía; en ese caso legítimo la
+operación desaparecía del PnL y del veredicto.
+
+`live_audit_reproduction.attributedOwner` es ahora la primitiva común que valida
+la atribución y entrega estrategia, `.set` y símbolo. Análisis, la tarjeta de
+Portafolios activos y la tabla histórica crean con esos datos el grupo que
+falte antes de sumar la real. No se crea nada para atribuciones excluidas,
+vacías o pendientes.

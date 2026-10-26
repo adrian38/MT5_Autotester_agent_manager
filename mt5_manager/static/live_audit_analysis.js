@@ -345,10 +345,13 @@ function strategyGroups(result) {
   // en su propia lista: `group.real` sigue siendo lo que el auditor emparejó, y
   // de ahí salen el recuento de parejas y la regla de «pocas operaciones».
   unaccountedRows(result).forEach(row => {
-    const {state, strategy} = attributionOf(row);
-    if (state === 'attributed' && groups.has(strategy)) {
-      groups.get(strategy).attributed.push(row.real);
-    }
+    const owner = LiveAuditReproduction.attributedOwner(row);
+    if (!owner) return;
+    if (!groups.has(owner.strategy)) groups.set(owner.strategy, {
+      ...owner, demo: [], real: [], openReal: [], attributed: [],
+      quality: quality.get(owner.strategy) || null,
+    });
+    groups.get(owner.strategy).attributed.push(row.real);
   });
   return [...groups.values()].map(group => ({
     ...group,

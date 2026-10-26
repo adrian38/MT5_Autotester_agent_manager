@@ -88,6 +88,14 @@ class HistoryScreenTests(unittest.TestCase):
         )
         self.assertIn("groupsOf(execution.comparison_detail || {}, timeline)", self.verdicts)
 
+    def test_an_attributed_real_creates_its_group_without_tester_rows(self) -> None:
+        self.assertIn("reproduction.attributedOwner(row)", self.verdicts)
+        self.assertIn(
+            "if (!groups.has(owner.strategy)) groups.set(owner.strategy",
+            self.verdicts,
+        )
+        self.assertIn("identities.push(`${owner.strategy}|${owner.label}`)", self.verdicts)
+
     def test_it_says_which_portfolios_it_inherits_from_and_with_what_limit(self) -> None:
         self.assertIn("inherited_portfolios", self.script)
         self.assertIn("hereda el histórico de", self.script)

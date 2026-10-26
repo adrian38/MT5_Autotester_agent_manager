@@ -283,6 +283,8 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("reproduction.numbers(group, overrides)", self.metrics)
         self.assertIn("reproduction.realLotTimeline(rows)", self.metrics)
         self.assertIn("reproduction.scaleTarget(row, timeline)", self.metrics)
+        self.assertIn("function attributedOwner(row)", self.reproduction)
+        self.assertIn("reproduction.attributedOwner(row)", self.metrics)
         self.assertIn("LiveAuditReproduction.storedOverrides(entry.profile)", self.script)
         for page, consumer in (
             (self.page_text, "/dashboard_metrics.js"),

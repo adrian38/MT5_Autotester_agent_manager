@@ -56,6 +56,17 @@
       : {...row.real};
   }
 
+  function attributedOwner(row) {
+    const attribution = row?.attribution;
+    if (!attribution || attribution.excluded || !attribution.strategy) return null;
+    const strategy = String(attribution.strategy);
+    return {
+      strategy,
+      label: String(attribution.strategy_set || strategy),
+      symbol: String(row?.real?.symbol || '—'),
+    };
+  }
+
   function rowIdentity(row) {
     const strategy = String(row?.strategy || row?.tester?.strategy || '');
     const set = String(row?.strategy_set || '');
@@ -340,7 +351,8 @@
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
     SAME_VERDICT_MARGIN_PCT,
-    autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, realLotTimeline, reviewDegradation, reviewed,
+    attributedOwner, autolotMode, compare, fewTrades, numbers, overrideFor,
+    pairedReal, realLotTimeline, reviewDegradation, reviewed,
     scaleTarget, scaledProfit, scaledSide, sideSeries, storedHistoryReviews,
     storedOverrides, storedReviews,
     storedUnpairedReviews, testerMode, testerPairKey, unpairedAnswered, unpairedKey,

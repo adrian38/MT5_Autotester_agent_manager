@@ -300,6 +300,11 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # Lo atribuido suma en el real de su estrategia; lo excluido sale de la
         # curva; lo que nadie explicó sigue en la curva pero no en una fila.
         self.assertIn(".attributed.push(row.real)", self.analysis_script)
+        self.assertIn("LiveAuditReproduction.attributedOwner(row)", self.analysis_script)
+        self.assertIn(
+            "if (!groups.has(owner.strategy)) groups.set(owner.strategy",
+            self.analysis_script,
+        )
         self.assertIn("function groupRealTrades(group)", self.analysis_script)
         self.assertIn("attributionOf(row).state !== 'excluded'", self.analysis_script)
 

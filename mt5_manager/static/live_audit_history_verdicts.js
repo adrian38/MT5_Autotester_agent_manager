@@ -62,8 +62,12 @@
       if (row.real?.close_time) group.real.push(reproduction.pairedReal(row));
     });
     unaccountedRows(detail).forEach(row => {
-      const strategy = attributedTo(row);
-      if (strategy && groups.has(strategy)) groups.get(strategy).attributed.push(row.real);
+      const owner = reproduction.attributedOwner(row);
+      if (!owner) return;
+      if (!groups.has(owner.strategy)) groups.set(owner.strategy, {
+        ...owner, demo: [], real: [], attributed: [],
+      });
+      groups.get(owner.strategy).attributed.push(row.real);
     });
     return [...groups.values()];
   }
@@ -177,11 +181,16 @@
   function clipsByStrategy(executions) {
     const slots = new Map();
     (executions || []).forEach(execution => {
-      new Set(comparisonRows(execution.comparison_detail || {}).map(rowIdentity))
-        .forEach(key => {
-          if (!slots.has(key)) slots.set(key, []);
-          slots.get(key).push(execution);
-        });
+      const detail = execution.comparison_detail || {};
+      const identities = comparisonRows(detail).map(rowIdentity);
+      unaccountedRows(detail).forEach(row => {
+        const owner = reproduction.attributedOwner(row);
+        if (owner) identities.push(`${owner.strategy}|${owner.label}`);
+      });
+      new Set(identities).forEach(key => {
+        if (!slots.has(key)) slots.set(key, []);
+        slots.get(key).push(execution);
+      });
     });
     const clips = new Map();
     slots.forEach((list, key) => {
