@@ -223,6 +223,16 @@
             atribución, las parejas enlazadas a mano y las estrategias ya validadas se
             conservan: son criterio del manager y se aplican al leer.</small></span>
         </label>
+        <label class="cron-switch" id="cron-monthly-full-field">
+          <input id="cron-monthly-full" type="checkbox">
+          <span><strong>Auditoría completa mensual</strong>
+            <small>En la <select id="cron-monthly-full-week">
+              <option value="1">primera</option><option value="2">segunda</option>
+              <option value="3">tercera</option><option value="4">cuarta</option>
+              <option value="5">quinta</option>
+            </select> cita semanal de cada mes vuelve desde la creación del portafolio.
+            Así recupera operaciones que permanecieron abiertas más de una semana.</small></span>
+        </label>
         <label class="cron-switch">
           <input id="cron-multiterminal" type="checkbox">
           <span><strong>Usar el multiterminal del nodo</strong>
@@ -261,6 +271,7 @@
       field(id).hidden = !weekly;
     }
     field('#cron-interval-field').hidden = weekly;
+    field('#cron-monthly-full-field').hidden = !weekly;
   }
 
   function localDate(value) {
@@ -310,6 +321,8 @@
     field('#cron-retry-delay').value = scheduler.retry_delay_minutes ?? 10;
     field('#cron-only-live').checked = scheduler.only_live_trading !== false;
     field('#cron-chain').checked = scheduler.chain_from_last_audit !== false;
+    field('#cron-monthly-full').checked = scheduler.monthly_full_audit !== false;
+    field('#cron-monthly-full-week').value = String(scheduler.monthly_full_audit_week ?? 4);
     field('#cron-multiterminal').checked = scheduler.use_multiterminal === true;
     field('#cron-description').textContent = scheduler.description || '';
     const source = field('#cron-source');
@@ -360,6 +373,8 @@
       retry_delay_minutes: Number(field('#cron-retry-delay').value),
       only_live_trading: field('#cron-only-live').checked,
       chain_from_last_audit: field('#cron-chain').checked,
+      monthly_full_audit: field('#cron-monthly-full').checked,
+      monthly_full_audit_week: Number(field('#cron-monthly-full-week').value),
       use_multiterminal: field('#cron-multiterminal').checked,
     };
   }

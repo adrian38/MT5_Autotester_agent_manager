@@ -294,27 +294,11 @@ def record_transitions(
 def _launch_payload(
     server: Any, node_id: str, audit_id: str, profile: dict[str, Any],
     audit: dict[str, Any], now: datetime, period: dict[str, str] | None = None,
+    full_audit: bool = False,
 ) -> tuple[dict[str, Any], dict[str, str], dict[str, str]]:
-    """Lo que viaja al nodo y, aparte, el periodo que de verdad se encadeno.
-
-    El periodo encadenado se devuelve suelto porque **el perfil tambien puede
-    traer `fixed_dates`**: leerlo del payload hacia que el aviso de la campana
-    jurase arrancar donde termino la ultima auditoria mientras repetia las
-    fechas fijas guardadas a mano.
-
-    Lo que se queda aqui -Excel de atribucion, parejas a mano, estrategias ya
-    revisadas y escalado de la vista- no se pierde: vive en el perfil del uso y
-    se aplica al leer el resultado, asi que la ejecucion nueva lo hereda.
-
-    El tercer valor es el suelo de creacion, que solo entra cuando no hay nada
-    a lo que engancharse; se devuelve suelto por lo mismo que el encadenado,
-    para que el aviso de la campana diga de donde sale la fecha de arranque.
-
-    El multiterminal lo decide el cron, no el uso: `use_multiterminal` del
-    perfil es la casilla del boton «Auditar ahora», que se marca sabiendo que
-    hay alguien delante. Una cita desatendida de madrugada es otra cosa, asi
-    que la politica del programador pisa la del perfil y por defecto deja la
-    auditoria en la terminal principal.
+    """Payload del nodo y periodos separados para describir su origen real.
+    El criterio del manager no viaja y el cron pisa la opción multiterminal del
+    uso, que pertenece al botón manual «Auditar ahora».
     """
     node_profile = {
         key: value for key, value in profile.items()
@@ -323,7 +307,11 @@ def _launch_payload(
     inherited_end, created_at = live_audit_lineage.audit_period_bounds(
         server, node_id, profile,
     )
-    chained = period or live_audit_schedule.chained_period(
+    complete = (
+        live_audit_schedule.full_audit_period(profile, created_at, now)
+        if full_audit else {}
+    )
+    chained = period or complete or live_audit_schedule.chained_period(
         server.live_audit_scheduler_settings, audit, now, inherited_end, created_at,
     )
     # `chained` llega vacio ({}) cuando no hay auditoria anterior ni heredada
@@ -352,13 +340,20 @@ def _attempt_text(attempts: int, settings: dict[str, Any]) -> str:
     return f"reintento {attempts - 1} de {int(settings.get('retry_attempts', 3))}"
 
 
-def _period_text(chained: dict[str, str], floored: dict[str, str]) -> str:
+def _period_text(
+    chained: dict[str, str], floored: dict[str, str], full_audit: bool = False,
+) -> str:
     """De donde sale la fecha de arranque, dicho en la campana.
 
     Las tres respuestas son distintas y al usuario le importan: engancharse a
     la auditoria anterior, arrancar el dia que nacio el portafolio porque no
     habia nada a lo que engancharse, o usar el periodo que el escribio.
     """
+    if full_audit and chained:
+        return (
+            f"periodo {chained['period_start_date']} a "
+            f"{chained['period_end_date']}, auditoría completa desde la creación"
+        )
     for period, origin in (
         (chained, "enganchado al final de la última auditoría"),
         (floored, "desde que se creó el portafolio"),
@@ -390,7 +385,7 @@ def launch(
     }
     payload, chained, floored = _launch_payload(
         server, node_id, audit_id, profile, context["audit"], context["now"],
-        context.get("period"),
+        context.get("period"), bool(context.get("full_audit")),
     )
     restore_fields = ("restore_login", "restore_server", "restore_password")
     if not all(payload.get(field) for field in restore_fields) or not payload["portfolio_id"]:
@@ -420,7 +415,7 @@ def launch(
         )
         return
     runs.update(key, **base, outcome="running", last_status="queued")
-    period = _period_text(chained, floored)
+    period = _period_text(chained, floored, bool(context.get("full_audit")))
     title = "Recuperación lanzada" if context.get("catch_up") else "Auditoría programada lanzada"
     server.live_audit_notifications.add(
         "info", f"{title}: {label}",
@@ -499,6 +494,7 @@ def launch_due(
             server, node, node_id, audit_id, dict(profiles.get(audit_id) or {}),
             {
                 "window": window, "audit": audit, "now": now,
+                "full_audit": live_audit_schedule.is_monthly_full_audit(window, settings),
                 "attempts": int(record.get("attempts") or 0) + 1
                 if decision == "retry" else 1,
             },

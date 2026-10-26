@@ -1,5 +1,22 @@
 # Cron general de auditoría y campana de avisos
 
+## Auditoría completa en la cuarta cita semanal (2026-10-26)
+
+El encadenado semanal evita huecos entre cierres, pero el tester de una ventana
+de siete días no puede reconstruir una operación que abrió antes de esa
+ventana y cerró dentro de ella. Por eso el cron semanal tiene una segunda
+cadencia visible en su mismo diálogo: por defecto, la **cuarta cita semanal de
+cada mes** vuelve a auditar desde la creación del portafolio hasta el día de la
+ejecución. Las demás citas siguen encadenadas como antes.
+
+`monthly_full_audit` activa la regla y `monthly_full_audit_week` elige la cita
+mensual (1 a 5). Sólo se aplica en modo `weekly`; el modo por intervalo no
+inventa meses. La ventana se decide con la clave persistida del turno, no con el
+día en que el manager recupera una cita vencida, así que los reintentos y la
+recuperación conservan el carácter de auditoría completa. El nodo ya entiende
+`fixed_dates`: todo el cambio vive en el manager y no requiere port a los
+runtimes de los agentes.
+
 Petición del usuario (2026-10-19): un botón en los botones superiores que
 programe **una sola cita** para todas las auditorías de los portafolios
 marcados como activos —los que salen en «Portafolios activos», es decir los que

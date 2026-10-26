@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -171,6 +172,31 @@ class WatchTickTests(unittest.TestCase):
         ):
             live_audit_watch.tick(server)
         self.assertIs(posted[0][1]["use_multiterminal"], True)
+
+    def test_the_fourth_saturday_repeats_from_the_portfolio_creation(self) -> None:
+        state = audit_state()
+        portfolios = mock.Mock()
+        portfolios.saved.return_value = {
+            "portfolio": {"created_at": "2026-09-09T00:07:00+00:00"},
+        }
+        server = FakeServer(
+            self.root, state, portfolios=portfolios, enabled=True,
+            monthly_full_audit=True,
+        )
+        posted: list[object] = []
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self.node_answers({"11": published_audit()}, posted),
+        ):
+            live_audit_watch.launch_due(
+                server, server.nodes[0], "n", state, {"11": published_audit()},
+                datetime(2026, 10, 24, 21, 1, tzinfo=timezone.utc),
+            )
+        _path, payload = posted[0]
+        self.assertEqual(payload["period_mode"], "fixed_dates")
+        self.assertEqual(payload["period_start_date"], "2026-09-09")
+        started = [row for row in server.events() if row["kind"] == "audit_started"]
+        self.assertIn("auditoría completa desde la creación", started[0]["message"])
 
     def test_the_bell_only_claims_the_chain_when_the_period_comes_from_it(self) -> None:
         # «fixed_dates» es justo lo que trae un perfil con fechas fijas. Leerlo

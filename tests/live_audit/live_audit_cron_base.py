@@ -38,6 +38,7 @@ class FakeSettingsStore:
 class FakeServer:
     def __init__(self, root: Path, state: dict[str, object],
                  portfolios: object = None, **changes: object) -> None:
+        changes.setdefault("monthly_full_audit", False)
         self.nodes = [{"id": "n", "name": "Nodo N", "url": "http://127.0.0.1:1", "token": "t"}]
         self.portfolios = portfolios
         self.live_audit_settings = FakeSettingsStore(state)

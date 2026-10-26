@@ -33,6 +33,8 @@ DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS = {
     "retry_attempts": 3,
     "retry_delay_minutes": 10,
     "chain_from_last_audit": True,
+    "monthly_full_audit": True,
+    "monthly_full_audit_week": 4,
     "use_multiterminal": False,
 }
 
@@ -69,10 +71,12 @@ _INTEGER_FIELDS = {
     "interval_days": (1, 3650),
     "retry_attempts": (0, 10),
     "retry_delay_minutes": (1, 720),
+    "monthly_full_audit_week": (1, 5),
 }
 
 _BOOLEAN_FIELDS = (
-    "enabled", "only_live_trading", "chain_from_last_audit", "use_multiterminal",
+    "enabled", "only_live_trading", "chain_from_last_audit",
+    "monthly_full_audit", "use_multiterminal",
 )
 
 _TIMEZONE_PATTERN = re.compile(r"[A-Za-z0-9_+/-]{1,64}")
@@ -194,6 +198,23 @@ def next_occurrence(now: datetime, settings: dict[str, Any]) -> datetime:
     return wall.replace(tzinfo=previous.tzinfo)
 
 
+def is_monthly_full_audit(window: str, settings: dict[str, Any]) -> bool:
+    """Si este turno semanal es la cita mensual que vuelve al origen."""
+    if (
+        str(settings.get("mode") or "") != "weekly"
+        or not settings.get("monthly_full_audit", True)
+    ):
+        return False
+    instant = parse_timestamp(window)
+    if instant is None:
+        return False
+    zone, _warning = resolve_zone(settings.get("timezone"))
+    local_day = instant.astimezone(zone).day
+    return ((local_day - 1) // 7) + 1 == int(
+        settings.get("monthly_full_audit_week", 4)
+    )
+
+
 def schedule_label(settings: dict[str, Any]) -> str:
     """Como se le cuenta la cadencia al usuario, en una linea."""
     if str(settings.get("mode") or "") == "interval":
@@ -218,6 +239,13 @@ def schedule_description(settings: dict[str, Any]) -> str:
         if settings.get("chain_from_last_audit", True)
         else "Cada ejecución usa el periodo guardado en su perfil."
     )
+    monthly = ""
+    if settings.get("mode") == "weekly" and settings.get("monthly_full_audit", True):
+        week = int(settings.get("monthly_full_audit_week", 4))
+        monthly = (
+            f" La {week}.ª cita semanal de cada mes repite la auditoría completa "
+            "desde la creación del portafolio para recoger operaciones de más de una semana."
+        )
     terminals = (
         "Reparte el tester entre las terminales del nodo."
         if settings.get("use_multiterminal", False)
@@ -227,7 +255,7 @@ def schedule_description(settings: dict[str, Any]) -> str:
         f"El manager audita {scope} {schedule_label(settings)}, de uno en uno por agente. "
         "Nunca duplica una auditoría en curso. Si una cita venció mientras el manager "
         "estaba apagado o el cron desarmado, la recupera al volver a estar disponible, "
-        f"pero sólo para usos que ya existían en esa cita. {period} {terminals}"
+        f"pero sólo para usos que ya existían en esa cita. {period}{monthly} {terminals}"
     )
 
 
@@ -400,6 +428,24 @@ def creation_period(
     return {
         "period_mode": "fixed_dates",
         "period_start_date": floor.isoformat(),
+        "period_end_date": end_date.isoformat(),
+    }
+
+
+def full_audit_period(
+    profile: dict[str, Any], created_at: datetime | None, now: datetime,
+) -> dict[str, str]:
+    """Ventana completa mensual: desde la creación (o el inicio configurado)."""
+    start = created_at or _configured_start(profile, now)
+    if start is None:
+        return {}
+    start_date = start.astimezone(timezone.utc).date()
+    end_date = now.astimezone(timezone.utc).date()
+    if start_date > end_date:
+        return {}
+    return {
+        "period_mode": "fixed_dates",
+        "period_start_date": start_date.isoformat(),
         "period_end_date": end_date.isoformat(),
     }
 
