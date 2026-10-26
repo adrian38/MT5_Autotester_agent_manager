@@ -5,38 +5,15 @@
 // una estrategia: con tres operaciones en siete días ningún veredicto se
 // sostiene, y acumulando crece sola cada semana.
 //
-// Reutiliza las funciones de la pantalla (`strategyGroups`, `money`,
-// `escapeHtml`) y el mismo criterio de veredicto que la tabla del periodo
-// (`LiveAuditReproduction`): dos tablas con dos criterios serían dos
-// respuestas distintas a la misma pregunta.
+// Esto es sólo la tabla: quien calcula es `LiveAuditHistoryVerdicts`, el mismo
+// módulo que alimenta la tarjeta de «Portafolios activos». Mientras cada
+// pantalla hacía sus cuentas, las dos daban respuestas distintas a la misma
+// pregunta.
 (() => {
-  // Los lotes realmente ejecutados en cada auditoría: **nunca** los números
-  // tecleados en la simulación, que describen la semana de hoy y no significan
-  // nada aplicados a los periodos anteriores.
-  //
-  // La casilla que manda sí se respeta, y tiene que respetarse: no es una
-  // escala elegida a dedo, sino la instrucción de usar el lote que **cada
-  // pareja ejecutó en su propia auditoría** (`scale_volume`, que `scaleTarget`
-  // apunta operación a operación). Ignorarla dejaba la demo a 0,01 contra una
-  // real a 0,10 y el cociente medía tamaño de posición, no reproducción: en
-  // `audit-173` de RoboForex tres estrategias salían «NO REPRODUCE, 10,6 veces»
-  // cuando al lote ejecutado reproducen el tester al 0,99×.
-  function executedLots() {
-    const mode = typeof lotOverrides === 'object' && lotOverrides ? lotOverrides.$mode : null;
-    return mode ? {$mode: mode} : {};
-  }
-
   let series = null;
 
   function ready() {
-    return typeof strategyGroups === 'function' && typeof window.LiveAuditReproduction === 'object';
-  }
-
-  // La identidad entre portafolios es el candidato **y** su `.set`: una
-  // cartera manual numera los suyos `manual:1`, `manual:2`… y dos carteras
-  // manuales distintas repiten esos identificadores.
-  function identity(group) {
-    return `${group.strategy}|${group.label}`;
+    return typeof window.LiveAuditHistoryVerdicts === 'object';
   }
 
   // Sólo entran las estrategias que el portafolio auditado conserva. El
@@ -44,32 +21,18 @@
   // pantalla todavía no sabe cuáles son, no esconde nada.
   function retained() {
     return new Set(
-      (typeof strategyRows !== 'undefined' ? strategyRows : []).map(identity),
+      (typeof strategyRows !== 'undefined' ? strategyRows : [])
+        .map(LiveAuditHistoryVerdicts.identity),
     );
   }
 
-  function mergeGroups(executions) {
-    const merged = new Map();
-    const wanted = retained();
-    executions.forEach(execution => {
-      strategyGroups({comparison_detail: execution.comparison_detail || {}}).forEach(group => {
-        if (wanted.size && !wanted.has(identity(group))) return;
-        const current = merged.get(group.strategy) || {
-          strategy: group.strategy, label: group.label, symbol: group.symbol,
-          demo: [], real: [], openReal: [], attributed: [], audits: 0,
-          portfolios: new Set(),
-        };
-        current.demo.push(...group.demo);
-        current.real.push(...group.real);
-        current.openReal.push(...group.openReal);
-        current.attributed.push(...group.attributed);
-        current.audits += 1;
-        if (execution.portfolio_id) current.portfolios.add(Number(execution.portfolio_id));
-        if (current.symbol === '—' && group.symbol) current.symbol = group.symbol;
-        merged.set(group.strategy, current);
-      });
-    });
-    return [...merged.values()];
+  // Lo que la tabla le pasa al cálculo: qué estrategias conserva y qué casilla
+  // del diálogo de lotes manda. Nada más; el resto lo decide el módulo.
+  function options() {
+    return {
+      retained: retained(),
+      overrides: typeof lotOverrides === 'object' ? lotOverrides : {},
+    };
   }
 
   function spanNote() {
@@ -89,12 +52,12 @@
   }
 
   function row(group, currency) {
-    const numbers = LiveAuditReproduction.numbers(group, executedLots());
-    const [label, tone, help] = LiveAuditReproduction.verdict(numbers);
+    const numbers = group.numbers;
+    const [label, tone, help] = [group.verdict, group.tone, group.help];
     const sign = numbers.real - numbers.demo >= 0 ? '+' : '';
     const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
     const portfolios = [...group.portfolios].sort((a, b) => a - b);
-    const few = LiveAuditReproduction.fewTrades(numbers)
+    const few = group.few
       ? '<small class="degradation-off">Pocas operaciones todavía: sirve para mirarlo, no para concluir.</small>' : '';
     return `<tr>
       <th><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(name)}</small></th>
@@ -116,21 +79,13 @@
     if (!body || !series) return;
     const currency = (typeof chartContext === 'object' && chartContext?.currency)
       || series.executions?.[0]?.currency || 'EUR';
-    const ranked = mergeGroups(series.executions || []).sort((left, right) => (
-      LiveAuditReproduction.compare(
-        LiveAuditReproduction.numbers(left, executedLots()),
-        LiveAuditReproduction.numbers(right, executedLots()),
-      )
-    ));
+    const ranked = LiveAuditHistoryVerdicts.ranked(series.executions || [], options());
     body.innerHTML = ranked.length
       ? ranked.map(group => row(group, currency)).join('')
       : '<tr><td colspan="7" class="audit-analysis-empty">Todavía no hay auditorías archivadas. '
         + 'Cada una que termine se guardará aquí, también las lanzadas a mano.</td></tr>';
-    const verdicts = ranked.map(group => LiveAuditReproduction.verdict(
-      LiveAuditReproduction.numbers(group, executedLots()),
-    )[0]);
-    const broken = verdicts.filter(label => label === 'NO REPRODUCE').length;
-    const warnings = verdicts.filter(label => label === 'AVISO').length;
+    const broken = ranked.filter(group => group.verdict === 'NO REPRODUCE').length;
+    const warnings = ranked.filter(group => group.verdict === 'AVISO').length;
     badge.textContent = [
       broken ? `${broken} NO REPRODUCE${broken === 1 ? '' : 'N'}` : '',
       warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',

@@ -124,68 +124,25 @@
     ));
   }
 
-  // La identidad entre portafolios es el candidato **y** su `.set`, igual que
-  // en la tabla historica de Analisis: una cartera manual numera los suyos
-  // `manual:1`, `manual:2`... y dos carteras manuales distintas los repiten.
-  function historyIdentity(group) {
-    return `${group.strategy}|${group.label}`;
-  }
-
-  // Las mismas estrategias de la ultima auditoria, pero con las operaciones de
-  // todas las archivadas detras. Es `mergeGroups` de `live_audit_history.js`:
-  // dos mezclas distintas serian dos respuestas a la misma pregunta.
-  function mergeHistoryGroups(executions, retained) {
-    const merged = new Map();
-    executions.forEach(execution => {
-      strategyGroups({comparison_detail: execution.comparison_detail || {}}).forEach(group => {
-        if (retained.size && !retained.has(historyIdentity(group))) return;
-        const current = merged.get(group.strategy) || {
-          strategy: group.strategy, label: group.label, symbol: group.symbol,
-          demo: [], real: [], attributed: [], audits: 0, quality: null,
-        };
-        current.demo.push(...group.demo);
-        current.real.push(...group.real);
-        current.attributed.push(...group.attributed);
-        current.audits += 1;
-        if (current.symbol === '—' && group.symbol) current.symbol = group.symbol;
-        merged.set(group.strategy, current);
-      });
-    });
-    return [...merged.values()];
-  }
-
-  // Lo unico del dialogo de lotes que vale para la serie: `$mode`.
+  // «¿Y en todas las auditorías que llevamos?», la tabla histórica de
+  // Análisis, tal cual: aquí no se calcula nada. Lo resuelve entero
+  // `LiveAuditHistoryVerdicts`, el mismo módulo que pinta esa tabla, porque
+  // cuando cada pantalla hacía sus cuentas la tarjeta marcaba «NO REPRODUCE»
+  // tres EURUSD que la tabla daba por buenos.
   //
-  // Los numeros tecleados describen la semana de hoy y no significan nada
-  // aplicados a los periodos anteriores. La casilla que manda si, porque no
-  // elige un tamano: dice de que lado se copia el lote, y cada operacion copia
-  // el de **su propia** auditoria (`scale_volume`). Tirarla dejaba la demo a
-  // 0,01 contra una real a 0,10 y el cociente media tamano de posicion, no
-  // reproduccion. Es el mismo recorte que `executedLots` de
-  // `live_audit_history.js`: la tarjeta y la tabla tienen que decir lo mismo.
-  function executedLots(overrides) {
-    const mode = overrides && typeof overrides === 'object' ? overrides.$mode : null;
-    return mode ? {$mode: mode} : {};
-  }
-
-  // La tabla historica de Analisis, con su mismo veredicto.
-  //
-  // **Lo validado en el periodo no la toca**, al reves que `summarize`. La
-  // casilla «Validada» esta en la tabla del periodo y dice «ya mire esta
-  // semana»; la serie contesta otra pregunta, y la tabla historica ni siquiera
-  // tiene esa casilla. Filtrar por ella vaciaba la lista entera: en el 109 de
-  // AXI, las doce filas marcadas -cuatro NO REPRODUCE y ocho AVISO- se
-  // escondian detras de las dos validaciones del periodo, porque validar
-  // guarda el veredicto de entonces y un AVISO acumulado nunca es peor que el
-  // NO REPRODUCE que se valido.
+  // Lo validado en el periodo no la toca: la casilla «Validada» está en la
+  // tabla del periodo y dice «ya miré esta semana»; la serie contesta otra
+  // pregunta y su tabla ni siquiera tiene esa casilla.
   function summarizeHistory(result, series, overrides = {}) {
     const executions = series?.executions || [];
-    if (!executions.length) return {flagged: [], audits: 0};
-    const retained = new Set(strategyGroups(result).map(historyIdentity));
+    if (!executions.length || !root.LiveAuditHistoryVerdicts) {
+      return {flagged: [], audits: 0};
+    }
     return {
-      flagged: flaggedStrategies(
-        mergeHistoryGroups(executions, retained), executedLots(overrides),
-      ),
+      flagged: root.LiveAuditHistoryVerdicts.flagged(executions, {
+        retained: root.LiveAuditHistoryVerdicts.retainedOf(result?.comparison_detail || {}),
+        overrides,
+      }),
       audits: Number(series.audits || executions.length),
     };
   }

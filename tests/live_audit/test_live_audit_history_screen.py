@@ -23,6 +23,8 @@ class HistoryScreenTests(unittest.TestCase):
         cls.page = (static / "live_audit_analysis.html").read_text(encoding="utf-8")
         cls.script = (static / "live_audit_history.js").read_text(encoding="utf-8")
         cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
+        cls.verdicts = (static / "live_audit_history_verdicts.js").read_text(encoding="utf-8")
+        cls.card = (static / "dashboard_metrics.js").read_text(encoding="utf-8")
 
     def test_the_second_table_lives_next_to_the_first_one(self) -> None:
         self.assertIn("live_audit_history.js", self.static_files)
@@ -33,21 +35,44 @@ class HistoryScreenTests(unittest.TestCase):
         self.assertIn('id="reproduction-body"', self.page)
 
     def test_the_historic_table_uses_the_same_verdict_as_the_period_one(self) -> None:
-        self.assertIn("LiveAuditReproduction.verdict", self.script)
-        self.assertIn("LiveAuditReproduction.numbers", self.script)
-        self.assertIn("LiveAuditReproduction.compare", self.script)
-        self.assertIn("strategyGroups(", self.script)
+        # El veredicto sigue siendo el de la tabla del periodo; lo pide el
+        # módulo que calcula, no la pantalla.
+        self.assertIn("reproduction.verdict(numbers)", self.verdicts)
+        self.assertIn("reproduction.numbers(group, lots)", self.verdicts)
+        self.assertIn("reproduction.compare(left.numbers, right.numbers)", self.verdicts)
         self.assertIn("/history", self.script)
+
+    def test_the_table_and_the_card_share_one_single_calculation(self) -> None:
+        """Dos cálculos daban dos respuestas: la tarjeta marcaba «NO
+        REPRODUCE» tres EURUSD del #173 que la tabla daba por buenos.
+
+        Ahora la pantalla y la tarjeta sólo pintan lo que devuelve
+        `LiveAuditHistoryVerdicts`, y ninguna de las dos suma nada.
+        """
+        self.assertIn("live_audit_history_verdicts.js", self.static_files)
+        self.assertIn(
+            '<script src="/live_audit_history_verdicts.js"></script>', self.page,
+        )
+        self.assertIn("LiveAuditHistoryVerdicts.ranked(series.executions || []", self.script)
+        self.assertIn("root.LiveAuditHistoryVerdicts.flagged(executions, {", self.card)
+        # Y no queda rastro de la segunda copia en ninguna de las dos.
+        for source in (self.script, self.card):
+            for gone in ("mergeGroups", "mergeHistoryGroups", "LiveAuditReproduction.numbers("):
+                self.assertNotIn(gone, source)
 
     def test_the_historic_table_honours_the_lead_box_but_not_the_typed_lots(self) -> None:
         # La casilla dice de qué lado se copia el lote, y cada operación copia
         # el de su propia auditoría (`scale_volume`). Sin ella la demo se
         # quedaba a 0,01 contra una real a 0,10 y el cociente medía tamaño.
-        self.assertIn("function executedLots()", self.script)
-        self.assertIn("return mode ? {$mode: mode} : {};", self.script)
-        self.assertNotIn("const EXECUTED_LOTS", self.script)
-        for call in ("numbers(group, executedLots())", "numbers(left, executedLots())"):
-            self.assertIn(call, self.script)
+        self.assertIn("function executedLots(overrides)", self.verdicts)
+        self.assertIn("return mode ? {$mode: mode} : {};", self.verdicts)
+        self.assertNotIn("const EXECUTED_LOTS", self.verdicts)
+        self.assertIn("const lots = executedLots(overrides);", self.verdicts)
+        # Y las dos pantallas entregan la misma casilla al cálculo.
+        self.assertIn("overrides: typeof lotOverrides === 'object' ? lotOverrides : {},", self.script)
+        self.assertIn("summarizeHistory(result, historyOf(entry), overrides)",
+                      (Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
+                       / "dashboard.js").read_text(encoding="utf-8"))
         # Y alguien tiene que avisarla: carga antes que los lotes guardados.
         self.assertIn("function renderHistoryTable()", self.analysis)
         self.assertIn("window.LiveAuditHistory.render()", self.analysis)
@@ -62,7 +87,7 @@ class HistoryScreenTests(unittest.TestCase):
         # El servidor ya recorta; la pantalla no puede volver a abrir la mano
         # con las ejecuciones propias, que era lo que hacía antes.
         self.assertIn("function retained()", self.script)
-        self.assertIn("if (wanted.size && !wanted.has(identity(group))) return;", self.script)
+        self.assertIn("if (retained?.size && !retained.has(identity(group))) return;", self.verdicts)
         self.assertNotIn("execution.own", self.script)
 
     def test_the_degradation_table_announces_that_it_accumulates(self) -> None:

@@ -148,16 +148,20 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("Estrategias a revisar · todo el histórico", self.script)
         self.assertIn("function historyMarkup(entry, summary, currency)", self.script)
         self.assertIn("historyMarkup(entry, history, currency)", self.script)
-        # El veredicto es el mismo que el de la tabla, y se mide sin escalado:
-        # una simulación de lote elegida para hoy no significa nada aplicada a
-        # los periodos anteriores.
+        # La tarjeta no calcula: pide la serie resuelta al mismo módulo que
+        # pinta la tabla. Dos cálculos daban dos respuestas —la tarjeta marcó
+        # «NO REPRODUCE» tres EURUSD del #173 que la tabla daba por buenos—,
+        # así que aquí sólo queda la llamada.
         self.assertIn("function summarizeHistory(result, series, overrides = {})", self.metrics)
-        self.assertIn("mergeHistoryGroups(executions, retained), executedLots(overrides),", self.metrics)
-        # Del diálogo de lotes sólo entra `$mode`, igual que en la tabla: los
-        # números tecleados describen la semana de hoy, y la casilla que manda
-        # no elige tamaño sino de qué lado se copia el lote de cada pareja.
-        self.assertIn("return mode ? {$mode: mode} : {};", self.metrics)
-        self.assertIn("function executedLots(", self.metrics)
+        self.assertIn("root.LiveAuditHistoryVerdicts.flagged(executions, {", self.metrics)
+        self.assertIn("root.LiveAuditHistoryVerdicts.retainedOf(", self.metrics)
+        for gone in ("mergeHistoryGroups", "function executedLots", "historyIdentity"):
+            self.assertNotIn(gone, self.metrics)
+        # Y el módulo carga antes que sus dos consumidores.
+        self.assertLess(
+            self.page_text.index("/live_audit_history_verdicts.js"),
+            self.page_text.index("/dashboard_metrics.js"),
+        )
         self.assertIn("LiveDashboardMetrics.summarizeHistory(", self.script)
         # Y la casilla «Validada» del periodo no la toca: dice «ya miré esta
         # semana» y la serie contesta otra pregunta —la tabla histórica ni
