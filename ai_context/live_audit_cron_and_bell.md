@@ -6,8 +6,10 @@ El encadenado semanal evita huecos entre cierres, pero el tester de una ventana
 de siete días no puede reconstruir una operación que abrió antes de esa
 ventana y cerró dentro de ella. Por eso el cron semanal tiene una segunda
 cadencia visible en su mismo diálogo: por defecto, la **cuarta cita semanal de
-cada mes** vuelve a auditar desde la creación del portafolio hasta el día de la
-ejecución. Las demás citas siguen encadenadas como antes.
+cada mes** vuelve a auditar las cuatro ventanas semanales —los 28 días que
+terminan en esa cita—. Las demás citas siguen encadenadas como antes. No se
+vuelve al nacimiento del portafolio: el coste permanece acotado aunque lleve
+años operando.
 
 `monthly_full_audit` activa la regla y `monthly_full_audit_week` elige la cita
 mensual (1 a 5). Sólo se aplica en modo `weekly`; el modo por intervalo no

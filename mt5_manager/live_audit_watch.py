@@ -308,7 +308,7 @@ def _launch_payload(
         server, node_id, profile,
     )
     complete = (
-        live_audit_schedule.full_audit_period(profile, created_at, now)
+        live_audit_schedule.full_audit_period(now)
         if full_audit else {}
     )
     chained = period or complete or live_audit_schedule.chained_period(
@@ -352,7 +352,7 @@ def _period_text(
     if full_audit and chained:
         return (
             f"periodo {chained['period_start_date']} a "
-            f"{chained['period_end_date']}, auditoría completa desde la creación"
+            f"{chained['period_end_date']}, auditoría completa de cuatro semanas"
         )
     for period, origin in (
         (chained, "enganchado al final de la última auditoría"),

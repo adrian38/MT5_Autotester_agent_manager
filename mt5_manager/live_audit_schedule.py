@@ -244,7 +244,7 @@ def schedule_description(settings: dict[str, Any]) -> str:
         week = int(settings.get("monthly_full_audit_week", 4))
         monthly = (
             f" La {week}.ª cita semanal de cada mes repite la auditoría completa "
-            "desde la creación del portafolio para recoger operaciones de más de una semana."
+            "de las últimas cuatro semanas para recoger operaciones de más de una semana."
         )
     terminals = (
         "Reparte el tester entre las terminales del nodo."
@@ -432,17 +432,10 @@ def creation_period(
     }
 
 
-def full_audit_period(
-    profile: dict[str, Any], created_at: datetime | None, now: datetime,
-) -> dict[str, str]:
-    """Ventana completa mensual: desde la creación (o el inicio configurado)."""
-    start = created_at or _configured_start(profile, now)
-    if start is None:
-        return {}
-    start_date = start.astimezone(timezone.utc).date()
+def full_audit_period(now: datetime) -> dict[str, str]:
+    """Las cuatro ventanas semanales que desembocan en la cita mensual."""
+    start_date = (now - timedelta(days=28)).astimezone(timezone.utc).date()
     end_date = now.astimezone(timezone.utc).date()
-    if start_date > end_date:
-        return {}
     return {
         "period_mode": "fixed_dates",
         "period_start_date": start_date.isoformat(),

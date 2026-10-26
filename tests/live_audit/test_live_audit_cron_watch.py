@@ -173,7 +173,7 @@ class WatchTickTests(unittest.TestCase):
             live_audit_watch.tick(server)
         self.assertIs(posted[0][1]["use_multiterminal"], True)
 
-    def test_the_fourth_saturday_repeats_from_the_portfolio_creation(self) -> None:
+    def test_the_fourth_saturday_repeats_the_four_week_period(self) -> None:
         state = audit_state()
         portfolios = mock.Mock()
         portfolios.saved.return_value = {
@@ -194,9 +194,10 @@ class WatchTickTests(unittest.TestCase):
             )
         _path, payload = posted[0]
         self.assertEqual(payload["period_mode"], "fixed_dates")
-        self.assertEqual(payload["period_start_date"], "2026-09-09")
+        self.assertEqual(payload["period_start_date"], "2026-09-26")
+        self.assertEqual(payload["period_end_date"], "2026-10-24")
         started = [row for row in server.events() if row["kind"] == "audit_started"]
-        self.assertIn("auditoría completa desde la creación", started[0]["message"])
+        self.assertIn("auditoría completa de cuatro semanas", started[0]["message"])
 
     def test_the_bell_only_claims_the_chain_when_the_period_comes_from_it(self) -> None:
         # «fixed_dates» es justo lo que trae un perfil con fechas fijas. Leerlo

@@ -230,8 +230,8 @@
               <option value="1">primera</option><option value="2">segunda</option>
               <option value="3">tercera</option><option value="4">cuarta</option>
               <option value="5">quinta</option>
-            </select> cita semanal de cada mes vuelve desde la creación del portafolio.
-            Así recupera operaciones que permanecieron abiertas más de una semana.</small></span>
+            </select> cita semanal de cada mes repite las últimas cuatro semanas.
+            Así recupera operaciones que permanecieron abiertas entre varias citas.</small></span>
         </label>
         <label class="cron-switch">
           <input id="cron-multiterminal" type="checkbox">
