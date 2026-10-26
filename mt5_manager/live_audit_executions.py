@@ -16,6 +16,7 @@ cada cita que pasaba borraba para siempre la semana anterior.
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 import urllib.error
 import urllib.parse
@@ -209,6 +210,13 @@ def manual_evidence(audit: dict[str, Any]) -> str:
     return hashlib.sha1("|".join(marks).encode("utf-8")).hexdigest()[:16] if marks else ""
 
 
+def analysis_revision(result: dict[str, Any]) -> str:
+    """Huella del detalle que Análisis está enseñando ahora."""
+    detail = result.get("comparison_detail") if isinstance(result, dict) else {}
+    packed = json.dumps(detail or {}, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha1(packed.encode("utf-8")).hexdigest()[:16]
+
+
 def _archive_entry(
     audit: dict[str, Any], profile: dict[str, Any], audit_key: str, execution_id: str,
     result: dict[str, Any],
@@ -216,6 +224,7 @@ def _archive_entry(
     return {
         "audit_key": audit_key, "execution_id": execution_id,
         "manual_reports": manual_evidence(audit),
+        "analysis_revision": analysis_revision(result),
         "portfolio_id": safe_int(result.get("portfolio_id"), 0, minimum=0),
         "portfolio_type": str(result.get("portfolio_type") or ""),
         "deployment_name": str(profile.get("deployment_name") or ""),
@@ -299,6 +308,10 @@ def archive_execution(
             server, node, node_id, audit_key, profile, execution_id,
             str(state.get("analysis_error") or ""),
         )
+        return
+    if refresh and archive.knows(
+        node_id, audit_key, execution_id, manual_evidence(audit), analysis_revision(result),
+    ):
         return
     archive.remember(
         node_id, _archive_entry(audit, profile, audit_key, execution_id, result),

@@ -89,6 +89,7 @@ class LiveAuditArchive:
 
     def knows(
         self, node_id: str, audit_key: str, execution_id: str, evidence: str = "",
+        analysis_revision: str = "",
     ) -> bool:
         """¿Está guardada esa ejecución **con esta evidencia**?
 
@@ -103,7 +104,11 @@ class LiveAuditArchive:
                 str(row.get("audit_key")) == str(audit_key)
                 and str(row.get("execution_id")) == str(execution_id)
             ):
-                return str(row.get("manual_reports") or "") == str(evidence or "")
+                manual_matches = str(row.get("manual_reports") or "") == str(evidence or "")
+                revision_matches = not analysis_revision or str(
+                    row.get("analysis_revision") or ""
+                ) == str(analysis_revision)
+                return manual_matches and revision_matches
         return False
 
     def _prune(self, node_id: str, executions: list[dict[str, Any]]) -> list[dict[str, Any]]:

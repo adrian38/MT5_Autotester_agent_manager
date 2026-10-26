@@ -467,6 +467,22 @@ class HistoryRouteTests(unittest.TestCase):
             {row["execution_id"] for row in self.archive.index("n")}, {"e-0", "e-1"},
         )
 
+    def test_the_analysis_revision_distinguishes_the_same_execution(self) -> None:
+        audit = completed_audit()
+        live_audit_executions.archive_execution(
+            FakeHandler(self.archive).server, {}, "n", "a-1", audit,
+            {"portfolio_id": 11},
+        )
+        revision = live_audit_executions.analysis_revision(audit["last_result"])
+        self.assertTrue(self.archive.knows("n", "a-1", "e-1", "", revision))
+        changed = completed_audit()["last_result"]
+        changed["comparison_detail"]["operation_comparisons"][0]["real"] = None
+        self.assertFalse(
+            self.archive.knows(
+                "n", "a-1", "e-1", "", live_audit_executions.analysis_revision(changed),
+            )
+        )
+
     def test_the_dashboard_variant_reads_the_archive_without_asking_the_node(self) -> None:
         """`?source=archive`: la portada no provoca el análisis de cada uso.
 

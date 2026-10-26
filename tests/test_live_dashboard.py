@@ -179,6 +179,8 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # provocar el análisis en el agente.
         self.assertIn("/history?source=archive", self.script)
         self.assertIn("stored.stamp === historyStamp(entry)", self.script)
+        self.assertIn("historyRevision: entry.history_revision || ''", self.script)
+        self.assertIn("entry.historyRevision || entry.result?.analysis?.executed_at", self.script)
         self.assertIn("entry.auditId && entry.result && !historyOf(entry)", self.script)
         routes = (Path(__file__).parents[1] / "mt5_manager"
                   / "manager_schedule_routes.py").read_text(encoding="utf-8")

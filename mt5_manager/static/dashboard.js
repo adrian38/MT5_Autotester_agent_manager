@@ -48,6 +48,7 @@ async function loadNode(node) {
     const entries = (data.entries || []).map(entry => ({
       node: data.node || node, auditId: entry.audit_id, profile: entry.profile || {},
       result: entry.audit?.last_result || null,
+      historyRevision: entry.history_revision || '',
       // Lo midió el vigilante contra el histórico de la memoria del agente al
       // archivar la última auditoría; aquí sólo se pinta.
       degradation: entry.degradation || {},
@@ -131,7 +132,8 @@ async function loadAliases(node) {
 // Con qué ejecución se midió la serie que hay guardada. Mientras no cambie,
 // la respuesta sería la misma y la portada se repinta cada minuto.
 function historyStamp(entry) {
-  return String(entry.result?.analysis?.executed_at || entry.result?.completed_at || '');
+  return String(entry.historyRevision || entry.result?.analysis?.executed_at
+    || entry.result?.completed_at || '');
 }
 
 function historyKey(entry) {

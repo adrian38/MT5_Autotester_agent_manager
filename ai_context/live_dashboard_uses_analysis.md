@@ -36,6 +36,20 @@ la portada no normaliza por su cuenta: aplica lo que el usuario decidió, o nada
 Las salvedades (`POCAS OPERACIONES`, comparación parcial y calidad tick) siguen
 viviendo en Análisis; no sustituyen el veredicto.
 
+## La caché de la tarjeta sigue la revisión de Análisis (2026-10-26)
+
+La ejecución puede conservar el mismo `audit_id`, `completed_at` y
+`analysis.executed_at` mientras el manager corrige sus parejas —por ejemplo al
+recuperar cierres del informe nativo—. La tarjeta usaba esa fecha como sello de
+su caché histórica: Análisis ya mostraba AUDJPY 24,03 €, XAGUSD 10,97 € y US500
+−3,52 €, pero la tarjeta retenía la copia anterior y pintaba `Real 0,00 €`.
+
+El endpoint de la portada ya analiza una vez cada uso con el criterio vigente.
+Ahora archiva **ese mismo resultado ya analizado** y entrega una huella de su
+`comparison_detail`; no vuelve a calcular otro. El navegador usa esa huella
+para invalidar sólo la serie que cambió. Si la huella coincide, el archivo no
+se reescribe y la tabla pesada tampoco se vuelve a pedir.
+
 ## Reinicio desde la portada
 
 El botón inicial enviaba el `POST` pero no sondeaba el estado. Quedaba bloqueado

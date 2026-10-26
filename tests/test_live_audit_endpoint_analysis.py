@@ -44,13 +44,17 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
         })
         endpoint = SimpleNamespace(server=SimpleNamespace(live_audit_settings=settings))
         raw = {"audits": {"audit-148": {"last_payload": payload()}}}
-        with patch("mt5_manager.manager_http.node_request", return_value=(200, raw)) as request:
+        with patch("mt5_manager.manager_http.node_request", return_value=(200, raw)) as request, patch(
+            "mt5_manager.live_audit_executions.archive_execution",
+        ) as archive:
             state = dashboard_node_state(endpoint, "ic", {"id": "ic", "name": "ICTrading"})
         request.assert_called_once_with(
             {"id": "ic", "name": "ICTrading"}, "GET", "/api/v1/live-audits", timeout=10,
         )
         self.assertEqual(state["entries"][0]["audit"]["last_result"]["status"], "completed")
+        self.assertTrue(state["entries"][0]["history_revision"])
         self.assertNotIn("last_payload", state["entries"][0]["audit"])
+        self.assertTrue(archive.call_args.kwargs["refresh"])
 
     def test_the_dashboard_carries_the_degradation_the_watcher_measured(self) -> None:
         # La tarjeta no puede abrir la memoria UBS del agente en cada sondeo:
