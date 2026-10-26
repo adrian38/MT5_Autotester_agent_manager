@@ -182,6 +182,12 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # Y la tarjeta no puede decir «SIN AVISOS» con la lista debajo.
         self.assertIn("inSeries ? `${inSeries} EN LA SERIE` : ''", self.script)
 
+    def test_few_operations_is_visible_on_the_card_in_both_periods(self) -> None:
+        self.assertIn("few: reproduction.fewTrades(numbers)", self.metrics)
+        self.assertIn("const few = row.few", self.script)
+        self.assertIn('class="sample-warning">POCAS OPERACIONES</span>', self.script)
+        self.assertIn(".sample-warning{", self.css)
+
     def test_a_card_says_what_it_is_still_loading(self) -> None:
         # La tarjeta se pinta en cuanto hay uso y el alias y la serie llegan
         # después: sin decirlo, una tarjeta sin la sección «todo el histórico»

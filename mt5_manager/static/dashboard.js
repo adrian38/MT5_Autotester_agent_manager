@@ -254,10 +254,12 @@ function flaggedMarkup(rows, currency, reviewed) {
   return `<ul class="strategy-alerts">${rows.map(row => {
     const quality = row.quality && row.quality.ok === false
       ? '<span class="quality-warning">CALIDAD TICK INSUFICIENTE</span>' : '';
+    const few = row.few
+      ? '<span class="sample-warning">POCAS OPERACIONES</span>' : '';
     return `<li><div><strong>${escapeHtml(row.symbol)}</strong><small>${escapeHtml(row.label)}</small></div>`
       + `<div class="strategy-values"><span>Test ${escapeHtml(money(row.demo_profit, currency))}</span>`
       + `<span>Real ${escapeHtml(money(row.real_profit, currency))}</span></div>`
-      + `<div><span class="verdict ${row.tone}">${escapeHtml(row.verdict)}</span>${quality}</div></li>`;
+      + `<div class="strategy-verdicts"><span class="verdict ${row.tone}">${escapeHtml(row.verdict)}</span>${few}${quality}</div></li>`;
   }).join('')}</ul>${reviewedNote(reviewed)}`;
 }
 
