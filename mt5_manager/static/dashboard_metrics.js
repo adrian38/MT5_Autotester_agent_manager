@@ -156,19 +156,22 @@
 
   // La tabla historica de Analisis, con su mismo veredicto. Se mide sin
   // escalado -`{}`-: una simulacion de lote elegida para hoy no significa nada
-  // aplicada a los periodos anteriores. Lo validado en Analisis sale tambien de
-  // aqui, que es lo que esta lista promete, y la marca deja de valer en cuanto
-  // el veredicto empeora.
-  function summarizeHistory(result, series, reviews = {}) {
+  // aplicada a los periodos anteriores.
+  //
+  // **Lo validado en el periodo no la toca**, al reves que `summarize`. La
+  // casilla «Validada» esta en la tabla del periodo y dice «ya mire esta
+  // semana»; la serie contesta otra pregunta, y la tabla historica ni siquiera
+  // tiene esa casilla. Filtrar por ella vaciaba la lista entera: en el 109 de
+  // AXI, las doce filas marcadas -cuatro NO REPRODUCE y ocho AVISO- se
+  // escondian detras de las dos validaciones del periodo, porque validar
+  // guarda el veredicto de entonces y un AVISO acumulado nunca es peor que el
+  // NO REPRODUCE que se valido.
+  function summarizeHistory(result, series) {
     const executions = series?.executions || [];
-    if (!executions.length) return {flagged: [], reviewed: 0, audits: 0};
+    if (!executions.length) return {flagged: [], audits: 0};
     const retained = new Set(strategyGroups(result).map(historyIdentity));
-    const marked = flaggedStrategies(mergeHistoryGroups(executions, retained), {});
-    const pending = marked.filter(row => !reproduction.reviewed(
-      reviews, row.strategy, row.verdict,
-    ));
     return {
-      flagged: pending, reviewed: marked.length - pending.length,
+      flagged: flaggedStrategies(mergeHistoryGroups(executions, retained), {}),
       audits: Number(series.audits || executions.length),
     };
   }

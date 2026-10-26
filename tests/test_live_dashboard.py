@@ -151,12 +151,15 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # El veredicto es el mismo que el de la tabla, y se mide sin escalado:
         # una simulación de lote elegida para hoy no significa nada aplicada a
         # los periodos anteriores.
-        self.assertIn("function summarizeHistory(result, series, reviews = {})", self.metrics)
+        self.assertIn("function summarizeHistory(result, series)", self.metrics)
         self.assertIn("flaggedStrategies(mergeHistoryGroups(executions, retained), {})", self.metrics)
         self.assertIn("LiveDashboardMetrics.summarizeHistory(", self.script)
-        # Lo validado en Análisis sale también de esta lista, igual que de la
-        # del periodo: la portada es lo que queda por mirar.
-        self.assertIn("reviews, row.strategy, row.verdict,", self.metrics)
+        # Y la casilla «Validada» del periodo no la toca: dice «ya miré esta
+        # semana» y la serie contesta otra pregunta —la tabla histórica ni
+        # siquiera tiene esa casilla—. Filtrando por ella, las doce filas
+        # marcadas del 109 de AXI se escondían detrás de dos validaciones.
+        self.assertNotIn("summarizeHistory(result, series, reviews", self.metrics)
+        self.assertIn("LiveDashboardMetrics.summarizeHistory(result, historyOf(entry))", self.script)
         # Y la tarjeta no puede decir «SIN AVISOS» con la lista debajo.
         self.assertIn("inSeries ? `${inSeries} EN LA SERIE` : ''", self.script)
 
