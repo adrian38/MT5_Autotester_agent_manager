@@ -166,6 +166,11 @@ class PageTests(unittest.TestCase):
 
 
 class CriterionTests(unittest.TestCase):
+    def test_todays_profit_is_coloured_by_its_sign(self) -> None:
+        self.assertIn("if (Number(value) > 0) return 'good'", SCRIPT)
+        self.assertIn("if (Number(value) < 0) return 'bad'", SCRIPT)
+        self.assertIn("signedTone(card.daily.profit)", SCRIPT)
+
     def test_the_tones_come_from_the_payload_and_are_not_recomputed(self) -> None:
         for name in ("profit_tone", "drawdown_tone"):
             self.assertIn(name, SCRIPT)

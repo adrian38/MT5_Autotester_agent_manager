@@ -174,9 +174,15 @@ function metricRow(label, metrics, extra = '') {
     + `<span class="metric-label">${escapeHtml(label)}</span>${metrics}</div>`;
 }
 
+function signedTone(value) {
+  if (Number(value) > 0) return 'good';
+  if (Number(value) < 0) return 'bad';
+  return '';
+}
+
 function dailyRow(card, currency) {
   return metricRow('Hoy',
-    metric('Beneficio', money(card.daily.profit, currency), '', [
+    metric('Beneficio', money(card.daily.profit, currency), signedTone(card.daily.profit), [
       plainNote(`${card.daily.trades} cierre${card.daily.trades === 1 ? '' : 's'} · ${card.daily.day}`),
     ])
     + metric('Drawdown', plain(card.daily.drawdown, currency), '', []));
