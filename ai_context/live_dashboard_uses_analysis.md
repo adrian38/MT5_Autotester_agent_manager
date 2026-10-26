@@ -50,6 +50,14 @@ Ahora archiva **ese mismo resultado ya analizado** y entrega una huella de su
 para invalidar sólo la serie que cambió. Si la huella coincide, el archivo no
 se reescribe y la tabla pesada tampoco se vuelve a pedir.
 
+El aviso de carga de esa serie dura hasta que termina la petición. Antes se
+añadía el billete a `historiesTried` justo antes del `await`; si otro nodo
+repintaba la portada durante el análisis, la tarjeta interpretaba «ya se
+intentó» como «ya terminó» y quitaba el aviso aunque Análisis siguiera
+trabajando. `historiesLoading` conserva ahora el estado en curso y
+`historiesTried` sólo se actualiza después de que la petición se resuelva, con
+éxito o con error.
+
 ## Reinicio desde la portada
 
 El botón inicial enviaba el `POST` pero no sondeaba el estado. Quedaba bloqueado

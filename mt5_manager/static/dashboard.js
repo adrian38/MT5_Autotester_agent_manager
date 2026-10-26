@@ -21,6 +21,7 @@ const auditHistories = new Map();
 // sección del histórico parece terminada, y lo que pasa es que falta.
 const aliasesTried = new Set();
 const historiesTried = new Set();
+const historiesLoading = new Set();
 const FAILURE_LIMIT = 3;
 const BACKOFF_MS = 5 * 60 * 1000;
 
@@ -168,7 +169,9 @@ function cardPending(entry) {
   return [
     portfolioId > 0 && !(portfolioId in known) && !aliasesTried.has(entry.node?.id)
       ? 'el alias' : '',
-    entry.result && !historyOf(entry) && !historiesTried.has(historyTicket(entry))
+    entry.result && !historyOf(entry) && (
+      historiesLoading.has(historyTicket(entry)) || !historiesTried.has(historyTicket(entry))
+    )
       ? 'la serie archivada' : '',
   ].filter(Boolean);
 }
@@ -189,7 +192,7 @@ async function loadHistories(node) {
     entry => entry.auditId && entry.result && !historyOf(entry),
   );
   if (!pending.length) return false;
-  pending.forEach(entry => historiesTried.add(historyTicket(entry)));
+  pending.forEach(entry => historiesLoading.add(historyTicket(entry)));
   const loaded = await Promise.allSettled(pending.map(async entry => {
     const series = await jsonResponse(await fetch(
       `/api/nodes/${encodeURIComponent(node.id)}/live-audits/`
@@ -197,6 +200,11 @@ async function loadHistories(node) {
     ));
     auditHistories.set(historyKey(entry), {stamp: historyStamp(entry), series});
   }));
+  pending.forEach(entry => {
+    const ticket = historyTicket(entry);
+    historiesLoading.delete(ticket);
+    historiesTried.add(ticket);
+  });
   // Una serie que no se deja leer no puede dejar la tarjeta sin pintar: la
   // sección histórica desaparece y el resto sigue.
   return loaded.some(result => result.status === 'fulfilled');

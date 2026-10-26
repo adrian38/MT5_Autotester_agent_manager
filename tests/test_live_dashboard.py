@@ -196,7 +196,10 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # Y se calla en cuanto se ha intentado, con éxito o sin él: una serie
         # que no se deja leer desaparece como sección, no como aviso eterno.
         self.assertIn("aliasesTried.add(node.id);", self.script)
-        self.assertIn("pending.forEach(entry => historiesTried.add(historyTicket(entry)));", self.script)
+        self.assertIn("historiesLoading.has(historyTicket(entry))", self.script)
+        self.assertIn("pending.forEach(entry => historiesLoading.add(historyTicket(entry)));", self.script)
+        self.assertIn("historiesLoading.delete(ticket);", self.script)
+        self.assertIn("historiesTried.add(ticket);", self.script)
         self.assertIn("!historiesTried.has(historyTicket(entry))", self.script)
         # El billete lleva la marca de la ejecución, así que la siguiente
         # auditoría vuelve a avisar de que está cargando.
