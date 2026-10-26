@@ -26,6 +26,32 @@ Sin el veredicto guardado, una estrategia validada un martes podría romperse el
 jueves sin que nada lo contara, y la portada es justo la pantalla que existe
 para contarlo. Que mejore sí la mantiene fuera: ya se miró.
 
+### La etiqueta no basta (2026-10-26)
+
+Comparar sólo la etiqueta escondía un deterioro entero: un `AVISO` validado con
+el 24 % de déficit podía irse al 55 % —a un punto de `NO REPRODUCE`— y seguir
+fuera de la portada y con la casilla marcada, porque la palabra no había
+cambiado. Así que la marca guarda también el **déficit** (`pct`) y empeorar
+dentro de la misma etiqueta retira la validación igual que cambiar de etiqueta.
+
+El margen es `SAME_VERDICT_MARGIN_PCT = 5` puntos, y no es cero a propósito: el
+déficit se recalcula en cada auditoría y se mueve décimas sin que la estrategia
+haya cambiado, así que con tolerancia cero la primera re-ejecución retiraría
+validaciones que nadie ha empeorado.
+
+`pct` es **opcional** en el esquema. Las marcas guardadas antes de que el campo
+existiera no lo llevan, y ésas se siguen comparando sólo por veredicto en vez
+de desaparecer o quedarse pegadas para siempre.
+
+La fila lo dice con números, no con un «ha empeorado» que no se puede
+comprobar: `reviewDegradation` añade «del 24 % de déficit al 55 %», y vive en
+`live_audit_reproduction.js` porque las dos tablas enseñan el mismo aviso.
+
+Lo que **no** hace: borrar la marca. Sigue guardada con su veredicto y su
+déficit, que es lo que permite explicar por qué volvió. Consecuencia conocida:
+si una auditoría posterior devuelve la fila a su déficit de antes, se vuelve a
+esconder sin que nadie la haya revisado después del deterioro.
+
 La portada no se limita a esconder: la tarjeta dice cuántas hay validadas. Un
 `SIN AVISOS` que además esconde tres filas afirma más de lo que sabe.
 
@@ -65,8 +91,10 @@ y el validador también: `normalize_reviewed_history_strategies` y
 sale en el error, que es lo que dice en qué tabla mirar.
 
 La regla de cuándo vuelve a avisar **no se duplica**: la tabla del histórico
-llama a la misma `LiveAuditReproduction.reviewed`, y la portada filtra en
-`summarizeHistory` con `storedHistoryReviews(profile)`. La sección «todo el
+llama a la misma `LiveAuditReproduction.reviewed` —con el déficit acumulado
+(`shortfall_pct`) como cuarto argumento, igual que la del periodo pasa
+`numbers.pct`—, y la portada filtra en `summarizeHistory` con
+`storedHistoryReviews(profile)`. La sección «todo el
 histórico» de la tarjeta ya no desaparece cuando lo único que la vació fueron
 las validadas: enseña el recuento, porque esconder tres avisos sin contarlos
 afirma más de lo que se sabe.

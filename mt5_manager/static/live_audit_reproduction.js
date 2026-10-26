@@ -11,6 +11,13 @@
   // por normal. El veredicto se da igual, pero marcado y detrás del mismo
   // veredicto que sí se sostiene.
   const FEW_PAIRS = Math.ceil(100 / EXPECTED_SHORTFALL_PCT);
+  // Cuánto puede subir el déficit sin retirar una validación cuando el
+  // veredicto no cambia de etiqueta. La etiqueta sola no basta: un AVISO
+  // validado al 24 % y otro al 55 % son la misma palabra y no son el mismo
+  // hecho. Y no es cero: el déficit se recalcula en cada auditoría y se mueve
+  // décimas sin que la estrategia haya cambiado, así que con tolerancia cero
+  // la primera re-ejecución retiraría validaciones que nadie ha empeorado.
+  const SAME_VERDICT_MARGIN_PCT = 5;
 
   function overrideFor(overrides, strategy, side) {
     const value = Number(overrides?.[strategy]?.[side]);
@@ -260,9 +267,35 @@
   // estrategia validada en AVISO podría pasar a NO REPRODUCE en la auditoría
   // siguiente sin que nada lo dijera, y la portada es justo la pantalla que
   // existe para decirlo. Que mejore sí la mantiene fuera: ya se miró.
-  function reviewed(reviews, strategy, label) {
+  //
+  // Empeorar **dentro de la misma etiqueta** también retira la validación: con
+  // la etiqueta sola, un AVISO validado al 24 % podía irse al 55 % —a un punto
+  // de NO REPRODUCE— y seguir escondido. Por eso la marca guarda el déficit
+  // además del veredicto, y se compara con el margen de arriba.
+  function worseWithinVerdict(mark, pct) {
+    const before = Number(mark?.pct);
+    const now = Number(pct);
+    if (!Number.isFinite(before) || !Number.isFinite(now)) return false;
+    return now > before + SAME_VERDICT_MARGIN_PCT;
+  }
+
+  // Lo que la fila dice cuando la marca se cayó. Con la etiqueta igual, «ha
+  // empeorado» a secas no se puede comprobar en la propia fila: hay que decir
+  // de qué déficit a qué déficit. Vive aquí y no en cada pantalla porque las
+  // dos tablas enseñan el mismo aviso.
+  function reviewDegradation(mark, pct) {
+    if (!worseWithinVerdict(mark, pct)) return '';
+    return ` dentro de la misma etiqueta: del ${Math.round(Number(mark.pct))} %`
+      + ` de déficit al ${Math.round(Number(pct))} %`;
+  }
+
+  function reviewed(reviews, strategy, label, pct) {
     const mark = reviews?.[strategy];
-    return Boolean(mark) && (SEVERITY[label] || 0) <= (SEVERITY[mark.verdict] || 0);
+    if (!mark) return false;
+    const now = SEVERITY[label] || 0;
+    const then = SEVERITY[mark.verdict] || 0;
+    if (now !== then) return now < then;
+    return !worseWithinVerdict(mark, pct);
   }
 
   // Las ejecutadas en demo que se quedaron sin real. Van aquí y no en cada
@@ -306,7 +339,8 @@
 
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
-    autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, realLotTimeline, reviewed,
+    SAME_VERDICT_MARGIN_PCT,
+    autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, realLotTimeline, reviewDegradation, reviewed,
     scaleTarget, scaledProfit, scaledSide, sideSeries, storedHistoryReviews,
     storedOverrides, storedReviews,
     storedUnpairedReviews, testerMode, testerPairKey, unpairedAnswered, unpairedKey,

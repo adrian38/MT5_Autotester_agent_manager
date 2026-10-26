@@ -754,25 +754,25 @@ function reviewDate(value) {
   return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleDateString('es-ES');
 }
 
-function reviewNote(mark, done) {
+function reviewNote(mark, done, pct) {
   if (done) {
     const since = reviewDate(mark.at);
     return `<small>Fuera de Portafolios activos${since ? ` desde el ${escapeHtml(since)}` : ''}.</small>`;
   }
   if (mark) {
-    return `<small class="degradation-off">La validaste con ${escapeHtml(mark.verdict)} y ha empeorado: vuelve a avisar hasta que la mires otra vez.</small>`;
+    return `<small class="degradation-off">La validaste con ${escapeHtml(mark.verdict)} y ha empeorado${escapeHtml(LiveAuditReproduction.reviewDegradation(mark, pct))}: vuelve a avisar hasta que la mires otra vez.</small>`;
   }
   return '<small>Márcala cuando la hayas revisado: deja de contar en Portafolios activos.</small>';
 }
 
-function reviewCell(group, label) {
+function reviewCell(group, label, pct) {
   const mark = reviews[group.strategy];
   if (!REVIEWABLE_VERDICTS.includes(label) && !mark) {
     return '<td class="audit-analysis-review"><small>—</small></td>';
   }
-  const done = LiveAuditReproduction.reviewed(reviews, group.strategy, label);
+  const done = LiveAuditReproduction.reviewed(reviews, group.strategy, label, pct);
   return `<td class="audit-analysis-review"><label><input type="checkbox"
-    data-review="${escapeHtml(group.strategy)}"${done ? ' checked' : ''}><span>Validada</span></label>${reviewNote(mark, done)}</td>`;
+    data-review="${escapeHtml(group.strategy)}"${done ? ' checked' : ''}><span>Validada</span></label>${reviewNote(mark, done, pct)}</td>`;
 }
 
 function reproductionRow(group, currency) {
@@ -791,7 +791,7 @@ function reproductionRow(group, currency) {
     <td><strong>${escapeHtml(`${sign}${money(numbers.real - numbers.demo, currency)}`)}</strong><small>${escapeHtml(differenceNote(numbers))}</small></td>
     <td><strong>${escapeHtml(group.real.length)} emparejadas</strong>${counts.attributed ? `<small class="lots-autolot-note">+ ${escapeHtml(counts.attributed)} atribuidas a mano</small>` : ''}${counts.deviations ? `<small class="degradation-off">${escapeHtml(counts.deviations)} con desviación</small>` : ''}${partial}</td>
     <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span>${fewPairsChip(counts)}${qualityChip(group)}<small>${escapeHtml(help)}</small>${fewPairsNote(counts)}${qualityNote(group)}</td>
-    ${reviewCell(group, label)}
+    ${reviewCell(group, label, numbers.pct)}
   </tr>`;
 }
 
@@ -1838,11 +1838,12 @@ document.querySelector('#lot-schedule-sources').addEventListener('click', event 
 // Repinta antes de guardar y se deshace si el guardado falla, igual que el
 // escalado: una casilla marcada que no llegó al perfil sería una estrategia
 // desaparecida de la portada sin que nadie la haya validado.
-async function toggleReview(strategy, label, checked) {
+async function toggleReview(strategy, label, pct, checked) {
   const previous = reviews;
   reviews = {...reviews};
-  if (checked) reviews[strategy] = {verdict: label, at: new Date().toISOString()};
-  else delete reviews[strategy];
+  if (checked) {
+    reviews[strategy] = {verdict: label, pct: Number(pct), at: new Date().toISOString()};
+  } else delete reviews[strategy];
   renderReproduction();
   try {
     await writeReviews(reviews);
@@ -1860,8 +1861,9 @@ document.querySelector('#reproduction-body').addEventListener('change', event =>
   const box = event.target.closest('[data-review]');
   const group = box && strategyRows.find(row => row.strategy === box.dataset.review);
   if (!group) return;
+  const numbers = reproductionShortfall(group);
   toggleReview(
-    group.strategy, reproductionVerdict(reproductionShortfall(group))[0], box.checked,
+    group.strategy, reproductionVerdict(numbers)[0], numbers.pct, box.checked,
   );
 });
 

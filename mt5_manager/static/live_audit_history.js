@@ -86,13 +86,13 @@
     return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleDateString('es-ES');
   }
 
-  function reviewNote(mark, done) {
+  function reviewNote(mark, done, pct) {
     if (done) {
       const since = reviewDate(mark.at);
       return `<small>Fuera de Portafolios activos${since ? ` desde el ${escapeHtml(since)}` : ''}.</small>`;
     }
     if (mark) {
-      return `<small class="degradation-off">La validaste con ${escapeHtml(mark.verdict)} y ha empeorado: vuelve a avisar hasta que la mires otra vez.</small>`;
+      return `<small class="degradation-off">La validaste con ${escapeHtml(mark.verdict)} y ha empeorado${escapeHtml(LiveAuditReproduction.reviewDegradation(mark, pct))}: vuelve a avisar hasta que la mires otra vez.</small>`;
     }
     return '<small>Márcala cuando hayas revisado la serie: deja de contar en Portafolios activos.</small>';
   }
@@ -102,9 +102,11 @@
     if (!reviewable(group.verdict) && !mark) {
       return '<td class="audit-analysis-review"><small>—</small></td>';
     }
-    const done = LiveAuditReproduction.reviewed(reviews, group.strategy, group.verdict);
+    const done = LiveAuditReproduction.reviewed(
+      reviews, group.strategy, group.verdict, group.shortfall_pct,
+    );
     return `<td class="audit-analysis-review"><label><input type="checkbox"
-      data-history-review="${escapeHtml(group.strategy)}"${done ? ' checked' : ''}><span>Validada</span></label>${reviewNote(mark, done)}</td>`;
+      data-history-review="${escapeHtml(group.strategy)}"${done ? ' checked' : ''}><span>Validada</span></label>${reviewNote(mark, done, group.shortfall_pct)}</td>`;
   }
 
   // Validar no cambia el veredicto, así que tampoco cambia el recuento ni el
@@ -112,11 +114,12 @@
   // guardar y se deshace si el guardado falla, porque una casilla marcada que
   // no llegó al perfil sería una estrategia fuera de la portada que nadie
   // validó.
-  async function toggle(strategy, verdict, checked) {
+  async function toggle(strategy, verdict, pct, checked) {
     const previous = reviews;
     reviews = {...reviews};
-    if (checked) reviews[strategy] = {verdict, at: new Date().toISOString()};
-    else delete reviews[strategy];
+    if (checked) {
+      reviews[strategy] = {verdict, pct: Number(pct), at: new Date().toISOString()};
+    } else delete reviews[strategy];
     render();
     try {
       await writeReviews(reviews);
@@ -139,7 +142,7 @@
       if (!box) return;
       const group = LiveAuditHistoryVerdicts.ranked(series?.executions || [], options())
         .find(row => row.strategy === box.dataset.historyReview);
-      if (group) toggle(group.strategy, group.verdict, box.checked);
+      if (group) toggle(group.strategy, group.verdict, group.shortfall_pct, box.checked);
     });
   }
 

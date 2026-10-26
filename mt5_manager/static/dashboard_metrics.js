@@ -147,7 +147,7 @@
       overrides,
     });
     const pending = marked.filter(row => !reproduction.reviewed(
-      reviews, row.strategy, row.verdict,
+      reviews, row.strategy, row.verdict, row.shortfall_pct,
     ));
     return {
       flagged: pending,
@@ -176,7 +176,7 @@
     // afirmación más fuerte de lo que es.
     const marked = flaggedStrategies(groups, overrides);
     const pending = marked.filter(row => !reproduction.reviewed(
-      reviews, row.strategy, row.verdict,
+      reviews, row.strategy, row.verdict, row.shortfall_pct,
     ));
     const accepted = new Set(marked.filter(row => !pending.includes(row)).map(
       row => row.strategy,

@@ -38,9 +38,24 @@ SEVERITY = {
 }
 
 
-def reviewed(reviews: dict, strategy: str, label: str) -> bool:
+SAME_VERDICT_MARGIN_PCT = 5
+
+
+def worse_within_verdict(mark: dict, pct: object) -> bool:
+    before, now = mark.get("pct"), pct
+    if not isinstance(before, (int, float)) or not isinstance(now, (int, float)):
+        return False
+    return now > before + SAME_VERDICT_MARGIN_PCT
+
+
+def reviewed(reviews: dict, strategy: str, label: str, pct: object = None) -> bool:
     mark = reviews.get(strategy)
-    return bool(mark) and SEVERITY.get(label, 0) <= SEVERITY.get(mark["verdict"], 0)
+    if not mark:
+        return False
+    now, then = SEVERITY.get(label, 0), SEVERITY.get(mark["verdict"], 0)
+    if now != then:
+        return now < then
+    return not worse_within_verdict(mark, pct)
 
 
 class ReviewedStrategiesStoreTests(unittest.TestCase):
@@ -184,11 +199,14 @@ class ReviewedStrategiesScreenTests(unittest.TestCase):
         self.assertIn(
             "if (!REVIEWABLE_VERDICTS.includes(label) && !mark) {", self.analysis,
         )
-        self.assertIn("${reviewCell(group, label)}", self.analysis)
+        self.assertIn("${reviewCell(group, label, numbers.pct)}", self.analysis)
         self.assertIn('colspan="7"', self.analysis)
 
     def test_marking_it_saves_the_verdict_it_had_and_not_just_a_yes(self) -> None:
-        self.assertIn("reviews[strategy] = {verdict: label, at: new Date().toISOString()}", self.analysis)
+        self.assertIn(
+            "reviews[strategy] = {verdict: label, pct: Number(pct), at: new Date().toISOString()}",
+            self.analysis,
+        )
         self.assertIn("/reviewed-strategies`", self.analysis)
         self.assertIn("body: JSON.stringify({reviewed_strategies: value})", self.analysis)
         # Repinta antes de guardar y se deshace si el guardado falla: una
@@ -210,9 +228,26 @@ class ReviewedStrategiesScreenTests(unittest.TestCase):
         # ejecute, así que la medida de abajo es un port: sólo vale si cada
         # expresión que mide está literalmente en el fichero.
         self.assertIn(
-            "    return Boolean(mark) && (SEVERITY[label] || 0) <= (SEVERITY[mark.verdict] || 0);",
+            "  function reviewed(reviews, strategy, label, pct) {\n"
+            "    const mark = reviews?.[strategy];\n"
+            "    if (!mark) return false;\n"
+            "    const now = SEVERITY[label] || 0;\n"
+            "    const then = SEVERITY[mark.verdict] || 0;\n"
+            "    if (now !== then) return now < then;\n"
+            "    return !worseWithinVerdict(mark, pct);\n"
+            "  }",
             self.reproduction,
         )
+        self.assertIn(
+            "  function worseWithinVerdict(mark, pct) {\n"
+            "    const before = Number(mark?.pct);\n"
+            "    const now = Number(pct);\n"
+            "    if (!Number.isFinite(before) || !Number.isFinite(now)) return false;\n"
+            "    return now > before + SAME_VERDICT_MARGIN_PCT;\n"
+            "  }",
+            self.reproduction,
+        )
+        self.assertIn("  const SAME_VERDICT_MARGIN_PCT = 5;", self.reproduction)
         self.assertIn(
             "  const SEVERITY = {\n"
             "    'NO REPRODUCE': 4, AVISO: 3, 'POCO IMPORTE': 2,\n"
@@ -220,6 +255,43 @@ class ReviewedStrategiesScreenTests(unittest.TestCase):
             "  };",
             self.reproduction,
         )
+
+    def test_the_same_verdict_with_a_bigger_shortfall_also_unmarks_it(self) -> None:
+        # La etiqueta sola escondía un deterioro entero: un AVISO validado al
+        # 24 % podía irse al 55 % —a un punto de NO REPRODUCE— y seguir fuera
+        # de la portada, porque la palabra no había cambiado.
+        marks = {"eth": {"verdict": "AVISO", "pct": 24.0, "at": "2026-10-19T08:00:00.000Z"}}
+
+        self.assertTrue(reviewed(marks, "eth", "AVISO", 24.0))
+        # Las décimas que mueve cada re-ejecución no retiran nada: con margen
+        # cero, la primera auditoría siguiente desvalidaría lo que nadie ha
+        # empeorado.
+        self.assertTrue(reviewed(marks, "eth", "AVISO", 28.9))
+        self.assertTrue(reviewed(marks, "eth", "AVISO", 29.0))
+        # Y un deterioro de verdad sí.
+        self.assertFalse(reviewed(marks, "eth", "AVISO", 29.1))
+        self.assertFalse(reviewed(marks, "eth", "AVISO", 55.0))
+        # Mejorar dentro de la etiqueta no la devuelve: ya se miró.
+        self.assertTrue(reviewed(marks, "eth", "AVISO", 21.0))
+        # Una marca vieja, guardada antes de que existiera el déficit, se sigue
+        # comparando por veredicto en vez de desaparecer o quedarse pegada.
+        old = {"eth": {"verdict": "AVISO", "at": "2026-10-19T08:00:00.000Z"}}
+        self.assertTrue(reviewed(old, "eth", "AVISO", 55.0))
+        self.assertFalse(reviewed(old, "eth", "NO REPRODUCE", 61.0))
+
+    def test_the_stored_mark_carries_the_shortfall_it_had(self) -> None:
+        # Sin el déficit guardado no hay nada con que comparar, así que el
+        # campo es parte de la marca y no decorado de la pantalla.
+        self.assertEqual(
+            normalize_live_audit_settings({"reviewed_strategies": {
+                "eth": {"verdict": "AVISO", "pct": 24.5, "at": ""},
+            }})["reviewed_strategies"],
+            {"eth": {"verdict": "AVISO", "at": "", "pct": 24.5}},
+        )
+        with self.assertRaisesRegex(ValueError, r"\.pct debe ser un número"):
+            normalize_live_audit_settings({"reviewed_strategies": {
+                "eth": {"verdict": "AVISO", "pct": "mucho"},
+            }})
 
     def test_a_validated_strategy_comes_back_only_when_it_gets_worse(self) -> None:
         marks = {"eth": {"verdict": "AVISO", "at": "2026-10-19T08:00:00.000Z"}}
@@ -330,7 +402,10 @@ class ReviewedHistoryStrategiesTests(unittest.TestCase):
         self.assertIn("return LiveAuditHistoryVerdicts.FLAGGED.includes(verdict);", self.history)
         self.assertIn("if (!reviewable(group.verdict) && !mark) {", self.history)
         # Guarda el veredicto que tenía, no un «sí»: es lo que la hace volver.
-        self.assertIn("reviews[strategy] = {verdict, at: new Date().toISOString()}", self.history)
+        self.assertIn(
+            "reviews[strategy] = {verdict, pct: Number(pct), at: new Date().toISOString()}",
+            self.history,
+        )
         self.assertIn("reviewed_history_strategies: value", self.history)
         self.assertIn("/reviewed-history-strategies`", self.history)
         # Y se deshace si el guardado falla.
@@ -342,13 +417,41 @@ class ReviewedHistoryStrategiesTests(unittest.TestCase):
         self.assertIn("profile?.reviewed_history_strategies", self.reproduction)
         self.assertIn("const pending = marked.filter(row => !reproduction.reviewed(", self.metrics)
         self.assertIn("reviewed: marked.length - pending.length,", self.metrics)
+        # Y el déficit acumulado viaja con el veredicto en los dos filtros de
+        # la tarjeta: sin él, la portada compararía sólo la etiqueta mientras
+        # las dos tablas comparan las dos cosas.
+        self.assertEqual(
+            self.metrics.count("reviews, row.strategy, row.verdict, row.shortfall_pct,"), 2,
+        )
 
     def test_a_validated_series_comes_back_only_when_it_gets_worse(self) -> None:
-        # La regla es la misma `reviewed` que la del periodo, portada arriba.
+        # La regla es la misma `reviewed` que la del periodo, portada arriba,
+        # y la tabla le pasa el déficit acumulado de la serie.
         marks = {"eth": {"verdict": "AVISO", "at": "2026-10-26T08:00:00.000Z"}}
         self.assertTrue(reviewed(marks, "eth", "AVISO"))
         self.assertTrue(reviewed(marks, "eth", "REPRODUCE"))
         self.assertFalse(reviewed(marks, "eth", "NO REPRODUCE"))
+        self.assertIn("reviews, group.strategy, group.verdict, group.shortfall_pct,", self.history)
+        self.assertIn("toggle(group.strategy, group.verdict, group.shortfall_pct, box.checked)", self.history)
+        worse = {"eth": {"verdict": "AVISO", "pct": 30.0, "at": "2026-10-26T08:00:00.000Z"}}
+        self.assertFalse(reviewed(worse, "eth", "AVISO", 44.0))
+        self.assertTrue(reviewed(worse, "eth", "AVISO", 33.0))
+
+    def test_the_series_mark_also_carries_its_shortfall(self) -> None:
+        saved = self.store.set_reviewed_history_strategies("nodo", "real-a", {
+            "eth-grid": {"verdict": "AVISO", "pct": 31.5, "at": "2026-10-26T08:00:00.000Z"},
+        })
+        self.assertEqual(saved["eth-grid"]["pct"], 31.5)
+        self.assertEqual(
+            LiveAuditSettingsStore(self.path).reviewed_history_strategies("nodo", "real-a"),
+            saved,
+        )
+        with self.assertRaisesRegex(
+            ValueError, r"reviewed_history_strategies\[eth\]\.pct debe ser un número",
+        ):
+            normalize_live_audit_settings({"reviewed_history_strategies": {
+                "eth": {"verdict": "AVISO", "pct": "mucho"},
+            }})
 
 
 if __name__ == "__main__":

@@ -229,26 +229,50 @@ _REVIEW_VERDICTS = frozenset({
 })
 
 
-def _reviewed_mark(field: str, strategy: str, mark: Any) -> dict[str, str]:
+def _reviewed_pct(field: str, strategy: str, value: Any) -> float | None:
+    """El déficit que la fila tenía al validarla, si la pantalla lo mandó.
+
+    Es lo que permite retirar la marca cuando la fila empeora **sin cambiar de
+    etiqueta**: un AVISO validado al 24 % y otro al 55 % son la misma palabra y
+    no son el mismo hecho. Opcional porque las marcas guardadas antes de que
+    existiera el campo no lo llevan, y esas siguen comparándose sólo por
+    veredicto en vez de desaparecer.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field}[{strategy}].pct debe ser un número") from None
+    if number != number or number in (float("inf"), float("-inf")):
+        raise ValueError(f"{field}[{strategy}].pct debe ser un número")
+    return number
+
+
+def _reviewed_mark(field: str, strategy: str, mark: Any) -> dict[str, Any]:
     if not isinstance(mark, dict):
         raise ValueError(f"{field}[{strategy}] debe ser un objeto JSON")
     verdict = _text(mark.get("verdict"), f"{field}[{strategy}].verdict", 32)
     if verdict not in _REVIEW_VERDICTS:
         raise ValueError(f"{field}[{strategy}].verdict no es un veredicto conocido")
-    return {
+    normalized: dict[str, Any] = {
         "verdict": verdict,
         "at": _text(mark.get("at"), f"{field}[{strategy}].at", 40),
     }
+    pct = _reviewed_pct(field, strategy, mark.get("pct"))
+    if pct is not None:
+        normalized["pct"] = pct
+    return normalized
 
 
-def _reviewed_strategies(field: str, value: Any) -> dict[str, dict[str, str]]:
+def _reviewed_strategies(field: str, value: Any) -> dict[str, dict[str, Any]]:
     if value is None:
         return {}
     if not isinstance(value, dict):
         raise ValueError(f"{field} debe ser un objeto JSON")
     if len(value) > 500:
         raise ValueError("No se pueden validar más de 500 estrategias")
-    normalized: dict[str, dict[str, str]] = {}
+    normalized: dict[str, dict[str, Any]] = {}
     for raw_strategy, raw_mark in value.items():
         strategy = _text(raw_strategy, "identificador de estrategia", 512)
         if not strategy:
@@ -257,7 +281,7 @@ def _reviewed_strategies(field: str, value: Any) -> dict[str, dict[str, str]]:
     return normalized
 
 
-def normalize_reviewed_strategies(value: Any) -> dict[str, dict[str, str]]:
+def normalize_reviewed_strategies(value: Any) -> dict[str, dict[str, Any]]:
     """Valida las estrategias que el usuario dio por revisadas en Análisis.
 
     De cada una se guarda el veredicto que tenía al marcarla y cuándo se marcó.
@@ -267,7 +291,7 @@ def normalize_reviewed_strategies(value: Any) -> dict[str, dict[str, str]]:
     return _reviewed_strategies("reviewed_strategies", value)
 
 
-def normalize_reviewed_history_strategies(value: Any) -> dict[str, dict[str, str]]:
+def normalize_reviewed_history_strategies(value: Any) -> dict[str, dict[str, Any]]:
     """Lo mismo, pero sobre la serie archivada en vez de sobre el periodo.
 
     Es otro campo y no el mismo porque las dos tablas contestan preguntas
@@ -297,7 +321,7 @@ def normalize_reviewed_unpaired_tester(value: Any) -> dict[str, dict[str, str]]:
         raise ValueError("reviewed_unpaired_tester debe ser un objeto JSON")
     if len(value) > 2000:
         raise ValueError("No se pueden validar más de 2000 operaciones del tester")
-    normalized: dict[str, dict[str, str]] = {}
+    normalized: dict[str, dict[str, Any]] = {}
     for raw_key, raw_mark in value.items():
         key = _text(raw_key, "huella de la operación del tester", 256)
         if not key:
