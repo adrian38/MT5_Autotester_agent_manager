@@ -131,6 +131,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   simulado del autolote decidía el reparto, la real que abrió antes de la
   ventana que acabó siendo pareja, y dónde está la frontera de lo que el Excel
   puede cambiar.
+- `live_audit_pairing_20261026.md`: la huella SL/TP le ganaba a 24 horas de
+  distancia y cruzaba las filas dentro de la estrategia que el comentario ya
+  había autorizado; el tiempo pasa delante y la huella queda de desempate.
 - `live_audit_reproduction_verdict.md`: el censo de las 53 filas que demostró
   que 24 de los 26 avisos no eran déficits, los cinco falsos «MEJOR QUE EL
   TESTER» de cuentas que no ejecutaron nada, y por qué promediar el porcentaje

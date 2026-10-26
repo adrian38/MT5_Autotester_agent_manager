@@ -163,14 +163,43 @@ class LiveAuditAssignmentTests(unittest.TestCase):
         self.assertEqual(_stops_evidence(tester[0], real[0], 10.5), 2)
         self.assertEqual(_stops_evidence(tester[1], real[0], 10.5), 3)
 
-        # Sin niveles que declarar manda el lote esperado, y es la otra fila.
+        # Sin niveles que declarar manda el cierre dentro de tolerancia, no el
+        # lote esperado: `manual:22` coincide al segundo y `manual:23` está a
+        # 47.798 s. El lote con autolote es una simulación y el cierre un hecho
+        # observado, así que la real se queda en la fila que de verdad cerró con
+        # ella aunque el lote apunte a la otra.
         blind = compare(
             [{**row, "sl": 0.0, "tp": 0.0} for row in real],
             [{**row, "sl": 0.0, "tp": 0.0} for row in tester],
             real_strategy_lots=lots,
         )
-        self.assertEqual(blind[0]["status"], "missing")
-        self.assertEqual(blind[1]["real"]["strategy"], "771314830")
+        self.assertEqual(blind[0]["real"]["strategy"], "771314830")
+        self.assertEqual(blind[1]["status"], "missing")
+
+    def test_the_footprint_does_not_beat_a_day_of_distance(self) -> None:
+        # `audit-109` de `Christmas_Axi`: `tsv01` abre a las 17:15 dos dias
+        # seguidos. La real del mismo dia coincide clavada en apertura y
+        # cierre, pero la del dia siguiente declara unos niveles 0,03 mas
+        # cerca, y la huella iba primero: se llevaba la real del 22/10 y
+        # dejaba la fila con una apertura a 24 h.
+        day = 86_400
+        tester = [
+            operation("tsv01-21", 0, 83_700, sl=381.54, tp=400.05),
+            operation("tsv01-22", day, day + 3_262, sl=381.38, tp=400.44),
+        ]
+        real = [
+            operation("47193136", 0, 83_700, sl=381.69, tp=399.55),
+            operation("47266032", day, day + 3_345, sl=381.51, tp=400.02),
+        ]
+
+        rows = compare(real, tester)
+
+        self.assertEqual(rows[0]["real"]["strategy"], "47193136")
+        self.assertEqual(rows[1]["real"]["strategy"], "47266032")
+        self.assertEqual(rows[0]["measurements"]["open_time_delta_seconds"], 0)
+        # Y la huella sigue desempatando a los que si caen dentro del limite.
+        self.assertEqual(_stops_evidence(tester[0], real[1], .15), 0)
+        self.assertEqual(_stops_evidence(tester[0], real[0], .15), 2)
 
     def test_stops_that_nobody_declares_do_not_decide_anything(self) -> None:
         # Una orden a mercado no lleva niveles: sin evidencia manda el tiempo.

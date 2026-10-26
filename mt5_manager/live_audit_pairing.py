@@ -53,23 +53,18 @@ def _stops_evidence(
 
 
 
-def _pair_cost(
+def _may_pair(
     expected: dict[str, Any], actual: dict[str, Any], request: dict[str, Any],
-    points: dict[str, float],
-) -> tuple[int, int, int, int, float] | None:
-    """Lo lejos que está esta real de ser la del tester, o `None` si no lo es.
-
-    Manda la huella de SL y TP, cuando las dos partes la declaran. Después
-    el lote, que identifica a la estrategia dentro de la cuenta igual que en
-    el filtro de pertenencia. Después la apertura dentro de tolerancia,
-    después el cierre, y a igualdad la menor distancia total.
+) -> bool:
+    """Si esta real puede siquiera ser la de esta fila, antes de medir nada.
 
     **El comentario del EA, si lo hay, decide a qué estrategia puede ir la
     real.** No elige la fila —dentro de esa estrategia sigue mandando el coste
-    de abajo— pero cierra la puerta a las demás: el comentario lo escribió el
-    programa que abrió la orden, así que llevar su PnL a otra estrategia
-    porque geométricamente encajara mejor es meter en una curva lo que el dato
-    más fiable que hay dice que no es suyo. Sin dueño declarado, nada cambia.
+    de `_pair_cost`— pero cierra la puerta a las demás: el comentario lo
+    escribió el programa que abrió la orden, así que llevar su PnL a otra
+    estrategia porque geométricamente encajara mejor es meter en una curva lo
+    que el dato más fiable que hay dice que no es suyo. Sin dueño declarado,
+    nada cambia.
 
     Una fila que el usuario declaró **sin real** no admite ninguna pareja: es
     la única forma de deshacer un emparejado de más, que salía con desviaciones
@@ -82,9 +77,32 @@ def _pair_cost(
         or actual["side"] != expected["side"]
         or tester_pair_key(expected) in (request.get("_unpaired_rows") or ())
     ):
-        return None
+        return False
     owner = (request.get("_comment_owners") or {}).get(real_pair_id(actual))
-    if owner and owner != str(expected.get("strategy") or ""):
+    return not (owner and owner != str(expected.get("strategy") or ""))
+
+
+def _pair_cost(
+    expected: dict[str, Any], actual: dict[str, Any], request: dict[str, Any],
+    points: dict[str, float],
+) -> tuple[int, int, int, int, float] | None:
+    """Lo lejos que está esta real de ser la del tester, o `None` si no lo es.
+
+    Manda la apertura dentro de tolerancia, después el cierre. Sólo a
+    igualdad decide la huella de SL y TP, después el lote —que identifica a
+    la estrategia dentro de la cuenta igual que en el filtro de pertenencia—
+    y por último la menor distancia total.
+
+    **El tiempo va primero porque la huella no distingue entre días.** Iba
+    delante para desempatar dos aperturas del mismo segundo y acabó ganándole
+    a 24 horas: la misma estrategia repite niveles casi idénticos de un día
+    para otro, así que entre candidatas de días distintos no es evidencia sino
+    ruido. Detalle en `ai_context/live_audit_pairing_20261026.md`.
+
+    Quién puede emparejarse con quién lo decide antes `_may_pair`, que es
+    donde manda el comentario del EA.
+    """
+    if not _may_pair(expected, actual, request):
         return None
     time_limit = request["trade_time_tolerance_seconds"]
     open_delta = abs((actual["open_time"] - expected["open_time"]).total_seconds())
@@ -107,8 +125,8 @@ def _pair_cost(
     ):
         return None
     return (
-        stops_evidence, int(volume_outside),
         int(open_delta > time_limit), int(close_delta > time_limit),
+        stops_evidence, int(volume_outside),
         open_delta + close_delta,
     )
 
