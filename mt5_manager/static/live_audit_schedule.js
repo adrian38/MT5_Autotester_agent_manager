@@ -607,6 +607,7 @@
   function applyNotifications(data) {
     notifications = data || {events: [], unread: 0};
     const unread = Number(notifications.unread || 0);
+    syncAppBadge(unread);
     const badge = field('#cron-unread');
     badge.textContent = unread > 99 ? '99+' : String(unread);
     badge.hidden = !unread;
@@ -618,6 +619,18 @@
       : '<li class="cron-empty">Todavía no hay avisos. Aquí aparecerá cada cálculo de '
         + 'portafolio y cada auditoría, cuando termine y cuando falle.</li>';
     pushNew(notifications.events);
+  }
+
+  // La app instalada comparte el contador de la campana con su icono. La API
+  // no existe en todos los navegadores; en ellos la campana sigue siendo la
+  // fuente visible y no se convierte una mejora cosmética en un error.
+  function syncAppBadge(unread) {
+    try {
+      const operation = unread > 0
+        ? navigator.setAppBadge?.(unread)
+        : navigator.clearAppBadge?.();
+      if (operation && typeof operation.catch === 'function') operation.catch(() => {});
+    } catch (_error) { /* El navegador conoce la API pero no la habilita aquí. */ }
   }
 
   async function loadNotifications() {

@@ -47,6 +47,13 @@ y no un parche al aviso de la pestaña.
 
 ## Decisiones que no se deducen del código
 
+- **El icono instalado cuenta lo mismo que la campana.** La página aplica
+  `setAppBadge` al cargar, sondear, marcar como leído o vaciar. Cuando está
+  cerrada, cada Web Push lleva el total no leído que había justo después de
+  guardar el aviso y el service worker actualiza el badge. Las dos llamadas son
+  opcionales y silenciosas porque la API no existe o no está habilitada en
+  todos los navegadores; eso nunca debe impedir ni el diario ni el aviso.
+
 - **El aviso viaja cifrado dentro del push, no se va a buscar después.** La
   alternativa era un push vacío y que el service worker pidiera el aviso al
   manager, que ahorra todo el cifrado. Falla justo cuando más importa: sin red,

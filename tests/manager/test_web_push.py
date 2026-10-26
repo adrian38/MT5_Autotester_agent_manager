@@ -256,6 +256,7 @@ class DeliveryTest(unittest.TestCase):
                 "id": 7, "tag": "cron-7", "title": "Portafolio generado",
                 "body": "3 propuestas listas", "level": "success",
                 "link": "/portfolios.html",
+                "unread": 0,
             },
             json.loads(decrypt(request.data, private, auth)),
         )
@@ -344,6 +345,13 @@ class BellHandoverTest(unittest.TestCase):
         self.store.add("success", "Portafolio generado", "3 propuestas", kind="generate")
         self.assertEqual(["Portafolio generado"], [event["title"] for event in seen])
         self.assertEqual(1, seen[0]["id"])
+
+    def test_the_push_knows_the_bell_count_for_the_installed_app_badge(self) -> None:
+        seen = []
+        self.store.announce = seen.append
+        self.store.add("success", "Primero")
+        self.store.add("warning", "Segundo")
+        self.assertEqual([1, 2], [event["unread"] for event in seen])
 
     def test_a_push_that_explodes_does_not_break_the_diary(self) -> None:
         def explode(_event):

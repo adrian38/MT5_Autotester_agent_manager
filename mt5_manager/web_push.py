@@ -84,6 +84,7 @@ def message_from_event(event: dict[str, Any]) -> dict[str, Any]:
         "body": str(event.get("message") or "")[:MAXIMUM_BODY],
         "level": str(event.get("level") or "info"),
         "link": str(event.get("link") or "") or _audit_link(event),
+        "unread": max(0, int(event.get("unread") or 0)),
     }
 
 

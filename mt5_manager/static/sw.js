@@ -38,21 +38,34 @@ function payloadOf(data) {
 
 self.addEventListener('push', event => {
   const payload = payloadOf(event.data);
-  event.waitUntil(self.registration.showNotification(
-    payload.title || FALLBACK.title,
-    {
-      body: payload.body || '',
-      // El mismo `tag` que usa la pestaña abierta: si ésta ya enseñó el aviso
-      // con la API `Notification`, el push lo reemplaza en vez de duplicarlo.
-      tag: payload.tag || FALLBACK.tag,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      data: {link: payload.link || FALLBACK.link},
-      // Un fallo o un bloqueo no se puede perder por no estar mirando.
-      requireInteraction: payload.level === 'error' || payload.level === 'warning',
-    },
-  ));
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(payload.title || FALLBACK.title, {
+        body: payload.body || '',
+        // El mismo `tag` que usa la pestaña abierta: si ésta ya enseñó el aviso
+        // con la API `Notification`, el push lo reemplaza en vez de duplicarlo.
+        tag: payload.tag || FALLBACK.tag,
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        data: {link: payload.link || FALLBACK.link},
+        // Un fallo o un bloqueo no se puede perder por no estar mirando.
+        requireInteraction: payload.level === 'error' || payload.level === 'warning',
+      }),
+    syncAppBadge(payload.unread),
+  ]));
 });
+
+function syncAppBadge(unread) {
+  try {
+    const count = Math.max(0, Number(unread || 0));
+    const operation = count > 0
+      ? self.navigator.setAppBadge?.(count)
+      : self.navigator.clearAppBadge?.();
+    return operation && typeof operation.catch === 'function'
+      ? operation.catch(() => {}) : Promise.resolve();
+  } catch (_error) {
+    return Promise.resolve();
+  }
+}
 
 async function openManager(link) {
   const target = new URL(link || '/', self.location.origin).href;

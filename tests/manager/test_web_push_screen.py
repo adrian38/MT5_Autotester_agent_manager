@@ -79,6 +79,11 @@ class WebPushScreenTests(unittest.TestCase):
         # cambiaron seria peor que no tener worker.
         self.assertNotIn("caches.open", self.worker)
 
+    def test_a_push_updates_the_installed_app_badge_while_it_is_closed(self) -> None:
+        self.assertIn("syncAppBadge(payload.unread)", self.worker)
+        self.assertIn("self.navigator.setAppBadge?.(count)", self.worker)
+        self.assertIn("self.navigator.clearAppBadge?.()", self.worker)
+
     def test_the_client_subscribes_against_the_key_of_this_manager(self) -> None:
         self.assertIn("navigator.serviceWorker.register", self.client)
         self.assertIn("userVisibleOnly: true", self.client)

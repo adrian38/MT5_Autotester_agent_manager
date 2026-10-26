@@ -98,7 +98,9 @@ class LiveAuditNotificationStore:
             del self.events[:-MAXIMUM_EVENTS]
             self._save()
             stored = dict(event)
-        self._announce(stored)
+            unread = sum(1 for item in self.events if not item.get("read"))
+        announced = dict(stored, unread=unread)
+        self._announce(announced)
         return stored
 
     def _announce(self, event: dict[str, Any]) -> None:

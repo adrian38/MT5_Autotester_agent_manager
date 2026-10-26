@@ -44,6 +44,11 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("cron-bell", self.script)
         self.assertIn("cron-unread", self.script)
 
+    def test_the_installed_app_badge_follows_the_bell(self) -> None:
+        self.assertIn("syncAppBadge(unread)", self.script)
+        self.assertIn("navigator.setAppBadge?.(unread)", self.script)
+        self.assertIn("navigator.clearAppBadge?.()", self.script)
+
     def test_only_the_active_portfolios_header_shows_the_schedule_button(self) -> None:
         self.assertIn("data-live-audit-schedule", self.dashboard)
         self.assertNotIn("data-live-audit-schedule", self.generation)
