@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from . import live_audit_catch_up, live_audit_degradation_alerts, live_audit_executions
-from . import live_audit_lineage, live_audit_schedule, manager_http
+from . import live_audit_full_period, live_audit_lineage, live_audit_schedule, manager_http
 from .common import load_json, safe_int, save_json, utc_now
 from .live_audit_core import RUNNING_STATUSES
 from .live_audit_executions import audit_label
@@ -279,10 +279,9 @@ def record_transitions(
         changes: dict[str, Any] = {"last_status": status}
         if str(record.get("last_status") or "") in RUNNING_STATUSES and status in FINAL_STATUSES:
             outcome, level, title = FINAL_STATUSES[status]
-            title = live_audit_schedule.typed_audit_title(
-                title, str(record.get("period_kind") or ""),
-            )
+            title = live_audit_schedule.typed_audit_title(title, str(record.get("period_kind") or ""))
             changes["outcome"] = outcome
+            changes.update(live_audit_full_period.completion_changes(record, outcome))
             profile = dict(profiles.get(audit_id) or {})
             server.live_audit_notifications.add(
                 level, f"{title}: {audit_label(profile, audit_id)}",
@@ -310,10 +309,7 @@ def _launch_payload(
     inherited_end, created_at = live_audit_lineage.audit_period_bounds(
         server, node_id, profile,
     )
-    complete = (
-        live_audit_schedule.full_audit_period(now)
-        if full_audit else {}
-    )
+    complete = period if full_audit else {}
     chained = period or complete or live_audit_schedule.chained_period(
         server.live_audit_scheduler_settings, audit, now, inherited_end, created_at,
     )
@@ -348,10 +344,8 @@ def _period_text(
 ) -> str:
     """De dónde sale la fecha de arranque, dicho en la campana."""
     if full_audit and chained:
-        return (
-            f"periodo {chained['period_start_date']} a "
-            f"{chained['period_end_date']}, auditoría completa de cuatro semanas"
-        )
+        return (f"periodo {chained['period_start_date']} a {chained['period_end_date']}, "
+                "auditoría larga acumulada")
     for period, origin in (
         (chained, "enganchado al final de la última auditoría"),
         (floored, "desde que se creó el portafolio"),
@@ -380,8 +374,10 @@ def launch(
     base = {
         "window": context["window"], "attempts": attempts,
         "last_attempt_at": utc_now(),
-        "period_kind": "four_weeks" if context.get("full_audit") else "weekly",
+        "period_kind": "monthly_full" if context.get("full_audit") else "weekly",
     }
+    if context.get("full_audit") and context.get("period"):
+        base["full_period_end"] = context["period"].get("period_end_date")
     payload, chained, floored = _launch_payload(
         server, node_id, audit_id, profile, context["audit"], context["now"],
         context.get("period"), bool(context.get("full_audit")),
@@ -490,11 +486,15 @@ def launch_due(
             continue
         if not decision:
             continue
+        full_audit = live_audit_schedule.is_monthly_full_audit(window, settings)
+        period = (live_audit_full_period.audit_period(
+            server, node_id, dict(profiles.get(audit_id) or {}), record, window, scheduled_audit_ids,
+        ) if full_audit else None)
         launch(
             server, node, node_id, audit_id, dict(profiles.get(audit_id) or {}),
             {
                 "window": window, "audit": audit, "now": now,
-                "full_audit": live_audit_schedule.is_monthly_full_audit(window, settings),
+                "full_audit": full_audit, "period": period,
                 "attempts": int(record.get("attempts") or 0) + 1
                 if decision == "retry" else 1,
             },

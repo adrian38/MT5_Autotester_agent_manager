@@ -34,7 +34,6 @@ DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS = {
     "retry_delay_minutes": 10,
     "chain_from_last_audit": True,
     "monthly_full_audit": True,
-    "monthly_full_audit_week": 4,
     "use_multiterminal": False,
 }
 
@@ -61,7 +60,7 @@ WEEKDAY_LABELS = (
 # Claves tecnicas de la primera version. Se aceptan solo para migrar un JSON
 # antiguo: no forman parte de la configuracion publica ni se vuelven a guardar.
 _LEGACY_LIVE_AUDIT_SCHEDULER_KEYS = frozenset({
-    "check_interval_minutes", "startup_delay_seconds",
+    "check_interval_minutes", "startup_delay_seconds", "monthly_full_audit_week",
 })
 
 _INTEGER_FIELDS = {
@@ -71,7 +70,6 @@ _INTEGER_FIELDS = {
     "interval_days": (1, 3650),
     "retry_attempts": (0, 10),
     "retry_delay_minutes": (1, 720),
-    "monthly_full_audit_week": (1, 5),
 }
 
 _BOOLEAN_FIELDS = (
@@ -209,15 +207,13 @@ def is_monthly_full_audit(window: str, settings: dict[str, Any]) -> bool:
     if instant is None:
         return False
     zone, _warning = resolve_zone(settings.get("timezone"))
-    local_day = instant.astimezone(zone).day
-    return ((local_day - 1) // 7) + 1 == int(
-        settings.get("monthly_full_audit_week", 4)
-    )
+    local = instant.astimezone(zone)
+    return (local + timedelta(days=7)).month != local.month
 
 
 def typed_audit_title(title: str, period_kind: str) -> str:
     """Hace visible el tipo sin alterar avisos de ejecuciones manuales."""
-    label = "de cuatro semanas" if period_kind == "four_weeks" else "semanal"
+    label = "larga" if period_kind in {"monthly_full", "four_weeks"} else "semanal"
     return title.replace("Auditoría", f"Auditoría {label}", 1) if period_kind else title
 
 
@@ -247,10 +243,9 @@ def schedule_description(settings: dict[str, Any]) -> str:
     )
     monthly = ""
     if settings.get("mode") == "weekly" and settings.get("monthly_full_audit", True):
-        week = int(settings.get("monthly_full_audit_week", 4))
         monthly = (
-            f" La {week}.ª cita semanal de cada mes repite la auditoría completa "
-            "de las últimas cuatro semanas para recoger operaciones de más de una semana."
+            " La última cita semanal de cada mes repite la auditoría acumulada desde "
+            "el corte largo anterior; la primera parte del origen activo más antiguo."
         )
     terminals = (
         "Reparte el tester entre las terminales del nodo."
@@ -395,7 +390,7 @@ def chained_period(
     }
 
 
-def _configured_start(profile: dict[str, Any], now: datetime) -> datetime | None:
+def configured_start(profile: dict[str, Any], now: datetime) -> datetime | None:
     """Donde arranca el periodo que el usuario dejo escrito en el uso."""
     if str(profile.get("period_mode") or "rolling_days") == "fixed_dates":
         return parse_timestamp(profile.get("period_start_date"))
@@ -422,7 +417,7 @@ def creation_period(
     if created_at is None:
         return {}
     floor = created_at.astimezone(timezone.utc).date()
-    configured = _configured_start(profile, now)
+    configured = configured_start(profile, now)
     if configured is not None and configured.astimezone(timezone.utc).date() >= floor:
         return {}
     end = parse_timestamp(profile.get("period_end_date")) if str(
@@ -434,17 +429,6 @@ def creation_period(
     return {
         "period_mode": "fixed_dates",
         "period_start_date": floor.isoformat(),
-        "period_end_date": end_date.isoformat(),
-    }
-
-
-def full_audit_period(now: datetime) -> dict[str, str]:
-    """Las cuatro ventanas semanales que desembocan en la cita mensual."""
-    start_date = (now - timedelta(days=28)).astimezone(timezone.utc).date()
-    end_date = now.astimezone(timezone.utc).date()
-    return {
-        "period_mode": "fixed_dates",
-        "period_start_date": start_date.isoformat(),
         "period_end_date": end_date.isoformat(),
     }
 

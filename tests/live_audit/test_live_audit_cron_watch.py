@@ -174,8 +174,12 @@ class WatchTickTests(unittest.TestCase):
             live_audit_watch.tick(server)
         self.assertIs(posted[0][1]["use_multiterminal"], True)
 
-    def test_the_fourth_saturday_repeats_the_four_week_period(self) -> None:
+    def test_the_last_saturday_accumulates_from_the_oldest_active_start(self) -> None:
         state = audit_state()
+        state["profiles"]["11"].update({
+            "period_mode": "fixed_dates", "period_start_date": "2026-09-01",
+            "period_end_date": "2026-10-24",
+        })
         portfolios = mock.Mock()
         portfolios.saved.return_value = {
             "portfolio": {"created_at": "2026-09-09T00:07:00+00:00"},
@@ -191,20 +195,36 @@ class WatchTickTests(unittest.TestCase):
         ):
             live_audit_watch.launch_due(
                 server, server.nodes[0], "n", state, {"11": published_audit()},
-                datetime(2026, 10, 24, 21, 1, tzinfo=timezone.utc),
+                datetime(2026, 10, 31, 22, 1, tzinfo=timezone.utc),
             )
         _path, payload = posted[0]
         self.assertEqual(payload["period_mode"], "fixed_dates")
-        self.assertEqual(payload["period_start_date"], "2026-09-26")
-        self.assertEqual(payload["period_end_date"], "2026-10-24")
+        self.assertEqual(payload["period_start_date"], "2026-09-09")
+        self.assertEqual(payload["period_end_date"], "2026-10-31")
         started = [row for row in server.events() if row["kind"] == "audit_started"]
-        self.assertIn("auditoría completa de cuatro semanas", started[0]["message"])
-        self.assertIn("Auditoría de cuatro semanas lanzada", started[0]["title"])
+        self.assertIn("auditoría larga acumulada", started[0]["message"])
+        self.assertIn("Auditoría larga lanzada", started[0]["title"])
         live_audit_watch.record_transitions(
             server, server.nodes[0], "n", state, {"11": published_audit()},
         )
         finished = [row for row in server.events() if row["kind"] == "audit_completed"]
-        self.assertIn("Auditoría de cuatro semanas completada", finished[0]["title"])
+        self.assertIn("Auditoría larga completada", finished[0]["title"])
+        record = server.live_audit_runs.record(LiveAuditRunState.key("n", "11"))
+        self.assertEqual(record["last_full_audit_end"], "2026-10-31")
+        following = live_audit_watch.live_audit_full_period.audit_period(
+            server, "n", state["profiles"]["11"], record,
+            "2026-11-28T22:00:00+00:00", live_audit_watch.scheduled_audit_ids,
+        )
+        self.assertEqual(following["period_start_date"], "2026-10-31")
+        self.assertEqual(following["period_end_date"], "2026-11-28")
+        portfolios.saved.return_value = {
+            "portfolio": {"created_at": "2026-11-10T09:00:00+00:00"},
+        }
+        new_use = live_audit_watch.live_audit_full_period.audit_period(
+            server, "n", state["profiles"]["11"], {},
+            "2026-11-28T22:00:00+00:00", live_audit_watch.scheduled_audit_ids,
+        )
+        self.assertEqual(new_use["period_start_date"], "2026-11-10")
 
     def test_the_bell_only_claims_the_chain_when_the_period_comes_from_it(self) -> None:
         # «fixed_dates» es justo lo que trae un perfil con fechas fijas. Leerlo

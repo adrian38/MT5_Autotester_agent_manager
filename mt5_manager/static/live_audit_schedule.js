@@ -226,12 +226,9 @@
         <label class="cron-switch" id="cron-monthly-full-field">
           <input id="cron-monthly-full" type="checkbox">
           <span><strong>Auditoría completa mensual</strong>
-            <small>En la <select id="cron-monthly-full-week">
-              <option value="1">primera</option><option value="2">segunda</option>
-              <option value="3">tercera</option><option value="4">cuarta</option>
-              <option value="5">quinta</option>
-            </select> cita semanal de cada mes repite las últimas cuatro semanas.
-            Así recupera operaciones que permanecieron abiertas entre varias citas.</small></span>
+            <small>La última cita semanal de cada mes acumula desde la auditoría larga
+            anterior. La primera empieza en la fecha activa más antigua; cada portafolio
+            nuevo empieza el día en que fue creado.</small></span>
         </label>
         <label class="cron-switch">
           <input id="cron-multiterminal" type="checkbox">
@@ -322,7 +319,6 @@
     field('#cron-only-live').checked = scheduler.only_live_trading !== false;
     field('#cron-chain').checked = scheduler.chain_from_last_audit !== false;
     field('#cron-monthly-full').checked = scheduler.monthly_full_audit !== false;
-    field('#cron-monthly-full-week').value = String(scheduler.monthly_full_audit_week ?? 4);
     field('#cron-multiterminal').checked = scheduler.use_multiterminal === true;
     field('#cron-description').textContent = scheduler.description || '';
     const source = field('#cron-source');
@@ -374,7 +370,6 @@
       only_live_trading: field('#cron-only-live').checked,
       chain_from_last_audit: field('#cron-chain').checked,
       monthly_full_audit: field('#cron-monthly-full').checked,
-      monthly_full_audit_week: Number(field('#cron-monthly-full-week').value),
       use_multiterminal: field('#cron-multiterminal').checked,
     };
   }

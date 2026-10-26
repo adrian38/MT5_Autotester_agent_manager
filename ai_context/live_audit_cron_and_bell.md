@@ -1,26 +1,28 @@
 # Cron general de auditoría y campana de avisos
 
-## Auditoría completa en la cuarta cita semanal (2026-10-26)
+## Auditoría larga en la última cita semanal (2026-10-26)
 
 El encadenado semanal evita huecos entre cierres, pero el tester de una ventana
 de siete días no puede reconstruir una operación que abrió antes de esa
 ventana y cerró dentro de ella. Por eso el cron semanal tiene una segunda
-cadencia visible en su mismo diálogo: por defecto, la **cuarta cita semanal de
-cada mes** vuelve a auditar las cuatro ventanas semanales —los 28 días que
-terminan en esa cita—. Las demás citas siguen encadenadas como antes. No se
-vuelve al nacimiento del portafolio: el coste permanece acotado aunque lleve
-años operando.
+cadencia visible en su mismo diálogo: la **última cita semanal de cada mes**
+vuelve a auditar el tramo acumulado desde el corte largo anterior. Las demás
+citas siguen encadenadas como antes.
 
-`monthly_full_audit` activa la regla y `monthly_full_audit_week` elige la cita
-mensual (1 a 5). Sólo se aplica en modo `weekly`; el modo por intervalo no
-inventa meses. La ventana se decide con la clave persistida del turno, no con el
-día en que el manager recupera una cita vencida, así que los reintentos y la
-recuperación conservan el carácter de auditoría completa. El nodo ya entiende
-`fixed_dates`: todo el cambio vive en el manager y no requiere port a los
-runtimes de los agentes.
+`monthly_full_audit` activa la regla. Sólo se aplica en modo `weekly`; el modo
+por intervalo no inventa meses. En la primera ejecución el inicio global es la
+fecha configurada más antigua entre los usos activos; cada portafolio la sube a
+su propia fecha de creación si nació después. Al completar, cada uso persiste
+`last_full_audit_end`, que será su inicio en la larga siguiente. Así el primer
+corte del 2026-10-31 parte de 2026-09-01 en los usos que ya existían, y el
+siguiente es 2026-10-31 → 2026-11-28. Un uso nuevo empieza en su creación.
+
+La ventana se decide con la clave persistida del turno, no con el día en que el
+manager recupera una cita vencida. El nodo ya entiende `fixed_dates`: todo el
+cambio vive en el manager y no requiere port a los runtimes de los agentes.
 
 La campana no obliga a deducir el tipo por las fechas: el lanzamiento y el
-resultado dicen **«Auditoría semanal»** o **«Auditoría de cuatro semanas»**.
+resultado dicen **«Auditoría semanal»** o **«Auditoría larga»**.
 El tipo se persiste en el estado del turno al lanzar, de modo que sigue estando
 disponible horas después cuando llega la transición final del agente. Las
 ejecuciones manuales antiguas, que no tienen esa marca, conservan el título

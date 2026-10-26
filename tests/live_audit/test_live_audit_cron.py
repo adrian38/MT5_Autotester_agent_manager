@@ -237,14 +237,25 @@ class DefaultsTests(unittest.TestCase):
         # una persona, nunca un despliegue.
         self.assertFalse(DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS["enabled"])
 
-    def test_the_fourth_weekly_turn_is_the_monthly_full_audit(self) -> None:
-        current = settings(monthly_full_audit=True, monthly_full_audit_week=4)
-        self.assertTrue(live_audit_schedule.is_monthly_full_audit(
+    def test_the_last_weekly_turn_is_the_monthly_full_audit(self) -> None:
+        current = settings(monthly_full_audit=True)
+        for window in (
+            "2026-10-31T22:00:00+00:00", "2026-11-28T22:00:00+00:00",
+            "2026-12-26T22:00:00+00:00", "2027-01-30T22:00:00+00:00",
+        ):
+            with self.subTest(window=window):
+                self.assertTrue(live_audit_schedule.is_monthly_full_audit(window, current))
+        self.assertFalse(live_audit_schedule.is_monthly_full_audit(
             "2026-10-24T21:00:00+00:00", current,
         ))
-        self.assertFalse(live_audit_schedule.is_monthly_full_audit(
-            "2026-10-17T21:00:00+00:00", current,
-        ))
+
+    def test_the_discarded_week_selector_migrates_out(self) -> None:
+        self.assertNotIn(
+            "monthly_full_audit_week",
+            live_audit_schedule.normalize_live_audit_scheduler_settings(
+                {"monthly_full_audit_week": 4},
+            ),
+        )
 
 
 if __name__ == "__main__":
