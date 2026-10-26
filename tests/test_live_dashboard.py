@@ -151,15 +151,20 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # El veredicto es el mismo que el de la tabla, y se mide sin escalado:
         # una simulación de lote elegida para hoy no significa nada aplicada a
         # los periodos anteriores.
-        self.assertIn("function summarizeHistory(result, series)", self.metrics)
-        self.assertIn("flaggedStrategies(mergeHistoryGroups(executions, retained), {})", self.metrics)
+        self.assertIn("function summarizeHistory(result, series, overrides = {})", self.metrics)
+        self.assertIn("mergeHistoryGroups(executions, retained), executedLots(overrides),", self.metrics)
+        # Del diálogo de lotes sólo entra `$mode`, igual que en la tabla: los
+        # números tecleados describen la semana de hoy, y la casilla que manda
+        # no elige tamaño sino de qué lado se copia el lote de cada pareja.
+        self.assertIn("return mode ? {$mode: mode} : {};", self.metrics)
+        self.assertIn("function executedLots(", self.metrics)
         self.assertIn("LiveDashboardMetrics.summarizeHistory(", self.script)
         # Y la casilla «Validada» del periodo no la toca: dice «ya miré esta
         # semana» y la serie contesta otra pregunta —la tabla histórica ni
         # siquiera tiene esa casilla—. Filtrando por ella, las doce filas
         # marcadas del 109 de AXI se escondían detrás de dos validaciones.
         self.assertNotIn("summarizeHistory(result, series, reviews", self.metrics)
-        self.assertIn("LiveDashboardMetrics.summarizeHistory(result, historyOf(entry))", self.script)
+        self.assertIn("summarizeHistory(result, historyOf(entry), overrides)", self.script)
         # Y la tarjeta no puede decir «SIN AVISOS» con la lista debajo.
         self.assertIn("inSeries ? `${inSeries} EN LA SERIE` : ''", self.script)
 

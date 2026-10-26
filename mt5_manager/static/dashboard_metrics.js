@@ -154,9 +154,21 @@
     return [...merged.values()];
   }
 
-  // La tabla historica de Analisis, con su mismo veredicto. Se mide sin
-  // escalado -`{}`-: una simulacion de lote elegida para hoy no significa nada
-  // aplicada a los periodos anteriores.
+  // Lo unico del dialogo de lotes que vale para la serie: `$mode`.
+  //
+  // Los numeros tecleados describen la semana de hoy y no significan nada
+  // aplicados a los periodos anteriores. La casilla que manda si, porque no
+  // elige un tamano: dice de que lado se copia el lote, y cada operacion copia
+  // el de **su propia** auditoria (`scale_volume`). Tirarla dejaba la demo a
+  // 0,01 contra una real a 0,10 y el cociente media tamano de posicion, no
+  // reproduccion. Es el mismo recorte que `executedLots` de
+  // `live_audit_history.js`: la tarjeta y la tabla tienen que decir lo mismo.
+  function executedLots(overrides) {
+    const mode = overrides && typeof overrides === 'object' ? overrides.$mode : null;
+    return mode ? {$mode: mode} : {};
+  }
+
+  // La tabla historica de Analisis, con su mismo veredicto.
   //
   // **Lo validado en el periodo no la toca**, al reves que `summarize`. La
   // casilla «Validada» esta en la tabla del periodo y dice «ya mire esta
@@ -166,12 +178,14 @@
   // escondian detras de las dos validaciones del periodo, porque validar
   // guarda el veredicto de entonces y un AVISO acumulado nunca es peor que el
   // NO REPRODUCE que se valido.
-  function summarizeHistory(result, series) {
+  function summarizeHistory(result, series, overrides = {}) {
     const executions = series?.executions || [];
     if (!executions.length) return {flagged: [], audits: 0};
     const retained = new Set(strategyGroups(result).map(historyIdentity));
     return {
-      flagged: flaggedStrategies(mergeHistoryGroups(executions, retained), {}),
+      flagged: flaggedStrategies(
+        mergeHistoryGroups(executions, retained), executedLots(overrides),
+      ),
       audits: Number(series.audits || executions.length),
     };
   }

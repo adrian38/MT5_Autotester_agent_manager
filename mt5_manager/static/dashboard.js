@@ -331,7 +331,7 @@ function cardMarkup(entry) {
     LiveAuditReproduction.storedUnpairedReviews(entry.profile),
   ) : {comparable: false, flagged: [], reviewed: 0};
   const history = result
-    ? LiveDashboardMetrics.summarizeHistory(result, historyOf(entry))
+    ? LiveDashboardMetrics.summarizeHistory(result, historyOf(entry), overrides)
     : {flagged: [], audits: 0};
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
     profile.portfolio_type
