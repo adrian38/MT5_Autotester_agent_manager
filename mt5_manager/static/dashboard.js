@@ -15,6 +15,12 @@ const nodeAliases = new Map();
 // así que se pide una sola vez por auditoría: se guarda con la marca de la
 // ejecución y no se vuelve a pedir hasta que termine la siguiente.
 const auditHistories = new Map();
+// Lo que ya se intentó pedir, con éxito o sin él. La tarjeta se pinta en
+// cuanto hay uso y el alias y la serie llegan después, así que sin esto no hay
+// forma de distinguir «todavía no ha llegado» de «no hay»: una tarjeta sin la
+// sección del histórico parece terminada, y lo que pasa es que falta.
+const aliasesTried = new Set();
+const historiesTried = new Set();
 const FAILURE_LIMIT = 3;
 const BACKOFF_MS = 5 * 60 * 1000;
 
@@ -117,6 +123,7 @@ async function loadAliases(node) {
   const known = nodeAliases.get(node.id) || {};
   const ids = portfolioIds(nodeEntries.get(node.id) || []);
   if (!ids.length || ids.every(portfolioId => portfolioId in known)) return false;
+  aliasesTried.add(node.id);
   try {
     const data = await jsonResponse(await fetch(
       `/api/nodes/${encodeURIComponent(node.id)}/portfolio-aliases?ids=${ids.join(',')}`,
@@ -145,11 +152,44 @@ function historyOf(entry) {
   return stored && stored.stamp === historyStamp(entry) ? stored.series : null;
 }
 
+// La serie de un uso concreto medida contra una ejecución concreta: cuando la
+// siguiente auditoría termina, el billete cambia y la tarjeta vuelve a avisar
+// de que está cargando, que es justo lo que pasa.
+function historyTicket(entry) {
+  return `${historyKey(entry)}|${historyStamp(entry)}`;
+}
+
+// Lo que a esta tarjeta le falta por llegar, con su nombre: «cargando» a secas
+// no dice si lo que falta son los números o un adorno.
+function cardPending(entry) {
+  if (!entry.auditId) return [];
+  const portfolioId = Number(entry.profile?.portfolio_id || 0);
+  const known = nodeAliases.get(entry.node?.id) || {};
+  return [
+    portfolioId > 0 && !(portfolioId in known) && !aliasesTried.has(entry.node?.id)
+      ? 'el alias' : '',
+    entry.result && !historyOf(entry) && !historiesTried.has(historyTicket(entry))
+      ? 'la serie archivada' : '',
+  ].filter(Boolean);
+}
+
+// Se dice en la tarjeta y no sólo en la barra de arriba: la barra habla de la
+// portada entera y lo que falta es de este uso. Y se dice una vez intentado,
+// no mientras se reintenta para siempre: una serie que no se deja leer
+// desaparece como sección, no como aviso eterno.
+function loadingMarkup(entry) {
+  const pending = cardPending(entry);
+  if (!pending.length) return '';
+  return '<p class="card-loading"><span class="card-spinner" aria-hidden="true"></span>'
+    + `Cargando ${escapeHtml(pending.join(' y '))}…</p>`;
+}
+
 async function loadHistories(node) {
   const pending = (nodeEntries.get(node.id) || []).filter(
     entry => entry.auditId && entry.result && !historyOf(entry),
   );
   if (!pending.length) return false;
+  pending.forEach(entry => historiesTried.add(historyTicket(entry)));
   const loaded = await Promise.allSettled(pending.map(async entry => {
     const series = await jsonResponse(await fetch(
       `/api/nodes/${encodeURIComponent(node.id)}/live-audits/`
@@ -377,7 +417,7 @@ function cardMarkup(entry) {
     slow ? `${slow} OPERA${slow === 1 ? '' : 'N'} MENOS` : '',
     inSeries ? `${inSeries} EN LA SERIE` : '',
   ].filter(Boolean).join(' · ') || (summary.comparable ? 'SIN AVISOS' : 'SIN DATOS');
-  return `<article class="portfolio-card ${tone} ${brokerClass(entry.node.broker)}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${summary.comparable ? unlinkedMarkup(summary) : ''}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
+  return `<article class="portfolio-card ${tone} ${brokerClass(entry.node.broker)}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${loadingMarkup(entry)}${body}${summary.comparable ? unlinkedMarkup(summary) : ''}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }
 
 function render(entries) {

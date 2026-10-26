@@ -15,6 +15,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         static = root / "mt5_manager" / "static"
         cls.page_text = (static / "dashboard.html").read_text(encoding="utf-8")
         cls.script = (static / "dashboard.js").read_text(encoding="utf-8")
+        cls.css = (static / "dashboard.css").read_text(encoding="utf-8")
         cls.metrics = (static / "dashboard_metrics.js").read_text(encoding="utf-8")
         cls.reproduction = (static / "live_audit_reproduction.js").read_text(encoding="utf-8")
         cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
@@ -180,6 +181,26 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         )
         # Y la tarjeta no puede decir «SIN AVISOS» con la lista debajo.
         self.assertIn("inSeries ? `${inSeries} EN LA SERIE` : ''", self.script)
+
+    def test_a_card_says_what_it_is_still_loading(self) -> None:
+        # La tarjeta se pinta en cuanto hay uso y el alias y la serie llegan
+        # después: sin decirlo, una tarjeta sin la sección «todo el histórico»
+        # parece terminada cuando lo que pasa es que falta por llegar.
+        self.assertIn("function cardPending(entry)", self.script)
+        self.assertIn("${loadingMarkup(entry)}", self.script)
+        self.assertIn("'la serie archivada'", self.script)
+        self.assertIn("'el alias'", self.script)
+        self.assertIn("card-loading", self.script)
+        self.assertIn(".card-loading{", self.css)
+        self.assertIn("@keyframes card-spin{", self.css)
+        # Y se calla en cuanto se ha intentado, con éxito o sin él: una serie
+        # que no se deja leer desaparece como sección, no como aviso eterno.
+        self.assertIn("aliasesTried.add(node.id);", self.script)
+        self.assertIn("pending.forEach(entry => historiesTried.add(historyTicket(entry)));", self.script)
+        self.assertIn("!historiesTried.has(historyTicket(entry))", self.script)
+        # El billete lleva la marca de la ejecución, así que la siguiente
+        # auditoría vuelve a avisar de que está cargando.
+        self.assertIn("return `${historyKey(entry)}|${historyStamp(entry)}`;", self.script)
 
     def test_the_series_is_asked_once_per_audit_and_never_to_the_node(self) -> None:
         # Es la respuesta más pesada de la portada —todas las auditorías de
