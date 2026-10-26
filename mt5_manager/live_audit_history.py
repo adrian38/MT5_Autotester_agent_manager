@@ -23,18 +23,16 @@ from .live_audit_archive import composite, strategies_of, trimmed_detail
 from .live_audit_schedule import parse_timestamp
 
 
-def _trade_key(strategy: str, trade: dict[str, Any]) -> tuple:
-    """Que hace unica a una operacion del tester entre auditorias.
+def _after(value: Any, clip: datetime | None) -> bool:
+    """Si la operacion cae fuera de lo ya contado. Sin fecha legible, entra.
 
-    Los periodos se encadenan repitiendo el ultimo dia, asi que dos auditorias
-    consecutivas traen las mismas operaciones de esa jornada. Sin esta clave,
-    acumular las contaria dos veces.
+    Perder una operacion es peor que contarla: lo primero no se ve y lo
+    segundo lo delata el total.
     """
-    return (
-        strategy, str(trade.get("symbol") or ""), str(trade.get("close_time") or ""),
-        str(trade.get("open_time") or ""), round(float(trade.get("volume") or 0), 4),
-        round(float(trade.get("profit") or 0), 4),
-    )
+    if clip is None:
+        return True
+    moment = parse_timestamp(value)
+    return moment is None or moment > clip
 
 
 def tester_trades_by_strategy(detail: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -114,6 +112,114 @@ def covered_span(entries: list[dict[str, Any]]) -> tuple[str, str]:
     )
 
 
+def _ordered(
+    entries: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], tuple[datetime, datetime] | None]]:
+    """Primero las entradas sin periodo, que entran enteras porque no hay por
+    donde recortarlas; despues por comienzo, y a igual comienzo la que mas
+    abarca y, si abarcan lo mismo, la ejecutada mas tarde.
+
+    El ultimo desempate es la posicion en la lista, que llega ordenada por
+    `executed_at`: dos corridas del mismo periodo archivadas en el mismo
+    segundo tienen que resolverse igual siempre, y manda la ultima.
+    """
+    paired = [(entry, _interval(entry)) for entry in entries]
+    order = {id(entry): index for index, entry in enumerate(entries)}
+    return [pair for pair in paired if pair[1] is None] + sorted(
+        (pair for pair in paired if pair[1] is not None),
+        key=lambda pair: (
+            pair[1][0], -pair[1][1].timestamp(),
+            -(parse_timestamp(pair[0].get("executed_at")) or pair[1][0]).timestamp(),
+            -order[id(pair[0])],
+        ),
+    )
+
+
+def coverage(
+    entries: list[dict[str, Any]],
+) -> tuple[list[tuple[dict[str, Any], datetime | None]], datetime | None]:
+    """Las auditorias que aportan periodo nuevo, y hasta donde llegan.
+
+    Dos auditorias del mismo portafolio se pisan a proposito: el encadenado
+    repite el ultimo dia de la anterior, y una corrida repetida trae el periodo
+    entero otra vez. Hay que quitar esa repeticion, pero **no por operacion**:
+    una clave por simbolo, horas, lote y beneficio borra operaciones de verdad
+    —el 2026-10-26 colisionaban seis en el archivo, tres posiciones de Tesla+
+    del 17/09 abiertas y cerradas a la vez con el mismo lote y el mismo
+    resultado—. Lo que esta duplicado es la auditoria, asi que se cubre el
+    periodo con los tramos disjuntos de las entradas, igual que `covered_days`
+    hace con los dias.
+
+    Cada entrada va con el instante hasta el que ya estaba contado: `None`
+    cuando entra sin tocar. Una contenida en otra no aporta y se cae entera.
+    """
+    kept: list[tuple[dict[str, Any], datetime | None]] = []
+    covered: datetime | None = None
+    for entry, interval in _ordered(entries):
+        if interval is None:
+            kept.append((entry, None))
+            continue
+        start, end = interval
+        if covered is not None and end <= covered:
+            continue
+        kept.append((entry, covered if covered is not None and start <= covered else None))
+        covered = end if covered is None else max(covered, end)
+    return kept, covered
+
+
+def _loaded(
+    archive: Any, node_id: str, rows: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Cada entrada con su comparacion, la guardada o la que lea el archivo."""
+    loaded = []
+    for entry in rows:
+        stored = entry.get("_comparison_detail")
+        loaded.append((
+            entry,
+            stored if isinstance(stored, dict) else archive.detail(node_id, entry),
+        ))
+    return loaded
+
+
+def _by_identity(
+    loaded: list[tuple[dict[str, Any], dict[str, Any]]], wanted: set[str],
+) -> dict[str, list[tuple[dict[str, Any], str, list[dict[str, Any]]]]]:
+    """Lo que cada estrategia aporta en cada auditoria que la contiene.
+
+    La cobertura se calcula **por estrategia** y no sobre toda la serie: dos
+    auditorias de portafolios distintos pueden solapar en el tiempo sin
+    repetir nada, y un portafolio heredado perderia sus operaciones si el que
+    lo sustituye ya hubiera cubierto esos dias con otras estrategias.
+    """
+    by_identity: dict[str, list[tuple[dict[str, Any], str, list[dict[str, Any]]]]] = {}
+    for entry, comparison_detail in loaded:
+        for (identity, strategy), trades in tester_trades_by_identity(
+            comparison_detail,
+        ).items():
+            if identity in wanted:
+                by_identity.setdefault(identity, []).append((entry, strategy, trades))
+    return by_identity
+
+
+def _accumulated_trades(
+    by_identity: dict[str, list[tuple[dict[str, Any], str, list[dict[str, Any]]]]],
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, datetime | None]]:
+    """Las operaciones de cada estrategia una sola vez, y hasta donde llegan."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    covered_by: dict[str, datetime | None] = {}
+    for identity, items in by_identity.items():
+        kept, covered = coverage([entry for entry, _, _ in items])
+        clips = {id(entry): clip for entry, clip in kept}
+        covered_by[identity] = covered
+        for entry, strategy, trades in items:
+            if id(entry) not in clips:
+                continue
+            for trade in trades:
+                if _after(trade.get("close_time"), clips[id(entry)]):
+                    grouped.setdefault(strategy, []).append(trade)
+    return grouped, covered_by
+
+
 def accumulate(
     archive: Any, node_id: str, audit_key: str, detail: dict[str, Any],
     entries: list[dict[str, Any]] | None = None,
@@ -128,34 +234,19 @@ def accumulate(
     rows = archive.related(
         node_id, audit_key, list(wanted), inherited_portfolio_ids,
     ) if entries is None else entries
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    seen: set[tuple] = set()
     portfolios: dict[int, None] = {}
     for entry in rows:
-        stored_detail = entry.get("_comparison_detail")
-        comparison_detail = (
-            stored_detail if isinstance(stored_detail, dict)
-            else archive.detail(node_id, entry)
-        )
-        for (identity, strategy), trades in tester_trades_by_identity(
-            comparison_detail,
-        ).items():
-            if identity not in wanted:
-                continue
-            for trade in trades:
-                key = _trade_key(identity, trade)
-                if key in seen:
-                    continue
-                seen.add(key)
-                grouped.setdefault(strategy, []).append(trade)
         portfolio = int(entry.get("portfolio_id") or 0)
         if portfolio:
             portfolios[portfolio] = None
+    grouped, covered_by = _accumulated_trades(
+        _by_identity(_loaded(archive, node_id, rows), wanted),
+    )
+    # La comparacion vigente puede no estar archivada todavia; si lo esta, sus
+    # operaciones ya quedaron contadas y ninguna pasa de lo cubierto.
     for (identity, strategy), trades in tester_trades_by_identity(detail).items():
         for trade in trades:
-            key = _trade_key(identity, trade)
-            if key not in seen:
-                seen.add(key)
+            if _after(trade.get("close_time"), covered_by.get(identity)):
                 grouped.setdefault(strategy, []).append(trade)
     since, until = covered_span(rows)
     return {
