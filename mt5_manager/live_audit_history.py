@@ -132,8 +132,13 @@ def accumulate(
     seen: set[tuple] = set()
     portfolios: dict[int, None] = {}
     for entry in rows:
+        stored_detail = entry.get("_comparison_detail")
+        comparison_detail = (
+            stored_detail if isinstance(stored_detail, dict)
+            else archive.detail(node_id, entry)
+        )
         for (identity, strategy), trades in tester_trades_by_identity(
-            archive.detail(node_id, entry),
+            comparison_detail,
         ).items():
             if identity not in wanted:
                 continue
@@ -186,12 +191,17 @@ def series(
     entries = archive.related(
         node_id, audit_key, list(wanted), inherited_portfolio_ids,
     )
-    executions = [{
-        **{key: value for key, value in entry.items() if key != "file"},
-        "comparison_detail": _retained_detail(archive.detail(node_id, entry), wanted),
-    } for entry in entries]
+    loaded_entries = []
+    executions = []
+    for entry in entries:
+        comparison_detail = _retained_detail(archive.detail(node_id, entry), wanted)
+        loaded_entries.append({**entry, "_comparison_detail": comparison_detail})
+        executions.append({
+            **{key: value for key, value in entry.items() if key != "file"},
+            "comparison_detail": comparison_detail,
+        })
     summary = accumulate(
-        archive, node_id, audit_key, detail, entries, inherited_portfolio_ids,
+        archive, node_id, audit_key, detail, loaded_entries, inherited_portfolio_ids,
     )
     return {
         "executions": executions,

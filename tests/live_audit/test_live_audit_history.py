@@ -287,9 +287,13 @@ class AccumulationTests(unittest.TestCase):
                       "2026-10-10T23:59:59+00:00"),
             detail("S:1", [trade("EURUSD", "2026-10-05T10:00:00+00:00", 4.0)]),
         )
-        series = live_audit_history.series(
-            self.archive, "n", "a-1", detail("S:1", []),
-        )
+        with mock.patch.object(
+            self.archive, "detail", wraps=self.archive.detail,
+        ) as read_detail:
+            series = live_audit_history.series(
+                self.archive, "n", "a-1", detail("S:1", []),
+            )
+        self.assertEqual(read_detail.call_count, 1)
         self.assertEqual(series["audits"], 1)
         self.assertEqual(series["portfolios"], [11])
         execution = series["executions"][0]

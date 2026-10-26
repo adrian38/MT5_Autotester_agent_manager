@@ -153,3 +153,16 @@ pulso. La ruta interactiva `/history`, en cambio, llama con `refresh=True`:
 acaba de analizar la materia prima con el criterio vigente y reemplaza la
 entrada de esa misma ejecución sin duplicarla. Así el resumen histórico y el
 detalle visible proceden de la misma comparación.
+
+## Cada periodo se lee una sola vez (2026-10-26)
+
+`series` leía y deserializaba cada fichero de ejecución para construir
+`executions` y `accumulate` volvía a leer exactamente los mismos ficheros para
+agrupar sus operaciones. En `audit-170-mvdscovr-2`, con sólo tres periodos y
+266 KB de respuesta, la ruta histórica tardaba entre 0,44 y 0,68 segundos en
+local; el coste crecía dos veces con cada auditoría acumulada.
+
+La serie conserva ahora el detalle ya recortado en una clave interna durante
+esa petición y `accumulate` lo reutiliza. La respuesta sigue llevando todas las
+ejecuciones y la misma deduplicación entre periodos; sólo desaparece la segunda
+lectura y deserialización de cada fichero.
