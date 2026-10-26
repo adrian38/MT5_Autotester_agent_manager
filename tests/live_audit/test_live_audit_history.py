@@ -428,6 +428,41 @@ class HistoryRouteTests(unittest.TestCase):
         self._get(FakeHandler(self.archive))
         self.assertEqual(len(self.archive.index("n")), 1)
 
+    def test_it_replaces_a_stale_copy_of_the_execution_it_serves(self) -> None:
+        older = completed_audit()
+        older["audit_id"] = "e-0"
+        older["last_result"]["completed_at"] = "2026-10-02T23:00:00+00:00"
+        older["last_result"]["period_start"] = "2026-09-25T00:00:00+00:00"
+        older["last_result"]["period_end"] = "2026-10-02T23:59:59+00:00"
+        live_audit_executions.archive_execution(
+            FakeHandler(self.archive).server, {}, "n", "a-1", older,
+            {"portfolio_id": 11},
+        )
+        stale = completed_audit()
+        stale_detail = detail(
+            "S:1", [trade("EURUSD", "2026-10-05T10:00:00+00:00", 0.0)],
+        )
+        stale_detail["operation_comparisons"][0]["real"] = None
+        stale["last_result"]["comparison_detail"] = stale_detail
+        live_audit_executions.archive_execution(
+            FakeHandler(self.archive).server, {}, "n", "a-1", stale,
+            {"portfolio_id": 11},
+        )
+
+        handler = FakeHandler(self.archive)
+        self.assertTrue(self._get(handler))
+
+        payload = handler.sent[0][1]
+        execution = next(
+            row for row in payload["executions"] if row["execution_id"] == "e-1"
+        )
+        comparison = execution["comparison_detail"]["operation_comparisons"][0]
+        self.assertIsNotNone(comparison["real"])
+        self.assertEqual(payload["audits"], 2)
+        self.assertEqual(
+            {row["execution_id"] for row in self.archive.index("n")}, {"e-0", "e-1"},
+        )
+
     def test_the_dashboard_variant_reads_the_archive_without_asking_the_node(self) -> None:
         """`?source=archive`: la portada no provoca el análisis de cada uso.
 

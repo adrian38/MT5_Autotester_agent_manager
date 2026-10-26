@@ -259,7 +259,7 @@ def _archive_failure(
 
 def archive_execution(
     server: Any, node: dict[str, Any], node_id: str, audit_key: str,
-    audit: dict[str, Any], profile: dict[str, Any],
+    audit: dict[str, Any], profile: dict[str, Any], *, refresh: bool = False,
 ) -> None:
     """Guarda en el diario la ejecución terminada que el nodo enseña.
 
@@ -269,9 +269,10 @@ def archive_execution(
     falta el `node`: con el autolote activo el veredicto no existe sin el saldo
     histórico que vive en el informe nativo del agente.
 
-    Idempotente por ejecución, que es lo que la convierte también en la forma
-    de rescatar lo que ya existía: la primera vuelta archiva la última
-    auditoría de cada uso antes de que la siguiente la sustituya.
+    El vigilante es idempotente por ejecución, que es lo que lo convierte
+    también en la forma de rescatar lo que ya existía. La ruta histórica usa
+    ``refresh`` porque acaba de recalcular esa ejecución y tiene que sustituir
+    una copia archivada con un criterio anterior.
     """
     archive = getattr(server, "live_audit_archive", None)
     execution_id = _execution_id(audit)
@@ -280,13 +281,18 @@ def archive_execution(
         or str(audit.get("status") or "") in NON_ARCHIVABLE_STATUSES
     ):
         return
-    if archive.knows(node_id, audit_key, execution_id, manual_evidence(audit)):
+    if not refresh and archive.knows(
+        node_id, audit_key, execution_id, manual_evidence(audit),
+    ):
         return
-    analysed = analysed_node_state(
-        node, {"audit": dict(audit)}, profile,
-        memory=getattr(server, "live_audit_manual_memory", None), node_id=node_id,
-    )
-    state = (analysed or {}).get("audit") or {}
+    if refresh:
+        state = dict(audit)
+    else:
+        analysed = analysed_node_state(
+            node, {"audit": dict(audit)}, profile,
+            memory=getattr(server, "live_audit_manual_memory", None), node_id=node_id,
+        )
+        state = (analysed or {}).get("audit") or {}
     result = state.get("last_result")
     if not isinstance(result, dict) or not result.get("comparison_detail"):
         _archive_failure(

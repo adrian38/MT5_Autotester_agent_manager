@@ -83,6 +83,7 @@ def _audit_history(
     profile = live_audit_lineage.audit_profile(handler.server, node_id, audit_key)
     live_audit_executions.archive_execution(
         handler.server, node, node_id, audit_key, dict(state or {}), profile,
+        refresh=True,
     )
     result = (state or {}).get("last_result")
     lineage = live_audit_lineage.audit_lineage(handler.server, node_id, profile)

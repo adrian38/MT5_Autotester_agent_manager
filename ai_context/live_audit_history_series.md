@@ -138,3 +138,18 @@ su ritmo» de cada fila se infla una jornada por semana.
 La ruta es `GET /api/nodes/<nodo>/live-audits/<uso>/history` y **archiva lo que
 sirve**: si la pantalla se abre antes de que el vigilante haya pasado, la serie
 no puede salir sin la auditoría que se está mirando.
+
+## La ejecución conocida también se refresca al servirla (2026-10-26)
+
+En `audit-170-mvdscovr-2` de RoboForex, el detalle recalculado mostraba las
+operaciones reales recuperadas del informe nativo y correctamente emparejadas,
+pero la tabla histórica seguía diciendo `0 emparejadas`. El archivo conservaba
+la primera comparación de la misma ejecución, creada cuando la API de MT5
+había devuelto cero cierres. `archive_execution` salía por `archive.knows`
+antes de guardar el análisis que la ruta acababa de servir.
+
+El vigilante conserva ese candado para no recalcular y reescribir en cada
+pulso. La ruta interactiva `/history`, en cambio, llama con `refresh=True`:
+acaba de analizar la materia prima con el criterio vigente y reemplaza la
+entrada de esa misma ejecución sin duplicarla. Así el resumen histórico y el
+detalle visible proceden de la misma comparación.
