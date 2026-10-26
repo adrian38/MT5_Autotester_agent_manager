@@ -95,9 +95,11 @@ function scaledSide() {
 // comparar las dos curvas al mismo tamaño, y el cálculo teórico mete en medio
 // la propia desviación que la auditoría está midiendo. En la auditoría 148 de
 // RoboForex 65 de 94 operaciones ejecutaron un lote distinto del calculado.
-// El autolote cubre sólo lo que la cuenta real no llegó a ejecutar.
-function scaleTarget(row) {
-  return LiveAuditReproduction.scaleTarget(row);
+// Si esa demo no tiene pareja, usa el lote real observado más próximo de la
+// misma estrategia. Después sí usa el autolote o tramo de esa apertura; si
+// tampoco existe, conserva su lote del tester.
+function scaleTarget(row, timeline) {
+  return LiveAuditReproduction.scaleTarget(row, timeline);
 }
 
 function autolotLots(group) {
@@ -311,7 +313,9 @@ function cumulativeSeries(trades) {
 function strategyGroups(result) {
   const groups = new Map();
   const quality = strategyQuality(result);
-  comparisonRows(result).forEach(row => {
+  const rows = comparisonRows(result);
+  const timeline = LiveAuditReproduction.realLotTimeline(rows);
+  rows.forEach(row => {
     const tester = row.tester || {};
     const key = String(row.strategy || tester.strategy || 'Sin estrategia');
     if (!groups.has(key)) {
@@ -324,7 +328,7 @@ function strategyGroups(result) {
     const group = groups.get(key);
     if (group.symbol === '—' && tester.symbol) group.symbol = tester.symbol;
     if (row.tester?.close_time) {
-      const target = scaleTarget(row);
+      const target = scaleTarget(row, timeline);
       group.demo.push({
         ...row.tester, scale_volume: target.volume, scale_source: target.source,
         pending_real: Boolean(row.real_position_still_open),
@@ -493,9 +497,9 @@ function strategyButton(group, index) {
   return `<button type="button" data-strategy-key="${index}"><strong>${escapeHtml(group.symbol)}</strong><small>${escapeHtml(group.label)}</small><small>Demo ${escapeHtml(demo)} · Real ${escapeHtml(real)}</small>${openRealMark(group)}${simulatedMark(group)}</button>`;
 }
 
-// De dónde salió el lote al que se escala. Con la cuenta real al mando son
-// tres procedencias y hay que distinguirlas, porque sólo la primera es un lote
-// observado; con el tester al mando sólo hay una —el lote con el que la pareja
+// De dónde salió el lote al que se escala. Con la cuenta real al mando son dos
+// procedencias observadas: la pareja directa o la real más cercana en el tiempo;
+// con el tester al mando sólo hay una —el lote con el que la pareja
 // abrió en el backtest—, así que no hay nada que desglosar.
 function scaledLotNote(group, side, automatic, executed) {
   const label = side === 'demo' ? 'demo' : 'real';
@@ -503,10 +507,14 @@ function scaledLotNote(group, side, automatic, executed) {
     return `${label} al lote del tester ${lotList(automatic)} sobre ejecutado ${lotList(executed)}`;
   }
   const fromReal = scaledBySource(group, 'real');
+  const nearby = scaledBySource(group, 'nearby_real');
   const estimated = scaledBySource(group, 'autolot');
+  const declared = scaledBySource(group, 'schedule');
   const origen = [
     fromReal ? `${fromReal} al lote ejecutado en real` : '',
-    estimated ? `${estimated} por autolote al no tener pareja` : '',
+    nearby ? `${nearby} al real más cercano en el tiempo` : '',
+    estimated ? `${estimated} por autolote sin referencia real` : '',
+    declared ? `${declared} por tramo vigente sin referencia real` : '',
   ].filter(Boolean).join(' · ');
   return `${label} al lote real ${lotList(automatic)} (${origen}) sobre ejecutado ${lotList(executed)}`;
 }
@@ -560,11 +568,12 @@ function autolotNotice(changed) {
   const recalculated = changed.reduce((total, group) => total + autolotTrades(group), 0);
   const demoTrades = strategyRows.reduce((total, group) => total + group.demo.length, 0);
   const fromReal = changed.reduce((total, group) => total + scaledBySource(group, 'real'), 0);
+  const nearby = changed.reduce((total, group) => total + scaledBySource(group, 'nearby_real'), 0);
   const estimated = changed.reduce((total, group) => total + scaledBySource(group, 'autolot'), 0);
   const declared = changed.reduce((total, group) => total + scaledBySource(group, 'schedule'), 0);
   return {
     heading: 'La curva Demo está escalada al lote de la cuenta real.',
-    detail: `${recalculated} de ${demoTrades} operaciones demo escaladas en ${changed.length} estrategia${changed.length === 1 ? '' : 's'}: ${fromReal} al lote que ejecutó la cuenta real${estimated ? `, ${estimated} al autolote por no tener pareja` : ''}${declared ? `, ${declared} al lote que declaraste vigente en su fecha` : ''}. El resto conserva su lote de backtest y la curva Real conserva lo ejecutado.`,
+    detail: `${recalculated} de ${demoTrades} operaciones demo escaladas en ${changed.length} estrategia${changed.length === 1 ? '' : 's'}: ${fromReal} al lote de su pareja real${nearby ? `, ${nearby} al lote real observado más próximo de su estrategia` : ''}${estimated ? `, ${estimated} al autolote por no tener referencia real` : ''}${declared ? `, ${declared} al tramo vigente por no tener referencia real` : ''}. El resto conserva su lote de backtest y la curva Real conserva lo ejecutado.`,
   };
 }
 
@@ -1429,9 +1438,10 @@ function lotInput(group, side) {
     : executed.length ? lotList(executed) : 'sin operaciones';
   const disabled = executed.length ? '' : ' disabled';
   const automatic = side === 'demo' ? autolotLots(group) : [];
+  const nearby = side === 'demo' ? scaledBySource(group, 'nearby_real') : 0;
   const estimated = side === 'demo' ? scaledBySource(group, 'autolot') : 0;
   const automaticNote = automatic.length
-    ? `<small class="lots-autolot-note">lote real ${escapeHtml(lotList(automatic))}${estimated ? ` · ${escapeHtml(estimated)} por autolote` : ''}</small>` : '';
+    ? `<small class="lots-autolot-note">lote real ${escapeHtml(lotList(automatic))}${nearby ? ` · ${escapeHtml(nearby)} por cercanía temporal` : ''}${estimated ? ` · ${escapeHtml(estimated)} por autolote` : ''}</small>` : '';
   return `<td><input type="number" min="0" step="0.01" inputmode="decimal"
     data-lot-strategy="${escapeHtml(group.strategy)}" data-lot-side="${side}"
     value="${override === null ? '' : override}" placeholder="${escapeHtml(placeholder)}"
@@ -1469,21 +1479,24 @@ function openLotsDialog() {
   const automatic = strategyRows.reduce((total, group) => total + autolotTrades(group), 0);
   const totalDemo = strategyRows.reduce((total, group) => total + group.demo.length, 0);
   const fromReal = strategyRows.reduce((total, group) => total + scaledBySource(group, 'real'), 0);
+  const nearby = strategyRows.reduce((total, group) => total + scaledBySource(group, 'nearby_real'), 0);
   const estimated = strategyRows.reduce((total, group) => total + scaledBySource(group, 'autolot'), 0);
   const declared = strategyRows.reduce((total, group) => total + scaledBySource(group, 'schedule'), 0);
   const button = document.querySelector('#lots-autolot');
   button.disabled = !automatic;
   button.title = automatic
-    ? `Llevar ${automatic} de ${totalDemo} operaciones demo al lote de la cuenta real: ${fromReal} al que ejecutó, ${estimated} al que calcula el autolote y ${declared} al que declaraste vigente en su fecha.`
-    : 'Este resultado no tiene lotes reales ni cálculos de autolote con los que escalar.';
+    ? `Llevar ${automatic} de ${totalDemo} operaciones demo al lote de la cuenta real: ${fromReal} al de su pareja, ${nearby} al real observado más próximo, ${estimated} al autolote y ${declared} al tramo vigente.`
+    : 'Este resultado no tiene lotes reales observados ni cálculos de lote con los que escalar.';
   const pairedReals = strategyRows.reduce(
     (total, group) => total + group.real.filter(row => Number(row.scale_volume) > 0).length, 0,
   );
   const totalReal = strategyRows.reduce((total, group) => total + groupRealTrades(group).length, 0);
   document.querySelector('#lots-caveat').textContent = [
-    automatic ? `La cuenta real lleva la batuta cuando marcas su columna: ${fromReal} de ${totalDemo} operaciones demo se escalan al lote que la cuenta ejecutó de verdad, no al teórico.` : '',
-    estimated ? `Las ${estimated} que no tienen pareja en real usan el autolote —saldo de la cuenta real en su apertura— porque no hay lote ejecutado que copiar.` : '',
-    declared ? `Otras ${declared} sin pareja usan el lote que declaraste vigente en su fecha, por el mismo motivo.` : '',
+    automatic ? `La cuenta real lleva la batuta cuando marcas su columna: ${fromReal} de ${totalDemo} operaciones demo se escalan al lote que ejecutó su pareja real.` : '',
+    nearby ? `Las ${nearby} sin pareja usan el lote de la operación emparejada más cercana en el tiempo de la misma estrategia.` : '',
+    estimated ? `Las ${estimated} sin referencia real usan el autolote calculado para su apertura.` : '',
+    declared ? `Otras ${declared} sin referencia real usan el lote declarado vigente en su fecha.` : '',
+    totalDemo > automatic ? `Las ${totalDemo - automatic} sin ninguna referencia real conservan su propio lote demo.` : '',
     pairedReals ? `Marcada la del tester, manda el backtest: ${pairedReals} de ${totalReal} operaciones reales bajan al lote con el que su pareja abrió, y la demo se queda como corrió.` : '',
     'El PnL se reescala en proporción al lote, así que da por supuesto que el mismo precio se habría llenado con cualquier tamaño: no modela deslizamiento, margen ni stop out.',
     extras ? `Las ${extras} reales sin pareja nunca se reescalan, se marque la columna que se marque: no hay pareja del tester de la que copiar el lote, y lo que la cuenta ejecutó es un hecho.` : '',

@@ -50,7 +50,9 @@
   function strategyGroups(result) {
     const groups = new Map();
     const quality = strategyQuality(result);
-    comparisonRows(result).forEach(row => {
+    const rows = comparisonRows(result);
+    const timeline = reproduction.realLotTimeline(rows);
+    rows.forEach(row => {
       const tester = row.tester || {};
       const key = String(row.strategy || tester.strategy || 'Sin estrategia');
       if (!groups.has(key)) groups.set(key, {
@@ -59,7 +61,7 @@
       });
       const group = groups.get(key);
       if (tester.close_time) {
-        const target = reproduction.scaleTarget(row);
+        const target = reproduction.scaleTarget(row, timeline);
         group.demo.push({
           ...tester, scale_volume: target.volume, scale_source: target.source,
           pending_real: Boolean(row.real_position_still_open),

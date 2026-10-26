@@ -37,9 +37,11 @@
   // Las operaciones de una ejecución agrupadas por estrategia. Es la misma
   // agrupación que hacen las dos pantallas para la tabla del periodo; la
   // diferencia es que aquí no depende de los globales de ninguna de ellas.
-  function groupsOf(detail) {
+  function groupsOf(detail, suppliedTimeline = null) {
     const groups = new Map();
-    comparisonRows(detail).forEach(row => {
+    const rows = comparisonRows(detail);
+    const timeline = suppliedTimeline || reproduction.realLotTimeline(rows);
+    rows.forEach(row => {
       const tester = row.tester || {};
       const key = String(row.strategy || tester.strategy || 'Sin estrategia');
       if (!groups.has(key)) {
@@ -51,7 +53,7 @@
       const group = groups.get(key);
       if (group.symbol === '—' && tester.symbol) group.symbol = tester.symbol;
       if (tester.close_time) {
-        const target = reproduction.scaleTarget(row);
+        const target = reproduction.scaleTarget(row, timeline);
         group.demo.push({
           ...tester, scale_volume: target.volume, scale_source: target.source,
           pending_real: Boolean(row.real_position_still_open),
@@ -96,8 +98,11 @@
 
   function merge(executions, retained) {
     const merged = new Map();
+    const timeline = reproduction.realLotTimeline((executions || []).flatMap(
+      execution => comparisonRows(execution.comparison_detail || {}),
+    ));
     (executions || []).forEach(execution => {
-      groupsOf(execution.comparison_detail || {}).forEach(group => {
+      groupsOf(execution.comparison_detail || {}, timeline).forEach(group => {
         if (retained?.size && !retained.has(identity(group))) return;
         const current = merged.get(group.strategy) || {
           strategy: group.strategy, label: group.label, symbol: group.symbol,

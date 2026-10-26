@@ -78,6 +78,16 @@ class HistoryScreenTests(unittest.TestCase):
         self.assertIn("window.LiveAuditHistory.render()", self.analysis)
         self.assertIn("renderHistoryTable();", self.analysis)
 
+    def test_an_unpaired_demo_can_use_a_real_lot_from_another_audit(self) -> None:
+        # La serie se junta antes de resolver cercanía: si un periodo no tiene
+        # pareja pero el anterior sí, ésa sigue siendo una referencia real de
+        # la misma estrategia y no se pierde al cruzar la frontera semanal.
+        self.assertIn(
+            "const timeline = reproduction.realLotTimeline((executions || []).flatMap(",
+            self.verdicts,
+        )
+        self.assertIn("groupsOf(execution.comparison_detail || {}, timeline)", self.verdicts)
+
     def test_it_says_which_portfolios_it_inherits_from_and_with_what_limit(self) -> None:
         self.assertIn("inherited_portfolios", self.script)
         self.assertIn("hereda el histórico de", self.script)

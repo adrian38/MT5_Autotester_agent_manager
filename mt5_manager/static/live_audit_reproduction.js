@@ -49,19 +49,63 @@
       : {...row.real};
   }
 
-  // Lo que se puede copiar cuando la operación no tiene real que copiar. Los
-  // dos lotes dependen del instante de la apertura —el autolote por el saldo,
-  // el tramo por la fecha desde la que rige—, así que un único número tecleado
-  // en el diálogo no puede sustituirlos sin mezclar dos escalas en una curva.
+  function rowIdentity(row) {
+    const strategy = String(row?.strategy || row?.tester?.strategy || '');
+    const set = String(row?.strategy_set || '');
+    return strategy ? `${strategy}|${set}` : '';
+  }
+
+  function openingTime(trade) {
+    const time = new Date(trade?.open_time || '').getTime();
+    return Number.isFinite(time) ? time : null;
+  }
+
+  // Lotes reales observados, ordenados por estrategia y apertura. Una demo sin
+  // pareja copia el más próximo de su propia estrategia: el lote vigente en
+  // ese momento se deduce de un hecho cercano, no de una regla teórica.
+  function realLotTimeline(rows) {
+    const timeline = new Map();
+    (rows || []).forEach(row => {
+      const real = row?.real || row?.real_position_still_open;
+      const volume = Number(real?.volume);
+      const time = openingTime(real);
+      const identity = rowIdentity(row);
+      if (!identity || !(volume > 0) || time === null) return;
+      if (!timeline.has(identity)) timeline.set(identity, []);
+      timeline.get(identity).push({time, volume});
+    });
+    timeline.forEach(points => points.sort((left, right) => left.time - right.time));
+    return timeline;
+  }
+
+  function nearestRealLot(row, timeline) {
+    const time = openingTime(row?.tester);
+    const points = timeline?.get(rowIdentity(row)) || [];
+    if (time === null || !points.length) return null;
+    let low = 0;
+    let high = points.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (points[middle].time < time) low = middle + 1;
+      else high = middle;
+    }
+    const before = points[Math.max(0, low - 1)];
+    const after = points[Math.min(points.length - 1, low)];
+    return Math.abs(before.time - time) <= Math.abs(after.time - time)
+      ? before.volume : after.volume;
+  }
+
   const EXPECTED_SOURCES = {autolot: 'autolot', real_lot_schedule: 'schedule'};
 
-  function scaleTarget(row) {
+  function scaleTarget(row, timeline) {
     const executed = Number((row?.real || row?.real_position_still_open || {}).volume);
     if (Number.isFinite(executed) && executed > 0) return {volume: executed, source: 'real'};
+    const nearby = nearestRealLot(row, timeline);
+    if (nearby > 0) return {volume: nearby, source: 'nearby_real'};
     const source = EXPECTED_SOURCES[row?.limits?.volume_expected_source];
     const expected = source ? Number(row.limits.volume_expected_real) : null;
     return Number.isFinite(expected) && expected > 0
-      ? {volume: expected, source} : {volume: null, source: 'none'};
+      ? {volume: expected, source} : {volume: null, source: 'own'};
   }
 
   function scaledProfit(trade, lot) {
@@ -254,7 +298,7 @@
 
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
-    autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, reviewed,
+    autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, realLotTimeline, reviewed,
     scaleTarget, scaledProfit, scaledSide, sideSeries, storedOverrides, storedReviews,
     storedUnpairedReviews, testerMode, testerPairKey, unpairedAnswered, unpairedKey,
     unpairedReviewed, unpairedTester, verdict,

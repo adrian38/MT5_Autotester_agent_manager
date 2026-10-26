@@ -30,7 +30,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # calcula mete en la comparación la desviación que la auditoría está
         # midiendo: en la auditoría 148 de RoboForex, 65 de 94 operaciones
         # ejecutaron un lote distinto del calculado.
-        self.assertIn("function scaleTarget(row)", self.analysis_script)
+        self.assertIn("function scaleTarget(row, timeline)", self.analysis_script)
         self.assertIn("row?.real || row?.real_position_still_open", self.reproduction_script)
         self.assertIn("return {volume: executed, source: 'real'}", self.reproduction_script)
         self.assertIn("trade.scale_volume", self.analysis_script)
@@ -100,22 +100,26 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         metrics = (static_dir / "dashboard_metrics.js").read_text(encoding="utf-8")
         self.assertIn("group.real.push(reproduction.pairedReal(row))", metrics)
 
-    def test_only_an_operation_without_a_real_pair_falls_back_to_the_autolot(self) -> None:
-        # Sin pareja no hay lote ejecutado que copiar, y ahí sí entra el
-        # calculo: dejarla con el lote fijo del backtest mezclaria dos escalas.
-        # Y el lote que copia puede venir de dos sitios que dependen del
-        # instante de la apertura: el autolote y el tramo declarado a mano.
-        # Los dos, o la curva mezcla el lote de backtest con el de la cuenta.
-        self.assertIn(
-            "const EXPECTED_SOURCES = {autolot: 'autolot', real_lot_schedule: 'schedule'}",
-            self.reproduction_script,
-        )
-        self.assertIn(
-            "EXPECTED_SOURCES[row?.limits?.volume_expected_source]", self.reproduction_script,
-        )
+    def test_an_unpaired_demo_uses_the_nearest_observed_real_lot(self) -> None:
+        # Busca sólo dentro de la misma estrategia y por apertura. Sin ninguna
+        # real observada usa el autolote/tramo de esa apertura y, si tampoco lo
+        # hay, conserva el lote del tester.
+        self.assertIn("function realLotTimeline(rows)", self.reproduction_script)
+        self.assertIn("timeline.get(identity).push({time, volume})", self.reproduction_script)
+        self.assertIn("timeline?.get(rowIdentity(row))", self.reproduction_script)
+        self.assertIn("source: 'nearby_real'", self.reproduction_script)
+        self.assertIn("{volume: null, source: 'own'}", self.reproduction_script)
+        self.assertIn("EXPECTED_SOURCES[row?.limits?.volume_expected_source]",
+                      self.reproduction_script)
         self.assertIn("row.limits.volume_expected_real", self.reproduction_script)
-        self.assertIn("{volume: expected, source}", self.reproduction_script)
-        self.assertIn("porque no hay lote ejecutado que copiar", self.analysis_script)
+        direct = self.reproduction_script.index("source: 'real'")
+        nearby = self.reproduction_script.index("source: 'nearby_real'")
+        expected = self.reproduction_script.index("const source = EXPECTED_SOURCES[")
+        own = self.reproduction_script.index("source: 'own'")
+        self.assertLess(direct, nearby)
+        self.assertLess(nearby, expected)
+        self.assertLess(expected, own)
+        self.assertIn("LiveAuditReproduction.realLotTimeline(rows)", self.analysis_script)
         self.assertIn("function lotList(lots)", self.analysis_script)
         self.assertIn("function scaledBySource(group, source)", self.analysis_script)
 

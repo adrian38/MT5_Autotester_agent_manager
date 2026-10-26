@@ -478,3 +478,25 @@ fila que no llena la cabecera no es una transacción.
 **Esto obliga a releer las series guardadas**, que llevan esos cierres dentro:
 por eso `SERIES_VERSION` sube a `merge-window-v3`. Es justo para lo que esa
 constante existe.
+
+## Una demo sin pareja hereda el lote real observado más cercano (2026-10-26)
+
+La simulación con «Lote cuenta real» no debe mezclar hechos con el lote teórico.
+Si una operación demo no tiene pareja directa, busca dentro de **su misma
+estrategia** —identidad del candidato más `.set`, para no mezclar los
+`manual:1` que repiten distintos portafolios— la operación cuya apertura real sea más cercana a la
+apertura del tester y usa el volumen que esa real ejecutó. Las posiciones reales
+todavía abiertas también sirven como referencia de lote, aunque su PnL siga
+fuera de ambas curvas.
+
+La búsqueda se hace sobre todo lo que se está mostrando. En la auditoría actual
+usa sus filas; en «todo el histórico» construye primero la línea temporal con
+las filas de **todos los periodos archivados**, de modo que la frontera entre
+auditorías no borra el lote vigente.
+
+Si esa estrategia no tiene ninguna operación real enlazada, entra el siguiente
+respaldo disponible: `volume_expected_real` calculado para esa apertura por el
+autolote o por el tramo declarado. Sólo cuando tampoco existe ese cálculo la
+demo conserva su propio lote. La prioridad completa queda: pareja directa →
+real enlazada más cercana de la misma estrategia → autolote/tramo de la
+apertura → lote propio del tester.
