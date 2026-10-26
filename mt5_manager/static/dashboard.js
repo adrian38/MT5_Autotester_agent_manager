@@ -284,7 +284,7 @@ function historyMarkup(entry, summary, currency) {
     summary.audits ? `${summary.audits} auditoría${summary.audits === 1 ? '' : 's'}` : '',
   ].filter(Boolean).join(' · ');
   return '<section class="strategy-section"><div class="section-title">'
-    + '<strong>Estrategias a revisar · todo el histórico</strong>'
+    + '<strong>Estrategias a revisar · todas las auditorías</strong>'
     + `<span>${escapeHtml(counts)}</span></div>`
     + flaggedMarkup(summary.flagged, currency, summary.reviewed) + '</section>';
 }

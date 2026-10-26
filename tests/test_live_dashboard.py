@@ -146,7 +146,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # llevamos?»— sólo se veía abriendo Análisis uso por uso. Las dos
         # listas van juntas y cada una dice de qué habla.
         self.assertIn("Estrategias a revisar · última auditoría", self.script)
-        self.assertIn("Estrategias a revisar · todo el histórico", self.script)
+        self.assertIn("Estrategias a revisar · todas las auditorías", self.script)
         self.assertIn("function historyMarkup(entry, summary, currency)", self.script)
         self.assertIn("historyMarkup(entry, history, currency)", self.script)
         # La tarjeta no calcula: pide la serie resuelta al mismo módulo que
