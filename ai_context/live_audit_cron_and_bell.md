@@ -19,6 +19,13 @@ recuperación conservan el carácter de auditoría completa. El nodo ya entiende
 `fixed_dates`: todo el cambio vive en el manager y no requiere port a los
 runtimes de los agentes.
 
+La campana no obliga a deducir el tipo por las fechas: el lanzamiento y el
+resultado dicen **«Auditoría semanal»** o **«Auditoría de cuatro semanas»**.
+El tipo se persiste en el estado del turno al lanzar, de modo que sigue estando
+disponible horas después cuando llega la transición final del agente. Las
+ejecuciones manuales antiguas, que no tienen esa marca, conservan el título
+genérico en vez de inventarles un tipo.
+
 Petición del usuario (2026-10-19): un botón en los botones superiores que
 programe **una sola cita** para todas las auditorías de los portafolios
 marcados como activos —los que salen en «Portafolios activos», es decir los que

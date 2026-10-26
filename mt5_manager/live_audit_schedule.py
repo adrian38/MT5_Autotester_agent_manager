@@ -215,6 +215,12 @@ def is_monthly_full_audit(window: str, settings: dict[str, Any]) -> bool:
     )
 
 
+def typed_audit_title(title: str, period_kind: str) -> str:
+    """Hace visible el tipo sin alterar avisos de ejecuciones manuales."""
+    label = "de cuatro semanas" if period_kind == "four_weeks" else "semanal"
+    return title.replace("Auditoría", f"Auditoría {label}", 1) if period_kind else title
+
+
 def schedule_label(settings: dict[str, Any]) -> str:
     """Como se le cuenta la cadencia al usuario, en una linea."""
     if str(settings.get("mode") or "") == "interval":

@@ -142,6 +142,7 @@ class WatchTickTests(unittest.TestCase):
         started = [row for row in server.events() if row["kind"] == "audit_started"]
         self.assertIn("periodo 2026-01-01 a", started[0]["message"])
         self.assertIn("enganchado al final de la última auditoría", started[0]["message"])
+        self.assertIn("Auditoría semanal lanzada", started[0]["title"])
         # Y el perfil guardado conserva lo que no viajó.
         profile = server.live_audit_settings.state("n")["profiles"]["11"]
         self.assertEqual(profile["manual_pairs"], {"1": "2"})
@@ -198,6 +199,12 @@ class WatchTickTests(unittest.TestCase):
         self.assertEqual(payload["period_end_date"], "2026-10-24")
         started = [row for row in server.events() if row["kind"] == "audit_started"]
         self.assertIn("auditoría completa de cuatro semanas", started[0]["message"])
+        self.assertIn("Auditoría de cuatro semanas lanzada", started[0]["title"])
+        live_audit_watch.record_transitions(
+            server, server.nodes[0], "n", state, {"11": published_audit()},
+        )
+        finished = [row for row in server.events() if row["kind"] == "audit_completed"]
+        self.assertIn("Auditoría de cuatro semanas completada", finished[0]["title"])
 
     def test_the_bell_only_claims_the_chain_when_the_period_comes_from_it(self) -> None:
         # «fixed_dates» es justo lo que trae un perfil con fechas fijas. Leerlo

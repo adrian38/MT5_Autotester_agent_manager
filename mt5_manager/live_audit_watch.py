@@ -279,6 +279,9 @@ def record_transitions(
         changes: dict[str, Any] = {"last_status": status}
         if str(record.get("last_status") or "") in RUNNING_STATUSES and status in FINAL_STATUSES:
             outcome, level, title = FINAL_STATUSES[status]
+            title = live_audit_schedule.typed_audit_title(
+                title, str(record.get("period_kind") or ""),
+            )
             changes["outcome"] = outcome
             profile = dict(profiles.get(audit_id) or {})
             server.live_audit_notifications.add(
@@ -343,12 +346,7 @@ def _attempt_text(attempts: int, settings: dict[str, Any]) -> str:
 def _period_text(
     chained: dict[str, str], floored: dict[str, str], full_audit: bool = False,
 ) -> str:
-    """De donde sale la fecha de arranque, dicho en la campana.
-
-    Las tres respuestas son distintas y al usuario le importan: engancharse a
-    la auditoria anterior, arrancar el dia que nacio el portafolio porque no
-    habia nada a lo que engancharse, o usar el periodo que el escribio.
-    """
+    """De dónde sale la fecha de arranque, dicho en la campana."""
     if full_audit and chained:
         return (
             f"periodo {chained['period_start_date']} a "
@@ -382,6 +380,7 @@ def launch(
     base = {
         "window": context["window"], "attempts": attempts,
         "last_attempt_at": utc_now(),
+        "period_kind": "four_weeks" if context.get("full_audit") else "weekly",
     }
     payload, chained, floored = _launch_payload(
         server, node_id, audit_id, profile, context["audit"], context["now"],
@@ -416,7 +415,8 @@ def launch(
         return
     runs.update(key, **base, outcome="running", last_status="queued")
     period = _period_text(chained, floored, bool(context.get("full_audit")))
-    title = "Recuperación lanzada" if context.get("catch_up") else "Auditoría programada lanzada"
+    typed_title = live_audit_schedule.typed_audit_title("Auditoría lanzada", str(base["period_kind"]))
+    title = "Recuperación lanzada" if context.get("catch_up") else typed_title
     server.live_audit_notifications.add(
         "info", f"{title}: {label}",
         f"{note} · {live_audit_schedule.schedule_label(settings)} · {period}",
