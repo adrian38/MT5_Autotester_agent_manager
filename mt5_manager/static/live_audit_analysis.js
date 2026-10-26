@@ -1425,6 +1425,7 @@ async function loadAnalysis() {
   // manda. Se le dice que se repinte en cuanto se sabe cuál es.
   renderHistoryTable();
   await loadDegradation();
+  document.querySelector('#analysis-loading').hidden = true;
 }
 
 function lotInput(group, side) {
@@ -1900,4 +1901,7 @@ document.querySelector('#strategy-list').addEventListener('click', event => {
   if (!button) return;
   selectStrategy(Number(button.dataset.strategyKey));
 });
-loadAnalysis().catch(error => showAnalysisError(error.message));
+loadAnalysis().catch(error => {
+  document.querySelector('#analysis-loading').hidden = true;
+  showAnalysisError(error.message);
+});

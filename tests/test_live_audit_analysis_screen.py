@@ -48,6 +48,14 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn('id="lots-lead-real"', self.analysis_page_text)
         self.assertIn('type="checkbox"', self.analysis_page_text)
         self.assertNotIn('type="radio"', self.analysis_page_text)
+        self.assertIn('id="analysis-loading"', self.analysis_page_text)
+        self.assertIn('role="alertdialog"', self.analysis_page_text)
+        self.assertIn('aria-modal="true"', self.analysis_page_text)
+        self.assertIn("document.querySelector('#analysis-loading').hidden = true;", self.analysis_script)
+        self.assertNotIn(
+            'id="open-lots" type="button" class="secondary" disabled',
+            self.analysis_page_text,
+        )
         self.assertIn(
             "const LEAD_BOXES = {tester: '#lots-lead-demo', autolot: '#lots-lead-real'}",
             self.analysis_script,

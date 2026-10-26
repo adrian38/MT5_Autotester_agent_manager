@@ -118,6 +118,14 @@ td.audit-analysis-empty { display: table-cell; min-height: 0; padding: 26px 16px
 .lot-schedule-apply:disabled { opacity: .55; }
 .audit-analysis-note { margin: 0 20px 14px; padding: 12px 14px; border: 1px solid #8f681f; border-radius: 10px; background: #1c180e; color: #ffd978; font-size: 12px; }
 .audit-analysis-note-text { margin: 0; padding: 14px 20px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.6; }
+.analysis-loading { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 20px; background: #071019e8; backdrop-filter: blur(3px); }
+.analysis-loading[hidden] { display: none; }
+.analysis-loading-card { display: flex; align-items: center; gap: 16px; max-width: 430px; padding: 22px 24px; border: 1px solid var(--line); border-radius: 15px; background: var(--panel); box-shadow: 0 22px 70px #0009; }
+.analysis-loading-card div { display: grid; gap: 6px; }
+.analysis-loading-card strong { font-size: 16px; }
+.analysis-loading-card small { color: var(--muted); line-height: 1.45; }
+.analysis-loading-spinner { width: 24px; height: 24px; flex: 0 0 auto; border: 3px solid #ffffff24; border-top-color: var(--accent2); border-radius: 50%; animation: analysis-spin .8s linear infinite; }
+@keyframes analysis-spin { to { transform: rotate(360deg); } }
 @media (max-width: 560px) {
   .audit-analysis-simulation { flex-wrap: wrap; }
   .audit-analysis-simulation button { margin-left: 0; }
