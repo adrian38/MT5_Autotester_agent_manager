@@ -132,19 +132,26 @@
   // cuando cada pantalla hacía sus cuentas la tarjeta marcaba «NO REPRODUCE»
   // tres EURUSD que la tabla daba por buenos.
   //
-  // Lo validado en el periodo no la toca: la casilla «Validada» está en la
-  // tabla del periodo y dice «ya miré esta semana»; la serie contesta otra
-  // pregunta y su tabla ni siquiera tiene esa casilla.
-  function summarizeHistory(result, series, overrides = {}) {
+  // Lo validado en el periodo no la toca: esa casilla dice «ya miré esta
+  // semana» y la serie contesta otra pregunta, así que la tabla del histórico
+  // tiene su propia casilla y su propio campo (`reviews` aquí). Lo validado en
+  // la serie sale de la lista con la misma regla de siempre: vuelve en cuanto
+  // el veredicto acumulado empeora.
+  function summarizeHistory(result, series, overrides = {}, reviews = {}) {
     const executions = series?.executions || [];
     if (!executions.length || !root.LiveAuditHistoryVerdicts) {
-      return {flagged: [], audits: 0};
+      return {flagged: [], audits: 0, reviewed: 0};
     }
+    const marked = root.LiveAuditHistoryVerdicts.flagged(executions, {
+      retained: root.LiveAuditHistoryVerdicts.retainedOf(result?.comparison_detail || {}),
+      overrides,
+    });
+    const pending = marked.filter(row => !reproduction.reviewed(
+      reviews, row.strategy, row.verdict,
+    ));
     return {
-      flagged: root.LiveAuditHistoryVerdicts.flagged(executions, {
-        retained: root.LiveAuditHistoryVerdicts.retainedOf(result?.comparison_detail || {}),
-        overrides,
-      }),
+      flagged: pending,
+      reviewed: marked.length - pending.length,
       audits: Number(series.audits || executions.length),
     };
   }

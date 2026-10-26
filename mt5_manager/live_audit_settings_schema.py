@@ -31,6 +31,10 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     # es silenciar para siempre: si la siguiente auditoría empeora el
     # veredicto, la portada tiene que volver a enseñarla.
     "reviewed_strategies": {},
+    # Lo mismo sobre la tabla del histórico. Campo aparte y no el mismo: la del
+    # periodo dice «ya miré esta semana» y ésta «ya miré la serie entera», así
+    # que una marca no puede valer por la otra.
+    "reviewed_history_strategies": {},
     # Las ejecutadas en demo que se quedaron sin real y el usuario ya miró una
     # a una. Es el mismo gesto que el de arriba sobre otra lista: validar la
     # estrategia entera decía «ya miré sus números», y esto dice «ya miré esta
@@ -225,16 +229,32 @@ _REVIEW_VERDICTS = frozenset({
 })
 
 
-def _reviewed_mark(strategy: str, mark: Any) -> dict[str, str]:
+def _reviewed_mark(field: str, strategy: str, mark: Any) -> dict[str, str]:
     if not isinstance(mark, dict):
-        raise ValueError(f"reviewed_strategies[{strategy}] debe ser un objeto JSON")
-    verdict = _text(mark.get("verdict"), f"reviewed_strategies[{strategy}].verdict", 32)
+        raise ValueError(f"{field}[{strategy}] debe ser un objeto JSON")
+    verdict = _text(mark.get("verdict"), f"{field}[{strategy}].verdict", 32)
     if verdict not in _REVIEW_VERDICTS:
-        raise ValueError(f"reviewed_strategies[{strategy}].verdict no es un veredicto conocido")
+        raise ValueError(f"{field}[{strategy}].verdict no es un veredicto conocido")
     return {
         "verdict": verdict,
-        "at": _text(mark.get("at"), f"reviewed_strategies[{strategy}].at", 40),
+        "at": _text(mark.get("at"), f"{field}[{strategy}].at", 40),
     }
+
+
+def _reviewed_strategies(field: str, value: Any) -> dict[str, dict[str, str]]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{field} debe ser un objeto JSON")
+    if len(value) > 500:
+        raise ValueError("No se pueden validar más de 500 estrategias")
+    normalized: dict[str, dict[str, str]] = {}
+    for raw_strategy, raw_mark in value.items():
+        strategy = _text(raw_strategy, "identificador de estrategia", 512)
+        if not strategy:
+            raise ValueError("Cada estrategia validada debe tener un identificador")
+        normalized[strategy] = _reviewed_mark(field, strategy, raw_mark)
+    return normalized
 
 
 def normalize_reviewed_strategies(value: Any) -> dict[str, dict[str, str]]:
@@ -244,19 +264,18 @@ def normalize_reviewed_strategies(value: Any) -> dict[str, dict[str, str]]:
     El veredicto no es decorado: es lo que permite que la portada vuelva a
     avisar si la auditoría siguiente la empeora.
     """
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError("reviewed_strategies debe ser un objeto JSON")
-    if len(value) > 500:
-        raise ValueError("No se pueden validar más de 500 estrategias")
-    normalized: dict[str, dict[str, str]] = {}
-    for raw_strategy, raw_mark in value.items():
-        strategy = _text(raw_strategy, "identificador de estrategia", 512)
-        if not strategy:
-            raise ValueError("Cada estrategia validada debe tener un identificador")
-        normalized[strategy] = _reviewed_mark(strategy, raw_mark)
-    return normalized
+    return _reviewed_strategies("reviewed_strategies", value)
+
+
+def normalize_reviewed_history_strategies(value: Any) -> dict[str, dict[str, str]]:
+    """Lo mismo, pero sobre la serie archivada en vez de sobre el periodo.
+
+    Es otro campo y no el mismo porque las dos tablas contestan preguntas
+    distintas: la del periodo dice «ya miré esta semana» y ésta «ya miré la
+    serie entera». Validar una no puede validar la otra, o la portada
+    escondería un aviso que nadie ha mirado.
+    """
+    return _reviewed_strategies("reviewed_history_strategies", value)
 
 
 def normalize_reviewed_unpaired_tester(value: Any) -> dict[str, dict[str, str]]:
@@ -361,6 +380,10 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
     if "reviewed_strategies" in value:
         normalized["reviewed_strategies"] = normalize_reviewed_strategies(
             value["reviewed_strategies"],
+        )
+    if "reviewed_history_strategies" in value:
+        normalized["reviewed_history_strategies"] = normalize_reviewed_history_strategies(
+            value["reviewed_history_strategies"],
         )
     if "reviewed_unpaired_tester" in value:
         normalized["reviewed_unpaired_tester"] = normalize_reviewed_unpaired_tester(

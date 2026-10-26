@@ -199,7 +199,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   veredicto y simulación de lotes; el reinicio inicial sondea y recarga.
 - `live_audit_reviewed_strategies.md`: la casilla «Validada» de Análisis saca
   una fila de Portafolios activos sin tocar su veredicto, y por qué la marca
-  guarda el veredicto del momento en vez de un simple «sí».
+  guarda el veredicto del momento en vez de un simple «sí». Incluye la casilla
+  de la tabla del histórico y por qué es un campo aparte.
 - `live_audit_degradation_alert.md`: el veredicto DEGRADA sale de Análisis a la
   tarjeta de la portada y al push; por qué se mide sobre el archivo y no sobre
   el nodo, por qué `AVISO` se cuenta pero no se anuncia y por qué una

@@ -152,7 +152,10 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # pinta la tabla. Dos cálculos daban dos respuestas —la tarjeta marcó
         # «NO REPRODUCE» tres EURUSD del #173 que la tabla daba por buenos—,
         # así que aquí sólo queda la llamada.
-        self.assertIn("function summarizeHistory(result, series, overrides = {})", self.metrics)
+        self.assertIn(
+            "function summarizeHistory(result, series, overrides = {}, reviews = {})",
+            self.metrics,
+        )
         self.assertIn("root.LiveAuditHistoryVerdicts.flagged(executions, {", self.metrics)
         self.assertIn("root.LiveAuditHistoryVerdicts.retainedOf(", self.metrics)
         for gone in ("mergeHistoryGroups", "function executedLots", "historyIdentity"):
@@ -163,12 +166,18 @@ class LivePortfolioDashboardTests(unittest.TestCase):
             self.page_text.index("/dashboard_metrics.js"),
         )
         self.assertIn("LiveDashboardMetrics.summarizeHistory(", self.script)
-        # Y la casilla «Validada» del periodo no la toca: dice «ya miré esta
-        # semana» y la serie contesta otra pregunta —la tabla histórica ni
-        # siquiera tiene esa casilla—. Filtrando por ella, las doce filas
-        # marcadas del 109 de AXI se escondían detrás de dos validaciones.
-        self.assertNotIn("summarizeHistory(result, series, reviews", self.metrics)
-        self.assertIn("summarizeHistory(result, historyOf(entry), overrides)", self.script)
+        # Y la casilla «Validada» del periodo sigue sin tocarla: dice «ya miré
+        # esta semana» y la serie contesta otra pregunta. Filtrando por ella,
+        # las doce filas marcadas del 109 de AXI se escondían detrás de dos
+        # validaciones. Lo que sí la filtra es la casilla de la tabla
+        # histórica, que es otro campo del perfil.
+        self.assertNotIn(
+            "historyOf(entry), overrides,\n      LiveAuditReproduction.storedReviews(",
+            self.script,
+        )
+        self.assertIn(
+            "LiveAuditReproduction.storedHistoryReviews(entry.profile),", self.script,
+        )
         # Y la tarjeta no puede decir «SIN AVISOS» con la lista debajo.
         self.assertIn("inSeries ? `${inSeries} EN LA SERIE` : ''", self.script)
 

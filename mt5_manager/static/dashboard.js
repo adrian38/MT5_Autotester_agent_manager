@@ -224,7 +224,10 @@ function historyMarkup(entry, summary, currency) {
   if (!series) return '';
   const broken = summary.flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
   const warnings = summary.flagged.filter(row => row.verdict === 'AVISO').length;
-  if (!summary.flagged.length) return '';
+  // Sin nada pendiente la sección desaparece, pero si lo que la vació fueron
+  // las validadas hay que decirlo: esconder tres avisos sin contarlos afirma
+  // más de lo que se sabe.
+  if (!summary.flagged.length && !summary.reviewed) return '';
   const counts = [
     broken ? `${broken} crítica${broken === 1 ? '' : 's'}` : '',
     warnings ? `${warnings} aviso${warnings === 1 ? '' : 's'}` : '',
@@ -233,7 +236,7 @@ function historyMarkup(entry, summary, currency) {
   return '<section class="strategy-section"><div class="section-title">'
     + '<strong>Estrategias a revisar · todo el histórico</strong>'
     + `<span>${escapeHtml(counts)}</span></div>`
-    + flaggedMarkup(summary.flagged, currency, 0) + '</section>';
+    + flaggedMarkup(summary.flagged, currency, summary.reviewed) + '</section>';
 }
 
 function sigma(value) {
@@ -333,8 +336,11 @@ function cardMarkup(entry) {
     LiveAuditReproduction.storedUnpairedReviews(entry.profile),
   ) : {comparable: false, flagged: [], reviewed: 0};
   const history = result
-    ? LiveDashboardMetrics.summarizeHistory(result, historyOf(entry), overrides)
-    : {flagged: [], audits: 0};
+    ? LiveDashboardMetrics.summarizeHistory(
+      result, historyOf(entry), overrides,
+      LiveAuditReproduction.storedHistoryReviews(entry.profile),
+    )
+    : {flagged: [], audits: 0, reviewed: 0};
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
     profile.portfolio_type
   ] || profile.portfolio_type || 'Sin modo';

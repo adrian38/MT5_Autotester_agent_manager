@@ -348,13 +348,19 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             "live-audit-pairs-import",
             "live-audit-comment-links-import",
         }
-        posts = re.findall(r"fetch\(\s*([^,]+),\s*\{\s*method: 'POST'", self.analysis_script)
+        # La tabla del histórico vive en su propio fichero y tiene su propia
+        # casilla «Validada», así que su POST también pasa por esta guarda: una
+        # puerta nueva no puede esconderse cambiando de fichero.
+        history = (self.static_dir / "live_audit_history.js").read_text(encoding="utf-8")
+        posts = re.findall(
+            r"fetch\(\s*([^,]+),\s*\{\s*method: 'POST'", self.analysis_script + history,
+        )
         self.assertTrue(posts, "La pantalla ya no hace ningún POST: revisa esta guarda.")
         for url in posts:
             endpoint = url.strip().strip("`").rsplit("/", 1)[-1]
             self.assertTrue(
                 "${criterion}" in url or endpoint in importers
-                or url.strip() in {"viewLotsUrl", "reviewsUrl"},
+                or url.strip() in {"viewLotsUrl", "reviewsUrl", "unpairedReviewsUrl"},
                 f"POST inesperado desde Análisis: {url}",
             )
         # `changeCriterion` es la única puerta, así que la guarda vale aunque

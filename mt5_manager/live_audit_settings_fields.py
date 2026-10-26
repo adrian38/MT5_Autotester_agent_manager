@@ -24,6 +24,7 @@ from .live_audit_lot_schedule import normalize_lot_schedule
 from .live_audit_comment_links import normalize_comment_links
 from .live_audit_manual_pairs import normalize_manual_pairs
 from .live_audit_settings_schema import (
+    normalize_reviewed_history_strategies,
     normalize_reviewed_strategies,
     normalize_reviewed_unpaired_tester,
     normalize_view_lot_overrides,
@@ -98,6 +99,27 @@ class LiveAuditProfileFieldsMixin:
         return self._set_profile_field(
             node_id, audit_id, "reviewed_strategies",
             normalize_reviewed_strategies(reviewed),
+        )
+
+    def reviewed_history_strategies(self, node_id: str, audit_id: str) -> dict[str, Any]:
+        """Las estrategias que el usuario ya dio por revisadas en la serie."""
+        with self.lock:
+            profiles = (self.records.get(node_id) or {}).get("profiles") or {}
+            stored = (profiles.get(str(audit_id)) or {}).get("reviewed_history_strategies")
+        return normalize_reviewed_history_strategies(stored)
+
+    def set_reviewed_history_strategies(
+        self, node_id: str, audit_id: str, reviewed: Any,
+    ) -> dict[str, Any]:
+        """Guarda qué estrategias de la serie archivada ya miró el usuario.
+
+        Mismo contrato que las del periodo y campo distinto, porque las dos
+        tablas contestan preguntas distintas: validar «esta semana» no puede
+        validar «todas las auditorías que llevamos».
+        """
+        return self._set_profile_field(
+            node_id, audit_id, "reviewed_history_strategies",
+            normalize_reviewed_history_strategies(reviewed),
         )
 
     def reviewed_unpaired_tester(self, node_id: str, audit_id: str) -> dict[str, Any]:

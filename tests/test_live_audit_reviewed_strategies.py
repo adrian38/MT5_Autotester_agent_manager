@@ -21,6 +21,7 @@ from mt5_manager.live_audit_settings import (
     LiveAuditSettingsStore,
     normalize_live_audit_settings,
 )
+from mt5_manager.live_audit_schedule import MANAGER_ONLY_PROFILE_KEYS
 from mt5_manager.manager_live_audit_routes import handle_get, handle_post
 from tests.test_live_audit_settings import profile as stored_profile
 from tests.test_live_audit_view_lots import RouteHandler
@@ -231,6 +232,123 @@ class ReviewedStrategiesScreenTests(unittest.TestCase):
         # portada es justo la pantalla que existe para decirlo.
         self.assertFalse(reviewed(marks, "eth", "NO REPRODUCE"))
         self.assertFalse(reviewed(marks, "btc", "AVISO"))
+
+
+class ReviewedHistoryStrategiesTests(unittest.TestCase):
+    """La misma casilla sobre la tabla del histórico, con su propio campo.
+
+    Las dos tablas contestan preguntas distintas —«¿qué pasó esta semana?» y
+    «¿y en todas las auditorías que llevamos?»—, así que validar una no puede
+    validar la otra: con un solo campo, doce filas marcadas de la serie se
+    esconderían detrás de dos validaciones del periodo.
+    """
+
+    PATH = ["api", "nodes", "nodo", "live-audits", "real-a", "reviewed-history-strategies"]
+
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.path = Path(temp.name) / "live_audit_settings.json"
+        self.store = LiveAuditSettingsStore(self.path)
+        self.store.update("nodo", {
+            "selected_audit_ids": ["real-a"],
+            "profiles": {"real-a": {
+                **stored_profile("111", "911"), "portfolio_id": 11,
+                "portfolio_type": "balanced",
+                "source_password": "real", "tester_password": "test",
+            }},
+        })
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.history = (STATIC / "live_audit_history.js").read_text(encoding="utf-8")
+        cls.reproduction = (STATIC / "live_audit_reproduction.js").read_text(encoding="utf-8")
+        cls.analysis_page = (STATIC / "live_audit_analysis.html").read_text(encoding="utf-8")
+        cls.metrics = (STATIC / "dashboard_metrics.js").read_text(encoding="utf-8")
+
+    def test_the_series_mark_is_its_own_field_of_the_profile(self) -> None:
+        self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["reviewed_history_strategies"], {})
+        self.assertEqual(self.store.reviewed_history_strategies("nodo", "real-a"), {})
+
+        saved = self.store.set_reviewed_history_strategies("nodo", "real-a", {
+            "eth-grid": {"verdict": "NO REPRODUCE", "at": "2026-10-26T08:00:00.000Z"},
+        })
+
+        self.assertEqual(saved, {
+            "eth-grid": {"verdict": "NO REPRODUCE", "at": "2026-10-26T08:00:00.000Z"},
+        })
+        self.assertEqual(
+            LiveAuditSettingsStore(self.path).reviewed_history_strategies("nodo", "real-a"),
+            saved,
+        )
+        # Y validar la serie no valida el periodo, que es justo el motivo de
+        # que sean dos campos.
+        self.assertEqual(self.store.reviewed_strategies("nodo", "real-a"), {})
+
+    def test_the_mark_has_to_carry_a_verdict_the_dashboard_can_compare(self) -> None:
+        with self.assertRaisesRegex(ValueError, "objeto JSON"):
+            normalize_live_audit_settings({"reviewed_history_strategies": []})
+        with self.assertRaisesRegex(ValueError, "veredicto conocido"):
+            normalize_live_audit_settings(
+                {"reviewed_history_strategies": {"eth": {"verdict": "OK"}}},
+            )
+        # El mensaje nombra el campo que falla: con los dos campos compartiendo
+        # validador, decir «reviewed_strategies» mandaría a mirar el otro.
+        try:
+            normalize_live_audit_settings(
+                {"reviewed_history_strategies": {"eth": {"verdict": "OK"}}},
+            )
+        except ValueError as exc:
+            self.assertIn("reviewed_history_strategies[eth].verdict", str(exc))
+
+    def test_what_the_table_marks_is_what_the_dashboard_reads_back(self) -> None:
+        handler = RouteHandler(self.store)
+        self.assertTrue(handle_get(handler, SimpleNamespace(query=""), self.PATH))
+        self.assertEqual(handler.sent, (200, {"reviewed_history_strategies": {}}))
+
+        mark = {"eth-grid": {"verdict": "AVISO", "at": "2026-10-26T08:00:00.000Z"}}
+        handler = RouteHandler(self.store, {"reviewed_history_strategies": mark})
+        self.assertTrue(handle_post(handler, None, self.PATH))
+        self.assertEqual(handler.sent, (200, {"reviewed_history_strategies": mark}))
+
+        handler = RouteHandler(self.store)
+        self.assertTrue(handle_get(handler, SimpleNamespace(query=""), self.PATH))
+        self.assertEqual(handler.sent, (200, {"reviewed_history_strategies": mark}))
+
+    def test_the_field_is_criterion_of_the_manager_and_never_goes_to_the_node(self) -> None:
+        self.assertIn("reviewed_history_strategies", MANAGER_ONLY_PROFILE_KEYS)
+
+    def test_the_historic_table_carries_the_same_checkbox(self) -> None:
+        self.assertIn(
+            "<th>Veredicto acumulado</th><th>Validada</th>", self.analysis_page,
+        )
+        self.assertIn('colspan="8"', self.analysis_page)
+        self.assertIn("${reviewCell(group)}", self.history)
+        self.assertIn("data-history-review=", self.history)
+        # Los mismos dos veredictos que la portada enseña de la serie, y una
+        # fila con marca la sigue llevando aunque haya mejorado.
+        self.assertIn("return LiveAuditHistoryVerdicts.FLAGGED.includes(verdict);", self.history)
+        self.assertIn("if (!reviewable(group.verdict) && !mark) {", self.history)
+        # Guarda el veredicto que tenía, no un «sí»: es lo que la hace volver.
+        self.assertIn("reviews[strategy] = {verdict, at: new Date().toISOString()}", self.history)
+        self.assertIn("reviewed_history_strategies: value", self.history)
+        self.assertIn("/reviewed-history-strategies`", self.history)
+        # Y se deshace si el guardado falla.
+        self.assertIn("reviews = previous;", self.history)
+        self.assertIn("No se pudo guardar la validación", self.history)
+
+    def test_the_dashboard_hides_the_validated_series_and_says_how_many(self) -> None:
+        self.assertIn("function storedHistoryReviews(profile)", self.reproduction)
+        self.assertIn("profile?.reviewed_history_strategies", self.reproduction)
+        self.assertIn("const pending = marked.filter(row => !reproduction.reviewed(", self.metrics)
+        self.assertIn("reviewed: marked.length - pending.length,", self.metrics)
+
+    def test_a_validated_series_comes_back_only_when_it_gets_worse(self) -> None:
+        # La regla es la misma `reviewed` que la del periodo, portada arriba.
+        marks = {"eth": {"verdict": "AVISO", "at": "2026-10-26T08:00:00.000Z"}}
+        self.assertTrue(reviewed(marks, "eth", "AVISO"))
+        self.assertTrue(reviewed(marks, "eth", "REPRODUCE"))
+        self.assertFalse(reviewed(marks, "eth", "NO REPRODUCE"))
 
 
 if __name__ == "__main__":

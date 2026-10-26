@@ -247,6 +247,14 @@
     return stored && typeof stored === 'object' ? stored : {};
   }
 
+  // Y lo que miró en la tabla del histórico, que es otra pregunta y por tanto
+  // otro campo: «ya miré esta semana» no puede valer por «ya miré la serie
+  // entera». La regla de cuándo vuelve a avisar es la misma `reviewed`.
+  function storedHistoryReviews(profile) {
+    const stored = profile?.reviewed_history_strategies;
+    return stored && typeof stored === 'object' ? stored : {};
+  }
+
   // Validar no es silenciar para siempre: se guarda el veredicto que la fila
   // tenía al marcarla y deja de valer en cuanto empeora. Sin eso, una
   // estrategia validada en AVISO podría pasar a NO REPRODUCE en la auditoría
@@ -299,7 +307,8 @@
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
     autolotMode, compare, fewTrades, numbers, overrideFor, pairedReal, realLotTimeline, reviewed,
-    scaleTarget, scaledProfit, scaledSide, sideSeries, storedOverrides, storedReviews,
+    scaleTarget, scaledProfit, scaledSide, sideSeries, storedHistoryReviews,
+    storedOverrides, storedReviews,
     storedUnpairedReviews, testerMode, testerPairKey, unpairedAnswered, unpairedKey,
     unpairedReviewed, unpairedTester, verdict,
   };

@@ -46,6 +46,31 @@ cliente que grabara una etiqueta desconocida dejaría a la portada decidiendo
 «no ha empeorado» sobre algo que no sabe ordenar, o sea escondiendo la fila
 para siempre.
 
+## La serie tiene su propia casilla (2026-10-26)
+
+La tabla `¿Y en todas las auditorías que llevamos?` lleva la misma columna
+`Validada`, con el mismo contrato: no toca el veredicto acumulado ni el orden
+de la tabla, sólo saca la fila de `Portafolios activos`, y vuelve en cuanto el
+veredicto acumulado empeora.
+
+**Es otro campo del perfil**, `reviewed_history_strategies`, y eso es lo
+importante. Las dos tablas contestan preguntas distintas —«¿qué pasó esta
+semana?» y «¿y en todas las que llevamos?»—, así que una marca no puede valer
+por la otra: con un solo campo, las doce filas marcadas de la serie del 109 de
+AXI se habrían escondido detrás de dos validaciones del periodo. El camino es
+el mismo (`_VIEW_FIELDS` de `manager_live_audit_routes.py`, el par
+`reviewed_history_strategies` / `set_reviewed_history_strategies` del almacén),
+y el validador también: `normalize_reviewed_history_strategies` y
+`normalize_reviewed_strategies` comparten cuerpo y sólo cambian el nombre que
+sale en el error, que es lo que dice en qué tabla mirar.
+
+La regla de cuándo vuelve a avisar **no se duplica**: la tabla del histórico
+llama a la misma `LiveAuditReproduction.reviewed`, y la portada filtra en
+`summarizeHistory` con `storedHistoryReviews(profile)`. La sección «todo el
+histórico» de la tarjeta ya no desaparece cuando lo único que la vació fueron
+las validadas: enseña el recuento, porque esconder tres avisos sin contarlos
+afirma más de lo que se sabe.
+
 ## Nada que portar a los agentes
 
 Igual que el veredicto y el emparejamiento, esto vive sólo en el manager
