@@ -10,10 +10,22 @@
 // (`LiveAuditReproduction`): dos tablas con dos criterios serían dos
 // respuestas distintas a la misma pregunta.
 (() => {
-  // Los lotes realmente ejecutados en cada auditoría, sin la simulación de la
-  // pantalla: una escala elegida para la semana de hoy no significa nada
-  // aplicada a los periodos anteriores.
-  const EXECUTED_LOTS = {};
+  // Los lotes realmente ejecutados en cada auditoría: **nunca** los números
+  // tecleados en la simulación, que describen la semana de hoy y no significan
+  // nada aplicados a los periodos anteriores.
+  //
+  // La casilla que manda sí se respeta, y tiene que respetarse: no es una
+  // escala elegida a dedo, sino la instrucción de usar el lote que **cada
+  // pareja ejecutó en su propia auditoría** (`scale_volume`, que `scaleTarget`
+  // apunta operación a operación). Ignorarla dejaba la demo a 0,01 contra una
+  // real a 0,10 y el cociente medía tamaño de posición, no reproducción: en
+  // `audit-173` de RoboForex tres estrategias salían «NO REPRODUCE, 10,6 veces»
+  // cuando al lote ejecutado reproducen el tester al 0,99×.
+  function executedLots() {
+    const mode = typeof lotOverrides === 'object' && lotOverrides ? lotOverrides.$mode : null;
+    return mode ? {$mode: mode} : {};
+  }
+
   let series = null;
 
   function ready() {
@@ -77,7 +89,7 @@
   }
 
   function row(group, currency) {
-    const numbers = LiveAuditReproduction.numbers(group, EXECUTED_LOTS);
+    const numbers = LiveAuditReproduction.numbers(group, executedLots());
     const [label, tone, help] = LiveAuditReproduction.verdict(numbers);
     const sign = numbers.real - numbers.demo >= 0 ? '+' : '';
     const name = group.label === group.strategy ? group.label : `${group.label} · ${group.strategy}`;
@@ -106,8 +118,8 @@
       || series.executions?.[0]?.currency || 'EUR';
     const ranked = mergeGroups(series.executions || []).sort((left, right) => (
       LiveAuditReproduction.compare(
-        LiveAuditReproduction.numbers(left, EXECUTED_LOTS),
-        LiveAuditReproduction.numbers(right, EXECUTED_LOTS),
+        LiveAuditReproduction.numbers(left, executedLots()),
+        LiveAuditReproduction.numbers(right, executedLots()),
       )
     ));
     body.innerHTML = ranked.length
@@ -115,7 +127,7 @@
       : '<tr><td colspan="7" class="audit-analysis-empty">Todavía no hay auditorías archivadas. '
         + 'Cada una que termine se guardará aquí, también las lanzadas a mano.</td></tr>';
     const verdicts = ranked.map(group => LiveAuditReproduction.verdict(
-      LiveAuditReproduction.numbers(group, EXECUTED_LOTS),
+      LiveAuditReproduction.numbers(group, executedLots()),
     )[0]);
     const broken = verdicts.filter(label => label === 'NO REPRODUCE').length;
     const warnings = verdicts.filter(label => label === 'AVISO').length;

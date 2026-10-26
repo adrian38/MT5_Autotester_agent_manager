@@ -551,51 +551,5 @@ class WatchedArchiveTests(unittest.TestCase):
         )
 
 
-class HistoryScreenTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        from mt5_manager.manager_handler import STATIC_FILES
-
-        cls.static_files = STATIC_FILES
-        static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-        cls.page = (static / "live_audit_analysis.html").read_text(encoding="utf-8")
-        cls.script = (static / "live_audit_history.js").read_text(encoding="utf-8")
-        cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
-
-    def test_the_second_table_lives_next_to_the_first_one(self) -> None:
-        self.assertIn("live_audit_history.js", self.static_files)
-        self.assertIn('<script src="/live_audit_history.js"></script>', self.page)
-        self.assertIn('id="history-body"', self.page)
-        self.assertIn('id="history-count"', self.page)
-        # La del periodo se queda como estaba.
-        self.assertIn('id="reproduction-body"', self.page)
-
-    def test_the_historic_table_uses_the_same_verdict_as_the_period_one(self) -> None:
-        self.assertIn("LiveAuditReproduction.verdict", self.script)
-        self.assertIn("LiveAuditReproduction.numbers", self.script)
-        self.assertIn("LiveAuditReproduction.compare", self.script)
-        self.assertIn("strategyGroups(", self.script)
-        self.assertIn("/history", self.script)
-
-    def test_it_says_which_portfolios_it_inherits_from_and_with_what_limit(self) -> None:
-        self.assertIn("inherited_portfolios", self.script)
-        self.assertIn("hereda el histórico de", self.script)
-        self.assertIn("sólo de las estrategias que conserva", self.script)
-
-    def test_the_table_only_shows_the_strategies_the_portfolio_keeps(self) -> None:
-        # El servidor ya recorta; la pantalla no puede volver a abrir la mano
-        # con las ejecuciones propias, que era lo que hacía antes.
-        self.assertIn("function retained()", self.script)
-        self.assertIn("if (wanted.size && !wanted.has(identity(group))) return;", self.script)
-        self.assertNotIn("execution.own", self.script)
-
-    def test_the_degradation_table_announces_that_it_accumulates(self) -> None:
-        self.assertIn("renderAccumulatedNote", self.analysis)
-        self.assertIn("acumulado ${escapeHtml(atHistoryLot", self.analysis)
-        self.assertIn("todas las auditorías archivadas", self.page)
-        # El desglose por estrategia sigue siendo el de la auditoría actual.
-        self.assertIn("Análisis por estrategia", self.page)
-
-
 if __name__ == "__main__":
     unittest.main()

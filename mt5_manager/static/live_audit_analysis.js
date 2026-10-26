@@ -149,6 +149,13 @@ function sideSeries(trades, strategy, side) {
   return LiveAuditReproduction.sideSeries(trades, strategy, side, lotOverrides);
 }
 
+// La tabla del histórico vive en su propio script y lee `lotOverrides` cuando
+// pinta. Quien cambia la casilla tiene que avisarla, o las dos tablas darían
+// dos respuestas distintas a la misma pregunta hasta recargar la página.
+function renderHistoryTable() {
+  if (window.LiveAuditHistory) window.LiveAuditHistory.render();
+}
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -1404,6 +1411,10 @@ async function loadAnalysis() {
   reviews = storedReviews;
   unpairedReviews = storedUnpaired;
   render(result);
+  // La tabla del histórico carga por su cuenta al abrir la página, así que
+  // llega antes que los lotes guardados y los pintaría sin la casilla que
+  // manda. Se le dice que se repinte en cuanto se sabe cuál es.
+  renderHistoryTable();
   await loadDegradation();
 }
 
@@ -1499,12 +1510,14 @@ async function applyLots(overrides) {
   const previous = lotOverrides;
   lotOverrides = overrides;
   renderCurves();
+  renderHistoryTable();
   try {
     await writeOverrides(lotOverrides);
     showAnalysisError('');
   } catch (error) {
     lotOverrides = previous;
     renderCurves();
+    renderHistoryTable();
     showAnalysisError(`No se pudo guardar el escalado de lotes: ${error.message}`);
   }
 }
