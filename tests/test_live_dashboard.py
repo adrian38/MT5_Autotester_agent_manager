@@ -137,7 +137,41 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("opera${slow.length === 1 ? '' : 'n'} menos", self.script)
         self.assertIn("slow ? `${slow} OPERA${slow === 1 ? '' : 'N'} MENOS` : ''", self.script)
         # Tampoco pinta la tarjeta de rojo: no es un veredicto de retirada.
-        self.assertIn("warnings || crossing || slow ? 'pending'", self.script)
+        self.assertIn("warnings || crossing || slow || inSeries ? 'pending'", self.script)
+
+    def test_the_card_also_lists_what_the_whole_series_says(self) -> None:
+        # «Demo contra real» en una semana con tres operaciones no decide
+        # nada, y la tabla que sí decide —«¿Y en todas las auditorías que
+        # llevamos?»— sólo se veía abriendo Análisis uso por uso. Las dos
+        # listas van juntas y cada una dice de qué habla.
+        self.assertIn("Estrategias a revisar · última auditoría", self.script)
+        self.assertIn("Estrategias a revisar · todo el histórico", self.script)
+        self.assertIn("function historyMarkup(entry, summary, currency)", self.script)
+        self.assertIn("historyMarkup(entry, history, currency)", self.script)
+        # El veredicto es el mismo que el de la tabla, y se mide sin escalado:
+        # una simulación de lote elegida para hoy no significa nada aplicada a
+        # los periodos anteriores.
+        self.assertIn("function summarizeHistory(result, series, reviews = {})", self.metrics)
+        self.assertIn("flaggedStrategies(mergeHistoryGroups(executions, retained), {})", self.metrics)
+        self.assertIn("LiveDashboardMetrics.summarizeHistory(", self.script)
+        # Lo validado en Análisis sale también de esta lista, igual que de la
+        # del periodo: la portada es lo que queda por mirar.
+        self.assertIn("reviews, row.strategy, row.verdict,", self.metrics)
+        # Y la tarjeta no puede decir «SIN AVISOS» con la lista debajo.
+        self.assertIn("inSeries ? `${inSeries} EN LA SERIE` : ''", self.script)
+
+    def test_the_series_is_asked_once_per_audit_and_never_to_the_node(self) -> None:
+        # Es la respuesta más pesada de la portada —todas las auditorías de
+        # ese uso con su detalle— y la pantalla se repinta cada minuto: se
+        # guarda con la marca de la ejecución y se lee del archivo, sin
+        # provocar el análisis en el agente.
+        self.assertIn("/history?source=archive", self.script)
+        self.assertIn("stored.stamp === historyStamp(entry)", self.script)
+        self.assertIn("entry.auditId && entry.result && !historyOf(entry)", self.script)
+        routes = (Path(__file__).parents[1] / "mt5_manager"
+                  / "manager_schedule_routes.py").read_text(encoding="utf-8")
+        self.assertIn('query.get("source", [""])[0] == "archive"', routes)
+        self.assertIn("return _archived_history(handler, node, node_id, audit_key)", routes)
 
     def test_the_card_does_not_open_the_agent_memory_to_know_it(self) -> None:
         # El histórico vive en la memoria UBS del agente y la portada se

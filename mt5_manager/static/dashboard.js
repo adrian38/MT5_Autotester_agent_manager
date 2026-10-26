@@ -10,6 +10,11 @@ const nodeRetryAfter = new Map();
 // El alias vive en la memoria UBS del agente, así que no viaja con el sondeo
 // de 60 s: se pide una vez por nodo y se repinta al editarlo.
 const nodeAliases = new Map();
+// La serie archivada de cada uso, para «todo el histórico». Es la respuesta
+// más pesada de la portada —todas las auditorías de ese uso, con su detalle—,
+// así que se pide una sola vez por auditoría: se guarda con la marca de la
+// ejecución y no se vuelve a pedir hasta que termine la siguiente.
+const auditHistories = new Map();
 const FAILURE_LIMIT = 3;
 const BACKOFF_MS = 5 * 60 * 1000;
 
@@ -123,6 +128,38 @@ async function loadAliases(node) {
   }
 }
 
+// Con qué ejecución se midió la serie que hay guardada. Mientras no cambie,
+// la respuesta sería la misma y la portada se repinta cada minuto.
+function historyStamp(entry) {
+  return String(entry.result?.analysis?.executed_at || entry.result?.completed_at || '');
+}
+
+function historyKey(entry) {
+  return `${entry.node?.id}|${entry.auditId}`;
+}
+
+function historyOf(entry) {
+  const stored = auditHistories.get(historyKey(entry));
+  return stored && stored.stamp === historyStamp(entry) ? stored.series : null;
+}
+
+async function loadHistories(node) {
+  const pending = (nodeEntries.get(node.id) || []).filter(
+    entry => entry.auditId && entry.result && !historyOf(entry),
+  );
+  if (!pending.length) return false;
+  const loaded = await Promise.allSettled(pending.map(async entry => {
+    const series = await jsonResponse(await fetch(
+      `/api/nodes/${encodeURIComponent(node.id)}/live-audits/`
+      + `${encodeURIComponent(entry.auditId)}/history?source=archive`, {cache: 'no-store'},
+    ));
+    auditHistories.set(historyKey(entry), {stamp: historyStamp(entry), series});
+  }));
+  // Una serie que no se deja leer no puede dejar la tarjeta sin pintar: la
+  // sección histórica desaparece y el resto sigue.
+  return loaded.some(result => result.status === 'fulfilled');
+}
+
 function recordNodeResult(node, loaded) {
   const failed = loaded.length === 1 && loaded[0].configError;
   if (!failed) {
@@ -172,6 +209,29 @@ function flaggedMarkup(rows, currency, reviewed) {
       + `<span>Real ${escapeHtml(money(row.real_profit, currency))}</span></div>`
       + `<div><span class="verdict ${row.tone}">${escapeHtml(row.verdict)}</span>${quality}</div></li>`;
   }).join('')}</ul>${reviewedNote(reviewed)}`;
+}
+
+// La misma pregunta de la sección de arriba, pero sobre todas las auditorías
+// archivadas de estas estrategias: la tabla «¿Y en todas las auditorías que
+// llevamos?» de Análisis. Una semana con tres operaciones no decide nada; la
+// serie sí, y hasta ahora sólo se veía abriendo esa pantalla uso por uso.
+// La sección desaparece cuando no hay serie o no hay nada marcado, igual que
+// la de degradación.
+function historyMarkup(entry, summary, currency) {
+  const series = historyOf(entry);
+  if (!series) return '';
+  const broken = summary.flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
+  const warnings = summary.flagged.filter(row => row.verdict === 'AVISO').length;
+  if (!summary.flagged.length && !summary.reviewed) return '';
+  const counts = [
+    broken ? `${broken} crítica${broken === 1 ? '' : 's'}` : '',
+    warnings ? `${warnings} aviso${warnings === 1 ? '' : 's'}` : '',
+    summary.audits ? `${summary.audits} auditoría${summary.audits === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(' · ');
+  return '<section class="strategy-section"><div class="section-title">'
+    + '<strong>Estrategias a revisar · todo el histórico</strong>'
+    + `<span>${escapeHtml(counts)}</span></div>`
+    + flaggedMarkup(summary.flagged, currency, summary.reviewed) + '</section>';
 }
 
 function sigma(value) {
@@ -270,6 +330,9 @@ function cardMarkup(entry) {
     result, overrides, LiveAuditReproduction.storedReviews(entry.profile),
     LiveAuditReproduction.storedUnpairedReviews(entry.profile),
   ) : {comparable: false, flagged: [], reviewed: 0};
+  const history = result ? LiveDashboardMetrics.summarizeHistory(
+    result, historyOf(entry), LiveAuditReproduction.storedReviews(entry.profile),
+  ) : {flagged: [], reviewed: 0, audits: 0};
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
     profile.portfolio_type
   ] || profile.portfolio_type || 'Sin modo';
@@ -280,14 +343,21 @@ function cardMarkup(entry) {
   const degraded = (entry.degradation?.strategies || []).length;
   const crossing = (entry.degradation?.crossing || []).length;
   const slow = (entry.degradation?.slow || []).length;
+  // Lo de la serie no pinta la tarjeta de rojo aunque diga NO REPRODUCE: es
+  // un veredicto sobre el pasado acumulado, no sobre lo que acaba de pasar, y
+  // teñir de rojo una tarjeta cuya última auditoría salió limpia leería mal.
+  // Pero callarlo sería peor: la tarjeta diría «SIN AVISOS» con la lista de
+  // avisos debajo.
+  const inSeries = history.flagged.length;
   const tone = broken || degraded ? 'failed'
-    : warnings || crossing || slow ? 'pending' : summary.comparable ? 'completed' : 'idle';
+    : warnings || crossing || slow || inSeries ? 'pending'
+      : summary.comparable ? 'completed' : 'idle';
   const body = summary.comparable ? `<div class="comparison-grid">
     <div><span>Profit Test</span><strong>${escapeHtml(money(summary.demo_profit, currency))}</strong></div>
     <div><span>Profit Real</span><strong>${escapeHtml(money(summary.real_profit, currency))}</strong></div>
     <div><span>DD Test</span><strong>${escapeHtml(money(summary.demo_drawdown, currency))}</strong></div>
     <div><span>DD Real</span><strong>${escapeHtml(money(summary.real_drawdown, currency))}</strong></div>
-  </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency, summary.reviewed)}</section>` : unavailableMarkup(entry);
+  </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar · última auditoría</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency, summary.reviewed)}</section>${historyMarkup(entry, history, currency)}` : unavailableMarkup(entry);
   const badge = [
     broken ? `${broken} NO REPRODUCE` : '',
     degraded ? `${degraded} DEGRADA${degraded === 1 ? '' : 'N'}` : '',
@@ -297,6 +367,7 @@ function cardMarkup(entry) {
     !broken && !degraded && warnings ? `${warnings} AVISO${warnings === 1 ? '' : 'S'}` : '',
     crossing ? `${crossing} EN VIGILANCIA` : '',
     slow ? `${slow} OPERA${slow === 1 ? '' : 'N'} MENOS` : '',
+    inSeries ? `${inSeries} EN LA SERIE` : '',
   ].filter(Boolean).join(' · ') || (summary.comparable ? 'SIN AVISOS' : 'SIN DATOS');
   return `<article class="portfolio-card ${tone} ${brokerClass(entry.node.broker)}"><div class="card-head"><div><p class="eyebrow">${escapeHtml(entry.node.name)} · ${escapeHtml(mode)}</p><h2>${escapeHtml(title)}</h2>${aliasMarkup(entry.node.id, Number(profile.portfolio_id || 0))}<p>${escapeHtml(profile.source_login || result?.account?.login || 'Cuenta sin informar')} · ${escapeHtml(profile.source_server || result?.account?.server || '')}</p></div><span class="badge ${tone}">${badge}</span></div>${body}${summary.comparable ? unlinkedMarkup(summary) : ''}${degradationMarkup(entry)}<footer><span>Última auditoría: ${escapeHtml(dateTime(result?.analysis?.executed_at || result?.completed_at))}</span><div><a href="/live_audit.html?node=${encodeURIComponent(entry.node.id)}">Auditoría</a><a href="/live_audit_analysis.html?node=${encodeURIComponent(entry.node.id)}&audit=${encodeURIComponent(entry.auditId)}">Ver análisis</a></div></footer></article>`;
 }
@@ -326,6 +397,7 @@ async function refresh() {
       render(entries);
       refreshState.textContent = `Actualizando… ${entries.length} uso${entries.length === 1 ? '' : 's'}`;
       if (await loadAliases(node)) render(visibleEntries());
+      if (await loadHistories(node)) render(visibleEntries());
     }));
     refreshState.textContent = `Actualizado ${new Date().toLocaleTimeString('es-ES')}`;
   } catch (error) {

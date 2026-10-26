@@ -124,6 +124,55 @@
     ));
   }
 
+  // La identidad entre portafolios es el candidato **y** su `.set`, igual que
+  // en la tabla historica de Analisis: una cartera manual numera los suyos
+  // `manual:1`, `manual:2`... y dos carteras manuales distintas los repiten.
+  function historyIdentity(group) {
+    return `${group.strategy}|${group.label}`;
+  }
+
+  // Las mismas estrategias de la ultima auditoria, pero con las operaciones de
+  // todas las archivadas detras. Es `mergeGroups` de `live_audit_history.js`:
+  // dos mezclas distintas serian dos respuestas a la misma pregunta.
+  function mergeHistoryGroups(executions, retained) {
+    const merged = new Map();
+    executions.forEach(execution => {
+      strategyGroups({comparison_detail: execution.comparison_detail || {}}).forEach(group => {
+        if (retained.size && !retained.has(historyIdentity(group))) return;
+        const current = merged.get(group.strategy) || {
+          strategy: group.strategy, label: group.label, symbol: group.symbol,
+          demo: [], real: [], attributed: [], audits: 0, quality: null,
+        };
+        current.demo.push(...group.demo);
+        current.real.push(...group.real);
+        current.attributed.push(...group.attributed);
+        current.audits += 1;
+        if (current.symbol === '—' && group.symbol) current.symbol = group.symbol;
+        merged.set(group.strategy, current);
+      });
+    });
+    return [...merged.values()];
+  }
+
+  // La tabla historica de Analisis, con su mismo veredicto. Se mide sin
+  // escalado -`{}`-: una simulacion de lote elegida para hoy no significa nada
+  // aplicada a los periodos anteriores. Lo validado en Analisis sale tambien de
+  // aqui, que es lo que esta lista promete, y la marca deja de valer en cuanto
+  // el veredicto empeora.
+  function summarizeHistory(result, series, reviews = {}) {
+    const executions = series?.executions || [];
+    if (!executions.length) return {flagged: [], reviewed: 0, audits: 0};
+    const retained = new Set(strategyGroups(result).map(historyIdentity));
+    const marked = flaggedStrategies(mergeHistoryGroups(executions, retained), {});
+    const pending = marked.filter(row => !reproduction.reviewed(
+      reviews, row.strategy, row.verdict,
+    ));
+    return {
+      flagged: pending, reviewed: marked.length - pending.length,
+      audits: Number(series.audits || executions.length),
+    };
+  }
+
   function summarize(result, overrides = {}, reviews = {}, unpairedReviews = {}) {
     if (!comparisonRows(result).length) {
       return {comparable: false, flagged: [], reviewed: 0};
@@ -160,7 +209,7 @@
     };
   }
 
-  const api = {summarize};
+  const api = {summarize, summarizeHistory};
   root.LiveDashboardMetrics = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 }(typeof window !== 'undefined' ? window : globalThis));

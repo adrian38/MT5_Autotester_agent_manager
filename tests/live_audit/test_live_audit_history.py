@@ -428,6 +428,34 @@ class HistoryRouteTests(unittest.TestCase):
         self._get(FakeHandler(self.archive))
         self.assertEqual(len(self.archive.index("n")), 1)
 
+    def test_the_dashboard_variant_reads_the_archive_without_asking_the_node(self) -> None:
+        """`?source=archive`: la portada no provoca el análisis de cada uso.
+
+        Se repinta cada minuto y por cada tarjeta; un viaje al agente por uso
+        sería pagar el análisis entero para enseñar una lista. Lo que hay
+        archivado ya es lo que la última auditoría dejó dicho.
+        """
+        from unittest import mock
+
+        from mt5_manager import manager_schedule_routes
+
+        self._get(FakeHandler(self.archive))  # Deja la ejecución archivada.
+        handler = FakeHandler(self.archive)
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=AssertionError("la portada no habla con el nodo"),
+        ):
+            served = manager_schedule_routes.handle_get(
+                handler, type("Parsed", (), {"path": "", "query": "source=archive"})(),
+                ["api", "nodes", "n", "live-audits", "a-1", "history"],
+            )
+        self.assertTrue(served)
+        status, payload = handler.sent[0]
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["audits"], 1)
+        self.assertEqual(payload["node"]["name"], "Nodo N")
+        self.assertTrue(payload["executions"][0]["comparison_detail"])
+
 
 def native_report_html() -> bytes:
     """El HTML nativo de MT5 del que sale el saldo histórico del autolote."""
