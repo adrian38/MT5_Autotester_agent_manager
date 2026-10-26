@@ -167,9 +167,8 @@ def analysed_node_state(
             if isinstance(value, dict) and isinstance(value.get("audit"), dict) else fresh
         )
     profile = dict(profile)
-    # Quién puede enlazar por el comentario del EA lo decide el broker, y el
-    # broker lo conoce el nodo, no el análisis. Viaja en el resultado para que
-    # la pantalla enseñe el botón sin tener que preguntar por el nodo aparte.
+    # Conservado en el resultado por compatibilidad con análisis archivados.
+    # La capacidad ya no depende del broker.
     profile["_comment_links_supported"] = comment_links_supported(node or {})
     recover_real_trades(node or {}, value)
     if (profile.get("autolot") or {}).get("enabled"):

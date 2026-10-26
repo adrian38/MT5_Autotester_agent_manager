@@ -150,8 +150,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_audit_retired_profile_field.md`: quitar un campo del perfil es una
   migración de datos; si no, el cargador descarta el nodo entero en silencio
   y la portada amanece diciendo que no hay portafolios activos.
-- `live_audit_comment_links.md`: en AXI el EA escribe el código del `.set` en el
-  comentario de la orden, así que una tabla de dos columnas enlaza las reales
+- `live_audit_comment_links.md`: una tabla de dos columnas enlaza las reales
+  por el comentario de la orden en cualquier broker
   sin conjeturar ni teclear; por qué resuelve a la misma forma que el Excel en
   vez de abrir un camino propio, por qué manda sobre él y por qué hizo falta
   que el nodo publicara el comentario.

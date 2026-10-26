@@ -178,8 +178,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
         ],
         "live_audit.html": ["⚙ Cuenta final", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "live_audit_analysis.html": [
-            # «Enlazar por comentario» nace oculto: sólo los usos de AXI lo
-            # enseñan, y es la pantalla quien lo destapa al leer el análisis.
+            # «Enlazar por comentario» está disponible para cualquier broker.
             "Lotes por estrategia", "Atribuir reales sin pareja",
             # El Excel que corrige los enlaces que el auditor hizo mal.
             "Corregir enlaces",

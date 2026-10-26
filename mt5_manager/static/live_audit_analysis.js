@@ -926,12 +926,9 @@ function storedCommentLinks() {
   return currentResult.analysis?.tolerances?.comment_links || {};
 }
 
-// El botón sólo existe donde el enlace existe. Enseñarlo en un uso de otro
-// broker ofrecería un criterio que ese EA no escribe y que el manager
-// rechazaría al guardar: mejor que no esté.
+// La tabla la aporta el usuario; su disponibilidad no depende del broker.
 function renderCommentLinks() {
-  document.querySelector('#comment-links-upload').hidden
-    = !currentResult.analysis?.comment_links_supported;
+  document.querySelector('#comment-links-upload').hidden = false;
   const target = document.querySelector('#comment-links-source');
   const links = storedCommentLinks();
   const rules = Object.keys(links.rules || {}).length;

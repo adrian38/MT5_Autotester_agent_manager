@@ -298,7 +298,9 @@ def _analysis_request(payload: dict[str, Any], profile: dict[str, Any]) -> dict[
     )
     request["_autolot_balance_history"] = profile.get("_autolot_balance_history") or []
     request["_autolot_balance_error"] = profile.get("_autolot_balance_error") or ""
-    request["_comment_links_supported"] = bool(profile.get("_comment_links_supported"))
+    request["_comment_links_supported"] = bool(
+        profile.get("_comment_links_supported", True)
+    )
     request["_real_attribution_by_ticket"] = attribution_by_ticket(
         request.get("real_attribution"), list(payload.get("selected_members") or []),
     )
@@ -555,9 +557,8 @@ def _attach_evidence(
         "analysed_by": "manager",
         "executed_at": payload.get("completed_at"),
         "tolerances": {key: request.get(key) for key in REANALYSABLE_TOLERANCES},
-        # Si este uso puede enlazar por el comentario del EA. Lo decide el
-        # broker del nodo y la pantalla no lo conoce: sin esto tendría que
-        # preguntar por el nodo aparte sólo para saber si enseña un botón.
+        # Compatibilidad con resultados archivados anteriores a que el enlace
+        # por comentario estuviera disponible para todos los brokers.
         "comment_links_supported": bool(request.get("_comment_links_supported")),
     }
     return result

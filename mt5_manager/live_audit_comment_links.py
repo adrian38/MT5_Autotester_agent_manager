@@ -57,23 +57,13 @@ def empty_comment_links() -> dict[str, Any]:
 
 
 def comment_links_supported(node: dict[str, Any]) -> bool:
-    """Sólo los EA de AXI escriben el código del `.set` en el comentario.
+    """El enlace por comentario está disponible para cualquier nodo.
 
-    Es una propiedad de ese broker, no una regla de negocio: en los demás el
-    comentario trae lo que ponga el terminal —«[sl 359.87]», el nombre de la
-    plataforma— y leerlo como si nombrara una estrategia enlazaría reales
-    ajenas sin que nada lo dijera.
-
-    **El campo es `portfolio_broker`**, que es el que lleva el registro del
-    nodo en `manager.json`. El `broker` a secas sólo aparece en lo que el
-    agente dice de sí mismo —`/api/nodes` lo compone con él—, y no llega hasta
-    aquí: mirarlo únicamente a él dejaba el botón oculto también en AXI, sin
-    que nada lo dijera. Se aceptan los dos porque las dos formas circulan.
+    La tabla la aporta expresamente el usuario y sólo resuelve comentarios a
+    `.set` que pertenecen al portafolio del uso. Por eso la disponibilidad no
+    depende del broker ni de que éste escriba un formato concreto por defecto.
     """
-    for key in ("portfolio_broker", "broker"):
-        if str((node or {}).get(key) or "").strip().casefold() == "axi":
-            return True
-    return False
+    return True
 
 
 def comment_key(value: Any) -> str:

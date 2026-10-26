@@ -24,9 +24,8 @@
       <!-- El que corrige al auditor, no el que lo completa: alcanza a las
            filas ya emparejadas y un ticket vacío las deja sin real. -->
       <label id="pairs-upload" class="button secondary" title="Excel con las columnas Fila, Ticket y Nota para corregir enlaces que el auditor hizo mal. Ticket vacío = esa fila no tiene real"><span id="pairs-label">Corregir enlaces</span><input id="pairs-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
-      <!-- Sólo en AXI: es su EA quien escribe el código del `.set` en el
-           comentario de la orden. Lo dice el análisis, que conoce el nodo. -->
-      <label id="comment-links-upload" class="button secondary" title="Documento Word con la tabla «Nombre del setfile» / «EA_Comment»" hidden><span id="comment-links-label">Enlazar por comentario</span><input id="comment-links-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden></label>
+      <!-- La tabla la aporta el usuario y sólo enlaza `.set` del portafolio. -->
+      <label id="comment-links-upload" class="button secondary" title="Documento Word con la tabla «Nombre del setfile» / «EA_Comment»"><span id="comment-links-label">Enlazar por comentario</span><input id="comment-links-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden></label>
       <a id="result-link" class="button secondary" href="#">Ver detalle de operaciones</a>
       <a id="back-link" class="button secondary" href="/">Volver al auditor</a>
     </div>

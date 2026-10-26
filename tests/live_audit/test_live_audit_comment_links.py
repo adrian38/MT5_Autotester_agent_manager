@@ -1,13 +1,13 @@
 """Enlazar las reales por el comentario que el EA escribió en la orden.
 
-En AXI el EA escribe en el comentario de la orden de apertura un código
-—`TESLA_M15_006`— que nombra el `.set` que la abrió. No es una conjetura como
-el reparto por tiempo y lote, ni trabajo a mano como el Excel de atribución: lo
-escribió el programa que operó.
+Cuando el EA escribe en el comentario de la orden de apertura un código
+—por ejemplo, `TESLA_M15_006`— éste puede nombrar el `.set` que la abrió. No es
+una conjetura como el reparto por tiempo y lote, ni trabajo a mano como el Excel
+de atribución: lo escribió el programa que operó.
 
 Aquí se comprueban las cuatro mitades: lo que el lector saca del `.docx`, lo que
-el módulo valida, lo que el análisis hace con la tabla guardada y quién puede
-subirla.
+el módulo valida, lo que el análisis hace con la tabla guardada y que cualquier
+broker puede subirla.
 """
 from __future__ import annotations
 
@@ -136,24 +136,13 @@ class NormalizationTests(unittest.TestCase):
 
 
 class BrokerTests(unittest.TestCase):
-    def test_the_field_is_the_one_the_node_record_carries(self) -> None:
-        # `manager.json` guarda `portfolio_broker`; el `broker` a secas sólo
-        # aparece en lo que el agente dice de sí mismo y no llega hasta aquí.
-        # Mirar sólo a `broker` dejaba el botón oculto también en AXI, y en
-        # silencio: una capacidad que no se anuncia no se echa de menos.
-        self.assertTrue(comment_links_supported({
-            "id": "axi-standard-192-168-1-152", "name": "AXI Standard",
-            "portfolio_broker": "AXI", "portfolio_account_type": "STANDARD",
-        }))
-
-    def test_only_axi_writes_the_setfile_in_the_comment(self) -> None:
-        self.assertTrue(comment_links_supported({"broker": "AXI"}))
-        self.assertTrue(comment_links_supported({"portfolio_broker": " axi "}))
-        for other in (
+    def test_every_broker_can_use_a_user_supplied_comment_table(self) -> None:
+        for node in (
+            {"portfolio_broker": "AXI"},
             {"portfolio_broker": "ICTRADING"}, {"portfolio_broker": "ROBOFOREX"},
             {"broker": "ROBOFOREX"}, {"id": "axi-standard-192-168-1-152"}, {}, None,
         ):
-            self.assertFalse(comment_links_supported(other))
+            self.assertTrue(comment_links_supported(node))
 
 
 def commented_payload() -> dict:
@@ -322,7 +311,7 @@ class AnalysisTests(unittest.TestCase):
     def test_the_table_travels_in_the_analysis_so_the_screen_can_show_it(self) -> None:
         analysis = self.analysed()["analysis"]
         self.assertEqual(list(analysis["tolerances"]["comment_links"]["rules"]), [COMMENT.casefold()])
-        self.assertFalse(analysis["comment_links_supported"])
+        self.assertTrue(analysis["comment_links_supported"])
         self.assertTrue(
             analyze(commented_payload(), profile(_comment_links_supported=True))
             ["analysis"]["comment_links_supported"],
@@ -335,12 +324,11 @@ class ScreenTests(unittest.TestCase):
         self.script = (STATIC / "live_audit_analysis.js").read_text(encoding="utf-8")
         self.result = (STATIC / "live_audit_result.js").read_text(encoding="utf-8")
 
-    def test_the_button_is_born_hidden_and_only_axi_uncovers_it(self) -> None:
-        # Enseñarlo en otro broker ofrecería un criterio que ese EA no escribe
-        # y que el manager rechazaría al guardar.
+    def test_the_button_is_visible_without_waiting_for_a_broker_capability(self) -> None:
         self.assertIn('id="comment-links-upload"', self.page)
-        self.assertRegex(self.page, r'id="comment-links-upload"[^>]*hidden')
-        self.assertIn("comment_links_supported", self.script)
+        label = self.page.split('id="comment-links-upload"', 1)[1].split(">", 1)[0]
+        self.assertNotIn("hidden", label)
+        self.assertIn("querySelector('#comment-links-upload').hidden = false", self.script)
 
     def test_the_upload_goes_to_the_route_and_saves_the_criterion(self) -> None:
         self.assertIn("live-audit-comment-links-import", self.script)

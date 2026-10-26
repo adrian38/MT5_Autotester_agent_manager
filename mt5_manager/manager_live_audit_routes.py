@@ -297,22 +297,13 @@ def run_payload(handler, node_id: str, node: dict[str, Any], audit_id: str) -> d
     }
 
 
-def _refuse_outside_axi(node: dict[str, Any]) -> None:
-    """La puerta, y no el análisis: así ningún otro uso llega a tener la tabla."""
-    if not live_audit_comment_links.comment_links_supported(node):
-        raise ValueError(
-            "El enlace por comentario sólo existe en AXI: es su EA quien escribe "
-            "el código del setfile en la orden."
-        )
-
-
 def _handle_comment_links_import(handler, parts: list[str]) -> bool:
     """Lee el `.docx` con la tabla «setfile ↔ comentario» y la devuelve."""
     if not (len(parts) == 4 and parts[:2] == ["api", "nodes"]
             and parts[3] == "live-audit-comment-links-import"):
         return False
     try:
-        _refuse_outside_axi(handler._node(urllib.parse.unquote(parts[2])))
+        handler._node(urllib.parse.unquote(parts[2]))
         imported = live_audit_comment_links.import_document(handler._body())
         handler._send_json(200, {
             "comment_links": imported, "comment_count": len(imported["rules"]),
@@ -411,7 +402,7 @@ def _apply_lot_schedule_change(handler, node_id: str, audit_id: str, body: Any) 
 
 def _apply_comment_links_change(handler, node_id: str, audit_id: str, body: Any) -> None:
     """Guarda la tabla del `.docx`, o la retira si llega vacía."""
-    _refuse_outside_axi(handler._node(node_id))
+    handler._node(node_id)
     change = body if isinstance(body, dict) else {}
     handler.server.live_audit_settings.set_comment_links(
         node_id, audit_id, change.get("comment_links"),

@@ -149,3 +149,12 @@ lector), no dos.
 El manager no puede sacarlo de otro sitio: el HTML nativo sí trae la columna
 —en UTF-16, en un `td class="hidden"`— pero se queda en el disco del agente y
 nunca sube al manager.
+
+## Disponible para cualquier broker (2026-10-26)
+
+El usuario retiró expresamente la restricción a AXI. El botón se muestra desde
+que carga la pantalla y las rutas de importar y guardar aceptan cualquier nodo.
+La seguridad ya no depende del nombre del broker: el documento lo aporta el
+usuario y `links_by_comment` sigue descartando cualquier `.set` que no sea
+miembro del portafolio del uso. Los comentarios que no estén en la tabla no
+atribuyen nada.
