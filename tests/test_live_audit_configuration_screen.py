@@ -23,6 +23,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         cls.autolot_script = (cls.static_dir / "live_audit_autolot.js").read_text(encoding="utf-8")
         cls.result_page_text = (cls.static_dir / "live_audit_result.html").read_text(encoding="utf-8")
         cls.result_script = (cls.static_dir / "live_audit_result.js").read_text(encoding="utf-8")
+        cls.excel_script = (cls.static_dir / "excel_workbook.js").read_text(encoding="utf-8")
         cls.analysis_page_text = (cls.static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
         cls.analysis_script = (cls.static_dir / "live_audit_analysis.js").read_text(encoding="utf-8")
         cls.reproduction_script = (cls.static_dir / "live_audit_reproduction.js").read_text(
@@ -494,24 +495,27 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertTrue(self.result_page.xpath('//section[@id="extra-section"]'))
         self.assertIn("bajo el filtro «Real sin tester»", self.result_page_text)
 
-    def test_result_can_download_the_complete_comparison_as_excel_compatible_csv(self) -> None:
+    def test_result_can_download_the_complete_comparison_as_excel_workbook(self) -> None:
         buttons = self.result_page.xpath('//button[@id="download-comparison"]')
         self.assertEqual(len(buttons), 1)
-        self.assertEqual(buttons[0].text, "Descargar tabla CSV")
+        self.assertEqual(buttons[0].text, "Descargar tabla Excel")
         self.assertIn("disabled", buttons[0].attrib)
         for token in (
-            "function downloadComparisons()", "comparisonRows.map(csvRowFor)",
-            "Validación / observaciones", "text/csv;charset=utf-8", "\\uFEFF",
+            "function downloadComparisons()", "comparisonRows.map(excelRowFor)",
+            "Validación / observaciones", "buildExcelWorkbook", ".xlsx`",
             "link.download = `auditoria_", "URL.revokeObjectURL(url)",
             "#download-comparison').disabled = !comparisonRows.length",
         ):
             self.assertIn(token, self.result_script)
-        self.assertIn("if (/^[=+\\-@]/.test(text))", self.result_script)
+        self.assertIn('src="/excel_workbook.js"', self.result_page_text)
+        self.assertIn("excel_workbook.js", STATIC_FILES)
+        self.assertIn("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", self.excel_script)
+        self.assertIn("function buildExcelWorkbook", self.excel_script)
         # La descarga tiene que llevar lo mismo que la tabla: las reales sin
         # pareja también, o uno se baja la auditoría creyéndola completa.
-        self.assertIn("function extraCsvRow(row)", self.result_script)
+        self.assertIn("function extraExcelRow(row)", self.result_script)
         self.assertIn(
-            "row.status === 'extra' ? extraCsvRow(row) : comparisonCsvRow(row)",
+            "row.status === 'extra' ? extraExcelRow(row) : comparisonExcelRow(row)",
             self.result_script,
         )
 

@@ -319,7 +319,7 @@ function plainPnlDelta(measurements, limit) {
   return `Sin diferencia · límite ${number(limit, 4)} %`;
 }
 
-function comparisonCsvRow(row) {
+function comparisonExcelRow(row) {
   const {tester, real, nearest, statusLabel, reasons} = comparisonDecision(row);
   const measurements = row.measurements || {};
   const limits = row.limits || {};
@@ -362,7 +362,7 @@ function comparisonCsvRow(row) {
   ];
 }
 
-function extraCsvRow(row) {
+function extraExcelRow(row) {
   const real = row.real || {};
   const magic = real.strategy ? ` · magic ${real.strategy}` : '';
   return [
@@ -380,27 +380,21 @@ function extraCsvRow(row) {
   ];
 }
 
-function csvRowFor(row) {
-  return row.status === 'extra' ? extraCsvRow(row) : comparisonCsvRow(row);
-}
-
-function csvCell(value) {
-  let text = String(value ?? '').replace(/\r?\n/g, ' ').trim();
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
-  return `"${text.replaceAll('"', '""')}"`;
+function excelRowFor(row) {
+  return row.status === 'extra' ? extraExcelRow(row) : comparisonExcelRow(row);
 }
 
 function downloadComparisons() {
   if (!comparisonRows.length || !currentResult) return;
   const headers = ['ID', 'Estado', 'Mercado', 'Apertura', 'Cierre', 'Precio apertura', 'SL / TP', 'Volumen', 'PnL', 'Por qué', 'Validación / observaciones'];
-  const csv = `\uFEFF${[headers, ...comparisonRows.map(csvRowFor)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
+  const workbook = buildExcelWorkbook([headers, ...comparisonRows.map(excelRowFor)], 'Operaciones');
   const fileId = String(currentResult.audit_id || auditId || 'resultado').replace(/[^A-Za-z0-9_-]+/g, '_');
   const start = String(currentResult.period_start || '').slice(0, 10) || 'sin-inicio';
   const end = String(currentResult.period_end || '').slice(0, 10) || 'sin-fin';
-  const url = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8;'}));
+  const url = URL.createObjectURL(workbook);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `auditoria_${fileId}_${start}_${end}.csv`;
+  link.download = `auditoria_${fileId}_${start}_${end}.xlsx`;
   document.body.appendChild(link);
   link.click();
   link.remove();

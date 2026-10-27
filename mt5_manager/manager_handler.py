@@ -86,6 +86,7 @@ STATIC_FILES = {
     "universe.html", "universe.js",
     "live_audit.html", "live_audit.js", "live_audit_autolot.js", "live_audit.css",
     "live_audit_result.html", "live_audit_result.js", "live_audit_result.css",
+    "excel_workbook.js",
     "live_audit_analysis.html", "live_audit_analysis.js", "live_audit_analysis.css",
     # La serie de auditorias archivadas: tabla propia, debajo de la del periodo.
     "live_audit_history.js",

@@ -47,7 +47,7 @@
         <button type="button" class="secondary" data-status-filter="missing">Sin real</button>
         <button type="button" class="secondary" data-status-filter="extra">Real sin tester</button>
         <button type="button" class="secondary" data-status-filter="invalid">Fuente inválida</button>
-        <button type="button" class="secondary" id="download-comparison" disabled>Descargar tabla CSV</button>
+        <button type="button" class="secondary" id="download-comparison" disabled>Descargar tabla Excel</button>
         <label>Buscar estrategia o símbolo<input id="comparison-search" type="search" placeholder="Ej.: EURUSD"></label>
       </div>
       <div id="legacy-warning" class="audit-warning" hidden></div>
@@ -70,6 +70,7 @@
     <details class="panel-card audit-raw"><summary>Diagnóstico técnico completo (JSON)</summary><pre id="raw-result"></pre></details>
   </main>
   <div id="result-error" class="audit-result-error" role="alert" hidden></div>
+  <script src="/excel_workbook.js"></script>
   <script src="/live_audit_result.js"></script>
 <script src="/manager_restart.js"></script><script src="/live_audit_schedule.js"></script></body>
 </html>
