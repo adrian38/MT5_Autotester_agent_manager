@@ -94,6 +94,21 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("BROKEN_SHORTFALL_PCT = 60", self.reproduction)
         self.assertNotIn("MEJOR QUE EL TESTER", self.metrics)
 
+    def test_card_profit_and_drawdown_cover_the_archived_audits(self) -> None:
+        history = (Path(__file__).parents[1] / "mt5_manager" / "static"
+                   / "live_audit_history_verdicts.js").read_text(encoding="utf-8")
+        analysis = (Path(__file__).parents[1] / "mt5_manager" / "static"
+                    / "live_audit_history.js").read_text(encoding="utf-8")
+        self.assertIn("LiveAuditHistoryVerdicts.summary(", analysis)
+        self.assertIn("root.LiveAuditHistoryVerdicts.summary(executions, {", self.metrics)
+        self.assertIn("function summary(executions, options = {})", history)
+        self.assertIn("const kept = uncovered(executions)", history)
+        self.assertIn("merge(executions, options.retained, kept)", history)
+        self.assertNotIn("function accumulatedMetrics", self.metrics)
+        self.assertIn("const metrics = history.comparable ? history : summary", self.script)
+        for field in ("demo_profit", "real_profit", "demo_drawdown", "real_drawdown"):
+            self.assertIn(f"money(metrics.{field}, currency)", self.script)
+
     def test_the_card_names_the_strategies_that_degrade_against_their_history(self) -> None:
         # El veredicto DEGRADA de «contra el histórico» sólo salía abriendo
         # Análisis uso por uso; es el único que justifica retirar una
@@ -157,7 +172,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
             "function summarizeHistory(result, series, overrides = {}, reviews = {})",
             self.metrics,
         )
-        self.assertIn("root.LiveAuditHistoryVerdicts.flagged(executions, {", self.metrics)
+        self.assertIn("root.LiveAuditHistoryVerdicts.summary(executions, {", self.metrics)
         self.assertIn("root.LiveAuditHistoryVerdicts.retainedOf(", self.metrics)
         for gone in ("mergeHistoryGroups", "function executedLots", "historyIdentity"):
             self.assertNotIn(gone, self.metrics)

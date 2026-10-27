@@ -391,6 +391,7 @@ function cardMarkup(entry) {
       LiveAuditReproduction.storedHistoryReviews(entry.profile),
     )
     : {flagged: [], audits: 0, reviewed: 0};
+  const metrics = history.comparable ? history : summary;
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
     profile.portfolio_type
   ] || profile.portfolio_type || 'Sin modo';
@@ -411,10 +412,10 @@ function cardMarkup(entry) {
     : warnings || crossing || slow || inSeries ? 'pending'
       : summary.comparable ? 'completed' : 'idle';
   const body = summary.comparable ? `<div class="comparison-grid">
-    <div><span>Profit Test</span><strong>${escapeHtml(money(summary.demo_profit, currency))}</strong></div>
-    <div><span>Profit Real</span><strong>${escapeHtml(money(summary.real_profit, currency))}</strong></div>
-    <div><span>DD Test</span><strong>${escapeHtml(money(summary.demo_drawdown, currency))}</strong></div>
-    <div><span>DD Real</span><strong>${escapeHtml(money(summary.real_drawdown, currency))}</strong></div>
+    <div><span>Profit Test</span><strong>${escapeHtml(money(metrics.demo_profit, currency))}</strong></div>
+    <div><span>Profit Real</span><strong>${escapeHtml(money(metrics.real_profit, currency))}</strong></div>
+    <div><span>DD Test</span><strong>${escapeHtml(money(metrics.demo_drawdown, currency))}</strong></div>
+    <div><span>DD Real</span><strong>${escapeHtml(money(metrics.real_drawdown, currency))}</strong></div>
   </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar · última auditoría</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency, summary.reviewed)}</section>${historyMarkup(entry, history, currency)}` : unavailableMarkup(entry);
   const badge = [
     broken ? `${broken} NO REPRODUCE` : '',

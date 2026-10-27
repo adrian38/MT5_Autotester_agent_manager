@@ -239,7 +239,7 @@
     }));
   }
 
-  function merge(executions, retained) {
+  function merge(executions, retained, suppliedUncovered = null) {
     const merged = new Map();
     // El lote de referencia se busca en **toda** la serie, recortada o no: una
     // demo sin pareja usa el lote real de otra auditoría, y una línea temporal
@@ -247,7 +247,7 @@
     const timeline = reproduction.realLotTimeline((executions || []).flatMap(
       execution => comparisonRows(execution.comparison_detail || {}),
     ));
-    const kept = uncovered(executions);
+    const kept = suppliedUncovered || uncovered(executions);
     kept.forEach(execution => {
       groupsOf(execution.comparison_detail || {}, timeline).forEach(group => {
         if (retained?.size && !retained.has(identity(group))) return;
@@ -272,9 +272,9 @@
   // `retained` es el conjunto de identidades que el portafolio conserva. La
   // pantalla lo tiene ya en sus filas; la tarjeta lo saca de la última
   // comparación con `retainedOf`.
-  function ranked(executions, {retained, overrides = {}} = {}) {
+  function rankGroups(groups, overrides = {}) {
     const lots = executedLots(overrides);
-    return merge(executions, retained).map(group => {
+    return groups.map(group => {
       const numbers = reproduction.numbers(group, lots);
       const [verdict, tone, help] = reproduction.verdict(numbers);
       return {
@@ -286,15 +286,59 @@
     }).sort((left, right) => reproduction.compare(left.numbers, right.numbers));
   }
 
+  function ranked(executions, {retained, overrides = {}} = {}) {
+    return rankGroups(merge(executions, retained), overrides);
+  }
+
   const FLAGGED = ['AVISO', 'NO REPRODUCE'];
 
   function flagged(executions, options) {
     return ranked(executions, options).filter(row => FLAGGED.includes(row.verdict));
   }
 
+  function curveDrawdown(trades) {
+    let balance = 0;
+    let peak = 0;
+    let maximum = 0;
+    [...trades].filter(item => item.close_time).sort((left, right) => (
+      new Date(left.close_time) - new Date(right.close_time)
+    )).forEach(item => {
+      balance += Number(item.profit || 0);
+      peak = Math.max(peak, balance);
+      maximum = Math.max(maximum, peak - balance);
+    });
+    return maximum;
+  }
+
+  function summary(executions, options = {}) {
+    const kept = uncovered(executions);
+    const groups = merge(executions, options.retained, kept);
+    const lots = executedLots(options.overrides);
+    const demo = groups.flatMap(group => reproduction.sideSeries(
+      group.demo, group.strategy, 'demo', lots,
+    )).filter(row => !row.pending_real);
+    const real = groups.flatMap(group => reproduction.sideSeries(
+      [...group.real, ...group.attributed], group.strategy, 'real', lots,
+    ));
+    kept.forEach(execution => {
+      unaccountedRows(execution.comparison_detail || {}).filter(row => (
+        !row.attribution && row.status !== 'discarded'
+      )).forEach(row => real.push(row.real));
+    });
+    const total = trades => trades.reduce((value, row) => value + Number(row.profit || 0), 0);
+    return {
+      ranked: rankGroups(groups, options.overrides),
+      metrics: {
+        comparable: true,
+        demo_profit: total(demo), real_profit: total(real),
+        demo_drawdown: curveDrawdown(demo), real_drawdown: curveDrawdown(real),
+      },
+    };
+  }
+
   const api = {
     FLAGGED, coverage, executedLots, flagged, groupsOf, identity, merge, ranked,
-    retainedOf, uncovered,
+    retainedOf, summary, uncovered,
   };
   root.LiveAuditHistoryVerdicts = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

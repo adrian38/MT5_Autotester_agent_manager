@@ -146,14 +146,18 @@
     if (!executions.length || !root.LiveAuditHistoryVerdicts) {
       return {flagged: [], audits: 0, reviewed: 0};
     }
-    const marked = root.LiveAuditHistoryVerdicts.flagged(executions, {
+    const resolved = root.LiveAuditHistoryVerdicts.summary(executions, {
       retained: root.LiveAuditHistoryVerdicts.retainedOf(result?.comparison_detail || {}),
       overrides,
     });
+    const marked = resolved.ranked.filter(row => (
+      root.LiveAuditHistoryVerdicts.FLAGGED.includes(row.verdict)
+    ));
     const pending = marked.filter(row => !reproduction.reviewed(
       reviews, row.strategy, row.verdict, row.shortfall_pct,
     ));
     return {
+      ...resolved.metrics,
       flagged: pending,
       reviewed: marked.length - pending.length,
       audits: Number(series.audits || executions.length),

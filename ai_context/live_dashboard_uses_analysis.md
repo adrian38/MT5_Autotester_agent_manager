@@ -86,3 +86,15 @@ general `/api/nodes` conserva su contrato para Generación, pero no participa en
 la portada. Esta mejora vive sólo en el manager y es compatible con el protocolo
 actual de los agentes; una futura ruta resumida en el runtime podría reducir aún
 más los bytes de la única lectura restante.
+
+## Los cuatro importes son acumulativos (2026-10-27)
+
+`Profit Test`, `Profit Real`, `DD Test` y `DD Real` de la portada describen
+ahora toda la serie archivada, no sólo la última auditoría. La fuente sigue
+siendo el cálculo único de Análisis: `LiveAuditHistoryVerdicts.summary` resuelve
+una vez el recorte de periodos solapados, los grupos, los veredictos y las
+cuatro métricas; tanto la tabla histórica como la tarjeta consumen ese mismo
+resultado. `dashboard_metrics.js` no vuelve a acumular ni a deduplicar.
+
+Mientras la serie todavía no ha llegado —o no existe— la tarjeta conserva como
+respaldo los importes de la última auditoría, en vez de enseñar ceros.

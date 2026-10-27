@@ -58,8 +58,8 @@ class HistoryScreenTests(unittest.TestCase):
         self.assertIn(
             '<script src="/live_audit_history_verdicts.js"></script>', self.page,
         )
-        self.assertIn("LiveAuditHistoryVerdicts.ranked(series.executions || []", self.script)
-        self.assertIn("root.LiveAuditHistoryVerdicts.flagged(executions, {", self.card)
+        self.assertIn("LiveAuditHistoryVerdicts.summary(\n      series.executions || []", self.script)
+        self.assertIn("root.LiveAuditHistoryVerdicts.summary(executions, {", self.card)
         # Y no queda rastro de la segunda copia en ninguna de las dos.
         for source in (self.script, self.card):
             for gone in ("mergeGroups", "mergeHistoryGroups", "LiveAuditReproduction.numbers("):

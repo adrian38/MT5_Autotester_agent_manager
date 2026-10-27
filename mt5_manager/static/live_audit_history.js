@@ -177,7 +177,9 @@
     if (!body || !series) return;
     const currency = (typeof chartContext === 'object' && chartContext?.currency)
       || series.executions?.[0]?.currency || 'EUR';
-    const ranked = LiveAuditHistoryVerdicts.ranked(series.executions || [], options());
+    const ranked = LiveAuditHistoryVerdicts.summary(
+      series.executions || [], options(),
+    ).ranked;
     body.innerHTML = ranked.length
       ? ranked.map(group => row(group, currency)).join('')
       : '<tr><td colspan="8" class="audit-analysis-empty">Todavía no hay auditorías archivadas. '
