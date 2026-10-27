@@ -380,6 +380,14 @@ function unavailableMarkup(entry) {
   return `<div class="card-unavailable"><strong>Sin comparación disponible</strong><p>${escapeHtml(message)}</p></div>`;
 }
 
+function realMetricTone(realValue, testValue, lowerIsBetter = false) {
+  const real = Number(realValue || 0);
+  const test = Number(testValue || 0);
+  if (real === test) return '';
+  const better = lowerIsBetter ? real < test : real > test;
+  return better ? 'metric-better' : 'metric-worse';
+}
+
 function cardMarkup(entry) {
   const profile = entry.profile || {};
   const result = entry.result;
@@ -415,9 +423,9 @@ function cardMarkup(entry) {
       : summary.comparable ? 'completed' : 'idle';
   const accumulated = history.comparable ? `<div class="comparison-grid">
     <div><span>Profit Test</span><strong>${escapeHtml(money(history.demo_profit, currency))}</strong></div>
-    <div><span>Profit Real</span><strong>${escapeHtml(money(history.real_profit, currency))}</strong></div>
+    <div><span>Profit Real</span><strong class="${realMetricTone(history.real_profit, history.demo_profit)}">${escapeHtml(money(history.real_profit, currency))}</strong></div>
     <div><span>DD Test</span><strong>${escapeHtml(money(history.demo_drawdown, currency))}</strong></div>
-    <div><span>DD Real</span><strong>${escapeHtml(money(history.real_drawdown, currency))}</strong></div>
+    <div><span>DD Real</span><strong class="${realMetricTone(history.real_drawdown, history.demo_drawdown, true)}">${escapeHtml(money(history.real_drawdown, currency))}</strong></div>
   </div>` : '';
   const body = summary.comparable ? `${accumulated}<section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar · última auditoría</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency, summary.reviewed)}</section>${historyMarkup(entry, history, currency)}` : unavailableMarkup(entry);
   const badge = [

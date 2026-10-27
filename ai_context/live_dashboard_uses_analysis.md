@@ -100,3 +100,7 @@ Mientras la serie todavía no ha llegado, esos importes no se pintan: la tarjeta
 muestra el aviso de carga que ya identifica «la serie archivada». Tampoco se
 recurre a los importes de la última auditoría si la lectura falla, porque se
 presentarían como acumulados sin serlo.
+
+Los dos valores Real expresan además la comparación visual: verde si superan
+al Test y rojo si quedan peor. En Profit, más es mejor; en DD, menos es mejor.
+La igualdad queda neutra.

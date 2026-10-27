@@ -112,6 +112,16 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         for field in ("demo_profit", "real_profit", "demo_drawdown", "real_drawdown"):
             self.assertIn(f"money(history.{field}, currency)", self.script)
 
+    def test_real_profit_and_drawdown_show_whether_they_beat_the_tester(self) -> None:
+        self.assertIn("function realMetricTone(realValue, testValue, lowerIsBetter = false)", self.script)
+        self.assertIn("realMetricTone(history.real_profit, history.demo_profit)", self.script)
+        self.assertIn(
+            "realMetricTone(history.real_drawdown, history.demo_drawdown, true)", self.script,
+        )
+        self.assertIn("if (real === test) return ''", self.script)
+        self.assertIn("strong.metric-better{color:var(--accent2)}", self.css)
+        self.assertIn("strong.metric-worse{color:var(--danger)}", self.css)
+
     def test_the_card_names_the_strategies_that_degrade_against_their_history(self) -> None:
         # El veredicto DEGRADA de «contra el histórico» sólo salía abriendo
         # Análisis uso por uso; es el único que justifica retirar una
