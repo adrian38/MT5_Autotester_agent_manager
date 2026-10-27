@@ -1553,3 +1553,12 @@ que `_period` nunca habría pedido toda la vida de las demás y sus duplicados s
 habrían quedado hasta que alguien borrase el fichero a mano. Con la versión
 nueva, el primer sondeo tras el despliegue relee la vida entera de cada cuenta,
 una sola vez.
+
+## La tarjeta conserva el último día cerrado (2026-10-27)
+
+La fila diaria de las cuentas reales y su total muestran **ayer**, no hoy. El
+sondeo nocturno se ejecuta poco después de medianoche: enseñar el día actual
+dejaba los datos recién recogidos visibles apenas una hora y sustituía el resto
+de la jornada por ceros. El backend toma el día UTC anterior, igual que la serie
+que archiva, y la interfaz lo rotula explícitamente como «Ayer». El mes actual
+y el mes anterior no cambian.

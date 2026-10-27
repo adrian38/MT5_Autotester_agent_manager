@@ -31,7 +31,7 @@ main{padding:26px max(24px,5vw) 64px}
 .badge{flex:0 0 auto;padding:6px 9px;border-radius:999px;background:#253545;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
 .badge.good{background:#153c33;color:#8ef0ce}.badge.bad{background:#4b272d;color:#ffb2b2}.badge.warn{background:#4d401e;color:#ffe08a}
 .metric-rows{display:grid;gap:1px;border-block:1px solid var(--line);background:var(--line)}
-/* Hoy ocupa todo el ancho. Los dos meses van juntos para comparar columna con
+/* Ayer ocupa todo el ancho. Los dos meses van juntos para comparar columna con
    columna; dentro de cada mes, beneficio y drawdown conservan el orden vertical. */
 .month-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto auto auto;column-gap:1px;row-gap:0;background:var(--line)}
 .metric-row{display:grid;gap:12px;padding:15px 20px;background:#0d1721}

@@ -181,7 +181,7 @@ function signedTone(value) {
 }
 
 function dailyRow(card, currency) {
-  return metricRow('Hoy',
+  return metricRow('Ayer',
     metric('Beneficio', money(card.daily.profit, currency), signedTone(card.daily.profit), [
       plainNote(`${card.daily.trades} cierre${card.daily.trades === 1 ? '' : 's'} · ${card.daily.day}`),
     ])

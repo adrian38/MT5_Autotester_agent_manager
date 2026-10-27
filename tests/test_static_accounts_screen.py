@@ -90,7 +90,7 @@ class PageTests(unittest.TestCase):
         self.assertNotIn('id="schedule-dialog"', page)
         self.assertIn("/live_account_schedule.js", page)
 
-    def test_the_totals_cover_today_and_both_months(self) -> None:
+    def test_the_totals_cover_yesterday_and_both_months(self) -> None:
         for identifier in ("total-daily", "total-monthly", "total-previous-month"):
             self.assertTrue(TREE.xpath(f'//*[@id="{identifier}"]'))
         month_totals = TREE.xpath('//*[contains(@class, "total-months")]')[0]
@@ -100,6 +100,7 @@ class PageTests(unittest.TestCase):
         )
         self.assertIn("totals.previous_month", SCRIPT)
         self.assertIn("data.previous_month", SCRIPT)
+        self.assertIn("Total ayer", PAGE.read_text(encoding="utf-8"))
 
     def test_the_previous_month_does_not_repeat_the_comparison_in_words(self) -> None:
         for phrase in ("Este mes va mejor", "Este mes va peor", "Este mes cae"):
@@ -166,10 +167,11 @@ class PageTests(unittest.TestCase):
 
 
 class CriterionTests(unittest.TestCase):
-    def test_todays_profit_is_coloured_by_its_sign(self) -> None:
+    def test_yesterdays_profit_is_coloured_by_its_sign(self) -> None:
         self.assertIn("if (Number(value) > 0) return 'good'", SCRIPT)
         self.assertIn("if (Number(value) < 0) return 'bad'", SCRIPT)
         self.assertIn("signedTone(card.daily.profit)", SCRIPT)
+        self.assertIn("metricRow('Ayer'", SCRIPT)
 
     def test_the_tones_come_from_the_payload_and_are_not_recomputed(self) -> None:
         for name in ("profit_tone", "drawdown_tone"):

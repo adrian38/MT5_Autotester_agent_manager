@@ -57,11 +57,12 @@ class DashboardTests(unittest.TestCase):
             row for row in self.payload()["accounts"] if row["login"] == "60082017"
         )
 
-    def test_the_daily_row_is_the_day_and_carries_no_comparison(self) -> None:
+    def test_the_daily_row_is_yesterday_and_carries_no_comparison(self) -> None:
         card = self.card()
-        self.assertEqual(card["daily"]["day"], "2026-10-21")
-        self.assertAlmostEqual(card["daily"]["profit"], 20.0)
-        self.assertAlmostEqual(card["daily"]["drawdown"], 10.0)
+        self.assertEqual(self.payload()["day"], "2026-10-20")
+        self.assertEqual(card["daily"]["day"], "2026-10-20")
+        self.assertAlmostEqual(card["daily"]["profit"], 40.0)
+        self.assertAlmostEqual(card["daily"]["drawdown"], 0.0)
         self.assertNotIn("profit_tone", card["daily"])
 
     def test_the_monthly_row_is_compared_with_that_month_in_the_backtest(self) -> None:
@@ -119,7 +120,7 @@ class DashboardTests(unittest.TestCase):
             period_start="", period_end="2026-10-21",
         )
         totals = self.payload()["totals"]
-        self.assertAlmostEqual(totals["daily"], 20.0)
+        self.assertAlmostEqual(totals["daily"], 40.0)
         self.assertAlmostEqual(totals["previous_month"], 120.0)
         self.assertEqual(totals["currency"], "EUR")
         self.assertEqual(totals["missing_rates"], ["GBP"])
@@ -144,7 +145,7 @@ class DashboardTests(unittest.TestCase):
             period_start="", period_end="2026-10-21",
         )
         totals = self.payload()["totals"]
-        self.assertAlmostEqual(totals["daily"], 20.0 + 92.0)
+        self.assertAlmostEqual(totals["daily"], 40.0)
         self.assertAlmostEqual(totals["previous_month"], 120.0 + 92.0)
         self.assertEqual(totals["missing_rates"], [])
 

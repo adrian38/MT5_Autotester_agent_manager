@@ -7,8 +7,8 @@ diciendo cosas distintas.
 
 Qué lleva cada tarjeta, y por qué:
 
-- **La fila diaria no se compara con nada.** Es lo que se pidió: el beneficio y
-  la DD del día, a secas.
+- **La fila de ayer no se compara con nada.** Es el último día cerrado: así se
+  conserva durante toda la jornada en vez de sustituirlo de madrugada por hoy.
 - **La mensual sí**, contra la media de *ese* mes en el backtest
   (`live_account_expectation`), y contra el mes anterior.
 - La media mensual se **prorratea por lo que va del mes** para decidir el
@@ -190,12 +190,12 @@ def account_card(
     server: Any, node: dict[str, Any], node_id: str, account: dict[str, Any],
     settings: dict[str, Any], now: datetime,
 ) -> dict[str, Any]:
-    """Una tarjeta: la cuenta, lo que lleva hoy, el mes y lo que prometía."""
+    """Una tarjeta: la cuenta ayer, el mes y lo que prometía."""
     archive = server.live_accounts
     stored = archive.read(node_id, account["account_key"])
     ordered = ordered_movements(stored)
     days, months = daily_rows(ordered), monthly_rows(ordered)
-    today = now.astimezone(timezone.utc).date().isoformat()
+    yesterday = (now.astimezone(timezone.utc).date() - timedelta(days=1)).isoformat()
     label = month_key(now)
     earlier = previous_month(label)
     monthly = row(months, label)
@@ -212,7 +212,7 @@ def account_card(
         "balance": float(stored.get("balance") or 0.0),
         "portfolios": _portfolios(archive, node_id, account),
         "autolot": bool(account.get("autolot")),
-        "daily": {**row(days, today), "day": today},
+        "daily": {**row(days, yesterday), "day": yesterday},
         "monthly": {
             **monthly, "label": label, "progress": progress,
             "profit_tone": tone(monthly["profit"], prorated),
@@ -240,7 +240,7 @@ def account_card(
         "first_day": str(stored.get("first_day") or ""),
         "presentation": _presentation(server, node_id, account),
         "state": state, "message": message,
-        "daily_display": convert(row(days, today)["profit"], currency, settings),
+        "daily_display": convert(row(days, yesterday)["profit"], currency, settings),
         "monthly_display": convert(monthly["profit"], currency, settings),
         "previous_month_display": convert(
             earlier_row["profit"], currency, settings,
@@ -290,7 +290,7 @@ def snapshot(server: Any, now: datetime | None = None) -> dict[str, Any]:
     cards.sort(key=lambda card: (card["node_name"], card["login"]))
     return {
         "generated_at": moment.isoformat(),
-        "day": moment.astimezone(timezone.utc).date().isoformat(),
+        "day": (moment.astimezone(timezone.utc).date() - timedelta(days=1)).isoformat(),
         "month": month_key(moment),
         "previous_month": previous_month(month_key(moment)),
         "display_currency": str(settings.get("display_currency") or "EUR"),
