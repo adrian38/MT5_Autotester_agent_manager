@@ -105,9 +105,12 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("const kept = uncovered(executions)", history)
         self.assertIn("merge(executions, options.retained, kept)", history)
         self.assertNotIn("function accumulatedMetrics", self.metrics)
-        self.assertIn("const metrics = history.comparable ? history : summary", self.script)
+        self.assertIn("const accumulated = history.comparable ?", self.script)
+        self.assertIn("function historyPending(entry)", self.script)
+        self.assertIn("historyPending(entry) ? 'la serie archivada' : ''", self.script)
+        self.assertNotIn("history.comparable ? history : summary", self.script)
         for field in ("demo_profit", "real_profit", "demo_drawdown", "real_drawdown"):
-            self.assertIn(f"money(metrics.{field}, currency)", self.script)
+            self.assertIn(f"money(history.{field}, currency)", self.script)
 
     def test_the_card_names_the_strategies_that_degrade_against_their_history(self) -> None:
         # El veredicto DEGRADA de «contra el histórico» sólo salía abriendo

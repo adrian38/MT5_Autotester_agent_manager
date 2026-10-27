@@ -153,6 +153,12 @@ function historyOf(entry) {
   return stored && stored.stamp === historyStamp(entry) ? stored.series : null;
 }
 
+function historyPending(entry) {
+  return Boolean(entry.result && !historyOf(entry) && (
+    historiesLoading.has(historyTicket(entry)) || !historiesTried.has(historyTicket(entry))
+  ));
+}
+
 // La serie de un uso concreto medida contra una ejecución concreta: cuando la
 // siguiente auditoría termina, el billete cambia y la tarjeta vuelve a avisar
 // de que está cargando, que es justo lo que pasa.
@@ -169,10 +175,7 @@ function cardPending(entry) {
   return [
     portfolioId > 0 && !(portfolioId in known) && !aliasesTried.has(entry.node?.id)
       ? 'el alias' : '',
-    entry.result && !historyOf(entry) && (
-      historiesLoading.has(historyTicket(entry)) || !historiesTried.has(historyTicket(entry))
-    )
-      ? 'la serie archivada' : '',
+    historyPending(entry) ? 'la serie archivada' : '',
   ].filter(Boolean);
 }
 
@@ -391,7 +394,6 @@ function cardMarkup(entry) {
       LiveAuditReproduction.storedHistoryReviews(entry.profile),
     )
     : {flagged: [], audits: 0, reviewed: 0};
-  const metrics = history.comparable ? history : summary;
   const mode = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 'Conservador'}[
     profile.portfolio_type
   ] || profile.portfolio_type || 'Sin modo';
@@ -411,12 +413,13 @@ function cardMarkup(entry) {
   const tone = broken || degraded ? 'failed'
     : warnings || crossing || slow || inSeries ? 'pending'
       : summary.comparable ? 'completed' : 'idle';
-  const body = summary.comparable ? `<div class="comparison-grid">
-    <div><span>Profit Test</span><strong>${escapeHtml(money(metrics.demo_profit, currency))}</strong></div>
-    <div><span>Profit Real</span><strong>${escapeHtml(money(metrics.real_profit, currency))}</strong></div>
-    <div><span>DD Test</span><strong>${escapeHtml(money(metrics.demo_drawdown, currency))}</strong></div>
-    <div><span>DD Real</span><strong>${escapeHtml(money(metrics.real_drawdown, currency))}</strong></div>
-  </div><section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar · última auditoría</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency, summary.reviewed)}</section>${historyMarkup(entry, history, currency)}` : unavailableMarkup(entry);
+  const accumulated = history.comparable ? `<div class="comparison-grid">
+    <div><span>Profit Test</span><strong>${escapeHtml(money(history.demo_profit, currency))}</strong></div>
+    <div><span>Profit Real</span><strong>${escapeHtml(money(history.real_profit, currency))}</strong></div>
+    <div><span>DD Test</span><strong>${escapeHtml(money(history.demo_drawdown, currency))}</strong></div>
+    <div><span>DD Real</span><strong>${escapeHtml(money(history.real_drawdown, currency))}</strong></div>
+  </div>` : '';
+  const body = summary.comparable ? `${accumulated}<section class="strategy-section"><div class="section-title"><strong>Estrategias a revisar · última auditoría</strong><span>${broken} críticas · ${warnings} avisos</span></div>${flaggedMarkup(summary.flagged, currency, summary.reviewed)}</section>${historyMarkup(entry, history, currency)}` : unavailableMarkup(entry);
   const badge = [
     broken ? `${broken} NO REPRODUCE` : '',
     degraded ? `${degraded} DEGRADA${degraded === 1 ? '' : 'N'}` : '',

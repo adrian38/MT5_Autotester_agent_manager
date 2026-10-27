@@ -96,5 +96,7 @@ una vez el recorte de periodos solapados, los grupos, los veredictos y las
 cuatro métricas; tanto la tabla histórica como la tarjeta consumen ese mismo
 resultado. `dashboard_metrics.js` no vuelve a acumular ni a deduplicar.
 
-Mientras la serie todavía no ha llegado —o no existe— la tarjeta conserva como
-respaldo los importes de la última auditoría, en vez de enseñar ceros.
+Mientras la serie todavía no ha llegado, esos importes no se pintan: la tarjeta
+muestra el aviso de carga que ya identifica «la serie archivada». Tampoco se
+recurre a los importes de la última auditoría si la lectura falla, porque se
+presentarían como acumulados sin serlo.
