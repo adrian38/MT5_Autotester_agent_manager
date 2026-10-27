@@ -12,17 +12,20 @@ repite. Lo que añade este módulo son tres cosas:
   vacío o un cero, y acabaría pintando los meses pegados como si fueran
   seguidos. La cuenta 10010194 de AXI operó en noviembre de 2025 y no volvió
   hasta agosto de 2026: son ocho barras a cero, no una barra al lado de otra.
-- **El drawdown del tramo entero**, que **no** es el máximo de los mensuales:
+- **El drawdown del tramo activo**, que **no** es el máximo de los mensuales:
   una caída puede atravesar el cambio de mes, así que se vuelve a medir sobre
   los movimientos. Es la misma razón por la que el archivo guarda movimientos y
   no filas (`live_account_archive`).
-- **Dónde empieza el tramo**: en el primer cierre de la cuenta, no en el
+- **Dónde empieza la gráfica**: en el primer cierre de la cuenta, no en el
   `created_at` del portafolio. Medido el 2026-10-23 contra los datos reales: la
   cuenta 77028839 de RoboForex opera desde el 2025-11-04 y el portafolio que
   sirve hoy —#183— se guardó el 2026-10-19, porque es la enésima mejora de su
   cadena. Cortar por esa fecha dejaría un gráfico de una sola barra y escondería
   once meses de operación real del mismo dinero. La tarjeta es de la **cuenta**
   (`live_account_inventory`), y la vida de la cuenta es su serie.
+
+Las tarjetas superiores sí se cortan por el día exacto de entrada del
+portafolio activo: el histórico anterior aporta contexto visual, no sus cifras.
 
 Todo se mide en la moneda de la cuenta, como las filas de la tarjeta: la
 conversión de los totales es de arriba y aquí no tiene nada que comparar.
@@ -95,6 +98,22 @@ def totals(
         "best_month": _extreme(months, True),
         "worst_month": _extreme(months, False),
     }
+
+
+def active_totals(
+    ordered: Sequence[tuple[datetime, float]], since: str, last: str,
+) -> dict[str, Any]:
+    """El resumen del portafolio activo, conservando aparte la serie completa."""
+    if not since:
+        active = list(ordered)
+        rows = monthly_rows(active)
+        first = min(rows) if rows else ""
+    else:
+        active = [item for item in ordered if item[0].date().isoformat() >= since]
+        rows = monthly_rows(active)
+        first = since[:7] if since[:7] <= last else ""
+    months = [{"label": label, **row(rows, label)} for label in month_span(first, last)]
+    return totals(active, months)
 
 
 def tracked_portfolios(server: Any, node_id: str, account_key: str) -> list[dict[str, Any]]:
@@ -171,5 +190,5 @@ def monthly_history(
         "months": months,
         "portfolios": tracked,
         "tracked_since": since,
-        "totals": totals(ordered, months),
+        "totals": active_totals(ordered, since, last),
     }

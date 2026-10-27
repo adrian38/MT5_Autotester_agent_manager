@@ -307,9 +307,9 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("Antes de este portafolio", MONTHLY)
         self.assertIn(".monthly-bar.before{opacity:", STYLE)
         self.assertIn(".monthly-bar.partial{opacity:", STYLE)
-        # Y el récord del tramo dice cuándo es de antes: «mejor mes:
-        # noviembre de 2025» sin más se lee como logro de este portafolio.
-        self.assertIn("el mejor es anterior al portafolio", MONTHLY)
+        # El histórico permanece en la gráfica, pero no se presenta como un
+        # récord del portafolio activo en las tarjetas superiores.
+        self.assertNotIn("el mejor es anterior al portafolio", MONTHLY)
 
     def test_the_tracked_portfolio_is_linked_to_its_history(self) -> None:
         """Es donde se verifica cuándo se guardó, y qué lleva dentro."""

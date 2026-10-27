@@ -270,6 +270,30 @@ class TrackedPortfolioTests(unittest.TestCase):
             }],
         )
 
+    def test_the_summary_only_measures_the_active_portfolio(self) -> None:
+        """Las barras antiguas siguen visibles, pero no alimentan las tarjetas."""
+        self.server.live_accounts.merge(
+            "roboforex", KEY, login="77028839", server="RoboForex-ECN",
+            currency="EUR", movements=[
+                (moment("2026-08-10"), 50.0),
+                (moment("2026-09-10"), 400.0),
+                (moment("2026-09-14"), -100.0),
+                (moment("2026-09-20"), 25.0),
+                (moment("2026-10-05"), -20.0),
+            ],
+            period_start="", period_end="2026-10-23",
+        )
+        self.created("2026-09-15")
+
+        payload = self.history()
+        self.assertEqual(len(payload["months"]), 3)
+        self.assertEqual(payload["totals"]["months"], 2)
+        self.assertEqual(payload["totals"]["trades"], 2)
+        self.assertAlmostEqual(payload["totals"]["profit"], 5.0)
+        self.assertAlmostEqual(payload["totals"]["drawdown"], 20.0)
+        self.assertEqual(payload["totals"]["positive_months"], 1)
+        self.assertEqual(payload["totals"]["best_month"], "2026-09")
+
     def test_without_a_measured_promise_nothing_is_marked(self) -> None:
         """Sin fecha no se marca: ni se inventa el corte ni se niega el tramo.
 

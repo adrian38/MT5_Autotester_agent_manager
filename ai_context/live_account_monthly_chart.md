@@ -61,9 +61,11 @@ operando. Cortar convertiría el gráfico en un número.
 Así que las barras anteriores se **atenúan** (`.monthly-bar.before`), el mes
 de entrada va a medias (`.partial`, porque parte de sus cierres son de lo que
 la cuenta operaba antes), una raya vertical marca dónde entra y la leyenda lo
-nombra. El resumen de arriba sigue cubriendo el tramo entero, y por eso la
-tarjeta de «Mejor mes» dice cuándo el récord es anterior: «mejor mes:
-noviembre de 2025» sin más se lee como un logro de este portafolio.
+nombra. Desde el 2026-10-27, el resumen de arriba cubre sólo el tramo activo,
+desde el día exacto de entrada del primer portafolio que sigue vinculado a la
+cuenta. Beneficio, drawdown, cierres, meses verdes y extremos pertenecen así al
+portafolio activo; las barras anteriores siguen visibles y atenuadas sólo como
+contexto histórico.
 
 La fecha sale de `portfolio_created_at`, que `live_account_ingest` escribe en
 la promesa de cada portafolio. Vive ahí y no se pide a la memoria UBS porque

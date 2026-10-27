@@ -224,22 +224,11 @@ window.LiveAccountMonthly = (() => {
     return Number(value) > 0 ? 'good' : Number(value) < 0 ? 'bad' : '';
   }
 
-  // Un mes anterior al portafolio de hoy no es comparable con los suyos, y
-  // «mejor mes: noviembre de 2025» sin más se lee como un logro de este
-  // portafolio. El resumen cubre el tramo entero —se marca, no se corta— así
-  // que lo que toca es decir cuándo el récord es de antes.
-  function beforeTracked(label, since) {
-    return Boolean(since && label && label < since.slice(0, 7));
-  }
-
   function summary(data) {
     const totals = data.totals || {};
     const currency = data.currency;
-    const since = String(data.tracked_since || '');
     const extremes = [
-      beforeTracked(totals.best_month, since) ? 'el mejor es anterior al portafolio' : '',
       totals.worst_month ? `peor: ${longMonth(totals.worst_month)}` : '',
-      beforeTracked(totals.worst_month, since) ? 'también anterior' : '',
     ].filter(Boolean).join(' · ');
     const cells = [
       ['Beneficio del tramo', money(totals.profit, currency), tone(totals.profit),
