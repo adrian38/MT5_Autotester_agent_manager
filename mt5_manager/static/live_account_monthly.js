@@ -286,6 +286,8 @@ window.LiveAccountMonthly = (() => {
     const extremes = [
       totals.worst_month ? `peor: ${longMonth(totals.worst_month)}` : '',
     ].filter(Boolean).join(' · ');
+    const historicalLabel = totals.portfolio_valley_basis === 'autolot_mean_balance'
+      ? 'histórico calculado · autolote' : 'histórico calculado';
     const cells = [
       ['Beneficio del tramo', money(totals.profit, currency), tone(totals.profit),
         `${totals.trades || 0} cierres`],
@@ -296,7 +298,7 @@ window.LiveAccountMonthly = (() => {
             totals.within_valley_limit, currency,
           )
           + `\n${valleyNote(
-            'histórico calculado', totals.portfolio_historical_valley,
+            historicalLabel, totals.portfolio_historical_valley,
             totals.within_historical_valley, currency,
           )}`],
       ['Meses en verde', `${totals.positive_months || 0} de ${totals.months || 0}`, '',

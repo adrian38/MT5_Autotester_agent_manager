@@ -254,6 +254,7 @@ class BuildTests(unittest.TestCase):
         # El miembro se midió a 0,02 y el escenario pide 0,08: por cuatro.
         self.assertAlmostEqual(scaled["profit"], plain["profit"] * 4)
         self.assertAlmostEqual(scaled["drawdown"], plain["drawdown"] * 4)
+        self.assertGreater(scaled["portfolio_historical_valley"], 0.0)
         self.assertEqual(scaled["years"], plain["years"])
         self.assertEqual(scaled["basis"], "autolot_mean_balance")
         self.assertAlmostEqual(scaled["balance"], 6_203.14)

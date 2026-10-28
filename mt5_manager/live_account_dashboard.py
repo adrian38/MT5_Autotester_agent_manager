@@ -82,8 +82,9 @@ def expected_month(
         if stored.get("portfolio_valley_limit") is not None:
             valley_limit += float(stored["portfolio_valley_limit"])
             valley_limits += 1
-        if stored.get("portfolio_historical_valley") is not None:
-            historical_valley += float(stored["portfolio_historical_valley"])
+        historical = month.get("portfolio_historical_valley")
+        if historical is not None:
+            historical_valley += float(historical)
             historical_valleys += 1
         if month["profit"] is None:
             continue

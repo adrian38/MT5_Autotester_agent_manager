@@ -182,6 +182,9 @@ def add_valley_comparison(summary: dict[str, Any], expected: dict[str, Any]) -> 
     historical = expected["portfolio_historical_valley"]
     summary["portfolio_valley_limit"] = limit
     summary["portfolio_historical_valley"] = historical
+    summary["portfolio_valley_basis"] = (
+        expected.get("lot_basis") or expected.get("basis") or ""
+    )
     summary["within_valley_limit"] = (
         summary["drawdown"] <= float(limit) if limit is not None else None
     )

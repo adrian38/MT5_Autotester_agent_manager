@@ -293,6 +293,19 @@ class TrackedPortfolioTests(unittest.TestCase):
         self.assertIs(totals["within_valley_limit"], True)
         self.assertIs(totals["within_historical_valley"], True)
 
+    def test_autolot_uses_the_historical_valley_recalculated_at_that_months_lots(self) -> None:
+        self.created("2026-08-15")
+        stored = self.server.live_accounts.read_expectation("roboforex", 173)
+        stored["months_at"] = {"2026-10": {
+            "profit": 30.0, "drawdown": 10.0, "years": [2024, 2025],
+            "portfolio_historical_valley": 140.0,
+            "basis": "autolot_mean_balance", "lots": {"ROBO:1": 0.08},
+        }}
+        self.server.live_accounts.write_expectation("roboforex", 173, stored)
+        totals = self.history()["totals"]
+        self.assertEqual(totals["portfolio_historical_valley"], 140.0)
+        self.assertEqual(totals["portfolio_valley_basis"], "autolot_mean_balance")
+
     def test_the_entry_month_is_not_judged_against_a_whole_month_average(self) -> None:
         self.created("2026-09-15")
         september = next(

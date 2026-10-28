@@ -308,6 +308,7 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("barBounds.top - bounds.top - tooltip.offsetHeight - 10", MONTHLY)
         self.assertIn("máx. al crear", MONTHLY)
         self.assertIn("histórico calculado", MONTHLY)
+        self.assertIn("histórico calculado · autolote", MONTHLY)
         self.assertIn("totals.within_valley_limit", MONTHLY)
         self.assertIn("totals.within_historical_valley", MONTHLY)
         self.assertNotIn("peor mes:", MONTHLY)

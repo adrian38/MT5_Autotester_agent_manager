@@ -139,6 +139,13 @@ promesa nueva: son los mismos números que identifican el riesgo del portafolio.
 La tarjeta no repite el peor mes: deja sitio a esas dos comparaciones, cada una
 en su propia línea.
 
+Con autolote sólo el máximo al crear permanece fijo. El valle histórico se
+recalcula sobre toda la curva combinada del backtest usando los lotes del
+escenario de ese mes (`months_at`), igual que las medias mensuales; la tarjeta
+lo rotula «histórico calculado · autolote». Escalar el número final no sirve
+cuando cada estrategia cambia por un factor distinto: se recompone la curva y
+se vuelve a medir su caída pico-valle.
+
 ### Sin fecha no se marca nada (2026-10-24)
 
 El primer día con la marca puesta, las nueve cuentas salieron **enteras**
