@@ -543,6 +543,18 @@ la campana y la barra de actividad. El botón de programación sólo se inserta 
 la cabecera marcada con `data-live-audit-schedule`; quitar el script entero
 rompería los avisos.
 
+## Las acciones secundarias viven en un menú colapsable (2026-10-28)
+
+Petición del usuario: dejar visibles en la cabecera sólo Actualizar, la flecha
+atrás, la campana y Reiniciar manager. Los enlaces de navegación y los controles
+contextuales —programación de auditorías, sondeo de cuentas y resumen mensual—
+se conservan, con sus listeners originales, dentro del desplegable «Menú».
+
+El agrupado se hace al final del montaje común de `live_audit_schedule.js`, no
+repitiendo HTML en cada pantalla. Así también recoge los botones que montaron
+antes `live_account_schedule.js` y `monthly_summary_button.js`. El estado de
+«Actualizando…» permanece junto a Actualizar aunque no sea una acción.
+
 ## Los meses se comparan en paralelo (2026-10-21)
 
 En cada tarjeta de «Cuentas en real», «Hoy» conserva todo el ancho y el mes

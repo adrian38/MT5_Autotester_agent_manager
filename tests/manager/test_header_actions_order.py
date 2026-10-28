@@ -329,6 +329,17 @@ class HeaderActionsOrderTests(unittest.TestCase):
         script = (STATIC / "live_audit_schedule.js").read_text(encoding="utf-8")
         self.assertNotRegex(script, re.compile(r"querySelector\('#restart-manager\s*,"))
 
+    def test_only_the_primary_header_actions_stay_outside_the_collapsible_menu(self) -> None:
+        script = (STATIC / "live_audit_schedule.js").read_text(encoding="utf-8")
+        for expression in (
+            "new Set([refresh, state, back, bell, restart].filter(Boolean))",
+            "[...actions.children].filter(item => !alwaysVisible.has(item))",
+            "more.querySelector('.header-more-panel').append(...secondaryActions)",
+            "actions.insertBefore(more, back)",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, script)
+
 
 if __name__ == "__main__":
     unittest.main()

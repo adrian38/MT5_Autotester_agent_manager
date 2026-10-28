@@ -116,12 +116,37 @@
   // aquí en vez de confiar sólo en el orden del HTML porque cada pantalla le
   // pone un id distinto al botón.
   const refresh = actions.querySelector('#refresh, #reload, #portfolio-refresh, #universe-refresh');
+  const state = actions.querySelector('#refresh-state, #catalog-state');
   if (refresh) {
     actions.insertBefore(refresh, actions.firstElementChild);
     // El rótulo de estado («Actualizando…») viaja con su botón: separarlos
     // dejaría el texto solo en el extremo contrario de la barra.
-    const state = actions.querySelector('#refresh-state, #catalog-state');
     if (state) actions.insertBefore(state, refresh);
+  }
+
+  // La cabecera conserva a la vista sólo las cuatro acciones frecuentes. El
+  // resto sigue siendo contextual a cada pantalla, pero no ocupa toda la fila:
+  // se mueve, con sus listeners intactos, a un desplegable común.
+  const restart = actions.querySelector('#restart-manager');
+  const alwaysVisible = new Set([refresh, state, back, bell, restart].filter(Boolean));
+  const secondaryActions = [...actions.children].filter(item => !alwaysVisible.has(item));
+  if (secondaryActions.length) {
+    const more = document.createElement('details');
+    more.className = 'header-more';
+    more.innerHTML = `
+      <summary aria-label="Abrir más acciones">Menú <span aria-hidden="true">▾</span></summary>
+      <div class="header-more-panel"></div>`;
+    more.querySelector('.header-more-panel').append(...secondaryActions);
+    actions.insertBefore(more, back);
+    more.addEventListener('click', event => {
+      if (event.target.closest('a, button')) more.open = false;
+    });
+    document.addEventListener('click', event => {
+      if (!more.contains(event.target)) more.open = false;
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') more.open = false;
+    });
   }
 
   const panel = document.createElement('aside');

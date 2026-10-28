@@ -9,6 +9,14 @@
 .cron-bell .cron-unread[hidden]{display:none}
 .cron-link{border:1px solid #4b3a7a;background:linear-gradient(135deg,#231a45,#12303c);color:var(--accent2,#63e6be)}
 .cron-link.armed{border-color:#397861;background:linear-gradient(135deg,#16483b,#12322b);color:#a9ffe1}
+.header-more{position:relative}
+.header-more summary{display:flex;align-items:center;gap:6px;padding:9px 12px;border:1px solid var(--line,#27394b);border-radius:9px;background:transparent;color:var(--text,#edf5f7);font:inherit;font-size:13px;font-weight:700;cursor:pointer;list-style:none}
+.header-more summary::-webkit-details-marker{display:none}
+.header-more summary:hover,.header-more[open] summary{border-color:var(--accent,#20c997)}
+.header-more[open] summary span{transform:rotate(180deg)}
+.header-more-panel{position:absolute;top:calc(100% + 8px);right:0;z-index:35;display:grid;gap:7px;min-width:230px;padding:10px;border:1px solid var(--line,#27394b);border-radius:11px;background:var(--panel,#111b27);box-shadow:0 14px 38px #0009}
+.header-more-panel>*{width:100%;margin:0;text-align:left;white-space:nowrap}
+.header-more-panel a{display:block;box-sizing:border-box}
 
 .cron-panel{position:fixed;top:0;right:0;z-index:40;display:flex;flex-direction:column;width:min(430px,100vw);height:100vh;border-left:1px solid var(--line,#27394b);background:var(--panel,#111b27);box-shadow:-18px 0 60px #0009}
 .cron-panel[hidden]{display:none}
@@ -80,6 +88,7 @@
 @media(max-width:700px){
   .cron-activity-column{width:100%;align-items:flex-start}
   .cron-activity-column .header-actions{width:100%}
+  .header-more-panel{right:auto;left:0;max-width:calc(100vw - 32px)}
 }
 .cron-activity{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid #397861;border-radius:8px;background:#0d211d;color:var(--text,#e6edf3);font:inherit;font-size:12px;cursor:pointer}
 /* `dashboard.css` no declara `[hidden]`, así que el `display:flex` de arriba
