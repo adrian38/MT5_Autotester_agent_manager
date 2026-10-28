@@ -20,7 +20,7 @@ window.LiveAccountMonthly = (() => {
   // El lienzo. El eje cero no va en el centro: se reparte entre lo que sube y
   // lo que baja, porque una cuenta con doce meses en verde desperdiciaría media
   // altura y las barras pequeñas no se verían.
-  const VIEW = {width: 960, height: 380, left: 76, right: 16, top: 18, bottom: 74};
+  const VIEW = {width: 960, height: 400, left: 76, right: 16, top: 18, bottom: 92};
   const PLOT_WIDTH = VIEW.width - VIEW.left - VIEW.right;
   const PLOT_HEIGHT = VIEW.height - VIEW.top - VIEW.bottom;
 
@@ -144,7 +144,9 @@ window.LiveAccountMonthly = (() => {
     const prorated = target !== Number(month.average_profit)
       ? ` · objetivo a hoy ${money(target, currency)}` : '';
     return ` · media ${money(month.average_profit, currency)}${prorated}`
-      + ` · ${month.meets_average ? 'cumplida' : 'no cumplida'}`;
+      + ` · ${month.meets_average ? 'cumplida' : 'no cumplida'}`
+      + ` · DD medio ${money(month.average_drawdown, currency, false)}`
+      + ` · ${month.meets_drawdown ? 'DD dentro de la media' : 'DD sobre la media'}`;
   }
 
   function monthBars(month, index, box, zeroY, currency, since) {
@@ -188,15 +190,19 @@ window.LiveAccountMonthly = (() => {
 
   // Con muchos meses las etiquetas se pisan, así que se saltan; el primero y el
   // último se escriben siempre, que son los que dicen qué tramo se está viendo.
-  function averageLabel(month, currency) {
-    if (month.partial) return ['partial', '— mes parcial'];
-    if (month.tracked === false) return ['', ''];
+  function averageLabels(month, currency) {
+    if (month.partial) return [['partial', '— mes parcial'], ['', '']];
+    if (month.tracked === false) return [['', ''], ['', '']];
     if (month.average_profit === null || month.average_profit === undefined) {
-      return ['unknown', '— sin media'];
+      return [['unknown', '— sin media'], ['', '']];
     }
     return [
-      month.meets_average ? 'good' : 'bad',
-      `${month.meets_average ? '✓' : '×'} media ${money(month.average_profit, currency)}`,
+      [month.meets_average ? 'good' : 'bad',
+        `P ${month.meets_average ? '✓' : '×'} media ${money(month.average_profit, currency)}`],
+      [month.meets_drawdown ? 'good' : 'bad',
+        `DD ${month.meets_drawdown ? '✓' : '×'} media ${money(
+          month.average_drawdown, currency, false,
+        )}`],
     ];
   }
 
@@ -206,14 +212,20 @@ window.LiveAccountMonthly = (() => {
     return months.map((month, index) => {
       const shown = index % every === 0 || index === months.length - 1;
       if (!shown) return '';
-      const [toneClass, average] = averageLabel(month, currency);
+      const [profitAverage, drawdownAverage] = averageLabels(month, currency);
+      const [profitTone, profitText] = profitAverage;
+      const [drawdownTone, drawdownText] = drawdownAverage;
       return `<text class="monthly-month" x="${(VIEW.left + slot * (index + 0.5)).toFixed(1)}"`
         + ` y="${VIEW.height - VIEW.bottom + 17}" text-anchor="middle">`
         + `${escapeHtml(shortMonth(month.label))}</text>`
-        + (average ? `<text class="monthly-average ${toneClass}"`
+        + (profitText ? `<text class="monthly-average ${profitTone}"`
           + ` x="${(VIEW.left + slot * (index + 0.5)).toFixed(1)}"`
-          + ` y="${VIEW.height - VIEW.bottom + 32}" text-anchor="middle">`
-          + `${escapeHtml(average)}</text>` : '');
+          + ` y="${VIEW.height - VIEW.bottom + 31}" text-anchor="middle">`
+          + `${escapeHtml(profitText)}</text>` : '')
+        + (drawdownText ? `<text class="monthly-average ${drawdownTone}"`
+          + ` x="${(VIEW.left + slot * (index + 0.5)).toFixed(1)}"`
+          + ` y="${VIEW.height - VIEW.bottom + 44}" text-anchor="middle">`
+          + `${escapeHtml(drawdownText)}</text>` : '');
     }).join('');
   }
 
@@ -254,6 +266,13 @@ window.LiveAccountMonthly = (() => {
     return Number(value) > 0 ? 'good' : Number(value) < 0 ? 'bad' : '';
   }
 
+  function globalDrawdownNote(totals, currency) {
+    const expected = totals.expected_global_drawdown;
+    if (expected === null || expected === undefined) return 'valle DD global: sin medida';
+    return `valle DD global: ${money(expected, currency, false)}`
+      + ` · ${totals.meets_global_drawdown ? '✓ dentro' : '× superado'}`;
+  }
+
   function summary(data) {
     const totals = data.totals || {};
     const currency = data.currency;
@@ -263,8 +282,11 @@ window.LiveAccountMonthly = (() => {
     const cells = [
       ['Beneficio del tramo', money(totals.profit, currency), tone(totals.profit),
         `${totals.trades || 0} cierres`],
-      ['Drawdown del tramo', money(totals.drawdown, currency, false), '',
-        `peor mes: ${money(totals.worst_month_drawdown, currency, false)}`],
+      ['Drawdown del tramo', money(totals.drawdown, currency, false),
+        totals.meets_global_drawdown === true ? 'good'
+          : totals.meets_global_drawdown === false ? 'bad' : '',
+        `peor mes: ${money(totals.worst_month_drawdown, currency, false)}`
+          + ` · ${globalDrawdownNote(totals, currency)}`],
       ['Meses en verde', `${totals.positive_months || 0} de ${totals.months || 0}`, '',
         `${totals.negative_months || 0} en rojo · ${totals.traded_months || 0} con cierres`],
       ['Mejor mes', totals.best_month ? longMonth(totals.best_month) : '—', '',

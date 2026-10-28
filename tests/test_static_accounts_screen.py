@@ -300,6 +300,10 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("media ${money(month.average_profit, currency)}", MONTHLY)
         self.assertIn(".monthly-average.good{fill:var(--accent2)}", STYLE)
         self.assertIn(".monthly-average.bad{fill:var(--danger)}", STYLE)
+        self.assertIn("month.average_drawdown", MONTHLY)
+        self.assertIn("month.meets_drawdown ? '✓' : '×'", MONTHLY)
+        self.assertIn("valle DD global", MONTHLY)
+        self.assertIn("totals.meets_global_drawdown", MONTHLY)
 
     def test_the_chart_marks_where_this_portfolio_starts_instead_of_cutting(self) -> None:
         """Cortar dejaría seis de nueve cuentas con una sola barra.

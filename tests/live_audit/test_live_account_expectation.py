@@ -181,6 +181,12 @@ class BuildTests(unittest.TestCase):
         # Sólo 2020 tiene caída: sube a 8 y baja a 6, son 2. Media 2/3.
         self.assertAlmostEqual(october["drawdown"], 2.0 / 3)
 
+    def test_the_promise_keeps_the_global_valley_of_the_combined_curve(self) -> None:
+        built = self.build()
+        self.assertGreater(built["global_drawdown"], 0.0)
+        october = expectation.month_expectation(built, "2026-10")
+        self.assertAlmostEqual(october["global_drawdown"], built["global_drawdown"])
+
     def test_a_month_the_backtest_never_saw_has_no_mean(self) -> None:
         april = expectation.month_expectation(self.build(), "2026-04")
         self.assertIsNone(april["profit"])
@@ -236,6 +242,9 @@ class BuildTests(unittest.TestCase):
         # El miembro se midió a 0,02 y el escenario pide 0,08: por cuatro.
         self.assertAlmostEqual(scaled["profit"], plain["profit"] * 4)
         self.assertAlmostEqual(scaled["drawdown"], plain["drawdown"] * 4)
+        self.assertAlmostEqual(
+            scaled["global_drawdown"], built["global_drawdown"] * 4,
+        )
         self.assertEqual(scaled["years"], plain["years"])
         self.assertEqual(scaled["basis"], "autolot_mean_balance")
         self.assertAlmostEqual(scaled["balance"], 6_203.14)

@@ -121,6 +121,13 @@ operaciones anteriores y posteriores al alta. Los meses anteriores al tramo no
 se califican; si el backtest no tiene muestra para ese mes, se dice «sin media»
 en vez de convertir la ausencia en cero.
 
+Desde la ampliación del mismo día, cada mes muestra una segunda marca para su
+DD: `✓` si su valle queda dentro del DD medio de ese mes y `×` si lo supera.
+La tarjeta «Drawdown del tramo» compara además la caída continua real con el
+**valle DD global** de toda la curva combinada del backtest. Ese valle se mide
+directamente sobre los cierres ordenados; no es la suma ni el máximo de los DD
+mensuales. Los escenarios de autolote lo recalculan a los lotes de ese mes.
+
 ### Sin fecha no se marca nada (2026-10-24)
 
 El primer día con la marca puesta, las nueve cuentas salieron **enteras**

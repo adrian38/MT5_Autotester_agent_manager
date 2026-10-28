@@ -236,6 +236,7 @@ class TrackedPortfolioTests(unittest.TestCase):
             {
                 "portfolio_created_at": f"{day}T02:52:14",
                 "portfolio_name": "Mejora #100",
+                "global_drawdown": 70.0,
                 "months": {
                     "09": {"profit": 80.0, "drawdown": 20.0, "years": [2024, 2025]},
                     "10": {"profit": 30.0, "drawdown": 10.0, "years": [2024, 2025]},
@@ -272,13 +273,22 @@ class TrackedPortfolioTests(unittest.TestCase):
         september = by_label["2026-09"]
         self.assertEqual(september["average_profit"], 80.0)
         self.assertEqual(september["average_target"], 80.0)
+        self.assertEqual(september["average_drawdown"], 20.0)
         self.assertEqual(september["average_years"], [2024, 2025])
         self.assertIs(september["meets_average"], True)
+        self.assertIs(september["meets_drawdown"], True)
 
         october = by_label["2026-10"]
         self.assertEqual(october["average_profit"], 30.0)
         self.assertLess(october["average_target"], october["average_profit"])
         self.assertIs(october["meets_average"], False)
+        self.assertIs(october["meets_drawdown"], False)
+
+    def test_the_span_drawdown_is_compared_with_the_global_valley(self) -> None:
+        self.created("2026-08-15")
+        totals = self.history()["totals"]
+        self.assertEqual(totals["expected_global_drawdown"], 70.0)
+        self.assertIs(totals["meets_global_drawdown"], True)
 
     def test_the_entry_month_is_not_judged_against_a_whole_month_average(self) -> None:
         self.created("2026-09-15")
@@ -287,6 +297,7 @@ class TrackedPortfolioTests(unittest.TestCase):
         )
         self.assertEqual(september["average_profit"], 80.0)
         self.assertIsNone(september["meets_average"])
+        self.assertIsNone(september["meets_drawdown"])
 
     def test_the_payload_names_the_portfolio_and_the_day(self) -> None:
         self.created("2026-09-15")

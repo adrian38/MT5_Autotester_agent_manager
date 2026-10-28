@@ -167,6 +167,12 @@ def add_month_expectations(
         comparable = month["tracked"] and not month["partial"] and target is not None
         month["average_profit"] = average
         month["average_target"] = target
+        month["average_drawdown"] = expected["drawdown"]
+        month["meets_drawdown"] = (
+            float(month["drawdown"]) <= float(expected["drawdown"])
+            if comparable and expected["drawdown"] is not None else None
+        )
+        month["global_drawdown"] = expected["global_drawdown"]
         month["average_years"] = expected["years"]
         month["meets_average"] = float(month["profit"]) >= target if comparable else None
 
@@ -206,6 +212,13 @@ def monthly_history(
         server, node_id, account_portfolios(server, node_id, account_key),
         months, month_key(moment), month_progress(moment),
     )
+    summary = active_totals(ordered, since, last)
+    global_drawdown = months[-1].get("global_drawdown") if months else None
+    summary["expected_global_drawdown"] = global_drawdown
+    summary["meets_global_drawdown"] = (
+        summary["drawdown"] <= float(global_drawdown)
+        if global_drawdown is not None else None
+    )
     return {
         "node_id": node_id,
         "account_key": account_key,
@@ -219,5 +232,5 @@ def monthly_history(
         "months": months,
         "portfolios": tracked,
         "tracked_since": since,
-        "totals": active_totals(ordered, since, last),
+        "totals": summary,
     }
