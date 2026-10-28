@@ -339,6 +339,10 @@ class HeaderActionsOrderTests(unittest.TestCase):
         ):
             with self.subTest(expression=expression):
                 self.assertIn(expression, script)
+        styles = (STATIC / "live_audit_schedule.css").read_text(encoding="utf-8")
+        self.assertIn(
+            ".header-more-panel>*{justify-content:flex-start;", styles,
+        )
 
 
 if __name__ == "__main__":
