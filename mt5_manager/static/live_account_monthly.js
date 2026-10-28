@@ -165,11 +165,17 @@ window.LiveAccountMonthly = (() => {
 
   function tooltipMarkup(month, data) {
     const currency = data.currency;
+    const partial = Boolean(month.partial);
+    const profit = partial ? month.comparison_profit : month.profit;
+    const drawdown = partial ? month.comparison_drawdown : month.drawdown;
+    const profitAverage = month.average_profit == null ? 'sin media'
+      : `media ${money(month.average_profit, currency)}`
+        + (partial ? ` · objetivo tramo ${money(month.average_target, currency)}` : '');
     const rows = [
-      ['Beneficio', money(month.profit, currency),
-        month.average_profit == null ? 'sin media' : `media ${money(month.average_profit, currency)}`,
+      [partial ? 'Beneficio desde entrada' : 'Beneficio', money(profit, currency),
+        profitAverage,
         status(month.meets_average, 'cumple', 'no cumple')],
-      ['Drawdown', money(month.drawdown, currency, false),
+      [partial ? 'Drawdown desde entrada' : 'Drawdown', money(drawdown, currency, false),
         month.average_drawdown == null ? 'sin media' : `media ${money(month.average_drawdown, currency, false)}`,
         status(month.meets_drawdown, 'dentro', 'superado')],
     ];
@@ -178,7 +184,8 @@ window.LiveAccountMonthly = (() => {
         `<div><span>${escapeHtml(label)}</span><b>${escapeHtml(actual)}</b>`
         + `<small>${escapeHtml(average)}</small><em>${escapeHtml(verdict)}</em></div>`
       )).join('')
-      + `<p>${Number(month.trades) || 0} cierre${Number(month.trades) === 1 ? '' : 's'}`
+      + `<p>${Number(partial ? month.comparison_trades : month.trades) || 0}`
+      + ` cierre${Number(partial ? month.comparison_trades : month.trades) === 1 ? '' : 's'}`
       + `${escapeHtml(trackedNote(month, data.tracked_since || ''))}</p>`;
   }
 

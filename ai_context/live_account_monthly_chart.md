@@ -116,10 +116,13 @@ no sumar portafolios ni escenarios de autolote de dos formas distintas.
 
 El mes actual se juzga contra la parte de la media que corresponde a los días
 transcurridos, igual que en la portada, aunque se enseña la media mensual
-completa. El mes de entrada dice «mes parcial» y no recibe veredicto: contiene
-operaciones anteriores y posteriores al alta. Los meses anteriores al tramo no
-se califican; si el backtest no tiene muestra para ese mes, se dice «sin media»
-en vez de convertir la ausencia en cero.
+completa. En el mes de entrada no se comparan todos los cierres de la barra:
+se aísla la curva desde el día exacto del alta, se prorratea el objetivo de
+beneficio por los días cubiertos y se vuelve a medir el DD de ese tramo. El
+tooltip dice «desde entrada» y muestra tanto la media mensual como el objetivo
+del tramo. Los meses anteriores no se califican; si el backtest no tiene
+muestra para ese mes, se dice «sin media» en vez de convertir la ausencia en
+cero.
 
 Desde la ampliación del mismo día, el tooltip de cada barra incluye también el
 DD medio de ese mes y si el valle real queda dentro o lo supera. No se escribe

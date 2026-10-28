@@ -32,6 +32,7 @@ conversión de los totales es de arriba y aquí no tiene nada que comparar.
 """
 from __future__ import annotations
 
+import calendar
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
@@ -163,17 +164,44 @@ def add_month_expectations(
     for month in months:
         expected = expected_month(server.live_accounts, node_id, portfolios, month["label"])
         average = expected["profit"]
-        target = average * progress if average is not None and month["label"] == current else average
-        comparable = month["tracked"] and not month["partial"] and target is not None
+        fraction = month.get("comparison_progress")
+        if fraction is None and month["label"] == current:
+            fraction = progress
+        target = average * fraction if average is not None and fraction is not None else average
+        comparable = (month["tracked"] or month["partial"]) and target is not None
+        actual_profit = month.get("comparison_profit", month["profit"])
+        actual_drawdown = month.get("comparison_drawdown", month["drawdown"])
         month["average_profit"] = average
         month["average_target"] = target
         month["average_drawdown"] = expected["drawdown"]
         month["meets_drawdown"] = (
-            float(month["drawdown"]) <= float(expected["drawdown"])
+            float(actual_drawdown) <= float(expected["drawdown"])
             if comparable and expected["drawdown"] is not None else None
         )
         month["average_years"] = expected["years"]
-        month["meets_average"] = float(month["profit"]) >= target if comparable else None
+        month["meets_average"] = float(actual_profit) >= target if comparable else None
+
+
+def add_partial_comparison(
+    months: list[dict[str, Any]], ordered: Sequence[tuple[datetime, float]],
+    since: str, now: datetime,
+) -> None:
+    """Aísla desde el alta para juzgar honestamente el mes de entrada."""
+    if not since:
+        return
+    active = [item for item in ordered if item[0].date().isoformat() >= since]
+    active_rows = monthly_rows(active)
+    start = datetime.fromisoformat(since).date()
+    for month in months:
+        if not month["partial"]:
+            continue
+        measured = row(active_rows, month["label"])
+        last_day = calendar.monthrange(start.year, start.month)[1]
+        end_day = now.day if month["label"] == month_key(now) else last_day
+        month["comparison_profit"] = measured["profit"]
+        month["comparison_drawdown"] = measured["drawdown"]
+        month["comparison_trades"] = measured["trades"]
+        month["comparison_progress"] = max(0, end_day - start.day + 1) / last_day
 
 
 def add_valley_comparison(summary: dict[str, Any], expected: dict[str, Any]) -> None:
@@ -224,6 +252,7 @@ def monthly_history(
         # su propio portafolio.
         month["tracked"] = month["label"] > since[:7] if since else True
         month["partial"] = bool(since) and month["label"] == since[:7]
+    add_partial_comparison(months, ordered, since, moment)
     add_month_expectations(
         server, node_id, account_portfolios(server, node_id, account_key),
         months, month_key(moment), month_progress(moment),

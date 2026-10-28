@@ -306,14 +306,18 @@ class TrackedPortfolioTests(unittest.TestCase):
         self.assertEqual(totals["portfolio_historical_valley"], 140.0)
         self.assertEqual(totals["portfolio_valley_basis"], "autolot_mean_balance")
 
-    def test_the_entry_month_is_not_judged_against_a_whole_month_average(self) -> None:
+    def test_the_entry_month_compares_only_the_slice_since_the_portfolio_entered(self) -> None:
         self.created("2026-09-15")
         september = next(
             month for month in self.history()["months"] if month["label"] == "2026-09"
         )
         self.assertEqual(september["average_profit"], 80.0)
-        self.assertIsNone(september["meets_average"])
-        self.assertIsNone(september["meets_drawdown"])
+        self.assertAlmostEqual(september["average_target"], 80.0 * 16 / 30)
+        self.assertEqual(september["comparison_profit"], 100.0)
+        self.assertEqual(september["comparison_drawdown"], 0.0)
+        self.assertEqual(september["comparison_trades"], 1)
+        self.assertIs(september["meets_average"], True)
+        self.assertIs(september["meets_drawdown"], True)
 
     def test_the_payload_names_the_portfolio_and_the_day(self) -> None:
         self.created("2026-09-15")

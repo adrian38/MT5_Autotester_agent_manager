@@ -309,6 +309,8 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("máx. al crear", MONTHLY)
         self.assertIn("histórico calculado", MONTHLY)
         self.assertIn("histórico calculado · autolote", MONTHLY)
+        self.assertIn("Beneficio desde entrada", MONTHLY)
+        self.assertIn("objetivo tramo", MONTHLY)
         self.assertIn("totals.within_valley_limit", MONTHLY)
         self.assertIn("totals.within_historical_valley", MONTHLY)
         self.assertNotIn("peor mes:", MONTHLY)
