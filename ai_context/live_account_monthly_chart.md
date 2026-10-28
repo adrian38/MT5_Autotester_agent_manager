@@ -108,9 +108,9 @@ sin sondear no hay ningún cierre guardado, y un botón que sólo puede contesta
 
 ### Cada mes del tramo declara si alcanzó su media (2026-10-28)
 
-Las barras que pertenecen por completo al portafolio activo muestran debajo
-del mes la media histórica de ese mismo mes y una marca: `✓` verde cuando el
-beneficio la alcanza y `×` roja cuando no. La comparación reutiliza
+Las barras que pertenecen por completo al portafolio activo muestran en su
+tooltip la media histórica de ese mismo mes y una marca: `✓` cuando el
+beneficio la alcanza y `×` cuando no. La comparación reutiliza
 `live_account_dashboard.expected_month`, el mismo criterio de la tarjeta, para
 no sumar portafolios ni escenarios de autolote de dos formas distintas.
 
@@ -121,12 +121,15 @@ operaciones anteriores y posteriores al alta. Los meses anteriores al tramo no
 se califican; si el backtest no tiene muestra para ese mes, se dice «sin media»
 en vez de convertir la ausencia en cero.
 
-Desde la ampliación del mismo día, cada mes muestra una segunda marca para su
-DD: `✓` si su valle queda dentro del DD medio de ese mes y `×` si lo supera.
-La tarjeta «Drawdown del tramo» compara además la caída continua real con el
-**valle DD global** de toda la curva combinada del backtest. Ese valle se mide
-directamente sobre los cierres ordenados; no es la suma ni el máximo de los DD
-mensuales. Los escenarios de autolote lo recalculan a los lotes de ese mes.
+Desde la ampliación del mismo día, el tooltip de cada barra incluye también el
+DD medio de ese mes y si el valle real queda dentro o lo supera. No se escribe
+en el eje: con doce meses las dos líneas se pisan y ocultan las etiquetas.
+
+La tarjeta «Drawdown del tramo» compara la caída continua real con las dos
+referencias que el portafolio guardó al crearse: `target_valley_dd`, el máximo
+permitido, y `actual_valley_dd`, el valle histórico calculado de la variante
+A/M/C que está en real. No se reconstruyen desde los DD mensuales ni desde una
+promesa nueva: son los mismos números que identifican el riesgo del portafolio.
 
 ### Sin fecha no se marca nada (2026-10-24)
 

@@ -79,8 +79,6 @@ dialog footer{display:flex;justify-content:flex-end;gap:10px}
 .monthly-chart svg{display:block;width:100%;height:auto}
 .monthly-grid{stroke:#1e2d3c;stroke-width:1}.monthly-grid.zero{stroke:#44607a;stroke-width:1.5}
 .monthly-axis,.monthly-month,.monthly-legend{fill:var(--muted);font-size:11px}
-.monthly-average{fill:var(--muted);font-size:9px;font-weight:700}.monthly-average.good{fill:var(--accent2)}
-.monthly-average.bad{fill:var(--danger)}.monthly-average.partial,.monthly-average.unknown{font-weight:500}
 .monthly-bar.profit{fill:var(--accent)}.monthly-bar.loss{fill:var(--danger)}
 .monthly-bar.drawdown{fill:var(--warn)}
 /* Antes del portafolio que la cuenta sirve hoy: mismo dinero, otro

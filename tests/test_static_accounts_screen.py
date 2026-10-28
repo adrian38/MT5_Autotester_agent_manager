@@ -296,14 +296,15 @@ class CriterionTests(unittest.TestCase):
 
     def test_each_month_of_the_span_shows_its_average_and_whether_it_met_it(self) -> None:
         self.assertIn("month.average_profit", MONTHLY)
-        self.assertIn("month.meets_average ? '✓' : '×'", MONTHLY)
+        self.assertIn("month.meets_average ? 'cumplida' : 'no cumplida'", MONTHLY)
         self.assertIn("media ${money(month.average_profit, currency)}", MONTHLY)
-        self.assertIn(".monthly-average.good{fill:var(--accent2)}", STYLE)
-        self.assertIn(".monthly-average.bad{fill:var(--danger)}", STYLE)
         self.assertIn("month.average_drawdown", MONTHLY)
-        self.assertIn("month.meets_drawdown ? '✓' : '×'", MONTHLY)
-        self.assertIn("valle DD global", MONTHLY)
-        self.assertIn("totals.meets_global_drawdown", MONTHLY)
+        self.assertIn("month.meets_drawdown ? 'DD dentro de la media'", MONTHLY)
+        self.assertNotIn("monthly-average", MONTHLY)
+        self.assertIn("máx. al crear", MONTHLY)
+        self.assertIn("histórico calculado", MONTHLY)
+        self.assertIn("totals.within_valley_limit", MONTHLY)
+        self.assertIn("totals.within_historical_valley", MONTHLY)
 
     def test_the_chart_marks_where_this_portfolio_starts_instead_of_cutting(self) -> None:
         """Cortar dejaría seis de nueve cuentas con una sola barra.

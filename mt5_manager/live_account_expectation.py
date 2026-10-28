@@ -31,12 +31,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Iterable, Sequence
 
-from .live_account_series import drawdown, month_key, monthly_rows
+from .live_account_series import month_key, monthly_rows
 
 REPORT_FIELDS = ("is_report_path", "oos_report_path")
 """Los dos informes que forman la curva 2020-2026, en ese orden."""
 
-CRITERION_VERSION = "month-and-global-dd-v4"
+CRITERION_VERSION = "portfolio-valleys-v5"
 """Con qué criterio se midió esta media. Cambia cuando cambia lo que se mide.
 
 Sin esto, cambiar el criterio no repinta nada. La media guardada se recalcula
@@ -217,18 +217,25 @@ def seasonal_at(
     return _seasonal(combined)
 
 
-def curve_drawdown(
-    curves: Sequence[MemberCurve], lots: dict[str, float] | None = None,
-) -> float:
-    """El valle global de la curva combinada, al lote base o al del escenario."""
-    chosen = dict(lots or {})
-    combined: list[tuple[datetime, float]] = []
-    for curve in curves:
-        target = chosen.get(curve.candidate)
-        factor = 1.0 if not target or curve.lot <= 0 else float(target) / curve.lot
-        combined.extend((moment, amount * factor) for moment, amount in curve.values)
-    combined.sort(key=lambda item: item[0])
-    return drawdown([amount for _moment, amount in combined])
+def portfolio_valleys(
+    portfolio: dict[str, Any], portfolio_type: str,
+) -> dict[str, float | None]:
+    """El máximo fijado al crear y el valle histórico de la variante servida."""
+    metrics = portfolio.get("metrics") or {}
+    variants = metrics.get("variants") or {}
+    variant = variants.get(portfolio_type) or {}
+    summary = variant.get("summary") or {}
+    limit = float(summary.get("target_valley_dd") or portfolio.get("target_valley_dd") or 0)
+    if limit <= 0:
+        capital = float(portfolio.get("capital") or 0)
+        limit = capital * float(portfolio.get("target_valley_dd_pct") or 0) / 100.0
+    historical = float(
+        summary.get("actual_valley_dd") or portfolio.get("actual_valley_dd") or 0
+    )
+    return {
+        "portfolio_valley_limit": limit if limit > 0 else None,
+        "portfolio_historical_valley": historical if historical > 0 else None,
+    }
 
 
 def _seasonal(values: Sequence[tuple[datetime, float]]) -> dict[str, Any]:
@@ -323,7 +330,7 @@ def build(
     return {
         "months": seasonal_at(curves),
         "months_at": _scenarios(curves, scenarios),
-        "global_drawdown": curve_drawdown(curves),
+        **portfolio_valleys(portfolio, portfolio_type),
         "members_read": len(curves), "members_total": len(members),
         "measured_profit": sum(amount for _moment, amount in combined),
         "declared_profit": sum(
@@ -357,7 +364,6 @@ def _scenarios(
             continue
         measured[label] = {
             "profit": float(row["profit"]), "drawdown": float(row["drawdown"]),
-            "global_drawdown": curve_drawdown(curves, lots),
             "years": list(row["years"]), "lots": lots,
             **{
                 key: scenario[key] for key in ("basis", "balance", "without_rule")
@@ -441,13 +447,8 @@ def month_expectation(expectation: dict[str, Any], label: str) -> dict[str, Any]
     months = (expectation or {}).get("months") or {}
     row = months.get(label.split("-", 1)[1] if "-" in label else label)
     if not isinstance(row, dict) or not row.get("years"):
-        return {
-            "profit": None, "drawdown": None, "years": [], "basis": "",
-            "global_drawdown": expectation.get("global_drawdown"),
-        }
-    result = _month_row(row, "")
-    result["global_drawdown"] = expectation.get("global_drawdown")
-    return result
+        return {"profit": None, "drawdown": None, "years": [], "basis": ""}
+    return _month_row(row, "")
 
 
 def _month_row(row: dict[str, Any], basis: str) -> dict[str, Any]:
@@ -455,7 +456,6 @@ def _month_row(row: dict[str, Any], basis: str) -> dict[str, Any]:
     return {
         "profit": float(row.get("profit") or 0.0),
         "drawdown": float(row.get("drawdown") or 0.0),
-        "global_drawdown": row.get("global_drawdown"),
         "years": list(row.get("years") or []),
         "basis": basis,
         "balance": float(row.get("balance") or 0.0),

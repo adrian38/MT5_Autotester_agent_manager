@@ -172,9 +172,22 @@ def add_month_expectations(
             float(month["drawdown"]) <= float(expected["drawdown"])
             if comparable and expected["drawdown"] is not None else None
         )
-        month["global_drawdown"] = expected["global_drawdown"]
         month["average_years"] = expected["years"]
         month["meets_average"] = float(month["profit"]) >= target if comparable else None
+
+
+def add_valley_comparison(summary: dict[str, Any], expected: dict[str, Any]) -> None:
+    """Compara el tramo con el máximo creado y el valle histórico guardados."""
+    limit = expected["portfolio_valley_limit"]
+    historical = expected["portfolio_historical_valley"]
+    summary["portfolio_valley_limit"] = limit
+    summary["portfolio_historical_valley"] = historical
+    summary["within_valley_limit"] = (
+        summary["drawdown"] <= float(limit) if limit is not None else None
+    )
+    summary["within_historical_valley"] = (
+        summary["drawdown"] <= float(historical) if historical is not None else None
+    )
 
 
 def monthly_history(
@@ -213,12 +226,11 @@ def monthly_history(
         months, month_key(moment), month_progress(moment),
     )
     summary = active_totals(ordered, since, last)
-    global_drawdown = months[-1].get("global_drawdown") if months else None
-    summary["expected_global_drawdown"] = global_drawdown
-    summary["meets_global_drawdown"] = (
-        summary["drawdown"] <= float(global_drawdown)
-        if global_drawdown is not None else None
+    expected = expected_month(
+        server.live_accounts, node_id, account_portfolios(server, node_id, account_key),
+        month_key(moment),
     )
+    add_valley_comparison(summary, expected)
     return {
         "node_id": node_id,
         "account_key": account_key,
