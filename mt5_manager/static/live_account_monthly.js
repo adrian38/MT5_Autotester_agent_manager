@@ -186,20 +186,21 @@ window.LiveAccountMonthly = (() => {
     const tooltip = document.createElement('div');
     tooltip.className = 'monthly-tooltip';
     container.appendChild(tooltip);
-    const move = event => {
+    const place = barElement => {
       const bounds = container.getBoundingClientRect();
-      tooltip.style.left = `${Math.max(8, Math.min(
-        event.clientX - bounds.left + 12, bounds.width - 260,
-      ))}px`;
-      tooltip.style.top = `${Math.max(8, event.clientY - bounds.top - 38)}px`;
+      const barBounds = barElement.getBoundingClientRect();
+      const left = barBounds.left - bounds.left + barBounds.width / 2 - 120;
+      tooltip.style.left = `${Math.max(8, Math.min(left, bounds.width - 252))}px`;
+      tooltip.style.top = `${Math.max(
+        8, barBounds.top - bounds.top - tooltip.offsetHeight - 10,
+      )}px`;
     };
     container.querySelectorAll('[data-month-index]').forEach(barElement => {
-      barElement.addEventListener('mouseenter', event => {
+      barElement.addEventListener('mouseenter', () => {
         tooltip.innerHTML = tooltipMarkup(data.months[Number(barElement.dataset.monthIndex)], data);
         tooltip.classList.add('visible');
-        move(event);
+        place(barElement);
       });
-      barElement.addEventListener('mousemove', move);
       barElement.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
     });
   }
@@ -253,8 +254,8 @@ window.LiveAccountMonthly = (() => {
     const zeroY = VIEW.top + PLOT_HEIGHT * (box.up / (box.up + box.down));
     const since = String(data.tracked_since || '');
     const dimmed = months.some(month => month.tracked === false);
-    return `<svg viewBox="0 0 ${VIEW.width} ${VIEW.height}" role="img">`
-      + `<title>Beneficio y drawdown mes a mes de ${escapeHtml(data.login || 'la cuenta')}</title>`
+    return `<svg viewBox="0 0 ${VIEW.width} ${VIEW.height}" role="img"`
+      + ` aria-label="Beneficio y drawdown mes a mes de ${escapeHtml(data.login || 'la cuenta')}">`
       + axis(box, zeroY)
       + months.map(
         (month, index) => monthBars(month, index, box, zeroY, data.currency, since),
@@ -294,7 +295,7 @@ window.LiveAccountMonthly = (() => {
             'máx. al crear', totals.portfolio_valley_limit,
             totals.within_valley_limit, currency,
           )
-          + ` · ${valleyNote(
+          + `\n${valleyNote(
             'histórico calculado', totals.portfolio_historical_valley,
             totals.within_historical_valley, currency,
           )}`],

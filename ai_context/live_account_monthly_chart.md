@@ -127,13 +127,17 @@ en el eje: con doce meses las dos líneas se pisan y ocultan las etiquetas.
 El tooltip es un panel HTML rectangular con dos filas —beneficio y drawdown—,
 cada una con real, media y veredicto; sustituye al `<title>` nativo del SVG,
 que amontonaba toda la frase en una sola línea.
+Se ancla centrado encima de la barra y no sigue el cursor: así no tapa las dos
+barras del mes ni aparece junto al tooltip nativo, que se eliminó también del
+`<svg>` raíz.
 
 La tarjeta «Drawdown del tramo» compara la caída continua real con las dos
 referencias que el portafolio guardó al crearse: `target_valley_dd`, el máximo
 permitido, y `actual_valley_dd`, el valle histórico calculado de la variante
 A/M/C que está en real. No se reconstruyen desde los DD mensuales ni desde una
 promesa nueva: son los mismos números que identifican el riesgo del portafolio.
-La tarjeta no repite el peor mes: deja sitio a esas dos comparaciones.
+La tarjeta no repite el peor mes: deja sitio a esas dos comparaciones, cada una
+en su propia línea.
 
 ### Sin fecha no se marca nada (2026-10-24)
 

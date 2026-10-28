@@ -75,6 +75,7 @@ dialog footer{display:flex;justify-content:flex-end;gap:10px}
 .monthly-summary strong{font-size:19px;font-variant-numeric:tabular-nums}
 .monthly-summary strong.good{color:var(--accent2)}.monthly-summary strong.bad{color:var(--danger)}
 .monthly-summary small{color:var(--muted);font-size:11px}
+.monthly-summary small{white-space:pre-line}
 .monthly-chart{position:relative;padding:10px 4px 0;border:1px solid var(--line);border-radius:12px;background:#0a141d}
 .monthly-chart svg{display:block;width:100%;height:auto}
 .monthly-grid{stroke:#1e2d3c;stroke-width:1}.monthly-grid.zero{stroke:#44607a;stroke-width:1.5}

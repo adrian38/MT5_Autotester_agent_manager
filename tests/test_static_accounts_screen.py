@@ -304,11 +304,14 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("className = 'monthly-tooltip'", MONTHLY)
         self.assertIn("[data-month-index]", MONTHLY)
         self.assertNotIn("<title>${escapeHtml(label)}</title>", MONTHLY)
+        self.assertNotIn("<title>Beneficio y drawdown", MONTHLY)
+        self.assertIn("barBounds.top - bounds.top - tooltip.offsetHeight - 10", MONTHLY)
         self.assertIn("máx. al crear", MONTHLY)
         self.assertIn("histórico calculado", MONTHLY)
         self.assertIn("totals.within_valley_limit", MONTHLY)
         self.assertIn("totals.within_historical_valley", MONTHLY)
         self.assertNotIn("peor mes:", MONTHLY)
+        self.assertIn("`\\n${valleyNote(", MONTHLY)
 
     def test_the_chart_marks_where_this_portfolio_starts_instead_of_cutting(self) -> None:
         """Cortar dejaría seis de nueve cuentas con una sola barra.
