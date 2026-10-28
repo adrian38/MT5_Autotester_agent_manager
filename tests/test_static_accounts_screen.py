@@ -287,7 +287,7 @@ class CriterionTests(unittest.TestCase):
     def test_the_chart_paints_the_numbers_the_manager_measured(self) -> None:
         """La pantalla dibuja barras; los importes y la DD vienen medidos."""
         self.assertIn("/monthly`", MONTHLY)
-        for name in ("totals.drawdown", "totals.worst_month_drawdown", "month.drawdown"):
+        for name in ("totals.drawdown", "month.drawdown"):
             self.assertIn(name, MONTHLY)
         # Si el grafico midiera por su cuenta, aqui habria una curva acumulada
         # y un maximo de las filas mensuales. No los hay a proposito.
@@ -296,15 +296,19 @@ class CriterionTests(unittest.TestCase):
 
     def test_each_month_of_the_span_shows_its_average_and_whether_it_met_it(self) -> None:
         self.assertIn("month.average_profit", MONTHLY)
-        self.assertIn("month.meets_average ? 'cumplida' : 'no cumplida'", MONTHLY)
+        self.assertIn("status(month.meets_average, 'cumple', 'no cumple')", MONTHLY)
         self.assertIn("media ${money(month.average_profit, currency)}", MONTHLY)
         self.assertIn("month.average_drawdown", MONTHLY)
-        self.assertIn("month.meets_drawdown ? 'DD dentro de la media'", MONTHLY)
+        self.assertIn("status(month.meets_drawdown, 'dentro', 'superado')", MONTHLY)
         self.assertNotIn("monthly-average", MONTHLY)
+        self.assertIn("className = 'monthly-tooltip'", MONTHLY)
+        self.assertIn("[data-month-index]", MONTHLY)
+        self.assertNotIn("<title>${escapeHtml(label)}</title>", MONTHLY)
         self.assertIn("máx. al crear", MONTHLY)
         self.assertIn("histórico calculado", MONTHLY)
         self.assertIn("totals.within_valley_limit", MONTHLY)
         self.assertIn("totals.within_historical_valley", MONTHLY)
+        self.assertNotIn("peor mes:", MONTHLY)
 
     def test_the_chart_marks_where_this_portfolio_starts_instead_of_cutting(self) -> None:
         """Cortar dejaría seis de nueve cuentas con una sola barra.

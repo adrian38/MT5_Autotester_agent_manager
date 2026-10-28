@@ -425,6 +425,32 @@ class WatchTests(unittest.TestCase):
             live_account_expectation.CRITERION_VERSION,
         )
 
+    def test_every_refresh_keeps_both_saved_portfolio_valleys(self) -> None:
+        class ValleySource(FakeSource):
+            def saved_portfolio_detail(self, portfolio_id, scope):
+                return {"portfolio": {
+                    "id": portfolio_id, "members": [], "capital": 1_000,
+                    "target_valley_dd": 63, "actual_valley_dd": 57.06,
+                }}
+
+        server = self.server()
+        with mock.patch(
+            "mt5_manager.live_account_expectation.build",
+            return_value={
+                "signature": "x", "criterion": live_account_expectation.CRITERION_VERSION,
+                "months": {},
+            },
+        ):
+            live_account_ingest._rebuild(
+                server, ValleySource(), "axi",
+                {"account_key": "x", "real_strategy_lots": {}},
+                {"portfolio_id": 105, "portfolio_type": "balanced", "audit_id": "audit-105"},
+                NOW,
+            )
+        stored = server.live_accounts.read_expectation("axi", 105)
+        self.assertEqual(stored["portfolio_valley_limit"], 63.0)
+        self.assertEqual(stored["portfolio_historical_valley"], 57.06)
+
     def test_a_report_that_does_not_match_its_hash_is_refused(self) -> None:
         server = self.server()
         def artifact(node, path, timeout=10):

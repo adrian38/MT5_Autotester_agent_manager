@@ -114,10 +114,10 @@ window.LiveAccountMonthly = (() => {
     )).join('');
   }
 
-  function bar(className, x, width, top, height, label) {
+  function bar(className, x, width, top, height, monthIndex) {
     return `<rect class="monthly-bar ${className}" x="${x.toFixed(1)}" y="${top.toFixed(1)}"`
-      + ` width="${width.toFixed(1)}" height="${Math.max(height, 1).toFixed(1)}" rx="1">`
-      + `<title>${escapeHtml(label)}</title></rect>`;
+      + ` width="${width.toFixed(1)}" height="${Math.max(height, 1).toFixed(1)}" rx="1"`
+      + ` data-month-index="${monthIndex}"/>`;
   }
 
   // El tramo **no** se corta por la fecha del portafolio: seis de los nueve
@@ -135,20 +135,6 @@ window.LiveAccountMonthly = (() => {
     return month.tracked === false ? ' · antes de este portafolio' : '';
   }
 
-  function averageNote(month, currency) {
-    if (month.partial || month.tracked === false) return '';
-    if (month.average_profit === null || month.average_profit === undefined) {
-      return ' · sin media histórica para ese mes';
-    }
-    const target = Number(month.average_target);
-    const prorated = target !== Number(month.average_profit)
-      ? ` · objetivo a hoy ${money(target, currency)}` : '';
-    return ` · media ${money(month.average_profit, currency)}${prorated}`
-      + ` · ${month.meets_average ? 'cumplida' : 'no cumplida'}`
-      + ` · DD medio ${money(month.average_drawdown, currency, false)}`
-      + ` · ${month.meets_drawdown ? 'DD dentro de la media' : 'DD sobre la media'}`;
-  }
-
   function monthBars(month, index, box, zeroY, currency, since) {
     const slot = PLOT_WIDTH / Math.max(1, box.months);
     const gap = Math.min(6, slot * 0.14);
@@ -161,19 +147,61 @@ window.LiveAccountMonthly = (() => {
     const upHeight = zeroY - VIEW.top;
     const downHeight = VIEW.height - VIEW.bottom - zeroY;
     const mark = trackedClass(month);
-    const note = `${longMonth(month.label)} · beneficio ${money(profit, currency)}`
-      + ` · drawdown ${money(drawdown, currency, false)}`
-      + ` · ${month.trades} cierre${Number(month.trades) === 1 ? '' : 's'}`
-      + trackedNote(month, since) + averageNote(month, currency);
     const profitHeight = profit >= 0
       ? profit / box.up * upHeight : -profit / box.down * downHeight;
     return bar(
       (profit < 0 ? 'loss' : 'profit') + mark, start, width,
-      profit >= 0 ? zeroY - profitHeight : zeroY, profitHeight, note,
+      profit >= 0 ? zeroY - profitHeight : zeroY, profitHeight, index,
     ) + bar(
       'drawdown' + mark, start + width + gap, width, zeroY,
-      drawdown / box.down * downHeight, note,
+      drawdown / box.down * downHeight, index,
     );
+  }
+
+  function status(value, good, bad) {
+    if (value === null || value === undefined) return '—';
+    return value ? `✓ ${good}` : `× ${bad}`;
+  }
+
+  function tooltipMarkup(month, data) {
+    const currency = data.currency;
+    const rows = [
+      ['Beneficio', money(month.profit, currency),
+        month.average_profit == null ? 'sin media' : `media ${money(month.average_profit, currency)}`,
+        status(month.meets_average, 'cumple', 'no cumple')],
+      ['Drawdown', money(month.drawdown, currency, false),
+        month.average_drawdown == null ? 'sin media' : `media ${money(month.average_drawdown, currency, false)}`,
+        status(month.meets_drawdown, 'dentro', 'superado')],
+    ];
+    return `<strong>${escapeHtml(longMonth(month.label))}</strong>`
+      + rows.map(([label, actual, average, verdict]) => (
+        `<div><span>${escapeHtml(label)}</span><b>${escapeHtml(actual)}</b>`
+        + `<small>${escapeHtml(average)}</small><em>${escapeHtml(verdict)}</em></div>`
+      )).join('')
+      + `<p>${Number(month.trades) || 0} cierre${Number(month.trades) === 1 ? '' : 's'}`
+      + `${escapeHtml(trackedNote(month, data.tracked_since || ''))}</p>`;
+  }
+
+  function bindTooltip(container, data) {
+    const tooltip = document.createElement('div');
+    tooltip.className = 'monthly-tooltip';
+    container.appendChild(tooltip);
+    const move = event => {
+      const bounds = container.getBoundingClientRect();
+      tooltip.style.left = `${Math.max(8, Math.min(
+        event.clientX - bounds.left + 12, bounds.width - 260,
+      ))}px`;
+      tooltip.style.top = `${Math.max(8, event.clientY - bounds.top - 38)}px`;
+    };
+    container.querySelectorAll('[data-month-index]').forEach(barElement => {
+      barElement.addEventListener('mouseenter', event => {
+        tooltip.innerHTML = tooltipMarkup(data.months[Number(barElement.dataset.monthIndex)], data);
+        tooltip.classList.add('visible');
+        move(event);
+      });
+      barElement.addEventListener('mousemove', move);
+      barElement.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
+    });
   }
 
   // La raya vertical donde entra el portafolio: va al borde izquierdo de su
@@ -262,11 +290,10 @@ window.LiveAccountMonthly = (() => {
         `${totals.trades || 0} cierres`],
       ['Drawdown del tramo', money(totals.drawdown, currency, false),
         drawdownTone(totals),
-        `peor mes: ${money(totals.worst_month_drawdown, currency, false)}`
-          + ` · ${valleyNote(
+        valleyNote(
             'máx. al crear', totals.portfolio_valley_limit,
             totals.within_valley_limit, currency,
-          )}`
+          )
           + ` · ${valleyNote(
             'histórico calculado', totals.portfolio_historical_valley,
             totals.within_historical_valley, currency,
@@ -306,7 +333,9 @@ window.LiveAccountMonthly = (() => {
       ) + trackedMarkup(data)
       : 'Sin serie guardada todavía.';
     field('#account-monthly-summary').innerHTML = summary(data);
-    field('#account-monthly-chart').innerHTML = chart(data);
+    const chartElement = field('#account-monthly-chart');
+    chartElement.innerHTML = chart(data);
+    if (data.months && data.months.length) bindTooltip(chartElement, data);
   }
 
   async function open(card) {

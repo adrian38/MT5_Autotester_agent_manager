@@ -420,6 +420,7 @@ def _rebuild(
         # único que abre la memoria UBS del agente: la portada se repinta cada
         # minuto y no puede ir a buscarlo.
         **_identity(saved),
+        **live_account_expectation.portfolio_valleys(saved, variant),
     }
     # El atajo de la firma sólo vale **dentro del mismo criterio**: la firma
     # resume las entradas, y con un criterio nuevo las mismas entradas dan otro
