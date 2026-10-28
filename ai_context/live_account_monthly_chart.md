@@ -134,6 +134,14 @@ Se ancla centrado encima de la barra y no sigue el cursor: así no tapa las dos
 barras del mes ni aparece junto al tooltip nativo, que se eliminó también del
 `<svg>` raíz.
 
+El contenido creciente hizo insuficiente el panel fijo de 240 px: partía
+«desde entrada» en tres líneas y su altura volvía a caer sobre las barras. El
+gráfico reserva ahora una franja superior exclusiva sin reducir el área de las
+barras, y el ancho del panel es adaptable mediante
+`--monthly-tooltip-width` (`clamp(360px, 44vw, 520px)`, con ancho completo en
+móvil). La posición horizontal usa el ancho real renderizado, no una mitad
+fija de 120 px.
+
 La tarjeta «Drawdown del tramo» compara la caída continua real con las dos
 referencias que el portafolio guardó al crearse: `target_valley_dd`, el máximo
 permitido, y `actual_valley_dd`, el valle histórico calculado de la variante

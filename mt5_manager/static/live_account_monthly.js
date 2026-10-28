@@ -20,7 +20,9 @@ window.LiveAccountMonthly = (() => {
   // El lienzo. El eje cero no va en el centro: se reparte entre lo que sube y
   // lo que baja, porque una cuenta con doce meses en verde desperdiciaría media
   // altura y las barras pequeñas no se verían.
-  const VIEW = {width: 960, height: 380, left: 76, right: 16, top: 18, bottom: 74};
+  // La franja superior pertenece al tooltip. Aumentar `top` no encoge las
+  // barras porque `height` crece en la misma cantidad.
+  const VIEW = {width: 960, height: 534, left: 76, right: 16, top: 172, bottom: 74};
   const PLOT_WIDTH = VIEW.width - VIEW.left - VIEW.right;
   const PLOT_HEIGHT = VIEW.height - VIEW.top - VIEW.bottom;
 
@@ -196,11 +198,12 @@ window.LiveAccountMonthly = (() => {
     const place = barElement => {
       const bounds = container.getBoundingClientRect();
       const barBounds = barElement.getBoundingClientRect();
-      const left = barBounds.left - bounds.left + barBounds.width / 2 - 120;
-      tooltip.style.left = `${Math.max(8, Math.min(left, bounds.width - 252))}px`;
-      tooltip.style.top = `${Math.max(
-        8, barBounds.top - bounds.top - tooltip.offsetHeight - 10,
+      const left = barBounds.left - bounds.left + barBounds.width / 2
+        - tooltip.offsetWidth / 2;
+      tooltip.style.left = `${Math.max(
+        8, Math.min(left, bounds.width - tooltip.offsetWidth - 8),
       )}px`;
+      tooltip.style.top = '8px';
     };
     container.querySelectorAll('[data-month-index]').forEach(barElement => {
       barElement.addEventListener('mouseenter', () => {

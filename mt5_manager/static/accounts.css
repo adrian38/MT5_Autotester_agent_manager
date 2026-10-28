@@ -87,12 +87,13 @@ dialog footer{display:flex;justify-content:flex-end;gap:10px}
 .monthly-bar.before{opacity:.26}.monthly-bar.partial{opacity:.62}
 .monthly-boundary{stroke:#7fa6c4;stroke-width:1.5;stroke-dasharray:5 4}
 .monthly-boundary-label{fill:#7fa6c4;font-size:10px;font-weight:700}
-.monthly-tooltip{display:none;position:absolute;z-index:4;width:240px;padding:12px;border:1px solid #385069;border-radius:8px;background:#101d28;box-shadow:0 10px 28px #0009;pointer-events:none}
+.monthly-tooltip{--monthly-tooltip-width:clamp(360px,44vw,520px);display:none;position:absolute;z-index:4;width:var(--monthly-tooltip-width);max-width:calc(100% - 16px);box-sizing:border-box;padding:12px;border:1px solid #385069;border-radius:8px;background:#101d28;box-shadow:0 10px 28px #0009;pointer-events:none}
 .monthly-tooltip.visible{display:block}.monthly-tooltip>strong{display:block;margin-bottom:9px;color:var(--text);font-size:12px}
-.monthly-tooltip>div{display:grid;grid-template-columns:72px 1fr;gap:3px 10px;padding:7px 0;border-top:1px solid var(--line)}
+.monthly-tooltip>div{display:grid;grid-template-columns:minmax(150px,1fr) auto;gap:3px 14px;padding:7px 0;border-top:1px solid var(--line)}
 .monthly-tooltip span,.monthly-tooltip small{color:var(--muted)}.monthly-tooltip b,.monthly-tooltip em{font-style:normal;text-align:right}
 .monthly-tooltip b{font-size:12px}.monthly-tooltip small,.monthly-tooltip em,.monthly-tooltip p{font-size:10px}.monthly-tooltip p{margin:8px 0 0;color:var(--muted)}
 .monthly-empty{padding:40px 18px;color:var(--muted);font-size:12px;text-align:center}
 @media(max-width:900px){header{align-items:start;flex-direction:column}.header-actions{justify-content:flex-start}.accounts{grid-template-columns:1fr}}
 @media(max-width:600px){header,main{padding-inline:18px}.header-actions{width:100%}.header-actions>*{flex:1 1 auto}}
 @media(max-width:480px){.month-comparison{grid-template-columns:1fr;row-gap:1px}.total-months{gap:12px}.total-months>div+div{padding-left:12px}}
+@media(max-width:480px){.monthly-tooltip{--monthly-tooltip-width:calc(100% - 16px)}.monthly-tooltip>div{grid-template-columns:minmax(125px,1fr) auto}}
