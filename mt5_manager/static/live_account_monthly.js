@@ -135,6 +135,18 @@ window.LiveAccountMonthly = (() => {
     return month.tracked === false ? ' · antes de este portafolio' : '';
   }
 
+  function averageNote(month, currency) {
+    if (month.partial || month.tracked === false) return '';
+    if (month.average_profit === null || month.average_profit === undefined) {
+      return ' · sin media histórica para ese mes';
+    }
+    const target = Number(month.average_target);
+    const prorated = target !== Number(month.average_profit)
+      ? ` · objetivo a hoy ${money(target, currency)}` : '';
+    return ` · media ${money(month.average_profit, currency)}${prorated}`
+      + ` · ${month.meets_average ? 'cumplida' : 'no cumplida'}`;
+  }
+
   function monthBars(month, index, box, zeroY, currency, since) {
     const slot = PLOT_WIDTH / Math.max(1, box.months);
     const gap = Math.min(6, slot * 0.14);
@@ -150,7 +162,7 @@ window.LiveAccountMonthly = (() => {
     const note = `${longMonth(month.label)} · beneficio ${money(profit, currency)}`
       + ` · drawdown ${money(drawdown, currency, false)}`
       + ` · ${month.trades} cierre${Number(month.trades) === 1 ? '' : 's'}`
-      + trackedNote(month, since);
+      + trackedNote(month, since) + averageNote(month, currency);
     const profitHeight = profit >= 0
       ? profit / box.up * upHeight : -profit / box.down * downHeight;
     return bar(
@@ -176,15 +188,32 @@ window.LiveAccountMonthly = (() => {
 
   // Con muchos meses las etiquetas se pisan, así que se saltan; el primero y el
   // último se escriben siempre, que son los que dicen qué tramo se está viendo.
-  function monthLabels(months) {
+  function averageLabel(month, currency) {
+    if (month.partial) return ['partial', '— mes parcial'];
+    if (month.tracked === false) return ['', ''];
+    if (month.average_profit === null || month.average_profit === undefined) {
+      return ['unknown', '— sin media'];
+    }
+    return [
+      month.meets_average ? 'good' : 'bad',
+      `${month.meets_average ? '✓' : '×'} media ${money(month.average_profit, currency)}`,
+    ];
+  }
+
+  function monthLabels(months, currency) {
     const every = months.length > 32 ? 4 : months.length > 20 ? 3 : months.length > 13 ? 2 : 1;
     const slot = PLOT_WIDTH / Math.max(1, months.length);
     return months.map((month, index) => {
       const shown = index % every === 0 || index === months.length - 1;
       if (!shown) return '';
+      const [toneClass, average] = averageLabel(month, currency);
       return `<text class="monthly-month" x="${(VIEW.left + slot * (index + 0.5)).toFixed(1)}"`
-        + ` y="${VIEW.height - VIEW.bottom + 20}" text-anchor="middle">`
-        + `${escapeHtml(shortMonth(month.label))}</text>`;
+        + ` y="${VIEW.height - VIEW.bottom + 17}" text-anchor="middle">`
+        + `${escapeHtml(shortMonth(month.label))}</text>`
+        + (average ? `<text class="monthly-average ${toneClass}"`
+          + ` x="${(VIEW.left + slot * (index + 0.5)).toFixed(1)}"`
+          + ` y="${VIEW.height - VIEW.bottom + 32}" text-anchor="middle">`
+          + `${escapeHtml(average)}</text>` : '');
     }).join('');
   }
 
@@ -217,7 +246,8 @@ window.LiveAccountMonthly = (() => {
       + months.map(
         (month, index) => monthBars(month, index, box, zeroY, data.currency, since),
       ).join('')
-      + boundary(months, since) + monthLabels(months) + legend(dimmed) + '</svg>';
+      + boundary(months, since) + monthLabels(months, data.currency)
+      + legend(dimmed) + '</svg>';
   }
 
   function tone(value) {

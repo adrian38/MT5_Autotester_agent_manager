@@ -233,7 +233,14 @@ class TrackedPortfolioTests(unittest.TestCase):
     def created(self, day: str) -> None:
         self.server.live_accounts.write_expectation(
             "roboforex", 173,
-            {"portfolio_created_at": f"{day}T02:52:14", "portfolio_name": "Mejora #100"},
+            {
+                "portfolio_created_at": f"{day}T02:52:14",
+                "portfolio_name": "Mejora #100",
+                "months": {
+                    "09": {"profit": 80.0, "drawdown": 20.0, "years": [2024, 2025]},
+                    "10": {"profit": 30.0, "drawdown": 10.0, "years": [2024, 2025]},
+                },
+            },
         )
 
     def history(self) -> dict:
@@ -257,6 +264,29 @@ class TrackedPortfolioTests(unittest.TestCase):
         # El mes de entrada va a medias: parte de sus cierres son de antes.
         self.assertEqual(marks["2026-09"], (False, True))
         self.assertEqual(marks["2026-10"], (True, False))
+
+    def test_each_full_month_of_the_span_says_if_it_met_its_average(self) -> None:
+        self.created("2026-08-15")
+        by_label = {month["label"]: month for month in self.history()["months"]}
+
+        september = by_label["2026-09"]
+        self.assertEqual(september["average_profit"], 80.0)
+        self.assertEqual(september["average_target"], 80.0)
+        self.assertEqual(september["average_years"], [2024, 2025])
+        self.assertIs(september["meets_average"], True)
+
+        october = by_label["2026-10"]
+        self.assertEqual(october["average_profit"], 30.0)
+        self.assertLess(october["average_target"], october["average_profit"])
+        self.assertIs(october["meets_average"], False)
+
+    def test_the_entry_month_is_not_judged_against_a_whole_month_average(self) -> None:
+        self.created("2026-09-15")
+        september = next(
+            month for month in self.history()["months"] if month["label"] == "2026-09"
+        )
+        self.assertEqual(september["average_profit"], 80.0)
+        self.assertIsNone(september["meets_average"])
 
     def test_the_payload_names_the_portfolio_and_the_day(self) -> None:
         self.created("2026-09-15")

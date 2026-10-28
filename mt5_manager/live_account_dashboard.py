@@ -59,7 +59,9 @@ def tone(value: Any, reference: Any, *, higher_is_better: bool = True) -> str:
     return "good" if better else "bad"
 
 
-def _expected(archive: Any, node_id: str, portfolios: list[dict[str, Any]], label: str) -> dict[str, Any]:
+def expected_month(
+    archive: Any, node_id: str, portfolios: list[dict[str, Any]], label: str,
+) -> dict[str, Any]:
     """La media de ese mes para la cuenta: la suma de sus portafolios.
 
     Una cuenta con dos portafolios promete lo que prometen los dos. Los años se
@@ -200,7 +202,7 @@ def account_card(
     earlier = previous_month(label)
     monthly = row(months, label)
     earlier_row = row(months, earlier)
-    expected = _expected(archive, node_id, account["portfolios"], label)
+    expected = expected_month(archive, node_id, account["portfolios"], label)
     progress = month_progress(now)
     prorated = None if expected["profit"] is None else expected["profit"] * progress
     state, message = _state(stored, account, now)
@@ -235,7 +237,7 @@ def account_card(
             "drawdown_delta": monthly["drawdown"] - earlier_row["drawdown"],
         },
         "expected_month": {**expected, "profit_prorated": prorated},
-        "expected_previous": _expected(archive, node_id, account["portfolios"], earlier),
+        "expected_previous": expected_month(archive, node_id, account["portfolios"], earlier),
         "last_read": str(stored.get("updated_at") or ""),
         "first_day": str(stored.get("first_day") or ""),
         "presentation": _presentation(server, node_id, account),

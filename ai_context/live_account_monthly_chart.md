@@ -106,6 +106,21 @@ El botón no sale en las tarjetas `blocked` ni `never_read`: sin credenciales o
 sin sondear no hay ningún cierre guardado, y un botón que sólo puede contestar
 «no hay nada» no es un botón.
 
+### Cada mes del tramo declara si alcanzó su media (2026-10-28)
+
+Las barras que pertenecen por completo al portafolio activo muestran debajo
+del mes la media histórica de ese mismo mes y una marca: `✓` verde cuando el
+beneficio la alcanza y `×` roja cuando no. La comparación reutiliza
+`live_account_dashboard.expected_month`, el mismo criterio de la tarjeta, para
+no sumar portafolios ni escenarios de autolote de dos formas distintas.
+
+El mes actual se juzga contra la parte de la media que corresponde a los días
+transcurridos, igual que en la portada, aunque se enseña la media mensual
+completa. El mes de entrada dice «mes parcial» y no recibe veredicto: contiene
+operaciones anteriores y posteriores al alta. Los meses anteriores al tramo no
+se califican; si el backtest no tiene muestra para ese mes, se dice «sin media»
+en vez de convertir la ausencia en cero.
+
 ### Sin fecha no se marca nada (2026-10-24)
 
 El primer día con la marca puesta, las nueve cuentas salieron **enteras**

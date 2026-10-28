@@ -294,6 +294,13 @@ class CriterionTests(unittest.TestCase):
         for forbidden in ("balance +=", "Math.max(...months.map(month => month.drawdown"):
             self.assertNotIn(forbidden, MONTHLY)
 
+    def test_each_month_of_the_span_shows_its_average_and_whether_it_met_it(self) -> None:
+        self.assertIn("month.average_profit", MONTHLY)
+        self.assertIn("month.meets_average ? '✓' : '×'", MONTHLY)
+        self.assertIn("media ${money(month.average_profit, currency)}", MONTHLY)
+        self.assertIn(".monthly-average.good{fill:var(--accent2)}", STYLE)
+        self.assertIn(".monthly-average.bad{fill:var(--danger)}", STYLE)
+
     def test_the_chart_marks_where_this_portfolio_starts_instead_of_cutting(self) -> None:
         """Cortar dejaría seis de nueve cuentas con una sola barra.
 

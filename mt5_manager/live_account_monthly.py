@@ -37,6 +37,7 @@ from typing import Any, Sequence
 
 from . import live_account_inventory
 from .live_account_archive import ordered_movements
+from .live_account_dashboard import expected_month, month_progress
 from .live_account_series import drawdown, month_key, monthly_rows, row
 
 MAXIMUM_MONTHS = 240
@@ -146,6 +147,30 @@ def tracked_portfolios(server: Any, node_id: str, account_key: str) -> list[dict
     return sorted(found, key=lambda row: row["created_day"])
 
 
+def account_portfolios(server: Any, node_id: str, account_key: str) -> list[dict[str, Any]]:
+    """Los portafolios activos de la cuenta, tengan o no fecha de alta medida."""
+    for account in live_account_inventory.node_accounts(server, node_id):
+        if str(account.get("account_key") or "") == str(account_key):
+            return list(account.get("portfolios") or [])
+    return []
+
+
+def add_month_expectations(
+    server: Any, node_id: str, portfolios: list[dict[str, Any]],
+    months: list[dict[str, Any]], current: str, progress: float,
+) -> None:
+    """Anota la media histórica y si cada mes completo del tramo la alcanzó."""
+    for month in months:
+        expected = expected_month(server.live_accounts, node_id, portfolios, month["label"])
+        average = expected["profit"]
+        target = average * progress if average is not None and month["label"] == current else average
+        comparable = month["tracked"] and not month["partial"] and target is not None
+        month["average_profit"] = average
+        month["average_target"] = target
+        month["average_years"] = expected["years"]
+        month["meets_average"] = float(month["profit"]) >= target if comparable else None
+
+
 def monthly_history(
     server: Any, node_id: str, account_key: str, now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -177,6 +202,10 @@ def monthly_history(
         # su propio portafolio.
         month["tracked"] = month["label"] > since[:7] if since else True
         month["partial"] = bool(since) and month["label"] == since[:7]
+    add_month_expectations(
+        server, node_id, account_portfolios(server, node_id, account_key),
+        months, month_key(moment), month_progress(moment),
+    )
     return {
         "node_id": node_id,
         "account_key": account_key,
