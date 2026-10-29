@@ -187,6 +187,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   qué pasa con los meses que no operaron.
 - `live_audit_cron_and_bell.md`: el cron general de los portafolios activos y
   la hoja de estilos sin la cual la campana se abre fuera de la vista
+- `deleted_portfolio_leaves_live_audit_profile.md`: por qué borrar una cartera
+  debe retirar también todos sus usos de auditoría, credenciales y marca activa.
 - `model4_watchdog_mata_su_propia_sincronizacion.md`: por qué fallaban las
   auditorías con «MT5 Model=4 volvió a bloquearse», y dónde está la evidencia
   —sábado a las 23:00 con reintentos—, la campana de avisos, por qué el hilo

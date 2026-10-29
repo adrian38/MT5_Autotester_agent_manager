@@ -10,7 +10,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from mt5_manager.portfolio_service import (
     STANDARD_ANTIFILLER_REFILL_PASSES,
@@ -284,6 +284,7 @@ class PortfolioCoordinationTests(unittest.TestCase):
                 "portfolio_account_type": "STANDARD",
             }
             coordinator = PortfolioCoordinator([node], project / "settings.json")
+            coordinator.live_audit_settings = Mock()
             started = threading.Event()
             release = threading.Event()
 
@@ -321,6 +322,7 @@ class PortfolioCoordinationTests(unittest.TestCase):
                     "la tarea de borrado no llego a completarse",
                 )
                 self.assertEqual(task_status(), "completed")
+                coordinator.live_audit_settings.remove_portfolio.assert_called_once_with("ic", 37)
 
     def test_task_state_does_not_read_the_remote_inventory(self) -> None:
         coordinator = PortfolioCoordinator(

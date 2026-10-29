@@ -522,7 +522,10 @@ class PortfolioCoordinatorSavedMixin:
                 time.sleep(0.25)
                 continue
             try:
-                self._delete_on_node(node_id, scope, int(task["portfolio_id"]))
+                portfolio_id = int(task["portfolio_id"])
+                self._delete_on_node(node_id, scope, portfolio_id)
+                if self.live_audit_settings is not None:
+                    self.live_audit_settings.remove_portfolio(node_id, portfolio_id)
                 with self.lock:
                     task.update({
                         "status": "completed",

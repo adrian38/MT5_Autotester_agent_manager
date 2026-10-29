@@ -26,6 +26,7 @@ from .live_audit_settings_accounts import (
 # pasó de 600 líneas; son mixin y no funciones porque comparten el candado, el
 # mapa en memoria y el fichero.
 from .live_audit_settings_fields import LiveAuditProfileFieldsMixin
+from .live_audit_settings_cleanup import LiveAuditPortfolioCleanupMixin
 from .live_audit_settings_schema import (
     DEFAULT_LIVE_AUDIT_PROFILE,
     DEFAULT_LIVE_AUDIT_SETTINGS,
@@ -62,7 +63,9 @@ class _SettingsUpdate:
     credentials_changed: bool = False
 
 
-class LiveAuditSettingsStore(LiveAuditAccountsMixin, LiveAuditProfileFieldsMixin):
+class LiveAuditSettingsStore(
+    LiveAuditAccountsMixin, LiveAuditProfileFieldsMixin, LiveAuditPortfolioCleanupMixin,
+):
     """Usos auditados y credenciales cifradas, independientes por cuenta y variante.
 
     El catálogo de cuentas guardadas vive en `live_audit_settings_accounts.py`:

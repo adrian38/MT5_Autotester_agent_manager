@@ -72,6 +72,10 @@ class PortfolioCoordinatorCoreMixin:
         # Sin ella el coordinador funciona igual y no avisa de nada: los tests
         # que lo montan sueltos no tienen que saber de avisos.
         self.notifications: Any = None
+        # El servidor le presta también el almacén de auditorías. Un borrado
+        # confirmado debe retirar sus usos para que no sigan apareciendo como
+        # portafolios activos ni entren en el cron.
+        self.live_audit_settings: Any = None
         if settings_path.is_file():
             try:
                 loaded = load_json(settings_path)

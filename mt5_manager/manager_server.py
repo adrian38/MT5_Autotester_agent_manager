@@ -284,6 +284,7 @@ class ManagerServer(ThreadingHTTPServer):
             else Path.cwd() / "runtime" / "portfolio_settings.json"
         )
         self.portfolios = PortfolioCoordinator(self.nodes, portfolio_settings_path)
+        self.portfolios.live_audit_settings = self.live_audit_settings
         # La campana es del manager entero, no de la auditoría: un cálculo de
         # portafolio que termina de madrugada avisa por el mismo sitio.
         self.portfolios.notifications = self.live_audit_notifications
