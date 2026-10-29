@@ -85,9 +85,11 @@ function aliasOf(nodeId, portfolioId) {
 }
 
 // Los colores del borde son del broker, no del estado: AXI en rojo, RoboForex
-// en azul, ICTrading en verde, y lo que no reconoce se queda sin franja.
+// en azul, ICTrading en verde y Vantage en violeta. Lo que no reconoce se
+// queda sin franja.
 const BROKER_CLASSES = {
   AXI: 'broker-axi', ROBOFOREX: 'broker-roboforex', ICTRADING: 'broker-ictrading',
+  VANTAGE: 'broker-vantage',
 };
 function brokerClass(broker) {
   return BROKER_CLASSES[String(broker || '').toUpperCase()] || '';

@@ -38,6 +38,11 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertTrue(self.page.xpath('//*[@id="refresh"]'))
         self.assertTrue(self.page.xpath('//*[@id="restart-manager"]'))
 
+    def test_vantage_cards_have_their_own_violet_identity(self) -> None:
+        self.assertIn("VANTAGE: 'broker-vantage'", self.script)
+        self.assertIn(".portfolio-card.broker-vantage{border-color:#7c4dcc", self.css)
+        self.assertIn("border-left:4px solid #b58cff", self.css)
+
     def test_every_screen_can_get_back_to_the_root(self) -> None:
         # La raíz dejó de ser `/generation.html` y pasó a ser el inventario de
         # portafolios, pero la generación se quedó sin vuelta: era la única
