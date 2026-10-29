@@ -229,6 +229,14 @@ class IngestScenarioTests(unittest.TestCase):
         self.assertEqual(found["2026-10"]["balance"], 0.0)
         self.assertAlmostEqual(found["2026-10"]["lots"]["ROBOFOREX/ECN:1"], 0.13)
 
+    def test_manual_runtime_set_keeps_its_path_inside_the_agent(self) -> None:
+        project = Path(self.folder.name)
+        expected = project / "runtime" / "node" / "manual_portfolios" / "abc" / "x.set"
+        expected.parent.mkdir(parents=True)
+        expected.write_text("Risk=0\n", encoding="utf-8")
+        stored = r"I:\TRADING\agent\runtime\node\manual_portfolios\abc\x.set"
+        self.assertEqual(live_account_ingest._resolve_step_set(stored, project), expected)
+
     def test_with_the_tester_column_marked_nothing_is_rescaled(self) -> None:
         """Ahí los cierres ya están al lote del backtest: mover la promesa
         separaría las dos mitades que esa casilla existe para juntar."""

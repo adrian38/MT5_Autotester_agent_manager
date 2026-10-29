@@ -376,13 +376,27 @@ def _opening_step_lots(
     return live_account_month_lots.opening_real_lots(detail, month_key(moment))
 
 
+def _resolve_step_set(stored_path: str, project: Path) -> Path:
+    """Conserva `runtime/.../manual_portfolios`, que el resolver UBS recorta."""
+    direct = Path(stored_path)
+    if direct.is_file():
+        return direct
+    parts = [part for part in stored_path.replace("\\", "/").split("/") if part]
+    lowered = [part.casefold() for part in parts]
+    if "runtime" in lowered:
+        candidate = project.joinpath(*parts[lowered.index("runtime"):])
+        if candidate.is_file():
+            return candidate
+    return Path(_resolve_source_path(stored_path, project))
+
+
 def _step_scenarios(
     source: Any, members: list[dict[str, Any]],
     balances: list[tuple[str, float]], opening_lots: dict[str, float],
     moment: datetime,
 ) -> dict[str, dict[str, Any]]:
     rules = live_account_month_lots.step_rules(
-        members, lambda path: _resolve_source_path(path, source.project),
+        members, lambda path: _resolve_step_set(path, source.project),
         opening_lots,
     )
     if not rules:
