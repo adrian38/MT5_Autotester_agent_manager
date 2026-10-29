@@ -130,6 +130,29 @@ class MonthLotTests(unittest.TestCase):
         self.assertEqual(set(rules), {"stepped"})
         self.assertEqual(rules["stepped"]["step"], 80.0)
 
+    def test_observed_real_step_restores_a_normalized_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            set_path = Path(temp) / "normalized.set"
+            set_path.write_text(
+                "Risk=0\nStartLots=0.01\nLotPerBalance_step=80\n", encoding="utf-8",
+            )
+            members = [{"candidate_id": "manual:1", "set_path": str(set_path)}]
+            rules = month_lots.step_rules(members, Path, ["manual:1"])
+        self.assertEqual(rules["manual:1"]["step"], 80.0)
+
+    def test_first_real_lot_of_the_month_is_the_lotstep_evidence(self) -> None:
+        detail = {"operation_comparisons": [
+            {"strategy": "manual:1", "real": {
+                "open_time": "2026-10-20T13:55:55+02:00", "volume": 0.13,
+            }},
+            {"strategy": "manual:1", "real": {
+                "open_time": "2026-10-22T00:02:56+02:00", "volume": 0.14,
+            }},
+        ]}
+        self.assertEqual(
+            month_lots.opening_real_lots(detail, "2026-10"), {"manual:1": 0.13},
+        )
+
 
 class IngestScenarioTests(unittest.TestCase):
     """Cuándo la ingesta mide la promesa al lote del mes, y cuándo no.
@@ -191,6 +214,20 @@ class IngestScenarioTests(unittest.TestCase):
         self.assertEqual(found["2026-10"]["basis"], month_lots.STEP_LOT_BASIS)
         self.assertAlmostEqual(found["2026-10"]["balance"], 3_208.51)
         self.assertAlmostEqual(found["2026-10"]["lots"]["ROBOFOREX/ECN:1"], 0.4)
+
+    def test_normalized_set_uses_the_first_real_lot_without_a_probe(self) -> None:
+        set_path = Path(self.folder.name) / "dailyK.set"
+        set_path.write_text(
+            "Risk=0\nStartLots=0.01\nLotPerBalance_step=80\nMaxLots=99\n",
+            encoding="utf-8",
+        )
+        self.saved["members"][0]["set_path"] = str(set_path)
+        found = live_account_ingest._step_scenarios(
+            FakeSource(), self.saved["members"], [], {"ROBOFOREX/ECN:1": 0.13}, NOW,
+        )
+        self.assertEqual(found["2026-10"]["basis"], month_lots.STEP_LOT_BASIS)
+        self.assertEqual(found["2026-10"]["balance"], 0.0)
+        self.assertAlmostEqual(found["2026-10"]["lots"]["ROBOFOREX/ECN:1"], 0.13)
 
     def test_with_the_tester_column_marked_nothing_is_rescaled(self) -> None:
         """Ahí los cierres ya están al lote del backtest: mover la promesa

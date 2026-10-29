@@ -107,9 +107,11 @@ def _set_values(path: Path) -> dict[str, str]:
 
 def step_rules(
     members: Sequence[dict[str, Any]], resolve: Callable[[str], Path],
+    observed: Sequence[str] = (),
 ) -> dict[str, dict[str, float]]:
-    """Reglas Risk=2 leídas de los sets persistidos del portafolio."""
+    """Reglas por tramos, incluso si la auditoría normalizó `Risk` a cero."""
     found: dict[str, dict[str, float]] = {}
+    observed_candidates = set(observed)
     for member in members:
         candidate = str(member.get("candidate_id") or "").strip()
         stored_path = str(member.get("set_path") or "").strip()
@@ -122,8 +124,27 @@ def step_rules(
             maximum = float(values.get("MaxLots") or 0.0)
         except (OSError, UnicodeError, TypeError, ValueError):
             continue
-        if risk == 2 and step > 0:
+        if step > 0 and (risk == 2 or candidate in observed_candidates):
             found[candidate] = {"step": step, "max_lots": maximum}
+    return found
+
+
+def opening_real_lots(detail: dict[str, Any], label: str) -> dict[str, float]:
+    """Primer lote real observado en el mes, por estrategia."""
+    rows: list[tuple[str, str, float]] = []
+    for comparison in detail.get("operation_comparisons") or []:
+        real = comparison.get("real") or comparison.get("real_position_still_open") or {}
+        candidate = str(comparison.get("strategy") or "").strip()
+        opened = str(real.get("open_time") or "")
+        try:
+            lot = float(real.get("volume") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if candidate and opened.startswith(label) and lot > 0:
+            rows.append((opened, candidate, lot))
+    found: dict[str, float] = {}
+    for _opened, candidate, lot in sorted(rows):
+        found.setdefault(candidate, lot)
     return found
 
 

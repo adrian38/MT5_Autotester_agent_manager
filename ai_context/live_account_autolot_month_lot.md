@@ -135,7 +135,11 @@ No usa el saldo medio porque este modo trabaja por tramos discretos y la tarjeta
 debe declarar el tamaño con el que arrancó el mes. El criterio se identifica
 como `balance_step_opening` y se muestra explícitamente en la tarjeta.
 
-El caso Vantage `vantage_scalpC.set` que motivó la revisión conserva
-`Risk=0`, `StartLots=0.01` y `LotPerBalance_step=80`: su media sigue siendo la
-de 0,01 fijo hasta que el usuario decida cambiar el comportamiento real del EA
-a `Risk=2`. El manager no cambia ese parámetro silenciosamente.
+Los sets normalizados para auditar fuerzan el backtest a `Risk=0` y
+`StartLots=0.01`, así que ese `Risk` ya no describe necesariamente el modo del
+EA real. El caso Vantage `vantage_scalpC.set` lo demostró: conserva
+`LotPerBalance_step=80` y la cuenta abrió las operaciones del mes a 0,13,
+subiendo después a 0,14 y 0,15. Cuando la auditoría observa esa ejecución, el
+primer lote real del mes reactiva el LotStep aunque la copia normalizada diga
+`Risk=0`; si todavía no existe sondeo diario, ese lote observado sirve también
+como tamaño del escenario. Así la promesa no vuelve a los 0,01 del tester.

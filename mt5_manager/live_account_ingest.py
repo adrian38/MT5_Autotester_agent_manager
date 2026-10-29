@@ -333,7 +333,8 @@ def _scenarios(
     volume_rules = live_audit_autolot.broker_volume_rules(
         source.project, getattr(source, "broker", ""),
     )
-    found = _step_scenarios(source, members, balances, moment)
+    opening_lots = _opening_step_lots(server, node_id, portfolio, moment)
+    found = _step_scenarios(source, members, balances, opening_lots, moment)
     autolot = profile.get("autolot") or {}
     if not autolot.get("enabled"):
         return found
@@ -366,12 +367,23 @@ def _scenarios(
     return found
 
 
+def _opening_step_lots(
+    server: Any, node_id: str, portfolio: dict[str, Any], moment: datetime,
+) -> dict[str, float]:
+    detail = live_account_presentation.latest_detail(
+        server, node_id, str(portfolio.get("audit_id") or ""),
+    )
+    return live_account_month_lots.opening_real_lots(detail, month_key(moment))
+
+
 def _step_scenarios(
     source: Any, members: list[dict[str, Any]],
-    balances: list[tuple[str, float]], moment: datetime,
+    balances: list[tuple[str, float]], opening_lots: dict[str, float],
+    moment: datetime,
 ) -> dict[str, dict[str, Any]]:
     rules = live_account_month_lots.step_rules(
         members, lambda path: _resolve_source_path(path, source.project),
+        opening_lots,
     )
     if not rules:
         return {}
@@ -379,14 +391,15 @@ def _step_scenarios(
     found: dict[str, dict[str, Any]] = {}
     for target in (label, previous_month(label)):
         balance = live_account_month_lots.month_opening_balance(balances, target)
-        if balance <= 0:
+        measured = live_account_month_lots.step_month_lots(members, rules, target, balance)
+        lots = measured.lots if balance > 0 else {
+            key: lot for key, lot in opening_lots.items() if key in rules
+        } if target == label else {}
+        if not lots:
             continue
-        measured = live_account_month_lots.step_month_lots(
-            members, rules, target, balance,
-        )
         found[target] = {
             "basis": live_account_month_lots.STEP_LOT_BASIS,
-            "balance": measured.balance, "lots": measured.lots, "without_rule": [],
+            "balance": measured.balance, "lots": lots, "without_rule": [],
         }
     return found
 

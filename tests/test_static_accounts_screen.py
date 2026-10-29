@@ -264,6 +264,8 @@ class CriterionTests(unittest.TestCase):
     def test_balance_step_mean_names_its_opening_balance(self) -> None:
         self.assertIn("const STEP_LOT_BASIS = 'balance_step_opening'", SCRIPT)
         self.assertIn("usando el saldo inicial del mes", SCRIPT)
+        self.assertIn("' · LotStep'", SCRIPT)
+        self.assertIn("LotStep activo", SCRIPT)
 
     def test_the_card_never_flashes_the_number_before_the_name(self) -> None:
         """La tarjeta se pinta antes de que el alias llegue, a propósito.

@@ -297,6 +297,7 @@ function portfoliosMarkup(card) {
     + ` title="${escapeHtml(row.saved_name || row.name || '')}">`
     + `${escapeHtml(portfolioLabel(card, row))}`
     + `${row.autolot ? ' · autolote' : ''}`
+    + `${(card.expected_month || {}).lot_basis === STEP_LOT_BASIS ? ' · LotStep' : ''}`
     + `${escapeHtml(sinceNote(row))}</a>`
   )).join('') + '</p>';
 }
@@ -400,9 +401,11 @@ function autolotNote(card, currency) {
 function stepLotNote(card, currency) {
   const expected = card.expected_month || {};
   if (expected.lot_basis !== STEP_LOT_BASIS) return '';
-  return `Media del backtest medida al lote por steps del set `
-    + `(${plainNumber(expected.lot_low)} a ${plainNumber(expected.lot_high)}), `
-    + `usando el saldo inicial del mes: ${plain(expected.lot_balance, currency)}.`;
+  const balance = Number(expected.lot_balance || 0) > 0
+    ? `, usando el saldo inicial del mes: ${plain(expected.lot_balance, currency)}`
+    : ', usando el primer lote real observado del mes';
+  return `LotStep activo: media del backtest medida al lote por steps del set `
+    + `(${plainNumber(expected.lot_low)} a ${plainNumber(expected.lot_high)})${balance}.`;
 }
 
 function noteMarkup(card, currency) {
