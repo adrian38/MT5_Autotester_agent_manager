@@ -106,6 +106,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   tick), las imágenes que viajan con el informe, el `UseEveryTick` que llevan
   sus sets, la pestaña de análisis que compara los dos informes y quién avisa
   al terminar.
+- `manual_runner_needs_the_broker_universe.md`: por qué el histórico OHLC manual
+  y la comprobación manual tienen que mandar `--symbol-universe` con los
+  sufijos, y qué pasaba sin él (`ForceSymbol: XAUUSD -> XAUUSD.r` en Vantage).
 
 ## Auditoría de cuenta real
 

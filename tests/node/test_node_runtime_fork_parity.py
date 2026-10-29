@@ -25,6 +25,12 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         ic_node_path = ic_project / "manager_node_runtime" / "node.py"
         if not ic_rules_path.is_file() or not ic_node_path.is_file():
             self.skipTest(f"La copia ICTrading no está montada: {ic_project}")
+        try:
+            ic_rules_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            # Un checkout de otro perfil de Windows se deja mirar y niega la
+            # lectura. Inalcanzable no es divergente.
+            self.skipTest(f"La copia ICTrading no se deja leer: {ic_project} ({exc})")
         # La ruta del alias vive en el modulo de rutas de portafolio desde que
         # manager.py se partio; lo que se comprueba es el criterio, no el fichero.
         manager_routes = (
@@ -549,6 +555,37 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
             )
 
         self._assert_on_every_fork(check, "la ruta del set en el detalle del portafolio")
+
+    def test_manual_runner_commands_carry_the_broker_universe_on_every_fork(self) -> None:
+        # El histórico OHLC manual y la comprobación manual llaman a
+        # `run_tests.py` directamente. Mandar los sufijos sin `--symbol-universe`
+        # los aplica a ciegas: en Vantage salía «ForceSymbol: XAUUSD ->
+        # XAUUSD.r» cuando ese servidor escribe `XAUUSD+`, y el backtest moría
+        # sin histórico. Quien arma esas órdenes es el runtime del agente, así
+        # que aquí no hay criterio equivalente que comparar.
+        def check(project: Path, _source: str) -> None:
+            self._assert_present(
+                fork_node_source(project),
+                r"def _add_symbol_universe_option\(",
+                f"{project}: falta `_add_symbol_universe_option` en "
+                "manager_node_runtime/node_commands.py. Portarlo desde una copia ya "
+                "portada; no vale meterlo en `_add_symbol_options`, que también arma "
+                "la orden de ubs_agent.py y moriría con `unrecognized arguments`.",
+            )
+            for name in ("manual_portfolio_history.py", "manual_check.py"):
+                source = (project / "manager_node_runtime" / name).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+                self._assert_present(
+                    source,
+                    r"_add_symbol_universe_option\(command, project, broker\)",
+                    f"{project}: manager_node_runtime/{name} manda los sufijos a "
+                    "`run_tests.py` sin el universo del broker, así que el runner los "
+                    "aplica a ciegas y pide un símbolo que el servidor no ofrece. "
+                    "Hay que reiniciar la aplicación del agente.",
+                )
+
+        self._assert_on_every_fork(check, "universo del broker en las órdenes manuales")
 
 
 if __name__ == "__main__":

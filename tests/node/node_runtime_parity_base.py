@@ -67,6 +67,7 @@ def fork_portfolio_source(project: Path) -> str:
 FORK_CANDIDATES = IC_PROJECT_CANDIDATES + (
     Path(r"F:\TRADING\MT5_Autotester_agent_AXI"),
     Path(r"G:\TRADING\MT5_Autotester_agent"),
+    Path(r"I:\TRADING\MT5_Autotester_agent_Vantage"),
 )
 """Las copias de IC primero: varias pruebas usan `FORK_CANDIDATES[0]` como «IC».
 
@@ -76,11 +77,20 @@ necesita las mismas para ejecutar su contrato focal, y dos listas se separan.
 
 
 def _reachable_forks() -> list[tuple[Path, str]]:
+    """Las copias que esta sesión puede **leer**, no sólo las que existen.
+
+    Un checkout de otro perfil de Windows se deja mirar (`is_file()` dice que
+    sí) y niega la lectura: `glob` devuelve la carpeta vacía sin error, así que
+    la copia entraba con el fuente en blanco y cada prueba reventaba con
+    `PermissionError` en su primer `read_text`. Eso no es divergencia, es una
+    copia inalcanzable: se omite y `_assert_on_every_fork` la nombra.
+    """
     found: list[tuple[Path, str]] = []
     for project in FORK_CANDIDATES:
         rules = project / "manager_node_runtime" / "portfolio_save.py"
         try:
             if rules.is_file():
+                rules.read_text(encoding="utf-8", errors="replace")
                 found.append((project, fork_portfolio_source(project)))
         except OSError:
             continue
@@ -112,12 +122,11 @@ class NodeRuntimeForkParityBase(unittest.TestCase):
         for project, source in self.forks:
             with self.subTest(fork=str(project)):
                 check(project, source)
-        missing = [
-            str(path) for path in FORK_CANDIDATES
-            if not (path / "manager_node_runtime").is_dir()
-        ]
+        verified = {str(project) for project, _ in self.forks}
+        missing = [str(path) for path in FORK_CANDIDATES if str(path) not in verified]
         if missing:
             print(
-                f"\n[paridad] {description}: copias no verificadas por no estar montadas: "
+                f"\n[paridad] {description}: copias no verificadas por no estar montadas "
+                "o no dejarse leer: "
                 f"{', '.join(missing)}"
             )
