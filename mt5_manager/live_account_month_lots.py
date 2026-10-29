@@ -45,12 +45,16 @@ que la tarjeta presente una media medio escalada sin decirlo.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+import math
+from pathlib import Path
+from typing import Any, Callable, Sequence
 
 from .live_audit_autolot import executable_lot
 
 LOT_BASIS = "autolot_mean_balance"
 """Cómo se eligió el lote de ese mes. Lo guarda la promesa y lo dice la tarjeta."""
+STEP_LOT_BASIS = "balance_step_opening"
+"""Lote Risk=2 del set, calculado con el saldo de apertura del mes."""
 
 
 @dataclass(frozen=True)
@@ -74,6 +78,70 @@ def month_balance(balances: Sequence[tuple[str, float]], label: str) -> float:
         if str(day).startswith(f"{label}-") and float(value) > 0
     ]
     return sum(found) / len(found) if found else 0.0
+
+
+def month_opening_balance(balances: Sequence[tuple[str, float]], label: str) -> float:
+    """Saldo al abrir el mes: último anterior, o primero del mes si no existe."""
+    valid = sorted(
+        (str(day), float(value)) for day, value in balances if float(value) > 0
+    )
+    previous = [value for day, value in valid if day < f"{label}-01"]
+    if previous:
+        return previous[-1]
+    current = [value for day, value in valid if day.startswith(f"{label}-")]
+    return current[0] if current else 0.0
+
+
+def _set_values(path: Path) -> dict[str, str]:
+    data = path.read_bytes()
+    encoding = "utf-16" if data.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+    if encoding == "utf-8-sig" and data[:4096].count(b"\x00") > 8:
+        encoding = "utf-16-le"
+    text = data.decode(encoding, errors="replace")
+    return {
+        key.strip(): value.split("||", 1)[0].strip()
+        for line in text.splitlines() if "=" in line and not line.lstrip().startswith(";")
+        for key, value in [line.split("=", 1)]
+    }
+
+
+def step_rules(
+    members: Sequence[dict[str, Any]], resolve: Callable[[str], Path],
+) -> dict[str, dict[str, float]]:
+    """Reglas Risk=2 leídas de los sets persistidos del portafolio."""
+    found: dict[str, dict[str, float]] = {}
+    for member in members:
+        candidate = str(member.get("candidate_id") or "").strip()
+        stored_path = str(member.get("set_path") or "").strip()
+        if not candidate or not stored_path:
+            continue
+        try:
+            values = _set_values(Path(resolve(stored_path)))
+            risk = int(float(values.get("Risk") or 0))
+            step = float(values.get("LotPerBalance_step") or 0.0)
+            maximum = float(values.get("MaxLots") or 0.0)
+        except (OSError, UnicodeError, TypeError, ValueError):
+            continue
+        if risk == 2 and step > 0:
+            found[candidate] = {"step": step, "max_lots": maximum}
+    return found
+
+
+def step_month_lots(
+    members: Sequence[dict[str, Any]], rules: dict[str, dict[str, float]],
+    label: str, balance: float,
+) -> MonthLots:
+    """Lote Risk=2: 0,01 por cada tramo completo de balance."""
+    lots: dict[str, float] = {}
+    for member in members:
+        candidate = str(member.get("candidate_id") or "").strip()
+        rule = rules.get(candidate) if candidate else None
+        if not rule:
+            continue
+        lot = math.floor(balance / rule["step"]) * 0.01
+        maximum = float(rule.get("max_lots") or 0.0)
+        lots[candidate] = min(lot, maximum) if maximum > 0 else lot
+    return MonthLots(label=label, balance=balance, lots=lots)
 
 
 def raw_lot(balance: float, rule: dict[str, float]) -> float:

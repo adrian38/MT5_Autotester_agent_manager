@@ -119,3 +119,23 @@ es; `executable_lot` sube el lote bruto hasta ahí, igual que hace el veredicto
 - **En una estrategia que el Excel no nombra.** Conserva su lote declarado y
   la tarjeta cuenta cuántas son: una media medio escalada sin decirlo es peor
   que no escalarla.
+
+## Lotaje por tramos del propio set (`Risk=2`, 2026-10-29)
+
+El lotaje por balance no es el autolote del Excel. Un set lo activa únicamente
+con `Risk=2`; `LotPerBalance_step` por sí solo no hace nada cuando `Risk=0`, que
+significa lote fijo `StartLots`. La regla está documentada por el propio agente
+y coincide con `execution_units_from_step`: `floor(balance / step) × 0,01`, con
+el límite de `MaxLots`.
+
+La promesa mensual lee esos tres valores del `.set` persistido y crea un
+escenario con el saldo que abrió cada mes: el último saldo diario anterior al
+día 1 o, si la serie no llega tan atrás, el primero conocido dentro del mes.
+No usa el saldo medio porque este modo trabaja por tramos discretos y la tarjeta
+debe declarar el tamaño con el que arrancó el mes. El criterio se identifica
+como `balance_step_opening` y se muestra explícitamente en la tarjeta.
+
+El caso Vantage `vantage_scalpC.set` que motivó la revisión conserva
+`Risk=0`, `StartLots=0.01` y `LotPerBalance_step=80`: su media sigue siendo la
+de 0,01 fijo hasta que el usuario decida cambiar el comportamiento real del EA
+a `Risk=2`. El manager no cambia ese parámetro silenciosamente.

@@ -26,6 +26,7 @@ const excludedAccounts = new Set();
 // `live_account_month_lots.LOT_BASIS`: la media de ese mes está medida al
 // lote que sale del saldo medio de la cuenta, no al declarado.
 const AUTOLOT_BASIS = 'autolot_mean_balance';
+const STEP_LOT_BASIS = 'balance_step_opening';
 let latestData = null;
 let refreshing = false;
 let managerRestarting = false;
@@ -238,6 +239,7 @@ function portfolioLabel(card, row) {
 // activos».
 const BROKER_CLASSES = {
   AXI: 'broker-axi', ROBOFOREX: 'broker-roboforex', ICTRADING: 'broker-ictrading',
+  VANTAGE: 'broker-vantage',
 };
 function brokerClass(broker) {
   return BROKER_CLASSES[String(broker || '').toUpperCase()] || '';
@@ -395,11 +397,20 @@ function autolotNote(card, currency) {
       : 'El mes anterior se compara con el lote que tuvo entonces.');
 }
 
+function stepLotNote(card, currency) {
+  const expected = card.expected_month || {};
+  if (expected.lot_basis !== STEP_LOT_BASIS) return '';
+  return `Media del backtest medida al lote por steps del set `
+    + `(${plainNumber(expected.lot_low)} a ${plainNumber(expected.lot_high)}), `
+    + `usando el saldo inicial del mes: ${plain(expected.lot_balance, currency)}.`;
+}
+
 function noteMarkup(card, currency) {
   const notes = [card.message];
   if (card.autolot) {
     notes.push(autolotNote(card, currency));
   }
+  notes.push(stepLotNote(card, currency));
   notes.push(presentationNote(card), ...((card.presentation || {}).warnings || []));
   const text = notes.filter(Boolean).join(' ');
   return text ? `<p class="card-note">${escapeHtml(text)}</p>` : '';

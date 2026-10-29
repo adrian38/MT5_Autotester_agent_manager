@@ -257,6 +257,14 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("if (await loadAliases(data.accounts || [])) render(data)", SCRIPT)
         self.assertIn("const missing = [...ids].filter", SCRIPT)
 
+    def test_vantage_account_cards_are_violet(self) -> None:
+        self.assertIn("VANTAGE: 'broker-vantage'", SCRIPT)
+        self.assertIn(".account-card.broker-vantage{border-color:#7c4dcc", STYLE)
+
+    def test_balance_step_mean_names_its_opening_balance(self) -> None:
+        self.assertIn("const STEP_LOT_BASIS = 'balance_step_opening'", SCRIPT)
+        self.assertIn("usando el saldo inicial del mes", SCRIPT)
+
     def test_the_card_never_flashes_the_number_before_the_name(self) -> None:
         """La tarjeta se pinta antes de que el alias llegue, a propósito.
 

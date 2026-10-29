@@ -56,6 +56,11 @@ class MonthBalanceTests(unittest.TestCase):
     def test_a_month_of_another_year_does_not_count(self) -> None:
         self.assertEqual(month_lots.month_balance(BALANCES, "2025-10"), 0.0)
 
+    def test_step_lot_uses_the_balance_that_opened_the_month(self) -> None:
+        self.assertEqual(
+            month_lots.month_opening_balance(BALANCES, "2026-10"), 3_317.02,
+        )
+
 
 class MonthLotTests(unittest.TestCase):
     def test_the_lot_is_the_autolot_formula_over_the_mean_balance(self) -> None:
@@ -100,6 +105,30 @@ class MonthLotTests(unittest.TestCase):
         measured = month_lots.month_lots(MEMBERS, RULES, "2026-10", 6_203.14)
         self.assertEqual(measured.label, "2026-10")
         self.assertAlmostEqual(measured.balance, 6_203.14)
+
+    def test_balance_step_adds_point_zero_one_per_complete_step(self) -> None:
+        measured = month_lots.step_month_lots(
+            MEMBERS, {"ROBOFOREX/ECN:1": {"step": 80.0, "max_lots": 99.0}},
+            "2026-10", 3_317.02,
+        )
+        self.assertAlmostEqual(measured.lots["ROBOFOREX/ECN:1"], 0.41)
+
+    def test_only_risk_two_activates_the_step_from_the_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixed = root / "fixed.set"
+            stepped = root / "stepped.set"
+            fixed.write_text("Risk=0\nLotPerBalance_step=80\n", encoding="utf-8")
+            stepped.write_text(
+                "Risk=2||0||0||3||N\nLotPerBalance_step=80\nMaxLots=99\n",
+                encoding="utf-8",
+            )
+            rules = month_lots.step_rules([
+                {"candidate_id": "fixed", "set_path": str(fixed)},
+                {"candidate_id": "stepped", "set_path": str(stepped)},
+            ], Path)
+        self.assertEqual(set(rules), {"stepped"})
+        self.assertEqual(rules["stepped"]["step"], 80.0)
 
 
 class IngestScenarioTests(unittest.TestCase):
@@ -151,6 +180,17 @@ class IngestScenarioTests(unittest.TestCase):
         self.assertAlmostEqual(found["2026-10"]["balance"], 6_203.14)
         self.assertAlmostEqual(found["2026-10"]["lots"]["ROBOFOREX/ECN:1"], 0.02)
         self.assertAlmostEqual(found["2026-09"]["lots"]["ROBOFOREX/ECN:1"], 0.01)
+
+    def test_risk_two_set_uses_each_months_opening_balance(self) -> None:
+        set_path = Path(self.folder.name) / "dailyK.set"
+        set_path.write_text(
+            "Risk=2\nLotPerBalance_step=80\nMaxLots=99\n", encoding="utf-8",
+        )
+        self.saved["members"][0]["set_path"] = str(set_path)
+        found = self.scenarios()
+        self.assertEqual(found["2026-10"]["basis"], month_lots.STEP_LOT_BASIS)
+        self.assertAlmostEqual(found["2026-10"]["balance"], 3_208.51)
+        self.assertAlmostEqual(found["2026-10"]["lots"]["ROBOFOREX/ECN:1"], 0.4)
 
     def test_with_the_tester_column_marked_nothing_is_rescaled(self) -> None:
         """Ahí los cierres ya están al lote del backtest: mover la promesa

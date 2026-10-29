@@ -324,11 +324,19 @@ def _scenarios(
     ahí no hay «un» lote que observar—.
     """
     profile = _profile(server, node_id, portfolio)
-    autolot = profile.get("autolot") or {}
-    mode = live_account_presentation.mode_of(profile)
-    if not autolot.get("enabled") or mode == live_account_presentation.TESTER_LEADS:
+    if live_account_presentation.mode_of(profile) == live_account_presentation.TESTER_LEADS:
         return {}
     members = live_account_expectation.audited_members(saved, variant)
+    balances = stored_balances(
+        server.live_accounts.read(node_id, account["account_key"]),
+    )
+    volume_rules = live_audit_autolot.broker_volume_rules(
+        source.project, getattr(source, "broker", ""),
+    )
+    found = _step_scenarios(source, members, balances, moment)
+    autolot = profile.get("autolot") or {}
+    if not autolot.get("enabled"):
+        return found
     try:
         rules = live_audit_autolot.rules_by_strategy(autolot, members)
     except ValueError:
@@ -337,17 +345,10 @@ def _scenarios(
         # los escenarios existieran, y la tarjeta sigue diciendo que está a un
         # lote fijo. Quien tiene que gritar es el veredicto, que es donde se
         # configuró; aquí sólo se deja de corregir.
-        return {}
+        return found
     if not rules:
-        return {}
-    balances = stored_balances(
-        server.live_accounts.read(node_id, account["account_key"]),
-    )
-    volume_rules = live_audit_autolot.broker_volume_rules(
-        source.project, getattr(source, "broker", ""),
-    )
+        return found
     label = month_key(moment)
-    found: dict[str, dict[str, Any]] = {}
     for target in (label, previous_month(label)):
         balance = live_account_month_lots.month_balance(balances, target)
         if balance <= 0:
@@ -355,11 +356,37 @@ def _scenarios(
         measured = live_account_month_lots.month_lots(
             members, rules, target, balance, volume_rules,
         )
+        previous = found.get(target) or {}
         found[target] = {
-            "basis": live_account_month_lots.LOT_BASIS,
+            "basis": "mixed" if previous.get("lots") else live_account_month_lots.LOT_BASIS,
             "balance": measured.balance,
-            "lots": {**measured.lots, **dict(use.members)},
+            "lots": {**measured.lots, **dict(previous.get("lots") or {}), **dict(use.members)},
             "without_rule": list(measured.without_rule),
+        }
+    return found
+
+
+def _step_scenarios(
+    source: Any, members: list[dict[str, Any]],
+    balances: list[tuple[str, float]], moment: datetime,
+) -> dict[str, dict[str, Any]]:
+    rules = live_account_month_lots.step_rules(
+        members, lambda path: _resolve_source_path(path, source.project),
+    )
+    if not rules:
+        return {}
+    label = month_key(moment)
+    found: dict[str, dict[str, Any]] = {}
+    for target in (label, previous_month(label)):
+        balance = live_account_month_lots.month_opening_balance(balances, target)
+        if balance <= 0:
+            continue
+        measured = live_account_month_lots.step_month_lots(
+            members, rules, target, balance,
+        )
+        found[target] = {
+            "basis": live_account_month_lots.STEP_LOT_BASIS,
+            "balance": measured.balance, "lots": measured.lots, "without_rule": [],
         }
     return found
 
