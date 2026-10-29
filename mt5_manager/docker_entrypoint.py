@@ -11,6 +11,7 @@ from .common import load_json, save_json
 
 
 CONTAINER_PROJECTS = {
+    "VANTAGE": "/data/vantage",
     "ICTRADING": "/data/ic",
     "AXI": "/data/axi",
     "ROBOFOREX": "/data/roboforex",

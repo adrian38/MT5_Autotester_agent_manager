@@ -30,6 +30,13 @@ class DockerEntrypointTests(unittest.TestCase):
                     "portfolio_project_dir": r"G:\TRADING\MT5_Autotester_agent",
                     "portfolio_broker": "ROBOFOREX",
                 },
+                {
+                    "id": "vantage",
+                    "url": "http://127.0.0.1:8764",
+                    "token": "vantage-secret",
+                    "portfolio_project_dir": r"I:\TRADING\MT5_Autotester_agent_Vantage",
+                    "portfolio_broker": "VANTAGE",
+                },
             ],
         }
 
@@ -48,6 +55,8 @@ class DockerEntrypointTests(unittest.TestCase):
         )
         self.assertEqual(result["nodes"][1]["url"], "http://192.168.1.152:8761")
         self.assertEqual(result["nodes"][1]["portfolio_project_dir"], "/data/roboforex")
+        self.assertEqual(result["nodes"][2]["url"], "http://host.docker.internal:8764")
+        self.assertEqual(result["nodes"][2]["portfolio_project_dir"], "/data/vantage")
         self.assertEqual(source["host"], "127.0.0.1", "La configuración original no debe mutar")
 
     def test_proxy_broker_does_not_require_a_container_project_mount(self) -> None:
