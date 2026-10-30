@@ -204,16 +204,24 @@ class IngestScenarioTests(unittest.TestCase):
         self.assertAlmostEqual(found["2026-10"]["lots"]["ROBOFOREX/ECN:1"], 0.02)
         self.assertAlmostEqual(found["2026-09"]["lots"]["ROBOFOREX/ECN:1"], 0.01)
 
-    def test_risk_two_set_uses_each_months_opening_balance(self) -> None:
+    def test_other_accounts_do_not_enable_lotstep_from_the_set(self) -> None:
         set_path = Path(self.folder.name) / "dailyK.set"
         set_path.write_text(
             "Risk=2\nLotPerBalance_step=80\nMaxLots=99\n", encoding="utf-8",
         )
         self.saved["members"][0]["set_path"] = str(set_path)
         found = self.scenarios()
-        self.assertEqual(found["2026-10"]["basis"], month_lots.STEP_LOT_BASIS)
-        self.assertAlmostEqual(found["2026-10"]["balance"], 3_208.51)
-        self.assertAlmostEqual(found["2026-10"]["lots"]["ROBOFOREX/ECN:1"], 0.4)
+        self.assertEqual(found, {})
+
+    def test_lotstep_exception_names_only_the_vantage_account(self) -> None:
+        account = {"login": "34933859", "server": "VantageMarkets-Live 10"}
+        self.assertTrue(live_account_ingest._is_vantage_lotstep_account(
+            "vantage-raw-local", account,
+        ))
+        self.assertFalse(live_account_ingest._is_vantage_lotstep_account("axi", account))
+        self.assertFalse(live_account_ingest._is_vantage_lotstep_account(
+            "vantage-raw-local", {**account, "login": "otra"},
+        ))
 
     def test_normalized_set_uses_the_first_real_lot_without_a_probe(self) -> None:
         set_path = Path(self.folder.name) / "dailyK.set"

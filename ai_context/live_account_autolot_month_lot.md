@@ -143,3 +143,8 @@ subiendo después a 0,14 y 0,15. Cuando la auditoría observa esa ejecución, el
 primer lote real del mes reactiva el LotStep aunque la copia normalizada diga
 `Risk=0`; si todavía no existe sondeo diario, ese lote observado sirve también
 como tamaño del escenario. Así la promesa no vuelve a los 0,01 del tester.
+
+Esta conducta es una excepción cerrada para `vantage-raw-local`, cuenta
+`34933859` en `VantageMarkets-Live 10`. No se infiere LotStep en ninguna otra
+cuenta, aunque un set normalizado conserve `LotPerBalance_step`: las demás
+siguen exactamente el criterio general anterior.

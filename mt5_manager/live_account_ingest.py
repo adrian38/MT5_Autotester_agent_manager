@@ -333,8 +333,9 @@ def _scenarios(
     volume_rules = live_audit_autolot.broker_volume_rules(
         source.project, getattr(source, "broker", ""),
     )
-    opening_lots = _opening_step_lots(server, node_id, portfolio, moment)
-    found = _step_scenarios(source, members, balances, opening_lots, moment)
+    found = _vantage_step_scenarios(
+        server, source, node_id, account, portfolio, members, balances, moment,
+    )
     autolot = profile.get("autolot") or {}
     if not autolot.get("enabled"):
         return found
@@ -365,6 +366,26 @@ def _scenarios(
             "without_rule": list(measured.without_rule),
         }
     return found
+
+
+def _vantage_step_scenarios(
+    server: Any, source: Any, node_id: str, account: dict[str, Any],
+    portfolio: dict[str, Any], members: list[dict[str, Any]],
+    balances: list[tuple[str, float]], moment: datetime,
+) -> dict[str, dict[str, Any]]:
+    if not _is_vantage_lotstep_account(node_id, account):
+        return {}
+    opening_lots = _opening_step_lots(server, node_id, portfolio, moment)
+    return _step_scenarios(source, members, balances, opening_lots, moment)
+
+
+def _is_vantage_lotstep_account(node_id: str, account: dict[str, Any]) -> bool:
+    """La excepción LotStep solicitada; ninguna otra cuenta hereda la regla."""
+    return (
+        node_id == "vantage-raw-local"
+        and str(account.get("login") or "") == "34933859"
+        and str(account.get("server") or "").casefold() == "vantagemarkets-live 10"
+    )
 
 
 def _opening_step_lots(
