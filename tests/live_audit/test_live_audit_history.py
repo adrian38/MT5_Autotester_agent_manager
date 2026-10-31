@@ -220,6 +220,71 @@ class MutableExecutionArchiveTests(unittest.TestCase):
         self.assertEqual(self.archive.index("n"), [])
 
 
+class RunningExecutionArchiveTests(unittest.TestCase):
+    """Una ejecución en curso tampoco es una auditoría histórica.
+
+    La portada y la pantalla de Análisis archivan en cada sondeo, miren el uso
+    como lo miren, así que una ejecución recién lanzada —`audit_id` nuevo y
+    nada que comparar todavía— salía por el mismo aviso que un análisis roto.
+    Observado con #185 y #186 de RoboForex el 2026-10-31: un «no se pudo
+    archivar» por lanzamiento, entre 19 y 36 segundos después de arrancar,
+    mientras las auditorías terminaban bien y entraban en la serie.
+    """
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        root = Path(self.temporary.name)
+        self.server = CronServer(root, audit_state())
+        self.archive = LiveAuditArchive(root / "historico")
+        self.server.live_audit_archive = self.archive
+
+    def _archive(self, audit: dict[str, object]) -> None:
+        live_audit_executions.archive_execution(
+            self.server, {}, "n", "11", audit, audit_profile(portfolio_id=11),
+        )
+
+    def _failures(self) -> list[dict[str, object]]:
+        return [row for row in self.server.events() if row["kind"] == "archive_failed"]
+
+    @staticmethod
+    def _visible(status: str, payload: object) -> dict[str, object]:
+        """La ejecución que el agente enseña al arrancar la siguiente.
+
+        El `audit_id` ya es el nuevo y el `last_payload` sigue siendo el de la
+        anterior, o ninguno si el uso se estrena.
+        """
+        return {
+            "status": status, "audit_id": "20261031_215241_857651",
+            "last_result": None, "last_payload": payload,
+        }
+
+    def test_a_first_execution_still_running_is_not_reported_as_unarchivable(self) -> None:
+        self._archive(self._visible("testing", None))
+        self.assertEqual(self.archive.index("n"), [])
+        self.assertEqual(self._failures(), [])
+
+    def test_a_running_execution_does_not_touch_the_payload_of_the_previous_one(self) -> None:
+        self._archive(self._visible("extracting", audit_payload()))
+        self.assertEqual(self.archive.index("n"), [])
+        self.assertEqual(self._failures(), [])
+
+    def test_raw_material_of_another_execution_is_not_archived_as_this_one(self) -> None:
+        self._archive(self._visible("completed", audit_payload()))
+        self.assertEqual(self.archive.index("n"), [])
+        self.assertEqual(self._failures(), [])
+
+    def test_the_finished_execution_with_its_own_payload_still_enters_the_series(self) -> None:
+        payload = audit_payload()
+        payload["request"] = {**payload["request"], "audit_key": "11", "portfolio_id": 11}
+        self._archive({
+            "status": "completed", "audit_id": payload["audit_id"],
+            "last_result": None, "last_payload": payload,
+        })
+        self.assertTrue(self.archive.knows("n", "11", "run-autolot"))
+        self.assertEqual(self._failures(), [])
+
+
 class AccumulationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()

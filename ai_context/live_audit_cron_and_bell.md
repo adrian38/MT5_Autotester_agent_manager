@@ -613,6 +613,47 @@ cron, que son sus diarios correctos. `LiveAuditArchive.index` omite también las
 filas antiguas con esos estados, por lo que el recuento y la serie dejan de
 enseñar las tres entradas contaminadas sin borrar los JSON originales.
 
+## Una ejecución en curso tampoco lo es (2026-10-31)
+
+El mismo agujero, por la otra puerta. `failed`, `stopped` e `idle` se cerraron;
+los siete estados de `RUNNING_STATUSES` seguían entrando.
+
+La campana de RoboForex enseñó «No se pudo archivar la auditoría: Portafolio
+#185» tres veces —21:47, 21:51 y 21:53— y a las 21:59 «Auditoría completada»,
+con la ejecución correctamente archivada. Los tres avisos no eran del final de
+nada: caían entre 19 y 36 segundos después de **arrancar** una ejecución.
+
+- `dashboard_node_state` archiva con `refresh=True` cada uso marcado «operando
+  en real» en **cada sondeo** de la portada, que son 60 segundos
+  (`static/dashboard.js`). `_audit_history` hace lo mismo al abrir Análisis.
+  Ninguna de las dos mira si la auditoría está corriendo: eso sólo lo hacía
+  `record_transitions`, que filtra por `FINAL_STATUSES` antes de llamar.
+- El agente escribe el `audit_id` nuevo al arrancar y **conserva el
+  `last_payload` de la anterior** (`manager_node_runtime/live_audit.py`,
+  `start`). Con el uso recién estrenado no hay payload ninguno, así que
+  `has_raw_material` dice que no, `analysed_node_state` devuelve el estado
+  intacto, no hay `analysis_error` que contar y sale el texto por defecto: «El
+  análisis del manager no produjo una comparación que archivar».
+- El dedupe de `_archive_failure` es por `execution_id`, así que no se repite
+  dentro de una ejecución pero sí una vez por lanzamiento. #185 se lanzó tres
+  veces (dos abortadas, carpetas `20261031_215025_218171` —sólo `reports`
+  vacío— y una anterior que no llegó ni a crearla) y #186 dos.
+
+Con un payload anterior presente el daño era peor que un aviso y no se veía:
+el análisis salía bien, y `_archive_entry` guardaba ese veredicto viejo bajo el
+`execution_id` nuevo. La prueba lo reproduce con el criterio antiguo: entrada
+con `execution_id` 20261031_215241_857651 y `executed_at` 2026-09-22T12:00:00.
+Se corregía sola cuando la ejecución nueva terminaba —mismo fichero, se
+sobrescribe—, pero quedaba fija si el relanzamiento se abortaba. El índice de
+RoboForex estaba limpio: en sus 21 entradas, `executed_at` menos `execution_id`
+da siempre el huso más la duración.
+
+`_archivable_execution` exige ahora las dos cosas: estado terminado y materia
+prima **de esa misma ejecución** (`last_payload`, o `last_result` cuando la
+ruta ya analizó). Sin ninguna de las dos no se contradice nada y se deja pasar,
+para que el aviso de «no se pudo archivar» vuelva a significar lo que dice.
+Esto es del manager; los agentes no ejecutan `live_audit_executions.py`.
+
 ## La campana sin su hoja de estilos (2026-10-21)
 
 Petición del usuario: «la campana tiene que ser la misma en todas las

@@ -29,6 +29,7 @@ from . import live_audit_analysis, live_audit_autolot, live_audit_manual_inherit
 from .common import safe_int
 from .live_audit_archive import NON_ARCHIVABLE_STATUSES
 from .live_audit_comment_links import comment_links_supported
+from .live_audit_core import RUNNING_STATUSES
 
 BALANCE_ERRORS = (KeyError, ValueError, OSError, urllib.error.URLError, TimeoutError)
 """Lo que puede fallar al bajar el informe nativo. No impide analizar: queda
@@ -265,6 +266,38 @@ def _archive_failure(
     )
 
 
+def _archivable_execution(audit: dict[str, Any], execution_id: str) -> bool:
+    """¿Es `execution_id` una ejecución terminada y con materia prima suya?
+
+    Dos formas de que no lo sea, y las dos llegaban aquí como «no se pudo
+    archivar», que es el mismo aviso que se da cuando el análisis falla de
+    verdad. La ruta de pantalla y la de la portada archivan en cada sondeo,
+    miren el uso como lo miren, así que las dos salen a los pocos segundos de
+    lanzar una auditoría:
+
+    - **Sigue corriendo.** El agente escribe el `audit_id` nuevo al arrancar y
+      no hay nada que archivar hasta que termine. Pasó con #185 y #186 de
+      RoboForex el 2026-10-31: tres y dos lanzamientos, un aviso cada uno,
+      siempre entre 19 y 36 segundos después del arranque.
+    - **La materia prima es de otra ejecución.** El agente conserva el
+      `last_payload` anterior mientras la nueva trabaja, así que analizarlo
+      archivaría el veredicto de la semana pasada con el identificador de hoy.
+      Es la misma trampa que dejó fuera a `failed`, `stopped` e `idle` el
+      2026-10-20, por la otra puerta.
+    """
+    status = str(audit.get("status") or "")
+    if status in NON_ARCHIVABLE_STATUSES or status in RUNNING_STATUSES:
+        return False
+    for holder in ("last_payload", "last_result"):
+        value = audit.get(holder)
+        evidence = str(value.get("audit_id") or "") if isinstance(value, dict) else ""
+        if evidence:
+            return evidence == execution_id
+    # Sin materia prima no hay con qué contradecir la ejecución visible: se
+    # deja pasar y el aviso de «no se pudo archivar» vuelve a decir la verdad.
+    return True
+
+
 def archive_execution(
     server: Any, node: dict[str, Any], node_id: str, audit_key: str,
     audit: dict[str, Any], profile: dict[str, Any], *, refresh: bool = False,
@@ -284,10 +317,7 @@ def archive_execution(
     """
     archive = getattr(server, "live_audit_archive", None)
     execution_id = _execution_id(audit)
-    if (
-        archive is None or not execution_id
-        or str(audit.get("status") or "") in NON_ARCHIVABLE_STATUSES
-    ):
+    if archive is None or not execution_id or not _archivable_execution(audit, execution_id):
         return
     if not refresh and archive.knows(
         node_id, audit_key, execution_id, manual_evidence(audit),
