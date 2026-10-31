@@ -158,6 +158,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   sin conjeturar ni teclear; por qué resuelve a la misma forma que el Excel en
   vez de abrir un camino propio, por qué manda sobre él y por qué hizo falta
   que el nodo publicara el comentario.
+- `live_audit_comment_table_contradiction.md`: un comentario repetido con dos
+  `.set` pisaba al primero en silencio; en el portafolio #186 llevó reales
+  ajenas al importe Real de dos estrategias y dejó a otras dos «SIN REAL» con
+  su real a 0 s delante y el motivo acusando a la tolerancia.
 - `live_audit_manual_lot_change.md`: subir el lote de la cuenta real a mitad del
   periodo sin borrar el anterior; por qué la banda admite todos los lotes
   declarados y el veredicto sólo el vigente en la apertura.

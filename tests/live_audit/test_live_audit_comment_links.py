@@ -90,6 +90,24 @@ class DocumentReadingTests(unittest.TestCase):
         links = imported([(f"{SET_STEM}.set", "  tesla m15 006  ")])
         self.assertEqual(list(links["rules"]), ["tesla m15 006"])
 
+    def test_one_comment_naming_two_setfiles_is_refused(self) -> None:
+        # Las reglas son un diccionario por comentario: la segunda fila pisaba
+        # a la primera en silencio y la tabla quedaba guardada con un enlace
+        # que el usuario no escribió. Así acabaron las reales de
+        # `Gold_Phantom_strat5` sumando en `strat8` en el portafolio #186.
+        with self.assertRaises(ValueError) as raised:
+            imported([("Gold_Phantom_strat5.set", COMMENT),
+                      ("Gold_Phantom_strat8.set", COMMENT)])
+        self.assertIn(COMMENT, str(raised.exception))
+        self.assertIn("Gold_Phantom_strat5.set", str(raised.exception))
+        self.assertIn("Gold_Phantom_strat8.set", str(raised.exception))
+
+    def test_the_same_pair_repeated_is_not_a_contradiction(self) -> None:
+        # Repetir la fila entera no dice dos cosas distintas, y la extensión
+        # no cuenta: el `.set` se compara con el mismo criterio que el autolote.
+        links = imported([(f"{SET_STEM}.set", COMMENT), (SET_STEM, COMMENT)])
+        self.assertEqual(list(links["rules"]), [COMMENT.casefold()])
+
     def test_a_document_without_the_table_says_what_se_espera(self) -> None:
         with self.assertRaises(ValueError) as raised:
             imported([])
@@ -308,6 +326,34 @@ class AnalysisTests(unittest.TestCase):
         )
         self.assertEqual(detail["commented_reals"], 1)
 
+    def test_the_row_without_real_says_the_comment_gave_it_to_another(self) -> None:
+        # La real libre está a 0 s y el motivo acusaba a la tolerancia de
+        # apertura, así que la fila mandaba a mirar el emparejamiento cuando lo
+        # que había que corregir era el documento. Visto en el portafolio #186.
+        base = self._two_strategies_one_real()
+        links = imported([(f"{SET_STEM}.set", COMMENT)])
+        row = analyze(base, profile(comment_links=links))["comparison_detail"][
+            "operation_comparisons"
+        ][0]
+        self.assertEqual(row["measurements"]["nearest_open_time_delta_seconds"], 0.0)
+        self.assertEqual(row["reasons"], ["claimed_by_comment_owner"])
+        self.assertEqual(row["nearest_unused_real_owner"]["strategy"], STRATEGY)
+        self.assertEqual(
+            row["nearest_unused_real_owner"]["strategy_set"], f"{SET_STEM}.set",
+        )
+
+    def test_without_the_table_the_reason_keeps_blaming_the_tolerance(self) -> None:
+        # El motivo nuevo no puede comerse al viejo: sin dueño declarado la
+        # real más cercana sigue estando fuera de tolerancia y eso es cierto.
+        base = self._two_strategies_one_real()
+        base["real_trades"][0] = {
+            **trade(datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc), 0.02, 4.0, 900),
+            "comment": COMMENT,
+        }
+        row = analyze(base, profile())["comparison_detail"]["operation_comparisons"][0]
+        self.assertEqual(row["reasons"], ["open_time_outside_tolerance"])
+        self.assertIsNone(row["nearest_unused_real_owner"])
+
     def test_the_table_travels_in_the_analysis_so_the_screen_can_show_it(self) -> None:
         analysis = self.analysed()["analysis"]
         self.assertEqual(list(analysis["tolerances"]["comment_links"]["rules"]), [COMMENT.casefold()])
@@ -337,6 +383,21 @@ class ScreenTests(unittest.TestCase):
     def test_the_row_does_not_present_the_two_sources_alike(self) -> None:
         self.assertIn("comentario del EA", self.result)
         self.assertIn("Excel de atribución", self.result)
+
+    def test_the_row_says_the_attribution_came_from_the_comment(self) -> None:
+        # Decir «atribuidas a mano» de lo que decidió el documento hacía que el
+        # usuario descartara la única explicación de que el importe Real no
+        # cuadre con la suma del detalle de operaciones.
+        self.assertIn("attributed_source", self.script)
+        self.assertIn("por el comentario del EA", self.script)
+        self.assertIn("detalle de operaciones", self.script)
+
+    def test_both_screens_name_the_strategy_that_claimed_the_candidate(self) -> None:
+        # El motivo lo calcula el manager; si una de las dos pantallas no lo
+        # sabe leer, la fila vuelve a dejar al usuario sin saber qué corregir.
+        for script in (self.script, self.result):
+            self.assertIn("nearest_unused_real_owner", script)
+        self.assertIn("claimed_by_comment_owner", self.result)
 
 
 if __name__ == "__main__":

@@ -146,6 +146,15 @@ def rules_from_rows(rows: list[list[str]]) -> dict[str, str]:
     silencioso: cada comentario quedaría enlazado a un `.set` que no existe y
     la tabla diría que no enlaza nada. La celda que nombra un `.set` se
     reconoce sola.
+
+    **Un comentario repetido con dos setfiles distintos se rechaza.** Las
+    reglas son un diccionario por comentario, así que la segunda fila pisaba a
+    la primera sin decir nada y el documento quedaba guardado con un enlace que
+    el usuario no escribió. Pasó en el portafolio #186: las reales con el
+    comentario de `Gold_Phantom_strat5` acabaron sumando en `strat8`, y las
+    filas del tester de `strat5` se quedaron sin real porque el dueño declarado
+    les cerraba la puerta. Un comentario que nombra dos `.set` no identifica a
+    ninguno: es mejor no importar la tabla que importarla torcida.
     """
     rules: dict[str, str] = {}
     for row in rows:
@@ -157,8 +166,17 @@ def rules_from_rows(rows: list[list[str]]) -> dict[str, str]:
             (named[0], next(cell for cell in cells[:2] if cell != named[0]))
             if len(named) == 1 else (cells[0], cells[1])
         )
-        if comment_key(comment):
-            rules[comment_key(comment)] = set_name
+        key = comment_key(comment)
+        if not key:
+            continue
+        previous = rules.get(key)
+        if previous is not None and _rule_key(previous) != _rule_key(set_name):
+            raise ValueError(
+                f"«{comment}» aparece en dos filas, con «{previous}» y con "
+                f"«{set_name}». Un comentario sólo puede nombrar un setfile: "
+                "mientras diga dos, no identifica a ninguno."
+            )
+        rules[key] = set_name
     if not rules:
         raise ValueError(
             "El documento no trae ninguna fila con un setfile y su comentario. "

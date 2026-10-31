@@ -351,7 +351,13 @@ function strategyGroups(result) {
       ...owner, demo: [], real: [], openReal: [], attributed: [],
       quality: quality.get(owner.strategy) || null,
     });
-    groups.get(owner.strategy).attributed.push(row.real);
+    // La procedencia viaja con la operación porque la fila tiene que decirla:
+    // «atribuidas a mano» sobre lo que decidió el documento de comentarios
+    // hace que el usuario descarte la explicación de una diferencia que es
+    // justo ésa. Lo demás de la fila no la mira.
+    groups.get(owner.strategy).attributed.push(
+      {...row.real, attributed_source: String(row.attribution?.source || '')},
+    );
   });
   return [...groups.values()].map(group => ({
     ...group,
@@ -683,10 +689,13 @@ function reproductionCounts(group, numbers) {
   // `Boolean(backing)` lo apagaba justo con cero parejas, donde más falta hace.
   const backing = groupRealTrades(group).length;
   const few = LiveAuditReproduction.fewTrades(numbers);
+  const commented = group.attributed.filter(
+    trade => trade.attributed_source === 'comment',
+  ).length;
   return {
     deviations: Number(summary.with_deviations || 0), missing, open, few,
     pairs: backing, unfilled: backing ? 0 : numbers.testerTrades,
-    attributed: group.attributed.length,
+    attributed: group.attributed.length, commented,
     caveats: [
       missing ? `${missing} sin pareja` : '',
       open ? `${open} sin cerrar en real` : '',
@@ -778,6 +787,21 @@ function reviewCell(group, label, pct) {
     data-review="${escapeHtml(group.strategy)}"${done ? ' checked' : ''}><span>Validada</span></label>${reviewNote(mark, done, pct)}</td>`;
 }
 
+// Las reales atribuidas suman en el importe Real y **no** tienen fila en el
+// detalle de operaciones, porque ninguna operación del tester las reclamó: de
+// ahí que sumar el detalle no dé este número. La nota lo dice y dice de dónde
+// salió cada atribución, que es lo único que el usuario puede corregir.
+function attributedNote(counts) {
+  if (!counts.attributed) return '';
+  const manual = counts.attributed - counts.commented;
+  const parts = [
+    counts.commented ? `${counts.commented} por el comentario del EA` : '',
+    manual ? `${manual} por el Excel de atribución` : '',
+  ].filter(Boolean).join(' y ');
+  return `<small class="lots-autolot-note">+ ${escapeHtml(parts)}: suman en Real sin `
+    + 'fila propia en el detalle de operaciones</small>';
+}
+
 function reproductionRow(group, currency) {
   const numbers = reproductionShortfall(group);
   const [label, tone, help] = reproductionVerdict(numbers);
@@ -792,7 +816,7 @@ function reproductionRow(group, currency) {
     <td><strong>${escapeHtml(money(numbers.demo, currency))}</strong></td>
     <td><strong>${escapeHtml(money(numbers.real, currency))}</strong></td>
     <td><strong>${escapeHtml(`${sign}${money(numbers.real - numbers.demo, currency)}`)}</strong><small>${escapeHtml(differenceNote(numbers))}</small></td>
-    <td><strong>${escapeHtml(group.real.length)} emparejadas</strong>${counts.attributed ? `<small class="lots-autolot-note">+ ${escapeHtml(counts.attributed)} atribuidas a mano</small>` : ''}${counts.deviations ? `<small class="degradation-off">${escapeHtml(counts.deviations)} con desviación</small>` : ''}${partial}</td>
+    <td><strong>${escapeHtml(group.real.length)} emparejadas</strong>${attributedNote(counts)}${counts.deviations ? `<small class="degradation-off">${escapeHtml(counts.deviations)} con desviación</small>` : ''}${partial}</td>
     <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span>${fewPairsChip(counts)}${qualityChip(group)}<small>${escapeHtml(help)}</small>${fewPairsNote(counts)}${qualityNote(group)}</td>
     ${reviewCell(group, label, numbers.pct)}
   </tr>`;
@@ -1079,6 +1103,16 @@ function unpairedTesterHelp(row) {
   const esperado = Number(row.limits?.volume_expected_real);
   const lote = Number.isFinite(esperado) && esperado > 0
     ? ` La real habría llevado ${number(esperado, 4)} lotes.` : '';
+  // Antes esta fila acusaba a la tolerancia de apertura con un candidato a 0 s
+  // delante: quien la leía buscaba el fallo en el emparejamiento y la causa
+  // estaba en el documento de comentarios, que da esa real a otra estrategia.
+  const owner = row.nearest_unused_real_owner;
+  if (owner?.strategy) {
+    return `La real libre más cercana la reclama ${owner.strategy_set || owner.strategy} `
+      + `en tu documento de comentarios del EA, así que no puede emparejarse aquí. `
+      + `Si el comentario de esa operación es de esta estrategia, corrige el documento `
+      + `y vuelve a subirlo.${lote}`;
+  }
   if (row.nearest_unused_real?.open_time) {
     const delta = Number(row.measurements?.nearest_open_time_delta_seconds);
     const fuera = Number.isFinite(delta) ? ` por ${number(delta, 0)} s` : '';

@@ -4,8 +4,8 @@ from .live_audit_attribution import annotate_unmatched
 from .live_audit_comment_links import comment_owners
 from .live_audit_core import *  # noqa: F403
 from .live_audit_manual_pairs import (
-    attributed_assignment, forced_assignment, note_manual_pairs, tester_pair_key,
-    unpaired_keys,
+    attributed_assignment, forced_assignment, note_manual_pairs, real_pair_id,
+    tester_pair_key, unpaired_keys,
 )
 from .live_audit_methodology import methodology
 from .live_audit_pairing import _assign_real_trades, _pair_cost, _stops_evidence
@@ -43,6 +43,28 @@ class _ComparisonMixin:
         )
 
     @staticmethod
+    def _claimed_by_comment(
+        nearest_trade: dict[str, Any] | None, strategy: str, request: dict[str, Any],
+    ) -> dict[str, str] | None:
+        """El dueño que el comentario declara para la real libre más cercana.
+
+        Sólo cuando no es esta estrategia: entonces `_may_pair` cerró la puerta
+        y la fila se quedó sin real **por la tabla de comentarios**, no por el
+        tiempo. Sin esto la fila acusaba a la tolerancia de apertura con el
+        candidato a 0 s delante, que es un desacuerdo mudo entre lo que la
+        pantalla dice y lo que el reparto hizo.
+        """
+        rule = (request.get("_real_attribution_by_ticket") or {}).get(
+            real_pair_id(nearest_trade),
+        ) or {}
+        owner = str(rule.get("strategy") or "")
+        if rule.get("source") != "comment" or rule.get("excluded") or not owner:
+            return None
+        if owner == strategy:
+            return None
+        return {"strategy": owner, "strategy_set": str(rule.get("strategy_set") or "")}
+
+    @staticmethod
     def _missing_comparison(
         expected: dict[str, Any], tester_index: int, strategy: str,
         same_market: list[tuple[float, int]], real: list[dict[str, Any]],
@@ -64,11 +86,13 @@ class _ComparisonMixin:
         time_limit = request["trade_time_tolerance_seconds"]
         nearest = min(same_market) if same_market else None
         nearest_trade = real[nearest[1]] if nearest else None
+        claimed = _ComparisonMixin._claimed_by_comment(nearest_trade, strategy, request)
         volume_detail = _expected_real_volume_detail(expected, request)
         return {
             "tester_index": tester_index, "status": "missing", "strategy": strategy,
             "tester": _trade_view(expected), "real": None,
             "nearest_unused_real": _trade_view(nearest_trade),
+            "nearest_unused_real_owner": claimed,
             "real_position_still_open": None,
             "measurements": {
                 "nearest_open_time_delta_seconds": round(nearest[0], 3) if nearest else None,
@@ -80,7 +104,9 @@ class _ComparisonMixin:
             },
             "data_issues": data_issues,
             "reasons": [
-                "open_time_outside_tolerance" if nearest else "no_real_same_symbol_and_side"
+                "claimed_by_comment_owner" if claimed
+                else "open_time_outside_tolerance" if nearest
+                else "no_real_same_symbol_and_side"
             ],
         }
 

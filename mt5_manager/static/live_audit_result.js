@@ -11,6 +11,7 @@ const reasonLabels = {
   drawdown: 'Drawdown fuera de tolerancia',
   open_time_outside_tolerance: 'La operación real más cercana abre fuera de la tolerancia',
   no_real_same_symbol_and_side: 'No existe una real libre con el mismo símbolo y lado',
+  claimed_by_comment_owner: 'La real libre más cercana la reclama otra estrategia en el documento de comentarios del EA',
   real_position_still_open_at_period_end: 'La posición real seguía abierta al terminar el periodo',
   close_before_open: 'Dato tester inválido: el cierre es anterior a la apertura',
   not_used_by_any_tester_operation: 'Ninguna operación del tester utilizó esta real',
@@ -138,6 +139,13 @@ function comparisonDecision(row) {
     stillOpen,
     reasons: [...detectedIssues, ...(row.reasons || [])].map(reason => {
       const label = reasonLabels[reason] || reason;
+      // Sin el nombre del dueño el motivo obliga a ir a buscarlo al documento:
+      // la fila ya sabe cuál es y es lo único que hay que corregir allí.
+      if (reason === 'claimed_by_comment_owner') {
+        const owner = row.nearest_unused_real_owner || {};
+        const named = owner.strategy_set || owner.strategy;
+        return named ? `${label}: ${named}` : label;
+      }
       if (reason !== 'real_position_still_open_at_period_end' || !stillOpen) return label;
       const ticket = stillOpen.position_id ?? stillOpen.ticket;
       const opened = marketDateTime(stillOpen.open_time);
