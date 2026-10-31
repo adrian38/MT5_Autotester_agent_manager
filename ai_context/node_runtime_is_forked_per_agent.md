@@ -372,20 +372,49 @@ reemplaza el proceso con el mismo `app_ui.py` o el mismo ejecutable congelado.
 Asi se evita tocar Tk desde el hilo HTTP y el puerto queda libre antes del
 relanzamiento.
 
-Antes de relanzar, `manager_node_lifecycle.py` detecta la rama Git actual y
-ejecuta, en este orden, `git pull --ff-only origin <rama>` y
-`git push origin <rama>`. El pull no crea merges automaticos; si falla, el push
-se omite. Los comandos no piden credenciales de forma interactiva y dejan su
-resultado en `logs/manager_node_restart.log`. El relanzamiento se ejecuta
-siempre, incluso si Git no esta disponible, vence el timeout o la
-sincronizacion falla, para no dejar apagado el agente.
+Antes de relanzar, `manager_node_lifecycle.py` detecta la rama Git actual, la
+pone al dia con origin y la publica. Los comandos no piden credenciales de
+forma interactiva y dejan su resultado en `logs/manager_node_restart.log`. El
+relanzamiento se ejecuta siempre, incluso si Git no esta disponible, vence el
+timeout o la sincronizacion falla, para no dejar apagado el agente.
+
+**Hasta el 2026-10-31 ese paso era un `git pull --ff-only origin <rama>` y
+tenia un punto muerto.** Un checkout con commits locales sin publicar dejaba de
+sincronizar en cuanto origin se movia: el pull abortaba por no poder avanzar
+rapido, el push se omitia, y cada reinicio posterior repetia el mismo bloqueo
+sin salida. Se noto aqui mismo, con cuatro checkouts de agente recien
+commiteados y sin publicar.
+
+`_integrate_origin` lo sustituye y **no pierde el fast-forward, lo separa**:
+`git fetch origin <rama>`, luego `git rev-list --left-right --count
+FETCH_HEAD...HEAD` para ver la divergencia, y segun lo que diga —nada que
+traer, `git merge --ff-only FETCH_HEAD` cuando solo se movio origin, o
+`git rebase FETCH_HEAD` cuando la rama diverge—. `pull --ff-only` era
+exactamente `fetch` + `merge --ff-only`, asi que la rama que ya existia sigue
+ahi con otro nombre. El push se reintenta una vez tras volver a sincronizar,
+que cubre que origin se mueva entre el fetch y el push.
+
+El rebase lleva dos barandillas y las dos son imprescindibles: no se ejecuta si
+hay ficheros trackeados modificados, y al conflicto hace `git rebase --abort`.
+El motivo es que el relanzamiento carga esos mismos fuentes acto seguido; un
+autostash resolveria su propio `pop` metiendo marcadores de conflicto dentro
+del codigo que esta a punto de ejecutarse.
+
+Por eso `test_application_restart_reaches_every_embedded_node_fork` dejo de
+exigir la cadena `git pull --ff-only origin`. Pedir el **comando** puso la
+guarda en rojo ante un cambio que era correcto y mas completo; ahora pide el
+**criterio**: `FETCH_HEAD`, `--ff-only`, `--untracked-files=no`,
+`git rebase --abort` y `git push origin`.
 
 El reinicio vuelve a cargar cambios Python cuando la aplicacion corre desde
 fuente. Si corre como ejecutable PyInstaller, relanza el mismo binario: para
 incorporar cambios de fuente hay que reconstruirlo. Tampoco compila codigo MQ5;
 esa compilacion sigue siendo una accion separada de la aplicacion.
 
-Estado del port (2026-08-14): manager e ICTrading de este equipo, si; AXI y
-RoboForex, pendientes hasta que sus unidades esten montadas y su rama permita
-escribirlas. `test_application_restart_reaches_every_embedded_node_fork` impide
-que una copia montada vuelva a quedar sin la ruta o sin su prueba.
+Estado del port (2026-10-31): el `manager_node_lifecycle.py` y su
+`tests/test_manager_node_lifecycle.py` son identicos en los cuatro checkouts
+montados —ICTrading, AXI, RoboForex y Vantage—, con el fetch/rebase de arriba y
+sus diez pruebas por rama. FUTURE queda fuera por congelacion.
+`test_application_restart_reaches_every_embedded_node_fork` impide que una
+copia montada vuelva a quedar sin la ruta, sin su prueba o sin una de las dos
+barandillas del rebase.

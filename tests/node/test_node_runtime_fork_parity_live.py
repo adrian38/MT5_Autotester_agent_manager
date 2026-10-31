@@ -142,11 +142,24 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                 "request_application_restart",
             ):
                 self.assertIn(token, node_source, msg=f"{project}: falta `{token}` en el nodo real")
+            # Aquí se comprueba el criterio, no cómo se escribe el comando. Hasta
+            # el 2026-10-31 se exigía la cadena `git pull --ff-only origin`, y eso
+            # dejó la guarda en rojo cuando Vantage partió ese pull en `fetch` +
+            # `merge --ff-only`, que hace exactamente lo mismo: el fast-forward no
+            # se había perdido, sólo había cambiado de nombre. Lo que no puede
+            # faltar es traer origin, conservar el fast-forward, rehacer los
+            # commits locales cuando la rama diverge —si no, un checkout con
+            # commits sin publicar deja de sincronizar para siempre— y las dos
+            # barandillas del rebase: no tocar un árbol sucio y abortar al
+            # conflicto, porque el relanzamiento carga esos fuentes acto seguido.
             for token in (
                 "restart_callback",
                 "consume_restart_request",
                 "sync_origin_before_relaunch",
-                "git pull --ff-only origin",
+                "FETCH_HEAD",
+                "--ff-only",
+                "--untracked-files=no",
+                "git rebase --abort",
                 "git push origin",
                 "relaunch_application",
             ):
