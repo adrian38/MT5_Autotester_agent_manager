@@ -15,8 +15,8 @@ Hasta que el usuario diga expresamente que FUTURE vuelve a estar habilitado:
   escriba en el árbol ni en su runtime.
 
 Cuando una tarea pida cambiar «todos los agentes», FUTURE se omite y se declara
-en la entrega como copia congelada. Los ports se limitan a IC, AXI y
-RoboForex/`dev`.
+en la entrega como copia congelada. Los ports alcanzan IC, AXI,
+RoboForex/`dev` y Vantage/`vantage`.
 
 El último cambio realizado antes de la congelación fue el port del sondeo de
 cuentas reales, commit `121831a`. Ése es el punto de partida congelado. Sólo

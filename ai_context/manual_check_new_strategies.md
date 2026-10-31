@@ -37,7 +37,8 @@ que no está en **ningún** antecesor: `improvement_origin.source_id`,
 | `static/manual_check_analysis.{html,js,css}` | La pestaña del análisis: OHLC M1 contra tick a tick, estrategia por estrategia. |
 
 **Esto no lo ejecuta el manager**: lanzar MT5 es del agente, así que vive en
-`manager_node_runtime/` y hay tres copias (IC, AXI, RoboForex). FUTURE está
+`manager_node_runtime/` y hay cuatro copias activas (IC, AXI, RoboForex,
+Vantage). FUTURE está
 congelado y queda fuera. Lo exige
 `tests/node/test_node_runtime_fork_parity.py::test_manual_check_reaches_every_reachable_fork`.
 
@@ -67,7 +68,7 @@ escribe `guided_batches.py`—.
   (`portfolio_manual_check.mark_every_tick`), porque es el mismo set que la
   comprobación manda a MT5: abrirlo a mano y obtener otra cosa que el informe
   de la pantalla sería la peor forma de enterarse de que son dos ficheros.
-- Lo exige la paridad, que busca `"UseEveryTick", "true"` en las tres copias.
+- Lo exige la paridad, que busca `"UseEveryTick", "true"` en las cuatro copias activas.
 - **La comprobación del #62 del 2026-10-21 es anterior a esto** y corrió con
   `UseEveryTick=false` en las dos etapas: sus diferencias son sólo las del
   modelo de datos del tester. Para comparar como ahora, relanzarla.
@@ -190,7 +191,7 @@ portafolio.
   las propuestas para poder guardarlas manualmente.
 - Un fallo al encolar la comprobación no convierte en fallido un portafolio que
   ya quedó guardado: la respuesta y la pantalla declaran el fallo separado.
-- Usa la ruta `jobs/manual-check` que ya existe en IC, AXI y RoboForex; no añade
+- Usa la ruta `jobs/manual-check` que ya existe en IC, AXI, RoboForex y Vantage; no añade
   criterio al runtime del agente. FUTURE sigue omitido por congelación.
 
 ## El primer aviso real no salió (2026-10-21)

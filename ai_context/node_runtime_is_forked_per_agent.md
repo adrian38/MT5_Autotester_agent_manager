@@ -18,13 +18,14 @@ Copias conocidas:
 | ICTrading (montajes anteriores) | `C:\Users\Adrian\Adrian\...` y `I:\TRADING\MT5_Autotester_agent_IC\...` |
 | AXI | `F:\TRADING\MT5_Autotester_agent_AXI\manager_node_runtime\node.py` |
 | RoboForex | `G:\TRADING\MT5_Autotester_agent\manager_node_runtime\node.py` |
+| Vantage | `I:\TRADING\MT5_Autotester_agent_Vantage\manager_node_runtime\node.py` |
 
 La ruta de ICTrading cambia de equipo. La lista viva es `FORK_CANDIDATES` de
 `tests/node/node_runtime_parity_base.py`: la paridad recorre todas y salta las que no
 están montadas, así que una copia nueva se declara ahí y no aquí. **El árbol de
-directorios no decide**: en este equipo las tres copias (IC, AXI y RoboForex)
-están montadas y en ramas distintas; mirar `git branch` antes de dar una por
-ausente.
+directorios no decide**: en este equipo las cuatro copias activas (IC, AXI,
+RoboForex y Vantage) están montadas y en ramas distintas; mirar `git branch`
+antes de dar una por ausente.
 
 ## Consecuencia práctica
 

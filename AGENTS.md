@@ -16,8 +16,8 @@
   usuario; la entrega dice qué agentes lo necesitan y por qué.
 - Preservar cambios ajenos; limitar cada modificación al objetivo pedido. La
   autorización amplía **la ubicación**, nunca el objetivo.
-- Cada checkout tiene su rama y su commit: un cambio que toca tres agentes son
-  tres commits hermanos, y la entrega los nombra todos.
+- Cada checkout tiene su rama y su commit: un cambio que toca varios agentes
+  produce un commit hermano por checkout, y la entrega los nombra todos.
 
 ## FUTURE está congelado
 
@@ -28,8 +28,9 @@
 - Congelado significa: no editar archivos, no crear commits, no portar cambios,
   no cambiar configuración y no parar ni reiniciar su agente. Se puede leer
   para diagnóstico, siempre que la lectura no altere su árbol ni su runtime.
-- Una tarea que afecte a «todos los agentes» se porta sólo a IC, AXI y
-  RoboForex/`dev`; la entrega declara FUTURE omitido por congelación.
+- Una tarea que afecte a «todos los agentes» se porta a IC, AXI,
+  RoboForex/`dev` y Vantage/`vantage`; la entrega declara FUTURE omitido por
+  congelación.
 - El punto de partida congelado desde el 2026-10-21 es el commit `121831a`.
   Sólo una instrucción posterior y explícita del usuario levanta esta regla.
 
@@ -59,7 +60,7 @@ ya tocados por medio.
   `SKIP_PARTS` —son código nuestro, y esa lista es para el ajeno—: se arregla no
   dejando worktrees.
 - Esto no contradice «cada checkout tiene su rama»: eso vale para los agentes,
-  que viven en `IC`, `future`, `AXI` o `dev`. El manager es `main`.
+  que viven en `IC`, `future`, `AXI`, `dev` o `vantage`. El manager es `main`.
 
 ## El nodo NO ejecuta este repositorio
 

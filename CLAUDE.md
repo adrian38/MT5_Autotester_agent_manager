@@ -19,6 +19,7 @@ Todas escribibles (`AGENTS.md`, «Alcance obligatorio»). Comprobado el
 | FUTURE (**congelado**) | `C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_FUTURE` | `future` |
 | AXI | `F:\TRADING\MT5_Autotester_agent_AXI` | `AXI` |
 | RoboForex / genérico | `G:\TRADING\MT5_Autotester_agent` | `dev` |
+| Vantage | `I:\TRADING\MT5_Autotester_agent_Vantage` | `vantage` |
 
 ### FUTURE no se toca
 
@@ -32,8 +33,8 @@ habilite de nuevo de forma explícita. Su punto de partida congelado es
 **No son las rutas que dan por buenas `mt5_manager/dev_branch.py` ni las notas
 viejas de `ai_context/`**, escritas en una máquina donde el manager colgaba de
 `C:\Users\Adrian\Adrian\TRADING`. Aquí el manager está en `I:` y el usuario es
-`13199`. Los agentes de AXI y RoboForex **corren en esta misma máquina** desde
-esos checkouts, no en otra PC.
+`13199`. Los agentes de AXI, RoboForex y Vantage **corren en esta misma
+máquina** desde esos checkouts, no en otra PC.
 
 El acceso del asistente a `C:\Users\13199\Adrian\TRADING`, `F:\TRADING` y
 `G:\TRADING` está concedido en `~/.claude/settings.json`
@@ -51,11 +52,12 @@ La herramienta los deriva de la ruta, así que cambian de equipo: confirmar con
 | Este repositorio | `C-Users-Adrian-Adrian-TRADING-MT5_Autotester_agent_manager` |
 | ICTrading (el que corre aquí) | `C-Users-Adrian-Adrian-TRADING-MT5_Autotester_agent_IC-MT5_Autotester_agent` |
 | RoboForex / genérico | `C-Users-Adrian-Adrian-TRADING-MT5_Autotester_agent` |
+| Vantage | se deriva de `I:\TRADING\MT5_Autotester_agent_Vantage`; confirmar con `list_projects` |
 
-Los dos proyectos hermanos son imprescindibles para ver la copia bifurcada del
-nodo, que el grafo del manager no puede mostrar. **AXI no está indexado aquí**
-(`F:` sin montar): para AXI no hay grafo, sólo `rg` sobre la ruta cuando esté
-disponible.
+Los proyectos hermanos son imprescindibles para ver las copias bifurcadas del
+nodo, que el grafo del manager no puede mostrar. Si una copia no está indexada,
+usar lectura directa y `rg` sobre su ruta sin interpretar el resultado negativo
+del grafo como prueba de ausencia.
 
 ## Fallo 1: «Indexing worker crashed on a file»
 

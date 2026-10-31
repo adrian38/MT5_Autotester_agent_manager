@@ -1576,5 +1576,5 @@ Toda reserva remota de `mt5_native_history_report.py` pasa ahora por
 `_remote_allocation`. Un resultado nulo se convierte en
 `NativeHistoryReportError` antes de llamar a Win32; cubre tanto la selección
 inicial de History como la restauración de pestaña y la escritura de buffers.
-El cambio vive también en `manager_node_runtime/` de IC, AXI y RoboForex;
-FUTURE queda omitido mientras siga congelado.
+El cambio vive también en `manager_node_runtime/` de IC, AXI, RoboForex y
+Vantage; FUTURE queda omitido mientras siga congelado.

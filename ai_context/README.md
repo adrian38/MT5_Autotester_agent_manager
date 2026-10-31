@@ -51,7 +51,7 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 ## Generación, búsqueda y selección
 
 - `reproducible_generation.md`: contrato del reintento cuando MT5 termina sin
-  informe y de la semilla reproducible desde el manager hasta los tres agentes.
+  informe y de la semilla reproducible desde el manager hasta los agentes activos.
 - `full_history_experimental_candidate_search.md`: `experimental_full_search`,
   la ruta opt-in de Portafolio UBS completo y su torneo por rondas.
 - `monthly_experimental_candidate_search.md`: la variante mensual de esa
