@@ -260,6 +260,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
     def test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork(self) -> None:
         tokens = (
             "def _settled_account", "def _activate_account",
+            "def _active_account_settled",
             "tester_login_settle_seconds", "mt5.login(int(login)",
         )
         manager_engine = self._manager_auditor_source()

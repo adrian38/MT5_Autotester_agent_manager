@@ -990,6 +990,54 @@ pendiente y la guarda
 `test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork` falla a
 propósito hasta que el usuario porte el commit.
 
+### Pero sí hay que esperar cuando la cuenta ya es la pedida (2026-10-31)
+
+La sección de arriba dice que esperar no arreglaba nada, y es cierto **para su
+caso**: allí la cuenta activa era otra y ningún plazo la iba a cambiar. Leído
+sin el matiz, el criterio se convierte en «no esperes nunca», y eso tiene su
+propio fallo.
+
+El sondeo de cuentas `20261031_144830_417108` (RoboForex ECN, aviso de las
+14:53:45) volvió con cuatro cuentas leídas y `67315100@RoboForex-ECN` sin leer
+por «MT5 confirmó el login local, pero el terminal no está conectado al broker».
+El Journal no registra un solo error:
+
+```
+14:49:36.842  Terminal   RoboForex MT5 Terminal x64 build 6230 started
+14:49:37.700  Network    '67315100': authorized on RoboForex-ECN through United Kingdom
+14:49:38.629  Network    '67315100': terminal synchronized: 0 positions, 15 orders, 90 symbols
+14:49:38.852  Network    '67315100': scanning network for access points
+14:49:41.801  Terminal   (arranca ya el terminal de la cuenta siguiente)
+```
+
+Autorizó y sincronizó, y 223 ms después abrió su barrido de puntos de acceso.
+Mientras barre, `terminal_info().connected` vale `False`. Entre sincronizar y
+pasar a la cuenta siguiente hay 3,2 s, frente a los ~10 s de las cuatro que sí
+se leyeron: el fallo fue inmediato, antes de exportar nada. El reintento de las
+14:58:48 leyó las cinco sin que nadie tocara nada, y esa vez el Journal no tiene
+ni una línea de `scanning network for access points`.
+
+La carrera estaba en dos sitios encadenados:
+
+- `_activate_account` sondeaba `account_probe_seconds` —2 s— y, si el login
+  coincidía, devolvía el `connected` que hubiera, también `False`.
+- `_login_terminal` sólo miraba el login y el error de conmutación: tiraba ese
+  dato.
+- `_confirmed_account` comprobaba entonces `connected` **una vez y sin
+  reintento**, y lanzaba el error del aviso.
+
+`_active_account_settled` separa los dos casos y es lo único que cambió: si el
+login activo no es el pedido, devuelve el sondeo corto tal cual —el orden de la
+sección anterior se conserva intacto, no se paga el plazo largo en cada
+terminal del pool antes del `login()`—; si ya es el pedido y lo único que falta
+es la conexión, espera `tester_login_settle_seconds`. No hay nada que conmutar
+ahí, así que esperar es lo único que puede salir bien.
+
+Fijan el criterio `tests/live_audit/test_live_audit_terminal_connection.py`
+—las dos mitades, incluida la de no esperar antes de conmutar— y el token
+`def _active_account_settled` añadido a la guarda
+`test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork`.
+
 ## El lote real configurado no llegaba a la comparación (2026-10-01)
 
 Validación `auditor_01.10.2026_v1.xlsx` sobre la auditoría

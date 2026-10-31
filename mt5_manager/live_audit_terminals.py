@@ -453,12 +453,41 @@ class _TerminalMixin(_ProcessMixin):
                 row["journal_error"] = str(exc)
 
     @classmethod
+    def _active_account_settled(
+        cls, mt5: Any, login: str, server: str, timeout: float,
+    ) -> tuple[str, str, bool]:
+        """La cuenta activa tras el sondeo corto, esperando sólo si falta conectar.
+
+        `initialize()` vuelve en cuanto el servidor autoriza, y el terminal
+        arranca acto seguido su «scanning network for access points»: mientras
+        barre, `terminal_info().connected` vale `False` aunque la cuenta sea la
+        pedida y ya esté sincronizada. Con los 2 s de `account_probe_seconds`
+        eso basta para tumbar una lectura. El sondeo de cuentas del 2026-10-31
+        dio por no conectada `67315100@RoboForex-ECN` 223 ms después de
+        sincronizarla —el Journal la autorizó y sincronizó sin un solo error— y
+        el reintento de cinco minutos después la leyó sin tocar nada.
+
+        El plazo largo se paga **sólo** cuando el login ya es el pedido: ahí no
+        queda nada que conmutar y esperar es lo único que puede salir bien. Si
+        la cuenta activa es otra se devuelve el sondeo corto tal cual, porque
+        esperar antes de conmutar costaba el plazo entero en cada terminal del
+        pool antes de intentar el `login()` que sí la cambia
+        (`ai_context/live_account_audit_mvp.md`).
+        """
+        actual_login, actual_server, connected = cls._settled_account(
+            mt5, login, server, cls.account_probe_seconds,
+        )
+        if actual_login != login or connected:
+            return actual_login, actual_server, connected
+        return cls._settled_account(mt5, login, server, timeout)
+
+    @classmethod
     def _activate_account(
         cls, mt5: Any, login: str, password: str, server: str, timeout: float,
     ) -> tuple[str, str, bool, str | None]:
         """Conmuta explícitamente si `initialize` deja activa la cuenta anterior."""
-        actual_login, actual_server, connected = cls._settled_account(
-            mt5, login, server, cls.account_probe_seconds,
+        actual_login, actual_server, connected = cls._active_account_settled(
+            mt5, login, server, timeout,
         )
         if actual_login == login:
             return actual_login, actual_server, connected, None
