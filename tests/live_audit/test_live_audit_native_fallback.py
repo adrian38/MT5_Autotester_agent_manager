@@ -15,6 +15,9 @@ from types import SimpleNamespace
 
 from mt5_manager.live_audit_engine import LiveAuditController
 from mt5_manager.live_audit_lifecycle import _native_history_note
+from mt5_manager.mt5_native_history_report import (
+    NativeHistoryReportError, _WindowsTerminalReportExporter,
+)
 from tests.live_audit.live_audit_engine_base import FakeOwner, LiveAuditEngineTestCase, request
 
 PERIOD_START = datetime(2026, 10, 18, tzinfo=timezone.utc)
@@ -92,6 +95,13 @@ class FakeMt5:
 
 
 class NativeReportFallbackTests(LiveAuditEngineTestCase):
+    def test_a_failed_remote_allocation_has_a_readable_error(self) -> None:
+        exporter = _WindowsTerminalReportExporter.__new__(_WindowsTerminalReportExporter)
+        exporter.kernel32 = SimpleNamespace(VirtualAllocEx=lambda *_args: None)
+
+        with self.assertRaisesRegex(NativeHistoryReportError, "no reservó memoria"):
+            exporter._remote_allocation(123, 16)
+
     def _extract(self, folder: Path, mt5: FakeMt5, report: str | None = NATIVE_REPORT):
         controller = LiveAuditController(FakeOwner("idle"), folder)
         controller.history_sync_attempts = 2

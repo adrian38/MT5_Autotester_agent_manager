@@ -220,12 +220,16 @@ class _WindowsTerminalReportExporter:
             raise NativeHistoryReportError("No se pudo acceder al proceso MT5 para fijar el periodo")
         return process
 
-    def _remote_buffer(self, process: int, payload: bytes) -> int:
+    def _remote_allocation(self, process: int, size: int) -> int:
         pointer = self.kernel32.VirtualAllocEx(
-            process, None, len(payload), MEM_COMMIT_RESERVE, PAGE_READWRITE,
+            process, None, size, MEM_COMMIT_RESERVE, PAGE_READWRITE,
         )
         if not pointer:
             raise NativeHistoryReportError("MT5 no reservó memoria para configurar el periodo")
+        return pointer
+
+    def _remote_buffer(self, process: int, payload: bytes) -> int:
+        pointer = self._remote_allocation(process, len(payload))
         local = ctypes.create_string_buffer(payload)
         written = ctypes.c_size_t()
         if not self.kernel32.WriteProcessMemory(
@@ -290,9 +294,7 @@ class _WindowsTerminalReportExporter:
                 raise NativeHistoryReportError("El Toolbox MT5 no contiene la pestaña History")
             previous = self.user32.SendMessageW(tab, TCM_GETCURSEL, 0, 0)
             if previous != history_index:
-                pointer = self.kernel32.VirtualAllocEx(
-                    process, None, 16, MEM_COMMIT_RESERVE, PAGE_READWRITE,
-                )
+                pointer = self._remote_allocation(process, 16)
                 try:
                     if not self.user32.SendMessageW(tab, TCM_GETITEMRECT, history_index, pointer):
                         raise NativeHistoryReportError("MT5 no devolvió la posición de la pestaña History")
@@ -315,7 +317,7 @@ class _WindowsTerminalReportExporter:
         if index < 0 or self.user32.SendMessageW(tab, TCM_GETCURSEL, 0, 0) == index:
             return
         process = self._process(pid)
-        pointer = self.kernel32.VirtualAllocEx(process, None, 16, MEM_COMMIT_RESERVE, PAGE_READWRITE)
+        pointer = self._remote_allocation(process, 16)
         try:
             if self.user32.SendMessageW(tab, TCM_GETITEMRECT, index, pointer):
                 left, top, right, bottom = struct.unpack("<4i", self._remote_read(process, pointer, 16))

@@ -1562,3 +1562,19 @@ dejaba los datos recién recogidos visibles apenas una hora y sustituía el rest
 de la jornada por ceros. El backend toma el día UTC anterior, igual que la serie
 que archiva, y la interfaz lo rotula explícitamente como «Ayer». El mes actual
 y el mes anterior no cambian.
+
+## Una reserva remota nula rompía la primera cuenta del sondeo (2026-10-30)
+
+Los sondeos simultáneos de AXI y RoboForex devolvieron el mismo error crudo en
+su primera cuenta: `argument 4: TypeError: 'NoneType' object cannot be
+interpreted as an integer`. Las cuentas siguientes y la restauración final
+terminaron correctamente. No era login ni broker: `VirtualAllocEx` devolvió
+nulo al preparar el rectángulo de la pestaña History y `_select_history_tab`
+pasó ese nulo como cuarto argumento de `SendMessageW`.
+
+Toda reserva remota de `mt5_native_history_report.py` pasa ahora por
+`_remote_allocation`. Un resultado nulo se convierte en
+`NativeHistoryReportError` antes de llamar a Win32; cubre tanto la selección
+inicial de History como la restauración de pestaña y la escritura de buffers.
+El cambio vive también en `manager_node_runtime/` de IC, AXI y RoboForex;
+FUTURE queda omitido mientras siga congelado.
