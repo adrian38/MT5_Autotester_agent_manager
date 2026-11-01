@@ -111,6 +111,40 @@ con él puesto que ese mismo barrido sí lance.
 De uno en uno por agente: si alguno de sus usos está corriendo, la vuelta no
 lanza ninguno más en ese nodo.
 
+### Y tampoco mientras el nodo sondea sus cuentas (2026-11-01)
+
+El candado del agente es **uno** para auditar y para sondear —`is_running` mira
+las dos cosas, porque el recurso es la cuenta guardada de cada terminal—, pero
+el lanzador de aquí sólo miraba `audits`. Son dos hilos distintos del manager
+(`live-audit-scheduler` y `live-account-scheduler`) sin nada que los coordine.
+
+El botón «Completar validación» del resumen mensual los dispara seguidos y sin
+esperar:
+
+```js
+const snapshots = plan.snapshot ? await post('/api/live-account-snapshot-now', {}) : …;
+const audits    = plan.audit    ? await post('/api/live-audit-scheduler-catch-up', {}) : …;
+```
+
+Sondeos lanzados a las 14:50:18–21, `catch_up_requested_at` a las
+14:50:21.227882, y la vuelta siguiente del vigilante lanzando a las 14:51:16–24.
+Los nodos de una cuenta habían terminado su sondeo (ICTrading 14:50:59, Vantage
+14:50:54) y pasaron; los de varias seguían dentro (RoboForex 14:52:11 con 7
+cuentas, AXI 14:52:42 con 5) y contestaron 409. Cada choque cuesta un intento de
+los tres y diez minutos de `retry_delay_minutes`.
+
+**El 409 se sigue contando como intento fallido**: es el código con que el nodo
+publica cualquier rechazo, no sólo éste, y distinguirlo por el texto sería peor.
+Lo que cambia es que ya no se provoca: `node_account_snapshot_running` pregunta
+por `/api/v1/live-accounts` antes de lanzar y la vuelta se salta ese nodo.
+
+Sólo un «sí» frena. Un agente antiguo sin esa ruta, uno que no contesta o una
+respuesta que no se entiende se dejan pasar igual que antes: si de verdad
+estuviera ocupado volvería a rechazarlo, que es exactamente lo de hoy.
+Preguntar es un `GET`, así que la vuelta de vigilancia sigue siendo sólo lectura
+con el interruptor quitado, y eso lo fija
+`test_asking_about_the_snapshot_is_a_get_with_the_switch_off`.
+
 ## La hora es hora de pared, y por eso `tzdata` es dependencia
 
 El contenedor del manager corre en UTC y la imagen `python:3.11-slim` no trae

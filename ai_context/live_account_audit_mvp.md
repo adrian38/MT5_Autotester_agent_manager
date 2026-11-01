@@ -1038,6 +1038,51 @@ Fijan el criterio `tests/live_audit/test_live_audit_terminal_connection.py`
 `def _active_account_settled` añadido a la guarda
 `test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork`.
 
+### Faltaba la relectura de después (2026-11-01)
+
+La sección anterior arregló la espera, pero no quien decide. `_login_terminal`
+devuelve en cuanto el login coincide y **tira el `connected`** que trae
+`_active_account_settled`; quien decide si la cuenta se lee es la comprobación
+de después —`_confirmed_account` en el sondeo, el bloque de cabecera de
+`_extract_real` en la auditoría—, y ésa seguía muestreando `terminal_info()`
+**una sola vez**. Entre la espera y esa muestra cabe un barrido nuevo.
+
+Pasó dos veces en el mismo turno de AXI, sobre cuentas distintas:
+
+- Sondeo `20261101_155020_027664`: «Entrando en 10068103» a las 14:51:18 y el
+  error a las 14:51:25. Siete segundos no caben en los 30 s de
+  `tester_login_settle_seconds`, así que la espera **sí** había devuelto
+  `connected=True`; el parpadeo llegó después. La tanda volvió con 4 de 5
+  cuentas y, como `UNFINISHED_OUTCOMES` cuenta un sondeo parcial como fallido,
+  gastó el cuarto intento de la cita del viernes y quedó «Reintentos agotados».
+- Uso 109 (`audit-109-mvaqt8xd-1`), 15:28:28, misma frase. Pero sobre
+  `60357303@Axi-US50-Live`, que ese mismo turno el sondeo había leído sin una
+  queja, y que el reintento de las 15:33 leyó otra vez bien. No es una cuenta
+  rota: es el mismo parpadeo en la otra mitad del código.
+
+La pista de que no era la cuenta está en el cruce: el uso 108, que audita
+precisamente `10068103`, completó a las 15:23:11.
+
+Ahora las dos mitades **reasientan** en vez de muestrear. El sondeo lleva su
+propio `_settled_connection`, de ocho líneas, por lo mismo que `_confirmed_account`
+está copiado y no importado: `live_account_snapshot.py` se mantiene sin un solo
+import del auditor para poder portarse idéntico. La auditoría reutiliza
+`_settled_account`, que ya tenía, y le pasa lo que MT5 acaba de confirmar
+—`str(info.login)` y `actual_server`— en vez de lo pedido, para que la espera no
+se cuelgue por cómo esté escrito el mismo número.
+
+Una cuenta que de verdad no conecta sigue fallando, sólo que 30 s más tarde; y
+una cuenta que no es la pedida falla en el acto, porque ahí no hay nada que
+esperar. Ambas cosas están fijadas en
+`tests/live_audit/test_live_audit_terminal_connection.py`.
+
+Portado a las cuatro copias (IC, AXI, RoboForex y Vantage), que eran idénticas
+salvo fin de línea. Lo vigila la guarda nueva
+`test_the_account_read_waits_out_the_access_point_scan_on_every_fork`, que es la
+primera que mira también `live_account_snapshot.py`: para eso está
+`fork_live_account_source`, porque el glob `live_audit*` no alcanza a ese
+fichero y hasta ahora el sondeo no tenía paridad ninguna.
+
 ## El lote real configurado no llegaba a la comparación (2026-10-01)
 
 Validación `auditor_01.10.2026_v1.xlsx` sobre la auditoría

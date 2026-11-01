@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -157,12 +158,42 @@ def public_state(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _confirmed_account(mt5: Any, account: dict[str, str]) -> tuple[Any, str]:
+def _settled_connection(mt5: Any, timeout: float) -> bool:
+    """`terminal_info().connected`, dandole tiempo a volver del barrido.
+
+    La conmutacion ya espero a que el terminal conectara, pero entre aquella
+    espera y esta lectura MT5 puede abrir su «scanning network for access
+    points», y mientras barre `connected` vuelve a valer `False` sin que la
+    cuenta tenga nada malo. Muestrearlo **una sola vez** convertia ese parpadeo
+    en una cuenta sin leer: `10068103@Axi-US50-Demo` el 2026-11-01, siete
+    segundos despues de entrar, y el reintento la leyo sin tocar nada. Es el
+    mismo fallo del 2026-10-31 que arreglo `_active_account_settled`, un paso
+    mas adelante: alli se espera a conmutar, aqui a releer.
+
+    Escrito aqui y no tomado del auditor por lo mismo que `_confirmed_account`:
+    deja este fichero **sin un solo import del auditor**.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        terminal = mt5.terminal_info()
+        if terminal is not None and bool(getattr(terminal, "connected", False)):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.25)
+
+
+def _confirmed_account(
+    mt5: Any, account: dict[str, str], settle_seconds: float,
+) -> tuple[Any, str]:
     """Que MT5 esta de verdad en esa cuenta y conectado al broker.
 
     Escrito aqui y no tomado del auditor porque no todas las copias lo tienen
     como funcion suelta: la del manager si, la de ICTrading lo hace dentro de
-    su extraccion. Son ocho lineas, y copiarlas mantiene este fichero portable.
+    su extraccion. Copiarlo mantiene este fichero portable.
+
+    `settle_seconds` lo pone el llamante —`tester_login_settle_seconds` del
+    controlador— para no duplicar aqui el plazo que ya fija el auditor.
     """
     info = mt5.account_info()
     if info is None or int(info.login) != int(account["login"]):
@@ -173,8 +204,7 @@ def _confirmed_account(mt5: Any, account: dict[str, str]) -> tuple[Any, str]:
             f"MT5 confirmó el login, pero en el servidor {actual_server!r} y no "
             f"{account['server']!r}"
         )
-    terminal = mt5.terminal_info()
-    if terminal is None or not bool(getattr(terminal, "connected", False)):
+    if not _settled_connection(mt5, settle_seconds):
         raise RuntimeError(
             "MT5 confirmó el login local, pero el terminal no está conectado al broker"
         )
@@ -317,7 +347,9 @@ class _AccountSnapshotMixin:
             remember_for=snapshot_id,
         )
         try:
-            info, actual_server = _confirmed_account(mt5, account)
+            info, actual_server = _confirmed_account(
+                mt5, account, self.tester_login_settle_seconds,
+            )
             self._synchronised_history(mt5, start, end)
             destination = self._snapshot_reports_dir(snapshot_id) / report_filename(
                 account["account_key"]

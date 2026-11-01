@@ -7,12 +7,14 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        fork_live_audit_source, fork_node_source, manager_node_source,
+        fork_live_account_source, fork_live_audit_source, fork_node_source,
+        manager_node_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        fork_live_audit_source, fork_node_source, manager_node_source,
+        fork_live_account_source, fork_live_audit_source, fork_node_source,
+        manager_node_source,
     )
 
 
@@ -269,6 +271,41 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                 self.assertIn(token, source, f"{project}: falta `{token}` en el auditor real")
 
         self._assert_on_every_fork(check, "auditar una mejora de una sola variante")
+
+    def test_the_account_read_waits_out_the_access_point_scan_on_every_fork(self) -> None:
+        # `_active_account_settled` espera a que la cuenta conmute; esto es la
+        # relectura de después, que decidía con **una sola** muestra de
+        # `connected`. Entre una y otra cabe el «scanning network for access
+        # points», y ahí vale `False` sin que la cuenta tenga nada malo: el
+        # 2026-11-01 costó `10068103@Axi-US50-Demo` en el sondeo de AXI —con su
+        # tanda dada por agotada— y la auditoría del uso 109, sobre una cuenta
+        # que ese mismo turno se leyó bien dos veces. El dato sólo lo ve el
+        # nodo: sin el port, esa copia sigue perdiendo cuentas por un parpadeo.
+        audit_token = "_login, _server, connected = self._settled_account("
+        snapshot_tokens = ("def _settled_connection", "if not _settled_connection(mt5, ")
+        self.assertIn(audit_token, self._manager_auditor_source(), "El manager lo perdió.")
+        manager_snapshot = (MANAGER_ROOT / "mt5_manager" / "live_account_snapshot.py").read_text(
+            encoding="utf-8",
+        )
+        for token in snapshot_tokens:
+            self.assertIn(token, manager_snapshot, f"El manager perdió `{token}`.")
+
+        def check(project: Path, _source: str) -> None:
+            self._assert_present(
+                fork_live_audit_source(project), re.escape(audit_token),
+                f"{project}: la auditoría sigue decidiendo con una sola lectura de "
+                "`connected`. Portar el reasentamiento desde "
+                "mt5_manager/live_audit_extraction.py.",
+            )
+            for token in snapshot_tokens:
+                self._assert_present(
+                    fork_live_account_source(project), re.escape(token),
+                    f"{project}: el sondeo de cuentas sigue decidiendo con una sola "
+                    "lectura de `connected`. Portar `_settled_connection` desde "
+                    "mt5_manager/live_account_snapshot.py.",
+                )
+
+        self._assert_on_every_fork(check, "reasentar la conexión antes de darla por perdida")
 
     def test_the_tester_login_check_waits_for_the_switch_on_every_ported_fork(self) -> None:
         tokens = (

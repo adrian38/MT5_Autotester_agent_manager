@@ -59,6 +59,16 @@ def fork_live_audit_source(project: Path) -> str:
     return _fork_source(project, "live_audit")
 
 
+def fork_live_account_source(project: Path) -> str:
+    """El sondeo de cuentas del agente, que no entra en `live_audit*`.
+
+    Son dos familias de ficheros a propósito: el sondeo se mantiene **sin un
+    solo import del auditor** para poder portarse idéntico. Por eso tampoco lo
+    alcanzaba ninguna paridad hasta que una tuvo algo que comprobar ahí.
+    """
+    return _fork_source(project, "live_account")
+
+
 def fork_portfolio_source(project: Path) -> str:
     """Las reglas de portafolio del agente, `portfolio_save` y lo que salió de él."""
     return _fork_source(project, "portfolio")
