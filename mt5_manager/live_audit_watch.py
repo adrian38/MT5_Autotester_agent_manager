@@ -17,17 +17,16 @@ que dos usos a la vez sobre el mismo agente se pisarian.
 from __future__ import annotations
 
 import sys
-import threading
 import urllib.error
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from . import live_audit_catch_up, live_audit_degradation_alerts, live_audit_executions
 from . import live_audit_full_period, live_audit_lineage, live_audit_schedule, manager_http
-from .common import load_json, safe_int, save_json, utc_now
+from .common import safe_int, utc_now
 from .live_audit_core import RUNNING_STATUSES
 from .live_audit_executions import audit_label
+from .live_audit_run_state import LiveAuditRunState  # noqa: F401
 
 # Como se lee cada estado final del nodo: (resultado del intento, nivel del
 # aviso, titulo). `idle` esta aqui porque un agente reiniciado olvida el uso que
@@ -41,52 +40,6 @@ FINAL_STATUSES = {
 }
 
 _NODE_UNAVAILABLE_CONFIRMATION_POLLS = 3
-
-
-class LiveAuditRunState:
-    """Lo que el vigilante recuerda de cada uso entre vuelta y vuelta.
-
-    Una entrada por `nodo/uso`: el turno que esta sirviendo, cuantos intentos
-    lleva en el, como acabo el ultimo y el ultimo estado visto en el nodo. Se
-    persiste porque un reinicio del manager no puede reiniciar la cuenta de
-    reintentos ni repetir avisos ya dados.
-    """
-
-    def __init__(self, path: str | Path) -> None:
-        self.path = Path(path).expanduser().resolve()
-        self.lock = threading.RLock()
-        self.records: dict[str, dict[str, Any]] = {}
-        if self.path.is_file():
-            try:
-                stored = load_json(self.path)
-            except ValueError:
-                stored = {}
-            self.records = {
-                str(key): dict(value)
-                for key, value in (stored.get("audits") or {}).items()
-                if isinstance(value, dict)
-            }
-            if live_audit_catch_up.restore_legacy_markers(self.records):
-                save_json(self.path, {"audits": self.records})
-
-    @staticmethod
-    def key(node_id: str, audit_id: str) -> str:
-        return f"{node_id}/{audit_id}"
-
-    def record(self, key: str) -> dict[str, Any]:
-        with self.lock:
-            return dict(self.records.get(key) or {})
-
-    def update(self, key: str, **changes: Any) -> dict[str, Any]:
-        with self.lock:
-            record = {**(self.records.get(key) or {}), **changes}
-            self.records[key] = record
-            save_json(self.path, {"audits": self.records})
-            return dict(record)
-
-    def state(self) -> dict[str, dict[str, Any]]:
-        with self.lock:
-            return {key: dict(value) for key, value in self.records.items()}
 
 
 def live_audit_ids(state: dict[str, Any]) -> set[str]:
