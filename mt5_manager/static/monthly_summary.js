@@ -79,6 +79,8 @@
 
   const field = id => document.querySelector(id);
   const run = field('#monthly-summary-run');
+  const complete = field('#monthly-summary-complete');
+  const completion = field('#monthly-summary-completion');
   const state = field('#refresh-state');
 
   // --- Pintado ------------------------------------------------------------
@@ -298,6 +300,93 @@
     });
   }
 
+  function completionState(message, error = false) {
+    completion.textContent = message;
+    completion.className = error ? 'summary-completion error' : 'summary-completion';
+    completion.hidden = !message;
+  }
+
+  const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+  function recoveryActive(activity, snapshotNodes, queuedAudits) {
+    const snapshots = (activity.account_snapshots || []).some(row => (
+      snapshotNodes.has(String(row.node_id || ''))
+    ));
+    const recovery = activity.recovery || {};
+    return snapshots || (queuedAudits > 0 && Number(recovery.pending || 0) > 0);
+  }
+
+  async function waitForRecovery(snapshotNodes, queuedAudits) {
+    const deadline = Date.now() + (2 * 60 * 60 * 1000);
+    while (Date.now() < deadline) {
+      const activity = await get('/api/live-audit-activity');
+      if (!recoveryActive(activity, snapshotNodes, queuedAudits)) return;
+      const snapshots = (activity.account_snapshots || []).length;
+      const pending = Number((activity.recovery || {}).pending || 0);
+      completionState(`Obteniendo datos: ${snapshots} sondeo(s) y ${pending} auditoría(s) pendientes…`);
+      await wait(5000);
+    }
+    throw new Error('La recuperación sigue en marcha después de dos horas. Puedes volver más tarde y actualizar.');
+  }
+
+  async function recalculateRecovered(month) {
+    const answer = await post('/api/monthly-summary/run', month ? {month} : {});
+    applyAnswer(answer);
+    loadDetails(answer.report || {});
+    const unknown = Number(((answer.report || {}).counts || {}).unknown || 0);
+    completionState(unknown
+      ? `Recuperación terminada. Quedan ${unknown} cuenta(s) sin conclusión por motivos que no se pueden obtener automáticamente.`
+      : 'Recuperación terminada: la validación ya tiene conclusión para todas las cuentas.');
+  }
+
+  function recoveryPlan(report) {
+    const accounts = report.accounts || [];
+    return {
+      snapshot: accounts.some(card => (card.recovery || {}).account_snapshot),
+      audit: accounts.some(card => (card.recovery || {}).audit),
+    };
+  }
+
+  async function refreshedRecoveryPlan(month) {
+    const answer = await post('/api/monthly-summary/run', month ? {month} : {});
+    applyAnswer(answer);
+    loadDetails(answer.report || {});
+    return recoveryPlan(answer.report || {});
+  }
+
+  async function completeValidation() {
+    const month = field('#monthly-summary-month').value || String(current.month || '');
+    const warning = 'Se sondearán ahora las cuentas y se lanzarán las auditorías pendientes.\n\n'
+      + 'Mientras trabajan, los agentes afectados pueden pausar su pipeline. '
+      + 'Al terminar se recalculará este resumen automáticamente.';
+    if (!window.confirm(warning)) return;
+    complete.disabled = true;
+    run.disabled = true;
+    completionState('Preparando la recuperación de los datos que faltan…');
+    try {
+      const plan = await refreshedRecoveryPlan(month);
+      const snapshots = plan.snapshot
+        ? await post('/api/live-account-snapshot-now', {}) : {launched: [], skipped: []};
+      const audits = plan.audit
+        ? await post('/api/live-audit-scheduler-catch-up', {}) : {queued_count: 0};
+      const nodes = new Set((snapshots.launched || []).map(String));
+      const queued = Number(audits.queued_count || 0);
+      const skipped = (snapshots.skipped || []).length;
+      completionState(
+        `Lanzados ${nodes.size} sondeo(s) y ${queued} auditoría(s)`
+        + `${skipped ? `; ${skipped} nodo(s) no pudieron arrancar` : ''}. Esperando…`,
+      );
+      await waitForRecovery(nodes, queued);
+      await recalculateRecovered(month);
+    } catch (error) {
+      completionState(error.message, true);
+      notify(error.message, true);
+    } finally {
+      complete.disabled = false;
+      run.disabled = false;
+    }
+  }
+
   async function recalculate() {
     const month = field('#monthly-summary-month').value || String(current.month || '');
     const warning = '¿Volver a calcular este mes?\n\n'
@@ -333,6 +422,7 @@
   }
 
   run.addEventListener('click', recalculate);
+  complete.addEventListener('click', completeValidation);
   field('#refresh').addEventListener('click', () => refresh(''));
   field('#monthly-summary-month').addEventListener('change', event => refresh(event.target.value));
   field('#monthly-summary-form').addEventListener('submit', save);

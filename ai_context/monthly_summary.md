@@ -83,6 +83,13 @@ del veredicto de reproducción que éste arrastra.
   que leer cada mes.
 - **El día de la cita se limita a 1…28.** Un 31 no existe en febrero, y una
   cita que unos meses no llega es una cita que calla justo cuando toca decidir.
+- **«Obtener lo que falta» encadena las dos recuperaciones existentes.** Primero
+  lanza el sondeo manual de cuentas y después encola la recuperación de huecos
+  de auditoría; espera las dos actividades y recalcula el mes al terminar. Los
+  agentes siguen rechazando un arranque si el terminal está ocupado. Lo que no
+  se puede reconstruir —por ejemplo, los días anteriores a que existiera un
+  portafolio— permanece `SIN CONCLUSIÓN` y la pantalla lo dice: el botón obtiene
+  evidencia, no inventa historia.
 
 ## Cómo se entregó
 

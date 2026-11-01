@@ -214,6 +214,7 @@ def account_card(
             for portfolio in portfolios
         ],
         "audit_ids": [portfolio["audit_id"] for portfolio in portfolios],
+        "recovery": notices.recovery_needs(facts),
         "notices": found,
         "verdict": notices.verdict(found),
         "profit_display": convert(closed["profit"], str(stored.get("currency") or ""), settings),

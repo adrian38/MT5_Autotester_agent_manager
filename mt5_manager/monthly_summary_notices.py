@@ -245,6 +245,23 @@ def coverage_gap(facts: dict[str, Any]) -> dict[str, Any] | None:
     )
 
 
+def recovery_needs(facts: dict[str, Any]) -> dict[str, bool]:
+    """Qué evidencia puede obtener el botón sin inventar el resto del mes."""
+    coverage = facts.get("coverage") or {}
+    series = facts.get("series") or {}
+    permanent = bool(facts.get("started_inside")) or (
+        (facts.get("expected") or {}).get("profit") is None
+    )
+    return {
+        "account_snapshot": not permanent and bool(
+            series.get("never_read") or series.get("stale")
+        ),
+        "audit": not permanent and float(coverage.get("pct") or 0.0)
+        < COVERAGE_MINIMUM_PCT,
+        "permanent": permanent,
+    }
+
+
 BUILDERS = (
     coverage_gap, drawdown_breach, below_streak, strategies_degraded, month_closed,
 )

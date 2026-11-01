@@ -222,6 +222,33 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("window.confirm(warning)", run)
         self.assertIn("/api/monthly-summary/run", run)
 
+    def test_completion_gets_both_missing_sources_and_recalculates(self) -> None:
+        action = SCRIPT[SCRIPT.index("async function completeValidation"):]
+        for expression in (
+            "window.confirm(warning)", "/api/live-account-snapshot-now",
+            "/api/live-audit-scheduler-catch-up", "waitForRecovery(nodes, queued)",
+            "recalculateRecovered(month)",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, action)
+        self.assertIn("refreshedRecoveryPlan(month)", action)
+
+    def test_completion_uses_the_manager_recovery_plan(self) -> None:
+        plan = SCRIPT[SCRIPT.index("function recoveryPlan"):]
+        self.assertIn("card.recovery", plan)
+        self.assertIn("account_snapshot", plan)
+        self.assertNotIn("COVERAGE_MINIMUM", plan)
+        refreshed = SCRIPT[SCRIPT.index("async function refreshedRecoveryPlan"):]
+        self.assertIn("/api/monthly-summary/run", refreshed)
+
+    def test_completion_waits_for_the_two_real_activities(self) -> None:
+        waiting = SCRIPT[SCRIPT.index("function recoveryActive"):]
+        for expression in ("activity.account_snapshots", "activity.recovery", "recovery.pending"):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, waiting)
+        self.assertIn("id=\"monthly-summary-complete\"", PAGE)
+        self.assertIn("id=\"monthly-summary-completion\"", PAGE)
+
     def test_the_four_verdicts_have_a_colour(self) -> None:
         for verdict in ("change", "watch", "keep", "unknown"):
             with self.subTest(verdict=verdict):

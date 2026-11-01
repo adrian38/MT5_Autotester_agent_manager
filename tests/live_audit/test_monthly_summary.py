@@ -322,6 +322,20 @@ class NoticeTests(unittest.TestCase):
         notice = notices.coverage_gap(facts(expected={"profit": None}))
         self.assertIn("no tiene media", str(notice["message"]))
 
+    def test_only_recoverable_gaps_are_offered_to_the_button(self) -> None:
+        self.assertEqual(notices.recovery_needs(facts(series={"stale": True})), {
+            "account_snapshot": True, "audit": False, "permanent": False,
+        })
+        self.assertEqual(notices.recovery_needs(facts(coverage={"pct": 40.0})), {
+            "account_snapshot": False, "audit": True, "permanent": False,
+        })
+        blocked = notices.recovery_needs(facts(
+            started_inside=True, series={"stale": True}, coverage={"pct": 40.0},
+        ))
+        self.assertEqual(blocked, {
+            "account_snapshot": False, "audit": False, "permanent": True,
+        })
+
     def test_the_amounts_are_written_as_they_are_read_here(self) -> None:
         self.assertEqual(notices.amount(1234.56, "EUR"), "1.234,56 EUR")
         self.assertEqual(notices.amount(None), "sin medir")
