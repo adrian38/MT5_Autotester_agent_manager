@@ -11,8 +11,9 @@ Lo que se vigila, y por qué cada cosa:
 - Un mes sin promesa **corta** la racha. Una racha con un agujero no es una
   racha, y presentarla como una sola justificaría un cambio con menos
   evidencia de la que dice tener.
-- SIN CONCLUSIÓN gana a CAMBIAR. Con medio mes sin auditar, un «cambia esta
-  cartera» está sacado de la mitad de los datos.
+- SIN CONCLUSIÓN gana a CAMBIAR. Con medio tramo exigible sin auditar, un
+  «cambia esta cartera» está sacado de la mitad de los datos. Nacer a mitad de
+  mes no es un hueco: produce una conclusión parcial y explícitamente marcada.
 - Los periodos de auditoría se **unen**, no se suman: se encadenan repitiendo
   el último día, así que sumarlos inflaría la cobertura justo en el solape.
 """
@@ -63,8 +64,11 @@ def facts(**changes: object) -> dict:
         "below": False, "streak": 0, "streak_required": 3,
         "profit_standing": {"overall": evidence.rank(100.0, [10.0, 20.0, 30.0])},
         "drawdown_standing": {"verdict": "normal", "measured": True, "worst": 90.0},
-        "backtest_months": 72, "started_inside": False,
-        "coverage": {"pct": 100.0, "audits": 2, "missing_days": 0.0, "month_days": 30},
+        "backtest_months": 72, "started_inside": False, "started_after_month": False,
+        "coverage": {
+            "pct": 100.0, "eligible_pct": 100.0, "audits": 2,
+            "missing_days": 0.0, "eligible_missing_days": 0.0, "month_days": 30,
+        },
         "series": {"never_read": False, "stale": False, "updated_at": "2026-10-02T00:00:00+00:00"},
         "degraded": [], "crossing": [], "slow": [],
     }
@@ -163,6 +167,17 @@ class CoverageTests(unittest.TestCase):
         self.assertTrue(coverage.started_after("2026-10-01", MONTH))
         self.assertFalse(coverage.started_after("2026-08-31", MONTH))
         self.assertFalse(coverage.started_after("", MONTH))
+        self.assertTrue(coverage.started_within("2026-09-20", MONTH))
+        self.assertFalse(coverage.started_within("2026-10-01", MONTH))
+        self.assertTrue(coverage.started_later("2026-10-01", MONTH))
+
+    def test_partial_coverage_is_measured_from_the_portfolio_birth(self) -> None:
+        measured = coverage.audit_coverage(
+            [self.audit("2026-09-15", "2026-10-01")], MONTH, "2026-09-15",
+        )
+        self.assertAlmostEqual(measured["pct"], 16 * 100 / 30)
+        self.assertEqual(measured["eligible_pct"], 100.0)
+        self.assertEqual(measured["eligible_missing_days"], 0.0)
 
     def test_a_series_read_long_after_a_closed_month_is_not_stale(self) -> None:
         # Un resumen de marzo mirado en octubre está bien medido aunque su
@@ -322,6 +337,36 @@ class NoticeTests(unittest.TestCase):
         notice = notices.coverage_gap(facts(expected={"profit": None}))
         self.assertIn("no tiene media", str(notice["message"]))
 
+    def test_a_portfolio_born_mid_month_gets_a_qualified_conclusion(self) -> None:
+        partial = facts(
+            started_inside=True,
+            coverage={
+                "pct": 40.0, "eligible_pct": 100.0, "audits": 1,
+                "missing_days": 18.0, "eligible_missing_days": 0.0,
+                "eligible_start": "2026-09-18",
+            },
+        )
+        found = notices.notices(partial)
+        self.assertEqual(notices.verdict(found), notices.KEEP)
+        self.assertEqual(self.kinds(found), ["partial_month", "month_closed"])
+        self.assertIn("no equivale", str(found[0]["message"]))
+
+    def test_a_partial_month_still_blocks_if_its_own_tranche_is_missing(self) -> None:
+        found = notices.notices(facts(
+            started_inside=True,
+            coverage={
+                "pct": 20.0, "eligible_pct": 40.0, "audits": 1,
+                "missing_days": 24.0, "eligible_missing_days": 9.0,
+            },
+        ))
+        self.assertEqual(notices.verdict(found), notices.UNKNOWN)
+        self.assertIn("desde que nació", str(found[0]["message"]))
+
+    def test_a_portfolio_that_did_not_exist_yet_stays_without_conclusion(self) -> None:
+        found = notices.notices(facts(started_after_month=True))
+        self.assertEqual(notices.verdict(found), notices.UNKNOWN)
+        self.assertIn("todavía no existía", str(found[0]["message"]))
+
     def test_only_recoverable_gaps_are_offered_to_the_button(self) -> None:
         self.assertEqual(notices.recovery_needs(facts(series={"stale": True})), {
             "account_snapshot": True, "audit": False, "permanent": False,
@@ -329,8 +374,15 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(notices.recovery_needs(facts(coverage={"pct": 40.0})), {
             "account_snapshot": False, "audit": True, "permanent": False,
         })
+        partial = notices.recovery_needs(facts(
+            started_inside=True, series={"stale": True},
+            coverage={"pct": 40.0, "eligible_pct": 100.0},
+        ))
+        self.assertEqual(partial, {
+            "account_snapshot": True, "audit": False, "permanent": False,
+        })
         blocked = notices.recovery_needs(facts(
-            started_inside=True, series={"stale": True}, coverage={"pct": 40.0},
+            started_after_month=True, series={"stale": True}, coverage={"pct": 40.0},
         ))
         self.assertEqual(blocked, {
             "account_snapshot": False, "audit": False, "permanent": True,

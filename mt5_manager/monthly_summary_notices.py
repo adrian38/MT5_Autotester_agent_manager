@@ -5,7 +5,7 @@ cartera sigue, se vigila o se cambia. Por eso la lista es **corta y cerrada**,
 y por eso cada aviso lleva su veredicto pegado. Un panel que lo cuenta todo no
 se lee, y lo que no se lee no decide nada.
 
-Cinco avisos, y el porqué de cada uno:
+Seis avisos, y el porqué de cada uno:
 
 | Aviso | Cuándo sale | Qué decide |
 | --- | --- | --- |
@@ -13,7 +13,8 @@ Cinco avisos, y el porqué de cada uno:
 | `below_streak` | N meses seguidos por debajo | **CAMBIAR.** Un mes flojo es ruido; la racha es la evidencia. |
 | `drawdown_breach` | la DD del mes sale de lo que el backtest hizo nunca | **CAMBIAR** si es inédita, **VIGILAR** si es extrema. |
 | `strategies_degraded` | hay DEGRADA o cruces sin confirmar | **CAMBIAR esas estrategias**, no la cartera. |
-| `coverage_gap` | falta mes por auditar, o la serie está vieja | **SIN CONCLUSIÓN.** Tapa a los demás. |
+| `partial_month` | el portafolio nació durante el mes | Aclara que la conclusión es parcial, sin impedirla. |
+| `coverage_gap` | falta el tramo auditable, o la serie está vieja | **SIN CONCLUSIÓN.** Tapa a los demás. |
 
 Lo que **no** está aquí, a propósito:
 
@@ -212,15 +213,17 @@ def _coverage_reasons(facts: dict[str, Any]) -> list[str]:
     coverage = facts.get("coverage") or {}
     series = facts.get("series") or {}
     reasons: list[str] = []
-    if facts.get("started_inside"):
-        reasons.append(
-            "el portafolio se guardó dentro de este mes, así que no tuvo el mes entero"
-        )
-    missing = float(coverage.get("missing_days") or 0.0)
+    if facts.get("started_after_month"):
+        reasons.append("el portafolio todavía no existía durante este mes")
+    partial = bool(facts.get("started_inside"))
+    pct_key = "eligible_pct" if partial else "pct"
+    missing_key = "eligible_missing_days" if partial else "missing_days"
+    missing = float(coverage.get(missing_key) or 0.0)
     if not coverage.get("audits"):
         reasons.append("ninguna auditoría cubre este mes")
-    elif float(coverage.get("pct") or 0.0) < COVERAGE_MINIMUM_PCT:
-        reasons.append(f"quedan {missing:.0f} días del mes sin auditar")
+    elif float(coverage.get(pct_key) or 0.0) < COVERAGE_MINIMUM_PCT:
+        scope = "desde que nació" if partial else "del mes"
+        reasons.append(f"quedan {missing:.0f} días {scope} sin auditar")
     if series.get("never_read"):
         reasons.append("la cuenta real nunca se ha sondeado")
     elif series.get("stale"):
@@ -228,6 +231,23 @@ def _coverage_reasons(facts: dict[str, Any]) -> list[str]:
     if (facts.get("expected") or {}).get("profit") is None:
         reasons.append("el backtest no tiene media para este mes")
     return reasons
+
+
+def partial_month(facts: dict[str, Any]) -> dict[str, Any] | None:
+    """La conclusión existe, pero no representa un mes natural completo."""
+    if not facts.get("started_inside"):
+        return None
+    coverage = facts.get("coverage") or {}
+    start = str(coverage.get("eligible_start") or "la fecha de alta")
+    return _notice(
+        "partial_month", "warning", "", "Conclusión sobre un mes parcial",
+        (
+            f"El portafolio nació el {start} y las auditorías cubren el tramo "
+            "exigible desde su alta. Los importes son los de la cuenta durante "
+            "el mes, así que esta conclusión es orientativa y no equivale a "
+            "haber operado el mes completo."
+        ),
+    )
 
 
 def coverage_gap(facts: dict[str, Any]) -> dict[str, Any] | None:
@@ -249,21 +269,23 @@ def recovery_needs(facts: dict[str, Any]) -> dict[str, bool]:
     """Qué evidencia puede obtener el botón sin inventar el resto del mes."""
     coverage = facts.get("coverage") or {}
     series = facts.get("series") or {}
-    permanent = bool(facts.get("started_inside")) or (
+    permanent = bool(facts.get("started_after_month")) or (
         (facts.get("expected") or {}).get("profit") is None
     )
+    pct_key = "eligible_pct" if facts.get("started_inside") else "pct"
     return {
         "account_snapshot": not permanent and bool(
             series.get("never_read") or series.get("stale")
         ),
-        "audit": not permanent and float(coverage.get("pct") or 0.0)
+        "audit": not permanent and float(coverage.get(pct_key) or 0.0)
         < COVERAGE_MINIMUM_PCT,
         "permanent": permanent,
     }
 
 
 BUILDERS = (
-    coverage_gap, drawdown_breach, below_streak, strategies_degraded, month_closed,
+    coverage_gap, partial_month, drawdown_breach, below_streak,
+    strategies_degraded, month_closed,
 )
 """El orden en que se leen: primero lo que impide concluir, después lo que
 pide decisión, y el dato del mes al final. `month_closed` siempre sale."""

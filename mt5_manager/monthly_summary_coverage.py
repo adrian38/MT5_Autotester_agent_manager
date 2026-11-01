@@ -59,7 +59,9 @@ def _clipped(
     return (low, high) if high > low else None
 
 
-def audited_days(entries: Iterable[dict[str, Any]], label: str) -> float:
+def audited_days(
+    entries: Iterable[dict[str, Any]], label: str, since: str = "",
+) -> float:
     """Días del mes cubiertos por alguna auditoría, sin contar dos veces.
 
     Los periodos se encadenan repitiendo a propósito el último día de la
@@ -68,6 +70,9 @@ def audited_days(entries: Iterable[dict[str, Any]], label: str) -> float:
     unión que hace `live_audit_history.covered_days`, recortada al mes.
     """
     start, end = month_bounds(label)
+    boundary = parse_timestamp(since)
+    if boundary is not None:
+        start = max(start, boundary)
     intervals = sorted(
         filter(None, (_clipped(entry, start, end) for entry in entries)),
         key=lambda pair: pair[0],
@@ -85,10 +90,17 @@ def audited_days(entries: Iterable[dict[str, Any]], label: str) -> float:
     return total / 86400
 
 
-def audit_coverage(entries: list[dict[str, Any]], label: str) -> dict[str, Any]:
+def audit_coverage(
+    entries: list[dict[str, Any]], label: str, since: str = "",
+) -> dict[str, Any]:
     """Qué parte del mes auditó este uso, y hasta dónde llegó."""
     days = month_days(label)
     covered = min(audited_days(entries, label), float(days))
+    start, end = month_bounds(label)
+    boundary = parse_timestamp(since)
+    eligible_start = max(start, boundary) if boundary is not None else start
+    eligible_days = max(0.0, (end - eligible_start).total_seconds() / 86400)
+    eligible_covered = min(audited_days(entries, label, since), eligible_days)
     ends = [
         stamp for stamp in (
             parse_timestamp(entry.get("period_end")) for entry in entries
@@ -98,6 +110,12 @@ def audit_coverage(entries: list[dict[str, Any]], label: str) -> dict[str, Any]:
         "days": covered, "month_days": days,
         "pct": covered * 100.0 / days if days else 0.0,
         "missing_days": max(0.0, days - covered),
+        "eligible_start": eligible_start.date().isoformat() if since else "",
+        "eligible_days": eligible_days,
+        "eligible_pct": (
+            eligible_covered * 100.0 / eligible_days if eligible_days else 0.0
+        ),
+        "eligible_missing_days": max(0.0, eligible_days - eligible_covered),
         "audits": len(entries),
         "last_period_end": max(ends).isoformat() if ends else "",
     }
@@ -135,3 +153,15 @@ def started_after(created_day: str, label: str) -> bool:
     """
     day = str(created_day or "")[:10]
     return bool(day) and day[:7] >= label
+
+
+def started_within(created_day: str, label: str) -> bool:
+    """Si nació durante el mes: existe evidencia parcial, no ausencia total."""
+    day = str(created_day or "")[:10]
+    return bool(day) and day[:7] == label
+
+
+def started_later(created_day: str, label: str) -> bool:
+    """Si todavía no existía durante el mes que se intenta resumir."""
+    day = str(created_day or "")[:10]
+    return bool(day) and day[:7] > label

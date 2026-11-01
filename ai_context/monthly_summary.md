@@ -36,9 +36,12 @@ del veredicto de reproducción que éste arrastra.
 - **Las estrategias que degradan**, traídas de donde el vigilante ya las dejó
   archivadas. No se vuelven a medir: sería un segundo criterio para el mismo
   veredicto.
-- **La cobertura**, que tapa a todos los demás. Con medio mes sin auditar el
-  veredicto no es MANTENER, es SIN CONCLUSIÓN: los números salen igual de
-  bonitos y nada en ellos dice que están incompletos.
+- **La cobertura**, que tapa a todos los demás. Con medio tramo auditable sin
+  auditar el veredicto no es MANTENER, es SIN CONCLUSIÓN. Si el portafolio nació
+  dentro del mes, la cobertura exigible empieza en su fecha de alta: sí admite
+  una conclusión cualificada, acompañada siempre por el aviso de que los
+  importes pertenecen a la cuenta y no equivalen a un mes completo de ese
+  portafolio.
 
 ## Decisiones que no se deducen del código
 
@@ -87,9 +90,10 @@ del veredicto de reproducción que éste arrastra.
   lanza el sondeo manual de cuentas y después encola la recuperación de huecos
   de auditoría; espera las dos actividades y recalcula el mes al terminar. Los
   agentes siguen rechazando un arranque si el terminal está ocupado. Lo que no
-  se puede reconstruir —por ejemplo, los días anteriores a que existiera un
-  portafolio— permanece `SIN CONCLUSIÓN` y la pantalla lo dice: el botón obtiene
-  evidencia, no inventa historia.
+  se puede reconstruir permanece `SIN CONCLUSIÓN`. Nacer durante el mes ya no
+  es uno de esos bloqueos: admite una conclusión orientativa y la marca como
+  parcial; un portafolio que todavía no existía en ese mes sí sigue sin
+  conclusión. El botón obtiene evidencia, no inventa historia.
 
 ## Cómo se entregó
 

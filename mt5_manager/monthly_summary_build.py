@@ -171,7 +171,13 @@ def _coverage(
         entry for entry in server.live_audit_archive.index(node_id)
         if str(entry.get("audit_key") or "") in wanted
     ]
-    return coverage.audit_coverage(entries, label)
+    partial_starts = [
+        portfolio["created_day"] for portfolio in portfolios
+        if coverage.started_within(portfolio["created_day"], label)
+    ]
+    return coverage.audit_coverage(
+        entries, label, max(partial_starts) if partial_starts else "",
+    )
 
 
 def account_card(
@@ -198,7 +204,11 @@ def account_card(
         "backtest_months": len(table),
         "streak_required": int(settings.get("below_streak_months") or 3),
         "started_inside": any(
-            coverage.started_after(portfolio["created_day"], label)
+            coverage.started_within(portfolio["created_day"], label)
+            for portfolio in portfolios
+        ),
+        "started_after_month": any(
+            coverage.started_later(portfolio["created_day"], label)
             for portfolio in portfolios
         ),
         "coverage": _coverage(server, node_id, portfolios, label),
