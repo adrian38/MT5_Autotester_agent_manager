@@ -270,6 +270,73 @@ class WatchTickTests(unittest.TestCase):
             live_audit_watch.tick(server)
         self.assertEqual(len(posted), 1)
 
+    @staticmethod
+    def _answers_with_snapshot(snapshot: object, posted: list[object]):
+        """Como `node_answers`, pero el nodo contesta también por su sondeo."""
+        def request(_node, method, path, payload=None, timeout=0):
+            if path == "/api/v1/status":
+                return 200, {"capabilities": {"live_audit_restore_account": True}}
+            if path == "/api/v1/live-accounts":
+                return (200, {"snapshot": snapshot}) if snapshot is not None else (404, {})
+            if method == "GET":
+                return 200, {"audits": {"11": {"status": "idle"}}}
+            posted.append((path, payload))
+            return 202, {"audit": {"status": "queued"}}
+        return request
+
+    def test_the_cron_waits_while_the_account_snapshot_holds_the_terminals(self) -> None:
+        # El candado del agente es uno para auditar y para sondear. Pedirlo
+        # mientras sondea no es una auditoría: es un 409, un intento perdido y
+        # diez minutos de espera (AXI y RoboForex, 2026-11-01).
+        server = FakeServer(self.root, audit_state(), enabled=True)
+        posted: list[object] = []
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self._answers_with_snapshot({"status": "extracting"}, posted),
+        ):
+            live_audit_watch.tick(server)
+        self.assertEqual([], posted, "se lanzó encima del sondeo de cuentas")
+        self.assertEqual([], server.events(), "esperar no es noticia para la campana")
+        record = server.live_audit_runs.record(LiveAuditRunState.key("n", "11"))
+        self.assertNotEqual(record.get("outcome"), "failed", "esperar no gasta un intento")
+        # Terminado el sondeo, la vuelta siguiente lanza sin que nadie toque nada.
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self._answers_with_snapshot({"status": "completed"}, posted),
+        ):
+            live_audit_watch.tick(server)
+        self.assertEqual([path for path, _payload in posted], ["/api/v1/live-audits/11/run"])
+
+    def test_an_agent_that_cannot_answer_about_its_snapshot_is_launched_as_before(self) -> None:
+        # Sólo un «sí» frena. Un agente antiguo sin la ruta del sondeo no puede
+        # quedarse sin auditar para siempre: si estuviera ocupado lo rechazaría.
+        server = FakeServer(self.root, audit_state(), enabled=True)
+        posted: list[object] = []
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self._answers_with_snapshot(None, posted),
+        ):
+            live_audit_watch.tick(server)
+        self.assertEqual([path for path, _payload in posted], ["/api/v1/live-audits/11/run"])
+
+    def test_asking_about_the_snapshot_is_a_get_with_the_switch_off(self) -> None:
+        # La pregunta nueva no puede convertir una vuelta de vigilancia en una
+        # escritura: sin el interruptor, el barrido sigue siendo sólo lectura.
+        server = FakeServer(self.root, audit_state())
+        methods: list[str] = []
+
+        def request(_node, method, path, payload=None, timeout=0):
+            methods.append(method)
+            if path == "/api/v1/status":
+                return 200, {"capabilities": {"live_audit_restore_account": True}}
+            if path == "/api/v1/live-accounts":
+                return 200, {"snapshot": {"status": "extracting"}}
+            return 200, {"audits": {"11": {"status": "idle"}}}
+
+        with mock.patch("mt5_manager.manager_http.node_request", side_effect=request):
+            live_audit_watch.tick(server)
+        self.assertEqual(set(methods), {"GET"})
+
     def test_the_modern_use_id_keeps_its_creation_time(self) -> None:
         created = live_audit_watch._audit_use_created_at("audit-170-mvdscovr-2")
         self.assertEqual(created.isoformat(), "2026-10-18T12:12:24.183000+00:00")

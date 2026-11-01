@@ -12,7 +12,9 @@ Un unico hilo hace las dos cosas con la misma lectura del nodo:
    agente, lanzar si, y una auditoria pausa el pipeline del nodo.
 
 De uno en uno por nodo: el agente pausa su pipeline, audita y lo reanuda, asi
-que dos usos a la vez sobre el mismo agente se pisarian.
+que dos usos a la vez sobre el mismo agente se pisarian. Y tampoco se lanza
+mientras el sondeo de cuentas tiene ese nodo: comparten candado alli, asi que
+pedirlo no seria una auditoria sino un 409 y un intento perdido.
 """
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ from typing import Any
 from . import live_audit_catch_up, live_audit_degradation_alerts, live_audit_executions
 from . import live_audit_full_period, live_audit_lineage, live_audit_schedule, manager_http
 from .common import safe_int, utc_now
+from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
 from .live_audit_core import RUNNING_STATUSES
 from .live_audit_executions import audit_label
 from .live_audit_run_state import LiveAuditRunState  # noqa: F401
@@ -130,6 +133,37 @@ def node_live_audits(
         return None, "http_error", message
     audits = value.get("audits") if isinstance(value.get("audits"), dict) else {}
     return audits, "", ""
+
+
+def node_account_snapshot_running(node: dict[str, Any]) -> bool:
+    """Si el sondeo de cuentas tiene cogidas las terminales de este nodo.
+
+    El candado del agente es **uno** para auditar y para sondear —su
+    `is_running` mira las dos cosas, porque el recurso es la cuenta guardada de
+    cada terminal—, pero aquí sólo se miraban las auditorías. El 2026-11-01 el
+    botón «Completar validación» pidió sondeo y recuperación seguidos y la
+    vuelta siguiente lanzó encima: AXI y RoboForex contestaron 409 «Ya hay una
+    auditoría utilizando las terminales del nodo» con su sondeo todavía dentro
+    (terminaron a las 14:52:42 y 14:52:11; se lanzó a las 14:51:19 y 14:51:24).
+    Ese 409 cuenta como intento fallido —a propósito, es el código con que el
+    nodo publica cualquier rechazo— y cuesta diez minutos de espera.
+
+    Sólo un «sí» del nodo frena. Un agente antiguo sin esta ruta, uno que no
+    contesta o una respuesta que no se entiende se dejan pasar igual que antes:
+    si de verdad estuviera ocupado volvería a rechazarlo, que es lo de hoy.
+    """
+    try:
+        status, value = manager_http.node_request(
+            node, "GET", "/api/v1/live-accounts", timeout=10,
+        )
+    except (OSError, urllib.error.URLError, TimeoutError, ValueError):
+        return False
+    if status != 200 or not isinstance(value, dict):
+        return False
+    snapshot = value.get("snapshot")
+    if not isinstance(snapshot, dict):
+        return False
+    return str(snapshot.get("status") or "") in RUNNING_SNAPSHOT_STATUSES
 
 
 def record_node_issue(
@@ -546,6 +580,8 @@ def tick(server: Any) -> None:
         if audits is None:
             continue
         record_transitions(server, node, node_id, state, audits)
+        if node_account_snapshot_running(node):
+            continue
         if launch_catch_up(server, node, node_id, state, audits):
             continue
         if not server.live_audit_scheduler_enabled or server.live_audit_stop.is_set():
