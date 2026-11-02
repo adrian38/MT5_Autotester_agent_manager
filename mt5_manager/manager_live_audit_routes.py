@@ -142,6 +142,7 @@ _VIEW_FIELDS = {
     "view-lots": "view_lot_overrides",
     "reviewed-strategies": "reviewed_strategies",
     "reviewed-history-strategies": "reviewed_history_strategies",
+    "reviewed-degradation-strategies": "reviewed_degradation_strategies",
     "reviewed-unpaired-tester": "reviewed_unpaired_tester",
 }
 

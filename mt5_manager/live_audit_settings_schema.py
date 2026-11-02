@@ -7,6 +7,7 @@ from typing import Any
 from .live_audit_attribution import empty_attribution, normalize_attribution
 from .live_audit_autolot import empty_autolot, normalize_autolot
 from .live_audit_comment_links import empty_comment_links, normalize_comment_links
+from .live_audit_degradation_reviews import normalize_reviewed_degradation_strategies
 from .live_audit_lot_schedule import empty_lot_schedule, normalize_lot_schedule
 from .live_audit_manual_pairs import empty_manual_pairs, normalize_manual_pairs
 
@@ -35,6 +36,11 @@ DEFAULT_LIVE_AUDIT_PROFILE: dict[str, Any] = {
     # periodo dice «ya miré esta semana» y ésta «ya miré la serie entera», así
     # que una marca no puede valer por la otra.
     "reviewed_history_strategies": {},
+    # Y lo mismo sobre «contra el histórico», que pregunta otra cosa: si la
+    # estrategia sigue haciendo lo de siempre. Una puede reproducir el tester
+    # a la perfección y estar degradándose, así que validar aquélla no puede
+    # callar esta alarma. Lo decide `live_audit_degradation_reviews`.
+    "reviewed_degradation_strategies": {},
     # Las ejecutadas en demo que se quedaron sin real y el usuario ya miró una
     # a una. Es el mismo gesto que el de arriba sobre otra lista: validar la
     # estrategia entera decía «ya miré sus números», y esto dice «ya miré esta
@@ -408,6 +414,12 @@ def _normalize_scalar_fields(value: dict[str, Any]) -> dict[str, Any]:
     if "reviewed_history_strategies" in value:
         normalized["reviewed_history_strategies"] = normalize_reviewed_history_strategies(
             value["reviewed_history_strategies"],
+        )
+    if "reviewed_degradation_strategies" in value:
+        normalized["reviewed_degradation_strategies"] = (
+            normalize_reviewed_degradation_strategies(
+                value["reviewed_degradation_strategies"],
+            )
         )
     if "reviewed_unpaired_tester" in value:
         normalized["reviewed_unpaired_tester"] = normalize_reviewed_unpaired_tester(

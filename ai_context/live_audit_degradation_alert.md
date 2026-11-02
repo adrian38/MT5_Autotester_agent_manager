@@ -41,6 +41,12 @@ que no se puede hacer nada, y eso vacía de sentido a los que sí importan.
 `live_audit_reviewed_strategies.md`: una lista de avisos que no se puede vaciar
 deja de leerse.
 
+Esa misma lección llegó a la **lista** el 2026-11-02: lo que el usuario ya miró
+en «contra el histórico» sale de la portada y del resumen del mes, con su
+propia casilla y su propio campo. Lo decide `live_audit_degradation_reviews` y
+lo aplica `stored()` al leer. El detalle, en la sección «Y "contra el
+histórico" tiene la suya» de `live_audit_reviewed_strategies.md`.
+
 A diferencia de `record_transitions`, **la primera vuelta sí habla**. Aquella
 calla porque «la auditoría acaba de terminar» es una noticia y anunciarla tres
 semanas tarde sería falso; «esta estrategia degrada» es una afirmación sobre el

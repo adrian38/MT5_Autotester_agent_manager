@@ -48,7 +48,7 @@ from typing import Any
 
 from .monthly_summary_schedule import month_name, month_plural, month_word
 
-CRITERION_VERSION = "seasonal-bands-profit-and-drawdown-v5"
+CRITERION_VERSION = "seasonal-bands-profit-and-drawdown-v6"
 """El criterio con el que se escribieron los avisos de un informe guardado.
 
 Cubre **todo** el criterio —lo que mide `monthly_summary_build` y lo que dice
@@ -377,8 +377,9 @@ def strategies_degraded(facts: dict[str, Any]) -> dict[str, Any] | None:
     """
     degraded = list(facts.get("degraded") or [])
     crossing = list(facts.get("crossing") or [])
+    validated = _validated_degradation(facts)
     if not degraded and not crossing:
-        return None
+        return _degradation_reviewed(facts)
     if degraded:
         return _notice(
             "strategies_degraded", "error", CHANGE,
@@ -387,7 +388,7 @@ def strategies_degraded(facts: dict[str, Any]) -> dict[str, Any] | None:
             (
                 f"{_named(degraded)}. Rinde por debajo de lo que siempre hizo, "
                 "con la evidencia que exige el criterio. Lo que se cambia son "
-                "esas estrategias, no la cartera entera."
+                f"esas estrategias, no la cartera entera.{validated}"
             ),
         )
     return _notice(
@@ -395,7 +396,44 @@ def strategies_degraded(facts: dict[str, Any]) -> dict[str, Any] | None:
         f"{len(crossing)} estrategia{'' if len(crossing) == 1 else 's'} en el límite",
         (
             f"{_named(crossing)}. Cruzó −2 σ pero la evidencia no lo confirma: "
-            "con esta muestra todavía no hay base para retirarla."
+            f"con esta muestra todavía no hay base para retirarla.{validated}"
+        ),
+    )
+
+
+def _validated_degradation(facts: dict[str, Any]) -> str:
+    """La coletilla que dice cuántas alarmas se callaron por validadas."""
+    hidden = int(facts.get("degradation_reviewed") or 0)
+    if not hidden:
+        return ""
+    if hidden == 1:
+        return " Otra ya está validada en Análisis y no se cuenta aquí."
+    return f" Otras {hidden} ya están validadas en Análisis y no se cuentan aquí."
+
+
+def _degradation_reviewed(facts: dict[str, Any]) -> dict[str, Any] | None:
+    """Que no quede alarma porque se validaron **es** algo que decir.
+
+    Sin esto la tarjeta se queda callada y su veredicto afirma más de lo que
+    sabe: no es que no hubiera nada, es que ya se miró. No lleva veredicto a
+    propósito —validar no cambia lo que la cartera hizo—, así que informa sin
+    mover la tarjeta de sitio.
+    """
+    hidden = int(facts.get("degradation_reviewed") or 0)
+    if not hidden:
+        return None
+    return _notice(
+        "strategies_degraded", "info", "",
+        f"{hidden} alarma{'' if hidden == 1 else 's'} del histórico, validada"
+        f"{'' if hidden == 1 else 's'}",
+        (
+            f"{'Había una' if hidden == 1 else f'Había {hidden}'} contra el "
+            f"histórico y ya {'la' if hidden == 1 else 'las'} miraste en "
+            "Análisis, así que no cuenta"
+            f"{'' if hidden == 1 else 'n'} para el veredicto. "
+            f"Vuelve{'' if hidden == 1 else 'n'} sola"
+            f"{'' if hidden == 1 else 's'} si la próxima auditoría "
+            f"{'la' if hidden == 1 else 'las'} empeora."
         ),
     )
 

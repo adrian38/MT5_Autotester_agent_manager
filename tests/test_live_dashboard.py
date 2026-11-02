@@ -146,8 +146,11 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # mientras una estrategia cruzaba semana tras semana. Se nombra, con
         # su chapa ámbar, y la tarjeta deja de estar verde.
         self.assertIn("entry.degradation?.crossing || []", self.script)
+        # La sección sigue desapareciendo cuando no hay nada, salvo que lo que
+        # la vació fueran las validadas: eso hay que contarlo.
         self.assertIn(
-            "if (!rows.length && !crossing.length && !slow.length) return ''", self.script,
+            "if (!rows.length && !crossing.length && !slow.length && !reviewed) return ''",
+            self.script,
         )
         self.assertIn("strategyAlert(row, 'warn', 'AVISO FUERTE')", self.script)
         self.assertIn("crossing ? `${crossing} EN VIGILANCIA` : ''", self.script)

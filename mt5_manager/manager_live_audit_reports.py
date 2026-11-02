@@ -19,6 +19,7 @@ from typing import Any
 from . import live_audit_analysis
 from . import live_audit_degradation
 from . import live_audit_degradation_evidence
+from . import live_audit_degradation_reviews
 from . import live_audit_executions
 from . import live_audit_history, live_audit_lineage
 from . import manager_http
@@ -76,7 +77,21 @@ def accumulated_degradation(
         key: accumulated[key]
         for key in ("audits", "days", "portfolios", "since", "until", "inherited")
     }
+    # Qué filas ya miró el usuario. Lo decide el servidor y no la pantalla por
+    # el mismo motivo que el veredicto: la casilla de Análisis y lo que la
+    # portada deja de enseñar tienen que decir lo mismo, y dos cálculos serían
+    # dos criterios.
+    live_audit_degradation_reviews.annotate(
+        report.get("strategies") or [],
+        _degradation_marks(server, node_id, audit_key),
+    )
     return report
+
+
+def _degradation_marks(server: Any, node_id: str, audit_key: str) -> dict[str, Any]:
+    settings = getattr(server, "live_audit_settings", None)
+    reader = getattr(settings, "reviewed_degradation_strategies", None)
+    return reader(node_id, audit_key) if callable(reader) else {}
 
 
 def _period_days(result: dict[str, Any]) -> float:

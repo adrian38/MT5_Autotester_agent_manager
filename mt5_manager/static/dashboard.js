@@ -333,7 +333,12 @@ function degradationMarkup(entry) {
   const rows = entry.degradation?.strategies || [];
   const crossing = entry.degradation?.crossing || [];
   const slow = entry.degradation?.slow || [];
-  if (!rows.length && !crossing.length && !slow.length) return '';
+  // Lo validado en Análisis ya no llega: lo quita el servidor, que es el mismo
+  // punto del que lee el resumen del mes. Pero si lo que vació la sección
+  // fueron las validadas hay que decirlo, igual que en la del histórico:
+  // esconder tres avisos sin contarlos afirma más de lo que se sabe.
+  const reviewed = Number(entry.degradation?.reviewed || 0);
+  if (!rows.length && !crossing.length && !slow.length && !reviewed) return '';
   const watching = Number(entry.degradation?.watching || 0);
   const alerts = rows.map(row => strategyAlert(row, 'bad', 'DEGRADA'))
     .concat(crossing.map(row => strategyAlert(row, 'warn', 'AVISO FUERTE')))
@@ -342,10 +347,14 @@ function degradationMarkup(entry) {
     rows.length ? `${rows.length} degrada${rows.length === 1 ? '' : 'n'}` : '',
     watching ? `${watching} en vigilancia` : '',
     slow.length ? `${slow.length} opera${slow.length === 1 ? '' : 'n'} menos` : '',
+    reviewed ? `${reviewed} validada${reviewed === 1 ? '' : 's'}` : '',
   ].filter(Boolean).join(' · ');
+  const body = alerts
+    ? `<ul class="strategy-alerts">${alerts}</ul>`
+    : `<p class="no-alerts">Sin alarmas pendientes. ${reviewed} validada${
+      reviewed === 1 ? '' : 's'} en Análisis.</p>`;
   return `<section class="strategy-section"><div class="section-title"><strong>Contra el histórico</strong>`
-    + `<span>${counts}</span></div>`
-    + `<ul class="strategy-alerts">${alerts}</ul></section>`;
+    + `<span>${counts}</span></div>${body}</section>`;
 }
 
 // Lo que la última auditoría no consiguió enlazar. Es el trabajo pendiente del

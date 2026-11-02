@@ -238,11 +238,17 @@ def _performance(
 
 
 def _degradation(server: Any, node_id: str, portfolios: list[dict[str, Any]]) -> dict[str, Any]:
-    """Lo que el vigilante ya midió de cada uso de esta cuenta, junto."""
+    """Lo que el vigilante ya midió de cada uso de esta cuenta, junto.
+
+    Sin lo que el usuario ya validó en «contra el histórico»: eso lo quita
+    `live_audit_degradation_alerts.stored`, que es el mismo punto del que lee
+    la portada. Lo escondido se cuenta, porque una tarjeta que calla tres
+    avisos sin decirlo afirma más de lo que sabe.
+    """
     degraded: list[dict[str, Any]] = []
     crossing: list[dict[str, Any]] = []
     slow: list[dict[str, Any]] = []
-    watching = compared = 0
+    watching = compared = reviewed = 0
     checked: list[str] = []
     for portfolio in portfolios:
         found = live_audit_degradation_alerts.stored(
@@ -253,11 +259,13 @@ def _degradation(server: Any, node_id: str, portfolios: list[dict[str, Any]]) ->
         slow.extend(found["slow"])
         watching += int(found["watching"])
         compared += int(found["compared"])
+        reviewed += int(found.get("reviewed") or 0)
         if found["checked_at"]:
             checked.append(found["checked_at"])
     return {
         "degraded": degraded, "crossing": crossing, "slow": slow,
         "watching": watching, "compared": compared,
+        "degradation_reviewed": reviewed,
         "checked_at": max(checked) if checked else "",
     }
 

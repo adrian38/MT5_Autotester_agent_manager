@@ -20,6 +20,11 @@ Tres decisiones que no se deducen del código:
   porque una lista de avisos que no se puede vaciar deja de leerse
   (`ai_context/live_audit_reviewed_strategies.md`). Si sale de `DEGRADA` y
   vuelve a entrar, vuelve a avisar.
+- **Lo validado no se enseña.** La misma lección, pero para la lista: lo que el
+  usuario ya miró en «contra el histórico» sale de la portada y del resumen del
+  mes. Lo decide `live_audit_degradation_reviews`, con su propia marca y no con
+  la de reproducción: validar que el real se parece al tester no dice nada
+  sobre si la estrategia sigue haciendo lo de siempre.
 
 A diferencia de `record_transitions`, aquí la primera vuelta **sí** habla: «esta
 estrategia degrada» es una afirmación sobre el estado de hoy, no una noticia de
@@ -32,7 +37,7 @@ import sys
 import urllib.parse
 from typing import Any
 
-from . import manager_live_audit_reports
+from . import live_audit_degradation_reviews, manager_live_audit_reports
 from .common import safe_int, utc_now
 from .live_audit_executions import audit_label
 
@@ -244,11 +249,24 @@ def review(
         _announce(server, node, node_id, audit_key, profile, fresh)
 
 
+def _marks(server: Any, node_id: str, audit_key: str) -> dict[str, Any]:
+    """Las alarmas que el usuario ya validó para este uso, o nada."""
+    settings = getattr(server, "live_audit_settings", None)
+    reader = getattr(settings, "reviewed_degradation_strategies", None)
+    return reader(node_id, audit_key) if callable(reader) else {}
+
+
 def stored(server: Any, node_id: str, audit_key: str) -> dict[str, Any]:
-    """Lo último que se midió, tal como lo enseña la tarjeta de la portada."""
+    """Lo último que se midió, tal como lo enseña la tarjeta de la portada.
+
+    Lo validado se esconde **aquí y no al medir**: el registro del cron está
+    cerrado con el `execution_id`, así que filtrar al escribirlo dejaría la
+    validación sin efecto hasta la auditoría siguiente —una semana mirando una
+    alarma que ya se miró—. Al leer, la casilla se nota en el acto.
+    """
     runs = getattr(server, "live_audit_runs", None)
     record = runs.record(runs.key(node_id, audit_key)) if runs is not None else {}
-    return {
+    found = {
         "strategies": [
             row for row in record.get("degradation") or [] if isinstance(row, dict)
         ],
@@ -262,6 +280,9 @@ def stored(server: Any, node_id: str, audit_key: str) -> dict[str, Any]:
         "compared": safe_int(record.get("degradation_compared"), 0, minimum=0),
         "checked_at": str(record.get("degradation_checked_at") or ""),
     }
+    return live_audit_degradation_reviews.hide(
+        found, _marks(server, node_id, audit_key),
+    )
 
 
 __all__ = [name for name in globals() if not name.startswith("_")]

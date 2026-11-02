@@ -29,6 +29,16 @@ class FakeSettingsStore:
     def credentials(self, _node_id: str, _audit_id: str) -> dict[str, str]:
         return {"source_password": "s", "tester_password": "t"}
 
+    def reviewed_degradation_strategies(
+        self, _node_id: str, audit_id: str,
+    ) -> dict[str, object]:
+        """Lo validado en «contra el histórico», como lo lee el almacén real."""
+        profiles = self._state.get("profiles") or {}
+        stored = (profiles.get(str(audit_id)) or {}).get(
+            "reviewed_degradation_strategies",
+        )
+        return stored if isinstance(stored, dict) else {}
+
     def restore_credentials(self, _node_id: str) -> dict[str, str]:
         return {
             "restore_login": "9", "restore_server": "Broker-Test", "restore_password": "r",

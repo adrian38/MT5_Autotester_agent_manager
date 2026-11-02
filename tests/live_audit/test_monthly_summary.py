@@ -478,6 +478,8 @@ class NoticeTests(unittest.TestCase):
             crossing=[{"symbol": "EURUSD", "strategy": "B"}],
         ))
         self.assertEqual(crossing["verdict"], notices.WATCH)
+        # Lo que hace la tarjeta con lo ya validado se comprueba junto al resto
+        # de esa marca, en `test_live_audit_degradation_reviews`.
 
     def test_half_an_audited_month_covers_every_other_verdict(self) -> None:
         found = notices.notices(facts(

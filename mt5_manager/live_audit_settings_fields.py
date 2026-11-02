@@ -20,6 +20,9 @@ from .live_audit_attribution import (
     remove_source,
     rewrite_profile_attribution,
 )
+from .live_audit_degradation_reviews import (
+    normalize_reviewed_degradation_strategies,
+)
 from .live_audit_lot_schedule import normalize_lot_schedule
 from .live_audit_comment_links import normalize_comment_links
 from .live_audit_manual_pairs import normalize_manual_pairs
@@ -120,6 +123,31 @@ class LiveAuditProfileFieldsMixin:
         return self._set_profile_field(
             node_id, audit_id, "reviewed_history_strategies",
             normalize_reviewed_history_strategies(reviewed),
+        )
+
+    def reviewed_degradation_strategies(
+        self, node_id: str, audit_id: str,
+    ) -> dict[str, Any]:
+        """Las alarmas «contra el histórico» que el usuario ya dio por miradas."""
+        with self.lock:
+            profiles = (self.records.get(node_id) or {}).get("profiles") or {}
+            stored = (profiles.get(str(audit_id)) or {}).get(
+                "reviewed_degradation_strategies",
+            )
+        return normalize_reviewed_degradation_strategies(stored)
+
+    def set_reviewed_degradation_strategies(
+        self, node_id: str, audit_id: str, reviewed: Any,
+    ) -> dict[str, Any]:
+        """Guarda qué alarmas de degradación ya miró el usuario.
+
+        Tercer campo y no uno de los dos anteriores: aquéllos dicen que el real
+        se parece al tester y éste que la estrategia sigue haciendo lo de
+        siempre. Son dos hechos distintos sobre el mismo nombre.
+        """
+        return self._set_profile_field(
+            node_id, audit_id, "reviewed_degradation_strategies",
+            normalize_reviewed_degradation_strategies(reviewed),
         )
 
     def reviewed_unpaired_tester(self, node_id: str, audit_id: str) -> dict[str, Any]:

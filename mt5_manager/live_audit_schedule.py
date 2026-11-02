@@ -40,7 +40,7 @@ DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS = {
 MANAGER_ONLY_PROFILE_KEYS = frozenset({
     "autolot", "real_attribution", "live_trading",
     "view_lot_overrides", "reviewed_strategies", "reviewed_unpaired_tester",
-    "reviewed_history_strategies",
+    "reviewed_history_strategies", "reviewed_degradation_strategies",
     "manual_pairs",
 })
 """Lo que es criterio del manager y no viaja al nodo.

@@ -99,6 +99,63 @@ histórico» de la tarjeta ya no desaparece cuando lo único que la vació fuero
 las validadas: enseña el recuento, porque esconder tres avisos sin contarlos
 afirma más de lo que se sabe.
 
+## Y «contra el histórico» tiene la suya (2026-11-02)
+
+Esa tabla no tenía casilla. Sus alarmas —`DEGRADA`, `AVISO FUERTE` y «opera
+menos»— salían en `Portafolios activos` y en el resumen del mes auditoría tras
+auditoría sin que nada pudiera vaciarlas: el camino
+`live_audit_degradation_alerts.stored` → tarjeta no miraba ningún campo
+validado. Medido el 2026-11-02 sobre el informe de octubre, **5 de las 12
+alarmas eran de estrategias que el usuario ya había validado** en las otras dos
+tablas; la del 105 de AXI estaba marcada en las dos desde el 25 y el 26 de
+octubre y la tarjeta seguía diciendo «1 estrategia en el límite».
+
+**Tercera marca y no una de las dos anteriores.** Aquéllas dicen que el real se
+parece al tester —esta semana, o en toda la serie— y ésta que la estrategia
+sigue haciendo lo de siempre. Una puede reproducir a la perfección y estar
+degradándose, así que dejar que una validación de reproducción callara esta
+alarma escondería justo la que nadie ha mirado. El campo es
+`reviewed_degradation_strategies` y el camino es el de siempre: `_VIEW_FIELDS`
+de `manager_live_audit_routes.py` y el par del almacén.
+
+Dos ejes, porque la fila enseña dos hechos distintos:
+
+- **El veredicto**, ordenado en `live_audit_degradation_reviews.SEVERITY`:
+  `warning` < `crossed` < `degraded`. `crossed` es el `AVISO FUERTE` de la
+  pantalla, que no es un veredicto del servidor sino un `warning` cuya
+  evidencia cruzó: sin él, validar un aviso taparía el cruce de la semana
+  siguiente.
+- **`slow`**, que no es un veredicto peor sino otra cosa. Validar el veredicto
+  no calla «opera menos», y al revés.
+
+Empeorar sin cambiar de nivel también retira la marca, como en reproducción,
+pero la magnitud son **sigmas** y no un déficit: más negativo es peor y el
+margen es `SAME_LEVEL_MARGIN_SIGMA = 0.5`.
+
+### Se esconde al leer, no al medir
+
+`live_audit_degradation_alerts.review` deja lo medido en el estado del cron con
+un candado de `execution_id@CRITERION`, así que filtrar ahí dejaría la
+validación sin efecto **hasta la auditoría siguiente**: una semana mirando una
+alarma ya mirada. Por eso filtra `stored()`, que es el único punto del que leen
+las dos pantallas que la enseñan.
+
+### El criterio no vuelve al navegador
+
+Al revés que la regla de reproducción, ésta vive en Python y la pantalla no la
+recalcula: `manager_live_audit_reports.accumulated_degradation` anota cada fila
+con `reviewed`, `review`, `review_level` y `review_slow`, y
+`live_audit_analysis.js` sólo pinta la casilla y guarda el nivel que le
+mandaron. Marcar y desmarcar no vuelve a pedir el informe —abre la memoria UBS
+del agente— porque la marca se construye con los valores de la propia fila y
+por construcción la tapa; quien decide en la carga siguiente sigue siendo el
+servidor.
+
+La portada y la tarjeta del mes cuentan lo escondido (`reviewed`): un «sin
+avisos» que además calla tres filas afirma más de lo que sabe. Y por eso
+`monthly_summary_notices.CRITERION_VERSION` subió a
+`seasonal-bands-profit-and-drawdown-v6`.
+
 ## Nada que portar a los agentes
 
 Igual que el veredicto y el emparejamiento, esto vive sólo en el manager

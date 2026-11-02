@@ -361,7 +361,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
             endpoint = url.strip().strip("`").rsplit("/", 1)[-1]
             self.assertTrue(
                 "${criterion}" in url or endpoint in importers
-                or url.strip() in {"viewLotsUrl", "reviewsUrl", "unpairedReviewsUrl"},
+                or url.strip() in {"viewLotsUrl", "reviewsUrl", "unpairedReviewsUrl", "degradationReviewsUrl"},
                 f"POST inesperado desde Análisis: {url}",
             )
         # `changeCriterion` es la única puerta, así que la guarda vale aunque

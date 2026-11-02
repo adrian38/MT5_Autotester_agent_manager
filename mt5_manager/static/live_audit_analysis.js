@@ -5,12 +5,15 @@ const modeLabels = {aggressive: 'Agresivo', balanced: 'Moderado', conservative: 
 const viewLotsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/view-lots`;
 const reviewsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reviewed-strategies`;
 const unpairedReviewsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reviewed-unpaired-tester`;
+const degradationReviewsUrl = `/api/nodes/${encodeURIComponent(nodeId)}/live-audits/${encodeURIComponent(auditId)}/reviewed-degradation-strategies`;
 let strategyRows = [];
 let strategySummaries = {};
 let chartContext = {currency: 'EUR', window: []};
 let lotOverrides = {};
 let reviews = {};
 let unpairedReviews = {};
+let degradationReviews = {};
+let degradationReport = null;
 let currentResult = null;
 
 // El escalado aplicado se guarda en el perfil del uso, no en este navegador.
@@ -61,6 +64,27 @@ async function readUnpairedReviews() {
     const stored = data.reviewed_unpaired_tester;
     return stored && typeof stored === 'object' ? stored : {};
   } catch (_error) { return {}; }
+}
+
+// Y lo mismo con las alarmas de «contra el histórico». Tercer campo y no uno
+// de los dos anteriores: aquéllos dicen que el real se parece al tester y éste
+// que la estrategia sigue haciendo lo de siempre. Una puede reproducir a la
+// perfección y estar degradándose, así que una marca no puede valer por la
+// otra. Quién tapa a quién lo decide el servidor, que manda `reviewed` en cada
+// fila: aquí no se recalcula, o serían dos criterios para lo mismo.
+async function readDegradationReviews() {
+  try {
+    const data = await jsonResponse(await fetch(degradationReviewsUrl, {cache: 'no-store'}));
+    const stored = data.reviewed_degradation_strategies;
+    return stored && typeof stored === 'object' ? stored : {};
+  } catch (_error) { return {}; }
+}
+
+async function writeDegradationReviews(value) {
+  await jsonResponse(await fetch(degradationReviewsUrl, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reviewed_degradation_strategies: value}),
+  }));
 }
 
 async function writeUnpairedReviews(value) {
@@ -1342,6 +1366,80 @@ function rateNote(row) {
   return `<small class="degradation-off">${escapeHtml(text)}</small>`;
 }
 
+// La casilla de esta tabla. La lleva lo que avisa de algo —el veredicto, el
+// ritmo o los dos— y también la fila que conserva su marca aunque haya
+// mejorado, o no habría forma de retirarla. Quién está tapado lo dice el
+// servidor en `reviewed`; aquí sólo se pinta.
+const DEGRADATION_LEVELS = {
+  degraded: 'DEGRADA', crossed: 'AVISO FUERTE', warning: 'AVISO',
+};
+
+function degradationMarkLabel(mark) {
+  const level = DEGRADATION_LEVELS[mark.verdict] || '';
+  const sigmas = mark.deviations === null || mark.deviations === undefined
+    ? '' : ` (${sigmaText(mark.deviations)})`;
+  if (level) return `${level}${sigmas}`;
+  return mark.slow ? 'cuando sólo operaba menos' : 'sin aviso';
+}
+
+function degradationReviewNote(row) {
+  const mark = row.review && row.review.at ? row.review : null;
+  if (row.reviewed) {
+    const since = reviewDate(mark && mark.at);
+    return `<small>Fuera de Portafolios activos y del resumen del mes${
+      since ? ` desde el ${escapeHtml(since)}` : ''}.</small>`;
+  }
+  if (mark) {
+    return `<small class="degradation-off">La validaste con ${
+      escapeHtml(degradationMarkLabel(mark))} y ha empeorado: vuelve a avisar `
+      + 'hasta que la mires otra vez.</small>';
+  }
+  return '<small>Márcala cuando la hayas revisado: deja de contar en '
+    + 'Portafolios activos y en el resumen del mes.</small>';
+}
+
+function degradationReviewCell(row) {
+  const marked = Boolean(row.review && row.review.at);
+  if (!row.review_level && !row.review_slow && !marked) {
+    return '<td class="audit-analysis-review"><small>—</small></td>';
+  }
+  return `<td class="audit-analysis-review"><label><input type="checkbox"
+    data-degradation-review="${escapeHtml(row.strategy)}"${
+    row.reviewed ? ' checked' : ''}><span>Validada</span></label>${
+    degradationReviewNote(row)}</td>`;
+}
+
+// La marca se construye con lo que la fila tiene **ahora**, así que por
+// construcción la tapa: marcar y desmarcar no necesita volver a pedir el
+// informe, que abre la memoria UBS del agente. En la carga siguiente vuelve a
+// decidir el servidor.
+async function toggleDegradationReview(row, checked) {
+  const previous = {marks: degradationReviews, reviewed: row.reviewed, mark: row.review};
+  degradationReviews = {...degradationReviews};
+  if (checked) {
+    degradationReviews[row.strategy] = {
+      verdict: row.review_level || '',
+      deviations: row.deviations === null || row.deviations === undefined
+        ? null : Number(row.deviations),
+      slow: Boolean(row.review_slow),
+      at: new Date().toISOString(),
+    };
+  } else delete degradationReviews[row.strategy];
+  row.reviewed = checked;
+  row.review = checked ? {...degradationReviews[row.strategy]} : {};
+  renderDegradation(degradationReport);
+  try {
+    await writeDegradationReviews(degradationReviews);
+    showAnalysisError('');
+  } catch (error) {
+    degradationReviews = previous.marks;
+    row.reviewed = previous.reviewed;
+    row.review = previous.mark;
+    renderDegradation(degradationReport);
+    showAnalysisError(`No se pudo guardar la validación: ${error.message}`);
+  }
+}
+
 function degradationRow(row, currency) {
   const crossed = row.verdict === 'warning' && row.evidence?.crossed;
   const tone = verdictTone[row.verdict] || '';
@@ -1357,10 +1455,12 @@ function degradationRow(row, currency) {
     <td>${deviationCell(row)}</td>
     <td>${historyCell(row, currency)}</td>
     <td><span class="degradation-status ${tone}">${escapeHtml(label)}</span><small>${escapeHtml(help)}</small>${evidenceNote(row)}${rateNote(row)}</td>
+    ${degradationReviewCell(row)}
   </tr>`;
 }
 
 function renderDegradation(report) {
+  degradationReport = report;
   const rows = report.strategies || [];
   const currency = chartContext.currency;
   document.querySelector('#history-reference-lot').textContent = number(report.reference_lot, 8);
@@ -1368,7 +1468,7 @@ function renderDegradation(report) {
   renderAccumulatedNote(report.accumulated);
   document.querySelector('#degradation-body').innerHTML = rows.length
     ? rows.map(row => degradationRow(row, currency)).join('')
-    : '<tr><td colspan="6" class="audit-analysis-empty">No hay estrategias que comparar en este resultado.</td></tr>';
+    : '<tr><td colspan="7" class="audit-analysis-empty">No hay estrategias que comparar en este resultado.</td></tr>';
   // Una fila sin muestra para opinar del beneficio pero que ha dejado de
   // operar no es «sin conclusión»: es justo la que hay que mirar.
   const flagged = rows.filter(
@@ -1378,11 +1478,16 @@ function renderDegradation(report) {
     'insufficient', 'no_trades', 'no_history', 'no_dispersion',
   ].includes(row.verdict)).length;
   const badge = document.querySelector('#degradation-count');
-  const reviewed = rows.length - flagged - undecided;
+  const keep = rows.length - flagged - undecided;
+  // Validar no cambia el veredicto, así que no se descuenta de «a revisar»:
+  // esta tabla enseña lo que hay. Se dice aparte cuántas ya se miraron, que es
+  // lo que la portada y el resumen del mes dejan de contar.
+  const validated = rows.filter(row => row.reviewed).length;
   badge.textContent = [
     flagged ? `${flagged} A REVISAR` : '',
     undecided ? `${undecided} SIN CONCLUSIÓN` : '',
-    reviewed ? `${reviewed} MANTENER` : '',
+    keep ? `${keep} MANTENER` : '',
+    validated ? `${validated} VALIDADA${validated === 1 ? '' : 'S'}` : '',
   ].filter(Boolean).join(' · ') || 'SIN DATOS';
   badge.className = `badge ${flagged ? 'pending' : 'idle'}`;
 }
@@ -1411,7 +1516,7 @@ function renderAccumulatedNote(accumulated) {
 
 function degradationUnavailable(message) {
   document.querySelector('#degradation-body').innerHTML =
-    '<tr><td colspan="6" class="audit-analysis-empty">No se pudo leer el histórico de las estrategias.</td></tr>';
+    '<tr><td colspan="7" class="audit-analysis-empty">No se pudo leer el histórico de las estrategias.</td></tr>';
   const warning = document.querySelector('#degradation-warning');
   warning.hidden = false;
   warning.textContent = `La memoria del agente no contestó: ${message}`;
@@ -1447,12 +1552,13 @@ async function loadAnalysis() {
   if (!comparisonRows(result).length) {
     throw new Error('Esta ejecución no guardó la comparación operación por operación, así que no hay con qué derivar las curvas. Vuelve a ejecutar la auditoría con el motor actual.');
   }
-  const [storedLots, storedReviews, storedUnpaired] = await Promise.all([
-    readOverrides(), readReviews(), readUnpairedReviews(),
+  const [storedLots, storedReviews, storedUnpaired, storedDegradation] = await Promise.all([
+    readOverrides(), readReviews(), readUnpairedReviews(), readDegradationReviews(),
   ]);
   lotOverrides = storedLots;
   reviews = storedReviews;
   unpairedReviews = storedUnpaired;
+  degradationReviews = storedDegradation;
   render(result);
   // La tabla del histórico carga por su cuenta al abrir la página, así que
   // llega antes que los lotes guardados y los pintaría sin la casilla que
@@ -1926,6 +2032,14 @@ async function toggleUnpairedReview(key, checked) {
 document.querySelector('#unlinked-tester-body').addEventListener('change', event => {
   const box = event.target.closest('[data-unpaired-review]');
   if (box) toggleUnpairedReview(box.dataset.unpairedReview, box.checked);
+});
+
+document.querySelector('#degradation-body').addEventListener('change', event => {
+  const box = event.target.closest('[data-degradation-review]');
+  const row = box && (degradationReport?.strategies || []).find(
+    candidate => candidate.strategy === box.dataset.degradationReview,
+  );
+  if (row) toggleDegradationReview(row, box.checked);
 });
 
 document.querySelector('#back-link').href = `/live_audit.html?node=${encodeURIComponent(nodeId)}`;
