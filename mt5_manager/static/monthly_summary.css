@@ -15,11 +15,15 @@
 /* La pantalla propia. El `main` de `styles.css` ya centra y limita el ancho;
  * aqui solo se ordenan sus tres bloques. */
 .summary-page main{display:grid;gap:16px}
-.summary-page .summary-toolbar{display:flex;align-items:end;gap:16px;flex-wrap:wrap;padding:14px;border:1px solid var(--line,#27394b);border-radius:12px;background:var(--panel,#111b27)}
+.summary-page .summary-toolbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px;border:1px solid var(--line,#27394b);border-radius:12px;background:var(--panel,#111b27)}
 .summary-page .summary-toolbar label{display:grid;gap:6px;min-width:200px;color:var(--muted,#91a4b5);font-size:12px}
 .summary-page .summary-toolbar select{padding:9px 10px;border:1px solid var(--line,#27394b);border-radius:8px;background:#0b1520;color:var(--text,#edf5f7);font:inherit}
 .summary-page .summary-toolbar .summary-counts{flex:1 1 240px}
 .summary-page .summary-toolbar .cron-note,.summary-page .summary-config .cron-note{color:var(--muted,#91a4b5);font-size:12px;line-height:1.5}
+/* El selector lleva su etiqueta encima y es mas alto que el resto: sin
+   esto cada texto se apoyaba en el borde de abajo y la fila se leia
+   descuadrada. Los parrafos pierden su margen por lo mismo. */
+.summary-page .summary-toolbar>p{margin:0}
 /* La barra toma de `cron-activity` el punto, el relleno y la animacion; aqui
    solo deja de ser un boton —no se pulsa, informa— y ocupa la fila entera por
    encima de los botones. El texto puede ser largo, asi que no se recorta. */
