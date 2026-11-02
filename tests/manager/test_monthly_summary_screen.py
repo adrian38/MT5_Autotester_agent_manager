@@ -203,7 +203,7 @@ class ScriptTests(unittest.TestCase):
 
     def test_only_bad_strategies_are_named_with_strategy_and_symbol(self) -> None:
         for expression in (
-            "issue.strategy", "issue.symbol", "issue.verdict",
+            "issue.strategy", "issue.symbol", "issue.verdict", "issue.set",
             'aria-label="Estrategias con problemas"',
             "if (issues.length) return {issues}",
         ):
@@ -214,6 +214,10 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("text: 'reproduce'", SCRIPT)
         self.assertNotIn("text: 'sin comparación'", SCRIPT)
         self.assertIn(".summary-reproduction-issues{", STYLE)
+        # El `.set` es lo que se abre para mirar el problema, así que se nombra
+        # junto a la estrategia; sólo cuando dice algo distinto de su nombre.
+        self.assertIn(".summary-reproduction-set{", STYLE)
+        self.assertIn("set && set !== strategy ? set : ''", SCRIPT)
 
     def test_the_alias_is_the_first_highlighted_identity_of_the_card(self) -> None:
         # El alias vive en la memoria UBS del agente, así que tampoco viaja con
@@ -400,6 +404,9 @@ class ScriptTests(unittest.TestCase):
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
         self.assertIn("tone(netClosed.profit, seasonProfit)", figures)
         self.assertIn("tone(closed.drawdown, seasonDepth, true)", figures)
+        # Los siete recuadros se comparan en columna: etiqueta y numero van
+        # centrados en su caja, no pegados al margen izquierdo.
+        self.assertIn("justify-items:center;text-align:center", STYLE)
         for rule in (".summary-grid strong.good{", ".summary-grid strong.bad{"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, STYLE)

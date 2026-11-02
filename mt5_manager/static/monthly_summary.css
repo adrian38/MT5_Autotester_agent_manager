@@ -86,7 +86,9 @@
 /* Los seis números del mes. Caben en dos filas de tres en el móvil y en una
  * en el escritorio: son el dato, y el dato se lee antes que las frases. */
 .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
-.summary-grid div{display:grid;gap:3px;padding:9px;border:1px solid var(--line,#27394b);border-radius:9px;background:#0d1a26}
+/* Etiqueta y número van centrados en su recuadro: son siete cajas de anchos
+   distintos y el ojo las compara en columna, no por su margen izquierdo. */
+.summary-grid div{display:grid;gap:3px;padding:9px;border:1px solid var(--line,#27394b);border-radius:9px;background:#0d1a26;justify-items:center;text-align:center}
 .summary-grid span{color:var(--muted,#91a4b5);font-size:11px}
 .summary-grid strong{font-size:14px}
 /* El color dice lo mismo que la frase: contra la media de su mes del ano. En
@@ -112,6 +114,7 @@
 .summary-reproduction-issues{display:grid;gap:4px;padding-left:12px}
 .summary-reproduction-issue{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--muted,#91a4b5)}
 .summary-reproduction-issue>span{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.summary-reproduction-set{color:var(--muted,#91a4b5);font-size:11px;font-weight:700}
 .summary-reproduction{padding:2px 7px;border-radius:999px;font-size:10px;font-weight:800}
 .summary-reproduction.failed{background:#45161b;color:#ffc9c9}
 .summary-reproduction.pending{background:#43381a;color:#ffe9a8}

@@ -309,6 +309,10 @@
     const rows = mark.issues.map(issue => (
       `<div class="summary-reproduction-issue"><span>${escapeHtml(issue.strategy)}`
       + ` · ${escapeHtml(issue.symbol)}</span>`
+      // El `.set` es lo que se abre para mirar el problema: el nombre de la
+      // estrategia no basta, porque dos pueden compartirlo con sets distintos.
+      + (issue.set
+        ? `<span class="summary-reproduction-set">${escapeHtml(issue.set)}</span>` : '')
       + `<strong class="summary-reproduction ${escapeHtml(issue.tone)}">`
       + `${escapeHtml(issue.verdict)}</strong></div>`
     ));
@@ -476,10 +480,15 @@
       rules.storedReviews(entry.profile), rules.storedUnpairedReviews(entry.profile),
     );
     if (!summary.comparable) return null;
-    const issues = summary.flagged.map(row => ({
-      strategy: String(row.strategy || row.label || 'Sin estrategia'),
-      symbol: String(row.symbol || '—'), verdict: row.verdict, tone: row.tone,
-    }));
+    const issues = summary.flagged.map(row => {
+      const strategy = String(row.strategy || row.label || 'Sin estrategia');
+      const set = String(row.label || '');
+      return {
+        strategy, symbol: String(row.symbol || '—'),
+        set: set && set !== strategy ? set : '',
+        verdict: row.verdict, tone: row.tone,
+      };
+    });
     if (issues.length) return {issues};
     return null;
   }
