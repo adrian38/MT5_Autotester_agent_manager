@@ -110,6 +110,17 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("if(task.status==='failed')", script)
         self.assertIn("await loadInventory();", script)
 
+    def test_existing_manual_portfolio_can_add_and_remove_sets(self) -> None:
+        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
+        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        self.assertIn('id="manual-add-sets"', page)
+        self.assertIn('id="manual-set-files"', page)
+        self.assertIn("manual-remove-set", script)
+        self.assertIn("portfolio-manager/manual-members", script)
+        self.assertIn("operation:'add'", script)
+        self.assertIn("operation:'remove'", script)
+        self.assertIn("set_path:path", script)
+
     def test_manual_history_ignores_previous_attempt_without_resetting_detail(self) -> None:
         script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
         self.assertIn("function isCurrentHistory", script)
@@ -235,6 +246,27 @@ class ManualPortfolioRouteTests(unittest.TestCase):
             {"portfolio_id": 7}, timeout=120,
         )
         self.assertEqual(handler.sent, (202, {"queued": False}))
+
+    def test_manager_forwards_manual_member_changes_to_the_node(self) -> None:
+        invalidated = []
+        portfolios = SimpleNamespace(_invalidate_node_snapshots=invalidated.append)
+        handler = SimpleNamespace(
+            server=SimpleNamespace(portfolios=portfolios),
+            _send_json=lambda status, value: setattr(handler, "sent", (status, value)),
+        )
+        body = {"operation": "remove", "portfolio_id": 7, "set_path": "one.set"}
+        with patch.object(
+            manager_portfolio_routes.manager_http, "node_request", return_value=(200, {"removed": 1}),
+        ) as request:
+            manager_portfolio_routes.manual_portfolio_action(
+                handler, {"id": "axi", "url": "http://axi"}, "manual-members", body,
+            )
+        request.assert_called_once_with(
+            {"id": "axi", "url": "http://axi"}, "POST", "/api/v1/portfolios/manual-members",
+            body, timeout=120,
+        )
+        self.assertEqual(handler.sent, (200, {"removed": 1}))
+        self.assertEqual(invalidated, ["axi"])
 
 
 if __name__ == "__main__":

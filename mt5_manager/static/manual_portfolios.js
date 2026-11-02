@@ -7,6 +7,7 @@ let historyJobId = '';
 let historyQueueId = '';
 let historyRequestedAt = 0;
 let detailView = 'strategy';
+let selectedPortfolio = null;
 const inventory = document.querySelector('#manual-inventory');
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[char]);
 const number = value => Number(value || 0).toLocaleString('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -34,7 +35,7 @@ function renderMembers(portfolio) {
   document.querySelector('#manual-members').innerHTML=(portfolio.members||[]).map(member=>{
     const report=reports.get(String(member.set_id))||{};
     const period=report.period_start?`${esc(report.period_start)} – ${esc(report.period_end)}`:'Histórico pendiente';
-    return `<tr><td><strong>${esc(member.set_name)}</strong></td><td>${esc(report.symbol||member.symbol)}</td><td>${esc(report.timeframe||member.timeframe)}</td><td>${number(member.lot)}</td><td>${period}</td><td>${report.trades??'—'}</td><td>${report.net_profit==null?'—':number(report.net_profit)}</td><td>${report.max_drawdown==null?'—':number(report.max_drawdown)}</td><td>${report.win_rate==null?'—':`${number(report.win_rate)}%`}</td><td>${report.profit_factor==null?'—':number(report.profit_factor)}</td><td>${esc(report.history_quality||'—')}</td></tr>`;
+    return `<tr><td><strong>${esc(member.set_name)}</strong></td><td>${esc(report.symbol||member.symbol)}</td><td>${esc(report.timeframe||member.timeframe)}</td><td>${number(member.lot)}</td><td>${period}</td><td>${report.trades??'—'}</td><td>${report.net_profit==null?'—':number(report.net_profit)}</td><td>${report.max_drawdown==null?'—':number(report.max_drawdown)}</td><td>${report.win_rate==null?'—':`${number(report.win_rate)}%`}</td><td>${report.profit_factor==null?'—':number(report.profit_factor)}</td><td>${esc(report.history_quality||'—')}</td><td><button type="button" class="danger manual-remove-set" data-set-path="${esc(member.set_path)}" data-set-name="${esc(member.set_name)}">Eliminar set</button></td></tr>`;
   }).join('');
 }
 
@@ -93,6 +94,7 @@ function showDetailStatus(message, loading=false) {
 }
 
 function renderDetail(portfolio) {
+  selectedPortfolio=portfolio;
   const history=portfolio.history||{};
   document.querySelector('#manual-empty').hidden=true; document.querySelector('#manual-detail').hidden=false;
   document.querySelector('#manual-detail-title').textContent=`#${portfolio.id} · ${portfolio.alias||portfolio.name}`;
@@ -121,6 +123,37 @@ async function refreshPortfolioResults() {
   const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolios/${selectedId}?scope=full_history`,{cache:'no-store'});
   const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
   renderDetail(data.portfolio);
+}
+
+function bytesToBase64(buffer) {
+  const bytes=new Uint8Array(buffer); let binary=''; const size=0x8000;
+  for(let offset=0;offset<bytes.length;offset+=size) binary+=String.fromCharCode(...bytes.subarray(offset,offset+size));
+  return btoa(binary);
+}
+
+async function uploadSets(files) {
+  const chosen=Array.from(files||[]).filter(file=>file.name.toLowerCase().endsWith('.set'));
+  if(!selectedId||!chosen.length) return;
+  const button=document.querySelector('#manual-add-sets'); button.disabled=true; button.textContent='Subiendo sets…';
+  try {
+    const uploaded=await Promise.all(chosen.map(async file=>({name:file.name,content:bytesToBase64(await file.arrayBuffer())})));
+    const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',operation:'add',portfolio_id:selectedId,files:uploaded})});
+    const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
+    await loadInventory(); toast(`${data.added} set${data.added===1?'':'s'} añadido${data.added===1?'':'s'} al portafolio.`);
+  } catch(error) { toast(error.message,true); }
+  finally { button.disabled=false; button.textContent='Subir sets'; document.querySelector('#manual-set-files').value=''; }
+}
+
+async function removeSet(path,name) {
+  if(!selectedPortfolio||!confirm(`Se eliminará ${name} del portafolio y del disco del agente. ¿Continuar?`)) return;
+  try {
+    const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',operation:'remove',portfolio_id:selectedId,set_path:path})});
+    const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
+    await loadInventory();
+    toast(data.file_removed===false
+      ? `${name} se quitó del portafolio, pero el nodo no pudo retirar el fichero temporal.`
+      : `${name} eliminado del portafolio.`,data.file_removed===false);
+  } catch(error) { toast(error.message,true); }
 }
 
 async function loadInventory() {
@@ -249,6 +282,9 @@ async function deletePortfolio() {
 
 inventory.addEventListener('click',event=>{const item=event.target.closest('[data-id]');if(item)selectPortfolio(item.dataset.id);});
 document.querySelector('#manual-delete').addEventListener('click',deletePortfolio);
+document.querySelector('#manual-add-sets').addEventListener('click',()=>document.querySelector('#manual-set-files').click());
+document.querySelector('#manual-set-files').addEventListener('change',event=>uploadSets(event.target.files));
+document.querySelector('#manual-members').addEventListener('click',event=>{const button=event.target.closest('.manual-remove-set');if(button)removeSet(button.dataset.setPath,button.dataset.setName);});
 document.querySelector('#manual-history-button').addEventListener('click',()=>showHistoryControls().catch(error=>toast(error.message,true)));
 document.querySelector('#manual-history-start').addEventListener('click',startHistory);
 document.querySelector('#manual-strategy-tab').addEventListener('click',()=>showDetailView('strategy'));

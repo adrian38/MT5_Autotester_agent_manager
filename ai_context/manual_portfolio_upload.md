@@ -131,3 +131,28 @@ Es una proyección de los mismos datos ya leídos por el manager: no vuelve a
 ejecutar MT5, no altera los reportes y no suma drawdowns individuales. El DD
 combinado de la cabecera conserva su cálculo cronológico sobre todas las
 operaciones cerradas.
+
+## Editar la composición después de crearla (2026-11-02)
+
+El inventario manual permite subir varios `.set` a una cartera ya guardada y
+eliminar un miembro concreto. No es una edición local del manager:
+`POST /api/v1/portfolios/manual-members` se ejecuta en el runtime del agente,
+que es quien posee tanto la memoria SQLite como
+`runtime/<nodo>/manual_portfolios/<uuid>/sets/`.
+
+Al añadir, el runtime reutiliza la carpeta estable de la cartera, rechaza
+nombres repetidos, aplica la normalización manual existente e inserta el
+miembro en `portfolio_allocations` y `portfolio_members`. Al eliminar, exige la
+ruta exacta publicada por el detalle, retira ambas filas y el fichero mediante
+un renombrado previo al commit. En ambos casos recalcula estrategias, unidades
+y lote total. El último set no se puede eliminar: una composición vacía se
+retira con «Borrar portafolio».
+
+Tras la respuesta del nodo, el manager invalida su snapshot remoto de SQLite.
+Sin esa invalidación, el refresco inmediato puede volver a leer durante al
+menos 30 segundos la composición anterior aunque el commit del agente ya esté
+hecho.
+
+Los informes OHLC no se borran al retirar un set. Siguen compartiendo el
+directorio general `reports/` y un nombre homónimo puede pertenecer a otro
+candidato, igual que al borrar la cartera completa.

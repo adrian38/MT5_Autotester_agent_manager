@@ -115,12 +115,19 @@ def create_manual_portfolio(handler, node: dict, body: dict[str, Any]) -> None:
 
 
 def manual_portfolio_action(handler, node: dict, action: str, body: dict[str, Any]) -> None:
-    endpoint = "manual-defaults" if action == "manual-defaults" else "manual-history"
+    endpoints = {
+        "manual-defaults": "manual-defaults",
+        "manual-history": "manual-history",
+        "manual-members": "manual-members",
+    }
+    endpoint = endpoints[action]
     status, value = manager_http.node_request(
         node, "POST", f"/api/v1/portfolios/{endpoint}", body, timeout=120,
     )
     if status == 404:
-        raise ValueError("El nodo AXI necesita actualizarse y reiniciarse para generar el histórico OHLC.")
+        raise ValueError("El nodo necesita actualizarse y reiniciarse para gestionar este portafolio manual.")
+    if action == "manual-members" and 200 <= status < 300:
+        handler.server.portfolios._invalidate_node_snapshots(str(node["id"]))
     handler._send_json(status, value)
 
 
@@ -477,7 +484,7 @@ def handle_post(handler, parts: list[str]) -> None:
         node = handler._node(node_id)
         action = parts[4]
         maximum = (
-            50_000_000 if action == "manual-create"
+            50_000_000 if action in {"manual-create", "manual-members"}
             else 7_000_000 if action == "manual-timeframes" else 1_000_000
         )
         body = handler._body(maximum)
@@ -490,7 +497,7 @@ def handle_post(handler, parts: list[str]) -> None:
                 raise ValueError("Solo portafolio pertenece al historico completo")
             create_manual_portfolio(handler, node, body)
             return
-        if action in {"manual-defaults", "manual-history"}:
+        if action in {"manual-defaults", "manual-history", "manual-members"}:
             manual_portfolio_action(handler, node, action, body)
             return
         if not action_route(handler, action, node, node_id, scope, body):

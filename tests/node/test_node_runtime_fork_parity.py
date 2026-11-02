@@ -63,6 +63,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         # histórico OHLC» no tiene dónde ejecutarse.
         routes = (
             "/api/v1/portfolios/manual",
+            "/api/v1/portfolios/manual-members",
             "/api/v1/portfolios/manual-defaults",
             "/api/v1/portfolios/manual-history",
         )
@@ -106,7 +107,6 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                     "el port no está terminado sin su prueba en el proyecto del agente."
                 ),
             )
-
         self._assert_on_every_fork(check, "portafolios manuales e histórico OHLC")
 
     def test_deleting_a_manual_portfolio_frees_its_disk_on_every_reachable_fork(self) -> None:
