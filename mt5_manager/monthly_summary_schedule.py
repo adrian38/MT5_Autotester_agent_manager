@@ -112,6 +112,20 @@ def month_name(label: str) -> str:
         return str(label)
 
 
+def month_plural(label: str) -> str:
+    """«octubres»: el mes del año en plural, para contar los del backtest.
+
+    Un mes cerrado se compara con los suyos, no con los doce: la promesa ya es
+    estacional y el recuento tiene que hablar de la misma población. Sólo
+    `abril` acaba en consonante y pide `-es`.
+    """
+    try:
+        name = MONTH_NAMES[int(label.split("-", 1)[1]) - 1]
+    except (IndexError, ValueError):
+        return "meses"
+    return f"{name}es" if name.endswith("l") else f"{name}s"
+
+
 def _occurrence(label: str, settings: dict[str, Any], zone: Any) -> datetime:
     """La cita de ese mes: su día y su hora de pared, con la zona pegada."""
     year, month = (int(part) for part in label.split("-", 1))

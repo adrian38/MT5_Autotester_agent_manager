@@ -275,6 +275,15 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("launched - left", percent)
         self.assertIn("recoveryPercent(launched, snapshots, pending)", SCRIPT)
 
+    def test_the_card_counts_the_months_of_the_year_and_names_them(self) -> None:
+        # «octubres de backtest 6», no «meses de backtest 77»: lo que se cuenta
+        # y lo que se enseña tienen que ser la misma población.
+        plural = SCRIPT[SCRIPT.index("function monthPlural"):]
+        self.assertIn("endsWith('l')", plural)
+        figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
+        self.assertIn("monthPlural(card.month, true)", figures)
+        self.assertIn("seasonalMonths(card)", figures)
+
     def test_a_figure_that_cannot_be_compared_says_so_instead_of_a_number(self) -> None:
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
         for expression in (

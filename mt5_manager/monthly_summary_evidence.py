@@ -75,7 +75,7 @@ def backtest_months(expectation: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return found
 
 
-def _season(months: dict[str, dict[str, Any]], label: str) -> dict[str, dict[str, Any]]:
+def season(months: dict[str, dict[str, Any]], label: str) -> dict[str, dict[str, Any]]:
     """Sólo los meses del backtest que son el mismo mes del año que `label`."""
     number = label.split("-", 1)[-1]
     return {
@@ -127,22 +127,23 @@ def quantile(values: Sequence[float], fraction: float) -> float | None:
 def profit_standing(
     profit: Any, months: dict[str, dict[str, Any]], label: str,
 ) -> dict[str, Any]:
-    """Dónde cae el beneficio del mes: entre todos y entre los de su mes."""
-    overall = [row["profit"] for row in months.values()]
-    seasonal = [row["profit"] for row in _season(months, label).values()]
+    """Dónde cae el beneficio del mes: entre los de su mes, y entre todos.
+
+    **El que decide es el estacional**, y por eso cuenta con el mismo listón
+    que el otro. La promesa de la tarjeta ya es la de octubre
+    (`month_expectation` promedia los octubres del backtest): situar el mes
+    entre los setenta y siete, que mezclan los doce meses del año, lo compara
+    con una población distinta de la que produjo esa promesa, y entonces «53
+    de 77 fueron peores» no dice nada de si este octubre fue bueno.
+
+    `overall` se sigue devolviendo porque cuesta una suma y es el contexto
+    que explica un estacional sin muestra, pero no es lo que se enseña.
+    """
     return {
-        "overall": rank(profit, overall),
-        # El estacional casi nunca llega a `MINIMUM_MONTHS` —seis años son seis
-        # octubres—, así que se cuenta sin exigir muestra y se enseña como
-        # contexto, nunca como la cifra que decide.
-        "seasonal": {
-            "worse": (
-                0 if profit is None
-                else sum(1 for item in seasonal if item <= float(profit))
-            ),
-            "total": len(seasonal),
-            "measured": profit is not None and bool(seasonal),
-        },
+        "overall": rank(profit, [row["profit"] for row in months.values()]),
+        "seasonal": rank(
+            profit, [row["profit"] for row in season(months, label).values()],
+        ),
     }
 
 

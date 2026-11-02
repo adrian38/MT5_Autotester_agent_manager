@@ -21,15 +21,31 @@ del veredicto de reproducción que éste arrastra.
 ## Lo que mide, y por qué estas cosas
 
 - **El mes cerrado contra lo que ese mes prometía el backtest**, dicho
-  **contando meses de la propia serie** («de los 72 meses, 9 fueron peores») en
-  vez de suponer una normal. Es el método que `live_audit_degradation_evidence`
+  **contando meses de la propia serie** («de los 6 octubres, 4 fueron peores»)
+  en vez de suponer una normal. Es el método que `live_audit_degradation_evidence`
   ya usa con el beneficio por operación, por la misma razón: la distribución
   mensual tiene la cola izquierda gorda y rachas.
+- **Y se cuenta contra los meses del mismo mes del año, no contra los setenta
+  y siete.** La promesa de la tarjeta ya es estacional —`month_expectation`
+  promedia los octubres del backtest—, así que situar octubre entre los setenta
+  y siete meses lo compara con una población distinta de la que produjo esa
+  promesa: «de los 77 meses, 53 fueron peores» mezcla eneros con agostos y no
+  dice nada de si este octubre fue bueno. El recuento estacional usa el mismo
+  listón de muestra que el general (`MINIMUM_MONTHS`), así que con menos de
+  seis años de backtest dice que no puede situarlo en vez de inventar un
+  porcentaje sobre tres datos. `overall` se sigue calculando, pero no se
+  enseña. La petición es del usuario, 2026-11-02.
 - **El drawdown del mes contra los drawdowns mensuales del backtest.** Era lo
   que la última sección de `live_audit_degradation_evidence.md` daba por no
   medido en absoluto, y es la familia de criterios con la que de verdad se
   retira una cartera. `beyond` es más hondo que el peor mes que hizo nunca;
-  `extreme`, por encima del 95 % sin llegar al peor.
+  `extreme`, por encima del 95 % sin llegar al peor. **Éste sí cuenta contra
+  todos los meses**, al revés que el beneficio, y por dos razones: no tiene
+  promesa estacional detrás con la que tenga que casar, y seis octubres son
+  seis datos con los que no se retira una cartera —además de que el cuantil
+  del 95 % sobre seis valores es el máximo, así que el escalón de VIGILAR
+  desaparecería y todo sería «inédito» o nada. Lo que no puede quedarse
+  implícito es la base, así que el aviso dice cuántos meses contó.
 - **La racha de meses por debajo**, que es lo que convierte un mes flojo en una
   decisión. Un mes sin promesa **corta** la racha en vez de saltarse: una racha
   con un agujero no es una racha, es dos trozos.

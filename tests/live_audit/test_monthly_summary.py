@@ -317,6 +317,36 @@ class NoticeTests(unittest.TestCase):
         }))
         self.assertEqual(extreme["verdict"], notices.WATCH)
 
+    def test_the_month_is_placed_among_its_own_months_of_the_year(self) -> None:
+        # La promesa ya es la media de los septiembres: contar contra los doce
+        # meses lo compararía con otra población y no diría nada del mes.
+        standing = {
+            "overall": evidence.rank(100.0, [10.0] * 40 + [500.0] * 37),
+            "seasonal": evidence.rank(100.0, [10.0, 20.0] + [500.0] * 4),
+        }
+        message = str(notices.month_closed(facts(profit_standing=standing))["message"])
+        self.assertIn("De los 6 septiembres del backtest, 2 fueron peores.", message)
+        self.assertNotIn("77", message)
+        self.assertNotIn("meses del backtest", message)
+
+    def test_a_season_without_enough_years_says_so_instead_of_counting(self) -> None:
+        # `rank` exige la misma muestra mínima que el recuento general: con tres
+        # septiembres, «uno de tres fue peor» es un tercio que no significa nada.
+        standing = {"seasonal": evidence.rank(100.0, [10.0, 20.0, 30.0])}
+        self.assertIn(
+            "El backtest no tiene septiembres suficientes para situarlo.",
+            str(notices.month_closed(facts(profit_standing=standing))["message"]),
+        )
+
+    def test_the_drawdown_says_how_many_months_it_counted(self) -> None:
+        # Cuenta contra todos los meses a propósito —seis septiembres no retiran
+        # nada—, así que la base no puede quedarse implícita.
+        breach = notices.drawdown_breach(facts(
+            backtest_months=77,
+            drawdown_standing={"verdict": "beyond", "measured": True, "worst": 90.0},
+        ))
+        self.assertIn("el peor de los 77 meses del backtest", str(breach["message"]))
+
     def test_a_drawdown_at_another_lot_is_not_unheard_of(self) -> None:
         # Con autolote la serie del backtest sigue al lote declarado: lo que
         # saldría «inédito» sería el tamaño de la posición.
@@ -326,7 +356,7 @@ class NoticeTests(unittest.TestCase):
         )))
 
     def test_a_month_that_cannot_be_ranked_says_why_instead_of_counting(self) -> None:
-        counted = {"overall": evidence.rank(100.0, [10.0] * 7)}
+        counted = {"seasonal": evidence.rank(100.0, [10.0] * 7)}
         ranked = str(notices.month_closed(facts(profit_standing=counted))["message"])
         self.assertIn("fueron peores", ranked)
         unranked = str(notices.month_closed(facts(
@@ -347,7 +377,7 @@ class NoticeTests(unittest.TestCase):
         # Un resumen es la foto de un mes y se relee tal cual se guardó: la
         # marca ausente no puede significar «no comparable».
         self.assertTrue(notices.comparable(facts(), "table_comparable"))
-        stored = facts(profit_standing={"overall": evidence.rank(100.0, [10.0] * 7)})
+        stored = facts(profit_standing={"seasonal": evidence.rank(100.0, [10.0] * 7)})
         self.assertIn("fueron peores", str(notices.month_closed(stored)["message"]))
 
     def test_what_degrades_changes_the_strategies_and_not_the_portfolio(self) -> None:

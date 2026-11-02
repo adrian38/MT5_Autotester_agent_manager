@@ -143,6 +143,22 @@
       + `<p>${escapeHtml(notice.message)}</p></li>`;
   }
 
+  // «octubres»: el mes del año en plural. El recuadro cuenta los octubres del
+  // backtest y no sus setenta y siete meses, porque la promesa de al lado ya
+  // es la media de los octubres. Sólo `abril` acaba en consonante y pide -es.
+  function monthPlural(label, capital = false) {
+    const name = MONTHS[Number(String(label || '').split('-')[1]) - 1];
+    const plural = !name ? 'meses' : (name.endsWith('l') ? `${name}es` : `${name}s`);
+    return capital ? plural[0].toUpperCase() + plural.slice(1) : plural;
+  }
+
+  // Los resúmenes guardados antes de contar por estación no traen el número;
+  // el recuento del aviso ya dice entonces que no hay muestra para situarlo.
+  function seasonalMonths(card) {
+    const standing = (card.profit_standing || {}).seasonal || {};
+    return card.seasonal_months ?? standing.total ?? 0;
+  }
+
   // Un recuadro con un número dice «esto se puede comparar». Cuando no se
   // puede —tramo parcial, o serie del backtest a otros lotes que los que el
   // autolote corrió— enseña el motivo en su sitio en vez de una cifra que se
@@ -163,7 +179,7 @@
       <div><span>${partial ? 'Drawdown desde el alta' : 'Drawdown del mes'}</span><strong>${escapeHtml(amount(closed.drawdown, currency))}</strong></div>
       <div><span>${ranked ? 'Peor mes del backtest' : 'Comparación histórica'}</span><strong>${ranked ? escapeHtml(amount((card.drawdown_standing || {}).worst, currency)) : 'No comparable'}</strong></div>
       <div><span>${partial ? 'Tramo auditado' : 'Mes auditado'}</span><strong>${escapeHtml(`${Number(coverageValue || 0).toFixed(0)} %`)}</strong></div>
-      <div><span>${ranked ? 'Meses de backtest' : 'Meses completos de referencia'}</span><strong>${escapeHtml(String(card.backtest_months || 0))}</strong></div>
+      <div><span>${ranked ? `${escapeHtml(monthPlural(card.month, true))} de backtest` : 'Meses completos de referencia'}</span><strong>${escapeHtml(String(ranked ? seasonalMonths(card) : card.backtest_months || 0))}</strong></div>
     </div>`;
   }
 

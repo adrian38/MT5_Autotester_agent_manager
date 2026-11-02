@@ -224,6 +224,7 @@ def _performance(
     )
     return {
         "closed": closed, "expected": promise, "table": table,
+        "season": evidence.season(table, label),
         "started_inside": partial_start is not None, **lots,
         "below": evidence.below_promise(closed["profit"], promise["profit"])
         if lots["promise_comparable"] else None,
@@ -301,6 +302,9 @@ def account_card(
         "profit_standing": performance["profit_standing"],
         "drawdown_standing": performance["drawdown_standing"],
         "backtest_months": len(performance["table"]),
+        # Los del mismo mes del año, que son con los que se cuenta: la promesa
+        # ya es la de octubre y el recuento tiene que hablar de esos octubres.
+        "seasonal_months": len(performance["season"]),
         "streak_required": int(settings.get("below_streak_months") or 3),
         "started_inside": performance["started_inside"],
         "promise_comparable": performance["promise_comparable"],

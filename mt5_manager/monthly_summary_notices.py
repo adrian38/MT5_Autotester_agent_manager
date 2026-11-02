@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .monthly_summary_schedule import month_name
+from .monthly_summary_schedule import month_name, month_plural
 
 CHANGE, WATCH, KEEP, UNKNOWN = "change", "watch", "keep", "unknown"
 
@@ -143,15 +143,18 @@ def _closed_message(facts: dict[str, Any], currency: str) -> str:
             "No hay media del backtest para este mes, así que no hay con qué "
             "compararlo."
         )
-    standing = (facts.get("profit_standing") or {}).get("overall") or {}
+    # El recuento es contra los meses del mismo mes del año, no contra los
+    # setenta y siete: la promesa de arriba ya es la media de los octubres, así
+    # que situarlo entre los doce meses lo compararía con otra población.
+    standing = (facts.get("profit_standing") or {}).get("seasonal") or {}
     difference = float(closed.get("profit") or 0.0) - float(promise)
     return (
         f"Prometía {amount(promise, currency)} "
         f"({'+' if difference >= 0 else '−'}{amount(abs(difference), currency)}"
         f" de diferencia). "
         + (
-            worse_than(standing, "meses") if comparable(facts, "table_comparable")
-            else AUTOLOT_TABLE
+            worse_than(standing, month_plural(str(facts.get("month") or "")))
+            if comparable(facts, "table_comparable") else AUTOLOT_TABLE
         )
     )
 
@@ -202,6 +205,13 @@ def drawdown_breach(facts: dict[str, Any]) -> dict[str, Any] | None:
     «Inédito» es una afirmación sobre la misma cartera al mismo tamaño. Sin la
     serie a los lotes que la cuenta corrió —con autolote nunca la hay— lo
     único que se mediría es cuánto creció la posición, así que calla.
+
+    **Éste sí cuenta contra todos los meses, y lo dice.** El beneficio se sitúa
+    entre los de su mes del año porque su promesa es estacional y tiene que
+    compararse con la población que la produjo; la profundidad a la que cae
+    esta cartera no tiene promesa estacional detrás, y seis octubres son seis
+    datos con los que no se retira nada. Lo que no puede pasar es que la base
+    quede implícita, así que el mensaje nombra cuántos meses son.
     """
     if facts.get("started_inside") or not comparable(facts, "table_comparable"):
         return None
@@ -212,12 +222,14 @@ def drawdown_breach(facts: dict[str, Any]) -> dict[str, Any] | None:
     currency = str(facts.get("currency") or "")
     depth = (facts.get("closed") or {}).get("drawdown")
     worst = standing.get("worst")
+    total = int(facts.get("backtest_months") or 0)
+    scope = f"{total} meses" if total else "meses"
     if verdict == "beyond":
         return _notice(
             "drawdown_breach", "error", CHANGE,
             f"Drawdown inédito: {amount(depth, currency)}",
             (
-                f"Más hondo que el peor mes del backtest "
+                f"Más hondo que el peor de los {scope} del backtest "
                 f"({amount(worst, currency)}): esta cartera nunca cayó tanto "
                 "en un mes. No demuestra que esté rota, pero es el hecho que "
                 "pide revisarla antes de seguir."
@@ -227,8 +239,8 @@ def drawdown_breach(facts: dict[str, Any]) -> dict[str, Any] | None:
         "drawdown_breach", "warning", WATCH,
         f"Drawdown extremo: {amount(depth, currency)}",
         (
-            f"Por encima del 95 % de los meses del backtest sin llegar al peor "
-            f"({amount(worst, currency)}). "
+            f"Por encima del 95 % de los {scope} del backtest sin llegar al "
+            f"peor ({amount(worst, currency)}). "
             f"{worse_than(standing.get('rank') or {}, 'meses')}"
         ),
     )
