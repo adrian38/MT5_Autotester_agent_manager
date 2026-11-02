@@ -94,6 +94,11 @@ del veredicto de reproducción que éste arrastra.
   es uno de esos bloqueos: admite una conclusión orientativa y la marca como
   parcial; un portafolio que todavía no existía en ese mes sí sigue sin
   conclusión. El botón obtiene evidencia, no inventa historia.
+- **La serie queda cerrada con una lectura posterior al fin del mes.** No se
+  exige esperar tres días ni volver a sondear hasta coincidir con la hora del
+  cálculo: esa comparación móvil hacía obsoleta incluso una captura recién
+  terminada. `updated_at >= fin del mes` prueba que el terminal ya pudo leer
+  todo el mes; una lectura anterior sigue pidiendo el sondeo del botón.
 
 ## Cómo se entregó
 

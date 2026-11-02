@@ -25,15 +25,6 @@ from typing import Any, Iterable
 
 from .live_audit_schedule import parse_timestamp
 
-SERIES_STALE_DAYS = 3
-"""Cuántos días puede faltarle a la serie de la cuenta antes de acusarla.
-
-El sondeo corre de lunes a viernes, así que un mes que cierra en viernes tiene
-su último día completo el lunes siguiente. Tres días cubren el fin de semana
-sin llamar vieja a una serie que está al día.
-"""
-
-
 def month_bounds(label: str) -> tuple[datetime, datetime]:
     """`[inicio, fin)` del mes en UTC, que es como se corta todo lo demás."""
     year, month = (int(part) for part in label.split("-", 1))
@@ -130,7 +121,6 @@ def series_coverage(stored: dict[str, Any], label: str) -> dict[str, Any]:
     """
     _start, end = month_bounds(label)
     read = parse_timestamp(stored.get("updated_at"))
-    needed = end + timedelta(days=SERIES_STALE_DAYS)
     return {
         "updated_at": str(stored.get("updated_at") or ""),
         "last_day": str(stored.get("last_day") or ""),
@@ -139,7 +129,7 @@ def series_coverage(stored: dict[str, Any], label: str) -> dict[str, Any]:
         # Vieja es «se leyó antes de que el mes terminase de cuajar», no «se
         # leyó hace mucho»: un resumen de marzo mirado en octubre está bien
         # medido aunque su lectura tenga medio año.
-        "stale": read is None or read < min(needed, datetime.now(timezone.utc)),
+        "stale": read is None or read < end,
     }
 
 

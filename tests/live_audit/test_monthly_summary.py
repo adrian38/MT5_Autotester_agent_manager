@@ -192,6 +192,14 @@ class CoverageTests(unittest.TestCase):
         )["stale"])
         self.assertTrue(coverage.series_coverage({}, MONTH)["never_read"])
 
+    def test_a_read_at_month_close_is_enough_to_close_the_summary(self) -> None:
+        self.assertFalse(coverage.series_coverage(
+            {"updated_at": "2026-10-01T00:00:00+00:00"}, MONTH,
+        )["stale"])
+        self.assertTrue(coverage.series_coverage(
+            {"updated_at": "2026-09-30T23:59:59+00:00"}, MONTH,
+        )["stale"])
+
 
 class AnnouncementTests(unittest.TestCase):
     """El día 1 deja un aviso en la campana, y la campana es el móvil.
