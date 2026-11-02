@@ -481,7 +481,7 @@ def _rebuild(
     saved = detail.get("portfolio") or {}
     variant = str(portfolio.get("portfolio_type") or "")
     use = _presented(server, node_id, portfolio, saved, variant)
-    real_lots = _measured_lots(account, saved, variant, use)
+    real_lots = _measured_lots(_profile(server, node_id, portfolio), saved, variant, use)
     scenarios = _scenarios(
         server, source, node_id, account, portfolio, saved, variant, use, moment,
     )
@@ -553,7 +553,7 @@ def _presented(
 
 
 def _measured_lots(
-    account: dict[str, Any], saved: dict[str, Any], variant: str,
+    profile: dict[str, Any], saved: dict[str, Any], variant: str,
     use: live_account_presentation.UseLots | None = None,
 ) -> dict[str, Any]:
     """Los lotes con los que se mide la promesa, en el orden que manda.
@@ -563,8 +563,18 @@ def _measured_lots(
     ya viene escalada a ese lote (`live_account_report.normalized_deal`), o
     bien lo que se corrige es el propio lote declarado, y medir la promesa a
     otro compararía dos escalas distintas.
+
+    Es el mapa **del uso**, no el de la cuenta. `node_accounts` fusiona los
+    `real_strategy_lots` de todos los usos que comparten un login porque la
+    tarjeta es de la cuenta, pero estas claves son de la cartera: las de un
+    portafolio UBS llevan broker y candidato (`AXI/STANDARD:1437`) y no chocan
+    nunca, mientras que las de uno manual son posicionales —`manual:1`,
+    `manual:2`— y se repiten en cada cartera manual. Con el mapa fusionado,
+    dos carteras manuales sobre la misma cuenta real se pisaban: la promesa de
+    una se medía al lote declarado de la otra y `member_lot` lo presentaba
+    como origen «real», o sea como un hecho declarado.
     """
     return {
-        **dict(account.get("real_strategy_lots") or {}),
+        **dict(profile.get("real_strategy_lots") or {}),
         **dict((use or live_account_presentation.UseLots()).members),
     }

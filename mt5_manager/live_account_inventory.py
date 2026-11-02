@@ -13,6 +13,13 @@ auditoría: los usos marcados «operando en real». Se mira el **perfil**, no la
 tarjetas abiertas en el formulario del nodo; confundir las dos cosas es el fallo
 que ya dejó al cron semanal vigilando un solo uso de cuatro
 (`ai_context/live_audit_cron_and_bell.md`).
+
+Lo que se agrupa aquí es lo que de verdad es de la **cuenta**: su saldo, sus
+credenciales, sus portafolios. Los `real_strategy_lots` no lo son, y por eso ya
+no viajan en la entrada: sus claves son de la cartera, y las de una cartera
+manual son posicionales (`manual:1`, `manual:2`), así que fusionarlas entre dos
+usos del mismo login hacía que una cartera se midiera con los lotes de la otra.
+Quien necesite esos lotes los coge del perfil del uso.
 """
 from __future__ import annotations
 
@@ -66,12 +73,11 @@ def node_accounts(server: Any, node_id: str) -> list[dict[str, Any]]:
         key = account_key(login or audit_id, server_name)
         entry = found.setdefault(key, {
             "account_key": key, "login": login, "server": server_name,
-            "portfolios": [], "audit_ids": [], "real_strategy_lots": {},
+            "portfolios": [], "audit_ids": [],
             "autolot": False, "block_reason": "", "reasons": [],
         })
         entry["portfolios"].append(_portfolio_row(audit_id, profile))
         entry["audit_ids"].append(audit_id)
-        entry["real_strategy_lots"].update(profile.get("real_strategy_lots") or {})
         entry["autolot"] = entry["autolot"] or bool(
             (profile.get("autolot") or {}).get("enabled")
         )

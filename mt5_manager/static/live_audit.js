@@ -208,10 +208,16 @@ function strategyLotsMarkup(profile) {
   const rows = members.map(member => {
     const strategy = strategyKey(member);
     const portfolioLot = Number(member.lot);
-    const realLot = Object.prototype.hasOwnProperty.call(configured, strategy)
-      ? Number(configured[strategy]) : portfolioLot;
+    // Una estrategia sin declarar hereda el lote del portafolio, y así entra en
+    // la banda con la que la auditoría empareja los cierres reales. El número
+    // es el mismo que vería declarado, así que sin decirlo no hay forma de
+    // distinguir «lo revisé» de «nadie lo ha tocado»: es lo que deja un set
+    // recién subido a una cartera manual.
+    const declared = Object.prototype.hasOwnProperty.call(configured, strategy);
+    const realLot = declared ? Number(configured[strategy]) : portfolioLot;
     const identity = member.set_name || strategy;
-    return `<tr><td><strong>${escapeHtml(member.symbol || '?')}</strong><small>${escapeHtml(member.timeframe || '')}</small></td><td><span>${escapeHtml(identity)}</span><small>${escapeHtml(strategy)}</small></td><td>${escapeHtml(portfolioLot)}</td><td><input data-strategy-lot="${escapeHtml(strategy)}" type="number" min="0.00000001" max="1000000" step="any" value="${escapeHtml(realLot)}" required aria-label="Lote real de ${escapeHtml(identity)}"></td></tr>`;
+    const pending = declared ? '' : '<small>Sin declarar: hereda el lote del portafolio.</small>';
+    return `<tr><td><strong>${escapeHtml(member.symbol || '?')}</strong><small>${escapeHtml(member.timeframe || '')}</small></td><td><span>${escapeHtml(identity)}</span><small>${escapeHtml(strategy)}</small></td><td>${escapeHtml(portfolioLot)}</td><td><input data-strategy-lot="${escapeHtml(strategy)}" type="number" min="0.00000001" max="1000000" step="any" value="${escapeHtml(realLot)}" required aria-label="Lote real de ${escapeHtml(identity)}">${pending}</td></tr>`;
   }).join('');
   return `<div class="live-audit-lots-table"><table><thead><tr><th>Símbolo</th><th>Estrategia</th><th>Lote del portafolio</th><th>Lote en cuenta real</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }

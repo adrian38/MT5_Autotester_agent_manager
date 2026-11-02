@@ -189,6 +189,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   portada; por qué el tramo es la serie de la cuenta y no el `created_at` del
   portafolio, por qué el drawdown del tramo no es el máximo de los mensuales y
   qué pasa con los meses que no operaron.
+- `live_account_real_lots_are_per_use.md`: por qué `real_strategy_lots` no se
+  puede agrupar por cuenta; las claves `manual:N` son posicionales y dos
+  carteras manuales sobre un mismo login se medían con los lotes de la otra.
 - `live_audit_full_period_empty_window.md`: por qué la larga de un uso creado el
   mismo día de la cita pedía `FromDate=ToDate` y MT5 contestaba «tester didn't
   start», leído como ocho «no se encontró ningún reporte».

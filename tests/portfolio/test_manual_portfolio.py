@@ -131,6 +131,22 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("#manual-history-note').textContent=historyNote(history)", script)
         self.assertIn("antes de volver a marcar el portafolio como operando en real", script)
 
+    def test_a_set_nobody_declared_a_real_lot_for_says_so_in_the_audit_dialog(self) -> None:
+        """Un set recién subido entra sin lote declarado para la cuenta real.
+
+        El diálogo de lotes rellena su casilla con el lote del portafolio —que
+        en una cartera manual es el `StartLots` del propio `.set`—, así que se
+        ve idéntico a uno que el usuario revisó. La auditoría sí los distingue
+        con `real_account_lot_source`, pero sólo en el resultado, con los
+        backtests ya corridos.
+        """
+        script = (ROOT / "mt5_manager" / "static" / "live_audit.js").read_text(encoding="utf-8")
+        self.assertIn(
+            "const declared = Object.prototype.hasOwnProperty.call(configured, strategy)",
+            script,
+        )
+        self.assertIn("Sin declarar: hereda el lote del portafolio.", script)
+
     def test_manual_history_ignores_previous_attempt_without_resetting_detail(self) -> None:
         script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
         self.assertIn("function isCurrentHistory", script)

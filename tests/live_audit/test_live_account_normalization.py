@@ -16,8 +16,8 @@ from unittest import mock
 
 from portfolio_manager.mt5_report import RawDeal
 from mt5_manager import (
-    live_account_expectation, live_account_ingest, live_account_presentation,
-    live_account_report, live_account_watch,
+    live_account_expectation, live_account_ingest, live_account_inventory,
+    live_account_presentation, live_account_report, live_account_watch,
 )
 from mt5_manager.live_account_archive import LiveAccountArchive
 
@@ -258,8 +258,9 @@ class NormalizedSeriesTests(unittest.TestCase):
 
 
 class MeasuredPromiseTests(unittest.TestCase):
-    ACCOUNT = {
-        "account_key": "10010194@Axi-US50-Demo",
+    PROFILE = {
+        "portfolio_id": 67, "source_login": "10010194",
+        "source_server": "Axi-US50-Demo",
         "real_strategy_lots": {
             "AXI/STANDARD:21175": 0.1, "AXI/STANDARD:46978": 0.1,
             "AXI/STANDARD:3813": 0.01,
@@ -271,7 +272,7 @@ class MeasuredPromiseTests(unittest.TestCase):
             live_account_presentation.TESTER_LEADS, MEMBERS, DETAIL,
         )
         self.assertEqual(
-            live_account_ingest._measured_lots(self.ACCOUNT, {"members": MEMBERS}, "", use),
+            live_account_ingest._measured_lots(self.PROFILE, {"members": MEMBERS}, "", use),
             {
                 "AXI/STANDARD:21175": 0.03, "AXI/STANDARD:46978": 0.1,
                 "AXI/STANDARD:3813": 0.01,
@@ -280,9 +281,58 @@ class MeasuredPromiseTests(unittest.TestCase):
 
     def test_without_a_marked_column_the_declared_lot_keeps_mandating(self) -> None:
         self.assertEqual(
-            live_account_ingest._measured_lots(self.ACCOUNT, {"members": MEMBERS}, ""),
-            self.ACCOUNT["real_strategy_lots"],
+            live_account_ingest._measured_lots(self.PROFILE, {"members": MEMBERS}, ""),
+            self.PROFILE["real_strategy_lots"],
         )
+
+    def test_two_manual_portfolios_on_one_account_do_not_share_their_lots(self) -> None:
+        """Las claves manuales son posicionales, así que no se pueden fusionar.
+
+        Las de un portafolio UBS llevan broker y candidato
+        (`AXI/STANDARD:1437`) y son únicas en toda la instalación; las de uno
+        manual son `manual:1`, `manual:2`… y se repiten en cada cartera. La
+        tarjeta de la portada sí es de la cuenta, y por eso `node_accounts`
+        fusiona los lotes de todos sus usos; medir la promesa con ese mapa
+        hacía que dos carteras manuales sobre un mismo login se pisaran, y
+        `member_lot` presentaba el lote ajeno con origen «real».
+        """
+        server = SimpleNamespace(live_audit_settings=SimpleNamespace(state=lambda node_id: {
+            "live_audit_ids": ["audit-109", "audit-110"],
+            "credential_state": {
+                "audit-109": {"source_password_saved": True},
+                "audit-110": {"source_password_saved": True},
+            },
+            "profiles": {
+                "audit-109": {
+                    "portfolio_id": 109, "source_login": "60357303",
+                    "source_server": "Axi-US50-Live",
+                    "real_strategy_lots": {"manual:1": 0.5},
+                },
+                "audit-110": {
+                    "portfolio_id": 110, "source_login": "60357303",
+                    "source_server": "Axi-US50-Live",
+                    "real_strategy_lots": {"manual:1": 0.01},
+                },
+            },
+        }))
+        accounts = live_account_inventory.node_accounts(server, "axi")
+        self.assertEqual(len(accounts), 1, "las dos carteras comparten la cuenta")
+        self.assertNotIn(
+            "real_strategy_lots", accounts[0],
+            "la entrada de la cuenta no puede llevar lotes de dos carteras",
+        )
+
+        for audit_id, portfolio_id, declared in (
+            ("audit-109", 109, 0.5), ("audit-110", 110, 0.01),
+        ):
+            profile = live_account_ingest._profile(
+                server, "axi", {"audit_id": audit_id, "portfolio_id": portfolio_id},
+            )
+            lots = live_account_ingest._measured_lots(profile, {}, "")
+            lot, origin = live_account_expectation.member_lot(
+                {"candidate_id": "manual:1", "lot": declared}, lots,
+            )
+            self.assertEqual((lot, origin), (declared, "real"), f"{audit_id} midió otro lote")
 
     def test_a_new_criterion_or_a_new_column_remeasures_without_the_clock(self) -> None:
         """La edad decide cada cuánto se comprueba; el criterio, si vale.
