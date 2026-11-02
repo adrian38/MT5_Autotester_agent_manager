@@ -221,8 +221,15 @@ def _outcome(read: int, failed: list[str], stale: list[str]) -> str:
     return "success" if read else "failed"
 
 
-def _needs_rebuild(stored: dict[str, Any], now: datetime, mode: str = "") -> bool:
+def _needs_rebuild(
+    stored: dict[str, Any], now: datetime, mode: str = "", autolot: str = "",
+) -> bool:
     if not stored:
+        return True
+    # Encenderlo no cambia ni el criterio, ni el modo, ni `months_at` —vacío,
+    # y la regla de abajo lo deja pasar—, así que la promesa se quedaba al
+    # lote declarado un día entero. Le pasó al #148; ver `ai_context/`.
+    if str(stored.get("autolot_source") or "") != str(autolot or ""):
         return True
     # Cambiar la casilla de la simulación cambia a qué lote se presentan las
     # dos mitades de la tarjeta, así que tampoco espera al reloj: sin esto, el
@@ -288,6 +295,7 @@ def refresh_expectations(
         and _needs_rebuild(
             archive.read_expectation(node_id, portfolio["portfolio_id"]), moment,
             _mode(server, node_id, portfolio),
+            _autolot_source(server, node_id, portfolio),
         )
     ]
     if not pending:
@@ -487,6 +495,7 @@ def _rebuild(
     )
     presentation = {
         "mode": _mode(server, node_id, portfolio),
+        "autolot_source": _autolot_source(server, node_id, portfolio),
         "presentation_lots": dict(use.symbols),
         "presentation_warnings": list(use.warnings),
         "presentation_criterion": live_account_presentation.PRESENTATION_VERSION,
@@ -523,6 +532,17 @@ def _rebuild(
         node_id, portfolio_id, {**built, **presentation},
     )
     return True
+
+
+def _autolot_source(server: Any, node_id: str, portfolio: dict[str, Any]) -> str:
+    """Huella del autolote: el sha del Excel y no sólo «encendido», porque
+    cambiar la tabla de riesgo cambia los lotes del mes y con ellos la
+    promesa. Vacía cuando el uso no lo tiene.
+    """
+    autolot = _profile(server, node_id, portfolio).get("autolot") or {}
+    if not autolot.get("enabled"):
+        return ""
+    return str(autolot.get("source_sha256") or "") or "enabled"
 
 
 def _mode(server: Any, node_id: str, portfolio: dict[str, Any]) -> str:

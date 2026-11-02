@@ -212,6 +212,22 @@ del veredicto de reproducción que éste arrastra.
   está al mismo tamaño que el mes que juzga. `table_comparable` deja de ser un
   no incondicional. Todos los portafolios de la cuenta o ninguno: media cuenta
   remedida no es una cuenta remedida.
+- **Encender el autolote caduca la promesa guardada** (2026-11-02). Diagnóstico
+  del `Arreglo del portafolio #148`, que salió en el resumen de octubre sin
+  `months_at` ninguno pese a tener autolote activo, 19 reglas enlazadas y
+  balance de los dos meses: se descartó una a una cada salida temprana de
+  `live_account_ingest._scenarios` —modo, `rules_by_strategy` (19 de 19),
+  balance, `month_lots` (19 lotes)— y ninguna disparaba. La causa estaba antes:
+  `_needs_rebuild` no llamaba siquiera a `_rebuild`. Encender el autolote no
+  cambia el criterio, ni el modo —que es la casilla de la simulación de lotes,
+  otra cosa—, y la regla del mes mira `months_at and mes not in months_at`, que
+  con la tabla vacía no dice nada. Quedaba sólo el reloj de
+  `EXPECTATION_MAX_AGE_HOURS`: la promesa se escribió a las 14:56 del 1, el
+  autolote llegó con la auditoría a las 15:01 y el resumen se calculó a las
+  04:09 del 2, trece horas dentro de la ventana. Se cierra con
+  `autolot_source`, el sha del Excel guardado al lado del modo, que cubre los
+  tres casos —encenderlo, cambiar la tabla de riesgo y apagarlo—. Lo exige
+  `test_turning_autolot_on_does_not_wait_a_day`.
 - **El tramo auditado dice sus días** (2026-11-02). Un portafolio dado de alta
   el 31 cubría «100 %» de un día y se leía igual que un mes entero. El título
   del recuadro sigue siendo «Mes auditado» —son fijos—, y los días van en el

@@ -306,6 +306,28 @@ class IngestScenarioTests(unittest.TestCase):
         stored["months_at"]["2026-10"] = {"profit": 2.0}
         self.assertFalse(live_account_ingest._needs_rebuild(stored, NOW))
 
+    def test_turning_autolot_on_does_not_wait_a_day(self) -> None:
+        """Un uso que acaba de estrenar autolote no tiene `months_at`.
+
+        Y sin él la regla de arriba no dice nada —mira el mes que falta, no la
+        tabla vacía—, ni el criterio ni el modo cambian: la promesa se quedaba
+        al lote declarado hasta que la edad dejara comprobar la firma. Le pasó
+        al #148 el 2026-11-01 y el resumen del mes siguiente dijo «no
+        comparable» sobre una cuenta que sí tenía con qué compararse.
+        """
+        stored = {"criterion": live_account_expectation.CRITERION_VERSION,
+                  "presentation_criterion":
+                      live_account_presentation.PRESENTATION_VERSION,
+                  "updated_at": NOW.isoformat(), "portfolio_created_at": "",
+                  "autolot_source": ""}
+        self.assertFalse(live_account_ingest._needs_rebuild(stored, NOW))
+        self.assertTrue(live_account_ingest._needs_rebuild(stored, NOW, "", "abc123"))
+        # Y el Excel nuevo tenía el mismo agujero, y apagarlo también.
+        stored["autolot_source"] = "abc123"
+        self.assertFalse(live_account_ingest._needs_rebuild(stored, NOW, "", "abc123"))
+        self.assertTrue(live_account_ingest._needs_rebuild(stored, NOW, "", "otro"))
+        self.assertTrue(live_account_ingest._needs_rebuild(stored, NOW))
+
 
 if __name__ == "__main__":
     unittest.main()
