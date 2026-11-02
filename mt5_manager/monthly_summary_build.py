@@ -25,12 +25,13 @@ cuenta antes: beneficio y drawdown empiezan en el alta. Ese tramo no se compara
 con meses completos del backtest ni alimenta rachas; se vigila hasta disponer
 del primer mes natural comparable.
 
-Y **el lote manda sobre qué se puede comparar**. La serie de meses del backtest
-está medida a los lotes declarados y no se remide; con autolote el tamaño lo
-decide el balance de cada mes, así que la tarjeta declara en dos marcas qué
-sigue en pie: `promise_comparable` (hay media remedida a los lotes de ese mes)
-y `table_comparable` (la serie entera está a esos lotes, que con autolote no
-pasa nunca). Lo que no es comparable no se enseña como número: se dice.
+Y **el lote manda sobre qué se puede comparar**. La serie de `months` está
+medida a los lotes declarados y no se remide; con autolote el tamaño lo decide
+el balance de cada mes, así que la tarjeta declara en dos marcas qué sigue en
+pie: `promise_comparable` (hay media remedida a los lotes de ese mes) y
+`table_comparable` (los meses con los que se sitúa están a esos lotes, que con
+autolote exige el escenario del mes). Lo que no es comparable no se enseña como
+número: se dice.
 """
 from __future__ import annotations
 
@@ -85,9 +86,13 @@ def _combined_months(portfolios: list[dict[str, Any]]) -> dict[str, dict[str, An
     igual— y, sobre todo, es el mismo número que el usuario ya ve ahí. Dos
     criterios para la misma promesa es lo único que no puede pasar.
     """
-    tables = [
+    return _combine([
         evidence.backtest_months(portfolio["expectation"]) for portfolio in portfolios
-    ]
+    ])
+
+
+def _combine(tables: list[dict[str, dict[str, Any]]]) -> dict[str, dict[str, Any]]:
+    """Suma mes a mes las tablas que aportan algo, sobre los meses comunes."""
     tables = [table for table in tables if table]
     if not tables:
         return {}
@@ -101,6 +106,44 @@ def _combined_months(portfolios: list[dict[str, Any]]) -> dict[str, dict[str, An
             "trades": sum(table[label]["trades"] for table in tables),
         }
         for label in sorted(shared)
+    }
+
+
+def _combined_scenario(
+    portfolios: list[dict[str, Any]], label: str,
+) -> dict[str, dict[str, Any]]:
+    """Los meses de ese mes del año remedidos a los lotes que operó la cuenta.
+
+    **Todos los portafolios o ninguno.** Media cuenta remedida no es una cuenta
+    remedida: sumar el octubre de uno al lote que operó con el del otro al lote
+    declarado daría una banda que no está a ningún lote.
+    """
+    tables = [
+        evidence.scenario_months(portfolio["expectation"], label)
+        for portfolio in portfolios
+    ]
+    return _combine(tables) if tables and all(tables) else {}
+
+
+def _combined_scenario_mean(
+    portfolios: list[dict[str, Any]], label: str,
+) -> dict[str, Any]:
+    """«Un mes cualquiera» de la cuenta, a esos mismos lotes.
+
+    Se suman las medias, que es lo mismo que promediar la suma mientras todos
+    promedien los mismos meses; si no coinciden, no se dice.
+    """
+    rows = [
+        evidence.scenario_mean(portfolio["expectation"], label)
+        for portfolio in portfolios
+    ]
+    totals = {row["total"] for row in rows}
+    if not rows or not all(row["measured"] for row in rows) or len(totals) != 1:
+        return {"measured": False, "total": 0, "profit": None, "drawdown": None}
+    return {
+        "measured": True, "total": totals.pop(),
+        "profit": sum(row["profit"] for row in rows),
+        "drawdown": sum(row["drawdown"] for row in rows),
     }
 
 
@@ -145,22 +188,27 @@ def _at_real_lots(promise: dict[str, Any], *, autolot: bool) -> bool:
     return not autolot or (bool(basis) and basis != "mixed")
 
 
-def _comparability(promise: dict[str, Any], *, partial: bool, autolot: bool) -> dict[str, bool]:
+def _comparability(
+    promise: dict[str, Any], *, partial: bool, autolot: bool, remeasured: bool = False,
+) -> dict[str, bool]:
     """Qué se puede comparar de este mes, y qué compararía sólo el volumen.
 
-    La serie de meses del backtest se guarda **a los lotes declarados** y no
-    se remide: `months_at` sólo trae la fila del mes objetivo, porque guardar
-    la tabla entera doce veces engordaría el fichero. Así que con autolote la
-    promesa puede estar al lote bueno y la serie nunca lo está: situar el mes
-    entre sus 77 meses, o llamar «inédito» a un drawdown contra ellos,
-    compararía el tamaño de la posición y no el comportamiento —justo lo que
-    `monthly_summary_evidence` dice en su cabecera que no puede pasar.
+    La serie de `months` está **a los lotes declarados** y no se remide, así
+    que con autolote situar el mes entre sus 77 meses compararía el tamaño de
+    la posición y no el comportamiento —justo lo que `monthly_summary_evidence`
+    dice en su cabecera que no puede pasar—.
+
+    Lo que sí vale es el escenario del mes: `months_at` guarda los meses de ese
+    mes del año remedidos a los lotes que la cuenta operó. Con ellos la banda
+    está al mismo lote que el mes que juzga, que era la única objeción, y la
+    tarjeta de autolote compara como las demás. `remeasured` dice si están.
     """
     if partial:
         return {"promise_comparable": False, "table_comparable": False}
+    at_lots = _at_real_lots(promise, autolot=autolot)
     return {
-        "promise_comparable": _at_real_lots(promise, autolot=autolot),
-        "table_comparable": not autolot,
+        "promise_comparable": at_lots,
+        "table_comparable": not autolot or (remeasured and at_lots),
     }
 
 
@@ -218,13 +266,24 @@ def _performance(
     ]
     closed = row(monthly_rows(measured), label)
     promise = _promise(portfolios, label)
-    table = _combined_months(portfolios)
+    scenario = _combined_scenario(portfolios, label) if autolot else {}
     lots = _comparability(
         promise, partial=partial_start is not None, autolot=autolot,
+        remeasured=bool(scenario),
     )
+    # La tabla que juzga es la que está al mismo lote que el mes juzgado: la de
+    # siempre sin autolote, y el escenario del mes con él.
+    declared = _combined_months(portfolios)
+    table = scenario if scenario else declared
+    means = (
+        _combined_scenario_mean(portfolios, label) if scenario
+        else evidence.monthly_means(table)
+    )
+    counted = means["total"] if scenario and means["measured"] else len(declared)
     return {
         "closed": closed, "expected": promise, "table": table,
         "season": evidence.season(table, label),
+        "months_total": counted,
         "started_inside": partial_start is not None, **lots,
         "below": evidence.below_promise(closed["profit"], promise["profit"])
         if lots["promise_comparable"] else None,
@@ -232,7 +291,7 @@ def _performance(
         if lots["table_comparable"] else {"measured": False, "verdict": ""},
         "drawdown_band": evidence.drawdown_band(closed["drawdown"], table, label)
         if lots["table_comparable"] else {"measured": False, "verdict": ""},
-        "monthly_mean": evidence.monthly_means(table)
+        "monthly_mean": means
         if lots["table_comparable"] else {"measured": False, "total": 0},
     }
 
@@ -312,7 +371,7 @@ def account_card(
         "profit_band": performance["profit_band"],
         "drawdown_band": performance["drawdown_band"],
         "monthly_mean": performance["monthly_mean"],
-        "backtest_months": len(performance["table"]),
+        "backtest_months": performance["months_total"],
         # Los del mismo mes del año, que son con los que se cuenta: la promesa
         # ya es la de octubre y el recuento tiene que hablar de esos octubres.
         "seasonal_months": len(performance["season"]),

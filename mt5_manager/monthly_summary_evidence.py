@@ -75,6 +75,40 @@ def backtest_months(expectation: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return found
 
 
+def scenario_months(expectation: dict[str, Any], label: str) -> dict[str, dict[str, Any]]:
+    """Los meses de ese mes del año remedidos a los lotes que la cuenta operó.
+
+    Sólo los hay con autolote y sólo del mes objetivo: `live_account_expectation`
+    no guarda la tabla entera de cada escenario. Alcanza igual, porque el juicio
+    es contra los meses del mismo mes del año y son exactamente éstos.
+    """
+    row = ((expectation or {}).get("months_at") or {}).get(label) or {}
+    found: dict[str, dict[str, Any]] = {}
+    for key, values in (row.get("months") or {}).items():
+        if not isinstance(values, dict):
+            continue
+        found[str(key)] = {
+            "profit": float(values.get("profit") or 0.0),
+            "drawdown": float(values.get("drawdown") or 0.0),
+            "trades": int(values.get("trades") or 0),
+        }
+    return found
+
+
+def scenario_mean(expectation: dict[str, Any], label: str) -> dict[str, Any]:
+    """`monthly_means` de ese escenario, ya promediado al guardarlo."""
+    row = ((expectation or {}).get("months_at") or {}).get(label) or {}
+    mean = row.get("monthly_mean") or {}
+    total = int(mean.get("total") or 0)
+    if total <= 0:
+        return {"measured": False, "total": 0, "profit": None, "drawdown": None}
+    return {
+        "measured": True, "total": total,
+        "profit": float(mean.get("profit") or 0.0),
+        "drawdown": float(mean.get("drawdown") or 0.0),
+    }
+
+
 def season(months: dict[str, dict[str, Any]], label: str) -> dict[str, dict[str, Any]]:
     """Sólo los meses del backtest que son el mismo mes del año que `label`."""
     number = label.split("-", 1)[-1]

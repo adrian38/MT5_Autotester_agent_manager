@@ -259,6 +259,34 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(scaled["basis"], "autolot_mean_balance")
         self.assertAlmostEqual(scaled["balance"], 6_203.14)
 
+    def test_a_scenario_keeps_the_months_it_remeasured(self) -> None:
+        """Los años de ese mes al lote del mes, que es con lo que se sitúa.
+
+        Sin ellos la banda tendría que salir de `months`, medida al lote
+        declarado, y compararía el tamaño de la posición. Son seis filas, no
+        la tabla estacional entera que esta función se niega a guardar.
+        """
+        built = self.build(scenarios={
+            "2026-10": {
+                "lots": {"AXI/STANDARD:1437": 0.08}, "basis": "autolot_mean_balance",
+            },
+        })
+        plain = built["months"]["10"]["months"]
+        scaled = built["months_at"]["2026-10"]["months"]
+        self.assertEqual(sorted(scaled), sorted(plain))
+        for label, row in scaled.items():
+            self.assertAlmostEqual(row["profit"], plain[label]["profit"] * 4)
+            self.assertAlmostEqual(row["drawdown"], plain[label]["drawdown"] * 4)
+        rows = [
+            row for month in built["months"].values()
+            for row in month["months"].values()
+        ]
+        mean = built["months_at"]["2026-10"]["monthly_mean"]
+        self.assertEqual(mean["total"], len(rows))
+        self.assertAlmostEqual(
+            mean["profit"], sum(row["profit"] for row in rows) / len(rows) * 4,
+        )
+
     def test_a_month_without_a_scenario_still_reads_the_usual_mean(self) -> None:
         built = self.build(scenarios={
             "2026-10": {"lots": {"AXI/STANDARD:1437": 0.08}, "basis": "x"},

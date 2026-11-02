@@ -36,7 +36,7 @@ from .live_account_series import drawdown, month_key, monthly_rows
 REPORT_FIELDS = ("is_report_path", "oos_report_path")
 """Los dos informes que forman la curva 2020-2026, en ese orden."""
 
-CRITERION_VERSION = "vantage-only-lotstep-portfolio-valley-v10"
+CRITERION_VERSION = "vantage-only-lotstep-portfolio-valley-v11"
 """Con qué criterio se midió esta media. Cambia cuando cambia lo que se mide.
 
 Sin esto, cambiar el criterio no repinta nada. La media guardada se recalcula
@@ -365,6 +365,16 @@ def _scenarios(
     Se guarda **sólo la fila de su mes**: el escenario de octubre no dice nada
     sobre mayo, y guardar la tabla estacional entera doce veces engordaría el
     fichero con once filas que nadie puede leer.
+
+    Pero la fila trae sus años (`months`), y eso sí se guarda: son los octubres
+    del backtest remedidos a los lotes que la cuenta operó, que es lo único con
+    lo que se puede situar un mes de autolote entre los suyos. Sin ellos la
+    tarjeta tenía que callarse la banda para siempre, porque la serie de
+    `months` está a los lotes declarados y compararla mediría el volumen.
+    Son seis filas, no las once tablas que esta función evita.
+
+    `monthly_mean` es el mismo gesto para «un mes cualquiera»: tres números en
+    vez de los setenta y siete que haría falta guardar para promediarlos aquí.
     """
     measured: dict[str, Any] = {}
     for label, scenario in (scenarios or {}).items():
@@ -373,19 +383,44 @@ def _scenarios(
         }
         if not lots:
             continue
-        row = seasonal_at(curves, lots).get(label.split("-", 1)[-1]) or {}
+        table = seasonal_at(curves, lots)
+        row = table.get(label.split("-", 1)[-1]) or {}
         if not row.get("years"):
             continue
         measured[label] = {
             "profit": float(row["profit"]), "drawdown": float(row["drawdown"]),
             "portfolio_historical_valley": curve_drawdown(curves, lots),
             "years": list(row["years"]), "lots": lots,
+            "months": {
+                str(key): dict(value) for key, value in (row.get("months") or {}).items()
+            },
+            "monthly_mean": _table_mean(table),
             **{
                 key: scenario[key] for key in ("basis", "balance", "without_rule")
                 if key in scenario
             },
         }
     return measured
+
+
+def _table_mean(table: dict[str, Any]) -> dict[str, Any]:
+    """Lo que da y lo que cuesta un mes cualquiera de la tabla remedida.
+
+    Se promedia aquí y se guardan tres números porque el consumidor
+    —`monthly_summary_evidence.monthly_means`— sólo necesita eso, y guardar la
+    tabla entera para volver a promediarla es lo que esta función evita.
+    """
+    rows = [
+        row for month in table.values()
+        for row in (month.get("months") or {}).values()
+    ]
+    if not rows:
+        return {"total": 0, "profit": 0.0, "drawdown": 0.0}
+    return {
+        "total": len(rows),
+        "profit": sum(row["profit"] for row in rows) / len(rows),
+        "drawdown": sum(row["drawdown"] for row in rows) / len(rows),
+    }
 
 
 def _declared(value: Any) -> float:
