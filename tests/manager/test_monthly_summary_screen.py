@@ -201,20 +201,21 @@ class ScriptTests(unittest.TestCase):
             SCRIPT.index("renderReport(answer"), SCRIPT.index("loadDetails(answer"),
         )
 
-    def test_the_alias_goes_next_to_the_name_of_its_portfolio(self) -> None:
+    def test_the_alias_is_the_first_highlighted_identity_of_the_card(self) -> None:
         # El alias vive en la memoria UBS del agente, así que tampoco viaja con
         # el informe: se pide por nodo y sólo para los portafolios del mes.
         for expression in (
-            "/portfolio-aliases?ids=", "class=\"summary-alias\"",
+            "/portfolio-aliases?ids=", "function portfolioIdentityMarkup",
             "aliases.set(`${nodeId}|${portfolioId}`, alias)",
         ):
             with self.subTest(expression=expression):
                 self.assertIn(expression, SCRIPT)
-        self.assertIn(".summary-alias{", STYLE)
-        # Pegado al nombre y antes del veredicto, que es el orden en que se
-        # reconoce un uso: cómo lo llamo yo, y después cómo va.
-        markup = SCRIPT[SCRIPT.index("function portfoliosMarkup"):]
-        self.assertLess(markup.index("${label}"), markup.index("${state}"))
+        self.assertIn(".summary-identity h2{", STYLE)
+        card = SCRIPT[SCRIPT.index("function cardMarkup"):]
+        self.assertLess(
+            card.index("portfolioIdentityMarkup(card)"),
+            card.index("figuresMarkup(card)"),
+        )
 
     def test_recalculating_asks_first(self) -> None:
         # El resumen guardado es la foto de lo que se sabía al cerrar el mes.

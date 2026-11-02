@@ -39,9 +39,9 @@ del veredicto de reproducción que éste arrastra.
 - **La cobertura**, que tapa a todos los demás. Con medio tramo auditable sin
   auditar el veredicto no es MANTENER, es SIN CONCLUSIÓN. Si el portafolio nació
   dentro del mes, la cobertura exigible empieza en su fecha de alta: sí admite
-  una conclusión cualificada, acompañada siempre por el aviso de que los
-  importes pertenecen a la cuenta y no equivalen a un mes completo de ese
-  portafolio.
+  una conclusión cualificada: VIGILAR hasta tener el primer mes natural
+  completo. Beneficio y drawdown se recortan al alta; no se comparan con meses
+  completos del backtest, y las rachas nunca atraviesan la fecha de creación.
 
 ## Decisiones que no se deducen del código
 
@@ -91,9 +91,13 @@ del veredicto de reproducción que éste arrastra.
   de auditoría; espera las dos actividades y recalcula el mes al terminar. Los
   agentes siguen rechazando un arranque si el terminal está ocupado. Lo que no
   se puede reconstruir permanece `SIN CONCLUSIÓN`. Nacer durante el mes ya no
-  es uno de esos bloqueos: admite una conclusión orientativa y la marca como
-  parcial; un portafolio que todavía no existía en ese mes sí sigue sin
+  es uno de esos bloqueos: da VIGILAR sobre el tramo real desde el alta y lo
+  marca como parcial; un portafolio que todavía no existía en ese mes sigue sin
   conclusión. El botón obtiene evidencia, no inventa historia.
+- **El alias abre la tarjeta.** Es la identidad que el usuario reconoce, así
+  que aparece destacado antes que cuenta, cifras y avisos. El nombre guardado
+  queda debajo como referencia técnica y al final conserva su enlace al
+  análisis.
 - **La serie queda cerrada con una lectura posterior al fin del mes.** No se
   exige esperar tres días ni volver a sondear hasta coincidir con la hora del
   cálculo: esa comparación móvil hacía obsoleta incluso una captura recién

@@ -13,7 +13,7 @@ Seis avisos, y el porqué de cada uno:
 | `below_streak` | N meses seguidos por debajo | **CAMBIAR.** Un mes flojo es ruido; la racha es la evidencia. |
 | `drawdown_breach` | la DD del mes sale de lo que el backtest hizo nunca | **CAMBIAR** si es inédita, **VIGILAR** si es extrema. |
 | `strategies_degraded` | hay DEGRADA o cruces sin confirmar | **CAMBIAR esas estrategias**, no la cartera. |
-| `partial_month` | el portafolio nació durante el mes | Aclara que la conclusión es parcial, sin impedirla. |
+| `partial_month` | el portafolio nació durante el mes | **VIGILAR** el tramo, sin compararlo con meses completos. |
 | `coverage_gap` | falta el tramo auditable, o la serie está vieja | **SIN CONCLUSIÓN.** Tapa a los demás. |
 
 Lo que **no** está aquí, a propósito:
@@ -98,7 +98,16 @@ def month_closed(facts: dict[str, Any]) -> dict[str, Any]:
     standing = (facts.get("profit_standing") or {}).get("overall") or {}
     promise = expected.get("profit")
     label = month_name(str(facts.get("month") or ""))
-    if promise is None:
+    title = f"{label}: {amount(closed.get('profit'), currency)}"
+    if facts.get("started_inside"):
+        start = str((facts.get("coverage") or {}).get("eligible_start") or "el alta")
+        title = f"Desde {start}: {amount(closed.get('profit'), currency)}"
+        message = (
+            f"Drawdown desde el alta: {amount(closed.get('drawdown'), currency)}. "
+            "Es el resultado real de ese tramo, pero no se compara con meses "
+            "completos del backtest."
+        )
+    elif promise is None:
         message = (
             "No hay media del backtest para este mes, así que no hay con qué "
             "compararlo."
@@ -112,13 +121,18 @@ def month_closed(facts: dict[str, Any]) -> dict[str, Any]:
         )
     return _notice(
         "month_closed",
-        "success" if (promise is not None and not facts.get("below")) else "info",
-        "", f"{label}: {amount(closed.get('profit'), currency)}", message,
+        "success" if (
+            not facts.get("started_inside")
+            and promise is not None and not facts.get("below")
+        ) else "info",
+        "", title, message,
     )
 
 
 def below_streak(facts: dict[str, Any]) -> dict[str, Any] | None:
     """La racha, que es lo que convierte un mal mes en una decisión."""
+    if facts.get("started_inside"):
+        return None
     months = int(facts.get("streak") or 0)
     needed = int(facts.get("streak_required") or 3)
     if months < needed:
@@ -136,6 +150,8 @@ def below_streak(facts: dict[str, Any]) -> dict[str, Any] | None:
 
 def drawdown_breach(facts: dict[str, Any]) -> dict[str, Any] | None:
     """La DD del mes contra lo que esta misma cartera hizo en el backtest."""
+    if facts.get("started_inside"):
+        return None
     standing = facts.get("drawdown_standing") or {}
     verdict = str(standing.get("verdict") or "")
     if verdict not in {"beyond", "extreme"}:
@@ -228,24 +244,24 @@ def _coverage_reasons(facts: dict[str, Any]) -> list[str]:
         reasons.append("la cuenta real nunca se ha sondeado")
     elif series.get("stale"):
         reasons.append(f"la serie de la cuenta se leyó el {series.get('updated_at', '')[:10]}")
-    if (facts.get("expected") or {}).get("profit") is None:
+    if not partial and (facts.get("expected") or {}).get("profit") is None:
         reasons.append("el backtest no tiene media para este mes")
     return reasons
 
 
 def partial_month(facts: dict[str, Any]) -> dict[str, Any] | None:
-    """La conclusión existe, pero no representa un mes natural completo."""
+    """Conclusión prudente: el tramo es real, pero no comparable a un mes."""
     if not facts.get("started_inside"):
         return None
     coverage = facts.get("coverage") or {}
     start = str(coverage.get("eligible_start") or "la fecha de alta")
     return _notice(
-        "partial_month", "warning", "", "Conclusión sobre un mes parcial",
+        "partial_month", "warning", WATCH, "Mes parcial: VIGILAR",
         (
             f"El portafolio nació el {start} y las auditorías cubren el tramo "
-            "exigible desde su alta. Los importes son los de la cuenta durante "
-            "el mes, así que esta conclusión es orientativa y no equivale a "
-            "haber operado el mes completo."
+            "exigible desde su alta. Beneficio y drawdown se miden sólo desde "
+            "ese momento; no se decide MANTENER o CAMBIAR comparándolos con "
+            "meses completos. El primer mes natural completo dará esa base."
         ),
     )
 
@@ -269,8 +285,9 @@ def recovery_needs(facts: dict[str, Any]) -> dict[str, bool]:
     """Qué evidencia puede obtener el botón sin inventar el resto del mes."""
     coverage = facts.get("coverage") or {}
     series = facts.get("series") or {}
+    partial = bool(facts.get("started_inside"))
     permanent = bool(facts.get("started_after_month")) or (
-        (facts.get("expected") or {}).get("profit") is None
+        not partial and (facts.get("expected") or {}).get("profit") is None
     )
     pct_key = "eligible_pct" if facts.get("started_inside") else "pct"
     return {

@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import monthly_summary_coverage as coverage
+from mt5_manager import monthly_summary_build
 from mt5_manager import monthly_summary_evidence as evidence
 from mt5_manager import monthly_summary_notices as notices
 from mt5_manager import monthly_summary_watch
@@ -355,9 +356,26 @@ class NoticeTests(unittest.TestCase):
             },
         )
         found = notices.notices(partial)
-        self.assertEqual(notices.verdict(found), notices.KEEP)
+        self.assertEqual(notices.verdict(found), notices.WATCH)
         self.assertEqual(self.kinds(found), ["partial_month", "month_closed"])
-        self.assertIn("no equivale", str(found[0]["message"]))
+        self.assertIn("sólo desde", str(found[0]["message"]))
+        self.assertIn("no se compara", str(found[1]["message"]))
+
+    def test_a_partial_month_cannot_claim_a_full_month_drawdown(self) -> None:
+        partial = facts(
+            started_inside=True, streak=5,
+            drawdown_standing={"verdict": "beyond", "worst": 10.0},
+        )
+        found = notices.notices(partial)
+        self.assertNotIn("drawdown_breach", self.kinds(found))
+        self.assertNotIn("below_streak", self.kinds(found))
+
+    def test_a_partial_month_does_not_need_a_full_month_promise(self) -> None:
+        partial = facts(started_inside=True, expected={"profit": None})
+        found = notices.notices(partial)
+        self.assertEqual(notices.verdict(found), notices.WATCH)
+        self.assertNotIn("coverage_gap", self.kinds(found))
+        self.assertFalse(notices.recovery_needs(partial)["permanent"])
 
     def test_a_partial_month_still_blocks_if_its_own_tranche_is_missing(self) -> None:
         found = notices.notices(facts(
@@ -407,6 +425,40 @@ class NoticeTests(unittest.TestCase):
         ])
         self.assertEqual(counted[notices.CHANGE], 2)
         self.assertEqual(counted[notices.WATCH], 0)
+
+
+class BuildCriterionTests(unittest.TestCase):
+    def test_a_partial_month_only_measures_movements_after_birth(self) -> None:
+        ordered = [
+            (datetime(2026, 9, 1, tzinfo=timezone.utc), -100.0),
+            (datetime(2026, 9, 18, 12, tzinfo=timezone.utc), 10.0),
+            (datetime(2026, 9, 19, tzinfo=timezone.utc), -3.0),
+        ]
+        portfolios = [{
+            "created_at": "2026-09-18T10:00:00+00:00",
+            "created_day": "2026-09-18", "expectation": {},
+        }]
+        measured = monthly_summary_build._performance(ordered, portfolios, MONTH)
+        self.assertEqual(measured["closed"], {
+            "profit": 7.0, "drawdown": 3.0, "trades": 2,
+        })
+        self.assertTrue(measured["started_inside"])
+        self.assertIsNone(measured["below"])
+
+    def test_a_streak_never_uses_months_before_the_portfolio_existed(self) -> None:
+        expectation = {"months": {
+            "09": {"profit": 100.0, "drawdown": 10.0, "years": [2020]},
+            "10": {"profit": 100.0, "drawdown": 10.0, "years": [2020]},
+        }}
+        measured = monthly_summary_build._streak(
+            {
+                "2026-10": {"profit": 0.0},
+                "2026-09": {"profit": 0.0},
+            },
+            [{"created_day": "2026-09-30", "expectation": expectation}],
+            "2026-10",
+        )
+        self.assertEqual(measured["months"], 1)
 
 
 if __name__ == "__main__":

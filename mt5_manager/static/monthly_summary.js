@@ -110,13 +110,18 @@
     const closed = card.closed || {};
     const expected = card.expected || {};
     const coverage = card.coverage || {};
+    const partial = Boolean(card.started_inside);
+    const profitLabel = partial ? 'Beneficio desde el alta' : 'Beneficio del mes';
+    const drawdownLabel = partial ? 'Drawdown desde el alta' : 'Drawdown del mes';
+    const coverageLabel = partial ? 'Tramo auditado' : 'Mes auditado';
+    const coverageValue = partial ? coverage.eligible_pct : coverage.pct;
     return `<div class="summary-grid">
-      <div><span>Beneficio del mes</span><strong>${escapeHtml(amount(closed.profit, currency))}</strong></div>
-      <div><span>Prometía</span><strong>${escapeHtml(amount(expected.profit, currency))}</strong></div>
-      <div><span>Drawdown del mes</span><strong>${escapeHtml(amount(closed.drawdown, currency))}</strong></div>
-      <div><span>Peor mes del backtest</span><strong>${escapeHtml(amount((card.drawdown_standing || {}).worst, currency))}</strong></div>
-      <div><span>Mes auditado</span><strong>${escapeHtml(`${Number(coverage.pct || 0).toFixed(0)} %`)}</strong></div>
-      <div><span>Meses de backtest</span><strong>${escapeHtml(String(card.backtest_months || 0))}</strong></div>
+      <div><span>${profitLabel}</span><strong>${escapeHtml(amount(closed.profit, currency))}</strong></div>
+      <div><span>${partial ? 'Promesa comparable' : 'Prometía'}</span><strong>${partial ? 'No disponible' : escapeHtml(amount(expected.profit, currency))}</strong></div>
+      <div><span>${drawdownLabel}</span><strong>${escapeHtml(amount(closed.drawdown, currency))}</strong></div>
+      <div><span>${partial ? 'Comparación histórica' : 'Peor mes del backtest'}</span><strong>${partial ? 'No comparable' : escapeHtml(amount((card.drawdown_standing || {}).worst, currency))}</strong></div>
+      <div><span>${coverageLabel}</span><strong>${escapeHtml(`${Number(coverageValue || 0).toFixed(0)} %`)}</strong></div>
+      <div><span>${partial ? 'Meses completos de referencia' : 'Meses de backtest'}</span><strong>${escapeHtml(String(card.backtest_months || 0))}</strong></div>
     </div>`;
   }
 
@@ -124,32 +129,42 @@
   // y el drawdown del mes son suyos—, así que aquí sólo se nombran y se les
   // cuelga lo que sí es de cada uso: su alias y su veredicto de reproducción.
   //
-  // El alias va pegado al nombre, que es como se reconoce un uso de un vistazo:
-  // «Moderado 173» es el nombre con el que se guardó y «Cuenta prop 50k» lo que
-  // el usuario llama a eso. Lo pinta `dashboard.js` igual en la portada.
+  // El alias identifica la tarjeta arriba. Aquí queda el nombre persistido y
+  // el veredicto de reproducción, ambos enlazados con el uso concreto.
   function portfoliosMarkup(card) {
     const rows = (card.portfolios || []).map(portfolio => {
       const mark = reproduction.get(`${card.node_id}|${portfolio.audit_id}`);
       const state = mark ? `<span class="summary-reproduction ${mark.tone}">${escapeHtml(mark.text)}</span>` : '';
       const name = portfolio.name || `Portafolio #${portfolio.portfolio_id || '—'}`;
-      const alias = aliases.get(`${card.node_id}|${portfolio.portfolio_id}`);
-      const label = alias
-        ? `<span class="summary-alias">${escapeHtml(alias)}</span>` : '';
       return `<li><a href="/live_audit_analysis.html?node=${encodeURIComponent(card.node_id)}`
         + `&audit=${encodeURIComponent(portfolio.audit_id)}">${escapeHtml(name)}</a>`
-        + `${label}${state}</li>`;
+        + `${state}</li>`;
     });
     if (!rows.length) return '';
     return `<ul class="summary-portfolios">${rows.join('')}</ul>`;
   }
 
+  function portfolioIdentityMarkup(card) {
+    const autolot = card.autolot ? ' · autolote' : '';
+    const identities = (card.portfolios || []).map(portfolio => {
+      const name = portfolio.name || `Portafolio #${portfolio.portfolio_id || '—'}`;
+      const alias = aliases.get(`${card.node_id}|${portfolio.portfolio_id}`);
+      return {primary: alias || name, stored: alias ? name : ''};
+    });
+    const primary = identities.map(identity => identity.primary).join(' + ')
+      || `${card.login || ''} · ${card.server || ''}`;
+    const stored = identities.length === 1 && identities[0].stored
+      ? `<span class="summary-stored-name">${escapeHtml(identities[0].stored)}</span>` : '';
+    return `<div class="summary-identity"><p class="eyebrow">PORTAFOLIO</p>
+      <h2>${escapeHtml(primary)}</h2>${stored}
+      <p class="summary-account">${escapeHtml(card.node_name || card.node_id)} · ${escapeHtml(card.login || '')} · ${escapeHtml(card.server || '')}${autolot}</p></div>`;
+  }
+
   function cardMarkup(card) {
     const verdict = String(card.verdict || 'keep');
-    const autolot = card.autolot ? ' · autolote' : '';
     return `<article class="summary-card ${escapeHtml(verdict)}">
       <div class="summary-card-head">
-        <div><p class="eyebrow">${escapeHtml(card.node_name || card.node_id)}${autolot}</p>
-          <h2>${escapeHtml(card.login || '')} · ${escapeHtml(card.server || '')}</h2></div>
+        ${portfolioIdentityMarkup(card)}
         <span class="summary-verdict ${escapeHtml(verdict)}">${escapeHtml(VERDICTS[verdict] || verdict)}</span>
       </div>
       ${figuresMarkup(card)}

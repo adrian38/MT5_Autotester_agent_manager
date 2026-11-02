@@ -19,6 +19,11 @@ portafolios que la comparten exigiría inventar un reparto. La tarjeta nombra
 los portafolios que la operan y cuelga de ellos lo que sí es suyo —las
 estrategias degradadas y la cobertura de su auditoría—, que es exactamente
 como ya lo presenta la portada (`live_account_dashboard`).
+
+Si la composición nació durante el mes, tampoco se le atribuye lo que hizo la
+cuenta antes: beneficio y drawdown empiezan en el alta. Ese tramo no se compara
+con meses completos del backtest ni alimenta rachas; se vigila hasta disponer
+del primer mes natural comparable.
 """
 from __future__ import annotations
 
@@ -33,6 +38,7 @@ from .live_account_archive import ordered_movements
 from .live_account_expectation import month_expectation
 from .live_account_schedule import convert
 from .live_account_series import monthly_rows, row
+from .live_audit_schedule import parse_timestamp
 from .monthly_summary_schedule import shift_month
 
 STREAK_LOOKBACK = 12
@@ -53,6 +59,7 @@ def _portfolio_rows(server: Any, node_id: str, account: dict[str, Any]) -> list[
             "name": str(
                 stored.get("portfolio_name") or portfolio.get("deployment_name") or ""
             ),
+            "created_at": created,
             "created_day": created[:10],
             "expectation": stored,
         })
@@ -124,8 +131,16 @@ def _streak(
     """Meses seguidos por debajo de su promesa, desde el mes cerrado hacia atrás."""
     flags: list[bool | None] = []
     labels: list[str] = []
+    creation_month = max(
+        (str(row.get("created_day") or "")[:7] for row in portfolios),
+        default="",
+    )
     for step in range(STREAK_LOOKBACK):
         key = shift_month(label, -step)
+        if creation_month and key <= creation_month:
+            flags.append(None)
+            labels.append(key)
+            continue
         promise = _promise(portfolios, key)["profit"]
         measured = row(months, key) if key in months else None
         flags.append(
@@ -135,6 +150,44 @@ def _streak(
         labels.append(key)
     total = evidence.streak(flags)
     return {"months": total, "labels": labels[:total]}
+
+
+def _composition_start(
+    portfolios: list[dict[str, Any]], label: str,
+) -> Any:
+    """Alta más reciente dentro del mes: desde ahí existe esta composición."""
+    month_start, month_end = coverage.month_bounds(label)
+    starts = [
+        stamp for stamp in (
+            parse_timestamp(portfolio.get("created_at")) for portfolio in portfolios
+        ) if stamp is not None and month_start <= stamp < month_end
+    ]
+    return max(starts) if starts else None
+
+
+def _performance(
+    ordered: list[tuple[Any, float]], portfolios: list[dict[str, Any]], label: str,
+) -> dict[str, Any]:
+    """Mide sólo el tramo en que ya existía la composición de la tarjeta."""
+    partial_start = _composition_start(portfolios, label)
+    measured = [
+        item for item in ordered
+        if partial_start is None or item[0] >= partial_start
+    ]
+    closed = row(monthly_rows(measured), label)
+    promise = _promise(portfolios, label)
+    table = _combined_months(portfolios)
+    comparable = partial_start is None
+    return {
+        "closed": closed, "expected": promise, "table": table,
+        "started_inside": not comparable,
+        "below": evidence.below_promise(closed["profit"], promise["profit"])
+        if comparable else None,
+        "profit_standing": evidence.profit_standing(closed["profit"], table, label)
+        if comparable else {},
+        "drawdown_standing": evidence.drawdown_standing(closed["drawdown"], table)
+        if comparable else {"measured": False, "verdict": "", "worst": None},
+    }
 
 
 def _degradation(server: Any, node_id: str, portfolios: list[dict[str, Any]]) -> dict[str, Any]:
@@ -186,27 +239,24 @@ def account_card(
 ) -> dict[str, Any]:
     """Una tarjeta del resumen: los hechos del mes y los avisos que salen."""
     stored = server.live_accounts.read(node_id, account["account_key"])
-    months = monthly_rows(ordered_movements(stored))
+    ordered = ordered_movements(stored)
+    months = monthly_rows(ordered)
     portfolios = _portfolio_rows(server, node_id, account)
-    closed = row(months, label)
-    promise = _promise(portfolios, label)
-    table = _combined_months(portfolios)
+    performance = _performance(ordered, portfolios, label)
+    closed = performance["closed"]
     facts = {
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
         "account_key": account["account_key"], "login": account["login"],
         "server": account["server"],
         "currency": str(stored.get("currency") or ""),
         "autolot": bool(account.get("autolot")),
-        "month": label, "closed": closed, "expected": promise,
-        "below": evidence.below_promise(closed["profit"], promise["profit"]),
-        "profit_standing": evidence.profit_standing(closed["profit"], table, label),
-        "drawdown_standing": evidence.drawdown_standing(closed["drawdown"], table),
-        "backtest_months": len(table),
+        "month": label, "closed": closed, "expected": performance["expected"],
+        "below": performance["below"],
+        "profit_standing": performance["profit_standing"],
+        "drawdown_standing": performance["drawdown_standing"],
+        "backtest_months": len(performance["table"]),
         "streak_required": int(settings.get("below_streak_months") or 3),
-        "started_inside": any(
-            coverage.started_within(portfolio["created_day"], label)
-            for portfolio in portfolios
-        ),
+        "started_inside": performance["started_inside"],
         "started_after_month": any(
             coverage.started_later(portfolio["created_day"], label)
             for portfolio in portfolios
@@ -215,7 +265,10 @@ def account_card(
         "series": coverage.series_coverage(stored, label),
         **_degradation(server, node_id, portfolios),
     }
-    facts["streak"] = _streak(months, portfolios, label)["months"]
+    facts["streak"] = (
+        0 if facts["started_inside"]
+        else _streak(months, portfolios, label)["months"]
+    )
     found = notices.notices(facts)
     return {
         **facts,
