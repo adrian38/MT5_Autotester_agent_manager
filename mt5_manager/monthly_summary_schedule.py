@@ -112,6 +112,14 @@ def month_name(label: str) -> str:
         return str(label)
 
 
+def month_word(label: str) -> str:
+    """«octubre»: el mes del año a secas, sin el año que lo acompaña."""
+    try:
+        return MONTH_NAMES[int(label.split("-", 1)[1]) - 1]
+    except (IndexError, ValueError):
+        return "mes"
+
+
 def month_plural(label: str) -> str:
     """«octubres»: el mes del año en plural, para contar los del backtest.
 

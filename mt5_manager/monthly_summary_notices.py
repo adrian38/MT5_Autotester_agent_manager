@@ -9,7 +9,8 @@ Seis avisos, y el porqué de cada uno:
 
 | Aviso | Cuándo sale | Qué decide |
 | --- | --- | --- |
-| `month_closed` | siempre, una línea | Nada por sí solo. Es el dato: el mes contra lo que ese mes prometía, dicho contando meses del propio backtest. |
+| `month_closed` | siempre, una línea | Nada por sí solo. Es el dato: el mes contra lo que da un mes como ése, con la banda de lo normal detrás. |
+| `seasonal_shortfall` | el mes se sale por abajo de esa banda | **VIGILAR.** Rindió el 45 % de su octubre: ya no es un mes cualquiera. |
 | `below_streak` | N meses seguidos por debajo | **CAMBIAR.** Un mes flojo es ruido; la racha es la evidencia. |
 | `drawdown_breach` | la DD del mes sale de lo que el backtest hizo nunca | **CAMBIAR** si es inédita, **VIGILAR** si es extrema. |
 | `strategies_degraded` | hay DEGRADA o cruces sin confirmar | **CAMBIAR esas estrategias**, no la cartera. |
@@ -45,9 +46,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .monthly_summary_schedule import month_name, month_plural
+from .monthly_summary_schedule import month_name, month_plural, month_word
 
-CRITERION_VERSION = "seasonal-rank-lot-aware-v2"
+CRITERION_VERSION = "seasonal-band-lot-aware-v3"
 """El criterio con el que se escribieron los avisos de un informe guardado.
 
 Cubre **todo** el criterio —lo que mide `monthly_summary_build` y lo que dice
@@ -141,6 +142,75 @@ def comparable(facts: dict[str, Any], key: str) -> bool:
     return facts.get(key) is not False
 
 
+_TAIL = {
+    "below": "por debajo de lo normal",
+    "above": "por encima de lo normal",
+    "normal": "dentro de lo normal",
+}
+
+
+def band_sentence(facts: dict[str, Any], currency: str) -> str:
+    """Si el mes respeta la media de los suyos, dicho como se lee.
+
+    No cuenta posiciones: dice qué da un octubre normal y qué dio éste. El
+    porcentaje es el titular —«el 45 %» se entiende sin leer el resto— y la
+    banda está detrás para que se vea de dónde sale el juicio.
+    """
+    band = facts.get("profit_band") or {}
+    label = str(facts.get("month") or "")
+    if not band.get("measured"):
+        return (
+            f"El backtest no tiene {month_plural(label)} suficientes para decir "
+            "qué es normal en uno, así que el importe de arriba no se juzga."
+        )
+    tail = _TAIL.get(str(band.get("verdict") or ""), "sin situar")
+    ratio = band.get("ratio")
+    verdict = (
+        f"Éste hizo el {float(ratio):.0f} %: {tail}." if ratio is not None
+        else f"Éste quedó {tail}."
+    )
+    return (
+        f"Un {month_word(label)} normal da entre {amount(band['low'])} y "
+        f"{amount(band['high'], currency)} (media "
+        f"{amount(band['mean'], currency)}, {band['total']} "
+        f"{month_plural(label)} del backtest). {verdict}"
+    )
+
+
+def seasonal_shortfall(facts: dict[str, Any]) -> dict[str, Any] | None:
+    """El mes se salió por abajo de lo que varía un mes como ése.
+
+    Es el juicio que el usuario pidió el 2026-11-02 y decide por sí solo: no
+    hay que esperar a la racha para que una cartera que rindió el 45 % de su
+    octubre deje de ser «MANTENER». Por debajo de lo normal no es lo mismo que
+    por debajo de la media —la mitad de los meses quedan por debajo de la
+    media y no pasa nada—: es haberse salido de lo que esta cartera hace.
+
+    Calla cuando la racha ya habla. Decir «este octubre fue flojo» debajo de
+    «tres meses seguidos por debajo» no añade una decisión, añade una línea.
+    """
+    if facts.get("started_inside") or not comparable(facts, "table_comparable"):
+        return None
+    if int(facts.get("streak") or 0) >= int(facts.get("streak_required") or 3):
+        return None
+    band = facts.get("profit_band") or {}
+    if not band.get("measured") or str(band.get("verdict")) != "below":
+        return None
+    label = str(facts.get("month") or "")
+    ratio = band.get("ratio")
+    share = f": {float(ratio):.0f} % de la media" if ratio is not None else ""
+    return _notice(
+        "seasonal_shortfall", "warning", WATCH,
+        f"{month_word(label).capitalize()} por debajo de lo normal{share}",
+        (
+            f"No es sólo que quedara por debajo de la media: se salió de lo que "
+            f"varía un {month_word(label)} de esta cartera. Un mes así no la "
+            "retira —eso lo decide la racha—, pero es el primero que hay que "
+            "mirar."
+        ),
+    )
+
+
 def _closed_message(facts: dict[str, Any], currency: str) -> str:
     """Lo que se puede decir del mes sin comparar lo que no se deja comparar."""
     closed = facts.get("closed") or {}
@@ -158,20 +228,14 @@ def _closed_message(facts: dict[str, Any], currency: str) -> str:
             "No hay media del backtest para este mes, así que no hay con qué "
             "compararlo."
         )
-    # El recuento es contra los meses del mismo mes del año, no contra los
-    # setenta y siete: la promesa de arriba ya es la media de los octubres, así
-    # que situarlo entre los doce meses lo compararía con otra población.
-    standing = (facts.get("profit_standing") or {}).get("seasonal") or {}
-    difference = float(closed.get("profit") or 0.0) - float(promise)
-    return (
-        f"Prometía {amount(promise, currency)} "
-        f"({'+' if difference >= 0 else '−'}{amount(abs(difference), currency)}"
-        f" de diferencia). "
-        + (
-            worse_than(standing, month_plural(str(facts.get("month") or "")))
-            if comparable(facts, "table_comparable") else AUTOLOT_TABLE
+    if not comparable(facts, "table_comparable"):
+        difference = float(closed.get("profit") or 0.0) - float(promise)
+        return (
+            f"Prometía {amount(promise, currency)} "
+            f"({'+' if difference >= 0 else '−'}{amount(abs(difference), currency)}"
+            f" de diferencia). {AUTOLOT_TABLE}"
         )
-    )
+    return band_sentence(facts, currency)
 
 
 def month_closed(facts: dict[str, Any]) -> dict[str, Any]:
@@ -382,7 +446,7 @@ def recovery_needs(facts: dict[str, Any]) -> dict[str, bool]:
 
 BUILDERS = (
     coverage_gap, partial_month, drawdown_breach, below_streak,
-    strategies_degraded, month_closed,
+    seasonal_shortfall, strategies_degraded, month_closed,
 )
 """El orden en que se leen: primero lo que impide concluir, después lo que
 pide decisión, y el dato del mes al final. `month_closed` siempre sale."""

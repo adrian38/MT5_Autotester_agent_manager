@@ -295,6 +295,9 @@ class ScriptTests(unittest.TestCase):
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
         self.assertIn("monthPlural(card.month, true)", figures)
         self.assertIn("seasonalMonths(card)", figures)
+        # Y la promesa se llama por lo que es: la media de esos octubres.
+        label = SCRIPT[SCRIPT.index("function promiseLabel"):]
+        self.assertIn("Media de los ${escapeHtml(monthPlural(card.month))}", label)
 
     def test_a_figure_that_cannot_be_compared_says_so_instead_of_a_number(self) -> None:
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]

@@ -228,8 +228,8 @@ def _performance(
         "started_inside": partial_start is not None, **lots,
         "below": evidence.below_promise(closed["profit"], promise["profit"])
         if lots["promise_comparable"] else None,
-        "profit_standing": evidence.profit_standing(closed["profit"], table, label)
-        if lots["table_comparable"] else {},
+        "profit_band": evidence.profit_band(closed["profit"], table, label)
+        if lots["table_comparable"] else {"measured": False, "verdict": ""},
         "drawdown_standing": evidence.drawdown_standing(closed["drawdown"], table)
         if lots["table_comparable"] else {"measured": False, "verdict": "", "worst": None},
     }
@@ -299,7 +299,7 @@ def account_card(
         "autolot": autolot,
         "month": label, "closed": closed, "expected": performance["expected"],
         "below": performance["below"],
-        "profit_standing": performance["profit_standing"],
+        "profit_band": performance["profit_band"],
         "drawdown_standing": performance["drawdown_standing"],
         "backtest_months": len(performance["table"]),
         # Los del mismo mes del año, que son con los que se cuenta: la promesa

@@ -20,21 +20,28 @@ del veredicto de reproducción que éste arrastra.
 
 ## Lo que mide, y por qué estas cosas
 
-- **El mes cerrado contra lo que ese mes prometía el backtest**, dicho
-  **contando meses de la propia serie** («de los 6 octubres, 4 fueron peores»)
-  en vez de suponer una normal. Es el método que `live_audit_degradation_evidence`
-  ya usa con el beneficio por operación, por la misma razón: la distribución
-  mensual tiene la cola izquierda gorda y rachas.
-- **Y se cuenta contra los meses del mismo mes del año, no contra los setenta
-  y siete.** La promesa de la tarjeta ya es estacional —`month_expectation`
-  promedia los octubres del backtest—, así que situar octubre entre los setenta
-  y siete meses lo compara con una población distinta de la que produjo esa
-  promesa: «de los 77 meses, 53 fueron peores» mezcla eneros con agostos y no
-  dice nada de si este octubre fue bueno. El recuento estacional usa el mismo
-  listón de muestra que el general (`MINIMUM_MONTHS`), así que con menos de
-  seis años de backtest dice que no puede situarlo en vez de inventar un
-  porcentaje sobre tres datos. `overall` se sigue calculando, pero no se
-  enseña. La petición es del usuario, 2026-11-02.
+- **Si el mes respeta la media de los suyos**, que es la pregunta que la
+  pantalla tiene que contestar. No dónde cae: un recuento es una posición, y
+  «de los 6 octubres, 4 fueron peores» no dice si la cartera se está portando
+  como lo que se compró. Lo que lo dice es «éste hizo el 138 % de lo que da un
+  octubre», o el 45 %.
+  - **Lo normal es la media de ese mes del año ± su desviación**, y la banda
+    sale de la dispersión de esos mismos meses: cuánto puede variar un octubre
+    sin que pase nada lo dicen los octubres, no un umbral a ojo. Regla elegida
+    por el usuario el 2026-11-02, después de que las dos versiones anteriores
+    —contra los 77 meses y contra los 6 octubres— se quedaran en recuentos.
+  - **La media es exactamente la promesa**, porque `month_expectation`
+    promedia los mismos años. Por eso la frase ya no repite «Prometía X (−Y de
+    diferencia)» y el recuadro se llama «Media de los octubres».
+  - **Mismo listón de muestra que el recuento** (`MINIMUM_MONTHS`): con menos
+    de seis años no se dice qué es normal en un octubre. Y sin media positiva
+    no hay porcentaje —el 45 % de una pérdida media no significa nada—, así
+    que se dice con palabras.
+  - **Salirse por abajo decide**: `seasonal_shortfall` pone la tarjeta en
+    VIGILAR sin esperar a la racha, porque por debajo de *lo normal* no es lo
+    mismo que por debajo de la media —la mitad de los meses quedan por debajo
+    de la media y no pasa nada—. Calla en cuanto la racha habla, que ya es
+    CAMBIAR.
 - **El drawdown del mes contra los drawdowns mensuales del backtest.** Era lo
   que la última sección de `live_audit_degradation_evidence.md` daba por no
   medido en absoluto, y es la familia de criterios con la que de verdad se
@@ -182,6 +189,7 @@ señalaba las dos rutas estáticas que apuntaban a ficheros inexistentes.
 
 | Prueba | Qué exige |
 | --- | --- |
-| `tests/live_audit/test_monthly_summary.py` | El criterio: racha cortada por el hueco, drawdown inédito, cobertura unida y no sumada, que SIN CONCLUSIÓN tape a CAMBIAR, y que con autolote el mes diga por qué no se sitúa en vez de contar. |
+| `tests/live_audit/test_monthly_summary.py` | Lo que los hechos acaban diciendo: cobertura unida y no sumada, drawdown inédito, que SIN CONCLUSIÓN tape a CAMBIAR, que el mes se juzgue contra la banda de los suyos y que con autolote diga por qué no se juzga. |
+| `tests/live_audit/test_monthly_summary_build.py` | Lo que `monthly_summary_build` mide antes: qué tramo entra en un mes parcial, a qué lotes se puede comparar y qué meses cuentan en la racha. |
 | `tests/manager/test_monthly_summary_screen.py` | Que el panel pinte y no decida, que sus rutas y su almacén se porten, que el enlace de la campana lleve a una página que existe, que «Obtener lo que falta» sólo esté vivo cuando falte y que la barra use las clases de `cron-activity`. |
 | `tests/manager/test_header_actions_order.py` | El sitio del botón en la barra de las dos pantallas. |

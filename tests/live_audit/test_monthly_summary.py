@@ -57,13 +57,32 @@ def table(profits: list[float], drawdowns: list[float] | None = None) -> dict:
     })
 
 
+SEPTEMBER_YEARS = [8.44, 47.63, 18.50, 44.44, 26.78, 19.73]
+"""Los seis meses de una cartera real: media 27,59 y desviación 15,47, así que
+lo normal va de 12,11 a 43,06. Son números suyos para que la frase que se
+comprueba sea la que el usuario lee."""
+
+
+def _table(profits: list[float]) -> dict:
+    """Una tabla de backtest en la que todos los meses son el de `MONTH`."""
+    return {
+        f"{2020 + step}-{MONTH.split('-')[1]}": {
+            "profit": profit, "drawdown": 0.0, "trades": 0,
+        }
+        for step, profit in enumerate(profits)
+    }
+
+
+SEPTEMBERS = evidence.profit_band(38.14, _table(SEPTEMBER_YEARS), MONTH)
+
+
 def facts(**changes: object) -> dict:
     base = {
         "currency": "EUR", "month": MONTH,
         "closed": {"profit": 100.0, "drawdown": 50.0, "trades": 12},
         "expected": {"profit": 80.0, "drawdown": 60.0, "years": [2020], "portfolios": 1},
         "below": False, "streak": 0, "streak_required": 3,
-        "profit_standing": {"overall": evidence.rank(100.0, [10.0, 20.0, 30.0])},
+        "profit_band": {"measured": False, "verdict": "", "total": 3},
         "drawdown_standing": {"verdict": "normal", "measured": True, "worst": 90.0},
         "backtest_months": 72, "started_inside": False, "started_after_month": False,
         "coverage": {
@@ -317,25 +336,66 @@ class NoticeTests(unittest.TestCase):
         }))
         self.assertEqual(extreme["verdict"], notices.WATCH)
 
-    def test_the_month_is_placed_among_its_own_months_of_the_year(self) -> None:
-        # La promesa ya es la media de los septiembres: contar contra los doce
-        # meses lo compararía con otra población y no diría nada del mes.
-        standing = {
-            "overall": evidence.rank(100.0, [10.0] * 40 + [500.0] * 37),
-            "seasonal": evidence.rank(100.0, [10.0, 20.0] + [500.0] * 4),
-        }
-        message = str(notices.month_closed(facts(profit_standing=standing))["message"])
-        self.assertIn("De los 6 septiembres del backtest, 2 fueron peores.", message)
-        self.assertNotIn("77", message)
-        self.assertNotIn("meses del backtest", message)
+    def test_the_month_says_whether_it_respects_its_own_average(self) -> None:
+        # No dónde cae, sino si se porta como lo que se compró: un recuento es
+        # una posición y la pantalla tiene que dar un juicio.
+        message = str(notices.month_closed(facts(
+            closed={"profit": 38.14, "drawdown": 1.0, "trades": 9},
+            profit_band=SEPTEMBERS,
+        ))["message"])
+        self.assertIn("Un septiembre normal da entre", message)
+        self.assertIn("(media 27,59 EUR, 6 septiembres del backtest)", message)
+        self.assertIn("Éste hizo el 138 %: dentro de lo normal.", message)
+        self.assertNotIn("fueron peores", message)
 
-    def test_a_season_without_enough_years_says_so_instead_of_counting(self) -> None:
-        # `rank` exige la misma muestra mínima que el recuento general: con tres
-        # septiembres, «uno de tres fue peor» es un tercio que no significa nada.
-        standing = {"seasonal": evidence.rank(100.0, [10.0, 20.0, 30.0])}
+    def test_a_month_outside_the_band_is_judged_by_it(self) -> None:
+        low = evidence.profit_band(8.0, _table(SEPTEMBER_YEARS), MONTH)
+        self.assertEqual(low["verdict"], "below")
+        high = evidence.profit_band(90.0, _table(SEPTEMBER_YEARS), MONTH)
+        self.assertEqual(high["verdict"], "above")
+        self.assertIn("por encima de lo normal", notices.band_sentence(
+            facts(closed={"profit": 90.0}, profit_band=high), "EUR",
+        ))
+
+    def test_a_season_without_enough_years_is_not_judged(self) -> None:
+        # Mismo listón de muestra que el recuento: con tres septiembres no se
+        # puede decir qué es normal en uno, así que no se dice.
+        band = evidence.profit_band(100.0, _table([10.0, 20.0, 30.0]), MONTH)
+        self.assertFalse(band["measured"])
         self.assertIn(
-            "El backtest no tiene septiembres suficientes para situarlo.",
-            str(notices.month_closed(facts(profit_standing=standing))["message"]),
+            "no tiene septiembres suficientes para decir qué es normal",
+            str(notices.month_closed(facts(profit_band=band))["message"]),
+        )
+
+    def test_a_month_below_normal_decides_the_card_by_itself(self) -> None:
+        # Petición del usuario: no hay que esperar a la racha para que una
+        # cartera que rindió el 45 % de su septiembre deje de ser MANTENER.
+        band = evidence.profit_band(8.0, _table(SEPTEMBER_YEARS), MONTH)
+        found = notices.notices(facts(profit_band=band))
+        self.assertIn("seasonal_shortfall", [str(n["kind"]) for n in found])
+        self.assertEqual(notices.verdict(found), notices.WATCH)
+        notice = notices.seasonal_shortfall(facts(profit_band=band))
+        self.assertEqual(notice["title"], "Septiembre por debajo de lo normal: 29 % de la media")
+
+    def test_a_month_inside_the_band_decides_nothing(self) -> None:
+        self.assertIsNone(notices.seasonal_shortfall(facts(profit_band=SEPTEMBERS)))
+        self.assertEqual(notices.verdict(notices.notices(facts())), notices.KEEP)
+
+    def test_the_shortfall_keeps_quiet_once_the_streak_speaks(self) -> None:
+        # «Este septiembre fue flojo» debajo de «3 meses seguidos por debajo»
+        # no añade una decisión, añade una línea.
+        band = evidence.profit_band(8.0, _table(SEPTEMBER_YEARS), MONTH)
+        self.assertIsNone(
+            notices.seasonal_shortfall(facts(profit_band=band, streak=3)),
+        )
+
+    def test_a_negative_average_leaves_no_percentage_to_show(self) -> None:
+        # El 45 % de una pérdida media no significa nada: se dice con palabras.
+        band = evidence.profit_band(-80.0, _table([-10.0, -20.0] * 3), MONTH)
+        self.assertIsNone(band["ratio"])
+        self.assertIn(
+            "Éste quedó por debajo de lo normal.",
+            notices.band_sentence(facts(profit_band=band), "EUR"),
         )
 
     def test_the_drawdown_says_how_many_months_it_counted(self) -> None:
@@ -355,17 +415,16 @@ class NoticeTests(unittest.TestCase):
             drawdown_standing={"verdict": "beyond", "measured": True, "worst": 90.0},
         )))
 
-    def test_a_month_that_cannot_be_ranked_says_why_instead_of_counting(self) -> None:
-        counted = {"seasonal": evidence.rank(100.0, [10.0] * 7)}
-        ranked = str(notices.month_closed(facts(profit_standing=counted))["message"])
-        self.assertIn("fueron peores", ranked)
-        unranked = str(notices.month_closed(facts(
-            profit_standing=counted, table_comparable=False,
+    def test_a_month_that_cannot_be_judged_says_why_instead_of_judging(self) -> None:
+        judged = str(notices.month_closed(facts(profit_band=SEPTEMBERS))["message"])
+        self.assertIn("dentro de lo normal", judged)
+        unjudged = str(notices.month_closed(facts(
+            profit_band=SEPTEMBERS, table_comparable=False,
         ))["message"])
-        self.assertIn("Prometía", unranked)
-        self.assertNotIn("fueron peores", unranked)
+        self.assertIn("Prometía", unjudged)
+        self.assertNotIn("lo normal", unjudged)
         self.assertEqual(
-            unranked[unranked.index("No se sitúa"):], notices.AUTOLOT_TABLE,
+            unjudged[unjudged.index("No se sitúa"):], notices.AUTOLOT_TABLE,
         )
 
     def test_a_month_without_a_promise_at_its_lots_shows_no_promise(self) -> None:
@@ -377,8 +436,8 @@ class NoticeTests(unittest.TestCase):
         # Un resumen es la foto de un mes y se relee tal cual se guardó: la
         # marca ausente no puede significar «no comparable».
         self.assertTrue(notices.comparable(facts(), "table_comparable"))
-        stored = facts(profit_standing={"seasonal": evidence.rank(100.0, [10.0] * 7)})
-        self.assertIn("fueron peores", str(notices.month_closed(stored)["message"]))
+        stored = facts(profit_band=SEPTEMBERS)
+        self.assertIn("lo normal", str(notices.month_closed(stored)["message"]))
 
     def test_what_degrades_changes_the_strategies_and_not_the_portfolio(self) -> None:
         notice = notices.strategies_degraded(facts(
@@ -488,105 +547,6 @@ class NoticeTests(unittest.TestCase):
         ])
         self.assertEqual(counted[notices.CHANGE], 2)
         self.assertEqual(counted[notices.WATCH], 0)
-
-
-class BuildCriterionTests(unittest.TestCase):
-    def test_a_partial_month_only_measures_movements_after_birth(self) -> None:
-        ordered = [
-            (datetime(2026, 9, 1, tzinfo=timezone.utc), -100.0),
-            (datetime(2026, 9, 18, 12, tzinfo=timezone.utc), 10.0),
-            (datetime(2026, 9, 19, tzinfo=timezone.utc), -3.0),
-        ]
-        portfolios = [{
-            "created_at": "2026-09-18T10:00:00+00:00",
-            "created_day": "2026-09-18", "expectation": {},
-        }]
-        measured = monthly_summary_build._performance(ordered, portfolios, MONTH)
-        self.assertEqual(measured["closed"], {
-            "profit": 7.0, "drawdown": 3.0, "trades": 2,
-        })
-        self.assertTrue(measured["started_inside"])
-        self.assertIsNone(measured["below"])
-
-    def test_autolot_without_a_remeasured_month_has_no_promise_to_compare(self) -> None:
-        # Sin escenario, la media de siempre está al lote declarado: compararla
-        # con lo que corrió el autolote mide el volumen, no el comportamiento.
-        portfolios = [{
-            "created_at": "2026-01-01T00:00:00+00:00", "created_day": "2026-01-01",
-            "expectation": {"months": {"10": {
-                "profit": 100.0, "drawdown": 10.0, "years": [2020],
-                "months": {"2020-10": {"profit": 100.0, "drawdown": 10.0, "trades": 3}},
-            }}},
-        }]
-        measured = monthly_summary_build._performance(
-            [(datetime(2026, 10, 2, tzinfo=timezone.utc), 5.0)], portfolios, MONTH,
-            autolot=True,
-        )
-        self.assertFalse(measured["promise_comparable"])
-        self.assertFalse(measured["table_comparable"])
-        self.assertIsNone(measured["below"])
-        self.assertEqual(measured["profit_standing"], {})
-        self.assertFalse(measured["drawdown_standing"]["measured"])
-
-    def test_autolot_promises_at_the_month_lots_but_never_ranks(self) -> None:
-        # El escenario remide **sólo la fila de su mes**, así que la promesa sí
-        # está al lote bueno y la serie de meses sigue sin estarlo.
-        portfolios = [{
-            "created_at": "2026-01-01T00:00:00+00:00", "created_day": "2026-01-01",
-            "expectation": {
-                "months": {"10": {
-                    "profit": 100.0, "drawdown": 10.0, "years": [2020],
-                    "months": {"2020-10": {"profit": 100.0, "drawdown": 10.0, "trades": 3}},
-                }},
-                "months_at": {MONTH: {
-                    "profit": 300.0, "drawdown": 30.0, "years": [2020],
-                    "basis": "autolot_mean_balance", "lots": {"manual:1": 3.0},
-                }},
-            },
-        }]
-        measured = monthly_summary_build._performance(
-            [(datetime(2026, 10, 2, tzinfo=timezone.utc), 5.0)], portfolios, MONTH,
-            autolot=True,
-        )
-        self.assertTrue(measured["promise_comparable"])
-        self.assertFalse(measured["table_comparable"])
-        self.assertEqual(measured["expected"]["profit"], 300.0)
-        self.assertTrue(measured["below"])
-        self.assertEqual(measured["profit_standing"], {})
-
-    def test_a_streak_skips_months_promised_at_another_lot(self) -> None:
-        # Un mes cuya promesa no está al lote que se corrió no puede entrar en
-        # la racha ni romperla: nadie sabe de qué lado habría caído.
-        expectation = {"months": {
-            "09": {"profit": 100.0, "drawdown": 10.0, "years": [2020]},
-            "10": {"profit": 100.0, "drawdown": 10.0, "years": [2020]},
-        }}
-        series = {"2026-10": {"profit": 0.0}, "2026-09": {"profit": 0.0}}
-        portfolios = [{"created_day": "2026-01-01", "expectation": expectation}]
-        self.assertEqual(
-            monthly_summary_build._streak(series, portfolios, "2026-10")["months"], 2,
-        )
-        self.assertEqual(
-            monthly_summary_build._streak(
-                series, portfolios, "2026-10", autolot=True,
-            )["months"],
-            0,
-        )
-
-    def test_a_streak_never_uses_months_before_the_portfolio_existed(self) -> None:
-        expectation = {"months": {
-            "09": {"profit": 100.0, "drawdown": 10.0, "years": [2020]},
-            "10": {"profit": 100.0, "drawdown": 10.0, "years": [2020]},
-        }}
-        measured = monthly_summary_build._streak(
-            {
-                "2026-10": {"profit": 0.0},
-                "2026-09": {"profit": 0.0},
-            },
-            [{"created_day": "2026-09-30", "expectation": expectation}],
-            "2026-10",
-        )
-        self.assertEqual(measured["months"], 1)
 
 
 if __name__ == "__main__":

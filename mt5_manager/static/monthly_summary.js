@@ -152,11 +152,18 @@
     return capital ? plural[0].toUpperCase() + plural.slice(1) : plural;
   }
 
-  // Los resúmenes guardados antes de contar por estación no traen el número;
-  // el recuento del aviso ya dice entonces que no hay muestra para situarlo.
+  // Los resúmenes guardados antes de medir por estación no traen el número;
+  // la frase del aviso ya dice entonces que no hay muestra para juzgarlo.
   function seasonalMonths(card) {
-    const standing = (card.profit_standing || {}).seasonal || {};
-    return card.seasonal_months ?? standing.total ?? 0;
+    return card.seasonal_months ?? (card.profit_band || {}).total ?? 0;
+  }
+
+  // La promesa de un mes juzgable **es** la media de sus octubres, y así se
+  // llama: es la cifra contra la que se lee el juicio de abajo. Con autolote
+  // viene del escenario de ese mes y entonces no es esa media, sólo la
+  // promesa a sus lotes.
+  function promiseLabel(card, ranked) {
+    return ranked ? `Media de los ${escapeHtml(monthPlural(card.month))}` : 'Prometía';
   }
 
   // Un recuadro con un número dice «esto se puede comparar». Cuando no se
@@ -175,7 +182,7 @@
     const coverageValue = partial ? coverage.eligible_pct : coverage.pct;
     return `<div class="summary-grid">
       <div><span>${partial ? 'Beneficio desde el alta' : 'Beneficio del mes'}</span><strong>${escapeHtml(amount(closed.profit, currency))}</strong></div>
-      <div><span>${promised ? 'Prometía' : 'Promesa comparable'}</span><strong>${promised ? escapeHtml(amount(expected.profit, currency)) : 'No disponible'}</strong></div>
+      <div><span>${promised ? promiseLabel(card, ranked) : 'Promesa comparable'}</span><strong>${promised ? escapeHtml(amount(expected.profit, currency)) : 'No disponible'}</strong></div>
       <div><span>${partial ? 'Drawdown desde el alta' : 'Drawdown del mes'}</span><strong>${escapeHtml(amount(closed.drawdown, currency))}</strong></div>
       <div><span>${ranked ? 'Peor mes del backtest' : 'Comparación histórica'}</span><strong>${ranked ? escapeHtml(amount((card.drawdown_standing || {}).worst, currency)) : 'No comparable'}</strong></div>
       <div><span>${partial ? 'Tramo auditado' : 'Mes auditado'}</span><strong>${escapeHtml(`${Number(coverageValue || 0).toFixed(0)} %`)}</strong></div>

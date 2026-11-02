@@ -15,10 +15,12 @@ si un mes malo es raro o es martes.
 
 Qué se mide, y por qué estas dos cosas:
 
-- **El beneficio**, contra todos los meses y contra los del mismo mes del año.
-  Las dos hacen falta: octubre y abril no se parecen —por eso la promesa es
-  estacional—, pero seis octubres son seis datos y con seis no se concluye.
-  El rango general da muestra; el estacional da contexto.
+- **El beneficio, contra lo que da un mes como ése**, no contra dónde cae
+  entre todos. Octubre y abril no se parecen —por eso la promesa es
+  estacional—, así que la pregunta es si este octubre respeta la media de los
+  octubres, y la banda de lo que puede variar un octubre la dan los octubres.
+  Un recuento es una posición; esto es un juicio, que es lo que la pantalla
+  tiene que contestar.
 - **El drawdown**, que es el que de verdad retira una cartera. Las reglas de
   retirada al uso miran la DD viva contra la del backtest (1,5× o 2× el máximo
   histórico es la heurística corriente), y hasta ahora esto no se medía en
@@ -35,6 +37,7 @@ que corresponde y la tarjeta dice a qué lote está.
 """
 from __future__ import annotations
 
+import statistics
 from typing import Any, Sequence
 
 EXTREME_QUANTILE = 0.95
@@ -124,26 +127,44 @@ def quantile(values: Sequence[float], fraction: float) -> float | None:
     return numbers[position]
 
 
-def profit_standing(
+def profit_band(
     profit: Any, months: dict[str, dict[str, Any]], label: str,
 ) -> dict[str, Any]:
-    """Dónde cae el beneficio del mes: entre los de su mes, y entre todos.
+    """Si el mes respeta la media de los suyos, con la banda de lo normal.
 
-    **El que decide es el estacional**, y por eso cuenta con el mismo listón
-    que el otro. La promesa de la tarjeta ya es la de octubre
-    (`month_expectation` promedia los octubres del backtest): situar el mes
-    entre los setenta y siete, que mezclan los doce meses del año, lo compara
-    con una población distinta de la que produjo esa promesa, y entonces «53
-    de 77 fueron peores» no dice nada de si este octubre fue bueno.
+    Contar cuántos meses fueron peores dice **dónde cae** el mes; la pregunta
+    de esta pantalla es si la cartera se está portando como lo que se compró,
+    que es otra cosa. «4 de 6 octubres fueron peores» no la contesta: lo que
+    la contesta es que este octubre hizo el 138 % de lo que da un octubre, o
+    el 45 %.
 
-    `overall` se sigue devolviendo porque cuesta una suma y es el contexto
-    que explica un estacional sin muestra, pero no es lo que se enseña.
+    «Lo normal» es la media de los meses de ese mes del año más menos su
+    desviación, y la banda sale de la dispersión de esos mismos meses: cuánto
+    puede variar un octubre sin que pase nada lo dicen los octubres, no un
+    umbral elegido a ojo. La media es exactamente la promesa de la tarjeta
+    —`month_expectation` promedia los mismos años—, así que la frase no
+    necesita repetirla como «diferencia».
+
+    Petición del usuario, 2026-11-02, con la regla elegida por él.
+
+    El mismo listón de muestra que el recuento: con menos de seis años no se
+    dice qué es normal en un octubre. Y sin media positiva no hay porcentaje
+    que valga —el 45 % de una pérdida media no significa nada—, así que
+    `ratio` se queda en `None` y la frase lo dice con palabras.
     """
+    values = [row["profit"] for row in season(months, label).values()]
+    if profit is None or len(values) < MINIMUM_MONTHS:
+        return {"measured": False, "total": len(values), "verdict": ""}
+    mean = statistics.fmean(values)
+    deviation = statistics.stdev(values)
+    low, high = mean - deviation, mean + deviation
+    value = float(profit)
     return {
-        "overall": rank(profit, [row["profit"] for row in months.values()]),
-        "seasonal": rank(
-            profit, [row["profit"] for row in season(months, label).values()],
-        ),
+        "measured": True, "total": len(values),
+        "mean": mean, "deviation": deviation, "low": low, "high": high,
+        "worst": min(values), "best": max(values),
+        "ratio": (value / mean * 100.0) if mean > 0 else None,
+        "verdict": "below" if value < low else ("above" if value > high else "normal"),
     }
 
 
