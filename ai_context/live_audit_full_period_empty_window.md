@@ -85,14 +85,32 @@ Lo comprueba
 `tests/live_audit/test_live_audit_cron_watch.py::test_a_long_audit_born_on_the_day_of_the_appointment_is_not_launched`,
 que además exige que la vuelta siguiente no reintente ni repita el aviso.
 
-## Lo que queda pendiente
+## El runner de los agentes ya lo traduce
 
-**El runner de los agentes traduce mal este código.** `MT5_TESTER_ABORT_CODES`
-de `run_tests_base.py` sólo conoce `-1000012358` y `-1000012362`, así que
-`-1000012351` cae por el camino de «no apareció el reporte»: gasta un reintento
-inútil por trabajo y escribe un mensaje que señala al EA y al histórico en vez
-de decir que el tester no arrancó. Añadirlo con `transient=False` es un commit
-hermano por checkout (IC, AXI, RoboForex/`dev` y Vantage; FUTURE congelado).
+`MT5_TESTER_ABORT_CODES` de `run_tests_base.py` sólo conocía `-1000012358` y
+`-1000012362`, así que `-1000012351` caía por el camino de «no apareció el
+reporte»: un reintento inútil por trabajo y un mensaje que señalaba al EA y al
+histórico. Entra como no reintentable, porque el mismo `.ini` no puede dar otra
+cosa.
+
+El consejo bajó al motivo en el mismo cambio. El que había escrito en
+`_tester_abort` mandaba revisar el universo del broker, que es la respuesta de
+`-1000012358` y no la de éste; la línea anterior ya dice el símbolo, así que no
+se pierde nada. Lo comprueban dos casos nuevos en
+`tests/test_run_tests_symbol_policy.py`.
+
+Commits hermanos, los cuatro con el mismo contenido byte a byte:
+
+| Agente | Rama | Commit |
+| --- | --- | --- |
+| Vantage | `vantage` | `300e573` |
+| RoboForex | `dev` | `b4b3b2a` |
+| ICTrading | `IC` | `dd615ff` |
+| AXI | `AXI` | `60cf91f` |
+
+FUTURE queda fuera por congelación (`ai_context/future_branch_frozen.md`).
+
+## Lo que queda pendiente
 
 **El encadenado semanal tiene la misma forma, pero con otro final.** Ahí la
 ventana termina en *hoy* y el último día se vuelve a cubrir a propósito, así
