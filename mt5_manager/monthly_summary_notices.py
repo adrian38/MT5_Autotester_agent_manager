@@ -48,7 +48,7 @@ from typing import Any
 
 from .monthly_summary_schedule import month_name, month_plural, month_word
 
-CRITERION_VERSION = "seasonal-band-lot-aware-v3"
+CRITERION_VERSION = "seasonal-band-worst-month-v4"
 """El criterio con el que se escribieron los avisos de un informe guardado.
 
 Cubre **todo** el criterio —lo que mide `monthly_summary_build` y lo que dice
@@ -300,16 +300,16 @@ def drawdown_breach(facts: dict[str, Any]) -> dict[str, Any] | None:
         return None
     currency = str(facts.get("currency") or "")
     depth = (facts.get("closed") or {}).get("drawdown")
-    worst = standing.get("worst")
     total = int(facts.get("backtest_months") or 0)
     scope = f"{total} meses" if total else "meses"
+    worst = _worst_month(standing, currency)
     if verdict == "beyond":
         return _notice(
             "drawdown_breach", "error", CHANGE,
             f"Drawdown inédito: {amount(depth, currency)}",
             (
                 f"Más hondo que el peor de los {scope} del backtest "
-                f"({amount(worst, currency)}): esta cartera nunca cayó tanto "
+                f"({worst}): esta cartera nunca cayó tanto "
                 "en un mes. No demuestra que esté rota, pero es el hecho que "
                 "pide revisarla antes de seguir."
             ),
@@ -319,10 +319,22 @@ def drawdown_breach(facts: dict[str, Any]) -> dict[str, Any] | None:
         f"Drawdown extremo: {amount(depth, currency)}",
         (
             f"Por encima del 95 % de los {scope} del backtest sin llegar al "
-            f"peor ({amount(worst, currency)}). "
+            f"peor ({worst}). "
             f"{worse_than(standing.get('rank') or {}, 'meses')}"
         ),
     )
+
+
+def _worst_month(standing: dict[str, Any], currency: str) -> str:
+    """«34,61 EUR, agosto de 2023»: el listón con el mes que lo puso.
+
+    Una cifra suelta no se puede ir a mirar, y además esconde de qué mes sale.
+    El peor mes de una cartera que se juzga en octubre puede ser un agosto, y
+    entonces el nombre es justo lo que avisa de que el listón no es estacional.
+    """
+    amount_text = amount(standing.get("worst"), currency)
+    label = str(standing.get("worst_month") or "")
+    return f"{amount_text}, {month_name(label)}" if label else amount_text
 
 
 def _named(rows: list[dict[str, Any]]) -> str:

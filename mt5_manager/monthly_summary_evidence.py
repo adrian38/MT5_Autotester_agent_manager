@@ -184,7 +184,10 @@ def drawdown_standing(
     """
     values = [row["drawdown"] for row in months.values()]
     standing = rank(drawdown, values, lower_is_worse=False)
-    worst = max(values) if values else None
+    # Cuál fue, no sólo cuánto: «34,61 EUR» no se puede comprobar y «agosto de
+    # 2023» sí, y además enseña que el listón no sale de un mes como éste.
+    worst_month = max(months, key=lambda key: months[key]["drawdown"]) if months else ""
+    worst = months[worst_month]["drawdown"] if worst_month else None
     extreme = quantile(values, EXTREME_QUANTILE)
     verdict = ""
     if standing["measured"] and drawdown is not None:
@@ -196,8 +199,8 @@ def drawdown_standing(
         else:
             verdict = "normal"
     return {
-        "rank": standing, "worst": worst, "extreme": extreme,
-        "verdict": verdict, "measured": standing["measured"],
+        "rank": standing, "worst": worst, "worst_month": worst_month,
+        "extreme": extreme, "verdict": verdict, "measured": standing["measured"],
     }
 
 

@@ -52,7 +52,11 @@ del veredicto de reproducción que éste arrastra.
   seis datos con los que no se retira una cartera —además de que el cuantil
   del 95 % sobre seis valores es el máximo, así que el escalón de VIGILAR
   desaparecería y todo sería «inédito» o nada. Lo que no puede quedarse
-  implícito es la base, así que el aviso dice cuántos meses contó.
+  implícito es la base, así que el aviso dice cuántos meses contó **y cuál fue
+  el peor**: el recuadro se llama «Peor mes (agosto de 2023)» y no «Peor mes
+  del backtest». Una cifra suelta no se puede ir a mirar, y que el listón de
+  una cartera que se juzga en octubre lo ponga un agosto es justo lo que avisa
+  de que ese listón no es estacional (petición del usuario, 2026-11-02).
 - **La racha de meses por debajo**, que es lo que convierte un mes flojo en una
   decisión. Un mes sin promesa **corta** la racha en vez de saltarse: una racha
   con un agujero no es una racha, es dos trozos.

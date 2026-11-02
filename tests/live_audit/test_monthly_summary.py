@@ -398,6 +398,30 @@ class NoticeTests(unittest.TestCase):
             notices.band_sentence(facts(profit_band=band), "EUR"),
         )
 
+    def test_the_worst_month_is_named_and_not_only_measured(self) -> None:
+        # Una cifra suelta no se puede ir a mirar, y el peor mes de una cartera
+        # que se juzga en octubre puede ser un agosto: el nombre lo delata.
+        table = {
+            "2023-08": {"profit": 1.0, "drawdown": 34.61, "trades": 1},
+            **{f"202{step}-10": {"profit": 1.0, "drawdown": 5.0, "trades": 1}
+               for step in range(6)},
+        }
+        standing = evidence.drawdown_standing(90.0, table)
+        self.assertEqual(standing["worst_month"], "2023-08")
+        self.assertEqual(standing["worst"], 34.61)
+        self.assertIn(
+            "34,61 EUR, agosto de 2023",
+            str(notices.drawdown_breach(facts(
+                drawdown_standing=standing, backtest_months=len(table),
+            ))["message"]),
+        )
+
+    def test_an_unnamed_worst_month_still_shows_its_figure(self) -> None:
+        # Los resumenes guardados antes de apuntarlo no traen el mes.
+        self.assertIn("90,00 EUR)", str(notices.drawdown_breach(facts(
+            drawdown_standing={"verdict": "beyond", "measured": True, "worst": 90.0},
+        ))["message"]))
+
     def test_the_drawdown_says_how_many_months_it_counted(self) -> None:
         # Cuenta contra todos los meses a propósito —seis septiembres no retiran
         # nada—, así que la base no puede quedarse implícita.

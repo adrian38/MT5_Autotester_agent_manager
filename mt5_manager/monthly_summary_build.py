@@ -231,7 +231,8 @@ def _performance(
         "profit_band": evidence.profit_band(closed["profit"], table, label)
         if lots["table_comparable"] else {"measured": False, "verdict": ""},
         "drawdown_standing": evidence.drawdown_standing(closed["drawdown"], table)
-        if lots["table_comparable"] else {"measured": False, "verdict": "", "worst": None},
+        if lots["table_comparable"]
+        else {"measured": False, "verdict": "", "worst": None, "worst_month": ""},
     }
 
 
