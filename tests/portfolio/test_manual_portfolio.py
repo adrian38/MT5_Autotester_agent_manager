@@ -121,6 +121,14 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("operation:'remove'", script)
         self.assertIn("set_path:path", script)
 
+    def test_the_screen_warns_and_repeats_the_removal_when_the_portfolio_is_live(self) -> None:
+        # El 409 del manager trae los usos y el aviso ya redactado: la pantalla
+        # los enseña y, si el usuario sigue, repite la misma peticion con la
+        # confirmacion puesta.
+        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        self.assertIn("response.status===409&&data.needs_live_trading_ack", script)
+        self.assertIn("live_trading_ack:true", script)
+
     def test_a_set_without_history_leaves_the_regeneration_pending_on_screen(self) -> None:
         # El aviso sale de los datos del detalle —`expected` son los miembros y
         # `available` los que encontraron su HTML—, así que sobrevive al
@@ -337,6 +345,62 @@ class ManualPortfolioRouteTests(unittest.TestCase):
             )
         self.assertEqual(handler.sent, (409, {"error": "El nodo esta auditando"}))
         self.assertEqual((handler.invalidated, handler.discarded), ([], []))
+
+    def test_removing_a_set_of_a_live_portfolio_asks_before_doing_it(self) -> None:
+        # No es un rechazo: la pantalla necesita los usos para nombrarlos en el
+        # aviso y repetir la peticion confirmada.
+        handler = self._member_handler({"7-balanced": {"portfolio_id": 7, "live_trading": True}})
+        with patch.object(
+            manager_portfolio_routes.manager_http, "node_request",
+        ) as request:
+            manager_portfolio_routes.manual_portfolio_action(
+                handler, {"id": "axi", "url": "http://axi"}, "manual-members",
+                {"operation": "remove", "portfolio_id": 7, "set_path": "one.set"},
+            )
+        request.assert_not_called()
+        status, value = handler.sent
+        self.assertEqual(status, 409)
+        self.assertEqual(value["live_trading_uses"], ["7-balanced"])
+        self.assertTrue(value["needs_live_trading_ack"])
+        self.assertIn("saldrán como ajenas", value["error"])
+        self.assertEqual((handler.invalidated, handler.discarded), ([], []))
+
+    def test_a_confirmed_removal_runs_and_refreshes_what_cuelga_de_la_cartera(self) -> None:
+        # Confirmada se ejecuta igual que cualquier otra, y con la misma
+        # limpieza: la copia de la memoria y la promesa de la cuenta real son
+        # lo que alimenta la portada y la pantalla de cuentas.
+        handler = self._member_handler({"7-balanced": {"portfolio_id": 7, "live_trading": True}})
+        body = {
+            "operation": "remove", "portfolio_id": 7, "set_path": "one.set",
+            "live_trading_ack": True,
+        }
+        with patch.object(
+            manager_portfolio_routes.manager_http, "node_request", return_value=(200, {"removed": 1}),
+        ) as request:
+            manager_portfolio_routes.manual_portfolio_action(
+                handler, {"id": "axi", "url": "http://axi"}, "manual-members", body,
+            )
+        # El nodo no conoce la confirmacion: es un asunto del manager.
+        request.assert_called_once_with(
+            {"id": "axi", "url": "http://axi"}, "POST", "/api/v1/portfolios/manual-members",
+            {"operation": "remove", "portfolio_id": 7, "set_path": "one.set"}, timeout=120,
+        )
+        self.assertEqual(handler.sent, (200, {"removed": 1}))
+        self.assertEqual((handler.invalidated, handler.discarded), (["axi"], [("axi", 7)]))
+
+    def test_a_confirmation_does_not_let_new_sets_into_a_live_portfolio(self) -> None:
+        # El alta sigue rechazada: un set recien subido no tiene informe OHLC,
+        # asi que la promesa mediria menos estrategias de las que opera.
+        handler = self._member_handler({"7-balanced": {"portfolio_id": 7, "live_trading": True}})
+        with patch.object(
+            manager_portfolio_routes.manager_http, "node_request",
+        ) as request:
+            with self.assertRaisesRegex(ValueError, "antes de añadirle sets"):
+                manager_portfolio_routes.manual_portfolio_action(
+                    handler, {"id": "axi", "url": "http://axi"}, "manual-members",
+                    {"operation": "add", "portfolio_id": 7, "files": [], "live_trading_ack": True},
+                )
+        request.assert_not_called()
 
     def test_a_portfolio_trading_live_does_not_change_its_composition(self) -> None:
         handler = self._member_handler({

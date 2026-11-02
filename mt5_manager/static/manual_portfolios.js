@@ -159,11 +159,24 @@ async function uploadSets(files) {
   finally { button.disabled=false; button.textContent='Subir sets'; document.querySelector('#manual-set-files').value=''; }
 }
 
+async function postMembers(payload) {
+  const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',...payload})});
+  return {response,data:await response.json()};
+}
+
+// El manager contesta 409 cuando la cartera está operando en real: no es un
+// rechazo, es la pregunta. Se enseña lo que queda descuadrado —con los usos
+// nombrados— y, si el usuario sigue, se repite la misma petición confirmada.
 async function removeSet(path,name) {
   if(!selectedPortfolio||!confirm(`Se eliminará ${name} del portafolio y del disco del agente. ¿Continuar?`)) return;
   try {
-    const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',operation:'remove',portfolio_id:selectedId,set_path:path})});
-    const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
+    const request={operation:'remove',portfolio_id:selectedId,set_path:path};
+    let {response,data}=await postMembers(request);
+    if(response.status===409&&data.needs_live_trading_ack) {
+      if(!confirm(`${data.error}\n\n¿Eliminar ${name} de todas formas?`)) return;
+      ({response,data}=await postMembers({...request,live_trading_ack:true}));
+    }
+    if(!response.ok) throw new Error(data.error||response.statusText);
     await loadInventory();
     toast(data.file_removed===false
       ? `${name} se quitó del portafolio, pero el nodo no pudo retirar el fichero temporal.`

@@ -25,8 +25,10 @@ from .portfolio_service import PortfolioCoordinator
 # lineas. Se reexportan porque `handle_post` las despacha y las pruebas las
 # llaman por aqui.
 from .manager_manual_portfolio import (  # noqa: F401
+    LiveTradingRemovalNeedsAck,
     create_manual_portfolio,
     guard_manual_members,
+    live_trading_removal_warning,
     live_trading_uses,
     manual_portfolio_action,
     parse_timeframe_document,

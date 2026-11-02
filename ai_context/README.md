@@ -192,6 +192,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_account_real_lots_are_per_use.md`: por qué `real_strategy_lots` no se
   puede agrupar por cuenta; las claves `manual:N` son posicionales y dos
   carteras manuales sobre un mismo login se medían con los lotes de la otra.
+- `live_portfolio_set_removal.md`: por qué quitar un set de una cartera que
+  opera en real se admite con confirmación y añadirle uno no; qué se recoloca
+  solo al hacerlo y qué queda como operación ajena en la auditoría.
 - `live_audit_full_period_empty_window.md`: por qué la larga de un uso creado el
   mismo día de la cita pedía `FromDate=ToDate` y MT5 contestaba «tester didn't
   start», leído como ocho «no se encontró ningún reporte».
