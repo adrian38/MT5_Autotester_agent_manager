@@ -104,3 +104,42 @@ presentarían como acumulados sin serlo.
 Los dos valores Real expresan además la comparación visual: verde si superan
 al Test y rojo si quedan peor. En Profit, más es mejor; en DD, menos es mejor.
 La igualdad queda neutra.
+
+## Una agrupación de estrategias para las cuatro vistas (2026-11-02)
+
+Análisis, Portafolios activos y el histórico ya compartían `numbers`, `verdict`
+y `compare`, pero todavía armaban por separado los grupos de estrategia. Esa
+duplicación alcanzaba también al resumen mensual a través de
+`dashboard_metrics`: una real atribuida, una posición aún abierta o un símbolo
+recuperado podían terminar en grupos distintos antes de llamar al mismo
+veredicto.
+
+`LiveAuditReproduction.strategyGroups` es ahora la única primitiva que decide
+la identidad `estrategia + .set`, incorpora demo, real emparejada, real abierta
+y real atribuida, y resuelve el símbolo. Análisis sólo añade calidad y lotes
+observados; `dashboard_metrics` sólo añade calidad; el histórico sólo mezcla
+periodos. El resumen mensual consume el resultado de `dashboard_metrics`, sin
+otra agrupación. Las cuatro vistas llaman después a los mismos `numbers`,
+`verdict`, `fewTrades` y `compare`.
+
+Con los grupos se fueron también los filtros. `comparisonRows`,
+`unmatchedRows`, `discardedRows` y `unaccountedRows` los define ahora
+`live_audit_reproduction.js` y las tres pantallas delegan: la que se olvidase
+de las descartadas por lote contaría menos dinero del que la cuenta movió sin
+decir que lo estaba haciendo —en el uso 105 de AXI eran 10 cierres de 35—.
+`live_audit_result.js` queda fuera: enseña las operaciones en bruto de una
+auditoría, no reproducción.
+
+La pantalla Cuentas en real no calcula reproducción, pero comparte con el
+resumen mensual `live_account_performance`: `account_series` decide cuándo el
+Profit de MT5 se conoce y `monthly_performance` arma la pareja de filas. Profit
+visible sale de la columna Profit de MT5; drawdown, color, objetivo y veredicto
+salen de la serie neta. Así un cambio de esa definición alcanza a las dos
+pantallas.
+
+Que se quede así lo vigila `tests/repository/test_live_screens_share_primitives.py`:
+prohíbe en las pantallas la identidad `estrategia/símbolo`, la construcción de
+grupos, los tres filtros y los umbrales del veredicto, y exige que esas mismas
+expresiones existan en la primitiva —una guarda que sólo prohíbe se pasa
+borrando la función—. Del lado Python comprueba además que las dos pantallas
+reciben **el mismo objeto función**, no dos imports homónimos.

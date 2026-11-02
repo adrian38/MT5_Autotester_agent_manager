@@ -17,16 +17,11 @@
     || (typeof require !== 'undefined' ? require('./live_audit_reproduction.js') : null);
 
   function comparisonRows(detail) {
-    return detail?.operation_comparisons || [];
+    return reproduction.comparisonRows(detail);
   }
 
-  // Las reales que ninguna operación del tester reclamó, con las que el filtro
-  // de lote apartó: el Excel de atribución puede reclamar las dos.
   function unaccountedRows(detail) {
-    return [
-      ...(detail?.unmatched_real_operations || []),
-      ...(detail?.discarded_real_operations || []),
-    ].filter(row => row.real?.close_time);
+    return reproduction.unaccountedRows(detail);
   }
 
   function attributedTo(row) {
@@ -38,38 +33,7 @@
   // agrupación que hacen las dos pantallas para la tabla del periodo; la
   // diferencia es que aquí no depende de los globales de ninguna de ellas.
   function groupsOf(detail, suppliedTimeline = null) {
-    const groups = new Map();
-    const rows = comparisonRows(detail);
-    const timeline = suppliedTimeline || reproduction.realLotTimeline(rows);
-    rows.forEach(row => {
-      const tester = row.tester || {};
-      const key = String(row.strategy || tester.strategy || 'Sin estrategia');
-      if (!groups.has(key)) {
-        groups.set(key, {
-          strategy: key, label: row.strategy_set || key, symbol: tester.symbol || '—',
-          demo: [], real: [], attributed: [],
-        });
-      }
-      const group = groups.get(key);
-      if (group.symbol === '—' && tester.symbol) group.symbol = tester.symbol;
-      if (tester.close_time) {
-        const target = reproduction.scaleTarget(row, timeline);
-        group.demo.push({
-          ...tester, scale_volume: target.volume, scale_source: target.source,
-          pending_real: Boolean(row.real_position_still_open),
-        });
-      }
-      if (row.real?.close_time) group.real.push(reproduction.pairedReal(row));
-    });
-    unaccountedRows(detail).forEach(row => {
-      const owner = reproduction.attributedOwner(row);
-      if (!owner) return;
-      if (!groups.has(owner.strategy)) groups.set(owner.strategy, {
-        ...owner, demo: [], real: [], attributed: [],
-      });
-      groups.get(owner.strategy).attributed.push(row.real);
-    });
-    return [...groups.values()];
+    return reproduction.strategyGroups(detail, suppliedTimeline);
   }
 
   // La identidad entre portafolios es el candidato **y** su `.set`: una cartera

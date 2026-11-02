@@ -74,6 +74,19 @@ class DashboardTests(unittest.TestCase):
         self.assertAlmostEqual(card["expected_month"]["profit_prorated"], 600.0 * 21 / 31)
         self.assertEqual(card["monthly"]["profit_tone"], "bad")
 
+    def test_profit_is_visible_but_the_net_result_decides_the_comparison(self) -> None:
+        stamp = datetime(2026, 10, 20, 8, tzinfo=timezone.utc)
+        self.server.live_accounts.merge(
+            "axi", self.key, login="60082017", server="Axi-US50-Live", currency="EUR",
+            movements=[(stamp, -178.02)], profits=[(stamp, -160.85)],
+            period_start="", period_end="2026-10-20",
+            taken_at="2026-10-21T21:10:00+00:00",
+        )
+        card = self.card()
+        self.assertAlmostEqual(card["monthly"]["profit"], -160.85)
+        self.assertAlmostEqual(card["monthly"]["net_profit"], -178.02)
+        self.assertEqual(card["monthly"]["profit_tone"], "bad")
+
     def test_a_drawdown_under_the_mean_is_good_news(self) -> None:
         card = self.card()
         self.assertAlmostEqual(card["monthly"]["drawdown"], 10.0)

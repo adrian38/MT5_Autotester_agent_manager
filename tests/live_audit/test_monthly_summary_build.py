@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import monthly_summary_build
+from mt5_manager import live_account_dashboard, monthly_summary_build
 
 MONTH = "2026-09"
 
@@ -53,6 +53,12 @@ def _remeasured_portfolio() -> dict[str, object]:
 
 
 class BuildCriterionTests(unittest.TestCase):
+    def test_accounts_and_monthly_summary_share_the_same_performance_primitive(self) -> None:
+        self.assertIs(
+            monthly_summary_build.monthly_performance,
+            live_account_dashboard.monthly_performance,
+        )
+
     def test_the_card_shows_mt5_profit_but_compares_the_net_result(self) -> None:
         stamp = datetime(2026, 9, 20, tzinfo=timezone.utc)
         portfolios = [{
@@ -97,7 +103,12 @@ class BuildCriterionTests(unittest.TestCase):
             "created_at": "2026-09-18T19:34:55+00:00",
             "created_day": "2026-09-18", "expectation": {},
         }]
-        measured = monthly_summary_build._performance(ordered, portfolios, MONTH)
+        # Sin comisión ni swap la columna Profit coincide con el neto, así que
+        # la pareja de series es la misma lista: lo que se mide aquí es el
+        # corte del tramo, no la distinción entre las dos.
+        measured = monthly_summary_build._performance(
+            ordered, portfolios, MONTH, profits=ordered,
+        )
         self.assertEqual(measured["closed"], {
             "profit": 140.68, "drawdown": 3.0, "trades": 3,
         })

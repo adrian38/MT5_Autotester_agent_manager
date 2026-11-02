@@ -45,10 +45,10 @@ from . import monthly_summary_coverage as coverage
 from . import monthly_summary_evidence as evidence
 from . import monthly_summary_notices as notices
 from .common import safe_int, utc_now
-from .live_account_archive import ordered_movements, ordered_profits
 from .live_account_expectation import month_expectation
+from .live_account_performance import account_series, monthly_performance
 from .live_account_schedule import convert
-from .live_account_series import monthly_rows, row
+from .live_account_series import row
 from .live_audit_schedule import parse_timestamp
 from .monthly_summary_schedule import shift_month
 
@@ -316,13 +316,12 @@ def _performance(
         item for item in ordered
         if partial_start is None or item[0].date() >= partial_start.date()
     ]
-    measured_profits = [
-        item for item in (profits if profits is not None else ordered)
+    measured_profits = None if profits is None else [
+        item for item in profits
         if partial_start is None or item[0].date() >= partial_start.date()
     ]
-    net_closed = row(monthly_rows(measured), label)
-    closed = row(monthly_rows(measured_profits), label)
-    closed["drawdown"] = net_closed["drawdown"]
+    visible_rows, net_rows = monthly_performance(measured, measured_profits)
+    net_closed, closed = row(net_rows, label), row(visible_rows, label)
     promise = _promise(portfolios, label)
     scenario = _combined_scenario(portfolios, label) if autolot else {}
     lots = _comparability(
@@ -419,13 +418,12 @@ def account_card(
 ) -> dict[str, Any]:
     """Una tarjeta del resumen: los hechos del mes y los avisos que salen."""
     stored = server.live_accounts.read(node_id, account["account_key"])
-    ordered, profits = ordered_movements(stored), ordered_profits(stored)
-    months, portfolios = monthly_rows(ordered), _portfolio_rows(server, node_id, account)
+    ordered, profits = account_series(stored)
+    _visible, months = monthly_performance(ordered, profits)
+    portfolios = _portfolio_rows(server, node_id, account)
     autolot = bool(account.get("autolot"))
     performance = _performance(ordered, portfolios, label, profits=profits, autolot=autolot)
     closed = performance["closed"]
-    if ordered and not stored.get("profits"):
-        closed["profit"] = None
     facts = {
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
         "node_broker": str(node.get("portfolio_broker") or ""),

@@ -67,6 +67,66 @@
     };
   }
 
+  function comparisonRows(detail) {
+    return detail?.operation_comparisons || [];
+  }
+
+  // Las reales que ninguna operación del tester reclamó, y las que el filtro de
+  // lote apartó antes de comparar. El Excel de atribución puede reclamar las
+  // dos, así que las cuatro pantallas tienen que partir de la misma lista: una
+  // que se olvidase de las descartadas contaría menos dinero del que la cuenta
+  // movió sin decir que lo está haciendo.
+  function unmatchedRows(detail) {
+    return (detail?.unmatched_real_operations || []).filter(row => row.real?.close_time);
+  }
+
+  function discardedRows(detail) {
+    return (detail?.discarded_real_operations || []).filter(row => row.real?.close_time);
+  }
+
+  function unaccountedRows(detail) {
+    return [...unmatchedRows(detail), ...discardedRows(detail)];
+  }
+
+  // La identidad y las operaciones de cada estrategia son un solo contrato.
+  // Análisis, Portafolios activos, el resumen mensual y el histórico parten
+  // de estos mismos grupos; las pantallas sólo añaden presentación o calidad.
+  function strategyGroups(detail, suppliedTimeline = null) {
+    const groups = new Map();
+    const rows = comparisonRows(detail);
+    const timeline = suppliedTimeline || realLotTimeline(rows);
+    rows.forEach(row => {
+      const tester = row.tester || {};
+      const key = String(row.strategy || tester.strategy || 'Sin estrategia');
+      if (!groups.has(key)) groups.set(key, {
+        strategy: key, label: row.strategy_set || key, symbol: tester.symbol || '—',
+        demo: [], real: [], openReal: [], attributed: [],
+      });
+      const group = groups.get(key);
+      if (group.symbol === '—' && tester.symbol) group.symbol = tester.symbol;
+      if (tester.close_time) {
+        const target = scaleTarget(row, timeline);
+        group.demo.push({
+          ...tester, scale_volume: target.volume, scale_source: target.source,
+          pending_real: Boolean(row.real_position_still_open),
+        });
+      }
+      if (row.real?.close_time) group.real.push(pairedReal(row));
+      else if (row.real_position_still_open) group.openReal.push(row.real_position_still_open);
+    });
+    unaccountedRows(detail).forEach(row => {
+      const owner = attributedOwner(row);
+      if (!owner) return;
+      if (!groups.has(owner.strategy)) groups.set(owner.strategy, {
+        ...owner, demo: [], real: [], openReal: [], attributed: [],
+      });
+      groups.get(owner.strategy).attributed.push({
+        ...row.real, attributed_source: String(row.attribution?.source || ''),
+      });
+    });
+    return [...groups.values()];
+  }
+
   function rowIdentity(row) {
     const strategy = String(row?.strategy || row?.tester?.strategy || '');
     const set = String(row?.strategy_set || '');
@@ -351,8 +411,10 @@
   const api = {
     EXPECTED_SHORTFALL_PCT, BROKEN_SHORTFALL_PCT, MEANINGFUL_AMOUNT, FEW_PAIRS,
     SAME_VERDICT_MARGIN_PCT,
-    attributedOwner, autolotMode, compare, fewTrades, numbers, overrideFor,
-    pairedReal, realLotTimeline, reviewDegradation, reviewed,
+    attributedOwner, autolotMode, compare, comparisonRows, discardedRows,
+    fewTrades, numbers, overrideFor,
+    pairedReal, realLotTimeline, reviewDegradation, reviewed, strategyGroups,
+    unaccountedRows, unmatchedRows,
     scaleTarget, scaledProfit, scaledSide, sideSeries, storedHistoryReviews,
     storedOverrides, storedReviews,
     storedUnpairedReviews, testerMode, testerPairKey, unpairedAnswered, unpairedKey,

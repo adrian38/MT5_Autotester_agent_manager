@@ -277,6 +277,17 @@ del veredicto de reproducción que éste arrastra.
   una insignia «reproduce»; sin estrategias malas no pinta nada. Usa
   `summary.flagged`, la misma lista ya filtrada por Análisis, sin copiar el
   criterio de reproducción ni volver a calcularlo.
+- **Cuentas en real y el resumen comparten la medición** (2026-11-02).
+  `live_account_performance.monthly_performance` arma en ambos sitios la pareja
+  de filas: Profit MT5 visible y resultado neto comparable. El resumen puede
+  recortar primero al tramo de alta, pero no vuelve a definir qué suma cada
+  métrica. Quién decide si el Profit se conoce también es compartido:
+  `account_series`, y no un `if` en cada pantalla —el resumen tenía el suyo
+  después del cálculo, anulando el Profit ya puesto—. Portafolios activos,
+  Análisis y la reproducción del resumen comparten además
+  `LiveAuditReproduction.strategyGroups`, los filtros de operaciones,
+  `numbers`, `verdict` y `compare`. Lo vigila
+  `tests/repository/test_live_screens_share_primitives.py`.
 
 ## Cómo se entregó
 

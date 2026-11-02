@@ -30,11 +30,13 @@ from typing import Any
 
 from . import live_account_presentation
 from .common import safe_int
-from .live_account_archive import ordered_movements
 from .live_account_expectation import month_expectation
+from .live_account_performance import (
+    account_series, daily_performance, monthly_performance,
+)
 from .live_account_schedule import convert
 from .live_account_series import (
-    daily_rows, monthly_rows, month_key, previous_month, row,
+    month_key, previous_month, row,
 )
 
 STALE_AFTER_HOURS = 48
@@ -199,6 +201,14 @@ def _presentation(server: Any, node_id: str, account: dict[str, Any]) -> dict[st
     return {"lots": symbols, "warnings": sorted(set(warnings))}
 
 
+def _account_performance(stored: dict[str, Any]) -> tuple[dict, dict, dict]:
+    """Profit visible y neto comparable con la primitiva común."""
+    ordered, profits = account_series(stored)
+    days, _net_days = daily_performance(ordered, profits)
+    months, net_months = monthly_performance(ordered, profits)
+    return days, months, net_months
+
+
 def account_card(
     server: Any, node: dict[str, Any], node_id: str, account: dict[str, Any],
     settings: dict[str, Any], now: datetime,
@@ -206,13 +216,12 @@ def account_card(
     """Una tarjeta: la cuenta ayer, el mes y lo que prometía."""
     archive = server.live_accounts
     stored = archive.read(node_id, account["account_key"])
-    ordered = ordered_movements(stored)
-    days, months = daily_rows(ordered), monthly_rows(ordered)
+    days, months, net_months = _account_performance(stored)
     yesterday = (now.astimezone(timezone.utc).date() - timedelta(days=1)).isoformat()
     label = month_key(now)
     earlier = previous_month(label)
-    monthly = row(months, label)
-    earlier_row = row(months, earlier)
+    monthly, earlier_row = row(months, label), row(months, earlier)
+    net_monthly, net_earlier = row(net_months, label), row(net_months, earlier)
     expected = expected_month(archive, node_id, account["portfolios"], label)
     progress = month_progress(now)
     prorated = None if expected["profit"] is None else expected["profit"] * progress
@@ -227,8 +236,9 @@ def account_card(
         "autolot": bool(account.get("autolot")),
         "daily": {**row(days, yesterday), "day": yesterday},
         "monthly": {
-            **monthly, "label": label, "progress": progress,
-            "profit_tone": tone(monthly["profit"], prorated),
+            **monthly, "net_profit": net_monthly["profit"],
+            "label": label, "progress": progress,
+            "profit_tone": tone(net_monthly["profit"], prorated),
             "drawdown_tone": tone(
                 monthly["drawdown"], expected["drawdown"], higher_is_better=False,
             ),
@@ -239,9 +249,9 @@ def account_card(
         # octubre va mejor. La pantalla los enseña como nota, y así un color
         # sigue significando una sola cosa: contra la media de ese mes.
         "previous_month": {
-            **earlier_row, "label": earlier,
-            "profit_tone": tone(monthly["profit"], earlier_row["profit"]),
-            "profit_delta": monthly["profit"] - earlier_row["profit"],
+            **earlier_row, "net_profit": net_earlier["profit"], "label": earlier,
+            "profit_tone": tone(net_monthly["profit"], net_earlier["profit"]),
+            "profit_delta": net_monthly["profit"] - net_earlier["profit"],
             "drawdown_tone": tone(
                 monthly["drawdown"], earlier_row["drawdown"], higher_is_better=False,
             ),

@@ -235,7 +235,7 @@ async function jsonResponse(response) {
 }
 
 function comparisonRows(result) {
-  return result.comparison_detail?.operation_comparisons || [];
+  return LiveAuditReproduction.comparisonRows(result.comparison_detail || {});
 }
 
 function testerPairKey(tester) {
@@ -250,20 +250,18 @@ function showAnalysisError(message) {
 }
 
 function unmatchedRows(result) {
-  return (result.comparison_detail?.unmatched_real_operations || [])
-    .filter(row => row.real?.close_time);
+  return LiveAuditReproduction.unmatchedRows(result.comparison_detail || {});
 }
 
 // El filtro de lote del portafolio descarta cierres reales antes de comparar:
 // no son «sin pareja», es que nunca entraron. Antes desaparecían sin dejar
 // rastro; son dinero que la cuenta movió y el Excel tiene que poder reclamarlas.
 function discardedRows(result) {
-  return (result.comparison_detail?.discarded_real_operations || [])
-    .filter(row => row.real?.close_time);
+  return LiveAuditReproduction.discardedRows(result.comparison_detail || {});
 }
 
 function unaccountedRows(result) {
-  return [...unmatchedRows(result), ...discardedRows(result)];
+  return LiveAuditReproduction.unaccountedRows(result.comparison_detail || {});
 }
 
 // Tres destinos para una real que el tester no reclamó, y el Excel de
@@ -335,56 +333,9 @@ function cumulativeSeries(trades) {
 // `strategy_set`: dos estrategias pueden compartir el nombre del `.set` y se
 // fundirían en una sola fila, escondiendo la que peor reproduce.
 function strategyGroups(result) {
-  const groups = new Map();
   const quality = strategyQuality(result);
-  const rows = comparisonRows(result);
-  const timeline = LiveAuditReproduction.realLotTimeline(rows);
-  rows.forEach(row => {
-    const tester = row.tester || {};
-    const key = String(row.strategy || tester.strategy || 'Sin estrategia');
-    if (!groups.has(key)) {
-      groups.set(key, {
-        strategy: key, label: row.strategy_set || key,
-        symbol: tester.symbol || '—', demo: [], real: [], openReal: [], attributed: [],
-        quality: quality.get(key) || null,
-      });
-    }
-    const group = groups.get(key);
-    if (group.symbol === '—' && tester.symbol) group.symbol = tester.symbol;
-    if (row.tester?.close_time) {
-      const target = scaleTarget(row, timeline);
-      group.demo.push({
-        ...row.tester, scale_volume: target.volume, scale_source: target.source,
-        pending_real: Boolean(row.real_position_still_open),
-      });
-    }
-    if (row.real?.close_time) group.real.push(LiveAuditReproduction.pairedReal(row));
-    // Una real todavía abierta SÍ está emparejada: el auditor la alineó con su
-    // operación del tester. Lo que no tiene es PnL cerrado, así que no entra en
-    // la curva. Sin contarla aparte, la pantalla decía «0 REAL EMPAREJADAS» y
-    // se leía como que la estrategia no había operado en real.
-    else if (row.real_position_still_open) group.openReal.push(row.real_position_still_open);
-  });
-  // Lo que el usuario atribuyó a mano entra en el real de su estrategia, pero
-  // en su propia lista: `group.real` sigue siendo lo que el auditor emparejó, y
-  // de ahí salen el recuento de parejas y la regla de «pocas operaciones».
-  unaccountedRows(result).forEach(row => {
-    const owner = LiveAuditReproduction.attributedOwner(row);
-    if (!owner) return;
-    if (!groups.has(owner.strategy)) groups.set(owner.strategy, {
-      ...owner, demo: [], real: [], openReal: [], attributed: [],
-      quality: quality.get(owner.strategy) || null,
-    });
-    // La procedencia viaja con la operación porque la fila tiene que decirla:
-    // «atribuidas a mano» sobre lo que decidió el documento de comentarios
-    // hace que el usuario descarte la explicación de una diferencia que es
-    // justo ésa. Lo demás de la fila no la mira.
-    groups.get(owner.strategy).attributed.push(
-      {...row.real, attributed_source: String(row.attribution?.source || '')},
-    );
-  });
-  return [...groups.values()].map(group => ({
-    ...group,
+  return LiveAuditReproduction.strategyGroups(result.comparison_detail || {}).map(group => ({
+    ...group, quality: quality.get(group.strategy) || null,
     demoLots: observedLots(group.demo),
     realLots: observedLots([...group.real, ...group.attributed]),
   })).sort((a, b) => `${a.symbol} ${a.label}`.localeCompare(`${b.symbol} ${b.label}`, 'es'));

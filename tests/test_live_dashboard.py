@@ -92,7 +92,10 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("entry.node?.name || entry.node?.id || 'Nodo desconocido'", self.script)
 
     def test_cards_only_show_profit_drawdown_and_flagged_strategies(self) -> None:
-        for label in ("Profit Test", "Profit Real", "DD Test", "DD Real", "Estrategias a revisar"):
+        for label in (
+            "Resultado neto Test", "Resultado neto Real", "DD Test", "DD Real",
+            "Estrategias a revisar",
+        ):
             self.assertIn(label, self.script)
         self.assertIn("['AVISO', 'NO REPRODUCE'].includes(row.verdict)", self.metrics)
         self.assertIn("EXPECTED_SHORTFALL_PCT = 20", self.reproduction)
@@ -326,10 +329,11 @@ class LivePortfolioDashboardTests(unittest.TestCase):
     def test_dashboard_and_analysis_share_the_reproduction_primitive(self) -> None:
         self.assertIn("LiveAuditReproduction.numbers(group, lotOverrides)", self.analysis)
         self.assertIn("reproduction.numbers(group, overrides)", self.metrics)
-        self.assertIn("reproduction.realLotTimeline(rows)", self.metrics)
-        self.assertIn("reproduction.scaleTarget(row, timeline)", self.metrics)
+        self.assertIn("function strategyGroups(detail, suppliedTimeline = null)", self.reproduction)
+        self.assertIn("reproduction.strategyGroups(", self.metrics)
+        self.assertIn("LiveAuditReproduction.strategyGroups(", self.analysis)
         self.assertIn("function attributedOwner(row)", self.reproduction)
-        self.assertIn("reproduction.attributedOwner(row)", self.metrics)
+        self.assertNotIn("const groups = new Map();", self.metrics)
         self.assertIn("LiveAuditReproduction.storedOverrides(entry.profile)", self.script)
         for page, consumer in (
             (self.page_text, "/dashboard_metrics.js"),

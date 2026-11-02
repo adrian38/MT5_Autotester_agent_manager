@@ -183,7 +183,7 @@ function signedTone(value) {
 
 function dailyRow(card, currency) {
   return metricRow('Ayer',
-    metric('Beneficio', money(card.daily.profit, currency), signedTone(card.daily.profit), [
+    metric('Profit MT5', money(card.daily.profit, currency), signedTone(card.daily.profit), [
       plainNote(`${card.daily.trades} cierre${card.daily.trades === 1 ? '' : 's'} · ${card.daily.day}`),
     ])
     + metric('Drawdown', plain(card.daily.drawdown, currency), '', []));
@@ -192,7 +192,8 @@ function dailyRow(card, currency) {
 function monthlyRow(card, currency) {
   const expected = card.expected_month || {};
   return metricRow(monthName(card.monthly.label),
-    metric('Beneficio', money(card.monthly.profit, currency), card.monthly.profit_tone, [
+    metric('Profit MT5', money(card.monthly.profit, currency), card.monthly.profit_tone, [
+      plainNote(`Resultado neto actual: ${plain(card.monthly.net_profit, currency)}`),
       plainNote(expectedNote(expected, currency)), paceNote(card, currency),
     ])
     + metric('Drawdown', plain(card.monthly.drawdown, currency), card.monthly.drawdown_tone, [
@@ -207,7 +208,8 @@ function earlierRow(card, currency) {
   const mean = expected.profit === null || expected.profit === undefined
     ? 'Sin media del backtest' : `Media de ${plain(expected.profit, currency)}`;
   return metricRow(monthName(earlier.label),
-    metric('Beneficio', money(earlier.profit, currency), '', [
+    metric('Profit MT5', money(earlier.profit, currency), '', [
+      plainNote(`Resultado neto: ${plain(earlier.net_profit, currency)}`),
       plainNote(mean),
     ])
     + metric('Drawdown', plain(earlier.drawdown, currency)),

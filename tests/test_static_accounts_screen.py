@@ -167,6 +167,11 @@ class PageTests(unittest.TestCase):
 
 
 class CriterionTests(unittest.TestCase):
+    def test_profit_and_net_result_are_named_as_different_metrics(self) -> None:
+        self.assertIn("metric('Profit MT5'", SCRIPT)
+        self.assertIn("Resultado neto actual:", SCRIPT)
+        self.assertIn("card.monthly.net_profit", SCRIPT)
+
     def test_yesterdays_profit_is_coloured_by_its_sign(self) -> None:
         self.assertIn("if (Number(value) > 0) return 'good'", SCRIPT)
         self.assertIn("if (Number(value) < 0) return 'bad'", SCRIPT)

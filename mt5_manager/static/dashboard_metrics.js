@@ -3,15 +3,11 @@
     || (typeof require !== 'undefined' ? require('./live_audit_reproduction.js') : null);
 
   function comparisonRows(result) {
-    return result?.comparison_detail?.operation_comparisons || [];
+    return reproduction.comparisonRows(result?.comparison_detail || {});
   }
 
   function unaccountedRows(result) {
-    const detail = result?.comparison_detail || {};
-    return [
-      ...(detail.unmatched_real_operations || []),
-      ...(detail.discarded_real_operations || []),
-    ].filter(row => row.real?.close_time);
+    return reproduction.unaccountedRows(result?.comparison_detail || {});
   }
 
   function attributionState(row) {
@@ -48,37 +44,10 @@
   }
 
   function strategyGroups(result) {
-    const groups = new Map();
     const quality = strategyQuality(result);
-    const rows = comparisonRows(result);
-    const timeline = reproduction.realLotTimeline(rows);
-    rows.forEach(row => {
-      const tester = row.tester || {};
-      const key = String(row.strategy || tester.strategy || 'Sin estrategia');
-      if (!groups.has(key)) groups.set(key, {
-        strategy: key, label: row.strategy_set || key, symbol: tester.symbol || '—',
-        demo: [], real: [], attributed: [], quality: quality.get(key) || null,
-      });
-      const group = groups.get(key);
-      if (tester.close_time) {
-        const target = reproduction.scaleTarget(row, timeline);
-        group.demo.push({
-          ...tester, scale_volume: target.volume, scale_source: target.source,
-          pending_real: Boolean(row.real_position_still_open),
-        });
-      }
-      if (row.real?.close_time) group.real.push(reproduction.pairedReal(row));
-    });
-    unaccountedRows(result).forEach(row => {
-      const owner = reproduction.attributedOwner(row);
-      if (!owner) return;
-      if (!groups.has(owner.strategy)) groups.set(owner.strategy, {
-        ...owner, demo: [], real: [], attributed: [],
-        quality: quality.get(owner.strategy) || null,
-      });
-      groups.get(owner.strategy).attributed.push(row.real);
-    });
-    return [...groups.values()];
+    return reproduction.strategyGroups(result?.comparison_detail || {}).map(group => ({
+      ...group, quality: quality.get(group.strategy) || null,
+    }));
   }
 
   function pendingRealTrades(result) {

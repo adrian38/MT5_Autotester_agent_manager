@@ -88,7 +88,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         )
         self.assertIn(": {...row.real};", self.reproduction_script)
         self.assertIn(
-            "group.real.push(LiveAuditReproduction.pairedReal(row))", self.analysis_script,
+            "group.real.push(pairedReal(row))", self.reproduction_script,
         )
         # Y la escala la elige el modo, no el lado: antes `sideSeries` sólo
         # sabía escalar la demo.
@@ -106,7 +106,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # curva real en bruto y Análisis la escalada.
         static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
         metrics = (static_dir / "dashboard_metrics.js").read_text(encoding="utf-8")
-        self.assertIn("group.real.push(reproduction.pairedReal(row))", metrics)
+        self.assertIn("reproduction.strategyGroups(", metrics)
 
     def test_an_unpaired_demo_uses_the_nearest_observed_real_lot(self) -> None:
         # Busca sólo dentro de la misma estrategia y por apertura. Sin ninguna
@@ -127,7 +127,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertLess(direct, nearby)
         self.assertLess(nearby, expected)
         self.assertLess(expected, own)
-        self.assertIn("LiveAuditReproduction.realLotTimeline(rows)", self.analysis_script)
+        self.assertIn("LiveAuditReproduction.strategyGroups(", self.analysis_script)
         self.assertIn("function lotList(lots)", self.analysis_script)
         self.assertIn("function scaledBySource(group, source)", self.analysis_script)
 
@@ -138,7 +138,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # que en real no se habían materializado.
         self.assertIn("function splitPending(series)", self.analysis_script)
         self.assertIn("point.pending_real", self.analysis_script)
-        self.assertIn("pending_real: Boolean(row.real_position_still_open)", self.analysis_script)
+        self.assertIn("pending_real: Boolean(row.real_position_still_open)", self.reproduction_script)
         self.assertIn("splitPending(series).settled.reduce", self.analysis_script)
         self.assertIn("sólo cerró porque se acabó el\n// rango del backtest", self.analysis_script)
         # No se dibujan en ningún sitio: el gráfico sólo tiene Demo y Real, y
@@ -153,7 +153,9 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # el auditor sí la emparejó. Contarla sólo por `real.close_time` hacía
         # que la pantalla dijese «0 REAL EMPAREJADAS» de una estrategia que el
         # veredicto alineaba al segundo, y se leía como que no había operado.
-        self.assertIn("row.real_position_still_open) group.openReal.push", self.analysis_script)
+        self.assertIn(
+            "row.real_position_still_open) group.openReal.push", self.reproduction_script,
+        )
         self.assertIn("function openRealMark(group)", self.analysis_script)
         self.assertIn("EMPAREJADA${open === 1 ? '' : 'S'} SIN CERRAR", self.analysis_script)
         self.assertIn("${open} SIN CERRAR, FUERA", self.analysis_script)
@@ -309,12 +311,11 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # curva; lo que nadie explicó sigue en la curva pero no en una fila.
         # Con su procedencia puesta: la fila tiene que poder decir si lo
         # atribuyó el Excel o el documento de comentarios.
-        self.assertIn(".attributed.push(", self.analysis_script)
-        self.assertIn("attributed_source: String(row.attribution?.source", self.analysis_script)
-        self.assertIn("LiveAuditReproduction.attributedOwner(row)", self.analysis_script)
+        self.assertIn(".attributed.push(", self.reproduction_script)
+        self.assertIn("attributed_source: String(row.attribution?.source", self.reproduction_script)
+        self.assertIn("const owner = attributedOwner(row)", self.reproduction_script)
         self.assertIn(
-            "if (!groups.has(owner.strategy)) groups.set(owner.strategy",
-            self.analysis_script,
+            "if (!groups.has(owner.strategy)) groups.set(owner.strategy", self.reproduction_script,
         )
         self.assertIn("function groupRealTrades(group)", self.analysis_script)
         self.assertIn("attributionOf(row).state !== 'excluded'", self.analysis_script)
@@ -327,7 +328,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("function qualityChip(group)", self.analysis_script)
         self.assertIn("CALIDAD TICK ", self.analysis_script)
         self.assertIn("SIN CALIDAD TICK", self.analysis_script)
-        self.assertIn("quality: quality.get(key) || null", self.analysis_script)
+        self.assertIn("quality: quality.get(group.strategy) || null", self.analysis_script)
         self.assertIn("${qualityChip(group)}", self.analysis_script)
         self.assertIn("su veredicto no sirve para decidir si se retiran", self.analysis_script)
 
@@ -338,8 +339,15 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # ajenas. Son dinero que la cuenta movió y el Excel tiene que poder
         # reclamarlas.
         self.assertIn("function discardedRows(result)", self.analysis_script)
-        self.assertIn("discarded_real_operations", self.analysis_script)
         self.assertIn("function unaccountedRows(result)", self.analysis_script)
+        # El filtro lo decide la primitiva, para que las cuatro pantallas
+        # cuenten el mismo dinero descartado.
+        self.assertIn("function discardedRows(detail)", self.reproduction_script)
+        self.assertIn("discarded_real_operations", self.reproduction_script)
+        self.assertIn(
+            "return [...unmatchedRows(detail), ...discardedRows(detail)]",
+            self.reproduction_script,
+        )
         self.assertIn("DESCARTADA POR LOTE", self.analysis_script)
         self.assertIn("function discardedHelp(row)", self.analysis_script)
         # Entran en el cuadre y en la atribución, pero no en la curva Real

@@ -433,8 +433,8 @@ function cardMarkup(entry) {
     : warnings || crossing || slow || inSeries ? 'pending'
       : summary.comparable ? 'completed' : 'idle';
   const accumulated = history.comparable ? `<div class="comparison-grid">
-    <div><span>Profit Test</span><strong>${escapeHtml(money(history.demo_profit, currency))}</strong></div>
-    <div><span>Profit Real</span><strong class="${realMetricTone(history.real_profit, history.demo_profit)}">${escapeHtml(money(history.real_profit, currency))}</strong></div>
+    <div><span>Resultado neto Test</span><strong>${escapeHtml(money(history.demo_profit, currency))}</strong></div>
+    <div><span>Resultado neto Real</span><strong class="${realMetricTone(history.real_profit, history.demo_profit)}">${escapeHtml(money(history.real_profit, currency))}</strong></div>
     <div><span>DD Test</span><strong>${escapeHtml(money(history.demo_drawdown, currency))}</strong></div>
     <div><span>DD Real</span><strong class="${realMetricTone(history.real_drawdown, history.demo_drawdown, true)}">${escapeHtml(money(history.real_drawdown, currency))}</strong></div>
   </div>` : '';

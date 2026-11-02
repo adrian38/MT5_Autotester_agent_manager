@@ -24,6 +24,7 @@ class HistoryScreenTests(unittest.TestCase):
         cls.script = (static / "live_audit_history.js").read_text(encoding="utf-8")
         cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
         cls.verdicts = (static / "live_audit_history_verdicts.js").read_text(encoding="utf-8")
+        cls.reproduction = (static / "live_audit_reproduction.js").read_text(encoding="utf-8")
         cls.card = (static / "dashboard_metrics.js").read_text(encoding="utf-8")
 
     def test_the_second_table_lives_next_to_the_first_one(self) -> None:
@@ -92,13 +93,11 @@ class HistoryScreenTests(unittest.TestCase):
             self.verdicts,
         )
         self.assertIn("groupsOf(execution.comparison_detail || {}, timeline)", self.verdicts)
+        self.assertIn("return reproduction.strategyGroups(detail, suppliedTimeline)", self.verdicts)
 
     def test_an_attributed_real_creates_its_group_without_tester_rows(self) -> None:
-        self.assertIn("reproduction.attributedOwner(row)", self.verdicts)
-        self.assertIn(
-            "if (!groups.has(owner.strategy)) groups.set(owner.strategy",
-            self.verdicts,
-        )
+        self.assertIn("function attributedOwner(row)", self.reproduction)
+        self.assertIn("if (!groups.has(owner.strategy)) groups.set(owner.strategy", self.reproduction)
         self.assertIn("identities.push(`${owner.strategy}|${owner.label}`)", self.verdicts)
 
     def test_it_says_which_portfolios_it_inherits_from_and_with_what_limit(self) -> None:
