@@ -93,6 +93,11 @@ class BuildCriterionTests(unittest.TestCase):
         self.assertEqual(tranche["drawdown"], 30.0)
         self.assertFalse(tranche["meets_profit"])
         self.assertTrue(tranche["meets_drawdown"])
+        # La media de un mes cualquiera viaja al mismo tramo: los siete
+        # recuadros son fijos y los de referencia tienen que estar medidos
+        # sobre lo mismo que el resultado que acompañan.
+        self.assertAlmostEqual(tranche["monthly_profit"], 90.0 * 13 / 30)
+        self.assertEqual(tranche["monthly_drawdown"], 30.0)
 
     def test_a_tranche_promised_at_another_lot_has_no_objective(self) -> None:
         # Prorratear una media medida a otro tamaño daría un objetivo de

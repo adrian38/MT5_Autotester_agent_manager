@@ -189,6 +189,33 @@ del veredicto de reproducción que éste arrastra.
   cálculo: esa comparación móvil hacía obsoleta incluso una captura recién
   terminada. `updated_at >= fin del mes` prueba que el terminal ya pudo leer
   todo el mes; una lectura anterior sigue pidiendo el sondeo del botón.
+- **Los siete recuadros son los mismos en todas las tarjetas** (2026-11-02).
+  Antes la tarjeta que no podía comparar cambiaba cuatro por el motivo
+  —«Promesa comparable: No disponible», «Comparación histórica: No
+  comparable», «Meses completos de referencia»— y dos tarjetas de la misma
+  pantalla no se dejaban leer en paralelo: había que releer los títulos en
+  cada una. Ahora el motivo vive en la frase de debajo, que es donde cabe, y
+  el recuadro sin medida dice «sin medir». Lo exige
+  `test_every_card_shows_the_same_seven_boxes`.
+- **Un tramo tiene objetivo, y es el del resumen del portafolio** (2026-11-02).
+  `live_account_monthly.add_month_expectations` ya prorratea la media del mes
+  por los días vividos y juzga el beneficio contra eso; el drawdown no se
+  prorratea, porque un valle no se reparte por días. `_tranche` repite esa
+  cuenta —no una parecida— para que las dos pantallas no den dos objetivos del
+  mismo tramo, y las medias de referencia viajan al mismo tramo: un número a
+  mes entero al lado de uno de diecisiete días compara dos cosas distintas con
+  la misma cara. Sigue sin decidir: el veredicto de un tramo es VIGILAR.
+- **Con autolote sí se sitúa el mes entre los suyos, desde el escenario**
+  (2026-11-02). La objeción era el lote, no el autolote: `months_at` guarda
+  ahora los meses de ese mes del año remedidos a los lotes que la cuenta
+  operó, más la media de un mes cualquiera en tres números, así que la banda
+  está al mismo tamaño que el mes que juzga. `table_comparable` deja de ser un
+  no incondicional. Todos los portafolios de la cuenta o ninguno: media cuenta
+  remedida no es una cuenta remedida.
+- **El tramo auditado dice sus días** (2026-11-02). Un portafolio dado de alta
+  el 31 cubría «100 %» de un día y se leía igual que un mes entero. El título
+  del recuadro sigue siendo «Mes auditado» —son fijos—, y los días van en el
+  valor.
 
 ## Cómo se entregó
 

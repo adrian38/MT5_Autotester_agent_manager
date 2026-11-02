@@ -152,24 +152,10 @@
     return capital ? plural[0].toUpperCase() + plural.slice(1) : plural;
   }
 
-  // Y «octubre» a secas, que es como se nombra lo que cuesta un mes entero
-  // cuando lo de al lado es un tramo.
-  function monthWord(label) {
-    return MONTHS[Number(String(label || '').split('-')[1]) - 1] || 'mes';
-  }
-
-  // La promesa de un mes juzgable **es** la media de sus octubres, y así se
-  // llama: es la cifra contra la que se lee el juicio de abajo. Con autolote
-  // viene del escenario de ese mes y entonces no es esa media, sólo la
-  // promesa a sus lotes.
-  function promiseLabel(card, ranked) {
-    return ranked ? `Beneficio medio de los ${escapeHtml(monthPlural(card.month))}` : 'Prometía';
-  }
-
   // Un recuadro con un número dice «esto se puede comparar». Cuando no se
   // puede —tramo parcial, o serie del backtest a otros lotes que los que el
-  // autolote corrió— enseña el motivo en su sitio en vez de una cifra que se
-  // leería como comparación. Las marcas las pone `monthly_summary_build`; un
+  // autolote corrió— enseña «sin medir» en vez de una cifra que se leería
+  // como comparación. Las marcas las pone `monthly_summary_build`; un
   // resumen guardado antes de medirlas no las trae, y ausente vale por sí.
   // Verde o rojo contra la media de su mes del ano, que es la comparacion que
   // la tarjeta esta haciendo: el color tiene que decir lo mismo que la frase.
@@ -186,51 +172,60 @@
     return `<div><span>${label}</span><strong${mark}>${value}</strong></div>`;
   }
 
-  // El recuadro de al lado contesta siempre la misma pregunta —contra qué se
-  // mide lo de la izquierda— y por eso tiene tres formas. Mes juzgable: la
-  // media de sus octubres. Tramo con la promesa al lote que corrió: el
-  // objetivo prorrateado, el mismo que ya enseña el resumen del portafolio, y
-  // no un hueco. Sin ninguna de las dos: el motivo, en su sitio.
-  function targetFigures(card, shape) {
-    const {timed, ranked, promised, tranche, money, season} = shape;
-    if (timed) {
+  // Los cuatro recuadros de referencia, en el orden en que se enseñan: media
+  // del mes del año y media de un mes cualquiera, para beneficio y para
+  // drawdown. Lo que cambia entre tarjetas no es **cuáles** son, es sobre qué
+  // tramo están medidos.
+  //
+  // - Mes juzgable: las bandas del backtest, tal cual.
+  // - Tramo: las mismas medias prorrateadas a los días que vivió, que es la
+  //   cuenta del resumen del portafolio. El drawdown no se prorratea: un valle
+  //   no se reparte por días.
+  // - Mes entero con la promesa al lote que corrió pero sin la serie remedida:
+  //   sólo la promesa, que es la media de sus octubres.
+  // - Nada de eso: `null`, y el recuadro dice «sin medir» en vez de
+  //   desaparecer. Un hueco mueve a los demás y obliga a releer la tarjeta
+  //   entera para saber qué se está mirando; el motivo lo dice la frase de
+  //   debajo, que es donde cabe.
+  function referenceValues(card, shape) {
+    const {ranked, timed, promised, tranche} = shape;
+    const monthly = card.monthly_mean || {};
+    const expected = card.expected || {};
+    if (ranked) {
       return [
-        ['Objetivo del tramo', money(tranche.profit)],
-        [`Drawdown de un ${escapeHtml(monthWord(card.month))} entero`,
-          money(tranche.drawdown)],
+        (card.profit_band || {}).mean, monthly.profit,
+        (card.drawdown_band || {}).mean, monthly.drawdown,
       ];
     }
-    return [
-      [promised ? promiseLabel(card, ranked) : 'Promesa comparable',
-        promised ? money(card.expected && card.expected.profit) : 'No disponible'],
-      [ranked ? `Drawdown medio de los ${season}` : 'Comparación histórica',
-        ranked ? money(card.drawdown_band && card.drawdown_band.mean) : 'No comparable'],
-    ];
-  }
-
-  // El tramo dice sus días, no sólo su porcentaje. Un portafolio dado de alta
-  // el 31 cubría «100 %» de un día y se leía igual que un mes entero.
-  function auditedFigure(card, coverage) {
-    if (!card.started_inside) {
-      return figure('Mes auditado', escapeHtml(`${Number(coverage.pct || 0).toFixed(0)} %`));
+    if (timed) {
+      return [
+        tranche.profit, tranche.monthly_profit,
+        tranche.drawdown, tranche.monthly_drawdown,
+      ];
     }
-    const days = Math.round(Number(coverage.eligible_days || 0));
-    return figure('Tramo auditado', escapeHtml(
-      `${Number(coverage.eligible_pct || 0).toFixed(0)} % de ${days} `
-      + `${days === 1 ? 'día' : 'días'}`,
-    ));
+    if (promised) return [expected.profit, null, expected.drawdown, null];
+    return [null, null, null, null];
   }
 
-  // Siete recuadros cuando el mes se puede juzgar —lo del mes, su media de
-  // octubres y la media de un mes cualquiera, para beneficio y para
-  // drawdown—, y seis cuando no: un recuadro vacio ocupa el mismo sitio que
-  // uno con un dato y no dice nada.
+  // El tramo dice sus días dentro del recuadro, no en su título: el título es
+  // el mismo en todas las tarjetas. Un portafolio dado de alta el 31 cubría
+  // «100 %» de un día y se leía igual que un mes entero.
+  function auditedValue(card, coverage) {
+    if (!card.started_inside) return `${Number(coverage.pct || 0).toFixed(0)} %`;
+    const days = Math.round(Number(coverage.eligible_days || 0));
+    return `${Number(coverage.eligible_pct || 0).toFixed(0)} % de ${days} `
+      + `${days === 1 ? 'día' : 'días'}`;
+  }
+
+  // **Siempre los mismos siete recuadros, con los mismos títulos.** Antes la
+  // tarjeta que no podía comparar cambiaba cuatro de ellos por el motivo —
+  // «Promesa comparable: No disponible», «Meses completos de referencia»—, y
+  // dos tarjetas de la misma pantalla no se dejaban leer en paralelo: había
+  // que volver a leer los títulos en cada una. Petición del usuario,
+  // 2026-11-02. Lo que no se ha podido medir dice «sin medir» en su sitio.
   function figuresMarkup(card) {
     const currency = card.currency || '';
     const closed = card.closed || {};
-    const monthly = card.monthly_mean || {};
-    const profit = card.profit_band || {};
-    const depth = card.drawdown_band || {};
     const coverage = card.coverage || {};
     const tranche = card.tranche || {};
     const partial = Boolean(card.started_inside);
@@ -239,31 +234,21 @@
       promised: !partial && card.promise_comparable !== false,
       ranked: !partial && card.table_comparable !== false,
       timed: partial && tranche.measured === true,
-      season: escapeHtml(monthPlural(card.month)),
-      money: value => escapeHtml(amount(value, currency)),
     };
-    const {ranked, timed, money} = shape;
-    const [target, limit] = targetFigures(card, shape);
-    const profitMark = ranked ? tone(closed.profit, profit.mean)
-      : (timed ? tone(closed.profit, tranche.profit) : '');
-    const depthMark = ranked ? tone(closed.drawdown, depth.mean, true)
-      : (timed ? tone(closed.drawdown, tranche.drawdown, true) : '');
+    const season = escapeHtml(monthPlural(card.month));
+    const money = value => escapeHtml(amount(value, currency));
+    const [seasonProfit, meanProfit, seasonDepth, meanDepth] =
+      referenceValues(card, shape);
     const tiles = [
-      figure(
-        partial ? 'Beneficio desde el alta' : 'Beneficio del mes',
-        money(closed.profit), profitMark,
-      ),
-      figure(target[0], target[1]),
-      ranked ? figure('Beneficio medio histórico', money(monthly.profit)) : '',
-      figure(
-        partial ? 'Drawdown desde el alta' : 'Drawdown del mes',
-        money(closed.drawdown), depthMark,
-      ),
-      figure(limit[0], limit[1]),
-      ranked
-        ? figure('Drawdown medio mensual', money(monthly.drawdown))
-        : figure('Meses completos de referencia', escapeHtml(String(card.backtest_months || 0))),
-      auditedFigure(card, coverage),
+      figure('Beneficio del mes', money(closed.profit),
+        tone(closed.profit, seasonProfit)),
+      figure(`Beneficio medio de los ${season}`, money(seasonProfit)),
+      figure('Beneficio medio histórico', money(meanProfit)),
+      figure('Drawdown del mes', money(closed.drawdown),
+        tone(closed.drawdown, seasonDepth, true)),
+      figure(`Drawdown medio de los ${season}`, money(seasonDepth)),
+      figure('Drawdown medio mensual', money(meanDepth)),
+      figure('Mes auditado', escapeHtml(auditedValue(card, coverage))),
     ];
     return `<div class="summary-grid">${tiles.join('')}</div>`;
   }

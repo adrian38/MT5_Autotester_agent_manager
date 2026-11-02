@@ -287,21 +287,40 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("id=\"monthly-summary-stale\"", PAGE)
         self.assertIn(".summary-page .summary-toolbar .cron-warning{", STYLE)
 
+    def test_every_card_shows_the_same_seven_boxes(self) -> None:
+        """Peticion del usuario, 2026-11-02: los titulos no cambian de tarjeta.
+
+        Antes la que no podia comparar cambiaba cuatro recuadros por el motivo
+        —«Promesa comparable: No disponible», «Meses completos de referencia»—
+        y dos tarjetas de la misma pantalla no se dejaban leer en paralelo.
+        Ahora el motivo vive en la frase y el recuadro dice «sin medir».
+        """
+        figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
+        for label in (
+            "figure('Beneficio del mes'", "figure(`Beneficio medio de los ${season}`",
+            "figure('Beneficio medio historico'".replace("historico", "histórico"),
+            "figure('Drawdown del mes'", "figure(`Drawdown medio de los ${season}`",
+            "figure('Drawdown medio mensual'", "figure('Mes auditado'",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(label, figures)
+        for gone in (
+            "'Promesa comparable'", "'Comparacion historica'".replace(
+                "Comparacion historica", "Comparación histórica",
+            ),
+            "figure('Meses completos de referencia'", "'Tramo auditado'",
+            "Beneficio desde el alta", "function promiseLabel",
+        ):
+            with self.subTest(gone=gone):
+                self.assertNotIn(gone, SCRIPT)
+
     def test_the_card_counts_the_months_of_the_year_and_names_them(self) -> None:
-        # «octubres de backtest 6», no «meses de backtest 77»: lo que se cuenta
-        # y lo que se enseña tienen que ser la misma población.
+        # «octubres», no «meses»: lo que se mide y lo que se enseña tienen que
+        # ser la misma población, y el drawdown se enseña con la misma vara.
         plural = SCRIPT[SCRIPT.index("function monthPlural"):]
         self.assertIn("endsWith('l')", plural)
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
-        # Y la promesa se llama por lo que es: la media de esos octubres.
-        label = SCRIPT[SCRIPT.index("function promiseLabel"):]
-        self.assertIn("Beneficio medio de los ${escapeHtml(monthPlural(card.month))}", label)
-        # Y el drawdown se enseña con la misma vara: su media de octubres,
-        # no el peor mes de cualquier mes del año.
-        self.assertIn(
-            "Drawdown medio de los ${season}",
-            SCRIPT[SCRIPT.index("function targetFigures"):],
-        )
+        self.assertIn("const season = escapeHtml(monthPlural(card.month));", figures)
         self.assertNotIn("drawdown_standing", SCRIPT)
 
     def test_the_month_is_coloured_against_its_own_average(self) -> None:
@@ -310,49 +329,40 @@ class ScriptTests(unittest.TestCase):
         colour = SCRIPT[SCRIPT.index("function tone("):]
         self.assertIn("lowerIsBetter ? left <= right : left >= right", colour)
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
-        self.assertIn("tone(closed.profit, profit.mean)", figures)
-        self.assertIn("tone(closed.drawdown, depth.mean, true)", figures)
+        self.assertIn("tone(closed.profit, seasonProfit)", figures)
+        self.assertIn("tone(closed.drawdown, seasonDepth, true)", figures)
         for rule in (".summary-grid strong.good{", ".summary-grid strong.bad{"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, STYLE)
 
-    def test_the_card_shows_both_averages_and_drops_the_month_count(self) -> None:
-        # Peticion del usuario: el recuento de octubres se va y entran las dos
-        # medias de un mes cualquiera, al lado de las de su mes del ano.
-        figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
-        self.assertIn("Beneficio medio histórico", figures)
-        self.assertIn("Drawdown medio mensual", figures)
-        self.assertIn("monthly.profit", figures)
-        self.assertIn("monthly.drawdown", figures)
-        self.assertNotIn("de backtest`", figures)
-
-    def test_a_figure_that_cannot_be_compared_says_so_instead_of_a_number(self) -> None:
-        figures = SCRIPT[SCRIPT.index("function targetFigures"):]
+    def test_the_reference_boxes_follow_what_can_be_compared(self) -> None:
+        # Las marcas siguen mandando: lo que cambia es que ahora deciden el
+        # **valor** del recuadro, no si el recuadro existe.
+        values = SCRIPT[SCRIPT.index("function referenceValues"):]
         for expression in (
             "card.promise_comparable !== false", "card.table_comparable !== false",
-            "'No comparable'", "'No disponible'",
+            "(card.profit_band || {}).mean", "monthly.profit",
+            "(card.drawdown_band || {}).mean", "monthly.drawdown",
+            "return [null, null, null, null];",
         ):
             with self.subTest(expression=expression):
-                self.assertIn(expression, figures)
+                self.assertIn(expression, values)
 
-    def test_a_tranche_shows_the_objective_of_the_portfolio_summary(self) -> None:
-        # El recuadro de al lado contesta siempre contra qué se mide lo de la
-        # izquierda. En un tramo eso es el objetivo prorrateado, no un hueco.
-        figures = SCRIPT[SCRIPT.index("function targetFigures"):]
+    def test_a_tranche_is_measured_against_the_same_tranche_of_the_backtest(self) -> None:
+        # Un numero a mes entero al lado de uno de diecisiete dias compara dos
+        # cosas distintas con la misma cara: las medias se prorratean igual.
+        values = SCRIPT[SCRIPT.index("function referenceValues"):]
         for expression in (
-            "'Objetivo del tramo'", "money(tranche.profit)",
-            "Drawdown de un ${escapeHtml(monthWord(card.month))} entero",
-            "money(tranche.drawdown)",
+            "tranche.profit", "tranche.monthly_profit",
+            "tranche.drawdown", "tranche.monthly_drawdown",
         ):
             with self.subTest(expression=expression):
-                self.assertIn(expression, figures)
-        self.assertIn("tone(closed.profit, tranche.profit)", SCRIPT)
-        self.assertIn("tone(closed.drawdown, tranche.drawdown, true)", SCRIPT)
+                self.assertIn(expression, values)
 
     def test_the_audited_tranche_says_its_days(self) -> None:
         # Un alta el día 31 cubría «100 %» de un día y se leía igual que un
         # mes entero.
-        audited = SCRIPT[SCRIPT.index("function auditedFigure"):]
+        audited = SCRIPT[SCRIPT.index("function auditedValue"):]
         self.assertIn("coverage.eligible_days", audited)
         self.assertIn("días", audited)
 

@@ -259,6 +259,7 @@ def _composition_start(
 
 def _tranche(
     closed: dict[str, Any], promise: dict[str, Any], start: Any, label: str,
+    means: dict[str, Any],
 ) -> dict[str, Any]:
     """El objetivo del tramo, con la misma cuenta que el resumen del portafolio.
 
@@ -271,16 +272,25 @@ def _tranche(
     No sustituye al mes natural. Sigue sin decidir MANTENER o CAMBIAR —eso
     pide meses completos y una racha—, pero deja de callar contra qué se mide
     un tramo que el usuario ya ve medido en la otra pantalla.
+
+    La media de un mes cualquiera viaja prorrateada por lo mismo: los recuadros
+    de la tarjeta son los mismos siete siempre, así que los cuatro de
+    referencia tienen que estar medidos sobre el mismo tramo que el resultado
+    que acompañan. Un número a mes entero al lado de uno de diecisiete días
+    compara dos cosas distintas con la misma cara.
     """
     days = coverage.month_days(label)
     lived = max(0, days - start.day + 1) if days else 0
     fraction = lived / days if days else 0.0
     profit, depth = promise.get("profit"), promise.get("drawdown")
     target = profit * fraction if profit is not None else None
+    monthly = means["profit"] if means.get("measured") else None
     return {
         "measured": target is not None,
         "days": lived, "month_days": days, "fraction": fraction,
         "average": profit, "profit": target, "drawdown": depth,
+        "monthly_profit": monthly * fraction if monthly is not None else None,
+        "monthly_drawdown": means["drawdown"] if means.get("measured") else None,
         "meets_profit": (
             float(closed["profit"]) >= target if target is not None else None
         ),
@@ -319,7 +329,7 @@ def _performance(
     # El tramo tiene objetivo mientras la promesa esté al lote que se corrió;
     # prorratear una media medida a otro tamaño daría un objetivo de volumen.
     tranche = (
-        _tranche(closed, promise, partial_start, label)
+        _tranche(closed, promise, partial_start, label, means)
         if partial_start is not None and _at_real_lots(promise, autolot=autolot)
         else {"measured": False}
     )
