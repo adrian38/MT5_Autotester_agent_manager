@@ -226,6 +226,60 @@ class WatchTickTests(unittest.TestCase):
         )
         self.assertEqual(new_use["period_start_date"], "2026-11-10")
 
+    def test_a_long_audit_born_on_the_day_of_the_appointment_is_not_launched(self) -> None:
+        # El uso nació el mismo sábado de la cita, así que el tramo acumulado
+        # empieza y termina el 31. Lanzarlo mandaba al tester FromDate=ToDate y
+        # MT5 no arrancaba: ocho «no se encontró ningún reporte» y dos
+        # reintentos con la misma ventana vacía.
+        state = audit_state()
+        state["profiles"]["11"].update({
+            "period_mode": "fixed_dates", "period_start_date": "2026-09-01",
+            "period_end_date": "2026-10-24",
+        })
+        portfolios = mock.Mock()
+        portfolios.saved.return_value = {
+            "portfolio": {"created_at": "2026-10-31T20:40:04+00:00"},
+        }
+        server = FakeServer(
+            self.root, state, portfolios=portfolios, enabled=True,
+            monthly_full_audit=True,
+        )
+        posted: list[object] = []
+        now = datetime(2026, 10, 31, 22, 1, tzinfo=timezone.utc)
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self.node_answers({"11": published_audit()}, posted),
+        ):
+            live_audit_watch.launch_due(
+                server, server.nodes[0], "n", state, {"11": published_audit()}, now,
+            )
+        self.assertEqual([], posted)
+        events = server.events()
+        self.assertEqual([row["kind"] for row in events], ["full_audit_empty"])
+        self.assertEqual(events[0]["level"], "info")
+        self.assertIn("2026-10-31", events[0]["message"])
+        record = server.live_audit_runs.record(LiveAuditRunState.key("n", "11"))
+        self.assertEqual(record["last_full_audit_end"], "2026-10-31")
+        self.assertEqual(record["outcome"], "success")
+        # El turno queda cumplido: la vuelta siguiente no reintenta la misma
+        # ventana vacía ni repite el aviso.
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self.node_answers({"11": published_audit()}, posted),
+        ):
+            live_audit_watch.launch_due(
+                server, server.nodes[0], "n", state, {"11": published_audit()}, now,
+            )
+        self.assertEqual([], posted)
+        self.assertEqual(len(server.events()), 1)
+        # Y la larga del mes siguiente arranca donde habría terminado ésta.
+        following = live_audit_watch.live_audit_full_period.audit_period(
+            server, "n", state["profiles"]["11"], record,
+            "2026-11-28T22:00:00+00:00", live_audit_watch.scheduled_audit_ids,
+        )
+        self.assertEqual(following["period_start_date"], "2026-10-31")
+        self.assertEqual(following["period_end_date"], "2026-11-28")
+
     def test_the_bell_only_claims_the_chain_when_the_period_comes_from_it(self) -> None:
         # «fixed_dates» es justo lo que trae un perfil con fechas fijas. Leerlo
         # como prueba de encadenado hacía que el aviso jurase arrancar donde

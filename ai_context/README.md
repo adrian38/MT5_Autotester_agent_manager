@@ -189,6 +189,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   portada; por qué el tramo es la serie de la cuenta y no el `created_at` del
   portafolio, por qué el drawdown del tramo no es el máximo de los mensuales y
   qué pasa con los meses que no operaron.
+- `live_audit_full_period_empty_window.md`: por qué la larga de un uso creado el
+  mismo día de la cita pedía `FromDate=ToDate` y MT5 contestaba «tester didn't
+  start», leído como ocho «no se encontró ningún reporte».
 - `live_audit_cron_and_bell.md`: el cron general de los portafolios activos y
   la hoja de estilos sin la cual la campana se abre fuera de la vista
 - `deleted_portfolio_leaves_live_audit_profile.md`: por qué borrar una cartera

@@ -467,18 +467,25 @@ def launch_due(
             if str(record.get("window") or "") != window:
                 runs.update(key, window=window, attempts=0, outcome="success")
             continue
+        profile = dict(profiles.get(audit_id) or {})
         decision = live_audit_schedule.due_decision(settings, record, window, now)
         if decision == "exhausted":
-            _exhausted(server, node, node_id, audit_id, dict(profiles.get(audit_id) or {}), window)
+            _exhausted(server, node, node_id, audit_id, profile, window)
             continue
         if not decision:
             continue
         full_audit = live_audit_schedule.is_monthly_full_audit(window, settings)
-        period = (live_audit_full_period.audit_period(
-            server, node_id, dict(profiles.get(audit_id) or {}), record, window, scheduled_audit_ids,
-        ) if full_audit else None)
+        bounds = live_audit_full_period.audit_window(
+            server, node_id, profile, record, window, scheduled_audit_ids,
+        ) if full_audit else None
+        if bounds is not None and not live_audit_full_period.has_days(bounds):
+            live_audit_full_period.close_empty_turn(
+                server, node, node_id, audit_id, profile, window, bounds[1],
+            )
+            continue
+        period = live_audit_full_period.period_fields(bounds) if full_audit else None
         launch(
-            server, node, node_id, audit_id, dict(profiles.get(audit_id) or {}),
+            server, node, node_id, audit_id, profile,
             {
                 "window": window, "audit": audit, "now": now,
                 "full_audit": full_audit, "period": period,
