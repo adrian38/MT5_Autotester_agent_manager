@@ -254,6 +254,14 @@ del veredicto de reproducción que éste arrastra.
   chapa `AUTOLOTE ACTIVO` y cada portafolio conserva y enseña su propia marca.
   La marca de cuenta sigue siendo la unión de sus usos; en resúmenes antiguos
   con un único uso sirve además de respaldo para poder rotularlo.
+- **El tramo empieza a las 00:00 del día que nombra** (2026-11-02). La tarjeta
+  de Christmas_Axi decía `(tramo 15-31)` pero `_performance` cortaba a la hora
+  exacta de `portfolio_created_at`, 19:34:55. Así eliminaba 27 movimientos y
+  98,94 USD del propio día 15: el archivo guardado daba 140,68 USD desde el día
+  completo y la tarjeta enseñaba 41,74 USD. El resumen mensual ahora compara
+  fechas, igual que `live_account_monthly.active_totals`; la hora sólo registra
+  cuándo se guardó, no define un tramo visible por días. El criterio sube a v9
+  para obligar a recalcular las fotos guardadas con el recorte incorrecto.
 
 ## Cómo se entregó
 

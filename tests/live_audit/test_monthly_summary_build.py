@@ -64,19 +64,26 @@ class BuildCriterionTests(unittest.TestCase):
         })
         self.assertEqual([row["autolot"] for row in rows], [False, True])
 
-    def test_a_partial_month_only_measures_movements_after_birth(self) -> None:
+    def test_a_partial_month_includes_the_whole_creation_day(self) -> None:
+        """Regresión de Christmas_Axi: el tramo 15-31 empieza a las 00:00.
+
+        Cortar a las 19:34:55, hora en que el manager guardó el portafolio,
+        quitaba 98,94 USD del propio día 15: enseñaba 41,74 en vez de 140,68.
+        La otra pantalla ya trabaja por `created_day`, no por esa hora.
+        """
         ordered = [
             (datetime(2026, 9, 1, tzinfo=timezone.utc), -100.0),
-            (datetime(2026, 9, 18, 12, tzinfo=timezone.utc), 10.0),
+            (datetime(2026, 9, 18, 8, tzinfo=timezone.utc), 98.94),
+            (datetime(2026, 9, 18, 20, tzinfo=timezone.utc), 44.74),
             (datetime(2026, 9, 19, tzinfo=timezone.utc), -3.0),
         ]
         portfolios = [{
-            "created_at": "2026-09-18T10:00:00+00:00",
+            "created_at": "2026-09-18T19:34:55+00:00",
             "created_day": "2026-09-18", "expectation": {},
         }]
         measured = monthly_summary_build._performance(ordered, portfolios, MONTH)
         self.assertEqual(measured["closed"], {
-            "profit": 7.0, "drawdown": 3.0, "trades": 2,
+            "profit": 140.68, "drawdown": 3.0, "trades": 3,
         })
         self.assertTrue(measured["started_inside"])
         self.assertIsNone(measured["below"])

@@ -248,7 +248,12 @@ def _streak(
 def _composition_start(
     portfolios: list[dict[str, Any]], label: str,
 ) -> Any:
-    """Alta más reciente dentro del mes: desde ahí existe esta composición."""
+    """Día de alta más reciente dentro del mes: desde ahí existe la composición.
+
+    La unidad visible y contractual es el día (`tramo 15-31`), no la hora a la
+    que el manager alcanzó a guardar el portafolio. El filtro de `_performance`
+    compara fechas por la misma razón que `live_account_monthly.active_totals`.
+    """
     month_start, month_end = coverage.month_bounds(label)
     starts = [
         stamp for stamp in (
@@ -309,7 +314,7 @@ def _performance(
     partial_start = _composition_start(portfolios, label)
     measured = [
         item for item in ordered
-        if partial_start is None or item[0] >= partial_start
+        if partial_start is None or item[0].date() >= partial_start.date()
     ]
     closed = row(monthly_rows(measured), label)
     promise = _promise(portfolios, label)

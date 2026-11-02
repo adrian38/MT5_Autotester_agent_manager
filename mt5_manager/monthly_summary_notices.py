@@ -48,7 +48,7 @@ from typing import Any
 
 from .monthly_summary_schedule import month_name, month_plural, month_word
 
-CRITERION_VERSION = "seasonal-bands-profit-and-drawdown-v8"
+CRITERION_VERSION = "seasonal-bands-profit-and-drawdown-v9"
 """El criterio con el que se escribieron los avisos de un informe guardado.
 
 Cubre **todo** el criterio —lo que mide `monthly_summary_build` y lo que dice
