@@ -283,19 +283,31 @@
   //
   // El alias identifica la tarjeta arriba. Aquí queda el nombre persistido y
   // el veredicto de reproducción, ambos enlazados con el uso concreto.
+  function reproductionIssues(mark) {
+    if (!mark || !(mark.issues || []).length) return '';
+    const rows = mark.issues.map(issue => (
+      `<div class="summary-reproduction-issue"><span>${escapeHtml(issue.strategy)}`
+      + ` · ${escapeHtml(issue.symbol)}</span>`
+      + `<strong class="summary-reproduction ${escapeHtml(issue.tone)}">`
+      + `${escapeHtml(issue.verdict)}</strong></div>`
+    ));
+    return `<div class="summary-reproduction-issues" `
+      + `aria-label="Estrategias con problemas">${rows.join('')}</div>`;
+  }
+
   function portfoliosMarkup(card) {
     const portfolios = card.portfolios || [];
     const rows = portfolios.map(portfolio => {
       const mark = reproduction.get(`${card.node_id}|${portfolio.audit_id}`);
-      const state = mark ? `<span class="summary-reproduction ${mark.tone}">${escapeHtml(mark.text)}</span>` : '';
+      const issues = reproductionIssues(mark);
       const name = portfolio.name || `Portafolio #${portfolio.portfolio_id || '—'}`;
       const usesAutolot = portfolio.autolot === true
         || (card.autolot && portfolios.length === 1);
       const autolot = usesAutolot
         ? '<span class="summary-autolot">AUTOLOTE ACTIVO</span>' : '';
-      return `<li><a href="/live_audit_analysis.html?node=${encodeURIComponent(card.node_id)}`
+      return `<li><div class="summary-portfolio-line"><a href="/live_audit_analysis.html?node=${encodeURIComponent(card.node_id)}`
         + `&audit=${encodeURIComponent(portfolio.audit_id)}">${escapeHtml(name)}</a>`
-        + `${autolot}${state}</li>`;
+        + `${autolot}</div>${issues}</li>`;
     });
     if (!rows.length) return '';
     return `<ul class="summary-portfolios">${rows.join('')}</ul>`;
@@ -438,12 +450,13 @@
       entry.audit.last_result, rules.storedOverrides(entry.profile),
       rules.storedReviews(entry.profile), rules.storedUnpairedReviews(entry.profile),
     );
-    if (!summary.comparable) return {tone: 'idle', text: 'sin comparación'};
-    const broken = summary.flagged.filter(row => row.verdict === 'NO REPRODUCE').length;
-    const warnings = summary.flagged.filter(row => row.verdict === 'AVISO').length;
-    if (broken) return {tone: 'failed', text: `${broken} NO REPRODUCE`};
-    if (warnings) return {tone: 'pending', text: `${warnings} AVISO${warnings === 1 ? '' : 'S'}`};
-    return {tone: 'completed', text: 'reproduce'};
+    if (!summary.comparable) return null;
+    const issues = summary.flagged.map(row => ({
+      strategy: String(row.strategy || row.label || 'Sin estrategia'),
+      symbol: String(row.symbol || '—'), verdict: row.verdict, tone: row.tone,
+    }));
+    if (issues.length) return {issues};
+    return null;
   }
 
   async function loadReproduction(nodeId) {

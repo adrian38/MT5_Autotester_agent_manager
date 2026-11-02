@@ -191,7 +191,7 @@ class ScriptTests(unittest.TestCase):
     def test_the_reproduction_verdict_is_borrowed_and_not_copied(self) -> None:
         for expression in (
             "window.LiveDashboardMetrics", "window.LiveAuditReproduction",
-            "metrics.summarize(", "NO REPRODUCE",
+            "metrics.summarize(", "issues = summary.flagged.map",
         ):
             with self.subTest(expression=expression):
                 self.assertIn(expression, SCRIPT)
@@ -200,6 +200,20 @@ class ScriptTests(unittest.TestCase):
         self.assertLess(
             SCRIPT.index("renderReport(answer"), SCRIPT.index("loadDetails(answer"),
         )
+
+    def test_only_bad_strategies_are_named_with_strategy_and_symbol(self) -> None:
+        for expression in (
+            "issue.strategy", "issue.symbol", "issue.verdict",
+            'aria-label="Estrategias con problemas"',
+            "if (issues.length) return {issues}",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, SCRIPT)
+        self.assertNotIn("`${broken} NO REPRODUCE`", SCRIPT)
+        self.assertNotIn("`${warnings} AVISO", SCRIPT)
+        self.assertNotIn("text: 'reproduce'", SCRIPT)
+        self.assertNotIn("text: 'sin comparación'", SCRIPT)
+        self.assertIn(".summary-reproduction-issues{", STYLE)
 
     def test_the_alias_is_the_first_highlighted_identity_of_the_card(self) -> None:
         # El alias vive en la memoria UBS del agente, así que tampoco viaja con

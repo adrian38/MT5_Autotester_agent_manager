@@ -270,6 +270,13 @@ del veredicto de reproducción que éste arrastra.
   bandas, rachas y drawdown siguen usando el neto compatible con el backtest.
   El aviso muestra ambos importes y los títulos distinguen «Profit MT5» de
   «Objetivo neto». El criterio sube a v10 para rehacer las frases guardadas.
+- **La reproducción nombra sólo las estrategias malas** (2026-11-02). Un
+  agregado como «1 NO REPRODUCE» no permite actuar. Debajo de cada portafolio
+  el resumen lista cada fila pendiente `AVISO` o `NO REPRODUCE` como
+  `estrategia · símbolo · veredicto`. No enumera las que reproducen ni conserva
+  una insignia «reproduce»; sin estrategias malas no pinta nada. Usa
+  `summary.flagged`, la misma lista ya filtrada por Análisis, sin copiar el
+  criterio de reproducción ni volver a calcularlo.
 
 ## Cómo se entregó
 
