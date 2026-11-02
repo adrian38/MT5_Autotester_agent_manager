@@ -271,13 +271,31 @@ def account_card(
     }
 
 
+DISPLAYED = (
+    ("daily_display", "daily"),
+    ("monthly_display", "monthly"),
+    ("previous_month_display", "previous_month"),
+)
+"""Cada importe convertido, junto a la fila de la que sale."""
+
+
+def _rate_missing(card: dict[str, Any]) -> bool:
+    """El cambio falta cuando había importe y aun así no hubo conversión.
+
+    Un Profit que no se conoce —cuenta archivada antes de que existiera esa
+    columna— también deja el importe convertido en `None`, y contarlo aquí
+    acusaba de «sin cambio» a una moneda cuyo cambio estaba perfectamente.
+    """
+    return any(
+        card[display] is None and card[source]["profit"] is not None
+        for display, source in DISPLAYED
+    )
+
+
 def _totals(cards: list[dict[str, Any]], settings: dict[str, Any]) -> dict[str, Any]:
     """Los totales de arriba, y las monedas que no se pudieron sumar."""
     missing = sorted({
-        str(card["currency"] or "?") for card in cards
-        if any(card[key] is None for key in (
-            "daily_display", "monthly_display", "previous_month_display",
-        ))
+        str(card["currency"] or "?") for card in cards if _rate_missing(card)
     })
     return {
         "daily": sum(

@@ -256,13 +256,22 @@ def snapshot_period(
     return min(start, end).isoformat(), end.isoformat()
 
 
-def convert(amount: float, currency: str, settings: dict[str, Any]) -> float | None:
+def convert(amount: float | None, currency: str, settings: dict[str, Any]) -> float | None:
     """`amount` en la moneda de la portada, o `None` si falta su cambio.
 
     Devolver el importe crudo cuando falta el cambio es lo único que no se
     puede hacer: sumaría dólares a euros y el total de arriba sería un número
     falso sin que nada lo dijera.
+
+    Un importe que no se conoce entra como `None` y sale igual: desde que la
+    tarjeta enseña el Profit de MT5, una cuenta archivada antes de que esa
+    columna existiera no tiene importe visible que convertir. Convertirlo a
+    `float` reventaba la portada entera —`/api/live-accounts` moría con
+    `TypeError` y la pantalla se quedaba colgada— por una sola cuenta vieja.
+    Los totales de arriba ya saben descartar lo que no se pudo convertir.
     """
+    if amount is None:
+        return None
     display = normalize_currency(settings.get("display_currency") or "EUR")
     source = str(currency or "").strip().upper()
     if not source or source == display:

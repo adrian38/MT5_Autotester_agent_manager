@@ -288,6 +288,17 @@ del veredicto de reproducción que éste arrastra.
   `LiveAuditReproduction.strategyGroups`, los filtros de operaciones,
   `numbers`, `verdict` y `compare`. Lo vigila
   `tests/repository/test_live_screens_share_primitives.py`.
+- **Un Profit desconocido tumbaba la portada entera** (2026-11-02, el mismo
+  día). Separar el Profit visible del neto hizo `None` un valor legítimo de
+  `profit`, y `live_account_schedule.convert` seguía haciendo `float(amount)`.
+  Una sola cuenta archivada antes de que existiera la columna Profit lanzaba
+  `TypeError` dentro del bucle de cuentas de `/api/live-accounts`: la respuesta
+  moría entera, **ninguna** tarjeta llegaba al navegador y la pantalla se
+  quedaba colgada. En el log del manager se ve como un `TypeError` por minuto
+  y ni un solo `200` de esa ruta, hasta que un sondeo rellenó la columna de esa
+  cuenta y dejó de pasar solo. Ahora `convert` devuelve `None` tal cual, y
+  `_totals` sólo acusa de «sin cambio» a la moneda cuyo importe **sí** se
+  conocía: un Profit que falta no es un cambio que falte.
 
 ## Cómo se entregó
 

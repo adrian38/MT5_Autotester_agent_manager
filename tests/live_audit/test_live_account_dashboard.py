@@ -11,6 +11,7 @@ podrían discrepar.
 """
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -86,6 +87,29 @@ class DashboardTests(unittest.TestCase):
         self.assertAlmostEqual(card["monthly"]["profit"], -160.85)
         self.assertAlmostEqual(card["monthly"]["net_profit"], -178.02)
         self.assertEqual(card["monthly"]["profit_tone"], "bad")
+
+    def test_an_archive_from_before_the_profit_column_does_not_kill_the_page(self) -> None:
+        """Regresión: una cuenta vieja tumbaba `/api/live-accounts` entera.
+
+        Desde que la tarjeta separa el Profit de MT5 del resultado neto, una
+        cuenta archivada antes de que esa columna existiera no tiene Profit
+        visible: es `None`. Convertirlo a la moneda de la portada lanzaba
+        `TypeError` dentro del bucle de cuentas, así que **ninguna** tarjeta
+        llegaba al navegador y la pantalla se quedaba colgada por una sola
+        cuenta sin sondear desde entonces.
+        """
+        path = self.server.live_accounts._path("axi", self.key)
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        stored.pop("profits", None)
+        path.write_text(json.dumps(stored), encoding="utf-8")
+        card = self.card()
+        self.assertIsNone(card["monthly"]["profit"])
+        self.assertIsNone(card["monthly_display"])
+        self.assertIsNone(card["previous_month_display"])
+        # El neto sí se conoce siempre: es la serie que la cuenta guardó.
+        self.assertAlmostEqual(card["monthly"]["net_profit"], 60.0)
+        # Y no se acusa a EUR de no tener cambio: lo que falta es el importe.
+        self.assertEqual(self.payload()["totals"]["missing_rates"], [])
 
     def test_a_drawdown_under_the_mean_is_good_news(self) -> None:
         card = self.card()
