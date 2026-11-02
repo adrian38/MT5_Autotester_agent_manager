@@ -230,9 +230,8 @@ def _performance(
         if lots["promise_comparable"] else None,
         "profit_band": evidence.profit_band(closed["profit"], table, label)
         if lots["table_comparable"] else {"measured": False, "verdict": ""},
-        "drawdown_standing": evidence.drawdown_standing(closed["drawdown"], table)
-        if lots["table_comparable"]
-        else {"measured": False, "verdict": "", "worst": None, "worst_month": ""},
+        "drawdown_band": evidence.drawdown_band(closed["drawdown"], table, label)
+        if lots["table_comparable"] else {"measured": False, "verdict": ""},
     }
 
 
@@ -301,7 +300,7 @@ def account_card(
         "month": label, "closed": closed, "expected": performance["expected"],
         "below": performance["below"],
         "profit_band": performance["profit_band"],
-        "drawdown_standing": performance["drawdown_standing"],
+        "drawdown_band": performance["drawdown_band"],
         "backtest_months": len(performance["table"]),
         # Los del mismo mes del año, que son con los que se cuenta: la promesa
         # ya es la de octubre y el recuento tiene que hablar de esos octubres.

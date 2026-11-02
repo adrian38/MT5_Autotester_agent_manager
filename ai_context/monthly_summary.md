@@ -42,21 +42,22 @@ del veredicto de reproducción que éste arrastra.
     mismo que por debajo de la media —la mitad de los meses quedan por debajo
     de la media y no pasa nada—. Calla en cuanto la racha habla, que ya es
     CAMBIAR.
-- **El drawdown del mes contra los drawdowns mensuales del backtest.** Era lo
-  que la última sección de `live_audit_degradation_evidence.md` daba por no
-  medido en absoluto, y es la familia de criterios con la que de verdad se
-  retira una cartera. `beyond` es más hondo que el peor mes que hizo nunca;
-  `extreme`, por encima del 95 % sin llegar al peor. **Éste sí cuenta contra
-  todos los meses**, al revés que el beneficio, y por dos razones: no tiene
-  promesa estacional detrás con la que tenga que casar, y seis octubres son
-  seis datos con los que no se retira una cartera —además de que el cuantil
-  del 95 % sobre seis valores es el máximo, así que el escalón de VIGILAR
-  desaparecería y todo sería «inédito» o nada. Lo que no puede quedarse
-  implícito es la base, así que el aviso dice cuántos meses contó **y cuál fue
-  el peor**: el recuadro se llama «Peor mes (agosto de 2023)» y no «Peor mes
-  del backtest». Una cifra suelta no se puede ir a mirar, y que el listón de
-  una cartera que se juzga en octubre lo ponga un agosto es justo lo que avisa
-  de que ese listón no es estacional (petición del usuario, 2026-11-02).
+- **El drawdown, con la misma vara y contra sus octubres.** Es la familia de
+  criterios con la que de verdad se retira una cartera, y era lo que la última
+  sección de `live_audit_degradation_evidence.md` daba por no medido en
+  absoluto. Se juzga igual que el beneficio porque el usuario lo pidió así el
+  2026-11-02: lo que le cuesta un octubre lo dicen los octubres. `deeper` es
+  salirse de la banda —VIGILAR— y `beyond` es más hondo que el peor de esos
+  meses —CAMBIAR, porque nunca pasó en uno—.
+  - **La banda se recorta en cero.** Un drawdown no es negativo, y con una
+    desviación mayor que la media `media − desviación` daría un suelo que no
+    existe.
+  - **El peor se nombra**: «31,07 EUR, octubre de 2025». Una cifra suelta no
+    se puede ir a mirar, y el nombre dice si el listón es reciente o lleva
+    cinco años sin acercarse.
+  - Esto retiró el escalón del cuantil del 95 %: sobre seis valores era el
+    máximo, así que `extreme` sólo saltaba en un empate exacto. La banda da el
+    escalón intermedio que aquello prometía y no daba.
 - **La racha de meses por debajo**, que es lo que convierte un mes flojo en una
   decisión. Un mes sin promesa **corta** la racha en vez de saltarse: una racha
   con un agujero no es una racha, es dos trozos.

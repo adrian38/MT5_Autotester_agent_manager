@@ -297,13 +297,12 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("seasonalMonths(card)", figures)
         # Y la promesa se llama por lo que es: la media de esos octubres.
         label = SCRIPT[SCRIPT.index("function promiseLabel"):]
-        self.assertIn("Media de los ${escapeHtml(monthPlural(card.month))}", label)
-        # El peor mes se nombra: una cifra suelta no se puede ir a mirar, y el
-        # de una cartera que se juzga en octubre puede ser un agosto.
-        worst = SCRIPT[SCRIPT.index("function worstLabel"):]
-        self.assertIn("worst_month", worst)
-        self.assertIn("Peor mes (${escapeHtml(monthName(month))})", worst)
-        self.assertIn("worstLabel(card)", figures)
+        self.assertIn("Beneficio medio de los ${escapeHtml(monthPlural(card.month))}", label)
+        # Y el drawdown se enseña con la misma vara: su media de octubres,
+        # no el peor mes de cualquier mes del año.
+        self.assertIn("Drawdown medio de los ${escapeHtml(monthPlural(card.month))}", figures)
+        self.assertIn("(card.drawdown_band || {}).mean", figures)
+        self.assertNotIn("drawdown_standing", SCRIPT)
 
     def test_a_figure_that_cannot_be_compared_says_so_instead_of_a_number(self) -> None:
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]

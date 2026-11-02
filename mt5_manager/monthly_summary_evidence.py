@@ -1,17 +1,20 @@
-"""El mes cerrado contra los meses del propio backtest, contándolos.
+"""El mes cerrado contra lo que da un mes como ése en el propio backtest.
 
 Aquí sólo hay aritmética sobre la media estacional que ya dejó medida el
 sondeo nocturno (`live_account_expectation`). No abre informes, no toca la
 memoria de ningún agente y no sabe de portafolios: recibe números y devuelve
 números.
 
-**El método es contar ventanas de la propia serie, no suponer una normal.** Es
-el mismo gesto que `live_audit_degradation_evidence` hace con el beneficio por
-operación, y por la misma razón: la distribución mensual de una cartera tiene
-la cola izquierda gorda y rachas, así que un «está a −1,8 σ de su media» dice
-mucho menos que «de los setenta y dos meses del backtest, nueve fueron
-peores». Lo segundo se entiende, no asume nada y es exactamente lo que decide
-si un mes malo es raro o es martes.
+**El método es juzgar contra la propia serie, y contra la parte de la serie
+que se le parece.** Un octubre se mide con octubres: la media de los octubres
+dice qué se esperaba y su desviación dice cuánto puede variar uno sin que pase
+nada, así que la banda sale de la cartera y no de un umbral elegido a ojo.
+
+Y es un **juicio**, no un recuento. «De los seis octubres, cuatro fueron
+peores» dice dónde cae el mes; lo que la pantalla tiene que contestar es si la
+cartera se porta como lo que se compró, y eso se dice con «hizo el 138 % de lo
+que da un octubre» o «el 45 %». Esta versión sustituyó a dos que contaban: la
+primera contra los setenta y siete meses, la segunda contra los seis octubres.
 
 Qué se mide, y por qué estas dos cosas:
 
@@ -21,13 +24,13 @@ Qué se mide, y por qué estas dos cosas:
   octubres, y la banda de lo que puede variar un octubre la dan los octubres.
   Un recuento es una posición; esto es un juicio, que es lo que la pantalla
   tiene que contestar.
-- **El drawdown**, que es el que de verdad retira una cartera. Las reglas de
-  retirada al uso miran la DD viva contra la del backtest (1,5× o 2× el máximo
-  histórico es la heurística corriente), y hasta ahora esto no se medía en
-  ningún sitio: lo dice la última sección de
-  `ai_context/live_audit_degradation_evidence.md`. Se mide contando, igual que
-  el beneficio, y el listón es el peor mes del backtest, que es un hecho de la
-  serie y no un múltiplo elegido a ojo.
+- **El drawdown, con la misma vara**. Es el que de verdad retira una cartera:
+  las reglas al uso miran la DD viva contra la del backtest (1,5× o 2× el
+  máximo histórico es la heurística corriente) y hasta ahora esto no se medía
+  en ningún sitio —lo dice la última sección de
+  `ai_context/live_audit_degradation_evidence.md`—. Aquí se mide como el
+  beneficio: contra lo que le cuesta un mes como ése, no contra el peor mes de
+  cualquier mes del año. El listón sale de la serie, no de un múltiplo a ojo.
 
 **El lote manda y se declara.** Estos meses están medidos al lote con el que
 se construyó la promesa, que con autolote no es el declarado sino el que la
@@ -40,19 +43,13 @@ from __future__ import annotations
 import statistics
 from typing import Any, Sequence
 
-EXTREME_QUANTILE = 0.95
-"""Desde dónde un drawdown deja de ser corriente sin llegar a ser inédito.
-
-No es un listón de retirada: es el aviso. Por encima del peor mes del backtest
-el hecho es categórico —nunca pasó— y ahí sí se pide decisión.
-"""
-
 MINIMUM_MONTHS = 6
-"""Meses del backtest por debajo de los cuales no se cuenta nada.
+"""Meses del mismo mes del año por debajo de los cuales no se juzga nada.
 
-Con tres meses, «uno de tres fue peor» es un 33 % que no significa nada. Sin
-muestra se devuelve el recuento vacío y quien lo enseñe dirá que no concluye,
-que es lo que hace `month_expectation` con los años de la media.
+Con tres octubres, una media y una desviación son dos números con la forma de
+una medida y ninguna muestra detrás. Sin ella se devuelve la banda vacía y
+quien la enseñe dirá que no puede juzgarlo, que es lo que hace
+`month_expectation` con los años de la media.
 """
 
 
@@ -85,46 +82,6 @@ def season(months: dict[str, dict[str, Any]], label: str) -> dict[str, dict[str,
         key: value for key, value in months.items()
         if key.split("-", 1)[-1] == number
     }
-
-
-def _empty_rank() -> dict[str, Any]:
-    return {"worse": 0, "total": 0, "pct": None, "measured": False}
-
-
-def rank(
-    value: Any, values: Sequence[float], *, lower_is_worse: bool = True,
-) -> dict[str, Any]:
-    """Cuántos de `values` fueron iguales o peores que `value`.
-
-    `lower_is_worse` para el beneficio —menos es peor— y al revés para el
-    drawdown, donde peor es más hondo. El empate cuenta como peor a propósito:
-    un mes idéntico al peor del backtest no es mejor que él.
-    """
-    numbers = [float(item) for item in values]
-    if value is None or len(numbers) < MINIMUM_MONTHS:
-        return {**_empty_rank(), "total": len(numbers)}
-    target = float(value)
-    worse = sum(
-        1 for item in numbers
-        if (item <= target if lower_is_worse else item >= target)
-    )
-    return {
-        "worse": worse, "total": len(numbers),
-        "pct": worse * 100.0 / len(numbers), "measured": True,
-    }
-
-
-def quantile(values: Sequence[float], fraction: float) -> float | None:
-    """El cuantil por rango más cercano, sin interpolar.
-
-    Interpolar entre dos meses inventaría un mes que no existió, que es
-    justamente lo que este módulo evita.
-    """
-    numbers = sorted(float(item) for item in values)
-    if not numbers:
-        return None
-    position = max(0, min(len(numbers) - 1, round(fraction * (len(numbers) - 1))))
-    return numbers[position]
 
 
 def profit_band(
@@ -168,39 +125,49 @@ def profit_band(
     }
 
 
-def drawdown_standing(
-    drawdown: Any, months: dict[str, dict[str, Any]],
+def drawdown_band(
+    drawdown: Any, months: dict[str, dict[str, Any]], label: str,
 ) -> dict[str, Any]:
-    """El drawdown del mes contra los drawdowns mensuales del backtest.
+    """Lo que le cuesta un mes como ése, y si éste se salió de ahí.
 
-    `verdict` es uno de tres y nombra el hecho, no la decisión:
+    Misma forma que `profit_band` y por la misma razón (petición del usuario,
+    2026-11-02): la pregunta es si el mes respeta la media de los suyos, y eso
+    vale igual para lo que gana que para lo que cae. Un octubre se compara con
+    octubres también aquí; medirlo contra los setenta y siete dejaba el listón
+    en manos de un agosto.
 
-    - `beyond`: más hondo que el peor mes del backtest. Nunca pasó.
-    - `extreme`: por encima del 95 % de ellos sin llegar al peor.
-    - `normal`: dentro de lo que esta cartera ya hizo.
+    `verdict` nombra el hecho, no la decisión:
 
-    Sin muestra suficiente no hay veredicto y se dice (`measured: False`): una
-    cartera con tres meses de backtest no puede declarar nada inédito.
+    - `beyond`: más hondo que el peor de esos meses. Nunca pasó en uno.
+    - `deeper`: por encima de la banda de lo normal sin llegar al peor.
+    - `shallower`: por debajo de la banda, que en un drawdown es buena noticia.
+    - `normal`: lo que suele costarle un mes así.
+
+    La banda se recorta en cero porque un drawdown no es negativo: con una
+    desviación mayor que la media, `media − desviación` daría un suelo que no
+    existe y «por debajo de lo normal» dejaría de significar nada.
     """
-    values = [row["drawdown"] for row in months.values()]
-    standing = rank(drawdown, values, lower_is_worse=False)
-    # Cuál fue, no sólo cuánto: «34,61 EUR» no se puede comprobar y «agosto de
-    # 2023» sí, y además enseña que el listón no sale de un mes como éste.
-    worst_month = max(months, key=lambda key: months[key]["drawdown"]) if months else ""
-    worst = months[worst_month]["drawdown"] if worst_month else None
-    extreme = quantile(values, EXTREME_QUANTILE)
-    verdict = ""
-    if standing["measured"] and drawdown is not None:
-        depth = float(drawdown)
-        if worst is not None and depth > worst:
-            verdict = "beyond"
-        elif extreme is not None and depth >= extreme:
-            verdict = "extreme"
-        else:
-            verdict = "normal"
+    values = [row["drawdown"] for row in season(months, label).values()]
+    if drawdown is None or len(values) < MINIMUM_MONTHS:
+        return {"measured": False, "total": len(values), "verdict": ""}
+    table = season(months, label)
+    # Cuál fue, no sólo cuánto: «34,61 EUR» no se puede comprobar y «octubre de
+    # 2025» sí, y además dice si el listón lo puso un mes reciente o uno viejo.
+    worst_month = max(table, key=lambda key: table[key]["drawdown"])
+    mean = statistics.fmean(values)
+    deviation = statistics.stdev(values)
+    low, high = max(0.0, mean - deviation), mean + deviation
+    depth, worst = float(drawdown), table[worst_month]["drawdown"]
     return {
-        "rank": standing, "worst": worst, "worst_month": worst_month,
-        "extreme": extreme, "verdict": verdict, "measured": standing["measured"],
+        "measured": True, "total": len(values),
+        "mean": mean, "deviation": deviation, "low": low, "high": high,
+        "worst": worst, "worst_month": worst_month,
+        "ratio": (depth / mean * 100.0) if mean > 0 else None,
+        "verdict": (
+            "beyond" if depth > worst
+            else "deeper" if depth > high
+            else "shallower" if depth < low else "normal"
+        ),
     }
 
 

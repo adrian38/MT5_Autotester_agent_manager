@@ -158,23 +158,12 @@
     return card.seasonal_months ?? (card.profit_band || {}).total ?? 0;
   }
 
-  // Qué mes puso ese listón. Una cifra suelta no se puede ir a mirar, y el
-  // peor mes de una cartera que se juzga en octubre puede ser un agosto: el
-  // nombre es justo lo que avisa de que ese listón no es estacional. Los
-  // resúmenes guardados antes de apuntarlo se quedan con la etiqueta de antes.
-  function worstLabel(card) {
-    const month = (card.drawdown_standing || {}).worst_month;
-    return month
-      ? `Peor mes (${escapeHtml(monthName(month))})`
-      : 'Peor mes del backtest';
-  }
-
   // La promesa de un mes juzgable **es** la media de sus octubres, y así se
   // llama: es la cifra contra la que se lee el juicio de abajo. Con autolote
   // viene del escenario de ese mes y entonces no es esa media, sólo la
   // promesa a sus lotes.
   function promiseLabel(card, ranked) {
-    return ranked ? `Media de los ${escapeHtml(monthPlural(card.month))}` : 'Prometía';
+    return ranked ? `Beneficio medio de los ${escapeHtml(monthPlural(card.month))}` : 'Prometía';
   }
 
   // Un recuadro con un número dice «esto se puede comparar». Cuando no se
@@ -195,7 +184,7 @@
       <div><span>${partial ? 'Beneficio desde el alta' : 'Beneficio del mes'}</span><strong>${escapeHtml(amount(closed.profit, currency))}</strong></div>
       <div><span>${promised ? promiseLabel(card, ranked) : 'Promesa comparable'}</span><strong>${promised ? escapeHtml(amount(expected.profit, currency)) : 'No disponible'}</strong></div>
       <div><span>${partial ? 'Drawdown desde el alta' : 'Drawdown del mes'}</span><strong>${escapeHtml(amount(closed.drawdown, currency))}</strong></div>
-      <div><span>${ranked ? worstLabel(card) : 'Comparación histórica'}</span><strong>${ranked ? escapeHtml(amount((card.drawdown_standing || {}).worst, currency)) : 'No comparable'}</strong></div>
+      <div><span>${ranked ? `Drawdown medio de los ${escapeHtml(monthPlural(card.month))}` : 'Comparación histórica'}</span><strong>${ranked ? escapeHtml(amount((card.drawdown_band || {}).mean, currency)) : 'No comparable'}</strong></div>
       <div><span>${partial ? 'Tramo auditado' : 'Mes auditado'}</span><strong>${escapeHtml(`${Number(coverageValue || 0).toFixed(0)} %`)}</strong></div>
       <div><span>${ranked ? `${escapeHtml(monthPlural(card.month, true))} de backtest` : 'Meses completos de referencia'}</span><strong>${escapeHtml(String(ranked ? seasonalMonths(card) : card.backtest_months || 0))}</strong></div>
     </div>`;

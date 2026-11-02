@@ -58,7 +58,7 @@ class BuildCriterionTests(unittest.TestCase):
         self.assertFalse(measured["table_comparable"])
         self.assertIsNone(measured["below"])
         self.assertFalse(measured["profit_band"]["measured"])
-        self.assertFalse(measured["drawdown_standing"]["measured"])
+        self.assertFalse(measured["drawdown_band"]["measured"])
 
     def test_autolot_promises_at_the_month_lots_but_never_ranks(self) -> None:
         # El escenario remide **sólo la fila de su mes**, así que la promesa sí

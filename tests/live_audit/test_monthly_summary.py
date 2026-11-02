@@ -63,6 +63,14 @@ lo normal va de 12,11 a 43,06. Son números suyos para que la frase que se
 comprueba sea la que el usuario lee."""
 
 
+def _drawdowns(depths: list[float]) -> dict:
+    """Una tabla cuyos meses son todos el de `MONTH`, con esas profundidades."""
+    return {
+        label: {**row, "drawdown": depths[step]}
+        for step, (label, row) in enumerate(_table([1.0] * len(depths)).items())
+    }
+
+
 def _table(profits: list[float]) -> dict:
     """Una tabla de backtest en la que todos los meses son el de `MONTH`."""
     return {
@@ -83,7 +91,7 @@ def facts(**changes: object) -> dict:
         "expected": {"profit": 80.0, "drawdown": 60.0, "years": [2020], "portfolios": 1},
         "below": False, "streak": 0, "streak_required": 3,
         "profit_band": {"measured": False, "verdict": "", "total": 3},
-        "drawdown_standing": {"verdict": "normal", "measured": True, "worst": 90.0},
+        "drawdown_band": {"measured": False, "verdict": "", "total": 3},
         "backtest_months": 72, "started_inside": False, "started_after_month": False,
         "coverage": {
             "pct": 100.0, "eligible_pct": 100.0, "audits": 2,
@@ -137,35 +145,45 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(evidence.streak([None, True, True]), 0)
         self.assertEqual(evidence.streak([True, True, True]), 3)
 
-    def test_the_standing_counts_months_instead_of_assuming_a_normal(self) -> None:
-        standing = evidence.rank(15.0, [10.0, 12.0, 20.0, 30.0, 40.0, 50.0])
-        self.assertEqual((standing["worse"], standing["total"]), (2, 6))
-        self.assertTrue(standing["measured"])
+    def test_the_band_judges_against_the_months_of_the_same_season(self) -> None:
+        band = evidence.profit_band(38.14, _table(SEPTEMBER_YEARS), MONTH)
+        self.assertEqual(band["total"], 6)
+        self.assertAlmostEqual(band["mean"], 27.5866, places=3)
+        self.assertEqual(band["verdict"], "normal")
+        self.assertAlmostEqual(band["ratio"], 138.25, places=1)
 
-    def test_four_months_of_backtest_do_not_situate_anything(self) -> None:
-        # Por debajo de `MINIMUM_MONTHS` no se sitúa: el recuento saldría igual
-        # de redondo y no mediría nada.
-        standing = evidence.rank(15.0, [10.0, 20.0, 30.0, 40.0])
-        self.assertFalse(standing["measured"])
-        self.assertEqual((standing["worse"], standing["total"]), (0, 4))
-        self.assertIn(
-            "no tiene meses suficientes", notices.worse_than(standing, "meses"),
-        )
+    def test_four_years_of_backtest_do_not_judge_anything(self) -> None:
+        # Por debajo de `MINIMUM_MONTHS`, una media y una desviación son dos
+        # números con la forma de una medida y ninguna muestra detrás.
+        band = evidence.profit_band(15.0, _table([10.0, 20.0, 30.0, 40.0]), MONTH)
+        self.assertFalse(band["measured"])
+        self.assertEqual(band["total"], 4)
+        self.assertEqual(band["verdict"], "")
 
-    def test_a_drawdown_deeper_than_the_worst_month_is_unheard_of(self) -> None:
-        depths = [float(10 * step) for step in range(1, 21)]
-        standing = evidence.drawdown_standing(500.0, table([1.0] * 20, depths))
-        self.assertEqual(standing["verdict"], "beyond")
-        self.assertEqual(standing["worst"], 200.0)
-        self.assertEqual(
-            evidence.drawdown_standing(20.0, table([1.0] * 20, depths))["verdict"],
-            "normal",
-        )
+    def test_the_drawdown_is_judged_against_its_own_season(self) -> None:
+        # Misma vara que el beneficio: un octubre se mide con octubres, y el
+        # listón deja de estar en manos de un agosto cualquiera.
+        depths = _drawdowns([10.0, 12.0, 14.0, 16.0, 18.0, 20.0])
+        self.assertEqual(evidence.drawdown_band(90.0, depths, MONTH)["verdict"], "beyond")
+        self.assertEqual(evidence.drawdown_band(19.0, depths, MONTH)["verdict"], "deeper")
+        self.assertEqual(evidence.drawdown_band(15.0, depths, MONTH)["verdict"], "normal")
+        self.assertEqual(evidence.drawdown_band(1.0, depths, MONTH)["verdict"], "shallower")
+
+    def test_the_drawdown_band_never_opens_below_zero(self) -> None:
+        # Con una desviación mayor que la media, `media − desviación` daría un
+        # suelo que no existe: un drawdown no es negativo.
+        band = evidence.drawdown_band(1.0, _drawdowns([0.0, 0.0, 0.0, 0.0, 0.0, 90.0]), MONTH)
+        self.assertEqual(band["low"], 0.0)
+
+    def test_the_drawdown_names_the_month_that_set_the_bar(self) -> None:
+        band = evidence.drawdown_band(90.0, _drawdowns([10.0] * 5 + [34.61]), MONTH)
+        self.assertEqual(band["worst"], 34.61)
+        self.assertEqual(band["worst_month"], "2025-09")
 
     def test_without_enough_backtest_nothing_is_declared(self) -> None:
-        standing = evidence.drawdown_standing(500.0, table([1.0], [10.0]))
-        self.assertFalse(standing["measured"])
-        self.assertEqual(standing["verdict"], "")
+        band = evidence.drawdown_band(500.0, _drawdowns([10.0]), MONTH)
+        self.assertFalse(band["measured"])
+        self.assertEqual(band["verdict"], "")
 
 
 class CoverageTests(unittest.TestCase):
@@ -326,15 +344,23 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(notice["verdict"], notices.CHANGE)
 
     def test_an_unheard_of_drawdown_asks_for_a_decision(self) -> None:
-        breach = notices.drawdown_breach(facts(
-            drawdown_standing={"verdict": "beyond", "measured": True, "worst": 90.0},
-        ))
+        deep = evidence.drawdown_band(90.0, _drawdowns([10.0] * 5 + [34.61]), MONTH)
+        breach = notices.drawdown_breach(facts(drawdown_band=deep))
         self.assertEqual(breach["verdict"], notices.CHANGE)
-        extreme = notices.drawdown_breach(facts(drawdown_standing={
-            "verdict": "extreme", "measured": True, "worst": 90.0,
-            "rank": evidence.rank(80.0, [10.0, 20.0], lower_is_worse=False),
-        }))
-        self.assertEqual(extreme["verdict"], notices.WATCH)
+        self.assertIn("peor septiembre del backtest", str(breach["message"]))
+        self.assertIn("34,61 EUR, septiembre de 2025", str(breach["message"]))
+
+    def test_a_drawdown_outside_the_band_is_only_to_be_watched(self) -> None:
+        band = evidence.drawdown_band(19.0, _drawdowns([10.0, 12.0, 14.0, 16.0, 18.0, 20.0]), MONTH)
+        notice = notices.drawdown_breach(facts(
+            closed={"profit": 1.0, "drawdown": 19.0, "trades": 1}, drawdown_band=band,
+        ))
+        self.assertEqual(notice["verdict"], notices.WATCH)
+        self.assertIn("un septiembre le cuesta de media", str(notice["message"]))
+
+    def test_a_drawdown_inside_its_band_says_nothing(self) -> None:
+        band = evidence.drawdown_band(15.0, _drawdowns([10.0, 12.0, 14.0, 16.0, 18.0, 20.0]), MONTH)
+        self.assertIsNone(notices.drawdown_breach(facts(drawdown_band=band)))
 
     def test_the_month_says_whether_it_respects_its_own_average(self) -> None:
         # No dónde cae, sino si se porta como lo que se compró: un recuento es
@@ -398,45 +424,12 @@ class NoticeTests(unittest.TestCase):
             notices.band_sentence(facts(profit_band=band), "EUR"),
         )
 
-    def test_the_worst_month_is_named_and_not_only_measured(self) -> None:
-        # Una cifra suelta no se puede ir a mirar, y el peor mes de una cartera
-        # que se juzga en octubre puede ser un agosto: el nombre lo delata.
-        table = {
-            "2023-08": {"profit": 1.0, "drawdown": 34.61, "trades": 1},
-            **{f"202{step}-10": {"profit": 1.0, "drawdown": 5.0, "trades": 1}
-               for step in range(6)},
-        }
-        standing = evidence.drawdown_standing(90.0, table)
-        self.assertEqual(standing["worst_month"], "2023-08")
-        self.assertEqual(standing["worst"], 34.61)
-        self.assertIn(
-            "34,61 EUR, agosto de 2023",
-            str(notices.drawdown_breach(facts(
-                drawdown_standing=standing, backtest_months=len(table),
-            ))["message"]),
-        )
-
-    def test_an_unnamed_worst_month_still_shows_its_figure(self) -> None:
-        # Los resumenes guardados antes de apuntarlo no traen el mes.
-        self.assertIn("90,00 EUR)", str(notices.drawdown_breach(facts(
-            drawdown_standing={"verdict": "beyond", "measured": True, "worst": 90.0},
-        ))["message"]))
-
-    def test_the_drawdown_says_how_many_months_it_counted(self) -> None:
-        # Cuenta contra todos los meses a propósito —seis septiembres no retiran
-        # nada—, así que la base no puede quedarse implícita.
-        breach = notices.drawdown_breach(facts(
-            backtest_months=77,
-            drawdown_standing={"verdict": "beyond", "measured": True, "worst": 90.0},
-        ))
-        self.assertIn("el peor de los 77 meses del backtest", str(breach["message"]))
-
     def test_a_drawdown_at_another_lot_is_not_unheard_of(self) -> None:
         # Con autolote la serie del backtest sigue al lote declarado: lo que
         # saldría «inédito» sería el tamaño de la posición.
+        deep = evidence.drawdown_band(90.0, _drawdowns([10.0] * 6), MONTH)
         self.assertIsNone(notices.drawdown_breach(facts(
-            table_comparable=False,
-            drawdown_standing={"verdict": "beyond", "measured": True, "worst": 90.0},
+            table_comparable=False, drawdown_band=deep,
         )))
 
     def test_a_month_that_cannot_be_judged_says_why_instead_of_judging(self) -> None:
@@ -510,7 +503,7 @@ class NoticeTests(unittest.TestCase):
     def test_a_partial_month_cannot_claim_a_full_month_drawdown(self) -> None:
         partial = facts(
             started_inside=True, streak=5,
-            drawdown_standing={"verdict": "beyond", "worst": 10.0},
+            drawdown_band={"verdict": "beyond", "measured": True, "worst": 10.0},
         )
         found = notices.notices(partial)
         self.assertNotIn("drawdown_breach", self.kinds(found))

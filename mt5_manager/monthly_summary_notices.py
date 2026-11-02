@@ -12,7 +12,7 @@ Seis avisos, y el porqué de cada uno:
 | `month_closed` | siempre, una línea | Nada por sí solo. Es el dato: el mes contra lo que da un mes como ése, con la banda de lo normal detrás. |
 | `seasonal_shortfall` | el mes se sale por abajo de esa banda | **VIGILAR.** Rindió el 45 % de su octubre: ya no es un mes cualquiera. |
 | `below_streak` | N meses seguidos por debajo | **CAMBIAR.** Un mes flojo es ruido; la racha es la evidencia. |
-| `drawdown_breach` | la DD del mes sale de lo que el backtest hizo nunca | **CAMBIAR** si es inédita, **VIGILAR** si es extrema. |
+| `drawdown_breach` | la DD se sale de lo que cuesta un mes como ése | **CAMBIAR** si nunca cayó tanto en uno, **VIGILAR** si sólo se salió de la banda. |
 | `strategies_degraded` | hay DEGRADA o cruces sin confirmar | **CAMBIAR esas estrategias**, no la cartera. |
 | `partial_month` | el portafolio nació durante el mes | **VIGILAR** el tramo, sin compararlo con meses completos. |
 | `coverage_gap` | falta el tramo auditable, o la serie está vieja | **SIN CONCLUSIÓN.** Tapa a los demás. |
@@ -48,7 +48,7 @@ from typing import Any
 
 from .monthly_summary_schedule import month_name, month_plural, month_word
 
-CRITERION_VERSION = "seasonal-band-worst-month-v4"
+CRITERION_VERSION = "seasonal-bands-profit-and-drawdown-v5"
 """El criterio con el que se escribieron los avisos de un informe guardado.
 
 Cubre **todo** el criterio —lo que mide `monthly_summary_build` y lo que dice
@@ -95,19 +95,6 @@ def amount(value: Any, currency: str = "") -> str:
     return f"{text.replace(chr(0), '.')} {currency}".strip()
 
 
-def worse_than(standing: dict[str, Any], noun: str) -> str:
-    """«de los 72 meses del backtest, 9 fueron peores», o por qué no se dice."""
-    if not standing.get("measured"):
-        return f"El backtest no tiene {noun} suficientes para situarlo."
-    worse, total = int(standing["worse"]), int(standing["total"])
-    if worse == 0:
-        return f"Ninguno de los {total} {noun} del backtest fue peor."
-    return (
-        f"De los {total} {noun} del backtest, "
-        f"{'1 fue peor' if worse == 1 else f'{worse} fueron peores'}."
-    )
-
-
 def _notice(kind: str, level: str, verdict: str, title: str, message: str) -> dict[str, Any]:
     return {
         "kind": kind, "level": level, "verdict": verdict,
@@ -148,6 +135,15 @@ _TAIL = {
     "normal": "dentro de lo normal",
 }
 
+_DRAWDOWN_TAIL = {
+    # En un drawdown, pasarse por abajo es la buena noticia, así que se dice
+    # al revés que en el beneficio: «más barato», no «por debajo».
+    "beyond": "más hondo que ningún otro",
+    "deeper": "por encima de lo normal",
+    "shallower": "más barato de lo normal",
+    "normal": "dentro de lo normal",
+}
+
 
 def band_sentence(facts: dict[str, Any], currency: str) -> str:
     """Si el mes respeta la media de los suyos, dicho como se lee.
@@ -174,6 +170,7 @@ def band_sentence(facts: dict[str, Any], currency: str) -> str:
         f"{amount(band['high'], currency)} (media "
         f"{amount(band['mean'], currency)}, {band['total']} "
         f"{month_plural(label)} del backtest). {verdict}"
+        f"{drawdown_sentence(facts, currency)}"
     )
 
 
@@ -278,62 +275,85 @@ def below_streak(facts: dict[str, Any]) -> dict[str, Any] | None:
     )
 
 
+def drawdown_sentence(facts: dict[str, Any], currency: str) -> str:
+    """Lo que le cuesta un mes como ése, y lo que le costó éste.
+
+    La misma frase que el beneficio y en el mismo sitio: la pregunta de la
+    tarjeta es si el mes respeta la media de los suyos, y eso vale igual para
+    lo que gana que para lo que cae.
+    """
+    band = facts.get("drawdown_band") or {}
+    label = str(facts.get("month") or "")
+    if not band.get("measured"):
+        return ""
+    tail = _DRAWDOWN_TAIL.get(str(band.get("verdict") or ""), "sin situar")
+    ratio = band.get("ratio")
+    verdict = (
+        f"éste fue el {float(ratio):.0f} %, {tail}." if ratio is not None
+        else f"éste quedó {tail}."
+    )
+    return (
+        f" Y le cuesta entre {amount(band['low'])} y "
+        f"{amount(band['high'], currency)} de drawdown (media "
+        f"{amount(band['mean'], currency)}): {verdict}"
+    )
+
+
 def drawdown_breach(facts: dict[str, Any]) -> dict[str, Any] | None:
-    """La DD del mes contra lo que esta misma cartera hizo en el backtest.
+    """Lo que cayó este mes contra lo que le cuesta un mes como él.
 
     «Inédito» es una afirmación sobre la misma cartera al mismo tamaño. Sin la
     serie a los lotes que la cuenta corrió —con autolote nunca la hay— lo
     único que se mediría es cuánto creció la posición, así que calla.
 
-    **Éste sí cuenta contra todos los meses, y lo dice.** El beneficio se sitúa
-    entre los de su mes del año porque su promesa es estacional y tiene que
-    compararse con la población que la produjo; la profundidad a la que cae
-    esta cartera no tiene promesa estacional detrás, y seis octubres son seis
-    datos con los que no se retira nada. Lo que no puede pasar es que la base
-    quede implícita, así que el mensaje nombra cuántos meses son.
+    Dos escalones, el mismo reparto que el beneficio: salirse de la banda pide
+    mirarlo (VIGILAR) y pasar del peor de esos meses es categórico —nunca
+    pasó— y pide decidir (CAMBIAR).
     """
     if facts.get("started_inside") or not comparable(facts, "table_comparable"):
         return None
-    standing = facts.get("drawdown_standing") or {}
-    verdict = str(standing.get("verdict") or "")
-    if verdict not in {"beyond", "extreme"}:
+    band = facts.get("drawdown_band") or {}
+    verdict = str(band.get("verdict") or "")
+    if verdict not in {"beyond", "deeper"}:
         return None
     currency = str(facts.get("currency") or "")
     depth = (facts.get("closed") or {}).get("drawdown")
-    total = int(facts.get("backtest_months") or 0)
-    scope = f"{total} meses" if total else "meses"
-    worst = _worst_month(standing, currency)
+    word = month_word(str(facts.get("month") or ""))
     if verdict == "beyond":
         return _notice(
             "drawdown_breach", "error", CHANGE,
-            f"Drawdown inédito: {amount(depth, currency)}",
+            f"Drawdown inédito en un {word}: {amount(depth, currency)}",
             (
-                f"Más hondo que el peor de los {scope} del backtest "
-                f"({worst}): esta cartera nunca cayó tanto "
-                "en un mes. No demuestra que esté rota, pero es el hecho que "
-                "pide revisarla antes de seguir."
+                f"Más hondo que el peor {word} del backtest "
+                f"({_worst_month(band, currency)}): esta cartera nunca cayó "
+                f"tanto en un {word}. No demuestra que esté rota, pero es el "
+                "hecho que pide revisarla antes de seguir."
             ),
         )
+    ratio = band.get("ratio")
+    share = f": {float(ratio):.0f} % de la media" if ratio is not None else ""
     return _notice(
         "drawdown_breach", "warning", WATCH,
-        f"Drawdown extremo: {amount(depth, currency)}",
+        f"Drawdown por encima de lo normal{share}",
         (
-            f"Por encima del 95 % de los {scope} del backtest sin llegar al "
-            f"peor ({worst}). "
-            f"{worse_than(standing.get('rank') or {}, 'meses')}"
+            f"Cayó {amount(depth, currency)} cuando un {word} le cuesta de "
+            f"media {amount(band['mean'], currency)}. Se salió de lo que "
+            f"varía un {word} de esta cartera sin llegar al peor "
+            f"({_worst_month(band, currency)}), así que es un mes para mirar, "
+            "no todavía para decidir."
         ),
     )
 
 
-def _worst_month(standing: dict[str, Any], currency: str) -> str:
-    """«34,61 EUR, agosto de 2023»: el listón con el mes que lo puso.
+def _worst_month(band: dict[str, Any], currency: str) -> str:
+    """«249,62 EUR, octubre de 2025»: el listón con el mes que lo puso.
 
-    Una cifra suelta no se puede ir a mirar, y además esconde de qué mes sale.
-    El peor mes de una cartera que se juzga en octubre puede ser un agosto, y
-    entonces el nombre es justo lo que avisa de que el listón no es estacional.
+    Una cifra suelta no se puede ir a mirar. Y el nombre dice algo más: si el
+    peor octubre fue el del año pasado, el listón es reciente; si fue el de
+    2020, lleva cinco años sin acercarse.
     """
-    amount_text = amount(standing.get("worst"), currency)
-    label = str(standing.get("worst_month") or "")
+    amount_text = amount(band.get("worst"), currency)
+    label = str(band.get("worst_month") or "")
     return f"{amount_text}, {month_name(label)}" if label else amount_text
 
 
