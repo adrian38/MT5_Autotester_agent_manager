@@ -512,7 +512,7 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(notices.verdict(found), notices.WATCH)
         self.assertEqual(self.kinds(found), ["partial_month", "month_closed"])
         self.assertIn("sólo desde", str(found[0]["message"]))
-        self.assertIn("no se compara", str(found[1]["message"]))
+        self.assertIn("no hay promesa a su tamaño", str(found[1]["message"]))
 
     def test_a_partial_month_cannot_claim_a_full_month_drawdown(self) -> None:
         partial = facts(

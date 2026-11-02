@@ -48,7 +48,7 @@ from typing import Any
 
 from .monthly_summary_schedule import month_name, month_plural, month_word
 
-CRITERION_VERSION = "seasonal-bands-profit-and-drawdown-v6"
+CRITERION_VERSION = "seasonal-bands-profit-and-drawdown-v7"
 """El criterio con el que se escribieron los avisos de un informe guardado.
 
 Cubre **todo** el criterio —lo que mide `monthly_summary_build` y lo que dice
@@ -208,15 +208,41 @@ def seasonal_shortfall(facts: dict[str, Any]) -> dict[str, Any] | None:
     )
 
 
+def _tranche_message(facts: dict[str, Any], currency: str) -> str:
+    """Contra qué se mide el tramo: el objetivo del resumen del portafolio.
+
+    Es la misma cuenta que `live_account_monthly` enseña en su gráfico —la
+    media del mes por los días vividos—, y se dice aquí para que las dos
+    pantallas no den dos objetivos del mismo tramo. Sigue sin decidir: el
+    veredicto de un tramo es VIGILAR lo diga como lo diga.
+    """
+    closed = facts.get("closed") or {}
+    tranche = facts.get("tranche") or {}
+    depth = amount(closed.get("drawdown"), currency)
+    if not tranche.get("measured"):
+        return (
+            f"Drawdown desde el alta: {depth}. Es el resultado real de ese "
+            "tramo, pero no hay promesa a su tamaño con la que compararlo."
+        )
+    word = month_word(str(facts.get("month") or ""))
+    days, total = int(tranche.get("days") or 0), int(tranche.get("month_days") or 0)
+    return (
+        f"Objetivo del tramo: {amount(tranche.get('profit'), currency)} —lo que "
+        f"da un {word} ({amount(tranche.get('average'), currency)}) por los "
+        f"{days} de {total} días que vivió—, y "
+        f"{'lo alcanza' if tranche.get('meets_profit') else 'no lo alcanza'}. "
+        f"Cayó {depth} contra los {amount(tranche.get('drawdown'), currency)} "
+        f"que cuesta un {word} entero: "
+        f"{'dentro' if tranche.get('meets_drawdown') else 'por encima'}. "
+        "No decide por sí solo: eso pide un mes natural completo."
+    )
+
+
 def _closed_message(facts: dict[str, Any], currency: str) -> str:
     """Lo que se puede decir del mes sin comparar lo que no se deja comparar."""
     closed = facts.get("closed") or {}
     if facts.get("started_inside"):
-        return (
-            f"Drawdown desde el alta: {amount(closed.get('drawdown'), currency)}. "
-            "Es el resultado real de ese tramo, pero no se compara con meses "
-            "completos del backtest."
-        )
+        return _tranche_message(facts, currency)
     if not comparable(facts, "promise_comparable"):
         return AUTOLOT_PROMISE
     promise = (facts.get("expected") or {}).get("profit")

@@ -152,6 +152,12 @@
     return capital ? plural[0].toUpperCase() + plural.slice(1) : plural;
   }
 
+  // Y «octubre» a secas, que es como se nombra lo que cuesta un mes entero
+  // cuando lo de al lado es un tramo.
+  function monthWord(label) {
+    return MONTHS[Number(String(label || '').split('-')[1]) - 1] || 'mes';
+  }
+
   // La promesa de un mes juzgable **es** la media de sus octubres, y así se
   // llama: es la cifra contra la que se lee el juicio de abajo. Con autolote
   // viene del escenario de ese mes y entonces no es esa media, sólo la
@@ -180,6 +186,41 @@
     return `<div><span>${label}</span><strong${mark}>${value}</strong></div>`;
   }
 
+  // El recuadro de al lado contesta siempre la misma pregunta —contra qué se
+  // mide lo de la izquierda— y por eso tiene tres formas. Mes juzgable: la
+  // media de sus octubres. Tramo con la promesa al lote que corrió: el
+  // objetivo prorrateado, el mismo que ya enseña el resumen del portafolio, y
+  // no un hueco. Sin ninguna de las dos: el motivo, en su sitio.
+  function targetFigures(card, shape) {
+    const {timed, ranked, promised, tranche, money, season} = shape;
+    if (timed) {
+      return [
+        ['Objetivo del tramo', money(tranche.profit)],
+        [`Drawdown de un ${escapeHtml(monthWord(card.month))} entero`,
+          money(tranche.drawdown)],
+      ];
+    }
+    return [
+      [promised ? promiseLabel(card, ranked) : 'Promesa comparable',
+        promised ? money(card.expected && card.expected.profit) : 'No disponible'],
+      [ranked ? `Drawdown medio de los ${season}` : 'Comparación histórica',
+        ranked ? money(card.drawdown_band && card.drawdown_band.mean) : 'No comparable'],
+    ];
+  }
+
+  // El tramo dice sus días, no sólo su porcentaje. Un portafolio dado de alta
+  // el 31 cubría «100 %» de un día y se leía igual que un mes entero.
+  function auditedFigure(card, coverage) {
+    if (!card.started_inside) {
+      return figure('Mes auditado', escapeHtml(`${Number(coverage.pct || 0).toFixed(0)} %`));
+    }
+    const days = Math.round(Number(coverage.eligible_days || 0));
+    return figure('Tramo auditado', escapeHtml(
+      `${Number(coverage.eligible_pct || 0).toFixed(0)} % de ${days} `
+      + `${days === 1 ? 'día' : 'días'}`,
+    ));
+  }
+
   // Siete recuadros cuando el mes se puede juzgar —lo del mes, su media de
   // octubres y la media de un mes cualquiera, para beneficio y para
   // drawdown—, y seis cuando no: un recuadro vacio ocupa el mismo sitio que
@@ -191,37 +232,38 @@
     const profit = card.profit_band || {};
     const depth = card.drawdown_band || {};
     const coverage = card.coverage || {};
+    const tranche = card.tranche || {};
     const partial = Boolean(card.started_inside);
-    const promised = !partial && card.promise_comparable !== false;
-    const ranked = !partial && card.table_comparable !== false;
-    const season = escapeHtml(monthPlural(card.month));
-    const money = value => escapeHtml(amount(value, currency));
+    const shape = {
+      tranche,
+      promised: !partial && card.promise_comparable !== false,
+      ranked: !partial && card.table_comparable !== false,
+      timed: partial && tranche.measured === true,
+      season: escapeHtml(monthPlural(card.month)),
+      money: value => escapeHtml(amount(value, currency)),
+    };
+    const {ranked, timed, money} = shape;
+    const [target, limit] = targetFigures(card, shape);
+    const profitMark = ranked ? tone(closed.profit, profit.mean)
+      : (timed ? tone(closed.profit, tranche.profit) : '');
+    const depthMark = ranked ? tone(closed.drawdown, depth.mean, true)
+      : (timed ? tone(closed.drawdown, tranche.drawdown, true) : '');
     const tiles = [
       figure(
         partial ? 'Beneficio desde el alta' : 'Beneficio del mes',
-        money(closed.profit), ranked ? tone(closed.profit, profit.mean) : '',
+        money(closed.profit), profitMark,
       ),
-      figure(
-        promised ? promiseLabel(card, ranked) : 'Promesa comparable',
-        promised ? money(card.expected && card.expected.profit) : 'No disponible',
-      ),
+      figure(target[0], target[1]),
       ranked ? figure('Beneficio medio histórico', money(monthly.profit)) : '',
       figure(
         partial ? 'Drawdown desde el alta' : 'Drawdown del mes',
-        money(closed.drawdown),
-        ranked ? tone(closed.drawdown, depth.mean, true) : '',
+        money(closed.drawdown), depthMark,
       ),
-      figure(
-        ranked ? `Drawdown medio de los ${season}` : 'Comparación histórica',
-        ranked ? money(depth.mean) : 'No comparable',
-      ),
+      figure(limit[0], limit[1]),
       ranked
         ? figure('Drawdown medio mensual', money(monthly.drawdown))
         : figure('Meses completos de referencia', escapeHtml(String(card.backtest_months || 0))),
-      figure(
-        partial ? 'Tramo auditado' : 'Mes auditado',
-        escapeHtml(`${Number(partial ? coverage.eligible_pct : coverage.pct || 0).toFixed(0)} %`),
-      ),
+      auditedFigure(card, coverage),
     ];
     return `<div class="summary-grid">${tiles.join('')}</div>`;
   }

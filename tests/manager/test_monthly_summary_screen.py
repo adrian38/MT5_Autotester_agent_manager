@@ -298,7 +298,10 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("Beneficio medio de los ${escapeHtml(monthPlural(card.month))}", label)
         # Y el drawdown se enseña con la misma vara: su media de octubres,
         # no el peor mes de cualquier mes del año.
-        self.assertIn("Drawdown medio de los ${season}", figures)
+        self.assertIn(
+            "Drawdown medio de los ${season}",
+            SCRIPT[SCRIPT.index("function targetFigures"):],
+        )
         self.assertNotIn("drawdown_standing", SCRIPT)
 
     def test_the_month_is_coloured_against_its_own_average(self) -> None:
@@ -324,13 +327,34 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("de backtest`", figures)
 
     def test_a_figure_that_cannot_be_compared_says_so_instead_of_a_number(self) -> None:
-        figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
+        figures = SCRIPT[SCRIPT.index("function targetFigures"):]
         for expression in (
             "card.promise_comparable !== false", "card.table_comparable !== false",
             "'No comparable'", "'No disponible'",
         ):
             with self.subTest(expression=expression):
                 self.assertIn(expression, figures)
+
+    def test_a_tranche_shows_the_objective_of_the_portfolio_summary(self) -> None:
+        # El recuadro de al lado contesta siempre contra qué se mide lo de la
+        # izquierda. En un tramo eso es el objetivo prorrateado, no un hueco.
+        figures = SCRIPT[SCRIPT.index("function targetFigures"):]
+        for expression in (
+            "'Objetivo del tramo'", "money(tranche.profit)",
+            "Drawdown de un ${escapeHtml(monthWord(card.month))} entero",
+            "money(tranche.drawdown)",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, figures)
+        self.assertIn("tone(closed.profit, tranche.profit)", SCRIPT)
+        self.assertIn("tone(closed.drawdown, tranche.drawdown, true)", SCRIPT)
+
+    def test_the_audited_tranche_says_its_days(self) -> None:
+        # Un alta el día 31 cubría «100 %» de un día y se leía igual que un
+        # mes entero.
+        audited = SCRIPT[SCRIPT.index("function auditedFigure"):]
+        self.assertIn("coverage.eligible_days", audited)
+        self.assertIn("días", audited)
 
     def test_broker_colours_and_account_order_match_the_other_screens(self) -> None:
         for broker in ("axi", "roboforex", "ictrading", "vantage"):

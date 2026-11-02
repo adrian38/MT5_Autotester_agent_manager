@@ -23,7 +23,10 @@ como ya lo presenta la portada (`live_account_dashboard`).
 Si la composición nació durante el mes, tampoco se le atribuye lo que hizo la
 cuenta antes: beneficio y drawdown empiezan en el alta. Ese tramo no se compara
 con meses completos del backtest ni alimenta rachas; se vigila hasta disponer
-del primer mes natural comparable.
+del primer mes natural comparable. Pero sí tiene objetivo, y es el del resumen
+del portafolio: la media del mes prorrateada por los días vividos (`_tranche`),
+la misma cuenta que `live_account_monthly`. Un tramo sin objetivo se leía como
+un tramo sin medir.
 
 Y **el lote manda sobre qué se puede comparar**. La serie de `months` está
 medida a los lotes declarados y no se remide; con autolote el tamaño lo decide
@@ -254,6 +257,39 @@ def _composition_start(
     return max(starts) if starts else None
 
 
+def _tranche(
+    closed: dict[str, Any], promise: dict[str, Any], start: Any, label: str,
+) -> dict[str, Any]:
+    """El objetivo del tramo, con la misma cuenta que el resumen del portafolio.
+
+    `live_account_monthly.add_month_expectations` prorratea la media del mes
+    por los días que el portafolio llevaba vivo y juzga el beneficio contra
+    eso; el drawdown no se prorratea, porque un valle no se reparte por días.
+    Aquí se repite esa cuenta y no otra parecida: dos pantallas con dos
+    objetivos para el mismo tramo es lo único que no puede pasar.
+
+    No sustituye al mes natural. Sigue sin decidir MANTENER o CAMBIAR —eso
+    pide meses completos y una racha—, pero deja de callar contra qué se mide
+    un tramo que el usuario ya ve medido en la otra pantalla.
+    """
+    days = coverage.month_days(label)
+    lived = max(0, days - start.day + 1) if days else 0
+    fraction = lived / days if days else 0.0
+    profit, depth = promise.get("profit"), promise.get("drawdown")
+    target = profit * fraction if profit is not None else None
+    return {
+        "measured": target is not None,
+        "days": lived, "month_days": days, "fraction": fraction,
+        "average": profit, "profit": target, "drawdown": depth,
+        "meets_profit": (
+            float(closed["profit"]) >= target if target is not None else None
+        ),
+        "meets_drawdown": (
+            float(closed["drawdown"]) <= float(depth) if depth is not None else None
+        ),
+    }
+
+
 def _performance(
     ordered: list[tuple[Any, float]], portfolios: list[dict[str, Any]], label: str,
     *, autolot: bool = False,
@@ -280,8 +316,15 @@ def _performance(
         else evidence.monthly_means(table)
     )
     counted = means["total"] if scenario and means["measured"] else len(declared)
+    # El tramo tiene objetivo mientras la promesa esté al lote que se corrió;
+    # prorratear una media medida a otro tamaño daría un objetivo de volumen.
+    tranche = (
+        _tranche(closed, promise, partial_start, label)
+        if partial_start is not None and _at_real_lots(promise, autolot=autolot)
+        else {"measured": False}
+    )
     return {
-        "closed": closed, "expected": promise, "table": table,
+        "closed": closed, "expected": promise, "table": table, "tranche": tranche,
         "season": evidence.season(table, label),
         "months_total": counted,
         "started_inside": partial_start is not None, **lots,
@@ -367,6 +410,7 @@ def account_card(
         "currency": str(stored.get("currency") or ""),
         "autolot": autolot,
         "month": label, "closed": closed, "expected": performance["expected"],
+        "tranche": performance["tranche"],
         "below": performance["below"],
         "profit_band": performance["profit_band"],
         "drawdown_band": performance["drawdown_band"],

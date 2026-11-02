@@ -69,6 +69,47 @@ class BuildCriterionTests(unittest.TestCase):
         self.assertTrue(measured["started_inside"])
         self.assertIsNone(measured["below"])
 
+    def test_a_tranche_objective_is_the_month_average_by_the_days_it_lived(self) -> None:
+        """La misma cuenta que `live_account_monthly`, no otra parecida.
+
+        Dos pantallas con dos objetivos para el mismo tramo es lo único que no
+        puede pasar: el drawdown no se prorratea, porque un valle no se reparte
+        por días, y el beneficio sí.
+        """
+        portfolios = [{
+            "created_at": "2026-09-18T10:00:00+00:00", "created_day": "2026-09-18",
+            "expectation": {"months": {"09": {
+                "profit": 90.0, "drawdown": 30.0, "years": [2020],
+                "months": {"2020-09": {"profit": 90.0, "drawdown": 30.0, "trades": 3}},
+            }}},
+        }]
+        measured = monthly_summary_build._performance(
+            [(datetime(2026, 9, 20, tzinfo=timezone.utc), 10.0)], portfolios, MONTH,
+        )
+        tranche = measured["tranche"]
+        self.assertTrue(tranche["measured"])
+        self.assertEqual((tranche["days"], tranche["month_days"]), (13, 30))
+        self.assertAlmostEqual(tranche["profit"], 90.0 * 13 / 30)
+        self.assertEqual(tranche["drawdown"], 30.0)
+        self.assertFalse(tranche["meets_profit"])
+        self.assertTrue(tranche["meets_drawdown"])
+
+    def test_a_tranche_promised_at_another_lot_has_no_objective(self) -> None:
+        # Prorratear una media medida a otro tamaño daría un objetivo de
+        # volumen, que es lo mismo que la banda evita.
+        portfolios = [{
+            "created_at": "2026-09-18T10:00:00+00:00", "created_day": "2026-09-18",
+            "expectation": {"months": {"09": {
+                "profit": 90.0, "drawdown": 30.0, "years": [2020],
+                "months": {"2020-09": {"profit": 90.0, "drawdown": 30.0, "trades": 3}},
+            }}},
+        }]
+        measured = monthly_summary_build._performance(
+            [(datetime(2026, 9, 20, tzinfo=timezone.utc), 10.0)], portfolios, MONTH,
+            autolot=True,
+        )
+        self.assertFalse(measured["tranche"]["measured"])
+
     def test_autolot_without_a_remeasured_month_has_no_promise_to_compare(self) -> None:
         # Sin escenario, la media de siempre está al lote declarado: compararla
         # con lo que corrió el autolote mide el volumen, no el comportamiento.
