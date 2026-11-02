@@ -16,7 +16,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_account_series, manager_account_routes
+from mt5_manager import (
+    live_account_expectation, live_account_ingest, live_account_presentation,
+    live_account_series, manager_account_routes,
+)
 from mt5_manager.live_account_archive import (
     LiveAccountArchive, account_key, stored_balances, stored_movements,
 )
@@ -263,6 +266,57 @@ class BalanceSeriesTests(unittest.TestCase):
         record["balances"].append(["2026-10-21"])
         record["balances"].append(["2026-10-22", "mucho"])
         self.assertEqual(len(stored_balances(record)), 1)
+
+
+class StoredPromiseTests(unittest.TestCase):
+    """La media estacional guardada: quién la caduca y quién la borra."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.archive = LiveAccountArchive(Path(self.temp.name) / "live_accounts")
+        self.addCleanup(self.temp.cleanup)
+
+    def _fresh(self) -> dict:
+        return {
+            "signature": "firma",
+            "criterion": live_account_expectation.CRITERION_VERSION,
+            "presentation_criterion": live_account_presentation.PRESENTATION_VERSION,
+            "portfolio_created_at": "2026-01-01T00:00:00+00:00",
+            "months": {"10": {"profit": 1.0, "drawdown": 0.0, "years": [2020]}},
+        }
+
+    def test_editing_a_composition_makes_the_next_probe_measure_again(self) -> None:
+        """Cambiar los sets de una cartera manual borra su promesa guardada.
+
+        La firma cubre los miembros, pero no decide **cuándo** se vuelve a
+        medir: `_needs_rebuild` deja pasar hasta `EXPECTATION_MAX_AGE_HOURS`
+        antes de abrir la memoria UBS del agente, que es lo que esta caché
+        existe para evitar. Sin borrarla, una composición nueva se presentaría
+        con el beneficio y la DD de la anterior durante todo ese día.
+        """
+        now = datetime(2026, 10, 21, 23, 30, tzinfo=timezone.utc)
+        self.archive.write_expectation("axi", 105, self._fresh())
+        stored = self.archive.read_expectation("axi", 105)
+        self.assertFalse(live_account_ingest._needs_rebuild(stored, now))
+
+        self.assertTrue(self.archive.discard_expectation("axi", 105))
+
+        self.assertEqual(self.archive.read_expectation("axi", 105), {})
+        self.assertTrue(live_account_ingest._needs_rebuild({}, now))
+
+    def test_discarding_a_promise_that_is_not_there_is_not_an_error(self) -> None:
+        self.assertFalse(self.archive.discard_expectation("axi", 105))
+
+    def test_discarding_one_promise_leaves_the_others_alone(self) -> None:
+        self.archive.write_expectation("axi", 105, self._fresh())
+        self.archive.write_expectation("axi", 106, self._fresh())
+        self.archive.write_expectation("robo", 105, self._fresh())
+
+        self.archive.discard_expectation("axi", 105)
+
+        self.assertEqual(self.archive.read_expectation("axi", 105), {})
+        self.assertEqual(self.archive.read_expectation("axi", 106)["signature"], "firma")
+        self.assertEqual(self.archive.read_expectation("robo", 105)["signature"], "firma")
 
 
 if __name__ == "__main__":

@@ -156,3 +156,47 @@ hecho.
 Los informes OHLC no se borran al retirar un set. Siguen compartiendo el
 directorio general `reports/` y un nombre homónimo puede pertenecer a otro
 candidato, igual que al borrar la cartera completa.
+
+## Qué protege esa edición del lado real (2026-11-02)
+
+Cambiar la composición de una cartera que ya se audita o ya opera en real no
+es una edición de ficheros: hay tres cosas que dependen de esos miembros y que
+no se enteran solas.
+
+**No se edita una cartera marcada «operando en real».** Lo comprueba el
+manager en `guard_manual_members`, con el mismo criterio que la portada y el
+cron —`live_audit_ids`, que mira el **perfil** y no las tarjetas abiertas en
+el formulario del nodo—. Un uso en real tiene su cuenta sondeada, su promesa
+medida contra esa composición y sus lotes declarados por estrategia: añadir o
+quitar un set por debajo deja la cuenta operando una cosa y la auditoría
+midiendo otra. Se pide desmarcarlo primero, que es la decisión del usuario.
+
+**No se edita mientras las terminales están ocupadas.** Lo comprueba el nodo,
+que es quien lo sabe, y **con el candado de `live_audits` tomado**, no sólo
+preguntándole: el auditor lee la composición al empezar, otra vez antes del
+tester y otra al publicar el resultado, así que un cambio colado entre dos de
+esas lecturas mezclaría dos composiciones en una ejecución. Con el candado, o
+la edición entra antes de que arranque la auditoría o espera a que termine. Es
+el mismo trato que ya se dan entre sí la auditoría y el sondeo de cuentas,
+porque el recurso compartido es la cuenta guardada de cada terminal.
+
+**La promesa guardada de la cuenta real se borra.** `live_account_expectation`
+tiene una firma que sí cubre los miembros, pero no decide *cuándo* se vuelve a
+medir: `_needs_rebuild` deja pasar hasta `EXPECTATION_MAX_AGE_HOURS` antes de
+abrir la memoria UBS del agente, que es lo que esa caché existe para evitar.
+Por eso el manager llama a `LiveAccountArchive.discard_expectation` después de
+cada cambio aceptado: el fichero describe una composición que ya no existe, y
+un `read_expectation` vacío es exactamente lo que `_needs_rebuild` entiende
+como «mídelo otra vez». Hace falta aunque el uso esté desmarcado: desmarcar,
+editar y volver a marcar es justo el camino que deja la promesa vieja viva.
+
+**El histórico pendiente se dice en pantalla.** El aviso sale de los datos del
+detalle —`expected` son los miembros y `available` los que encontraron su
+HTML—, así que sobrevive al refresco y no depende de haber visto el alta. Un
+set recién subido no tiene reporte OHLC hasta regenerarlo; hasta entonces la
+expectativa de la cuenta mediría menos estrategias de las que opera.
+
+Lo que esto **no** arregla: `real_strategy_lots` del perfil sigue siendo una
+declaración manual. Un set nuevo entra sin lote declarado y uno retirado deja
+su clave antigua en el perfil, donde ya no se usa. Revisarlo es parte de
+volver a marcar el uso como operando en real.

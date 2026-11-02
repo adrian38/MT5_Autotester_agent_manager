@@ -371,6 +371,28 @@ class LiveAccountArchive:
             path.parent.mkdir(parents=True, exist_ok=True)
             save_json(path, {**value, "portfolio_id": portfolio_id, "updated_at": utc_now()})
 
+    def discard_expectation(self, node_id: str, portfolio_id: Any) -> bool:
+        """Borra la promesa guardada de ese portafolio. Devuelve si existía.
+
+        La firma de `live_account_expectation` cubre los miembros, así que una
+        composición distinta da otro número **cuando se vuelve a medir**. Lo
+        que no cubre es *cuándo*: `_needs_rebuild` deja pasar hasta veinticuatro
+        horas antes de abrir la memoria UBS del agente, que es lo que esta
+        caché existe para evitar. Cambiar los sets de un portafolio manual sin
+        borrar esto deja la tarjeta de la cuenta real prometiendo el beneficio
+        y la DD de la composición anterior durante todo ese día.
+
+        Se borra el fichero en vez de marcarlo caducado: lo guardado describe
+        una composición que ya no existe, y `read_expectation` vacío es
+        exactamente lo que `_needs_rebuild` entiende como «mídelo otra vez».
+        """
+        with self.lock:
+            path = self._expectation_path(node_id, portfolio_id)
+            if not path.is_file():
+                return False
+            path.unlink()
+            return True
+
     def day_keys(self, node_id: str, key: str) -> list[str]:
         """Los días con algún cierre, de viejo a nuevo. Para medir, no pintar."""
         seen: dict[str, None] = {}

@@ -93,6 +93,20 @@ function showDetailStatus(message, loading=false) {
   document.querySelector('#manual-empty-text').textContent=message;
 }
 
+// Cuántos sets de la composición actual siguen sin reporte OHLC. `expected` es
+// el número de miembros y `available` los que encontraron su HTML, así que la
+// resta nombra exactamente lo que falta por generar: es la señal que deja un
+// alta de sets, y la que decide si la cartera puede volver a operar en real.
+function pendingHistory(history) {
+  return Math.max(0,(history.expected||0)-(history.available||0));
+}
+
+function historyNote(history) {
+  const missing=pendingHistory(history);
+  if(missing) return `Faltan ${missing} histórico${missing===1?'':'s'} OHLC de esta composición. Genera el histórico antes de volver a marcar el portafolio como operando en real: hasta entonces la expectativa de la cuenta mide menos estrategias de las que opera.`;
+  return history.available?'Resultados leídos de los reportes OHLC generados por el nodo.':'Todavía no se encontró ningún reporte histórico para esta composición.';
+}
+
 function renderDetail(portfolio) {
   selectedPortfolio=portfolio;
   const history=portfolio.history||{};
@@ -102,7 +116,7 @@ function renderDetail(portfolio) {
   document.querySelector('#manual-detail-mode').textContent=portfolio.portfolio_type||'balanced';
   document.querySelector('#manual-audit-link').href=`/live_audit.html?node=${encodeURIComponent(nodeId)}&portfolio=${portfolio.id}`;
   document.querySelector('#manual-history-metrics').innerHTML=[detailMetric(number(history.net_profit),'Beneficio neto'),detailMetric(number(history.max_drawdown),'DD máximo combinado'),detailMetric(history.trades||0,'Operaciones'),detailMetric(`${history.available||0}/${history.expected||0}`,'Históricos disponibles')].join('');
-  document.querySelector('#manual-history-note').textContent=history.available?'Resultados leídos de los reportes OHLC generados por el nodo.':'Todavía no se encontró ningún reporte histórico para esta composición.';
+  document.querySelector('#manual-history-note').textContent=historyNote(history);
   renderMembers(portfolio); renderMonthly(history); renderPortfolioDetail(history); showDetailView(detailView);
 }
 
@@ -139,7 +153,8 @@ async function uploadSets(files) {
     const uploaded=await Promise.all(chosen.map(async file=>({name:file.name,content:bytesToBase64(await file.arrayBuffer())})));
     const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',operation:'add',portfolio_id:selectedId,files:uploaded})});
     const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
-    await loadInventory(); toast(`${data.added} set${data.added===1?'':'s'} añadido${data.added===1?'':'s'} al portafolio.`);
+    await loadInventory();
+    toast(`${data.added} set${data.added===1?'':'s'} añadido${data.added===1?'':'s'}. Genera el histórico OHLC antes de volver a marcar el portafolio como operando en real.`);
   } catch(error) { toast(error.message,true); }
   finally { button.disabled=false; button.textContent='Subir sets'; document.querySelector('#manual-set-files').value=''; }
 }

@@ -25,6 +25,7 @@ from typing import Any
 from . import dev_branch
 from . import manager_http
 from .common import safe_int
+from .live_audit_watch import live_audit_ids
 from .portfolio_scope import PORTFOLIO_SCOPES, normalize_portfolio_scope
 from . import manager_config
 from .portfolio_service import PortfolioCoordinator
@@ -114,6 +115,49 @@ def create_manual_portfolio(handler, node: dict, body: dict[str, Any]) -> None:
     handler._send_json(status, value)
 
 
+def live_trading_uses(handler, node_id: str, portfolio_id: int) -> list[str]:
+    """Los usos marcados «operando en real» que sirven a ese portafolio.
+
+    Mismo criterio que la portada y el cron: el **perfil**, no las tarjetas
+    abiertas en el formulario del nodo. Confundir las dos cosas es el fallo de
+    `ai_context/live_audit_cron_and_bell.md`.
+    """
+    state = handler.server.live_audit_settings.state(node_id) or {}
+    profiles = state.get("profiles") or {}
+    return sorted(
+        audit_id for audit_id in live_audit_ids(state)
+        if safe_int((profiles.get(audit_id) or {}).get("portfolio_id"), 0) == portfolio_id
+    )
+
+
+def guard_manual_members(handler, node_id: str, body: dict[str, Any]) -> int:
+    """Rechaza cambiar la composición de una cartera que está operando en real.
+
+    Un uso en real no es sólo una pantalla: su cuenta se sondea, su promesa se
+    mide contra esa composición y sus lotes reales están declarados por
+    estrategia. Añadir o quitar un set por debajo deja la cuenta operando una
+    cosa y la auditoría midiendo otra, sin que nada lo diga. Se pide
+    desmarcarlo primero, que es la decisión que de verdad corresponde al
+    usuario.
+
+    El nodo tiene su propio candado para la auditoría y el sondeo en curso: lo
+    que no se puede ver desde aquí es qué terminales están ocupadas en este
+    instante, y lo que no se puede ver desde allí es qué uso marcó el usuario.
+    """
+    portfolio_id = safe_int(body.get("portfolio_id"), 0, minimum=1)
+    if not portfolio_id:
+        raise ValueError("El identificador del portafolio no es válido")
+    uses = live_trading_uses(handler, node_id, portfolio_id)
+    if uses:
+        raise ValueError(
+            "El portafolio está operando en real en "
+            f"{', '.join(uses)}: desmárcalo de «operando en real» antes de "
+            "cambiar sus sets, y vuelve a generar el histórico OHLC antes de "
+            "activarlo de nuevo."
+        )
+    return portfolio_id
+
+
 def manual_portfolio_action(handler, node: dict, action: str, body: dict[str, Any]) -> None:
     endpoints = {
         "manual-defaults": "manual-defaults",
@@ -121,13 +165,18 @@ def manual_portfolio_action(handler, node: dict, action: str, body: dict[str, An
         "manual-members": "manual-members",
     }
     endpoint = endpoints[action]
+    node_id = str(node.get("id") or "")
+    portfolio_id = (
+        guard_manual_members(handler, node_id, body) if action == "manual-members" else 0
+    )
     status, value = manager_http.node_request(
         node, "POST", f"/api/v1/portfolios/{endpoint}", body, timeout=120,
     )
     if status == 404:
         raise ValueError("El nodo necesita actualizarse y reiniciarse para gestionar este portafolio manual.")
-    if action == "manual-members" and 200 <= status < 300:
-        handler.server.portfolios._invalidate_node_snapshots(str(node["id"]))
+    if portfolio_id and 200 <= status < 300:
+        handler.server.portfolios._invalidate_node_snapshots(node_id)
+        handler.server.live_accounts.discard_expectation(node_id, portfolio_id)
     handler._send_json(status, value)
 
 

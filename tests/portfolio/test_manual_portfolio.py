@@ -121,6 +121,16 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("operation:'remove'", script)
         self.assertIn("set_path:path", script)
 
+    def test_a_set_without_history_leaves_the_regeneration_pending_on_screen(self) -> None:
+        # El aviso sale de los datos del detalle —`expected` son los miembros y
+        # `available` los que encontraron su HTML—, así que sobrevive al
+        # refresco y no depende de haber visto el alta.
+        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        self.assertIn("function pendingHistory", script)
+        self.assertIn("(history.expected||0)-(history.available||0)", script)
+        self.assertIn("#manual-history-note').textContent=historyNote(history)", script)
+        self.assertIn("antes de volver a marcar el portafolio como operando en real", script)
+
     def test_manual_history_ignores_previous_attempt_without_resetting_detail(self) -> None:
         script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
         self.assertIn("function isCurrentHistory", script)
@@ -247,13 +257,30 @@ class ManualPortfolioRouteTests(unittest.TestCase):
         )
         self.assertEqual(handler.sent, (202, {"queued": False}))
 
-    def test_manager_forwards_manual_member_changes_to_the_node(self) -> None:
-        invalidated = []
-        portfolios = SimpleNamespace(_invalidate_node_snapshots=invalidated.append)
+    @staticmethod
+    def _member_handler(profiles: dict) -> SimpleNamespace:
+        """El handler con lo justo: usos marcados, caché y promesa guardada."""
         handler = SimpleNamespace(
-            server=SimpleNamespace(portfolios=portfolios),
+            invalidated=[], discarded=[],
             _send_json=lambda status, value: setattr(handler, "sent", (status, value)),
         )
+        handler.server = SimpleNamespace(
+            portfolios=SimpleNamespace(
+                _invalidate_node_snapshots=handler.invalidated.append,
+            ),
+            live_audit_settings=SimpleNamespace(
+                state=lambda node_id: {"profiles": profiles},
+            ),
+            live_accounts=SimpleNamespace(
+                discard_expectation=lambda node_id, portfolio_id: handler.discarded.append(
+                    (node_id, portfolio_id),
+                ),
+            ),
+        )
+        return handler
+
+    def test_manager_forwards_manual_member_changes_to_the_node(self) -> None:
+        handler = self._member_handler({"7-balanced": {"portfolio_id": 9}})
         body = {"operation": "remove", "portfolio_id": 7, "set_path": "one.set"}
         with patch.object(
             manager_portfolio_routes.manager_http, "node_request", return_value=(200, {"removed": 1}),
@@ -266,7 +293,62 @@ class ManualPortfolioRouteTests(unittest.TestCase):
             body, timeout=120,
         )
         self.assertEqual(handler.sent, (200, {"removed": 1}))
-        self.assertEqual(invalidated, ["axi"])
+        self.assertEqual(handler.invalidated, ["axi"])
+
+    def test_changing_the_sets_drops_the_promise_of_the_real_account(self) -> None:
+        # La firma de la expectativa cubre los miembros, pero `_needs_rebuild`
+        # deja pasar hasta 24 h antes de volver a medir: sin este borrado la
+        # tarjeta de la cuenta promete el beneficio de la composición anterior.
+        handler = self._member_handler({})
+        with patch.object(
+            manager_portfolio_routes.manager_http, "node_request", return_value=(200, {"added": 2}),
+        ):
+            manager_portfolio_routes.manual_portfolio_action(
+                handler, {"id": "axi", "url": "http://axi"}, "manual-members",
+                {"operation": "add", "portfolio_id": 7, "files": []},
+            )
+        self.assertEqual(handler.discarded, [("axi", 7)])
+
+    def test_a_failed_change_leaves_the_promise_and_the_cache_alone(self) -> None:
+        handler = self._member_handler({})
+        with patch.object(
+            manager_portfolio_routes.manager_http, "node_request",
+            return_value=(409, {"error": "El nodo esta auditando"}),
+        ):
+            manager_portfolio_routes.manual_portfolio_action(
+                handler, {"id": "axi", "url": "http://axi"}, "manual-members",
+                {"operation": "add", "portfolio_id": 7, "files": []},
+            )
+        self.assertEqual(handler.sent, (409, {"error": "El nodo esta auditando"}))
+        self.assertEqual((handler.invalidated, handler.discarded), ([], []))
+
+    def test_a_portfolio_trading_live_does_not_change_its_composition(self) -> None:
+        handler = self._member_handler({
+            "7-balanced": {"portfolio_id": 7, "live_trading": True},
+            "9-balanced": {"portfolio_id": 9, "live_trading": True},
+        })
+        with patch.object(
+            manager_portfolio_routes.manager_http, "node_request",
+        ) as request:
+            with self.assertRaisesRegex(ValueError, "operando en real en 7-balanced"):
+                manager_portfolio_routes.manual_portfolio_action(
+                    handler, {"id": "axi", "url": "http://axi"}, "manual-members",
+                    {"operation": "add", "portfolio_id": 7, "files": []},
+                )
+        request.assert_not_called()
+        self.assertEqual((handler.invalidated, handler.discarded), ([], []))
+
+    def test_a_use_that_is_no_longer_live_does_not_block_the_edit(self) -> None:
+        handler = self._member_handler({"7-balanced": {"portfolio_id": 7}})
+        with patch.object(
+            manager_portfolio_routes.manager_http, "node_request", return_value=(200, {"added": 1}),
+        ):
+            manager_portfolio_routes.manual_portfolio_action(
+                handler, {"id": "axi", "url": "http://axi"}, "manual-members",
+                {"operation": "add", "portfolio_id": 7, "files": []},
+            )
+        self.assertEqual(handler.sent, (200, {"added": 1}))
+        self.assertEqual(handler.discarded, [("axi", 7)])
 
 
 if __name__ == "__main__":
