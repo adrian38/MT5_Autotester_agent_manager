@@ -307,7 +307,10 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         self.assertIn("renderUnaccounted();", self.analysis_script)
         # Lo atribuido suma en el real de su estrategia; lo excluido sale de la
         # curva; lo que nadie explicó sigue en la curva pero no en una fila.
-        self.assertIn(".attributed.push(row.real)", self.analysis_script)
+        # Con su procedencia puesta: la fila tiene que poder decir si lo
+        # atribuyó el Excel o el documento de comentarios.
+        self.assertIn(".attributed.push(", self.analysis_script)
+        self.assertIn("attributed_source: String(row.attribution?.source", self.analysis_script)
         self.assertIn("LiveAuditReproduction.attributedOwner(row)", self.analysis_script)
         self.assertIn(
             "if (!groups.has(owner.strategy)) groups.set(owner.strategy",
