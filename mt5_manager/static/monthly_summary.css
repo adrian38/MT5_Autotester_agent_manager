@@ -16,7 +16,11 @@
  * aqui solo se ordenan sus tres bloques. */
 .summary-page main{display:grid;gap:16px}
 .summary-page .summary-toolbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px;border:1px solid var(--line,#27394b);border-radius:12px;background:var(--panel,#111b27)}
-.summary-page .summary-toolbar label{display:grid;gap:6px;min-width:200px;color:var(--muted,#91a4b5);font-size:12px}
+/* La etiqueta va al lado del selector, no encima: asi la barra entera es
+   una sola linea de la misma altura y «Mes · octubre» y la cuenta de
+   cuentas se leen seguidas, sin el escalon que dejaba el rotulo. */
+.summary-page .summary-toolbar label{display:flex;align-items:center;gap:8px;color:var(--muted,#91a4b5);font-size:12px;white-space:nowrap}
+.summary-page .summary-toolbar label select{min-width:170px}
 .summary-page .summary-toolbar select{padding:9px 10px;border:1px solid var(--line,#27394b);border-radius:8px;background:#0b1520;color:var(--text,#edf5f7);font:inherit}
 .summary-page .summary-toolbar .summary-counts{flex:1 1 240px}
 .summary-page .summary-toolbar .cron-note,.summary-page .summary-config .cron-note{color:var(--muted,#91a4b5);font-size:12px;line-height:1.5}
