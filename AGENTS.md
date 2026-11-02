@@ -240,7 +240,7 @@ orden de dependencia:
 
 `manager_config` → `manager_http` → `manager_pulse` →
 `manager_live_audit_reports` → `manager_live_audit_routes` →
-`manager_portfolio_routes` →
+`manager_manual_portfolio` → `manager_portfolio_routes` →
 `manager_schedule_routes` → `manager_account_routes` →
 `manager_push_routes` → `manager_handler` →
 `manager_server` → `manager`
