@@ -58,6 +58,19 @@ del veredicto de reproducción que éste arrastra.
   - Esto retiró el escalón del cuantil del 95 %: sobre seis valores era el
     máximo, así que `extreme` sólo saltaba en un empate exacto. La banda da el
     escalón intermedio que aquello prometía y no daba.
+- **Y al lado, la media de un mes cualquiera.** Contexto, no criterio: que un
+  octubre prometa 711,97 cuando un mes corriente promete 621,27 dice que es de
+  los buenos de la cartera, y quedarse en 318,44 pesa distinto que en un mes
+  flojo de por sí. Son `monthly_mean.profit` y `monthly_mean.drawdown`, dos
+  recuadros que entraron el 2026-11-02 a petición del usuario en el sitio del
+  recuento de octubres, que se fue: el número de la muestra ya lo dice la
+  frase («media 27,59 EUR, 6 octubres del backtest»).
+- **El color es la misma comparación que la frase.** «Beneficio del mes» y
+  «Drawdown del mes» salen verdes o rojos contra **la media de su mes del
+  año**, no contra cero ni contra la histórica, porque es el juicio que la
+  tarjeta está haciendo. En el drawdown está al revés —más hondo es peor—, así
+  que lo decide `tone` y no el signo. Sin media no hay color: un verde sin
+  nada detrás se lee igual de fuerte que uno medido.
 - **La racha de meses por debajo**, que es lo que convierte un mes flojo en una
   decisión. Un mes sin promesa **corta** la racha en vez de saltarse: una racha
   con un agujero no es una racha, es dos trozos.

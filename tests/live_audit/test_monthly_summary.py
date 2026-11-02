@@ -160,6 +160,18 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(band["total"], 4)
         self.assertEqual(band["verdict"], "")
 
+    def test_the_plain_monthly_averages_sit_next_to_the_seasonal_ones(self) -> None:
+        # Contexto, no criterio: saber si este mes del año es de los buenos de
+        # la cartera cambia lo que pesa quedarse corto en él.
+        table = {**_table(SEPTEMBER_YEARS), "2024-03": {
+            "profit": 100.0, "drawdown": 50.0, "trades": 1,
+        }}
+        means = evidence.monthly_means(table)
+        self.assertEqual(means["total"], 7)
+        self.assertAlmostEqual(means["profit"], 37.9314, places=3)
+        self.assertAlmostEqual(means["drawdown"], 7.1428, places=3)
+        self.assertFalse(evidence.monthly_means({})["measured"])
+
     def test_the_drawdown_is_judged_against_its_own_season(self) -> None:
         # Misma vara que el beneficio: un octubre se mide con octubres, y el
         # listón deja de estar en manos de un agosto cualquiera.

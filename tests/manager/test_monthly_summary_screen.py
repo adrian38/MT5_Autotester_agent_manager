@@ -293,16 +293,35 @@ class ScriptTests(unittest.TestCase):
         plural = SCRIPT[SCRIPT.index("function monthPlural"):]
         self.assertIn("endsWith('l')", plural)
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
-        self.assertIn("monthPlural(card.month, true)", figures)
-        self.assertIn("seasonalMonths(card)", figures)
         # Y la promesa se llama por lo que es: la media de esos octubres.
         label = SCRIPT[SCRIPT.index("function promiseLabel"):]
         self.assertIn("Beneficio medio de los ${escapeHtml(monthPlural(card.month))}", label)
         # Y el drawdown se enseña con la misma vara: su media de octubres,
         # no el peor mes de cualquier mes del año.
-        self.assertIn("Drawdown medio de los ${escapeHtml(monthPlural(card.month))}", figures)
-        self.assertIn("(card.drawdown_band || {}).mean", figures)
+        self.assertIn("Drawdown medio de los ${season}", figures)
         self.assertNotIn("drawdown_standing", SCRIPT)
+
+    def test_the_month_is_coloured_against_its_own_average(self) -> None:
+        # El color dice lo mismo que la frase. En el drawdown esta al reves,
+        # asi que lo decide `tone` y no el signo del numero.
+        colour = SCRIPT[SCRIPT.index("function tone("):]
+        self.assertIn("lowerIsBetter ? left <= right : left >= right", colour)
+        figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
+        self.assertIn("tone(closed.profit, profit.mean)", figures)
+        self.assertIn("tone(closed.drawdown, depth.mean, true)", figures)
+        for rule in (".summary-grid strong.good{", ".summary-grid strong.bad{"):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, STYLE)
+
+    def test_the_card_shows_both_averages_and_drops_the_month_count(self) -> None:
+        # Peticion del usuario: el recuento de octubres se va y entran las dos
+        # medias de un mes cualquiera, al lado de las de su mes del ano.
+        figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
+        self.assertIn("Beneficio medio histórico", figures)
+        self.assertIn("Drawdown medio mensual", figures)
+        self.assertIn("monthly.profit", figures)
+        self.assertIn("monthly.drawdown", figures)
+        self.assertNotIn("de backtest`", figures)
 
     def test_a_figure_that_cannot_be_compared_says_so_instead_of_a_number(self) -> None:
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]

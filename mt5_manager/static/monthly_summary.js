@@ -152,12 +152,6 @@
     return capital ? plural[0].toUpperCase() + plural.slice(1) : plural;
   }
 
-  // Los resúmenes guardados antes de medir por estación no traen el número;
-  // la frase del aviso ya dice entonces que no hay muestra para juzgarlo.
-  function seasonalMonths(card) {
-    return card.seasonal_months ?? (card.profit_band || {}).total ?? 0;
-  }
-
   // La promesa de un mes juzgable **es** la media de sus octubres, y así se
   // llama: es la cifra contra la que se lee el juicio de abajo. Con autolote
   // viene del escenario de ese mes y entonces no es esa media, sólo la
@@ -171,23 +165,65 @@
   // autolote corrió— enseña el motivo en su sitio en vez de una cifra que se
   // leería como comparación. Las marcas las pone `monthly_summary_build`; un
   // resumen guardado antes de medirlas no las trae, y ausente vale por sí.
+  // Verde o rojo contra la media de su mes del ano, que es la comparacion que
+  // la tarjeta esta haciendo: el color tiene que decir lo mismo que la frase.
+  // En el drawdown esta al reves —mas hondo es peor—, y sin media no hay
+  // color, porque un verde sin nada detras se lee igual de fuerte.
+  function tone(value, mean, lowerIsBetter = false) {
+    const left = Number(value), right = Number(mean);
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return '';
+    const good = lowerIsBetter ? left <= right : left >= right;
+    return good ? ' class="good"' : ' class="bad"';
+  }
+
+  function figure(label, value, mark = '') {
+    return `<div><span>${label}</span><strong${mark}>${value}</strong></div>`;
+  }
+
+  // Siete recuadros cuando el mes se puede juzgar —lo del mes, su media de
+  // octubres y la media de un mes cualquiera, para beneficio y para
+  // drawdown—, y seis cuando no: un recuadro vacio ocupa el mismo sitio que
+  // uno con un dato y no dice nada.
   function figuresMarkup(card) {
     const currency = card.currency || '';
     const closed = card.closed || {};
-    const expected = card.expected || {};
+    const monthly = card.monthly_mean || {};
+    const profit = card.profit_band || {};
+    const depth = card.drawdown_band || {};
     const coverage = card.coverage || {};
     const partial = Boolean(card.started_inside);
     const promised = !partial && card.promise_comparable !== false;
     const ranked = !partial && card.table_comparable !== false;
-    const coverageValue = partial ? coverage.eligible_pct : coverage.pct;
-    return `<div class="summary-grid">
-      <div><span>${partial ? 'Beneficio desde el alta' : 'Beneficio del mes'}</span><strong>${escapeHtml(amount(closed.profit, currency))}</strong></div>
-      <div><span>${promised ? promiseLabel(card, ranked) : 'Promesa comparable'}</span><strong>${promised ? escapeHtml(amount(expected.profit, currency)) : 'No disponible'}</strong></div>
-      <div><span>${partial ? 'Drawdown desde el alta' : 'Drawdown del mes'}</span><strong>${escapeHtml(amount(closed.drawdown, currency))}</strong></div>
-      <div><span>${ranked ? `Drawdown medio de los ${escapeHtml(monthPlural(card.month))}` : 'Comparación histórica'}</span><strong>${ranked ? escapeHtml(amount((card.drawdown_band || {}).mean, currency)) : 'No comparable'}</strong></div>
-      <div><span>${partial ? 'Tramo auditado' : 'Mes auditado'}</span><strong>${escapeHtml(`${Number(coverageValue || 0).toFixed(0)} %`)}</strong></div>
-      <div><span>${ranked ? `${escapeHtml(monthPlural(card.month, true))} de backtest` : 'Meses completos de referencia'}</span><strong>${escapeHtml(String(ranked ? seasonalMonths(card) : card.backtest_months || 0))}</strong></div>
-    </div>`;
+    const season = escapeHtml(monthPlural(card.month));
+    const money = value => escapeHtml(amount(value, currency));
+    const tiles = [
+      figure(
+        partial ? 'Beneficio desde el alta' : 'Beneficio del mes',
+        money(closed.profit), ranked ? tone(closed.profit, profit.mean) : '',
+      ),
+      figure(
+        promised ? promiseLabel(card, ranked) : 'Promesa comparable',
+        promised ? money(card.expected && card.expected.profit) : 'No disponible',
+      ),
+      ranked ? figure('Beneficio medio histórico', money(monthly.profit)) : '',
+      figure(
+        partial ? 'Drawdown desde el alta' : 'Drawdown del mes',
+        money(closed.drawdown),
+        ranked ? tone(closed.drawdown, depth.mean, true) : '',
+      ),
+      figure(
+        ranked ? `Drawdown medio de los ${season}` : 'Comparación histórica',
+        ranked ? money(depth.mean) : 'No comparable',
+      ),
+      ranked
+        ? figure('Drawdown medio mensual', money(monthly.drawdown))
+        : figure('Meses completos de referencia', escapeHtml(String(card.backtest_months || 0))),
+      figure(
+        partial ? 'Tramo auditado' : 'Mes auditado',
+        escapeHtml(`${Number(partial ? coverage.eligible_pct : coverage.pct || 0).toFixed(0)} %`),
+      ),
+    ];
+    return `<div class="summary-grid">${tiles.join('')}</div>`;
   }
 
   // Los portafolios que operan la cuenta. La cuenta es la unidad —el beneficio

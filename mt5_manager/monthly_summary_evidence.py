@@ -84,6 +84,25 @@ def season(months: dict[str, dict[str, Any]], label: str) -> dict[str, dict[str,
     }
 
 
+def monthly_means(months: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Lo que da y lo que cuesta un mes cualquiera del backtest.
+
+    Contexto, no criterio: el juicio es contra los meses del mismo mes del
+    año. Esto está al lado para saber de qué clase de mes se está hablando —un
+    octubre que promete 711,97 cuando un mes corriente promete 621,27 es de
+    los buenos de la cartera, y quedarse en 318,44 pesa distinto que en un mes
+    flojo de por sí. Petición del usuario, 2026-11-02.
+    """
+    values = list(months.values())
+    if not values:
+        return {"measured": False, "total": 0, "profit": None, "drawdown": None}
+    return {
+        "measured": True, "total": len(values),
+        "profit": statistics.fmean(row["profit"] for row in values),
+        "drawdown": statistics.fmean(row["drawdown"] for row in values),
+    }
+
+
 def profit_band(
     profit: Any, months: dict[str, dict[str, Any]], label: str,
 ) -> dict[str, Any]:

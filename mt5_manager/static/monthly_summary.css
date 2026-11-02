@@ -72,6 +72,10 @@
 .summary-grid div{display:grid;gap:3px;padding:9px;border:1px solid var(--line,#27394b);border-radius:9px;background:#0d1a26}
 .summary-grid span{color:var(--muted,#91a4b5);font-size:11px}
 .summary-grid strong{font-size:14px}
+/* El color dice lo mismo que la frase: contra la media de su mes del ano. En
+   el drawdown esta al reves, y por eso lo decide `tone` y no el signo. */
+.summary-grid strong.good{color:var(--ok,#3fb950)}
+.summary-grid strong.bad{color:var(--danger,#ff6b6b)}
 
 .summary-notices{display:grid;gap:8px;margin:0;padding:0;list-style:none}
 .summary-notice{display:grid;gap:4px;padding:10px;border:1px solid var(--line,#27394b);border-left-width:3px;border-radius:9px;background:#0d1a26}
