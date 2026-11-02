@@ -356,6 +356,9 @@ def build(server: Any, label: str) -> dict[str, Any]:
     ))
     return {
         "month": label, "generated_at": utc_now(), "accounts": cards,
+        # Con qué criterio se escribieron estos avisos. La pantalla lo compara
+        # con el de hoy para avisar de que está leyendo una foto vieja.
+        "criterion": notices.CRITERION_VERSION,
         "counts": notices.decided(cards),
         "display_currency": str(settings.get("display_currency") or "EUR"),
         "streak_required": int(settings.get("below_streak_months") or 3),

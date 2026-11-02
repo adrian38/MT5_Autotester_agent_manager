@@ -33,6 +33,9 @@
 .summary-page .summary-toolbar .summary-activity.error .cron-activity-bar i{background:var(--danger,#ff6b6b)}
 .summary-page .summary-toolbar .summary-activity.done .cron-activity-dot{animation:none}
 .summary-page .summary-config .cron-warning{color:var(--warn,#ffd166);font-size:12px;line-height:1.5}
+/* El aviso de foto vieja ocupa su propia fila: va antes que los botones y se
+   lee de corrido, no apretado entre el selector de mes y la cuenta. */
+.summary-page .summary-toolbar .cron-warning{flex:1 0 100%;margin:0;color:var(--warn,#ffd166);font-size:12px;line-height:1.5}
 .summary-page .summary-config form{display:grid;gap:12px;margin-top:12px}
 .summary-page .summary-config .cron-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
 .summary-page .summary-config label{display:grid;gap:6px;color:var(--muted,#91a4b5);font-size:12px}

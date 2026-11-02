@@ -35,6 +35,11 @@
       <label>Mes<select id="monthly-summary-month"></select></label>
       <p class="summary-counts" id="monthly-summary-counts">Leyendo el último resumen guardado…</p>
       <p class="cron-note" id="monthly-summary-generated"></p>
+      <!-- Un resumen se guarda hecho y sus cifras se pintan en vivo: tras un
+           despliegue los recuadros son del criterio de hoy y las frases las
+           del dia en que se calculo. Si no lo dice, se lee como un fallo del
+           panel. -->
+      <p class="cron-warning" id="monthly-summary-stale" hidden></p>
       <!-- La barra de actividad va **encima** de los botones y con las clases
            de `cron-activity`, las mismas que usa la cita de auditoría en la
            cabecera de todas las pantallas: la recuperación tarda minutos y

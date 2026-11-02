@@ -82,6 +82,15 @@ del veredicto de reproducción que éste arrastra.
   del mes son de la cuenta; repartirlos entre dos portafolios que la comparten
   exigiría inventar un reparto. La tarjeta los nombra y les cuelga lo que sí es
   suyo, igual que `live_account_dashboard`.
+- **Una foto vieja dice que lo es.** El informe guarda
+  `notices.CRITERION_VERSION` y el estado del almacén trae el de hoy; si no
+  coinciden, la pantalla avisa en la barra. Hace falta porque los recuadros se
+  pintan **en vivo** y los avisos vienen escritos: tras un despliegue la misma
+  tarjeta dice dos cosas del mismo número, y eso se ha leído dos veces como un
+  fallo del panel —«Comparación histórica: No comparable» encima de un drawdown
+  inédito; «Octubres de backtest 6» encima de «de los 77 meses»— cuando lo que
+  faltaba era pulsar «Volver a calcular». La versión cubre todo el criterio, el
+  de `monthly_summary_build` incluido, así que se sube al tocar cualquiera.
 - **Se guarda el resultado, no la receta.** Un resumen es la foto de un mes con
   los datos que había al cerrarlo; recalcularlo en marzo da otra cosa, porque
   el archivo ya tiene auditorías que entonces no estaban. «Volver a calcular»

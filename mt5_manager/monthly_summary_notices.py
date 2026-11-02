@@ -47,6 +47,21 @@ from typing import Any
 
 from .monthly_summary_schedule import month_name, month_plural
 
+CRITERION_VERSION = "seasonal-rank-lot-aware-v2"
+"""El criterio con el que se escribieron los avisos de un informe guardado.
+
+Cubre **todo** el criterio —lo que mide `monthly_summary_build` y lo que dice
+este módulo—, así que se sube al cambiar cualquiera de los dos.
+
+Hace falta porque un resumen se guarda hecho y la pantalla pinta sus cifras en
+vivo: tras un despliegue, los recuadros son del criterio de hoy y las frases de
+debajo las del día en que se calculó. Eso ya se ha leído dos veces como una
+contradicción del panel —«Comparación histórica: No comparable» encima de un
+drawdown inédito; «Octubres de backtest 6» encima de «de los 77 meses»— cuando
+lo que pasaba es que faltaba pulsar «Volver a calcular». Una foto vieja tiene
+que decir que lo es; si no, no hay manera de distinguirla de un fallo.
+"""
+
 CHANGE, WATCH, KEEP, UNKNOWN = "change", "watch", "keep", "unknown"
 
 VERDICT_LABELS = {

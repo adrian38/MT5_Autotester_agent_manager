@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import manager_handler, manager_summary_routes, monthly_summary_runtime
-from mt5_manager import monthly_summary_watch
+from mt5_manager import monthly_summary_notices, monthly_summary_watch
 from mt5_manager.monthly_summary_store import MAXIMUM_MONTHS, MonthlySummaryStore
 
 STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
@@ -275,6 +275,18 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("launched - left", percent)
         self.assertIn("recoveryPercent(launched, snapshots, pending)", SCRIPT)
 
+    def test_a_summary_from_an_older_criterion_says_so(self) -> None:
+        # Los recuadros se pintan en vivo y los avisos vienen guardados: tras
+        # un despliegue la tarjeta puede decir dos cosas del mismo numero, y
+        # sin el aviso eso se lee como un fallo del panel.
+        criterion = SCRIPT[SCRIPT.index("function applyCriterion"):]
+        self.assertIn("answer.criterion", criterion)
+        self.assertIn("(answer.report || {}).criterion", criterion)
+        self.assertIn("report !== current", criterion)
+        self.assertIn("applyCriterion(answer)", SCRIPT)
+        self.assertIn("id=\"monthly-summary-stale\"", PAGE)
+        self.assertIn(".summary-page .summary-toolbar .cron-warning{", STYLE)
+
     def test_the_card_counts_the_months_of_the_year_and_names_them(self) -> None:
         # «octubres de backtest 6», no «meses de backtest 77»: lo que se cuenta
         # y lo que se enseña tienen que ser la misma población.
@@ -346,6 +358,17 @@ class StoreTests(unittest.TestCase):
     def test_a_summary_without_a_month_is_refused(self) -> None:
         with self.assertRaises(ValueError):
             MonthlySummaryStore(self.path).remember({"accounts": []})
+
+    def test_the_state_carries_todays_criterion_next_to_the_saved_one(self) -> None:
+        # El informe guarda el criterio con el que se escribieron sus avisos y
+        # el estado trae el de hoy: comparados, el panel sabe si esta leyendo
+        # una foto vieja en vez de enseñar cifras nuevas sobre frases viejas.
+        store = MonthlySummaryStore(self.path)
+        store.remember({**report("2026-09"), "criterion": "viejo"})
+        state = store.state("2026-09")
+        self.assertEqual(state["criterion"], monthly_summary_notices.CRITERION_VERSION)
+        self.assertEqual(state["report"]["criterion"], "viejo")
+        self.assertNotEqual(state["criterion"], "viejo")
 
     def test_it_survives_a_restart(self) -> None:
         MonthlySummaryStore(self.path).remember(report("2026-09"))

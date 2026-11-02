@@ -268,9 +268,27 @@
     select.disabled = !months.length;
   }
 
+  // Los recuadros se pintan con el criterio de hoy y los avisos vienen
+  // escritos del día en que se calculó el mes. Mientras no coincidan, la
+  // tarjeta puede decir dos cosas distintas del mismo número, y sin este
+  // aviso eso se lee como un fallo del panel en vez de como lo que es.
+  function applyCriterion(answer) {
+    const stale = field('#monthly-summary-stale');
+    const current = String(answer.criterion || '');
+    const report = String((answer.report || {}).criterion || '');
+    const old = Boolean(current) && Boolean((answer.report || {}).month) && report !== current;
+    stale.hidden = !old;
+    stale.textContent = old
+      ? 'Este resumen se calculó con un criterio anterior: los recuadros son '
+        + 'los de hoy y los avisos los de entonces, así que pueden '
+        + 'contradecirse. Vuelve a calcularlo para leerlo entero con el mismo.'
+      : '';
+  }
+
   function applyAnswer(answer) {
     renderMonths(answer);
     renderReport(answer.report || {});
+    applyCriterion(answer);
     state.textContent = `Actualizado ${new Date().toLocaleTimeString('es-ES')}`;
   }
 

@@ -19,6 +19,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from . import monthly_summary_notices
 from .common import load_json, save_json, utc_now
 
 MAXIMUM_MONTHS = 24
@@ -106,6 +107,10 @@ class MonthlySummaryStore:
             month = str(report.get("month") or "")
             return {
                 "report": report,
+                # El criterio de hoy, para que el panel sepa si el informe que
+                # le llega se escribió con otro y lo diga en vez de enseñar
+                # cifras nuevas sobre frases viejas.
+                "criterion": monthly_summary_notices.CRITERION_VERSION,
                 "months": sorted(self.reports, reverse=True),
                 "unread": sorted(
                     (key for key in self.reports if key not in self.read), reverse=True,
