@@ -287,32 +287,37 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("id=\"monthly-summary-stale\"", PAGE)
         self.assertIn(".summary-page .summary-toolbar .cron-warning{", STYLE)
 
-    def test_every_card_shows_the_same_seven_boxes(self) -> None:
-        """Peticion del usuario, 2026-11-02: los titulos no cambian de tarjeta.
-
-        Antes la que no podia comparar cambiaba cuatro recuadros por el motivo
-        —«Promesa comparable: No disponible», «Meses completos de referencia»—
-        y dos tarjetas de la misma pantalla no se dejaban leer en paralelo.
-        Ahora el motivo vive en la frase y el recuadro dice «sin medir».
-        """
+    def test_every_card_shows_the_same_seven_measures(self) -> None:
+        """La rejilla no cambia; la unidad visible sí cuando sólo hay un tramo."""
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
-        for label in (
-            "figure('Beneficio del mes'", "figure(`Beneficio medio de los ${season}`",
-            "figure('Beneficio medio historico'".replace("historico", "histórico"),
-            "figure('Drawdown del mes'", "figure(`Drawdown medio de los ${season}`",
-            "figure('Drawdown medio mensual'", "figure('Mes auditado'",
-        ):
-            with self.subTest(label=label):
-                self.assertIn(label, figures)
+        self.assertEqual(figures.count("figure(labels["), 7)
         for gone in (
             "'Promesa comparable'", "'Comparacion historica'".replace(
                 "Comparacion historica", "Comparación histórica",
             ),
-            "figure('Meses completos de referencia'", "'Tramo auditado'",
-            "Beneficio desde el alta", "function promiseLabel",
+            "figure('Meses completos de referencia'", "function promiseLabel",
         ):
             with self.subTest(gone=gone):
                 self.assertNotIn(gone, SCRIPT)
+
+    def test_a_partial_month_names_tranches_and_full_month_drawdowns(self) -> None:
+        labels = SCRIPT[SCRIPT.index("function figureLabels"):]
+        for label in (
+            "'Beneficio del tramo'", "`Objetivo del tramo${span}`",
+            "'Beneficio medio histórico del tramo'", "'Drawdown del tramo'",
+            "`Drawdown medio de los ${season} (mes entero)`",
+            "'Drawdown medio mensual (mes entero)'", "'Tramo auditado'",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(label, labels)
+
+    def test_autolot_is_visible_on_the_card_and_its_portfolio(self) -> None:
+        identity = SCRIPT[SCRIPT.index("function portfolioIdentityMarkup"):]
+        portfolios = SCRIPT[SCRIPT.index("function portfoliosMarkup"):]
+        self.assertIn("AUTOLOTE ACTIVO", identity)
+        self.assertIn("portfolio.autolot === true", portfolios)
+        self.assertIn("AUTOLOTE ACTIVO", portfolios)
+        self.assertIn(".summary-autolot{", STYLE)
 
     def test_the_card_counts_the_months_of_the_year_and_names_them(self) -> None:
         # «octubres», no «meses»: lo que se mide y lo que se enseña tienen que

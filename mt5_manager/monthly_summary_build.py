@@ -67,6 +67,7 @@ def _portfolio_rows(server: Any, node_id: str, account: dict[str, Any]) -> list[
         found.append({
             "portfolio_id": portfolio_id,
             "audit_id": str(portfolio.get("audit_id") or ""),
+            "autolot": bool(portfolio.get("autolot")),
             "name": str(
                 stored.get("portfolio_name") or portfolio.get("deployment_name") or ""
             ),

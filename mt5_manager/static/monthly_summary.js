@@ -217,12 +217,34 @@
       + `${days === 1 ? 'día' : 'días'}`;
   }
 
-  // **Siempre los mismos siete recuadros, con los mismos títulos.** Antes la
+  // Un tramo no es un mes. Sus beneficios de referencia están prorrateados a
+  // los días vividos, mientras sus drawdowns siguen siendo los de un mes
+  // entero porque un valle no se reparte por días. El título dice esa unidad
+  // para que dos importes calculados correctamente no parezcan contradictorios.
+  function figureLabels(card, season) {
+    if (!card.started_inside) return [
+      'Beneficio del mes', `Beneficio medio de los ${season}`,
+      'Beneficio medio histórico', 'Drawdown del mes',
+      `Drawdown medio de los ${season}`, 'Drawdown medio mensual',
+      'Mes auditado',
+    ];
+    const days = Math.round(Number((card.tranche || {}).days || 0));
+    const span = days ? ` (${days} ${days === 1 ? 'día' : 'días'})` : '';
+    return [
+      'Beneficio del tramo', `Objetivo del tramo${span}`,
+      'Beneficio medio histórico del tramo', 'Drawdown del tramo',
+      `Drawdown medio de los ${season} (mes entero)`,
+      'Drawdown medio mensual (mes entero)', 'Tramo auditado',
+    ];
+  }
+
+  // **Siempre los mismos siete recuadros, con títulos que declaran su unidad.** Antes la
   // tarjeta que no podía comparar cambiaba cuatro de ellos por el motivo —
   // «Promesa comparable: No disponible», «Meses completos de referencia»—, y
   // dos tarjetas de la misma pantalla no se dejaban leer en paralelo: había
   // que volver a leer los títulos en cada una. Petición del usuario,
-  // 2026-11-02. Lo que no se ha podido medir dice «sin medir» en su sitio.
+  // 2026-11-02. Lo que no se ha podido medir dice «sin medir» en su sitio; un
+  // tramo conserva la rejilla, pero no se hace pasar por un mes completo.
   function figuresMarkup(card) {
     const currency = card.currency || '';
     const closed = card.closed || {};
@@ -239,16 +261,17 @@
     const money = value => escapeHtml(amount(value, currency));
     const [seasonProfit, meanProfit, seasonDepth, meanDepth] =
       referenceValues(card, shape);
+    const labels = figureLabels(card, season);
     const tiles = [
-      figure('Beneficio del mes', money(closed.profit),
+      figure(labels[0], money(closed.profit),
         tone(closed.profit, seasonProfit)),
-      figure(`Beneficio medio de los ${season}`, money(seasonProfit)),
-      figure('Beneficio medio histórico', money(meanProfit)),
-      figure('Drawdown del mes', money(closed.drawdown),
+      figure(labels[1], money(seasonProfit)),
+      figure(labels[2], money(meanProfit)),
+      figure(labels[3], money(closed.drawdown),
         tone(closed.drawdown, seasonDepth, true)),
-      figure(`Drawdown medio de los ${season}`, money(seasonDepth)),
-      figure('Drawdown medio mensual', money(meanDepth)),
-      figure('Mes auditado', escapeHtml(auditedValue(card, coverage))),
+      figure(labels[4], money(seasonDepth)),
+      figure(labels[5], money(meanDepth)),
+      figure(labels[6], escapeHtml(auditedValue(card, coverage))),
     ];
     return `<div class="summary-grid">${tiles.join('')}</div>`;
   }
@@ -260,20 +283,26 @@
   // El alias identifica la tarjeta arriba. Aquí queda el nombre persistido y
   // el veredicto de reproducción, ambos enlazados con el uso concreto.
   function portfoliosMarkup(card) {
-    const rows = (card.portfolios || []).map(portfolio => {
+    const portfolios = card.portfolios || [];
+    const rows = portfolios.map(portfolio => {
       const mark = reproduction.get(`${card.node_id}|${portfolio.audit_id}`);
       const state = mark ? `<span class="summary-reproduction ${mark.tone}">${escapeHtml(mark.text)}</span>` : '';
       const name = portfolio.name || `Portafolio #${portfolio.portfolio_id || '—'}`;
+      const usesAutolot = portfolio.autolot === true
+        || (card.autolot && portfolios.length === 1);
+      const autolot = usesAutolot
+        ? '<span class="summary-autolot">AUTOLOTE ACTIVO</span>' : '';
       return `<li><a href="/live_audit_analysis.html?node=${encodeURIComponent(card.node_id)}`
         + `&audit=${encodeURIComponent(portfolio.audit_id)}">${escapeHtml(name)}</a>`
-        + `${state}</li>`;
+        + `${autolot}${state}</li>`;
     });
     if (!rows.length) return '';
     return `<ul class="summary-portfolios">${rows.join('')}</ul>`;
   }
 
   function portfolioIdentityMarkup(card) {
-    const autolot = card.autolot ? ' · autolote' : '';
+    const autolot = card.autolot
+      ? '<span class="summary-autolot">AUTOLOTE ACTIVO</span>' : '';
     const identities = (card.portfolios || []).map(portfolio => {
       const name = portfolio.name || `Portafolio #${portfolio.portfolio_id || '—'}`;
       const alias = aliases.get(`${card.node_id}|${portfolio.portfolio_id}`);
@@ -284,8 +313,8 @@
     const stored = identities.length === 1 && identities[0].stored
       ? `<span class="summary-stored-name">${escapeHtml(identities[0].stored)}</span>` : '';
     return `<div class="summary-identity"><p class="eyebrow">PORTAFOLIO</p>
-      <h2>${escapeHtml(primary)}</h2>${stored}
-      <p class="summary-account">${escapeHtml(card.node_name || card.node_id)} · ${escapeHtml(card.login || '')} · ${escapeHtml(card.server || '')}${autolot}</p></div>`;
+      <h2>${escapeHtml(primary)}</h2>${autolot}${stored}
+      <p class="summary-account">${escapeHtml(card.node_name || card.node_id)} · ${escapeHtml(card.login || '')} · ${escapeHtml(card.server || '')}</p></div>`;
   }
 
   function cardMarkup(card) {

@@ -238,9 +238,20 @@ del veredicto de reproducción que éste arrastra.
   en el mismo fichero. Tope de 24 meses, la ventana del resumen, porque cada
   fila lleva el lote de cada miembro.
 - **El tramo auditado dice sus días** (2026-11-02). Un portafolio dado de alta
-  el 31 cubría «100 %» de un día y se leía igual que un mes entero. El título
-  del recuadro sigue siendo «Mes auditado» —son fijos—, y los días van en el
-  valor.
+  el 31 cubría «100 %» de un día y se leía igual que un mes entero. Los días
+  van en el valor y, desde la corrección siguiente, el título lo nombra como
+  «Tramo auditado».
+- **Un tramo dice que es un tramo en cada recuadro** (2026-11-02). El beneficio
+  estacional y el histórico están prorrateados a los días vividos, pero el
+  drawdown conserva la referencia de mes entero. Por eso una tarjeta parcial
+  nombra «Objetivo del tramo (17 días)», «Beneficio histórico del tramo» y
+  añade «mes entero» a sus dos drawdowns de referencia; llamar a 153,77 USD
+  «media de los octubres» mientras la frase nombraba 280,40 USD era correcto
+  en la cuenta y falso en la etiqueta. «Mes auditado» pasa a «Tramo auditado».
+- **El autolote no queda en una coletilla** (2026-11-02). La tarjeta lleva una
+  chapa `AUTOLOTE ACTIVO` y cada portafolio conserva y enseña su propia marca.
+  La marca de cuenta sigue siendo la unión de sus usos; en resúmenes antiguos
+  con un único uso sirve además de respaldo para poder rotularlo.
 
 ## Cómo se entregó
 

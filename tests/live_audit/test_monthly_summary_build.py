@@ -15,6 +15,7 @@ import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -52,6 +53,17 @@ def _remeasured_portfolio() -> dict[str, object]:
 
 
 class BuildCriterionTests(unittest.TestCase):
+    def test_each_portfolio_keeps_its_own_autolot_mark(self) -> None:
+        archive = SimpleNamespace(read_expectation=lambda _node, _portfolio: {})
+        server = SimpleNamespace(live_accounts=archive)
+        rows = monthly_summary_build._portfolio_rows(server, "node", {
+            "portfolios": [
+                {"portfolio_id": 1, "audit_id": "fixed", "autolot": False},
+                {"portfolio_id": 2, "audit_id": "dynamic", "autolot": True},
+            ],
+        })
+        self.assertEqual([row["autolot"] for row in rows], [False, True])
+
     def test_a_partial_month_only_measures_movements_after_birth(self) -> None:
         ordered = [
             (datetime(2026, 9, 1, tzinfo=timezone.utc), -100.0),
