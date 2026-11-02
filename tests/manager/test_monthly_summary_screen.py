@@ -319,6 +319,16 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("AUTOLOTE ACTIVO", portfolios)
         self.assertIn(".summary-autolot{", STYLE)
 
+    def test_a_partial_card_names_its_tranche_beside_the_title(self) -> None:
+        tranche = SCRIPT[SCRIPT.index("function trancheTitleMarkup"):]
+        self.assertIn("if (!card.started_inside) return '';", tranche)
+        self.assertIn("coverage.eligible_start", tranche)
+        self.assertIn("(tramo ${start}-${end})", tranche)
+        identity = SCRIPT[SCRIPT.index("function portfolioIdentityMarkup"):]
+        self.assertIn("${trancheTitleMarkup(card)}", identity)
+        self.assertIn(".summary-title-line{", STYLE)
+        self.assertIn(".summary-tranche{", STYLE)
+
     def test_the_card_counts_the_months_of_the_year_and_names_them(self) -> None:
         # «octubres», no «meses»: lo que se mide y lo que se enseña tienen que
         # ser la misma población, y el drawdown se enseña con la misma vara.

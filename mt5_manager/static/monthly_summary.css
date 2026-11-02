@@ -57,6 +57,8 @@
 .summary-card-head h2{margin:2px 0 0;font-size:15px}
 .summary-card-head .eyebrow{margin:0;color:var(--muted,#91a4b5);font-size:11px;letter-spacing:.08em}
 .summary-identity h2{color:var(--accent2,#63e6be);font-size:18px}
+.summary-title-line{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.summary-tranche{color:var(--muted,#91a4b5);font-size:12px;font-weight:800;white-space:nowrap}
 .summary-stored-name{display:block;margin-top:3px;color:var(--muted,#91a4b5);font-size:11px}
 .summary-account{margin:5px 0 0;color:var(--muted,#91a4b5);font-size:12px;font-weight:700}
 .summary-autolot{display:inline-block;margin:4px 0 0;padding:2px 7px;border:1px solid #f6c45380;border-radius:999px;background:#4a3717;color:#ffe29a;font-size:10px;font-weight:900;letter-spacing:.04em;white-space:nowrap}

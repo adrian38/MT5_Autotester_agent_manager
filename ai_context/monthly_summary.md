@@ -248,6 +248,8 @@ del veredicto de reproducción que éste arrastra.
   añade «mes entero» a sus dos drawdowns de referencia; llamar a 153,77 USD
   «media de los octubres» mientras la frase nombraba 280,40 USD era correcto
   en la cuenta y falso en la etiqueta. «Mes auditado» pasa a «Tramo auditado».
+  El título de la tarjeta lleva además el intervalo, por ejemplo
+  `(tramo 15-31)`; en un mes natural completo no añade nada.
 - **El autolote no queda en una coletilla** (2026-11-02). La tarjeta lleva una
   chapa `AUTOLOTE ACTIVO` y cada portafolio conserva y enseña su propia marca.
   La marca de cuenta sigue siendo la unión de sus usos; en resúmenes antiguos

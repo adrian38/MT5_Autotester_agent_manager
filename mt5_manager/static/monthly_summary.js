@@ -300,6 +300,17 @@
     return `<ul class="summary-portfolios">${rows.join('')}</ul>`;
   }
 
+  function trancheTitleMarkup(card) {
+    if (!card.started_inside) return '';
+    const coverage = card.coverage || {};
+    const start = Number(String(coverage.eligible_start || '').slice(-2));
+    const end = Number(coverage.month_days || (card.tranche || {}).month_days);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) {
+      return '';
+    }
+    return `<span class="summary-tranche">(tramo ${start}-${end})</span>`;
+  }
+
   function portfolioIdentityMarkup(card) {
     const autolot = card.autolot
       ? '<span class="summary-autolot">AUTOLOTE ACTIVO</span>' : '';
@@ -313,7 +324,7 @@
     const stored = identities.length === 1 && identities[0].stored
       ? `<span class="summary-stored-name">${escapeHtml(identities[0].stored)}</span>` : '';
     return `<div class="summary-identity"><p class="eyebrow">PORTAFOLIO</p>
-      <h2>${escapeHtml(primary)}</h2>${autolot}${stored}
+      <div class="summary-title-line"><h2>${escapeHtml(primary)}</h2>${trancheTitleMarkup(card)}</div>${autolot}${stored}
       <p class="summary-account">${escapeHtml(card.node_name || card.node_id)} · ${escapeHtml(card.login || '')} · ${escapeHtml(card.server || '')}</p></div>`;
   }
 
