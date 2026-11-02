@@ -24,6 +24,13 @@ Si la composición nació durante el mes, tampoco se le atribuye lo que hizo la
 cuenta antes: beneficio y drawdown empiezan en el alta. Ese tramo no se compara
 con meses completos del backtest ni alimenta rachas; se vigila hasta disponer
 del primer mes natural comparable.
+
+Y **el lote manda sobre qué se puede comparar**. La serie de meses del backtest
+está medida a los lotes declarados y no se remide; con autolote el tamaño lo
+decide el balance de cada mes, así que la tarjeta declara en dos marcas qué
+sigue en pie: `promise_comparable` (hay media remedida a los lotes de ese mes)
+y `table_comparable` (la serie entera está a esos lotes, que con autolote no
+pasa nunca). Lo que no es comparable no se enseña como número: se dice.
 """
 from __future__ import annotations
 
@@ -125,8 +132,41 @@ def _promise(portfolios: list[dict[str, Any]], label: str) -> dict[str, Any]:
     }
 
 
+def _at_real_lots(promise: dict[str, Any], *, autolot: bool) -> bool:
+    """Si esa promesa está medida al lote que la cuenta corrió ese mes.
+
+    Sin autolote el lote es el declarado y las dos partes coinciden. Con
+    autolote lo decide el balance del mes, así que sólo vale la fila que
+    `live_account_expectation` remidió para él (`months_at`), que es la que
+    llega con `basis` puesto. `mixed` es que unos usos la tienen y otros no:
+    media promesa al lote bueno no es una promesa al lote bueno.
+    """
+    basis = str(promise.get("basis") or "")
+    return not autolot or (bool(basis) and basis != "mixed")
+
+
+def _comparability(promise: dict[str, Any], *, partial: bool, autolot: bool) -> dict[str, bool]:
+    """Qué se puede comparar de este mes, y qué compararía sólo el volumen.
+
+    La serie de meses del backtest se guarda **a los lotes declarados** y no
+    se remide: `months_at` sólo trae la fila del mes objetivo, porque guardar
+    la tabla entera doce veces engordaría el fichero. Así que con autolote la
+    promesa puede estar al lote bueno y la serie nunca lo está: situar el mes
+    entre sus 77 meses, o llamar «inédito» a un drawdown contra ellos,
+    compararía el tamaño de la posición y no el comportamiento —justo lo que
+    `monthly_summary_evidence` dice en su cabecera que no puede pasar.
+    """
+    if partial:
+        return {"promise_comparable": False, "table_comparable": False}
+    return {
+        "promise_comparable": _at_real_lots(promise, autolot=autolot),
+        "table_comparable": not autolot,
+    }
+
+
 def _streak(
     months: dict[str, dict[str, Any]], portfolios: list[dict[str, Any]], label: str,
+    *, autolot: bool = False,
 ) -> dict[str, Any]:
     """Meses seguidos por debajo de su promesa, desde el mes cerrado hacia atrás."""
     flags: list[bool | None] = []
@@ -141,7 +181,8 @@ def _streak(
             flags.append(None)
             labels.append(key)
             continue
-        promise = _promise(portfolios, key)["profit"]
+        month = _promise(portfolios, key)
+        promise = month["profit"] if _at_real_lots(month, autolot=autolot) else None
         measured = row(months, key) if key in months else None
         flags.append(
             None if measured is None
@@ -167,6 +208,7 @@ def _composition_start(
 
 def _performance(
     ordered: list[tuple[Any, float]], portfolios: list[dict[str, Any]], label: str,
+    *, autolot: bool = False,
 ) -> dict[str, Any]:
     """Mide sólo el tramo en que ya existía la composición de la tarjeta."""
     partial_start = _composition_start(portfolios, label)
@@ -177,16 +219,18 @@ def _performance(
     closed = row(monthly_rows(measured), label)
     promise = _promise(portfolios, label)
     table = _combined_months(portfolios)
-    comparable = partial_start is None
+    lots = _comparability(
+        promise, partial=partial_start is not None, autolot=autolot,
+    )
     return {
         "closed": closed, "expected": promise, "table": table,
-        "started_inside": not comparable,
+        "started_inside": partial_start is not None, **lots,
         "below": evidence.below_promise(closed["profit"], promise["profit"])
-        if comparable else None,
+        if lots["promise_comparable"] else None,
         "profit_standing": evidence.profit_standing(closed["profit"], table, label)
-        if comparable else {},
+        if lots["table_comparable"] else {},
         "drawdown_standing": evidence.drawdown_standing(closed["drawdown"], table)
-        if comparable else {"measured": False, "verdict": "", "worst": None},
+        if lots["table_comparable"] else {"measured": False, "verdict": "", "worst": None},
     }
 
 
@@ -242,7 +286,8 @@ def account_card(
     ordered = ordered_movements(stored)
     months = monthly_rows(ordered)
     portfolios = _portfolio_rows(server, node_id, account)
-    performance = _performance(ordered, portfolios, label)
+    autolot = bool(account.get("autolot"))
+    performance = _performance(ordered, portfolios, label, autolot=autolot)
     closed = performance["closed"]
     facts = {
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
@@ -250,7 +295,7 @@ def account_card(
         "account_key": account["account_key"], "login": account["login"],
         "server": account["server"],
         "currency": str(stored.get("currency") or ""),
-        "autolot": bool(account.get("autolot")),
+        "autolot": autolot,
         "month": label, "closed": closed, "expected": performance["expected"],
         "below": performance["below"],
         "profit_standing": performance["profit_standing"],
@@ -258,6 +303,8 @@ def account_card(
         "backtest_months": len(performance["table"]),
         "streak_required": int(settings.get("below_streak_months") or 3),
         "started_inside": performance["started_inside"],
+        "promise_comparable": performance["promise_comparable"],
+        "table_comparable": performance["table_comparable"],
         "started_after_month": any(
             coverage.started_later(portfolio["created_day"], label)
             for portfolio in portfolios
@@ -268,7 +315,7 @@ def account_card(
     }
     facts["streak"] = (
         0 if facts["started_inside"]
-        else _streak(months, portfolios, label)["months"]
+        else _streak(months, portfolios, label, autolot=autolot)["months"]
     )
     found = notices.notices(facts)
     return {

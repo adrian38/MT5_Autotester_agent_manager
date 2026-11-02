@@ -16,6 +16,15 @@ Seis avisos, y el porqué de cada uno:
 | `partial_month` | el portafolio nació durante el mes | **VIGILAR** el tramo, sin compararlo con meses completos. |
 | `coverage_gap` | falta el tramo auditable, o la serie está vieja | **SIN CONCLUSIÓN.** Tapa a los demás. |
 
+**Una comparación que no se sostiene no se enseña: se dice por qué.** Con
+autolote el lote lo decide el balance del mes, y la serie de meses del backtest
+está medida a los lotes declarados y no se remide. `monthly_summary_build` lo
+marca en `promise_comparable` y `table_comparable`, y aquí eso silencia el
+recuento de «N fueron peores» y el drawdown inédito, poniendo en su sitio la
+frase que explica el porqué. Un número que compara volúmenes se lee como si
+comparase comportamiento, que es la peor clase de dato en una pantalla que
+decide si se retira una cartera.
+
 Lo que **no** está aquí, a propósito:
 
 - **«Dejó de operar»** (`rate.flagged`). Se sigue midiendo y se sigue
@@ -90,42 +99,81 @@ def _notice(kind: str, level: str, verdict: str, title: str, message: str) -> di
     }
 
 
+AUTOLOT_PROMISE = (
+    "La cuenta opera con autolote y el backtest no está remedido a los lotes "
+    "que corrió este mes: no hay promesa a su tamaño con la que compararlo, "
+    "así que el importe de arriba es el resultado y nada más."
+)
+"""Por qué un mes con autolote puede quedarse sin promesa que enseñar."""
+
+AUTOLOT_TABLE = (
+    "No se sitúa entre los meses del backtest: la promesa está al lote que el "
+    "autolote corrió este mes, pero la serie histórica sigue al lote "
+    "declarado, y contar contra ella compararía el tamaño de la posición y no "
+    "el comportamiento."
+)
+"""Por qué el recuento de «N fueron peores» calla cuando hay autolote."""
+
+
+def comparable(facts: dict[str, Any], key: str) -> bool:
+    """Una marca de comparabilidad, tolerante con los resúmenes ya guardados.
+
+    Un resumen es la foto de un mes y se relee tal cual se guardó: los de
+    antes de medir los lotes no traen estas marcas, y ausente tiene que seguir
+    significando lo que significaba entonces. Sólo un `False` explícito calla
+    una comparación.
+    """
+    return facts.get(key) is not False
+
+
+def _closed_message(facts: dict[str, Any], currency: str) -> str:
+    """Lo que se puede decir del mes sin comparar lo que no se deja comparar."""
+    closed = facts.get("closed") or {}
+    if facts.get("started_inside"):
+        return (
+            f"Drawdown desde el alta: {amount(closed.get('drawdown'), currency)}. "
+            "Es el resultado real de ese tramo, pero no se compara con meses "
+            "completos del backtest."
+        )
+    if not comparable(facts, "promise_comparable"):
+        return AUTOLOT_PROMISE
+    promise = (facts.get("expected") or {}).get("profit")
+    if promise is None:
+        return (
+            "No hay media del backtest para este mes, así que no hay con qué "
+            "compararlo."
+        )
+    standing = (facts.get("profit_standing") or {}).get("overall") or {}
+    difference = float(closed.get("profit") or 0.0) - float(promise)
+    return (
+        f"Prometía {amount(promise, currency)} "
+        f"({'+' if difference >= 0 else '−'}{amount(abs(difference), currency)}"
+        f" de diferencia). "
+        + (
+            worse_than(standing, "meses") if comparable(facts, "table_comparable")
+            else AUTOLOT_TABLE
+        )
+    )
+
+
 def month_closed(facts: dict[str, Any]) -> dict[str, Any]:
     """El dato del mes: lo que entró y lo que prometía ese mes del backtest."""
     currency = str(facts.get("currency") or "")
     closed = facts.get("closed") or {}
-    expected = facts.get("expected") or {}
-    standing = (facts.get("profit_standing") or {}).get("overall") or {}
-    promise = expected.get("profit")
     label = month_name(str(facts.get("month") or ""))
     title = f"{label}: {amount(closed.get('profit'), currency)}"
     if facts.get("started_inside"):
         start = str((facts.get("coverage") or {}).get("eligible_start") or "el alta")
         title = f"Desde {start}: {amount(closed.get('profit'), currency)}"
-        message = (
-            f"Drawdown desde el alta: {amount(closed.get('drawdown'), currency)}. "
-            "Es el resultado real de ese tramo, pero no se compara con meses "
-            "completos del backtest."
-        )
-    elif promise is None:
-        message = (
-            "No hay media del backtest para este mes, así que no hay con qué "
-            "compararlo."
-        )
-    else:
-        difference = float(closed.get("profit") or 0.0) - float(promise)
-        message = (
-            f"Prometía {amount(promise, currency)} "
-            f"({'+' if difference >= 0 else '−'}{amount(abs(difference), currency)}"
-            f" de diferencia). {worse_than(standing, 'meses')}"
-        )
+    settled = (
+        not facts.get("started_inside")
+        and comparable(facts, "promise_comparable")
+        and (facts.get("expected") or {}).get("profit") is not None
+        and not facts.get("below")
+    )
     return _notice(
-        "month_closed",
-        "success" if (
-            not facts.get("started_inside")
-            and promise is not None and not facts.get("below")
-        ) else "info",
-        "", title, message,
+        "month_closed", "success" if settled else "info",
+        "", title, _closed_message(facts, currency),
     )
 
 
@@ -149,8 +197,13 @@ def below_streak(facts: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def drawdown_breach(facts: dict[str, Any]) -> dict[str, Any] | None:
-    """La DD del mes contra lo que esta misma cartera hizo en el backtest."""
-    if facts.get("started_inside"):
+    """La DD del mes contra lo que esta misma cartera hizo en el backtest.
+
+    «Inédito» es una afirmación sobre la misma cartera al mismo tamaño. Sin la
+    serie a los lotes que la cuenta corrió —con autolote nunca la hay— lo
+    único que se mediría es cuánto creció la posición, así que calla.
+    """
+    if facts.get("started_inside") or not comparable(facts, "table_comparable"):
         return None
     standing = facts.get("drawdown_standing") or {}
     verdict = str(standing.get("verdict") or "")

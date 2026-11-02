@@ -250,6 +250,40 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("id=\"monthly-summary-complete\"", PAGE)
         self.assertIn("id=\"monthly-summary-completion\"", PAGE)
 
+    def test_the_button_is_only_live_when_something_is_missing(self) -> None:
+        # El informe ya dice cuenta por cuenta qué se puede obtener: pulsarlo
+        # sin nada que falte sondearía doce cuentas para no cambiar nada.
+        plan = SCRIPT[SCRIPT.index("function applyRecoveryPlan"):]
+        self.assertIn("complete.disabled = !needed", plan)
+        self.assertIn("plan.snapshot || plan.audit", plan)
+        self.assertIn("applyRecoveryPlan(current)", SCRIPT)
+        # Y nace apagado: antes de leer el informe nadie sabe si falta algo.
+        self.assertIn("id=\"monthly-summary-complete\" disabled", PAGE)
+        self.assertNotIn("complete.disabled = false", SCRIPT)
+
+    def test_the_recovery_shows_the_same_activity_bar_as_the_rest(self) -> None:
+        # La recuperación tarda minutos y antes sólo dejaba una línea de texto.
+        for expression in (
+            "cron-activity-dot", "cron-activity-bar",
+            "id=\"monthly-summary-activity-fill\"",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, PAGE)
+        self.assertIn(".summary-activity{", STYLE)
+        # El relleno es trabajo terminado, no tiempo pasado.
+        percent = SCRIPT[SCRIPT.index("function recoveryPercent"):]
+        self.assertIn("launched - left", percent)
+        self.assertIn("recoveryPercent(launched, snapshots, pending)", SCRIPT)
+
+    def test_a_figure_that_cannot_be_compared_says_so_instead_of_a_number(self) -> None:
+        figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
+        for expression in (
+            "card.promise_comparable !== false", "card.table_comparable !== false",
+            "'No comparable'", "'No disponible'",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, figures)
+
     def test_broker_colours_and_account_order_match_the_other_screens(self) -> None:
         for broker in ("axi", "roboforex", "ictrading", "vantage"):
             with self.subTest(broker=broker):

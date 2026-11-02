@@ -36,6 +36,19 @@ del veredicto de reproducción que éste arrastra.
 - **Las estrategias que degradan**, traídas de donde el vigilante ya las dejó
   archivadas. No se vuelven a medir: sería un segundo criterio para el mismo
   veredicto.
+- **Sólo lo que está al mismo lote.** La serie de meses del backtest se guarda
+  a los lotes declarados y no se remide: `months_at` trae **la fila del mes
+  objetivo** y nada más, porque guardar la tabla estacional entera doce veces
+  engordaría el fichero. Con autolote, entonces, la promesa puede estar al lote
+  que la cuenta corrió y la serie nunca lo está. Contar «de los 77 meses, N
+  fueron peores» o llamar «inédito» a un drawdown contra esa serie compararía
+  el tamaño de la posición y no el comportamiento, que es lo que la cabecera de
+  `monthly_summary_evidence` dice que no puede pasar. Así que la tarjeta trae
+  dos marcas —`promise_comparable` y `table_comparable`— y lo que no es
+  comparable **no se enseña como número: se dice por qué**, con
+  `notices.AUTOLOT_PROMISE` y `notices.AUTOLOT_TABLE` en el sitio donde iba la
+  comparación. Un mes cuya promesa no está a su lote tampoco entra en la racha
+  ni la rompe, por lo mismo que un mes sin promesa.
 - **La cobertura**, que tapa a todos los demás. Con medio tramo auditable sin
   auditar el veredicto no es MANTENER, es SIN CONCLUSIÓN. Si el portafolio nació
   dentro del mes, la cobertura exigible empieza en su fecha de alta: sí admite
@@ -101,6 +114,26 @@ del veredicto de reproducción que éste arrastra.
   real y Portafolios activos: AXI rojo, RoboForex azul, ICTrading verde y
   Vantage violeta; primero se agrupa por broker y las prop quedan al final.
   El veredicto colorea sólo su chapa, nunca sustituye la identidad del broker.
+- **Las marcas de lote son tolerantes con lo ya guardado.** `notices.comparable`
+  sólo calla una comparación ante un `False` explícito. Un resumen es la foto de
+  un mes y se relee tal cual se guardó: los de antes de medir los lotes no traen
+  las marcas, y ausente tiene que seguir significando lo que significaba
+  entonces, o la foto cambiaría sola al desplegar.
+- **«Obtener lo que falta» nace apagado y lo enciende el informe.** Cada tarjeta
+  ya dice en `recovery` qué se puede obtener, y `applyRecoveryPlan` lo resuelve
+  al pintar. Antes el botón sólo se apagaba mientras corría y el plan se miraba
+  **después** de pulsar —recalculando el resumen entero para descubrir que no
+  había nada que hacer—, así que pulsarlo con el mes cubierto sondeaba doce
+  cuentas y pausaba sus pipelines para no cambiar nada. Al terminar vuelve a
+  decidirlo el informe, no el hecho de haber terminado.
+- **La barra de actividad es la de siempre, con sus clases.** La recuperación
+  tarda minutos y antes sólo dejaba un `<p>` con texto: no había forma de saber
+  si estaba haciendo algo. Ahora usa el mismo punto, barra y relleno que
+  `cron-activity` —la cita de auditoría de la cabecera de todas las pantallas—,
+  en su propia fila justo encima de los botones. El relleno es **trabajo
+  terminado** (sondeos y auditorías que ya no están pendientes), nunca tiempo
+  pasado: con dos horas de margen, una barra que no significa nada es peor que
+  ninguna.
 - **La serie queda cerrada con una lectura posterior al fin del mes.** No se
   exige esperar tres días ni volver a sondear hasta coincidir con la hora del
   cálculo: esa comparación móvil hacía obsoleta incluso una captura recién
@@ -124,6 +157,6 @@ señalaba las dos rutas estáticas que apuntaban a ficheros inexistentes.
 
 | Prueba | Qué exige |
 | --- | --- |
-| `tests/live_audit/test_monthly_summary.py` | El criterio: racha cortada por el hueco, drawdown inédito, cobertura unida y no sumada, y que SIN CONCLUSIÓN tape a CAMBIAR. |
-| `tests/manager/test_monthly_summary_screen.py` | Que el panel pinte y no decida, que sus rutas y su almacén se porten, y que el enlace de la campana lleve a una página que existe. |
+| `tests/live_audit/test_monthly_summary.py` | El criterio: racha cortada por el hueco, drawdown inédito, cobertura unida y no sumada, que SIN CONCLUSIÓN tape a CAMBIAR, y que con autolote el mes diga por qué no se sitúa en vez de contar. |
+| `tests/manager/test_monthly_summary_screen.py` | Que el panel pinte y no decida, que sus rutas y su almacén se porten, que el enlace de la campana lleve a una página que existe, que «Obtener lo que falta» sólo esté vivo cuando falte y que la barra use las clases de `cron-activity`. |
 | `tests/manager/test_header_actions_order.py` | El sitio del botón en la barra de las dos pantallas. |

@@ -317,6 +317,39 @@ class NoticeTests(unittest.TestCase):
         }))
         self.assertEqual(extreme["verdict"], notices.WATCH)
 
+    def test_a_drawdown_at_another_lot_is_not_unheard_of(self) -> None:
+        # Con autolote la serie del backtest sigue al lote declarado: lo que
+        # saldría «inédito» sería el tamaño de la posición.
+        self.assertIsNone(notices.drawdown_breach(facts(
+            table_comparable=False,
+            drawdown_standing={"verdict": "beyond", "measured": True, "worst": 90.0},
+        )))
+
+    def test_a_month_that_cannot_be_ranked_says_why_instead_of_counting(self) -> None:
+        counted = {"overall": evidence.rank(100.0, [10.0] * 7)}
+        ranked = str(notices.month_closed(facts(profit_standing=counted))["message"])
+        self.assertIn("fueron peores", ranked)
+        unranked = str(notices.month_closed(facts(
+            profit_standing=counted, table_comparable=False,
+        ))["message"])
+        self.assertIn("Prometía", unranked)
+        self.assertNotIn("fueron peores", unranked)
+        self.assertEqual(
+            unranked[unranked.index("No se sitúa"):], notices.AUTOLOT_TABLE,
+        )
+
+    def test_a_month_without_a_promise_at_its_lots_shows_no_promise(self) -> None:
+        notice = notices.month_closed(facts(promise_comparable=False))
+        self.assertEqual(notice["message"], notices.AUTOLOT_PROMISE)
+        self.assertEqual(notice["level"], "info")
+
+    def test_a_summary_saved_before_the_lot_marks_keeps_its_comparisons(self) -> None:
+        # Un resumen es la foto de un mes y se relee tal cual se guardó: la
+        # marca ausente no puede significar «no comparable».
+        self.assertTrue(notices.comparable(facts(), "table_comparable"))
+        stored = facts(profit_standing={"overall": evidence.rank(100.0, [10.0] * 7)})
+        self.assertIn("fueron peores", str(notices.month_closed(stored)["message"]))
+
     def test_what_degrades_changes_the_strategies_and_not_the_portfolio(self) -> None:
         notice = notices.strategies_degraded(facts(
             degraded=[{"symbol": "EURUSD", "strategy_set": "A"}],
@@ -444,6 +477,71 @@ class BuildCriterionTests(unittest.TestCase):
         })
         self.assertTrue(measured["started_inside"])
         self.assertIsNone(measured["below"])
+
+    def test_autolot_without_a_remeasured_month_has_no_promise_to_compare(self) -> None:
+        # Sin escenario, la media de siempre está al lote declarado: compararla
+        # con lo que corrió el autolote mide el volumen, no el comportamiento.
+        portfolios = [{
+            "created_at": "2026-01-01T00:00:00+00:00", "created_day": "2026-01-01",
+            "expectation": {"months": {"10": {
+                "profit": 100.0, "drawdown": 10.0, "years": [2020],
+                "months": {"2020-10": {"profit": 100.0, "drawdown": 10.0, "trades": 3}},
+            }}},
+        }]
+        measured = monthly_summary_build._performance(
+            [(datetime(2026, 10, 2, tzinfo=timezone.utc), 5.0)], portfolios, MONTH,
+            autolot=True,
+        )
+        self.assertFalse(measured["promise_comparable"])
+        self.assertFalse(measured["table_comparable"])
+        self.assertIsNone(measured["below"])
+        self.assertEqual(measured["profit_standing"], {})
+        self.assertFalse(measured["drawdown_standing"]["measured"])
+
+    def test_autolot_promises_at_the_month_lots_but_never_ranks(self) -> None:
+        # El escenario remide **sólo la fila de su mes**, así que la promesa sí
+        # está al lote bueno y la serie de meses sigue sin estarlo.
+        portfolios = [{
+            "created_at": "2026-01-01T00:00:00+00:00", "created_day": "2026-01-01",
+            "expectation": {
+                "months": {"10": {
+                    "profit": 100.0, "drawdown": 10.0, "years": [2020],
+                    "months": {"2020-10": {"profit": 100.0, "drawdown": 10.0, "trades": 3}},
+                }},
+                "months_at": {MONTH: {
+                    "profit": 300.0, "drawdown": 30.0, "years": [2020],
+                    "basis": "autolot_mean_balance", "lots": {"manual:1": 3.0},
+                }},
+            },
+        }]
+        measured = monthly_summary_build._performance(
+            [(datetime(2026, 10, 2, tzinfo=timezone.utc), 5.0)], portfolios, MONTH,
+            autolot=True,
+        )
+        self.assertTrue(measured["promise_comparable"])
+        self.assertFalse(measured["table_comparable"])
+        self.assertEqual(measured["expected"]["profit"], 300.0)
+        self.assertTrue(measured["below"])
+        self.assertEqual(measured["profit_standing"], {})
+
+    def test_a_streak_skips_months_promised_at_another_lot(self) -> None:
+        # Un mes cuya promesa no está al lote que se corrió no puede entrar en
+        # la racha ni romperla: nadie sabe de qué lado habría caído.
+        expectation = {"months": {
+            "09": {"profit": 100.0, "drawdown": 10.0, "years": [2020]},
+            "10": {"profit": 100.0, "drawdown": 10.0, "years": [2020]},
+        }}
+        series = {"2026-10": {"profit": 0.0}, "2026-09": {"profit": 0.0}}
+        portfolios = [{"created_day": "2026-01-01", "expectation": expectation}]
+        self.assertEqual(
+            monthly_summary_build._streak(series, portfolios, "2026-10")["months"], 2,
+        )
+        self.assertEqual(
+            monthly_summary_build._streak(
+                series, portfolios, "2026-10", autolot=True,
+            )["months"],
+            0,
+        )
 
     def test_a_streak_never_uses_months_before_the_portfolio_existed(self) -> None:
         expectation = {"months": {

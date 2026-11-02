@@ -20,8 +20,18 @@
 .summary-page .summary-toolbar select{padding:9px 10px;border:1px solid var(--line,#27394b);border-radius:8px;background:#0b1520;color:var(--text,#edf5f7);font:inherit}
 .summary-page .summary-toolbar .summary-counts{flex:1 1 240px}
 .summary-page .summary-toolbar .cron-note,.summary-page .summary-config .cron-note{color:var(--muted,#91a4b5);font-size:12px;line-height:1.5}
-.summary-page .summary-toolbar .summary-completion{flex:1 0 100%;margin:0;padding:9px 10px;border:1px solid #397861;border-radius:8px;background:#0d211d;color:var(--accent2,#63e6be);font-size:12px;line-height:1.5}
-.summary-page .summary-toolbar .summary-completion.error{border-color:var(--danger,#ff6b6b);background:#2a1115;color:#ffc9c9}
+/* La barra toma de `cron-activity` el punto, el relleno y la animacion; aqui
+   solo deja de ser un boton —no se pulsa, informa— y ocupa la fila entera por
+   encima de los botones. El texto puede ser largo, asi que no se recorta. */
+/* `flex:1 0 100%` la pone en su propia fila: queda justo encima de los botones
+   porque en el HTML va delante de ellos, sin tocar el orden de lo demas. */
+.summary-page .summary-toolbar .summary-activity{flex:1 0 100%;cursor:default;align-items:start;color:var(--accent2,#63e6be)}
+.summary-page .summary-toolbar .summary-activity .cron-activity-body{width:100%}
+.summary-page .summary-toolbar .summary-activity .cron-activity-text{white-space:normal;line-height:1.5}
+.summary-page .summary-toolbar .summary-activity.error{border-color:var(--danger,#ff6b6b);background:#2a1115;color:#ffc9c9}
+.summary-page .summary-toolbar .summary-activity.error .cron-activity-dot{background:var(--danger,#ff6b6b);animation:none}
+.summary-page .summary-toolbar .summary-activity.error .cron-activity-bar i{background:var(--danger,#ff6b6b)}
+.summary-page .summary-toolbar .summary-activity.done .cron-activity-dot{animation:none}
 .summary-page .summary-config .cron-warning{color:var(--warn,#ffd166);font-size:12px;line-height:1.5}
 .summary-page .summary-config form{display:grid;gap:12px;margin-top:12px}
 .summary-page .summary-config .cron-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}

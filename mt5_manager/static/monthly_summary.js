@@ -143,23 +143,27 @@
       + `<p>${escapeHtml(notice.message)}</p></li>`;
   }
 
+  // Un recuadro con un número dice «esto se puede comparar». Cuando no se
+  // puede —tramo parcial, o serie del backtest a otros lotes que los que el
+  // autolote corrió— enseña el motivo en su sitio en vez de una cifra que se
+  // leería como comparación. Las marcas las pone `monthly_summary_build`; un
+  // resumen guardado antes de medirlas no las trae, y ausente vale por sí.
   function figuresMarkup(card) {
     const currency = card.currency || '';
     const closed = card.closed || {};
     const expected = card.expected || {};
     const coverage = card.coverage || {};
     const partial = Boolean(card.started_inside);
-    const profitLabel = partial ? 'Beneficio desde el alta' : 'Beneficio del mes';
-    const drawdownLabel = partial ? 'Drawdown desde el alta' : 'Drawdown del mes';
-    const coverageLabel = partial ? 'Tramo auditado' : 'Mes auditado';
+    const promised = !partial && card.promise_comparable !== false;
+    const ranked = !partial && card.table_comparable !== false;
     const coverageValue = partial ? coverage.eligible_pct : coverage.pct;
     return `<div class="summary-grid">
-      <div><span>${profitLabel}</span><strong>${escapeHtml(amount(closed.profit, currency))}</strong></div>
-      <div><span>${partial ? 'Promesa comparable' : 'Prometía'}</span><strong>${partial ? 'No disponible' : escapeHtml(amount(expected.profit, currency))}</strong></div>
-      <div><span>${drawdownLabel}</span><strong>${escapeHtml(amount(closed.drawdown, currency))}</strong></div>
-      <div><span>${partial ? 'Comparación histórica' : 'Peor mes del backtest'}</span><strong>${partial ? 'No comparable' : escapeHtml(amount((card.drawdown_standing || {}).worst, currency))}</strong></div>
-      <div><span>${coverageLabel}</span><strong>${escapeHtml(`${Number(coverageValue || 0).toFixed(0)} %`)}</strong></div>
-      <div><span>${partial ? 'Meses completos de referencia' : 'Meses de backtest'}</span><strong>${escapeHtml(String(card.backtest_months || 0))}</strong></div>
+      <div><span>${partial ? 'Beneficio desde el alta' : 'Beneficio del mes'}</span><strong>${escapeHtml(amount(closed.profit, currency))}</strong></div>
+      <div><span>${promised ? 'Prometía' : 'Promesa comparable'}</span><strong>${promised ? escapeHtml(amount(expected.profit, currency)) : 'No disponible'}</strong></div>
+      <div><span>${partial ? 'Drawdown desde el alta' : 'Drawdown del mes'}</span><strong>${escapeHtml(amount(closed.drawdown, currency))}</strong></div>
+      <div><span>${ranked ? 'Peor mes del backtest' : 'Comparación histórica'}</span><strong>${ranked ? escapeHtml(amount((card.drawdown_standing || {}).worst, currency)) : 'No comparable'}</strong></div>
+      <div><span>${partial ? 'Tramo auditado' : 'Mes auditado'}</span><strong>${escapeHtml(`${Number(coverageValue || 0).toFixed(0)} %`)}</strong></div>
+      <div><span>${ranked ? 'Meses de backtest' : 'Meses completos de referencia'}</span><strong>${escapeHtml(String(card.backtest_months || 0))}</strong></div>
     </div>`;
   }
 
@@ -233,6 +237,7 @@
     field('#monthly-summary-counts').textContent = countsMarkup(current);
     cards.innerHTML = sortAccounts(current.accounts || []).map(cardMarkup).join('')
       || '<p class="cron-note">Sin tarjetas: ninguna cuenta real activa tenía este mes.</p>';
+    applyRecoveryPlan(current);
   }
 
   function renderMonths(answer) {
@@ -353,9 +358,15 @@
     });
   }
 
-  function completionState(message, error = false) {
-    completion.textContent = message;
-    completion.className = error ? 'summary-completion error' : 'summary-completion';
+  // El mismo punto, barra y relleno que la cita de auditoría usa en la
+  // cabecera de todas las pantallas. `percent` es el avance real de la
+  // recuperación —sondeos y auditorías terminados—, no una animación: con dos
+  // horas de margen, una barra que no significa nada es peor que ninguna.
+  function completionState(message, {percent = 0, tone = ''} = {}) {
+    field('#monthly-summary-activity-text').textContent = message;
+    field('#monthly-summary-activity-fill').style.width =
+      `${Math.max(0, Math.min(100, Number(percent) || 0))}%`;
+    completion.className = `summary-activity cron-activity${tone ? ` ${tone}` : ''}`;
     completion.hidden = !message;
   }
 
@@ -369,14 +380,27 @@
     return snapshots || (queuedAudits > 0 && Number(recovery.pending || 0) > 0);
   }
 
+  // Lo lanzado es el total y lo que queda son los sondeos vivos más las
+  // auditorías por correr: así la barra avanza por trabajo terminado y no por
+  // tiempo pasado, que con dos horas de margen no dice nada.
+  function recoveryPercent(launched, snapshots, pending) {
+    if (launched <= 0) return 100;
+    const left = Math.min(launched, Math.max(0, snapshots) + Math.max(0, pending));
+    return Math.round(((launched - left) / launched) * 100);
+  }
+
   async function waitForRecovery(snapshotNodes, queuedAudits) {
     const deadline = Date.now() + (2 * 60 * 60 * 1000);
+    const launched = snapshotNodes.size + queuedAudits;
     while (Date.now() < deadline) {
       const activity = await get('/api/live-audit-activity');
       if (!recoveryActive(activity, snapshotNodes, queuedAudits)) return;
       const snapshots = (activity.account_snapshots || []).length;
       const pending = Number((activity.recovery || {}).pending || 0);
-      completionState(`Obteniendo datos: ${snapshots} sondeo(s) y ${pending} auditoría(s) pendientes…`);
+      completionState(
+        `Obteniendo datos: ${snapshots} sondeo(s) y ${pending} auditoría(s) pendientes…`,
+        {percent: recoveryPercent(launched, snapshots, pending)},
+      );
       await wait(5000);
     }
     throw new Error('La recuperación sigue en marcha después de dos horas. Puedes volver más tarde y actualizar.');
@@ -389,7 +413,8 @@
     const unknown = Number(((answer.report || {}).counts || {}).unknown || 0);
     completionState(unknown
       ? `Recuperación terminada. Quedan ${unknown} cuenta(s) sin conclusión por motivos que no se pueden obtener automáticamente.`
-      : 'Recuperación terminada: la validación ya tiene conclusión para todas las cuentas.');
+      : 'Recuperación terminada: la validación ya tiene conclusión para todas las cuentas.',
+    {percent: 100, tone: 'done'});
   }
 
   function recoveryPlan(report) {
@@ -398,6 +423,21 @@
       snapshot: accounts.some(card => (card.recovery || {}).account_snapshot),
       audit: accounts.some(card => (card.recovery || {}).audit),
     };
+  }
+
+  // El informe ya dice, cuenta por cuenta, qué se puede obtener: un botón que
+  // se puede pulsar cuando no falta nada hace sondear doce cuentas para no
+  // cambiar nada. Antes sólo se desactivaba mientras corría, y el plan se
+  // miraba después de pulsar —recalculando el resumen entero para descubrir
+  // que no había nada que hacer.
+  function applyRecoveryPlan(report) {
+    const plan = recoveryPlan(report || {});
+    const needed = plan.snapshot || plan.audit;
+    complete.disabled = !needed;
+    complete.title = needed
+      ? 'Sondea las cuentas que lo necesiten y lanza las auditorías que faltan.'
+      : 'Nada que obtener: el mes está cubierto y las series están al día.';
+    return plan;
   }
 
   async function refreshedRecoveryPlan(month) {
@@ -415,7 +455,7 @@
     if (!window.confirm(warning)) return;
     complete.disabled = true;
     run.disabled = true;
-    completionState('Preparando la recuperación de los datos que faltan…');
+    completionState('Preparando la recuperación de los datos que faltan…', {percent: 0});
     try {
       const plan = await refreshedRecoveryPlan(month);
       const snapshots = plan.snapshot
@@ -428,15 +468,18 @@
       completionState(
         `Lanzados ${nodes.size} sondeo(s) y ${queued} auditoría(s)`
         + `${skipped ? `; ${skipped} nodo(s) no pudieron arrancar` : ''}. Esperando…`,
+        {percent: 0},
       );
       await waitForRecovery(nodes, queued);
       await recalculateRecovered(month);
     } catch (error) {
-      completionState(error.message, true);
+      completionState(error.message, {tone: 'error'});
       notify(error.message, true);
     } finally {
-      complete.disabled = false;
       run.disabled = false;
+      // Vuelve a decidirlo el informe que haya quedado, no el hecho de haber
+      // terminado: si ya no falta nada, el botón se queda apagado.
+      applyRecoveryPlan(current);
     }
   }
 

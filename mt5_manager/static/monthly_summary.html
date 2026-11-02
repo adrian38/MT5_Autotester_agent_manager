@@ -35,9 +35,22 @@
       <label>Mes<select id="monthly-summary-month"></select></label>
       <p class="summary-counts" id="monthly-summary-counts">Leyendo el último resumen guardado…</p>
       <p class="cron-note" id="monthly-summary-generated"></p>
-      <button type="button" id="monthly-summary-complete">Obtener lo que falta</button>
+      <!-- La barra de actividad va **encima** de los botones y con las clases
+           de `cron-activity`, las mismas que usa la cita de auditoría en la
+           cabecera de todas las pantallas: la recuperación tarda minutos y
+           antes sólo dejaba una línea de texto, así que no había forma de
+           saber si estaba haciendo algo. -->
+      <div class="summary-activity cron-activity" id="monthly-summary-completion" hidden>
+        <span class="cron-activity-dot" aria-hidden="true"></span>
+        <span class="cron-activity-body">
+          <span class="cron-activity-text" id="monthly-summary-activity-text" aria-live="polite"></span>
+          <span class="cron-activity-bar"><i id="monthly-summary-activity-fill"></i></span>
+        </span>
+      </div>
+      <!-- Nace apagado: hasta que el informe no dice qué falta, pulsarlo sondearía
+           doce cuentas sin saber si hay algo que obtener. -->
+      <button type="button" id="monthly-summary-complete" disabled>Obtener lo que falta</button>
       <button type="button" class="secondary" id="monthly-summary-run">Volver a calcular</button>
-      <p class="summary-completion" id="monthly-summary-completion" hidden></p>
     </section>
 
     <section class="summary-cards" id="monthly-summary-cards" aria-live="polite">
