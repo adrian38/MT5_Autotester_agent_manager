@@ -121,6 +121,27 @@
   const completion = field('#monthly-summary-completion');
   const state = field('#refresh-state');
 
+  // Un solo candado para los dos botones y para el selector de mes. Eran tres
+  // mandos independientes: «Volver a calcular» sólo se apagaba a sí mismo, así
+  // que mientras recalculaba —y sin nada que lo dijera en pantalla— seguía
+  // pudiendo pulsarse «Obtener lo que falta», que sí entra en los agentes y
+  // lanza sondeos. Y cambiar de mes a media petición dejaba el resultado de un
+  // mes pintado sobre el selector de otro.
+  let busy = false;
+  let recoveryNeeded = false;
+  let hasMonths = false;
+
+  function applyBusy() {
+    run.disabled = busy;
+    complete.disabled = busy || !recoveryNeeded;
+    field('#monthly-summary-month').disabled = busy || !hasMonths;
+  }
+
+  function setBusy(value) {
+    busy = Boolean(value);
+    applyBusy();
+  }
+
   // --- Pintado ------------------------------------------------------------
   function amount(value, currency) {
     if (value === null || value === undefined || value === '') return 'sin medir';
@@ -388,7 +409,11 @@
       `<option value="${escapeHtml(label)}"${label === chosen ? ' selected' : ''}>`
       + `${escapeHtml(monthName(label))}${unread.has(label) ? ' •' : ''}</option>`
     )).join('') || '<option value="">Sin resúmenes guardados</option>';
-    select.disabled = !months.length;
+    // Repintar el selector no lo reabre: mientras una acción trabaja sigue
+    // cerrado, porque cambiar de mes a media petición dejaría el informe de un
+    // mes bajo el nombre de otro.
+    hasMonths = Boolean(months.length);
+    applyBusy();
   }
 
   // Los recuadros se pintan con el criterio de hoy y los avisos vienen
@@ -520,11 +545,15 @@
   // cabecera de todas las pantallas. `percent` es el avance real de la
   // recuperación —sondeos y auditorías terminados—, no una animación: con dos
   // horas de margen, una barra que no significa nada es peor que ninguna.
-  function completionState(message, {percent = 0, tone = ''} = {}) {
+  // `working` es el trabajo del propio resumen, que no tiene avance que medir:
+  // la barra se mueve sin prometer un porcentaje. El resto es el trabajo de
+  // los terminales, con su avance real.
+  function completionState(message, {percent = 0, tone = '', working = false} = {}) {
     field('#monthly-summary-activity-text').textContent = message;
-    field('#monthly-summary-activity-fill').style.width =
-      `${Math.max(0, Math.min(100, Number(percent) || 0))}%`;
-    completion.className = `summary-activity cron-activity${tone ? ` ${tone}` : ''}`;
+    field('#monthly-summary-activity-fill').style.width = working
+      ? '' : `${Math.max(0, Math.min(100, Number(percent) || 0))}%`;
+    completion.className = 'summary-activity cron-activity'
+      + `${working ? ' working' : ''}${tone ? ` ${tone}` : ''}`;
     completion.hidden = !message;
   }
 
@@ -590,11 +619,11 @@
   // que no había nada que hacer.
   function applyRecoveryPlan(report) {
     const plan = recoveryPlan(report || {});
-    const needed = plan.snapshot || plan.audit;
-    complete.disabled = !needed;
-    complete.title = needed
+    recoveryNeeded = plan.snapshot || plan.audit;
+    complete.title = recoveryNeeded
       ? 'Sondea las cuentas que lo necesiten y lanza las auditorías que faltan.'
       : 'Nada que obtener: el mes está cubierto y las series están al día.';
+    applyBusy();
     return plan;
   }
 
@@ -611,9 +640,8 @@
       + 'Mientras trabajan, los agentes afectados pueden pausar su pipeline. '
       + 'Al terminar se recalculará este resumen automáticamente.';
     if (!window.confirm(warning)) return;
-    complete.disabled = true;
-    run.disabled = true;
-    completionState('Preparando la recuperación de los datos que faltan…', {percent: 0});
+    setBusy(true);
+    completionState('Preparando la recuperación de los datos que faltan…', {working: true});
     try {
       const plan = await refreshedRecoveryPlan(month);
       const snapshots = plan.snapshot
@@ -634,7 +662,7 @@
       completionState(error.message, {tone: 'error'});
       notify(error.message, true);
     } finally {
-      run.disabled = false;
+      busy = false;
       // Vuelve a decidirlo el informe que haya quedado, no el hecho de haber
       // terminado: si ya no falta nada, el botón se queda apagado.
       applyRecoveryPlan(current);
@@ -648,14 +676,27 @@
       + 'Recalcularlo lo sustituye por lo que se sabe hoy, que no es lo mismo: '
       + 'el archivo tiene auditorías que entonces no estaban.';
     if (!window.confirm(warning)) return;
-    run.disabled = true;
+    setBusy(true);
+    // Recalcular recorre el archivo de auditorías de todas las cuentas del
+    // mes, así que puede tardar. Sin decirlo en pantalla el botón parecía no
+    // haber respondido, y lo que se hacía era volver a pulsar —o pulsar el de
+    // al lado, que sí lanza sondeos—. No lleva porcentaje porque no hay
+    // ninguno que sea verdad: es una petición, no una cola de trabajos.
+    const named = month ? monthName(month) : 'el último mes cerrado';
+    completionState(`Recalculando el resumen de ${named}…`, {working: true});
     try {
       const answer = await post('/api/monthly-summary/run', month ? {month} : {});
       applyAnswer(answer);
+      completionState(`Resumen de ${named} recalculado.`, {percent: 100, tone: 'done'});
       notify('Resumen recalculado.');
       loadDetails(answer.report || {});
-    } catch (error) { notify(error.message, true); }
-    finally { run.disabled = false; }
+    } catch (error) {
+      completionState(error.message, {tone: 'error'});
+      notify(error.message, true);
+    } finally {
+      busy = false;
+      applyRecoveryPlan(current);
+    }
   }
 
   async function save(event) {

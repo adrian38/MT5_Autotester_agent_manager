@@ -268,12 +268,51 @@ class ScriptTests(unittest.TestCase):
         # El informe ya dice cuenta por cuenta qué se puede obtener: pulsarlo
         # sin nada que falte sondearía doce cuentas para no cambiar nada.
         plan = SCRIPT[SCRIPT.index("function applyRecoveryPlan"):]
-        self.assertIn("complete.disabled = !needed", plan)
-        self.assertIn("plan.snapshot || plan.audit", plan)
+        self.assertIn("recoveryNeeded = plan.snapshot || plan.audit", plan)
+        self.assertIn("complete.disabled = busy || !recoveryNeeded", SCRIPT)
         self.assertIn("applyRecoveryPlan(current)", SCRIPT)
         # Y nace apagado: antes de leer el informe nadie sabe si falta algo.
         self.assertIn("id=\"monthly-summary-complete\" disabled", PAGE)
         self.assertNotIn("complete.disabled = false", SCRIPT)
+
+    def test_one_lock_covers_both_buttons_and_the_month(self) -> None:
+        # «Volver a calcular» sólo se apagaba a sí mismo, así que mientras
+        # recalculaba seguía pudiendo pulsarse «Obtener lo que falta», que sí
+        # entra en los agentes y lanza sondeos. Y cambiar de mes a media
+        # petición dejaba el informe de un mes bajo el nombre de otro.
+        lock = SCRIPT[SCRIPT.index("function applyBusy"):SCRIPT.index("// --- Pintado")]
+        for expression in (
+            "run.disabled = busy",
+            "complete.disabled = busy || !recoveryNeeded",
+            "field('#monthly-summary-month').disabled = busy || !hasMonths",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, lock)
+        for action in ("async function recalculate", "async function completeValidation"):
+            with self.subTest(action=action):
+                body = SCRIPT[SCRIPT.index(action):]
+                self.assertIn("setBusy(true)", body[:body.index("} finally {")])
+        # Repintar el selector no lo reabre a media petición.
+        months = SCRIPT[SCRIPT.index("function renderMonths"):]
+        self.assertIn("hasMonths = Boolean(months.length)", months)
+        self.assertNotIn("select.disabled = !months.length", SCRIPT)
+        # Los dos botones vuelven por el mismo sitio, con el plan que quedó.
+        self.assertNotIn("run.disabled = false", SCRIPT)
+
+    def test_the_summary_shows_its_own_work_and_not_only_the_agents(self) -> None:
+        # El recálculo recorre el archivo de auditorías: sin nada en pantalla
+        # el botón parecía no haber respondido. No lleva porcentaje porque no
+        # hay ninguno que sea verdad; el trabajo de los agentes sí lo lleva.
+        run = SCRIPT[SCRIPT.index("async function recalculate"):]
+        self.assertIn("Recalculando el resumen de ${named}", run)
+        self.assertIn("{working: true}", run)
+        self.assertIn("{percent: 100, tone: 'done'}", run)
+        self.assertIn("completionState(error.message, {tone: 'error'})", run)
+        bar = SCRIPT[SCRIPT.index("function completionState"):]
+        self.assertIn("working ?", bar)
+        self.assertIn("${working ? ' working' : ''}", bar)
+        self.assertIn(".summary-activity.working .cron-activity-bar i{", STYLE)
+        self.assertIn("@keyframes summary-activity-sweep", STYLE)
 
     def test_the_recovery_shows_the_same_activity_bar_as_the_rest(self) -> None:
         # La recuperación tarda minutos y antes sólo dejaba una línea de texto.

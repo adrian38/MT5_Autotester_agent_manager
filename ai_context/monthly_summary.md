@@ -299,6 +299,14 @@ del veredicto de reproducción que éste arrastra.
   cuenta y dejó de pasar solo. Ahora `convert` devuelve `None` tal cual, y
   `_totals` sólo acusa de «sin cambio» a la moneda cuyo importe **sí** se
   conocía: un Profit que falta no es un cambio que falte.
+- **Un candado para los dos botones del resumen** (2026-11-02). «Volver a
+  calcular» sólo se apagaba a sí mismo y no dejaba nada en pantalla, así que
+  mientras trabajaba parecía no haber respondido y «Obtener lo que falta»
+  —que sí entra en los agentes y lanza sondeos— seguía vivo justo al lado.
+  `applyBusy` apaga los dos y el selector de mes, y el recálculo enseña su
+  propio trabajo en la misma barra con la clase `working`: sin porcentaje,
+  porque es una petición y no una cola, al contrario que la recuperación de
+  los agentes, que sí avanza por trabajo terminado.
 
 ## Cómo se entregó
 
