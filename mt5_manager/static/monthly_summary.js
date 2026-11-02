@@ -32,6 +32,44 @@
   const reproduction = new Map();
   const aliases = new Map();
 
+  // El mismo contrato de Cuentas en real y Portafolios activos: el broker
+  // colorea la tarjeta, y las prop van al final sin importar el broker.
+  const BROKER_CLASSES = {
+    AXI: 'broker-axi', ROBOFOREX: 'broker-roboforex', ICTRADING: 'broker-ictrading',
+    VANTAGE: 'broker-vantage',
+  };
+  function brokerClass(broker) {
+    return BROKER_CLASSES[String(broker || '').toUpperCase()] || '';
+  }
+
+  function cardBroker(card) {
+    if (card.node_broker) return card.node_broker;
+    const identity = `${card.node_name || ''} ${card.node_id || ''}`.toUpperCase();
+    return Object.keys(BROKER_CLASSES).find(broker => identity.includes(broker)) || '';
+  }
+
+  function portfolioLabel(card, row) {
+    return aliases.get(`${card.node_id}|${row.portfolio_id}`)
+      || row.name || `Portafolio #${row.portfolio_id || '—'}`;
+  }
+
+  function cardIsProp(card) {
+    return (card.portfolios || []).some(row => /prop/i.test(portfolioLabel(card, row)));
+  }
+
+  function sortAccounts(cardsToSort) {
+    return [...cardsToSort].sort((left, right) => {
+      const propLeft = cardIsProp(left) ? 1 : 0;
+      const propRight = cardIsProp(right) ? 1 : 0;
+      if (propLeft !== propRight) return propLeft - propRight;
+      const brokerLeft = String(cardBroker(left)).toUpperCase();
+      const brokerRight = String(cardBroker(right)).toUpperCase();
+      if (brokerLeft !== brokerRight) return brokerLeft.localeCompare(brokerRight);
+      return String(left.node_name || '').localeCompare(String(right.node_name || ''))
+        || String(left.login || '').localeCompare(String(right.login || ''));
+    });
+  }
+
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, character => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -162,7 +200,7 @@
 
   function cardMarkup(card) {
     const verdict = String(card.verdict || 'keep');
-    return `<article class="summary-card ${escapeHtml(verdict)}">
+    return `<article class="summary-card ${escapeHtml(verdict)} ${brokerClass(cardBroker(card))}">
       <div class="summary-card-head">
         ${portfolioIdentityMarkup(card)}
         <span class="summary-verdict ${escapeHtml(verdict)}">${escapeHtml(VERDICTS[verdict] || verdict)}</span>
@@ -193,7 +231,7 @@
     field('#monthly-summary-generated').textContent = current.generated_at
       ? `Calculado el ${localDate(current.generated_at)}.` : '';
     field('#monthly-summary-counts').textContent = countsMarkup(current);
-    cards.innerHTML = (current.accounts || []).map(cardMarkup).join('')
+    cards.innerHTML = sortAccounts(current.accounts || []).map(cardMarkup).join('')
       || '<p class="cron-note">Sin tarjetas: ninguna cuenta real activa tenía este mes.</p>';
   }
 

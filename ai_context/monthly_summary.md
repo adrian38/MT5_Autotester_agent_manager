@@ -97,7 +97,10 @@ del veredicto de reproducción que éste arrastra.
 - **El alias abre la tarjeta.** Es la identidad que el usuario reconoce, así
   que aparece destacado antes que cuenta, cifras y avisos. El nombre guardado
   queda debajo como referencia técnica y al final conserva su enlace al
-  análisis.
+  análisis. Colores y orden conservan literalmente el contrato de Cuentas en
+  real y Portafolios activos: AXI rojo, RoboForex azul, ICTrading verde y
+  Vantage violeta; primero se agrupa por broker y las prop quedan al final.
+  El veredicto colorea sólo su chapa, nunca sustituye la identidad del broker.
 - **La serie queda cerrada con una lectura posterior al fin del mes.** No se
   exige esperar tres días ni volver a sondear hasta coincidir con la hora del
   cálculo: esa comparación móvil hacía obsoleta incluso una captura recién

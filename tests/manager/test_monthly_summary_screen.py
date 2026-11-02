@@ -250,11 +250,20 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("id=\"monthly-summary-complete\"", PAGE)
         self.assertIn("id=\"monthly-summary-completion\"", PAGE)
 
-    def test_the_four_verdicts_have_a_colour(self) -> None:
+    def test_broker_colours_and_account_order_match_the_other_screens(self) -> None:
+        for broker in ("axi", "roboforex", "ictrading", "vantage"):
+            with self.subTest(broker=broker):
+                self.assertIn(f".summary-card.broker-{broker}{{", STYLE)
         for verdict in ("change", "watch", "keep", "unknown"):
             with self.subTest(verdict=verdict):
-                self.assertIn(f".summary-card.{verdict}{{", STYLE)
                 self.assertIn(f".summary-verdict.{verdict}{{", STYLE)
+        for expression in (
+            "const BROKER_CLASSES", "function cardBroker", "function sortAccounts",
+            "cardIsProp(left)",
+            "brokerLeft.localeCompare(brokerRight)", "sortAccounts(current.accounts",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, SCRIPT)
 
     def test_the_badge_is_painted_without_opening_anything(self) -> None:
         # El día 1 el botón ya dice que hay algo que mirar, y que falle no

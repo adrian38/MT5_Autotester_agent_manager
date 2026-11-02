@@ -246,6 +246,7 @@ def account_card(
     closed = performance["closed"]
     facts = {
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
+        "node_broker": str(node.get("portfolio_broker") or ""),
         "account_key": account["account_key"], "login": account["login"],
         "server": account["server"],
         "currency": str(stored.get("currency") or ""),
