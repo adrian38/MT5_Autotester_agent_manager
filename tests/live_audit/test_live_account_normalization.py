@@ -223,6 +223,7 @@ class NormalizedSeriesTests(unittest.TestCase):
                     live_account_report, "account_from_html",
                     return_value=(
                         [(datetime(2026, 10, 19, 9, tzinfo=timezone.utc), 3.0)],
+                        [(datetime(2026, 10, 19, 9, tzinfo=timezone.utc), 4.0)],
                         [("2026-10-19", 1_000.0)],
                     ),
                 ):

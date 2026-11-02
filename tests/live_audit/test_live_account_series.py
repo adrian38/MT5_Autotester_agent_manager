@@ -47,8 +47,14 @@ class MovementTests(unittest.TestCase):
         ])
         self.assertEqual([amount for _moment, amount in ordered], [12.0])
 
-    def test_commission_and_swap_are_part_of_the_result(self) -> None:
+    def test_profit_is_the_same_column_the_mt5_report_shows(self) -> None:
         ordered = live_account_series.movements([
+            deal("2026-10-20T10:00:00", 12.0, commission=-1.5, swap=-0.5),
+        ])
+        self.assertAlmostEqual(ordered[0][1], 12.0)
+
+    def test_net_movements_keep_commission_and_swap_for_comparisons(self) -> None:
+        ordered = live_account_series.net_movements([
             deal("2026-10-20T10:00:00", 12.0, commission=-1.5, swap=-0.5),
         ])
         self.assertAlmostEqual(ordered[0][1], 10.0)

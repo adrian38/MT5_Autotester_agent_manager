@@ -514,6 +514,20 @@ class NoticeTests(unittest.TestCase):
         self.assertIn("sólo desde", str(found[0]["message"]))
         self.assertIn("no hay promesa a su tamaño", str(found[1]["message"]))
 
+    def test_a_tranche_distinguishes_profit_from_the_net_result(self) -> None:
+        notice = notices.month_closed(facts(
+            started_inside=True,
+            closed={"profit": -160.85, "drawdown": 5.0},
+            net_closed={"profit": -178.02, "drawdown": 5.0},
+            tranche={
+                "measured": True, "profit": 10.0, "average": 20.0,
+                "days": 15, "month_days": 30, "meets_profit": True,
+                "drawdown": 5.0, "meets_drawdown": True,
+            },
+        ))
+        self.assertIn("Profit MT5: -160,85 EUR", notice["message"])
+        self.assertIn("neto tras comisión y swap: -178,02 EUR", notice["message"])
+
     def test_a_partial_month_cannot_claim_a_full_month_drawdown(self) -> None:
         partial = facts(
             started_inside=True, streak=5,

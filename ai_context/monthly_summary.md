@@ -262,6 +262,14 @@ del veredicto de reproducción que éste arrastra.
   fechas, igual que `live_account_monthly.active_totals`; la hora sólo registra
   cuándo se guardó, no define un tramo visible por días. El criterio sube a v9
   para obligar a recalcular las fotos guardadas con el recorte incorrecto.
+- **`Profit` no es el resultado neto** (2026-11-02). En Profalgo_Robo, tramo
+  15–31, el informe nativo da Profit −160,85 EUR, comisión −10,63 EUR y swap
+  −6,54 EUR: el efecto sobre el saldo es −178,02 EUR. El usuario pidió que el
+  valor principal sea exactamente la columna Profit. Desde `balance-series-v5`
+  se guardan ambas series: la tarjeta enseña Profit, mientras los objetivos,
+  bandas, rachas y drawdown siguen usando el neto compatible con el backtest.
+  El aviso muestra ambos importes y los títulos distinguen «Profit MT5» de
+  «Objetivo neto». El criterio sube a v10 para rehacer las frases guardadas.
 
 ## Cómo se entregó
 

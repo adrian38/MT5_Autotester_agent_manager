@@ -77,10 +77,10 @@ def movement_rows(ordered: Iterable[tuple[Any, float]]) -> list[list[Any]]:
     return [[as_utc(moment).isoformat(), float(amount)] for moment, amount in ordered]
 
 
-def stored_movements(stored: dict[str, Any]) -> list[tuple[str, float]]:
-    """Los movimientos guardados, ya ordenados y sin filas corruptas."""
+def _stored_series(stored: dict[str, Any], key: str) -> list[tuple[str, float]]:
+    """Una serie monetaria guardada, ordenada y sin filas corruptas."""
     found: list[tuple[str, float]] = []
-    for row in stored.get("movements") or []:
+    for row in stored.get(key) or []:
         if not isinstance(row, (list, tuple)) or len(row) != 2:
             continue
         try:
@@ -89,6 +89,16 @@ def stored_movements(stored: dict[str, Any]) -> list[tuple[str, float]]:
             continue
     found.sort(key=lambda item: item[0])
     return found
+
+
+def stored_movements(stored: dict[str, Any]) -> list[tuple[str, float]]:
+    """El efecto neto en saldo guardado, ya ordenado."""
+    return _stored_series(stored, "movements")
+
+
+def stored_profits(stored: dict[str, Any]) -> list[tuple[str, float]]:
+    """La columna Profit de MT5 guardada, ya ordenada."""
+    return _stored_series(stored, "profits")
 
 
 def stored_balances(stored: dict[str, Any]) -> list[tuple[str, float]]:
@@ -122,6 +132,14 @@ def ordered_movements(stored: dict[str, Any]) -> list[tuple[datetime, float]]:
     ]
 
 
+def ordered_profits(stored: dict[str, Any]) -> list[tuple[datetime, float]]:
+    """La columna Profit de MT5, con el instante convertido."""
+    return [
+        (datetime.fromisoformat(stamp), amount)
+        for stamp, amount in stored_profits(stored)
+    ]
+
+
 class LiveAccountArchive:
     def __init__(self, directory: str | Path) -> None:
         self.directory = Path(directory).expanduser().resolve()
@@ -138,7 +156,7 @@ class LiveAccountArchive:
         path = self._path(node_id, key)
         empty = {
             "account_key": key, "login": "", "server": "", "currency": "",
-            "movements": [], "first_day": "", "last_day": "", "updated_at": "",
+            "movements": [], "profits": [], "first_day": "", "last_day": "",
             "snapshots": [], "balance": 0.0, "equity": 0.0,
             "balances": [], "normalization_version": "",
         }
@@ -238,9 +256,23 @@ class LiveAccountArchive:
         merged.update({str(row[0]): float(row[1]) for row in arrived})
         return [[day, merged[day]] for day in sorted(merged)][-MAXIMUM_BALANCE_DAYS:]
 
+    @classmethod
+    def _merged_series(
+        cls, stored: Sequence[tuple[str, float]], fresh: Sequence[tuple[Any, float]],
+        period_start: str, period_end: str,
+    ) -> list[list[Any]]:
+        """Una serie monetaria después de sustituir el periodo sondeado."""
+        arrived = cls._inside(movement_rows(fresh), period_start, period_end)
+        kept = cls._kept(stored, period_start, period_end)
+        return sorted(
+            [[moment, amount] for moment, amount in kept] + arrived,
+            key=lambda row: row[0],
+        )[-MAXIMUM_MOVEMENTS:]
+
     def merge(
         self, node_id: str, key: str, *, login: Any, server: Any, currency: Any,
         movements: Sequence[tuple[Any, float]], period_start: str, period_end: str,
+        profits: Sequence[tuple[Any, float]] | None = None,
         taken_at: str = "", balance: Any = None, equity: Any = None,
         balances: Sequence[tuple[str, float]] | None = None,
         normalization_version: str | None = None,
@@ -249,11 +281,12 @@ class LiveAccountArchive:
         with self.lock:
             stored = self.read(node_id, key)
             fresh = self._inside(movement_rows(movements), period_start, period_end)
-            kept = self._kept(stored_movements(stored), period_start, period_end)
-            combined = sorted(
-                [[moment, amount] for moment, amount in kept] + fresh,
-                key=lambda row: row[0],
-            )[-MAXIMUM_MOVEMENTS:]
+            combined = self._merged_series(
+                stored_movements(stored), movements, period_start, period_end,
+            )
+            gross = self._merged_series(
+                stored_profits(stored), profits or movements, period_start, period_end,
+            )
             days = self._merged_balances(stored, balances, period_start, period_end)
             snapshots = [
                 *(row for row in stored.get("snapshots") or [] if isinstance(row, dict)),
@@ -270,6 +303,7 @@ class LiveAccountArchive:
                 "server": str(server or "").strip(),
                 "currency": str(currency or "").strip().upper() or stored.get("currency") or "",
                 "movements": combined,
+                "profits": gross,
                 "first_day": combined[0][0][:10] if combined else "",
                 "last_day": combined[-1][0][:10] if combined else "",
                 "updated_at": taken_at or utc_now(),

@@ -303,8 +303,8 @@ class ScriptTests(unittest.TestCase):
     def test_a_partial_month_names_tranches_and_full_month_drawdowns(self) -> None:
         labels = SCRIPT[SCRIPT.index("function figureLabels"):]
         for label in (
-            "'Beneficio del tramo'", "`Objetivo del tramo${span}`",
-            "'Beneficio medio histórico del tramo'", "'Drawdown del tramo'",
+            "'Profit MT5 del tramo'", "`Objetivo neto del tramo${span}`",
+            "'Resultado neto medio histórico del tramo'", "'Drawdown del tramo'",
             "`Drawdown medio de los ${season} (mes entero)`",
             "'Drawdown medio mensual (mes entero)'", "'Tramo auditado'",
         ):
@@ -339,12 +339,13 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("drawdown_standing", SCRIPT)
 
     def test_the_month_is_coloured_against_its_own_average(self) -> None:
-        # El color dice lo mismo que la frase. En el drawdown esta al reves,
-        # asi que lo decide `tone` y no el signo del numero.
+        # El color sigue la comparación neta, aunque el valor visible sea la
+        # columna Profit. En el drawdown esta al reves, asi que lo decide
+        # `tone` y no el signo del numero.
         colour = SCRIPT[SCRIPT.index("function tone("):]
         self.assertIn("lowerIsBetter ? left <= right : left >= right", colour)
         figures = SCRIPT[SCRIPT.index("function figuresMarkup"):]
-        self.assertIn("tone(closed.profit, seasonProfit)", figures)
+        self.assertIn("tone(netClosed.profit, seasonProfit)", figures)
         self.assertIn("tone(closed.drawdown, seasonDepth, true)", figures)
         for rule in (".summary-grid strong.good{", ".summary-grid strong.bad{"):
             with self.subTest(rule=rule):

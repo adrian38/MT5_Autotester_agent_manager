@@ -223,16 +223,16 @@
   // para que dos importes calculados correctamente no parezcan contradictorios.
   function figureLabels(card, season) {
     if (!card.started_inside) return [
-      'Beneficio del mes', `Beneficio medio de los ${season}`,
-      'Beneficio medio histórico', 'Drawdown del mes',
+      'Profit MT5 del mes', `Resultado neto medio de los ${season}`,
+      'Resultado neto medio histórico', 'Drawdown del mes',
       `Drawdown medio de los ${season}`, 'Drawdown medio mensual',
       'Mes auditado',
     ];
     const days = Math.round(Number((card.tranche || {}).days || 0));
     const span = days ? ` (${days} ${days === 1 ? 'día' : 'días'})` : '';
     return [
-      'Beneficio del tramo', `Objetivo del tramo${span}`,
-      'Beneficio medio histórico del tramo', 'Drawdown del tramo',
+      'Profit MT5 del tramo', `Objetivo neto del tramo${span}`,
+      'Resultado neto medio histórico del tramo', 'Drawdown del tramo',
       `Drawdown medio de los ${season} (mes entero)`,
       'Drawdown medio mensual (mes entero)', 'Tramo auditado',
     ];
@@ -248,6 +248,7 @@
   function figuresMarkup(card) {
     const currency = card.currency || '';
     const closed = card.closed || {};
+    const netClosed = card.net_closed || closed;
     const coverage = card.coverage || {};
     const tranche = card.tranche || {};
     const partial = Boolean(card.started_inside);
@@ -264,7 +265,7 @@
     const labels = figureLabels(card, season);
     const tiles = [
       figure(labels[0], money(closed.profit),
-        tone(closed.profit, seasonProfit)),
+        tone(netClosed.profit, seasonProfit)),
       figure(labels[1], money(seasonProfit)),
       figure(labels[2], money(meanProfit)),
       figure(labels[3], money(closed.drawdown),

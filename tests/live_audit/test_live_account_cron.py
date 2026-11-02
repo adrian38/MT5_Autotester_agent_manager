@@ -34,6 +34,11 @@ SHA = hashlib.sha256(REPORT).hexdigest()
 NOW = datetime(2026, 10, 21, 23, 30, tzinfo=ZoneInfo("Europe/Madrid"))
 
 
+def parsed_account():
+    stamp = datetime(2026, 10, 20, 8, tzinfo=timezone.utc)
+    return [(stamp, 7.5)], [(stamp, 8.0)], [("2026-10-20", 1_000.0)]
+
+
 def profile(**changes: object) -> dict[str, object]:
     row = {
         "portfolio_id": 105, "portfolio_type": "aggressive",
@@ -318,10 +323,7 @@ class WatchTests(unittest.TestCase):
             "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
         ), mock.patch(
             "mt5_manager.live_account_report.account_from_html",
-            return_value=(
-                [(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
-                [("2026-10-20", 1_000.0)],
-            ),
+            return_value=parsed_account(),
         ) as parsed:
             live_account_watch.tick(server, NOW)
             live_account_watch.tick(server, NOW)
@@ -337,10 +339,7 @@ class WatchTests(unittest.TestCase):
             "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
         ), mock.patch(
             "mt5_manager.live_account_report.account_from_html",
-            return_value=(
-                [(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
-                [("2026-10-20", 1_000.0)],
-            ),
+            return_value=parsed_account(),
         ):
             live_account_watch.tick(server, NOW)
         event = server.events()[0]
@@ -358,10 +357,7 @@ class WatchTests(unittest.TestCase):
             "mt5_manager.live_account_ingest.refresh_expectations", return_value=0,
         ), mock.patch(
             "mt5_manager.live_account_report.account_from_html",
-            return_value=(
-                [(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
-                [("2026-10-20", 1_000.0)],
-            ),
+            return_value=parsed_account(),
         ):
             live_account_watch.tick(server, NOW)
         self.assertIn("Sondeo de cuentas terminado", server.events()[0]["title"])
@@ -513,10 +509,7 @@ class WatchTests(unittest.TestCase):
     def _collected(self):
         return mock.patch(
             "mt5_manager.live_account_report.account_from_html",
-            return_value=(
-                [(datetime(2026, 10, 20, 8, tzinfo=timezone.utc), 7.5)],
-                [("2026-10-20", 1_000.0)],
-            ),
+            return_value=parsed_account(),
         )
 
     def _no_expectations(self):

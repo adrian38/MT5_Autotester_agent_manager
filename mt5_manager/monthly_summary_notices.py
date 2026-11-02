@@ -48,7 +48,7 @@ from typing import Any
 
 from .monthly_summary_schedule import month_name, month_plural, month_word
 
-CRITERION_VERSION = "seasonal-bands-profit-and-drawdown-v9"
+CRITERION_VERSION = "seasonal-bands-profit-and-drawdown-v10"
 """El criterio con el que se escribieron los avisos de un informe guardado.
 
 Cubre **todo** el criterio —lo que mide `monthly_summary_build` y lo que dice
@@ -217,16 +217,21 @@ def _tranche_message(facts: dict[str, Any], currency: str) -> str:
     veredicto de un tramo es VIGILAR lo diga como lo diga.
     """
     closed = facts.get("closed") or {}
+    net_closed = facts.get("net_closed") or closed
     tranche = facts.get("tranche") or {}
     depth = amount(closed.get("drawdown"), currency)
     if not tranche.get("measured"):
         return (
+            f"Profit MT5: {amount(closed.get('profit'), currency)}. Resultado "
+            f"neto tras comisión y swap: {amount(net_closed.get('profit'), currency)}. "
             f"Drawdown desde el alta: {depth}. Es el resultado real de ese "
             "tramo, pero no hay promesa a su tamaño con la que compararlo."
         )
     word = month_word(str(facts.get("month") or ""))
     days, total = int(tranche.get("days") or 0), int(tranche.get("month_days") or 0)
     return (
+        f"Profit MT5: {amount(closed.get('profit'), currency)}. Resultado neto "
+        f"tras comisión y swap: {amount(net_closed.get('profit'), currency)}. "
         f"Objetivo del tramo: {amount(tranche.get('profit'), currency)} —lo que "
         f"da un {word} ({amount(tranche.get('average'), currency)}) por los "
         f"{days} de {total} días que vivió—, y "
@@ -240,7 +245,7 @@ def _tranche_message(facts: dict[str, Any], currency: str) -> str:
 
 def _closed_message(facts: dict[str, Any], currency: str) -> str:
     """Lo que se puede decir del mes sin comparar lo que no se deja comparar."""
-    closed = facts.get("closed") or {}
+    closed = facts.get("net_closed") or facts.get("closed") or {}
     if facts.get("started_inside"):
         return _tranche_message(facts, currency)
     if not comparable(facts, "promise_comparable"):
@@ -266,10 +271,10 @@ def month_closed(facts: dict[str, Any]) -> dict[str, Any]:
     currency = str(facts.get("currency") or "")
     closed = facts.get("closed") or {}
     label = month_name(str(facts.get("month") or ""))
-    title = f"{label}: {amount(closed.get('profit'), currency)}"
+    title = f"{label} · Profit MT5: {amount(closed.get('profit'), currency)}"
     if facts.get("started_inside"):
         start = str((facts.get("coverage") or {}).get("eligible_start") or "el alta")
-        title = f"Desde {start}: {amount(closed.get('profit'), currency)}"
+        title = f"Desde {start} · Profit MT5: {amount(closed.get('profit'), currency)}"
     settled = (
         not facts.get("started_inside")
         and comparable(facts, "promise_comparable")

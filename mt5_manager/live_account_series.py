@@ -50,18 +50,23 @@ def is_market_movement(deal: Any) -> bool:
 
 
 def movements(deals: Iterable[Any]) -> list[tuple[datetime, float]]:
-    """Los cierres que mueven el saldo por operar, ordenados y en UTC.
+    """La columna Profit de los cierres de mercado, ordenada y en UTC."""
+    return _movements(deals, "profit")
 
-    `net_profit` y no `profit`: la comisión y el swap son parte del resultado
-    de la operación, y dejarlos fuera inflaría el beneficio de una cuenta real
-    exactamente en lo que el broker se queda.
-    """
+
+def net_movements(deals: Iterable[Any]) -> list[tuple[datetime, float]]:
+    """El efecto en saldo de los cierres: Profit más comisión y swap."""
+    return _movements(deals, "net_profit")
+
+
+def _movements(deals: Iterable[Any], field: str) -> list[tuple[datetime, float]]:
+    """Una columna monetaria de los cierres de mercado, ordenada y en UTC."""
     found: list[tuple[datetime, float]] = []
     for deal in deals:
         moment = getattr(deal, "timestamp", None)
         if not isinstance(moment, datetime) or not is_market_movement(deal):
             continue
-        amount = getattr(deal, "net_profit", None)
+        amount = getattr(deal, field, None)
         if amount is None:
             continue
         found.append((as_utc(moment), float(amount)))

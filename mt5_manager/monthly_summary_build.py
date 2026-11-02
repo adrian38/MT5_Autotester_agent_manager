@@ -45,7 +45,7 @@ from . import monthly_summary_coverage as coverage
 from . import monthly_summary_evidence as evidence
 from . import monthly_summary_notices as notices
 from .common import safe_int, utc_now
-from .live_account_archive import ordered_movements
+from .live_account_archive import ordered_movements, ordered_profits
 from .live_account_expectation import month_expectation
 from .live_account_schedule import convert
 from .live_account_series import monthly_rows, row
@@ -308,7 +308,7 @@ def _tranche(
 
 def _performance(
     ordered: list[tuple[Any, float]], portfolios: list[dict[str, Any]], label: str,
-    *, autolot: bool = False,
+    *, profits: list[tuple[Any, float]] | None = None, autolot: bool = False,
 ) -> dict[str, Any]:
     """Mide sólo el tramo en que ya existía la composición de la tarjeta."""
     partial_start = _composition_start(portfolios, label)
@@ -316,7 +316,13 @@ def _performance(
         item for item in ordered
         if partial_start is None or item[0].date() >= partial_start.date()
     ]
-    closed = row(monthly_rows(measured), label)
+    measured_profits = [
+        item for item in (profits if profits is not None else ordered)
+        if partial_start is None or item[0].date() >= partial_start.date()
+    ]
+    net_closed = row(monthly_rows(measured), label)
+    closed = row(monthly_rows(measured_profits), label)
+    closed["drawdown"] = net_closed["drawdown"]
     promise = _promise(portfolios, label)
     scenario = _combined_scenario(portfolios, label) if autolot else {}
     lots = _comparability(
@@ -335,18 +341,19 @@ def _performance(
     # El tramo tiene objetivo mientras la promesa esté al lote que se corrió;
     # prorratear una media medida a otro tamaño daría un objetivo de volumen.
     tranche = (
-        _tranche(closed, promise, partial_start, label, means)
+        _tranche(net_closed, promise, partial_start, label, means)
         if partial_start is not None and _at_real_lots(promise, autolot=autolot)
         else {"measured": False}
     )
     return {
-        "closed": closed, "expected": promise, "table": table, "tranche": tranche,
+        "closed": closed, "net_closed": net_closed,
+        "expected": promise, "table": table, "tranche": tranche,
         "season": evidence.season(table, label),
         "months_total": counted,
         "started_inside": partial_start is not None, **lots,
-        "below": evidence.below_promise(closed["profit"], promise["profit"])
+        "below": evidence.below_promise(net_closed["profit"], promise["profit"])
         if lots["promise_comparable"] else None,
-        "profit_band": evidence.profit_band(closed["profit"], table, label)
+        "profit_band": evidence.profit_band(net_closed["profit"], table, label)
         if lots["table_comparable"] else {"measured": False, "verdict": ""},
         "drawdown_band": evidence.drawdown_band(closed["drawdown"], table, label)
         if lots["table_comparable"] else {"measured": False, "verdict": ""},
@@ -412,12 +419,13 @@ def account_card(
 ) -> dict[str, Any]:
     """Una tarjeta del resumen: los hechos del mes y los avisos que salen."""
     stored = server.live_accounts.read(node_id, account["account_key"])
-    ordered = ordered_movements(stored)
-    months = monthly_rows(ordered)
-    portfolios = _portfolio_rows(server, node_id, account)
+    ordered, profits = ordered_movements(stored), ordered_profits(stored)
+    months, portfolios = monthly_rows(ordered), _portfolio_rows(server, node_id, account)
     autolot = bool(account.get("autolot"))
-    performance = _performance(ordered, portfolios, label, autolot=autolot)
+    performance = _performance(ordered, portfolios, label, profits=profits, autolot=autolot)
     closed = performance["closed"]
+    if ordered and not stored.get("profits"):
+        closed["profit"] = None
     facts = {
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
         "node_broker": str(node.get("portfolio_broker") or ""),
@@ -425,7 +433,8 @@ def account_card(
         "server": account["server"],
         "currency": str(stored.get("currency") or ""),
         "autolot": autolot,
-        "month": label, "closed": closed, "expected": performance["expected"],
+        "month": label, "closed": closed, "net_closed": performance["net_closed"],
+        "expected": performance["expected"],
         "tranche": performance["tranche"],
         "below": performance["below"],
         "profit_band": performance["profit_band"],

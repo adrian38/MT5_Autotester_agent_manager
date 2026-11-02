@@ -53,6 +53,22 @@ def _remeasured_portfolio() -> dict[str, object]:
 
 
 class BuildCriterionTests(unittest.TestCase):
+    def test_the_card_shows_mt5_profit_but_compares_the_net_result(self) -> None:
+        stamp = datetime(2026, 9, 20, tzinfo=timezone.utc)
+        portfolios = [{
+            "created_at": "2026-01-01T00:00:00+00:00", "created_day": "2026-01-01",
+            "expectation": {"months": {"09": {
+                "profit": -170.0, "drawdown": 20.0, "years": [2020],
+                "months": {"2020-09": {"profit": -170.0, "drawdown": 20.0}},
+            }}},
+        }]
+        measured = monthly_summary_build._performance(
+            [(stamp, -178.02)], portfolios, MONTH, profits=[(stamp, -160.85)],
+        )
+        self.assertAlmostEqual(measured["closed"]["profit"], -160.85)
+        self.assertAlmostEqual(measured["net_closed"]["profit"], -178.02)
+        self.assertTrue(measured["below"])
+
     def test_each_portfolio_keeps_its_own_autolot_mark(self) -> None:
         archive = SimpleNamespace(read_expectation=lambda _node, _portfolio: {})
         server = SimpleNamespace(live_accounts=archive)

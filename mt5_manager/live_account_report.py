@@ -22,11 +22,17 @@ from typing import Any, Iterable
 
 from portfolio_manager.mt5_report import parse_report
 
-from .live_account_series import as_utc, movements
+from .live_account_series import as_utc, movements, net_movements
 
 
-SERIES_VERSION = "balance-series-v4"
+SERIES_VERSION = "balance-series-v5-profit-column"
 """Con qué criterio se armó la serie guardada, normalice o no esa cuenta.
+
+La v5 guarda también la columna **Profit** separada del efecto neto en saldo.
+Antes sólo se conservaba `Profit + comisión + swap`, por lo que el resumen no
+podía enseñar la misma cifra que la columna Profit del informe de MT5. La
+versión obliga a releer toda la historia para no fingir que el neto antiguo es
+Profit en los meses que todavía no hayan vuelto a aparecer en un sondeo.
 
 La v4 no cambia ni un cierre: añade el **saldo diario**, que sale de la misma
 tabla y antes se tiraba. Sube igual porque un sondeo incremental sólo trae su
@@ -125,8 +131,11 @@ def daily_balances(raw_deals: Iterable[Any]) -> list[tuple[str, float]]:
 
 def account_from_html(
     contents: bytes, symbol_lots: dict[str, float] | None = None,
-) -> tuple[list[tuple[datetime, float]], list[tuple[str, float]]]:
-    """Los cierres y el saldo diario de ese informe, con una sola lectura.
+) -> tuple[
+    list[tuple[datetime, float]], list[tuple[datetime, float]],
+    list[tuple[str, float]],
+]:
+    """Los cierres netos, su Profit y el saldo diario, con una sola lectura.
 
     Van juntos porque salen de la misma tabla y el informe de una cuenta con
     años de vida no es barato de parsear: leerlo dos veces, una por cada cosa,
@@ -138,16 +147,14 @@ def account_from_html(
         path = Path(folder) / "real_account_report.html"
         path.write_bytes(contents)
         report = parse_report(path)
-    return (
-        movements(
-            normalized_deal(deal, symbol_lots or {}) for deal in report.raw_deals
-        ),
-        daily_balances(report.raw_deals),
-    )
+    normalized = [
+        normalized_deal(deal, symbol_lots or {}) for deal in report.raw_deals
+    ]
+    return net_movements(normalized), movements(normalized), daily_balances(report.raw_deals)
 
 
 def movements_from_html(
     contents: bytes, symbol_lots: dict[str, float] | None = None,
 ) -> list[tuple[datetime, float]]:
     """Los cierres de la cuenta que trae ese informe, ordenados y en UTC."""
-    return account_from_html(contents, symbol_lots)[0]
+    return account_from_html(contents, symbol_lots)[1]

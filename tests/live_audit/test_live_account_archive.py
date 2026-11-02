@@ -21,7 +21,7 @@ from mt5_manager import (
     live_account_series, manager_account_routes,
 )
 from mt5_manager.live_account_archive import (
-    LiveAccountArchive, account_key, stored_balances, stored_movements,
+    LiveAccountArchive, account_key, stored_balances, stored_movements, stored_profits,
 )
 
 
@@ -151,6 +151,14 @@ class ArchiveTests(unittest.TestCase):
         self.assertAlmostEqual(
             live_account_series.monthly_rows(ordered)["2026-10"]["profit"], 7.0,
         )
+
+    def test_profit_is_stored_apart_from_the_net_movement(self) -> None:
+        stamp = moment("2026-10-20T08:00:00")
+        record = self.merge(
+            [(stamp, -178.02)], "", "2026-10-20", profits=[(stamp, -160.85)],
+        )
+        self.assertEqual(stored_movements(record)[0][1], -178.02)
+        self.assertEqual(stored_profits(record)[0][1], -160.85)
 
     def test_the_snapshot_log_remembers_what_was_read_and_when(self) -> None:
         record = self.merge(
