@@ -228,6 +228,15 @@ del veredicto de reproducción que éste arrastra.
   `autolot_source`, el sha del Excel guardado al lado del modo, que cubre los
   tres casos —encenderlo, cambiar la tabla de riesgo y apagarlo—. Lo exige
   `test_turning_autolot_on_does_not_wait_a_day`.
+- **Un escenario ya medido sobrevive al cambio de mes** (2026-11-02).
+  `_scenarios` sólo calcula el mes en curso y el anterior, y `build` reemplaza
+  `months_at` entero: en diciembre la fila de octubre desaparecía y recalcular
+  su tarjeta la dejaba en «sin medir», justo lo que los escenarios existen
+  para no enseñar. `carried_scenarios` arrastra **los lotes, no la medida**:
+  el mes viejo se vuelve a medir contra las curvas de hoy, así que su fila
+  queda al mismo criterio que el resto de la promesa y no hay dos mediciones
+  en el mismo fichero. Tope de 24 meses, la ventana del resumen, porque cada
+  fila lleva el lote de cada miembro.
 - **El tramo auditado dice sus días** (2026-11-02). Un portafolio dado de alta
   el 31 cubría «100 %» de un día y se leía igual que un mes entero. El título
   del recuadro sigue siendo «Mes auditado» —son fijos—, y los días van en el

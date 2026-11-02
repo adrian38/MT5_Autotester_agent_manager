@@ -204,3 +204,39 @@ def month_lots(
     return MonthLots(
         label=label, balance=balance, lots=lots, without_rule=tuple(without),
     )
+
+
+MAXIMUM_SCENARIOS = 24
+"""Meses de escenario que se conservan: los mismos que guarda el resumen
+mensual (`monthly_summary_store.MAXIMUM_MONTHS`). Más atrás no hay tarjeta que
+recalcular, y cada fila arrastra el lote de cada miembro."""
+
+
+def carried_scenarios(
+    stored: dict[str, Any], found: dict[str, dict[str, Any]],
+    limit: int = MAXIMUM_SCENARIOS,
+) -> dict[str, dict[str, Any]]:
+    """Los escenarios de este mes y el anterior, más los que ya se midieron.
+
+    Se arrastran **los lotes, no la medida**: el mes vuelve a medirse contra
+    las curvas de hoy, así que su fila queda al mismo criterio que el resto de
+    la promesa. Guardar el número viejo mezclaría dos mediciones en el mismo
+    fichero y la tarjeta no podría decir de cuál habla.
+
+    Sin esto `months_at` se quedaba en dos meses, y en diciembre la tarjeta de
+    octubre perdía su banda: recalcularla la dejaba en «sin medir», que es
+    justo lo que los escenarios existen para no enseñar.
+    """
+    carried = dict(found)
+    for label, row in (stored.get("months_at") or {}).items():
+        lots = (row or {}).get("lots") or {}
+        if not lots or str(label) in carried:
+            continue
+        carried[str(label)] = {
+            "lots": dict(lots),
+            **{
+                key: row[key] for key in ("basis", "balance", "without_rule")
+                if key in row
+            },
+        }
+    return {label: carried[label] for label in sorted(carried)[-limit:]}

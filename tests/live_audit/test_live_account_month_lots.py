@@ -182,11 +182,12 @@ class IngestScenarioTests(unittest.TestCase):
             **self.state["profiles"]["audit-105"], **changes,
         }
 
-    def scenarios(self, use=None) -> dict:
+    def scenarios(self, use=None, stored=None) -> dict:
         return live_account_ingest._scenarios(
             self.server, FakeSource(), "axi", self.account,
             {"portfolio_id": 105, "audit_id": "audit-105", "portfolio_type": ""},
             self.saved, "", use or live_account_presentation.UseLots(), NOW,
+            stored,
         )
 
     def test_without_autolot_there_is_nothing_to_correct(self) -> None:
@@ -293,6 +294,46 @@ class IngestScenarioTests(unittest.TestCase):
             members={"ROBOFOREX/ECN:1": 0.07},
         ))
         self.assertAlmostEqual(found["2026-10"]["lots"]["ROBOFOREX/ECN:1"], 0.07)
+
+    def test_a_month_already_measured_keeps_its_lots(self) -> None:
+        """Lo que se arrastra son los lotes, no la medida.
+
+        `_scenarios` sólo calcula el mes en curso y el anterior, y `build`
+        reemplaza `months_at` entero: en diciembre la tarjeta de octubre
+        perdía su banda y recalcularla la dejaba en «sin medir». Ahora el mes
+        viejo vuelve con sus lotes y se remide contra las curvas de hoy, así
+        que su fila queda al mismo criterio que el resto de la promesa.
+        """
+        self.profile_with(autolot={
+            "enabled": True, "rules": {"dailyK": {"dd_001": 104.0, "risk_pct": 3.0}},
+        })
+        found = self.scenarios(stored={"months_at": {
+            "2026-07": {
+                "profit": 9.0, "drawdown": 1.0, "balance": 1_000.0,
+                "basis": month_lots.LOT_BASIS, "lots": {"ROBOFOREX/ECN:1": 0.05},
+            },
+            "2026-08": {"profit": 8.0, "lots": {}},
+        }})
+        self.assertEqual(sorted(found), ["2026-07", "2026-09", "2026-10"])
+        carried = found["2026-07"]
+        self.assertAlmostEqual(carried["lots"]["ROBOFOREX/ECN:1"], 0.05)
+        self.assertAlmostEqual(carried["balance"], 1_000.0)
+        # La medida vieja no viaja: la pone `build` con las curvas de hoy.
+        self.assertNotIn("profit", carried)
+        # Y un mes sin lotes no es un escenario, así que no se arrastra.
+        self.assertNotIn("2026-08", found)
+
+    def test_only_the_last_two_years_of_scenarios_are_kept(self) -> None:
+        # Cada fila arrastra el lote de cada miembro, y más atrás de la
+        # ventana del resumen no hay tarjeta que recalcular.
+        stored = {"months_at": {
+            f"20{year:02d}-{month:02d}": {"lots": {"ROBOFOREX/ECN:1": 0.01}}
+            for year in (22, 23, 24) for month in range(1, 13)
+        }}
+        kept = month_lots.carried_scenarios(stored, {"2026-10": {"lots": {}}})
+        self.assertEqual(len(kept), month_lots.MAXIMUM_SCENARIOS)
+        self.assertEqual(sorted(kept)[0], "2023-02")
+        self.assertIn("2026-10", kept)
 
     def test_a_promise_from_last_month_is_measured_again(self) -> None:
         """El día 1 la tarjeta pide un mes que lo guardado no tiene."""

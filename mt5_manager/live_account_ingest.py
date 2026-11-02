@@ -226,9 +226,8 @@ def _needs_rebuild(
 ) -> bool:
     if not stored:
         return True
-    # Encenderlo no cambia ni el criterio, ni el modo, ni `months_at` —vacío,
-    # y la regla de abajo lo deja pasar—, así que la promesa se quedaba al
-    # lote declarado un día entero. Le pasó al #148; ver `ai_context/`.
+    # Encenderlo no cambia el criterio, ni el modo, ni `months_at` —vacío, y
+    # la regla de abajo lo deja pasar—: un día al lote declarado (#148).
     if str(stored.get("autolot_source") or "") != str(autolot or ""):
         return True
     # Cambiar la casilla de la simulación cambia a qué lote se presentan las
@@ -318,8 +317,9 @@ def _scenarios(
     server: Any, source: Any, node_id: str, account: dict[str, Any],
     portfolio: dict[str, Any], saved: dict[str, Any], variant: str,
     use: live_account_presentation.UseLots, moment: datetime,
+    stored: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Los lotes con los que la cuenta operó el mes en curso y el anterior.
+    """Los lotes de la cuenta este mes, el anterior y los ya medidos.
 
     Sólo con autolote: sin él `real_strategy_lots` ya describe el tamaño de
     toda la vida de la cuenta y no hay nada que corregir. Y nunca con la
@@ -328,8 +328,7 @@ def _scenarios(
 
     Lo observado manda sobre la fórmula donde se sepa: `use.members` sale de
     lo que la auditoría vio ejecutar, que es un hecho, y la fórmula sólo
-    rellena lo que no se pudo medir —que con autolote es casi todo, porque
-    ahí no hay «un» lote que observar—.
+    rellena lo que no se pudo medir —con autolote, casi todo—.
     """
     profile = _profile(server, node_id, portfolio)
     if live_account_presentation.mode_of(profile) == live_account_presentation.TESTER_LEADS:
@@ -373,7 +372,7 @@ def _scenarios(
             "lots": {**measured.lots, **dict(previous.get("lots") or {}), **dict(use.members)},
             "without_rule": list(measured.without_rule),
         }
-    return found
+    return live_account_month_lots.carried_scenarios(stored or {}, found)
 
 
 def _vantage_step_scenarios(
@@ -491,7 +490,8 @@ def _rebuild(
     use = _presented(server, node_id, portfolio, saved, variant)
     real_lots = _measured_lots(_profile(server, node_id, portfolio), saved, variant, use)
     scenarios = _scenarios(
-        server, source, node_id, account, portfolio, saved, variant, use, moment,
+        server, source, node_id, account, portfolio, saved, variant, use,
+        moment, stored,
     )
     presentation = {
         "mode": _mode(server, node_id, portfolio),
@@ -535,9 +535,8 @@ def _rebuild(
 
 
 def _autolot_source(server: Any, node_id: str, portfolio: dict[str, Any]) -> str:
-    """Huella del autolote: el sha del Excel y no sólo «encendido», porque
-    cambiar la tabla de riesgo cambia los lotes del mes y con ellos la
-    promesa. Vacía cuando el uso no lo tiene.
+    """Huella del autolote: el sha del Excel, porque cambiar la tabla de
+    riesgo cambia los lotes del mes y con ellos la promesa. Vacía sin él.
     """
     autolot = _profile(server, node_id, portfolio).get("autolot") or {}
     if not autolot.get("enabled"):
