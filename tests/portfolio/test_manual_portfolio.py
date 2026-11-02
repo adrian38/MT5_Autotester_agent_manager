@@ -121,13 +121,14 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("operation:'remove'", script)
         self.assertIn("set_path:path", script)
 
-    def test_the_screen_warns_and_repeats_the_removal_when_the_portfolio_is_live(self) -> None:
+    def test_the_screen_warns_and_repeats_the_change_when_the_portfolio_is_live(self) -> None:
         # El 409 del manager trae los usos y el aviso ya redactado: la pantalla
         # los enseña y, si el usuario sigue, repite la misma peticion con la
-        # confirmacion puesta.
+        # confirmacion puesta. El alta y la baja pasan por el mismo sitio.
         script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
         self.assertIn("response.status===409&&data.needs_live_trading_ack", script)
         self.assertIn("live_trading_ack:true", script)
+        self.assertEqual(2, script.count("await changeMembers("))
 
     def test_a_set_without_history_leaves_the_regeneration_pending_on_screen(self) -> None:
         # El aviso sale de los datos del detalle —`expected` son los miembros y
@@ -388,21 +389,42 @@ class ManualPortfolioRouteTests(unittest.TestCase):
         self.assertEqual(handler.sent, (200, {"removed": 1}))
         self.assertEqual((handler.invalidated, handler.discarded), (["axi"], [("axi", 7)]))
 
-    def test_a_confirmation_does_not_let_new_sets_into_a_live_portfolio(self) -> None:
-        # El alta sigue rechazada: un set recien subido no tiene informe OHLC,
-        # asi que la promesa mediria menos estrategias de las que opera.
+    def test_adding_to_a_live_portfolio_warns_about_the_history_it_still_lacks(self) -> None:
+        # El alta tambien se admite confirmada, pero lo que queda descuadrado
+        # no es lo mismo: el set entra sin informe OHLC.
         handler = self._member_handler({"7-balanced": {"portfolio_id": 7, "live_trading": True}})
         with patch.object(
             manager_portfolio_routes.manager_http, "node_request",
         ) as request:
-            with self.assertRaisesRegex(ValueError, "antes de añadirle sets"):
-                manager_portfolio_routes.manual_portfolio_action(
-                    handler, {"id": "axi", "url": "http://axi"}, "manual-members",
-                    {"operation": "add", "portfolio_id": 7, "files": [], "live_trading_ack": True},
-                )
+            manager_portfolio_routes.manual_portfolio_action(
+                handler, {"id": "axi", "url": "http://axi"}, "manual-members",
+                {"operation": "add", "portfolio_id": 7, "files": []},
+            )
         request.assert_not_called()
+        status, value = handler.sent
+        self.assertEqual(status, 409)
+        self.assertEqual(value["live_trading_uses"], ["7-balanced"])
+        self.assertIn("sin informe OHLC", value["error"])
+        self.assertNotIn("ajenas", value["error"])
 
-    def test_a_portfolio_trading_live_does_not_change_its_composition(self) -> None:
+    def test_a_confirmed_addition_runs_and_refreshes_what_cuelga_de_la_cartera(self) -> None:
+        handler = self._member_handler({"7-balanced": {"portfolio_id": 7, "live_trading": True}})
+        with patch.object(
+            manager_portfolio_routes.manager_http, "node_request", return_value=(200, {"added": 2}),
+        ) as request:
+            manager_portfolio_routes.manual_portfolio_action(
+                handler, {"id": "axi", "url": "http://axi"}, "manual-members",
+                {"operation": "add", "portfolio_id": 7, "files": [], "live_trading_ack": True},
+            )
+        request.assert_called_once_with(
+            {"id": "axi", "url": "http://axi"}, "POST", "/api/v1/portfolios/manual-members",
+            {"operation": "add", "portfolio_id": 7, "files": []}, timeout=120,
+        )
+        self.assertEqual((handler.invalidated, handler.discarded), (["axi"], [("axi", 7)]))
+
+    def test_the_warning_only_names_the_uses_of_that_portfolio(self) -> None:
+        # Otra cartera en real del mismo agente no tiene nada que ver con
+        # esta: nombrarla convertiria el aviso en ruido.
         handler = self._member_handler({
             "7-balanced": {"portfolio_id": 7, "live_trading": True},
             "9-balanced": {"portfolio_id": 9, "live_trading": True},
@@ -410,12 +432,14 @@ class ManualPortfolioRouteTests(unittest.TestCase):
         with patch.object(
             manager_portfolio_routes.manager_http, "node_request",
         ) as request:
-            with self.assertRaisesRegex(ValueError, "operando en real en 7-balanced"):
-                manager_portfolio_routes.manual_portfolio_action(
-                    handler, {"id": "axi", "url": "http://axi"}, "manual-members",
-                    {"operation": "add", "portfolio_id": 7, "files": []},
-                )
+            manager_portfolio_routes.manual_portfolio_action(
+                handler, {"id": "axi", "url": "http://axi"}, "manual-members",
+                {"operation": "add", "portfolio_id": 7, "files": []},
+            )
         request.assert_not_called()
+        status, value = handler.sent
+        self.assertEqual((status, value["live_trading_uses"]), (409, ["7-balanced"]))
+        self.assertNotIn("9-balanced", value["error"])
         self.assertEqual((handler.invalidated, handler.discarded), ([], []))
 
     def test_a_use_that_is_no_longer_live_does_not_block_the_edit(self) -> None:

@@ -145,38 +145,50 @@ function bytesToBase64(buffer) {
   return btoa(binary);
 }
 
-async function uploadSets(files) {
-  const chosen=Array.from(files||[]).filter(file=>file.name.toLowerCase().endsWith('.set'));
-  if(!selectedId||!chosen.length) return;
-  const button=document.querySelector('#manual-add-sets'); button.disabled=true; button.textContent='Subiendo sets…';
-  try {
-    const uploaded=await Promise.all(chosen.map(async file=>({name:file.name,content:bytesToBase64(await file.arrayBuffer())})));
-    const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',operation:'add',portfolio_id:selectedId,files:uploaded})});
-    const data=await response.json(); if(!response.ok) throw new Error(data.error||response.statusText);
-    await loadInventory();
-    toast(`${data.added} set${data.added===1?'':'s'} añadido${data.added===1?'':'s'}. Genera el histórico OHLC antes de volver a marcar el portafolio como operando en real.`);
-  } catch(error) { toast(error.message,true); }
-  finally { button.disabled=false; button.textContent='Subir sets'; document.querySelector('#manual-set-files').value=''; }
-}
-
 async function postMembers(payload) {
   const response=await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/portfolio-manager/manual-members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'full_history',...payload})});
   return {response,data:await response.json()};
 }
 
 // El manager contesta 409 cuando la cartera está operando en real: no es un
-// rechazo, es la pregunta. Se enseña lo que queda descuadrado —con los usos
-// nombrados— y, si el usuario sigue, se repite la misma petición confirmada.
+// rechazo, es la pregunta. Se enseña lo que queda descuadrado —el aviso ya
+// viene redactado y con los usos nombrados— y, si el usuario sigue, se repite
+// la misma petición confirmada. Devuelve null si dijo que no.
+async function changeMembers(request,question) {
+  let {response,data}=await postMembers(request);
+  if(response.status===409&&data.needs_live_trading_ack) {
+    if(!confirm(`${data.error}\n\n${question}`)) return null;
+    ({response,data}=await postMembers({...request,live_trading_ack:true}));
+  }
+  if(!response.ok) throw new Error(data.error||response.statusText);
+  return data;
+}
+
+async function uploadSets(files) {
+  const chosen=Array.from(files||[]).filter(file=>file.name.toLowerCase().endsWith('.set'));
+  if(!selectedId||!chosen.length) return;
+  const button=document.querySelector('#manual-add-sets'); button.disabled=true; button.textContent='Subiendo sets…';
+  try {
+    const uploaded=await Promise.all(chosen.map(async file=>({name:file.name,content:bytesToBase64(await file.arrayBuffer())})));
+    const data=await changeMembers(
+      {operation:'add',portfolio_id:selectedId,files:uploaded},
+      `¿Añadir ${chosen.length} set${chosen.length===1?'':'s'} de todas formas?`,
+    );
+    if(!data) return;
+    await loadInventory();
+    toast(`${data.added} set${data.added===1?'':'s'} añadido${data.added===1?'':'s'}. Genera el histórico OHLC antes de volver a marcar el portafolio como operando en real.`);
+  } catch(error) { toast(error.message,true); }
+  finally { button.disabled=false; button.textContent='Subir sets'; document.querySelector('#manual-set-files').value=''; }
+}
+
 async function removeSet(path,name) {
   if(!selectedPortfolio||!confirm(`Se eliminará ${name} del portafolio y del disco del agente. ¿Continuar?`)) return;
   try {
-    const request={operation:'remove',portfolio_id:selectedId,set_path:path};
-    let {response,data}=await postMembers(request);
-    if(response.status===409&&data.needs_live_trading_ack) {
-      if(!confirm(`${data.error}\n\n¿Eliminar ${name} de todas formas?`)) return;
-      ({response,data}=await postMembers({...request,live_trading_ack:true}));
-    }
-    if(!response.ok) throw new Error(data.error||response.statusText);
+    const data=await changeMembers(
+      {operation:'remove',portfolio_id:selectedId,set_path:path},
+      `¿Eliminar ${name} de todas formas?`,
+    );
+    if(!data) return;
     await loadInventory();
     toast(data.file_removed===false
       ? `${name} se quitó del portafolio, pero el nodo no pudo retirar el fichero temporal.`

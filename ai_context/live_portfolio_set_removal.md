@@ -1,39 +1,45 @@
-# Quitar un set de una cartera que opera en real
+# Cambiar los sets de una cartera que opera en real
 
 ## Qué cambió (2026-11-02)
 
 `guard_manual_members` rechazaba **cualquier** cambio de composición de una
 cartera con un uso marcado «operando en real», y pedía desmarcarlo primero. En
 la pantalla eso salía como un toast rojo al pulsar «Eliminar set»: la acción no
-se podía hacer, y el rodeo —desmarcar, borrar, volver a marcar— dejaba la cuenta
-operando una cosa y la cartera diciendo otra durante todo el trayecto, que es
-justamente lo que la regla existía para evitar.
+se podía hacer, y el rodeo —desmarcar, cambiar, volver a marcar— dejaba la
+cuenta operando una cosa y la cartera diciendo otra durante todo el trayecto,
+que es justamente lo que la regla existía para evitar.
 
-Ahora el alta y la baja se tratan distinto, porque no se parecen:
+Ahora quitar y añadir se admiten los dos con confirmación explícita. El manager
+contesta `409` con `needs_live_trading_ack`, los `live_trading_uses` afectados y
+el aviso ya redactado; la pantalla lo enseña en un `confirm` y repite la misma
+petición con `live_trading_ack: true`. El campo se saca del cuerpo antes de
+reenviarlo: el nodo no lo conoce y no tiene por qué.
 
-- **Quitar** se admite con confirmación explícita. El manager contesta `409` con
-  `needs_live_trading_ack`, los `live_trading_uses` afectados y el aviso ya
-  redactado; la pantalla lo enseña en un `confirm` y repite la misma petición
-  con `live_trading_ack: true`. El campo se saca del cuerpo antes de reenviarlo:
-  el nodo no lo conoce y no tiene por qué.
-- **Añadir** sigue rechazado. Un set recién subido no tiene informe OHLC, así
-  que la promesa pasaría a medir menos estrategias de las que la cuenta opera
-  sin que nada lo diga. Eso no se arregla con un aviso: se arregla generando el
-  histórico con el uso desmarcado.
+El aviso **no es el mismo** para las dos operaciones, porque lo que queda
+descuadrado no se parece:
 
-## Por qué quitar deja la cartera entera
+- **Quitar**: la cartera queda entera —los sets que sobreviven conservan su
+  informe OHLC— y lo que no se recoloca es la cuenta, que mantiene en su
+  historial las operaciones que esa estrategia ya ejecutó mientras la auditoría
+  pierde el lado tester con el que emparejarlas. Salen como ajenas.
+- **Añadir**: el que falta es el informe. Hasta que se genere el histórico OHLC,
+  la promesa de la cuenta mide menos estrategias de las que la cuenta opera. Es
+  el mismo aviso que el detalle ya deja fijo después del alta —sale de
+  `history.expected` contra `history.available`, no de haber visto la subida—,
+  dicho antes de hacerla.
 
-Los sets que sobreviven conservan su informe OHLC, y `history.expected` son los
-miembros mientras `history.available` son los informes encontrados
-(`portfolio_manual_reports`, línea del `return`). Al bajar los dos a la vez, la
-composición nueva está cubierta desde el primer momento y el aviso de «faltan N
-históricos» no se enciende. Por eso el texto del `confirm` **no** pide regenerar
-el histórico: sería un trámite que no arregla nada.
+## Por qué quitar deja la cartera entera y añadir no
+
+`history.expected` son los miembros y `history.available` los informes
+encontrados (`portfolio_manual_reports`, la línea del `return`). Al quitar bajan
+los dos a la vez y el aviso de «faltan N históricos» no se enciende; al añadir
+sube sólo `expected` y por eso se enciende. Por eso el texto del `confirm` de la
+baja **no** pide regenerar el histórico: sería un trámite que no arregla nada.
 
 ## Qué se recoloca solo y qué no
 
-`manual_portfolio_action` ya hacía las dos limpiezas, y siguen cubriendo la baja
-confirmada porque ocurren después del `2xx` del nodo:
+`manual_portfolio_action` ya hacía las dos limpiezas, y siguen cubriendo el
+cambio confirmado porque ocurren después del `2xx` del nodo:
 
 - `_invalidate_node_snapshots` borra la firma de la copia de la memoria del
   agente, así que el inventario, la portada y «Portafolios activos» releen los
@@ -50,15 +56,10 @@ reutilizan nunca —`_next_manual_index` devuelve `max+1`— y todos los consumi
 recorren miembros y buscan su clave, así que una sobrante no se lee. Está medido
 en `live_account_real_lots_are_per_use.md`.
 
-Y lo que no tiene arreglo automático, que es de lo que avisa el `confirm`: la
-cuenta conserva en su historial las operaciones que esa estrategia ya ejecutó, y
-la auditoría se queda sin el lado tester con el que emparejarlas, así que a
-partir de aquí salen como ajenas.
-
 ## Reparto
 
 Todo el cambio es del manager: la decisión la toma `manager_manual_portfolio`
-—extraído de `manager_portfolio_routes` en el mismo commit, porque pasaba de las
-600 líneas— y el aviso lo pinta `static/manual_portfolios.js`. El nodo recibe
-exactamente el mismo cuerpo que antes, así que ningún agente necesita port ni
-reinicio.
+—extraído de `manager_portfolio_routes` en el commit anterior, porque ese fichero
+pasaba de las 600 líneas— y el aviso lo pinta `static/manual_portfolios.js`. El
+nodo recibe exactamente el mismo cuerpo que antes, así que ningún agente necesita
+port ni reinicio.

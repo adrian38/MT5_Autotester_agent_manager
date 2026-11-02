@@ -123,34 +123,46 @@ def live_trading_uses(handler, node_id: str, portfolio_id: int) -> list[str]:
     )
 
 
-class LiveTradingRemovalNeedsAck(ValueError):
-    """Quitar un set de una cartera en real, todavía sin confirmar.
+class LiveTradingChangeNeedsAck(ValueError):
+    """Cambiar la composición de una cartera en real, todavía sin confirmar.
 
     No es un error del usuario sino una pregunta, así que viaja aparte: quien
     la atiende contesta con los usos afectados para que la pantalla pueda
     nombrarlos en el aviso y repetir la petición ya confirmada.
     """
 
-    def __init__(self, uses: list[str]) -> None:
-        super().__init__(live_trading_removal_warning(uses))
+    def __init__(self, uses: list[str], operation: str) -> None:
+        super().__init__(live_trading_change_warning(uses, operation))
         self.uses = uses
+        self.operation = operation
 
 
-def live_trading_removal_warning(uses: list[str]) -> str:
-    """Lo que de verdad pasa al quitar un set de una cartera que opera en real.
+def live_trading_change_warning(uses: list[str], operation: str) -> str:
+    """Lo que de verdad queda descuadrado, que no es lo mismo quitar que añadir.
 
-    No es «no se puede»: es qué queda descuadrado. La cuenta conserva en su
-    historial las operaciones que esa estrategia ya ejecutó y la auditoría
-    pierde el lado tester con el que emparejarlas, así que a partir de aquí
-    salen como ajenas. Lo demás se recoloca solo —la promesa se vuelve a medir
-    y el histórico OHLC de los sets que quedan sigue siendo el suyo—.
+    Al **quitar**, la cartera queda entera: los sets que sobreviven conservan su
+    informe OHLC. Lo que no se recoloca es la cuenta, que mantiene en su
+    historial las operaciones que esa estrategia ya ejecutó mientras la
+    auditoría pierde el lado tester con el que emparejarlas, así que a partir
+    de aquí salen como ajenas.
+
+    Al **añadir**, el que falta es el informe: un set recién subido no lo tiene,
+    así que hasta que se genere el histórico OHLC la promesa de la cuenta mide
+    menos estrategias de las que la cuenta opera. Es el mismo aviso que la
+    pantalla ya deja fijo tras un alta, dicho antes de hacerla.
     """
+    consequence = (
+        "La cuenta conserva las operaciones que esa estrategia ya ejecutó y la "
+        "auditoría se quedará sin su lado tester, así que saldrán como ajenas."
+        if operation == "remove" else
+        "El set entra sin informe OHLC, así que hasta que generes el histórico "
+        "la promesa de la cuenta mide menos estrategias de las que opera."
+    )
     return (
         "El portafolio está operando en real en "
-        f"{', '.join(uses)}. La cuenta conserva las operaciones que esa "
-        "estrategia ya ejecutó y la auditoría se quedará sin su lado tester, "
-        "así que saldrán como ajenas. La promesa de la cuenta y las pantallas "
-        "que cuelgan de ella se vuelven a medir con la composición nueva."
+        f"{', '.join(uses)}. {consequence} La promesa de la cuenta y las "
+        "pantallas que cuelgan de ella se vuelven a medir con la composición "
+        "nueva."
     )
 
 
@@ -161,19 +173,16 @@ def guard_manual_members(handler, node_id: str, body: dict[str, Any]) -> int:
     mide contra esa composición y sus lotes reales están declarados por
     estrategia.
 
-    **Quitar** un set se admite con una confirmación explícita
-    (`live_trading_ack`), porque la cartera queda entera: los sets que
-    sobreviven conservan su informe OHLC, así que la composición nueva está
-    cubierta desde el primer momento y lo único que el usuario tiene que saber
-    es lo que cuenta `live_trading_removal_warning`. El usuario es quien decide
-    si esa estrategia debe seguir contando, y obligarle a desmarcar el uso para
-    volver a marcarlo después no protegía nada: dejaba la cuenta operando una
-    cosa y la cartera diciendo otra durante todo el rodeo.
+    Quitar y añadir se admiten los dos con una confirmación explícita
+    (`live_trading_ack`), y el aviso dice en cada caso qué queda descuadrado:
+    `live_trading_change_warning`. El usuario es quien decide qué estrategias
+    opera la cuenta, y obligarle a desmarcar el uso para volver a marcarlo
+    después no protegía nada —dejaba la cuenta operando una cosa y la cartera
+    diciendo otra durante todo el rodeo—.
 
-    **Añadir** sigue rechazado. Un set recién subido no tiene informe, así que
-    la promesa pasaría a medir menos estrategias de las que la cuenta opera sin
-    que nada lo diga, y eso no se arregla con un aviso sino generando el
-    histórico OHLC con el uso desmarcado.
+    Lo que queda pendiente tras un alta no se pierde por admitirla: el aviso de
+    «faltan N históricos OHLC» sigue fijo en el detalle, porque sale de los
+    datos de la cartera y no de haber visto la subida.
 
     El nodo tiene su propio candado para la auditoría y el sondeo en curso: lo
     que no se puede ver desde aquí es qué terminales están ocupadas en este
@@ -187,17 +196,8 @@ def guard_manual_members(handler, node_id: str, body: dict[str, Any]) -> int:
     # marcado en real.
     confirmed = body.pop("live_trading_ack", None) is True
     uses = live_trading_uses(handler, node_id, portfolio_id)
-    if not uses:
-        return portfolio_id
-    if str(body.get("operation") or "") != "remove":
-        raise ValueError(
-            "El portafolio está operando en real en "
-            f"{', '.join(uses)}: desmárcalo de «operando en real» antes de "
-            "añadirle sets, y vuelve a generar el histórico OHLC antes de "
-            "activarlo de nuevo."
-        )
-    if not confirmed:
-        raise LiveTradingRemovalNeedsAck(uses)
+    if uses and not confirmed:
+        raise LiveTradingChangeNeedsAck(uses, str(body.get("operation") or ""))
     return portfolio_id
 
 
@@ -213,7 +213,7 @@ def manual_portfolio_action(handler, node: dict, action: str, body: dict[str, An
         portfolio_id = (
             guard_manual_members(handler, node_id, body) if action == "manual-members" else 0
         )
-    except LiveTradingRemovalNeedsAck as pending:
+    except LiveTradingChangeNeedsAck as pending:
         handler._send_json(409, {
             "error": str(pending),
             "live_trading_uses": pending.uses,
