@@ -12,6 +12,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from mt5_manager.live_audit_engine import LiveAuditController
 from mt5_manager.live_audit_lifecycle import _native_history_note
@@ -99,8 +100,19 @@ class NativeReportFallbackTests(LiveAuditEngineTestCase):
         exporter = _WindowsTerminalReportExporter.__new__(_WindowsTerminalReportExporter)
         exporter.kernel32 = SimpleNamespace(VirtualAllocEx=lambda *_args: None)
 
-        with self.assertRaisesRegex(NativeHistoryReportError, "no reservó memoria"):
+        with mock.patch("mt5_manager.mt5_native_history_report.time.sleep"), self.assertRaisesRegex(
+            NativeHistoryReportError, "no reservó memoria",
+        ):
             exporter._remote_allocation(123, 16)
+
+    def test_a_transient_remote_allocation_is_retried_on_the_same_terminal(self) -> None:
+        exporter = _WindowsTerminalReportExporter.__new__(_WindowsTerminalReportExporter)
+        pointers = iter((None, None, 456))
+        exporter.kernel32 = SimpleNamespace(VirtualAllocEx=lambda *_args: next(pointers))
+
+        with mock.patch("mt5_manager.mt5_native_history_report.time.sleep") as pause:
+            self.assertEqual(exporter._remote_allocation(123, 16), 456)
+        self.assertEqual(pause.call_count, 2)
 
     def _extract(self, folder: Path, mt5: FakeMt5, report: str | None = NATIVE_REPORT):
         controller = LiveAuditController(FakeOwner("idle"), folder)

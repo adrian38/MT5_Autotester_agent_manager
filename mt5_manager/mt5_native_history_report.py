@@ -221,12 +221,15 @@ class _WindowsTerminalReportExporter:
         return process
 
     def _remote_allocation(self, process: int, size: int) -> int:
-        pointer = self.kernel32.VirtualAllocEx(
-            process, None, size, MEM_COMMIT_RESERVE, PAGE_READWRITE,
-        )
-        if not pointer:
-            raise NativeHistoryReportError("MT5 no reservó memoria para configurar el periodo")
-        return pointer
+        for attempt in range(3):
+            pointer = self.kernel32.VirtualAllocEx(
+                process, None, size, MEM_COMMIT_RESERVE, PAGE_READWRITE,
+            )
+            if pointer:
+                return pointer
+            if attempt < 2:
+                time.sleep(0.2)
+        raise NativeHistoryReportError("MT5 no reservó memoria para configurar el periodo")
 
     def _remote_buffer(self, process: int, payload: bytes) -> int:
         pointer = self._remote_allocation(process, len(payload))

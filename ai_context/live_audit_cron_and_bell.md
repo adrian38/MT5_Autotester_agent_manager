@@ -181,6 +181,30 @@ espera al sábado siguiente. En intervalo, su primer plazo se cuenta desde esa
 creación. Los IDs heredados sin fecha mantienen el comportamiento anterior: no
 se inventa una fecha que el estado no conserva.
 
+### Un `finished_at` fallido no cierra el turno (2026-11-08)
+
+La cita del 7 de noviembre falló en AXI #105 y RoboForex #170 al reservar
+memoria remota en MT5. Ambos nodos publicaron `status: failed`,
+`last_result: null` y un `finished_at` posterior a la cita. `_completion`
+usaba ese `finished_at` como si fuese una terminación válida; `pending_window`
+declaraba cubierta la cita y nunca llegaba a `due_decision`, por lo que no hubo
+intento 2 a las 00:12 pese a estar configurados tres reintentos cada diez
+minutos.
+
+`failed`, `stopped` e `idle` ya no aportan una fecha de completado. El estado
+del turno sigue mandando: `failed` se relanza tras la espera, `stopped` se
+mantiene detenido y un `idle` que venía de ejecución conserva el fallo que
+anotó la vigilancia. La prueba reproduce la forma real del nodo —resultado
+nulo y `finished_at` presente— y exige que el segundo POST salga con
+`attempts: 2`.
+
+La reserva nativa tiene además tres intentos breves sobre la misma terminal.
+Es una operación de 16 bytes que puede fallar transitoriamente; no tiene sentido
+abandonar una auditoría de varios minutos por el primer `VirtualAllocEx` nulo.
+Si los tres fallan, el error sigue siendo final para esa ejecución y vuelve a
+la política de reintentos del cron. El cambio vive también en los runtimes de
+IC, AXI, RoboForex y Vantage; FUTURE permanece congelado.
+
 ## El periodo se engancha con el de la auditoría anterior
 
 Petición del usuario en la misma sesión. Las operaciones reales se filtran por

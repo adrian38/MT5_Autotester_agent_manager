@@ -414,6 +414,33 @@ class WatchTickTests(unittest.TestCase):
         record = server.live_audit_runs.record(LiveAuditRunState.key("n", "11"))
         self.assertEqual((record["outcome"], record["attempts"]), ("failed", 1))
 
+    def test_a_finished_failure_remains_pending_for_the_second_attempt(self) -> None:
+        server = FakeServer(self.root, audit_state(), enabled=True)
+        now = datetime(2026, 11, 7, 23, 12, tzinfo=timezone.utc)
+        window, pending = live_audit_schedule.pending_window(
+            server.live_audit_scheduler_settings, None, now,
+        )
+        self.assertTrue(pending)
+        key = LiveAuditRunState.key("n", "11")
+        server.live_audit_runs.update(
+            key, window=window, outcome="failed", attempts=1,
+            last_attempt_at="2026-11-07T22:00:57+00:00",
+        )
+        failed = {
+            "status": "failed", "last_result": None,
+            "finished_at": "2026-11-07T22:01:48+00:00",
+        }
+        posted: list[object] = []
+        with mock.patch(
+            "mt5_manager.manager_http.node_request",
+            side_effect=self.node_answers({"11": failed}, posted),
+        ):
+            live_audit_watch.launch_due(
+                server, server.nodes[0], "n", audit_state(), {"11": failed}, now,
+            )
+        self.assertEqual([path for path, _payload in posted], ["/api/v1/live-audits/11/run"])
+        self.assertEqual(server.live_audit_runs.record(key)["attempts"], 2)
+
     def test_an_unreachable_node_warns_once_and_reports_its_recovery(self) -> None:
         server = FakeServer(self.root, audit_state(), enabled=True)
         with mock.patch("mt5_manager.manager_http.node_request", side_effect=OSError("sin red")):

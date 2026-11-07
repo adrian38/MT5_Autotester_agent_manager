@@ -422,6 +422,8 @@ def _exhausted(server: Any, node: dict[str, Any], node_id: str, audit_id: str,
 
 
 def _completion(audit: dict[str, Any]) -> datetime | None:
+    if str(audit.get("status") or "") in {"failed", "stopped", "idle"}:
+        return None
     result = audit.get("last_result") if isinstance(audit.get("last_result"), dict) else {}
     return live_audit_schedule.parse_timestamp(
         result.get("completed_at") or audit.get("finished_at")
