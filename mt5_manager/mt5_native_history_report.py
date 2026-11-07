@@ -45,6 +45,10 @@ class NativeHistoryReportError(RuntimeError):
     pass
 
 
+class _RemoteAllocationError(NativeHistoryReportError):
+    pass
+
+
 class _TCItemW(ctypes.Structure):
     _fields_ = [
         ("mask", wintypes.UINT),
@@ -108,6 +112,8 @@ class _WindowsTerminalReportExporter:
             wintypes.HANDLE, ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD, wintypes.DWORD,
         ]
         self.kernel32.VirtualAllocEx.restype = ctypes.c_void_p
+        self.kernel32.GetLastError.argtypes = []
+        self.kernel32.GetLastError.restype = wintypes.DWORD
         self.kernel32.VirtualFreeEx.argtypes = [
             wintypes.HANDLE, ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD,
         ]
@@ -221,15 +227,15 @@ class _WindowsTerminalReportExporter:
         return process
 
     def _remote_allocation(self, process: int, size: int) -> int:
-        for attempt in range(3):
-            pointer = self.kernel32.VirtualAllocEx(
-                process, None, size, MEM_COMMIT_RESERVE, PAGE_READWRITE,
+        pointer = self.kernel32.VirtualAllocEx(
+            process, None, size, MEM_COMMIT_RESERVE, PAGE_READWRITE,
+        )
+        if not pointer:
+            code = int(self.kernel32.GetLastError())
+            raise _RemoteAllocationError(
+                f"La automatización no reservó memoria remota en MT5 (Win32 {code})"
             )
-            if pointer:
-                return pointer
-            if attempt < 2:
-                time.sleep(0.2)
-        raise NativeHistoryReportError("MT5 no reservó memoria para configurar el periodo")
+        return pointer
 
     def _remote_buffer(self, process: int, payload: bytes) -> int:
         pointer = self._remote_allocation(process, len(payload))
@@ -584,5 +590,11 @@ def export_native_history_report(
     timeout: float = 20.0,
 ) -> dict[str, object]:
     """Guarda el Report/HTML original del History de MT5 en Custom period."""
-    exporter = _WindowsTerminalReportExporter(terminal_path, login, server, timeout)
-    return exporter.export(period_start, period_end, destination)
+    for attempt in range(3):
+        try:
+            exporter = _WindowsTerminalReportExporter(terminal_path, login, server, timeout)
+            return exporter.export(period_start, period_end, destination)
+        except _RemoteAllocationError:
+            if attempt == 2:
+                raise
+            time.sleep(0.2)

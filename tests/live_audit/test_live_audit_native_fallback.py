@@ -17,7 +17,8 @@ from unittest import mock
 from mt5_manager.live_audit_engine import LiveAuditController
 from mt5_manager.live_audit_lifecycle import _native_history_note
 from mt5_manager.mt5_native_history_report import (
-    NativeHistoryReportError, _WindowsTerminalReportExporter,
+    NativeHistoryReportError, _RemoteAllocationError, _WindowsTerminalReportExporter,
+    export_native_history_report,
 )
 from tests.live_audit.live_audit_engine_base import FakeOwner, LiveAuditEngineTestCase, request
 
@@ -98,21 +99,29 @@ class FakeMt5:
 class NativeReportFallbackTests(LiveAuditEngineTestCase):
     def test_a_failed_remote_allocation_has_a_readable_error(self) -> None:
         exporter = _WindowsTerminalReportExporter.__new__(_WindowsTerminalReportExporter)
-        exporter.kernel32 = SimpleNamespace(VirtualAllocEx=lambda *_args: None)
+        exporter.kernel32 = SimpleNamespace(
+            VirtualAllocEx=lambda *_args: None, GetLastError=lambda: 8,
+        )
 
-        with mock.patch("mt5_manager.mt5_native_history_report.time.sleep"), self.assertRaisesRegex(
-            NativeHistoryReportError, "no reservó memoria",
-        ):
+        with self.assertRaisesRegex(NativeHistoryReportError, "Win32 8"):
             exporter._remote_allocation(123, 16)
 
-    def test_a_transient_remote_allocation_is_retried_on_the_same_terminal(self) -> None:
-        exporter = _WindowsTerminalReportExporter.__new__(_WindowsTerminalReportExporter)
-        pointers = iter((None, None, 456))
-        exporter.kernel32 = SimpleNamespace(VirtualAllocEx=lambda *_args: next(pointers))
-
-        with mock.patch("mt5_manager.mt5_native_history_report.time.sleep") as pause:
-            self.assertEqual(exporter._remote_allocation(123, 16), 456)
-        self.assertEqual(pause.call_count, 2)
+    def test_a_transient_remote_allocation_reopens_the_terminal_process(self) -> None:
+        failed = mock.Mock()
+        failed.export.side_effect = _RemoteAllocationError("Win32 487")
+        recovered = mock.Mock()
+        recovered.export.return_value = {"native_terminal_report": True}
+        with mock.patch(
+            "mt5_manager.mt5_native_history_report._WindowsTerminalReportExporter",
+            side_effect=(failed, recovered),
+        ) as exporter, mock.patch("mt5_manager.mt5_native_history_report.time.sleep"):
+            result = export_native_history_report(
+                terminal_path=Path("terminal64.exe"), login="1", server="Broker",
+                period_start=PERIOD_START, period_end=PERIOD_END,
+                destination=Path("report.html"),
+            )
+        self.assertTrue(result["native_terminal_report"])
+        self.assertEqual(exporter.call_count, 2)
 
     def _extract(self, folder: Path, mt5: FakeMt5, report: str | None = NATIVE_REPORT):
         controller = LiveAuditController(FakeOwner("idle"), folder)

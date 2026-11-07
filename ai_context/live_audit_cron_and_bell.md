@@ -198,12 +198,17 @@ anotó la vigilancia. La prueba reproduce la forma real del nodo —resultado
 nulo y `finished_at` presente— y exige que el segundo POST salga con
 `attempts: 2`.
 
-La reserva nativa tiene además tres intentos breves sobre la misma terminal.
-Es una operación de 16 bytes que puede fallar transitoriamente; no tiene sentido
-abandonar una auditoría de varios minutos por el primer `VirtualAllocEx` nulo.
-Si los tres fallan, el error sigue siendo final para esa ejecución y vuelve a
-la política de reintentos del cron. El cambio vive también en los runtimes de
-IC, AXI, RoboForex y Vantage; FUTURE permanece congelado.
+La llamada que falló era nuestra, no de MT5: la automatización reserva 16 bytes
+en el proceso del terminal para poder enviar mensajes de controles Win32. No
+hubo agotamiento del equipo —quedaban más de 12 GB libres y Windows no registró
+el evento 2004—, y el error antiguo perdió el `GetLastError`, así que no se puede
+reconstruir a posteriori si el PID estaba terminando o qué rechazó Windows.
+
+La captura registra ahora el código Win32 real. Ante un fallo de reserva no
+repite sobre el mismo `HANDLE`: vuelve a localizar la ventana y su PID, reabre
+el proceso y reinicia la captura, hasta tres veces. Si los tres fallan, el error
+vuelve a la política de reintentos del cron. El cambio vive también en los
+runtimes de IC, AXI, RoboForex y Vantage; FUTURE permanece congelado.
 
 ## El periodo se engancha con el de la auditoría anterior
 
