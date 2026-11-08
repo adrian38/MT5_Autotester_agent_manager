@@ -42,6 +42,7 @@
         <label><input name="validate_margin" type="checkbox"> Validar margen</label>
         <label><input name="require_3_positive_months_6m" type="checkbox"> Exigir 3 meses positivos</label>
         <label><input name="grid_off" type="checkbox"> Grid OFF</label>
+        <label title="Limita las sustitutas a estrategias que ya pertenecen a usos marcados como operando en real para este broker. Las supervivientes siguen siendo obligatorias."><input name="active_portfolios_only" type="checkbox"> Solo estrategias de portafolios activos</label>
         <label><input name="exclude_used_sets" type="checkbox"> Excluir sets usados</label>
         <label id="repair-same-symbol-option"><input name="improvement_allow_same_symbol" type="checkbox"> Conservar excepción de mismo símbolo de la mejora</label>
       </div></fieldset>
@@ -70,7 +71,8 @@
   const booleanNames = [
     'run_local_search', 'deep_optimization', 'use_correlation',
     'validate_margin', 'require_3_positive_months_6m',
-    'grid_off', 'exclude_used_sets', 'improvement_allow_same_symbol',
+    'grid_off', 'active_portfolios_only', 'exclude_used_sets',
+    'improvement_allow_same_symbol',
   ];
   dialog.querySelector('#repair-groups').innerHTML = groupNames
     .map(group => `<label><input name="repair_group_${group}" type="checkbox" value="${group}"> ${group}</label>`)
@@ -94,10 +96,16 @@
     else field.value = value == null ? '' : value;
   }
 
+  function syncActivePortfolioFilter() {
+    if (fields.active_portfolios_only.checked) fields.exclude_used_sets.checked = false;
+    fields.exclude_used_sets.disabled = fields.active_portfolios_only.checked;
+  }
+
   function populateRepairForm() {
     const inherited = inheritedRepairInputs();
     numericNames.forEach(name => setRepairValue(name, inherited[name]));
     booleanNames.forEach(name => setRepairValue(name, inherited[name]));
+    syncActivePortfolioFilter();
     setRepairValue('quick_composition', false);
     setRepairValue('margin_profile', inherited.margin_profile);
     setRepairValue('disabled_symbols', inherited.disabled_symbols || []);
@@ -139,6 +147,7 @@
     populateRepairForm();
     dialog.showModal();
   });
+  fields.active_portfolios_only.addEventListener('change', syncActivePortfolioFilter);
   dialog.querySelectorAll('[data-close]').forEach(element => {
     element.addEventListener('click', () => dialog.close());
   });

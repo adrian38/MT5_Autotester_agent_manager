@@ -87,6 +87,7 @@ from .portfolio_service import (
     _underrepresented_recent_allocation_ids,
     build_margin_model,
     cached_report,
+    filter_rows_by_active_portfolios,
     filter_rows_by_disabled_symbols,
     settings_inputs,
 )
@@ -446,6 +447,7 @@ def _candidate_rows_for_improvement(
     warnings: list[str],
 ) -> list[dict[str, Any]]:
     rows = source.candidate_rows(include_quarantined=False)
+    rows = filter_rows_by_active_portfolios(rows, inputs)
     if inputs.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(
             rows, min_positive_months=3, window_months=6, parse=cached_report,

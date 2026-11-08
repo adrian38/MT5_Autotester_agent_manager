@@ -61,7 +61,7 @@ def result_payload(result: PortfolioResult) -> dict[str, Any]:
 #: se serializa a JSON y un ``MarginModel`` ahi dentro reventaba el POST con
 #: "Object of type MarginModel is not JSON serializable", que en la pantalla
 #: aparecia como un escueto "failed to fetch".
-RUNTIME_ONLY_INPUT_KEYS = frozenset({"margin_model"})
+RUNTIME_ONLY_INPUT_KEYS = frozenset({"margin_model", "_active_portfolio_members"})
 
 def settings_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     """Copia de ``inputs`` con solo lo que es un ajuste serializable."""

@@ -75,6 +75,33 @@ def filter_rows_by_disabled_symbols(
     ]
 
 
+def _set_identity(value: Any) -> str:
+    return str(value or "").replace("\\", "/").casefold()
+
+
+def filter_rows_by_active_portfolios(
+    rows: list[dict[str, Any]], inputs: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Keep candidates already used by a portfolio marked as live for this node."""
+    if not inputs.get("active_portfolios_only"):
+        return rows
+    members = inputs.get("_active_portfolio_members") or []
+    identities = {
+        _set_identity(member.get(key))
+        for member in members if isinstance(member, dict)
+        for key in ("set_path", "set_id") if member.get(key)
+    }
+    filtered = [
+        row for row in rows
+        if _set_identity(row.get("set_path")) in identities
+    ]
+    if not filtered:
+        raise ValueError(
+            "No hay candidatos aceptados presentes en los portafolios activos de este broker"
+        )
+    return filtered
+
+
 def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
     """Modelo de margen del perfil configurado, con el nocional medido si lo hay.
 
@@ -143,6 +170,7 @@ def _eligible_generation_rows(
     rows = source.candidate_rows(include_quarantined=False)
     if not rows:
         raise ValueError("No hay candidatos con Final Tick continuo y 6M aceptados")
+    rows = filter_rows_by_active_portfolios(rows, inputs)
     if inputs.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(
             rows, min_positive_months=3, window_months=6, parse=cached_report,

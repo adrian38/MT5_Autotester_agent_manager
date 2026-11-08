@@ -14,6 +14,7 @@ from typing import Any
 from portfolio_manager.ubs_portfolio import PortfolioResult
 
 from .common import load_json, save_json, utc_now
+from .portfolio_identity import _resolve_source_path
 from .portfolio_job_notices import job_notice, notice_link
 from .portfolio_persistence import result_payload
 from .portfolio_proposals import proposal_diff, save_portfolio_payload
@@ -85,6 +86,45 @@ class PortfolioCoordinatorCoreMixin:
                 }
             except ValueError:
                 self.settings = {}
+
+    def _with_active_portfolio_members(
+        self, node_id: str, source: PortfolioSource, settings: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not settings.get("active_portfolios_only"):
+            return settings
+        state = self.live_audit_settings.state(node_id) if self.live_audit_settings else {}
+        profiles = state.get("profiles") or {}
+        live_profiles = [
+            profiles.get(str(audit_id), {})
+            for audit_id in state.get("live_audit_ids") or []
+        ] or [
+            {"portfolio_id": portfolio_id}
+            for portfolio_id in state.get("live_portfolio_ids") or []
+        ]
+        members: list[dict[str, Any]] = []
+        for profile in live_profiles:
+            try:
+                detail = source.saved_portfolio_detail(
+                    int(profile.get("portfolio_id")), "full_history"
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            portfolio = detail.get("portfolio", {})
+            selected_type = str(profile.get("portfolio_type") or "")
+            selected_members = [
+                member for member in portfolio.get("members") or []
+                if portfolio.get("portfolio_type") != "bundle" or not selected_type
+                or str(member.get("variant_key") or "") == selected_type
+            ]
+            for member in selected_members:
+                raw_path = member.get("set_path") or member.get("set_id")
+                members.append({
+                    **member,
+                    "set_path": _resolve_source_path(raw_path, source.project),
+                })
+        if not members:
+            raise ValueError("No hay estrategias en portafolios activos de este broker")
+        return {**settings, "_active_portfolio_members": members}
 
     @staticmethod
     def _key(node_id: str, scope: str) -> str:

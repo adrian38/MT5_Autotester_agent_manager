@@ -32,7 +32,7 @@ IMPROVEMENT_INHERITED_KEYS = frozenset({
     "max_downside_corr", "max_dd_overlap", "max_portfolio_corr",
     "disabled_symbols", "allowed_asset_groups", "run_local_search",
     "deep_optimization", "use_correlation", "validate_margin",
-    "require_3_positive_months_6m", "grid_off",
+    "require_3_positive_months_6m", "grid_off", "active_portfolios_only",
 })
 
 
@@ -55,7 +55,10 @@ def improvement_options(inputs: dict[str, Any]) -> ImprovementOptions:
         raise ValueError("La mejora mínima beneficio/DD debe estar entre 0 y 25 %")
     return ImprovementOptions(
         max_additions=max_additions,
-        exclude_used_sets=bool(inputs.get("improvement_exclude_used_sets", True)),
+        exclude_used_sets=(
+            False if inputs.get("active_portfolios_only")
+            else bool(inputs.get("improvement_exclude_used_sets", True))
+        ),
         allow_same_symbol=bool(inputs.get("improvement_allow_same_symbol", True)),
         min_efficiency_gain_pct=minimum_gain,
     )

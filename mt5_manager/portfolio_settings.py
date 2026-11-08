@@ -38,6 +38,7 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "require_3_positive_months_6m": False,
     "grid_off": False,
     "exclude_used_sets": True,
+    "active_portfolios_only": False,
     "experimental_full_search": False,
     "min_strategy_recent_contribution_pct": 5.0,
     "dd_reserve_pct": 10.0,
@@ -95,7 +96,7 @@ CORRELATION_KEYS = (
 BOOLEAN_SETTINGS = (
     "run_local_search", "deep_optimization", "use_correlation",
     "require_3_positive_months_6m", "grid_off", "exclude_used_sets",
-    "experimental_full_search",
+    "active_portfolios_only", "experimental_full_search",
     "validate_margin", "daily_dd_full_history", "exclude_monthly_used",
     "corr_with_monthly_portfolios", "strict_yearly_month_validation",
     "experimental_monthly_search",
@@ -147,8 +148,11 @@ def _normalize_flags(values: dict[str, Any], monthly: bool) -> None:
         values[key] = bool(values.get(key))
     if monthly:
         values["experimental_full_search"] = False
+        values["active_portfolios_only"] = False
     else:
         values["experimental_monthly_search"] = False
+        if values["active_portfolios_only"]:
+            values["exclude_used_sets"] = False
     # Disabling correlation must not erase the configured thresholds. The
     # optimizer already ignores them while use_correlation is false. Older
     # persisted settings may have lost all four values, so restore defaults

@@ -124,6 +124,7 @@ from .portfolio_generation import (  # noqa: F401
     _loaded_generation_sets,
     _require_eligible_sets,
     build_margin_model,
+    filter_rows_by_active_portfolios,
     filter_rows_by_disabled_symbols,
     generate_proposals,
 )
@@ -326,6 +327,7 @@ class PortfolioCoordinator(
         try:
             raise_if_cancelled()
             source = self._calculation_source(node_id, scope)
+            settings = self._with_active_portfolio_members(node_id, source, settings)
             log_path = self._job_log_path(key, source, scope, operation)
 
             def logged_progress(message: str) -> None:

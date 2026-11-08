@@ -42,6 +42,7 @@
         <label><input name="validate_margin" type="checkbox"> Validar margen</label>
         <label><input name="require_3_positive_months_6m" type="checkbox"> Exigir 3 meses positivos</label>
         <label title="Las incorporaciones deben tener desactivado EnableGrid en su archivo .set. Las estrategias originales no se retiran."><input name="improvement_grid_off" type="checkbox"> Grid OFF para candidatas nuevas</label>
+        <label title="Limita las candidatas nuevas a estrategias que ya pertenecen a usos marcados como operando en real para este broker. Las originales no se retiran."><input name="active_portfolios_only" type="checkbox"> Solo estrategias de portafolios activos</label>
       </div></fieldset>
       <fieldset><legend>Criterios propios de la mejora</legend><div class="portfolio-form-grid">
         <label>Variante que quieres mejorar<select name="improvement_portfolio_type" required><option value="aggressive">Agresivo</option><option value="balanced" selected>Moderado</option><option value="conservative">Conservador</option></select></label>
@@ -117,6 +118,13 @@
     else field.value = value == null ? '' : value;
   }
 
+  function syncActivePortfolioFilter() {
+    if (fields.active_portfolios_only.checked) {
+      fields.improvement_exclude_used_sets.checked = false;
+    }
+    fields.improvement_exclude_used_sets.disabled = fields.active_portfolios_only.checked;
+  }
+
   function populateInheritedForm(mode) {
     const inherited = effectiveInheritedInputs(mode);
     inheritedNumericNames.forEach(name => setValue(name, inherited[name]));
@@ -127,7 +135,9 @@
     setValue('validate_margin', inherited.validate_margin);
     setValue('require_3_positive_months_6m', inherited.require_3_positive_months_6m);
     setValue('improvement_grid_off', inherited.improvement_grid_off ?? inherited.grid_off);
+    setValue('active_portfolios_only', inherited.active_portfolios_only);
     setValue('improvement_exclude_used_sets', inherited.improvement_exclude_used_sets ?? true);
+    syncActivePortfolioFilter();
     setValue('improvement_allow_same_symbol', inherited.improvement_allow_same_symbol ?? true);
     setValue('improvement_min_additions', inherited.improvement_min_additions ?? inherited.improvement_additions ?? 2);
     setValue('improvement_min_efficiency_gain_pct', inherited.improvement_min_efficiency_gain_pct ?? 3);
@@ -186,6 +196,7 @@
     };
     dialog.showModal();
   });
+  fields.active_portfolios_only.addEventListener('change', syncActivePortfolioFilter);
 
   function optionalNumber(name) {
     return fields[name].value === '' ? null : Number(fields[name].value);
@@ -204,6 +215,7 @@
       validate_margin: fields.validate_margin.checked,
       require_3_positive_months_6m: fields.require_3_positive_months_6m.checked,
       grid_off: fields.improvement_grid_off.checked,
+      active_portfolios_only: fields.active_portfolios_only.checked,
     };
     inheritedNumericNames.forEach(name => { values[name] = optionalNumber(name); });
     if (fields.quick_composition.checked) {

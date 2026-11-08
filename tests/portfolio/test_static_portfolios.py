@@ -494,7 +494,7 @@ class PortfolioFormTests(unittest.TestCase):
             "max_portfolio_corr", "disabled_symbols", "run_local_search",
             "deep_optimization", "use_correlation", "validate_margin",
             "require_3_positive_months_6m", "grid_off",
-            "exclude_used_sets", "allowed_asset_groups",
+            "active_portfolios_only", "exclude_used_sets", "allowed_asset_groups",
         ):
             self.assertIn(name, script)
         self.assertNotIn("experimental_full_search", script)
@@ -504,6 +504,19 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("if (fields.quick_composition.checked)", script)
         self.assertIn("payload.run_local_search = false", script)
         self.assertIn("payload.search_restarts = 0", script)
+
+    def test_creation_and_repair_offer_the_active_portfolio_filter(self) -> None:
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
+        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
+        main = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        repair = (static_dir / "portfolio_repair.js").read_text(encoding="utf-8")
+
+        self.assertIn('name="active_portfolios_only" type="checkbox"', page)
+        self.assertIn("'active_portfolios_only'", main)
+        self.assertIn("excludeUsed.disabled = activeOnly.checked", main)
+        self.assertIn('name="active_portfolios_only" type="checkbox"', repair)
+        self.assertIn("'grid_off', 'active_portfolios_only'", repair)
+        self.assertIn("fields.exclude_used_sets.disabled", repair)
 
     def test_saved_portfolio_alias_is_editable_and_shown_in_the_header(self) -> None:
         static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
