@@ -29,6 +29,45 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
 
         self.assertEqual(filter_rows_by_active_portfolios(rows, inputs), [rows[0]])
 
+    def test_a_manual_live_member_matches_its_candidate_in_the_pool(self) -> None:
+        """Un uso en real puede ser un portafolio manual, y entonces su miembro
+        apunta a la copia del nodo mientras el candidato vive en `outputs/`.
+
+        Medido el 2026-11-08 sobre AXI: tres de sus seis usos en real son
+        manuales y, comparando rutas, el filtro se quedaba sin un solo
+        candidato aunque los cuatro sets de uno de ellos están aceptados.
+        """
+        candidate = {
+            "set_path": r"F:\agente\outputs\ubs_agent\AXI\STANDARD\run_1\gen_002"
+                        r"\BTCUSD\H1\BTCUSD_H1_MIX_f4f272a8_g001_s004_v008.set",
+        }
+        rows = [candidate, {"set_path": r"F:\agente\outputs\otro.set"}]
+        inputs = {
+            "active_portfolios_only": True,
+            "_active_portfolio_members": [{
+                "set_path": r"F:\agente\runtime\axi\manual_portfolios\abc\sets"
+                            r"\btcusd_h1_mix_f4f272a8_g001_s004_v008.set",
+                "set_id": "btcusd_h1_mix_f4f272a8_g001_s004_v008.set",
+            }],
+        }
+
+        self.assertEqual(filter_rows_by_active_portfolios(rows, inputs), [candidate])
+
+    def test_every_row_of_the_same_set_file_counts_as_the_same_strategy(self) -> None:
+        """El mismo `.set` regenerado en varios runs son varias filas. Lo que
+        el usuario marcó en real es la estrategia, no la fila que la halló."""
+        rows = [
+            {"set_path": r"C:\pool\run_1\dup.set"},
+            {"set_path": r"C:\pool\run_2\dup.set"},
+            {"set_path": r"C:\pool\run_2\otra.set"},
+        ]
+        inputs = {
+            "active_portfolios_only": True,
+            "_active_portfolio_members": [{"set_path": r"C:\pool\run_9\dup.set"}],
+        }
+
+        self.assertEqual(filter_rows_by_active_portfolios(rows, inputs), rows[:2])
+
     def test_filter_reports_an_empty_live_pool(self) -> None:
         with self.assertRaisesRegex(ValueError, "portafolios activos"):
             filter_rows_by_active_portfolios(

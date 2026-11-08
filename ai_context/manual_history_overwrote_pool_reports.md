@@ -54,30 +54,59 @@ le pidió `Generar histórico OHLC`, que lanza `run_tests.py` con las fechas de
   `BTCUSD_….htm`. Ni siquiera hace falta subir el nombre exacto.
 
 No hay copia de seguridad: no quedaba ninguna otra copia de los cuatro `.htm`
-en el checkout. Recuperarlos exige volver a lanzar el backtest IS
-(`2020.01.01` → `2024.12.31` en AXI) sobre los sets del candidato.
+en el checkout.
+
+## Lo que costó recuperarlos
+
+Se relanzó el backtest IS `2020.01.01 → 2024.12.31` sobre los `.set` del
+**candidato** —no los del portafolio manual, que `normalize_manual_set` había
+reescrito— con `Model=1`, 1.000 EUR y 1:500, el único perfil habilitado de AXI
+(`MT5_AXI_8`). La ventana se confirmó contra un candidato intacto del mismo
+run.
+
+**No sale igual.** El informe original es de la build 5836 y hoy el terminal es
+la 6230, con otro histórico de minutos: ETHUSD reprodujo al céntimo, BTCUSD
+−0,5 %, XAUUSD −6,4 % y USDJPY −12,7 %, con un 3 % menos de operaciones en los
+dos que se movieron. Sobre la curva 2020-2026 que usa el portafolio son −4,1 %
+y −9,5 %, porque la mitad 2025-2026 sale del informe de robustez, que es otro
+fichero y quedó intacto: coincide al céntimo en los cuatro.
+
+Los cuatro siguen pasando los umbrales con margen, así que el repuntuado desde
+su informe no movió ningún veredicto. Se hizo sólo sobre esos dos candidatos
+con `ubs_agent_rescore._rescore_candidate_report`, la pieza por fila del
+agente: el modo completo recorre los 76.000 y, sin `--rescore-from-reports`,
+llama a `cleanup_stale_stage_rows()`, que es el mecanismo que dejó a
+RoboForex #123 sin la ruta de su etapa de robustez.
+
+## Prohibir el nombre era el arreglo equivocado
+
+El primer intento rechazaba el `.set` al subirlo si su nombre ya era el de un
+informe del pool. **Eso prohibía el caso normal.** Un portafolio manual es un
+uso en real: `live_portfolio_ids` de AXI son `[67, 105, 108, 109, 110, 112]` y
+tres de los seis son manuales. Subir las estrategias que la cuenta opera de
+verdad —que suelen ser candidatos aceptados— es exactamente para lo que existe
+la pantalla.
 
 ## La regla
 
-Un informe que el pool reclama como evidencia **no se sobrescribe**. El nodo lo
-hace cumplir en los dos momentos:
+El histórico corre sobre una **copia renombrada**, igual que la comprobación
+manual usa `check_<n:03d>_<set>`:
 
 | Dónde | Qué hace |
 | --- | --- |
-| `manual_portfolio._write_uploaded_sets` | Rechaza el `.set` al subirlo si su nombre ya es el de un informe del pool. |
-| `manual_portfolio_history._refuse_pool_report_overwrite` | Rechaza generar el histórico de un portafolio manual guardado antes de la guarda. |
+| `manual_portfolio_history.manual_report_stem` | `manual_<portafolio:06d>_<set>`: el nombre del informe. Lleva el portafolio porque dos carteras manuales pueden traer el mismo `.set` con fechas distintas. |
+| `manual_portfolio_history._history_sets` | Copia cada `.set` ya normalizado a `<uuid>/history_sets/` con ese nombre. Se rehace en cada ejecución, así que un miembro retirado deja de correr. |
+| `portfolio_manual_reports.report_for_set` | Busca `manual_<portafolio>_<set>` y luego el nombre pelado, que es como quedaron los históricos anteriores. Sin `glob`: `reports/` pasa de 850.000 ficheros. |
+| `manual_portfolio_history._refuse_pool_report_overwrite` | Última red, sobre las **copias**: lo que importa no es cómo se llama lo que subió el usuario, sino qué nombre se va a escribir. |
 
 «Del pool» se decide en la memoria UBS, no en el disco: `pool_report_names`
 reúne los `report_path` de `candidates`, `candidate_robustness`,
-`candidate_final_tick` y `candidate_final_tick_6m`. Así un portafolio manual
-puede **repetir** su propio histórico —su informe no lo reclama ningún
-candidato— y en cambio no puede pisar ninguna de las cuatro etapas. Los dos
-lados se comparan tras pasar por `report_stem`, que aplica el mismo `safe_name`
-que el runner.
+`candidate_final_tick` y `candidate_final_tick_6m`. Los dos lados se comparan
+tras pasar por `report_stem`, que aplica el mismo `safe_name` que el runner.
 
-Comprobado contra la memoria real de AXI: 76.077 informes protegidos, los
-cuatro sets de #112 rechazados, y los 39 sets de #109 y #110 —portafolios
-manuales de verdad— intactos.
+El número del portafolio tiene que llegar hasta `report_for_set`, así que
+`manual_history_summary` y `live_audit_degradation.read_histories` lo reciben;
+el auditor lo saca de `result["portfolio_id"]`.
 
 ## Alcance
 

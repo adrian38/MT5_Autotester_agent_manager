@@ -79,12 +79,19 @@ class Source:
 
 
 class ReadHistoriesTests(unittest.TestCase):
-    def _read(self, candidate_ids, set_names, found=None):
+    def _read(self, candidate_ids, set_names, found=None, portfolio_id=None):
+        self.asked = []
+
+        def fake(_project, name, pid=None):
+            self.asked.append((name, pid))
+            return Path(f"F:/reports/{name}.htm") if name else None
+
         with patch.object(
-            degradation.portfolio_manual_reports, "report_for_set",
-            side_effect=lambda _project, name: Path(f"F:/reports/{name}.htm") if name else None,
+            degradation.portfolio_manual_reports, "report_for_set", side_effect=fake,
         ), patch.object(degradation, "cached_report", return_value=report([3.0, -1.0, 2.0, 4.0])):
-            return degradation.read_histories(Source(found or ()), candidate_ids, set_names)
+            return degradation.read_histories(
+                Source(found or ()), candidate_ids, set_names, portfolio_id,
+            )
 
     def test_a_manual_member_gets_its_history_from_its_report(self) -> None:
         # `manual` no es el scope de ninguna memoria, así que el bucle de
@@ -92,6 +99,12 @@ class ReadHistoriesTests(unittest.TestCase):
         histories = self._read(["manual:10"], {"manual:10": "ubs-tsla.nas-h1-tsv01.set"})
         self.assertEqual(list(histories), ["manual:10"])
         self.assertEqual(histories["manual:10"].trades, 4)
+
+    def test_the_portfolio_number_reaches_the_lookup(self) -> None:
+        """Sin él no se encuentra `manual_<portafolio>_<set>`, que es como se
+        llama el informe desde que el histórico corre sobre una copia."""
+        self._read(["manual:10"], {"manual:10": "uno.set"}, portfolio_id=112)
+        self.assertEqual(self.asked, [("uno.set", 112)])
 
     def test_without_a_set_name_there_is_nothing_to_look_for(self) -> None:
         self.assertEqual(self._read(["manual:10"], {}), {})

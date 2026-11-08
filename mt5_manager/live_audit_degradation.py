@@ -311,6 +311,7 @@ def split_candidate_id(candidate_id: str) -> tuple[str, int] | None:
 
 def read_histories(
     source: Any, candidate_ids: list[str], set_names: dict[str, str] | None = None,
+    portfolio_id: Any = None,
 ) -> dict[str, StrategyHistory]:
     """Histórico de cada candidato, leído de la memoria UBS del agente.
 
@@ -332,21 +333,25 @@ def read_histories(
         if not rows:
             continue
         histories.update(_read_memory(source, memory, rows))
-    histories.update(_manual_histories(source, candidate_ids, set_names, histories))
+    histories.update(
+        _manual_histories(source, candidate_ids, set_names, histories, portfolio_id)
+    )
     return histories
 
 
 def _manual_histories(
     source: Any, candidate_ids: list[str], set_names: dict[str, str] | None,
-    found: dict[str, StrategyHistory],
+    found: dict[str, StrategyHistory], portfolio_id: Any = None,
 ) -> dict[str, StrategyHistory]:
     """El histórico de lo que la memoria no conoce, leído de su informe OHLC.
 
     Un portafolio manual no sale del pool: sus miembros son `manual:N` y el
     scope `manual` no es ninguna memoria, así que arriba no se encuentra nada.
-    El histórico sí existe, con el nombre del set en `<proyecto>/reports/`, que
-    es donde lo deja «Generar histórico OHLC». Se busca con la misma regla que
-    usa la pantalla del portafolio manual, no con una propia.
+    El histórico sí existe en `<proyecto>/reports/`, que es donde lo deja
+    «Generar histórico OHLC». Se busca con la misma regla que usa la pantalla
+    del portafolio manual, no con una propia; por eso hace falta el número del
+    portafolio, que es parte del nombre del informe desde que el histórico
+    corre sobre una copia renombrada del `.set`.
 
     Sólo para lo que la memoria no contestó: un candidato del pool sigue
     midiéndose contra lo que la memoria guarda de él.
@@ -359,7 +364,7 @@ def _manual_histories(
         name = set_names.get(candidate_id)
         if candidate_id in found or not name:
             continue
-        path = portfolio_manual_reports.report_for_set(project, name)
+        path = portfolio_manual_reports.report_for_set(project, name, portfolio_id)
         if path is None:
             continue
         try:

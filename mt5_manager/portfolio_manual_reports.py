@@ -1,6 +1,7 @@
 """Lectura de los históricos OHLC generados para portafolios manuales."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -68,33 +69,67 @@ def _report_summary(report: StrategyReport, member: dict[str, Any]) -> dict[str,
     }
 
 
-def report_for_set(project: Path, set_reference: Any) -> Path | None:
-    """El informe OHLC homónimo de un set, en `<proyecto>/reports/`.
+def manual_report_stem(portfolio_id: Any, set_reference: Any) -> str:
+    """El nombre del informe que el nodo escribe para un set manual.
+
+    Copia exacta de `manager_node_runtime/manual_portfolio_history`, que es
+    quien lo decide: el histórico corre sobre una copia renombrada del `.set`
+    para no sustituir el informe del candidato homónimo del pool.
+    """
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(_portable_set_name(set_reference)).stem)
+    return f"manual_{int(portfolio_id):06d}_{stem}"
+
+
+def report_for_set(
+    project: Path, set_reference: Any, portfolio_id: Any = None,
+) -> Path | None:
+    """El informe OHLC de un set manual, en `<proyecto>/reports/`.
 
     Es **la** regla de emparejado entre un set manual y su histórico, y vive
-    aquí sola a propósito: el botón «Generar histórico OHLC» deja el informe
-    con el nombre del set, y cualquiera que quiera ese histórico —el resumen
-    del portafolio manual o la tabla «contra el histórico» de la auditoría—
-    tiene que buscarlo igual. Dos reglas serían dos respuestas distintas a la
-    misma pregunta.
+    aquí sola a propósito: cualquiera que quiera ese histórico —el resumen del
+    portafolio manual o la tabla «contra el histórico» de la auditoría— tiene
+    que buscarlo igual. Dos reglas serían dos respuestas distintas a la misma
+    pregunta.
+
+    Se mira primero `manual_<portafolio>_<set>`, que es lo que escribe el nodo
+    desde que el histórico corre sobre una copia renombrada, y después el
+    nombre pelado del set, que es como quedaron los históricos anteriores. Sin
+    el número de portafolio sólo queda la segunda forma: no se busca con un
+    `glob`, porque `reports/` pasa de 850.000 ficheros y esto se consulta por
+    estrategia.
     """
-    stem = Path(_portable_set_name(set_reference)).stem
+    name = _portable_set_name(set_reference)
     reports = project / "reports"
-    if not stem or not reports.is_dir():
+    if not name or not reports.is_dir():
         return None
-    matches = [path for suffix in (".htm", ".html") if (path := reports / f"{stem}{suffix}").is_file()]
-    return max(matches, key=lambda path: path.stat().st_mtime) if matches else None
+    stems = [Path(name).stem]
+    if portfolio_id is not None:
+        stems.insert(0, manual_report_stem(portfolio_id, name))
+    for stem in stems:
+        matches = [
+            path for suffix in (".htm", ".html")
+            if (path := reports / f"{stem}{suffix}").is_file()
+        ]
+        if matches:
+            return max(matches, key=lambda path: path.stat().st_mtime)
+    return None
 
 
-def _matching_report(project: Path, member: dict[str, Any]) -> Path | None:
-    return report_for_set(project, member.get("set_path") or member.get("set_id"))
+def _matching_report(
+    project: Path, member: dict[str, Any], portfolio_id: Any = None,
+) -> Path | None:
+    return report_for_set(
+        project, member.get("set_path") or member.get("set_id"), portfolio_id,
+    )
 
 
-def manual_history_summary(project: Path, members: list[dict[str, Any]]) -> dict[str, Any]:
-    """Relaciona cada set manual con el último reporte homónimo del nodo."""
+def manual_history_summary(
+    project: Path, members: list[dict[str, Any]], portfolio_id: Any = None,
+) -> dict[str, Any]:
+    """Relaciona cada set manual con el último reporte que dejó el nodo."""
     strategies = []
     for member in members:
-        path = _matching_report(project, member)
+        path = _matching_report(project, member, portfolio_id)
         if path is None:
             continue
         try:

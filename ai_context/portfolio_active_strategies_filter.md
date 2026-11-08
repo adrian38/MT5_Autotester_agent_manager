@@ -23,6 +23,16 @@ originales o supervivientes continúan protegidas por sus contratos existentes.
 Si el broker no tiene portafolios activos, o ninguno de sus miembros sigue en
 el pool aceptado, el trabajo falla con un mensaje explícito.
 
+**Un uso activo puede ser un portafolio manual**, y entonces su miembro apunta
+a la copia estable del nodo —`runtime/<nodo>/manual_portfolios/<uuid>/sets/`—
+mientras el mismo candidato vive en `outputs/ubs_agent/…`. Por eso
+`_set_identity` compara el **nombre del `.set`**, no la ruta: con rutas, medido
+el 2026-11-08, los tres usos manuales de AXI no aportaban un solo candidato y
+el cálculo abortaba, aunque los cuatro sets de uno de ellos están aceptados.
+Entran también las filas distintas que comparten fichero —el mismo set
+regenerado en varios runs—, y eso es lo buscado: lo que el usuario marcó en
+real es la estrategia, no la fila que la descubrió.
+
 ## Interacción con «Excluir sets usados»
 
 Toda estrategia de un portafolio activo ya está usada por definición. Por eso

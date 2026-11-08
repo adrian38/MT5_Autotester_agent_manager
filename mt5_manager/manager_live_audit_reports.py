@@ -215,6 +215,7 @@ def degradation_report(
     histories = live_audit_degradation.read_histories(
         source, list(grouped),
         {strategy: name for strategy, (name, _symbol) in labels.items() if name},
+        result.get("portfolio_id"),
     )
     backtest_of = _backtest_of(source, histories)
     strategies = _measured(grouped, histories, labels, days, backtest_of, rate=True)

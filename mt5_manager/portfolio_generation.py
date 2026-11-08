@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from portfolio_manager.grid_set import filter_rows_grid_off
@@ -76,7 +77,21 @@ def filter_rows_by_disabled_symbols(
 
 
 def _set_identity(value: Any) -> str:
-    return str(value or "").replace("\\", "/").casefold()
+    """La identidad de una estrategia es el nombre de su `.set`, no su ruta.
+
+    Un portafolio activo puede ser manual, y entonces sus miembros apuntan a la
+    copia estable del nodo —`runtime/<nodo>/manual_portfolios/<uuid>/sets/`—
+    mientras el mismo candidato vive en `outputs/ubs_agent/…`. Son la misma
+    estrategia y por ruta no coinciden jamás. Medido el 2026-11-08 sobre AXI:
+    de sus seis usos en real, tres son manuales, y con sólo ésos el filtro se
+    quedaba sin un candidato y abortaba, aunque los cuatro sets de uno de ellos
+    son candidatos aceptados del pool.
+
+    Por nombre entran también las filas distintas que comparten fichero —el
+    mismo set regenerado en varios runs—, y eso es lo que se quiere: lo que el
+    usuario marcó en real es la estrategia, no la fila que la descubrió.
+    """
+    return Path(str(value or "").replace("\\", "/")).name.casefold()
 
 
 def filter_rows_by_active_portfolios(

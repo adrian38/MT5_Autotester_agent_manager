@@ -185,7 +185,9 @@ class PortfolioSourceSavedMixin:
         selected["metrics"] = metrics
         selected["members"] = self._mark_excluded_members(self._detail_members(members, metrics))
         if selected.get("manual_portfolio"):
-            selected["history"] = manual_history_summary(self.project, selected["members"])
+            selected["history"] = manual_history_summary(
+                self.project, selected["members"], portfolio_id,
+            )
         with self.connect() as conn:
             versions = [dict(item) for item in conn.execute(
                 "select id,version_no,created_at,reason from portfolio_versions where portfolio_id=? order by version_no desc",

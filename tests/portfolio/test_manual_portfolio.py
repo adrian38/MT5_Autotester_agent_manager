@@ -13,7 +13,7 @@ from unittest.mock import patch
 from mt5_manager import manager_portfolio_routes
 from mt5_manager.manager_portfolio_routes import parse_timeframe_document
 from mt5_manager.portfolio_saved import _saved_portfolio_row
-from mt5_manager.portfolio_manual_reports import manual_history_summary
+from mt5_manager.portfolio_manual_reports import manual_history_summary, report_for_set
 from mt5_manager.portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin
 
 
@@ -226,6 +226,32 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertEqual(history["max_drawdown"], 25.0)
         self.assertEqual(history["strategies"][0]["history_quality"], "99%")
         self.assertEqual(history["strategies"][0]["set_name"], "one.set")
+
+    def test_the_history_is_looked_up_by_the_name_the_node_writes(self) -> None:
+        """`manual_<portafolio>_<set>` primero, y el nombre pelado después.
+
+        El histórico corre sobre una copia renombrada del `.set` para no
+        sustituir el informe del candidato homónimo del pool; los históricos
+        generados antes de ese cambio siguen con el nombre del set.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            reports = project / "reports"
+            reports.mkdir()
+            viejo = reports / "uno.htm"
+            viejo.write_text("anterior", encoding="utf-8")
+            member = r"runtime\manual_portfolios\uuid\sets\uno.set"
+
+            self.assertEqual(report_for_set(project, member, 112), viejo)
+
+            nuevo = reports / "manual_000112_uno.htm"
+            nuevo.write_text("del nodo", encoding="utf-8")
+
+            self.assertEqual(report_for_set(project, member, 112), nuevo)
+            # Otro portafolio con el mismo set no hereda ese histórico.
+            self.assertEqual(report_for_set(project, member, 110), viejo)
+            # Sin número sólo queda la forma antigua.
+            self.assertEqual(report_for_set(project, member), viejo)
 
     def test_manual_detail_does_not_require_ubs_capital_or_dd_inputs(self) -> None:
         source = SimpleNamespace(

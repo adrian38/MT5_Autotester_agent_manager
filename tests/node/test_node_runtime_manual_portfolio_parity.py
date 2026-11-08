@@ -35,10 +35,10 @@ class ManualPortfolioReportParityTests(NodeRuntimeForkParityBase):
         def check(project: Path, _source: str) -> None:
             source = self._manual_source(project)
             for pattern, what in (
+                (r"def manual_report_stem\(", "el nombre con prefijo del informe"),
+                (r"def _history_sets\(", "la copia renombrada sobre la que corre el histórico"),
                 (r"def pool_report_names\(", "el inventario de informes del pool"),
-                (r"def report_stem\(", "el nombre con el que run_tests.py deja el informe"),
-                (r"reserved_reports", "el rechazo al subir el .set"),
-                (r"_refuse_pool_report_overwrite", "el rechazo al generar el histórico"),
+                (r"_refuse_pool_report_overwrite\(copies", "la última red sobre las copias"),
             ):
                 self._assert_present(
                     source,
@@ -49,6 +49,16 @@ class ManualPortfolioReportParityTests(NodeRuntimeForkParityBase):
                     "reconstruible a las carteras que lo usen. Portarlo desde una copia "
                     "ya portada. Hay que reiniciar la aplicación del agente.",
                 )
+            # Prohibir el nombre al subirlo prohibía el caso normal: los
+            # portafolios manuales son usos en real y sus estrategias suelen
+            # ser candidatos aceptados del pool.
+            self._assert_absent(
+                source,
+                r"reserved_reports",
+                f"{project}: manager_node_runtime/manual_portfolio.py sigue rechazando "
+                "al subir un .set que se llama como un informe del pool. Eso bloquea "
+                "subir las estrategias que la cuenta opera de verdad.",
+            )
 
         self._assert_on_every_fork(check, "el histórico manual no pisa informes del pool")
 
