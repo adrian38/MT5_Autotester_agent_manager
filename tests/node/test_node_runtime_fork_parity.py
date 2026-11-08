@@ -67,8 +67,14 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
             "/api/v1/portfolios/manual-defaults",
             "/api/v1/portfolios/manual-history",
         )
-        forwarded = (MANAGER_ROOT / "mt5_manager" / "manager_portfolio_routes.py").read_text(
-            encoding="utf-8"
+        # El reenvío salió de `manager_portfolio_routes.py` a su propio módulo
+        # cuando aquél pasó de 600 líneas (425a20f), y esta guarda se quedó
+        # leyendo sólo el primero: desde el 2026-11-02 fallaba por no encontrar
+        # un texto que sigue existiendo. Se leen los dos, como
+        # `manager_node_source()` concatena todos los `node*.py`.
+        forwarded = "".join(
+            (MANAGER_ROOT / "mt5_manager" / name).read_text(encoding="utf-8")
+            for name in ("manager_portfolio_routes.py", "manager_manual_portfolio.py")
         )
         # Las dos últimas se arman con el nombre del endpoint, así que la cadena
         # literal no aparece: lo que se ancla es el reenvío, no su formato.
