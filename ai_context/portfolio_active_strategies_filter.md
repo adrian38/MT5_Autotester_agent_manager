@@ -17,11 +17,38 @@ Si un paquete A/M/C tiene activo sólo un uso Moderado, entran únicamente los
 miembros Moderados; no se cuelan las otras dos variantes guardadas en la misma
 fila. Varios usos activos del mismo paquete aportan la unión de sus variantes.
 
-La restricción se aplica al pool de candidatas aceptadas. En una mejora sólo
-limita las incorporaciones y en un arreglo sólo las sustitutas; las estrategias
-originales o supervivientes continúan protegidas por sus contratos existentes.
-Si el broker no tiene portafolios activos, o ninguno de sus miembros sigue en
-el pool aceptado, el trabajo falla con un mensaje explícito.
+**No es un recorte del pool aceptado: con la casilla puesta, el pool son las
+estrategias en real.** Marcar una en real ya es el veredicto, así que entra
+aunque nunca pasara el embudo. Su fila se construye con lo que guardó su
+asignación —ruta del `.set`, símbolo, marco temporal e informes base,
+robustez, Final Tick e histórico—, que es justo lo que lee
+`load_robust_sets_from_rows`. En una mejora sólo limita las incorporaciones y
+en un arreglo sólo las sustitutas; las estrategias originales o supervivientes
+continúan protegidas por sus contratos existentes. Si el broker no tiene
+portafolios activos, o ninguno de sus miembros pudo entrar, el trabajo falla
+con un mensaje explícito que nombra la causa y hasta cinco de los sets.
+
+**Sin informe base y de robustez no hay fila que construir.** Un set subido a
+mano a un portafolio manual no guarda ninguno de los dos: su único histórico es
+la pasada OHLC completa que escribe `Generar histórico OHLC`, **un solo
+informe** de 2020 a 2026, y `build_robust_strategy_set` exige dos períodos que
+no se solapen —`First report period must end before second report period
+starts`—. Partir esa pasada en dos inventaría un fuera de muestra que nunca lo
+fue, así que esos miembros se nombran en un aviso en vez de desaparecer.
+Medido el 2026-11-08 sobre AXI: 6 usos en real, 64 miembros, 31 filas del pool
+aceptado y 39 nombrados —los 32 de #109, los 7 de #110—, todos con histórico
+OHLC y ninguno con el par IS/OOS. Para que entren de verdad hay que correrles
+las dos etapas, no relajar la carga.
+
+Un miembro en cuarentena no vuelve por esta puerta: ya salió del pool aceptado
+y eso es una decisión del usuario sobre esa estrategia, no un veredicto del
+embudo.
+
+La comparación con lo que el pool ya trae es por **tronco lógico** —el nombre
+sin el prefijo `robust_AAAAMM_`— y no por nombre de fichero.
+`load_robust_sets_from_rows` agrupa por `account_type:tronco` y la fila de un
+miembro no trae `account_type`, así que el set a mano y su copia robusta del
+pool llegarían como dos estrategias distintas.
 
 **Un uso activo puede ser un portafolio manual**, y entonces su miembro apunta
 a la copia estable del nodo —`runtime/<nodo>/manual_portfolios/<uuid>/sets/`—
@@ -60,7 +87,10 @@ El manager añade `_active_portfolio_members` sólo durante el cálculo y
 `settings_inputs` lo excluye de la persistencia; únicamente se guarda el
 booleano heredable. Los paths se reubican con `_resolve_source_path` antes de
 compararlos con las filas del pool para no mezclar rutas del nodo, del host y
-del contenedor.
+del contenedor. **No sólo el `.set`**: desde que un miembro entra al pool con
+sus propios informes, `_relocated_member` reubica también `is_report_path`,
+`oos_report_path`, `final_tick_report_path` y `full_history_report_path`, que
+un portafolio guardado puede traer con la raíz de otro despliegue.
 
 El cálculo y la resolución de `live_trading` viven en el manager. El nodo sólo
 persiste los inputs ya serializados, así que no hay cambio de protocolo ni port

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.ubs_portfolio import (
     PortfolioType,
+    _logical_stem,
     filter_rows_by_recent_positive_months,
     load_max_product_leverage,
     load_robust_sets_from_rows,
@@ -24,7 +25,11 @@ from portfolio_manager.ubs_portfolio import (
 
 from .common import safe_float
 from .portfolio_generation_search import _locked_full_proposals, _reserve_pct
-from .portfolio_identity import LOCKED_VARIANTS, PORTFOLIO_TYPES
+from .portfolio_identity import (
+    LOCKED_VARIANTS,
+    PORTFOLIO_TYPES,
+    _allocation_source_rows,
+)
 from .portfolio_report_cache import cached_report
 from .portfolio_valley_floor import (
     _with_executable_valley_floor,
@@ -94,27 +99,126 @@ def _set_identity(value: Any) -> str:
     return Path(str(value or "").replace("\\", "/")).name.casefold()
 
 
+def _logical_identity(value: Any) -> str:
+    """El tronco lógico del `.set`: su nombre sin el prefijo `robust_AAAAMM_`.
+
+    Es la misma agrupación que usa `load_robust_sets_from_rows`, normalizando
+    antes los separadores: las rutas de la memoria las escribió un nodo Windows
+    y en el manager Linux `Path(...).stem` devolvería la ruta entera.
+    """
+    return _logical_stem(str(value or "").replace("\\", "/")).casefold()
+
+
+def _sample_names(names: list[str]) -> str:
+    """Hasta cinco nombres, y la señal de que hay más."""
+    ordered = sorted(names)
+    return ", ".join(ordered[:5]) + ("…" if len(ordered) > 5 else "")
+
+
+def _unaccepted_member_rows(
+    members: list[dict[str, Any]], matched: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Los miembros en real que el pool aceptado no trae, y los que no se pueden ver.
+
+    La fila se construye con lo que guardó su asignación —ruta del `.set`,
+    símbolo, marco temporal e informes base, robustez, Final Tick e histórico—,
+    que es justo lo que `load_robust_sets_from_rows` lee. Sin informe base y de
+    robustez no hay fila que construir: el único histórico de un set subido a
+    mano es la pasada OHLC completa 2020→2026 que escribe `Generar histórico
+    OHLC`, un solo informe, y partirlo en dos períodos inventaría un fuera de
+    muestra que nunca lo fue. Esos se devuelven nombrados aparte.
+
+    La comparación con lo ya presente es por tronco lógico y no por nombre de
+    fichero, porque esa deduplicación agrupa por `account_type:tronco` y la
+    fila de un miembro no trae `account_type`: el set subido a mano y su copia
+    `robust_AAAAMM_` del pool llegarían como dos estrategias distintas.
+
+    Un miembro excluido no vuelve por esta puerta. La cuarentena ya lo sacó del
+    pool aceptado y es una decisión del usuario sobre esa estrategia, no un
+    veredicto del embudo.
+    """
+    seen = {_logical_identity(row.get("set_path")) for row in matched}
+    usable: list[dict[str, Any]] = []
+    blind: list[str] = []
+    for member in members:
+        reference = str(member.get("set_path") or member.get("set_id") or "")
+        identity = _logical_identity(reference)
+        if member.get("excluded") or not identity or identity in seen:
+            continue
+        seen.add(identity)
+        if member.get("is_report_path") and member.get("oos_report_path"):
+            usable.append(member)
+        else:
+            blind.append(Path(reference.replace("\\", "/")).name)
+    return _allocation_source_rows(usable), blind
+
+
+def _note_active_pool(
+    warnings: list[str] | None, extra: list[dict[str, Any]], blind: list[str],
+) -> None:
+    """Dice cuántas entraron sin ser candidatas y cuántas no se pudieron ver."""
+    if warnings is None:
+        return
+    if extra:
+        warnings.append(
+            f"{len(extra)} estrategia(s) de portafolios activos entran al pool sin ser "
+            "candidatas aceptadas; se evalúan con los informes de su asignación."
+        )
+    if blind:
+        warnings.append(
+            f"{len(blind)} estrategia(s) de portafolios activos quedan fuera del pool: "
+            "no son candidatas aceptadas y su portafolio no guardó informe base ni de "
+            f"robustez con el que evaluarlas ({_sample_names(blind)})."
+        )
+
+
 def filter_rows_by_active_portfolios(
-    rows: list[dict[str, Any]], inputs: dict[str, Any],
+    rows: list[dict[str, Any]],
+    inputs: dict[str, Any],
+    warnings: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Keep candidates already used by a portfolio marked as live for this node."""
+    """El pool cuando sólo se admiten estrategias de portafolios activos.
+
+    No es un recorte del pool aceptado: es el pool. Lo que el usuario puso en
+    real entra aunque nunca pasara el embudo, porque marcarlo en real ya es el
+    veredicto, y entra con los informes que guardó su asignación.
+
+    Medido el 2026-11-08 sobre AXI: sus seis usos en real son 64 miembros, de
+    los que 31 son candidatos aceptados del pool. Los otros 39 son los sets
+    subidos a mano a sus tres portafolios manuales, que nunca fueron candidatos
+    y tampoco guardaron informes; se nombran en vez de desaparecer.
+    """
     if not inputs.get("active_portfolios_only"):
         return rows
-    members = inputs.get("_active_portfolio_members") or []
+    members = [
+        member for member in inputs.get("_active_portfolio_members") or []
+        if isinstance(member, dict)
+    ]
     identities = {
         _set_identity(member.get(key))
-        for member in members if isinstance(member, dict)
+        for member in members
         for key in ("set_path", "set_id") if member.get(key)
     }
-    filtered = [
-        row for row in rows
-        if _set_identity(row.get("set_path")) in identities
-    ]
-    if not filtered:
-        raise ValueError(
-            "No hay candidatos aceptados presentes en los portafolios activos de este broker"
-        )
-    return filtered
+    matched = [row for row in rows if _set_identity(row.get("set_path")) in identities]
+    extra, blind = _unaccepted_member_rows(members, matched)
+    _note_active_pool(warnings, extra, blind)
+    if not matched and not extra:
+        raise ValueError(_empty_active_pool(blind))
+    return matched + extra
+
+
+def _empty_active_pool(blind: list[str]) -> str:
+    """El error cuando el filtro deja el pool vacío, con la causa dentro."""
+    message = (
+        "Ninguna estrategia de los portafolios activos de este broker pudo entrar al pool"
+    )
+    if not blind:
+        return message
+    return (
+        f"{message}: sus {len(blind)} estrategia(s) no son candidatas aceptadas y su "
+        "portafolio no guardó informe base ni de robustez con el que evaluarlas "
+        f"({_sample_names(blind)})"
+    )
 
 
 def build_margin_model(source: PortfolioSource, inputs: dict[str, Any]):
@@ -185,7 +289,7 @@ def _eligible_generation_rows(
     rows = source.candidate_rows(include_quarantined=False)
     if not rows:
         raise ValueError("No hay candidatos con Final Tick continuo y 6M aceptados")
-    rows = filter_rows_by_active_portfolios(rows, inputs)
+    rows = filter_rows_by_active_portfolios(rows, inputs, warnings)
     if inputs.get("require_3_positive_months_6m"):
         rows, found = filter_rows_by_recent_positive_months(
             rows, min_positive_months=3, window_months=6, parse=cached_report,

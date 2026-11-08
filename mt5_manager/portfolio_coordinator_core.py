@@ -24,6 +24,32 @@ from .portfolio_settings import active_portfolios_requested, normalize_settings
 from .portfolio_source import PortfolioSource
 
 
+_MEMBER_REPORT_KEYS = (
+    "is_report_path", "oos_report_path",
+    "final_tick_report_path", "full_history_report_path",
+)
+
+
+def _relocated_member(member: dict[str, Any], project: Path) -> dict[str, Any]:
+    """El miembro de un portafolio activo con sus rutas en este despliegue.
+
+    Ya no basta con reubicar el `.set`: desde que una estrategia en real entra
+    al pool aunque el embudo no la aceptara, sus informes se leen de verdad, y
+    un portafolio guardado puede traerlos con la raíz de otro despliegue —el
+    `/data/...` de un contenedor, la letra de otra PC— que aquí no existe.
+    """
+    return {
+        **member,
+        **{
+            key: _resolve_source_path(member.get(key), project)
+            for key in _MEMBER_REPORT_KEYS if member.get(key)
+        },
+        "set_path": _resolve_source_path(
+            member.get("set_path") or member.get("set_id"), project
+        ),
+    }
+
+
 def scope_stage_count(scope: str, operation: str) -> int:
     """Number of numbered stages the worker of this scope/operation emits."""
     scope = normalize_portfolio_scope(scope)
@@ -116,12 +142,9 @@ class PortfolioCoordinatorCoreMixin:
                 if portfolio.get("portfolio_type") != "bundle" or not selected_type
                 or str(member.get("variant_key") or "") == selected_type
             ]
-            for member in selected_members:
-                raw_path = member.get("set_path") or member.get("set_id")
-                members.append({
-                    **member,
-                    "set_path": _resolve_source_path(raw_path, source.project),
-                })
+            members.extend(
+                _relocated_member(member, source.project) for member in selected_members
+            )
         if not members:
             raise ValueError("No hay estrategias en portafolios activos de este broker")
         return {**settings, "_active_portfolio_members": members}
