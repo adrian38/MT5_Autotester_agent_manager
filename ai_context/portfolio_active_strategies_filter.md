@@ -28,17 +28,35 @@ continúan protegidas por sus contratos existentes. Si el broker no tiene
 portafolios activos, o ninguno de sus miembros pudo entrar, el trabajo falla
 con un mensaje explícito que nombra la causa y hasta cinco de los sets.
 
-**Sin informe base y de robustez no hay fila que construir.** Un set subido a
-mano a un portafolio manual no guarda ninguno de los dos: su único histórico es
-la pasada OHLC completa que escribe `Generar histórico OHLC`, **un solo
-informe** de 2020 a 2026, y `build_robust_strategy_set` exige dos períodos que
-no se solapen —`First report period must end before second report period
-starts`—. Partir esa pasada en dos inventaría un fuera de muestra que nunca lo
-fue, así que esos miembros se nombran en un aviso en vez de desaparecer.
-Medido el 2026-11-08 sobre AXI: 6 usos en real, 64 miembros, 31 filas del pool
-aceptado y 39 nombrados —los 32 de #109, los 7 de #110—, todos con histórico
-OHLC y ninguno con el par IS/OOS. Para que entren de verdad hay que correrles
-las dos etapas, no relajar la carga.
+**Un set subido a mano no guarda el par IS/OOS: se parte su pasada única.** Su
+asignación trae los dos informes vacíos; lo que tiene es la pasada OHLC
+completa que escribe `Generar histórico OHLC`, **un solo fichero** de 2020 a
+2026, y `build_robust_strategy_set` exige dos períodos que no se solapen
+—`First report period must end before second report period starts`—.
+
+`split_report_at_year` corta ese listado de operaciones por fecha de cierre en
+2025 y devuelve los dos tramos. **No inventa nada**: es el mismo listado, y
+medido el 2026-11-08 sobre `strategy1_Daily` y `9637014_bk_tsla_vol_d1atr` de
+AXI la unión de los dos tramos devuelve el mismo beneficio, el mismo valle, el
+mismo punto y las mismas operaciones que el informe entero, al céntimo. De cada
+tramo se borran el neto, los brutos y el factor del HTML para que se recalculen
+desde sus operaciones; las reducciones máximas se conservan, que son las de la
+pasada completa, así que el tramo hereda un riesgo que nunca se queda corto.
+
+**Lo que no es: un fuera de muestra de verdad.** La pasada es una sola y el
+tramo 2025-2026 no se reservó. El aviso del pool lo dice con esas palabras.
+
+La ruta viaja en la fila como `single_pass_report_path`, la resuelve
+`_single_pass_report` con `report_for_set` —la regla única de emparejado entre
+un set manual y su histórico, que lleva el número del portafolio— y la consume
+`_RobustSetLoader._candidate_report_paths`. **Una fila sin esa clave no cambia
+en nada**, así que ni el embudo del agente ni ningún otro consumidor se ven
+afectados.
+
+Medido el 2026-11-08 sobre AXI: 6 usos en real, 64 miembros, 57 estrategias
+distintas; 18 son candidatas aceptadas (31 filas del pool, porque el mismo
+`.set` aparece hasta 11 veces regenerado en varios runs) y 39 vienen de los
+portafolios manuales #109, #110 y #112. **Las 57 cargan.** Antes cargaban 18.
 
 Un miembro en cuarentena no vuelve por esta puerta: ya salió del pool aceptado
 y eso es una decisión del usuario sobre esa estrategia, no un veredicto del

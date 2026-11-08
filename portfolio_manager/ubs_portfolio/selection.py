@@ -44,6 +44,7 @@ from .reports import (
     build_robust_strategy_set,
     maximal_drawdowns_from_report,
     period_report_from_strategy_report,
+    split_report_at_year,
 )
 
 
@@ -141,6 +142,23 @@ class _RobustSetLoader:
         return is_path, oos_path
 
 
+    def _candidate_report_paths(row: object) -> tuple[Path, Path, bool]:
+        """Los dos informes del candidato, o la pasada unica que los sustituye.
+
+        Una fila que nunca paso el embudo no tiene el par IS/OOS: trae en
+        `single_pass_report_path` la pasada OHLC completa, que se parte por
+        fecha en los dos tramos. Sin esa clave no cambia nada.
+        """
+        is_path, oos_path = _RobustSetLoader._required_report_paths(row)
+        if is_path.is_file() and oos_path.is_file():
+            return is_path, oos_path, False
+        value = str(_row_value(row, "single_pass_report_path", default="")).strip()
+        single = resolve_workspace_path(value) if value else None
+        if single is not None and single.is_file():
+            return single, single, True
+        return is_path, oos_path, False
+
+
     def _record_missing_reports(
         stats: _LoadStats, set_path: str, is_path: Path, oos_path: Path
     ) -> None:
@@ -160,10 +178,15 @@ class _RobustSetLoader:
         is_path: Path,
         oos_path: Path,
         parse: Callable[[Path], StrategyReport],
+        split: bool = False,
     ) -> _CandidateReports:
+        is_report, oos_report = (
+            split_report_at_year(parse(is_path)) if split
+            else (parse(is_path), parse(oos_path))
+        )
         return _CandidateReports(
-            is_period=period_report_from_strategy_report(parse(is_path), "2020_2024"),
-            oos_period=period_report_from_strategy_report(parse(oos_path), "2025_2026"),
+            is_period=period_report_from_strategy_report(is_report, "2020_2024"),
+            oos_period=period_report_from_strategy_report(oos_report, "2025_2026"),
             final_tick_balance_dd=float(_row_value(row, "max_balance_dd_001", default=0.0) or 0.0),
             final_tick_equity_dd=float(_row_value(row, "max_equity_dd_001", default=0.0) or 0.0),
             final_tick_source=str(_row_value(row, "floating_dd_source", default="guardado") or "guardado"),
@@ -288,12 +311,14 @@ class _RobustSetLoader:
         stats: _LoadStats,
     ) -> RobustStrategySet | None:
         set_path = str(_row_value(row, "set_path", default=""))
-        is_path, oos_path = _RobustSetLoader._required_report_paths(row)
+        is_path, oos_path, split = _RobustSetLoader._candidate_report_paths(row)
         if not is_path.is_file() or not oos_path.is_file():
             _RobustSetLoader._record_missing_reports(stats, set_path, is_path, oos_path)
             return None
         try:
-            reports = _RobustSetLoader._initial_candidate_reports(row, is_path, oos_path, parse)
+            reports = _RobustSetLoader._initial_candidate_reports(
+                row, is_path, oos_path, parse, split,
+            )
             _RobustSetLoader._load_full_history_report(row, set_path, reports, parse, stats)
             _RobustSetLoader._load_recent_report(row, reports, parse)
             return _RobustSetLoader._build_loaded_strategy(row, set_path, is_path, oos_path, reports)

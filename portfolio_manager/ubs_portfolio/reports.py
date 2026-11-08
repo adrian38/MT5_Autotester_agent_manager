@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Sequence
 
 from ..mt5_report import StrategyReport, parse_report
@@ -115,6 +115,60 @@ def period_report_from_strategy_report(report: StrategyReport, period_name: str)
         balance_dd_metric_001=balance_dd_metric,
         equity_dd_metric_001=equity_dd_metric,
     )
+
+
+SINGLE_PASS_SPLIT_YEAR = 2025
+
+_RECOMPUTED_METRICS = frozenset({
+    "total net profit", "beneficio neto", "gross profit", "beneficio bruto",
+    "gross loss", "perdidas brutas", "profit factor", "factor de beneficio",
+})
+
+
+def _report_segment(report: StrategyReport, trades: list[Any]) -> StrategyReport:
+    """El mismo informe con solo esas operaciones y sus totales por recalcular.
+
+    Se borran del HTML el neto, los brutos y el factor para que
+    `period_report_from_strategy_report` los recalcule desde las operaciones
+    del tramo; con los del informe entero, el tramo diria el beneficio de los
+    dos. Las reducciones maximas se conservan: son las de la pasada completa,
+    asi que cada tramo hereda un riesgo que nunca se queda corto.
+    """
+    closes = [trade.close_time for trade in trades]
+    return replace(
+        report,
+        trades=trades,
+        metrics={
+            key: value for key, value in report.metrics.items()
+            if _ascii_text(key) not in _RECOMPUTED_METRICS
+        },
+        period_start=min(closes).strftime("%d.%m.%Y"),
+        period_end=max(closes).strftime("%d.%m.%Y"),
+    )
+
+
+def split_report_at_year(
+    report: StrategyReport, first_tail_year: int = SINGLE_PASS_SPLIT_YEAR,
+) -> tuple[StrategyReport, StrategyReport]:
+    """Parte una pasada unica en el tramo anterior a ese ano y el que lo abre.
+
+    Un set que nunca paso el embudo —los que se suben a mano a un portafolio
+    manual— no tiene el par IS/OOS: su unico historico es la pasada completa
+    2020→2026 que escribe `Generar historico OHLC`. Es el mismo listado de
+    operaciones, asi que cortarlo por la fecha de cierre no inventa nada.
+    Medido el 2026-11-08 sobre `strategy1_Daily` y `9637014_bk_tsla_vol_d1atr`
+    de AXI: la union de los dos tramos devuelve el mismo beneficio, el mismo
+    valle, el mismo punto y las mismas operaciones que el informe entero.
+
+    Lo que **no** es, y quien lo use tiene que saberlo: un fuera de muestra de
+    verdad. La pasada es una sola y el tramo 2025-2026 no se reservo.
+    """
+    year = int(first_tail_year)
+    head = [trade for trade in report.trades if trade.close_time.year < year]
+    tail = [trade for trade in report.trades if trade.close_time.year >= year]
+    if not head or not tail:
+        raise ValueError(f"La pasada no tiene operaciones a los dos lados de {year}")
+    return _report_segment(report, head), _report_segment(report, tail)
 
 
 def calc_combined_profit_factor(

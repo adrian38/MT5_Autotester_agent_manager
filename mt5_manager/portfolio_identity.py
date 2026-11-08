@@ -222,4 +222,7 @@ def _allocation_source_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "has_recent_performance": row.get("has_recent_performance"),
         "final_tick_report_path": row.get("final_tick_report_path"),
         "full_history_report_path": row.get("full_history_report_path"),
+        # Solo la trae un miembro que nunca paso el embudo y no guardo el par
+        # IS/OOS; el cargador la parte en dos tramos. Vacia para los demas.
+        "single_pass_report_path": row.get("single_pass_report_path"),
     } for row in rows]

@@ -122,11 +122,11 @@ def _unaccepted_member_rows(
 
     La fila se construye con lo que guardó su asignación —ruta del `.set`,
     símbolo, marco temporal e informes base, robustez, Final Tick e histórico—,
-    que es justo lo que `load_robust_sets_from_rows` lee. Sin informe base y de
-    robustez no hay fila que construir: el único histórico de un set subido a
-    mano es la pasada OHLC completa 2020→2026 que escribe `Generar histórico
-    OHLC`, un solo informe, y partirlo en dos períodos inventaría un fuera de
-    muestra que nunca lo fue. Esos se devuelven nombrados aparte.
+    que es justo lo que `load_robust_sets_from_rows` lee. Un set subido a mano
+    no guarda el par IS/OOS, pero sí tiene su pasada OHLC completa: viaja en
+    `single_pass_report_path` y el cargador la parte en los dos tramos. Sin
+    ninguna de las dos cosas no hay fila que construir, y ésos se devuelven
+    nombrados aparte.
 
     La comparación con lo ya presente es por tronco lógico y no por nombre de
     fichero, porque esa deduplicación agrupa por `account_type:tronco` y la
@@ -146,7 +146,8 @@ def _unaccepted_member_rows(
         if member.get("excluded") or not identity or identity in seen:
             continue
         seen.add(identity)
-        if member.get("is_report_path") and member.get("oos_report_path"):
+        has_pair = member.get("is_report_path") and member.get("oos_report_path")
+        if has_pair or member.get("single_pass_report_path"):
             usable.append(member)
         else:
             blind.append(Path(reference.replace("\\", "/")).name)
@@ -162,13 +163,14 @@ def _note_active_pool(
     if extra:
         warnings.append(
             f"{len(extra)} estrategia(s) de portafolios activos entran al pool sin ser "
-            "candidatas aceptadas; se evalúan con los informes de su asignación."
+            "candidatas aceptadas; las que sólo tienen la pasada OHLC completa se "
+            "evalúan partiéndola en 2025, que no es un fuera de muestra reservado."
         )
     if blind:
         warnings.append(
             f"{len(blind)} estrategia(s) de portafolios activos quedan fuera del pool: "
-            "no son candidatas aceptadas y su portafolio no guardó informe base ni de "
-            f"robustez con el que evaluarlas ({_sample_names(blind)})."
+            "no son candidatas aceptadas y no tienen informe base y de robustez ni "
+            f"histórico OHLC con el que evaluarlas ({_sample_names(blind)})."
         )
 
 
@@ -215,8 +217,8 @@ def _empty_active_pool(blind: list[str]) -> str:
     if not blind:
         return message
     return (
-        f"{message}: sus {len(blind)} estrategia(s) no son candidatas aceptadas y su "
-        "portafolio no guardó informe base ni de robustez con el que evaluarlas "
+        f"{message}: sus {len(blind)} estrategia(s) no son candidatas aceptadas y no "
+        "tienen informe base y de robustez ni histórico OHLC con el que evaluarlas "
         f"({_sample_names(blind)})"
     )
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +15,116 @@ from mt5_manager.portfolio_improvement_common import (
     improvement_inherited_overrides,
     improvement_options,
 )
+from portfolio_manager.mt5_report import StrategyReport, Trade
+from portfolio_manager.ubs_portfolio import (
+    load_robust_sets_from_rows,
+    period_report_from_strategy_report,
+    split_report_at_year,
+)
+
+
+def _trade(close: datetime, profit: float) -> Trade:
+    return Trade(
+        ticket=str(int(close.timestamp())), trade_type="buy", open_time=close,
+        open_price=1.0, size=0.01, close_time=close, close_price=1.0,
+        profit_loss=profit, comment="",
+    )
+
+
+def _single_pass_report(path: Path) -> StrategyReport:
+    """La pasada OHLC completa de un set manual: un informe, 2020 a 2026."""
+    return StrategyReport(
+        path=path, name=path.stem, expert="manual", symbol="XAUUSD.sa",
+        timeframe="D1", period_start="06.01.2020", period_end="12.01.2026",
+        initial_deposit=1000.0,
+        metrics={
+            "Beneficio Neto": "100.00", "Beneficio Bruto": "140.00",
+            "Perdidas Brutas": "40.00", "Factor de Beneficio": "3.50",
+            "Reduccion maxima del balance": "25.00",
+            "Reduccion maxima de la equidad": "30.00",
+        },
+        monthly={}, raw_deals=[], image_paths={}, set_path=None,
+        trades=[
+            _trade(datetime(2021, 3, 4), 60.0), _trade(datetime(2024, 11, 8), -20.0),
+            _trade(datetime(2025, 2, 1), 80.0), _trade(datetime(2026, 1, 9), -20.0),
+        ],
+    )
+
+
+class SinglePassSplitTests(unittest.TestCase):
+    """Partir la pasada OHLC completa de un set que nunca pasó el embudo."""
+
+    def test_the_two_halves_rebuild_the_whole_pass(self) -> None:
+        """El corte es por fecha de cierre sobre el mismo listado, así que no
+        inventa nada. Medido el 2026-11-08 sobre `strategy1_Daily` y
+        `9637014_bk_tsla_vol_d1atr` de AXI: beneficio, valle, punto y
+        operaciones coinciden al céntimo con el informe entero."""
+        whole = _single_pass_report(Path("manual_000110_strategy1_Daily.htm"))
+        entire = period_report_from_strategy_report(whole, "2020_2026")
+
+        head, tail = split_report_at_year(whole)
+        is_period = period_report_from_strategy_report(head, "2020_2024")
+        oos_period = period_report_from_strategy_report(tail, "2025_2026")
+
+        self.assertEqual(is_period.trades + oos_period.trades, entire.trades)
+        self.assertAlmostEqual(
+            is_period.net_profit_001 + oos_period.net_profit_001,
+            entire.net_profit_001,
+        )
+        self.assertAlmostEqual(is_period.net_profit_001, 40.0)
+        self.assertAlmostEqual(oos_period.net_profit_001, 60.0)
+
+    def test_each_half_recomputes_its_totals_but_keeps_the_risk(self) -> None:
+        """Con el neto del HTML, cada tramo diría el beneficio de los dos. Las
+        reducciones máximas sí se conservan: son las de la pasada entera, así
+        que el tramo hereda un riesgo que nunca se queda corto."""
+        head, tail = split_report_at_year(_single_pass_report(Path("x.htm")))
+
+        self.assertNotIn("Beneficio Neto", head.metrics)
+        self.assertNotIn("Factor de Beneficio", tail.metrics)
+        self.assertEqual(head.metrics["Reduccion maxima de la equidad"], "30.00")
+        self.assertEqual(head.period_start, "04.03.2021")
+        self.assertEqual(head.period_end, "08.11.2024")
+        self.assertEqual(tail.period_start, "01.02.2025")
+
+    def test_a_pass_on_one_side_of_the_cut_is_refused(self) -> None:
+        whole = _single_pass_report(Path("x.htm"))
+        whole.trades = [_trade(datetime(2023, 5, 5), 10.0)]
+
+        with self.assertRaisesRegex(ValueError, "2025"):
+            split_report_at_year(whole)
+
+    def test_the_loader_builds_the_strategy_from_the_single_pass(self) -> None:
+        """Sin el par IS/OOS la fila se cargaba como «faltan reportes»."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_path = Path(temp_dir) / "manual_000110_strategy1_Daily.htm"
+            report_path.touch()
+            row = {
+                "set_path": str(Path(temp_dir) / "strategy1_Daily.set"),
+                "candidate_id": "manual", "target_symbol": "XAUUSD.sa", "period": "D1",
+                "is_report_path": "", "oos_report_path": "",
+                "single_pass_report_path": str(report_path),
+            }
+
+            loaded, warnings = load_robust_sets_from_rows(
+                [row], [], parse=lambda path: _single_pass_report(Path(path)),
+            )
+
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(loaded[0].symbol, "XAUUSD")
+        self.assertEqual(loaded[0].trades_2020_2026, 4)
+        self.assertAlmostEqual(loaded[0].net_profit_2020_2026_001, 100.0)
+        self.assertEqual(loaded[0].is_report_path, str(report_path))
+        self.assertEqual(warnings, [])
+
+    def test_a_row_without_the_key_is_untouched(self) -> None:
+        loaded, warnings = load_robust_sets_from_rows(
+            [{"set_path": "x.set", "is_report_path": "", "oos_report_path": ""}],
+            [], parse=lambda path: _single_pass_report(Path(path)),
+        )
+
+        self.assertEqual(loaded, [])
+        self.assertTrue(any("faltan reportes" in warning for warning in warnings))
 
 
 class ActivePortfolioStrategyTests(unittest.TestCase):
@@ -160,6 +271,53 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
         self.assertIn("1 estrategia(s)", warnings[0])
         self.assertIn("a_mano.set", warnings[0])
 
+    def test_a_manual_member_enters_with_its_ohlc_history(self) -> None:
+        """Los 39 sets de los portafolios manuales en real de AXI no guardan
+        el par IS/OOS, pero los 39 tienen su pasada OHLC completa."""
+        member = {
+            "set_path": r"F:\agente\runtime\axi\manual_portfolios\abc\sets\a_mano.set",
+            "symbol": "Tesla+", "timeframe": "M15",
+            "single_pass_report_path": r"F:\agente\reports\manual_000109_a_mano.htm",
+        }
+        inputs = {"active_portfolios_only": True, "_active_portfolio_members": [member]}
+        warnings: list[str] = []
+
+        result = filter_rows_by_active_portfolios(
+            [{"set_path": r"F:\agente\outputs\ajeno.set"}], inputs, warnings,
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(
+            result[0]["single_pass_report_path"], member["single_pass_report_path"],
+        )
+        self.assertEqual(result[0]["symbol"], "Tesla+")
+        self.assertIn("partiéndola en 2025", warnings[0])
+
+    def test_the_live_member_brings_the_history_of_its_own_portfolio(self) -> None:
+        """`report_for_set` es la regla única de emparejado, y lleva el número
+        del portafolio porque dos carteras manuales pueden traer el mismo
+        `.set` con fechas distintas."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            (project / "reports").mkdir()
+            (project / "reports" / "manual_000012_a_mano.htm").touch()
+            settings = self._resolve_live_members(
+                {"active_portfolios_only": True},
+                [
+                    {"set_path": "sets/a_mano.set", "variant_key": "balanced"},
+                    {"set_path": "sets/sin_historico.set", "variant_key": "balanced"},
+                ],
+                project=project,
+            )
+
+        members = settings["_active_portfolio_members"]
+        self.assertEqual(len(members), 2)
+        self.assertEqual(
+            members[0]["single_pass_report_path"],
+            str(project / "reports" / "manual_000012_a_mano.htm"),
+        )
+        self.assertEqual(members[1]["single_pass_report_path"], "")
+
     def test_the_empty_pool_error_carries_the_reason(self) -> None:
         """Un error de configuración disfrazado de fallo de búsqueda costaba
         abrir la memoria del agente para saber qué pasaba."""
@@ -171,7 +329,7 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             filter_rows_by_active_portfolios([{"set_path": "ajeno.set"}], inputs)
 
-        self.assertIn("informe base ni de robustez", str(caught.exception))
+        self.assertIn("ni histórico OHLC", str(caught.exception))
         self.assertIn("a_mano.set", str(caught.exception))
 
     def test_the_pool_says_how_many_entered_without_being_candidates(self) -> None:
@@ -222,9 +380,12 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
         )
         self.assertFalse(improvement_options(requested).exclude_used_sets)
 
-    def _resolve_live_members(self, settings: dict, members: list | None = None) -> dict:
+    def _resolve_live_members(
+        self, settings: dict, members: list | None = None, project: Path | None = None,
+    ) -> dict:
         """Lo que hace el trabajo al arrancar, con dos usos en real de ejemplo."""
         with tempfile.TemporaryDirectory() as temp_dir:
+            root = project or Path(temp_dir)
             coordinator = PortfolioCoordinator([], Path(temp_dir) / "settings.json")
             coordinator.live_audit_settings = SimpleNamespace(
                 state=lambda _node_id: {
@@ -236,7 +397,7 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
                 }
             )
             source = SimpleNamespace(
-                project=Path(temp_dir),
+                project=root,
                 saved_portfolio_detail=lambda portfolio_id, _scope: {
                     "portfolio": {
                         "portfolio_type": "bundle",
@@ -247,7 +408,7 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
                     }
                 },
             )
-            self.temp_dir = Path(temp_dir)
+            self.temp_dir = root
             return coordinator._with_active_portfolio_members("axi", source, settings)
 
     def test_live_members_are_resolved_for_the_same_node(self) -> None:

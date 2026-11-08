@@ -16,6 +16,7 @@ from portfolio_manager.ubs_portfolio import PortfolioResult
 from .common import load_json, save_json, utc_now
 from .portfolio_identity import _resolve_source_path
 from .portfolio_job_notices import job_notice, notice_link
+from .portfolio_manual_reports import report_for_set
 from .portfolio_persistence import result_payload
 from .portfolio_proposals import proposal_diff, save_portfolio_payload
 from .portfolio_schema import ensure_portfolio_schema
@@ -30,7 +31,28 @@ _MEMBER_REPORT_KEYS = (
 )
 
 
-def _relocated_member(member: dict[str, Any], project: Path) -> dict[str, Any]:
+def _single_pass_report(
+    member: dict[str, Any], project: Path, portfolio_id: Any,
+) -> str:
+    """La pasada OHLC completa de un miembro que no guardó el par IS/OOS.
+
+    Un set subido a mano a un portafolio manual no tiene informe base ni de
+    robustez: lo que tiene es el histórico que escribe `Generar histórico
+    OHLC`, un solo fichero sobre toda la ventana. `report_for_set` es **la**
+    regla de emparejado entre un set manual y su histórico, así que se busca
+    por ahí; con otra regla serían dos respuestas a la misma pregunta.
+    """
+    if member.get("is_report_path") and member.get("oos_report_path"):
+        return ""
+    found = report_for_set(
+        project, member.get("set_path") or member.get("set_id"), portfolio_id,
+    )
+    return str(found) if found else ""
+
+
+def _relocated_member(
+    member: dict[str, Any], project: Path, portfolio_id: Any,
+) -> dict[str, Any]:
     """El miembro de un portafolio activo con sus rutas en este despliegue.
 
     Ya no basta con reubicar el `.set`: desde que una estrategia en real entra
@@ -47,6 +69,7 @@ def _relocated_member(member: dict[str, Any], project: Path) -> dict[str, Any]:
         "set_path": _resolve_source_path(
             member.get("set_path") or member.get("set_id"), project
         ),
+        "single_pass_report_path": _single_pass_report(member, project, portfolio_id),
     }
 
 
@@ -130,9 +153,8 @@ class PortfolioCoordinatorCoreMixin:
         members: list[dict[str, Any]] = []
         for profile in live_profiles:
             try:
-                detail = source.saved_portfolio_detail(
-                    int(profile.get("portfolio_id")), "full_history"
-                )
+                portfolio_id = int(profile.get("portfolio_id"))
+                detail = source.saved_portfolio_detail(portfolio_id, "full_history")
             except (KeyError, TypeError, ValueError):
                 continue
             portfolio = detail.get("portfolio", {})
@@ -143,7 +165,8 @@ class PortfolioCoordinatorCoreMixin:
                 or str(member.get("variant_key") or "") == selected_type
             ]
             members.extend(
-                _relocated_member(member, source.project) for member in selected_members
+                _relocated_member(member, source.project, portfolio_id)
+                for member in selected_members
             )
         if not members:
             raise ValueError("No hay estrategias en portafolios activos de este broker")
