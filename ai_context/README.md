@@ -144,6 +144,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   que 24 de los 26 avisos no eran déficits, los cinco falsos «MEJOR QUE EL
   TESTER» de cuentas que no ejecutaron nada, y por qué promediar el porcentaje
   en los dos sentidos empeoraba la pantalla.
+- `live_audit_sets_every_tick.md`: por qué todo set que la auditoría manda al
+  tester sale con `UseEveryTick=true`, dónde se marca en cada copia del agente
+  y qué cuesta en tiempo de corrida.
 - `live_audit_manual_pairs.md`: el censo que encontró tres de cuatro filas «SIN
   REAL» con su real descartada por la banda de lote, y por qué la pareja que
   decide el usuario se mide con las mismas tolerancias en vez de darse por

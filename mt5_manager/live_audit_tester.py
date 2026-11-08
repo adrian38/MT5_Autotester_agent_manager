@@ -2,6 +2,25 @@ from __future__ import annotations
 
 from .live_audit_core import *  # noqa: F403
 
+AUDIT_EVERY_TICK = ("UseEveryTick", "true")
+"""Todo set que una auditoría manda al tester revisa cada tick.
+
+El usuario lo pidió el 2026-11-08 para **todas** las auditorías, venga la
+ejecución del botón, del programador, de un hueco recuperado o del periodo
+completo: todas pasan por `_prepare_tester_sets`, que es el único sitio donde
+se escribe el `.set` que MT5 abre, así que se marca ahí y no en cada vía.
+
+`UseEveryTick` es un input del experto, no un ajuste del tester: con `false`
+—que es como los escribe `guided_batches.py`— el experto sólo mira el cierre
+de vela aunque el tester reciba ticks reales (`--model 4`), y la auditoría
+compara la cuenta real contra algo que esa cuenta nunca ejecutó.
+
+Cuesta tiempo: en la comprobación manual la corrida tick a tick pasó de
+segundos a decenas de minutos y despertó el bloqueo de
+`ai_context/model4_watchdog_mata_su_propia_sincronizacion.md`. El original no
+se toca; se marca la copia de `sets/` del área de trabajo de la auditoría.
+"""
+
 
 class _TesterMixin:
     def _prepare_tester_sets(
@@ -17,6 +36,7 @@ class _TesterMixin:
                 member, volume_rules,
             )
             text = self._set_value(text, "StartLots", f"{tester_lot:.8f}".rstrip("0").rstrip("."))
+            text = self._set_value(text, *AUDIT_EVERY_TICK)
             work = sets_dir.parent
             target = sets_dir / audit_set_name(
                 index, source.name, sets_dir, work / "reports", work / "configs"

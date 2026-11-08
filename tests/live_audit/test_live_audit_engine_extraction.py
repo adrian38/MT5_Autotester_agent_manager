@@ -513,6 +513,40 @@ class LiveAuditExtractionTests(LiveAuditEngineTestCase):
         })
         self.assertIn("cada real se usa una vez", result["comparison_detail"]["methodology"]["alignment"])
 
+    def _prepared_audit_set(self, saved: str) -> str:
+        """El `.set` que la auditoría deja en su área de trabajo para MT5."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "outputs").mkdir()
+            (root / "outputs" / "strategy.set").write_text(saved, encoding="utf-8")
+            sets_dir = root / "work" / "sets"
+            for name in ("sets", "reports", "configs"):
+                (root / "work" / name).mkdir(parents=True)
+            owner = FakeOwner("idle")
+            owner.config["project_dir"] = str(root)
+            controller = LiveAuditController(owner, root / "runtime")
+            member = {"set_path": "strategy.set", "symbol": "EURUSD", "lot": 0.01, "units": 1}
+            set_files, _members = controller._prepare_tester_sets({}, [member], sets_dir)
+            prepared = set_files[0].read_text(encoding="utf-8")
+
+        return prepared
+
+    def test_the_audited_set_always_reaches_mt5_with_every_tick_marked(self) -> None:
+        # El set guardado del portafolio llega con `false` —así lo escribe
+        # `guided_batches.py`—, y con él el experto sólo miraría el cierre de
+        # vela aunque el tester corra con ticks reales.
+        prepared = self._prepared_audit_set(
+            "StartLots=0.05||0.01||0.01||1||N\nUseEveryTick=false||false||0||true||N\n"
+        )
+
+        self.assertIn("UseEveryTick=true||false||0||true||N", prepared)
+        self.assertIn("StartLots=0.01||0.01||0.01||1||N", prepared)
+
+    def test_a_set_without_the_parameter_gets_it_added(self) -> None:
+        prepared = self._prepared_audit_set("StartLots=0.05||0.01||0.01||1||N\n")
+
+        self.assertIn("UseEveryTick=true", prepared)
+
 
 if __name__ == "__main__":
     unittest.main()
