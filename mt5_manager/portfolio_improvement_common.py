@@ -461,3 +461,36 @@ def validate_and_attach_improvement_audit(
         f"{len(members.added_ids)} nueva(s), beneficio/DD {efficiencies[2]:+.2f}%.",
     )
     return audit
+
+
+#: Lo que el greedy escribe en ``stop_reason``, en castellano. Es el mismo
+#: diccionario que ``friendlyReason`` aplica en la pantalla a los
+#: portafolios ya guardados; aqui hace falta porque el motivo viaja dentro
+#: del texto de un error, que acaba en el log del trabajo sin pasar por el
+#: navegador. Si se amplia ``_greedy_stop_reason``, ampliar los dos.
+_STOP_REASON_WORDS = (
+    ("No valid +0.01 increment left in the candidate pool",
+     "no queda ningun incremento de 0,01 en el pool"),
+    ("No valid +0.01 increment:", "bloqueado por:"),
+    ("Max optimizer iterations reached", "se agoto el limite de iteraciones"),
+    ("DD limits", "limite de DD"),
+    ("correlation limits", "correlacion entre pares"),
+    ("portfolio correlation", "correlacion con otros portafolios"),
+    ("unit/group/margin caps", "topes de unidades/grupo/margen"),
+    ("multi-start search improved the local solution",
+     "el multi-start mejoro la solucion local"),
+)
+
+
+def stop_reason_text(reason: str) -> str:
+    """El motivo por el que la busqueda se detuvo, listo para leer.
+
+    El motor ya cuenta quien bloqueo cada paso -DD, correlacion o topes- y
+    hasta ahora ese recuento se tiraba: el usuario leia que el selector no
+    habia anadido nada y no por que. Devuelve cadena vacia si no hay motivo,
+    para que el llamante no escriba un parentesis vacio.
+    """
+    text = str(reason or "").strip()
+    for english, spanish in _STOP_REASON_WORDS:
+        text = text.replace(english, spanish)
+    return text

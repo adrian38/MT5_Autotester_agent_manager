@@ -160,8 +160,11 @@ def _decorate_improvement_attempt(
             "improvement_allowed_asset_groups": list(search.allowed_groups),
         })
         effective_grid_off = bool(proposal_inputs.get("grid_off"))
+        effective_engine_v3 = bool(proposal_inputs.get("engine_v3"))
         if "improvement_grid_off" in search.inputs:
             proposal_inputs["improvement_grid_off"] = effective_grid_off
+        if "improvement_engine_v3" in search.inputs:
+            proposal_inputs["improvement_engine_v3"] = effective_engine_v3
         baseline = proposal.pop("_improvement_baseline", None)
         if baseline is not None:
             baseline_stress = _attach_stress_comparison(
@@ -177,6 +180,7 @@ def _decorate_improvement_attempt(
             audit["minimum_additions"] = search.requested
             audit["maximum_additions"] = MAX_IMPROVEMENT_ADDITIONS
             audit["grid_off"] = effective_grid_off
+            audit["engine_v3"] = effective_engine_v3
     return baseline_stress
 
 

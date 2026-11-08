@@ -56,11 +56,17 @@ def _swap_respects_caps(
     temp_allocations: dict[str, int],
     limits: SearchLimits,
     minimum_active_strategies: int | None,
+    maximum_active_strategies: int | None = None,
 ) -> bool:
     """Si la cartera resultante del intercambio sigue dentro de los topes."""
-    if minimum_active_strategies is not None:
+    if minimum_active_strategies is not None or maximum_active_strategies is not None:
         active_count = sum(1 for units in temp_allocations.values() if units > 0)
-        if active_count < minimum_active_strategies:
+        if minimum_active_strategies is not None and active_count < minimum_active_strategies:
+            return False
+        # Un intercambio que estrena estrategia sube el recuento de activas, y
+        # sin esta linea lo subia por encima del maximo que el greedy si
+        # respeta. Solo lo pide el motor v3; sin el llega ``None``.
+        if maximum_active_strategies is not None and active_count > maximum_active_strategies:
             return False
     if not _allocations_respect_constraints(
         sets,
@@ -136,6 +142,7 @@ def _swap_candidate(
     *,
     portfolio_curves: list[Sequence[float]],
     minimum_active_strategies: int | None,
+    maximum_active_strategies: int | None,
     target_valley_dd: float,
     target_point_dd: float,
 ) -> dict[str, object] | None:
@@ -145,7 +152,10 @@ def _swap_candidate(
     temp_allocations = allocations.copy()
     temp_allocations[from_set.set_id] -= 1
     temp_allocations[to_set.set_id] += 1
-    if not _swap_respects_caps(sets, to_set, temp_allocations, limits, minimum_active_strategies):
+    if not _swap_respects_caps(
+        sets, to_set, temp_allocations, limits,
+        minimum_active_strategies, maximum_active_strategies,
+    ):
         return None
     if not _swap_respects_correlation(sets, to_set, allocations, temp_allocations, limits):
         return None
@@ -183,6 +193,7 @@ def _best_swap(
     protected_ids: set[str],
     portfolio_curves: list[Sequence[float]],
     minimum_active_strategies: int | None,
+    maximum_active_strategies: int | None,
     target_valley_dd: float,
     target_point_dd: float,
 ) -> dict[str, object] | None:
@@ -198,6 +209,7 @@ def _best_swap(
                 from_set, to_set, sets, allocations, current, limits,
                 portfolio_curves=portfolio_curves,
                 minimum_active_strategies=minimum_active_strategies,
+                maximum_active_strategies=maximum_active_strategies,
                 target_valley_dd=target_valley_dd,
                 target_point_dd=target_point_dd,
             )
@@ -245,6 +257,7 @@ def improve_with_local_search(
     max_iterations: int = 1000,
     protected_set_ids: Sequence[str] | None = None,
     minimum_active_strategies: int | None = None,
+    maximum_active_strategies: int | None = None,
     limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision]]:
     decision_log: list[OptimizationDecision] = []
@@ -256,6 +269,7 @@ def improve_with_local_search(
             protected_ids=protected_ids,
             portfolio_curves=portfolio_curves,
             minimum_active_strategies=minimum_active_strategies,
+            maximum_active_strategies=maximum_active_strategies,
             target_valley_dd=target_valley_dd,
             target_point_dd=target_point_dd,
         )
@@ -280,6 +294,7 @@ def _perturbation_move(
     target_point_dd: float,
     protected_set_ids: set[str],
     minimum_active_strategies: int | None,
+    maximum_active_strategies: int | None,
 ) -> tuple[dict[str, int], PortfolioEvaluation] | None:
     """Movimiento de perturbacion valido. A diferencia de la busqueda local, no
     se le exige mejorar: la gracia es salir del optimo local."""
@@ -289,7 +304,8 @@ def _perturbation_move(
     temp_allocations[source.set_id] -= 1
     temp_allocations[target.set_id] += 1
     if not _swap_respects_caps(
-        sets, target, temp_allocations, limits, minimum_active_strategies,
+        sets, target, temp_allocations, limits,
+        minimum_active_strategies, maximum_active_strategies,
     ):
         return None
     if not _swap_respects_correlation(sets, target, trial_allocations, temp_allocations, limits):
@@ -350,6 +366,7 @@ def _perturbed_trial(
     target_point_dd: float,
     protected_set_ids: set[str],
     minimum_active_strategies: int | None,
+    maximum_active_strategies: int | None,
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision]]:
     """Sacude la cartera con movimientos validos hasta que ninguno lo sea."""
     trial_allocations = allocations.copy()
@@ -372,6 +389,7 @@ def _perturbed_trial(
                 target_point_dd=target_point_dd,
                 protected_set_ids=protected_set_ids,
                 minimum_active_strategies=minimum_active_strategies,
+                maximum_active_strategies=maximum_active_strategies,
             )
             if moved is None:
                 continue
@@ -398,6 +416,7 @@ def improve_with_multi_start_search(
     perturbations: int = 2,
     protected_set_ids: Sequence[str] | None = None,
     minimum_active_strategies: int | None = None,
+    maximum_active_strategies: int | None = None,
     limits: SearchLimits = SearchLimits(),
 ) -> tuple[dict[str, int], PortfolioEvaluation, list[OptimizationDecision], int]:
     if restarts <= 0 or perturbations <= 0 or len(sets) < 2:
@@ -421,6 +440,7 @@ def improve_with_multi_start_search(
             target_point_dd=target_point_dd,
             protected_set_ids=protected_ids,
             minimum_active_strategies=minimum_active_strategies,
+            maximum_active_strategies=maximum_active_strategies,
         )
         if not perturb_log:
             continue
@@ -433,6 +453,7 @@ def improve_with_multi_start_search(
             target_point_dd=target_point_dd,
             protected_set_ids=protected_ids,
             minimum_active_strategies=minimum_active_strategies,
+            maximum_active_strategies=maximum_active_strategies,
             limits=limits,
             max_iterations=200,
         )

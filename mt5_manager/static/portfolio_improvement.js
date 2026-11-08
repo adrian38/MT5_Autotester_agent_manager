@@ -43,6 +43,7 @@
         <label><input name="require_3_positive_months_6m" type="checkbox"> Exigir 3 meses positivos</label>
         <label title="Las incorporaciones deben tener desactivado EnableGrid en su archivo .set. Las estrategias originales no se retiran."><input name="improvement_grid_off" type="checkbox"> Grid OFF para candidatas nuevas</label>
         <label title="Limita las candidatas nuevas a estrategias que ya pertenecen a usos marcados como operando en real para este broker. Las originales no se retiran."><input name="active_portfolios_only" type="checkbox"> Solo estrategias de portafolios activos</label>
+        <label title="El tope de estrategias activas ata también a la búsqueda local y al multi-start. Sin él esas pasadas pueden devolver una cartera mayor que la pedida y el intento se descarta entero. Cambia resultados: una mejora calculada con v3 no tiene por qué coincidir con la misma mejora calculada sin él."><input name="improvement_engine_v3" type="checkbox"> Motor v3 (tope de estrategias duro en toda la búsqueda)</label>
       </div></fieldset>
       <fieldset><legend>Criterios propios de la mejora</legend><div class="portfolio-form-grid">
         <label>Variante que quieres mejorar<select name="improvement_portfolio_type" required><option value="aggressive">Agresivo</option><option value="balanced" selected>Moderado</option><option value="conservative">Conservador</option></select></label>
@@ -140,6 +141,7 @@
     setValue('validate_margin', inherited.validate_margin);
     setValue('require_3_positive_months_6m', inherited.require_3_positive_months_6m);
     setValue('improvement_grid_off', inherited.improvement_grid_off ?? inherited.grid_off);
+    setValue('improvement_engine_v3', inherited.improvement_engine_v3 ?? inherited.engine_v3 ?? false);
     setValue('active_portfolios_only', inherited.active_portfolios_only);
     setValue('improvement_exclude_used_sets', inherited.improvement_exclude_used_sets ?? true);
     syncActivePortfolioFilter();
@@ -253,6 +255,7 @@
         improvement_margin_profile: fields.improvement_margin_profile.value,
         improvement_account_leverage: Number(fields.improvement_account_leverage.value),
         improvement_grid_off: fields.improvement_grid_off.checked,
+        improvement_engine_v3: fields.improvement_engine_v3.checked,
         improvement_exclude_used_sets: fields.improvement_exclude_used_sets.checked,
         improvement_allow_same_symbol: fields.improvement_allow_same_symbol.checked,
         improvement_allowed_asset_groups: chosenGroups,

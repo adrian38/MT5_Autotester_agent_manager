@@ -109,6 +109,12 @@ class SearchPlan:
     prefer_breadth_below_minimum: bool = False
     minimum_active_strategies: int | None = None
     maximum_active_strategies: int | None = None
+    #: Motor v3: el tope de activas tambien ata a la busqueda local y al
+    #: multi-start. El greedy lo respeta desde siempre, pero el intercambio
+    #: podia estrenar estrategia por encima del maximo y devolver una cartera
+    #: mas grande de la pedida, que el llamante descarta entera. Apagado por
+    #: defecto porque cambia resultados: lo enciende quien marca el motor v3.
+    enforce_maximum_in_local_search: bool = False
     #: Margen que se resta a los limites de DD antes de buscar.
     dd_reserve_pct: float = 0.0
     bootstrap_simulations: int = DEFAULT_BOOTSTRAP_SIMULATIONS

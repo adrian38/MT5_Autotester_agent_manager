@@ -40,6 +40,11 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "exclude_used_sets": True,
     "active_portfolios_only": False,
     "experimental_full_search": False,
+    #: Motor v3. Hoy sólo hace una cosa: el tope de estrategias activas ata
+    #: también a la búsqueda local y al multi-start, que podían devolver una
+    #: cartera mayor que la pedida y hacer que el llamante la descartara
+    #: entera. Apagado por defecto porque cambia resultados.
+    "engine_v3": False,
     "min_strategy_recent_contribution_pct": 5.0,
     "dd_reserve_pct": 10.0,
     "search_restarts": 4,
@@ -96,7 +101,7 @@ CORRELATION_KEYS = (
 BOOLEAN_SETTINGS = (
     "run_local_search", "deep_optimization", "use_correlation",
     "require_3_positive_months_6m", "grid_off", "exclude_used_sets",
-    "active_portfolios_only", "experimental_full_search",
+    "active_portfolios_only", "experimental_full_search", "engine_v3",
     "validate_margin", "daily_dd_full_history", "exclude_monthly_used",
     "corr_with_monthly_portfolios", "strict_yearly_month_validation",
     "experimental_monthly_search",

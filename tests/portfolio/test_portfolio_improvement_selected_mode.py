@@ -409,6 +409,20 @@ class SelectedModeTests(unittest.TestCase):
         self.assertEqual(optimize.call_count, 1)
         baseline.assert_not_called()
 
+    def test_the_selector_failure_carries_the_reason_the_search_already_counted(self):
+        # El recuento no dice nada accionable; quien bloqueo cada paso si, y el
+        # motor ya lo cuenta en `stop_reason`. Antes se tiraba.
+        output = proposal()
+        output["result"].stop_reason = "No valid +0.01 increment: DD limits (3)"
+        old_id = output["result"].allocations[0].set_id
+        detail = {"portfolio_type": "balanced", "members": [{"set_path": old_id, "units": 1}]}
+        source = NS(project=Path.cwd(), saved_portfolio_detail=Mock(return_value={"portfolio": detail}), saved_curves=Mock(return_value=[]))
+        sets = [NS(set_id=a.set_id) for a in output["result"].allocations] + [NS(set_id="another.set")]
+        with patch.object(full_attempt, "_load_full_history_improvement_pool", return_value=(sets[:1], sets, [], [], [])), patch.object(full_attempt, "build_margin_model", return_value=None), patch.object(full_attempt, "optimize_portfolio", return_value=output["result"]):
+            with self.assertRaises(ValueError) as raised:
+                full.generate_full_history_improvement(source, 1, {**output["inputs"], "improvement_min_additions": 2})
+        self.assertIn("bloqueado por: limite de DD (3)", str(raised.exception))
+
     def test_new_fillers_are_rejected_before_accepting_historical_gain(self):
         output = proposal()
         old, new = output["result"].allocations

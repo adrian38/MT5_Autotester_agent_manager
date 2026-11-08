@@ -183,6 +183,57 @@ class SameSymbolCorrelationTests(unittest.TestCase):
             self.audit("EURUSD")
 
 
+class ImprovementEngineV3Tests(unittest.TestCase):
+    """Qué motor usa la mejora: el heredado, o el que imponga el diálogo.
+
+    Una base guardada antes del motor v3 no trae la clave, así que heredar es
+    quedarse con lo que diga el formulario. Y el diálogo tiene que poder
+    encenderlo sobre una base vieja: es la única forma de mejorarla con el tope
+    duro sin regenerarla.
+    """
+
+    ENGINES = (base_attempt, chain_attempt)
+
+    def test_without_the_dialog_key_it_inherits_the_form(self) -> None:
+        for engine in self.ENGINES:
+            with self.subTest(engine=engine.__name__):
+                self.assertTrue(engine.improvement_engine_v3({"engine_v3": True}))
+                self.assertFalse(engine.improvement_engine_v3({"engine_v3": False}))
+                self.assertFalse(engine.improvement_engine_v3({}))
+
+    def test_the_dialog_decides_over_the_inherited_value(self) -> None:
+        for engine in self.ENGINES:
+            with self.subTest(engine=engine.__name__):
+                self.assertTrue(engine.improvement_engine_v3(
+                    {"engine_v3": False, "improvement_engine_v3": True},
+                ))
+                self.assertFalse(engine.improvement_engine_v3(
+                    {"engine_v3": True, "improvement_engine_v3": False},
+                ))
+
+    def test_anything_that_is_not_a_boolean_is_rejected(self) -> None:
+        for engine in self.ENGINES:
+            for value in ("true", 1, 0, []):
+                with self.subTest(engine=engine.__name__, value=value):
+                    with self.assertRaisesRegex(ValueError, "motor v3"):
+                        engine.improvement_engine_v3({"improvement_engine_v3": value})
+
+    def test_the_resolved_engine_reaches_the_search_plan(self) -> None:
+        from mt5_manager.portfolio_generation_search import _optimizer_kwargs
+        from portfolio_manager.ubs_portfolio import PortfolioType
+
+        saved = normalize_settings("full_history", {"portfolio_type": "balanced"})
+        self.assertFalse(saved["engine_v3"])
+        for engine_v3 in (False, True):
+            with self.subTest(engine_v3=engine_v3):
+                kwargs = _optimizer_kwargs(
+                    {**saved, "engine_v3": engine_v3}, PortfolioType.BALANCED, [], 0.0,
+                )
+                self.assertEqual(
+                    kwargs["search"].enforce_maximum_in_local_search, engine_v3,
+                )
+
+
 class ImprovementInheritedSettingsScreenTests(unittest.TestCase):
     def test_dialog_edits_every_real_setting_and_keeps_improvement_criteria(self) -> None:
         script = (Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolio_improvement.js").read_text(encoding="utf-8")
@@ -196,7 +247,8 @@ class ImprovementInheritedSettingsScreenTests(unittest.TestCase):
             "max_dd_overlap", "max_portfolio_corr", "improvement_disabled_symbols",
             "run_local_search", "deep_optimization", "use_correlation",
             "validate_margin", "require_3_positive_months_6m",
-            "improvement_grid_off", "improvement_exclude_used_sets",
+            "improvement_grid_off", "improvement_engine_v3",
+            "improvement_exclude_used_sets",
             "improvement_allow_same_symbol", "improvement_allowed_asset_groups",
             "improvement_portfolio_type", "improvement_min_additions",
             "improvement_min_efficiency_gain_pct", "improvement_selection_priority",
@@ -209,6 +261,25 @@ class ImprovementInheritedSettingsScreenTests(unittest.TestCase):
         self.assertIn("if (fields.quick_composition.checked)", script)
         self.assertIn("values.run_local_search = false", script)
         self.assertIn("values.search_restarts = 0", script)
+
+    def test_dialog_offers_the_v3_engine_and_warns_that_it_moves_results(self) -> None:
+        static = Path(__file__).parents[2] / "mt5_manager" / "static"
+        script = (static / "portfolio_improvement.js").read_text(encoding="utf-8")
+        self.assertIn('name="improvement_engine_v3" type="checkbox"', script)
+        self.assertIn(
+            "inherited.improvement_engine_v3 ?? inherited.engine_v3 ?? false", script,
+        )
+        self.assertIn(
+            "improvement_engine_v3: fields.improvement_engine_v3.checked", script,
+        )
+        self.assertIn("Cambia resultados", script)
+        # El mensual sigue congelado: no gana motor.
+        monthly = (static / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
+        self.assertNotIn("improvement_engine_v3", monthly)
+        # La generación lo ofrece con el mismo nombre, para que una base y su
+        # mejora puedan calcularse con el mismo motor.
+        self.assertIn('name="engine_v3" type="checkbox"', (static / "portfolios.html").read_text(encoding="utf-8"))
+        self.assertIn("'engine_v3'];", (static / "portfolios.js").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

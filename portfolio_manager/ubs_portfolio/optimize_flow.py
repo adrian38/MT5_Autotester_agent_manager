@@ -404,6 +404,41 @@ def _finish_portfolio(
     )
 
 
+def _pass_context(
+    pool: _CandidatePool,
+    funnel: CandidateFunnel,
+    plan: SearchPlan,
+    *,
+    capital: float,
+    effective_valley_dd_pct: float,
+    effective_point_dd_pct: float,
+    portfolio_type: PortfolioType,
+) -> _PassContext:
+    """Lo que todas las pasadas comparten, ya con la reserva de DD aplicada."""
+    return _PassContext(
+        capital=capital,
+        valley_dd_pct=effective_valley_dd_pct,
+        point_dd_pct=effective_point_dd_pct,
+        portfolio_type=portfolio_type,
+        target_valley_dd=capital * effective_valley_dd_pct / 100.0,
+        target_point_dd=capital * effective_point_dd_pct / 100.0,
+        initial_allocations={
+            set_id: max(int((funnel.required_initial_allocations or {}).get(set_id, 1)), 1)
+            for set_id in pool.required_ids
+        },
+        minimum_active_strategies=plan.minimum_active_strategies,
+        maximum_active_strategies=plan.maximum_active_strategies,
+        local_search_maximum=(
+            plan.maximum_active_strategies
+            if plan.enforce_maximum_in_local_search else None
+        ),
+        fixed_set_ids=pool.required_ids if funnel.preserve_required_allocations else set(),
+        preserve_required_allocations=funnel.preserve_required_allocations,
+        required_ids=pool.required_ids,
+        run_local_search=plan.run_local_search,
+    )
+
+
 def _prepare_optimization(
     raw_sets: list[RobustStrategySet],
     limits: SearchLimits,
@@ -432,23 +467,12 @@ def _prepare_optimization(
     group_cap, group_units_pct_floor = _feasible_group_units_pct(
         by_type.max_units_per_group_pct, candidate_group_count,
     )
-    ctx = _PassContext(
+    ctx = _pass_context(
+        pool, funnel, plan,
         capital=capital,
-        valley_dd_pct=effective_valley_dd_pct,
-        point_dd_pct=effective_point_dd_pct,
+        effective_valley_dd_pct=effective_valley_dd_pct,
+        effective_point_dd_pct=effective_point_dd_pct,
         portfolio_type=portfolio_type,
-        target_valley_dd=capital * effective_valley_dd_pct / 100.0,
-        target_point_dd=capital * effective_point_dd_pct / 100.0,
-        initial_allocations={
-            set_id: max(int((funnel.required_initial_allocations or {}).get(set_id, 1)), 1)
-            for set_id in pool.required_ids
-        },
-        minimum_active_strategies=plan.minimum_active_strategies,
-        maximum_active_strategies=plan.maximum_active_strategies,
-        fixed_set_ids=pool.required_ids if funnel.preserve_required_allocations else set(),
-        preserve_required_allocations=funnel.preserve_required_allocations,
-        required_ids=pool.required_ids,
-        run_local_search=plan.run_local_search,
     )
     measured = _OptimizationPlan(
         raw_sets=raw_sets,

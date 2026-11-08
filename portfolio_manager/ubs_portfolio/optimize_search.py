@@ -66,6 +66,9 @@ class _PassContext:
     initial_allocations: dict[str, int]
     minimum_active_strategies: int | None
     maximum_active_strategies: int | None
+    #: El mismo tope, pero solo cuando el motor v3 lo extiende al intercambio.
+    #: ``None`` deja la busqueda local como estaba.
+    local_search_maximum: int | None
     fixed_set_ids: set[str]
     preserve_required_allocations: bool
     required_ids: set[str]
@@ -197,6 +200,7 @@ def _greedy_then_local_search(
             target_point_dd=ctx.target_point_dd,
             protected_set_ids=ctx.required_ids,
             minimum_active_strategies=ctx.minimum_active_strategies,
+            maximum_active_strategies=ctx.local_search_maximum,
             limits=limits,
         )
     return _SearchPass(
@@ -258,6 +262,7 @@ def _multi_start_pass(
         restarts=int(search_restarts),
         protected_set_ids=ctx.required_ids,
         minimum_active_strategies=ctx.minimum_active_strategies,
+        maximum_active_strategies=ctx.local_search_maximum,
         limits=limits,
     )
 

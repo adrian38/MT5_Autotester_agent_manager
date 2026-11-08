@@ -52,6 +52,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 
 - `reproducible_generation.md`: contrato del reintento cuando MT5 termina sin
   informe y de la semilla reproducible desde el manager hasta los agentes activos.
+- `motor_v3_tope_de_activas.md`: la búsqueda local se saltaba el tope de
+  estrategias activas y tiraba intentos válidos; qué enciende `engine_v3`, a
+  qué caminos llega y por qué no reescribe nada ya guardado.
 - `full_history_experimental_candidate_search.md`: `experimental_full_search`,
   la ruta opt-in de Portafolio UBS completo y su torneo por rondas.
 - `monthly_experimental_candidate_search.md`: la variante mensual de esa

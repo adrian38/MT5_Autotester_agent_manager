@@ -61,6 +61,7 @@ def _optimizer_kwargs(
             run_local_search=bool(inputs.get("run_local_search", True)),
             search_restarts=int(inputs.get("search_restarts") or 0),
             dd_reserve_pct=reserve,
+            enforce_maximum_in_local_search=bool(inputs.get("engine_v3")),
         ),
     }
 

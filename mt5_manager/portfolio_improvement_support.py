@@ -229,6 +229,22 @@ def improvement_grid_off(inputs: dict[str, Any]) -> bool:
     return raw
 
 
+def improvement_engine_v3(inputs: dict[str, Any]) -> bool:
+    """Resolve the dialog override, or inherit the engine from the saved base.
+
+    Una base guardada antes del motor v3 no trae la clave, así que heredar
+    significa quedarse con lo que diga el formulario. El diálogo puede
+    encenderlo aunque la base se generara sin él: es la única forma de
+    mejorar con el tope duro una cartera vieja.
+    """
+    raw = inputs.get("improvement_engine_v3")
+    if raw is None:
+        return bool(inputs.get("engine_v3"))
+    if not isinstance(raw, bool):
+        raise ValueError("El motor v3 de la mejora debe ser verdadero o falso")
+    return raw
+
+
 def improvement_min_recent_contribution_pct(inputs: dict[str, Any]) -> float:
     """Aporte mínimo Final Tick 6M exigido a **cada incorporación**.
 

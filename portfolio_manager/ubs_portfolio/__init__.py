@@ -129,7 +129,8 @@ from .optimize_results import (
 from .optimize_flow import (
     _Measured, _OptimizationPlan, _SearchOutcome, _apply_deep_pass,
     _apply_executable_rounding, _apply_greedy_pass, _apply_multi_start, _finish_portfolio,
-    _measure_portfolio, _optimizer_warnings, _prepare_optimization, _run_search_phases,
+    _measure_portfolio, _optimizer_warnings, _pass_context, _prepare_optimization,
+    _run_search_phases,
 )
 from .optimize import (
     optimize_portfolio,
@@ -324,6 +325,7 @@ __all__ = [
     "_optimizer_warnings",
     "_ordered_monthly_targets",
     "_parse_report_date",
+    "_pass_context",
     "_period_years",
     "_perturb_decision",
     "_perturbation_move",

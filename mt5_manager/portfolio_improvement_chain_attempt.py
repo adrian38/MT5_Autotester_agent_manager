@@ -65,6 +65,7 @@ from .portfolio_improvement_common import (
     improvement_options as _shared_improvement_options,
     member_rows,
     recent_positive_candidates,
+    stop_reason_text,
     unique_original_members,
     used_paths_for_improvement,
     validate_and_attach_improvement_audit,
@@ -107,6 +108,7 @@ from .portfolio_improvement_chain_support import (
     _selected_variant_detail,
     improvement_account_leverage,
     improvement_allowed_groups,
+    improvement_engine_v3,
     improvement_grid_off,
     improvement_margin_profile,
     improvement_min_recent_contribution_pct,
@@ -166,6 +168,7 @@ def _merged_attempt_inputs(
         inputs["margin_profile"] = profile
     inputs["account_leverage"] = improvement_account_leverage(inputs)
     inputs["grid_off"] = improvement_grid_off(inputs)
+    inputs["engine_v3"] = improvement_engine_v3(inputs)
     minimum_recent_pct = improvement_min_recent_contribution_pct(inputs)
     inputs["min_strategy_recent_contribution_pct"] = minimum_recent_pct
     inputs["margin_model"] = build_margin_model(source, inputs)
@@ -289,9 +292,12 @@ def _select_composition(
         raise ValueError("El selector intentó retirar una estrategia original")
     actual_additions = len(selected_ids) - len(context.original_ids)
     if not context.minimum_target <= len(selected_ids) <= context.maximum_target:
+        # El recuento solo dice que no salio; el motivo lo cuenta el greedy.
+        reason = stop_reason_text(selected.stop_reason)
         raise ValueError(
             f"El selector añadió {actual_additions} estrategias; este intento "
             f"requiere {context.minimum_target - len(context.original_ids)}"
+            + (f" · {reason}" if reason else "")
         )
     by_id = {strategy.set_id: strategy for strategy in pool}
     return selected_ids, [by_id[set_id] for set_id in selected_ids], actual_additions

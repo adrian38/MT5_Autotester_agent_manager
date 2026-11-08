@@ -340,6 +340,7 @@ class ChainForkParityTests(unittest.TestCase):
         "improvement_selection_priority",
         "improvement_account_leverage",
         "improvement_grid_off",
+        "improvement_engine_v3",
         "improvement_min_recent_contribution_pct",
         "_attach_stress_comparison",
         "_improvement_rank",
