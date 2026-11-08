@@ -33,6 +33,19 @@ Entran también las filas distintas que comparten fichero —el mismo set
 regenerado en varios runs—, y eso es lo buscado: lo que el usuario marcó en
 real es la estrategia, no la fila que la descubrió.
 
+**La casilla de una mejora no viaja en la raíz del cuerpo.** `Mejorar base` la
+manda dentro de `improvement_inherited_overrides`, y `_merged_attempt_inputs`
+sólo la mezcla en los inputs al preparar cada intento, mucho después de que el
+trabajo resuelva los usos en real. Por eso `_with_active_portfolio_members`
+consulta `active_portfolios_requested()`, que mira primero el heredado: con la
+raíz sola, el cálculo salía con la casilla activa y sin
+`_active_portfolio_members`, el filtro se quedaba sin nada con que comparar y
+abortaba. Medido el 2026-11-08 sobre la mejora del #67 de AXI: 64 miembros
+activos y 31 candidatos aceptados que el trabajo nunca llegó a ver. El heredado
+manda también cuando viene apagado, o desmarcarlo en el diálogo haría fallar la
+mejora por no haber portafolios activos. `Arreglar` manda la casilla plana, así
+que nunca tuvo este problema.
+
 ## Interacción con «Excluir sets usados»
 
 Toda estrategia de un portafolio activo ya está usada por definición. Por eso

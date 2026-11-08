@@ -20,7 +20,7 @@ from .portfolio_persistence import result_payload
 from .portfolio_proposals import proposal_diff, save_portfolio_payload
 from .portfolio_schema import ensure_portfolio_schema
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
-from .portfolio_settings import normalize_settings
+from .portfolio_settings import active_portfolios_requested, normalize_settings
 from .portfolio_source import PortfolioSource
 
 
@@ -90,7 +90,7 @@ class PortfolioCoordinatorCoreMixin:
     def _with_active_portfolio_members(
         self, node_id: str, source: PortfolioSource, settings: dict[str, Any],
     ) -> dict[str, Any]:
-        if not settings.get("active_portfolios_only"):
+        if not active_portfolios_requested(settings):
             return settings
         state = self.live_audit_settings.state(node_id) if self.live_audit_settings else {}
         profiles = state.get("profiles") or {}

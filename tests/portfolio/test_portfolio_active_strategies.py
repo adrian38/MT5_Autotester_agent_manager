@@ -99,7 +99,8 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
         )
         self.assertFalse(improvement_options(requested).exclude_used_sets)
 
-    def test_live_members_are_resolved_for_the_same_node(self) -> None:
+    def _resolve_live_members(self, settings: dict) -> dict:
+        """Lo que hace el trabajo al arrancar, con dos usos en real de ejemplo."""
         with tempfile.TemporaryDirectory() as temp_dir:
             coordinator = PortfolioCoordinator([], Path(temp_dir) / "settings.json")
             coordinator.live_audit_settings = SimpleNamespace(
@@ -123,15 +124,41 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
                     }
                 },
             )
+            self.temp_dir = Path(temp_dir)
+            return coordinator._with_active_portfolio_members("axi", source, settings)
 
-            settings = coordinator._with_active_portfolio_members(
-                "axi", source, {"active_portfolios_only": True},
-            )
+    def test_live_members_are_resolved_for_the_same_node(self) -> None:
+        settings = self._resolve_live_members({"active_portfolios_only": True})
 
         self.assertEqual(
             [member["set_path"] for member in settings["_active_portfolio_members"]],
-            [str(Path(temp_dir) / "12-m.set"), str(Path(temp_dir) / "19-a.set")],
+            [str(self.temp_dir / "12-m.set"), str(self.temp_dir / "19-a.set")],
         )
+
+    def test_live_members_are_resolved_when_only_the_improvement_asks(self) -> None:
+        """`Mejorar base` manda la casilla dentro de los heredados, no en la raíz.
+
+        El motor sólo los mezcla al preparar cada intento, mucho después de
+        resolver los usos en real. Mirando sólo la raíz, el trabajo salía con
+        la casilla activa y sin miembros, y el filtro abortaba aunque hubiera
+        candidatos: medido el 2026-11-08 sobre la mejora del #67 de AXI.
+        """
+        settings = self._resolve_live_members({
+            "active_portfolios_only": False,
+            "improvement_inherited_overrides": {"active_portfolios_only": True},
+        })
+
+        self.assertEqual(len(settings["_active_portfolio_members"]), 2)
+
+    def test_the_improvement_may_also_turn_the_filter_off(self) -> None:
+        """Desmarcarla en el diálogo gana al ajuste guardado del nodo: si no,
+        una mejora sin filtro fallaría por no haber portafolios activos."""
+        settings = self._resolve_live_members({
+            "active_portfolios_only": True,
+            "improvement_inherited_overrides": {"active_portfolios_only": False},
+        })
+
+        self.assertNotIn("_active_portfolio_members", settings)
 
     def test_improvement_inherits_and_edits_the_filter(self) -> None:
         static = Path(__file__).parents[2] / "mt5_manager" / "static"

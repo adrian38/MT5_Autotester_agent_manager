@@ -143,6 +143,31 @@ def _normalize_risk_budget(values: dict[str, Any], broker: str) -> None:
         leverage = DEFAULT_ACCOUNT_LEVERAGE
     values["account_leverage"] = leverage
 
+
+def active_portfolios_requested(settings: dict[str, Any]) -> bool:
+    """La casilla efectiva, que en una mejora no viaja en la raíz del cuerpo.
+
+    `Mejorar base` manda `active_portfolios_only` dentro de
+    `improvement_inherited_overrides`, y el motor sólo lo mezcla en los inputs
+    al preparar cada intento, mucho después de arrancar el trabajo. Quien
+    resuelve los miembros de los portafolios activos lo hace antes, así que
+    mirando sólo la raíz veía la casilla apagada: el cálculo salía sin
+    `_active_portfolio_members`, el filtro se quedaba sin nada con que comparar
+    y abortaba con «No hay candidatos aceptados presentes en los portafolios
+    activos de este broker» aunque los hubiera. Medido el 2026-11-08 sobre la
+    mejora del #67 de AXI: 64 miembros activos y 31 candidatos aceptados que el
+    trabajo nunca llegó a ver.
+
+    El heredado manda cuando viene, también apagado: desmarcar la casilla en el
+    diálogo tiene que ganarle al ajuste guardado del nodo, o una mejora sin
+    filtro fallaría por no haber portafolios activos.
+    """
+    overrides = settings.get("improvement_inherited_overrides")
+    if isinstance(overrides, dict) and "active_portfolios_only" in overrides:
+        return bool(overrides["active_portfolios_only"])
+    return bool(settings.get("active_portfolios_only"))
+
+
 def _normalize_flags(values: dict[str, Any], monthly: bool) -> None:
     for key in BOOLEAN_SETTINGS:
         values[key] = bool(values.get(key))
