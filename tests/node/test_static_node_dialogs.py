@@ -54,6 +54,14 @@ VALID_VALUES = {
     "cron-interval-days": (1, 30, 3650),
     "cron-retry-attempts": (0, 3, 10),
     "cron-retry-delay": (1, 10, 720),
+    # Cita del resumen mensual. Los topes son los de `_INTEGER_FIELDS` en
+    # `monthly_summary_schedule.py`, que es quien rechaza lo que se salga.
+    "monthly-summary-day": (1, 15, 28),
+    "monthly-summary-hour": (0, 9, 23),
+    "monthly-summary-minute": (0, 30, 59),
+    "monthly-summary-streak": (2, 3, 12),
+    "monthly-summary-retries": (0, 3, 10),
+    "monthly-summary-retry-delay": (1, 60, 720),
     # Laboratorio «Experimenta». Los topes de la pantalla son los que
     # `experiment_service.normalize_settings` recorta al recibirlos.
     "target_equity": (1, 250000, 1000000.5),
