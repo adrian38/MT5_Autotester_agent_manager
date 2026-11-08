@@ -241,6 +241,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 
 - `manual_portfolio_upload.md`: creación de una cartera auditable desde una
   carpeta arbitraria de `.set`, inventario separado de UBS y progreso del histórico.
+- `manual_history_overwrote_pool_reports.md`: el histórico OHLC de un portafolio
+  manual sustituía el informe base de un candidato homónimo y dejaba sin base
+  reconstruible a las carteras que lo usaban (2026-11-08).
 - `manual_portfolio_files_survive_delete.md`: por qué borrar un portafolio
   manual dejaba sus `.set` huérfanos en el disco del agente, la regla estrecha
   que ahora los retira y el estado del port en cada copia.

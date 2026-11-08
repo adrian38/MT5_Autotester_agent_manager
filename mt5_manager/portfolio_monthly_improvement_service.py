@@ -24,6 +24,7 @@ from .portfolio_improvement_common import (
     member_rows,
     recent_positive_candidates,
     unique_original_members,
+    unreconstructed_originals,
     used_paths_for_improvement,
     validate_and_attach_improvement_audit,
 )
@@ -82,9 +83,9 @@ def _locked_original_sets(
         parse=cached_report,
     )
     if len(original_full_sets) != len(originals):
-        raise ValueError(
-            "No se pudieron reconstruir todas las estrategias originales; "
-            "la mejora mensual no retirará ninguna automáticamente"
+        raise unreconstructed_originals(
+            "la mejora mensual no retirará ninguna automáticamente",
+            originals, original_full_sets, warnings,
         )
     return original_full_sets, warnings
 

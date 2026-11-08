@@ -85,6 +85,45 @@ def unique_original_members(
     return [item[1] for item in selected.values()]
 
 
+def _set_file_name(value: Any) -> str:
+    """El nombre del `.set`, venga la ruta del nodo o del host."""
+    return Path(str(value or "").replace("\\", "/")).name
+
+
+def unreconstructed_originals(
+    consequence: str,
+    originals: Iterable[dict[str, Any]],
+    rebuilt: Iterable[Any],
+    warnings: Iterable[str],
+) -> ValueError:
+    """El aborto de la base, nombrando el original que falta y qué lo impidió.
+
+    `load_robust_sets_from_rows` ya dice el set y la causa —un informe ausente,
+    uno ilegible, dos períodos que se solapan—, pero esos avisos viajan junto a
+    los sets cargados y se perdían al lanzar la excepción: la pantalla leía
+    «no se pudieron reconstruir» y nada más. Averiguar que un histórico OHLC
+    había sustituido el tramo 2020-2024 de cuatro candidatos de AXI por uno
+    2020-2026 costó abrir la memoria del agente y medir los informes a mano,
+    teniendo el motor la respuesta en la variable de al lado.
+    """
+    loaded = {
+        name.casefold() for item in rebuilt
+        if (name := _set_file_name(getattr(item, "set_path", "") or getattr(item, "set_id", "")))
+    }
+    missing = [
+        name for member in originals
+        if (name := _set_file_name(member.get("set_path") or member.get("set_id")))
+        and name.casefold() not in loaded
+    ]
+    parts = [f"No se pudieron reconstruir todas las estrategias originales; {consequence}"]
+    if missing:
+        parts.append("Sin reconstruir: " + ", ".join(missing))
+    parts.extend(str(warning) for warning in warnings if warning)
+    # Los avisos del cargador ya vienen con punto final y el separador pone
+    # otro: «curva invalida.. Ejemplos» se lee como una errata del motor.
+    return ValueError(". ".join(part.rstrip(". ") for part in parts))
+
+
 def member_rows(
     members: Iterable[dict[str, Any]],
     *,

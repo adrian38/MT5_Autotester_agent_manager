@@ -29,6 +29,7 @@ from .portfolio_improvement_common import (
     member_rows,
     recent_positive_candidates,
     unique_original_members,
+    unreconstructed_originals,
     used_paths_for_improvement,
     validate_and_attach_improvement_audit,
 )
@@ -416,9 +417,9 @@ def _load_original_improvement_sets(
             "tras guardar el portafolio: " + ", ".join(recovered)
         )
     if len(original_sets) != len(originals):
-        raise ValueError(
-            "No se pudieron reconstruir todas las estrategias originales; "
-            "la mejora no puede retirar ninguna sin evidencia"
+        raise unreconstructed_originals(
+            "la mejora no puede retirar ninguna sin evidencia",
+            originals, original_sets, warnings,
         )
     return original_sets, warnings
 
