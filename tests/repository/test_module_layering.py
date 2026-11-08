@@ -51,6 +51,7 @@ PORTFOLIO_STACK = [
     "portfolio_manual_check",
     "portfolio_job_notices",
     "portfolio_coordinator_core",
+    "portfolio_active_pool",
     "portfolio_coordinator_saved",
     "portfolio_coordinator_manual_check",
     "portfolio_import_match",

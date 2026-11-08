@@ -39,6 +39,7 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "grid_off": False,
     "exclude_used_sets": True,
     "active_portfolios_only": False,
+    "active_portfolios_excluded": [],
     "experimental_full_search": False,
     "min_strategy_recent_contribution_pct": 5.0,
     "dd_reserve_pct": 10.0,
@@ -223,6 +224,34 @@ def _normalize_symbol_filters(values: dict[str, Any], monthly: bool) -> None:
     # El control pertenece exclusivamente a UBS normal. El mensual tiene su
     # propia interfaz y orquestación, y no debe heredar silenciosamente el filtro.
     values["disabled_symbols"] = [] if monthly else generation_disabled
+    values["active_portfolios_excluded"] = (
+        [] if monthly else _normalized_excluded_strategies(values)
+    )
+
+
+def _normalized_excluded_strategies(values: dict[str, Any]) -> list[str]:
+    """Los `.set` que el usuario quitó a mano del pool de portafolios activos.
+
+    Se guarda el **nombre** del fichero, no la ruta, porque es la misma
+    identidad con la que el filtro compara: un miembro de un portafolio manual
+    apunta a la copia del nodo y el mismo candidato vive en `outputs/`.
+    """
+    raw = values.get("active_portfolios_excluded")
+    if raw is None:
+        return []
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("Las estrategias excluidas del pool deben ser una lista")
+    names: dict[str, str] = {}
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError("Cada estrategia excluida del pool debe ser texto")
+        name = item.strip().replace("\\", "/").rsplit("/", 1)[-1]
+        if name:
+            # El primero que llega es el que manda: la comparacion no mira
+            # mayusculas, asi que la segunda grafia del mismo fichero solo
+            # cambiaria lo que el usuario ve en la lista guardada.
+            names.setdefault(name.casefold(), name)
+    return sorted(names.values(), key=str.casefold)
 
 def _normalize_monthly(values: dict[str, Any]) -> None:
     values["target_month"] = safe_int(values.get("target_month"), 0)

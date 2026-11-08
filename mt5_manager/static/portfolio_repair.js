@@ -43,6 +43,7 @@
         <label><input name="require_3_positive_months_6m" type="checkbox"> Exigir 3 meses positivos</label>
         <label><input name="grid_off" type="checkbox"> Grid OFF</label>
         <label title="Limita las sustitutas a estrategias que ya pertenecen a usos marcados como operando en real para este broker. Las supervivientes siguen siendo obligatorias."><input name="active_portfolios_only" type="checkbox"> Solo estrategias de portafolios activos</label>
+        <button type="button" class="secondary table-action" data-active-pool-open title="Elige que estrategias de los portafolios activos entran al pool." hidden>Elegir estrategias…</button>
         <label><input name="exclude_used_sets" type="checkbox"> Excluir sets usados</label>
         <label id="repair-same-symbol-option"><input name="improvement_allow_same_symbol" type="checkbox"> Conservar excepción de mismo símbolo de la mejora</label>
       </div></fieldset>
@@ -106,12 +107,32 @@
     }
     fields.exclude_used_sets.disabled = activeOnly;
     fields.min_trades_2020_2026.disabled = activeOnly;
+    // Sin la casilla no hay pool que recortar, asi que el boton no existe.
+    poolButton.hidden = !activeOnly;
+    poolButton.textContent = excludedStrategies.length
+      ? `Elegir estrategias (${excludedStrategies.length} fuera)…`
+      : 'Elegir estrategias…';
   }
+
+  const poolButton = dialog.querySelector('[data-active-pool-open]');
+  let excludedStrategies = [];
+  poolButton.addEventListener('click', async event => {
+    event.currentTarget.disabled = true;
+    try {
+      const chosen = await openActivePoolDialog('full_history', excludedStrategies);
+      if (chosen !== null) excludedStrategies = chosen;
+      syncActivePortfolioFilter();
+    } catch (error) { toast(error.message, true); }
+    finally { event.currentTarget.disabled = false; }
+  });
 
   function populateRepairForm() {
     const inherited = inheritedRepairInputs();
     numericNames.forEach(name => setRepairValue(name, inherited[name]));
     booleanNames.forEach(name => setRepairValue(name, inherited[name]));
+    // Se hereda como cualquier otra caracteristica: el arreglo parte de lo que
+    // dejo fuera la generacion anterior y se puede editar antes de calcular.
+    excludedStrategies = [...(inherited.active_portfolios_excluded || [])];
     syncActivePortfolioFilter();
     setRepairValue('quick_composition', false);
     setRepairValue('margin_profile', inherited.margin_profile);
@@ -137,6 +158,7 @@
       margin_profile: fields.margin_profile.value,
       allowed_asset_groups: groupNames.filter(group => fields[`repair_group_${group}`].checked),
       disabled_symbols: fields.disabled_symbols.value.split(',').map(value => value.trim()).filter(Boolean),
+      active_portfolios_excluded: [...excludedStrategies],
     };
     numericNames.forEach(name => { payload[name] = optionalNumber(name); });
     booleanNames.forEach(name => { payload[name] = fields[name].checked; });

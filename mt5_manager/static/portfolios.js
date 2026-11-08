@@ -101,7 +101,34 @@ function syncActivePortfolioFilter() {
   // se opera en real; el backend lo fuerza a 0 igualmente.
   if (activeOnly.checked) minTrades.value = 0;
   minTrades.disabled = activeOnly.checked;
+  // Sin la casilla no hay pool que recortar, asi que el boton no existe.
+  document.querySelector('#active-pool-open').hidden = !activeOnly.checked;
+  refreshActivePoolButton();
 }
+
+function excludedActiveStrategies() {
+  return [...(managerState.settings?.active_portfolios_excluded || [])];
+}
+
+function refreshActivePoolButton() {
+  const out = excludedActiveStrategies().length;
+  document.querySelector('#active-pool-open').textContent =
+    out ? `Elegir estrategias (${out} fuera)…` : 'Elegir estrategias…';
+}
+
+document.querySelector('#active-pool-open').addEventListener('click', async event => {
+  event.currentTarget.disabled = true;
+  try {
+    const chosen = await openActivePoolDialog(scope, excludedActiveStrategies());
+    if (chosen === null) return;
+    if (!managerState.settings) managerState.settings = {};
+    managerState.settings.active_portfolios_excluded = chosen;
+    refreshActivePoolButton();
+    await persistSettings();
+    toast(chosen.length ? `${chosen.length} estrategia(s) fuera del pool.` : 'El pool usa todas las estrategias en real.');
+  } catch (error) { toast(error.message, true); }
+  finally { event.currentTarget.disabled = false; }
+});
 
 const numericFields = ['capital', 'valley_dd_pct', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'account_leverage', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];
 const booleanFields = ['run_local_search', 'deep_optimization', 'experimental_full_search', 'use_correlation', 'require_3_positive_months_6m', 'grid_off', 'active_portfolios_only', 'exclude_used_sets'];
@@ -115,6 +142,7 @@ function formPayload(includeAutomaticCheck = false) {
   });
   booleanFields.forEach(key => { const field = form.elements[key]; if (field) payload[key] = field.checked; });
   payload.disabled_symbols = [...(managerState.settings?.disabled_symbols || [])];
+  payload.active_portfolios_excluded = excludedActiveStrategies();
   if (includeAutomaticCheck) {
     payload.automatic_save = document.querySelector('#generation-auto-save').checked;
     payload.automatic_save_key = document.querySelector('#generation-auto-save-key').value;

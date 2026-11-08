@@ -33,6 +33,7 @@ IMPROVEMENT_INHERITED_KEYS = frozenset({
     "disabled_symbols", "allowed_asset_groups", "run_local_search",
     "deep_optimization", "use_correlation", "validate_margin",
     "require_3_positive_months_6m", "grid_off", "active_portfolios_only",
+    "active_portfolios_excluded",
 })
 
 

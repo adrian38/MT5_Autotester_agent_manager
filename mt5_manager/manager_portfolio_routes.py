@@ -318,6 +318,20 @@ def action_route(handler, action: str, node: dict, node_id: str, scope: str, bod
     return True
 
 
+def pool_action(handler, action: str, node_id: str, scope: str) -> bool:
+    """Lo que la pantalla pregunta sobre el pool antes de calcular.
+
+    Solo lee. Vive aparte porque `transfer_action` ya esta en su techo de
+    sesenta lineas y esto no tiene nada que ver con importar ni exportar.
+    """
+    if action != "active-strategies":
+        return False
+    handler._send_json(200, handler.server.portfolios.active_portfolio_strategies(
+        node_id, scope,
+    ))
+    return True
+
+
 def transfer_action(handler, action: str, node: dict, node_id: str, scope: str, body: dict,
 ) -> bool:
     """Importar, exportar, abrir informes y leer el log.
@@ -403,6 +417,8 @@ def handle_post(handler, parts: list[str]) -> None:
             return
         if action in {"manual-defaults", "manual-history", "manual-members"}:
             manual_portfolio_action(handler, node, action, body)
+            return
+        if pool_action(handler, action, node_id, scope):
             return
         if not action_route(handler, action, node, node_id, scope, body):
             if not transfer_action(handler, action, node, node_id, scope, body):

@@ -43,6 +43,7 @@
         <label><input name="require_3_positive_months_6m" type="checkbox"> Exigir 3 meses positivos</label>
         <label title="Las incorporaciones deben tener desactivado EnableGrid en su archivo .set. Las estrategias originales no se retiran."><input name="improvement_grid_off" type="checkbox"> Grid OFF para candidatas nuevas</label>
         <label title="Limita las candidatas nuevas a estrategias que ya pertenecen a usos marcados como operando en real para este broker. Las originales no se retiran."><input name="active_portfolios_only" type="checkbox"> Solo estrategias de portafolios activos</label>
+        <button type="button" class="secondary table-action" data-active-pool-open title="Elige que estrategias de los portafolios activos entran al pool." hidden>Elegir estrategias…</button>
       </div></fieldset>
       <fieldset><legend>Criterios propios de la mejora</legend><div class="portfolio-form-grid">
         <label>Variante que quieres mejorar<select name="improvement_portfolio_type" required><option value="aggressive">Agresivo</option><option value="balanced" selected>Moderado</option><option value="conservative">Conservador</option></select></label>
@@ -128,7 +129,24 @@
     }
     fields.improvement_exclude_used_sets.disabled = activeOnly;
     fields.min_trades_2020_2026.disabled = activeOnly;
+    // Sin la casilla no hay pool que recortar, asi que el boton no existe.
+    poolButton.hidden = !activeOnly;
+    poolButton.textContent = excludedStrategies.length
+      ? `Elegir estrategias (${excludedStrategies.length} fuera)…`
+      : 'Elegir estrategias…';
   }
+
+  const poolButton = dialog.querySelector('[data-active-pool-open]');
+  let excludedStrategies = [];
+  poolButton.addEventListener('click', async event => {
+    event.currentTarget.disabled = true;
+    try {
+      const chosen = await openActivePoolDialog('full_history', excludedStrategies);
+      if (chosen !== null) excludedStrategies = chosen;
+      syncActivePortfolioFilter();
+    } catch (error) { toast(error.message, true); }
+    finally { event.currentTarget.disabled = false; }
+  });
 
   function populateInheritedForm(mode) {
     const inherited = effectiveInheritedInputs(mode);
@@ -142,6 +160,9 @@
     setValue('improvement_grid_off', inherited.improvement_grid_off ?? inherited.grid_off);
     setValue('active_portfolios_only', inherited.active_portfolios_only);
     setValue('improvement_exclude_used_sets', inherited.improvement_exclude_used_sets ?? true);
+    // Se hereda como cualquier otra caracteristica: la mejora parte de lo que
+    // dejo fuera la generacion anterior y se puede editar antes de calcular.
+    excludedStrategies = [...(inherited.active_portfolios_excluded || [])];
     syncActivePortfolioFilter();
     setValue('improvement_allow_same_symbol', inherited.improvement_allow_same_symbol ?? true);
     setValue('improvement_min_additions', inherited.improvement_min_additions ?? inherited.improvement_additions ?? 2);
@@ -221,6 +242,7 @@
       require_3_positive_months_6m: fields.require_3_positive_months_6m.checked,
       grid_off: fields.improvement_grid_off.checked,
       active_portfolios_only: fields.active_portfolios_only.checked,
+      active_portfolios_excluded: [...excludedStrategies],
     };
     inheritedNumericNames.forEach(name => { values[name] = optionalNumber(name); });
     if (fields.quick_composition.checked) {

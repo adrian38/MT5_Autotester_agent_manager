@@ -110,6 +110,7 @@ STATIC_FILES = {
     # exclusion y las etiquetas de sus tres codigos. La interfaz de cada
     # ambito sigue siendo suya; lo que no puede divergir es el codigo que
     # viaja al nodo y decide que se escribe en la memoria del agente.
+    "active_pool.js",
     "exclusion_reason.js",
     # Importar es el reflejo de exportar y hereda su transporte: la lectura del
     # ZIP y el resumen del resultado no pueden divergir entre pantallas.

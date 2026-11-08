@@ -155,11 +155,18 @@ def _unaccepted_member_rows(
 
 
 def _note_active_pool(
-    warnings: list[str] | None, extra: list[dict[str, Any]], blind: list[str],
+    warnings: list[str] | None,
+    extra: list[dict[str, Any]],
+    blind: list[str],
+    excluded: int = 0,
 ) -> None:
     """Dice cuántas entraron sin ser candidatas y cuántas no se pudieron ver."""
     if warnings is None:
         return
+    if excluded:
+        warnings.append(
+            f"{excluded} fila(s) de portafolios activos quitadas a mano del pool."
+        )
     if extra:
         warnings.append(
             f"{len(extra)} estrategia(s) de portafolios activos entran al pool sin ser "
@@ -185,16 +192,28 @@ def filter_rows_by_active_portfolios(
     real entra aunque nunca pasara el embudo, porque marcarlo en real ya es el
     veredicto, y entra con los informes que guardó su asignación.
 
-    Medido el 2026-11-08 sobre AXI: sus seis usos en real son 64 miembros, de
-    los que 31 son candidatos aceptados del pool. Los otros 39 son los sets
-    subidos a mano a sus tres portafolios manuales, que nunca fueron candidatos
-    y tampoco guardaron informes; se nombran en vez de desaparecer.
+    Medido el 2026-11-08 sobre AXI: sus seis usos en real son 64 filas, 57
+    estrategias distintas, de las que 18 son candidatas aceptadas; las otras 39
+    son sets subidos a mano a sus tres portafolios manuales, que entran con su
+    pasada OHLC partida en dos tramos.
+
+    `active_portfolios_excluded` son las que el usuario quitó a mano desde el
+    diálogo de la pantalla. Se descartan antes que nada: así no aportan
+    identidad y sus filas del pool tampoco entran por la puerta de al lado.
     """
     if not inputs.get("active_portfolios_only"):
         return rows
-    members = [
+    excluded = {
+        _set_identity(value) for value in inputs.get("active_portfolios_excluded") or []
+        if str(value or "").strip()
+    }
+    live = [
         member for member in inputs.get("_active_portfolio_members") or []
         if isinstance(member, dict)
+    ]
+    members = [
+        member for member in live
+        if _set_identity(member.get("set_path") or member.get("set_id")) not in excluded
     ]
     identities = {
         _set_identity(member.get(key))
@@ -203,7 +222,7 @@ def filter_rows_by_active_portfolios(
     }
     matched = [row for row in rows if _set_identity(row.get("set_path")) in identities]
     extra, blind = _unaccepted_member_rows(members, matched)
-    _note_active_pool(warnings, extra, blind)
+    _note_active_pool(warnings, extra, blind, len(live) - len(members))
     if not matched and not extra:
         raise ValueError(_empty_active_pool(blind))
     return matched + extra

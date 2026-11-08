@@ -182,6 +182,7 @@ from .portfolio_coordinator_core import (
     prepare_scope_log,
     scope_stage_count,
 )
+from .portfolio_active_pool import PortfolioCoordinatorActivePoolMixin
 from .portfolio_coordinator_manual_check import PortfolioCoordinatorManualCheckMixin
 from .portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin
 from .portfolio_source import PortfolioSource
@@ -302,6 +303,7 @@ def _reoptimize_locked_type(
 
 class PortfolioCoordinator(
     PortfolioCoordinatorCoreMixin,
+    PortfolioCoordinatorActivePoolMixin,
     PortfolioCoordinatorSavedMixin,
     PortfolioCoordinatorManualCheckMixin,
 ):

@@ -91,6 +91,32 @@ manda también cuando viene apagado, o desmarcarlo en el diálogo haría fallar 
 mejora por no haber portafolios activos. `Arreglar` manda la casilla plana, así
 que nunca tuvo este problema.
 
+## Elegir a mano qué se queda fuera
+
+Qué estrategias son exactamente «las de los portafolios activos» no se ve en el
+formulario: salen de los usos con `live_trading`, de sus miembros y, en un
+paquete A/M/C, sólo de la variante activa. Por eso las tres pantallas con la
+casilla muestran, **sólo cuando está marcada**, un botón `Elegir estrategias…`
+que abre un diálogo con la lista resuelta: set, símbolo, marco temporal, con
+qué se va a evaluar y de qué usos en real viene.
+
+- La lista la sirve `active-strategies`, que sólo lee y hace la **misma**
+  resolución que el trabajo al arrancar (`PortfolioCoordinatorActivePoolMixin`
+  en `portfolio_active_pool.py`). Se pide en cada apertura: marcar o desmarcar
+  un uso en real cambia la lista, y un formulario guardado no puede congelarla.
+- Una fila por **estrategia**, no por miembro. El mismo `.set` puede estar en
+  varios usos —en AXI, 64 filas son 57 estrategias— y enseñarlo repetido
+  invitaría a quitarlo de un sitio y dejarlo en otro, que no es lo que pasa.
+- Lo elegido se guarda en `active_portfolios_excluded` con el **nombre** del
+  `.set`, la misma identidad con la que compara el filtro, y se hereda como
+  cualquier otra característica de `Mejorar base` y `Arreglar`.
+- **Una fila que no se puede elegir no se guarda como exclusión.** Sin
+  informes, o en cuarentena, sale desmarcada y bloqueada; si eso se persistiera
+  quedaría fuera para siempre, también el día que vuelva a tener informes o
+  salga de la cuarentena. De ésas se conserva lo que ya hubiera guardado.
+- Quitar una de aquí **no** la excluye del agente ni la pone en cuarentena.
+  Sólo la deja fuera de este pool.
+
 ## El mínimo de operaciones no se aplica
 
 Es un criterio del embudo, y en este pool ya decidió el usuario: lo que opera

@@ -51,7 +51,7 @@ def _single_pass_report(
 
 
 def _relocated_member(
-    member: dict[str, Any], project: Path, portfolio_id: Any,
+    member: dict[str, Any], project: Path, portfolio_id: Any, portfolio_name: str = "",
 ) -> dict[str, Any]:
     """El miembro de un portafolio activo con sus rutas en este despliegue.
 
@@ -59,9 +59,15 @@ def _relocated_member(
     al pool aunque el embudo no la aceptara, sus informes se leen de verdad, y
     un portafolio guardado puede traerlos con la raíz de otro despliegue —el
     `/data/...` de un contenedor, la letra de otra PC— que aquí no existe.
+
+    Las dos claves con guion bajo son del cálculo y no se persisten: dicen de
+    qué uso en real viene la fila, que es lo que la pantalla necesita para
+    ofrecer quitarla del pool.
     """
     return {
         **member,
+        "_active_portfolio_id": portfolio_id,
+        "_active_portfolio_name": portfolio_name,
         **{
             key: _resolve_source_path(member.get(key), project)
             for key in _MEMBER_REPORT_KEYS if member.get(key)
@@ -164,8 +170,9 @@ class PortfolioCoordinatorCoreMixin:
                 if portfolio.get("portfolio_type") != "bundle" or not selected_type
                 or str(member.get("variant_key") or "") == selected_type
             ]
+            name = str(portfolio.get("alias") or portfolio.get("name") or "")
             members.extend(
-                _relocated_member(member, source.project, portfolio_id)
+                _relocated_member(member, source.project, portfolio_id, name)
                 for member in selected_members
             )
         if not members:
