@@ -367,6 +367,46 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
             "monthly", {"active_portfolios_only": True},
         )["active_portfolios_only"])
 
+    def test_setting_drops_the_minimum_number_of_trades(self) -> None:
+        """El mínimo de operaciones es un criterio del embudo, y en este pool
+        ya decidió el usuario: lo que opera en real se usa.
+
+        Medido el 2026-11-08 sobre AXI: con 100 se caían cuatro de sus 57 por
+        tener entre 39 y 91 operaciones en seis años, todas con neto positivo.
+        """
+        self.assertEqual(
+            normalize_settings("full_history", {})["min_trades_2020_2026"], 100,
+        )
+        enabled = normalize_settings(
+            "full_history",
+            {"active_portfolios_only": True, "min_trades_2020_2026": 100},
+        )
+
+        self.assertEqual(enabled["min_trades_2020_2026"], 0)
+
+    def test_the_minimum_falls_also_when_only_the_improvement_inherits_it(self) -> None:
+        """`Mejorar base` manda la casilla dentro de los heredados y los mezcla
+        antes de normalizar, así que la precedencia alcanza igual."""
+        merged = normalize_settings("full_history", {
+            "min_trades_2020_2026": 100,
+            **improvement_inherited_overrides(
+                {"improvement_inherited_overrides": {"active_portfolios_only": True}},
+            ),
+        })
+
+        self.assertEqual(merged["min_trades_2020_2026"], 0)
+
+    def test_the_three_forms_block_the_minimum_with_the_filter_on(self) -> None:
+        static = Path(__file__).parents[2] / "mt5_manager" / "static"
+        for name, field in (
+            ("portfolios.js", "minTrades"),
+            ("portfolio_improvement.js", "fields.min_trades_2020_2026"),
+            ("portfolio_repair.js", "fields.min_trades_2020_2026"),
+        ):
+            script = (static / name).read_text(encoding="utf-8")
+            with self.subTest(form=name):
+                self.assertIn(f"{field}.disabled = activeOnly", script)
+
     def test_improvement_accepts_the_inherited_value_and_keeps_used_candidates(self) -> None:
         requested = {
             "active_portfolios_only": True,

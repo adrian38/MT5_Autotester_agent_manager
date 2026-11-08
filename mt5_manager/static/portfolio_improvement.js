@@ -119,10 +119,15 @@
   }
 
   function syncActivePortfolioFilter() {
-    if (fields.active_portfolios_only.checked) {
+    const activeOnly = fields.active_portfolios_only.checked;
+    if (activeOnly) {
       fields.improvement_exclude_used_sets.checked = false;
+      // El minimo de operaciones es un criterio del embudo y el pool ya es lo
+      // que se opera en real; el backend lo fuerza a 0 igualmente.
+      fields.min_trades_2020_2026.value = 0;
     }
-    fields.improvement_exclude_used_sets.disabled = fields.active_portfolios_only.checked;
+    fields.improvement_exclude_used_sets.disabled = activeOnly;
+    fields.min_trades_2020_2026.disabled = activeOnly;
   }
 
   function populateInheritedForm(mode) {

@@ -178,6 +178,13 @@ def _normalize_flags(values: dict[str, Any], monthly: bool) -> None:
         values["experimental_monthly_search"] = False
         if values["active_portfolios_only"]:
             values["exclude_used_sets"] = False
+            # El pool son las estrategias que el usuario opera en real: un
+            # minimo de operaciones es un criterio del embudo, y ahi ya decidio
+            # el. Medido el 2026-11-08 sobre AXI, con 100 se caian cuatro de
+            # sus 57 por tener entre 39 y 91 operaciones en seis anos, todas
+            # con neto positivo. Se fuerza tambien ante una peticion fabricada
+            # fuera de la interfaz, igual que `exclude_used_sets`.
+            values["min_trades_2020_2026"] = 0
     # Disabling correlation must not erase the configured thresholds. The
     # optimizer already ignores them while use_correlation is false. Older
     # persisted settings may have lost all four values, so restore defaults

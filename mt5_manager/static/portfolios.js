@@ -94,8 +94,13 @@ function hydrate(settings) {
 function syncActivePortfolioFilter() {
   const activeOnly = form.elements.active_portfolios_only;
   const excludeUsed = form.elements.exclude_used_sets;
+  const minTrades = form.elements.min_trades_2020_2026;
   if (activeOnly.checked) excludeUsed.checked = false;
   excludeUsed.disabled = activeOnly.checked;
+  // El minimo de operaciones es un criterio del embudo y el pool ya es lo que
+  // se opera en real; el backend lo fuerza a 0 igualmente.
+  if (activeOnly.checked) minTrades.value = 0;
+  minTrades.disabled = activeOnly.checked;
 }
 
 const numericFields = ['capital', 'valley_dd_pct', 'top_k_per_symbol', 'max_total_candidates', 'min_trades_2020_2026', 'min_strategy_recent_contribution_pct', 'max_units_per_set', 'max_total_units', 'max_units_per_symbol', 'max_sets_per_symbol', 'dd_reserve_pct', 'search_restarts', 'account_leverage', 'max_margin_pct', 'max_pair_corr', 'max_downside_corr', 'max_dd_overlap', 'max_portfolio_corr'];

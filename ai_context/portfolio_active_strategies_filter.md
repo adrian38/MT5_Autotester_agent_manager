@@ -91,6 +91,26 @@ manda también cuando viene apagado, o desmarcarlo en el diálogo haría fallar 
 mejora por no haber portafolios activos. `Arreglar` manda la casilla plana, así
 que nunca tuvo este problema.
 
+## El mínimo de operaciones no se aplica
+
+Es un criterio del embudo, y en este pool ya decidió el usuario: lo que opera
+en real se usa. `_normalize_flags` fuerza `min_trades_2020_2026 = 0` cuando la
+casilla está puesta, también ante una petición fabricada fuera de la interfaz,
+y las tres pantallas deshabilitan el campo. Como `_merged_attempt_inputs`
+normaliza **después** de mezclar los heredados, la precedencia alcanza igual a
+`Mejorar base`.
+
+Medido el 2026-11-08 sobre AXI: con el 100 por defecto se caían cuatro de sus
+57 —`eurusd_h368_h4_storyg` (39 operaciones), `eurusd_f356_d1_storyg` (55),
+`eurusd_p3516_d1_storyg` (77) y `ubs_spotcrude_daily_g_p006` (91)—, todas con
+neto positivo y recuperación 6M en regla; son estrategias de baja frecuencia en
+seis años, no estrategias malas. Con la casilla puesta son 57 de 57 elegibles.
+
+Las otras condiciones de `filter_eligible_sets` siguen: sin curva no hay nada
+que repartir, y neto negativo o recuperación 6M por debajo de 1 no eliminan a
+nadie hoy —las 57 pasan— ni cambiarían el resultado, porque el optimizador
+maximiza beneficio/DD y nunca elegiría una perdedora.
+
 ## Interacción con «Excluir sets usados»
 
 Toda estrategia de un portafolio activo ya está usada por definición. Por eso
