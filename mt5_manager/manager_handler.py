@@ -2,7 +2,7 @@
 
 Las rutas de cada area viven en su modulo (`manager_portfolio_routes`,
 `manager_live_audit_routes`, `manager_schedule_routes`, `correlation_routes`,
-`experiment_routes`); aqui
+`experiment_routes`, `prop_experiment_routes`); aqui
 quedan el despacho, las respuestas y lo que se reenvia al nodo tal cual.
 """
 from __future__ import annotations
@@ -32,6 +32,7 @@ from . import manager_push_routes
 from . import manager_schedule_routes
 from . import manager_summary_routes
 from . import manager_tls
+from . import prop_experiment_routes
 from .common import json_bytes, safe_int, utc_now
 from .manager_http import NODE_CONTROL_ACTIONS, NODE_CONTROL_TIMEOUT, submit_guided_to_node, submit_repair_request
 from .manager_restart import RestartAlreadyRunning
@@ -354,6 +355,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
         # Laboratorio «Experimenta»: pantalla y endpoints propios, en su módulo.
         if experiment_routes.handle_get(self, parsed):
             return
+        if prop_experiment_routes.handle_get(self, parsed):
+            return
         for route in (
             self._get_node_proxy_routes,
             self._get_manager_routes,
@@ -460,6 +463,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
         if experiment_routes.handle_post(self, parsed):
+            return
+        if prop_experiment_routes.handle_post(self, parsed):
             return
         for route in (self._post_manager_routes, self._post_live_audit_routes):
             if route(parsed, parts):

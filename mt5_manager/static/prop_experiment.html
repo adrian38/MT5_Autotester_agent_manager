@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Experimenta Prop</title>
+  <link rel="stylesheet" href="/prop_experiment.css">
+  <link rel="stylesheet" href="/live_audit_schedule.css">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">LABORATORIO AISLADO · SOLO LECTURA</p>
+      <h1>Experimenta <span>Prop</span></h1>
+      <p>Busca carteras para aprobar la evaluación, mezclando candidatas y seeds originales.</p>
+    </div>
+    <div class="header-actions">
+      <span id="refresh-state">Cargando…</span>
+      <button id="reload" class="secondary">Actualizar</button>
+      <a class="back" href="/generation.html">Volver al generador</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel settings">
+      <div class="section-title"><h2>Diseño de la prueba</h2><span id="status" class="status">Cargando…</span></div>
+      <div class="grid">
+        <label>Perfil prop<select id="profile_id"></select></label>
+        <label>Capital<input id="capital" type="number" min="1000" step="1000"></label>
+        <label>Ventana histórica (meses)<input id="horizon_months" type="number" min="3" max="84"></label>
+        <label>Riesgo por unidad (%)<input id="risk_unit_pct" type="number" min="0.01" max="5" step="0.05"></label>
+        <label>Máx. estrategias<input id="max_strategies" type="number" min="1" max="50"></label>
+        <label>Máx. unidades totales<input id="max_units_total" type="number" min="1" max="500"></label>
+      </div>
+      <div id="profile-detail" class="profile-detail"></div>
+      <h3>Brokers de origen</h3>
+      <div id="nodes" class="nodes"></div>
+      <div class="source-options">
+        <label><input id="include_candidates" type="checkbox"> Candidatas actuales (embudo completo)</label>
+        <label><input id="include_seeds" type="checkbox"> Seeds originales aceptadas</label>
+      </div>
+      <details>
+        <summary>Ajustes avanzados</summary>
+        <div class="grid advanced">
+          <label>Candidatas/broker<input id="max_candidates_per_node" type="number" min="0"></label>
+          <label>Seeds/broker<input id="max_seeds_per_node" type="number" min="0"></label>
+          <label>Unidades/estrategia<input id="max_units_per_strategy" type="number" min="1"></label>
+          <label>Pool de búsqueda<input id="search_pool_limit" type="number" min="1"></label>
+          <label>Días máx./fase<input id="max_days_per_phase" type="number" min="5"></label>
+          <label>Salto entre trials<input id="trial_stride_days" type="number" min="1"></label>
+          <label>Máx. trials<input id="max_trials" type="number" min="1"></label>
+        </div>
+      </details>
+      <div class="actions">
+        <button id="save" class="secondary">Guardar</button>
+        <button id="run">Buscar cartera</button>
+        <button id="stop" class="danger" disabled>Detener</button>
+      </div>
+    </section>
+
+    <section class="panel results">
+      <div class="section-title"><h2>Resultado</h2><span id="axis"></span></div>
+      <div id="metrics" class="metrics empty">Aún no hay un resultado.</div>
+      <div id="warnings"></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Unidades</th><th>Multiplicador</th></tr></thead>
+        <tbody id="allocations"></tbody>
+      </table></div>
+      <details class="log-box"><summary>Progreso y registro</summary><pre id="log"></pre></details>
+    </section>
+  </main>
+  <footer>Simulación orientativa: usa PnL cerrado diario. La validación final debe ejecutarse en MT5 con equity e intradía.</footer>
+  <script src="/prop_experiment.js"></script>
+  <script src="/manager_restart.js"></script>
+  <script src="/live_audit_schedule.js"></script>
+</body>
+</html>

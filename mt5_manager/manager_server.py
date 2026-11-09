@@ -39,6 +39,7 @@ from .manager_config import (
 from .manager_handler import ManagerHandler
 from .manager_restart import ManagerRestartController
 from .portfolio_service import PortfolioCoordinator
+from .prop_experiment_service import PropExperimentCoordinator
 
 
 _LEGACY_SCHEDULER_CONFIG_KEYS = (
@@ -292,6 +293,11 @@ class ManagerServer(ThreadingHTTPServer):
         # a propósito, porque no guarda nada en la memoria de ningún agente.
         self.experiments = ExperimentCoordinator(
             self.nodes, portfolio_settings_path.with_name("experiment_settings.json"),
+        )
+        self.prop_experiments = PropExperimentCoordinator(
+            self.nodes,
+            portfolio_settings_path.with_name("prop_experiment_settings.json"),
+            self.experiments.readonly_source,
         )
 
     def _configure_restart(self, config: dict[str, Any]) -> None:

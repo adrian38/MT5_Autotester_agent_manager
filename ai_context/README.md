@@ -269,6 +269,8 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `experiment_million_lab.md`: laboratorio «Experimenta» —pool cruzado de los
   tres brokers en una cuenta, simulación a doce meses con recomposición de
   lotes, drawdown relativo a la equity y por qué vive en ficheros aparte.
+- `prop_experiment.md`: laboratorio aislado para evaluaciones prop; añade las
+  seeds originales de IC, AXI y RoboForex al pool actual y excluye Vantage.
 - `experiment_dev_remote_read.md`: cómo «Experimenta» lee AXI y RoboForex desde
   `dev`, que corre en Docker en la cuenta de ICTrading, sin abrir sus operaciones.
 - `dev_branch_test_paths.md`: por qué en la rama `dev` la ruta del nodo ICTrading
