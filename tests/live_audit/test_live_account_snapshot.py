@@ -67,6 +67,11 @@ class FakeMt5:
         self.login = login
         self.server = server
         self.shutdowns = 0
+        self.history_deals: tuple[object, ...] = ("un deal",)
+        """Lo que el terminal tiene bajado de la cuenta. Vacío es la avería."""
+
+    def history_deals_get(self, *_args: object) -> tuple[object, ...]:
+        return self.history_deals
 
     def account_info(self) -> FakeInfo:
         return FakeInfo(self.login, self.server)
@@ -142,15 +147,24 @@ class SnapshotRunTests(unittest.TestCase):
         self.controller._close_terminal_pids = lambda *_args: None
         self.controller._restore_tester_login = self._restore
         self.failing: set[str] = set()
+        self.history_deals: tuple[object, ...] = ("un deal",)
 
     def _login(self, login, password, server, remember_for=None):
         self.controller._remember_real_account_terminal(
             str(remember_for), "Terminal.1",
             {"name": "MT5_1", "mt5_path": r"C:\MT5\terminal64.exe"},
         )
+        mt5 = FakeMt5(login, server)
+        mt5.history_deals = self.history_deals
         return (
-            FakeMt5(login, server), "Terminal.1",
+            mt5, "Terminal.1",
             {"name": "MT5_1", "mt5_path": r"C:\MT5\terminal64.exe"}, set(),
+        )
+
+    def _empty_window(self) -> None:
+        """El historial de la ventana vino vacío después de sincronizar."""
+        self.controller._synchronised_history = (
+            lambda *_args: ([], {"history_empty_after_sync": True})
         )
 
     def _export(self, *, mt5, request, profile_name, terminal_path, login, server,
@@ -211,6 +225,46 @@ class SnapshotRunTests(unittest.TestCase):
         self.assertIn("HTML nativo", state["accounts"]["111@Axi-US50-Live"]["error"])
         self.assertEqual(state["accounts"]["222@RoboForex-ECN"]["status"], "completed")
         self.assertEqual(self.owner.resume_calls, 1)
+
+    def test_an_account_whose_history_never_arrived_is_not_published(self) -> None:
+        """El 2026-11-09 el informe salió sin una sola fila y se publicó igual.
+
+        Pasaba la validación del HTML —firma del terminal, título y login— y
+        la cuenta quedaba `completed` con cero operaciones, indistinguible de
+        una semana en calma. Aquí ni se exporta: la cuenta falla y el turno se
+        reintenta.
+        """
+        self._empty_window()
+        self.history_deals = ()
+        self.controller.start_account_snapshot(payload())
+        state = self._wait()
+        self.assertEqual(self.read, [])
+        row = state["accounts"]["111@Axi-US50-Live"]
+        self.assertEqual(row["status"], "failed")
+        self.assertIn("historial", row["error"])
+        self.assertEqual(self.owner.resume_calls, 1)
+
+    def test_an_account_still_without_funds_is_not_judged(self) -> None:
+        """Sin saldo no hay con qué distinguir, así que no se le exige nada.
+
+        Con saldo sí: no existe un saldo sin un solo movimiento, porque hasta
+        el ingreso que fundó la cuenta es un deal.
+        """
+        cold = FakeMt5("111", "Axi-US50-Live")
+        cold.history_deals = ()
+        detail = {"history_empty_after_sync": True}
+        end = datetime(2026, 11, 9, tzinfo=timezone.utc)
+        self.controller._require_loaded_history(cold, detail, 0.0, end)
+        with self.assertRaises(RuntimeError):
+            self.controller._require_loaded_history(cold, detail, 2_060.75, end)
+
+    def test_a_quiet_window_is_read_as_usual_when_the_history_is_there(self) -> None:
+        """Una ventana sin cierres es normal: lo anómalo es no tener historial."""
+        self._empty_window()
+        self.controller.start_account_snapshot(payload())
+        state = self._wait()
+        self.assertEqual(self.read, ["111", "222"])
+        self.assertEqual(state["accounts"]["111@Axi-US50-Live"]["status"], "completed")
 
     def test_the_terminals_come_back_even_when_the_whole_batch_fails(self) -> None:
         self.controller._login_terminal = lambda *_args, **_kwargs: (_ for _ in ()).throw(

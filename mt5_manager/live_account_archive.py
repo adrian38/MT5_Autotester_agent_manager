@@ -13,8 +13,13 @@ cuenta real cierra decenas de operaciones al día, no miles como un backtest.
 Un sondeo trae un periodo y **manda sobre él**: los movimientos guardados de
 esos días se tiran y se ponen los nuevos. Así una reescritura corrige lo que el
 sondeo anterior vio a medias —a las 23:00 de Madrid el día UTC está sin
-cerrar— y un día que se queda sin cierres baja a cero en vez de conservar para
-siempre el número viejo.
+cerrar— y un día que pierde un cierre se queda con los que le quedan en vez de
+conservar para siempre el número viejo.
+
+**Salvo que no traiga nada.** Para mandar sobre una ventana hay que traer algo
+con qué mandar: un informe sin una sola fila no prueba que la ventana esté
+vacía, sólo que no se pudo leer. Ahí lo guardado se queda como está
+(`ai_context/live_account_empty_report.md`).
 """
 from __future__ import annotations
 
@@ -242,10 +247,11 @@ class LiveAccountArchive:
 
         El periodo sondeado manda sobre sus días y lo de fuera se conserva,
         igual que con los movimientos. Un sondeo que no trae saldos —una
-        lectura vieja, o un informe sin la columna— deja lo guardado intacto:
-        una serie de saldo no se borra por no haberla vuelto a ver.
+        lectura vieja, un informe sin la columna, o uno que volvió sin tabla
+        de transacciones— deja lo guardado intacto: una serie de saldo no se
+        borra por no haberla vuelto a ver.
         """
-        if fresh is None:
+        if not fresh:
             return [[day, value] for day, value in stored_balances(stored)]
         kept = cls._kept(stored_balances(stored), period_start, period_end)
         arrived = cls._inside(
@@ -261,8 +267,25 @@ class LiveAccountArchive:
         cls, stored: Sequence[tuple[str, float]], fresh: Sequence[tuple[Any, float]],
         period_start: str, period_end: str,
     ) -> list[list[Any]]:
-        """Una serie monetaria después de sustituir el periodo sondeado."""
+        """Una serie monetaria después de sustituir el periodo sondeado.
+
+        **Un informe que no trae nada no sustituye nada.** Podar exige algo
+        con qué sustituir: una lectura cuyo historial volvió vacío no dice que
+        la ventana esté vacía, sólo que no se leyó.
+
+        Medido el 2026-11-09 sobre 52560280: el informe nativo llegó con la
+        tabla de transacciones en blanco —`Total de operaciones ejecutadas: 0`
+        con el saldo movido— y el merge se llevó los 84 movimientos y los
+        cuatro días de saldo del 3 al 6 de noviembre, que ya estaban guardados
+        y eran ciertos. Lo mismo el 2026-11-01 con 77049426 de RoboForex, esa
+        vez con la ventana de toda la vida y la serie entera.
+
+        Un informe que trae **menos** filas sí manda sobre su ventana: ahí hay
+        con qué comparar, y corregir es justo para lo que esto existe.
+        """
         arrived = cls._inside(movement_rows(fresh), period_start, period_end)
+        if not arrived:
+            return [[moment, amount] for moment, amount in stored][-MAXIMUM_MOVEMENTS:]
         kept = cls._kept(stored, period_start, period_end)
         return sorted(
             [[moment, amount] for moment, amount in kept] + arrived,

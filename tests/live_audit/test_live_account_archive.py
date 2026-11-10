@@ -119,11 +119,53 @@ class ArchiveTests(unittest.TestCase):
         )
         self.assertEqual(len(record["movements"]), 2)
 
-    def test_a_day_that_loses_its_trades_drops_to_zero(self) -> None:
-        self.merge([(moment("2026-10-20T08:00:00"), 5.0)], "", "2026-10-20")
-        record = self.merge([], "2026-10-20", "2026-10-21")
-        self.assertEqual(record["movements"], [])
-        self.assertEqual(record["last_day"], "")
+    def test_a_day_that_loses_one_trade_keeps_the_others(self) -> None:
+        """Un informe que trae menos filas sí manda sobre su ventana."""
+        self.merge(
+            [
+                (moment("2026-10-20T08:00:00"), 5.0),
+                (moment("2026-10-20T09:00:00"), 7.0),
+            ],
+            "", "2026-10-20",
+        )
+        record = self.merge([(moment("2026-10-20T08:00:00"), 5.0)], "2026-10-20", "2026-10-21")
+        self.assertEqual(len(record["movements"]), 1)
+        self.assertAlmostEqual(record["movements"][0][1], 5.0)
+
+    def test_an_empty_report_does_not_empty_the_window_it_asked_for(self) -> None:
+        """Lo que pasó el 2026-11-09 con 52560280 de ICTrading.
+
+        El informe nativo llegó sin tabla de transacciones —`Total de
+        operaciones ejecutadas: 0` con el saldo movido— y el merge podó la
+        ventana sondeada: 84 movimientos y cuatro días de saldo del 3 al 6 de
+        noviembre, ya guardados y ciertos, desaparecieron de la serie. Para
+        mandar sobre una ventana hay que traer algo con qué mandar.
+        """
+        self.merge(
+            [(moment("2026-11-04T08:00:00"), 20.82), (moment("2026-11-05T17:51:48"), 57.16)],
+            "", "2026-11-06",
+        )
+        record = self.merge([], "2026-11-03", "2026-11-09")
+        self.assertEqual(len(record["movements"]), 2)
+        self.assertEqual(record["last_day"], "2026-11-05")
+
+    def test_an_empty_full_life_report_keeps_the_whole_series(self) -> None:
+        """Lo que pasó el 2026-11-01 con 77049426 de RoboForex.
+
+        Seis cuentas hermanas del mismo sondeo y el mismo terminal trajeron su
+        historia entera y ésa volvió con cero. Como la ventana era de toda la
+        vida, la poda se llevó la serie completa.
+        """
+        self.merge([(moment("2026-09-01T08:00:00"), 1.0)], "", "2026-09-01")
+        record = self.merge([], "2016-11-03", "2026-11-01")
+        self.assertEqual(len(record["movements"]), 1)
+        self.assertEqual(record["first_day"], "2026-09-01")
+
+    def test_an_empty_report_still_leaves_its_zero_in_the_diary(self) -> None:
+        """El sondeo anotado es lo único que delata la lectura fallida."""
+        self.merge([(moment("2026-11-04T08:00:00"), 20.82)], "", "2026-11-06")
+        record = self.merge([], "2026-11-03", "2026-11-09")
+        self.assertEqual(record["snapshots"][-1]["movements"], 0)
 
     def test_a_full_life_snapshot_replaces_the_whole_series(self) -> None:
         self.merge([(moment("2026-09-01T08:00:00"), 1.0)], "", "2026-09-01")
@@ -268,6 +310,22 @@ class BalanceSeriesTests(unittest.TestCase):
         self.merge([], "", "2026-10-20", balances=[("2026-10-20", 1_000.0)])
         record = self.merge([(moment("2026-10-21T08:00:00"), 1.0)], "2026-10-21", "")
         self.assertEqual(stored_balances(record), [("2026-10-20", 1_000.0)])
+
+    def test_an_empty_report_does_not_erase_the_days_it_asked_for(self) -> None:
+        """Una lista vacía tampoco es verla vacía: es no haberla leído.
+
+        La guarda de arriba sólo saltaba con `None`, así que el informe del
+        2026-11-09 de 52560280 —sin una sola fila— se llevó por delante los
+        cuatro días de saldo del 3 al 6 de noviembre.
+        """
+        self.merge(
+            [], "", "2026-11-06",
+            balances=[("2026-11-05", 2_072.50), ("2026-11-06", 2_074.74)],
+        )
+        record = self.merge([], "2026-11-03", "2026-11-09", balances=[])
+        self.assertEqual(
+            stored_balances(record), [("2026-11-05", 2_072.50), ("2026-11-06", 2_074.74)],
+        )
 
     def test_a_corrupt_balance_row_does_not_take_the_series_down(self) -> None:
         record = self.merge([], "", "2026-10-20", balances=[("2026-10-20", 1_000.0)])

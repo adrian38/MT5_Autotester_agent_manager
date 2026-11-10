@@ -25,6 +25,12 @@ pasar.
 Una cuenta que falla **no tumba la tanda**: queda anotada con su error y se
 sigue con la siguiente. Nueve cuentas y un servidor caído no pueden costar la
 serie de las otras ocho.
+
+Y una lectura sin historial **no es una lectura**. El criterio vive en el
+manager, pero si el terminal no llegó a bajar el historial no hay nada que
+mandarle, y un informe sin una sola fila es indistinguible de un periodo en
+calma una vez sale de aquí. Esa comprobación sí es de este lado, que es el
+único que ve la diferencia (`_require_loaded_history`).
 """
 from __future__ import annotations
 
@@ -333,6 +339,45 @@ class _AccountSnapshotMixin:
             return True
         return False
 
+    @staticmethod
+    def _require_loaded_history(
+        mt5: Any, sync: dict[str, Any], balance: Any, end: datetime,
+    ) -> None:
+        """Rechaza la lectura cuyo historial no llegó a bajar del servidor.
+
+        `_synchronised_history` espera a que el historial del login recién
+        activado deje de ser caché vacía, pero **devolver vacío también es un
+        final**: el sondeo seguía adelante y exportaba el informe igual. Y ese
+        informe pasa la validación —lleva la firma del terminal, el título y
+        el login—, así que la cuenta se publicaba `completed` con `Total de
+        operaciones ejecutadas: 0`.
+
+        Pasó el 2026-11-09 con 52560280 de ICTrading y el 2026-11-01 con
+        77049426 de RoboForex, ésta entre seis hermanas que sí trajeron la
+        suya en el mismo sondeo y el mismo terminal: es esporádico y por
+        cuenta, no del nodo ni del bróker.
+
+        Una ventana sin cierres es normal y se deja pasar. Lo que no puede ser
+        es que **toda** la vida de una cuenta con saldo esté vacía: un saldo
+        sin un solo movimiento no existe, porque hasta el ingreso que la fundó
+        es un deal. Sin saldo —una cuenta abierta y todavía sin fondear— no
+        hay nada que distinguir.
+        """
+        if not sync.get("history_empty_after_sync"):
+            return
+        try:
+            funded = float(balance or 0.0)
+        except (TypeError, ValueError):
+            funded = 0.0
+        if not funded:
+            return
+        if mt5.history_deals_get(end - timedelta(days=DEFAULT_HISTORY_DAYS), end):
+            return
+        raise RuntimeError(
+            "El terminal no tiene el historial de la cuenta: el informe saldría "
+            "sin una sola operación y no se puede distinguir de un periodo en calma"
+        )
+
     def _read_account(
         self, request: dict[str, Any], account: dict[str, str], snapshot_id: str,
         start: datetime, end: datetime,
@@ -350,7 +395,8 @@ class _AccountSnapshotMixin:
             info, actual_server = _confirmed_account(
                 mt5, account, self.tester_login_settle_seconds,
             )
-            self._synchronised_history(mt5, start, end)
+            _deals, sync = self._synchronised_history(mt5, start, end)
+            self._require_loaded_history(mt5, sync, getattr(info, "balance", 0.0), end)
             destination = self._snapshot_reports_dir(snapshot_id) / report_filename(
                 account["account_key"]
             )
