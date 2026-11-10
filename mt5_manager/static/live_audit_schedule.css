@@ -1,3 +1,12 @@
+/* Paleta única de la navegación de cabecera. Estos enlaces aparecen en hojas
+   base distintas; definirlos aquí evita que un mismo destino cambie de color
+   según la pantalla o caiga al verde genérico de `.button`. */
+.dashboard-link{border:1px solid #397861;background:linear-gradient(135deg,#16483b,#12322b);color:#a9ffe1}
+.generation-link{border:1px solid #315f87;background:linear-gradient(135deg,#123554,#123c33);color:#b8dcff}
+.experiment-link{border:1px solid #4b3a7a;background:linear-gradient(135deg,#2b1a4d,#123c33);color:var(--accent2,#63e6be)}
+.correlation-link{border:1px solid #315f87;background:linear-gradient(135deg,#123554,#123c33);color:#b8dcff}
+.dashboard-link:hover,.generation-link:hover,.experiment-link:hover,.correlation-link:hover{filter:brightness(1.25)}
+
 /* Botón superior «Auditoría programada» y su campana. Vive aparte porque lo
    usan la portada y Generación, que tienen hojas de estilo distintas; por eso
    cada variable lleva su respaldo literal. */

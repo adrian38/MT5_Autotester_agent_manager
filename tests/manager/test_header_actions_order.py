@@ -242,6 +242,22 @@ class HeaderActionsOrderTests(unittest.TestCase):
             f'<link rel="stylesheet" href="/live_audit_schedule.css">: {missing}',
         )
 
+    def test_navigation_colors_have_one_shared_owner(self) -> None:
+        """El mismo destino conserva su color en todas las pantallas."""
+        shared = (STATIC / "live_audit_schedule.css").read_text(encoding="utf-8")
+        selectors = (
+            ".dashboard-link", ".generation-link",
+            ".experiment-link", ".correlation-link",
+        )
+        for selector in selectors:
+            with self.subTest(selector=selector):
+                self.assertIn(f"{selector}{{", shared)
+                owners = [
+                    path.name for path in STATIC.glob("*.css")
+                    if selector in path.read_text(encoding="utf-8")
+                ]
+                self.assertEqual(owners, ["live_audit_schedule.css"])
+
     def test_each_screen_has_only_its_contextual_controls(self) -> None:
         for page, expected in self.EXPECTED.items():
             with self.subTest(page=page):
