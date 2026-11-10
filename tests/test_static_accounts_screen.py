@@ -64,6 +64,14 @@ class RoutingTests(unittest.TestCase):
         self.assertIn('href="/live_portfolios.html">Portafolios activos</a>',
                       PAGE.read_text(encoding="utf-8"))
 
+    def test_the_accounts_menu_opens_both_experiments(self) -> None:
+        links = {
+            anchor.text_content().strip(): anchor.get("href")
+            for anchor in TREE.xpath("//nav//a")
+        }
+        self.assertEqual(links["Experimenta 1M"], "/experiment.html")
+        self.assertEqual(links["Experimenta Prop"], "/prop_experiment.html")
+
 
 class PageTests(unittest.TestCase):
     def test_every_element_the_script_looks_for_exists(self) -> None:
