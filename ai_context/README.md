@@ -261,6 +261,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   automática de datos históricos al terminar cada run.
 - `manager_self_restart.md`: secuencia Git/Compose del botón de reinicio del
   manager, trabajador Docker auxiliar y persistencia del estado/log.
+- `failed_to_fetch_es_una_excepcion_sin_respuesta.md`: el aviso «Failed to
+  fetch» de la web es una excepción que escapó de una ruta y dejó la conexión
+  sin respuesta —casi siempre un agente que no contesta dentro de su timeout—,
+  y la red de seguridad del despacho que la convierte en un 502 legible.
 - `manager_bind_mount_stat_cost.md`: preguntar por un fichero del proyecto de
   un agente cuesta 3,4 ms desde el contenedor y 0,053 ms en el host; por qué
   «Portafolios activos» tardaba 24 s sólo en AXI, y cómo se diagnostica.

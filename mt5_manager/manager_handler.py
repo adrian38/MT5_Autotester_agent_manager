@@ -13,8 +13,10 @@ import re
 import sqlite3
 import sys
 import threading
+import traceback
 import urllib.error
 import urllib.parse
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
@@ -139,8 +141,43 @@ NODE_ACTION_TARGETS = {
 class ManagerHandler(BaseHTTPRequestHandler):
     server: "ManagerServer"
 
+    # Lo que escapa de una ruta no llega al navegador: `socketserver` imprime
+    # la traza y cierra la conexion **sin respuesta**, y ahi `fetch` sólo sabe
+    # decir «Failed to fetch». Le pasa a cualquier reenvio al agente que tarde
+    # mas que su timeout o se quede sin red -la captura esta puesta ruta a ruta
+    # y 15 de los 45 reenvios no la tienen-, y tambien lo provoco un valor no
+    # serializable colado en un POST. La red va aqui, en el despacho, para que
+    # el motivo viaje como JSON: es lo que las pantallas saben enseñar.
+    _answered = False
+
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stdout.write("[manager-http] " + (fmt % args) + "\n")
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        # El unico sitio por el que pasan todas las respuestas, `send_error`
+        # incluido: desde aqui se sabe si aun queda algo que contestar.
+        self._answered = True
+        super().send_response(code, message)
+
+    def _dispatch(self, route: Callable[[], None]) -> None:
+        self._answered = False
+        try:
+            route()
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            self._answer_failure(502, f"El agente no respondio: {exc}")
+        except Exception as exc:  # la alternativa es cortar la conexion
+            self._answer_failure(500, f"Error interno del manager: {exc}")
+
+    def _answer_failure(self, status: int, message: str) -> None:
+        """Deja la traza en el log y contesta, si aun se puede contestar."""
+        sys.stderr.write(f"[manager-http] {self.command} {self.path}: {message}\n")
+        sys.stderr.write(traceback.format_exc())
+        if self._answered:
+            return
+        try:
+            self._send_json(status, {"error": message})
+        except OSError:
+            pass
 
     def _send_json(self, status: int, value: Any) -> None:
         body = json_bytes(value)
@@ -346,6 +383,9 @@ class ManagerHandler(BaseHTTPRequestHandler):
         return False
 
     def do_GET(self) -> None:
+        self._dispatch(self._route_get)
+
+    def _route_get(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
         # Comparador de correlación: GET de solo lectura, aislado de las rutas
@@ -460,6 +500,9 @@ class ManagerHandler(BaseHTTPRequestHandler):
             self._send_json(502, {"error": str(exc)})
 
     def do_POST(self) -> None:
+        self._dispatch(self._route_post)
+
+    def _route_post(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
         if experiment_routes.handle_post(self, parsed):
