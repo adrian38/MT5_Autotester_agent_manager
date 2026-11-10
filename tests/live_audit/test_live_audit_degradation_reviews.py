@@ -33,8 +33,8 @@ from mt5_manager.live_audit_settings import (
 from mt5_manager import monthly_summary_notices as notices
 from mt5_manager.manager_live_audit_routes import handle_get, handle_post
 from tests.live_audit.test_monthly_summary import facts as summary_facts
-from tests.test_live_audit_settings import profile as stored_profile
-from tests.test_live_audit_view_lots import RouteHandler
+from tests.live_audit.test_live_audit_settings import profile as stored_profile
+from tests.live_audit.test_live_audit_view_lots import RouteHandler
 
 STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
 

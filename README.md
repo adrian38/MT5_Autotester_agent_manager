@@ -56,7 +56,7 @@ forma fiable los terminales gráficos del usuario.
 ## Integración con la aplicación de cada broker
 
 Las ramas actuales pueden alojar el nodo dentro del propio `app_ui.py` mediante
-`manager_node_lifecycle.py`. En ese modo no se ejecuta `run_node.bat`: abrir
+`manager_node_lifecycle.py`. En ese modo no se ejecuta `scripts/run_node.bat`: abrir
 MT5 Autotester inicia el servidor HTTP en un hilo interno y cerrar la app lo
 detiene. Si existe una generación remota activa, la app pide confirmación antes
 de cerrarse.
@@ -80,7 +80,7 @@ enabled=1
 config_file=C:\ruta\configuracion-especifica\node.json
 ```
 
-`run_node.bat` queda únicamente como herramienta de diagnóstico o como
+`scripts/run_node.bat` queda únicamente como herramienta de diagnóstico o como
 compatibilidad para una rama que todavía no tenga integrada esta clase.
 
 ## Instalación manual/fallback en cada usuario
@@ -101,7 +101,7 @@ En cada usuario que ejecuta un broker:
    - `broker` y `account_type`: exactamente los usados por el autotester.
    - `port`: debe ser diferente si dos usuarios/nodos comparten la misma PC.
    - `token`: secreto generado en el paso anterior.
-4. Si la rama aún no integra el nodo, ejecutar `run_node.bat` dentro de ese
+4. Si la rama aún no integra el nodo, ejecutar `scripts/run_node.bat` dentro de ese
    usuario. Con la integración activa basta abrir la aplicación MT5 Autotester.
 
 El nodo reutiliza `ui_settings.ini`. Esto incluye directorio de seeds, salida,
@@ -132,7 +132,7 @@ No se recomienda exponer estos puertos a Internet. Los tokens protegen las
 
 ### Inicio automático por usuario
 
-Cuando el despliegue manual funcione, crear un acceso directo a `run_node.bat`
+Cuando el despliegue manual funcione, crear un acceso directo a `scripts/run_node.bat`
 en `shell:startup` dentro de cada usuario. Así el nodo arranca al iniciar sesión,
 que es también cuando MT5 puede ejecutarse en esa sesión interactiva.
 
@@ -145,7 +145,7 @@ que es también cuando MT5 puede ejecutarse en esa sesión interactiva.
    `node.json`.
 4. Para habilitar los portafolios centrales de un nodo local, configurar
    `portfolio_project_dir`, `portfolio_broker` y `portfolio_account_type`.
-5. Ejecutar `run_manager.bat`.
+5. Ejecutar `scripts/run_manager.bat`.
 
 ### Rama de pruebas `dev`
 

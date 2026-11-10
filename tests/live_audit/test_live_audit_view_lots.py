@@ -18,7 +18,7 @@ from mt5_manager.live_audit_settings import (
     normalize_live_audit_settings,
 )
 from mt5_manager.manager_live_audit_routes import handle_get, handle_post
-from tests.test_live_audit_settings import profile as stored_profile
+from tests.live_audit.test_live_audit_settings import profile as stored_profile
 
 
 class LiveAuditViewLotsStoreTests(unittest.TestCase):

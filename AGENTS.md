@@ -68,7 +68,7 @@ Tres reincidencias ya (pausa/reanudación, exclusión del 20-07, exclusión
 múltiple mensual). Leer antes de tocar cualquier regla de guardado, exclusión o
 escritura en la memoria UBS.
 
-- `mt5_manager/node.py`, `run_node.bat` y `python -m mt5_manager.node` son un
+- `mt5_manager/node.py`, `scripts/run_node.bat` y `python -m mt5_manager.node` son un
   **señuelo**. Cada agente ejecuta su copia bifurcada en `manager_node_runtime/`,
   embebida en `app_ui.py` vía `manager_node_lifecycle.py`.
 - La bifurcación está **renombrada**: ninguna búsqueda por símbolo ni
@@ -174,6 +174,67 @@ que escribe en la memoria de un agente, el grafo del manager no es la autoridad.
   no comprueba nada: el merge no puede contaminar producción.
 - No convertirlo en una lista de rutas prohibidas. Es una lista de permitidas:
   lo que no está permitido se rechaza.
+
+## Dónde va cada cosa
+
+Esto es una **aplicación**, no una librería que se publique, así que el paquete
+vive en la raíz y **no** bajo `src/`: ese layout obliga a instalar el proyecto
+antes de poder ejecutarlo, y aquí se arranca sobre el árbol tal cual. Lo que sí
+es convención y aquí faltaba: la raíz sólo guarda manifiestos, y cada carpeta
+tiene un dueño. Lo hace cumplir `tests/repository/test_repository_layout.py`,
+que falla con el nombre del intruso y la carpeta que le toca.
+
+Antes de dejar un fichero nuevo: *¿lo busca alguna herramienta en la raíz por
+nombre fijo?* Si no, va a una carpeta. Las trampas de mover lo que sí va en la
+raíz están en `ai_context/layout_del_repositorio.md`.
+
+### La raíz es una lista cerrada
+
+| En la raíz | Por qué no puede moverse |
+| --- | --- |
+| `pyproject.toml` | manifiesto de empaquetado; `setuptools` no lo busca en otro sitio |
+| `Dockerfile`, `.dockerignore` | la raíz es el contexto de construcción, y `.dockerignore` sólo se aplica dentro de él |
+| `docker-compose.yml`, `docker-compose.dev.yml` | Compose resuelve los bind mounts relativos contra su propia carpeta, y `manager_restart.py` los busca por nombre en `repo_dir` para reiniciarse |
+| `Caddyfile` | lo monta el compose como `./Caddyfile` |
+| `.env`, `.env.docker.example` | Compose lee `.env` de la raíz del proyecto y de ninguna otra |
+| `.gitignore`, `.mcp.json` | contratos de Git y del servidor MCP |
+| `README.md`, `AGENTS.md`, `CLAUDE.md`, `agent.md` | lectura obligatoria; se descubren por nombre en la raíz |
+| `manager.json`, `node.json` | configuración viva del equipo, ignorada por Git; es la ruta que documentan el README y los lanzadores |
+
+Nada más. Un respaldo (`*.bak`), un volcado o un JSON de despliegue de una
+máquina concreta **no** son manifiestos: van a `config/` si son configuración y
+a `runtime/` si son desechables.
+
+### Una carpeta por responsabilidad
+
+| Carpeta | Qué va ahí |
+| --- | --- |
+| `mt5_manager/` | la aplicación: servidor del manager, nodo señuelo y sus estáticos en `static/` |
+| `portfolio_manager/` | el motor de carteras, con `ubs_portfolio/` dentro |
+| `ubs/` | espejo del paquete `ubs` del proyecto del agente; **el nombre es el contrato** y no se renombra |
+| `tests/` | las pruebas, una carpeta por dueño; ningún `test_*.py` suelto |
+| `tools/` | los comandos de verificación y mantenimiento de la tabla de «Las herramientas» |
+| `ai_context/` | notas duraderas, con su línea en el índice |
+| `config/` | plantillas `*.example.json` y la configuración por nodo de este equipo |
+| `assets/` | dato de producción por broker (`<broker>_assets.ini`), que la imagen copia; **no** son estáticos de la interfaz |
+| `docs/` | entregables para el usuario, como la plantilla de enlace manual |
+| `scripts/` | lanzadores de diagnóstico: `run_manager.bat` y `run_node.bat` |
+| `runtime/` | generado y desechable: logs, estado y lo que se arrincona; ignorado |
+
+### El código se agrupa por dominio, no por prefijo
+
+Dentro de un paquete, la convención es un subpaquete por dominio.
+`portfolio_manager/ubs_portfolio/` ya lo cumple. **`mt5_manager/` todavía no**:
+son 167 módulos planos agrupados sólo por el prefijo del nombre, y pasarlos a
+subpaquetes mueve unos 1.000 puntos de import, así que va por unidades y con el
+suite completo detrás. Hasta entonces el contrato mínimo que sí se exige es que
+**todo módulo pertenezca a un dominio declarado**: el prefijo tiene que ser uno
+de los de `tests/repository/test_repository_layout.py`, o el nombre entra en su
+lista corta de piezas compartidas. Un módulo nuevo con prefijo propio falla, y
+se arregla eligiendo el dominio al que pertenece, no ampliando la lista.
+
+Estado, cuentas y los dos contratos que no perdonan un movimiento a ciegas:
+`ai_context/layout_del_repositorio.md`.
 
 ## `ubs_portfolio` es un paquete en pila
 
@@ -379,10 +440,13 @@ no puede pasar por el shell, y el resultado hay que mirarlo:
 - La suite completa se ejecuta con `python -m tools.verify_project --full`
   **sólo cuando el usuario lo pida explícitamente**. Ni el cierre de una unidad,
   ni el commit, ni la entrega autorizan por sí solos esa ejecución.
-- Las pruebas se agrupan por dueño y comportamiento. `tests/repository/`
-  contiene las guardas del propio repositorio; los grupos de producto se migran
-  incrementalmente a carpetas como `portfolio/`, `live_audit/`, `manager/`,
-  `node/` e `integration/`. Cada carpeta lleva `__init__.py`.
+- Las pruebas se agrupan por dueño y comportamiento, y **la migración terminó el
+  2026-11-10**: `tests/repository/` guarda las guardas del propio repositorio y
+  los grupos de producto viven en `portfolio/`, `live_audit/`, `manager/`,
+  `node/` e `integration/`. Cada carpeta lleva `__init__.py`. La raíz de
+  `tests/` ya sólo guarda piezas compartidas (`helpers.py`) y los dos baselines
+  de tamaño; un `test_*.py` suelto lo rechaza
+  `tests/repository/test_repository_layout.py`.
 - Un traslado de pruebas es una unidad mecánica: mueve un comportamiento
   completo, actualiza imports y comandos, conserva el recuento de casos y no se
   mezcla con cambios de producción. La convención completa vive en

@@ -11,7 +11,7 @@ from mt5_manager.manager_handler import STATIC_FILES
 class LivePortfolioDashboardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        root = Path(__file__).parents[1]
+        root = Path(__file__).parents[2]
         static = root / "mt5_manager" / "static"
         cls.page_text = (static / "dashboard.html").read_text(encoding="utf-8")
         cls.script = (static / "dashboard.js").read_text(encoding="utf-8")
@@ -67,7 +67,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         for name in sorted(STATIC_FILES):
             if not name.endswith(".html") or name == "dashboard.html":
                 continue
-            page = (Path(__file__).parents[1] / "mt5_manager" / "static" / name)
+            page = (Path(__file__).parents[2] / "mt5_manager" / "static" / name)
             source = page.read_text(encoding="utf-8")
             self.assertTrue(
                 'href="/"' in source or 'href="/generation.html"' in source, name,
@@ -104,9 +104,9 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertNotIn("MEJOR QUE EL TESTER", self.metrics)
 
     def test_card_profit_and_drawdown_cover_the_archived_audits(self) -> None:
-        history = (Path(__file__).parents[1] / "mt5_manager" / "static"
+        history = (Path(__file__).parents[2] / "mt5_manager" / "static"
                    / "live_audit_history_verdicts.js").read_text(encoding="utf-8")
-        analysis = (Path(__file__).parents[1] / "mt5_manager" / "static"
+        analysis = (Path(__file__).parents[2] / "mt5_manager" / "static"
                     / "live_audit_history.js").read_text(encoding="utf-8")
         self.assertIn("LiveAuditHistoryVerdicts.summary(", analysis)
         self.assertIn("root.LiveAuditHistoryVerdicts.summary(executions, {", self.metrics)
@@ -261,7 +261,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("historyRevision: entry.history_revision || ''", self.script)
         self.assertIn("entry.historyRevision || entry.result?.analysis?.executed_at", self.script)
         self.assertIn("entry.auditId && entry.result && !historyOf(entry)", self.script)
-        routes = (Path(__file__).parents[1] / "mt5_manager"
+        routes = (Path(__file__).parents[2] / "mt5_manager"
                   / "manager_schedule_routes.py").read_text(encoding="utf-8")
         self.assertIn('query.get("source", [""])[0] == "archive"', routes)
         self.assertIn("return _archived_history(handler, node, node_id, audit_key)", routes)

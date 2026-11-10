@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0.."
 if not exist manager.json (
   echo ERROR: copia config\manager.example.json como manager.json y configura IPs y tokens.
   pause

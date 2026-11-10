@@ -10,7 +10,7 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 class CronScreenTests(unittest.TestCase):
@@ -26,7 +26,7 @@ class CronScreenTests(unittest.TestCase):
         from mt5_manager.manager_handler import STATIC_FILES
 
         cls.static_files = STATIC_FILES
-        static = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+        static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
         cls.script = (static / "live_audit_schedule.js").read_text(encoding="utf-8")
         cls.dashboard = (static / "dashboard.html").read_text(encoding="utf-8")
         cls.generation = (static / "index.html").read_text(encoding="utf-8")
@@ -120,7 +120,7 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("${queue.done} de ${queue.total}", self.script)
 
     def test_the_activity_chip_has_its_own_style(self) -> None:
-        static = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+        static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
         styles = (static / "live_audit_schedule.css").read_text(encoding="utf-8")
         for selector in (".cron-activity", ".cron-activity-dot", ".cron-activity-bar"):
             self.assertIn(selector, styles)

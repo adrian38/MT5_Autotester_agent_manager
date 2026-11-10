@@ -15,11 +15,11 @@ from pathlib import Path
 
 from lxml import html
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager import manager_handler
 
-STATIC = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
 PAGE = STATIC / "accounts.html"
 SCRIPT = (STATIC / "accounts.js").read_text(encoding="utf-8")
 MOUNTED = (STATIC / "live_account_schedule.js").read_text(encoding="utf-8")

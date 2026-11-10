@@ -36,11 +36,11 @@ from mt5_manager.live_audit_lot_schedule import (
 )
 from mt5_manager.live_audit_settings import LiveAuditSettingsStore
 from mt5_manager.manager_live_audit_routes import handle_post
-from tests.test_live_audit_analysis import profile
-from tests.test_live_audit_settings import profile as stored_profile
-from tests.test_live_audit_view_lots import RouteHandler
+from tests.live_audit.test_live_audit_analysis import profile
+from tests.live_audit.test_live_audit_settings import profile as stored_profile
+from tests.live_audit.test_live_audit_view_lots import RouteHandler
 
-STATIC = Path(__file__).parents[1] / "mt5_manager" / "static"
+STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 STRATEGY = "AXI/MT5:3758"
 SET_NAME = "ScalpH1_C.set"
 # El día en que la cuenta pasó a operar 0,04, y la operación que lo estrenó.

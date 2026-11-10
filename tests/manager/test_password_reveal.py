@@ -17,7 +17,7 @@ from pathlib import Path
 
 from mt5_manager.manager_handler import STATIC_FILES
 
-STATIC = Path(__file__).parents[1] / "mt5_manager" / "static"
+STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 PAGES_WITH_PASSWORDS = ("index.html", "live_audit.html")
 
 

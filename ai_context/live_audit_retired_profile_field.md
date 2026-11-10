@@ -37,7 +37,7 @@ invita a reconfigurar nueve portafolios que estaban perfectamente guardados.
 `LiveAuditSettingsStore._without_retired_fields` olvida al **leer** los campos
 que el esquema ya no conoce, y los usos sobreviven. Al **escribir** por la API
 se siguen rechazando: ahí una clave desconocida es una errata del cliente y hay
-que cantarla. Lo guarda `tests/test_live_audit_retired_profile_fields.py`, con
+que cantarla. Lo guarda `tests/live_audit/test_live_audit_retired_profile_fields.py`, con
 una prueba que sin el arreglo falla dejando el nodo vacío.
 
 Queda en pie, y es la parte que no se arregló: `except ValueError: continue`

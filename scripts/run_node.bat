@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0.."
 if not exist node.json (
   echo ERROR: copia config\node.example.json como node.json y configura este usuario.
   pause

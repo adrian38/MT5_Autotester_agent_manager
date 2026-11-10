@@ -449,7 +449,7 @@ no prueba nada sobre el de hoy, y encima da confianza.
   una sola vez.
 - Al mover `_autolot_balance_history` a `live_audit_executions.balance_history`
   hubo que mover también el `patch()` de
-  `tests/test_live_audit_endpoint_analysis.py`, que si no se queda sin efecto y
+  `tests/live_audit/test_live_audit_endpoint_analysis.py`, que si no se queda sin efecto y
   el test sigue verde ejecutando la función real.
 
 Lo que esto deja pendiente para el usuario: el manager corre en Docker, así que

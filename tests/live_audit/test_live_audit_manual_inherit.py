@@ -17,7 +17,7 @@ from unittest.mock import patch
 from mt5_manager import live_audit_executions, live_audit_manual_inherit
 from mt5_manager.live_audit_manual_memory import ManualReportMemory, canonical_name
 from mt5_manager.manager_live_audit_routes import _handle_manual_reports
-from tests.test_live_audit_analysis import payload as analysis_payload, profile
+from tests.live_audit.test_live_audit_analysis import payload as analysis_payload, profile
 
 SOURCE = "XAUUSD_H1_Other_sets_GOLD_Various_Ol_6ecd56ee_g002_s015_v005.set"
 STRATEGY = "AXI/STANDARD:5628"

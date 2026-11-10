@@ -288,6 +288,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 
 ## Forma del código y verificación
 
+- `layout_del_repositorio.md`: por qué el paquete no va bajo `src/`, los cuatro
+  ficheros que parecen movibles de la raíz y rompen producción en silencio, y en
+  qué estado quedó el reparto por dominios.
 - `project_verification_contract.md`: puerta única de verificación, estabilidad
   de Git, lista cerrada de `import *` y formato obligatorio de entrega.
 - `ubs_portfolio_package.md`: por qué las 6.800 líneas de `ubs_portfolio` son

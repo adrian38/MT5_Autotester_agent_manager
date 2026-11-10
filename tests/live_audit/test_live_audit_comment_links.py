@@ -26,10 +26,10 @@ from mt5_manager.live_audit_comment_links import (
     links_by_comment,
     normalize_comment_links,
 )
-from tests.test_live_audit_attribution import (
+from tests.live_audit.test_live_audit_attribution import (
     MEMBER, SET_STEM, STRATEGY, audit_payload, profile, trade,
 )
-from tests.test_live_audit_attribution import imported as excel
+from tests.live_audit.test_live_audit_attribution import imported as excel
 
 STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 COMMENT = "TESLA_M15_006"

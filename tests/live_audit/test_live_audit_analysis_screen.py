@@ -16,7 +16,7 @@ from lxml import html
 class LiveAuditAnalysisScreenTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         cls.analysis_page_text = (static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
         cls.analysis_script = (static_dir / "live_audit_analysis.js").read_text(encoding="utf-8")
         cls.reproduction_script = (static_dir / "live_audit_reproduction.js").read_text(
@@ -104,7 +104,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # La portada dibuja la misma comparación desde el mismo perfil: si no
         # apunta el lote de la pareja, con el tester al mando enseñaría la
         # curva real en bruto y Análisis la escalada.
-        static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         metrics = (static_dir / "dashboard_metrics.js").read_text(encoding="utf-8")
         self.assertIn("reproduction.strategyGroups(", metrics)
 
@@ -293,7 +293,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         )
         self.assertIn(
             "spanLabel(series?.covered_since, series?.covered_until)",
-            (Path(__file__).parents[1] / "mt5_manager" / "static"
+            (Path(__file__).parents[2] / "mt5_manager" / "static"
              / "live_audit_history.js").read_text(encoding="utf-8"),
         )
 
@@ -373,7 +373,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # En un `td` eso abre un vacío enorme y, con `display: grid`, saca a la
         # celda de la tabla.
         css = (
-            Path(__file__).parents[1] / "mt5_manager" / "static" / "live_audit_analysis.css"
+            Path(__file__).parents[2] / "mt5_manager" / "static" / "live_audit_analysis.css"
         ).read_text(encoding="utf-8")
         self.assertIn("td.audit-analysis-empty { display: table-cell; min-height: 0;", css)
 
@@ -422,7 +422,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # contra 1px abajo; con el relleno, 15 y 15.
         self.assertIn(
             "gap: 8px; margin-top: 14px; padding: 0 20px 14px; }",
-            (Path(__file__).parents[1] / "mt5_manager" / "static"
+            (Path(__file__).parents[2] / "mt5_manager" / "static"
              / "live_audit_analysis.css").read_text(encoding="utf-8"),
         )
         self.assertIn("function attributionSources()", self.analysis_script)

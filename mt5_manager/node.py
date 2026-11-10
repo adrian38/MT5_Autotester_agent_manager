@@ -2,7 +2,7 @@
 
 Los equipos broker ejecutan una copia bifurcada y renombrada en
 `manager_node_runtime/` del proyecto del agente, embebida en `app_ui.py` vía
-`manager_node_lifecycle.py`. Este módulo y `run_node.bat` solo sirven para
+`manager_node_lifecycle.py`. Este módulo y `scripts/run_node.bat` solo sirven para
 ejecutar un nodo desde este repositorio.
 
 Consecuencia: cambiar aquí una regla de comportamiento del nodo (guardado,
@@ -17,7 +17,7 @@ y `tests/node/test_node_runtime_fork_parity.py`, que falla si las copias diverge
 from __future__ import annotations
 
 # El nodo esta repartido en modulos por dependencia; este fichero es la fachada
-# para que `python -m mt5_manager.node`, `run_node.bat`, las pruebas y la guarda
+# para que `python -m mt5_manager.node`, `scripts/run_node.bat`, las pruebas y la guarda
 # de paridad sigan encontrando aqui los mismos nombres.
 from .node_settings import (  # noqa: F401
     CLEANUP_STAGES,

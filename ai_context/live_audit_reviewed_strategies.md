@@ -164,6 +164,6 @@ nada de lo que audita.
 
 **No hay runtime de JavaScript en este equipo**, así que la regla del
 `SEVERITY` está portada a Python en
-`tests/test_live_audit_reviewed_strategies.py` y el port exige que la expresión
+`tests/live_audit/test_live_audit_reviewed_strategies.py` y el port exige que la expresión
 que mide esté literalmente en `live_audit_reproduction.js`: si alguien la
 reescribe, la prueba se cae en vez de medir un criterio que ya no existe.

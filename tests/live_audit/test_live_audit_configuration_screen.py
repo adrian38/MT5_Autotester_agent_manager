@@ -14,7 +14,7 @@ from mt5_manager.manager_handler import STATIC_FILES
 class LiveAuditConfigurationScreenTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.static_dir = Path(__file__).parents[1] / "mt5_manager" / "static"
+        cls.static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         cls.page_text = (cls.static_dir / "live_audit.html").read_text(encoding="utf-8")
         cls.script = (cls.static_dir / "live_audit.js").read_text(encoding="utf-8")
         cls.schedule_script = (cls.static_dir / "live_audit_schedule.js").read_text(

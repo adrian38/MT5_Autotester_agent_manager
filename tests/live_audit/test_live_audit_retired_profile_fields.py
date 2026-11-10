@@ -15,7 +15,7 @@ from mt5_manager.live_audit_settings import (
     LiveAuditSettingsStore,
     normalize_live_audit_settings,
 )
-from tests.test_live_audit_settings import profile
+from tests.live_audit.test_live_audit_settings import profile
 
 
 class RetiredProfileFieldTests(unittest.TestCase):

@@ -69,7 +69,7 @@ def first_mounted_project(candidates: Sequence[str]) -> str:
 
     Se decide **una vez**, al importar, y no en cada llamada: el candado de
     `assert_writable` corre en cada escritura y tocar el disco ahi es lo que
-    hizo que `tests/test_dev_branch.py` pasara de 0,05 s a 27,7 s.
+    hizo que `tests/repository/test_dev_branch.py` pasara de 0,05 s a 27,7 s.
 
     Sin ninguna montada devuelve la primera. Una ruta que no existe no permite
     ninguna escritura, que es el lado seguro de fallar: el candado es una lista

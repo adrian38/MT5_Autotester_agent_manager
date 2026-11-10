@@ -10,8 +10,8 @@ from mt5_manager.live_audit_watch import LiveAuditRunState
 from mt5_manager.manager_live_audit_routes import (
     analysed_live_audit, dashboard_node_state, dashboard_nodes, run_payload,
 )
-from tests.test_live_audit_autolot import STRATEGY, audit_payload
-from tests.test_live_audit_analysis import payload, profile
+from tests.live_audit.test_live_audit_autolot import STRATEGY, audit_payload
+from tests.live_audit.test_live_audit_analysis import payload, profile
 
 
 class Endpoint:

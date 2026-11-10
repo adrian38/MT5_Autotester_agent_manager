@@ -6,23 +6,28 @@ ejecuta cuando el usuario la pide explícitamente.
 
 ## Estructura
 
-- `repository/`: contratos del repositorio (capas, tamaños, documentación y
-  herramientas de verificación).
-- `portfolio/`: comportamientos del dominio de portafolios. La migración ha
-  comenzado por creación, consulta y borrado de portafolios manuales.
+- `repository/`: contratos del repositorio (capas, tamaños, layout,
+  documentación y herramientas de verificación).
+- `portfolio/`: comportamientos del dominio de portafolios, incluidos los
+  informes de MT5 que los alimentan.
 - `integration/`: integración HTTP local entre manager y nodo, separada en API
   general, portafolios y flujos del nodo.
-- `manager/`: ciclo de vida, estado e infraestructura del proceso manager.
+- `manager/`: ciclo de vida, estado, pantallas e infraestructura del proceso
+  manager, y sus primitivas compartidas.
 - `node/`: ejecución y protocolo del nodo, incluida pausa/reanudación.
-- `live_audit/`: auditoría y seguimiento de cuentas reales; la migración ha
-  comenzado por cálculo, persistencia y programación de las capturas.
-- La raíz conserva temporalmente los módulos todavía no migrados. Los grupos
-  restantes se incorporarán a `live_audit/`, `manager/`, `node/` y `portfolio/`
-  por unidades completas.
+- `live_audit/`: auditoría y seguimiento de cuentas reales, con sus pantallas y
+  el resumen mensual.
+
+**La migración terminó el 2026-11-10.** La raíz de `tests/` sólo guarda piezas
+compartidas (`helpers.py`) y los dos baselines de tamaño: un `test_*.py` suelto
+lo rechaza `tests/repository/test_repository_layout.py`, que es la misma guarda
+que cierra la raíz del repositorio.
 
 Cada carpeta descubierta por `unittest` lleva `__init__.py`. Un traslado agrupa
 un comportamiento completo, actualiza sus imports y comandos, y conserva el
-recuento de casos; no se mezcla con cambios funcionales.
+recuento de casos; no se mezcla con cambios funcionales. Al bajar un módulo un
+nivel hay que subir su `Path(__file__).parents[N]`: los veintinueve del
+2026-11-10 pasaron de `parents[1]` a `parents[2]`.
 
 ## Escalera de verificación
 

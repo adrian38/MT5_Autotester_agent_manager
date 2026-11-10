@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from mt5_manager.live_audit_report_upload import replace_tester_reports
 from mt5_manager.manager_live_audit_routes import _handle_manual_reports
-from tests.test_live_audit_analysis import payload as analysis_payload, profile
+from tests.live_audit.test_live_audit_analysis import payload as analysis_payload, profile
 
 
 SOURCE = "XAUUSD_H1_GOLD_Old_Optimizatio_c778ab20_g001_s016_v002.set"

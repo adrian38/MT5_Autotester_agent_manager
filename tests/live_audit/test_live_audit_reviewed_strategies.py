@@ -23,10 +23,10 @@ from mt5_manager.live_audit_settings import (
 )
 from mt5_manager.live_audit_schedule import MANAGER_ONLY_PROFILE_KEYS
 from mt5_manager.manager_live_audit_routes import handle_get, handle_post
-from tests.test_live_audit_settings import profile as stored_profile
-from tests.test_live_audit_view_lots import RouteHandler
+from tests.live_audit.test_live_audit_settings import profile as stored_profile
+from tests.live_audit.test_live_audit_view_lots import RouteHandler
 
-STATIC = Path(__file__).parents[1] / "mt5_manager" / "static"
+STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 
 # El orden de gravedad que la portada compara, portado desde
 # `live_audit_reproduction.js`. El port sólo vale si cada expresión que mide
