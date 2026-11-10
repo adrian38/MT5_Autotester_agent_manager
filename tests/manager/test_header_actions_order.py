@@ -169,13 +169,14 @@ class HeaderActionsOrderTests(unittest.TestCase):
         "correlation.html": ["Cargando…", "Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "dashboard.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Generación",
-            "Experimenta", "Correlación", SUMMARY, CRON, BACK_ARROW, BELL, RESTART_LABEL,
+            "Experimenta 1M", "Experimenta Prop", "Correlación", SUMMARY, CRON,
+            BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "experiment.html": ["Cargando…", "Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "prop_experiment.html": ["Cargando…", "Actualizar", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "index.html": [
             "Actualizando…", "Actualizar", "Cuentas en real", "Portafolios activos",
-            "Experimenta", "Experimenta Prop", "Correlación", BACK_ARROW, BELL, RESTART_LABEL,
+            "Experimenta 1M", "Experimenta Prop", "Correlación", BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "live_audit.html": ["⚙ Cuenta final", BACK, BACK_ARROW, BELL, RESTART_LABEL],
         "live_audit_analysis.html": [

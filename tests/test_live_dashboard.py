@@ -33,7 +33,8 @@ class LivePortfolioDashboardTests(unittest.TestCase):
     def test_header_keeps_the_current_actions_and_adds_generation(self) -> None:
         links = {anchor.text_content().strip(): anchor.get("href") for anchor in self.page.xpath("//nav//a")}
         self.assertEqual(links["Generación"], "/generation.html")
-        self.assertEqual(links["Experimenta"], "/experiment.html")
+        self.assertEqual(links["Experimenta 1M"], "/experiment.html")
+        self.assertEqual(links["Experimenta Prop"], "/prop_experiment.html")
         self.assertEqual(links["Correlación"], "/correlation.html")
         self.assertTrue(self.page.xpath('//*[@id="refresh"]'))
         self.assertTrue(self.page.xpath('//*[@id="restart-manager"]'))
