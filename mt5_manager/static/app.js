@@ -65,6 +65,25 @@ async function readJsonResponse(response) {
   }
 }
 
+// Un corte no es un error. Los agentes se desconectan a ratos -ocupados con
+// MT5, o el manager reconstruyéndose- y vuelven solos, así que un sondeo que
+// se queda sin respuesta no merece el aviso rojo: repetido cada cinco segundos
+// tapa justo los avisos que sí hay que leer. Llega de dos formas: `fetch`
+// rechaza con `TypeError` cuando no hubo respuesta ninguna -es el «Failed to
+// fetch» del navegador, que no sabe decir nada más- y el manager contesta
+// 502/503/504 cuando no pudo con el agente. Lo que contesta con un motivo
+// propio sigue avisando: eso sí es algo que está mal.
+const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+
+function failure(message, status) {
+  const error = new Error(message || `HTTP ${status}`);
+  error.status = status;
+  return error;
+}
+
+const isTransientFailure = error => error instanceof TypeError
+  || TRANSIENT_STATUSES.has(error?.status);
+
 function total(counts) {
   return Object.values(counts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
 }
@@ -577,11 +596,15 @@ async function refresh() {
   try {
     const response = await fetch('/api/nodes', {cache: 'no-store'});
     const data = await readJsonResponse(response);
-    if (!response.ok) throw new Error(data.error || response.statusText);
+    if (!response.ok) throw failure(data.error || response.statusText, response.status);
     nodeData = data.nodes;
     render();
     refreshState.textContent = `Actualizado ${new Date().toLocaleTimeString()}`;
   } catch (error) {
+    if (isTransientFailure(error)) {
+      refreshState.textContent = 'Sin conexión · reintentando…';
+      return;
+    }
     refreshState.textContent = 'Error de conexión';
     if (!managerRestarting) toast(error.message, true);
   } finally {

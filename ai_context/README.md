@@ -264,7 +264,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `failed_to_fetch_es_una_excepcion_sin_respuesta.md`: el aviso «Failed to
   fetch» de la web es una excepción que escapó de una ruta y dejó la conexión
   sin respuesta —casi siempre un agente que no contesta dentro de su timeout—,
-  y la red de seguridad del despacho que la convierte en un 502 legible.
+  la red de seguridad del despacho que la convierte en un 502 legible, y por
+  qué un corte del sondeo ya no se enseña como error: el agente se desconecta
+  a ratos y vuelve solo.
 - `manager_bind_mount_stat_cost.md`: preguntar por un fichero del proyecto de
   un agente cuesta 3,4 ms desde el contenedor y 0,053 ms en el host; por qué
   «Portafolios activos» tardaba 24 s sólo en AXI, y cómo se diagnostica.

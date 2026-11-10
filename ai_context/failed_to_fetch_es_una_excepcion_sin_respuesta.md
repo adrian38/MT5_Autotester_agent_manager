@@ -57,3 +57,38 @@ Un fallo que llega después de la cabecera —el cliente que se va a mitad,
   sólo garantiza que nunca se pierda la respuesta entera.
 - El proxy no lo tapa ni lo provoca: Caddy registra sus propios 502 en
   `docker logs mt5-autotester-proxy`, con `uri` y motivo.
+
+## Y un corte no es un error (2026-11-10, misma sesión)
+
+El usuario lo dijo claro: **«el agente está correcto y puede tener
+desconexiones infinitas y sigue funcionando, ese error no es un error
+verdadero»**. Vuelve solo. Lo que estaba mal no era el agente: era la pantalla,
+que sacaba el aviso rojo en **cada** sondeo fallido —Generación refresca cada
+5 s, la portada y «Portafolios activos» cada 60 s—, y ese ruido tapa justo los
+avisos que sí hay que leer.
+
+`live_audit.js` ya lo hacía bien desde antes: su sondeo de 2 s se calla
+(«el sondeo no debe borrar el formulario»). Ahora `app.js`, `accounts.js` y
+`dashboard.js` distinguen dos cosas en el `catch` del refresco:
+
+| Qué llegó | Qué es | Qué hace la pantalla |
+| --- | --- | --- |
+| `TypeError` | no hubo respuesta: el «Failed to fetch» del navegador | «Sin conexión · reintentando…» en la etiqueta de estado |
+| 502 / 503 / 504 | el manager no pudo con el agente | igual: se reintenta al siguiente ciclo |
+| cualquier otro código con motivo | algo está mal de verdad | aviso rojo, como siempre |
+
+Para poder distinguirlos, el error lleva el código: `failure(message, status)`
+lo pone, y `jsonResponse`/`readJsonResponse` lo lanzan así. Sin el código, un
+502 del agente y un 400 que sí hay que leer son la misma cadena. Y cuando el
+servidor no manda cuerpo —un 502 del proxy con HTTP/2, donde `statusText` viene
+vacío— el mensaje cae en `HTTP 502` en vez de quedarse en blanco.
+
+Comprobado sobre la pantalla de verdad, sin manager: copia de `index.html` y
+sus `.js` al scratchpad, `stub.js` delante sustituyendo `window.fetch`,
+`python -m http.server` y el navegador integrado (la receta está en la memoria
+del equipo). Con `fetch` rechazando `TypeError` el aviso no sale ni una vez y
+la etiqueta dice «Sin conexión»; al volver el stub a contestar, la pantalla se
+recupera sola; con un 400 con motivo, el aviso rojo sigue saliendo.
+
+Lo vigila `tests/manager/test_screen_transient_failures.py`, que exige que la
+rama del corte salga **antes** del `toast` en las tres pantallas.
