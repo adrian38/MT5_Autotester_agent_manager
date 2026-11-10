@@ -198,6 +198,9 @@ class LocalIntegrationTests(IntegrationTestCase):
             "enabled": False, "mode": "weekly", "weekday": 2, "hour": 7, "minute": 0,
             "timezone": "Europe/Madrid", "interval_days": 17, "only_live_trading": True,
             "retry_attempts": 2, "retry_delay_minutes": 15, "chain_from_last_audit": True,
+            # La auditoria larga acumulada entre cierres mensuales (c6ee564) se
+            # guarda con el resto desde el 2026-10-26.
+            "monthly_full_audit": True,
             "use_multiterminal": False,
         })
 
