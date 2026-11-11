@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import re
 import unittest
-from pathlib import Path
 from tools.package_layout import static_matching
 
 CELL_ELEMENTS = {"th", "td", "tr", "tbody", "thead"}

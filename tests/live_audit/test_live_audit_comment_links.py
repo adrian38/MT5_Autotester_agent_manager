@@ -16,7 +16,6 @@ import io
 import unittest
 import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
 
 from mt5_manager.live_audit.live_audit_analysis import analyze
 from mt5_manager.live_audit.live_audit_comment_links import (

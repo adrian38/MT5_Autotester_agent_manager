@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from tools.package_layout import module_source
+from tools.package_layout import module_source, static_source
 from mt5_manager.portfolio.portfolio_improvement_common import (
     ImprovementOptions,
     allocation_units,
@@ -516,11 +516,10 @@ class ImprovementMaximumFallbackTests(unittest.TestCase):
 
 
 class ImprovementScreenTests(unittest.TestCase):
-    ROOT = Path(__file__).parents[2] / "mt5_manager" / "static"
 
     def test_full_and_monthly_keep_independent_improvement_scripts(self) -> None:
-        full_page = (self.ROOT / "portfolios.html").read_text(encoding="utf-8")
-        monthly_page = (self.ROOT / "portfolios_monthly.html").read_text(encoding="utf-8")
+        full_page = static_source("portfolios.html")
+        monthly_page = static_source("portfolios_monthly.html")
 
         self.assertIn('id="detail-improve"', full_page)
         self.assertIn('/portfolio_improvement.js', full_page)
@@ -530,7 +529,7 @@ class ImprovementScreenTests(unittest.TestCase):
 
     def test_dialog_makes_the_exclusion_explicit_and_checked(self) -> None:
         for name in ("portfolio_improvement.js", "portfolio_monthly_improvement.js"):
-            script = (self.ROOT / name).read_text(encoding="utf-8")
+            script = static_source(name)
             self.assertIn('name="improvement_exclude_used_sets" type="checkbox" checked', script)
             self.assertIn("originales quedarán bloqueadas", script)
             self.assertIn("improvement_allow_same_symbol", script)
@@ -539,7 +538,7 @@ class ImprovementScreenTests(unittest.TestCase):
             self.assertIn('max="25" step="0.1" value="3"', script)
 
     def test_normal_dialog_sends_a_minimum_and_explains_acceptance(self) -> None:
-        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_improvement.js")
         self.assertIn("improvement_min_additions: Number(fields.improvement_min_additions.value)", script)
         self.assertIn("improvement_selection_priority: fields.improvement_selection_priority.value", script)
         self.assertIn('<option value="balanced" selected>Equilibrada</option>', script)
@@ -548,7 +547,7 @@ class ImprovementScreenTests(unittest.TestCase):
         self.assertIn("es una preferencia de selección, no una restricción adicional", script)
 
     def test_normal_dialog_offers_the_margin_profile_already_inherited(self) -> None:
-        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_improvement.js")
         self.assertIn('name="improvement_margin_profile"', script)
         self.assertIn("improvement_margin_profile: fields.improvement_margin_profile.value", script)
         self.assertIn('name="improvement_account_leverage"', script)
@@ -559,27 +558,27 @@ class ImprovementScreenTests(unittest.TestCase):
         self.assertIn("inherited.improvement_margin_profile || inherited.margin_profile", script)
         self.assertIn("son siempre los del broker de origen", script)
         # El mensual sigue congelado: no gana selector.
-        monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
+        monthly = static_source("portfolio_monthly_improvement.js")
         self.assertNotIn("improvement_margin_profile", monthly)
         self.assertNotIn("improvement_account_leverage", monthly)
 
     def test_normal_dialog_controls_grid_off_for_new_candidates(self) -> None:
-        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_improvement.js")
         self.assertIn('name="improvement_grid_off" type="checkbox"', script)
         self.assertIn("inherited.improvement_grid_off ?? inherited.grid_off", script)
         self.assertIn("improvement_grid_off: fields.improvement_grid_off.checked", script)
         self.assertIn("Las estrategias originales no se retiran", script)
-        monthly = (self.ROOT / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
+        monthly = static_source("portfolio_monthly_improvement.js")
         self.assertNotIn("improvement_grid_off", monthly)
 
     def test_bundle_improvement_starts_from_the_variant_shown_in_the_detail(self) -> None:
-        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_improvement.js")
 
         self.assertIn("const displayed = typeof selectedDetailVariant", script)
         self.assertIn("bundle && portfolioModes.includes(displayed)", script)
 
     def test_improving_an_improvement_locks_its_original_mode(self) -> None:
-        script = (self.ROOT / "portfolio_improvement.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_improvement.js")
 
         self.assertIn("const inheritedImprovementMode", script)
         self.assertIn("lineage?.mode", script)

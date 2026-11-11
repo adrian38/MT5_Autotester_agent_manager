@@ -21,7 +21,6 @@ from mt5_manager.manual_check import (
 )
 
 
-ROOT = Path(__file__).parents[2]
 
 
 def _member(candidate: str, name: str, symbol: str = "XAUUSD", **extra) -> dict:

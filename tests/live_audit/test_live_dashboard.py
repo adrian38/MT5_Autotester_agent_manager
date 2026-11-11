@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from lxml import html
 
@@ -12,7 +11,6 @@ from mt5_manager.manager.manager_handler import STATIC_FILES
 class LivePortfolioDashboardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        root = Path(__file__).parents[2]
         cls.page_text = static_source("dashboard.html")
         cls.script = static_source("dashboard.js")
         cls.css = static_source("dashboard.css")
@@ -104,10 +102,8 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertNotIn("MEJOR QUE EL TESTER", self.metrics)
 
     def test_card_profit_and_drawdown_cover_the_archived_audits(self) -> None:
-        history = (Path(__file__).parents[2] / "mt5_manager" / "static"
-                   / "live_audit_history_verdicts.js").read_text(encoding="utf-8")
-        analysis = (Path(__file__).parents[2] / "mt5_manager" / "static"
-                    / "live_audit_history.js").read_text(encoding="utf-8")
+        history = static_source("live_audit_history_verdicts.js")
+        analysis = static_source("live_audit_history.js")
         self.assertIn("LiveAuditHistoryVerdicts.summary(", analysis)
         self.assertIn("root.LiveAuditHistoryVerdicts.summary(executions, {", self.metrics)
         self.assertIn("function summary(executions, options = {})", history)

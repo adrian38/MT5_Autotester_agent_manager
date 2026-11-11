@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 import unittest
-from pathlib import Path
 
 from mt5_manager.manager.manager_handler import STATIC_FILES
 from tools.package_layout import static_matching, static_source

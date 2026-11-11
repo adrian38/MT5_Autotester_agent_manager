@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import re
 import unittest
-from pathlib import Path
 
 try:
     from .node_runtime_parity_base import (

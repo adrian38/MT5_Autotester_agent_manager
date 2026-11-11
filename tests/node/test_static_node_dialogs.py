@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import re
 import unittest
-from pathlib import Path
 
 from lxml import html
 from tools.package_layout import static_matching, static_source
@@ -111,7 +110,6 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         # envueltos en `.portfolio-empty`, pero el «Cargando…» era texto suelto
         # y salía pegado al borde del panel. Es el único estado que se ve en
         # cada carga, así que era el único que se notaba.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = static_source("app.js")
         pages = {
             name: static_source(name)
@@ -135,7 +133,6 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
                 self.assertNotIn(f"{container}Cargando", page, name)
 
     def test_regression_card_features_follow_node_capabilities_and_use_their_own_job(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = static_source("app.js")
         page = static_source("index.html")
 
@@ -155,7 +152,6 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         self.assertIn("Ejecutar prueba regresiva", page)
 
     def test_cards_expose_manual_and_automatic_historical_cleanup(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = static_source("app.js")
         page = static_source("index.html")
         styles = static_source("styles.css")
@@ -178,7 +174,6 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         self.assertIn(".card-cleanup-policy", styles)
 
     def test_repair_dialog_can_select_all_runs(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = static_source("app.js")
         page = static_source("index.html")
         styles = static_source("styles.css")
@@ -209,7 +204,6 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         # Cada intento de reparación se ejecuta en dos fases sobre las mismas
         # etapas, y lo único que las diferencia es cuántos terminales usan a la vez.
         # Los dos diálogos y la tarjeta tienen que poder fijar las dos.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = static_source("app.js")
         page = static_source("index.html")
 
@@ -238,7 +232,6 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         # La etapa regresiva de Reparar dejó de ser obligatoria: la decide una casilla
         # del propio diálogo, que solo aparece en nodos con la capacidad y se recuerda
         # aparte de `run_regression`, la de la nueva ejecución.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = static_source("app.js")
         page = static_source("index.html")
         styles = static_source("styles.css")
@@ -256,7 +249,6 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         self.assertIn(".repair-regression", styles)
 
     def test_regression_dialog_can_select_all_runs(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         script = static_source("app.js")
         page = static_source("index.html")
 
@@ -280,7 +272,6 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         self._assert_representative_values(fields)
 
     def _number_fields(self) -> dict[str, list[tuple[str, object]]]:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         fields: dict[str, list[tuple[str, object]]] = {}
         for path in static_matching("*.html"):
             page = html.fromstring(path.read_text(encoding="utf-8"))
@@ -288,11 +279,11 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
                 key = field.get("name") or field.get("id")
                 self.assertIsNotNone(key, f"Input numérico sin name/id en {path.name}")
                 fields.setdefault(key, []).append((path.name, field))
-        self._append_live_audit_fields(fields, static_dir)
+        self._append_live_audit_fields(fields)
         return fields
 
     @staticmethod
-    def _append_live_audit_fields(fields, static_dir: Path) -> None:
+    def _append_live_audit_fields(fields) -> None:
         script = static_source("live_audit.js")
         for markup in re.findall(r'<input data-field="[^"]+" type="number"[^>]*>', script):
             field = html.fragment_fromstring(markup)

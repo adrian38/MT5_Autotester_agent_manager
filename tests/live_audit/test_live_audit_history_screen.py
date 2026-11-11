@@ -77,8 +77,7 @@ class HistoryScreenTests(unittest.TestCase):
         # Y las dos pantallas entregan la misma casilla al cálculo.
         self.assertIn("overrides: typeof lotOverrides === 'object' ? lotOverrides : {},", self.script)
         self.assertIn("result, historyOf(entry), overrides,",
-                      (Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-                       / "dashboard.js").read_text(encoding="utf-8"))
+                      static_source("dashboard.js"))
         # Y alguien tiene que avisarla: carga antes que los lotes guardados.
         self.assertIn("function renderHistoryTable()", self.analysis)
         self.assertIn("window.LiveAuditHistory.render()", self.analysis)

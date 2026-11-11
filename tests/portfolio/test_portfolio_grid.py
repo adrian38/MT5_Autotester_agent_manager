@@ -460,8 +460,8 @@ class GridScopeTests(unittest.TestCase):
 
     def test_grid_screen_has_progress_readable_sets_and_saved_actions(self) -> None:
         root = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-        html = (root / "portfolios_grid.html").read_text(encoding="utf-8")
-        script = (root / "portfolios_grid.js").read_text(encoding="utf-8")
+        html = static_source("portfolios_grid.html")
+        script = static_source("portfolios_grid.js")
 
         for element_id in (
             "builder-progress", "portfolio-log", "proposal-members", "portfolio-list",

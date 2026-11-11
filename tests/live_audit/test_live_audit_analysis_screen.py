@@ -8,7 +8,6 @@ quedan la configuración del uso y la pantalla de resultado.
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from lxml import html
 from tools.package_layout import static_path, static_source
@@ -333,8 +332,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         )
         self.assertIn(
             "spanLabel(series?.covered_since, series?.covered_until)",
-            (Path(__file__).parents[2] / "mt5_manager" / "static"
-             / "live_audit_history.js").read_text(encoding="utf-8"),
+            static_source("live_audit_history.js"),
         )
 
     def test_every_closed_real_ends_up_accounted_or_said(self) -> None:
@@ -460,8 +458,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # contra 1px abajo; con el relleno, 15 y 15.
         self.assertIn(
             "gap: 8px; margin-top: 14px; padding: 0 20px 14px; }",
-            (Path(__file__).parents[2] / "mt5_manager" / "static"
-             / "live_audit_analysis.css").read_text(encoding="utf-8"),
+            static_source("live_audit_analysis.css"),
         )
         self.assertIn("function attributionSources()", self.analysis_script)
         self.assertIn("data-remove-source", self.analysis_script)

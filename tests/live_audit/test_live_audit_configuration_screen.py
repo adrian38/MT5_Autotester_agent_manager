@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import unittest
-from pathlib import Path
 
 from lxml import html
 from mt5_manager.manager import manager_live_audit_routes

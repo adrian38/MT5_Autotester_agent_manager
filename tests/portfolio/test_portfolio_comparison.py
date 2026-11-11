@@ -2,7 +2,7 @@ import shutil
 import subprocess
 import unittest
 
-from tools.package_layout import module_source
+from tools.package_layout import module_source, static_source
 from pathlib import Path
 
 
@@ -15,8 +15,8 @@ class PortfolioComparisonTests(unittest.TestCase):
 
     def test_button_is_exclusive_to_normal_ubs_and_script_is_served(self):
         root = Path(__file__).resolve().parents[2] / "mt5_manager"
-        page = (root / "static/portfolios.html").read_text(encoding="utf-8")
-        monthly = (root / "static/portfolios_monthly.html").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        monthly = static_source("portfolios_monthly.html")
         self.assertIn('id="detail-compare-original"', page)
         self.assertIn('src="/portfolio_comparison.js"', page)
         self.assertNotIn('portfolio_comparison.js', monthly)

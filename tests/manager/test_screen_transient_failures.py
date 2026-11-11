@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 import unittest
-from pathlib import Path
 from tools.package_layout import static_source
 
 # Las tres pantallas que repintan solas. `live_audit.js` ya se callaba.

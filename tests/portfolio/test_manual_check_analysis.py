@@ -22,7 +22,6 @@ from mt5_manager.manual_check.manual_check_analysis import METRIC_KEYS, analysis
 from tools.package_layout import static_path, static_source
 
 
-ROOT = Path(__file__).parents[2]
 
 
 def _report(net: str, drawdown: str, trades: str) -> str:

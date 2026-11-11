@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 from tools.package_layout import static_source
 
 
-ROOT = Path(__file__).parents[2]
 
 
 class ScreenTests(unittest.TestCase):

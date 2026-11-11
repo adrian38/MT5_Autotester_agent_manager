@@ -18,7 +18,6 @@ from mt5_manager.portfolio.portfolio_manual_check import DEFAULT_RETRIES
 from tools.package_layout import static_source
 
 
-ROOT = Path(__file__).parents[2]
 
 
 def _source() -> SimpleNamespace:

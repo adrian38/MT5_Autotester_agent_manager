@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 import unittest
-from pathlib import Path
 
 from mt5_manager.manager.correlation_routes import STATIC_FILES as CORRELATION_FILES
 from mt5_manager.experiment.experiment_routes import STATIC_FILES as EXPERIMENT_FILES

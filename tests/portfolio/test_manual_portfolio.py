@@ -18,7 +18,6 @@ from mt5_manager.portfolio.portfolio_coordinator_saved import PortfolioCoordinat
 from tools.package_layout import static_source
 
 
-ROOT = Path(__file__).parents[2]
 
 
 class ManualPortfolioScreenTests(unittest.TestCase):

@@ -12,7 +12,6 @@ import urllib.request
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from unittest import mock
-from pathlib import Path
 
 from mt5_manager.manager.manager import PULSE_JOB_KEYS, ManagerServer
 from mt5_manager.node.node import JobController, NodeServer

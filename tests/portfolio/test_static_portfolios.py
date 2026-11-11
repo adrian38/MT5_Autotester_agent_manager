@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 import math
 import re
-from pathlib import Path
 
 from lxml import html
 from tools.package_layout import static_path, static_source
@@ -52,7 +51,6 @@ class NodeCardControlsTests(unittest.TestCase):
         self.assertIn("window.restartNode = restartNode", script)
 
     def test_manager_restart_button_uses_the_manager_endpoint_and_exact_sequence(self) -> None:
-        root = Path(__file__).parents[2]
         page = static_source("index.html")
         script = self.script()
         self.assertIn('id="restart-manager"', page)
