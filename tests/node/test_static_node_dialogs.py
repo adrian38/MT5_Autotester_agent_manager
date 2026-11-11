@@ -72,6 +72,28 @@ VALID_VALUES = {
     "pool_limit": (1, 60, 300),
     "greedy_steps": (0, 240, 2000),
     "max_candidates_per_node": (0, 300, 100000),
+    # Cuentas prop. Los topes son los de
+    # `prop_experiment_service.normalize_settings`, que es quien recorta al
+    # recibir: cada tupla es su minimo, su valor por defecto y su maximo.
+    "risk_unit_pct": (0.01, 0.25, 1.5, 5),
+    "max_strategies": (1, 8, 50),
+    "max_seeds_per_node": (0, 150, 10000),
+    "search_pool_limit": (1, 40, 250),
+    "max_days_per_phase": (5, 120, 500),
+    "trial_stride_days": (1, 5, 60),
+    "max_trials": (1, 100, 1000),
+}
+
+PER_PAGE_VALUES = {
+    # `prop_experiment.html` comparte tres nombres con otras pantallas, y en
+    # cada una significan otra cosa: `capital` es el tamaño de la cuenta prop y
+    # el capital por cartera en UBS, y los horizontes y topes de unidades los
+    # recorta otro backend. Un nombre no basta para saber qué rango se exige,
+    # así que estos van por pantalla; los topes son los de
+    # `prop_experiment_service.normalize_settings`.
+    ("prop_experiment.html", "capital"): (1000, 100000, 200000),
+    ("prop_experiment.html", "horizon_months"): (3, 36, 84),
+    ("prop_experiment.html", "max_units_total"): (1, 24, 500),
 }
 
 
@@ -274,13 +296,26 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
             fields.setdefault(field.get("id"), []).append(("live_audit_schedule.js", field))
 
     def _assert_representative_values(self, fields) -> None:
+        # Con `subTest`, una pantalla que se separe de su backend las enseña
+        # todas de una vez. Sin él paraba en la primera, y detrás había siete.
         for key, values in VALID_VALUES.items():
             for path_name, field in fields[key]:
-                for value in values:
-                    self.assertTrue(
-                        self._html_number_accepts(field, value),
-                        f"{key} no acepta el valor válido {value} en {path_name}",
-                    )
+                expected = PER_PAGE_VALUES.get((path_name, key), values)
+                for value in expected:
+                    with self.subTest(field=key, page=path_name, value=value):
+                        self.assertTrue(
+                            self._html_number_accepts(field, value),
+                            f"{key} no acepta el valor válido {value} en {path_name}",
+                        )
+
+    def test_the_per_page_overrides_name_inputs_that_exist(self) -> None:
+        """Una entrada por pantalla que ya no apunte a nada es una promesa vacía."""
+        fields = self._number_fields()
+        stale = sorted(
+            (path_name, key) for path_name, key in PER_PAGE_VALUES
+            if not any(page == path_name for page, _field in fields.get(key, []))
+        )
+        self.assertFalse(stale, f"PER_PAGE_VALUES nombra inputs que no existen: {stale}")
 
     @staticmethod
     def _html_number_accepts(field, value: float) -> bool:
