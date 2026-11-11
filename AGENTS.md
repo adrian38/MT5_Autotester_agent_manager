@@ -209,7 +209,7 @@ a `runtime/` si son desechables.
 
 | Carpeta | Qué va ahí |
 | --- | --- |
-| `mt5_manager/` | la aplicación: servidor del manager, nodo señuelo y sus estáticos en `static/` |
+| `mt5_manager/` | la aplicación: servidor del manager, nodo señuelo y sus estáticos en `static/`, los tres repartidos por dominio |
 | `portfolio_manager/` | el motor de carteras, con `ubs_portfolio/` dentro |
 | `ubs/` | espejo del paquete `ubs` del proyecto del agente; **el nombre es el contrato** y no se renombra |
 | `tests/` | las pruebas, una carpeta por dueño; ningún `test_*.py` suelto |
@@ -293,6 +293,36 @@ Lo hace cumplir `tests/repository/test_repository_layout.py`: módulo nuevo en l
 raíz del paquete, carpeta de dominio sin declarar o tabla de arriba que no
 coincide, y falla. El detalle de las trampas está en
 `ai_context/layout_del_repositorio.md`.
+
+### `static/` también, y su URL sigue siendo plana
+
+Eran 75 ficheros sueltos de 18 pantallas. Ahora son diez carpetas —las mismas
+del paquete, más `generation/` (el `index.html` histórico y Universo) y
+`correlation/`, que no tienen subpaquete propio— y **ni un fichero en la raíz**.
+`shared/` es el armazón (`app.js`, `styles.css`, `sw.js`, el manifiesto y los
+iconos) más lo que montan varias pantallas: la campana, el ojo de las
+contraseñas, los tres botones de cita y las primitivas compartidas a propósito.
+
+Lo raro de este reparto es que **el espacio de nombres de la URL no se movió**:
+cada página referencia a sus hermanos en absoluto (`src="/app.js"`), `sw.js`
+sólo manda desde su carpeta hacia abajo y el manifiesto declara `scope: "/"`.
+Así que `/app.js` sigue siendo `/app.js` aunque el fichero viva en
+`static/shared/`, y de eso se encarga `mt5_manager/static_files.py`.
+
+- **Nadie construye la ruta de un estático.** Se pide por su nombre de URL con
+  `static_source`, `static_path` o `static_matching`, que es además lo que el
+  navegador recibe. Es el trinquete que hace que mover un estático sea un
+  `git mv`: la primera vez costó 258 sitios en 39 ficheros de prueba.
+- **`glob` sobre un solo nivel, nunca.** Diez guardas recorrían las pantallas
+  con `STATIC.glob("*.html")`, que repartidas habría devuelto una lista vacía
+  dejándolas **verdes sin comprobar nada**. Para eso está `static_matching`.
+- **Dos estáticos no pueden llamarse igual** en dos carpetas: comparten URL y
+  uno taparía al otro. El índice revienta al importar, nombrando las dos rutas.
+- **`package-data` necesita `**`.** Con `static/*.html` el paquete instalado se
+  queda sin interfaz, y en silencio, porque la imagen los copia aparte.
+
+Lo hacen cumplir `tests/repository/test_static_layout.py` y
+`tests/repository/test_packaging.py`.
 
 ## `ubs_portfolio` es un paquete en pila
 
@@ -571,7 +601,8 @@ en `tools/` se reescribe distinto en cada sesión, así que aquí vive todo.
 | --- | --- |
 | `tools.function_length` / `tools.file_length` | Los dos techos; con baselines vacíos no se usa `--write` de rutina. |
 | `tools.undefined_names` | Nombres que un módulo usa y nadie define. Lo que deja fuera una extracción. |
-| `tools.package_layout` | No es un comando: `module_path`, `module_source` y `domain_sources`, para que ninguna guarda localice un módulo de `mt5_manager/` construyendo su ruta. |
+| `tools.package_layout` | No es un comando: `module_path`, `module_source` y `domain_sources` para localizar un módulo sin construir su ruta, y `static_source`, `static_path` y `static_matching` para pedir un estático por su nombre de URL. |
+| `tools.make_push_icons` | Regenera los tres iconos del manifiesto en `static/shared/`. |
 | `tools.call_trace` | La secuencia de llamadas contra `HEAD`, para lo que no tiene cobertura. |
 | `tools.coverage_probe` | Cuántas veces el suite entero alcanza una función. |
 | `tools.sync_ubs_exports` | Regenera la reexportación de `ubs_portfolio`. |

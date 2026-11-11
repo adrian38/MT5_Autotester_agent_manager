@@ -122,6 +122,46 @@ Ninguna la delata el import, y tres de ellas dejan una guarda en verde.
    a uno por línea. El techo de fichero no tiene baseline, así que los nombres
    se empaquetan como estaban.
 
+### `static/`: el disco se movió y la URL no
+
+El mismo día, y es el reparto con la trampa más bonita. `mt5_manager/static/`
+eran 75 ficheros sueltos de 18 pantallas, pero el manager los sirve **por nombre
+plano**, y eso no se podía tocar por tres razones independientes: cada página
+referencia a sus hermanas en absoluto (`src="/app.js"`, 10 páginas citan
+`/web_push.js`), un service worker no manda sobre lo que está por encima de su
+carpeta —así que `sw.js` tiene que salir de `/`— y el manifiesto declara
+`scope: "/"`.
+
+La salida fue separar las dos capas: el disco se reparte y el nombre de la URL
+lo resuelve `mt5_manager/static_files.py`, con un índice que se construye al
+importar. Con eso, mover un estático dejó de ser un cambio de interfaz. El
+orden importó: primero el resolutor en producción, después los 258 sitios de
+prueba que construían la ruta a mano, y sólo entonces los `git mv`.
+
+Lo que costó de verdad:
+
+- **Diez `glob("*.html")` sobre un solo nivel.** Recorrían las pantallas para
+  exigirles la misma cabecera y el ojo de las contraseñas. Repartidas, habrían
+  devuelto una lista vacía y el `for` no habría iterado: **verdes sin comprobar
+  nada**. Por eso existe `static_matching`.
+- **Cuatro formas que una lista de nombres no encuentra.** El reescritor
+  llevaba `STATIC`, `static_dir` y seis más, y se dejó el subcamino en un solo
+  literal (`root / "static/portfolios.html"`), la llamada partida en dos
+  líneas, y dos ficheros que llaman `ROOT` y `root` a la carpeta `static`. No
+  fallaron al meter el resolutor —la carpeta seguía plana—, sino al mover. La
+  segunda pasada descubre las bases por su **valor**: cualquier asignación que
+  acabe en `/ "static"`. Una lista de nombres sólo encuentra lo que ya sabías.
+- **El generador de iconos.** `tools/make_push_icons.py` escribe los tres PNG
+  del manifiesto, y seguía apuntando a la raíz: la siguiente ejecución habría
+  repuesto tres ficheros sueltos. Es el único que puede nombrar la carpeta,
+  porque escribe y no lee.
+- **`package-data` con `static/*.html`.** Un nivel. El paquete instalado se
+  habría quedado sin interfaz sin una queja, porque la imagen los copia aparte
+  con `COPY`. Y al mirar ahí salió que los dos `[project.scripts]` llevaban
+  todo el día apuntando a `mt5_manager.manager:main`, que desde el reparto del
+  paquete es el paquete y no el módulo: `pip install .` dejaba dos órdenes que
+  arrancan con `ImportError`.
+
 ### Lo que no se movió, y por qué
 
 - **`guided_batches.py` y `guided_controller.py`** se quedan en la raíz del

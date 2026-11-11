@@ -23,9 +23,15 @@ from pathlib import Path
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-def _build_index() -> dict[str, Path]:
+def build_index(base: Path | None = None) -> dict[str, Path]:
+    """Nombre de URL -> ruta en disco. Revienta si dos comparten nombre.
+
+    `base` existe para que la guarda pueda comprobar ese rechazo sobre un arbol
+    de prueba: sobre el de verdad no llega a ejecutarse, porque el modulo ni se
+    importa, y una prueba que no puede fallar no comprueba nada.
+    """
     found: dict[str, Path] = {}
-    for path in sorted(STATIC_DIR.rglob("*")):
+    for path in sorted((base or STATIC_DIR).rglob("*")):
         if not path.is_file():
             continue
         if path.name in found:
@@ -37,7 +43,7 @@ def _build_index() -> dict[str, Path]:
     return found
 
 
-_INDEX = _build_index()
+_INDEX = build_index()
 
 
 def static_path(name: str) -> Path:

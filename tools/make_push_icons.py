@@ -19,7 +19,11 @@ import struct
 import zlib
 from pathlib import Path
 
-STATIC = Path(__file__).resolve().parents[1] / "mt5_manager" / "static"
+# `shared/` porque los iconos son del armazon, no de una pantalla. Escrito aqui
+# y no resuelto con `static_path` porque esto **escribe**: si lo dedujera de
+# donde estan los iconos, la primera ejecucion no tendria donde mirar. Su URL
+# sigue siendo `/icon-192.png`, que es lo que cita el manifiesto.
+STATIC = Path(__file__).resolve().parents[1] / "mt5_manager" / "static" / "shared"
 
 BACKGROUND = (9, 16, 25)
 """`--bg` de `styles.css`. Opaco y a sangre: un icono `maskable` lo recorta el

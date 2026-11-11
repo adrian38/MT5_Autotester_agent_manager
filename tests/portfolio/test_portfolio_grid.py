@@ -459,7 +459,6 @@ class GridScopeTests(unittest.TestCase):
         self.assertIn("const scope = 'grid'", script)
 
     def test_grid_screen_has_progress_readable_sets_and_saved_actions(self) -> None:
-        root = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
         html = static_source("portfolios_grid.html")
         script = static_source("portfolios_grid.js")
 
