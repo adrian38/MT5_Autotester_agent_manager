@@ -105,7 +105,12 @@ Las pruebas propias de cada repositorio no tienen que ser idénticas y se
 modifican sólo donde vive el contrato que comprueban. Después de cambiar el
 protocolo o el pipeline guiado, ejecutar también en IC:
 
-`python -m unittest tests.test_prepared_candidates tests.test_guided_node tests.test_guided_http tests.test_manager_node_repair_phases`
+`python -m unittest tests.guided.test_prepared_candidates tests.guided.test_guided_node tests.guided.test_guided_http tests.manager_node.test_repair_phases`
+
+Ésos son los módulos de la copia de IC, que repartió su `tests/` en
+subpaquetes; AXI, RoboForex y Vantage siguen planas (`tests.test_guided_node`).
+No hace falta elegir a mano: `tools.verify_project` los localiza por tema con
+`tools.agent_projects.agent_test_module`, que encuentra las dos formas.
 
 ## Leer `ai_context/` antes de escribir código
 

@@ -60,6 +60,43 @@ def fork_node_source(project: Path) -> str:
     return _fork_source(project, "node")
 
 
+def fork_node_tests(project: Path, topic: str = "") -> list[Path]:
+    """Las pruebas del nodo embebido del agente, planas o repartidas.
+
+    ICTrading repartió su `tests/` en subpaquetes el 2026-11-11 y sus pruebas
+    del nodo pasaron de `tests/test_manager_node_lifecycle.py` a
+    `tests/manager_node/test_lifecycle.py`; AXI, RoboForex y Vantage siguen
+    planas. El `glob("test_manager_node_*.py")` sobre un solo nivel dejó de
+    encontrarlas: donde alimentaba un `assertTrue` la guarda se puso roja —doce
+    pruebas— y donde sólo alimentaba un bucle habría pasado en vacío. Lo que
+    identifica una prueba del nodo es que `manager_node` esté en su ruta, en el
+    nombre del fichero o en la carpeta que lo contiene, así que las dos formas
+    entran y la guarda deja de depender del reparto.
+
+    `topic` es el trozo de nombre que comparten las dos formas: `lifecycle`
+    vale para `test_manager_node_lifecycle.py` y para
+    `manager_node/test_lifecycle.py`.
+    """
+    root = project / "tests"
+    return [
+        path for path in sorted(root.rglob("test_*.py"))
+        if "manager_node" in path.relative_to(root).as_posix() and topic in path.stem
+    ]
+
+
+def fork_node_tests_source(project: Path, topic: str = "") -> str:
+    """El texto de esas pruebas, o sólo de las que tratan un tema.
+
+    Devuelve la cadena vacía cuando no hay ninguna, de modo que el `assertIn`
+    de quien llama falle con su propio mensaje en vez de reventar con
+    `FileNotFoundError` por una ruta que ya no existe.
+    """
+    return "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in fork_node_tests(project, topic)
+    )
+
+
 def fork_live_audit_source(project: Path) -> str:
     """El auditor real del agente entero, sea cual sea el número de ficheros."""
     return _fork_source(project, "live_audit")

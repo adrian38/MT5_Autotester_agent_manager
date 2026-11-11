@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .node_runtime_parity_base import NodeRuntimeForkParityBase, fork_node_source
+from .node_runtime_parity_base import (
+    NodeRuntimeForkParityBase, fork_node_source, fork_node_tests_source,
+)
 
 
 class ManualPortfolioEditParityTests(NodeRuntimeForkParityBase):
@@ -21,9 +23,7 @@ class ManualPortfolioEditParityTests(NodeRuntimeForkParityBase):
                 '"/api/v1/portfolios/manual-members"', fork_node_source(project),
                 f"{project}: falta la ruta para editar los sets manuales",
             )
-            tests = (project / "tests" / "test_manager_node_manual_portfolio.py").read_text(
-                encoding="utf-8", errors="replace",
-            )
+            tests = fork_node_tests_source(project, "manual_portfolio")
             for token in (
                 "test_sets_can_be_added_to_an_existing_manual_portfolio",
                 "test_one_set_can_be_removed_from_an_existing_manual_portfolio",
@@ -58,9 +58,7 @@ class ManualPortfolioEditParityTests(NodeRuntimeForkParityBase):
                     token, guard,
                     f"{project}: la edicion de sets manuales no toma el candado ({token})",
                 )
-            tests = (project / "tests" / "test_manager_node_manual_portfolio.py").read_text(
-                encoding="utf-8", errors="replace",
-            )
+            tests = fork_node_tests_source(project, "manual_portfolio")
             for token in (
                 "test_sets_do_not_change_while_the_node_audits_or_probes_accounts",
                 "test_the_change_commits_with_the_audit_lock_taken",

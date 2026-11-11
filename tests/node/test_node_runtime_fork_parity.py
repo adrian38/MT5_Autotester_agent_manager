@@ -9,12 +9,14 @@ from tools.package_layout import static_source
 try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        fork_node_source, manager_node_source, module_source,
+        fork_node_source, fork_node_tests, fork_node_tests_source,
+        manager_node_source, module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        fork_node_source, manager_node_source, module_source,
+        fork_node_source, fork_node_tests, fork_node_tests_source,
+        manager_node_source, module_source,
     )
 
 
@@ -37,9 +39,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         manager_routes = module_source("manager_portfolio_routes")
         ic_rules = ic_rules_path.read_text(encoding="utf-8", errors="replace")
         ic_node = ic_node_path.read_text(encoding="utf-8", errors="replace")
-        ic_tests = (ic_project / "tests" / "test_manager_node_portfolio_save.py").read_text(
-            encoding="utf-8", errors="replace"
-        )
+        ic_tests = fork_node_tests_source(ic_project, "portfolio_save")
 
         self.assertIn('action == "alias"', manager_routes)
         self.assertIn("def set_portfolio_alias_payload", ic_rules)
@@ -104,11 +104,10 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                 "«Generar histórico OHLC» encola dos veces el mismo portafolio. "
                 "Portar la compactación de la cola desde otra copia ya portada.",
             )
-            tests = project / "tests" / "test_manager_node_manual_portfolio.py"
             self.assertTrue(
-                tests.is_file(),
+                fork_node_tests(project, "manual_portfolio"),
                 msg=(
-                    f"{project}: falta tests/test_manager_node_manual_portfolio.py; "
+                    f"{project}: falta la prueba del nodo de portafolios manuales; "
                     "el port no está terminado sin su prueba en el proyecto del agente."
                 ),
             )
@@ -145,9 +144,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                 "no retira la carpeta del portafolio manual. Las funciones pueden estar "
                 "portadas y no llamarse desde ningún sitio: eso no cambia nada.",
             )
-            tests = (project / "tests" / "test_manager_node_manual_portfolio.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
+            tests = fork_node_tests_source(project, "manual_portfolio")
             self.assertIn(
                 "removed_folders", tests,
                 msg=(
@@ -192,7 +189,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                         "sin el port el botón «Cargar más» no puede superar la primera página."
                     ),
                 )
-            tests = sorted((project / "tests").glob("test_manager_node_*pagination*.py"))
+            tests = fork_node_tests(project, "pagination")
             self.assertTrue(
                 tests,
                 msg=f"{project}: falta una prueba propia de paginación del historial de runs.",
@@ -253,7 +250,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                 "que permite encontrar esta regla en la copia del agente.",
             )
             covered = [
-                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                path for path in fork_node_tests(project)
                 if "pool_member" in path.read_text(encoding="utf-8", errors="replace")
             ]
             self.assertTrue(
@@ -368,7 +365,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
             )
             # Paso 3 del procedimiento: el port no está terminado sin su prueba.
             covered = [
-                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                path for path in fork_node_tests(project)
                 if "requalify" in path.read_text(encoding="utf-8", errors="replace").lower()
             ]
             self.assertTrue(
@@ -405,10 +402,10 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         # Paso 3 del procedimiento de `ai_context/node_runtime_is_forked_per_agent.md`:
         # el port no está terminado sin su prueba en el proyecto del agente.
         def check(project: Path, _source: str) -> None:
-            tests = sorted((project / "tests").glob("test_manager_node_*.py"))
+            tests = fork_node_tests(project)
             self.assertTrue(
                 tests,
-                msg=f"{project}: no hay ninguna prueba tests/test_manager_node_*.py que cubra el nodo.",
+                msg=f"{project}: no hay ninguna prueba del nodo embebido que cubra el nodo.",
             )
             monthly = [
                 path for path in tests
@@ -454,7 +451,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                 "producción sin consultar la casilla del diálogo.",
             )
             covered = [
-                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                path for path in fork_node_tests(project)
                 if "run_regression" in path.read_text(encoding="utf-8", errors="replace")
             ]
             self.assertTrue(
@@ -504,7 +501,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                     "del agente.",
                 )
             covered = [
-                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                path for path in fork_node_tests(project)
                 if "repair_phase2_max_workers" in path.read_text(encoding="utf-8", errors="replace")
             ]
             self.assertTrue(
@@ -548,7 +545,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                 "reiniciar la aplicación del agente.",
             )
             covered = [
-                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                path for path in fork_node_tests(project)
                 if "set_path" in path.read_text(encoding="utf-8", errors="replace")
             ]
             self.assertTrue(

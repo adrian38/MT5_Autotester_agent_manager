@@ -8,12 +8,14 @@ try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
         fork_live_account_source, fork_live_audit_source, fork_node_source,
+        fork_node_tests, fork_node_tests_source,
         domain_sources, manager_node_source, module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
         fork_live_account_source, fork_live_audit_source, fork_node_source,
+        fork_node_tests, fork_node_tests_source,
         domain_sources, manager_node_source, module_source,
     )
 
@@ -112,7 +114,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                     "del agente.",
                 )
             covered = [
-                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                path for path in fork_node_tests(project)
                 if "stop_requested" in path.read_text(encoding="utf-8", errors="replace")
             ]
             self.assertTrue(
@@ -135,9 +137,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             lifecycle_source = (project / "manager_node_lifecycle.py").read_text(
                 encoding="utf-8", errors="replace"
             )
-            lifecycle_tests = (project / "tests" / "test_manager_node_lifecycle.py").read_text(
-                encoding="utf-8", errors="replace"
-            )
+            lifecycle_tests = fork_node_tests_source(project, "lifecycle")
             for token in (
                 "/api/v1/application/restart",
                 "application_restart",
@@ -240,7 +240,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
             "cuenta de pruebas del terminal.",
         )
         covered = [
-            path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+            path for path in fork_node_tests(project)
             if "_restore_tester_login" in path.read_text(encoding="utf-8", errors="replace")
             or "terminal_restore" in path.read_text(encoding="utf-8", errors="replace")
         ]
@@ -527,7 +527,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                 "manager_node_runtime/portfolio_save.py.",
             )
             covered = [
-                path for path in sorted((project / "tests").glob("test_manager_node_*.py"))
+                path for path in fork_node_tests(project)
                 if "max_balance_dd_001" in path.read_text(encoding="utf-8", errors="replace")
             ]
             self.assertTrue(

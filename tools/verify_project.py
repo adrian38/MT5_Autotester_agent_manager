@@ -21,28 +21,35 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from tools.agent_projects import ic_project, searched_ic_projects
+    from tools.agent_projects import ic_contract_project, searched_ic_projects
 except ImportError:  # ejecutado como `python tools/verify_project.py`
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from tools.agent_projects import ic_project, searched_ic_projects
+    from tools.agent_projects import ic_contract_project, searched_ic_projects
 
 ROOT = Path(__file__).resolve().parents[1]
 
-IC_CONTRACT_TESTS = (
-    "tests.test_prepared_candidates",
-    "tests.test_guided_node",
-    "tests.test_guided_http",
-    "tests.test_manager_node_repair_phases",
+IC_CONTRACT_TOPICS = (
+    "prepared_candidates",
+    "guided_node",
+    "guided_http",
+    "repair_phases",
 )
+"""Las cuatro pruebas focales de IC por **tema**, no por modulo.
+
+Escritas como `tests.test_guided_node` pedian la forma plana, y el reparto de
+`tests/` en IC las dejo sin encontrar: el contrato guiado se omitia con una
+linea `[OMITIDO]` al final de una salida larga. El tema es lo que sobrevive al
+reparto, y `agent_test_module` lo traduce a modulo en cada copia.
+"""
 
 
-def ic_contract_root() -> Path | None:
-    """La copia de IC que **tiene** las cuatro pruebas focales, o `None`.
+def ic_contract() -> tuple[Path, tuple[str, ...]] | None:
+    """La copia de IC que **tiene** las cuatro pruebas focales, con sus modulos.
 
-    Se exigen los cuatro modulos, no la carpeta: una copia a medio montar daria
-    por ejecutado un contrato que no esta ahi.
+    Se exigen los cuatro, no la carpeta: una copia a medio montar daria por
+    ejecutado un contrato que no esta ahi.
     """
-    return ic_project(*(f"tests/{name.split('.')[-1]}.py" for name in IC_CONTRACT_TESTS))
+    return ic_contract_project(IC_CONTRACT_TOPICS)
 
 
 @dataclass(frozen=True)
@@ -85,13 +92,15 @@ def command_specs(*, include_full_suite: bool = False) -> list[CommandSpec]:
         specs.append(CommandSpec(
             "suite manager", ROOT, (python, "-m", "unittest", "discover", "-s", "tests"),
         ))
-    ic_root = ic_contract_root()
+    contract = ic_contract()
+    ic_root, ic_modules = contract if contract else (None, ())
     specs.append(CommandSpec(
         "contrato IC",
         ic_root or ROOT,
-        (python, "-m", "unittest", *IC_CONTRACT_TESTS),
+        (python, "-m", "unittest", *ic_modules),
         skip_reason=None if ic_root else (
-            f"ninguna copia de ICTrading esta montada; buscadas: {searched_ic_projects()}"
+            "ninguna copia de ICTrading tiene las cuatro pruebas focales "
+            f"({', '.join(IC_CONTRACT_TOPICS)}); buscadas: {searched_ic_projects()}"
         ),
     ))
     return specs
@@ -111,7 +120,8 @@ def repository_state(root: Path) -> tuple[str, str]:
 
 
 def watched_repositories() -> list[Path]:
-    ic_root = ic_contract_root()
+    contract = ic_contract()
+    ic_root = contract[0] if contract else None
     return [ROOT] + ([ic_root] if ic_root and (ic_root / ".git").exists() else [])
 
 

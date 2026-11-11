@@ -45,6 +45,30 @@ daría por ejecutado un contrato que no está ahí. `FORK_CANDIDATES` reutiliza 
 misma lista para sus rutas de IC, y la guarda byte a byte de
 `test_guided_routing` —que se saltaba sola por la misma causa— también.
 
+### El módulo tampoco se escribe a mano
+
+El contrato nombraba sus cuatro pruebas como módulos (`tests.test_guided_node`),
+y eso volvió a omitirlo en silencio el 2026-11-11, cuando IC repartió su
+`tests/` en subpaquetes: `test_guided_node.py` bajó a `tests/guided/` y
+`test_manager_node_repair_phases.py` a `tests/manager_node/test_repair_phases.py`.
+La lista de candidatas seguía encontrando la carpeta, pero `ic_project` exigía
+las rutas planas, así que ninguna copia «tenía» el contrato. Y no vale cambiar
+la lista por la nueva forma: AXI, RoboForex y Vantage siguen planas.
+
+Ahora el contrato se declara por **tema** (`IC_CONTRACT_TOPICS`:
+`prepared_candidates`, `guided_node`, `guided_http`, `repair_phases`) y
+`tools.agent_projects.agent_test_module` lo traduce a módulo en cada copia
+buscando por el final del nombre, que es lo único que las dos formas comparten.
+Sigue siendo todos o ninguno.
+
+Lo mismo le pasó a las guardas de paridad del nodo, que buscaban las pruebas
+del fork con `glob("test_manager_node_*.py")` sobre un solo nivel: doce se
+pusieron rojas y cinco reventaron con `FileNotFoundError` al leer
+`tests/test_manager_node_lifecycle.py`. Ahí la puerta es
+`fork_node_tests(project, topic)` de `tests/node/node_runtime_parity_base.py`,
+que reconoce una prueba del nodo por llevar `manager_node` en su ruta —en el
+nombre del fichero o en la carpeta— y así cubre las dos formas.
+
 La omisión no pone el resultado en rojo: hay equipos donde legítimamente no hay
 IC montado. Pero deja de estar enterrada: el paso nombra el proyecto que usa
 (`[VERIFICA] contrato IC en <ruta>`), la omisión dice dónde se buscó, y la

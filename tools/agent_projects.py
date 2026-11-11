@@ -52,6 +52,59 @@ def ic_project(*required: str) -> Path | None:
     return None
 
 
+def agent_test_module(project: Path, topic: str) -> str | None:
+    """El modulo de prueba de `topic` en esa copia, plana o repartida.
+
+    IC repartio su `tests/` en subpaquetes el 2026-11-11:
+    `tests/test_guided_node.py` bajo a `tests/guided/` y
+    `tests/test_manager_node_repair_phases.py` a
+    `tests/manager_node/test_repair_phases.py`. AXI, RoboForex y Vantage siguen
+    planas, asi que no vale cambiar la lista por la nueva: hay que encontrar
+    las dos formas. Un nombre de modulo escrito a mano pedia la plana y dejaba
+    el contrato focal **omitido en silencio**, que es justo lo que esta lista de
+    candidatas existia para evitar.
+
+    Busca por el final del nombre, que es lo unico que las dos formas
+    comparten, y devuelve el modulo tal y como hay que pasarselo a `unittest`.
+    """
+    root = project / "tests"
+    try:
+        paths = sorted(root.rglob("test_*.py"))
+    except OSError:
+        return None
+    for path in paths:
+        if path.stem.endswith(topic):
+            return ".".join(path.relative_to(project).with_suffix("").parts)
+    return None
+
+
+def agent_test_modules(project: Path, topics: tuple[str, ...]) -> tuple[str, ...] | None:
+    """Los modulos de **todos** los temas, o `None` si falta alguno.
+
+    Todos o ninguno por el mismo motivo que `ic_project` exige sus `required`:
+    media copia montada daria por ejecutado un contrato que no esta ahi.
+    """
+    found = tuple(
+        module for module in (agent_test_module(project, topic) for topic in topics)
+        if module is not None
+    )
+    return found if len(found) == len(topics) else None
+
+
+def ic_contract_project(topics: tuple[str, ...]) -> tuple[Path, tuple[str, ...]] | None:
+    """La primera copia de IC que tiene los temas pedidos, con sus modulos."""
+    for candidate in IC_PROJECT_CANDIDATES:
+        try:
+            if not candidate.is_dir():
+                continue
+        except OSError:
+            continue
+        modules = agent_test_modules(candidate, topics)
+        if modules is not None:
+            return candidate, modules
+    return None
+
+
 def searched_ic_projects() -> str:
     """Las candidatas en una linea, para que una omision diga donde se busco."""
     return ", ".join(str(path) for path in IC_PROJECT_CANDIDATES)

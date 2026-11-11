@@ -11,11 +11,13 @@ from pathlib import Path
 
 try:
     from .node_runtime_parity_base import (
-        MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source, module_source,
+        MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source,
+        fork_node_tests, module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
-        MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source, module_source,
+        MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source,
+        fork_node_tests, module_source,
     )
 
 
@@ -68,11 +70,10 @@ class ManualCheckForkParityTests(NodeRuntimeForkParityBase):
             "llamadas de `_write_check_sets`. Hay que reiniciar la "
             "aplicación del agente.",
         )
-        tests = project / "tests" / "test_manager_node_manual_check.py"
         self.assertTrue(
-            tests.is_file(),
+            fork_node_tests(project, "manual_check"),
             msg=(
-                f"{project}: falta tests/test_manager_node_manual_check.py; "
+                f"{project}: falta la prueba del nodo de la comprobación manual; "
                 "el port no está terminado sin su prueba en el proyecto del agente."
             ),
         )
