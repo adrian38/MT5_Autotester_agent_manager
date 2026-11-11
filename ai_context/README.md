@@ -306,6 +306,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 
 - `codebase_memory_mcp_no_arranca.md`: el servidor MCP se queda en «connecting»
   sin dar error, y cómo se arregla.
+- `codebase_memory_indice_a_medias.md`: tras mover ficheros en bloque,
+  `mode: "full"` no reindexa y el grafo contesta con rutas viejas; se borra el
+  proyecto.
 
 ---
 
