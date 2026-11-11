@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.live_audit_watch import LiveAuditRunState
+from mt5_manager.live_audit.live_audit_watch import LiveAuditRunState
 from mt5_manager.manager.manager_live_audit_routes import (
     analysed_live_audit, dashboard_node_state, dashboard_nodes, run_payload,
 )
@@ -45,7 +45,7 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
         endpoint = SimpleNamespace(server=SimpleNamespace(live_audit_settings=settings))
         raw = {"audits": {"audit-148": {"last_payload": payload()}}}
         with patch("mt5_manager.manager.manager_http.node_request", return_value=(200, raw)) as request, patch(
-            "mt5_manager.live_audit_executions.archive_execution",
+            "mt5_manager.live_audit.live_audit_executions.archive_execution",
         ) as archive:
             state = dashboard_node_state(endpoint, "ic", {"id": "ic", "name": "ICTrading"})
         request.assert_called_once_with(
@@ -145,7 +145,7 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
             {"time": "2026-09-22T10:00:00+00:00", "balance": 2000.0},
         ]
         with patch(
-            "mt5_manager.live_audit_executions.balance_history",
+            "mt5_manager.live_audit.live_audit_executions.balance_history",
             return_value=history,
         ):
             analysed = analysed_live_audit(

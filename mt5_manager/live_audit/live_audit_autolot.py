@@ -17,7 +17,7 @@ from xml.etree import ElementTree
 
 from portfolio_manager.mt5_report import parse_report
 
-from .common import load_json
+from ..common import load_json
 from .live_audit_lot_schedule import scheduled_lot
 
 

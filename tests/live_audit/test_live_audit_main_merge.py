@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from mt5_manager.live_audit_engine import (
+from mt5_manager.live_audit.live_audit_engine import (
     LiveAuditController, _adaptive_price_tolerance_floor,
 )
 from tests.live_audit.live_audit_engine_base import FakeOwner, request

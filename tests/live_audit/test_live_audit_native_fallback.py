@@ -14,9 +14,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from mt5_manager.live_audit_engine import LiveAuditController
-from mt5_manager.live_audit_lifecycle import _native_history_note
-from mt5_manager.mt5_native_history_report import (
+from mt5_manager.live_audit.live_audit_engine import LiveAuditController
+from mt5_manager.live_audit.live_audit_lifecycle import _native_history_note
+from mt5_manager.live_audit.mt5_native_history_report import (
     NativeHistoryReportError, _RemoteAllocationError, _WindowsTerminalReportExporter,
     export_native_history_report,
 )
@@ -112,9 +112,9 @@ class NativeReportFallbackTests(LiveAuditEngineTestCase):
         recovered = mock.Mock()
         recovered.export.return_value = {"native_terminal_report": True}
         with mock.patch(
-            "mt5_manager.mt5_native_history_report._WindowsTerminalReportExporter",
+            "mt5_manager.live_audit.mt5_native_history_report._WindowsTerminalReportExporter",
             side_effect=(failed, recovered),
-        ) as exporter, mock.patch("mt5_manager.mt5_native_history_report.time.sleep"):
+        ) as exporter, mock.patch("mt5_manager.live_audit.mt5_native_history_report.time.sleep"):
             result = export_native_history_report(
                 terminal_path=Path("terminal64.exe"), login="1", server="Broker",
                 period_start=PERIOD_START, period_end=PERIOD_END,

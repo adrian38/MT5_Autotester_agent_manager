@@ -21,8 +21,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from mt5_manager.live_audit_manual_pairs import tester_pair_key
-from mt5_manager.live_audit_settings import (
+from mt5_manager.live_audit.live_audit_manual_pairs import tester_pair_key
+from mt5_manager.live_audit.live_audit_settings import (
     DEFAULT_LIVE_AUDIT_PROFILE,
     LiveAuditSettingsStore,
     normalize_live_audit_settings,

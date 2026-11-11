@@ -60,8 +60,8 @@ y la pantalla dice hasta dónde llega el que hay guardado.
 
 | Pieza | Qué hace |
 | --- | --- |
-| `mt5_manager/live_audit_manual_memory.py` | La copia del HTML, su SHA-256 y la ventana. Una entrada por `nodo/uso/.set`. |
-| `mt5_manager/live_audit_manual_inherit.py` | Decide y reenvía, en cargas que el nodo pueda aceptar. Tres intentos por ejecución y proceso. |
+| `mt5_manager/live_audit/live_audit_manual_memory.py` | La copia del HTML, su SHA-256 y la ventana. Una entrada por `nodo/uso/.set`. |
+| `mt5_manager/live_audit/live_audit_manual_inherit.py` | Decide y reenvía, en cargas que el nodo pueda aceptar. Tres intentos por ejecución y proceso. |
 | `live_audit_analysis.tester_trades_in_window` | Recorta el lado tester a la ventana auditada: es lo que hace válido un backtest más ancho. |
 | `live_audit_executions.analysed_node_state` | El único sitio donde se engancha: así heredan igual la pantalla y el vigilante del cron. |
 | `manager_live_audit_routes._remember_manual_reports` | Guarda la copia cuando la carga pasa por el manager. |

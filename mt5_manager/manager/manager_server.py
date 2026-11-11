@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..live_account import live_account_schedule, live_account_watch
-from .. import live_audit_schedule, live_audit_watch
+from ..live_audit import live_audit_schedule, live_audit_watch
 from . import manager_tls
 from ..web_push import web_push
 from ..manual_check import manual_check_watch
@@ -26,11 +26,11 @@ from ..common import load_json, safe_int, save_json
 from ..experiment.experiment_service import ExperimentCoordinator
 from ..live_account.live_account_archive import LiveAccountArchive
 from ..live_account.live_account_schedule import normalize_live_account_scheduler_settings
-from ..live_audit_archive import LiveAuditArchive
-from ..live_audit_manual_memory import ManualReportMemory
-from ..live_audit_notifications import LiveAuditNotificationStore
-from ..live_audit_settings import LiveAuditSettingsStore
-from ..live_audit_watch import LiveAuditRunState
+from ..live_audit.live_audit_archive import LiveAuditArchive
+from ..live_audit.live_audit_manual_memory import ManualReportMemory
+from ..live_audit.live_audit_notifications import LiveAuditNotificationStore
+from ..live_audit.live_audit_settings import LiveAuditSettingsStore
+from ..live_audit.live_audit_watch import LiveAuditRunState
 from .manager_config import (
     BOOL_PREFERENCE_KEYS,
     LAUNCH_PREFERENCE_KEYS,

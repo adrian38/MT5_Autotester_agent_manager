@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mt5_manager.live_audit_tester import _TesterMixin
+from mt5_manager.live_audit.live_audit_tester import _TesterMixin
 
 _BASE_STUB = """from pathlib import Path
 

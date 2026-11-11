@@ -29,12 +29,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tools.package_layout import module_source
+from tools.package_layout import module_path, module_source
 from mt5_manager.web_push import web_push
-from mt5_manager.live_audit_notifications import LiveAuditNotificationStore
+from mt5_manager.live_audit.live_audit_notifications import LiveAuditNotificationStore
 
 PACKAGE = Path(__file__).resolve().parents[2] / "mt5_manager"
-BELL = PACKAGE / "live_audit_notifications.py"
+BELL = module_path("live_audit_notifications")
 SERVER = module_source("manager_server")
 
 ROUTES = {"manager_push_routes.py"}

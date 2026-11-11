@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .common import load_json, save_json
+from ..common import load_json, save_json
 
 MAXIMUM_EXECUTIONS = 400
 """Ejecuciones conservadas por nodo. A una por semana y uso son anos."""

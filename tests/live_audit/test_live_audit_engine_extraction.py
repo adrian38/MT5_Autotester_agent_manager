@@ -9,11 +9,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from mt5_manager.live_audit_engine import (
+from mt5_manager.live_audit.live_audit_engine import (
     LiveAuditController, _audit_period, _read_set_text, _redact_log_files, _redact_runner_output,
     normalize_request, single_variant_mode,
 )
-from mt5_manager.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
+from mt5_manager.live_audit.mt5_native_history_report import NativeHistoryReportError, validate_native_history_report
 from tests.live_audit.live_audit_engine_base import FakeOwner, LiveAuditEngineTestCase, request
 
 

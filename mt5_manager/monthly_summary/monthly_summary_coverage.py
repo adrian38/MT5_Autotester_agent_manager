@@ -23,7 +23,7 @@ import calendar
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
-from ..live_audit_schedule import parse_timestamp
+from ..live_audit.live_audit_schedule import parse_timestamp
 
 def month_bounds(label: str) -> tuple[datetime, datetime]:
     """`[inicio, fin)` del mes en UTC, que es como se corta todo lo demás."""

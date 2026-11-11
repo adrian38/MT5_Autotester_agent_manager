@@ -52,7 +52,7 @@ Dos consecuencias, no una:
 reapunta cada módulo `run_tests*` que declare alguno de los tres nombres.
 Reapuntar también `run_tests_base` cubre a quien se importe más tarde.
 
-Está en las dos copias —`mt5_manager/live_audit_tester.py` y
+Está en las dos copias —`mt5_manager/live_audit/live_audit_tester.py` y
 `manager_node_runtime/live_audit_tester.py` de IC, que es la que ejecuta— y lo
 comprueban `tests/live_audit/test_live_audit_tester_wrapper.py` y
 `tests/test_manager_node_live_audit_wrapper.py`: montan un runner de mentira

@@ -16,12 +16,12 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from mt5_manager.live_audit_settings import (
+from mt5_manager.live_audit.live_audit_settings import (
     DEFAULT_LIVE_AUDIT_PROFILE,
     LiveAuditSettingsStore,
     normalize_live_audit_settings,
 )
-from mt5_manager.live_audit_schedule import MANAGER_ONLY_PROFILE_KEYS
+from mt5_manager.live_audit.live_audit_schedule import MANAGER_ONLY_PROFILE_KEYS
 from mt5_manager.manager.manager_live_audit_routes import handle_get, handle_post
 from tests.live_audit.test_live_audit_settings import profile as stored_profile
 from tests.live_audit.test_live_audit_view_lots import RouteHandler

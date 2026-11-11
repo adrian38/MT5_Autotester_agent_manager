@@ -11,7 +11,7 @@ import hashlib
 import unittest
 import unittest.mock
 
-from mt5_manager import live_audit_executions
+from mt5_manager.live_audit import live_audit_executions
 from mt5_manager.manager import manager_http
 
 CLOSED = (

@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from mt5_manager.manager import manager_push_routes
 from mt5_manager.web_push import web_push, web_push_crypto
-from mt5_manager.live_audit_notifications import LiveAuditNotificationStore
+from mt5_manager.live_audit.live_audit_notifications import LiveAuditNotificationStore
 from mt5_manager.web_push.web_push_store import (
     MAXIMUM_FAILURES,
     MAXIMUM_SUBSCRIPTIONS,

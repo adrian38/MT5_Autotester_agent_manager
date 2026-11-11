@@ -23,10 +23,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_audit_degradation_alerts as alerts
-from mt5_manager import live_audit_degradation_reviews as reviews
-from mt5_manager.live_audit_schedule import MANAGER_ONLY_PROFILE_KEYS
-from mt5_manager.live_audit_settings import (
+from mt5_manager.live_audit import live_audit_degradation_alerts as alerts
+from mt5_manager.live_audit import live_audit_degradation_reviews as reviews
+from mt5_manager.live_audit.live_audit_schedule import MANAGER_ONLY_PROFILE_KEYS
+from mt5_manager.live_audit.live_audit_settings import (
     DEFAULT_LIVE_AUDIT_PROFILE,
     LiveAuditSettingsStore,
 )

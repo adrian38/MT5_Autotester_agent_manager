@@ -19,10 +19,12 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import (
         MANAGER_ROOT, NodeRuntimeForkParityBase, fork_live_audit_source,
+        module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
         MANAGER_ROOT, NodeRuntimeForkParityBase, fork_live_audit_source,
+        module_source,
     )
 
 
@@ -42,9 +44,7 @@ class LiveAuditEveryTickParityTests(NodeRuntimeForkParityBase):
     def test_every_audited_set_is_marked_on_every_reachable_fork(self) -> None:
         # El manager primero: si aquí se pierde el criterio, la paridad
         # seguiría verde comprobando una regla que ya no existe.
-        manager = (MANAGER_ROOT / "mt5_manager" / "live_audit_tester.py").read_text(
-            encoding="utf-8"
-        )
+        manager = module_source("live_audit_tester")
         for token, hint in EVERY_TICK_TOKENS:
             self.assertIn(token, manager, f"El manager perdió {hint} (`{token}`).")
 
@@ -55,7 +55,7 @@ class LiveAuditEveryTickParityTests(NodeRuntimeForkParityBase):
                     source, re.escape(token),
                     f"{project}: falta {hint} (`{token}`) en "
                     "manager_node_runtime/live_audit_tester.py. Portarlo desde "
-                    "mt5_manager/live_audit_tester.py: sin él las auditorías de "
+                    "mt5_manager/live_audit/live_audit_tester.py: sin él las auditorías de "
                     "este agente corren con el `UseEveryTick` que traiga el set "
                     "guardado. Hay que reiniciar la aplicación del agente.",
                 )

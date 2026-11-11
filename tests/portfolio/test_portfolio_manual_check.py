@@ -14,10 +14,8 @@ from unittest.mock import patch
 
 from tools.package_layout import module_source
 from mt5_manager.portfolio_service import PortfolioCoordinator
-from mt5_manager import (
-    live_audit_activity,
-    portfolio_manual_check,
-)
+from mt5_manager.live_audit import live_audit_activity
+from mt5_manager import portfolio_manual_check
 from mt5_manager.manual_check import (
     manual_check_watch,
 )

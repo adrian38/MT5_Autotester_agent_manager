@@ -107,7 +107,6 @@ MT5_SIN_DOMINIO = frozenset({
     "common",
     "dev_branch",
     "docker_entrypoint",
-    "mt5_native_history_report",
     "stage_reports",
 })
 

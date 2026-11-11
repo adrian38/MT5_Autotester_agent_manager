@@ -14,8 +14,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager import live_audit_executions, live_audit_manual_inherit
-from mt5_manager.live_audit_manual_memory import ManualReportMemory, canonical_name
+from mt5_manager.live_audit import live_audit_executions, live_audit_manual_inherit
+from mt5_manager.live_audit.live_audit_manual_memory import ManualReportMemory, canonical_name
 from mt5_manager.manager.manager_live_audit_routes import _handle_manual_reports
 from tests.live_audit.test_live_audit_analysis import payload as analysis_payload, profile
 
@@ -70,7 +70,7 @@ def memory(root: Path, covered: tuple[str, str] = BACKTEST) -> ManualReportMemor
     de verdad; lo que se quiere probar aqui es la decision, no el parseo.
     """
     store = ManualReportMemory(root / "live_audit_manual_reports")
-    with patch("mt5_manager.live_audit_manual_memory.backtest_range", return_value=covered):
+    with patch("mt5_manager.live_audit.live_audit_manual_memory.backtest_range", return_value=covered):
         store.remember(
             NODE, KEY, payload("run-12", [manual_artifact()]),
             {canonical_name(SOURCE).casefold(): HTML},
@@ -134,7 +134,7 @@ class ManualReportInheritanceTests(unittest.TestCase):
             state = {"audit": {"last_payload": payload("run-20", [artifact()])}}
             corrected = {"audit": {"last_payload": payload("run-20", [manual_artifact()])}}
             with patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
                 return_value=(200, corrected),
             ) as request:
                 fresh = live_audit_manual_inherit.reapply({"id": NODE}, NODE, store, state)
@@ -161,9 +161,9 @@ class ManualReportInheritanceTests(unittest.TestCase):
             state = {"audit": {"last_payload": payload("run-20", [artifact()])}}
             corrected = {"audit": {"last_payload": payload("run-20", [manual_artifact()])}}
             with patch(
-                "mt5_manager.live_audit_manual_memory.backtest_range", return_value=BACKTEST,
+                "mt5_manager.live_audit.live_audit_manual_memory.backtest_range", return_value=BACKTEST,
             ), patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
                 return_value=(200, corrected),
             ) as request:
                 fresh = live_audit_manual_inherit.reapply(
@@ -208,9 +208,9 @@ class ManualReportInheritanceTests(unittest.TestCase):
                 return answer(self, *args, **kwargs)
 
             with patch(
-                "mt5_manager.live_audit_manual_memory.backtest_range", return_value=BACKTEST,
+                "mt5_manager.live_audit.live_audit_manual_memory.backtest_range", return_value=BACKTEST,
             ), patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
                 return_value=(200, corrected),
             ), patch.object(Path, "is_file", counted):
                 fresh = live_audit_manual_inherit.reapply(
@@ -236,10 +236,10 @@ class ManualReportInheritanceTests(unittest.TestCase):
             store = ManualReportMemory(root / "manager-memory")
             state = {"audit": {"last_payload": payload("run-20", [artifact()], later)}}
             with patch(
-                "mt5_manager.live_audit_manual_memory.backtest_range",
+                "mt5_manager.live_audit.live_audit_manual_memory.backtest_range",
                 return_value=("2026-10-01", "2026-10-11"),
             ), patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
             ) as request:
                 self.assertIsNone(live_audit_manual_inherit.reapply(
                     {"portfolio_project_dir": str(root)}, NODE, store, state,
@@ -253,7 +253,7 @@ class ManualReportInheritanceTests(unittest.TestCase):
                 "run-20", [artifact(history_quality_pct=100.0)],
             )}}
             with patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
             ) as request:
                 self.assertIsNone(
                     live_audit_manual_inherit.reapply({"id": NODE}, NODE, store, state),
@@ -269,7 +269,7 @@ class ManualReportInheritanceTests(unittest.TestCase):
             state = {"audit": {"last_payload": payload("run-20", rows, later)}}
             corrected = {"audit": {"last_payload": payload("run-20", [manual_artifact()], later)}}
             with patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
                 return_value=(200, corrected),
             ) as request:
                 live_audit_manual_inherit.reapply({"id": NODE}, NODE, store, state)
@@ -283,7 +283,7 @@ class ManualReportInheritanceTests(unittest.TestCase):
             rows = [artifact()]
             state = {"audit": {"last_payload": payload("run-20", rows, other)}}
             with patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
             ) as request:
                 self.assertIsNone(
                     live_audit_manual_inherit.reapply({"id": NODE}, NODE, store, state),
@@ -296,7 +296,7 @@ class ManualReportInheritanceTests(unittest.TestCase):
             store = memory(Path(temp))
             state = {"audit": {"last_payload": payload("run-20", [artifact()])}}
             with patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
                 return_value=(400, {"error": "History Quality debe ser 100%"}),
             ) as request:
                 for _ in range(live_audit_manual_inherit.MAXIMUM_ATTEMPTS + 2):
@@ -319,7 +319,7 @@ class ManualReportInheritanceTests(unittest.TestCase):
             state = {"audit": {"last_payload": payload("run-20", rows)}}
             corrected = {"audit": {"last_payload": payload("run-20", [manual_artifact()])}}
             with patch.object(live_audit_manual_inherit, "MAXIMUM_TOTAL_BYTES", len(HTML)), patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
                 return_value=(200, corrected),
             ) as request:
                 live_audit_manual_inherit.reapply({"id": NODE}, NODE, store, state)
@@ -343,7 +343,7 @@ class ManualReportWiringTests(unittest.TestCase):
             state = {"audit": {"last_payload": analysed_payload([artifact()])}}
             corrected = {"audit": {"last_payload": analysed_payload([manual_artifact()])}}
             with patch(
-                "mt5_manager.live_audit_manual_inherit.manager_http.node_request",
+                "mt5_manager.live_audit.live_audit_manual_inherit.manager_http.node_request",
                 return_value=(200, corrected),
             ):
                 analysed = live_audit_executions.analysed_node_state(

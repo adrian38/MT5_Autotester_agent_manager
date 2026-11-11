@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .common import safe_int
+from ..common import safe_int
 
 DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS = {
     "enabled": False,

@@ -14,8 +14,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from mt5_manager.live_audit_attribution import import_pair_workbook
-from mt5_manager.live_audit_manual_pairs import (
+from mt5_manager.live_audit.live_audit_attribution import import_pair_workbook
+from mt5_manager.live_audit.live_audit_manual_pairs import (
     normalize_manual_pairs, tester_pair_key, unpaired_keys,
 )
 from tests.live_audit.test_live_audit_assignment import compare, operation

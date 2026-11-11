@@ -17,7 +17,7 @@ import unittest.mock
 from types import SimpleNamespace
 
 from mt5_manager.live_account import live_account_snapshot
-from mt5_manager.live_audit_engine import LiveAuditController
+from mt5_manager.live_audit.live_audit_engine import LiveAuditController
 
 LOGIN = "67315100"
 SERVER = "RoboForex-ECN"
@@ -64,7 +64,7 @@ class _FakeMt5:
 class TerminalConnectionWaitTests(unittest.TestCase):
     def _activate(self, mt5: _FakeMt5, clock: _Clock):
         patched = SimpleNamespace(monotonic=clock.monotonic, sleep=clock.sleep)
-        with unittest.mock.patch("mt5_manager.live_audit_terminals.time", patched):
+        with unittest.mock.patch("mt5_manager.live_audit.live_audit_terminals.time", patched):
             return LiveAuditController._activate_account(mt5, LOGIN, "secreto", SERVER, SETTLE)
 
     def test_the_account_asked_for_is_waited_for_until_it_reconnects(self) -> None:
@@ -142,7 +142,7 @@ class ConfirmedAccountWaitTests(unittest.TestCase):
             tester_login_settle_seconds=SETTLE,
         )
         request = {"source_login": LOGIN, "source_server": SERVER}
-        with unittest.mock.patch("mt5_manager.live_audit_terminals.time", self.patched):
+        with unittest.mock.patch("mt5_manager.live_audit.live_audit_terminals.time", self.patched):
             return LiveAuditController._confirmed_real_account(stub, mt5, request)
 
     def test_the_snapshot_waits_out_the_access_point_scan(self) -> None:

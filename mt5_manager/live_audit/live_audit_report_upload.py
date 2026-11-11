@@ -12,7 +12,7 @@ from typing import Any
 
 from portfolio_manager.mt5_report import parse_report
 
-from .common import utc_now
+from ..common import utc_now
 from .live_audit_core import RUNNING_STATUSES, _member_strategy_id, _metric_number, _trade_view
 
 

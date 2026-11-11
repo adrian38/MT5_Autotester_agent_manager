@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mt5_manager.live_audit_settings import (
+from mt5_manager.live_audit.live_audit_settings import (
     LiveAuditSettingsStore,
     normalize_live_audit_settings,
 )

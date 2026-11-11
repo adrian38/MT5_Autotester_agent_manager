@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mt5_manager.live_audit_engine import LiveAuditController
+from mt5_manager.live_audit.live_audit_engine import LiveAuditController
 from tests.helpers import ASYNC_TIMEOUT, wait_until
 
 

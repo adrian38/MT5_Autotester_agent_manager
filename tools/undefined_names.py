@@ -29,13 +29,13 @@ from tools.source_files import iter_python_files
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_STAR_IMPORTS = frozenset({
-    "mt5_manager/live_audit_comparison.py",
-    "mt5_manager/live_audit_engine.py",
-    "mt5_manager/live_audit_extraction.py",
-    "mt5_manager/live_audit_lifecycle.py",
-    "mt5_manager/live_audit_processes.py",
-    "mt5_manager/live_audit_terminals.py",
-    "mt5_manager/live_audit_tester.py",
+    "mt5_manager/live_audit/live_audit_comparison.py",
+    "mt5_manager/live_audit/live_audit_engine.py",
+    "mt5_manager/live_audit/live_audit_extraction.py",
+    "mt5_manager/live_audit/live_audit_lifecycle.py",
+    "mt5_manager/live_audit/live_audit_processes.py",
+    "mt5_manager/live_audit/live_audit_terminals.py",
+    "mt5_manager/live_audit/live_audit_tester.py",
 })
 ALWAYS_DEFINED = frozenset(dir(builtins)) | {
     "__name__", "__file__", "__doc__", "__package__", "__spec__", "__all__",

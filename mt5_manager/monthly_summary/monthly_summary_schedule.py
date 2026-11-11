@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from ..live_audit_schedule import (  # noqa: F401  (API de este módulo)
+from ..live_audit.live_audit_schedule import (  # noqa: F401  (API de este módulo)
     normalize_timezone, parse_timestamp, resolve_zone,
 )
 

@@ -69,7 +69,7 @@ from ..guided_controller import GuidedControllerMixin
 from .. import guided_batches
 
 from ..common import json_bytes, load_json, safe_int, save_json, utc_now
-from ..live_audit_engine import LiveAuditController
+from ..live_audit.live_audit_engine import LiveAuditController
 from ..portfolio_service import PortfolioSource, normalize_portfolio_alias, save_portfolio_payload
 from ..portfolio_scope import normalize_portfolio_scope
 

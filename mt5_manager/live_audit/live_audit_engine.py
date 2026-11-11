@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .live_audit_core import *  # noqa: F403
-from .live_account.live_account_snapshot import RUNNING_SNAPSHOT_STATUSES, _AccountSnapshotMixin
+from ..live_account.live_account_snapshot import RUNNING_SNAPSHOT_STATUSES, _AccountSnapshotMixin
 from .live_audit_comparison import _ComparisonMixin
 from .live_audit_extraction import _ExtractionMixin
 from .live_audit_lifecycle import _LifecycleMixin

@@ -26,8 +26,8 @@ from mt5_manager.live_account import (
 )
 from mt5_manager.live_account.live_account_archive import LiveAccountArchive, account_key
 from mt5_manager.live_account.live_account_schedule import normalize_live_account_scheduler_settings
-from mt5_manager.live_audit_notifications import LiveAuditNotificationStore
-from mt5_manager.live_audit_watch import LiveAuditRunState
+from mt5_manager.live_audit.live_audit_notifications import LiveAuditNotificationStore
+from mt5_manager.live_audit.live_audit_watch import LiveAuditRunState
 
 REPORT = b"<html>informe</html>"
 SHA = hashlib.sha256(REPORT).hexdigest()

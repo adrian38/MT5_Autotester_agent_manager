@@ -199,7 +199,7 @@ antes de escribir `runner.log` o construir un error. También sanea los `.log` y
 secreto en tres ficheros (`runner.log`, `logs/last_run.log` y el log fechado).
 
 El proceso que ejecuta estas reglas es la copia embebida
-`manager_node_runtime/live_audit.py`, no `mt5_manager/live_audit_engine.py`.
+`manager_node_runtime/live_audit.py`, no `mt5_manager/live_audit/live_audit_engine.py`.
 La aparente contradicción de alcance se resolvió a favor de la regla específica
 de la rama de broker y de la confirmación expresa del usuario: la copia IC de
 este equipo es escribible. El motor se portó a IC, se reinició la aplicación y
@@ -315,7 +315,7 @@ ejecución real `20260821_021042_643587` verificó este camino con `MT5_IC_2`:
 
 La implementación que crea y sirve estos archivos se ejecuta en el agente IC:
 `manager_node_runtime/live_audit.py` y `manager_node_runtime/node.py`. Las
-copias `mt5_manager/live_audit_engine.py` y `mt5_manager/node/node.py` se mantienen
+copias `mt5_manager/live_audit/live_audit_engine.py` y `mt5_manager/node/node.py` se mantienen
 como referencia y paridad, pero no son el proceso broker.
 ## El terminal se queda en la cuenta de pruebas (2026-08-21)
 
@@ -1155,7 +1155,7 @@ las falla a propósito hasta que el usuario porte el commit.
 
 Hasta aquí el nodo hacía las dos cosas y el manager era un proxy literal:
 `node_request(...)` seguido de `self._send_json(status, value)`. El motor
-`mt5_manager/live_audit_engine.py` solo lo importaba `mt5_manager/node/node.py`, el
+`mt5_manager/live_audit/live_audit_engine.py` solo lo importaba `mt5_manager/node/node.py`, el
 nodo señuelo; nunca se ejecutaba. Lo que la pantalla mostraba era el veredicto
 que ya venía calculado del agente.
 
@@ -1174,7 +1174,7 @@ Reparto nuevo:
 | Dónde | Qué |
 | --- | --- |
 | Nodo | Pausar el pipeline, extraer el historial con la API MT5, ejecutar el Strategy Tester, exportar los informes nativos, restaurar las cuentas. Publica `last_payload`. |
-| Manager | Filtro de pertenencia, puerta de History Quality, tolerancias, comparación y veredicto, en `mt5_manager/live_audit_analysis.py`. |
+| Manager | Filtro de pertenencia, puerta de History Quality, tolerancias, comparación y veredicto, en `mt5_manager/live_audit/live_audit_analysis.py`. |
 
 `last_payload` lleva lo observado: `real_trades` **sin filtrar**, `tester_trades`,
 `symbol_points`, `strategies`, `qualities`, `strategy_artifacts`, posiciones
@@ -1431,7 +1431,7 @@ Lo que sí pierde algo:
 
 La última tabla de Análisis compara lo que cada estrategia hizo en la demo
 durante el periodo con su backtest guardado en la memoria UBS del agente.
-`mt5_manager/live_audit_degradation.py` tiene el criterio;
+`mt5_manager/live_audit/live_audit_degradation.py` tiene el criterio;
 `GET /api/nodes/<nodo>/live-audits/<uso>/strategy-history` lo sirve.
 
 **Es sólo del manager.** `/api/v1/portfolios` lo sirve el runtime bifurcado del

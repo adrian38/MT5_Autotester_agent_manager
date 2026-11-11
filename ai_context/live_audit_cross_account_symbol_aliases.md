@@ -30,5 +30,5 @@ Reanalizar la materia prima de esa ejecución con este contrato da 60 cierres de
 portfolio, 56 parejas, 38 dentro de todas las tolerancias, 25 discrepancias y
 ninguna estrategia detenida. No hace falta repetir Strategy Tester.
 
-El criterio vive en `mt5_manager/live_audit_analysis.py`; no se porta al runtime
+El criterio vive en `mt5_manager/live_audit/live_audit_analysis.py`; no se porta al runtime
 de AXI porque el nodo publica hechos y el manager juzga.

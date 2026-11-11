@@ -25,16 +25,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from mt5_manager.live_audit_analysis import analyze, portfolio_lot_bands
-from mt5_manager.live_audit_autolot import expected_volume
-from mt5_manager.live_audit_lot_schedule import (
+from mt5_manager.live_audit.live_audit_analysis import analyze, portfolio_lot_bands
+from mt5_manager.live_audit.live_audit_autolot import expected_volume
+from mt5_manager.live_audit.live_audit_lot_schedule import (
     MAX_SCHEDULED_STEPS,
     normalize_lot_schedule,
     scheduled_lot,
     scheduled_lots,
     scheduled_steps,
 )
-from mt5_manager.live_audit_settings import LiveAuditSettingsStore
+from mt5_manager.live_audit.live_audit_settings import LiveAuditSettingsStore
 from mt5_manager.manager.manager_live_audit_routes import handle_post
 from tests.live_audit.test_live_audit_analysis import profile
 from tests.live_audit.test_live_audit_settings import profile as stored_profile

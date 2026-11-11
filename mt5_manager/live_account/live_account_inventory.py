@@ -27,7 +27,7 @@ from typing import Any
 
 from ..common import safe_int
 from .live_account_archive import account_key
-from ..live_audit_watch import live_audit_ids
+from ..live_audit.live_audit_watch import live_audit_ids
 
 REQUIRED_PROFILE_FIELDS = ("source_login", "source_server")
 

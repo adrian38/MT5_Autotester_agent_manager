@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from mt5_manager.live_audit_core import MT5_MAX_PATH, audit_set_name
+from mt5_manager.live_audit.live_audit_core import MT5_MAX_PATH, audit_set_name
 
 _DEEP_WORK = Path(
     r"C:\Users\Adrian\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent"

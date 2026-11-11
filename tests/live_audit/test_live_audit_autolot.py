@@ -6,9 +6,9 @@ import unittest
 import zipfile
 from datetime import datetime, timezone
 
-from mt5_manager.live_audit_analysis import analyze
-from mt5_manager.live_audit_autolot import balance_history_from_html, import_workbook
-from mt5_manager.live_audit_settings_schema import normalize_live_audit_settings
+from mt5_manager.live_audit.live_audit_analysis import analyze
+from mt5_manager.live_audit.live_audit_autolot import balance_history_from_html, import_workbook
+from mt5_manager.live_audit.live_audit_settings_schema import normalize_live_audit_settings
 
 
 STRATEGY = "ROBOFOREX/ECN:autolot"

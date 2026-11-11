@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.live_audit_report_upload import replace_tester_reports
+from mt5_manager.live_audit.live_audit_report_upload import replace_tester_reports
 from mt5_manager.manager.manager_live_audit_routes import _handle_manual_reports
 from tests.live_audit.test_live_audit_analysis import payload as analysis_payload, profile
 
@@ -72,7 +72,7 @@ def body(filename=EXPECTED):
 class ManualAuditReportTests(unittest.TestCase):
     def test_a_100_pct_report_replaces_the_strategy_and_invalidates_the_old_verdict(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch(
-            "mt5_manager.live_audit_report_upload.parse_report", return_value=report(),
+            "mt5_manager.live_audit.live_audit_report_upload.parse_report", return_value=report(),
         ):
             controller = Controller(Path(temp))
             state = replace_tester_reports(controller, "audit-105", body())
@@ -95,7 +95,7 @@ class ManualAuditReportTests(unittest.TestCase):
 
     def test_a_report_below_100_pct_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp, patch(
-            "mt5_manager.live_audit_report_upload.parse_report", return_value=report("99% real ticks"),
+            "mt5_manager.live_audit.live_audit_report_upload.parse_report", return_value=report("99% real ticks"),
         ):
             controller = Controller(Path(temp))
             with self.assertRaisesRegex(ValueError, "debe ser 100%"):

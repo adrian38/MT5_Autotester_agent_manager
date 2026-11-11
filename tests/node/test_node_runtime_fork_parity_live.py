@@ -8,13 +8,13 @@ try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
         fork_live_account_source, fork_live_audit_source, fork_node_source,
-        manager_node_source, module_source,
+        domain_sources, manager_node_source, module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
         fork_live_account_source, fork_live_audit_source, fork_node_source,
-        manager_node_source, module_source,
+        domain_sources, manager_node_source, module_source,
     )
 
 
@@ -176,11 +176,13 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
 
     @staticmethod
     def _manager_auditor_source() -> str:
-        engine_dir = MANAGER_ROOT / "mt5_manager"
-        return "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in sorted(engine_dir.glob("live_audit_*.py"))
-        )
+        """El auditor del manager entero, sea cual sea su carpeta.
+
+        Era un `glob("live_audit_*.py")` sobre la raiz del paquete, que al
+        bajar el dominio a `mt5_manager/live_audit/` devolvio cero
+        ficheros. `domain_sources` recorre el paquete entero.
+        """
+        return domain_sources("live_audit")
 
     def _assert_manager_auditor_restore_contract(self) -> None:
         manager_engine = self._manager_auditor_source()
@@ -228,7 +230,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                 source,
                 re.escape(token),
                 f"{project}: falta {hint} (`{token}`) en manager_node_runtime/live_audit.py. "
-                "Portar el cambio desde mt5_manager/live_audit_engine.py: sin él el "
+                "Portar el cambio desde mt5_manager/live_audit/live_audit_engine.py: sin él el "
                 "terminal se queda en la cuenta real y el siguiente backtest del "
                 "pipeline no usa la cuenta demo de pruebas.",
             )
@@ -293,7 +295,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                 fork_live_audit_source(project), re.escape(audit_token),
                 f"{project}: la auditoría sigue decidiendo con una sola lectura de "
                 "`connected`. Portar el reasentamiento desde "
-                "mt5_manager/live_audit_extraction.py.",
+                "mt5_manager/live_audit/live_audit_extraction.py.",
             )
             for token in snapshot_tokens:
                 self._assert_present(
@@ -371,8 +373,8 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                 self._assert_present(
                     source, re.escape(token),
                     f"{project}: falta `{token}` en el auditor real. Portar la "
-                    "publicación de SL/TP desde mt5_manager/live_audit_extraction.py "
-                    "y mt5_manager/live_audit_tester.py, y duplicar la prueba en "
+                    "publicación de SL/TP desde mt5_manager/live_audit/live_audit_extraction.py "
+                    "y mt5_manager/live_audit/live_audit_tester.py, y duplicar la prueba en "
                     "tests/test_manager_node_live_audit.py.",
                 )
 
@@ -402,7 +404,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                     source, re.escape(token),
                     f"{project}: falta `{token}` en el auditor real. Portar "
                     "`_contrasted_with_native_report` desde "
-                    "mt5_manager/live_audit_extraction.py y duplicar la prueba en "
+                    "mt5_manager/live_audit/live_audit_extraction.py y duplicar la prueba en "
                     "tests/test_manager_node_live_audit.py.",
                 )
             parser = project / "portfolio_manager" / "mt5_account_history.py"
@@ -436,9 +438,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         self._assert_on_every_fork(check, "piso de precio con prefijo de broker")
 
     def test_a_ported_fork_publishes_raw_material_instead_of_a_verdict(self) -> None:
-        analysis = (MANAGER_ROOT / "mt5_manager" / "live_audit_analysis.py").read_text(
-            encoding="utf-8",
-        )
+        analysis = module_source("live_audit_analysis")
         for token in ("def analyze", "def analyse_node_state", "def has_raw_material"):
             self.assertIn(token, analysis, f"El manager perdió `{token}`.")
         ported: list[Path] = []

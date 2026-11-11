@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from .common import safe_int
+from ..common import safe_int
 from .live_audit_archive import composite
 from .live_audit_core import _member_set_name, _member_strategy_id
 from .live_audit_schedule import parse_timestamp

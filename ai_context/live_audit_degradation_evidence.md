@@ -58,7 +58,7 @@ operaciones no hay nada que concluir.
 con `DEGRADA`, así que el aviso al móvil pasa a significar lo que decía que
 significaba.
 
-Dónde está: `mt5_manager/live_audit_degradation_evidence.py`. Lo aplica
+Dónde está: `mt5_manager/live_audit/live_audit_degradation_evidence.py`. Lo aplica
 `manager_live_audit_reports.degradation_report`, que es el único sitio donde
 están todas las estrategias comparadas a la vez; `live_audit_degradation.compare`
 sigue dando el veredicto **provisional** por sigmas y no sabe nada de esto.

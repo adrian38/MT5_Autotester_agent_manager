@@ -23,11 +23,11 @@ from pathlib import Path
 
 try:
     from .node_runtime_parity_base import (
-        FORK_CANDIDATES, MANAGER_ROOT, fork_live_audit_source,
+        FORK_CANDIDATES, MANAGER_ROOT, fork_live_audit_source, module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
-        FORK_CANDIDATES, MANAGER_ROOT, fork_live_audit_source,
+        FORK_CANDIDATES, MANAGER_ROOT, fork_live_audit_source, module_source,
     )
 
 _BODY = re.compile(
@@ -53,7 +53,7 @@ class TradeViewParityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.manager = published_fields(
-            (MANAGER_ROOT / "mt5_manager" / "live_audit_core.py").read_text(encoding="utf-8")
+            module_source("live_audit_core")
         )
         cls.forks = [
             (project, fork_live_audit_source(project))

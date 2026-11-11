@@ -24,8 +24,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_audit_degradation_evidence as evidence
-from mt5_manager.live_audit_degradation import DEGRADED_SIGMA, StrategyHistory
+from mt5_manager.live_audit import live_audit_degradation_evidence as evidence
+from mt5_manager.live_audit.live_audit_degradation import DEGRADED_SIGMA, StrategyHistory
 
 # Lo medido de `AXI/STANDARD:10751` el 2026-10-20.
 AXI_SIGMAS = -2.1249

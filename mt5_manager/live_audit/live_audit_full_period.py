@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Callable
 
 from . import live_audit_executions, live_audit_lineage, live_audit_schedule
-from .common import safe_int
+from ..common import safe_int
 
 
 def completion_changes(record: dict[str, Any], outcome: str) -> dict[str, Any]:

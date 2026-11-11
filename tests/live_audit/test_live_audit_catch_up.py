@@ -11,9 +11,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_audit_watch
+from mt5_manager.live_audit import live_audit_watch
 from mt5_manager.manager import manager_schedule_routes
-from mt5_manager.live_audit_watch import LiveAuditRunState
+from mt5_manager.live_audit.live_audit_watch import LiveAuditRunState
 from tests.live_audit.live_audit_cron_base import FakeServer, audit_state, published_audit
 
 
@@ -39,7 +39,7 @@ class CatchUpTests(unittest.TestCase):
         server.live_audit_wakeup = threading.Event()
         handler = CatchUpHandler(server)
         parsed = type("Parsed", (), {"path": manager_schedule_routes.CATCH_UP_PATH})()
-        with mock.patch("mt5_manager.live_audit_catch_up.datetime") as clock:
+        with mock.patch("mt5_manager.live_audit.live_audit_catch_up.datetime") as clock:
             clock.now.return_value = self.now
             clock.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
             handled = manager_schedule_routes.handle_post(handler, parsed, [])

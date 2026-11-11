@@ -19,7 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager import live_audit_degradation as degradation
+from mt5_manager.live_audit import live_audit_degradation as degradation
 
 
 def trade(profit: float, day: int) -> SimpleNamespace:

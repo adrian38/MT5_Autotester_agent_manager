@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from .common import load_json, save_json, utc_now
+from ..common import load_json, save_json, utc_now
 from .live_audit_attribution import (
     empty_attribution,
     merge_attribution,

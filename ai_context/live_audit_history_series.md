@@ -20,7 +20,7 @@ la primera vez que la ve, antes de que la siguiente la sustituya.
 
 ## Dónde vive
 
-`mt5_manager/live_audit_archive.py`, bajo `runtime/live_audit_history/<nodo>/`:
+`mt5_manager/live_audit/live_audit_archive.py`, bajo `runtime/live_audit_history/<nodo>/`:
 un `index.json` por nodo y un fichero por ejecución. El índice lleva los
 metadatos —uso, ejecución, portafolio, periodo, estado— y **la lista de
 estrategias** de esa ejecución; el fichero, la comparación entera.
@@ -67,7 +67,7 @@ mantienen». Compartir un candidato no es parentesco —dos portafolios
 independientes pueden llevar el mismo— y una estrategia que la reparación dejó
 fuera no puede seguir contando.
 
-Los dos candados viven en `mt5_manager/live_audit_lineage.py`:
+Los dos candados viven en `mt5_manager/live_audit/live_audit_lineage.py`:
 
 - **Genealogía.** `ancestor_portfolio_ids` lee la que el guardado ya dejaba
   escrita en `metrics`: `repair_source_portfolio_id` (reparación),

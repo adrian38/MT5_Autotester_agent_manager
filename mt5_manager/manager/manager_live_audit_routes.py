@@ -13,8 +13,8 @@ import urllib.error
 import urllib.parse
 from typing import Any
 
-from .. import live_audit_attribution, live_audit_autolot, live_audit_comment_links
-from .. import live_audit_degradation_alerts, live_audit_executions, live_audit_manual_memory
+from ..live_audit import live_audit_attribution, live_audit_autolot, live_audit_comment_links
+from ..live_audit import live_audit_degradation_alerts, live_audit_executions, live_audit_manual_memory
 from . import manager_http
 from ..common import safe_int
 # Lo que deriva de una ejecución guardada vive en su propio módulo desde que

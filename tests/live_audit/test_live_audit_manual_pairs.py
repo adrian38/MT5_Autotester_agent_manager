@@ -18,8 +18,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from mt5_manager.live_audit_analysis import analyze
-from mt5_manager.live_audit_manual_pairs import (
+from mt5_manager.live_audit.live_audit_analysis import analyze
+from mt5_manager.live_audit.live_audit_manual_pairs import (
     MAX_MANUAL_PAIRS,
     forced_assignment,
     normalize_manual_pairs,
@@ -27,7 +27,7 @@ from mt5_manager.live_audit_manual_pairs import (
     rescued_position_ids,
     tester_pair_key,
 )
-from mt5_manager.live_audit_settings import LiveAuditSettingsStore
+from mt5_manager.live_audit.live_audit_settings import LiveAuditSettingsStore
 from mt5_manager.manager.manager_live_audit_routes import handle_post
 from tests.live_audit.test_live_audit_analysis import payload, profile
 from tests.live_audit.test_live_audit_settings import profile as stored_profile

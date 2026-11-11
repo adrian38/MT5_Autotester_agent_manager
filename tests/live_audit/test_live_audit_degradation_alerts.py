@@ -22,9 +22,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_audit_degradation_alerts, live_audit_watch
-from mt5_manager.live_audit_archive import LiveAuditArchive
-from mt5_manager.live_audit_watch import LiveAuditRunState
+from mt5_manager.live_audit import live_audit_degradation_alerts, live_audit_watch
+from mt5_manager.live_audit.live_audit_archive import LiveAuditArchive
+from mt5_manager.live_audit.live_audit_watch import LiveAuditRunState
 from tests.live_audit.live_audit_cron_base import FakeServer, audit_state
 
 LABEL = "AXI/STANDARD"
@@ -321,7 +321,7 @@ class DegradationInTheWatchTests(unittest.TestCase):
         }
         with mock.patch.object(
             live_audit_degradation_alerts, "review",
-        ) as review, mock.patch("mt5_manager.live_audit_executions.archive_execution"):
+        ) as review, mock.patch("mt5_manager.live_audit.live_audit_executions.archive_execution"):
             live_audit_watch.record_transitions(
                 server, {"id": "n", "name": "Nodo N"}, "n", audit_state(), audits,
             )

@@ -26,7 +26,7 @@ vía: hay una por copia del código.
 
 | Copia | Función | Qué hace |
 | --- | --- | --- |
-| `mt5_manager/live_audit_tester.py` | `_prepare_tester_sets` | El criterio del manager. No lo ejecuta ningún agente. |
+| `mt5_manager/live_audit/live_audit_tester.py` | `_prepare_tester_sets` | El criterio del manager. No lo ejecuta ningún agente. |
 | `manager_node_runtime/live_audit_tester.py` de cada agente | `_prepare_member_set` | El que de verdad escribe el set que MT5 abre. |
 
 Las dos usan `self._set_value(text, *AUDIT_EVERY_TICK)`, que conserva el resto

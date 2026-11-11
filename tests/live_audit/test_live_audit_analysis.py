@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from mt5_manager.live_audit_analysis import (
+from mt5_manager.live_audit.live_audit_analysis import (
     PayloadError, analyze, portfolio_lot_bands, strategy_set_names,
     tester_trades_in_window,
 )

@@ -10,9 +10,9 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from mt5_manager.live_audit_notifications import LiveAuditNotificationStore
-from mt5_manager.live_audit_schedule import normalize_live_audit_scheduler_settings
-from mt5_manager.live_audit_watch import LiveAuditRunState
+from mt5_manager.live_audit.live_audit_notifications import LiveAuditNotificationStore
+from mt5_manager.live_audit.live_audit_schedule import normalize_live_audit_scheduler_settings
+from mt5_manager.live_audit.live_audit_watch import LiveAuditRunState
 
 
 def settings(**changes: object) -> dict[str, object]:

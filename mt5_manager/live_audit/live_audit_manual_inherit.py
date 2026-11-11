@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from . import live_audit_manual_memory as manual_memory
-from .manager import manager_http
+from ..manager import manager_http
 
 MINIMUM_QUALITY = 99.995
 """El mismo umbral que exige el nodo para aceptar un reporte manual."""

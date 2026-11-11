@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from mt5_manager.live_audit_degradation import (
+from mt5_manager.live_audit.live_audit_degradation import (
     MINIMUM_TRADES, REFERENCE_LOT, StrategyHistory, compare, expected_trades,
     history_from_metrics, observed_per_lot, read_histories, split_candidate_id,
 )

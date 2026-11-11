@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_account import live_account_snapshot
-from mt5_manager.live_audit_engine import LiveAuditController
+from mt5_manager.live_audit.live_audit_engine import LiveAuditController
 from tests.helpers import ASYNC_TIMEOUT, wait_until
 from tests.live_audit.live_audit_engine_base import FakeOwner
 

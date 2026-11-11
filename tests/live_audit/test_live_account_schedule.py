@@ -179,7 +179,7 @@ class LabelTests(unittest.TestCase):
 
 class SharedPolicyTests(unittest.TestCase):
     def test_the_retry_policy_is_the_one_of_the_audit_cron(self) -> None:
-        from mt5_manager import live_audit_schedule
+        from mt5_manager.live_audit import live_audit_schedule
 
         self.assertIs(schedule.due_decision, live_audit_schedule.due_decision)
         record = {"window": "w", "outcome": "failed", "attempts": 1,

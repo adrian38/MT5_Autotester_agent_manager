@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..common import safe_int
-from ..live_audit_schedule import (  # noqa: F401  (reexportado: manager.py lo importa de aqui)
+from ..live_audit.live_audit_schedule import (  # noqa: F401  (reexportado: manager.py lo importa de aqui)
     DEFAULT_LIVE_AUDIT_SCHEDULER_SETTINGS,
     normalize_live_audit_scheduler_settings,
 )

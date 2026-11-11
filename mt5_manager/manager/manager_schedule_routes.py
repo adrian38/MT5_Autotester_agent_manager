@@ -12,8 +12,8 @@ import urllib.error
 import urllib.parse
 from typing import Any
 
-from .. import live_audit_activity, live_audit_executions, live_audit_history
-from .. import live_audit_lineage, live_audit_watch
+from ..live_audit import live_audit_activity, live_audit_executions, live_audit_history
+from ..live_audit import live_audit_lineage, live_audit_watch
 from . import manager_http
 from . import manager_live_audit_routes
 from ..common import safe_int
