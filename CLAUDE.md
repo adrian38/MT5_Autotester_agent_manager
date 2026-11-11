@@ -86,6 +86,11 @@ El parámetro obligatorio dentro del JSON es `repo_path`, no `project`. Pasar
 `project` devuelve el mismo mensaje de crash en lugar de un error de validación,
 y hace perder el diagnóstico.
 
+Tres formas más que **no** funcionan y responden lo mismo —`repo_path is
+required`, que parece que falte el parámetro—: `--repo-path`, `--repo_path` y el
+JSON con la ruta en barras invertidas escapadas
+(`"C:\\Users\\13199\\..."`). La ruta va en barras normales, como arriba.
+
 ## Fallo 2: el servidor se queda en «connecting»
 
 Si no aparece ninguna de sus herramientas, **no** es el índice: la 0.10.8 se
