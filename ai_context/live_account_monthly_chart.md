@@ -8,7 +8,7 @@ La tarjeta de la portada enseña hoy, este mes y el anterior. El botón «Mes a
 mes» abre el resto: una barra de beneficio y una de drawdown por cada mes de la
 cuenta, desde su primer cierre.
 
-- El criterio y los números: `mt5_manager/live_account_monthly.py`.
+- El criterio y los números: `mt5_manager/live_account/live_account_monthly.py`.
 - La ruta: `GET /api/live-accounts/<nodo>/<cuenta>/monthly`, en
   `manager_account_routes`. **No** entra en `/api/live-accounts`: son todos los
   movimientos de la vida de la cuenta y la portada se repinta cada minuto.

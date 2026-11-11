@@ -15,8 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_account_monthly, manager_account_routes
-from mt5_manager.live_account_archive import LiveAccountArchive, account_key
+from mt5_manager.live_account import live_account_monthly
+from mt5_manager import manager_account_routes
+from mt5_manager.live_account.live_account_archive import LiveAccountArchive, account_key
 
 NOW = datetime(2026, 10, 23, 12, tzinfo=timezone.utc)
 KEY = account_key("77028839", "RoboForex-ECN")

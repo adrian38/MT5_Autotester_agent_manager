@@ -49,7 +49,7 @@ import math
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from .live_audit_autolot import executable_lot
+from ..live_audit_autolot import executable_lot
 
 LOT_BASIS = "autolot_mean_balance"
 """Cómo se eligió el lote de ese mes. Lo guarda la promesa y lo dice la tarjeta."""

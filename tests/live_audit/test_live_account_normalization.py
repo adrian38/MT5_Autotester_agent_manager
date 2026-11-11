@@ -15,11 +15,11 @@ from types import SimpleNamespace
 from unittest import mock
 
 from portfolio_manager.mt5_report import RawDeal
-from mt5_manager import (
+from mt5_manager.live_account import (
     live_account_expectation, live_account_ingest, live_account_inventory,
     live_account_presentation, live_account_report, live_account_watch,
 )
-from mt5_manager.live_account_archive import LiveAccountArchive
+from mt5_manager.live_account.live_account_archive import LiveAccountArchive
 
 # Medido el 2026-10-24 sobre `audit-67-muzhv8jq-1` de AXI, el uso de la cuenta
 # 10010194: el tester corrió BTCUSD a 0,03 y la cuenta lo ejecutó a 0,10; en

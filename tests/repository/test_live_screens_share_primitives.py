@@ -114,18 +114,21 @@ class AccountPerformanceTests(unittest.TestCase):
                     self.assertNotIn(call, source)
 
     def test_both_screens_read_the_series_through_the_primitive(self) -> None:
-        # El numero de puntos lo decide el subpaquete en el que vive la pantalla
-        # —`.` desde la raiz del paquete, `..` desde un dominio—, asi que el
-        # criterio no puede mirarlo: lo que se exige es de donde importa.
+        # El prefijo relativo lo decide donde vive cada pantalla: `.` para la
+        # vecina del dominio `live_account`, `..live_account.` para el resumen
+        # mensual. El criterio es de que modulo importa, no a que profundidad
+        # esta el fichero, asi que el prefijo no se compara.
         for name, source in self.sources.items():
             with self.subTest(screen=name):
-                self.assertRegex(source, r"from \.+live_account_performance import")
+                self.assertRegex(
+                    source, r"from \.+(?:live_account\.)?live_account_performance import",
+                )
                 self.assertIn("account_series(stored)", source)
                 self.assertIn("monthly_performance(", source)
 
     def test_the_same_function_object_reaches_both_screens(self) -> None:
         """El texto no basta: dos imports del mismo nombre pueden ser dos cosas."""
-        from mt5_manager import live_account_dashboard
+        from mt5_manager.live_account import live_account_dashboard
         from mt5_manager.monthly_summary import monthly_summary_build
 
         self.assertIs(

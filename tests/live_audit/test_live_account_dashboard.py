@@ -20,8 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_account_dashboard
-from mt5_manager.live_account_archive import account_key
+from mt5_manager.live_account import live_account_dashboard
+from mt5_manager.live_account.live_account_archive import account_key
 from tests.live_audit.test_live_account_cron import NOW, FakeServer, node_state
 
 

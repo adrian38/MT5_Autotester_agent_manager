@@ -16,7 +16,7 @@ import unittest
 import unittest.mock
 from types import SimpleNamespace
 
-from mt5_manager import live_account_snapshot
+from mt5_manager.live_account import live_account_snapshot
 from mt5_manager.live_audit_engine import LiveAuditController
 
 LOGIN = "67315100"
@@ -133,7 +133,7 @@ class ConfirmedAccountWaitTests(unittest.TestCase):
 
     def _confirm_snapshot(self, mt5: _FakeMt5):
         account = {"login": LOGIN, "server": SERVER}
-        with unittest.mock.patch("mt5_manager.live_account_snapshot.time", self.patched):
+        with unittest.mock.patch("mt5_manager.live_account.live_account_snapshot.time", self.patched):
             return live_account_snapshot._confirmed_account(mt5, account, SETTLE)
 
     def _confirm_audit(self, mt5: _FakeMt5):

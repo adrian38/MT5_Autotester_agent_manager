@@ -14,10 +14,12 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import (
         MANAGER_ROOT, NodeRuntimeForkParityBase, fork_live_account_source,
+        module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
         MANAGER_ROOT, NodeRuntimeForkParityBase, fork_live_account_source,
+        module_source,
     )
 
 
@@ -37,9 +39,7 @@ class AccountSnapshotForkParityTests(NodeRuntimeForkParityBase):
             "history_empty_after_sync",
             "mt5.history_deals_get(end - timedelta(days=DEFAULT_HISTORY_DAYS), end)",
         )
-        manager_snapshot = (MANAGER_ROOT / "mt5_manager" / "live_account_snapshot.py").read_text(
-            encoding="utf-8",
-        )
+        manager_snapshot = module_source("live_account_snapshot")
         for token in tokens:
             self.assertIn(token, manager_snapshot, f"El manager perdió `{token}`.")
 
@@ -49,7 +49,7 @@ class AccountSnapshotForkParityTests(NodeRuntimeForkParityBase):
                     fork_live_account_source(project), re.escape(token),
                     f"{project}: el sondeo de cuentas sigue publicando una lectura "
                     "cuyo historial no llegó a bajar. Portar `_require_loaded_history` "
-                    "desde mt5_manager/live_account_snapshot.py.",
+                    "desde mt5_manager/live_account/live_account_snapshot.py.",
                 )
 
         self._assert_on_every_fork(check, "no publicar una lectura sin historial")

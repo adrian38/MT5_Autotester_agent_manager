@@ -8,13 +8,13 @@ try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
         fork_live_account_source, fork_live_audit_source, fork_node_source,
-        manager_node_source,
+        manager_node_source, module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
         fork_live_account_source, fork_live_audit_source, fork_node_source,
-        manager_node_source,
+        manager_node_source, module_source,
     )
 
 
@@ -284,9 +284,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
         audit_token = "_login, _server, connected = self._settled_account("
         snapshot_tokens = ("def _settled_connection", "if not _settled_connection(mt5, ")
         self.assertIn(audit_token, self._manager_auditor_source(), "El manager lo perdió.")
-        manager_snapshot = (MANAGER_ROOT / "mt5_manager" / "live_account_snapshot.py").read_text(
-            encoding="utf-8",
-        )
+        manager_snapshot = module_source("live_account_snapshot")
         for token in snapshot_tokens:
             self.assertIn(token, manager_snapshot, f"El manager perdió `{token}`.")
 
@@ -302,7 +300,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                     fork_live_account_source(project), re.escape(token),
                     f"{project}: el sondeo de cuentas sigue decidiendo con una sola "
                     "lectura de `connected`. Portar `_settled_connection` desde "
-                    "mt5_manager/live_account_snapshot.py.",
+                    "mt5_manager/live_account/live_account_snapshot.py.",
                 )
 
         self._assert_on_every_fork(check, "reasentar la conexión antes de darla por perdida")

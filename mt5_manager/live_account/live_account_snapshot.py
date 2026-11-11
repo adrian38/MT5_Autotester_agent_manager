@@ -41,7 +41,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .common import load_json, save_json, utc_now
+from ..common import load_json, save_json, utc_now
 
 RUNNING_SNAPSHOT_STATUSES = frozenset({
     "queued", "pausing", "extracting", "finalizing", "resuming",

@@ -63,7 +63,7 @@ agente, y cuyo `ubs.mt5_symbol_extract` aparece en
 ## `assets/` no son recursos de la interfaz
 
 Se llama así, pero dentro hay `<broker>_assets.ini`: universo y grupos de cada
-broker, que lee `mt5_manager/experiment_service.py` y que la imagen copia
+broker, que lee `mt5_manager/experiment/experiment_service.py` y que la imagen copia
 explícitamente (`COPY assets ./assets` en el `Dockerfile`). Es **dato de
 producción**, no estáticos. Los estáticos de la interfaz están en
 `mt5_manager/static/`.

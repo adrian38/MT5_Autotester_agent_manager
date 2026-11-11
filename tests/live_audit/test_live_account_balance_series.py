@@ -20,7 +20,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from portfolio_manager.mt5_report import RawDeal
-from mt5_manager.live_account_report import daily_balances
+from mt5_manager.live_account.live_account_report import daily_balances
 
 
 def deal(stamp: Any, balance: float) -> RawDeal:

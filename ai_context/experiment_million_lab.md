@@ -15,9 +15,9 @@ más abajo) y porque un experimento no puede poder romper una generación.
 
 | Fichero | Papel |
 | --- | --- |
-| `mt5_manager/experiment_lab.py` | Motor puro: ventana, pool cruzado, simulación, búsqueda, veredicto. Sin E/S. |
-| `mt5_manager/experiment_service.py` | `ExperimentCoordinator`: lee memorias, margen del destino, hilo, log, último resultado. |
-| `mt5_manager/experiment_routes.py` | `handle_get`/`handle_post`. Devuelven `True` si ya contestaron. |
+| `mt5_manager/experiment/experiment_lab.py` | Motor puro: ventana, pool cruzado, simulación, búsqueda, veredicto. Sin E/S. |
+| `mt5_manager/experiment/experiment_service.py` | `ExperimentCoordinator`: lee memorias, margen del destino, hilo, log, último resultado. |
+| `mt5_manager/experiment/experiment_routes.py` | `handle_get`/`handle_post`. Devuelven `True` si ya contestaron. |
 | `mt5_manager/static/experiment.{html,css,js}` | La pantalla. |
 | `tests/manager/test_experiment_lab.py` | Reglas del motor. |
 | `tests/manager/test_experiment_routes.py` | Enchufe al manager, en las dos direcciones. |

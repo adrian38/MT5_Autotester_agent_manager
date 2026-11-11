@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_account_schedule as schedule
+from mt5_manager.live_account import live_account_schedule as schedule
 
 SETTINGS = dict(schedule.DEFAULT_LIVE_ACCOUNT_SCHEDULER_SETTINGS)
 

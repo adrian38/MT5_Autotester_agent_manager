@@ -8,6 +8,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.agent_projects import IC_PROJECT_CANDIDATES  # noqa: E402
+# Reexportado: las pruebas de paridad localizaban los modulos del manager con
+# `MANAGER_ROOT / "mt5_manager" / f"{name}.py"`, que dejo de resolver al
+# repartir el paquete por dominios. Entran por la misma puerta que ya usaban.
+from tools.package_layout import module_source  # noqa: E402,F401
 
 MANAGER_ROOT = Path(__file__).parents[2]
 MANAGER_RULES = tuple(

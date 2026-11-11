@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_account_dashboard
+from mt5_manager.live_account import live_account_dashboard
 from mt5_manager.monthly_summary import monthly_summary_build
 
 MONTH = "2026-09"
