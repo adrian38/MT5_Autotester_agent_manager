@@ -18,8 +18,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .portfolio_manual_check import REPORT_MODELS, check_dir, check_state
-from .portfolio_report_cache import cached_report
+from ..portfolio_manual_check import REPORT_MODELS, check_dir, check_state
+from ..portfolio_report_cache import cached_report
 
 
 METRIC_KEYS = (

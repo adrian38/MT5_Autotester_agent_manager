@@ -14,7 +14,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from . import live_account_watch, live_audit_watch, manual_check_watch
+from . import live_account_watch, live_audit_watch
+from .manual_check import manual_check_watch
 from .common import utc_now
 from .live_audit_core import PROGRESS, RUNNING_STATUSES, STATUS_LABELS
 from .live_audit_executions import audit_label

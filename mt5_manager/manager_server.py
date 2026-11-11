@@ -19,7 +19,8 @@ from typing import Any
 from . import live_account_schedule, live_account_watch
 from . import live_audit_schedule, live_audit_watch, manager_tls
 from .web_push import web_push
-from . import manual_check_watch, monthly_summary_runtime
+from .manual_check import manual_check_watch
+from . import monthly_summary_runtime
 from .common import load_json, safe_int, save_json
 from .experiment.experiment_service import ExperimentCoordinator
 from .live_account_archive import LiveAccountArchive

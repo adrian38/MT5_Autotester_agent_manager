@@ -12,11 +12,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from tools.package_layout import module_source
 from mt5_manager.portfolio_service import PortfolioCoordinator
 from mt5_manager import (
     live_audit_activity,
-    manual_check_watch,
     portfolio_manual_check,
+)
+from mt5_manager.manual_check import (
+    manual_check_watch,
 )
 
 
@@ -439,7 +442,7 @@ class ServerSurfaceTests(unittest.TestCase):
 
     @staticmethod
     def _requested(module: str) -> set[str]:
-        tree = ast.parse((ROOT / "mt5_manager" / f"{module}.py").read_text(encoding="utf-8"))
+        tree = ast.parse(module_source(module))
         return {
             node.attr for node in ast.walk(tree)
             if isinstance(node, ast.Attribute)
