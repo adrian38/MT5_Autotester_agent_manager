@@ -40,7 +40,7 @@ from .manager_config import (
 from .manager_handler import ManagerHandler
 from .manager_restart import ManagerRestartController
 from .portfolio_service import PortfolioCoordinator
-from .prop_experiment_service import PropExperimentCoordinator
+from .prop.prop_experiment_service import PropExperimentCoordinator
 
 
 _LEGACY_SCHEDULER_CONFIG_KEYS = (

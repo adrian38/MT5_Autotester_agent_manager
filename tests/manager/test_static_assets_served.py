@@ -15,7 +15,7 @@ from pathlib import Path
 from mt5_manager.correlation_routes import STATIC_FILES as CORRELATION_FILES
 from mt5_manager.experiment_routes import STATIC_FILES as EXPERIMENT_FILES
 from mt5_manager.manager_handler import STATIC_DIR, STATIC_FILES
-from mt5_manager.prop_experiment_routes import STATIC_FILES as PROP_EXPERIMENT_FILES
+from mt5_manager.prop.prop_experiment_routes import STATIC_FILES as PROP_EXPERIMENT_FILES
 
 
 SERVED = STATIC_FILES | CORRELATION_FILES | EXPERIMENT_FILES | PROP_EXPERIMENT_FILES

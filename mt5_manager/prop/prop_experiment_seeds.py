@@ -9,7 +9,7 @@ from typing import Any, Callable
 from portfolio_manager.ubs_portfolio import RobustStrategySet
 from portfolio_manager.ubs_portfolio.reports import period_report_from_strategy_report
 
-from .portfolio_identity import _resolve_source_path
+from ..portfolio_identity import _resolve_source_path
 
 
 def _table_exists(connection: sqlite3.Connection, table: str) -> bool:

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from portfolio_manager.ubs_portfolio import PeriodReport
-from mt5_manager.prop_experiment_seeds import accepted_seed_rows, load_seed_sets
+from mt5_manager.prop.prop_experiment_seeds import accepted_seed_rows, load_seed_sets
 
 
 class _Source:
@@ -71,7 +71,7 @@ class PropExperimentSeedTests(unittest.TestCase):
         )
         report = SimpleNamespace(symbol="EURUSD", timeframe="H1")
         with mock.patch(
-            "mt5_manager.prop_experiment_seeds.period_report_from_strategy_report",
+            "mt5_manager.prop.prop_experiment_seeds.period_report_from_strategy_report",
             return_value=period,
         ):
             loaded, warnings, total = load_seed_sets(

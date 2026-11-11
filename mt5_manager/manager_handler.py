@@ -34,7 +34,7 @@ from . import manager_push_routes
 from . import manager_schedule_routes
 from . import manager_summary_routes
 from . import manager_tls
-from . import prop_experiment_routes
+from .prop import prop_experiment_routes
 from .common import json_bytes, safe_int, utc_now
 from .manager_http import NODE_CONTROL_ACTIONS, NODE_CONTROL_TIMEOUT, submit_guided_to_node, submit_repair_request
 from .manager_restart import RestartAlreadyRunning

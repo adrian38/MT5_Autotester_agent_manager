@@ -6,7 +6,7 @@ import statistics
 from dataclasses import asdict, dataclass
 from typing import Callable, Sequence
 
-from .experiment_lab import LabAxis, LabStrategy
+from ..experiment_lab import LabAxis, LabStrategy
 from .prop_profiles import PropPhase, PropProfile
 
 

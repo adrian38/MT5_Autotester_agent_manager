@@ -11,9 +11,9 @@ from portfolio_manager.ubs_portfolio import (
     load_robust_sets_from_rows,
 )
 
-from . import experiment_lab as lab
-from .experiment_service import ExperimentCoordinator
-from .portfolio_service import build_margin_model, cached_report
+from .. import experiment_lab as lab
+from ..experiment_service import ExperimentCoordinator
+from ..portfolio_service import build_margin_model, cached_report
 from .prop_experiment_seeds import load_seed_sets
 
 

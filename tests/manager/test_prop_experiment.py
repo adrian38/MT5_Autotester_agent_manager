@@ -5,8 +5,8 @@ from __future__ import annotations
 import unittest
 
 from mt5_manager.experiment_lab import LabAxis, LabStrategy
-from mt5_manager.prop_experiment_engine import risk_normalized_pool, simulate_trial
-from mt5_manager.prop_profiles import PropPhase, PropProfile, profile
+from mt5_manager.prop.prop_experiment_engine import risk_normalized_pool, simulate_trial
+from mt5_manager.prop.prop_profiles import PropPhase, PropProfile, profile
 
 
 def _profile(phase: PropPhase) -> PropProfile:
