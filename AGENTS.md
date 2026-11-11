@@ -223,17 +223,75 @@ a `runtime/` si son desechables.
 
 ### El código se agrupa por dominio, no por prefijo
 
-Dentro de un paquete, la convención es un subpaquete por dominio.
-`portfolio_manager/ubs_portfolio/` ya lo cumple. **`mt5_manager/` todavía no**:
-son 167 módulos planos agrupados sólo por el prefijo del nombre, y pasarlos a
-subpaquetes mueve unos 1.000 puntos de import, así que va por unidades y con el
-suite completo detrás. Hasta entonces el contrato mínimo que sí se exige es que
-**todo módulo pertenezca a un dominio declarado**: el prefijo tiene que ser uno
-de los de `tests/repository/test_repository_layout.py`, o el nombre entra en su
-lista corta de piezas compartidas. Un módulo nuevo con prefijo propio falla, y
-se arregla eligiendo el dominio al que pertenece, no ampliando la lista.
+`mt5_manager/` eran 167 módulos planos cuyo único agrupamiento era el prefijo
+del nombre. Un prefijo no es estructura: `ls` devolvía 167 líneas, nada impedía
+el módulo 168 sin dominio y para saber qué formaba el auditor real había que
+leerse la lista entera. Desde el 2026-11-11 son diez subpaquetes, `static/` y
+cinco módulos.
 
-Estado, cuentas y los dos contratos que no perdonan un movimiento a ciegas:
+| Subpaquete | Módulos | Qué contiene |
+| --- | --- | --- |
+| `mt5_manager/portfolio/` | 51 | portafolios: generación, mejora, importación y persistencia |
+| `mt5_manager/live_audit/` | 41 | auditoría de cuentas reales: emparejado, degradación y lotes |
+| `mt5_manager/manager/` | 17 | proceso manager: configuración, rutas HTTP, servidor y arranque |
+| `mt5_manager/live_account/` | 14 | cuentas reales: ingesta, inventario, series y presentación |
+| `mt5_manager/node/` | 11 | el nodo de **este** repositorio, que ningún agente ejecuta |
+| `mt5_manager/monthly_summary/` | 8 | resumen mensual: construcción, cobertura y evidencia |
+| `mt5_manager/experiment/` | 7 | laboratorio de experimentos: búsqueda, simulación y rutas |
+| `mt5_manager/prop/` | 6 | experimentos de cuentas prop: semillas, pool y perfiles |
+| `mt5_manager/web_push/` | 4 | avisos push al móvil: sobre RFC 8291, VAPID y envío |
+| `mt5_manager/manual_check/` | 2 | comprobación manual de estrategias nuevas |
+| `mt5_manager/static/` | — | la interfaz que sirve el manager (HTML, JS y CSS) |
+
+En la raíz del paquete quedan cinco módulos, y están ahí por no ser de ningún
+dominio: `common.py` (las primitivas que usan todos), `dev_branch.py` (el
+candado de escritura), `docker_entrypoint.py` (el arranque del contenedor) y los
+dos ficheros congelados.
+
+Cinco reglas, y las cuatro primeras son las que hacen que el reparto aguante:
+
+- **El nombre del módulo no cambia al moverlo.** `live_audit_settings.py` sigue
+  llamándose así dentro de `live_audit/`, y se importa
+  `from mt5_manager.live_audit import live_audit_settings`. Quitarle el prefijo
+  habría sido más bonito y habría roto a la vez las guardas que nombran ficheros
+  y los `patch()` de las pruebas, sin añadir información: el prefijo ya decía el
+  dominio.
+- **El `__init__.py` de cada dominio está vacío a propósito.** Si reexportara su
+  dominio, importar un submódulo arrastraría el resto y abriría ciclos reales:
+  `live_account_watch` importa `manager_http`, y el manager importa
+  `live_account_watch`. Un `__init__` cargado habría convertido eso en un
+  `ImportError` por paquete a medio inicializar.
+- **Los dos ficheros idénticos al runtime de IC no se mueven.**
+  `guided_controller.py` tiene `from .node import read_settings, memory_path` y
+  no admite ni una edición: desde un `guided/` ese import apuntaría a
+  `mt5_manager.guided.node`, que no existe. Se quedan en la raíz del paquete y
+  `node/__init__.py` reexporta esos dos nombres para que la línea congelada siga
+  resolviendo. Es el único `__init__` con contenido, y ése es su motivo entero.
+- **Nadie localiza un módulo construyendo su ruta.** Media docena de guardas
+  hacían `ROOT / "mt5_manager" / f"{name}.py"`, y eso dejó de resolver de las
+  dos maneras: con `FileNotFoundError` donde leía el fichero, y **en verde**
+  comprobando la cadena vacía donde alimentaba un `glob`. Ahora se pide a
+  `tools/package_layout.py`: `module_path`, `module_source` y `domain_sources`.
+- **El arranque sigue siendo `python -m mt5_manager.manager`.** Lo sirve
+  `manager/__main__.py`, dos líneas que llaman al `main()` de
+  `manager/manager.py`; igual el nodo. Así el `Dockerfile`, los `.bat` y el
+  `README` no cambian de comando, aunque el import sí:
+  `from mt5_manager.manager.manager import ...`.
+
+Al mover un módulo hay que mirar además tres cosas que el import no delata:
+
+- **`Path(__file__)` cambia de profundidad.** Cinco módulos calculaban ahí su
+  `STATIC_DIR` o la raíz del repositorio, y desde un dominio sobra un nivel.
+- **Las guardas que citan sus imports**, no sólo su ruta: el criterio de que las
+  dos pantallas de una cuenta midan con la misma primitiva exigía literalmente
+  `from .live_account_performance import`, y el prefijo relativo depende de
+  dónde viva el fichero.
+- **Repartir un import con paréntesis entre dos dominios alarga el fichero.**
+  `live_account_ingest.py` se pasó del techo de 600 líneas por seis.
+
+Lo hace cumplir `tests/repository/test_repository_layout.py`: módulo nuevo en la
+raíz del paquete, carpeta de dominio sin declarar o tabla de arriba que no
+coincide, y falla. El detalle de las trampas está en
 `ai_context/layout_del_repositorio.md`.
 
 ## `ubs_portfolio` es un paquete en pila
@@ -513,6 +571,7 @@ en `tools/` se reescribe distinto en cada sesión, así que aquí vive todo.
 | --- | --- |
 | `tools.function_length` / `tools.file_length` | Los dos techos; con baselines vacíos no se usa `--write` de rutina. |
 | `tools.undefined_names` | Nombres que un módulo usa y nadie define. Lo que deja fuera una extracción. |
+| `tools.package_layout` | No es un comando: `module_path`, `module_source` y `domain_sources`, para que ninguna guarda localice un módulo de `mt5_manager/` construyendo su ruta. |
 | `tools.call_trace` | La secuencia de llamadas contra `HEAD`, para lo que no tiene cobertura. |
 | `tools.coverage_probe` | Cuántas veces el suite entero alcanza una función. |
 | `tools.sync_ubs_exports` | Regenera la reexportación de `ubs_portfolio`. |

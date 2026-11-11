@@ -12,14 +12,17 @@ Esta guarda fija tres cosas:
 - Que la tabla de `AGENTS.md` diga exactamente lo mismo que esta lista. El
   documento es lo que se lee para orientarse; si discrepan, miente sin que
   nadie se entere (la misma deriva que vigila `test_agents_md_stacks`).
-- Que `tests/` no vuelva a acumular `test_*.py` suelto, y que todo modulo de
-  `mt5_manager/` pertenezca a un dominio declarado.
+- Que `tests/` no vuelva a acumular `test_*.py` suelto.
+- Que `mt5_manager/` siga siendo un subpaquete por dominio: nada nuevo en la
+  raiz del paquete, ninguna carpeta sin declarar y ningun `__init__.py` que
+  reexporte su dominio, salvo el de `node` y por el fichero congelado.
 
 No se anade un nombre a estas listas para que el test pase. Se elige la carpeta
 a la que pertenece el fichero.
 """
 from __future__ import annotations
 
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -83,30 +86,36 @@ DESTINOS = (
     (re.compile(r"\.(xlsx|csv|pdf)$"), "docs/"),
 )
 
-#: Los prefijos de dominio de `mt5_manager/`. Mientras el paquete siga plano,
-#: es lo unico que mantiene el agrupamiento legible.
+#: Los subpaquetes de dominio de `mt5_manager/`. Cada uno esta en la tabla de
+#: «El codigo se agrupa por dominio, no por prefijo» de `AGENTS.md`.
 MT5_DOMAINS = (
-    "live_audit",
+    "experiment",
     "live_account",
+    "live_audit",
     "manager",
+    "manual_check",
     "monthly_summary",
     "node",
     "portfolio",
-    "experiment",
     "prop",
     "web_push",
-    "guided",
-    "manual_check",
 )
 
-#: Modulos de `mt5_manager/` anteriores a la regla, sin prefijo de dominio.
-#: **Solo puede encoger**: cuando el paquete se reparta en subpaquetes, cada uno
-#: entra en el suyo y sale de aqui. Anadir un nombre es una regresion.
-MT5_SIN_DOMINIO = frozenset({
+#: Lo unico que puede vivir en la raiz del paquete, por no ser de ningun
+#: dominio. `guided_batches` y `guided_controller` son los dos ficheros
+#: identicos byte a byte al runtime de IC: no se mueven porque el
+#: `from .node import` congelado de `guided_controller` solo resuelve aqui.
+MT5_ROOT_MODULES = frozenset({
+    "__init__",
     "common",
     "dev_branch",
     "docker_entrypoint",
+    "guided_batches",
+    "guided_controller",
 })
+
+#: Carpetas del paquete que no son dominios.
+MT5_OTHER_DIRS = frozenset({"static", "__pycache__"})
 
 
 def destino(name: str) -> str:
@@ -186,31 +195,79 @@ class TestsAreGroupedByOwnerTest(unittest.TestCase):
 
 
 class ManagerPackageDomainsTest(unittest.TestCase):
-    def modules(self) -> list[str]:
-        return sorted(
-            path.stem for path in (ROOT / "mt5_manager").glob("*.py")
-            if path.stem != "__init__"
-        )
+    """Un subpaquete por dominio, y la raiz del paquete tambien cerrada.
 
-    def test_every_module_belongs_to_a_declared_domain(self) -> None:
-        orphans = sorted(
-            name for name in self.modules()
-            if name not in MT5_SIN_DOMINIO
-            and not any(name == d or name.startswith(f"{d}_") for d in MT5_DOMAINS)
+    El prefijo del nombre agrupaba de mentira: `ls` devolvia 167 lineas y nada
+    impedia el modulo 168 sin dominio. Ahora el agrupamiento es la carpeta, y
+    esto es lo que lo mantiene.
+    """
+
+    PACKAGE = ROOT / "mt5_manager"
+
+    def test_no_module_lives_in_the_package_root_without_a_reason(self) -> None:
+        intruders = sorted(
+            path.stem for path in self.PACKAGE.glob("*.py")
+            if path.stem not in MT5_ROOT_MODULES
         )
         self.assertFalse(
-            orphans,
-            "Modulo de mt5_manager/ sin dominio. Elige el dominio al que "
-            f"pertenece y usa su prefijo; no amplies la lista: {orphans}\n"
+            intruders,
+            "La raiz de mt5_manager/ guarda solo lo que no es de ningun dominio. "
+            f"Baja esto a su subpaquete; no amplies la lista: {intruders}\n"
             f"  dominios: {', '.join(MT5_DOMAINS)}",
         )
 
-    def test_the_list_of_modules_without_a_domain_only_shrinks(self) -> None:
-        stale = sorted(MT5_SIN_DOMINIO - set(self.modules()))
+    def test_every_subpackage_is_a_declared_domain(self) -> None:
+        undeclared = sorted(
+            path.name for path in self.PACKAGE.iterdir()
+            if path.is_dir() and path.name not in set(MT5_DOMAINS) | MT5_OTHER_DIRS
+        )
         self.assertFalse(
-            stale,
-            "MT5_SIN_DOMINIO nombra modulos que ya no estan. Borra su entrada: "
-            f"{stale}",
+            undeclared,
+            "Subpaquete de mt5_manager/ sin declarar. Si es un dominio, entra en "
+            f"MT5_DOMAINS y en la tabla de AGENTS.md: {undeclared}",
+        )
+
+    def test_the_declared_domains_exist_and_carry_an_init(self) -> None:
+        """Un dominio sin `__init__.py` no lo empaqueta `setuptools`."""
+        broken = sorted(
+            name for name in MT5_DOMAINS
+            if not (self.PACKAGE / name / "__init__.py").is_file()
+        )
+        self.assertEqual([], broken, f"dominios sin __init__.py: {broken}")
+
+    def test_only_the_node_domain_re_exports_from_its_init(self) -> None:
+        """El `__init__` de un dominio esta vacio: si reexportara, haria ciclos.
+
+        `live_account_watch` importa `manager_http` y el manager importa
+        `live_account_watch`; con un `__init__` cargado eso es un `ImportError`
+        por paquete a medio inicializar. La excepcion es `node`, y su motivo es
+        concreto: la linea congelada `from .node import read_settings,
+        memory_path` de `guided_controller.py`, que no se puede tocar.
+        """
+        loaded = sorted(
+            name for name in MT5_DOMAINS
+            if any(
+                isinstance(node, (ast.Import, ast.ImportFrom))
+                for node in ast.parse(
+                    (self.PACKAGE / name / "__init__.py").read_text(encoding="utf-8")
+                ).body
+            )
+        )
+        self.assertEqual(
+            ["node"], loaded,
+            "El `__init__.py` de un dominio no reexporta. Sólo `node` lo hace, "
+            f"y por el fichero congelado: {loaded}",
+        )
+
+    def test_agents_md_lists_exactly_the_declared_domains(self) -> None:
+        documented_domains = {
+            name.split("/")[-1]
+            for name in documented("### El código se agrupa por dominio, no por prefijo")
+            if name.startswith("mt5_manager/")
+        }
+        self.assertEqual(
+            set(MT5_DOMAINS) | {"static"}, documented_domains,
+            "la tabla de dominios de AGENTS.md no coincide con MT5_DOMAINS",
         )
 
 

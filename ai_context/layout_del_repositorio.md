@@ -78,17 +78,62 @@ La raíz y `tests/` quedaron cerradas ese día:
   Lo que sigue arriba son piezas compartidas (`helpers.py`) y los dos
   baselines de tamaño.
 
-**`mt5_manager/` sigue plano**: 167 módulos agrupados sólo por el prefijo del
-nombre (`live_audit_*`, `portfolio_*`, `manager_*`, `node_*`, ...). El objetivo
-declarado es un subpaquete por dominio, y mientras no esté, la guarda exige al
-menos que todo módulo pertenezca a un dominio declarado: un nombre nuevo que no
-encaje en ningún prefijo falla. Lo que falta para cerrarlo —y por qué no se
-hizo de una pasada— es que el movimiento toca unos 1.000 puntos (548 imports
-relativos dentro del paquete, 443 referencias `mt5_manager.<módulo>` en código
-y pruebas, y un centenar fuera de Python), y hay dos contratos que no perdonan
-un movimiento a ciegas: los ficheros byte a byte con el runtime de IC
-(`ai_context/ficheros_identicos_al_runtime_de_ic.md`) y la paridad del nodo,
-cuyo `manager_node_source()` concatena todos los `node*.py` de
-`mt5_manager/`. Una guarda que se debilita en silencio es peor que una que se
-rompe, así que ese reparto va por unidades, con el suite completo detrás, y eso
-lo pide el usuario de forma explícita.
+**`mt5_manager/` se repartió el 2026-11-11**, en diez unidades con su commit
+cada una, de la más aislada a la más enredada: `web_push`, `prop`,
+`experiment`, `manual_check`, `monthly_summary`, `live_account`, `node`,
+`manager`, `live_audit`, `portfolio`. El movimiento tocó unos 1.000 puntos (548
+imports relativos dentro del paquete, 443 referencias `mt5_manager.<módulo>` en
+código y pruebas, y un centenar fuera de Python), así que se hizo con un
+reescritor idempotente que deduce dónde vive cada módulo del sistema de
+ficheros y no de una lista. La forma final y sus cinco reglas están en
+`AGENTS.md`; aquí quedan las trampas, que son lo que no se ve venir.
+
+### Las cinco trampas de mover un módulo
+
+Ninguna la delata el import, y tres de ellas dejan una guarda en verde.
+
+1. **`Path(__file__)` cambia de profundidad.** Cinco módulos calculaban ahí su
+   `STATIC_DIR` (`manager_handler`, `correlation_routes`, `experiment_routes`,
+   `prop_experiment_routes`) o la raíz del repositorio (`manager_server`, para
+   los `docker-compose*.yml` que busca `manager_restart`; y
+   `portfolio_source_connection`, para `runtime/portfolio_snapshots`). Desde un
+   dominio sobra un nivel. Lo demás seguía importando igual.
+2. **Las guardas que localizan un módulo construyendo su ruta.** Catorce
+   sitios hacían `ROOT / "mt5_manager" / f"{name}.py"`. Donde leían el fichero
+   salió `FileNotFoundError`; donde alimentaban un `glob` —el
+   `manager_node_source()` de la paridad del nodo y el
+   `_manager_auditor_source()` del auditor— devolvieron **cero ficheros**, y la
+   comparación siguió corriendo sobre la cadena vacía. Por eso existe
+   `tools/package_layout.py`: `module_path`, `module_source` y `domain_sources`
+   buscan por nombre en el paquete entero y fallan diciendo cuál no está.
+3. **Las guardas que citan el import, no la ruta.**
+   `test_live_screens_share_primitives` exigía literalmente
+   `"from .live_account_performance import"` a las dos pantallas que miden una
+   cuenta. El prefijo relativo depende de dónde viva el fichero —`.` para la
+   vecina del dominio, `..live_account.` para el resumen mensual—, así que el
+   criterio pasó a un `assertRegex` que no lo mira. Es la misma clase de fallo
+   que «renombrar al mover rompe una guarda de texto», con el prefijo en lugar
+   del nombre.
+4. **El hook también lleva rutas.** `tools/hook_node_fork_warning.py` exigía
+   `mt5_manager/node.py` pegado a la raíz, así que el aviso de «esto no lo
+   ejecuta el agente» habría dejado de salir sin que nadie lo notara.
+5. **Repartir un import con paréntesis entre dos dominios alarga el fichero.**
+   `live_account_ingest.py` pasó de 600 a 605 líneas porque el bloque se partió
+   a uno por línea. El techo de fichero no tiene baseline, así que los nombres
+   se empaquetan como estaban.
+
+### Lo que no se movió, y por qué
+
+- **`guided_batches.py` y `guided_controller.py`** se quedan en la raíz del
+  paquete. Son idénticos byte a byte al runtime de IC
+  (`ai_context/ficheros_identicos_al_runtime_de_ic.md`) y `guided_controller`
+  contiene `from .node import read_settings, memory_path`: desde un `guided/`
+  ese import apuntaría a `mt5_manager.guided.node`. Por eso
+  `node/__init__.py` reexporta esos dos nombres, y es el único `__init__` del
+  paquete con contenido.
+- **El nombre de cada módulo.** `live_audit_settings.py` sigue llamándose así
+  dentro de `live_audit/`. Quitar el prefijo habría roto a la vez las guardas
+  que nombran ficheros y los `patch()` de las pruebas sin añadir información.
+- **Los comandos.** `python -m mt5_manager.manager` y `python -m mt5_manager.node`
+  los sirven dos `__main__.py` de dos líneas. El import sí cambió:
+  `from mt5_manager.manager.manager import ManagerServer`.
