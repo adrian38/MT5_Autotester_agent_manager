@@ -15,7 +15,7 @@ from unittest import mock
 from pathlib import Path
 
 from mt5_manager.manager import PULSE_JOB_KEYS, ManagerServer
-from mt5_manager.node import JobController, NodeServer
+from mt5_manager.node.node import JobController, NodeServer
 from mt5_manager.portfolio_service import PortfolioSource, normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
 from tests.helpers import (
@@ -390,12 +390,12 @@ class NodeWorkflowIntegrationTests(IntegrationTestCase):
         self.controller.config["memory_path"] = str(memory)
         fake_command = [sys.executable, str(self.root / "ubs_agent.py")]
         with (
-            mock.patch("mt5_manager.node_commands.build_generation_command", return_value=(fake_command, self.root)),
+            mock.patch("mt5_manager.node.node_commands.build_generation_command", return_value=(fake_command, self.root)),
             mock.patch(
-                "mt5_manager.node_commands.build_pipeline_stage_command",
+                "mt5_manager.node.node_commands.build_pipeline_stage_command",
                 return_value=(fake_command, self.root),
             ) as build_auto_repair_stage,
-            mock.patch("mt5_manager.node_snapshots.pipeline_stage_pending_count", return_value=1),
+            mock.patch("mt5_manager.node.node_snapshots.pipeline_stage_pending_count", return_value=1),
         ):
             state = self.controller.start({
                 "cycles": 2,
@@ -425,10 +425,10 @@ class NodeWorkflowIntegrationTests(IntegrationTestCase):
         fake_command = [sys.executable, str(self.root / "ubs_agent.py")]
         with (
             mock.patch(
-                "mt5_manager.node_commands.build_pipeline_stage_command",
+                "mt5_manager.node.node_commands.build_pipeline_stage_command",
                 return_value=(fake_command, self.root),
             ) as build_stage,
-            mock.patch("mt5_manager.node_snapshots.pipeline_stage_pending_count", return_value=1),
+            mock.patch("mt5_manager.node.node_snapshots.pipeline_stage_pending_count", return_value=1),
         ):
             state = self.controller.start_repair({
                 "run_ids": [7, 9], "max_workers": 3,
@@ -467,9 +467,9 @@ class NodeWorkflowIntegrationTests(IntegrationTestCase):
 
     def test_repair_skips_empty_stages_without_spawning_a_process(self) -> None:
         with (
-            mock.patch("mt5_manager.node_snapshots.pipeline_stage_pending_count", return_value=0),
-            mock.patch("mt5_manager.node_commands.build_pipeline_stage_command") as build_command,
-            mock.patch("mt5_manager.node_job_runtime.subprocess.Popen") as popen,
+            mock.patch("mt5_manager.node.node_snapshots.pipeline_stage_pending_count", return_value=0),
+            mock.patch("mt5_manager.node.node_commands.build_pipeline_stage_command") as build_command,
+            mock.patch("mt5_manager.node.node_job_runtime.subprocess.Popen") as popen,
         ):
             state = self.controller.start_repair({"run_ids": [7], "retry_low_quality": True})
         self.assertEqual(state["status"], "completed")

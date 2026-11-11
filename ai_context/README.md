@@ -13,7 +13,7 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 
 ## El nodo y sus copias bifurcadas
 
-- `node_runtime_is_forked_per_agent.md`: por qué `mt5_manager/node.py` y
+- `node_runtime_is_forked_per_agent.md`: por qué `mt5_manager/node/node.py` y
   `manager_node_runtime/node.py` de cada agente han divergido y cómo portar un
   endpoint nuevo sin romper ninguna de las dos copias.
 - `future_branch_frozen.md`: FUTURE está congelado desde el 2026-10-21; no se

@@ -110,7 +110,7 @@ configuración compartida en un perfil por cada ID que estuviera seleccionado.
 ## Próxima fase
 
 La recogida real debe ejecutarse en el proceso embebido del agente, no en el
-`mt5_manager/node.py` señuelo. Antes de apropiarse de los terminales debe
+`mt5_manager/node/node.py` señuelo. Antes de apropiarse de los terminales debe
 fotografiar el estado del pipeline: si estaba ejecutándose, pausar y esperar la
 confirmación de pausa; ejecutar el trabajo dentro de `try/finally`; y reanudar
 solo si el auditor fue quien lo pausó. Un pipeline ya pausado por el usuario no
@@ -315,7 +315,7 @@ ejecución real `20260821_021042_643587` verificó este camino con `MT5_IC_2`:
 
 La implementación que crea y sirve estos archivos se ejecuta en el agente IC:
 `manager_node_runtime/live_audit.py` y `manager_node_runtime/node.py`. Las
-copias `mt5_manager/live_audit_engine.py` y `mt5_manager/node.py` se mantienen
+copias `mt5_manager/live_audit_engine.py` y `mt5_manager/node/node.py` se mantienen
 como referencia y paridad, pero no son el proceso broker.
 ## El terminal se queda en la cuenta de pruebas (2026-08-21)
 
@@ -1155,7 +1155,7 @@ las falla a propósito hasta que el usuario porte el commit.
 
 Hasta aquí el nodo hacía las dos cosas y el manager era un proxy literal:
 `node_request(...)` seguido de `self._send_json(status, value)`. El motor
-`mt5_manager/live_audit_engine.py` solo lo importaba `mt5_manager/node.py`, el
+`mt5_manager/live_audit_engine.py` solo lo importaba `mt5_manager/node/node.py`, el
 nodo señuelo; nunca se ejecutaba. Lo que la pantalla mostraba era el veredicto
 que ya venía calculado del agente.
 

@@ -12,7 +12,7 @@ import time
 from typing import Any
 
 from . import node_job_starts
-from .common import safe_int, save_json, utc_now
+from ..common import safe_int, save_json, utc_now
 from .node_statuses import RESUMABLE_STATUSES
 
 

@@ -105,7 +105,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                     node_source,
                     re.escape(token),
                     f"{project}: falta {hint} (`{token}`) en manager_node_runtime/node.py. "
-                    "Portar el cambio desde mt5_manager/node.py: sin él, «Detener» no "
+                    "Portar el cambio desde mt5_manager/node/node.py: sin él, «Detener» no "
                     "hace nada mientras el pipeline descarta etapas sin pendientes, que "
                     "en una reparación de cien runs son minutos seguidos. Duplicar la "
                     "prueba en tests/test_manager_node_stop.py y reiniciar la aplicación "

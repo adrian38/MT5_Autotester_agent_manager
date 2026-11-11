@@ -12,8 +12,8 @@ from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
-from mt5_manager import node_job_runtime, node_job_starts
-from mt5_manager.node import (
+from mt5_manager.node import node_job_runtime, node_job_starts
+from mt5_manager.node.node import (
     CLEANUP_STAGES,
     JobController,
     build_historical_cleanup_command,

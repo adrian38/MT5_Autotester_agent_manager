@@ -37,7 +37,7 @@ se rechaza sin decir por qué.
 
 ## El resto del nodo sí se puede partir
 
-`mt5_manager/node.py` y sus diez módulos hermanos **no** tienen esa restricción:
+`mt5_manager/node/node.py` y sus diez módulos hermanos **no** tienen esa restricción:
 la copia del agente está renombrada y diverge a propósito. Lo único que los une
 es el texto del mensaje al usuario, y de eso se ocupa
 `tests/node/test_node_runtime_fork_parity*.py` a través de `manager_node_source()`,

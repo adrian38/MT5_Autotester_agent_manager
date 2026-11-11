@@ -50,7 +50,7 @@ moderno.
 ## Lo que hay que mirar al portar esto
 
 - El fichero que ejecuta el agente es `manager_node_runtime/node_settings.py`,
-  no `mt5_manager/node_settings.py`. Ver «El nodo NO ejecuta este repositorio».
+  no `mt5_manager/node/node_settings.py`. Ver «El nodo NO ejecuta este repositorio».
 - La copia del runtime **no importaba `re`**: el port se veía idéntico en el
   diff y reventaba con `NameError` en la primera llamada. `python -m
   tools.undefined_names <módulo>` lo caza; `import` del módulo, no.

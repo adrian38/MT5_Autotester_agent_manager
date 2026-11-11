@@ -2,7 +2,7 @@
 
 ## Hallazgo
 
-`mt5_manager/node.py` de este repositorio **no se despliega** a los equipos broker.
+`mt5_manager/node/node.py` de este repositorio **no se despliega** a los equipos broker.
 Cada proyecto de agente lleva su propia copia en `manager_node_runtime/node.py`, y
 esas copias han divergido: la del agente incluye `telegram_notify`, las etiquetas y
 tablas de notificación por etapa y `portfolio_save.py`; la del manager usa
@@ -13,7 +13,7 @@ Copias conocidas:
 
 | Proyecto | Fichero |
 | --- | --- |
-| Manager (referencia) | `mt5_manager/node.py` |
+| Manager (referencia) | `mt5_manager/node/node.py` |
 | ICTrading (equipo actual) | `C:\Users\13199\Adrian\TRADING\MT5_Autotester_agent_IC\MT5_Autotester_agent\manager_node_runtime\node.py` |
 | ICTrading (montajes anteriores) | `C:\Users\Adrian\Adrian\...` y `I:\TRADING\MT5_Autotester_agent_IC\...` |
 | AXI | `F:\TRADING\MT5_Autotester_agent_AXI\manager_node_runtime\node.py` |
@@ -29,7 +29,7 @@ antes de dar una por ausente.
 
 ## Consecuencia práctica
 
-Un endpoint nuevo en `mt5_manager/node.py` no existe en los nodos hasta que se
+Un endpoint nuevo en `mt5_manager/node/node.py` no existe en los nodos hasta que se
 porta a mano a cada copia. Mientras tanto la interfaz muestra el 404 del nodo
 —`Ruta no encontrada`— porque `ManagerHandler.do_POST` propaga el estado y el
 cuerpo del nodo tal cual.
@@ -40,7 +40,7 @@ porque el nodo IC seguía con la versión anterior.
 
 ## Qué hacer al añadir o cambiar un endpoint del nodo
 
-1. Cambiar `mt5_manager/node.py` y sus pruebas en este repositorio.
+1. Cambiar `mt5_manager/node/node.py` y sus pruebas en este repositorio.
 2. Portar el cambio a `manager_node_runtime/node.py` del agente **con un diff**,
    nunca sobrescribiendo el fichero completo.
 3. Duplicar la prueba en `tests/` del agente (`test_manager_node_*.py`) usando
@@ -52,7 +52,7 @@ porque el nodo IC seguía con la versión anterior.
 
 | Copia | `/api/v1/jobs/pause` y `/resume` |
 | --- | --- |
-| Manager (`mt5_manager/node.py`) | sí, desde `56ac413` |
+| Manager (`mt5_manager/node/node.py`) | sí, desde `56ac413` |
 | ICTrading | sí, portado a mano |
 | AXI | sí, portado a mano |
 | RoboForex / `MT5_Autotester_agent` | **no**, sigue devolviendo `Ruta no encontrada` |
@@ -74,7 +74,7 @@ acción en copias que todavía rechazan `/api/v1/jobs/resume`.
 
 | Copia | Reanudar `failed` con posición válida |
 | --- | --- |
-| Manager (`mt5_manager/node.py` + `static/app.js`) | sí, 2026-08-29 |
+| Manager (`mt5_manager/node/node.py` + `static/app.js`) | sí, 2026-08-29 |
 | AXI | sí, portado a `manager_node_runtime/node.py` el 2026-08-29 |
 | RoboForex / `MT5_Autotester_agent` | **no**, pendiente de merge desde AXI |
 
@@ -142,7 +142,7 @@ mount de Docker: falla con `disk I/O error`. Detalle en
 
 | Copia | `requalify` |
 | --- | --- |
-| Manager (`mt5_manager/node.py` + `PortfolioCoordinator._requalify_on_node`) | sí, desde 2026-08-10 |
+| Manager (`mt5_manager/node/node.py` + `PortfolioCoordinator._requalify_on_node`) | sí, desde 2026-08-10 |
 | ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano el 2026-08-10 |
 | AXI | **no**, pendiente (`F:` no montada) |
 | RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
@@ -154,14 +154,14 @@ la función en `manager_node_runtime/portfolio_save.py` y la ruta en
 ## Estado del port de la prueba regresiva opcional en Reparar
 
 La casilla «Prueba regresiva» del diálogo de Reparar envía `run_regression` en
-`POST /api/nodes/<id>/repair`. La etapa nunca existió en `mt5_manager/node.py`:
+`POST /api/nodes/<id>/repair`. La etapa nunca existió en `mt5_manager/node/node.py`:
 programarla es criterio exclusivo de la copia del agente (`_start_repair` la añade
 a los runs de producción), así que aquí el manager no es la referencia, solo el
 emisor de la casilla.
 
 | Copia | `run_regression` en Reparar |
 | --- | --- |
-| Manager (`mt5_manager/node.py`) | no aplica; nunca programó la etapa |
+| Manager (`mt5_manager/node/node.py`) | no aplica; nunca programó la etapa |
 | ICTrading de este equipo (`MT5_Autotester_agent_IC\MT5_Autotester_agent`) | sí, portado a mano el 2026-08-17 |
 | AXI | **no**, pendiente (`F:` no montada) |
 | RoboForex / `MT5_Autotester_agent` | **no**, pendiente |
@@ -248,7 +248,7 @@ no sirve. **Pendiente**, no hecho.
 ## Estado del port de «Solo portafolio» y su histórico OHLC
 
 Contrato completo en `manual_portfolio_upload.md`. Aquí el manager **no es la
-referencia**: `mt5_manager/node.py` no tiene ninguna de las tres rutas y nunca
+referencia**: `mt5_manager/node/node.py` no tiene ninguna de las tres rutas y nunca
 las tuvo. El manager sólo reenvía el lote (`manager_portfolio_routes.py`:
 `create_manual_portfolio` y `manual_portfolio_action`); quien guarda los `.set`
 bajo `runtime/<node>/manual_portfolios/<uuid>/sets/`, registra la composición en
@@ -262,7 +262,7 @@ Son cuatro piezas en el proyecto del agente, y falta cualquiera rompe el flujo:
 
 | Copia | Rutas `manual`, `manual-defaults`, `manual-history` | Cola: compactar y no reanudar |
 | --- | --- | --- |
-| Manager (`mt5_manager/node.py`) | no aplica; sólo reenvía | no aplica |
+| Manager (`mt5_manager/node/node.py`) | no aplica; sólo reenvía | no aplica |
 | ICTrading de este equipo | sí, portado a mano el 2026-10-16 | sí |
 | AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí | sí, `c83cec2` |
 | RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí | sí, desde la convergencia del 2026-10-16 |
@@ -303,7 +303,7 @@ nombre de su único set es único en ese árbol.
 
 | Copia | `set_path` en `node_jobs_api.portfolio_detail` |
 | --- | --- |
-| Manager (`mt5_manager/node_portfolio_api.py`) | sí, desde `6828f33` (2026-07-13) |
+| Manager (`mt5_manager/node/node_portfolio_api.py`) | sí, desde `6828f33` (2026-07-13) |
 | ICTrading de este equipo | sí, portado a mano el 2026-10-16 |
 | RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí, portado a mano el 2026-10-16 |
 | AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí, por la convergencia del 2026-10-16 |

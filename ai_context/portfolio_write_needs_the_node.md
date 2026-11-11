@@ -33,7 +33,7 @@ directa a `sqlite3.connect(memory)` y solo traducía los errores con «locked» 
 
 **Toda escritura sobre la memoria de un agente tiene que ejecutarla el nodo del
 agente, que la tiene en local.** No es una preferencia de diseño: es la única
-forma de que la escritura llegue. Ya estaba escrito en `mt5_manager/node.py`
+forma de que la escritura llegue. Ya estaba escrito en `mt5_manager/node/node.py`
 («This MUST run on the node… writing to it directly over CIFS is unreliable
 because SQLite's WAL is not coherent across a network share») y aplicado a la
 exclusión individual, la múltiple y el borrado. `requalify` se quedó fuera porque

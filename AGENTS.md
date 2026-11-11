@@ -11,7 +11,7 @@
   que es lo que depende de la máquina. Confirmarlas antes de usarlas.
 - **La copia del agente se debe modificar** cuando el comportamiento pedido se
   ejecuta en su `manager_node_runtime/`. Un cambio equivalente en
-  `mt5_manager/node.py` o `live_audit_engine.py` **no** lo sustituye.
+  `mt5_manager/node/node.py` o `live_audit_engine.py` **no** lo sustituye.
 - Poder escribir no es poder reiniciar. Parar o reiniciar un agente lo hace el
   usuario; la entrega dice qué agentes lo necesitan y por qué.
 - Preservar cambios ajenos; limitar cada modificación al objetivo pedido. La
@@ -68,7 +68,7 @@ Tres reincidencias ya (pausa/reanudación, exclusión del 20-07, exclusión
 múltiple mensual). Leer antes de tocar cualquier regla de guardado, exclusión o
 escritura en la memoria UBS.
 
-- `mt5_manager/node.py`, `scripts/run_node.bat` y `python -m mt5_manager.node` son un
+- `mt5_manager/node/node.py`, `scripts/run_node.bat` y `python -m mt5_manager.node` son un
   **señuelo**. Cada agente ejecuta su copia bifurcada en `manager_node_runtime/`,
   embebida en `app_ui.py` vía `manager_node_lifecycle.py`.
 - La bifurcación está **renombrada**: ninguna búsqueda por símbolo ni
@@ -319,7 +319,7 @@ orden de dependencia:
 
 ## El nodo también es una pila (y sigue siendo un señuelo)
 
-`mt5_manager/node.py` eran 2.174 líneas. Ahora son once módulos en orden de
+`mt5_manager/node/node.py` eran 2.174 líneas. Ahora son once módulos en orden de
 dependencia, y `node.py` es la fachada de 56 líneas que arranca y reexporta:
 
 `node_statuses` → `node_settings` → `node_snapshots` → `node_commands` →

@@ -36,6 +36,15 @@ def module_path(name: str, package: Path | None = None) -> Path:
     return found[0]
 
 
+def has_module(name: str, package: Path | None = None) -> bool:
+    """Si el modulo existe, para las guardas que comprueban su lista."""
+    try:
+        module_path(name, package)
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def module_source(name: str, package: Path | None = None) -> str:
     """El texto del modulo, para las guardas que comparan por criterio."""
     return module_path(name, package).read_text(encoding="utf-8")

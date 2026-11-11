@@ -114,7 +114,7 @@ class ManualCheckForkParityTests(NodeRuntimeForkParityBase):
         )
 
     def test_manual_check_reaches_every_reachable_fork(self) -> None:
-        # La comprobación manual no tiene nada en `mt5_manager/node.py`: el
+        # La comprobación manual no tiene nada en `mt5_manager/node/node.py`: el
         # manager decide qué estrategias son nuevas y reenvía la petición.
         # Quien copia los `.set`, llama a `run_tests.py` dos veces —una por
         # tipo de datos— y deja los informes con sus imágenes en

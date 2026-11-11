@@ -9,7 +9,7 @@
   su interfaz independiente.
 - La escritura remota la ejecuta el nodo propietario mediante
   `POST /api/v1/portfolios/alias`. En `dev`, la implementación efectiva está en la
-  copia ICTrading `manager_node_runtime/`; `mt5_manager/node.py` es únicamente el
+  copia ICTrading `manager_node_runtime/`; `mt5_manager/node/node.py` es únicamente el
   nodo local de pruebas.
 - El texto se recorta en los extremos, colapsa espacios, admite borrado con cadena
   vacía y tiene un máximo de 80 caracteres.

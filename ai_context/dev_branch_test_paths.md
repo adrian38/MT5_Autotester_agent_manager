@@ -33,7 +33,7 @@ es `dev`**:
   lista los checkouts de IC conocidos y `first_mounted_project` elige el primero
   que tiene `manager_node_runtime/`. Ver más abajo.
 - Los puntos de enganche son los dos `main()`: `mt5_manager/manager.py` y
-  `mt5_manager/node.py`, justo después de `load_json`.
+  `mt5_manager/node/node.py`, justo después de `load_json`.
 
 Fuera de `dev` ambas funciones devuelven **el mismo objeto**, sin copiarlo ni
 tocarlo. El merge a `main` arrastra el módulo pero queda inerte: las rutas de

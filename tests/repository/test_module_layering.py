@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-PACKAGE = Path(__file__).resolve().parents[2] / "mt5_manager"
+from tools.package_layout import has_module, module_source  # noqa: E402
 
 PORTFOLIO_STACK = [
     "portfolio_scope",
@@ -93,7 +93,7 @@ STACKS = {"portfolio": PORTFOLIO_STACK, "manager": MANAGER_STACK, "node": NODE_S
 
 def _runtime_imports(module: str, stack: set[str]) -> set[str]:
     """Modulos de la pila que `module` importa de verdad, no solo para el tipo."""
-    tree = ast.parse((PACKAGE / f"{module}.py").read_text(encoding="utf-8"))
+    tree = ast.parse(module_source(module))
     type_checking_only: set[int] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.If) and ast.unparse(node.test).endswith("TYPE_CHECKING"):
@@ -114,7 +114,7 @@ def _runtime_imports(module: str, stack: set[str]) -> set[str]:
 class ModuleLayeringTest(unittest.TestCase):
     def test_every_module_of_each_stack_exists(self) -> None:
         missing = {
-            name: [module for module in stack if not (PACKAGE / f"{module}.py").is_file()]
+            name: [module for module in stack if not has_module(module)]
             for name, stack in STACKS.items()
         }
         offenders = {name: gone for name, gone in missing.items() if gone}
@@ -163,7 +163,7 @@ class ModuleLayeringTest(unittest.TestCase):
             },
         }
         for filename, names in expected.items():
-            tree = ast.parse((PACKAGE / filename).read_text(encoding="utf-8"))
+            tree = ast.parse(module_source(filename))
             exported = {
                 alias.asname or alias.name
                 for node in ast.walk(tree)

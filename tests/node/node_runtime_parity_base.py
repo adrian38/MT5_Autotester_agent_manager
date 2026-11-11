@@ -11,7 +11,7 @@ from tools.agent_projects import IC_PROJECT_CANDIDATES  # noqa: E402
 # Reexportado: las pruebas de paridad localizaban los modulos del manager con
 # `MANAGER_ROOT / "mt5_manager" / f"{name}.py"`, que dejo de resolver al
 # repartir el paquete por dominios. Entran por la misma puerta que ya usaban.
-from tools.package_layout import module_source  # noqa: E402,F401
+from tools.package_layout import domain_sources, module_source  # noqa: E402,F401
 
 MANAGER_ROOT = Path(__file__).parents[2]
 MANAGER_RULES = tuple(
@@ -28,14 +28,14 @@ MANAGER_RULES = tuple(
 def manager_node_source() -> str:
     """El nodo del manager entero, sea cual sea el numero de ficheros.
 
-    `node.py` se partio en `node_settings`, `node_commands` y `node_snapshots`.
-    La paridad compara criterios, no ficheros: se leen todos juntos para que
-    partirlos otra vez no vuelva a romper la guarda.
+    `node.py` se partio en `node_settings`, `node_commands` y `node_snapshots`,
+    y despues los once bajaron a `mt5_manager/node/`. La paridad compara
+    criterios, no ficheros: se leen todos juntos para que ni partirlos ni
+    moverlos vuelva a romper la guarda. `domain_sources` recorre el paquete
+    entero, asi que el `glob("node*.py")` sobre la raiz —que al mover el dominio
+    habria devuelto cero ficheros **y seguido en verde**— ya no decide nada.
     """
-    return "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted((MANAGER_ROOT / "mt5_manager").glob("node*.py"))
-    )
+    return domain_sources("node")
 
 
 def _fork_source(project: Path, pattern: str) -> str:

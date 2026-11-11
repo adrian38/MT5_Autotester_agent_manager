@@ -48,7 +48,7 @@ Leída en la copia ICTrading de este equipo:
 Los métodos de UI dependen de Tk: no invocarlos desde el hilo HTTP. El nuevo
 servicio reutiliza `ubs.mt5_symbol_extract`, `ubs.universe` y `ubs.account`, y
 lanza el CLI existente con `--probe-universe-history`. Cambiar solo
-`mt5_manager/node.py` no conecta nada en el agente embebido. La copia de referencia
+`mt5_manager/node/node.py` no conecta nada en el agente embebido. La copia de referencia
 del manager no anuncia esta capacidad: la implementación pertenece al agente.
 
 ## Contrato preparado en el manager

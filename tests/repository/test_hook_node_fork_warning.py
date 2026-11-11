@@ -26,7 +26,7 @@ class HookRoutingTests(unittest.TestCase):
             r"C:\Users\x\mt5_manager\portfolio_service.py",
             r"C:\Users\x\mt5_manager\node.py",
             "/srv/app/mt5_manager/portfolio_service.py",
-            "/srv/app/mt5_manager/node.py",
+            "/srv/app/mt5_manager/node/node.py",
         ):
             with self.subTest(path=path):
                 self.assertTrue(MANAGER_RULES.search(path))
@@ -86,7 +86,7 @@ class HookProcessTests(unittest.TestCase):
         output = self._run({
             "tool_name": "Write",
             "tool_input": {},
-            "tool_response": {"filePath": "/x/mt5_manager/node.py"},
+            "tool_response": {"filePath": "/x/mt5_manager/node/node.py"},
         })
         self.assertIn("manager_node_runtime", json.loads(output)["systemMessage"])
 

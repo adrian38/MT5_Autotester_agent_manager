@@ -8,10 +8,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from mt5_manager import node_job_starts
-from mt5_manager import node_job_runtime
+from mt5_manager.node import node_job_starts
+from mt5_manager.node import node_job_runtime
 from mt5_manager import guided_batches as protocol
-from mt5_manager.node import JobController, build_generation_command
+from mt5_manager.node.node import JobController, build_generation_command
 
 
 def package():

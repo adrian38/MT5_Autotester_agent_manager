@@ -16,8 +16,13 @@ import json
 import re
 import sys
 
-# Reglas del nodo que viven duplicadas en el proyecto del agente.
-MANAGER_RULES = re.compile(r"mt5_manager[/\\](portfolio_service|node)\.py$", re.IGNORECASE)
+# Reglas del nodo que viven duplicadas en el proyecto del agente. El tramo
+# opcional del medio es el subpaquete de dominio (`node/node.py`,
+# `portfolio/portfolio_service.py`): sin el, el aviso dejo de salir en silencio
+# al repartir `mt5_manager/` por dominios, que es justo el fallo que evita.
+MANAGER_RULES = re.compile(
+    r"mt5_manager[/\\](?:\w+[/\\])?(portfolio_service|node)\.py$", re.IGNORECASE
+)
 # La otra punta: al editar la copia del agente, recordar la paridad.
 AGENT_RULES = re.compile(r"manager_node_runtime[/\\][^/\\]+\.py$", re.IGNORECASE)
 

@@ -14,7 +14,7 @@ renders the explicit reason. Details and verification are in that checkout's
 `ai_context/invalid_stops_diagnostics.md`.
 
 The actual processes are IC's `ubs_agent.py` and `app_ui.py`. This is not a
-manager-node endpoint problem: editing `mt5_manager/node.py` cannot fix it.
+manager-node endpoint problem: editing `mt5_manager/node/node.py` cannot fix it.
 Reloading Python/UI changes requires restarting the desktop agent once idle.
 
 The two reported rows were repaired with `assert_writable` and a before-image

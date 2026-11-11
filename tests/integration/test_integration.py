@@ -15,7 +15,7 @@ from unittest import mock
 from pathlib import Path
 
 from mt5_manager.manager import PULSE_JOB_KEYS, ManagerServer
-from mt5_manager.node import JobController, NodeServer
+from mt5_manager.node.node import JobController, NodeServer
 from mt5_manager.portfolio_service import PortfolioSource, normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
 from tests.helpers import (

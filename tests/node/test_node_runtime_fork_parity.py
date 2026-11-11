@@ -55,7 +55,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
     """
 
     def test_manual_portfolios_reach_every_reachable_fork(self) -> None:
-        # «Solo portafolio» no tiene nada en `mt5_manager/node.py`: el manager
+        # «Solo portafolio» no tiene nada en `mt5_manager/node/node.py`: el manager
         # sólo reenvía el lote. Quien guarda los `.set`, registra la composición
         # en su memoria UBS y encola el histórico OHLC es el runtime del agente,
         # así que aquí el manager no es la referencia del criterio. Sin el port,
@@ -427,7 +427,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
 
     def test_optional_repair_regression_reaches_every_reachable_fork(self) -> None:
         # La etapa regresiva del flujo de Reparar solo existe en la copia del agente:
-        # `mt5_manager/node.py` nunca la programó, así que aquí el manager no es la
+        # `mt5_manager/node/node.py` nunca la programó, así que aquí el manager no es la
         # referencia del criterio, solo el emisor de la casilla. Un nodo sin portar
         # acepta la petición, ignora `run_regression` y ejecuta la regresiva igual:
         # el usuario desmarca la casilla y no pasa nada. No hay 404 que lo delate.
@@ -498,7 +498,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                     node_source,
                     re.escape(token),
                     f"{project}: falta {hint} (`{token}`) en manager_node_runtime/node.py. "
-                    "Portar el cambio desde mt5_manager/node.py: sin él la reparación "
+                    "Portar el cambio desde mt5_manager/node/node.py: sin él la reparación "
                     "sigue siendo una sola pasada y el campo «Terminales fase 2» del "
                     "diálogo no cambia nada. Duplicar la prueba en "
                     "tests/test_manager_node_repair_phases.py y reiniciar la aplicación "
@@ -544,7 +544,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                 f"{project}: `portfolio_detail` no reexporta `set_path` en "
                 "manager_node_runtime/node_jobs_api.py, así que auditar un portafolio "
                 "manual falla con «Se encontraron varios sets distintos para …». "
-                "Portar la clave desde mt5_manager/node_portfolio_api.py y duplicar la "
+                "Portar la clave desde mt5_manager/node/node_portfolio_api.py y duplicar la "
                 "prueba en tests/test_manager_node_manual_portfolio.py. Hay que "
                 "reiniciar la aplicación del agente.",
             )
