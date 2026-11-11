@@ -10,7 +10,8 @@ import urllib.request
 import uuid
 from typing import Any
 
-from . import candidate_verdict, manager_http
+from . import candidate_verdict
+from .manager import manager_http
 from .common import safe_int, utc_now
 from .portfolio_identity import LOCKED_VARIANTS, PORTFOLIO_TYPES, normalize_portfolio_alias
 from .portfolio_proposals import (

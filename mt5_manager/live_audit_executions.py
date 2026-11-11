@@ -25,7 +25,8 @@ from typing import Any, Callable
 
 from portfolio_manager import mt5_account_history
 
-from . import live_audit_analysis, live_audit_autolot, live_audit_manual_inherit, manager_http
+from . import live_audit_analysis, live_audit_autolot, live_audit_manual_inherit
+from .manager import manager_http
 from .common import safe_int
 from .live_audit_archive import NON_ARCHIVABLE_STATUSES
 from .live_audit_comment_links import comment_links_supported

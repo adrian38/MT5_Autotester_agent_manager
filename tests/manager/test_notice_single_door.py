@@ -29,12 +29,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from tools.package_layout import module_source
 from mt5_manager.web_push import web_push
 from mt5_manager.live_audit_notifications import LiveAuditNotificationStore
 
 PACKAGE = Path(__file__).resolve().parents[2] / "mt5_manager"
 BELL = PACKAGE / "live_audit_notifications.py"
-SERVER = (PACKAGE / "manager_server.py").read_text(encoding="utf-8")
+SERVER = module_source("manager_server")
 
 ROUTES = {"manager_push_routes.py"}
 """La ruta de «enviar una prueba» entrega sin campana a propósito: es el botón

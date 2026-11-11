@@ -15,7 +15,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_audit_activity, live_audit_watch, manager_schedule_routes
+from mt5_manager import live_audit_activity, live_audit_watch
+from mt5_manager.manager import manager_schedule_routes
 from mt5_manager.live_audit_watch import LiveAuditRunState
 from tests.live_audit.live_audit_cron_base import FakeServer, audit_state
 
@@ -39,7 +40,7 @@ class ActivityTests(unittest.TestCase):
 
     def _snapshot(self, audits: dict[str, object], broken: bool = False) -> dict[str, object]:
         with mock.patch(
-            "mt5_manager.manager_http.node_request", side_effect=answers(audits, broken),
+            "mt5_manager.manager.manager_http.node_request", side_effect=answers(audits, broken),
         ):
             return live_audit_activity.snapshot(self.server)
 
@@ -137,7 +138,7 @@ class ActivityTests(unittest.TestCase):
                 }}
             return 200, {"audits": {"11": {"status": "idle"}}}
 
-        with mock.patch("mt5_manager.manager_http.node_request", side_effect=request):
+        with mock.patch("mt5_manager.manager.manager_http.node_request", side_effect=request):
             state = live_audit_activity.snapshot(self.server)
 
         self.assertTrue(state["active"])
@@ -162,7 +163,7 @@ class ActivityTests(unittest.TestCase):
                 }}
             return 200, {"audits": {"11": {"status": "idle"}}}
 
-        with mock.patch("mt5_manager.manager_http.node_request", side_effect=request):
+        with mock.patch("mt5_manager.manager.manager_http.node_request", side_effect=request):
             state = live_audit_activity.snapshot(self.server)
 
         self.assertEqual(state["account_snapshots"], [])
@@ -173,7 +174,7 @@ class ActivityTests(unittest.TestCase):
         handler = ActivityHandler(self.server)
         parsed = type("Parsed", (), {"path": manager_schedule_routes.ACTIVITY_PATH})()
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=answers({"11": {"status": "comparing"}}),
         ):
             handled = manager_schedule_routes.handle_get(handler, parsed, [])

@@ -68,10 +68,10 @@ class HistoryRouteTests(unittest.TestCase):
     def _get(self, handler: FakeHandler) -> bool:
         from unittest import mock
 
-        from mt5_manager import manager_schedule_routes
+        from mt5_manager.manager import manager_schedule_routes
 
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             return_value=(200, {"audit": completed_audit()}),
         ):
             return manager_schedule_routes.handle_get(
@@ -152,12 +152,12 @@ class HistoryRouteTests(unittest.TestCase):
         """
         from unittest import mock
 
-        from mt5_manager import manager_schedule_routes
+        from mt5_manager.manager import manager_schedule_routes
 
         self._get(FakeHandler(self.archive))  # Deja la ejecución archivada.
         handler = FakeHandler(self.archive)
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=AssertionError("la portada no habla con el nodo"),
         ):
             served = manager_schedule_routes.handle_get(
@@ -232,9 +232,9 @@ class WatchedArchiveTests(unittest.TestCase):
                 return 200, {"capabilities": {"live_audit_restore_account": True}}
             return 200, {"audits": {"11": audit}}
 
-        with mock.patch("mt5_manager.manager_http.node_request", side_effect=request), \
+        with mock.patch("mt5_manager.manager.manager_http.node_request", side_effect=request), \
                 mock.patch(
-                    "mt5_manager.manager_http.node_artifact_request", return_value=artifact,
+                    "mt5_manager.manager.manager_http.node_artifact_request", return_value=artifact,
                 ):
             live_audit_watch.tick(self.server)
 

@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 from pathlib import Path
 
-from mt5_manager.manager import PULSE_JOB_KEYS, ManagerServer
+from mt5_manager.manager.manager import PULSE_JOB_KEYS, ManagerServer
 from mt5_manager.node.node import JobController, NodeServer
 from mt5_manager.portfolio_service import PortfolioSource, normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
@@ -338,7 +338,7 @@ class LocalIntegrationTests(IntegrationTestCase):
             "dry_run": True,
         }
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             return_value=(202, {"job_type": "generation", "status": "running"}),
         ):
             status, _job = self.request("/api/nodes/test-node/start", dict(launch))
@@ -367,7 +367,7 @@ class LocalIntegrationTests(IntegrationTestCase):
         self.assertEqual(status, 200)
         for action in ("repair", "regression"):
             with mock.patch(
-                "mt5_manager.manager_http.node_request",
+                "mt5_manager.manager.manager_http.node_request",
                 return_value=(202, {"job_type": action, "status": "running"}),
             ):
                 self.request(f"/api/nodes/test-node/{action}", {"run_ids": [7], "max_workers": 2})
@@ -375,7 +375,7 @@ class LocalIntegrationTests(IntegrationTestCase):
 
     def test_a_rejected_launch_is_not_remembered(self) -> None:
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             return_value=(400, {"error": "La tarea ya no esta en la cola"}),
         ):
             with self.assertRaises(urllib.error.HTTPError):
@@ -384,7 +384,7 @@ class LocalIntegrationTests(IntegrationTestCase):
 
     def test_manager_proxies_regression_jobs_to_the_node(self) -> None:
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             return_value=(202, {"job_type": "regression", "status": "running"}),
         ) as request_node:
             status, payload = self.request(
@@ -405,7 +405,7 @@ class LocalIntegrationTests(IntegrationTestCase):
 
     def test_manager_proxies_historical_cleanup_to_the_node(self) -> None:
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             return_value=(202, {"job_type": "cleanup", "status": "running"}),
         ) as request_node:
             status, payload = self.request("/api/nodes/test-node/cleanup", {})
@@ -420,7 +420,7 @@ class LocalIntegrationTests(IntegrationTestCase):
 
     def test_manager_reads_runs_with_extended_timeout(self) -> None:
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             return_value=(200, {"runs": [{"id": 7}]}),
         ) as request_node:
             status, payload = self.request("/api/nodes/test-node/runs?limit=100&offset=200")
@@ -450,7 +450,7 @@ class LocalIntegrationTests(IntegrationTestCase):
 
         try:
             with mock.patch(
-                "mt5_manager.manager_http.node_request", side_effect=slow_request
+                "mt5_manager.manager.manager_http.node_request", side_effect=slow_request
             ) as request_node:
                 status, payload = self.request(
                     "/api/nodes/test-node/repair",

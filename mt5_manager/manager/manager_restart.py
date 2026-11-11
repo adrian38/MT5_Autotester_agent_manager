@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .common import load_json, save_json, utc_now
+from ..common import load_json, save_json, utc_now
 
 
 RESTART_COMMANDS = (
@@ -110,7 +110,7 @@ class ManagerRestartWorker:
         dev_override = self.repo_dir / "docker-compose.dev.yml"
         # El override contiene los shares SMB de solo lectura que usa únicamente
         # Experimenta. En main no se carga y Compose conserva sus mounts normales.
-        from .dev_branch import DEV_BRANCH, current_branch
+        from ..dev_branch import DEV_BRANCH, current_branch
 
         if dev_override.is_file() and current_branch(self.repo_dir) == DEV_BRANCH:
             command.extend(["-f", "docker-compose.yml", "-f", dev_override.name])
@@ -286,7 +286,7 @@ class ManagerRestartController:
         ]
         for key, value in worker_environment.items():
             command.extend(["--env", f"{key}={value}"])
-        command.extend(["--entrypoint", "python", image, "-m", "mt5_manager.manager_restart"])
+        command.extend(["--entrypoint", "python", image, "-m", "mt5_manager.manager.manager_restart"])
         launched = subprocess.run(
             command,
             stdin=subprocess.DEVNULL,

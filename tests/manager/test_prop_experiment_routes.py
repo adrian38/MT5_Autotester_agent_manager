@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from mt5_manager.manager import ManagerServer
+from mt5_manager.manager.manager import ManagerServer
 
 
 class PropExperimentRouteTests(unittest.TestCase):

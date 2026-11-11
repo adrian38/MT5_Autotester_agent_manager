@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 from lxml import html
-from mt5_manager import manager_live_audit_routes
-from mt5_manager.manager_handler import STATIC_FILES
+from mt5_manager.manager import manager_live_audit_routes
+from mt5_manager.manager.manager_handler import STATIC_FILES
 
 
 class LiveAuditConfigurationScreenTests(unittest.TestCase):

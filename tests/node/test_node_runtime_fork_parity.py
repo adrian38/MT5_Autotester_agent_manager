@@ -8,12 +8,12 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        fork_node_source, manager_node_source,
+        fork_node_source, manager_node_source, module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
         FORK_CANDIDATES, MANAGER_ROOT, NodeRuntimeForkParityBase,
-        fork_node_source, manager_node_source,
+        fork_node_source, manager_node_source, module_source,
     )
 
 
@@ -33,9 +33,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
             self.skipTest(f"La copia ICTrading no se deja leer: {ic_project} ({exc})")
         # La ruta del alias vive en el modulo de rutas de portafolio desde que
         # manager.py se partio; lo que se comprueba es el criterio, no el fichero.
-        manager_routes = (
-            MANAGER_ROOT / "mt5_manager" / "manager_portfolio_routes.py"
-        ).read_text(encoding="utf-8")
+        manager_routes = module_source("manager_portfolio_routes")
         ic_rules = ic_rules_path.read_text(encoding="utf-8", errors="replace")
         ic_node = ic_node_path.read_text(encoding="utf-8", errors="replace")
         ic_tests = (ic_project / "tests" / "test_manager_node_portfolio_save.py").read_text(
@@ -73,8 +71,8 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         # un texto que sigue existiendo. Se leen los dos, como
         # `manager_node_source()` concatena todos los `node*.py`.
         forwarded = "".join(
-            (MANAGER_ROOT / "mt5_manager" / name).read_text(encoding="utf-8")
-            for name in ("manager_portfolio_routes.py", "manager_manual_portfolio.py")
+            module_source(name)
+            for name in ("manager_portfolio_routes", "manager_manual_portfolio")
         )
         # Las dos últimas se arman con el nombre del endpoint, así que la cadena
         # literal no aparece: lo que se ancla es el reenvío, no su formato.

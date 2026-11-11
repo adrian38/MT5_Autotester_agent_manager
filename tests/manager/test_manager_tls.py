@@ -25,9 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from cryptography import x509
 
-from mt5_manager import manager_tls
+from mt5_manager.manager import manager_tls
 from mt5_manager.docker_entrypoint import docker_config
-from mt5_manager.manager import ManagerServer
+from mt5_manager.manager.manager import ManagerServer
 from tools.make_local_cert import issue_server_certificate, load_or_create_ca, main
 
 NODES = [{"id": "n", "name": "N", "url": "http://127.0.0.1:1", "token": "t"}]

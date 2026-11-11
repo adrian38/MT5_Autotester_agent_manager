@@ -22,9 +22,9 @@ from pathlib import Path
 from typing import Any
 
 from . import correlation_routes
-from . import dev_branch
-from .experiment import experiment_routes
-from . import guided_batches
+from .. import dev_branch
+from ..experiment import experiment_routes
+from .. import guided_batches
 from . import manager_http
 from . import manager_account_routes
 from . import manager_live_audit_routes
@@ -34,14 +34,15 @@ from . import manager_push_routes
 from . import manager_schedule_routes
 from . import manager_summary_routes
 from . import manager_tls
-from .prop import prop_experiment_routes
-from .common import json_bytes, safe_int, utc_now
+from ..prop import prop_experiment_routes
+from ..common import json_bytes, safe_int, utc_now
 from .manager_http import NODE_CONTROL_ACTIONS, NODE_CONTROL_TIMEOUT, submit_guided_to_node, submit_repair_request
 from .manager_restart import RestartAlreadyRunning
-from .portfolio_scope import normalize_portfolio_scope
+from ..portfolio_scope import normalize_portfolio_scope
 
 
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+# `parents[1]` es `mt5_manager/`: los estaticos son del paquete, no del dominio.
+STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 
 # `mimetypes` no conoce `.webmanifest` en Windows, y ahi `guess_type` devuelve
 # `None`: el manifiesto saldria como `application/octet-stream` y el navegador

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 class HistoryScreenTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        from mt5_manager.manager_handler import STATIC_FILES
+        from mt5_manager.manager.manager_handler import STATIC_FILES
 
         cls.static_files = STATIC_FILES
         static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"

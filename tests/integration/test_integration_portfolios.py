@@ -15,7 +15,7 @@ from unittest import mock
 from pathlib import Path
 
 from mt5_manager.node import node_portfolio_api
-from mt5_manager.manager import PULSE_JOB_KEYS, ManagerServer
+from mt5_manager.manager.manager import PULSE_JOB_KEYS, ManagerServer
 from mt5_manager.node.node import JobController, NodeServer
 from mt5_manager.portfolio_service import PortfolioSource, normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
@@ -43,7 +43,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         # pasara en la maquina anfitriona. Un test no debe depender del runner.
         self.manager.export_mode = "folder"
         with mock.patch(
-            "mt5_manager.manager_config.choose_directory", return_value=r"D:\exports"
+            "mt5_manager.manager.manager_config.choose_directory", return_value=r"D:\exports"
         ) as picker:
             status, payload = self.request(
                 "/api/nodes/test-node/portfolio-manager/choose-export-folder",
@@ -58,7 +58,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
         # Este es el modo que corre de verdad en produccion (docker-compose lo
         # fija a download) y no habia ninguna prueba que lo cubriera.
         self.manager.export_mode = "download"
-        with mock.patch("mt5_manager.manager_config.choose_directory") as picker:
+        with mock.patch("mt5_manager.manager.manager_config.choose_directory") as picker:
             with self.assertRaises(urllib.error.HTTPError) as caught:
                 self.request(
                     "/api/nodes/test-node/portfolio-manager/choose-export-folder",
@@ -124,7 +124,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                                   "restore_password": "saved"},
                 ),
                 mock.patch(
-                    "mt5_manager.manager_http.node_request", side_effect=reachable,
+                    "mt5_manager.manager.manager_http.node_request", side_effect=reachable,
                 ) as node_request,
             ):
                 server._run_due_live_audits()
@@ -211,7 +211,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
                     return_value={"restore_login": "9", "restore_server": "Broker-Test",
                                   "restore_password": "saved"},
                 ),
-                mock.patch("mt5_manager.manager_http.node_request", side_effect=request) as node_request,
+                mock.patch("mt5_manager.manager.manager_http.node_request", side_effect=request) as node_request,
             ):
                 server.live_audit_scheduler_settings["mode"] = "interval"
                 server.live_audit_scheduler_settings["interval_days"] = 7
@@ -338,7 +338,7 @@ class PortfolioIntegrationTests(IntegrationTestCase):
             {"id": 99, "alias": "Otro"},
         ]}
         with mock.patch(
-            "mt5_manager.manager_http.node_request", return_value=(200, listing)
+            "mt5_manager.manager.manager_http.node_request", return_value=(200, listing)
         ) as node_request:
             status, payload = self.request("/api/nodes/test-node/portfolio-aliases?ids=148,173,404")
 

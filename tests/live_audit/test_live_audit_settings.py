@@ -7,7 +7,7 @@ from pathlib import Path
 
 from lxml import html
 
-from mt5_manager.manager import normalize_live_audit_scheduler_settings
+from mt5_manager.manager.manager import normalize_live_audit_scheduler_settings
 from mt5_manager.live_audit_settings import (
     DEFAULT_LIVE_AUDIT_PROFILE,
     LiveAuditSettingsStore,

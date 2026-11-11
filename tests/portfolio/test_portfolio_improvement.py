@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from tools.package_layout import module_source
 from mt5_manager.portfolio_improvement_common import (
     ImprovementOptions,
     allocation_units,
@@ -587,7 +588,7 @@ class ImprovementScreenTests(unittest.TestCase):
         self.assertNotIn("option.value !== currentDetail.portfolio_type", script)
 
     def test_manager_serves_the_operation_specific_static_assets(self) -> None:
-        manager = (self.ROOT.parent / "manager_handler.py").read_text(encoding="utf-8")
+        manager = module_source("manager_handler")
         self.assertIn('"portfolio_improvement.js"', manager)
         self.assertIn('"portfolio_monthly_improvement.js"', manager)
         self.assertIn('"portfolio_repair.js"', manager)

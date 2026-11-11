@@ -11,7 +11,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import live_audit_watch, manager_schedule_routes
+from mt5_manager import live_audit_watch
+from mt5_manager.manager import manager_schedule_routes
 from mt5_manager.live_audit_watch import LiveAuditRunState
 from tests.live_audit.live_audit_cron_base import FakeServer, audit_state, published_audit
 
@@ -58,7 +59,7 @@ class CatchUpTests(unittest.TestCase):
         server = FakeServer(self.root, state)
         live_audit_watch.request_catch_up(server, self.now)
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=live_audit_watch_test_answers({audit_id: {"status": "idle"}}),
         ):
             live_audit_watch.tick(server)
@@ -103,7 +104,7 @@ class CatchUpTests(unittest.TestCase):
         posted: list[object] = []
         old = published_audit(period_end="2026-10-04T23:59:59+00:00")
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=live_audit_watch_test_answers({"11": old}, posted),
         ):
             live_audit_watch.tick(server)
@@ -136,7 +137,7 @@ class CatchUpTests(unittest.TestCase):
         live_audit_watch.request_catch_up(server, self.now)
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=live_audit_watch_test_answers({"11": {"status": "idle"}}, posted),
         ):
             live_audit_watch.tick(server)
@@ -154,7 +155,7 @@ class CatchUpTests(unittest.TestCase):
         live_audit_watch.request_catch_up(server, self.now)
         covered = published_audit(period_end="2026-10-17T23:59:59+00:00")
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=live_audit_watch_test_answers({"11": covered}),
         ):
             live_audit_watch.tick(server)
@@ -165,7 +166,7 @@ class CatchUpTests(unittest.TestCase):
         # Y no se vuelve a lanzar en la vuelta siguiente.
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=live_audit_watch_test_answers({"11": covered}, posted),
         ):
             live_audit_watch.tick(server)

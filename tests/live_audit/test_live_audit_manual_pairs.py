@@ -28,7 +28,7 @@ from mt5_manager.live_audit_manual_pairs import (
     tester_pair_key,
 )
 from mt5_manager.live_audit_settings import LiveAuditSettingsStore
-from mt5_manager.manager_live_audit_routes import handle_post
+from mt5_manager.manager.manager_live_audit_routes import handle_post
 from tests.live_audit.test_live_audit_analysis import payload, profile
 from tests.live_audit.test_live_audit_settings import profile as stored_profile
 from tests.live_audit.test_live_audit_view_lots import RouteHandler
@@ -321,7 +321,7 @@ class ManualPairRouteTests(unittest.TestCase):
     def post(self, body: object) -> tuple[int, object]:
         handler = RouteHandler(self.store, body)
         raw = {"audit": {"last_payload": discarded_payload()}}
-        with patch("mt5_manager.manager_http.node_request", return_value=(200, raw)):
+        with patch("mt5_manager.manager.manager_http.node_request", return_value=(200, raw)):
             self.assertTrue(handle_post(handler, None, self.PATH))
         return handler.sent
 
@@ -329,7 +329,7 @@ class ManualPairRouteTests(unittest.TestCase):
         handler = RouteHandler(self.store, body)
         raw = {"audit": {"last_payload": discarded_payload()}}
         path = ["api", "nodes", "nodo", "live-audits", "real-a", "attribution"]
-        with patch("mt5_manager.manager_http.node_request", return_value=(200, raw)):
+        with patch("mt5_manager.manager.manager_http.node_request", return_value=(200, raw)):
             self.assertTrue(handle_post(handler, None, path))
         return handler.sent
 

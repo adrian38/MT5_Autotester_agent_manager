@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from mt5_manager.common import load_json
-from mt5_manager.manager_restart import ManagerRestartController, ManagerRestartWorker
+from mt5_manager.manager.manager_restart import ManagerRestartController, ManagerRestartWorker
 
 
 class ManagerRestartWorkerTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class ManagerRestartWorkerTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0)
 
         worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
-        with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=succeed):
+        with mock.patch("mt5_manager.manager.manager_restart.subprocess.run", side_effect=succeed):
             worker.run()
 
         requested = [command for command in calls if command[0] in {"git", "docker"}]
@@ -73,7 +73,7 @@ class ManagerRestartWorkerTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 7 if command == ["git", "push"] else 0)
 
         worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
-        with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=fail_on_push):
+        with mock.patch("mt5_manager.manager.manager_restart.subprocess.run", side_effect=fail_on_push):
             worker.run()
 
         requested = [command for command in calls if command[0] in {"git", "docker"}]
@@ -91,7 +91,7 @@ class ManagerRestartWorkerTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, return_code)
 
         worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
-        with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=unauthenticated_once):
+        with mock.patch("mt5_manager.manager.manager_restart.subprocess.run", side_effect=unauthenticated_once):
             worker.run()
 
         self.assertIn([
@@ -110,7 +110,7 @@ class ManagerRestartWorkerTests(unittest.TestCase):
             calls.append(command)
             return subprocess.CompletedProcess(command, 1)
         worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
-        with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=fail_login):
+        with mock.patch("mt5_manager.manager.manager_restart.subprocess.run", side_effect=fail_login):
             worker.run()
         self.assertFalse(any(command[0] in {"git", "docker"} for command in calls))
         self.assertEqual(load_json(self.state_path)["status"], "failed")
@@ -124,7 +124,7 @@ class ManagerRestartWorkerTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0)
         for _ in range(2):
             worker = ManagerRestartWorker(self.root, self.state_path, self.log_path)
-            with mock.patch("mt5_manager.manager_restart.subprocess.run", side_effect=run):
+            with mock.patch("mt5_manager.manager.manager_restart.subprocess.run", side_effect=run):
                 worker.run()
         self.assertEqual(calls.count(["gh", "auth", "setup-git", "--hostname", "github.com"]), 2)
         self.assertFalse(any(command[:3] == ["gh", "auth", "login"] for command in calls))

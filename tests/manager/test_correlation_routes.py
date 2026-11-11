@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from mt5_manager.manager import ManagerServer
+from mt5_manager.manager.manager import ManagerServer
 
 
 STATIC_DIR = Path(__file__).parents[2] / "mt5_manager" / "static"

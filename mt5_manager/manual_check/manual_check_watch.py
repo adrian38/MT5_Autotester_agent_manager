@@ -19,7 +19,7 @@ from __future__ import annotations
 import urllib.error
 from typing import Any
 
-from .. import manager_http
+from ..manager import manager_http
 from ..common import load_json, save_json
 
 

@@ -17,13 +17,13 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from . import dev_branch
-from . import guided_batches
+from .. import dev_branch
+from .. import guided_batches
 # Se importa a si mismo a proposito: los envios largos llaman a
 # `node_request` por el modulo, no por el nombre, para que un doble
 # puesto en `manager_http.node_request` los intercepte tambien a ellos.
 from . import manager_http as _module
-from .common import json_bytes
+from ..common import json_bytes
 
 
 # Detener, pausar y reanudar no son consultas: matan la etapa en curso y esperan

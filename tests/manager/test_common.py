@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from mt5_manager.common import json_bytes, load_json, save_json
-from mt5_manager.manager import live_log_progress
+from mt5_manager.manager.manager import live_log_progress
 
 
 class CommonTests(unittest.TestCase):

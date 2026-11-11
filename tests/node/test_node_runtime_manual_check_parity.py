@@ -10,10 +10,12 @@ import unittest
 from pathlib import Path
 
 try:
-    from .node_runtime_parity_base import MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source
+    from .node_runtime_parity_base import (
+        MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source, module_source,
+    )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
-        MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source,
+        MANAGER_ROOT, NodeRuntimeForkParityBase, fork_node_source, module_source,
     )
 
 
@@ -120,9 +122,7 @@ class ManualCheckForkParityTests(NodeRuntimeForkParityBase):
         # tipo de datos— y deja los informes con sus imágenes en
         # `runtime/<nodo>/manual_checks/` es el runtime del agente. Sin el
         # port, el botón «Comprobación manual» devuelve el 404 del nodo.
-        forwarded = (MANAGER_ROOT / "mt5_manager" / "manager_portfolio_routes.py").read_text(
-            encoding="utf-8"
-        )
+        forwarded = module_source("manager_portfolio_routes")
         self.assertIn('"/api/v1/jobs/manual-check"', forwarded)
 
         def check(project: Path, _source: str) -> None:

@@ -17,7 +17,7 @@ import urllib.request
 from pathlib import Path
 
 from mt5_manager.live_audit_settings_schema import DEFAULT_LIVE_AUDIT_PROFILE
-from mt5_manager.manager import ManagerServer
+from mt5_manager.manager.manager import ManagerServer
 
 
 class LiveAuditPasswordRouteTests(unittest.TestCase):

@@ -37,7 +37,8 @@ import sys
 import urllib.parse
 from typing import Any
 
-from . import live_audit_degradation_reviews, manager_live_audit_reports
+from . import live_audit_degradation_reviews
+from .manager import manager_live_audit_reports
 from .common import safe_int, utc_now
 from .live_audit_executions import audit_label
 

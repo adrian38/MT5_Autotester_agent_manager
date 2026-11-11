@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mt5_manager import manager_http
+from mt5_manager.manager import manager_http
 from mt5_manager.portfolio_service import PortfolioCoordinator
 
 

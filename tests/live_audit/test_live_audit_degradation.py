@@ -264,7 +264,7 @@ class DegradationReportTests(unittest.TestCase):
         # del backtest de AXI/STANDARD:10751, mirar solo lo acumulado caza el
         # 22 % de esas roturas y mirar tambien la ventana reciente el 57 %.
         import json as json_module
-        from mt5_manager.manager_live_audit_routes import degradation_report
+        from mt5_manager.manager.manager_live_audit_routes import degradation_report
 
         source = FakeSource({"AXI/STANDARD": [(3813, json_module.dumps(metrics()))]})
         grouped = {"AXI/STANDARD:3813": (
@@ -285,7 +285,7 @@ class DegradationReportTests(unittest.TestCase):
 
     def test_a_series_that_cabe_entera_en_la_ventana_no_se_mide_dos_veces(self) -> None:
         import json as json_module
-        from mt5_manager.manager_live_audit_routes import degradation_report
+        from mt5_manager.manager.manager_live_audit_routes import degradation_report
 
         source = FakeSource({"AXI/STANDARD": [(3813, json_module.dumps(metrics()))]})
         report = degradation_report(source, self.result(
@@ -296,7 +296,7 @@ class DegradationReportTests(unittest.TestCase):
 
     def test_the_report_groups_the_tester_operations_by_strategy(self) -> None:
         import json as json_module
-        from mt5_manager.manager_live_audit_routes import degradation_report
+        from mt5_manager.manager.manager_live_audit_routes import degradation_report
 
         source = FakeSource({"AXI/STANDARD": [(3813, json_module.dumps(metrics()))]})
         report = degradation_report(source, self.result(
@@ -313,7 +313,7 @@ class DegradationReportTests(unittest.TestCase):
         self.assertEqual(row["verdict"], "normal")
 
     def test_an_operation_without_close_is_not_part_of_the_period(self) -> None:
-        from mt5_manager.manager_live_audit_routes import degradation_report
+        from mt5_manager.manager.manager_live_audit_routes import degradation_report
 
         open_row = self.row("AXI/STANDARD:3813", 1.0)
         open_row["tester"] = {**open_row["tester"], "close_time": None}
@@ -326,7 +326,7 @@ class DegradationReportTests(unittest.TestCase):
         # donde se sabe entre cuantas estrategias hay que repartir el nivel.
         # -2,4 sigma con veinte operaciones valen 23 % mirando cada semana.
         import json as json_module
-        from mt5_manager.manager_live_audit_routes import degradation_report
+        from mt5_manager.manager.manager_live_audit_routes import degradation_report
 
         source = FakeSource({"AXI/STANDARD": [(3813, json_module.dumps(metrics()))]})
         report = degradation_report(source, self.result(
@@ -343,7 +343,7 @@ class DegradationReportTests(unittest.TestCase):
 
     def test_a_collapse_still_degrades_through_the_report(self) -> None:
         import json as json_module
-        from mt5_manager.manager_live_audit_routes import degradation_report
+        from mt5_manager.manager.manager_live_audit_routes import degradation_report
 
         source = FakeSource({"AXI/STANDARD": [(3813, json_module.dumps(metrics()))]})
         report = degradation_report(source, self.result(
@@ -355,7 +355,7 @@ class DegradationReportTests(unittest.TestCase):
         self.assertTrue(row["evidence"]["confirmed"])
 
     def test_a_strategy_outside_the_pool_is_reported_without_history(self) -> None:
-        from mt5_manager.manager_live_audit_routes import degradation_report
+        from mt5_manager.manager.manager_live_audit_routes import degradation_report
 
         report = degradation_report(
             FakeSource({}), self.result([self.row("1002", 1.0) for _ in range(20)]),

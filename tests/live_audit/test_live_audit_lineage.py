@@ -424,7 +424,7 @@ class CronWindowTests(unittest.TestCase):
         self.server.portfolios = _SavedPortfolio(parent)
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request", side_effect=node_answers(posted),
+            "mt5_manager.manager.manager_http.node_request", side_effect=node_answers(posted),
         ):
             live_audit_watch.tick(self.server)
         return posted[0][1]

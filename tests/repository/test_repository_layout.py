@@ -105,7 +105,6 @@ MT5_DOMAINS = (
 MT5_SIN_DOMINIO = frozenset({
     "candidate_verdict",
     "common",
-    "correlation_routes",
     "dev_branch",
     "docker_entrypoint",
     "mt5_native_history_report",

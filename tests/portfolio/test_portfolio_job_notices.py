@@ -187,7 +187,7 @@ class CoordinatorNoticeTests(unittest.TestCase):
 
 class BellWiringTests(unittest.TestCase):
     def test_the_manager_lends_its_bell_to_the_portfolio_coordinator(self) -> None:
-        from mt5_manager.manager_server import ManagerServer
+        from mt5_manager.manager.manager_server import ManagerServer
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
             root = Path(temp)

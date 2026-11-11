@@ -10,8 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager import manager_portfolio_routes
-from mt5_manager.manager_portfolio_routes import parse_timeframe_document
+from mt5_manager.manager import manager_portfolio_routes
+from mt5_manager.manager.manager_portfolio_routes import parse_timeframe_document
 from mt5_manager.portfolio_saved import _saved_portfolio_row
 from mt5_manager.portfolio_manual_reports import manual_history_summary, report_for_set
 from mt5_manager.portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin

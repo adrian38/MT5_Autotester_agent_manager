@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from mt5_manager import live_audit_executions, live_audit_manual_inherit
 from mt5_manager.live_audit_manual_memory import ManualReportMemory, canonical_name
-from mt5_manager.manager_live_audit_routes import _handle_manual_reports
+from mt5_manager.manager.manager_live_audit_routes import _handle_manual_reports
 from tests.live_audit.test_live_audit_analysis import payload as analysis_payload, profile
 
 SOURCE = "XAUUSD_H1_Other_sets_GOLD_Various_Ol_6ecd56ee_g002_s015_v005.set"
@@ -379,7 +379,7 @@ class ManualReportWiringTests(unittest.TestCase):
 
             handler = Handler()
             with patch(
-                "mt5_manager.manager_live_audit_routes.manager_http.node_request",
+                "mt5_manager.manager.manager_live_audit_routes.manager_http.node_request",
                 return_value=(200, {"audit": {"last_payload": payload(
                     "run-20", [manual_artifact()],
                 )}}),

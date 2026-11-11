@@ -16,7 +16,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager import manager_handler, manager_portfolio_routes, portfolio_manual_check
+from mt5_manager.manager import manager_handler, manager_portfolio_routes
+from mt5_manager import portfolio_manual_check
 from mt5_manager.manual_check.manual_check_analysis import METRIC_KEYS, analysis
 
 

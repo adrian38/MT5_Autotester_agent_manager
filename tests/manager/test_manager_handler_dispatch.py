@@ -12,7 +12,7 @@ import json
 import unittest
 import urllib.error
 
-from mt5_manager.manager import ManagerHandler
+from mt5_manager.manager.manager import ManagerHandler
 
 
 def build_handler(command: str = "GET", path: str = "/api/nodes") -> ManagerHandler:

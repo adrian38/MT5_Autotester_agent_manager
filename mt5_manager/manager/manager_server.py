@@ -16,20 +16,21 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from .live_account import live_account_schedule, live_account_watch
-from . import live_audit_schedule, live_audit_watch, manager_tls
-from .web_push import web_push
-from .manual_check import manual_check_watch
-from .monthly_summary import monthly_summary_runtime
-from .common import load_json, safe_int, save_json
-from .experiment.experiment_service import ExperimentCoordinator
-from .live_account.live_account_archive import LiveAccountArchive
-from .live_account.live_account_schedule import normalize_live_account_scheduler_settings
-from .live_audit_archive import LiveAuditArchive
-from .live_audit_manual_memory import ManualReportMemory
-from .live_audit_notifications import LiveAuditNotificationStore
-from .live_audit_settings import LiveAuditSettingsStore
-from .live_audit_watch import LiveAuditRunState
+from ..live_account import live_account_schedule, live_account_watch
+from .. import live_audit_schedule, live_audit_watch
+from . import manager_tls
+from ..web_push import web_push
+from ..manual_check import manual_check_watch
+from ..monthly_summary import monthly_summary_runtime
+from ..common import load_json, safe_int, save_json
+from ..experiment.experiment_service import ExperimentCoordinator
+from ..live_account.live_account_archive import LiveAccountArchive
+from ..live_account.live_account_schedule import normalize_live_account_scheduler_settings
+from ..live_audit_archive import LiveAuditArchive
+from ..live_audit_manual_memory import ManualReportMemory
+from ..live_audit_notifications import LiveAuditNotificationStore
+from ..live_audit_settings import LiveAuditSettingsStore
+from ..live_audit_watch import LiveAuditRunState
 from .manager_config import (
     BOOL_PREFERENCE_KEYS,
     LAUNCH_PREFERENCE_KEYS,
@@ -40,8 +41,8 @@ from .manager_config import (
 )
 from .manager_handler import ManagerHandler
 from .manager_restart import ManagerRestartController
-from .portfolio_service import PortfolioCoordinator
-from .prop.prop_experiment_service import PropExperimentCoordinator
+from ..portfolio_service import PortfolioCoordinator
+from ..prop.prop_experiment_service import PropExperimentCoordinator
 
 
 _LEGACY_SCHEDULER_CONFIG_KEYS = (
@@ -306,7 +307,9 @@ class ManagerServer(ThreadingHTTPServer):
         repo_dir = str(
             os.environ.get("MT5_MANAGER_RESTART_REPO")
             or config.get("manager_repo_dir")
-            or Path(__file__).resolve().parents[1]
+            # `parents[2]` es la raiz del repositorio: de ahi cuelgan los
+            # `docker-compose*.yml` que `manager_restart` busca por nombre.
+            or Path(__file__).resolve().parents[2]
         )
         restart_state_file = str(
             os.environ.get("MT5_MANAGER_RESTART_STATE")

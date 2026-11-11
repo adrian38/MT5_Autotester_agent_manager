@@ -11,7 +11,8 @@ import hashlib
 import unittest
 import unittest.mock
 
-from mt5_manager import live_audit_executions, manager_http
+from mt5_manager import live_audit_executions
+from mt5_manager.manager import manager_http
 
 CLOSED = (
     '<tr align="right"><td>2026.10.19 15:34:30</td><td>772438775</td><td>XOM</td>'

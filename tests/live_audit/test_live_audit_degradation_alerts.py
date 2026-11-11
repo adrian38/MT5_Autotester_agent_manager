@@ -103,7 +103,7 @@ def memory(*candidates: str):
     # Envuelta en un doble para poder contar cuantas veces se abre la memoria
     # del agente: medir de mas es justo lo que esta ruta no puede permitirse.
     return mock.patch(
-        "mt5_manager.manager_live_audit_reports.PortfolioSource",
+        "mt5_manager.manager.manager_live_audit_reports.PortfolioSource",
         mock.Mock(side_effect=Source),
     )
 
@@ -294,7 +294,7 @@ class DegradationAlertTests(unittest.TestCase):
         # grabar «no degrada nada» sobre lo que no se pudo medir.
         self.archive("run-1", detail((DEGRADING, "uno.set", "EURUSD", DEGRADED_PROFIT, 12)))
         with mock.patch(
-            "mt5_manager.manager_live_audit_reports.PortfolioSource",
+            "mt5_manager.manager.manager_live_audit_reports.PortfolioSource",
             side_effect=OSError("la base del agente no responde"),
         ):
             self.review()

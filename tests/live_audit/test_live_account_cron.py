@@ -239,7 +239,7 @@ class WatchTests(unittest.TestCase):
             return 200, REPORT, "text/html"
 
         return mock.patch.multiple(
-            "mt5_manager.manager_http",
+            "mt5_manager.manager.manager_http",
             node_request=node_request, node_artifact_request=artifact,
         )
 
@@ -453,7 +453,7 @@ class WatchTests(unittest.TestCase):
             return 200, b"<html>otro</html>", "text/html"
         with self._request(snapshot_state()), mock.patch(
             "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
-        ), mock.patch("mt5_manager.manager_http.node_artifact_request", artifact):
+        ), mock.patch("mt5_manager.manager.manager_http.node_artifact_request", artifact):
             live_account_watch.tick(server, NOW)
         self.assertEqual(server.live_accounts.read("axi", "60082017@Axi-US50-Live")["movements"], [])
         self.assertIn("no coincide", server.events()[0]["message"])
@@ -474,7 +474,7 @@ class WatchTests(unittest.TestCase):
         def node_request(node, method, path, payload=None, timeout=10):
             raise TimeoutError("se agotó el tiempo")
 
-        with mock.patch("mt5_manager.manager_http.node_request", node_request):
+        with mock.patch("mt5_manager.manager.manager_http.node_request", node_request):
             live_account_watch.tick(server, NOW)
             live_account_watch.tick(server, NOW)
             self.assertEqual(server.events(), [])

@@ -20,8 +20,8 @@ from xml.etree import ElementTree
 from typing import Any
 
 from . import manager_http
-from .common import safe_int
-from .live_audit_watch import live_audit_ids
+from ..common import safe_int
+from ..live_audit_watch import live_audit_ids
 
 
 WORD_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"

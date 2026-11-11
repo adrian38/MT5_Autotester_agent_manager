@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager import manager_portfolio_routes
+from mt5_manager.manager import manager_portfolio_routes
 
 
 class RouteTests(unittest.TestCase):

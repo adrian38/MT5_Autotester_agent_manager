@@ -42,7 +42,7 @@ class WatchTickTests(unittest.TestCase):
         server = FakeServer(self.root, audit_state())
         running = {"11": {"status": "testing"}, "22": {"status": "completed"}}
         with mock.patch(
-            "mt5_manager.manager_http.node_request", side_effect=self.node_answers(running),
+            "mt5_manager.manager.manager_http.node_request", side_effect=self.node_answers(running),
         ):
             live_audit_watch.tick(server)
         # Primera vuelta: sólo recuerda. Un resultado de hace tres semanas no
@@ -53,7 +53,7 @@ class WatchTickTests(unittest.TestCase):
             "22": {"status": "completed"},
         }
         with mock.patch(
-            "mt5_manager.manager_http.node_request", side_effect=self.node_answers(finished),
+            "mt5_manager.manager.manager_http.node_request", side_effect=self.node_answers(finished),
         ):
             live_audit_watch.tick(server)
         events = server.events()
@@ -69,7 +69,7 @@ class WatchTickTests(unittest.TestCase):
         server = FakeServer(self.root, audit_state(configured_audit_ids=["22"]))
         for audits in ({"11": {"status": "testing"}}, {"11": {"status": "completed"}}):
             with mock.patch(
-                "mt5_manager.manager_http.node_request",
+                "mt5_manager.manager.manager_http.node_request",
                 side_effect=self.node_answers(audits),
             ):
                 live_audit_watch.tick(server)
@@ -84,12 +84,12 @@ class WatchTickTests(unittest.TestCase):
     def test_a_failure_is_an_error_with_the_reason_of_the_agent(self) -> None:
         server = FakeServer(self.root, audit_state())
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": {"status": "testing"}}),
         ):
             live_audit_watch.tick(server)
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers(
                 {"11": {"status": "failed", "error": "MT5 no entregó el HTML"}},
             ),
@@ -103,7 +103,7 @@ class WatchTickTests(unittest.TestCase):
         server = FakeServer(self.root, audit_state())
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": {"status": "idle"}}, posted),
         ):
             live_audit_watch.tick(server)
@@ -114,7 +114,7 @@ class WatchTickTests(unittest.TestCase):
         posted: list[object] = []
         audits = {"11": {"status": "idle"}, "22": {"status": "idle"}}
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers(audits, posted),
         ):
             live_audit_watch.tick(server)
@@ -127,7 +127,7 @@ class WatchTickTests(unittest.TestCase):
         server = FakeServer(self.root, audit_state(), enabled=True)
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": published_audit()}, posted),
         ):
             live_audit_watch.tick(server)
@@ -156,7 +156,7 @@ class WatchTickTests(unittest.TestCase):
         server = FakeServer(self.root, state, enabled=True)
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": published_audit()}, posted),
         ):
             live_audit_watch.tick(server)
@@ -168,7 +168,7 @@ class WatchTickTests(unittest.TestCase):
         )
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": published_audit()}, posted),
         ):
             live_audit_watch.tick(server)
@@ -190,7 +190,7 @@ class WatchTickTests(unittest.TestCase):
         )
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": published_audit()}, posted),
         ):
             live_audit_watch.launch_due(
@@ -247,7 +247,7 @@ class WatchTickTests(unittest.TestCase):
         posted: list[object] = []
         now = datetime(2026, 10, 31, 22, 1, tzinfo=timezone.utc)
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": published_audit()}, posted),
         ):
             live_audit_watch.launch_due(
@@ -264,7 +264,7 @@ class WatchTickTests(unittest.TestCase):
         # El turno queda cumplido: la vuelta siguiente no reintenta la misma
         # ventana vacía ni repite el aviso.
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": published_audit()}, posted),
         ):
             live_audit_watch.launch_due(
@@ -292,7 +292,7 @@ class WatchTickTests(unittest.TestCase):
         server = FakeServer(self.root, state, enabled=True)
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": {"status": "idle"}}, posted),
         ):
             live_audit_watch.tick(server)
@@ -309,7 +309,7 @@ class WatchTickTests(unittest.TestCase):
         posted: list[object] = []
         idle = {"11": {"status": "idle"}, "22": {"status": "idle"}}
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers(idle, posted),
         ):
             live_audit_watch.tick(server)
@@ -318,7 +318,7 @@ class WatchTickTests(unittest.TestCase):
         # espera a la vuelta siguiente, aunque también le toque.
         running = {"11": {"status": "testing"}, "22": {"status": "idle"}}
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers(running, posted),
         ):
             live_audit_watch.tick(server)
@@ -345,7 +345,7 @@ class WatchTickTests(unittest.TestCase):
         server = FakeServer(self.root, audit_state(), enabled=True)
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self._answers_with_snapshot({"status": "extracting"}, posted),
         ):
             live_audit_watch.tick(server)
@@ -355,7 +355,7 @@ class WatchTickTests(unittest.TestCase):
         self.assertNotEqual(record.get("outcome"), "failed", "esperar no gasta un intento")
         # Terminado el sondeo, la vuelta siguiente lanza sin que nadie toque nada.
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self._answers_with_snapshot({"status": "completed"}, posted),
         ):
             live_audit_watch.tick(server)
@@ -367,7 +367,7 @@ class WatchTickTests(unittest.TestCase):
         server = FakeServer(self.root, audit_state(), enabled=True)
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self._answers_with_snapshot(None, posted),
         ):
             live_audit_watch.tick(server)
@@ -387,7 +387,7 @@ class WatchTickTests(unittest.TestCase):
                 return 200, {"snapshot": {"status": "extracting"}}
             return 200, {"audits": {"11": {"status": "idle"}}}
 
-        with mock.patch("mt5_manager.manager_http.node_request", side_effect=request):
+        with mock.patch("mt5_manager.manager.manager_http.node_request", side_effect=request):
             live_audit_watch.tick(server)
         self.assertEqual(set(methods), {"GET"})
 
@@ -406,7 +406,7 @@ class WatchTickTests(unittest.TestCase):
                 return 200, {"audits": {"11": {"status": "idle"}}}
             return 409, {"error": "El agente está ocupado"}
 
-        with mock.patch("mt5_manager.manager_http.node_request", side_effect=rejecting):
+        with mock.patch("mt5_manager.manager.manager_http.node_request", side_effect=rejecting):
             live_audit_watch.tick(server)
         event = server.events()[0]
         self.assertEqual(event["level"], "error")
@@ -432,7 +432,7 @@ class WatchTickTests(unittest.TestCase):
         }
         posted: list[object] = []
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": failed}, posted),
         ):
             live_audit_watch.launch_due(
@@ -443,27 +443,27 @@ class WatchTickTests(unittest.TestCase):
 
     def test_an_unreachable_node_warns_once_and_reports_its_recovery(self) -> None:
         server = FakeServer(self.root, audit_state(), enabled=True)
-        with mock.patch("mt5_manager.manager_http.node_request", side_effect=OSError("sin red")):
+        with mock.patch("mt5_manager.manager.manager_http.node_request", side_effect=OSError("sin red")):
             live_audit_watch.tick(server)
         self.assertEqual([], server.events())
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": {"status": "testing"}}),
         ):
             live_audit_watch.tick(server)
         self.assertEqual([], server.events())
-        with mock.patch("mt5_manager.manager_http.node_request", side_effect=OSError("sin red")):
+        with mock.patch("mt5_manager.manager.manager_http.node_request", side_effect=OSError("sin red")):
             live_audit_watch.tick(server)
             live_audit_watch.tick(server)
         self.assertEqual([], server.events())
-        with mock.patch("mt5_manager.manager_http.node_request", side_effect=OSError("sin red")):
+        with mock.patch("mt5_manager.manager.manager_http.node_request", side_effect=OSError("sin red")):
             live_audit_watch.tick(server)
             live_audit_watch.tick(server)
         self.assertEqual(
             [event["kind"] for event in server.events()], ["scheduler_node_unavailable"],
         )
         with mock.patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             side_effect=self.node_answers({"11": {"status": "testing"}}),
         ):
             live_audit_watch.tick(server)

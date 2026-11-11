@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import manager_handler, manager_summary_routes
+from mt5_manager.manager import manager_handler, manager_summary_routes
 from mt5_manager.monthly_summary import monthly_summary_runtime
 from mt5_manager.monthly_summary import monthly_summary_notices, monthly_summary_watch
 from mt5_manager.monthly_summary.monthly_summary_store import MAXIMUM_MONTHS, MonthlySummaryStore

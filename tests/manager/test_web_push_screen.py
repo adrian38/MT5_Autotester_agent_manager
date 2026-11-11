@@ -32,7 +32,7 @@ mientras genera es la del portafolio, y la suscripcion se repone al cargar."""
 class WebPushScreenTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        from mt5_manager.manager_handler import STATIC_FILES
+        from mt5_manager.manager.manager_handler import STATIC_FILES
 
         cls.static_files = STATIC_FILES
         cls.worker = (STATIC / "sw.js").read_text(encoding="utf-8")

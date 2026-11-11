@@ -8,7 +8,7 @@ las dos callan.
 ## 1. El puerto ya no habla `http`, y no lo dice
 
 `ManagerServer.get_request` envuelve **toda** conexión aceptada en cuanto
-encuentra el certificado (`mt5_manager/manager_tls.py`). No hay redirección ni
+encuentra el certificado (`mt5_manager/manager/manager_tls.py`). No hay redirección ni
 respuesta de cortesía: un `GET` en claro contra el puerto TLS se cae en el
 saludo y el cliente ve «empty reply from server», igual que si el manager
 estuviera apagado.

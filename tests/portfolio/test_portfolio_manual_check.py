@@ -429,7 +429,7 @@ class ServerSurfaceTests(unittest.TestCase):
 
     @staticmethod
     def _server_attributes() -> set[str]:
-        source = (ROOT / "mt5_manager" / "manager_server.py").read_text(encoding="utf-8")
+        source = module_source("manager_server")
         tree = ast.parse(source)
         found: set[str] = set()
         for node in ast.walk(tree):

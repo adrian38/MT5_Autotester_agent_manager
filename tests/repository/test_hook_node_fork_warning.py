@@ -45,7 +45,7 @@ class HookRoutingTests(unittest.TestCase):
         # Si avisara de todo, el aviso se volvería ruido y dejaría de leerse.
         for path in (
             "mt5_manager/static/portfolios_monthly.js",
-            "mt5_manager/manager.py",
+            "mt5_manager/manager/manager.py",
             "mt5_manager/portfolio_monthly_service.py",
             "tests/portfolio/test_portfolio_service.py",
             "mt5_manager/portfolio_service.pyc",

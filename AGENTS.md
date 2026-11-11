@@ -306,8 +306,12 @@ orden de dependencia:
 `manager_push_routes` → `manager_handler` →
 `manager_server` → `manager`
 
-- `manager.py` sólo arranca y **reexporta**: `from mt5_manager.manager import
-  ManagerServer, ManagerHandler, PULSE_JOB_KEYS, ...` sigue funcionando.
+- `manager.py` sólo arranca y **reexporta**, y vive en `mt5_manager/manager/`
+  con los otros dieciséis: los llamantes importan
+  `from mt5_manager.manager.manager import ManagerServer, ManagerHandler,
+  PULSE_JOB_KEYS, ...`. El comando no cambió —`python -m mt5_manager.manager`
+  lo sirve `manager/__main__.py`—, pero el import sí, porque el `__init__.py`
+  del dominio está vacío a propósito.
 - Las rutas de cada área son funciones de módulo que reciben el handler, igual
   que `correlation_routes` y `experiment_routes`.
 - **Todo reenvío al nodo pasa por `manager_http.node_request`, llamado como
@@ -329,7 +333,15 @@ dependencia, y `node.py` es la fachada de 56 líneas que arranca y reexporta:
 - Sigue sin ejecutarlo ningún agente: el aviso de la sección «El nodo NO
   ejecuta este repositorio» vale igual para los once.
 - La guarda de paridad ya no lee `node.py`: `manager_node_source()` concatena
-  todos los `node*.py`. Compara **criterios**, no ficheros.
+  todos los `node*.py` **buscándolos por el paquete entero**
+  (`tools.package_layout.domain_sources`). Compara **criterios**, no ficheros,
+  y así ni partirlos ni moverlos la deja comprobando la cadena vacía en verde.
+- `node.py` vive en `mt5_manager/node/` y se importa
+  `from mt5_manager.node.node import JobController, NodeServer, ...`;
+  `python -m mt5_manager.node` lo sirve `node/__main__.py`. El `__init__.py` de
+  este dominio es el único con contenido del paquete, y sólo reexporta
+  `read_settings` y `memory_path`, que es lo que pide la línea congelada de
+  `guided_controller.py`.
 - **`mt5_manager/guided_controller.py` tiene que ser idéntico byte a byte** al
   del runtime de IC, y hay una prueba que lo compara. No se le puede añadir ni
   un import: por eso `_normalize_generation`, `_enqueue` y el resto de la cola

@@ -16,8 +16,8 @@ import urllib.parse
 from datetime import datetime, timezone
 from typing import Any
 
-from .monthly_summary import monthly_summary_watch
-from .monthly_summary.monthly_summary_schedule import month_label, shift_month
+from ..monthly_summary import monthly_summary_watch
+from ..monthly_summary.monthly_summary_schedule import month_label, shift_month
 
 SUMMARY_PATH = "/api/monthly-summary"
 CONFIG_PATH = "/api/monthly-summary-config"

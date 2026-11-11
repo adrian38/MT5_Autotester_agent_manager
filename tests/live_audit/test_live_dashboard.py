@@ -5,7 +5,8 @@ from pathlib import Path
 
 from lxml import html
 
-from mt5_manager.manager_handler import STATIC_FILES
+from tools.package_layout import module_source
+from mt5_manager.manager.manager_handler import STATIC_FILES
 
 
 class LivePortfolioDashboardTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
         cls.analysis_page = (static / "live_audit_analysis.html").read_text(encoding="utf-8")
         cls.generation_page = (static / "index.html").read_text(encoding="utf-8")
-        cls.handler = (root / "mt5_manager" / "manager_handler.py").read_text(encoding="utf-8")
+        cls.handler = module_source("manager_handler")
         cls.page = html.fromstring(cls.page_text)
 
     def test_manager_opens_the_live_portfolio_dashboard_first(self) -> None:
@@ -261,8 +262,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         self.assertIn("historyRevision: entry.history_revision || ''", self.script)
         self.assertIn("entry.historyRevision || entry.result?.analysis?.executed_at", self.script)
         self.assertIn("entry.auditId && entry.result && !historyOf(entry)", self.script)
-        routes = (Path(__file__).parents[2] / "mt5_manager"
-                  / "manager_schedule_routes.py").read_text(encoding="utf-8")
+        routes = module_source("manager_schedule_routes")
         self.assertIn('query.get("source", [""])[0] == "archive"', routes)
         self.assertIn("return _archived_history(handler, node, node_id, audit_key)", routes)
 

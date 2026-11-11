@@ -28,7 +28,7 @@ from . import (
     live_account_report,
     live_account_schedule,
 )
-from .. import manager_http
+from ..manager import manager_http
 from ..common import utc_now
 from .live_account_ingest import SNAPSHOT_KEY
 from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from mt5_manager.live_audit_watch import LiveAuditRunState
-from mt5_manager.manager_live_audit_routes import (
+from mt5_manager.manager.manager_live_audit_routes import (
     analysed_live_audit, dashboard_node_state, dashboard_nodes, run_payload,
 )
 from tests.live_audit.test_live_audit_autolot import STRATEGY, audit_payload
@@ -44,7 +44,7 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
         })
         endpoint = SimpleNamespace(server=SimpleNamespace(live_audit_settings=settings))
         raw = {"audits": {"audit-148": {"last_payload": payload()}}}
-        with patch("mt5_manager.manager_http.node_request", return_value=(200, raw)) as request, patch(
+        with patch("mt5_manager.manager.manager_http.node_request", return_value=(200, raw)) as request, patch(
             "mt5_manager.live_audit_executions.archive_execution",
         ) as archive:
             state = dashboard_node_state(endpoint, "ic", {"id": "ic", "name": "ICTrading"})
@@ -75,7 +75,7 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
                 live_audit_settings=settings, live_audit_runs=runs,
             ))
             raw = {"audits": {"audit-148": {"last_payload": payload()}}}
-            with patch("mt5_manager.manager_http.node_request", return_value=(200, raw)):
+            with patch("mt5_manager.manager.manager_http.node_request", return_value=(200, raw)):
                 state = dashboard_node_state(endpoint, "ic", {"id": "ic", "name": "ICTrading"})
         degradation = state["entries"][0]["degradation"]
         self.assertEqual(degradation["strategies"][0]["symbol"], "EURUSD")
@@ -172,7 +172,7 @@ class LiveAuditEndpointAnalysisTests(unittest.TestCase):
         )
         endpoint = SimpleNamespace(server=SimpleNamespace(live_audit_settings=settings))
         with patch(
-            "mt5_manager.manager_http.node_request",
+            "mt5_manager.manager.manager_http.node_request",
             return_value=(200, {"capabilities": {"live_audit_restore_account": True}}),
         ):
             request = run_payload(endpoint, "nodo", {}, "audit-148")

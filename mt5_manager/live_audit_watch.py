@@ -24,7 +24,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import live_audit_catch_up, live_audit_degradation_alerts, live_audit_executions
-from . import live_audit_full_period, live_audit_lineage, live_audit_schedule, manager_http
+from . import live_audit_full_period, live_audit_lineage, live_audit_schedule
+from .manager import manager_http
 from .common import safe_int, utc_now
 from .live_account.live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
 from .live_audit_core import RUNNING_STATUSES

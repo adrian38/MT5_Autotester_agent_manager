@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from mt5_manager.live_audit_report_upload import replace_tester_reports
-from mt5_manager.manager_live_audit_routes import _handle_manual_reports
+from mt5_manager.manager.manager_live_audit_routes import _handle_manual_reports
 from tests.live_audit.test_live_audit_analysis import payload as analysis_payload, profile
 
 
@@ -120,7 +120,7 @@ class ManualAuditReportTests(unittest.TestCase):
 
         endpoint = Handler()
         with patch(
-            "mt5_manager.manager_live_audit_routes.manager_http.node_request",
+            "mt5_manager.manager.manager_live_audit_routes.manager_http.node_request",
             return_value=(200, {"audit": {"last_payload": analysis_payload()}}),
         ) as request:
             handled = _handle_manual_reports(
@@ -133,7 +133,7 @@ class ManualAuditReportTests(unittest.TestCase):
         self.assertEqual(request.call_args.args[2], "/api/v1/live-audits/audit-105/reports")
 
         with patch(
-            "mt5_manager.manager_live_audit_routes.manager_http.node_request",
+            "mt5_manager.manager.manager_live_audit_routes.manager_http.node_request",
             return_value=(422, {"error": "reporte inválido"}),
         ):
             _handle_manual_reports(

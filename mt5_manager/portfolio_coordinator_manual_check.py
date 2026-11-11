@@ -14,7 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import manager_http, portfolio_manual_check
+from .manager import manager_http
+from . import portfolio_manual_check
 from .manual_check import manual_check_analysis
 from .portfolio_source import PortfolioSource
 

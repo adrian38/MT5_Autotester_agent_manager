@@ -26,7 +26,7 @@ No sale gratis:
   independientes. Compose resuelve los *bind mounts* relativos contra la
   carpeta del fichero, así que `source: ./Caddyfile` y los montajes del
   proyecto apuntarían a `deploy/...` en cuanto el fichero baje un nivel; y
-  `mt5_manager/manager_restart.py` los busca por nombre en `repo_dir` para
+  `mt5_manager/manager/manager_restart.py` los busca por nombre en `repo_dir` para
   reiniciarse a sí mismo (`("docker-compose.yml", "compose.yml",
   "compose.yaml")`), de modo que el botón de reinicio dejaría de encontrar el
   despliegue. Lo segundo lo cubren `tests/manager/test_manager_restart.py`; lo

@@ -387,7 +387,7 @@ class AccumulationTests(unittest.TestCase):
 
 class DegradationIsCumulativeTests(unittest.TestCase):
     def test_the_report_can_measure_the_whole_series_instead_of_the_period(self) -> None:
-        from mt5_manager import manager_live_audit_routes
+        from mt5_manager.manager import manager_live_audit_routes
 
         result = {
             "period_start": "2026-10-03T00:00:00+00:00",

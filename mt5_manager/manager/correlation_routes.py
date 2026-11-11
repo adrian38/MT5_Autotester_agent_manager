@@ -20,11 +20,12 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from .common import safe_int, utc_now
-from .portfolio_scope import normalize_portfolio_scope
+from ..common import safe_int, utc_now
+from ..portfolio_scope import normalize_portfolio_scope
 
 
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+# `parents[1]` es `mt5_manager/`: los estaticos son del paquete, no del dominio.
+STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 STATIC_FILES = frozenset({"correlation.html", "correlation.js", "correlation.css"})
 API_PARTS = ("api", "correlation", "nodes")
 

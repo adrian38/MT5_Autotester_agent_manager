@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from mt5_manager import manager, manager_http, dev_branch
+from mt5_manager.manager import manager, manager_http
+from mt5_manager import dev_branch
 from mt5_manager.docker_entrypoint import docker_config
 from tests.node.test_guided_node import package
 from tools.agent_projects import ic_project, searched_ic_projects

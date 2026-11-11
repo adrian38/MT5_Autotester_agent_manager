@@ -20,7 +20,7 @@ from mt5_manager.live_account import (
     live_account_expectation, live_account_ingest, live_account_presentation,
     live_account_series,
 )
-from mt5_manager import manager_account_routes
+from mt5_manager.manager import manager_account_routes
 from mt5_manager.live_account.live_account_archive import (
     LiveAccountArchive, account_key, stored_balances, stored_movements, stored_profits,
 )

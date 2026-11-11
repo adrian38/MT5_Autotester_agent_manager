@@ -30,7 +30,8 @@ from . import (
     live_account_expectation, live_account_inventory, live_account_month_lots,
     live_account_presentation, live_account_report,
 )
-from .. import live_audit_autolot, manager_http
+from .. import live_audit_autolot
+from ..manager import manager_http
 from ..common import safe_int, utc_now
 from .live_account_archive import stored_balances
 from .live_account_series import month_key, previous_month
