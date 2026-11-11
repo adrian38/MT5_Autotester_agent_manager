@@ -25,6 +25,49 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         cls.analysis_css = (static_dir / "live_audit_analysis.css").read_text(encoding="utf-8")
         cls.analysis_page = html.fromstring(cls.analysis_page_text)
 
+    def test_analysis_tab_compares_global_and_per_strategy_curves(self) -> None:
+        for text in (
+            "Demo / Strategy Tester", "Cuenta real", "Curvas acumuladas",
+            "Análisis por estrategia", "PnL cerrado", "Drawdown máximo",
+            "Operaciones cerradas",
+        ):
+            self.assertIn(text, self.analysis_page_text + self.analysis_script)
+        # Lo que la pantalla dibuja es suyo.
+        for token in (
+            "cumulativeSeries", "renderChart", "strategyGroups",
+            "data-strategy-key", "period_start",
+        ):
+            self.assertIn(token, self.analysis_script)
+        # Los campos del payload no: desde que las cuatro vistas de
+        # reproducción comparten la primitiva (4042339) los lee
+        # `live_audit_reproduction.js`, que la página carga antes que ésta, y
+        # `tests/repository/test_live_screens_share_primitives.py` prohíbe
+        # expresamente que la pantalla los vuelva a leer por su cuenta.
+        for token in ("operation_comparisons", "unmatched_real_operations"):
+            self.assertIn(token, self.reproduction_script)
+        for element_id in (
+            "demo-summary", "real-summary", "global-chart", "global-count",
+            "strategy-list", "strategy-chart", "strategy-heading", "strategy-count",
+            "analysis-error",
+        ):
+            self.assertTrue(
+                self.analysis_page.xpath(f'//*[@id="{element_id}"]'), element_id,
+            )
+
+    def test_the_analysis_groups_by_strategy_and_counts_the_unpaired_reals(self) -> None:
+        # Dos estrategias pueden compartir el nombre del `.set`; agrupar por él
+        # las fundiría en una fila y escondería la que peor reproduce. La
+        # identidad la decide la primitiva común, y la pantalla la pide: un
+        # `strategyGroups` propio aquí sería justo el cálculo duplicado que
+        # 4042339 retiró.
+        self.assertIn("String(row.strategy || tester.strategy", self.reproduction_script)
+        self.assertIn("label: row.strategy_set || key", self.reproduction_script)
+        self.assertIn("LiveAuditReproduction.strategyGroups(", self.analysis_script)
+        # La curva real incluye las reales sin pareja: omitirlas falsearía la
+        # ganancia de la cuenta, y el recuento deja ver cuántas son.
+        self.assertIn("real: [...paired, ...extras]", self.analysis_script)
+        self.assertIn("SIN PAREJA", self.analysis_script)
+
     def test_the_demo_curve_is_scaled_to_the_lot_the_real_account_executed(self) -> None:
         # La cuenta real lleva la batuta. Escalar al lote que el autolote
         # calcula mete en la comparación la desviación que la auditoría está

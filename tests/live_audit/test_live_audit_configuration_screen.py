@@ -222,37 +222,6 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         self.assertIn("has_payload: Boolean(value.has_payload)", self.script)
         self.assertIn("runtime.last_result || runtime.has_payload", self.script)
 
-    def test_analysis_tab_compares_global_and_per_strategy_curves(self) -> None:
-        for text in (
-            "Demo / Strategy Tester", "Cuenta real", "Curvas acumuladas",
-            "Análisis por estrategia", "PnL cerrado", "Drawdown máximo",
-            "Operaciones cerradas",
-        ):
-            self.assertIn(text, self.analysis_page_text + self.analysis_script)
-        for token in (
-            "operation_comparisons", "unmatched_real_operations", "cumulativeSeries",
-            "renderChart", "strategyGroups", "data-strategy-key", "period_start",
-        ):
-            self.assertIn(token, self.analysis_script)
-        for element_id in (
-            "demo-summary", "real-summary", "global-chart", "global-count",
-            "strategy-list", "strategy-chart", "strategy-heading", "strategy-count",
-            "analysis-error",
-        ):
-            self.assertTrue(
-                self.analysis_page.xpath(f'//*[@id="{element_id}"]'), element_id,
-            )
-
-    def test_the_analysis_groups_by_strategy_and_counts_the_unpaired_reals(self) -> None:
-        # Dos estrategias pueden compartir el nombre del `.set`; agrupar por él
-        # las fundiría en una fila y escondería la que peor reproduce.
-        self.assertIn("String(row.strategy || tester.strategy", self.analysis_script)
-        self.assertIn("label: row.strategy_set || key", self.analysis_script)
-        # La curva real incluye las reales sin pareja: omitirlas falsearía la
-        # ganancia de la cuenta, y el recuento deja ver cuántas son.
-        self.assertIn("real: [...paired, ...extras]", self.analysis_script)
-        self.assertIn("SIN PAREJA", self.analysis_script)
-
     def test_the_analysis_draws_over_the_audited_period_and_says_what_is_missing(self) -> None:
         # El eje de tiempo es el periodo auditado y no la extensión de las
         # operaciones: así las curvas de dos estrategias son comparables entre
