@@ -196,14 +196,22 @@ raíz están en `ai_context/layout_del_repositorio.md`.
 | `Dockerfile`, `.dockerignore` | la raíz es el contexto de construcción, y `.dockerignore` sólo se aplica dentro de él |
 | `docker-compose.yml`, `docker-compose.dev.yml` | Compose resuelve los bind mounts relativos contra su propia carpeta, y `manager_restart.py` los busca por nombre en `repo_dir` para reiniciarse |
 | `Caddyfile` | lo monta el compose como `./Caddyfile` |
-| `.env`, `.env.docker.example` | Compose lee `.env` de la raíz del proyecto y de ninguna otra |
+| `.env` | Compose lo lee de la raíz del proyecto y de ninguna otra |
 | `.gitignore`, `.mcp.json` | contratos de Git y del servidor MCP |
-| `README.md`, `AGENTS.md`, `CLAUDE.md`, `agent.md` | lectura obligatoria; se descubren por nombre en la raíz |
+| `README.md`, `AGENTS.md`, `CLAUDE.md` | lectura obligatoria; se descubren por nombre en la raíz |
 | `manager.json`, `node.json` | configuración viva del equipo, ignorada por Git; es la ruta que documentan el README y los lanzadores |
 
 Nada más. Un respaldo (`*.bak`), un volcado o un JSON de despliegue de una
 máquina concreta **no** son manifiestos: van a `config/` si son configuración y
 a `runtime/` si son desechables.
+
+Y «no puede moverse» hay que ganárselo. `agent.md` estaba en esta tabla como
+lectura obligatoria y no lo leía nadie: 268 bytes diciendo que las
+instrucciones están en `AGENTS.md`. `.env.docker.example` estaba junto a `.env`
+como si Compose lo necesitara ahí, y es una plantilla que sólo se copia a mano
+una vez: vive con las otras dos (`manager.example.json`, `node.example.json`) en
+`config/`. Los dos salieron el 2026-11-11, y la pregunta de la tabla no es «¿se
+descubre por nombre?» sino «¿lo busca algo **de verdad** aquí?».
 
 ### Una carpeta por responsabilidad
 

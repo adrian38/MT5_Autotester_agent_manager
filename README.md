@@ -351,7 +351,7 @@ contenedor.
 2. Crear el archivo de rutas para Docker:
 
    ```powershell
-   Copy-Item .env.docker.example .env
+   Copy-Item config\.env.docker.example .env
    ```
 
 3. Editar `.env` con las tres carpetas de proyecto (`IC_PROJECT_DIR`,

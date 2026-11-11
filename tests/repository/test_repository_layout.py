@@ -41,13 +41,11 @@ ROOT_FILES = frozenset({
     "docker-compose.dev.yml",
     "Caddyfile",
     ".env",
-    ".env.docker.example",
     ".gitignore",
     ".mcp.json",
     "README.md",
     "AGENTS.md",
     "CLAUDE.md",
-    "agent.md",
     "manager.json",
     "node.json",
 })
