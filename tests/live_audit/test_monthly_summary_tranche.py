@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import monthly_summary_notices as notices
+from mt5_manager.monthly_summary import monthly_summary_notices as notices
 
 from .test_monthly_summary import facts
 

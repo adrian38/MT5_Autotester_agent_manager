@@ -27,12 +27,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import monthly_summary_coverage as coverage
-from mt5_manager import monthly_summary_build
-from mt5_manager import monthly_summary_evidence as evidence
-from mt5_manager import monthly_summary_notices as notices
-from mt5_manager import monthly_summary_watch
-from mt5_manager.monthly_summary_schedule import (
+from mt5_manager.monthly_summary import monthly_summary_coverage as coverage
+from mt5_manager.monthly_summary import monthly_summary_build
+from mt5_manager.monthly_summary import monthly_summary_evidence as evidence
+from mt5_manager.monthly_summary import monthly_summary_notices as notices
+from mt5_manager.monthly_summary import monthly_summary_watch
+from mt5_manager.monthly_summary.monthly_summary_schedule import (
     DEFAULT_MONTHLY_SUMMARY_SETTINGS, month_label, month_name, next_occurrence,
     normalize_monthly_summary_settings, previous_occurrence, shift_month,
     target_month,

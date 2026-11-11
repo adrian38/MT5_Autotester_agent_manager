@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import monthly_summary_notices
-from .common import load_json, save_json, utc_now
+from ..common import load_json, save_json, utc_now
 
 MAXIMUM_MONTHS = 24
 """Meses conservados. Dos años caben de sobra en un JSON y son los que dan

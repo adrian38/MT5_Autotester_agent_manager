@@ -20,8 +20,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from tools.package_layout import module_source  # noqa: E402
+
 STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-PACKAGE = Path(__file__).resolve().parents[2] / "mt5_manager"
 
 # El dueño de todo lo de abajo. Lo que aquí se prohíbe a las pantallas, aquí
 # está escrito una vez.
@@ -103,7 +104,7 @@ class AccountPerformanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.sources = {
-            name: (PACKAGE / name).read_text(encoding="utf-8") for name in cls.OWNERS
+            name: module_source(name) for name in cls.OWNERS
         }
 
     def test_neither_screen_aggregates_the_series_on_its_own(self) -> None:
@@ -113,15 +114,19 @@ class AccountPerformanceTests(unittest.TestCase):
                     self.assertNotIn(call, source)
 
     def test_both_screens_read_the_series_through_the_primitive(self) -> None:
+        # El numero de puntos lo decide el subpaquete en el que vive la pantalla
+        # —`.` desde la raiz del paquete, `..` desde un dominio—, asi que el
+        # criterio no puede mirarlo: lo que se exige es de donde importa.
         for name, source in self.sources.items():
             with self.subTest(screen=name):
-                self.assertIn("from .live_account_performance import", source)
+                self.assertRegex(source, r"from \.+live_account_performance import")
                 self.assertIn("account_series(stored)", source)
                 self.assertIn("monthly_performance(", source)
 
     def test_the_same_function_object_reaches_both_screens(self) -> None:
         """El texto no basta: dos imports del mismo nombre pueden ser dos cosas."""
-        from mt5_manager import live_account_dashboard, monthly_summary_build
+        from mt5_manager import live_account_dashboard
+        from mt5_manager.monthly_summary import monthly_summary_build
 
         self.assertIs(
             live_account_dashboard.monthly_performance,

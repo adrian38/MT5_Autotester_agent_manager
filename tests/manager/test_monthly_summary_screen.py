@@ -31,9 +31,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import manager_handler, manager_summary_routes, monthly_summary_runtime
-from mt5_manager import monthly_summary_notices, monthly_summary_watch
-from mt5_manager.monthly_summary_store import MAXIMUM_MONTHS, MonthlySummaryStore
+from mt5_manager import manager_handler, manager_summary_routes
+from mt5_manager.monthly_summary import monthly_summary_runtime
+from mt5_manager.monthly_summary import monthly_summary_notices, monthly_summary_watch
+from mt5_manager.monthly_summary.monthly_summary_store import MAXIMUM_MONTHS, MonthlySummaryStore
 
 STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
 PAGE = (STATIC / "monthly_summary.html").read_text(encoding="utf-8")

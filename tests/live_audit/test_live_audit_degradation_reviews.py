@@ -30,7 +30,7 @@ from mt5_manager.live_audit_settings import (
     DEFAULT_LIVE_AUDIT_PROFILE,
     LiveAuditSettingsStore,
 )
-from mt5_manager import monthly_summary_notices as notices
+from mt5_manager.monthly_summary import monthly_summary_notices as notices
 from mt5_manager.manager_live_audit_routes import handle_get, handle_post
 from tests.live_audit.test_monthly_summary import facts as summary_facts
 from tests.live_audit.test_live_audit_settings import profile as stored_profile
