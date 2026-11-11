@@ -42,13 +42,13 @@
       <details>
         <summary>Ajustes avanzados</summary>
         <div class="grid advanced">
-          <label>Candidatas/broker<input id="max_candidates_per_node" type="number" min="0"></label>
-          <label>Seeds/broker<input id="max_seeds_per_node" type="number" min="0"></label>
-          <label>Unidades/estrategia<input id="max_units_per_strategy" type="number" min="1"></label>
-          <label>Pool de búsqueda<input id="search_pool_limit" type="number" min="1"></label>
-          <label>Días máx./fase<input id="max_days_per_phase" type="number" min="5"></label>
-          <label>Salto entre trials<input id="trial_stride_days" type="number" min="1"></label>
-          <label>Máx. trials<input id="max_trials" type="number" min="1"></label>
+          <label>Candidatas/broker<input id="max_candidates_per_node" type="number" min="0" max="10000"></label>
+          <label>Seeds/broker<input id="max_seeds_per_node" type="number" min="0" max="10000"></label>
+          <label>Unidades/estrategia<input id="max_units_per_strategy" type="number" min="1" max="50"></label>
+          <label>Pool de búsqueda<input id="search_pool_limit" type="number" min="1" max="250"></label>
+          <label>Días máx./fase<input id="max_days_per_phase" type="number" min="5" max="500"></label>
+          <label>Salto entre trials<input id="trial_stride_days" type="number" min="1" max="60"></label>
+          <label>Máx. trials<input id="max_trials" type="number" min="1" max="1000"></label>
         </div>
       </details>
       <div class="actions">

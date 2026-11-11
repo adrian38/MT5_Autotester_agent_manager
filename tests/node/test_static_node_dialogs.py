@@ -94,6 +94,12 @@ PER_PAGE_VALUES = {
     ("prop_experiment.html", "capital"): (1000, 100000, 200000),
     ("prop_experiment.html", "horizon_months"): (3, 36, 84),
     ("prop_experiment.html", "max_units_total"): (1, 24, 500),
+    # Estos dos los comparte con «Experimenta», que llega mucho más arriba
+    # (200 unidades por estrategia y 100.000 candidatas). La pantalla prop
+    # declara los suyos desde que tiene `max`, así que el rango de la otra ya
+    # no se le puede exigir.
+    ("prop_experiment.html", "max_candidates_per_node"): (0, 150, 10000),
+    ("prop_experiment.html", "max_units_per_strategy"): (1, 6, 50),
 }
 
 
