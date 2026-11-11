@@ -68,6 +68,7 @@ def command_specs(*, include_full_suite: bool = False) -> list[CommandSpec]:
                 python, "-m", "unittest",
                 "tests.repository.test_agents_md_stacks",
                 "tests.repository.test_repository_layout",
+                "tests.repository.test_packaging",
                 "tests.repository.test_module_layering",
                 "tests.repository.test_ubs_package_layering",
                 "tests.node.test_guided_routing",

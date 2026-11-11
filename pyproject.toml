@@ -14,15 +14,21 @@ requires-python = ">=3.10"
 dependencies = ["cryptography>=42", "lxml>=5", "tzdata>=2024.1"]
 
 [project.scripts]
-mt5-manager = "mt5_manager.manager:main"
-mt5-node = "mt5_manager.node:main"
+# `mt5_manager.manager` y `mt5_manager.node` son paquetes desde que `mt5_manager/`
+# se repartió por dominios, y sus `__init__` están vacíos: el `main` vive en el
+# módulo de dentro. `python -m mt5_manager.manager` sigue valiendo porque lo
+# sirve su `__main__.py`, pero un punto de entrada no pasa por ahí.
+mt5-manager = "mt5_manager.manager.manager:main"
+mt5-node = "mt5_manager.node.node:main"
 
 [tool.setuptools.package-data]
+# El `**` no es adorno: con `static/*.html` los estáticos repartidos por
+# pantallas se quedaban fuera del paquete instalado, y en silencio.
 mt5_manager = [
-    "static/*.html", "static/*.css", "static/*.js",
+    "static/**/*.html", "static/**/*.css", "static/**/*.js",
     # El manifiesto y los iconos de los avisos: sin ellos no hay nada que
     # instalar en la pantalla de inicio, y sin eso iOS no da avisos.
-    "static/*.webmanifest", "static/*.png",
+    "static/**/*.webmanifest", "static/**/*.png",
 ]
 
 [tool.setuptools.packages.find]
