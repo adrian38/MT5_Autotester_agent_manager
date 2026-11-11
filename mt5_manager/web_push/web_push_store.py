@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .common import load_json, save_json, utc_now
+from ..common import load_json, save_json, utc_now
 from .web_push_crypto import b64url_decode
 
 MAXIMUM_SUBSCRIPTIONS = 24

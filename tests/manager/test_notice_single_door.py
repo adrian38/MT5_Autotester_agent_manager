@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import web_push
+from mt5_manager.web_push import web_push
 from mt5_manager.live_audit_notifications import LiveAuditNotificationStore
 
 PACKAGE = Path(__file__).resolve().parents[2] / "mt5_manager"
@@ -46,8 +46,14 @@ lista sea una decisión y no un descuido."""
 
 
 def sources() -> list[Path]:
+    """Todo el paquete, también sus subpaquetes por dominio.
+
+    Con `glob("*.py")` esta guarda se quedó mirando los cinco módulos de la raíz
+    en cuanto el paquete se repartió por dominios: seguía en verde comprobando
+    una fracción de lo que comprobaba antes.
+    """
     return sorted(
-        path for path in PACKAGE.glob("*.py")
+        path for path in PACKAGE.rglob("*.py")
         if path.name not in {"live_audit_notifications.py", "web_push.py"}
     )
 

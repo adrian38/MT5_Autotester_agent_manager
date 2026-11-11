@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from mt5_manager import web_push_crypto
+from mt5_manager.web_push import web_push_crypto
 
 RECEIVER_PUBLIC = (
     "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcx"

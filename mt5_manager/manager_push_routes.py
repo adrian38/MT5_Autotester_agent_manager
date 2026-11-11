@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .web_push import message_from_event
+from .web_push.web_push import message_from_event
 
 CONFIG_PATH = "/api/web-push/config"
 
