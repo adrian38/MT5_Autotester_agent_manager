@@ -112,6 +112,9 @@ MT5_ROOT_MODULES = frozenset({
     "docker_entrypoint",
     "guided_batches",
     "guided_controller",
+    # `static/` es del paquete y lo sirven cuatro dominios, asi que su
+    # resolutor no cabe dentro de ninguno.
+    "static_files",
 })
 
 #: Carpetas del paquete que no son dominios.

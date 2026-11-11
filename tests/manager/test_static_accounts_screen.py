@@ -41,7 +41,7 @@ class RoutingTests(unittest.TestCase):
         self.assertRegex(
             source,
             r'if parsed\.path in \{"/", "/index\.html"\}:\s*\n\s*self\._send_file\('
-            r'STATIC_DIR / "accounts\.html"\)',
+            r'static_path\("accounts\.html"\)\)',
         )
 
     def test_the_old_front_page_keeps_a_url_of_its_own(self) -> None:
@@ -49,7 +49,7 @@ class RoutingTests(unittest.TestCase):
         self.assertRegex(
             source,
             r'if parsed\.path == "/live_portfolios\.html":\s*\n\s*self\._send_file\('
-            r'STATIC_DIR / "dashboard\.html"\)',
+            r'static_path\("dashboard\.html"\)\)',
         )
 
     def test_both_assets_are_servable(self) -> None:

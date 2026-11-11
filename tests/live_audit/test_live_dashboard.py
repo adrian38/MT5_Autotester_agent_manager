@@ -26,9 +26,9 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         cls.page = html.fromstring(cls.page_text)
 
     def test_manager_opens_the_live_portfolio_dashboard_first(self) -> None:
-        self.assertIn('STATIC_DIR / "dashboard.html"', self.handler)
+        self.assertIn('static_path("dashboard.html")', self.handler)
         self.assertIn('parsed.path == "/generation.html"', self.handler)
-        self.assertIn('STATIC_DIR / "index.html"', self.handler)
+        self.assertIn('static_path("index.html")', self.handler)
         self.assertEqual(self.page.xpath('string(//h1)'), "Portafolios activos")
 
     def test_header_keeps_the_current_actions_and_adds_generation(self) -> None:

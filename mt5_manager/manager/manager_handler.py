@@ -39,10 +39,9 @@ from ..common import json_bytes, safe_int, utc_now
 from .manager_http import NODE_CONTROL_ACTIONS, NODE_CONTROL_TIMEOUT, submit_guided_to_node, submit_repair_request
 from .manager_restart import RestartAlreadyRunning
 from ..portfolio.portfolio_scope import normalize_portfolio_scope
-
-
-# `parents[1]` es `mt5_manager/`: los estaticos son del paquete, no del dominio.
-STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
+# `STATIC_DIR` se reexporta porque `manager.py` y las pruebas lo importan de
+# aqui desde antes de que `static_files` existiera.
+from ..static_files import STATIC_DIR, static_path  # noqa: F401
 
 # `mimetypes` no conoce `.webmanifest` en Windows, y ahi `guess_type` devuelve
 # `None`: el manifiesto saldria como `application/octet-stream` y el navegador
@@ -369,17 +368,17 @@ class ManagerHandler(BaseHTTPRequestHandler):
         # pregunta («como va la cuenta hoy»), y la comparacion con el tester
         # vive un clic mas alla, en «Portafolios activos».
         if parsed.path in {"/", "/index.html"}:
-            self._send_file(STATIC_DIR / "accounts.html")
+            self._send_file(static_path("accounts.html"))
             return True
         if parsed.path == "/live_portfolios.html":
-            self._send_file(STATIC_DIR / "dashboard.html")
+            self._send_file(static_path("dashboard.html"))
             return True
         if parsed.path == "/generation.html":
-            self._send_file(STATIC_DIR / "index.html")
+            self._send_file(static_path("index.html"))
             return True
         relative = parsed.path.lstrip("/")
         if relative in STATIC_FILES:
-            self._send_file(STATIC_DIR / relative)
+            self._send_file(static_path(relative))
             return True
         return False
 

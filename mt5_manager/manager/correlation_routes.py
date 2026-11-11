@@ -17,15 +17,13 @@ from __future__ import annotations
 import re
 import sqlite3
 import urllib.parse
-from pathlib import Path
 from typing import Any
 
 from ..common import safe_int, utc_now
 from ..portfolio.portfolio_scope import normalize_portfolio_scope
+from ..static_files import STATIC_DIR, static_path  # noqa: F401  (STATIC_DIR es API)
 
 
-# `parents[1]` es `mt5_manager/`: los estaticos son del paquete, no del dominio.
-STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 STATIC_FILES = frozenset({"correlation.html", "correlation.js", "correlation.css"})
 API_PARTS = ("api", "correlation", "nodes")
 
@@ -65,7 +63,7 @@ def _read_saved(server: Any, node_id: str, scope: str, portfolio_id: int | None)
 def handle_get(handler: Any, parsed: urllib.parse.ParseResult) -> bool:
     relative = parsed.path.lstrip("/")
     if relative in STATIC_FILES:
-        handler._send_file(STATIC_DIR / relative)
+        handler._send_file(static_path(relative))
         return True
     parts = tuple(parsed.path.strip("/").split("/"))
     if len(parts) not in {5, 6} or parts[:3] != API_PARTS or parts[4] != "portfolios":
