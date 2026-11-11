@@ -17,10 +17,11 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from .common import safe_int
+from ..common import safe_int
 
 
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+# `parents[1]` es `mt5_manager/`: los estaticos son del paquete, no del dominio.
+STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 STATIC_FILES = frozenset({"experiment.html", "experiment.js", "experiment.css"})
 API_PREFIX = "/api/experiment/"
 

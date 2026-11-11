@@ -23,7 +23,7 @@ from typing import Any
 
 from . import correlation_routes
 from . import dev_branch
-from . import experiment_routes
+from .experiment import experiment_routes
 from . import guided_batches
 from . import manager_http
 from . import manager_account_routes

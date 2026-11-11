@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from mt5_manager.experiment_lab import LabAxis, LabStrategy
+from mt5_manager.experiment.experiment_lab import LabAxis, LabStrategy
 from mt5_manager.prop.prop_experiment_engine import risk_normalized_pool, simulate_trial
 from mt5_manager.prop.prop_profiles import PropPhase, PropProfile, profile
 

@@ -21,7 +21,7 @@ from . import live_audit_schedule, live_audit_watch, manager_tls
 from .web_push import web_push
 from . import manual_check_watch, monthly_summary_runtime
 from .common import load_json, safe_int, save_json
-from .experiment_service import ExperimentCoordinator
+from .experiment.experiment_service import ExperimentCoordinator
 from .live_account_archive import LiveAccountArchive
 from .live_account_schedule import normalize_live_account_scheduler_settings
 from .live_audit_archive import LiveAuditArchive

@@ -14,8 +14,8 @@ import unittest
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
-from mt5_manager import experiment_lab as lab
-from mt5_manager.experiment_service import (
+from mt5_manager.experiment import experiment_lab as lab
+from mt5_manager.experiment.experiment_service import (
     DEFAULT_SETTINGS,
     ExperimentCoordinator,
     lab_config,

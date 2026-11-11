@@ -31,8 +31,8 @@ from portfolio_manager.ubs_portfolio import (
 from ubs.universe import load_asset_universe
 
 from . import experiment_lab as lab
-from .common import load_json, safe_float, safe_int, save_json, utc_now
-from .portfolio_service import PortfolioSource, build_margin_model, cached_report
+from ..common import load_json, safe_float, safe_int, save_json, utc_now
+from ..portfolio_service import PortfolioSource, build_margin_model, cached_report
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
