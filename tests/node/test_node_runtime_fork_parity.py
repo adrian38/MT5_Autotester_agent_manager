@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import unittest
 from pathlib import Path
+from tools.package_layout import static_source
 
 try:
     from .node_runtime_parity_base import (
@@ -429,7 +430,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
         # referencia del criterio, solo el emisor de la casilla. Un nodo sin portar
         # acepta la petición, ignora `run_regression` y ejecuta la regresiva igual:
         # el usuario desmarca la casilla y no pasa nada. No hay 404 que lo delate.
-        script = (MANAGER_ROOT / "mt5_manager" / "static" / "app.js").read_text(encoding="utf-8")
+        script = static_source("app.js")
         self.assertIn("run_regression: runRegression", script)
         self.assertIn("repair_run_regression", script)
 

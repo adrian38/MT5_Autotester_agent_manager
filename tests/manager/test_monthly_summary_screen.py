@@ -35,12 +35,12 @@ from mt5_manager.manager import manager_handler, manager_summary_routes
 from mt5_manager.monthly_summary import monthly_summary_runtime
 from mt5_manager.monthly_summary import monthly_summary_notices, monthly_summary_watch
 from mt5_manager.monthly_summary.monthly_summary_store import MAXIMUM_MONTHS, MonthlySummaryStore
+from tools.package_layout import static_matching, static_source
 
-STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-PAGE = (STATIC / "monthly_summary.html").read_text(encoding="utf-8")
-SCRIPT = (STATIC / "monthly_summary.js").read_text(encoding="utf-8")
-BUTTON = (STATIC / "monthly_summary_button.js").read_text(encoding="utf-8")
-STYLE = (STATIC / "monthly_summary.css").read_text(encoding="utf-8")
+PAGE = static_source("monthly_summary.html")
+SCRIPT = static_source("monthly_summary.js")
+BUTTON = static_source("monthly_summary_button.js")
+STYLE = static_source("monthly_summary.css")
 HOSTS = ("accounts.html", "dashboard.html")
 """Las dos pantallas de operación real, que son las que montan el botón."""
 
@@ -112,7 +112,7 @@ class RoutingTests(unittest.TestCase):
         )
 
     def test_only_the_two_real_operation_screens_mount_the_button(self) -> None:
-        for page in STATIC.glob("*.html"):
+        for page in static_matching("*.html"):
             source = page.read_text(encoding="utf-8")
             with self.subTest(page=page.name):
                 self.assertEqual(
@@ -122,7 +122,7 @@ class RoutingTests(unittest.TestCase):
     def test_only_its_own_page_loads_the_painting(self) -> None:
         # La portada no carga lo que nunca usa: son 300 líneas y los dos
         # ficheros del veredicto de reproducción detrás.
-        for page in STATIC.glob("*.html"):
+        for page in static_matching("*.html"):
             source = page.read_text(encoding="utf-8")
             with self.subTest(page=page.name):
                 self.assertEqual(

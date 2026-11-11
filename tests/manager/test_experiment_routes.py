@@ -20,9 +20,9 @@ from pathlib import Path
 from unittest import mock
 
 from mt5_manager.manager.manager import ManagerServer
+from tools.package_layout import static_source
 
 
-STATIC_DIR = Path(__file__).parents[2] / "mt5_manager" / "static"
 
 
 class ExperimentRouteTests(unittest.TestCase):
@@ -71,7 +71,7 @@ class ExperimentRouteTests(unittest.TestCase):
                 self.assertEqual(self.request(asset)[0], 200)
 
     def test_the_manager_header_opens_the_lab_in_another_tab(self) -> None:
-        index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        index = static_source("index.html")
         self.assertIn('href="/experiment.html"', index)
         self.assertIn('target="_blank"', index)
         self.assertIn("Experimenta", index)

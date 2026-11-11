@@ -11,18 +11,16 @@ import unittest
 from pathlib import Path
 
 from lxml import html
+from tools.package_layout import static_path, static_source
 
 
 class LiveAuditAnalysisScreenTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        cls.analysis_page_text = (static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
-        cls.analysis_script = (static_dir / "live_audit_analysis.js").read_text(encoding="utf-8")
-        cls.reproduction_script = (static_dir / "live_audit_reproduction.js").read_text(
-            encoding="utf-8",
-        )
-        cls.analysis_css = (static_dir / "live_audit_analysis.css").read_text(encoding="utf-8")
+        cls.analysis_page_text = static_source("live_audit_analysis.html")
+        cls.analysis_script = static_source("live_audit_analysis.js")
+        cls.reproduction_script = static_source("live_audit_reproduction.js")
+        cls.analysis_css = static_source("live_audit_analysis.css")
         cls.analysis_page = html.fromstring(cls.analysis_page_text)
 
     def test_analysis_tab_compares_global_and_per_strategy_curves(self) -> None:
@@ -147,8 +145,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # La portada dibuja la misma comparación desde el mismo perfil: si no
         # apunta el lote de la pareja, con el tester al mando enseñaría la
         # curva real en bruto y Análisis la escalada.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        metrics = (static_dir / "dashboard_metrics.js").read_text(encoding="utf-8")
+        metrics = static_source("dashboard_metrics.js")
         self.assertIn("reproduction.strategyGroups(", metrics)
 
     def test_an_unpaired_demo_uses_the_nearest_observed_real_lot(self) -> None:
@@ -415,9 +412,7 @@ class LiveAuditAnalysisScreenTests(unittest.TestCase):
         # `.audit-analysis-empty` reserva 280 px para el hueco de una gráfica.
         # En un `td` eso abre un vacío enorme y, con `display: grid`, saca a la
         # celda de la tabla.
-        css = (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / "live_audit_analysis.css"
-        ).read_text(encoding="utf-8")
+        css = static_source("live_audit_analysis.css")
         self.assertIn("td.audit-analysis-empty { display: table-cell; min-height: 0;", css)
 
     def test_uploading_the_excel_saves_it_and_repaints_with_the_new_verdict(self) -> None:

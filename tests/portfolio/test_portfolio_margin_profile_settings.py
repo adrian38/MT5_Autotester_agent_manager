@@ -13,6 +13,7 @@ from portfolio_manager.ubs_portfolio import (
     portfolio_margin_summary,
     resolve_margin_model,
 )
+from tools.package_layout import static_source
 
 try:
     from .portfolio_margin_profile_fixtures import strategy
@@ -313,12 +314,11 @@ class AccountLeverageSettingTests(unittest.TestCase):
         # tres tienen que poder decir con que apalancamiento se mide la cuenta:
         # si uno se queda con el valor por defecto, la misma cuenta valida el
         # margen con dos numeros distintos segun la pantalla.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         for name in ("portfolios.html", "portfolios_monthly.html", "portfolios_grid.html"):
-            page = (static_dir / name).read_text(encoding="utf-8")
+            page = static_source(name)
             self.assertIn('name="account_leverage"', page, name)
             for choice in ACCOUNT_LEVERAGE_CHOICES:
                 self.assertIn(f'<option value="{int(choice)}">1:{int(choice)}</option>', page, name)
         for name in ("portfolios.js", "portfolios_monthly.js", "portfolios_grid.js"):
-            script = (static_dir / name).read_text(encoding="utf-8")
+            script = static_source(name)
             self.assertIn("'account_leverage'", script, name)

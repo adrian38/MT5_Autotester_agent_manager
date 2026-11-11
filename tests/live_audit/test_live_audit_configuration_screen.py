@@ -9,27 +9,23 @@ from pathlib import Path
 from lxml import html
 from mt5_manager.manager import manager_live_audit_routes
 from mt5_manager.manager.manager_handler import STATIC_FILES
+from tools.package_layout import static_path, static_source
 
 
 class LiveAuditConfigurationScreenTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        cls.page_text = (cls.static_dir / "live_audit.html").read_text(encoding="utf-8")
-        cls.script = (cls.static_dir / "live_audit.js").read_text(encoding="utf-8")
-        cls.schedule_script = (cls.static_dir / "live_audit_schedule.js").read_text(
-            encoding="utf-8",
-        )
-        cls.autolot_script = (cls.static_dir / "live_audit_autolot.js").read_text(encoding="utf-8")
-        cls.result_page_text = (cls.static_dir / "live_audit_result.html").read_text(encoding="utf-8")
-        cls.result_script = (cls.static_dir / "live_audit_result.js").read_text(encoding="utf-8")
-        cls.excel_script = (cls.static_dir / "excel_workbook.js").read_text(encoding="utf-8")
-        cls.analysis_page_text = (cls.static_dir / "live_audit_analysis.html").read_text(encoding="utf-8")
-        cls.analysis_script = (cls.static_dir / "live_audit_analysis.js").read_text(encoding="utf-8")
-        cls.reproduction_script = (cls.static_dir / "live_audit_reproduction.js").read_text(
-            encoding="utf-8",
-        )
-        cls.manager_script = (cls.static_dir / "app.js").read_text(encoding="utf-8")
+        cls.page_text = static_source("live_audit.html")
+        cls.script = static_source("live_audit.js")
+        cls.schedule_script = static_source("live_audit_schedule.js")
+        cls.autolot_script = static_source("live_audit_autolot.js")
+        cls.result_page_text = static_source("live_audit_result.html")
+        cls.result_script = static_source("live_audit_result.js")
+        cls.excel_script = static_source("excel_workbook.js")
+        cls.analysis_page_text = static_source("live_audit_analysis.html")
+        cls.analysis_script = static_source("live_audit_analysis.js")
+        cls.reproduction_script = static_source("live_audit_reproduction.js")
+        cls.manager_script = static_source("app.js")
         cls.page = html.fromstring(cls.page_text)
         cls.result_page = html.fromstring(cls.result_page_text)
         cls.analysis_page = html.fromstring(cls.analysis_page_text)
@@ -321,7 +317,7 @@ class LiveAuditConfigurationScreenTests(unittest.TestCase):
         # La tabla del histórico vive en su propio fichero y tiene su propia
         # casilla «Validada», así que su POST también pasa por esta guarda: una
         # puerta nueva no puede esconderse cambiando de fichero.
-        history = (self.static_dir / "live_audit_history.js").read_text(encoding="utf-8")
+        history = static_source("live_audit_history.js")
         posts = re.findall(
             r"fetch\(\s*([^,]+),\s*\{\s*method: 'POST'", self.analysis_script + history,
         )

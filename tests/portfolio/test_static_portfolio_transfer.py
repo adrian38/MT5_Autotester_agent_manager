@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from lxml import html
+from tools.package_layout import static_source
 
 
 class PortfolioImportScreenTests(unittest.TestCase):
@@ -12,9 +13,7 @@ class PortfolioImportScreenTests(unittest.TestCase):
     PAGES = ("portfolios", "portfolios_monthly", "portfolios_grid")
 
     def static(self, name: str) -> str:
-        return (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / name
-        ).read_text(encoding="utf-8")
+        return static_source(name)
 
     def test_every_scope_offers_the_import_button(self) -> None:
         for name in self.PAGES:
@@ -51,9 +50,7 @@ class ExclusionReasonScreenTests(unittest.TestCase):
     PAGES = ("portfolios", "portfolios_monthly", "portfolios_grid")
 
     def static(self, name: str) -> str:
-        return (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / name
-        ).read_text(encoding="utf-8")
+        return static_source(name)
 
     def test_every_scope_has_the_three_verdict_tables(self) -> None:
         for name in self.PAGES:

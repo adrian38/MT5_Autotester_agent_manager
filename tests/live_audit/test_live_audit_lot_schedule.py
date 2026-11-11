@@ -39,8 +39,8 @@ from mt5_manager.manager.manager_live_audit_routes import handle_post
 from tests.live_audit.test_live_audit_analysis import profile
 from tests.live_audit.test_live_audit_settings import profile as stored_profile
 from tests.live_audit.test_live_audit_view_lots import RouteHandler
+from tools.package_layout import static_source
 
-STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 STRATEGY = "AXI/MT5:3758"
 SET_NAME = "ScalpH1_C.set"
 # El día en que la cuenta pasó a operar 0,04, y la operación que lo estrenó.
@@ -344,8 +344,8 @@ class LotScheduleRouteTests(unittest.TestCase):
 class LotScheduleScreenTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.script = (STATIC / "live_audit_analysis.js").read_text(encoding="utf-8")
-        cls.page = (STATIC / "live_audit_analysis.html").read_text(encoding="utf-8")
+        cls.script = static_source("live_audit_analysis.js")
+        cls.page = static_source("live_audit_analysis.html")
 
     def test_the_date_is_the_opening_of_that_very_operation(self) -> None:
         # Teclearla invita a equivocarse por un día y a dejar fuera justo la
@@ -393,7 +393,7 @@ class LotScheduleScreenTests(unittest.TestCase):
         # El literal que llevaba el prefijo, no la palabra: el comentario que
         # explica por qué se quitó tiene que poder nombrarlo.
         self.assertNotIn("`varios: ${lotList(executed)}`", self.script)
-        css = (STATIC / "live_audit_analysis.css").read_text(encoding="utf-8")
+        css = static_source("live_audit_analysis.css")
         self.assertIn(".lots-table input { width: 100%; max-width: 230px; }", css)
 
     def test_the_screen_goes_through_the_endpoint_that_recalculates(self) -> None:

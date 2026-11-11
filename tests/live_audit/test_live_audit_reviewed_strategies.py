@@ -25,8 +25,8 @@ from mt5_manager.live_audit.live_audit_schedule import MANAGER_ONLY_PROFILE_KEYS
 from mt5_manager.manager.manager_live_audit_routes import handle_get, handle_post
 from tests.live_audit.test_live_audit_settings import profile as stored_profile
 from tests.live_audit.test_live_audit_view_lots import RouteHandler
+from tools.package_layout import static_source
 
-STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 
 # El orden de gravedad que la portada compara, portado desde
 # `live_audit_reproduction.js`. El port sólo vale si cada expresión que mide
@@ -181,11 +181,11 @@ class ReviewedStrategiesRouteTests(unittest.TestCase):
 class ReviewedStrategiesScreenTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.reproduction = (STATIC / "live_audit_reproduction.js").read_text(encoding="utf-8")
-        cls.analysis = (STATIC / "live_audit_analysis.js").read_text(encoding="utf-8")
-        cls.analysis_page = (STATIC / "live_audit_analysis.html").read_text(encoding="utf-8")
-        cls.metrics = (STATIC / "dashboard_metrics.js").read_text(encoding="utf-8")
-        cls.dashboard = (STATIC / "dashboard.js").read_text(encoding="utf-8")
+        cls.reproduction = static_source("live_audit_reproduction.js")
+        cls.analysis = static_source("live_audit_analysis.js")
+        cls.analysis_page = static_source("live_audit_analysis.html")
+        cls.metrics = static_source("dashboard_metrics.js")
+        cls.dashboard = static_source("dashboard.js")
 
     def test_the_checkbox_only_shows_up_where_there_is_something_to_review(self) -> None:
         # La casilla existe para sacar una fila de la portada, así que sale en
@@ -333,10 +333,10 @@ class ReviewedHistoryStrategiesTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.history = (STATIC / "live_audit_history.js").read_text(encoding="utf-8")
-        cls.reproduction = (STATIC / "live_audit_reproduction.js").read_text(encoding="utf-8")
-        cls.analysis_page = (STATIC / "live_audit_analysis.html").read_text(encoding="utf-8")
-        cls.metrics = (STATIC / "dashboard_metrics.js").read_text(encoding="utf-8")
+        cls.history = static_source("live_audit_history.js")
+        cls.reproduction = static_source("live_audit_reproduction.js")
+        cls.analysis_page = static_source("live_audit_analysis.html")
+        cls.metrics = static_source("dashboard_metrics.js")
 
     def test_the_series_mark_is_its_own_field_of_the_profile(self) -> None:
         self.assertEqual(DEFAULT_LIVE_AUDIT_PROFILE["reviewed_history_strategies"], {})

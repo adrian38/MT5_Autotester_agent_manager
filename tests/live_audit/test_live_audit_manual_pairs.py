@@ -32,8 +32,8 @@ from mt5_manager.manager.manager_live_audit_routes import handle_post
 from tests.live_audit.test_live_audit_analysis import payload, profile
 from tests.live_audit.test_live_audit_settings import profile as stored_profile
 from tests.live_audit.test_live_audit_view_lots import RouteHandler
+from tools.package_layout import static_source
 
-STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 TICKET = "772550823"
 
 
@@ -385,7 +385,7 @@ class ManualPairScreenTests(unittest.TestCase):
     """No hay runtime de JavaScript aquí: se comprueba el texto del fichero."""
 
     def setUp(self) -> None:
-        self.source = (STATIC / "live_audit_result.js").read_text(encoding="utf-8")
+        self.source = static_source("live_audit_result.js")
 
     def test_the_screen_builds_the_same_fingerprint_as_the_manager(self) -> None:
         # Si las dos expresiones se separan, la pareja se guarda con una huella

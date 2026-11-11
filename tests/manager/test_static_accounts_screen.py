@@ -18,13 +18,13 @@ from lxml import html
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.manager import manager_handler
+from tools.package_layout import static_path, static_source
 
-STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-PAGE = STATIC / "accounts.html"
-SCRIPT = (STATIC / "accounts.js").read_text(encoding="utf-8")
-MOUNTED = (STATIC / "live_account_schedule.js").read_text(encoding="utf-8")
-MONTHLY = (STATIC / "live_account_monthly.js").read_text(encoding="utf-8")
-STYLE = (STATIC / "accounts.css").read_text(encoding="utf-8")
+PAGE = static_path("accounts.html")
+SCRIPT = static_source("accounts.js")
+MOUNTED = static_source("live_account_schedule.js")
+MONTHLY = static_source("live_account_monthly.js")
+STYLE = static_source("accounts.css")
 TREE = html.fromstring(PAGE.read_text(encoding="utf-8"))
 
 
@@ -59,7 +59,7 @@ class RoutingTests(unittest.TestCase):
         )
 
     def test_the_two_front_pages_link_to_each_other(self) -> None:
-        dashboard = (STATIC / "dashboard.html").read_text(encoding="utf-8")
+        dashboard = static_source("dashboard.html")
         self.assertIn('href="/">Cuentas en real</a>', dashboard)
         self.assertIn('href="/live_portfolios.html">Portafolios activos</a>',
                       PAGE.read_text(encoding="utf-8"))
@@ -115,7 +115,7 @@ class PageTests(unittest.TestCase):
             self.assertNotIn(phrase, SCRIPT)
 
     def test_the_manager_restart_is_the_same_red_action_as_on_other_pages(self) -> None:
-        css = (STATIC / "accounts.css").read_text(encoding="utf-8")
+        css = static_source("accounts.css")
         self.assertIn(".danger{", css)
         self.assertIn("color:var(--danger)", css)
 
@@ -160,7 +160,7 @@ class PageTests(unittest.TestCase):
         for name in ("index.html", "dashboard.html"):
             self.assertNotIn(
                 "/live_account_schedule.js",
-                (STATIC / name).read_text(encoding="utf-8"), name,
+                static_source(name), name,
             )
         self.assertIn('id="account-snapshot-now"', MOUNTED)
         self.assertLess(
@@ -369,7 +369,7 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("desde el ${parts[2]}-${parts[1]}", SCRIPT)
 
     def test_the_drawdown_is_drawn_downwards_and_says_why(self) -> None:
-        css = (STATIC / "accounts.css").read_text(encoding="utf-8")
+        css = static_source("accounts.css")
         self.assertIn(".monthly-bar.drawdown{fill:var(--warn)}", css)
         self.assertIn(".monthly-bar.profit{fill:var(--accent)}", css)
         self.assertIn("no es la suma ni el máximo de los\n      mensuales", MONTHLY)
@@ -379,7 +379,7 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("no se suman", SCRIPT)
 
     def test_the_two_months_are_side_by_side_but_their_metrics_are_vertical(self) -> None:
-        css = (STATIC / "accounts.css").read_text(encoding="utf-8")
+        css = static_source("accounts.css")
         self.assertIn('<div class="month-comparison">', SCRIPT)
         self.assertIn(".metric-row{display:grid;gap:12px;", css)
         self.assertIn(

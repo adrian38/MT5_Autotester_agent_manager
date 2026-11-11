@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from tools.package_layout import static_source
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -19,13 +20,12 @@ class HistoryScreenTests(unittest.TestCase):
         from mt5_manager.manager.manager_handler import STATIC_FILES
 
         cls.static_files = STATIC_FILES
-        static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-        cls.page = (static / "live_audit_analysis.html").read_text(encoding="utf-8")
-        cls.script = (static / "live_audit_history.js").read_text(encoding="utf-8")
-        cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
-        cls.verdicts = (static / "live_audit_history_verdicts.js").read_text(encoding="utf-8")
-        cls.reproduction = (static / "live_audit_reproduction.js").read_text(encoding="utf-8")
-        cls.card = (static / "dashboard_metrics.js").read_text(encoding="utf-8")
+        cls.page = static_source("live_audit_analysis.html")
+        cls.script = static_source("live_audit_history.js")
+        cls.analysis = static_source("live_audit_analysis.js")
+        cls.verdicts = static_source("live_audit_history_verdicts.js")
+        cls.reproduction = static_source("live_audit_reproduction.js")
+        cls.card = static_source("dashboard_metrics.js")
 
     def test_the_second_table_lives_next_to_the_first_one(self) -> None:
         self.assertIn("live_audit_history.js", self.static_files)

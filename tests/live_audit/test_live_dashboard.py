@@ -5,7 +5,7 @@ from pathlib import Path
 
 from lxml import html
 
-from tools.package_layout import module_source
+from tools.package_layout import module_source, static_path, static_source
 from mt5_manager.manager.manager_handler import STATIC_FILES
 
 
@@ -13,15 +13,14 @@ class LivePortfolioDashboardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         root = Path(__file__).parents[2]
-        static = root / "mt5_manager" / "static"
-        cls.page_text = (static / "dashboard.html").read_text(encoding="utf-8")
-        cls.script = (static / "dashboard.js").read_text(encoding="utf-8")
-        cls.css = (static / "dashboard.css").read_text(encoding="utf-8")
-        cls.metrics = (static / "dashboard_metrics.js").read_text(encoding="utf-8")
-        cls.reproduction = (static / "live_audit_reproduction.js").read_text(encoding="utf-8")
-        cls.analysis = (static / "live_audit_analysis.js").read_text(encoding="utf-8")
-        cls.analysis_page = (static / "live_audit_analysis.html").read_text(encoding="utf-8")
-        cls.generation_page = (static / "index.html").read_text(encoding="utf-8")
+        cls.page_text = static_source("dashboard.html")
+        cls.script = static_source("dashboard.js")
+        cls.css = static_source("dashboard.css")
+        cls.metrics = static_source("dashboard_metrics.js")
+        cls.reproduction = static_source("live_audit_reproduction.js")
+        cls.analysis = static_source("live_audit_analysis.js")
+        cls.analysis_page = static_source("live_audit_analysis.html")
+        cls.generation_page = static_source("index.html")
         cls.handler = module_source("manager_handler")
         cls.page = html.fromstring(cls.page_text)
 
@@ -68,7 +67,7 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         for name in sorted(STATIC_FILES):
             if not name.endswith(".html") or name == "dashboard.html":
                 continue
-            page = (Path(__file__).parents[2] / "mt5_manager" / "static" / name)
+            page = static_path(name)
             source = page.read_text(encoding="utf-8")
             self.assertTrue(
                 'href="/"' in source or 'href="/generation.html"' in source, name,

@@ -19,8 +19,8 @@ from mt5_manager.live_audit.live_audit_manual_pairs import (
     normalize_manual_pairs, tester_pair_key, unpaired_keys,
 )
 from tests.live_audit.test_live_audit_assignment import compare, operation
+from tools.package_layout import static_source
 
-STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 
 
 def sheet(rows: list[tuple[str, str, str]], headers: tuple[str, ...] = ("Fila", "Ticket", "Nota")) -> bytes:
@@ -172,8 +172,8 @@ class ShippedTemplateTests(unittest.TestCase):
 
 class PairSheetScreenTests(unittest.TestCase):
     def test_the_screen_offers_the_button_and_posts_the_pairs(self) -> None:
-        screen = (STATIC / "live_audit_analysis.js").read_text(encoding="utf-8")
-        markup = (STATIC / "live_audit_analysis.html").read_text(encoding="utf-8")
+        screen = static_source("live_audit_analysis.js")
+        markup = static_source("live_audit_analysis.html")
         self.assertIn('id="pairs-file"', markup)
         self.assertIn("live-audit-pairs-import", screen)
         # Corrige al auditor, así que **no** puede exigir que la fila sea

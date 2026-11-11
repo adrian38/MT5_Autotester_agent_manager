@@ -35,8 +35,8 @@ from mt5_manager.manager.manager_live_audit_routes import handle_get, handle_pos
 from tests.live_audit.test_monthly_summary import facts as summary_facts
 from tests.live_audit.test_live_audit_settings import profile as stored_profile
 from tests.live_audit.test_live_audit_view_lots import RouteHandler
+from tools.package_layout import static_path, static_source
 
-STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
 
 STRATEGY = "AXI/STANDARD:10751"
 OTHER = "AXI/STANDARD:21145"
@@ -317,11 +317,9 @@ class DegradationReviewPlumbingTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.analysis_page = (STATIC / "live_audit_analysis.html").read_text(
-            encoding="utf-8",
-        )
-        cls.analysis = (STATIC / "live_audit_analysis.js").read_text(encoding="utf-8")
-        cls.dashboard = (STATIC / "dashboard.js").read_text(encoding="utf-8")
+        cls.analysis_page = static_source("live_audit_analysis.html")
+        cls.analysis = static_source("live_audit_analysis.js")
+        cls.dashboard = static_source("dashboard.js")
 
     def setUp(self) -> None:
         temp = tempfile.TemporaryDirectory()

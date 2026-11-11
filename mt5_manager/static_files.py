@@ -17,6 +17,7 @@ cuatro dominios (`manager`, `experiment`, `prop` y las rutas de correlacion).
 """
 from __future__ import annotations
 
+from fnmatch import fnmatch
 from pathlib import Path
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -53,3 +54,14 @@ def static_path(name: str) -> Path:
 def static_names() -> frozenset[str]:
     """Los nombres que hay en disco, para las guardas que los comparan."""
     return frozenset(_INDEX)
+
+
+def static_matching(pattern: str) -> list[Path]:
+    """Los estaticos cuyo **nombre** encaja con `pattern`, en cualquier carpeta.
+
+    Es el sustituto de `STATIC_DIR.glob("*.html")`, que recorre un solo nivel:
+    repartidas las pantallas por carpetas habria devuelto una lista vacia, y un
+    bucle vacio deja la prueba en verde comprobando nada. Devuelve ordenado por
+    nombre, que es lo que piden los mensajes de las guardas.
+    """
+    return [path for name, path in sorted(_INDEX.items()) if fnmatch(name, pattern)]

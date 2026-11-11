@@ -14,15 +14,15 @@ from __future__ import annotations
 import re
 import unittest
 from pathlib import Path
+from tools.package_layout import static_source
 
-STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 # Las tres pantallas que repintan solas. `live_audit.js` ya se callaba.
 POLLING_SCREENS = ("app.js", "accounts.js", "dashboard.js")
 OFFLINE_LABEL = "'Sin conexión · reintentando…'"
 
 
 def source(name: str) -> str:
-    return (STATIC / name).read_text(encoding="utf-8")
+    return static_source(name)
 
 
 def refresh_catch(text: str) -> str:

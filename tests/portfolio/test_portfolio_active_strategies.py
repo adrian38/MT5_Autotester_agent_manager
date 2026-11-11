@@ -21,6 +21,7 @@ from portfolio_manager.ubs_portfolio import (
     period_report_from_strategy_report,
     split_report_at_year,
 )
+from tools.package_layout import static_source
 
 
 def _trade(close: datetime, profit: float) -> Trade:
@@ -397,13 +398,12 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
         self.assertEqual(merged["min_trades_2020_2026"], 0)
 
     def test_the_three_forms_block_the_minimum_with_the_filter_on(self) -> None:
-        static = Path(__file__).parents[2] / "mt5_manager" / "static"
         for name, field in (
             ("portfolios.js", "minTrades"),
             ("portfolio_improvement.js", "fields.min_trades_2020_2026"),
             ("portfolio_repair.js", "fields.min_trades_2020_2026"),
         ):
-            script = (static / name).read_text(encoding="utf-8")
+            script = static_source(name)
             with self.subTest(form=name):
                 self.assertIn(f"{field}.disabled = activeOnly", script)
 
@@ -510,9 +510,8 @@ class ActivePortfolioStrategyTests(unittest.TestCase):
         self.assertNotIn("_active_portfolio_members", settings)
 
     def test_improvement_inherits_and_edits_the_filter(self) -> None:
-        static = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static / "portfolio_improvement.js").read_text(encoding="utf-8")
-        monthly = (static / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_improvement.js")
+        monthly = static_source("portfolio_monthly_improvement.js")
 
         self.assertIn('name="active_portfolios_only" type="checkbox"', script)
         self.assertIn(

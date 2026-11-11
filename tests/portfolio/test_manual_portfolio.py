@@ -15,6 +15,7 @@ from mt5_manager.manager.manager_portfolio_routes import parse_timeframe_documen
 from mt5_manager.portfolio.portfolio_saved import _saved_portfolio_row
 from mt5_manager.portfolio.portfolio_manual_reports import manual_history_summary, report_for_set
 from mt5_manager.portfolio.portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin
+from tools.package_layout import static_source
 
 
 ROOT = Path(__file__).parents[2]
@@ -22,23 +23,23 @@ ROOT = Path(__file__).parents[2]
 
 class ManualPortfolioScreenTests(unittest.TestCase):
     def test_node_card_opens_the_dedicated_folder_screen(self) -> None:
-        script = (ROOT / "mt5_manager" / "static" / "app.js").read_text(encoding="utf-8")
+        script = static_source("app.js")
         self.assertIn("Crear portafolio manual", script)
         self.assertIn("/portfolio_manual.html?node=", script)
         self.assertIn("/manual_portfolios.html?node=", script)
 
     def test_manual_inventory_is_separate_from_ubs(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
-        manual_script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
-        ubs_script = (ROOT / "mt5_manager" / "static" / "portfolios.js").read_text(encoding="utf-8")
+        page = static_source("manual_portfolios.html")
+        manual_script = static_source("manual_portfolios.js")
+        ubs_script = static_source("portfolios.js")
         self.assertIn("Portafolios creados desde sets", page)
         self.assertIn("filter(row=>row.manual_portfolio)", manual_script)
         self.assertIn("filter(row => !row.manual_portfolio)", ubs_script)
         self.assertIn("/live_audit.html?node=", manual_script)
 
     def test_manual_detail_switches_between_strategy_and_combined_portfolio_tables(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        page = static_source("manual_portfolios.html")
+        script = static_source("manual_portfolios.js")
         self.assertIn("Detalle / estrategia", page)
         self.assertIn("Detalle / portafolio", page)
         self.assertIn('id="manual-strategy-detail"', page)
@@ -48,16 +49,16 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("showDetailView('portfolio')", script)
 
     def test_manual_detail_shows_loading_and_persistent_error_states(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        page = static_source("manual_portfolios.html")
+        script = static_source("manual_portfolios.js")
         self.assertIn('id="manual-loading-spinner"', page)
         self.assertIn("function showDetailStatus", script)
         self.assertIn("Cargando detalle y tablas del portafolio", script)
         self.assertIn("No se pudo cargar el portafolio", script)
 
     def test_screen_uploads_a_directory_and_offers_audit_history(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "portfolio_manual.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "portfolio_manual.js").read_text(encoding="utf-8")
+        page = static_source("portfolio_manual.html")
+        script = static_source("portfolio_manual.js")
         self.assertIn("webkitdirectory", page)
         self.assertIn('id="manual-audit-link"', page)
         self.assertIn("portfolio-manager/manual-create", script)
@@ -81,16 +82,16 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("use_multiterminal: document.querySelector('#manual-use-multiterminal').checked", script)
 
     def test_manual_inventory_history_can_choose_multiterminal(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        page = static_source("manual_portfolios.html")
+        script = static_source("manual_portfolios.js")
         self.assertIn('id="manual-use-multiterminal"', page)
         self.assertLess(page.index('id="manual-use-multiterminal"'), page.index('id="manual-history-controls"'))
         self.assertIn('class="check manual-history-mode"', page)
         self.assertIn("use_multiterminal:document.querySelector('#manual-use-multiterminal').checked", script)
 
     def test_manual_inventory_history_shows_immediate_real_progress(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        page = static_source("manual_portfolios.html")
+        script = static_source("manual_portfolios.js")
         self.assertIn('id="manual-progress-track"', page)
         self.assertIn("paintProgress('loading')", script)
         self.assertIn("paintProgress('starting')", script)
@@ -98,8 +99,8 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("node.live_progress||{}", script)
 
     def test_manual_detail_can_delete_the_portfolio_like_ubs(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        page = static_source("manual_portfolios.html")
+        script = static_source("manual_portfolios.js")
         self.assertIn('id="manual-delete"', page)
         self.assertLess(page.index('id="manual-detail"'), page.index('id="manual-delete"'))
         self.assertIn("portfolio-manager/delete", script)
@@ -111,8 +112,8 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("await loadInventory();", script)
 
     def test_existing_manual_portfolio_can_add_and_remove_sets(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "manual_portfolios.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        page = static_source("manual_portfolios.html")
+        script = static_source("manual_portfolios.js")
         self.assertIn('id="manual-add-sets"', page)
         self.assertIn('id="manual-set-files"', page)
         self.assertIn("manual-remove-set", script)
@@ -125,7 +126,7 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         # El 409 del manager trae los usos y el aviso ya redactado: la pantalla
         # los enseña y, si el usuario sigue, repite la misma peticion con la
         # confirmacion puesta. El alta y la baja pasan por el mismo sitio.
-        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        script = static_source("manual_portfolios.js")
         self.assertIn("response.status===409&&data.needs_live_trading_ack", script)
         self.assertIn("live_trading_ack:true", script)
         self.assertEqual(2, script.count("await changeMembers("))
@@ -134,7 +135,7 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         # El aviso sale de los datos del detalle —`expected` son los miembros y
         # `available` los que encontraron su HTML—, así que sobrevive al
         # refresco y no depende de haber visto el alta.
-        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        script = static_source("manual_portfolios.js")
         self.assertIn("function pendingHistory", script)
         self.assertIn("(history.expected||0)-(history.available||0)", script)
         self.assertIn("#manual-history-note').textContent=historyNote(history)", script)
@@ -149,7 +150,7 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         con `real_account_lot_source`, pero sólo en el resultado, con los
         backtests ya corridos.
         """
-        script = (ROOT / "mt5_manager" / "static" / "live_audit.js").read_text(encoding="utf-8")
+        script = static_source("live_audit.js")
         self.assertIn(
             "const declared = Object.prototype.hasOwnProperty.call(configured, strategy)",
             script,
@@ -157,7 +158,7 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("Sin declarar: hereda el lote del portafolio.", script)
 
     def test_manual_history_ignores_previous_attempt_without_resetting_detail(self) -> None:
-        script = (ROOT / "mt5_manager" / "static" / "manual_portfolios.js").read_text(encoding="utf-8")
+        script = static_source("manual_portfolios.js")
         self.assertIn("function isCurrentHistory", script)
         self.assertIn("else historyJobId=", script)
         self.assertIn("const matches=!node.stale&&isCurrentHistory(job)", script)
@@ -166,8 +167,8 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertIn("refreshPortfolioResults().catch", script)
 
     def test_screen_imports_timeframes_from_a_docx(self) -> None:
-        page = (ROOT / "mt5_manager" / "static" / "portfolio_manual.html").read_text(encoding="utf-8")
-        script = (ROOT / "mt5_manager" / "static" / "portfolio_manual.js").read_text(encoding="utf-8")
+        page = static_source("portfolio_manual.html")
+        script = static_source("portfolio_manual.js")
         self.assertIn('id="manual-timeframes-button"', page)
         self.assertIn('accept=".docx"', page)
         self.assertIn("portfolio-manager/manual-timeframes", script)
@@ -200,7 +201,7 @@ class ManualPortfolioScreenTests(unittest.TestCase):
         self.assertFalse(_saved_portfolio_row({"id": 2, "metrics_json": "{"}, value, "full_history")["manual_portfolio"])
 
     def test_live_audit_preselects_the_new_portfolio_from_the_url(self) -> None:
-        script = (ROOT / "mt5_manager" / "static" / "live_audit.js").read_text(encoding="utf-8")
+        script = static_source("live_audit.js")
         self.assertIn("function selectRequestedPortfolio()", script)
         self.assertIn("params.get('portfolio')", script)
         self.assertIn("selectRequestedPortfolio();", script)

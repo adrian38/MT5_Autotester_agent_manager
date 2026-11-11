@@ -19,10 +19,10 @@ from unittest.mock import patch
 from mt5_manager.manager import manager_handler, manager_portfolio_routes
 from mt5_manager.portfolio import portfolio_manual_check
 from mt5_manager.manual_check.manual_check_analysis import METRIC_KEYS, analysis
+from tools.package_layout import static_path, static_source
 
 
 ROOT = Path(__file__).parents[2]
-STATIC = ROOT / "mt5_manager" / "static"
 
 
 def _report(net: str, drawdown: str, trades: str) -> str:
@@ -229,8 +229,8 @@ class EveryTickSetTests(unittest.TestCase):
 
 class ScreenTests(unittest.TestCase):
     def test_the_button_opens_the_analysis_in_its_own_tab(self) -> None:
-        page = (STATIC / "portfolios.html").read_text(encoding="utf-8")
-        script = (STATIC / "portfolio_manual_check.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolio_manual_check.js")
 
         self.assertIn('id="detail-manual-analysis"', page)
         # Arranca apagado: quien lo enciende es el agente, que es quien sabe
@@ -247,10 +247,10 @@ class ScreenTests(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 self.assertIn(name, manager_handler.STATIC_FILES)
-                self.assertTrue((STATIC / name).is_file())
+                self.assertTrue(static_path(name).is_file())
 
     def test_the_screen_shows_the_five_figures_and_lets_you_switch_strategy(self) -> None:
-        script = (STATIC / "manual_check_analysis.js").read_text(encoding="utf-8")
+        script = static_source("manual_check_analysis.js")
 
         self.assertIn("analysis.metric_keys", script)
         self.assertIn("#strategy-list", script)

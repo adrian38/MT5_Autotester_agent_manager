@@ -30,8 +30,8 @@ from mt5_manager.live_audit.live_audit_settings import (
 from mt5_manager.manager.manager_live_audit_routes import handle_get, handle_post
 from tests.live_audit.test_live_audit_settings import profile as stored_profile
 from tests.live_audit.test_live_audit_view_lots import RouteHandler
+from tools.package_layout import static_source
 
-STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 
 TRADE = {
     "strategy": "eth-grid", "symbol": "ETHUSD", "side": "buy",
@@ -196,12 +196,12 @@ class ReviewedUnpairedTesterScreenTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.result = (STATIC / "live_audit_result.js").read_text(encoding="utf-8")
-        cls.reproduction = (STATIC / "live_audit_reproduction.js").read_text(encoding="utf-8")
-        cls.metrics = (STATIC / "dashboard_metrics.js").read_text(encoding="utf-8")
-        cls.dashboard = (STATIC / "dashboard.js").read_text(encoding="utf-8")
-        cls.analysis = (STATIC / "live_audit_analysis.js").read_text(encoding="utf-8")
-        cls.analysis_page = (STATIC / "live_audit_analysis.html").read_text(encoding="utf-8")
+        cls.result = static_source("live_audit_result.js")
+        cls.reproduction = static_source("live_audit_reproduction.js")
+        cls.metrics = static_source("dashboard_metrics.js")
+        cls.dashboard = static_source("dashboard.js")
+        cls.analysis = static_source("live_audit_analysis.js")
+        cls.analysis_page = static_source("live_audit_analysis.html")
 
     def test_analysis_has_its_own_table_for_them(self) -> None:
         # La tabla es lo que se pidió: las filas enteras en Análisis, al lado

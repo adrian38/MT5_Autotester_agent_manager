@@ -15,10 +15,10 @@ from types import SimpleNamespace
 
 from mt5_manager.portfolio import portfolio_manual_check
 from mt5_manager.portfolio.portfolio_manual_check import DEFAULT_RETRIES
+from tools.package_layout import static_source
 
 
 ROOT = Path(__file__).parents[2]
-STATIC = ROOT / "mt5_manager" / "static"
 
 
 def _source() -> SimpleNamespace:
@@ -95,7 +95,7 @@ class RetryRequestTests(unittest.TestCase):
 
 class RetryScreenTests(unittest.TestCase):
     def test_the_modal_offers_the_number_editable(self) -> None:
-        script = (STATIC / "portfolio_manual_check.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_manual_check.js")
 
         self.assertIn('name="retries"', script)
         self.assertIn('value="3"', script)

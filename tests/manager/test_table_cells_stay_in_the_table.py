@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 import unittest
 from pathlib import Path
+from tools.package_layout import static_matching
 
 CELL_ELEMENTS = {"th", "td", "tr", "tbody", "thead"}
 # `table-cell` es justamente la reparación: devuelve la celda a la tabla.
@@ -30,8 +31,7 @@ def _targets_a_cell(selector: str) -> bool:
 class TableCellDisplayTests(unittest.TestCase):
     def test_no_stylesheet_takes_a_cell_out_of_its_table(self) -> None:
         offenders: list[str] = []
-        static = Path(__file__).parents[2] / "mt5_manager" / "static"
-        sheets = sorted(static.glob("*.css"))
+        sheets = sorted(static_matching("*.css"))
         self.assertTrue(sheets, "no se encontró ninguna hoja de estilo que revisar")
         for sheet in sheets:
             text = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.S)

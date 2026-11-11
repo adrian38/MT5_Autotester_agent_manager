@@ -25,6 +25,7 @@ from portfolio_manager.grid_risk import (
 )
 from portfolio_manager.grid_set import filter_rows_grid_on, set_file_grid_enabled_value
 from portfolio_manager.ubs_portfolio import ClosedTrade, PortfolioType
+from tools.package_layout import static_source
 
 
 def strategy(set_id: str, profit: float, floating_dd: float) -> SimpleNamespace:
@@ -449,9 +450,9 @@ class GridScopeTests(unittest.TestCase):
 
     def test_broker_cards_link_the_independent_grid_screen(self) -> None:
         root = Path(__file__).resolve().parents[2]
-        app = (root / "mt5_manager" / "static" / "app.js").read_text(encoding="utf-8")
-        html = (root / "mt5_manager" / "static" / "portfolios_grid.html").read_text(encoding="utf-8")
-        script = (root / "mt5_manager" / "static" / "portfolios_grid.js").read_text(encoding="utf-8")
+        app = static_source("app.js")
+        html = static_source("portfolios_grid.html")
+        script = static_source("portfolios_grid.js")
 
         self.assertIn("/portfolios_grid.html?node=", app)
         self.assertIn('src="/portfolios_grid.js?', html)

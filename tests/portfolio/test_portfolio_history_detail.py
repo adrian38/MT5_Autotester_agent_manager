@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 from mt5_manager.portfolio import portfolio_history_detail
 from mt5_manager.portfolio.portfolio_history_detail import HISTORY_STAGES, history_detail
+from tools.package_layout import static_source
 
 
 def _trade(day: str, profit: float) -> SimpleNamespace:
@@ -184,11 +185,10 @@ class DateOrderTests(unittest.TestCase):
 
 
 class ScreenTests(unittest.TestCase):
-    STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 
     def test_the_two_buttons_open_their_own_tab(self) -> None:
-        page = (self.STATIC / "portfolios.html").read_text(encoding="utf-8")
-        script = (self.STATIC / "portfolios.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolios.js")
 
         self.assertIn('id="detail-history-strategy"', page)
         self.assertIn('id="detail-history-portfolio"', page)
@@ -197,7 +197,7 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("openHistoryDetail('portfolio')", script)
 
     def test_the_page_shows_the_total_the_curve_and_the_valleys(self) -> None:
-        script = (self.STATIC / "portfolio_history.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_history.js")
 
         self.assertIn("Profit total", script)
         self.assertIn("PortfolioCurveView.renderCurve", script)
@@ -207,7 +207,7 @@ class ScreenTests(unittest.TestCase):
     def test_the_valleys_are_one_table_with_a_selector(self) -> None:
         # Cinco tablas apiladas obligaban a bajar media pantalla para comparar
         # dos valles (petición del usuario, 2026-10-21).
-        script = (self.STATIC / "portfolio_curve_view.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_curve_view.js")
 
         self.assertIn("data-valley", script)
         self.assertIn("portfolio-history-valley-tabs", script)
@@ -220,16 +220,16 @@ class ScreenTests(unittest.TestCase):
         del mismo dibujo acaban enseñando dos cosas distintas, igual que dos
         copias de la misma cuenta acaban dando dos cifras.
         """
-        shared = (self.STATIC / "portfolio_curve_view.js").read_text(encoding="utf-8")
+        shared = static_source("portfolio_curve_view.js")
         self.assertIn("window.PortfolioCurveView", shared)
         for page, script in (
             ("portfolio_history.html", "portfolio_history.js"),
             ("manual_portfolios.html", "manual_portfolios.js"),
         ):
             with self.subTest(page=page):
-                markup = (self.STATIC / page).read_text(encoding="utf-8")
+                markup = static_source(page)
                 self.assertIn("/portfolio_curve_view.js", markup)
-                body = (self.STATIC / script).read_text(encoding="utf-8")
+                body = static_source(script)
                 self.assertIn("PortfolioCurveView.renderCurve", body)
                 self.assertIn("PortfolioCurveView.mountValleys", body)
                 # Y ninguna conserva su propia copia del dibujo.

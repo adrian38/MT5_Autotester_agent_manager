@@ -14,9 +14,9 @@ from pathlib import Path
 from unittest import mock
 
 from mt5_manager.manager.manager import ManagerServer
+from tools.package_layout import static_source
 
 
-STATIC_DIR = Path(__file__).parents[2] / "mt5_manager" / "static"
 
 
 class CorrelationRouteTests(unittest.TestCase):
@@ -59,7 +59,7 @@ class CorrelationRouteTests(unittest.TestCase):
                 self.assertEqual(self.request(asset)[0], 200)
 
     def test_header_places_correlation_next_to_experiment(self) -> None:
-        index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        index = static_source("index.html")
         experiment = index.index('href="/experiment.html"')
         correlation = index.index('href="/correlation.html"')
         restart = index.index('id="restart-manager"')
@@ -68,7 +68,7 @@ class CorrelationRouteTests(unittest.TestCase):
         self.assertIn('target="_blank"', index[correlation:restart])
 
     def test_screen_uses_read_only_existing_portfolio_endpoints(self) -> None:
-        script = (STATIC_DIR / "correlation.js").read_text(encoding="utf-8")
+        script = static_source("correlation.js")
         self.assertIn("/api/nodes", script)
         self.assertIn("/api/correlation/nodes/", script)
         self.assertIn("/portfolios?scope=", script)

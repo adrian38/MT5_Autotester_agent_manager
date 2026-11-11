@@ -30,8 +30,8 @@ from tests.live_audit.test_live_audit_attribution import (
     MEMBER, SET_STEM, STRATEGY, audit_payload, profile, trade,
 )
 from tests.live_audit.test_live_audit_attribution import imported as excel
+from tools.package_layout import static_source
 
-STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 COMMENT = "TESLA_M15_006"
 # La celda de mercado que la pantalla exporta para la real huérfana.
 ATTRIBUTED_REAL = (
@@ -366,9 +366,9 @@ class AnalysisTests(unittest.TestCase):
 
 class ScreenTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.page = (STATIC / "live_audit_analysis.html").read_text(encoding="utf-8")
-        self.script = (STATIC / "live_audit_analysis.js").read_text(encoding="utf-8")
-        self.result = (STATIC / "live_audit_result.js").read_text(encoding="utf-8")
+        self.page = static_source("live_audit_analysis.html")
+        self.script = static_source("live_audit_analysis.js")
+        self.result = static_source("live_audit_result.js")
 
     def test_the_button_is_visible_without_waiting_for_a_broker_capability(self) -> None:
         self.assertIn('id="comment-links-upload"', self.page)

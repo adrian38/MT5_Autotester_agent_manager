@@ -11,6 +11,7 @@ from mt5_manager.portfolio.portfolio_improvement_common import (
     validate_and_attach_improvement_audit,
 )
 from mt5_manager.portfolio.portfolio_service import normalize_settings
+from tools.package_layout import static_source
 
 
 class ImprovementInheritedSettingsTests(unittest.TestCase):
@@ -236,7 +237,7 @@ class ImprovementEngineV3Tests(unittest.TestCase):
 
 class ImprovementInheritedSettingsScreenTests(unittest.TestCase):
     def test_dialog_edits_every_real_setting_and_keeps_improvement_criteria(self) -> None:
-        script = (Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolio_improvement.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_improvement.js")
         for name in (
             "capital", "valley_dd_pct", "top_k_per_symbol", "max_total_candidates",
             "min_trades_2020_2026", "improvement_min_recent_contribution_pct",
@@ -263,8 +264,7 @@ class ImprovementInheritedSettingsScreenTests(unittest.TestCase):
         self.assertIn("values.search_restarts = 0", script)
 
     def test_dialog_offers_the_v3_engine_and_warns_that_it_moves_results(self) -> None:
-        static = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static / "portfolio_improvement.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_improvement.js")
         self.assertIn('name="improvement_engine_v3" type="checkbox"', script)
         self.assertIn(
             "inherited.improvement_engine_v3 ?? inherited.engine_v3 ?? false", script,
@@ -274,12 +274,12 @@ class ImprovementInheritedSettingsScreenTests(unittest.TestCase):
         )
         self.assertIn("Cambia resultados", script)
         # El mensual sigue congelado: no gana motor.
-        monthly = (static / "portfolio_monthly_improvement.js").read_text(encoding="utf-8")
+        monthly = static_source("portfolio_monthly_improvement.js")
         self.assertNotIn("improvement_engine_v3", monthly)
         # La generación lo ofrece con el mismo nombre, para que una base y su
         # mejora puedan calcularse con el mismo motor.
-        self.assertIn('name="engine_v3" type="checkbox"', (static / "portfolios.html").read_text(encoding="utf-8"))
-        self.assertIn("'engine_v3'];", (static / "portfolios.js").read_text(encoding="utf-8"))
+        self.assertIn('name="engine_v3" type="checkbox"', static_source("portfolios.html"))
+        self.assertIn("'engine_v3'];", static_source("portfolios.js"))
 
 
 if __name__ == "__main__":

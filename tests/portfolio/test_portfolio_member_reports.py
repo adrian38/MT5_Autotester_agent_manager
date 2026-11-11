@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from mt5_manager.portfolio.portfolio_service import PortfolioSource
 from tests.integration import test_integration as integration_helpers
+from tools.package_layout import static_source
 
 
 class PortfolioMemberReportTests(unittest.TestCase):
@@ -94,9 +95,7 @@ class PortfolioMemberReportTests(unittest.TestCase):
             self.assertEqual(opened["content"], b"<html>saved</html>")
 
     def test_screen_opens_html_in_browser_and_offers_report_zip(self) -> None:
-        script = (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolios.js"
-        ).read_text(encoding="utf-8")
+        script = static_source("portfolios.js")
 
         self.assertIn("window.open('about:blank', '_blank')", script)
         self.assertIn("portfolio-manager/open-report", script)

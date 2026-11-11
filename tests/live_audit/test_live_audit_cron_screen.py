@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from tools.package_layout import static_source
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -26,11 +27,10 @@ class CronScreenTests(unittest.TestCase):
         from mt5_manager.manager.manager_handler import STATIC_FILES
 
         cls.static_files = STATIC_FILES
-        static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-        cls.script = (static / "live_audit_schedule.js").read_text(encoding="utf-8")
-        cls.dashboard = (static / "dashboard.html").read_text(encoding="utf-8")
-        cls.generation = (static / "index.html").read_text(encoding="utf-8")
-        cls.audit = (static / "live_audit.html").read_text(encoding="utf-8")
+        cls.script = static_source("live_audit_schedule.js")
+        cls.dashboard = static_source("dashboard.html")
+        cls.generation = static_source("index.html")
+        cls.audit = static_source("live_audit.html")
 
     def test_the_module_is_served_and_every_relevant_header_loads_it(self) -> None:
         for name in ("live_audit_schedule.js", "live_audit_schedule.css"):
@@ -120,8 +120,7 @@ class CronScreenTests(unittest.TestCase):
         self.assertIn("${queue.done} de ${queue.total}", self.script)
 
     def test_the_activity_chip_has_its_own_style(self) -> None:
-        static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-        styles = (static / "live_audit_schedule.css").read_text(encoding="utf-8")
+        styles = static_source("live_audit_schedule.css")
         for selector in (".cron-activity", ".cron-activity-dot", ".cron-activity-bar"):
             self.assertIn(selector, styles)
         # `dashboard.css` no declara `[hidden]`: sin esta regla el display:flex

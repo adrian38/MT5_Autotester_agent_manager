@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from lxml import html
+from tools.package_layout import static_matching, static_source
 
 
 VALID_VALUES = {
@@ -111,9 +112,9 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         # y salía pegado al borde del panel. Es el único estado que se ve en
         # cada carga, así que era el único que se notaba.
         static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "app.js").read_text(encoding="utf-8")
+        script = static_source("app.js")
         pages = {
-            name: (static_dir / name).read_text(encoding="utf-8")
+            name: static_source(name)
             for name in ("index.html", "portfolios.html", "manual_portfolios.html")
         }
 
@@ -135,8 +136,8 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
 
     def test_regression_card_features_follow_node_capabilities_and_use_their_own_job(self) -> None:
         static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "app.js").read_text(encoding="utf-8")
-        page = (static_dir / "index.html").read_text(encoding="utf-8")
+        script = static_source("app.js")
+        page = static_source("index.html")
 
         self.assertIn("function supportsRegression(node)", script)
         self.assertIn("node.capabilities?.regression_runs", script)
@@ -155,9 +156,9 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
 
     def test_cards_expose_manual_and_automatic_historical_cleanup(self) -> None:
         static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "app.js").read_text(encoding="utf-8")
-        page = (static_dir / "index.html").read_text(encoding="utf-8")
-        styles = (static_dir / "styles.css").read_text(encoding="utf-8")
+        script = static_source("app.js")
+        page = static_source("index.html")
+        styles = static_source("styles.css")
 
         self.assertIn("node.capabilities?.historical_cleanup", script)
         self.assertIn("cleanupNode", script)
@@ -178,9 +179,9 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
 
     def test_repair_dialog_can_select_all_runs(self) -> None:
         static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "app.js").read_text(encoding="utf-8")
-        page = (static_dir / "index.html").read_text(encoding="utf-8")
-        styles = (static_dir / "styles.css").read_text(encoding="utf-8")
+        script = static_source("app.js")
+        page = static_source("index.html")
+        styles = static_source("styles.css")
 
         self.assertIn('id="repair-select-all"', page)
         self.assertIn("Seleccionar todos", page)
@@ -209,8 +210,8 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         # etapas, y lo único que las diferencia es cuántos terminales usan a la vez.
         # Los dos diálogos y la tarjeta tienen que poder fijar las dos.
         static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "app.js").read_text(encoding="utf-8")
-        page = (static_dir / "index.html").read_text(encoding="utf-8")
+        script = static_source("app.js")
+        page = static_source("index.html")
 
         self.assertIn('id="repair-workers-phase2"', page)
         self.assertIn('id="generation-repair-workers-phase2"', page)
@@ -238,9 +239,9 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
         # del propio diálogo, que solo aparece en nodos con la capacidad y se recuerda
         # aparte de `run_regression`, la de la nueva ejecución.
         static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "app.js").read_text(encoding="utf-8")
-        page = (static_dir / "index.html").read_text(encoding="utf-8")
-        styles = (static_dir / "styles.css").read_text(encoding="utf-8")
+        script = static_source("app.js")
+        page = static_source("index.html")
+        styles = static_source("styles.css")
 
         self.assertIn('id="repair-regression-option"', page)
         self.assertIn('id="repair-regression"', page)
@@ -256,8 +257,8 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
 
     def test_regression_dialog_can_select_all_runs(self) -> None:
         static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "app.js").read_text(encoding="utf-8")
-        page = (static_dir / "index.html").read_text(encoding="utf-8")
+        script = static_source("app.js")
+        page = static_source("index.html")
 
         self.assertIn('id="regression-select-all"', page)
         self.assertIn("toggleRegressionRuns(this.checked)", page)
@@ -281,7 +282,7 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
     def _number_fields(self) -> dict[str, list[tuple[str, object]]]:
         static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         fields: dict[str, list[tuple[str, object]]] = {}
-        for path in static_dir.glob("*.html"):
+        for path in static_matching("*.html"):
             page = html.fromstring(path.read_text(encoding="utf-8"))
             for field in page.xpath('//input[@type="number"]'):
                 key = field.get("name") or field.get("id")
@@ -292,11 +293,11 @@ class NodeDialogAndNumberInputTests(unittest.TestCase):
 
     @staticmethod
     def _append_live_audit_fields(fields, static_dir: Path) -> None:
-        script = (static_dir / "live_audit.js").read_text(encoding="utf-8")
+        script = static_source("live_audit.js")
         for markup in re.findall(r'<input data-field="[^"]+" type="number"[^>]*>', script):
             field = html.fragment_fromstring(markup)
             fields.setdefault(field.get("data-field"), []).append(("live_audit.js", field))
-        schedule = (static_dir / "live_audit_schedule.js").read_text(encoding="utf-8")
+        schedule = static_source("live_audit_schedule.js")
         for markup in re.findall(r'<input id="cron-[^"]+" type="number"[^>]*>', schedule):
             field = html.fragment_fromstring(markup)
             fields.setdefault(field.get("id"), []).append(("live_audit_schedule.js", field))

@@ -16,6 +16,7 @@ from mt5_manager.manager.correlation_routes import STATIC_FILES as CORRELATION_F
 from mt5_manager.experiment.experiment_routes import STATIC_FILES as EXPERIMENT_FILES
 from mt5_manager.manager.manager_handler import STATIC_DIR, STATIC_FILES
 from mt5_manager.prop.prop_experiment_routes import STATIC_FILES as PROP_EXPERIMENT_FILES
+from tools.package_layout import static_matching, static_path
 
 
 SERVED = STATIC_FILES | CORRELATION_FILES | EXPERIMENT_FILES | PROP_EXPERIMENT_FILES
@@ -31,11 +32,11 @@ class StaticAssetsServedTest(unittest.TestCase):
         # Todas: las que no estan en la lista las sirve su propia ruta
         # (`/`, `/generation.html`, correlacion, experimenta), y lo que piden
         # sale igualmente de la lista.
-        for page in sorted(STATIC_DIR.glob("*.html")):
+        for page in sorted(static_matching("*.html")):
             referenced = set(REFERENCE.findall(page.read_text(encoding="utf-8")))
             absent = {
                 name for name in referenced
-                if name not in SERVED and (STATIC_DIR / name).is_file()
+                if name not in SERVED and static_path(name).is_file()
             }
             if absent:
                 missing[page.name] = absent
@@ -46,7 +47,7 @@ class StaticAssetsServedTest(unittest.TestCase):
         )
 
     def test_the_list_does_not_promise_files_that_no_longer_exist(self) -> None:
-        gone = sorted(name for name in STATIC_FILES if not (STATIC_DIR / name).is_file())
+        gone = sorted(name for name in STATIC_FILES if not static_path(name).is_file())
         self.assertFalse(gone, f"STATIC_FILES nombra ficheros que ya no existen: {gone}")
 
 

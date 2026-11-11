@@ -16,30 +16,30 @@ import unittest
 from pathlib import Path
 
 from mt5_manager.manager.manager_handler import STATIC_FILES
+from tools.package_layout import static_matching, static_source
 
-STATIC = Path(__file__).parents[2] / "mt5_manager" / "static"
 PAGES_WITH_PASSWORDS = ("index.html", "live_audit.html")
 
 
 class PasswordRevealTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.script = (STATIC / "password_reveal.js").read_text(encoding="utf-8")
-        cls.styles = (STATIC / "styles.css").read_text(encoding="utf-8")
-        cls.audit = (STATIC / "live_audit.js").read_text(encoding="utf-8")
-        cls.manager = (STATIC / "app.js").read_text(encoding="utf-8")
+        cls.script = static_source("password_reveal.js")
+        cls.styles = static_source("styles.css")
+        cls.audit = static_source("live_audit.js")
+        cls.manager = static_source("app.js")
 
     def test_the_module_is_served_and_the_two_pages_load_it(self) -> None:
         self.assertIn("password_reveal.js", STATIC_FILES)
         for name in PAGES_WITH_PASSWORDS:
-            page = (STATIC / name).read_text(encoding="utf-8")
+            page = static_source(name)
             self.assertIn('<script src="/password_reveal.js"></script>', page)
             self.assertIn('<link rel="stylesheet" href="/styles.css">', page)
 
     def test_no_other_page_hides_a_password_field_without_the_eye(self) -> None:
         # Si mañana aparece una contraseña en otra pantalla, esta prueba la
         # delata en vez de dejarla a ciegas.
-        for page in STATIC.glob("*.html"):
+        for page in static_matching("*.html"):
             if 'type="password"' not in page.read_text(encoding="utf-8"):
                 continue
             self.assertIn(page.name, PAGES_WITH_PASSWORDS)

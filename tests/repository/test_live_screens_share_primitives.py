@@ -20,9 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tools.package_layout import module_source  # noqa: E402
+from tools.package_layout import module_source, static_source  # noqa: E402
 
-STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
 
 # El dueño de todo lo de abajo. Lo que aquí se prohíbe a las pantallas, aquí
 # está escrito una vez.
@@ -51,7 +50,7 @@ class ScreenPrimitiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.scripts = {
-            name: (STATIC / name).read_text(encoding="utf-8")
+            name: static_source(name)
             for name in (PRIMITIVE, *CONSUMERS)
         }
 

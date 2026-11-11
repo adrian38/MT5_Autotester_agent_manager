@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from mt5_manager.live_audit.live_audit_notifications import LiveAuditNotificationStore
 from mt5_manager.portfolio.portfolio_job_notices import job_notice, notice_link
 from mt5_manager.portfolio.portfolio_service import PortfolioCoordinator
+from tools.package_layout import static_source
 
 NODES = [{"id": "test-node", "name": "Test Node", "portfolio_broker": "ICTRADING"}]
 
@@ -214,14 +215,13 @@ class PortfolioBellScreenTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.static = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
-        cls.script = (cls.static / "live_audit_schedule.js").read_text(encoding="utf-8")
+        cls.script = static_source("live_audit_schedule.js")
 
     def test_the_three_portfolio_screens_load_the_bell(self) -> None:
         # Sin el script en la pantalla no hay aviso del escritorio, y la
         # pantalla del cálculo es justo la que el usuario deja abierta.
         for page in ("portfolios.html", "portfolios_grid.html", "portfolios_monthly.html"):
-            text = (self.static / page).read_text(encoding="utf-8")
+            text = static_source(page)
             for asset in ("/live_audit_schedule.css", "/live_audit_schedule.js"):
                 self.assertIn(asset, text, f"{page} no carga {asset}")
 

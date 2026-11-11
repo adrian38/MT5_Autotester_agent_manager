@@ -13,10 +13,31 @@ cayo un modulo, asi que el siguiente movimiento no rompe a nadie.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "mt5_manager"
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# El resolutor de estaticos es de produccion —lo usa el handler para servir—,
+# asi que aqui se reexporta en vez de duplicarse: dos busquedas del mismo
+# fichero acabarian discrepando.
+from mt5_manager.static_files import (  # noqa: E402,F401
+    STATIC_DIR, static_matching, static_names, static_path,
+)
+
+
+def static_source(name: str) -> str:
+    """El texto del estatico que la URL `/<name>` sirve.
+
+    Las pruebas lo leian con `STATIC / "app.js"`, y esa ruta plana dejo de
+    resolver al repartir `static/` por pantallas. Pedirlo por su nombre de URL
+    es ademas lo que se quiere comprobar: lo que el navegador recibe.
+    """
+    return static_path(name).read_text(encoding="utf-8")
 
 
 def module_path(name: str, package: Path | None = None) -> Path:

@@ -6,13 +6,12 @@ import re
 from pathlib import Path
 
 from lxml import html
+from tools.package_layout import static_path, static_source
 
 
 class NodeCardControlsTests(unittest.TestCase):
     def script(self) -> str:
-        return (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / "app.js"
-        ).read_text(encoding="utf-8")
+        return static_source("app.js")
 
     def test_pause_and_resume_buttons_follow_the_job_state(self) -> None:
         script = self.script()
@@ -54,7 +53,7 @@ class NodeCardControlsTests(unittest.TestCase):
 
     def test_manager_restart_button_uses_the_manager_endpoint_and_exact_sequence(self) -> None:
         root = Path(__file__).parents[2]
-        page = (root / "mt5_manager" / "static" / "index.html").read_text(encoding="utf-8")
+        page = static_source("index.html")
         script = self.script()
         self.assertIn('id="restart-manager"', page)
         self.assertIn("fetch('/api/manager/restart'", script)
@@ -68,9 +67,7 @@ class NodeCardControlsTests(unittest.TestCase):
 class PortfolioFormTests(unittest.TestCase):
     def test_capital_accepts_any_numeric_value_like_the_original_ubs_form(self) -> None:
         page = html.fromstring(
-            (Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolios.html").read_text(
-                encoding="utf-8"
-            )
+            static_source("portfolios.html")
         )
 
         capital = page.xpath('//input[@name="capital"]')[0]
@@ -79,9 +76,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIsNone(capital.get("min"))
 
     def test_portfolio_configuration_is_saved_after_field_changes(self) -> None:
-        script = (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolios.js"
-        ).read_text(encoding="utf-8")
+        script = static_source("portfolios.js")
 
         self.assertIn("form.addEventListener('change', scheduleSettingsSave)", script)
         self.assertIn("postManager('settings', payload)", script)
@@ -92,21 +87,19 @@ class PortfolioFormTests(unittest.TestCase):
         # El inventario lo filtran los grupos permitidos y la exclusión de sets
         # usados, y el guardado automático no recarga el estado (rehidrataría el
         # formulario que se está tocando): repinta con lo que devuelve el guardado.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
 
         for name in ("portfolios.js", "portfolios_grid.js"):
             with self.subTest(script=name):
-                script = (static_dir / name).read_text(encoding="utf-8")
+                script = static_source(name)
                 self.assertIn(
                     "if (data.inventory) { managerState.inventory = data.inventory; renderInventory(); }",
                     script,
                 )
 
     def test_symbol_dialog_and_saved_operations_use_their_effective_disabled_symbols(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
-        improvement = (static_dir / "portfolio_improvement.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolios.js")
+        improvement = static_source("portfolio_improvement.js")
 
         self.assertIn('id="symbol-manager-dialog"', page)
         self.assertIn('id="symbol-disabled"', page)
@@ -121,9 +114,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("disabled_symbols: fields.improvement_disabled_symbols.value", improvement)
 
     def test_symbol_dialog_lists_and_exports_selected_family_sets(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolios.js")
 
         self.assertIn('id="symbol-set-rows"', page)
         self.assertIn('id="symbol-select-all"', page)
@@ -139,11 +131,10 @@ class PortfolioFormTests(unittest.TestCase):
 
     def test_symbol_dialog_shortens_the_set_name_instead_of_widening_the_table(self) -> None:
         # El nombre lleva el hash de 64 hex del candidato y desbordaba la columna.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
-        styles = (static_dir / "styles.css").read_text(encoding="utf-8")
+        script = static_source("portfolios.js")
+        styles = static_source("styles.css")
 
-        reason = (static_dir / "exclusion_reason.js").read_text(encoding="utf-8")
+        reason = static_source("exclusion_reason.js")
 
         # La primitiva vive con el diálogo de motivo, que cargan las tres pantallas.
         self.assertIn("function shortSetName(", reason)
@@ -158,9 +149,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn(".reason-dialog .dialog-head h2", styles)
 
     def test_completed_calculation_reloads_and_reveals_proposals(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolios.js")
 
         self.assertLess(page.index('id="proposal-area"'), page.index('class="portfolio-inventory"'))
         self.assertIn("managerState.job?.status === 'running' && data.job?.status !== 'running'", script)
@@ -169,14 +159,13 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("scrollIntoView({behavior: 'smooth', block: 'start'})", script)
 
     def test_full_history_can_be_stopped_and_monthly_generation_is_disabled(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        full_page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        full_script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
-        manager_script = (static_dir / "app.js").read_text(encoding="utf-8")
+        full_page = static_source("portfolios.html")
+        full_script = static_source("portfolios.js")
+        manager_script = static_source("app.js")
         monthly_page = html.fromstring(
-            (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
+            static_source("portfolios_monthly.html")
         )
-        monthly_script = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+        monthly_script = static_source("portfolios_monthly.js")
 
         self.assertIn('id="stop-calculation"', full_page)
         self.assertIn("postManager('stop', {scope})", full_script)
@@ -194,28 +183,25 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn('href="/portfolios_monthly.html?node=', manager_script)
 
     def test_portfolio_risk_is_presented_as_maximum_not_addition(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolios.js")
 
         self.assertIn("DD riesgo máx.", page)
         self.assertIn("máx(cerrado", script)
         self.assertNotIn("cerrado ${number(result.actual_closed_valley_dd, 2)} + flotante", script)
 
     def test_daily_drawdown_is_labeled_as_visual_only(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+        page = static_source("portfolios_monthly.html")
+        script = static_source("portfolios_monthly.js")
 
         self.assertIn("DD diario visual (no limita)", page)
         self.assertIn("diario visual", script)
 
     def test_monthly_builder_has_independent_assets_and_live_calculation_aids(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        full_page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        monthly_page = (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
-        full_script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
-        monthly_script = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+        full_page = static_source("portfolios.html")
+        monthly_page = static_source("portfolios_monthly.html")
+        full_script = static_source("portfolios.js")
+        monthly_script = static_source("portfolios_monthly.js")
 
         self.assertIn('src="/portfolios_monthly.js"', monthly_page)
         self.assertIn("const scope = 'monthly'", monthly_script)
@@ -243,13 +229,12 @@ class PortfolioFormTests(unittest.TestCase):
     def test_the_three_builders_share_the_stage_monitor_and_live_log(self) -> None:
         # El monitor de etapas y el log en vivo eran una ventaja solo del
         # mensual; los tres calculos numeran ya sus etapas «N/M».
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         for page_name, script_name, stages in (
             ("portfolios.html", "portfolios.js", 5),
             ("portfolios_grid.html", "portfolios_grid.js", 4),
         ):
-            page = (static_dir / page_name).read_text(encoding="utf-8")
-            script = (static_dir / script_name).read_text(encoding="utf-8")
+            page = static_source(page_name)
+            script = static_source(script_name)
             self.assertIn('id="calculation-monitor"', page, page_name)
             self.assertIn('id="live-log"', page, page_name)
             self.assertIn('id="stage-list"', page, page_name)
@@ -259,20 +244,18 @@ class PortfolioFormTests(unittest.TestCase):
             self.assertIn("function stageFromProgress", script, script_name)
             self.assertIn("async function refreshCalculationLog", script, script_name)
             self.assertIn(r"/^(\d+)\/(\d+)\s*[·-]/", script, script_name)
-        monthly = (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
+        monthly = static_source("portfolios_monthly.html")
         self.assertIn('id="monthly-calculation-monitor"', monthly)
 
     def test_the_three_builders_report_an_auto_adjusted_valley(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         for name in ("portfolios.js", "portfolios_monthly.js", "portfolios_grid.js"):
-            script = (static_dir / name).read_text(encoding="utf-8")
+            script = static_source(name)
             self.assertIn("proposal.auto_adjusted_valley", script, name)
             self.assertIn("objetivo ajustado", script, name)
 
     def test_grid_shows_the_reoptimization_diff_and_can_reset_its_form(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios_grid.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios_grid.js").read_text(encoding="utf-8")
+        page = static_source("portfolios_grid.html")
+        script = static_source("portfolios_grid.js")
 
         self.assertIn('id="proposal-diff-section"', page)
         self.assertIn('id="proposal-diff"', page)
@@ -281,8 +264,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("#reset-settings", script)
 
     def test_the_improvement_dialog_chooses_its_own_asset_groups(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "portfolio_improvement.js").read_text(encoding="utf-8")
+        script = static_source("portfolio_improvement.js")
 
         self.assertIn('id="improvement-groups"', script)
         self.assertIn("improvement_group_", script)
@@ -297,8 +279,7 @@ class PortfolioFormTests(unittest.TestCase):
     def test_the_saved_list_names_the_priority_each_improvement_was_chosen_with(self) -> None:
         # Dos mejoras del mismo portafolio y modo se ven idénticas en la lista
         # si no se dice con qué criterio se eligió cada una.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        script = static_source("portfolios.js")
 
         self.assertIn("const improvementPriorityText", script)
         self.assertIn("origin.priority_label", script)
@@ -313,18 +294,15 @@ class PortfolioFormTests(unittest.TestCase):
     def test_the_open_exposure_overlap_is_reported_without_changing_the_risk(self) -> None:
         # La medida agregada es informativa: la tarjeta sigue enseñando
         # máx(cerrado, flotante) como riesgo aplicado.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
         for name in ("portfolios.js", "portfolios_monthly.js"):
-            script = (static_dir / name).read_text(encoding="utf-8")
+            script = static_source(name)
             self.assertIn("function overlapNote", script, name)
             self.assertIn("audit.overlap_detected", script, name)
             self.assertIn("(informativo)", script, name)
             self.assertIn("máx(cerrado ${number(result.actual_closed_valley_dd, 2)}", script, name)
 
     def test_saved_bundle_members_can_be_excluded(self) -> None:
-        script = (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolios.js"
-        ).read_text(encoding="utf-8")
+        script = static_source("portfolios.js")
 
         self.assertIn("El portafolio #${selectedId} no se modifica", script)
         # El botón lo pinta la primitiva compartida y se da la vuelta solo
@@ -336,9 +314,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("isBundle && !memberIsExcluded(member) ? '' :", script)
 
     def test_saved_bundle_members_support_batch_selection(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolios.js")
 
         self.assertIn('id="detail-select-all"', page)
         self.assertIn('id="detail-exclude-selected"', page)
@@ -349,10 +326,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("El portafolio A/M/C #${selectedId} no se modifica", script)
 
     def test_saved_bundle_detail_selects_and_remembers_the_variant_being_shown(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
-        monthly = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolios.js")
+        monthly = static_source("portfolios_monthly.js")
 
         self.assertIn('id="detail-variants"', page)
         self.assertIn("function renderSavedVariant", script)
@@ -371,9 +347,8 @@ class PortfolioFormTests(unittest.TestCase):
     def test_monthly_members_support_batch_selection_like_the_ubs_ones(self) -> None:
         # Las casillas no dependen de que el portafolio sea un bundle: un mes
         # guardado nunca lo es.
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios_monthly.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios_monthly.js").read_text(encoding="utf-8")
+        page = static_source("portfolios_monthly.html")
+        script = static_source("portfolios_monthly.js")
 
         self.assertIn('id="detail-select-all"', page)
         self.assertIn('id="detail-exclude-selected"', page)
@@ -387,9 +362,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("portafolio A/M/C", script)
 
     def test_grid_members_can_be_excluded_and_released_like_the_ubs_ones(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios_grid.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios_grid.js").read_text(encoding="utf-8")
+        page = static_source("portfolios_grid.html")
+        script = static_source("portfolios_grid.js")
 
         self.assertIn('id="quarantine-rows"', page)
         self.assertIn('id="detail-select-all"', page)
@@ -406,7 +380,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("async function requalifyStrategy(", script)
         self.assertIn(
             "onclick=\"requalifyStrategy(",
-            (static_dir / "exclusion_reason.js").read_text(encoding="utf-8"),
+            static_source("exclusion_reason.js"),
         )
         self.assertIn("El paquete Grid A/M/C #${selectedId} no se modifica", script)
         self.assertIn("set_paths: members.map", script)
@@ -417,9 +391,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("${bundle ? 14 : 13}", script)
 
     def test_grid_screen_shows_the_open_ladder_and_its_peak_margin(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios_grid.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios_grid.js").read_text(encoding="utf-8")
+        page = static_source("portfolios_grid.html")
+        script = static_source("portfolios_grid.js")
 
         self.assertEqual(page.count("<th>Escalera abierta</th>"), 2)
         self.assertIn('id="proposal-risk"', page)
@@ -435,10 +408,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("lotes base", script)
 
     def test_explicit_save_actions_show_a_blocking_progress_overlay(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = html.fromstring((static_dir / "portfolios.html").read_text(encoding="utf-8"))
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
-        styles = (static_dir / "styles.css").read_text(encoding="utf-8")
+        page = html.fromstring(static_source("portfolios.html"))
+        script = static_source("portfolios.js")
+        styles = static_source("styles.css")
 
         overlay = page.xpath('//*[@id="save-overlay"]')[0]
         self.assertEqual(overlay.get("role"), "dialog")
@@ -462,10 +434,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn(".save-spinner{", styles)
 
     def test_excluded_variant_offers_repair_instead_of_unused_saved_actions(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
-        repair = (static_dir / "portfolio_repair.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolios.js")
+        repair = static_source("portfolio_repair.js")
 
         self.assertIn('id="detail-repair" type="button" hidden>Arreglar</button>', page)
         self.assertNotIn('id="detail-complete"', page)
@@ -478,9 +449,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("Guardar arreglo como otro portafolio", script)
 
     def test_repair_confirms_every_effective_inherited_setting_before_starting(self) -> None:
-        script = (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolio_repair.js"
-        ).read_text(encoding="utf-8")
+        script = static_source("portfolio_repair.js")
 
         self.assertIn("currentDetail?.inherited_inputs", script)
         self.assertIn("metrics?.variants?.[repairMode()]?.inputs", script)
@@ -506,10 +475,9 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("payload.search_restarts = 0", script)
 
     def test_creation_and_repair_offer_the_active_portfolio_filter(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = (static_dir / "portfolios.html").read_text(encoding="utf-8")
-        main = (static_dir / "portfolios.js").read_text(encoding="utf-8")
-        repair = (static_dir / "portfolio_repair.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        main = static_source("portfolios.js")
+        repair = static_source("portfolio_repair.js")
 
         self.assertIn('name="active_portfolios_only" type="checkbox"', page)
         self.assertIn("'active_portfolios_only'", main)
@@ -519,9 +487,8 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("fields.exclude_used_sets.disabled", repair)
 
     def test_saved_portfolio_alias_is_editable_and_shown_in_the_header(self) -> None:
-        static_dir = Path(__file__).parents[2] / "mt5_manager" / "static"
-        page = html.fromstring((static_dir / "portfolios.html").read_text(encoding="utf-8"))
-        script = (static_dir / "portfolios.js").read_text(encoding="utf-8")
+        page = html.fromstring(static_source("portfolios.html"))
+        script = static_source("portfolios.js")
 
         self.assertEqual(len(page.xpath('//*[@id="detail-alias"]')), 1)
         self.assertEqual(len(page.xpath('//*[@id="detail-alias-edit"]')), 1)
@@ -529,9 +496,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertIn("alias.textContent = portfolio.alias || ''", script)
 
     def test_delete_overlay_only_waits_for_background_task_submission(self) -> None:
-        script = (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolios.js"
-        ).read_text(encoding="utf-8")
+        script = static_source("portfolios.js")
         delete_handler = script.split("document.querySelector('#detail-delete')", 1)[1].split(
             "document.querySelector('#detail-export')", 1
         )[0]
@@ -543,9 +508,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("await Promise.all", delete_handler)
 
     def test_export_uses_the_native_folder_picker(self) -> None:
-        script = (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolios.js"
-        ).read_text(encoding="utf-8")
+        script = static_source("portfolios.js")
         export_handler = script.split("document.querySelector('#detail-export')", 1)[1].split(
             "document.querySelector('#portfolio-refresh')", 1
         )[0]
@@ -555,9 +518,7 @@ class PortfolioFormTests(unittest.TestCase):
         self.assertNotIn("prompt(", export_handler)
 
     def test_remote_export_downloads_a_zip_from_the_manager(self) -> None:
-        script = (
-            Path(__file__).parents[2] / "mt5_manager" / "static" / "portfolios.js"
-        ).read_text(encoding="utf-8")
+        script = static_source("portfolios.js")
 
         self.assertIn("async function downloadPortfolioExport", script)
         self.assertIn("managerState.capabilities?.export_mode === 'download'", script)

@@ -3,15 +3,15 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from tools.package_layout import static_source
 
 
 ROOT = Path(__file__).parents[2]
-STATIC = ROOT / "mt5_manager" / "static"
 
 
 class ScreenTests(unittest.TestCase):
     def test_the_header_chip_knows_about_manual_checks(self) -> None:
-        script = (STATIC / "live_audit_schedule.js").read_text(encoding="utf-8")
+        script = static_source("live_audit_schedule.js")
         for expression in (
             "state.manual_checks || []",
             "function checkText(check)",
@@ -22,9 +22,9 @@ class ScreenTests(unittest.TestCase):
                 self.assertIn(expression, script)
 
     def test_the_reports_button_lives_in_the_detail_bar_and_starts_disabled(self) -> None:
-        page = (STATIC / "portfolios.html").read_text(encoding="utf-8")
-        script = (STATIC / "portfolio_manual_check.js").read_text(encoding="utf-8")
-        detail = (STATIC / "portfolios.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolio_manual_check.js")
+        detail = static_source("portfolios.js")
 
         self.assertIn('id="detail-export-reports" type="button" class="secondary" disabled', page)
         self.assertIn(">Exportar reportes manuales</button>", page)
@@ -33,8 +33,8 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("refreshManualCheckReports()", detail)
 
     def test_the_button_and_its_script_are_on_the_ubs_screen(self) -> None:
-        page = (STATIC / "portfolios.html").read_text(encoding="utf-8")
-        script = (STATIC / "portfolio_manual_check.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        script = static_source("portfolio_manual_check.js")
 
         self.assertIn('id="detail-manual-check"', page)
         self.assertIn("/portfolio_manual_check.js", page)
@@ -45,11 +45,11 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("manual-check-download", script)
 
     def test_all_three_flows_default_to_automatic_save_and_manual_check(self) -> None:
-        page = (STATIC / "portfolios.html").read_text(encoding="utf-8")
-        improvement = (STATIC / "portfolio_improvement.js").read_text(encoding="utf-8")
-        repair = (STATIC / "portfolio_repair.js").read_text(encoding="utf-8")
-        script = (STATIC / "portfolio_manual_check.js").read_text(encoding="utf-8")
-        builder = (STATIC / "portfolios.js").read_text(encoding="utf-8")
+        page = static_source("portfolios.html")
+        improvement = static_source("portfolio_improvement.js")
+        repair = static_source("portfolio_repair.js")
+        script = static_source("portfolio_manual_check.js")
+        builder = static_source("portfolios.js")
 
         self.assertIn('id="generation-auto-save" type="checkbox" checked', page)
         self.assertIn('id="generation-auto-save-key"', page)

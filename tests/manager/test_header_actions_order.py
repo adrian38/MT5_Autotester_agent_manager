@@ -19,10 +19,10 @@ import sys
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+from tools.package_layout import static_matching, static_source
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
 
 # El criterio portado. Cada cadena tiene que estar en el .js, y lo comprueba
 # `test_the_ported_rule_is_the_one_the_script_runs`.
@@ -109,7 +109,7 @@ class _HeaderActions(HTMLParser):
 
 def header_actions(page: str) -> list[dict[str, str]]:
     parser = _HeaderActions()
-    parser.feed((STATIC / page).read_text(encoding="utf-8"))
+    parser.feed(static_source(page))
     return parser.children
 
 
@@ -133,7 +133,7 @@ def _mount_order(source: str) -> list[str]:
 def rendered_order(page: str) -> list[str]:
     """La fila tal y como queda después de que los scripts la recoloquen."""
     children = header_actions(page)
-    source = (STATIC / page).read_text(encoding="utf-8")
+    source = static_source(page)
     for name in _mount_order(source):
         if name == RESTART_MOUNT:
             if _first(children, RESTART) is None:
@@ -216,7 +216,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
 
     def test_every_screen_that_loads_the_script_is_declared_here(self) -> None:
         loaders = {
-            page.name for page in STATIC.glob("*.html")
+            page.name for page in static_matching("*.html")
             if "live_audit_schedule.js" in page.read_text(encoding="utf-8")
         }
         self.assertEqual(loaders, set(self.EXPECTED))
@@ -234,7 +234,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
         """
         missing = sorted(
             page for page in self.EXPECTED
-            if "live_audit_schedule.css" not in (STATIC / page).read_text(encoding="utf-8")
+            if "live_audit_schedule.css" not in static_source(page)
         )
         self.assertFalse(
             missing,
@@ -244,7 +244,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
 
     def test_navigation_colors_have_one_shared_owner(self) -> None:
         """El mismo destino conserva su color en todas las pantallas."""
-        shared = (STATIC / "live_audit_schedule.css").read_text(encoding="utf-8")
+        shared = static_source("live_audit_schedule.css")
         selectors = (
             ".dashboard-link", ".generation-link",
             ".experiment-link", ".correlation-link",
@@ -253,7 +253,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
             with self.subTest(selector=selector):
                 self.assertIn(f"{selector}{{", shared)
                 owners = [
-                    path.name for path in STATIC.glob("*.css")
+                    path.name for path in static_matching("*.css")
                     if selector in path.read_text(encoding="utf-8")
                 ]
                 self.assertEqual(owners, ["live_audit_schedule.css"])
@@ -284,7 +284,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
         # Peticion del usuario (2026-10-21): la campana y el reinicio no son de
         # una pantalla, son del manager entero. El reinicio cierra la fila
         # siempre, y la campana va justo delante.
-        pages = {page.name for page in STATIC.glob("*.html")}
+        pages = {page.name for page in static_matching("*.html")}
         self.assertEqual(set(self.EXPECTED), pages)
         for page, expected in self.EXPECTED.items():
             with self.subTest(page=page):
@@ -292,7 +292,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
                 self.assertEqual(expected[-2], BELL)
 
     def test_the_restart_mount_appends_instead_of_jumping_the_queue(self) -> None:
-        script = (STATIC / RESTART_MOUNT).read_text(encoding="utf-8")
+        script = static_source(RESTART_MOUNT)
         for expression in (
             "document.querySelector('#restart-manager')",
             "actions.appendChild(button)",
@@ -301,7 +301,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
                 self.assertIn(expression, script)
         # Lo cargan todas menos las tres que ya traen el boton escrito.
         written = {"accounts.html", "dashboard.html", "index.html"}
-        for page in STATIC.glob("*.html"):
+        for page in static_matching("*.html"):
             source = page.read_text(encoding="utf-8")
             with self.subTest(page=page.name):
                 self.assertEqual(f"/{RESTART_MOUNT}" in source, page.name not in written)
@@ -314,7 +314,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
                 )
 
     def test_the_account_cron_mounts_one_header_button(self) -> None:
-        script = (STATIC / "live_account_schedule.js").read_text(encoding="utf-8")
+        script = static_source("live_account_schedule.js")
         for expression in (
             f"actions.querySelector('{RESTART}')",
             f"actions.querySelector('{BACK_LINK}')",
@@ -327,7 +327,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
         self.assertEqual(MOUNTS["live_account_schedule.js"], (ACCOUNT_CRON,))
 
     def test_the_ported_rule_is_the_one_the_script_runs(self) -> None:
-        script = (STATIC / "live_audit_schedule.js").read_text(encoding="utf-8")
+        script = static_source("live_audit_schedule.js")
         for expression in (
             f"actions.querySelector('{RESTART}')",
             f"actions.querySelector('{BACK_LINK}')",
@@ -345,11 +345,11 @@ class HeaderActionsOrderTests(unittest.TestCase):
     def test_the_two_selectors_are_asked_separately(self) -> None:
         # El fallo exacto que esto impide repetir: un único `querySelector` con
         # los dos selectores devuelve el primero del documento, no el preferido.
-        script = (STATIC / "live_audit_schedule.js").read_text(encoding="utf-8")
+        script = static_source("live_audit_schedule.js")
         self.assertNotRegex(script, re.compile(r"querySelector\('#restart-manager\s*,"))
 
     def test_only_the_primary_header_actions_stay_outside_the_collapsible_menu(self) -> None:
-        script = (STATIC / "live_audit_schedule.js").read_text(encoding="utf-8")
+        script = static_source("live_audit_schedule.js")
         for expression in (
             "new Set([refresh, state, back, bell, restart].filter(Boolean))",
             "[...actions.children].filter(item => !alwaysVisible.has(item))",
@@ -358,7 +358,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
         ):
             with self.subTest(expression=expression):
                 self.assertIn(expression, script)
-        styles = (STATIC / "live_audit_schedule.css").read_text(encoding="utf-8")
+        styles = static_source("live_audit_schedule.css")
         self.assertIn(
             ".header-more-panel>*{justify-content:flex-start;", styles,
         )

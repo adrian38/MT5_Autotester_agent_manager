@@ -16,10 +16,10 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from tools.package_layout import static_path, static_source
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-STATIC = Path(__file__).resolve().parents[2] / "mt5_manager" / "static"
 
 PAGES = (
     "dashboard.html", "index.html", "live_audit.html",
@@ -35,11 +35,11 @@ class WebPushScreenTests(unittest.TestCase):
         from mt5_manager.manager.manager_handler import STATIC_FILES
 
         cls.static_files = STATIC_FILES
-        cls.worker = (STATIC / "sw.js").read_text(encoding="utf-8")
-        cls.client = (STATIC / "web_push.js").read_text(encoding="utf-8")
-        cls.bell = (STATIC / "live_audit_schedule.js").read_text(encoding="utf-8")
-        cls.manifest = json.loads((STATIC / "manifest.webmanifest").read_text("utf-8"))
-        cls.pages = {name: (STATIC / name).read_text(encoding="utf-8") for name in PAGES}
+        cls.worker = static_source("sw.js")
+        cls.client = static_source("web_push.js")
+        cls.bell = static_source("live_audit_schedule.js")
+        cls.manifest = json.loads(static_source("manifest.webmanifest"))
+        cls.pages = {name: static_source(name) for name in PAGES}
 
     def test_everything_the_browser_asks_for_is_served(self) -> None:
         for name in (
@@ -47,7 +47,7 @@ class WebPushScreenTests(unittest.TestCase):
             "icon-192.png", "icon-512.png", "icon-180.png",
         ):
             self.assertIn(name, self.static_files, f"{name} no se sirve")
-            self.assertTrue((STATIC / name).is_file(), f"falta {name}")
+            self.assertTrue(static_path(name).is_file(), f"falta {name}")
 
     def test_every_page_with_the_bell_can_also_install_and_subscribe(self) -> None:
         for name, page in self.pages.items():
