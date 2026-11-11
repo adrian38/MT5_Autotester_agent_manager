@@ -22,7 +22,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager.portfolio_service import PortfolioCoordinator, PortfolioSource
+from mt5_manager.portfolio.portfolio_service import PortfolioCoordinator, PortfolioSource
 
 try:
     from .exclusion_memory_fixture import broker_project, candidate_rows, stage_rows

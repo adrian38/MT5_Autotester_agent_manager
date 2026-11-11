@@ -25,7 +25,7 @@ class HookRoutingTests(unittest.TestCase):
         for path in (
             r"C:\Users\x\mt5_manager\portfolio_service.py",
             r"C:\Users\x\mt5_manager\node.py",
-            "/srv/app/mt5_manager/portfolio_service.py",
+            "/srv/app/mt5_manager/portfolio/portfolio_service.py",
             "/srv/app/mt5_manager/node/node.py",
         ):
             with self.subTest(path=path):
@@ -46,9 +46,9 @@ class HookRoutingTests(unittest.TestCase):
         for path in (
             "mt5_manager/static/portfolios_monthly.js",
             "mt5_manager/manager/manager.py",
-            "mt5_manager/portfolio_monthly_service.py",
+            "mt5_manager/portfolio/portfolio_monthly_service.py",
             "tests/portfolio/test_portfolio_service.py",
-            "mt5_manager/portfolio_service.pyc",
+            "mt5_manager/portfolio/portfolio_service.pyc",
         ):
             with self.subTest(path=path):
                 self.assertFalse(MANAGER_RULES.search(path))

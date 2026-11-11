@@ -13,7 +13,7 @@ from typing import Any
 
 from portfolio_manager.ubs_portfolio import PortfolioResult
 
-from .common import load_json, save_json, utc_now
+from ..common import load_json, save_json, utc_now
 from .portfolio_identity import _resolve_source_path
 from .portfolio_job_notices import job_notice, notice_link
 from .portfolio_manual_reports import report_for_set

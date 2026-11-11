@@ -20,8 +20,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import portfolio_import
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio import portfolio_import
+from mt5_manager.portfolio.portfolio_service import (
     PortfolioCoordinator,
     PortfolioSource,
     _imported_target_month,
@@ -85,7 +85,7 @@ class ImportRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=candidates
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows",
                 side_effect=load,
             ):
                 _proposals, _selected, report = build_import_proposals(
@@ -132,7 +132,7 @@ class ImportRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=candidates
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows",
                 side_effect=load,
             ):
                 _proposals, _selected, report = build_import_proposals(
@@ -295,7 +295,7 @@ class ImportRoundTripTests(ImportRoundTripTestCase):
         with patch.object(
             PortfolioSource, "import_candidate_rows", return_value=self._candidates(project),
         ), patch(
-            "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
+            "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows",
             return_value=(strategies, []),
         ):
             proposals, selected_key, report = build_import_proposals(
@@ -365,7 +365,7 @@ class ImportRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, selected_key, report = build_import_proposals(

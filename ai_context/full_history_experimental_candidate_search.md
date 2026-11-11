@@ -6,7 +6,7 @@
 normal. Está desactivada por defecto y no se comparte con
 `experimental_monthly_search`.
 
-La lógica vive en `mt5_manager/portfolio_full_experimental.py`. El orquestador
+La lógica vive en `mt5_manager/portfolio/portfolio_full_experimental.py`. El orquestador
 UBS normal la utiliza únicamente para seleccionar la composición base común
 A/M/C. Las variantes agresiva, moderada y conservadora continúan calculándose
 con `optimize_portfolio()` sobre esa misma composición bloqueada.

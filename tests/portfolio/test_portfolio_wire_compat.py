@@ -1,6 +1,6 @@
 import unittest
 
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio.portfolio_service import (
     deserialize_portfolio_proposals,
     legacy_compatible_portfolio_save_payload,
     serialize_portfolio_proposals,

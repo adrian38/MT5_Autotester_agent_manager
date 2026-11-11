@@ -38,7 +38,7 @@ from ..prop import prop_experiment_routes
 from ..common import json_bytes, safe_int, utc_now
 from .manager_http import NODE_CONTROL_ACTIONS, NODE_CONTROL_TIMEOUT, submit_guided_to_node, submit_repair_request
 from .manager_restart import RestartAlreadyRunning
-from ..portfolio_scope import normalize_portfolio_scope
+from ..portfolio.portfolio_scope import normalize_portfolio_scope
 
 
 # `parents[1]` es `mt5_manager/`: los estaticos son del paquete, no del dominio.

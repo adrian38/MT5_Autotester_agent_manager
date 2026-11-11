@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from . import portfolio_curve_math as curve_math
-from .common import safe_int
+from ..common import safe_int
 from .portfolio_report_cache import cached_report
 from .portfolio_transfer import _resolve_source_path
 

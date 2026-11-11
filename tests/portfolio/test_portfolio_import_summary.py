@@ -20,8 +20,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import portfolio_import
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio import portfolio_import
+from mt5_manager.portfolio.portfolio_service import (
     PortfolioCoordinator,
     PortfolioSource,
     _imported_target_month,

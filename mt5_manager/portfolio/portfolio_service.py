@@ -67,13 +67,11 @@ from portfolio_manager.grid_set import filter_rows_grid_off
 from portfolio_manager.mt5_report import StrategyReport, parse_report
 
 from . import (
-    candidate_verdict,
-    dev_branch,
-    portfolio_history_detail,
-    portfolio_import,
+    candidate_verdict, portfolio_history_detail, portfolio_import,
     portfolio_manual_check,
 )
-from .common import load_json, safe_float, safe_int, save_json, utc_now
+from .. import dev_branch
+from ..common import load_json, safe_float, safe_int, save_json, utc_now
 from .portfolio_scope import PORTFOLIO_SCOPES, SCOPE_LABELS, normalize_portfolio_scope
 # Reexportados a proposito: el esquema salio a su propio modulo, pero los
 # llamantes (y los tests) lo siguen importando desde aqui.

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from ..common import safe_int, utc_now
-from ..portfolio_scope import normalize_portfolio_scope
+from ..portfolio.portfolio_scope import normalize_portfolio_scope
 
 
 # `parents[1]` es `mt5_manager/`: los estaticos son del paquete, no del dominio.

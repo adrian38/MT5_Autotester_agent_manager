@@ -90,7 +90,7 @@ separado cuando se autorice.
 ## La bifurcación no es solo `node.py`
 
 `manager_node_runtime/portfolio_save.py` del agente reimplementa lo que en el
-manager hace `PortfolioSource` de `mt5_manager/portfolio_service.py`. Las reglas
+manager hace `PortfolioSource` de `mt5_manager/portfolio/portfolio_service.py`. Las reglas
 de negocio de guardado y exclusión están **duplicadas**, no compartidas:
 
 | Regla | Manager | Agente |

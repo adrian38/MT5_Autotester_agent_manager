@@ -5,7 +5,7 @@ Un suite verde no prueba equivalencia. `optimize_strict_monthly_portfolio`,
 mientras las 620 pruebas pasaban: refactorizarlas a ciegas no lo habría notado
 nadie. Antes de tocar algo compartido, medir.
 
-    python -m tools.coverage_probe mt5_manager.portfolio_saved:_recalculate_saved
+    python -m tools.coverage_probe mt5_manager.portfolio.portfolio_saved:_recalculate_saved
 
 Envuelve el nombre en su módulo y en todos los que ya lo tenían copiado, porque
 ``from X import f`` copia la referencia y sustituirla en X no intercepta nada

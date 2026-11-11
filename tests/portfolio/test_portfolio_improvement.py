@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from tools.package_layout import module_source
-from mt5_manager.portfolio_improvement_common import (
+from mt5_manager.portfolio.portfolio_improvement_common import (
     ImprovementOptions,
     allocation_units,
     improvement_options,
@@ -15,11 +15,11 @@ from mt5_manager.portfolio_improvement_common import (
     unique_original_members,
     validate_and_attach_improvement_audit,
 )
-from mt5_manager.portfolio_service import PortfolioCoordinator
-from mt5_manager import portfolio_service
-from mt5_manager import portfolio_improvement_service as full_improvement
-from mt5_manager import portfolio_monthly_improvement_service as monthly_improvement
-from mt5_manager import portfolio_repair_service as repair_service
+from mt5_manager.portfolio.portfolio_service import PortfolioCoordinator
+from mt5_manager.portfolio import portfolio_service
+from mt5_manager.portfolio import portfolio_improvement_service as full_improvement
+from mt5_manager.portfolio import portfolio_monthly_improvement_service as monthly_improvement
+from mt5_manager.portfolio import portfolio_repair_service as repair_service
 
 
 class ImprovementOptionsTests(unittest.TestCase):
@@ -226,7 +226,7 @@ class ImprovementAuditTests(unittest.TestCase):
         result = self.result(["old.set", "new.set"])
 
         with mock.patch(
-            "mt5_manager.portfolio_improvement_common.strategy_correlation_pair",
+            "mt5_manager.portfolio.portfolio_improvement_common.strategy_correlation_pair",
             return_value=pair,
         ):
             audit = validate_and_attach_improvement_audit(
@@ -247,7 +247,7 @@ class ImprovementAuditTests(unittest.TestCase):
     def test_historical_growth_without_better_profit_dd_is_rejected(self) -> None:
         pair = SimpleNamespace(pearson_corr=0.0, downside_corr=0.0, dd_overlap=0.0)
         with mock.patch(
-            "mt5_manager.portfolio_improvement_common.strategy_correlation_pair",
+            "mt5_manager.portfolio.portfolio_improvement_common.strategy_correlation_pair",
             return_value=pair,
         ):
             with self.assertRaisesRegex(ValueError, "no mejora suficientemente"):
@@ -265,7 +265,7 @@ class ImprovementAuditTests(unittest.TestCase):
         pair = SimpleNamespace(pearson_corr=0.0, downside_corr=0.0, dd_overlap=0.0)
         result = self.result(["old.set", "new.set"])
         with mock.patch(
-            "mt5_manager.portfolio_improvement_common.strategy_correlation_pair",
+            "mt5_manager.portfolio.portfolio_improvement_common.strategy_correlation_pair",
             return_value=pair,
         ):
             audit = validate_and_attach_improvement_audit(
@@ -297,7 +297,7 @@ class ImprovementWireTests(unittest.TestCase):
                 {"key": "balanced"},
             ]
             with mock.patch(
-                "mt5_manager.portfolio_coordinator_saved.serialize_portfolio_proposals",
+                "mt5_manager.portfolio.portfolio_coordinator_saved.serialize_portfolio_proposals",
                 return_value=[{"serialized": True}],
             ):
                 payload = coordinator.prepare_save(
@@ -317,7 +317,7 @@ class ImprovementWireTests(unittest.TestCase):
             coordinator.jobs[key] = {"operation": "repair", "portfolio_id": 41}
             coordinator.proposals[key] = [{"key": "balanced"}]
             with mock.patch(
-                "mt5_manager.portfolio_coordinator_saved.serialize_portfolio_proposals",
+                "mt5_manager.portfolio.portfolio_coordinator_saved.serialize_portfolio_proposals",
                 return_value=[{"serialized": True}],
             ):
                 payload = coordinator.prepare_save(

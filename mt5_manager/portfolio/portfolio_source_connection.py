@@ -14,8 +14,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import dev_branch
-from .common import load_json, safe_float, save_json
+from .. import dev_branch
+from ..common import load_json, safe_float, save_json
 from .portfolio_schema import ensure_portfolio_schema
 
 
@@ -160,7 +160,8 @@ class PortfolioSourceConnectionMixin:
         al temporal del contenedor, que vive en el overlay y si soporta el
         ``-shm``.
         """
-        runtime = Path(__file__).resolve().parents[1] / "runtime" / "portfolio_snapshots"
+        # `parents[2]` es la raiz del repositorio, donde cuelga `runtime/`.
+        runtime = Path(__file__).resolve().parents[2] / "runtime" / "portfolio_snapshots"
         if not cls._needs_snapshot_read(runtime):
             return runtime
         return Path(tempfile.gettempdir()) / "mt5_manager_portfolio_snapshots"

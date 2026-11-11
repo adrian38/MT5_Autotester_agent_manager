@@ -66,7 +66,7 @@ def _adjusted_grid_valley_pcts(
 
 def normalize_grid_settings(raw: dict[str, Any], broker: str = "ICTRADING") -> dict[str, Any]:
     """Normalize Grid without introducing internal EA risk limits."""
-    from .common import safe_float
+    from ..common import safe_float
     from .portfolio_service import normalize_settings
 
     values = normalize_settings("full_history", raw, broker)

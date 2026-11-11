@@ -5,12 +5,12 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.portfolio_monthly_experimental import (
+from mt5_manager.portfolio.portfolio_monthly_experimental import (
     build_experimental_candidate_pools,
     optimize_experimental_monthly_portfolio,
 )
-from mt5_manager.portfolio_monthly_service import _monthly_proposals
-from mt5_manager.portfolio_service import normalize_settings
+from mt5_manager.portfolio.portfolio_monthly_service import _monthly_proposals
+from mt5_manager.portfolio.portfolio_service import normalize_settings
 
 
 def strategy(index: int) -> SimpleNamespace:
@@ -66,15 +66,15 @@ class ExperimentalMonthlySearchTests(unittest.TestCase):
             return optimize(candidate_sets), []
 
         with patch(
-            "mt5_manager.portfolio_monthly_service._optimize_without_recent_fillers",
+            "mt5_manager.portfolio.portfolio_monthly_service._optimize_without_recent_fillers",
             side_effect=run_optimizer,
         ), patch(
-            "mt5_manager.portfolio_monthly_service.optimize_experimental_monthly_portfolio",
+            "mt5_manager.portfolio.portfolio_monthly_service.optimize_experimental_monthly_portfolio",
             return_value=marker,
         ) as experimental, patch(
-            "mt5_manager.portfolio_monthly_service.optimize_portfolio",
+            "mt5_manager.portfolio.portfolio_monthly_service.optimize_portfolio",
         ) as stable, patch(
-            "mt5_manager.portfolio_monthly_service._seasonal_coverage",
+            "mt5_manager.portfolio.portfolio_monthly_service._seasonal_coverage",
         ):
             proposals = _monthly_proposals(strategies, strategies, inputs, [])
 
@@ -133,10 +133,10 @@ class ExperimentalMonthlySearchTests(unittest.TestCase):
             )
 
         with patch(
-            "mt5_manager.portfolio_monthly_experimental._rotated_candidate_order",
+            "mt5_manager.portfolio.portfolio_monthly_experimental._rotated_candidate_order",
             return_value=strategies,
         ), patch(
-            "mt5_manager.portfolio_monthly_experimental.strategy_correlation_pair",
+            "mt5_manager.portfolio.portfolio_monthly_experimental.strategy_correlation_pair",
             side_effect=fake_pair,
         ):
             pools = build_experimental_candidate_pools(
@@ -195,10 +195,10 @@ class ExperimentalMonthlySearchTests(unittest.TestCase):
         strategies = [strategy(index) for index in range(35)]
         evaluated: list[list[str]] = []
         with patch(
-            "mt5_manager.portfolio_monthly_experimental.filter_eligible_sets",
+            "mt5_manager.portfolio.portfolio_monthly_experimental.filter_eligible_sets",
             return_value=strategies,
         ), patch(
-            "mt5_manager.portfolio_monthly_experimental._optimize_exact_pool",
+            "mt5_manager.portfolio.portfolio_monthly_experimental._optimize_exact_pool",
             side_effect=self._fake_monthly_optimize(evaluated),
         ):
             result = optimize_experimental_monthly_portfolio(
@@ -246,10 +246,10 @@ class ExperimentalMonthlySearchTests(unittest.TestCase):
             )
 
         with patch(
-            "mt5_manager.portfolio_monthly_experimental.filter_eligible_sets",
+            "mt5_manager.portfolio.portfolio_monthly_experimental.filter_eligible_sets",
             return_value=strategies,
         ), patch(
-            "mt5_manager.portfolio_monthly_experimental._optimize_exact_pool",
+            "mt5_manager.portfolio.portfolio_monthly_experimental._optimize_exact_pool",
             side_effect=fake_optimize,
         ):
             optimize_experimental_monthly_portfolio(

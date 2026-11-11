@@ -14,12 +14,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mt5_manager.portfolio_manual_files import (
+from mt5_manager.portfolio.portfolio_manual_files import (
     discard_manual_portfolio_folders,
     manual_portfolio_folder,
     manual_portfolio_folders_only_for,
 )
-from mt5_manager.portfolio_service import PortfolioSource
+from mt5_manager.portfolio.portfolio_service import PortfolioSource
 
 
 def _node(project: Path) -> dict[str, str]:

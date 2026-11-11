@@ -31,7 +31,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import dev_branch
+from .. import dev_branch
 from .portfolio_schema import _table_exists
 
 

@@ -33,7 +33,7 @@ muy largo. No demuestra que la configuración sea inviable.
 ## Proceso y alcance
 
 Confirmado con `inspect.getsource` dentro de `mt5-autotester-manager`:
-ejecuta `/app/mt5_manager/portfolio_service.py` y contiene ese mismo bucle.
+ejecuta `/app/mt5_manager/portfolio/portfolio_service.py` y contiene ese mismo bucle.
 Este cálculo ocurre en el manager Docker, aunque sus logs se escriben en IC.
 No es una escritura UBS ejecutada por el fork `manager_node_runtime`.
 El helper también tiene llamadores en el mensual; una corrección compartida

@@ -7,7 +7,7 @@ ordenada de llamadas: nombre, argumentos posicionales tal como se escriben y
 nombres de los kwargs, expandiendo en su sitio los pasos nuevos. Si las dos
 listas coinciden, no se ha caído ni se ha renombrado ningún argumento.
 
-    python -m tools.call_trace mt5_manager/portfolio_saved.py _recalculate_saved \\
+    python -m tools.call_trace mt5_manager/portfolio/portfolio_saved.py _recalculate_saved \\
         _saved_curve _saved_metrics
 
 El primer argumento es el fichero, el segundo la función y el resto los

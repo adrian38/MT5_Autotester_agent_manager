@@ -234,7 +234,7 @@ y qué hay que portar.
 
 | Copia | Veredicto de exclusión | `live_mismatch` |
 | --- | --- | --- |
-| Manager (`mt5_manager/candidate_verdict.py` + `portfolio_service.py` + `node.py`) | sí | sí, 2026-10-13 |
+| Manager (`mt5_manager/portfolio/candidate_verdict.py` + `portfolio_service.py` + `node.py`) | sí | sí, 2026-10-13 |
 | ICTrading | sí, portado a mano el 2026-08-09 | no verificado (no montada en este equipo) |
 | AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí, ya estaba portado | sí, 2026-10-13 |
 | RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí, ya estaba portado | **no**, pendiente |

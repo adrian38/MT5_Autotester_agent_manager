@@ -16,7 +16,7 @@ from portfolio_manager.ubs_portfolio import (
 )
 
 from . import candidate_verdict
-from .common import safe_int, utc_now
+from ..common import safe_int, utc_now
 from .portfolio_identity import (
     _is_bundle_portfolio,
     _resolve_source_path,

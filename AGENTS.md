@@ -123,7 +123,7 @@ sus dos fallos conocidos: `CLAUDE.md`.
 2. `search_graph` / `search_code` para localizar símbolos y flujos, **en lugar
    de** `rg` o `grep` para definiciones, implementaciones y relaciones.
 3. `get_code_snippet` sólo con el `qualified_name` exacto que devolvió el grafo.
-4. `trace_path` antes de cambiar código compartido. `mt5_manager/portfolio_service.py`
+4. `trace_path` antes de cambiar código compartido. `mt5_manager/portfolio/portfolio_service.py`
    y el paquete `portfolio_manager/ubs_portfolio/` alimentan los dos scopes y los
    tres nodos: nunca asumir el alcance de un cambio ahí.
 5. Reindexar tras cambios estructurales y volver a consultar el grafo.
@@ -147,7 +147,7 @@ que escribe en la memoria de un agente, el grafo del manager no es la autoridad.
   serialización y persistencia. Toda corrección común entra por ahí; la lógica
   estacional pertenece a `portfolio_monthly_service.py`.
 - Al tocar el paquete `portfolio_manager/ubs_portfolio/` o
-  `mt5_manager/portfolio_service.py`, comprobar explícitamente **ambos** scopes.
+  `mt5_manager/portfolio/portfolio_service.py`, comprobar explícitamente **ambos** scopes.
 - El pool válido exige las cuatro etapas aceptadas: candidato, robustez, Final
   Tick continuo y Final Tick 6M.
 - El mensual conserva los metadatos de riesgo y auditoría al recortar la curva
@@ -262,7 +262,7 @@ es el de dependencia** — cada uno sólo importa de los anteriores:
 
 ## `portfolio_service` también es una pila
 
-`mt5_manager/portfolio_service.py` eran 6.045 líneas. Ahora son trece módulos y,
+`mt5_manager/portfolio/portfolio_service.py` eran 6.045 líneas. Ahora son trece módulos y,
 como en `ubs_portfolio`, **el orden es el de dependencia**:
 
 `portfolio_scope` → `portfolio_curve_math` → `portfolio_schema` →

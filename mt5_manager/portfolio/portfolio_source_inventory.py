@@ -16,7 +16,8 @@ from portfolio_manager.ubs_portfolio import (
     portfolio_symbol_key,
 )
 
-from . import candidate_verdict, dev_branch
+from . import candidate_verdict
+from .. import dev_branch
 from .portfolio_identity import (
     _normalize_memory_row,
     _resolve_source_path,

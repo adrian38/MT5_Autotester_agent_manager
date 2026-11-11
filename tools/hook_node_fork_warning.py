@@ -41,7 +41,7 @@ MANAGER_WARNING = (
 
 AGENT_WARNING = (
     "Has editado la copia bifurcada del nodo. Comprobar que la regla equivalente del "
-    "manager (`mt5_manager/portfolio_service.py`) no se ha quedado atrás y ejecutar "
+    "manager (`mt5_manager/portfolio/portfolio_service.py`) no se ha quedado atrás y ejecutar "
     "`python -m unittest tests.node.test_node_runtime_fork_parity` en el manager."
 )
 

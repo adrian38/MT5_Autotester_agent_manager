@@ -333,7 +333,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
                     re.escape(token),
                     f"{project}: falta {hint} (`{token}`) en "
                     "manager_node_runtime/portfolio_save.py. Portar el cambio desde "
-                    "mt5_manager/candidate_verdict.py y duplicar la prueba en "
+                    "mt5_manager/portfolio/candidate_verdict.py y duplicar la prueba en "
                     "tests/test_manager_node_portfolio_save.py.",
                 )
 
@@ -386,7 +386,7 @@ class NodeRuntimeForkParityTests(NodeRuntimeForkParityBase):
             "Excluida porque el OHLC no se parece al every tick: rechazada en Final Tick 6M",
             "Excluida porque no funciona en las condiciones reales de este bróker: candidato rechazado",
         }
-        manager_texts = (MANAGER_ROOT / "mt5_manager" / "candidate_verdict.py").read_text(encoding="utf-8")
+        manager_texts = module_source("candidate_verdict")
         for text in expected:
             self.assertIn(text, manager_texts, f"El manager perdió el texto: {text}")
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio.portfolio_service import (
     STANDARD_ANTIFILLER_REFILL_PASSES,
     PortfolioCoordinator,
     PortfolioSource,
@@ -32,7 +32,7 @@ from mt5_manager.portfolio_service import (
     save_portfolio_payload,
     scope_stage_count,
 )
-from mt5_manager.portfolio_monthly_service import (
+from mt5_manager.portfolio.portfolio_monthly_service import (
     _monthly_proposals,
     generate_monthly_proposals,
     monthly_eligibility_counts,
@@ -180,12 +180,12 @@ class PortfolioWorkflowTests(unittest.TestCase):
         proposal_two = [{"key": "profit", "label": "Segunda", "reserve_pct": 10, "inputs": inputs, "result": second}]
         failed = {"passed": False, "reasons": ["primer pool no válido"]}
         passed = {"passed": True, "reasons": []}
-        with patch("mt5_manager.portfolio_monthly_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_monthly_service.slice_strategy_sets_to_month", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_monthly_service.summarize_robust_rows", return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_monthly_service._monthly_proposals", side_effect=[proposal_one, proposal_two]) as optimizer, \
-             patch("mt5_manager.portfolio_monthly_service._strict_monthly_candidate_pool", return_value=([strategy], ["retry"])), \
-             patch("mt5_manager.portfolio_monthly_service.validate_strict_monthly_portfolio", side_effect=[failed, passed]):
+        with patch("mt5_manager.portfolio.portfolio_monthly_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio.portfolio_monthly_service.slice_strategy_sets_to_month", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio.portfolio_monthly_service.summarize_robust_rows", return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
+             patch("mt5_manager.portfolio.portfolio_monthly_service._monthly_proposals", side_effect=[proposal_one, proposal_two]) as optimizer, \
+             patch("mt5_manager.portfolio.portfolio_monthly_service._strict_monthly_candidate_pool", return_value=([strategy], ["retry"])), \
+             patch("mt5_manager.portfolio.portfolio_monthly_service.validate_strict_monthly_portfolio", side_effect=[failed, passed]):
             _availability, proposals = generate_monthly_proposals(Source(), inputs)
         self.assertEqual(optimizer.call_count, 2)
         self.assertIs(proposals[0]["result"], second)
@@ -353,7 +353,7 @@ class PortfolioWorkflowTests(unittest.TestCase):
                 raise ValueError("sin propuesta")
 
             with patch(
-                "mt5_manager.portfolio_monthly_service.run_monthly_operation",
+                "mt5_manager.portfolio.portfolio_monthly_service.run_monthly_operation",
                 side_effect=fail_after_optimization,
             ):
                 coordinator._worker("ic", "monthly", {}, "generate", None)

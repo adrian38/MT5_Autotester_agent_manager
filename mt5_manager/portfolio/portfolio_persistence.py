@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from portfolio_manager.ubs_portfolio import PortfolioResult, portfolio_symbol_key
 
-from .common import safe_float
+from ..common import safe_float
 from .portfolio_identity import TYPE_LABELS
 from .portfolio_scope import normalize_portfolio_scope
 

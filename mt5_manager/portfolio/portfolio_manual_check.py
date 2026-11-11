@@ -30,7 +30,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .common import safe_int
+from ..common import safe_int
 from .portfolio_scope import normalize_portfolio_scope
 from .portfolio_transfer import _resolve_source_path
 

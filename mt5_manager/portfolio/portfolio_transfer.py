@@ -13,8 +13,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import dev_branch
-from .common import safe_int
+from .. import dev_branch
+from ..common import safe_int
 from .portfolio_identity import (
     IMPROVEMENT_PRIORITY_LABELS,
     TYPE_LABELS,

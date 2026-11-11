@@ -25,7 +25,7 @@
 
 - `portfolio_manager/grid_set.py`: lectura y filtros de `.set`.
 - `portfolio_manager/grid_portfolio.py`: regla de riesgo y optimización Grid.
-- `mt5_manager/portfolio_grid_service.py`: carga, propuestas e inventario Grid.
+- `mt5_manager/portfolio/portfolio_grid_service.py`: carga, propuestas e inventario Grid.
 - `mt5_manager/static/portfolios_grid.html` y `portfolios_grid.js`: interfaz independiente.
 - Las primitivas UBS compartidas siguen concentradas en `ubs_portfolio.py` y `portfolio_service.py`.
 

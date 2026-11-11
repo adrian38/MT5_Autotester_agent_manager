@@ -16,7 +16,7 @@ from __future__ import annotations
 import urllib.parse
 from typing import Any, Mapping
 
-from .common import safe_int
+from ..common import safe_int
 from .portfolio_scope import normalize_portfolio_scope
 
 SCOPE_NOTICE_LABELS = {

@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio.portfolio_service import (
     STANDARD_ANTIFILLER_REFILL_PASSES,
     PortfolioCoordinator,
     PortfolioSource,
@@ -32,7 +32,7 @@ from mt5_manager.portfolio_service import (
     save_portfolio_payload,
     scope_stage_count,
 )
-from mt5_manager.portfolio_monthly_service import (
+from mt5_manager.portfolio.portfolio_monthly_service import (
     _monthly_proposals,
     generate_monthly_proposals,
     monthly_eligibility_counts,
@@ -408,12 +408,12 @@ class PortfolioServiceTests(unittest.TestCase):
 
                 if scope == "full_history":
                     settings["experimental_full_search"] = True
-                    with patch("mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio", side_effect=optimize), patch(
-                        "mt5_manager.portfolio_generation_search.optimize_portfolio", side_effect=optimize,
+                    with patch("mt5_manager.portfolio.portfolio_generation_search.optimize_experimental_full_portfolio", side_effect=optimize), patch(
+                        "mt5_manager.portfolio.portfolio_generation_search.optimize_portfolio", side_effect=optimize,
                     ):
                         proposals = _locked_full_proposals(pool, settings, {}, messages.append)
                 else:
-                    with patch("mt5_manager.portfolio_monthly_service.optimize_portfolio", side_effect=optimize):
+                    with patch("mt5_manager.portfolio.portfolio_monthly_service.optimize_portfolio", side_effect=optimize):
                         proposals = _monthly_proposals(pool, pool, settings, [], messages.append)
                 self.assertEqual(len(proposals), 3)
                 self.assertEqual(calls[0][0], ["core", "filler", "unused"])
@@ -508,10 +508,10 @@ class PortfolioServiceTests(unittest.TestCase):
                     ])
 
                 with patch(
-                    "mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio",
+                    "mt5_manager.portfolio.portfolio_generation_search.optimize_experimental_full_portfolio",
                     side_effect=optimize,
                 ), patch(
-                    "mt5_manager.portfolio_generation_search.optimize_portfolio", side_effect=optimize,
+                    "mt5_manager.portfolio.portfolio_generation_search.optimize_portfolio", side_effect=optimize,
                 ):
                     proposals = _locked_full_proposals(pool, settings, {}, None)
 

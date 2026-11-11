@@ -4,13 +4,13 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.portfolio_full_experimental import (
+from mt5_manager.portfolio.portfolio_full_experimental import (
     EXPERIMENTAL_FULL_ANTIFILLER_RETRIES,
     _result_rank,
     build_experimental_full_candidate_pools,
     optimize_experimental_full_portfolio,
 )
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio.portfolio_service import (
     PORTFOLIO_TYPES,
     _locked_full_proposals,
     normalize_settings,
@@ -48,13 +48,13 @@ def _experimental_inputs():
 def _run_locked_bundle(strategies, locked, engine, refine):
     """Ejecuta el paquete A/M/C con el motor y la primitiva sustituidos."""
     with patch(
-        "mt5_manager.portfolio_generation_search._optimize_without_recent_fillers",
+        "mt5_manager.portfolio.portfolio_generation_search._optimize_without_recent_fillers",
         side_effect=refine,
     ), patch(
-        "mt5_manager.portfolio_generation_search.optimize_experimental_full_portfolio",
+        "mt5_manager.portfolio.portfolio_generation_search.optimize_experimental_full_portfolio",
         **engine,
     ) as experimental, patch(
-        "mt5_manager.portfolio_generation_search.optimize_portfolio",
+        "mt5_manager.portfolio.portfolio_generation_search.optimize_portfolio",
         side_effect=lambda **_kwargs: result_for(locked),
     ) as stable:
         proposals = _locked_full_proposals(
@@ -151,10 +151,10 @@ class ExperimentalFullSearchTests(unittest.TestCase):
             )
 
         with patch(
-            "mt5_manager.portfolio_full_experimental._rotated_candidate_order",
+            "mt5_manager.portfolio.portfolio_full_experimental._rotated_candidate_order",
             return_value=strategies,
         ), patch(
-            "mt5_manager.portfolio_full_experimental.strategy_correlation_pair",
+            "mt5_manager.portfolio.portfolio_full_experimental.strategy_correlation_pair",
             side_effect=fake_pair,
         ):
             pools = build_experimental_full_candidate_pools(
@@ -202,10 +202,10 @@ class ExperimentalFullSearchTests(unittest.TestCase):
             return result_for(pool)
 
         with patch(
-            "mt5_manager.portfolio_full_experimental.filter_eligible_sets",
+            "mt5_manager.portfolio.portfolio_full_experimental.filter_eligible_sets",
             return_value=strategies,
         ), patch(
-            "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
+            "mt5_manager.portfolio.portfolio_full_experimental._optimize_exact_pool",
             side_effect=fake_optimize,
         ):
             result = optimize_experimental_full_portfolio(
@@ -295,10 +295,10 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
             ], profit=1730.0)
 
         with patch(
-            "mt5_manager.portfolio_full_experimental.filter_eligible_sets",
+            "mt5_manager.portfolio.portfolio_full_experimental.filter_eligible_sets",
             return_value=strategies,
         ), patch(
-            "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
+            "mt5_manager.portfolio.portfolio_full_experimental._optimize_exact_pool",
             side_effect=fake_optimize,
         ):
             result = optimize_experimental_full_portfolio(
@@ -359,10 +359,10 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
             )
 
         with patch(
-            "mt5_manager.portfolio_full_experimental.filter_eligible_sets",
+            "mt5_manager.portfolio.portfolio_full_experimental.filter_eligible_sets",
             return_value=strategies,
         ), patch(
-            "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
+            "mt5_manager.portfolio.portfolio_full_experimental._optimize_exact_pool",
             side_effect=fake_optimize,
         ):
             result = optimize_experimental_full_portfolio(
@@ -395,10 +395,10 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
             )
 
         with patch(
-            "mt5_manager.portfolio_full_experimental.filter_eligible_sets",
+            "mt5_manager.portfolio.portfolio_full_experimental.filter_eligible_sets",
             return_value=strategies,
         ), patch(
-            "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
+            "mt5_manager.portfolio.portfolio_full_experimental._optimize_exact_pool",
             side_effect=always_leaves_fillers,
         ):
             result = optimize_experimental_full_portfolio(
@@ -428,10 +428,10 @@ class ExperimentalRecentContributionTests(unittest.TestCase):
             )
 
         with patch(
-            "mt5_manager.portfolio_full_experimental.filter_eligible_sets",
+            "mt5_manager.portfolio.portfolio_full_experimental.filter_eligible_sets",
             return_value=strategies,
         ), patch(
-            "mt5_manager.portfolio_full_experimental._optimize_exact_pool",
+            "mt5_manager.portfolio.portfolio_full_experimental._optimize_exact_pool",
             side_effect=always_leaves_fillers,
         ):
             with self.assertRaisesRegex(ValueError, "sin rellenos 6M"):

@@ -36,9 +36,9 @@ from ..common import safe_int, utc_now
 from .live_account_archive import stored_balances
 from .live_account_series import month_key, previous_month
 from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
-from ..portfolio_identity import _resolve_source_path
-from ..portfolio_report_cache import cached_report
-from ..portfolio_service import PortfolioSource
+from ..portfolio.portfolio_identity import _resolve_source_path
+from ..portfolio.portfolio_report_cache import cached_report
+from ..portfolio.portfolio_service import PortfolioSource
 
 
 class ScaleChanged(ValueError):

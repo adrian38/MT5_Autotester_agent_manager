@@ -38,8 +38,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable
 
-from ..portfolio_identity import _resolve_source_path
-from ..portfolio_report_cache import cached_report
+from ..portfolio.portfolio_identity import _resolve_source_path
+from ..portfolio.portfolio_report_cache import cached_report
 
 #: Prior del contraste secuencial, en operaciones. Es `MINIMUM_TRADES`: la
 #: frontera aprieta donde la muestra ya merece una opinión, y con este valor

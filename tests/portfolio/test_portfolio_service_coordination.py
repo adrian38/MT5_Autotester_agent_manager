@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio.portfolio_service import (
     STANDARD_ANTIFILLER_REFILL_PASSES,
     PortfolioCoordinator,
     PortfolioSource,
@@ -32,7 +32,7 @@ from mt5_manager.portfolio_service import (
     save_portfolio_payload,
     scope_stage_count,
 )
-from mt5_manager.portfolio_monthly_service import (
+from mt5_manager.portfolio.portfolio_monthly_service import (
     _monthly_proposals,
     generate_monthly_proposals,
     monthly_eligibility_counts,
@@ -219,7 +219,7 @@ class PortfolioCoordinationTests(unittest.TestCase):
             with patch("threading.Thread.start"):
                 coordinator.start("ic", "monthly", settings)
             with patch(
-                "mt5_manager.portfolio_monthly_service.run_monthly_operation",
+                "mt5_manager.portfolio.portfolio_monthly_service.run_monthly_operation",
                 return_value=({"loaded_sets": 0}, []),
             ) as monthly_run, patch.object(PortfolioSource, "notify"):
                 coordinator._worker("ic", "monthly", settings)

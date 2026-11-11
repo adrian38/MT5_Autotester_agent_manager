@@ -1,7 +1,7 @@
 """Reconstruir las propuestas de un portafolio exportado.
 
 Del resumen solo sale la composicion; los numeros se recalculan con las mismas
-funciones que un calculo nuevo. Ver `mt5_manager/portfolio_import.py` para el
+funciones que un calculo nuevo. Ver `mt5_manager/portfolio/portfolio_import.py` para el
 formato y sus limites.
 
 Encima de `portfolio_identity`, `portfolio_report_cache` y
@@ -29,7 +29,7 @@ from portfolio_manager.ubs_portfolio import (
 )
 
 from . import portfolio_import
-from .common import safe_float, safe_int
+from ..common import safe_float, safe_int
 from .portfolio_identity import (
     IMPROVEMENT_PRIORITY_LABELS,
     TYPE_LABELS,
@@ -556,7 +556,7 @@ def build_import_proposals(
     y `evaluate_portfolio`), así que el portafolio importado no es una copia
     degradada del texto: es el mismo cálculo sobre la misma composición.
 
-    Ver `mt5_manager/portfolio_import.py` para el formato y sus límites.
+    Ver `mt5_manager/portfolio/portfolio_import.py` para el formato y sus límites.
     """
     scope = normalize_portfolio_scope(scope)
     ctx, unmeasured = _import_context(source, scope, header, members)

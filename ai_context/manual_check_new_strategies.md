@@ -27,12 +27,12 @@ que no está en **ningún** antecesor: `improvement_origin.source_id`,
 
 | Dónde | Qué |
 | --- | --- |
-| `mt5_manager/portfolio_manual_check.py` | Decide qué se comprueba, arma la petición, lee del disco lo que quedó y hace los dos ZIP. |
+| `mt5_manager/portfolio/portfolio_manual_check.py` | Decide qué se comprueba, arma la petición, lee del disco lo que quedó y hace los dos ZIP. |
 | `mt5_manager/manager/manager_portfolio_routes.py` | `manual-check-preview`, `-start`, `-state`, `-download`, `-sets-download`. El `-start` es un reenvío. |
 | `manager_node_runtime/manual_check.py` de **cada agente** | Copia los `.set`, escribe su `StartLots` y su `UseEveryTick`, y arma la orden de `run_tests.py`. |
 | `mt5_manager/manual_check/manual_check_watch.py` | Mira el nodo cada vuelta del vigilante y anuncia el final una sola vez. |
 | `mt5_manager/manual_check/manual_check_analysis.py` | Lee los dos informes de cada estrategia y devuelve las cinco cifras y las dos curvas. |
-| `mt5_manager/portfolio_coordinator_manual_check.py` | Los métodos del coordinador, fuera de `portfolio_service.py`, que estaba en el techo de 600. |
+| `mt5_manager/portfolio/portfolio_coordinator_manual_check.py` | Los métodos del coordinador, fuera de `portfolio_service.py`, que estaba en el techo de 600. |
 | `static/portfolio_manual_check.js` | El modal: fechas, lote, multiterminal, los dos tipos de datos y los dos ZIP. |
 | `static/manual_check_analysis.{html,js,css}` | La pestaña del análisis: OHLC M1 contra tick a tick, estrategia por estrategia. |
 

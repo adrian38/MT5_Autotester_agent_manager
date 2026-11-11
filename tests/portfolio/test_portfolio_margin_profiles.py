@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
+from tools.package_layout import module_source
 from portfolio_manager.ubs_portfolio import (
     ACCOUNT_LEVERAGE_CHOICES,
     AXI_FALLBACK_GROUP_LEVERAGE,
@@ -236,7 +237,7 @@ class SavePayloadTests(unittest.TestCase):
         "Object of type MarginModel is not JSON serializable", que en pantalla
         solo se veia como "failed to fetch".
         """
-        from mt5_manager.portfolio_service import RUNTIME_ONLY_INPUT_KEYS, settings_inputs
+        from mt5_manager.portfolio.portfolio_service import RUNTIME_ONLY_INPUT_KEYS, settings_inputs
 
         model = margin_model_for_profile("axi", account_leverage=1000.0)
         inputs = {"capital": 10000, "margin_profile": "axi", "account_leverage": 1000.0,
@@ -254,9 +255,7 @@ class SavePayloadTests(unittest.TestCase):
     def test_every_proposal_builder_filters_the_runtime_keys(self) -> None:
         # Guardia contra volver a colar un dict(inputs) crudo en una propuesta.
         for module in ("portfolio_service", "portfolio_monthly_service"):
-            source = (
-                Path(__file__).parents[2] / "mt5_manager" / f"{module}.py"
-            ).read_text(encoding="utf-8")
+            source = module_source(module)
             self.assertNotIn("proposal_inputs = dict(inputs)", source, module)
 
 

@@ -16,8 +16,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager import portfolio_history_detail
-from mt5_manager.portfolio_history_detail import HISTORY_STAGES, history_detail
+from mt5_manager.portfolio import portfolio_history_detail
+from mt5_manager.portfolio.portfolio_history_detail import HISTORY_STAGES, history_detail
 
 
 def _trade(day: str, profit: float) -> SimpleNamespace:

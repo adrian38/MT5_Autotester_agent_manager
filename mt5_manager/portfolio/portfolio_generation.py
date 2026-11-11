@@ -23,7 +23,7 @@ from portfolio_manager.ubs_portfolio import (
     summarize_robust_rows,
 )
 
-from .common import safe_float
+from ..common import safe_float
 from .portfolio_generation_search import _locked_full_proposals, _reserve_pct
 from .portfolio_identity import (
     LOCKED_VARIANTS,

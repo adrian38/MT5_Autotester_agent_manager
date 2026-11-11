@@ -5,7 +5,7 @@ igual, porque el ``NameError`` sólo salta al ejecutar esa rama. En una
 extracción de `portfolio_service` faltaban tres nombres y el suite entero sólo
 delataba uno.
 
-    python -m tools.undefined_names mt5_manager/portfolio_saved.py
+    python -m tools.undefined_names mt5_manager/portfolio/portfolio_saved.py
 
 Sin argumentos recorre todo el código del proyecto. Devuelve 1 si encuentra
 algo, así que sirve dentro de un script de verificación.

@@ -4,7 +4,7 @@
 
 La generación mensual conserva su ruta UBS actual por defecto. El ajuste
 `experimental_monthly_search` activa una búsqueda alternativa y opt-in definida
-en `mt5_manager/portfolio_monthly_experimental.py`.
+en `mt5_manager/portfolio/portfolio_monthly_experimental.py`.
 
 ## Objetivo
 
@@ -48,7 +48,7 @@ considerablemente el tiempo de cálculo.
 ## Estructura del refactor (2026-09-21)
 
 La validación leave-one-year-out vive en
-`mt5_manager/portfolio_monthly_validation.py`. La preparación de kwargs, la
+`mt5_manager/portfolio/portfolio_monthly_validation.py`. La preparación de kwargs, la
 evaluación de un fold, su captura de error y el resumen son pasos separados de
 menos de 60 líneas; el torneo les pasa `_optimize_exact_pool` explícitamente.
 La comparación diferencial contra `HEAD`, con folds exitosos y fallidos, dio

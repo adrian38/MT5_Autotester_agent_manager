@@ -41,7 +41,7 @@ from .manager_config import (
 )
 from .manager_handler import ManagerHandler
 from .manager_restart import ManagerRestartController
-from ..portfolio_service import PortfolioCoordinator
+from ..portfolio.portfolio_service import PortfolioCoordinator
 from ..prop.prop_experiment_service import PropExperimentCoordinator
 
 

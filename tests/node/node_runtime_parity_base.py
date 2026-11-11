@@ -11,18 +11,20 @@ from tools.agent_projects import IC_PROJECT_CANDIDATES  # noqa: E402
 # Reexportado: las pruebas de paridad localizaban los modulos del manager con
 # `MANAGER_ROOT / "mt5_manager" / f"{name}.py"`, que dejo de resolver al
 # repartir el paquete por dominios. Entran por la misma puerta que ya usaban.
-from tools.package_layout import domain_sources, module_source  # noqa: E402,F401
+from tools.package_layout import (  # noqa: E402,F401
+    domain_sources, module_path, module_source,
+)
 
 MANAGER_ROOT = Path(__file__).parents[2]
 MANAGER_RULES = tuple(
-    MANAGER_ROOT / "mt5_manager" / name
+    module_path(name)
     for name in (
-        "portfolio_service.py",
-        "portfolio_proposals.py",
-        "portfolio_source_connection.py",
-        "portfolio_source_saved.py",
-        "portfolio_source_quarantine.py",
-        "portfolio_coordinator_saved.py",
+        "portfolio_service",
+        "portfolio_proposals",
+        "portfolio_source_connection",
+        "portfolio_source_saved",
+        "portfolio_source_quarantine",
+        "portfolio_coordinator_saved",
     )
 )
 def manager_node_source() -> str:

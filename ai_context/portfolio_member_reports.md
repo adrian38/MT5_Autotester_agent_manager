@@ -22,7 +22,7 @@ cambios en `manager_node_runtime/`.
 Petición del usuario: dos botones en el detalle, «Detalle / estrategia» y
 «Detalle / portafolio», que abran en otra pestaña lo mismo que enseña
 portafolios manuales, con el **histórico OHLC que el portafolio ya tiene**, sin
-la comprobación manual. Vive en `mt5_manager/portfolio_history_detail.py` y en
+la comprobación manual. Vive en `mt5_manager/portfolio/portfolio_history_detail.py` y en
 `static/portfolio_history.{html,js,css}`; la ruta es `history-detail`.
 
 **La fuente son dos de los cinco informes del miembro**: `is_report_path`
@@ -69,7 +69,7 @@ Petición del usuario: lo que se añadió en «Detalle / portafolio» de un
 portafolio UBS tenía que estar también en el de los manuales. Son el mismo
 dibujo con los mismos datos, así que no hay dos copias:
 
-- **El cálculo** vive en `mt5_manager/portfolio_curve_math.py`, abajo del todo
+- **El cálculo** vive en `mt5_manager/portfolio/portfolio_curve_math.py`, abajo del todo
   de la pila y **sin importar nada del paquete**. Lo necesitan
   `portfolio_history_detail` (UBS guardado) y `portfolio_manual_reports`
   (manual), que están en escalones distintos: con la cuenta en uno de los dos,

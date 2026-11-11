@@ -16,7 +16,7 @@ from portfolio_manager.ubs_portfolio import (
     portfolio_symbol_key,
 )
 
-from .common import safe_int
+from ..common import safe_int
 from .portfolio_identity import (
     _allocation_source_rows,
     IMPROVEMENT_PRIORITY_LABELS,

@@ -16,7 +16,7 @@ from portfolio_manager.ubs_portfolio import (
     portfolio_symbol_key,
 )
 
-from .common import safe_float, safe_int
+from ..common import safe_float, safe_int
 from .portfolio_identity import TYPE_LABELS
 from .portfolio_persistence import (
     _insert_allocation,

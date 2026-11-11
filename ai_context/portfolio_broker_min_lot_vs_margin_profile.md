@@ -25,7 +25,7 @@ cartera guardada ni con elevarlo al mínimo después del cálculo.
 ## Qué proceso ejecuta el cambio
 
 La generación solicitada ocurre en el proceso web del **manager**, en
-`mt5_manager/portfolio_service.py`. El nodo ICTrading recibe las asignaciones ya
+`mt5_manager/portfolio/portfolio_service.py`. El nodo ICTrading recibe las asignaciones ya
 calculadas: `manager_node_runtime/portfolio_save.py::_deserialize_proposals`
 conserva `units`, `lot` y `lot_size_step`; no reoptimiza. Este defecto no requiere
 portar el constructor a ese fork. La construcción de la interfaz local del agente

@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio.portfolio_service import (
     STANDARD_ANTIFILLER_REFILL_PASSES,
     PortfolioCoordinator,
     PortfolioSource,
@@ -32,7 +32,7 @@ from mt5_manager.portfolio_service import (
     save_portfolio_payload,
     scope_stage_count,
 )
-from mt5_manager.portfolio_monthly_service import (
+from mt5_manager.portfolio.portfolio_monthly_service import (
     _monthly_proposals,
     generate_monthly_proposals,
     monthly_eligibility_counts,
@@ -101,9 +101,9 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             "key": "balanced", "label": "Moderado", "reserve_pct": 15,
             "inputs": settings, "result": result,
         }
-        with patch("mt5_manager.portfolio_generation.build_margin_model", return_value=None), \
-                patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])) as loader, \
-                patch("mt5_manager.portfolio_generation._locked_full_proposals", return_value=[proposal]):
+        with patch("mt5_manager.portfolio.portfolio_generation.build_margin_model", return_value=None), \
+                patch("mt5_manager.portfolio.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])) as loader, \
+                patch("mt5_manager.portfolio.portfolio_generation._locked_full_proposals", return_value=[proposal]):
             generate_proposals(Source(), settings)
 
         loaded_rows = loader.call_args.args[0]
@@ -150,10 +150,10 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             def used_set_paths(self, *_args, **_kwargs): return []
             def saved_curves(self, **_kwargs): return []
 
-        with patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_generation.summarize_robust_rows",
+        with patch("mt5_manager.portfolio.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio.portfolio_generation.summarize_robust_rows",
                    return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_generation._locked_full_proposals", side_effect=locked):
+             patch("mt5_manager.portfolio.portfolio_generation._locked_full_proposals", side_effect=locked):
             _availability, proposals = generate_proposals(Source(), settings)
 
         self.assertEqual(len(attempts), 2)
@@ -188,10 +188,10 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             def used_set_paths(self, *_args, **_kwargs): return []
             def saved_curves(self, **_kwargs): return []
 
-        with patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_generation.summarize_robust_rows",
+        with patch("mt5_manager.portfolio.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio.portfolio_generation.summarize_robust_rows",
                    return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_generation._locked_full_proposals", side_effect=locked):
+             patch("mt5_manager.portfolio.portfolio_generation._locked_full_proposals", side_effect=locked):
             _availability, proposals = generate_proposals(Source(), settings)
 
         self.assertEqual(len(attempts), 2)
@@ -221,10 +221,10 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             def used_set_paths(self, *_args, **_kwargs): return []
             def saved_curves(self, **_kwargs): return []
 
-        with patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_generation.summarize_robust_rows",
+        with patch("mt5_manager.portfolio.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio.portfolio_generation.summarize_robust_rows",
                    return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_generation._locked_full_proposals", side_effect=locked):
+             patch("mt5_manager.portfolio.portfolio_generation._locked_full_proposals", side_effect=locked):
             _availability, proposals = generate_proposals(Source(), settings)
 
         self.assertEqual(len(proposals), 1)
@@ -252,10 +252,10 @@ class ExecutableValleyFloorTests(unittest.TestCase):
             def used_set_paths(self, *_args, **_kwargs): return []
             def saved_curves(self, **_kwargs): return []
 
-        with patch("mt5_manager.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_generation.summarize_robust_rows",
+        with patch("mt5_manager.portfolio.portfolio_generation.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio.portfolio_generation.summarize_robust_rows",
                    return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_generation._locked_full_proposals", side_effect=locked):
+             patch("mt5_manager.portfolio.portfolio_generation._locked_full_proposals", side_effect=locked):
             _availability, proposals = generate_proposals(Source(), settings)
 
         self.assertEqual(calls, [10.0])
@@ -294,7 +294,7 @@ class IncompleteBundleTests(unittest.TestCase):
                 raise value
             return value
 
-        with patch("mt5_manager.portfolio_generation_search.optimize_portfolio", side_effect=optimize):
+        with patch("mt5_manager.portfolio.portfolio_generation_search.optimize_portfolio", side_effect=optimize):
             proposals = _locked_full_proposals([self.strategy()], settings, {})
 
         self.assertEqual([item["key"] for item in proposals], ["aggressive", "balanced"])
@@ -330,7 +330,7 @@ class IncompleteBundleTests(unittest.TestCase):
             coordinator.proposals[key] = [{"key": "balanced", "label": "Equilibrada",
                                            "reserve_pct": 15, "inputs": {}, "result": None}]
 
-            with patch("mt5_manager.portfolio_coordinator_saved.serialize_portfolio_proposals", return_value=[]):
+            with patch("mt5_manager.portfolio.portfolio_coordinator_saved.serialize_portfolio_proposals", return_value=[]):
                 payload = coordinator.prepare_save("ic", "monthly", "balanced")
 
             self.assertEqual(payload["selected_key"], "balanced")
@@ -365,12 +365,12 @@ class MonthlyMarginModelTests(unittest.TestCase):
         inputs = normalize_settings("monthly", {
             "target_month": 1, "allowed_asset_groups": ["Forex"], "margin_profile": "axi",
         }, "AXI")
-        with patch("mt5_manager.portfolio_monthly_service.build_margin_model", return_value=model), \
-             patch("mt5_manager.portfolio_monthly_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_monthly_service.slice_strategy_sets_to_month", return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_monthly_service.summarize_robust_rows",
+        with patch("mt5_manager.portfolio.portfolio_monthly_service.build_margin_model", return_value=model), \
+             patch("mt5_manager.portfolio.portfolio_monthly_service.load_robust_sets_from_rows", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio.portfolio_monthly_service.slice_strategy_sets_to_month", return_value=([strategy], [])), \
+             patch("mt5_manager.portfolio.portfolio_monthly_service.summarize_robust_rows",
                    return_value=PortfolioAvailability(1, 0, 1, 1, {"EURUSD": 1})), \
-             patch("mt5_manager.portfolio_monthly_service._monthly_proposals", side_effect=proposals):
+             patch("mt5_manager.portfolio.portfolio_monthly_service._monthly_proposals", side_effect=proposals):
             generate_monthly_proposals(Source(), inputs)
 
         self.assertIs(seen["margin_model"], model)

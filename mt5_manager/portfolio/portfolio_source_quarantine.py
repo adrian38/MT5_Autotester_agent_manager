@@ -7,7 +7,7 @@ from typing import Any
 from portfolio_manager.ubs_portfolio import portfolio_display_symbol, portfolio_symbol_key
 
 from . import candidate_verdict
-from .common import safe_int
+from ..common import safe_int
 from .portfolio_identity import _resolve_source_path
 from .portfolio_schema import _table_exists
 from .portfolio_source_inventory import _pool_symbol
@@ -258,7 +258,7 @@ class PortfolioSourceQuarantineMixin:
         instead, so a Grid exclusion is written where the Grid packages live.
 
         ``reason_code`` decide además si la exclusión escribe un veredicto de
-        etapa en la memoria del candidato (`mt5_manager/candidate_verdict.py`).
+        etapa en la memoria del candidato (`mt5_manager/portfolio/candidate_verdict.py`).
         El veredicto va siempre a la memoria que **posee** al candidato, aunque
         la cuarentena se escriba en otra: en Grid la fila vive en la base del
         manager, pero los estados, el score y los pesos son del agente.

@@ -12,9 +12,9 @@ from unittest.mock import patch
 
 from mt5_manager.manager import manager_portfolio_routes
 from mt5_manager.manager.manager_portfolio_routes import parse_timeframe_document
-from mt5_manager.portfolio_saved import _saved_portfolio_row
-from mt5_manager.portfolio_manual_reports import manual_history_summary, report_for_set
-from mt5_manager.portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin
+from mt5_manager.portfolio.portfolio_saved import _saved_portfolio_row
+from mt5_manager.portfolio.portfolio_manual_reports import manual_history_summary, report_for_set
+from mt5_manager.portfolio.portfolio_coordinator_saved import PortfolioCoordinatorSavedMixin
 
 
 ROOT = Path(__file__).parents[2]
@@ -219,7 +219,7 @@ class ManualPortfolioScreenTests(unittest.TestCase):
                     SimpleNamespace(close_time=datetime(2026, 1, 2), profit_loss=-25.0),
                 ],
             )
-            with patch("mt5_manager.portfolio_manual_reports.cached_report", return_value=report):
+            with patch("mt5_manager.portfolio.portfolio_manual_reports.cached_report", return_value=report):
                 history = manual_history_summary(project, [{"set_id": "one", "set_path": r"runtime\manual_portfolios\uuid\sets\one.set"}])
         self.assertEqual(history["available"], 1)
         self.assertEqual(history["net_profit"], 75.0)

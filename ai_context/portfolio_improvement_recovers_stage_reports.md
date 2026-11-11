@@ -60,7 +60,7 @@ Los dos opcionales no se recuperan a propósito. Seis de los diez miembros de
 cambiaría su riesgo flotante y su aporte 6M respecto a los números con los que
 se evaluó y guardó la cartera. Reconstruir una base no es recalcularla.
 
-La convención de nombres vive en un único sitio, `mt5_manager/stage_reports.py`,
+La convención de nombres vive en un único sitio, `mt5_manager/portfolio/stage_reports.py`,
 que usan tanto `import_candidate_rows` como `member_rows`. Antes estaba escrita
 sólo dentro del bucle de la importación.
 

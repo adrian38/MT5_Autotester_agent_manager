@@ -3,14 +3,14 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 
-from mt5_manager import portfolio_improvement_attempt as base_attempt
-from mt5_manager import portfolio_improvement_chain_attempt as chain_attempt
-from mt5_manager import portfolio_improvement_service as improvement
-from mt5_manager.portfolio_improvement_common import (
+from mt5_manager.portfolio import portfolio_improvement_attempt as base_attempt
+from mt5_manager.portfolio import portfolio_improvement_chain_attempt as chain_attempt
+from mt5_manager.portfolio import portfolio_improvement_service as improvement
+from mt5_manager.portfolio.portfolio_improvement_common import (
     ImprovementOptions,
     validate_and_attach_improvement_audit,
 )
-from mt5_manager.portfolio_service import normalize_settings
+from mt5_manager.portfolio.portfolio_service import normalize_settings
 
 
 class ImprovementInheritedSettingsTests(unittest.TestCase):
@@ -161,7 +161,7 @@ class SameSymbolCorrelationTests(unittest.TestCase):
             "_improvement_enforce_general_correlation": False,
         }
         with patch(
-            "mt5_manager.portfolio_improvement_common.strategy_correlation_pair",
+            "mt5_manager.portfolio.portfolio_improvement_common.strategy_correlation_pair",
             return_value=pair,
         ):
             return validate_and_attach_improvement_audit(
@@ -219,7 +219,7 @@ class ImprovementEngineV3Tests(unittest.TestCase):
                         engine.improvement_engine_v3({"improvement_engine_v3": value})
 
     def test_the_resolved_engine_reaches_the_search_plan(self) -> None:
-        from mt5_manager.portfolio_generation_search import _optimizer_kwargs
+        from mt5_manager.portfolio.portfolio_generation_search import _optimizer_kwargs
         from portfolio_manager.ubs_portfolio import PortfolioType
 
         saved = normalize_settings("full_history", {"portfolio_type": "balanced"})

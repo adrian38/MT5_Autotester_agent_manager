@@ -18,9 +18,9 @@ from typing import Any
 from .. import dev_branch
 from . import manager_http
 from ..common import safe_int
-from ..portfolio_scope import PORTFOLIO_SCOPES, normalize_portfolio_scope
+from ..portfolio.portfolio_scope import PORTFOLIO_SCOPES, normalize_portfolio_scope
 from . import manager_config
-from ..portfolio_service import PortfolioCoordinator
+from ..portfolio.portfolio_service import PortfolioCoordinator
 # Las carteras manuales viven en su propio modulo desde que este paso de 600
 # lineas. Se reexportan porque `handle_post` las despacha y las pruebas las
 # llaman por aqui.

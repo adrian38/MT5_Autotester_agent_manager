@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from mt5_manager.portfolio_service import PortfolioSource
+from mt5_manager.portfolio.portfolio_service import PortfolioSource
 from tests.integration import test_integration as integration_helpers
 
 

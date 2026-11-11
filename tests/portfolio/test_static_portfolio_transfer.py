@@ -163,7 +163,7 @@ class ExclusionReasonScreenTests(unittest.TestCase):
 
     def test_every_reason_code_matches_the_python_side(self) -> None:
         script = self.static("exclusion_reason.js")
-        from mt5_manager import candidate_verdict
+        from mt5_manager.portfolio import candidate_verdict
 
         for code in candidate_verdict.REASON_CODES:
             self.assertIn(f"code: '{code}'", script)

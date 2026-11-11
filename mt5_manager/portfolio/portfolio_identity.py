@@ -16,7 +16,7 @@ from typing import Any
 
 from portfolio_manager.ubs_portfolio import PortfolioType
 
-from .common import safe_int
+from ..common import safe_int
 
 
 PORTFOLIO_TYPES = {

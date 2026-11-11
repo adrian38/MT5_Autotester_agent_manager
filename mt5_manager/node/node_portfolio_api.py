@@ -14,12 +14,12 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .. import candidate_verdict
+from ..portfolio import candidate_verdict
 from ..common import safe_int, utc_now
 from .node_settings import memory_path, read_settings
 from .node_snapshots import _table_exists
-from ..portfolio_scope import normalize_portfolio_scope
-from ..portfolio_service import (
+from ..portfolio.portfolio_scope import normalize_portfolio_scope
+from ..portfolio.portfolio_service import (
     PortfolioSource,
     normalize_portfolio_alias,
     save_portfolio_payload,

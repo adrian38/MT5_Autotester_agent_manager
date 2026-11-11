@@ -28,7 +28,7 @@ Como siempre con el nodo, la copia que se ejecuta es la del agente.
 | Copia | Fichero |
 | --- | --- |
 | Agente (la que se ejecuta) | `manager_node_runtime/manual_portfolio.py` + `node_jobs_api.py::delete_portfolio` |
-| Manager | `mt5_manager/portfolio_manual_files.py` + `PortfolioSource.delete_portfolio` |
+| Manager | `mt5_manager/portfolio/portfolio_manual_files.py` + `PortfolioSource.delete_portfolio` |
 
 El lado del manager **no es decorativo**, aunque los nodos de broker se
 alcancen por HTTP: `PortfolioCoordinator._delete_on_node` escribe la memoria

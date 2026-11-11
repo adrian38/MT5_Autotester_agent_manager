@@ -7,13 +7,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.portfolio_grid_service import (
+from mt5_manager.portfolio.portfolio_grid_service import (
     _adjusted_grid_valley_pcts,
     generate_grid_proposals,
     normalize_grid_settings,
 )
-from mt5_manager.portfolio_scope import normalize_portfolio_scope
-from mt5_manager.portfolio_service import _optimizer_kwargs, normalize_settings
+from mt5_manager.portfolio.portfolio_scope import normalize_portfolio_scope
+from mt5_manager.portfolio.portfolio_service import _optimizer_kwargs, normalize_settings
 from portfolio_manager.grid_portfolio import _grid_evaluation, _prune_to_grid_valley
 from portfolio_manager.grid_risk import (
     GridExposureModel,
@@ -358,16 +358,16 @@ class GridOrchestrationTests(unittest.TestCase):
     def test_grid_does_not_read_saved_curves_it_cannot_use(self) -> None:
         strategy = self.eligible_strategy()
         result = SimpleNamespace(warnings=[])
-        with patch("mt5_manager.portfolio_grid_service.filter_rows_grid_on",
+        with patch("mt5_manager.portfolio.portfolio_grid_service.filter_rows_grid_on",
                    side_effect=lambda rows: (rows, [])), \
-             patch("mt5_manager.portfolio_grid_service.load_robust_sets_from_rows",
+             patch("mt5_manager.portfolio.portfolio_grid_service.load_robust_sets_from_rows",
                    return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_grid_service.summarize_robust_rows",
+             patch("mt5_manager.portfolio.portfolio_grid_service.summarize_robust_rows",
                    return_value=SimpleNamespace(__dataclass_fields__={})), \
-             patch("mt5_manager.portfolio_grid_service.asdict", return_value={}), \
-             patch("mt5_manager.portfolio_grid_service.prune_overlapping_sets",
+             patch("mt5_manager.portfolio.portfolio_grid_service.asdict", return_value={}), \
+             patch("mt5_manager.portfolio.portfolio_grid_service.prune_overlapping_sets",
                    side_effect=lambda sets, **_kwargs: (sets, [])), \
-             patch("mt5_manager.portfolio_grid_service.optimize_grid_portfolio", return_value=result):
+             patch("mt5_manager.portfolio.portfolio_grid_service.optimize_grid_portfolio", return_value=result):
             _availability, proposals = generate_grid_proposals(self.source(), self.settings())
 
         self.assertEqual([item["key"] for item in proposals],
@@ -382,13 +382,13 @@ class GridOrchestrationTests(unittest.TestCase):
             net_profit_2020_2026_001=100.0, has_recent_performance=False,
             recent_net_profit_001=0.0, recent_equity_dd_001=0.0,
         )
-        with patch("mt5_manager.portfolio_grid_service.filter_rows_grid_on",
+        with patch("mt5_manager.portfolio.portfolio_grid_service.filter_rows_grid_on",
                    side_effect=lambda rows: (rows, [])), \
-             patch("mt5_manager.portfolio_grid_service.load_robust_sets_from_rows",
+             patch("mt5_manager.portfolio.portfolio_grid_service.load_robust_sets_from_rows",
                    return_value=([blocked], [])), \
-             patch("mt5_manager.portfolio_grid_service.summarize_robust_rows",
+             patch("mt5_manager.portfolio.portfolio_grid_service.summarize_robust_rows",
                    return_value=SimpleNamespace(__dataclass_fields__={})), \
-             patch("mt5_manager.portfolio_grid_service.asdict", return_value={}), \
+             patch("mt5_manager.portfolio.portfolio_grid_service.asdict", return_value={}), \
              self.assertRaises(ValueError) as error:
             generate_grid_proposals(self.source(), self.settings())
 
@@ -399,14 +399,14 @@ class GridOrchestrationTests(unittest.TestCase):
 
     def test_the_overlap_pruning_error_says_which_threshold_emptied_the_pool(self) -> None:
         strategy = self.eligible_strategy()
-        with patch("mt5_manager.portfolio_grid_service.filter_rows_grid_on",
+        with patch("mt5_manager.portfolio.portfolio_grid_service.filter_rows_grid_on",
                    side_effect=lambda rows: (rows, [])), \
-             patch("mt5_manager.portfolio_grid_service.load_robust_sets_from_rows",
+             patch("mt5_manager.portfolio.portfolio_grid_service.load_robust_sets_from_rows",
                    return_value=([strategy], [])), \
-             patch("mt5_manager.portfolio_grid_service.summarize_robust_rows",
+             patch("mt5_manager.portfolio.portfolio_grid_service.summarize_robust_rows",
                    return_value=SimpleNamespace(__dataclass_fields__={})), \
-             patch("mt5_manager.portfolio_grid_service.asdict", return_value={}), \
-             patch("mt5_manager.portfolio_grid_service.prune_overlapping_sets",
+             patch("mt5_manager.portfolio.portfolio_grid_service.asdict", return_value={}), \
+             patch("mt5_manager.portfolio.portfolio_grid_service.prune_overlapping_sets",
                    return_value=([], ["descartada"])), \
              self.assertRaises(ValueError) as error:
             generate_grid_proposals(self.source(), self.settings())

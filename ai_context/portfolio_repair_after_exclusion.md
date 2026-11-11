@@ -51,7 +51,7 @@ fila nueva. La etiqueta visible es «Arreglo del portafolio #N», no «Mejora».
 
 ## Dónde se ejecuta
 
-El cálculo vive en `mt5_manager/portfolio_repair_service.py` y lo ejecuta el
+El cálculo vive en `mt5_manager/portfolio/portfolio_repair_service.py` y lo ejecuta el
 manager. El nodo sólo recibe el mismo `operation=generate` que ya sabe persistir
 para una propuesta individual. No hay endpoint ni criterio nuevo en
 `manager_node_runtime/`, por lo que este cambio no requiere port al agente.

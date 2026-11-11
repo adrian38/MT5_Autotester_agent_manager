@@ -13,7 +13,7 @@ from portfolio_manager.ubs_portfolio import (
     DEFAULT_ACCOUNT_LEVERAGE,
 )
 
-from .common import safe_float, safe_int
+from ..common import safe_float, safe_int
 from .portfolio_identity import PORTFOLIO_TYPES
 from .portfolio_scope import normalize_portfolio_scope
 

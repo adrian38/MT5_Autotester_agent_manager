@@ -515,7 +515,7 @@ class NodeRuntimeForkParityLiveTests(NodeRuntimeForkParityBase):
                     f"{project}: `_deserialize_proposals` sigue construyendo "
                     f"{dataclass_name} con el diccionario crudo del manager. "
                     "Portar `_supported_dataclass_values` de "
-                    "mt5_manager/portfolio_service.py a "
+                    "mt5_manager/portfolio/portfolio_service.py a "
                     "manager_node_runtime/portfolio_save.py: sin él, cada guardado "
                     "deja un TypeError y una traza en la consola del agente antes "
                     "de que el manager reintente con el payload heredado.",

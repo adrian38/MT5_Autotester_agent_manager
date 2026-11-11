@@ -20,8 +20,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager import portfolio_import
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio import portfolio_import
+from mt5_manager.portfolio.portfolio_service import (
     PortfolioCoordinator,
     PortfolioSource,
     _imported_target_month,
@@ -73,7 +73,7 @@ class ImportIdentityRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
             ):
                 proposals, selected_key, report = build_import_proposals(
                     source, "full_history", header, members
@@ -118,7 +118,7 @@ class ImportIdentityRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
             ):
                 proposals, selected_key, _report = build_import_proposals(
                     source, "full_history", header, members
@@ -152,7 +152,7 @@ class ImportIdentityRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
             ):
                 proposals, selected_key, _report = build_import_proposals(
                     source, "full_history", header, members
@@ -188,7 +188,7 @@ class ImportIdentityRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows", return_value=(strategies, [])
             ):
                 proposals, selected_key, _report = build_import_proposals(
                     source, "full_history", header, members
@@ -237,7 +237,7 @@ class ImportIdentityRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, _selected_key, _report = build_import_proposals(
@@ -263,7 +263,7 @@ class ImportIdentityRoundTripTests(ImportRoundTripTestCase):
             header, members = portfolio_import.parse_summary(SUMMARY)
 
             with patch.object(PortfolioSource, "import_candidate_rows", return_value=self._candidates(project)), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, selected_key, _report = build_import_proposals(
@@ -291,7 +291,7 @@ class ImportIdentityRoundTripTests(ImportRoundTripTestCase):
             header, members = portfolio_import.parse_summary(SUMMARY)
 
             with patch.object(PortfolioSource, "import_candidate_rows", return_value=only_alpha), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, _selected, report = build_import_proposals(
@@ -345,7 +345,7 @@ class ImportIdentityRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=candidates
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(only_alpha, ["1 candidato omitido: reporte ilegible"]),
             ):
                 proposals, _selected, report = build_import_proposals(
@@ -379,7 +379,7 @@ class ImportIdentityRoundTripTests(ImportRoundTripTestCase):
             with patch.object(
                 PortfolioSource, "import_candidate_rows", return_value=candidates
             ), patch(
-                "mt5_manager.portfolio_import_build.load_robust_sets_from_rows",
+                "mt5_manager.portfolio.portfolio_import_build.load_robust_sets_from_rows",
                 return_value=(strategies, []),
             ):
                 proposals, _selected, report = build_import_proposals(
@@ -426,7 +426,7 @@ class ImportPersistenceRoutingTests(unittest.TestCase):
                 return 201, response
 
             with patch.object(coordinator, "_post_to_node", side_effect=node_save) as post, patch(
-                "mt5_manager.portfolio_service.save_portfolio_payload"
+                "mt5_manager.portfolio.portfolio_service.save_portfolio_payload"
             ) as local_save:
                 portfolio_id = coordinator._save_imported_ubs_proposals(
                     "ic", "full_history", [], "balanced"

@@ -14,8 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_audit.live_audit_notifications import LiveAuditNotificationStore
-from mt5_manager.portfolio_job_notices import job_notice, notice_link
-from mt5_manager.portfolio_service import PortfolioCoordinator
+from mt5_manager.portfolio.portfolio_job_notices import job_notice, notice_link
+from mt5_manager.portfolio.portfolio_service import PortfolioCoordinator
 
 NODES = [{"id": "test-node", "name": "Test Node", "portfolio_broker": "ICTRADING"}]
 

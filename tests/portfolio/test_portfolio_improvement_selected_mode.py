@@ -5,10 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-from mt5_manager import portfolio_improvement_attempt as full_attempt
-from mt5_manager import portfolio_improvement_service as full
-from mt5_manager import portfolio_improvement_support as full_support
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio import portfolio_improvement_attempt as full_attempt
+from mt5_manager.portfolio import portfolio_improvement_service as full
+from mt5_manager.portfolio import portfolio_improvement_support as full_support
+from mt5_manager.portfolio.portfolio_service import (
     PortfolioCoordinator, PortfolioSource, normalize_settings, save_portfolio_payload,
 )
 from portfolio_manager.ubs_portfolio import (
@@ -344,7 +344,7 @@ class SelectedModeTests(unittest.TestCase):
                     self.assertEqual(len(selected["members"]), 1)
                     self.assertEqual(selected["members"][0]["variant_key"], mode)
                     return sets[:1], sets, [], [], []
-                with patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=pool), patch.object(full_attempt, "build_margin_model", return_value=None), patch.object(full_attempt, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full_attempt, "evaluate_portfolio", return_value=NS(total_net_profit=100, valley_dd=10)) as baseline, patch("mt5_manager.portfolio_improvement_common.strategy_correlation_pair", return_value=NS(pearson_corr=0, downside_corr=0, dd_overlap=0)):
+                with patch.object(full_attempt, "_load_full_history_improvement_pool", side_effect=pool), patch.object(full_attempt, "build_margin_model", return_value=None), patch.object(full_attempt, "optimize_portfolio", return_value=output["result"]) as optimize, patch.object(full_attempt, "evaluate_portfolio", return_value=NS(total_net_profit=100, valley_dd=10)) as baseline, patch("mt5_manager.portfolio.portfolio_improvement_common.strategy_correlation_pair", return_value=NS(pearson_corr=0, downside_corr=0, dd_overlap=0)):
                     _, proposals = full.generate_full_history_improvement(source, 42, {**output["inputs"], "portfolio_type": "balanced", "improvement_portfolio_type": mode, "improvement_additions": 1})
                 self.assertEqual([p["key"] for p in proposals], [mode])
                 self.assertEqual(optimize.call_count, 2)

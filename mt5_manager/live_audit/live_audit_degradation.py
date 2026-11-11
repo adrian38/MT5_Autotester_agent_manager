@@ -25,8 +25,8 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
-from .. import portfolio_manual_reports
-from ..portfolio_report_cache import cached_report
+from ..portfolio import portfolio_manual_reports
+from ..portfolio.portfolio_report_cache import cached_report
 
 # `StartLots` de los sets generados por el pipeline UBS. El histórico de la
 # memoria está medido a este lote; el periodo auditado, al del portafolio.

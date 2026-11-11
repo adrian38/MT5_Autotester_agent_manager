@@ -22,10 +22,10 @@ Metals, con el 17 % del presupuesto de DD sin usar.
 
 ## Causa 1: el objetivo del torneo y la regla antirrelleno tiran en sentidos opuestos
 
-- `_result_rank` (`mt5_manager/portfolio_full_experimental.py:224`) ordena por
+- `_result_rank` (`mt5_manager/portfolio/portfolio_full_experimental.py:224`) ordena por
   beneficio y, **como segunda clave, por `active_strategies`**: añadir un miembro
   mejora el rango aunque su aporte reciente sea despreciable.
-- `_underrepresented_recent_allocation_ids` (`mt5_manager/portfolio_service.py:2119`)
+- `_underrepresented_recent_allocation_ids` (`mt5_manager/portfolio/portfolio_service.py:2119`)
   es una regla de **cuota**: `contribución < total * 5 %`. Cuanto más miembros
   tiene la composición, menor es la cuota de cada uno y más caen bajo el mínimo.
   Reproducido: con un núcleo al 60 % y satélites iguales, 4 miembros → 0 bajo el
@@ -40,7 +40,7 @@ Así que el torneo propone composiciones que la regla siguiente destripa.
 
 ## Causa 2: el refinamiento solo encoge, y desde el 2026-09-07 no repone
 
-`_optimize_without_recent_fillers` (`mt5_manager/portfolio_service.py:2146`)
+`_optimize_without_recent_fillers` (`mt5_manager/portfolio/portfolio_service.py:2146`)
 reoptimiza únicamente las activas supervivientes: «inactive candidates cannot
 enter». Es la corrección de `ubs_generation_repeated_tournaments.md`, correcta
 para acotar el número de torneos, pero deja el resultado monótonamente
@@ -74,7 +74,7 @@ None`. Consecuencias, todas visibles en la #20 guardada:
 
 ## Alcance
 
-El cálculo corre en el manager Docker (`/app/mt5_manager/portfolio_service.py`),
+El cálculo corre en el manager Docker (`/app/mt5_manager/portfolio/portfolio_service.py`),
 no en el fork `manager_node_runtime`: no hay problema de paridad de nodo aquí.
 `_optimize_without_recent_fillers` **es primitiva compartida con mensual**
 (`portfolio_monthly_service._monthly_proposals:118`), que sigue congelado; el
@@ -107,7 +107,7 @@ mensual congelado y la ruta estándar quedan igual (el grafo confirma sus cinco
 llamadores intactos).
 
 1. **La regla se aplica donde se puede reponer.**
-   `_refined_without_recent_fillers` (`mt5_manager/portfolio_full_experimental.py:302`)
+   `_refined_without_recent_fillers` (`mt5_manager/portfolio/portfolio_full_experimental.py:302`)
    quita los rellenos y reoptimiza sobre el **lote ganador menos los rellenos**,
    no sobre los supervivientes: entran candidatos que la pasada anterior no
    eligió y el DD liberado se vuelve a usar. La amplitud sobrevive a la regla en

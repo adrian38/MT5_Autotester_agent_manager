@@ -6,12 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio.portfolio_service import (
     PortfolioCoordinator,
     filter_rows_by_active_portfolios,
     normalize_settings,
 )
-from mt5_manager.portfolio_improvement_common import (
+from mt5_manager.portfolio.portfolio_improvement_common import (
     improvement_inherited_overrides,
     improvement_options,
 )

@@ -22,7 +22,7 @@ except ImportError:
 
 class AccountLeverageSettingTests(unittest.TestCase):
     def test_setting_accepts_only_the_offered_choices(self) -> None:
-        from mt5_manager.portfolio_service import normalize_settings
+        from mt5_manager.portfolio.portfolio_service import normalize_settings
 
         base = {"capital": 10000, "valley_dd_pct": 10}
         for choice in ACCOUNT_LEVERAGE_CHOICES:
@@ -131,7 +131,7 @@ class AccountLeverageSettingTests(unittest.TestCase):
         import sqlite3
         import contextlib
 
-        from mt5_manager.portfolio_service import build_margin_model, PortfolioSource
+        from mt5_manager.portfolio.portfolio_service import build_margin_model, PortfolioSource
 
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir)
@@ -178,7 +178,7 @@ class AccountLeverageSettingTests(unittest.TestCase):
         import contextlib
         import sqlite3
 
-        from mt5_manager.portfolio_service import PortfolioSource
+        from mt5_manager.portfolio.portfolio_service import PortfolioSource
 
         (project / "outputs").mkdir()
         (project / "assets").mkdir()
@@ -212,7 +212,7 @@ class AccountLeverageSettingTests(unittest.TestCase):
         from portfolio_manager.ubs_portfolio import (
             _execution_plan_allocations, execution_units_from_step,
         )
-        from mt5_manager.portfolio_service import (
+        from mt5_manager.portfolio.portfolio_service import (
             _optimizer_kwargs, build_margin_model, normalize_settings,
         )
 
@@ -263,7 +263,7 @@ class AccountLeverageSettingTests(unittest.TestCase):
         import contextlib
         import sqlite3
 
-        from mt5_manager.portfolio_service import PortfolioSource, build_margin_model
+        from mt5_manager.portfolio.portfolio_service import PortfolioSource, build_margin_model
         from portfolio_manager.ubs_portfolio import _execution_plan_allocations, execution_units_from_step
 
         # Deliberately different minima for the same symbol: selecting a margin

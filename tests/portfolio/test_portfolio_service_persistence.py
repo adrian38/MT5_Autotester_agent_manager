@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mt5_manager.portfolio_service import (
+from mt5_manager.portfolio.portfolio_service import (
     STANDARD_ANTIFILLER_REFILL_PASSES,
     PortfolioCoordinator,
     PortfolioSource,
@@ -32,7 +32,7 @@ from mt5_manager.portfolio_service import (
     save_portfolio_payload,
     scope_stage_count,
 )
-from mt5_manager.portfolio_monthly_service import (
+from mt5_manager.portfolio.portfolio_monthly_service import (
     _monthly_proposals,
     generate_monthly_proposals,
     monthly_eligibility_counts,

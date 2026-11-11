@@ -103,11 +103,9 @@ MT5_DOMAINS = (
 #: **Solo puede encoger**: cuando el paquete se reparta en subpaquetes, cada uno
 #: entra en el suyo y sale de aqui. Anadir un nombre es una regresion.
 MT5_SIN_DOMINIO = frozenset({
-    "candidate_verdict",
     "common",
     "dev_branch",
     "docker_entrypoint",
-    "stage_reports",
 })
 
 

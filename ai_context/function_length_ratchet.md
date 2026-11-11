@@ -64,7 +64,7 @@ guardadas.
 ## Continuacion de la pila de `portfolio_service`
 
 La traduccion de ajustes al optimizador y la busqueda A/M/C bloqueada viven en
-`mt5_manager/portfolio_generation_search.py` desde el 2026-09-21. Son doce
+`mt5_manager/portfolio/portfolio_generation_search.py` desde el 2026-09-21. Son doce
 definiciones movidas literalmente desde `portfolio_service.py`; este las
 reexporta para no cambiar a los llamantes. El modulo nuevo queda en 431 lineas y
 el servicio baja de 4.111 a 3.722.
@@ -302,7 +302,7 @@ alcance (`SKIP_PARTS`), el recorrido y las tres formas de romper un trinquete
 en `tools/source_files.py`, compartidos por las dos guardas.
 
 Al instalarlo: 25 ficheros por encima de 600 sobre 96, 16.798 líneas de exceso.
-Los cuatro grandes son `mt5_manager/portfolio_service.py` (6.045),
+Los cuatro grandes son `mt5_manager/portfolio/portfolio_service.py` (6.045),
 `tests/portfolio/test_portfolio_service.py` (2.496), `mt5_manager/node/node.py` (2.174) y
 `mt5_manager/live_audit/live_audit_engine.py` (2.010).
 

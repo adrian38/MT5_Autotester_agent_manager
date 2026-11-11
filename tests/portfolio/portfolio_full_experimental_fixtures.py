@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from types import SimpleNamespace
 
-from mt5_manager.portfolio_service import _underrepresented_recent_allocation_ids
+from mt5_manager.portfolio.portfolio_service import _underrepresented_recent_allocation_ids
 
 
 def allocation(

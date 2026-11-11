@@ -5,7 +5,7 @@
 Petición explícita del usuario: la mejora debe mantenerse en un fichero propio,
 como un motor distinto de la generación de portafolios.
 
-- `mt5_manager/portfolio_improvement_service.py` contiene el motor de mejora
+- `mt5_manager/portfolio/portfolio_improvement_service.py` contiene el motor de mejora
   UBS normal: reconstrucción del modo elegido, originales protegidas, búsqueda
   desde el mínimo de incorporaciones, selección, aceptación y snapshot del origen.
 - `PortfolioCoordinator._worker` en `portfolio_service.py` solo despacha
@@ -268,9 +268,9 @@ explícita del usuario: no contaminar lo que funciona.
 
 | Fichero | Qué mejora |
 | --- | --- |
-| `mt5_manager/portfolio_improvement_service.py` | Una **base** (profundidad 1). Intacto. |
-| `mt5_manager/portfolio_improvement_chain_service.py` | Una **mejora** (profundidad >= 2). |
-| `mt5_manager/portfolio_improvement_dispatch.py` | Elige uno u otro. Único punto de decisión. |
+| `mt5_manager/portfolio/portfolio_improvement_service.py` | Una **base** (profundidad 1). Intacto. |
+| `mt5_manager/portfolio/portfolio_improvement_chain_service.py` | Una **mejora** (profundidad >= 2). |
+| `mt5_manager/portfolio/portfolio_improvement_dispatch.py` | Elige uno u otro. Único punto de decisión. |
 
 El despachador mira la **genealogía persistida**, nunca el nombre:
 `improvement_source_portfolio_id` / `improvement_depth` en los inputs guardados,

@@ -10,14 +10,16 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-from mt5_manager import portfolio_improvement_attempt as base_attempt
-from mt5_manager import portfolio_improvement_chain_attempt as chain_attempt
-from mt5_manager import portfolio_improvement_chain_service as chain
-from mt5_manager import portfolio_improvement_chain_support as chain_support
-from mt5_manager import portfolio_improvement_dispatch as dispatch
-from mt5_manager import portfolio_improvement_service as base
-from mt5_manager import portfolio_improvement_support as base_support
-from mt5_manager.portfolio_service import normalize_settings
+from tools.package_layout import module_path
+
+from mt5_manager.portfolio import portfolio_improvement_attempt as base_attempt
+from mt5_manager.portfolio import portfolio_improvement_chain_attempt as chain_attempt
+from mt5_manager.portfolio import portfolio_improvement_chain_service as chain
+from mt5_manager.portfolio import portfolio_improvement_chain_support as chain_support
+from mt5_manager.portfolio import portfolio_improvement_dispatch as dispatch
+from mt5_manager.portfolio import portfolio_improvement_service as base
+from mt5_manager.portfolio import portfolio_improvement_support as base_support
+from mt5_manager.portfolio.portfolio_service import normalize_settings
 from portfolio_manager.ubs_portfolio import PortfolioResult, StrategyAllocation
 
 
@@ -427,9 +429,8 @@ class ChainForkParityTests(unittest.TestCase):
         }
 
     def test_shared_helpers_are_identical_in_both_engines(self):
-        root = Path(__file__).resolve().parents[2] / "mt5_manager"
-        left = self.bodies(root / "portfolio_improvement_support.py")
-        right = self.bodies(root / "portfolio_improvement_chain_support.py")
+        left = self.bodies(module_path("portfolio_improvement_support"))
+        right = self.bodies(module_path("portfolio_improvement_chain_support"))
         for name in self.SHARED:
             with self.subTest(name=name):
                 self.assertIn(name, left)
@@ -448,9 +449,8 @@ class ChainForkParityTests(unittest.TestCase):
         entrar en las dos; el día que una se separe de verdad, esta prueba se
         quita a conciencia y se documenta por qué.
         """
-        root = Path(__file__).resolve().parents[2] / "mt5_manager"
-        left = self.bodies(root / "portfolio_improvement_attempt.py")
-        right = self.bodies(root / "portfolio_improvement_chain_attempt.py")
+        left = self.bodies(module_path("portfolio_improvement_attempt"))
+        right = self.bodies(module_path("portfolio_improvement_chain_attempt"))
         for name in self.ATTEMPT_SHARED:
             with self.subTest(name=name):
                 self.assertEqual(

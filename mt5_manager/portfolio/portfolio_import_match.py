@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .common import safe_int
+from ..common import safe_int
 from .portfolio_identity import TYPE_LABELS, _resolve_source_path, _stored_path_name
 
 if TYPE_CHECKING:  # solo para el tipo: importarlo de verdad seria un ciclo

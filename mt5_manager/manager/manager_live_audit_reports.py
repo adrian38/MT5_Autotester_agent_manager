@@ -24,7 +24,7 @@ from ..live_audit import live_audit_executions
 from ..live_audit import live_audit_history, live_audit_lineage
 from . import manager_http
 from ..live_audit.live_audit_schedule import parse_timestamp
-from ..portfolio_service import PortfolioSource
+from ..portfolio.portfolio_service import PortfolioSource
 
 
 def strategy_history(handler, node_id: str, audit_id: str) -> dict[str, Any]:

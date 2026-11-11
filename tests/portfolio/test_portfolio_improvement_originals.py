@@ -13,9 +13,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from mt5_manager import portfolio_improvement_chain_support as chain_support
-from mt5_manager import portfolio_improvement_support as support
-from mt5_manager.portfolio_improvement_common import unreconstructed_originals
+from mt5_manager.portfolio import portfolio_improvement_chain_support as chain_support
+from mt5_manager.portfolio import portfolio_improvement_support as support
+from mt5_manager.portfolio.portfolio_improvement_common import unreconstructed_originals
 
 
 ORIGINALS = [
