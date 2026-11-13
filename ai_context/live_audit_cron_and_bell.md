@@ -616,7 +616,7 @@ se conservan, con sus listeners originales, dentro del desplegable «Menú».
 El agrupado se hace al final del montaje común de `live_audit_schedule.js`, no
 repitiendo HTML en cada pantalla. Así también recoge los botones que montaron
 antes `live_account_schedule.js` y, desde el 2026-11-13, `main_nav.js` —el
-bloque de seis destinos comunes que abre la fila, y que absorbió el botón del
+bloque de siete destinos comunes que abre la fila, y que absorbió el botón del
 resumen mensual—. El estado de «Actualizando…» permanece junto a Actualizar
 aunque no sea una acción.
 

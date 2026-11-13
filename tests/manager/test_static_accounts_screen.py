@@ -59,11 +59,12 @@ class RoutingTests(unittest.TestCase):
         )
 
     def test_the_two_front_pages_link_to_each_other(self) -> None:
-        # La vuelta a la portada la escribe «Portafolios activos», que es suya;
-        # la ida la pone el bloque común, que desde el 2026-11-13 la lleva a las
-        # dieciocho pantallas en vez de sólo a ésta.
-        self.assertIn('href="/">Cuentas en real</a>', static_source("dashboard.html"))
-        self.assertIn("url: '/live_portfolios.html'", static_source("main_nav.js"))
+        # Las dos direcciones las pone el bloque común: la vuelta a la portada
+        # era lo último que escribía «Portafolios activos», y salió de ahí con
+        # la corrección del 2026-11-13.
+        nav = static_source("main_nav.js")
+        self.assertIn("label: 'Cuentas en real', url: '/'", nav)
+        self.assertIn("url: '/live_portfolios.html'", nav)
         self.assertIn("/main_nav.js", PAGE.read_text(encoding="utf-8"))
 
     def test_the_accounts_menu_opens_both_experiments(self) -> None:

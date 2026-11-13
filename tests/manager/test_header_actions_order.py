@@ -16,7 +16,7 @@ Y el mismo defecto, un año después y en la otra punta de la fila (2026-11-13):
 los destinos comunes los escribía cada HTML a mano, así que el desplegable
 «Menú» ofrecía cuatro en la portada, cinco en Generación y ninguno en las
 catorce restantes, cada uno en su orden. Ahora los pone `main_nav.js`, los
-mismos seis y siempre primero; lo que cada pantalla escribe es lo suyo y va
+mismos siete y siempre primero; lo que cada pantalla escribe es lo suyo y va
 detrás.
 """
 from __future__ import annotations
@@ -47,19 +47,24 @@ BELL = "🔔"
 
 ACCOUNT_CRON = "Sondeo de cuentas"
 SUMMARY = "Resumen del mes"
+ACCOUNTS = "Cuentas en real"
 SEEDS = "Experimenta seeds"
 
 MAIN_NAV = "main_nav.js"
 NAV = (
-    SUMMARY, "Portafolios activos", "Generación",
+    SUMMARY, ACCOUNTS, "Portafolios activos", "Generación",
     "Experimenta 1M", "Experimenta Prop", SEEDS,
 )
-"""Los seis destinos comunes, en el orden que pidió el usuario (2026-11-13).
+"""Los siete destinos comunes, en el orden que pidió el usuario (2026-11-13).
 
 Están en las dieciocho pantallas y **siempre los primeros**: el de la pantalla
 que se está viendo y el que todavía no tiene pantalla ocupan su hueco sin
 enlace, porque lo que se pidió no es sólo el orden sino que el sitio de cada
 botón no se mueva de una pantalla a otra.
+
+«Cuentas en real» es el segundo por la corrección del mismo día: el primer
+reparto lo dejó fuera, como botón propio de las tres pantallas que lo
+escribían, y volvía a quedar detrás del bloque y en distinto sitio.
 """
 
 # Cada script que se monta solo, con lo que inserta antes del ancla. El orden
@@ -206,7 +211,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
             "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "dashboard.html": [
-            "Actualizando…", "Actualizar", *NAV, "Cuentas en real", "Correlación", CRON,
+            "Actualizando…", "Actualizar", *NAV, "Correlación", CRON,
             BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "experiment.html": [
@@ -216,7 +221,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
             "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "index.html": [
-            "Actualizando…", "Actualizar", *NAV, "Cuentas en real", "Correlación",
+            "Actualizando…", "Actualizar", *NAV, "Correlación",
             BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "live_audit.html": [*NAV, "⚙ Cuenta final", BACK_ARROW, BELL, RESTART_LABEL],
@@ -244,8 +249,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
         # La pantalla propia del resumen: se abre en una ventana nueva desde
         # cualquiera, y su propio botón es aquí el hueco sin enlace.
         "monthly_summary.html": [
-            "Cargando…", "Actualizar", *NAV, "Cuentas en real",
-            BACK_ARROW, BELL, RESTART_LABEL,
+            "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "manual_portfolios.html": [
             *NAV, "Crear portafolio", BACK_ARROW, BELL, RESTART_LABEL,
@@ -306,7 +310,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
                 ]
                 self.assertEqual(owners, ["live_audit_schedule.css"])
 
-    def test_the_six_common_destinations_open_every_row(self) -> None:
+    def test_the_seven_common_destinations_open_every_row(self) -> None:
         """El bloque común, entero y en su orden, en las dieciocho pantallas.
 
         Petición del usuario (2026-11-13). Antes de `main_nav.js` cada HTML
@@ -339,7 +343,7 @@ class HeaderActionsOrderTests(unittest.TestCase):
     def test_the_ported_navigation_is_the_one_the_script_runs(self) -> None:
         script = static_source(MAIN_NAV)
         self.assertIn("actions.insertBefore(block, actions.firstElementChild)", script)
-        # Los seis, en orden, y el que todavía no tiene pantalla sin destino.
+        # Los siete, en orden, y el que todavía no tiene pantalla sin destino.
         positions = [script.index(f"label: '{label}'") for label in NAV]
         self.assertEqual(positions, sorted(positions))
         self.assertIn(f"label: '{SEEDS}', url: ''", script)

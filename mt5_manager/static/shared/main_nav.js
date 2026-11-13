@@ -1,4 +1,4 @@
-// La navegación común: los mismos seis destinos, en el mismo orden, en todas
+// La navegación común: los mismos siete destinos, en el mismo orden, en todas
 // las pantallas.
 //
 // Hasta el 2026-11-13 cada HTML escribía sus enlaces a mano, así que el orden
@@ -6,8 +6,13 @@
 // cayendo: la portada ofrecía cuatro, «Portafolios activos» otros cuatro
 // distintos, Generación otros cinco y las catorce restantes ninguno. Un menú
 // cuyo contenido y cuyo orden dependen de la pantalla no es un menú: hay que
-// leerlo entero cada vez. Petición del usuario (2026-11-13): estos seis,
+// leerlo entero cada vez. Petición del usuario (2026-11-13): estos siete,
 // siempre, en este orden, y detrás los botones propios de cada pantalla.
+//
+// «Cuentas en real» es el segundo y también es fijo. En el primer reparto
+// se quedó como botón propio de las tres pantallas que lo escribían, y así
+// volvía a caer detrás del bloque, en un sitio distinto según la pantalla:
+// justo lo que se pidió evitar (corrección del usuario, 2026-11-13).
 //
 // Doce pantallas escribían además «Volver al generador», que era su salida
 // a la raíz cuando no había bloque común. Con «Generación» en la fila de
@@ -29,6 +34,7 @@
       className: 'cron-link summary-link', id: 'open-monthly-summary',
       title: 'El mes cerrado contra lo que ese mes prometía el backtest',
     },
+    {label: 'Cuentas en real', url: '/', className: 'dashboard-link'},
     {label: 'Portafolios activos', url: '/live_portfolios.html', className: 'dashboard-link'},
     {label: 'Generación', url: '/generation.html', className: 'generation-link'},
     {

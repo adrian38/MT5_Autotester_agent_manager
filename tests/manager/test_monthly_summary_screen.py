@@ -153,7 +153,7 @@ class RoutingTests(unittest.TestCase):
 
     def test_the_button_opens_the_common_block(self) -> None:
         # Ya no se cuela delante del ancla como la campana: es el primero de los
-        # seis destinos comunes, y el bloque entero abre la fila.
+        # siete destinos comunes, y el bloque entero abre la fila.
         self.assertIn("actions.insertBefore(block, actions.firstElementChild)", BUTTON)
         self.assertLess(
             BUTTON.index("label: 'Resumen del mes'"),

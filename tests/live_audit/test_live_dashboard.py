@@ -18,7 +18,6 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         cls.reproduction = static_source("live_audit_reproduction.js")
         cls.analysis = static_source("live_audit_analysis.js")
         cls.analysis_page = static_source("live_audit_analysis.html")
-        cls.generation_page = static_source("index.html")
         cls.handler = module_source("manager_handler")
         cls.page = html.fromstring(cls.page_text)
 
@@ -30,14 +29,15 @@ class LivePortfolioDashboardTests(unittest.TestCase):
 
     def test_header_keeps_the_current_actions_and_adds_generation(self) -> None:
         links = {anchor.text_content().strip(): anchor.get("href") for anchor in self.page.xpath("//nav//a")}
-        # Lo que esta pantalla escribe: la vuelta a la portada y la correlación,
-        # que sólo ofrecen ella y Generación.
-        self.assertEqual(links["Cuentas en real"], "/")
+        # Lo que esta pantalla escribe: la correlación, que sólo ofrecen ella
+        # y Generación.
         self.assertEqual(links["Correlación"], "/correlation.html")
-        # Generación y los dos laboratorios se mudaron al bloque común el
-        # 2026-11-13: están en las dieciocho pantallas, no sólo en ésta.
+        # La vuelta a la portada, Generación y los dos laboratorios se
+        # mudaron al bloque común el 2026-11-13: están en las dieciocho
+        # pantallas, no sólo en ésta.
         nav = static_source("main_nav.js")
         for label, url in (
+            ("Cuentas en real", "/"),
             ("Generación", "/generation.html"),
             ("Experimenta 1M", "/experiment.html"),
             ("Experimenta Prop", "/prop_experiment.html"),
@@ -56,14 +56,11 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # La raíz dejó de ser `/generation.html` y pasó a ser el inventario de
         # portafolios, pero la generación se quedó sin vuelta: era la única
         # pantalla sin salida —el resto ya enlazaban a `/`— y desde ella sólo
-        # se volvía escribiendo la dirección a mano.
-        generation = html.fromstring(self.generation_page)
-        links = {anchor.text_content().strip(): anchor.get("href")
-                 for anchor in generation.xpath("//header//a")}
-        self.assertEqual(links["Cuentas en real"], "/")
-        # El par de ida y vuelta se mira junto, y desde el 2026-11-13 la ida la
-        # pone el bloque común: lo mismo desde las dieciocho pantallas.
+        # se volvía escribiendo la dirección a mano. El par de ida y vuelta se
+        # mira junto, y desde el 2026-11-13 las dos las pone el bloque común:
+        # lo mismo desde las dieciocho pantallas.
         nav = static_source("main_nav.js")
+        self.assertIn("label: 'Cuentas en real', url: '/'", nav)
         self.assertIn("url: '/live_portfolios.html'", nav)
         self.assertIn("url: '/generation.html'", nav)
         # La vuelta de las pantallas de dentro es al generador, que es de
