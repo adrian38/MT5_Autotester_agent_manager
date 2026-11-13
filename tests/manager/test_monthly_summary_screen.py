@@ -9,10 +9,10 @@ reproducción, que vive en `live_audit_reproduction.js` desde antes y que la
 pantalla pide prestado en vez de copiar.
 
 El resumen es una **ventana propia** desde el 2026-10-25, no un diálogo sobre
-la portada, y eso parte el JavaScript en dos: `monthly_summary_button.js`
-monta el botón en las dos pantallas de operación real y `monthly_summary.js`
-pinta la pantalla. Que la portada no cargue el pintado que nunca usa es parte
-del contrato, y por eso se comprueba.
+la portada, y eso parte el JavaScript en dos: el botón lo monta `main_nav.js`
+—con los cinco destinos comunes, en las dieciocho pantallas desde el
+2026-11-13— y `monthly_summary.js` pinta la pantalla. Que una pantalla con el
+botón no cargue ese pintado que nunca usa es parte del contrato.
 
 Del lado del manager se comprueba lo que decide: que un `?month=` a medias no
 pase por mes, que recalcular borre la marca de leído —lo que el usuario miró
@@ -39,10 +39,9 @@ from tools.package_layout import static_matching, static_source
 
 PAGE = static_source("monthly_summary.html")
 SCRIPT = static_source("monthly_summary.js")
-BUTTON = static_source("monthly_summary_button.js")
+BUTTON = static_source("main_nav.js")
+"""El bloque de navegación común, que es quien monta el botón."""
 STYLE = static_source("monthly_summary.css")
-HOSTS = ("accounts.html", "dashboard.html")
-"""Las dos pantallas de operación real, que son las que montan el botón."""
 
 
 def ids_of(script: str) -> set[str]:
@@ -106,18 +105,19 @@ class RoutingTests(unittest.TestCase):
         self.assertLessEqual(
             {
                 "monthly_summary.html", "monthly_summary.js",
-                "monthly_summary_button.js", "monthly_summary.css",
+                "main_nav.js", "monthly_summary.css",
             },
             manager_handler.STATIC_FILES,
         )
 
-    def test_only_the_two_real_operation_screens_mount_the_button(self) -> None:
+    def test_every_screen_mounts_the_button(self) -> None:
+        # Hasta el 2026-11-13 eran dos, las de operación real. Ahora el botón
+        # viaja con los otros cinco destinos comunes, así que la chapa de meses
+        # sin leer se ve el día 1 desde donde se esté.
         for page in static_matching("*.html"):
             source = page.read_text(encoding="utf-8")
             with self.subTest(page=page.name):
-                self.assertEqual(
-                    "/monthly_summary_button.js" in source, page.name in HOSTS,
-                )
+                self.assertIn("/main_nav.js", source)
 
     def test_only_its_own_page_loads_the_painting(self) -> None:
         # La portada no carga lo que nunca usa: son 300 líneas y los dos
@@ -143,22 +143,22 @@ class RoutingTests(unittest.TestCase):
 
     def test_the_button_opens_a_window_instead_of_a_dialog(self) -> None:
         for expression in (
-            "const PAGE = '/monthly_summary.html'", "open.target = '_blank'",
-            "open.rel = 'noopener'",
+            "url: '/monthly_summary.html'", "node.target = '_blank'",
+            "node.rel = 'noopener'",
         ):
             with self.subTest(expression=expression):
                 self.assertIn(expression, BUTTON)
         # Lo que fue un diálogo y ya no lo es.
         self.assertNotIn("showModal", BUTTON + SCRIPT)
 
-    def test_the_button_takes_the_same_anchor_as_the_other_two(self) -> None:
-        for expression in (
-            "actions.querySelector('#restart-manager')",
-            'actions.querySelector(\'a[href="/"]\')',
-            "actions.insertBefore(open, anchor || null)",
-        ):
-            with self.subTest(expression=expression):
-                self.assertIn(expression, BUTTON)
+    def test_the_button_opens_the_common_block(self) -> None:
+        # Ya no se cuela delante del ancla como la campana: es el primero de los
+        # seis destinos comunes, y el bloque entero abre la fila.
+        self.assertIn("actions.insertBefore(block, actions.firstElementChild)", BUTTON)
+        self.assertLess(
+            BUTTON.index("label: 'Resumen del mes'"),
+            BUTTON.index("label: 'Portafolios activos'"),
+        )
 
     def test_the_bell_lands_on_the_page_with_its_month(self) -> None:
         self.assertEqual(monthly_summary_watch.LINK, "/monthly_summary.html")

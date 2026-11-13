@@ -87,8 +87,13 @@ class LocalIntegrationTests(IntegrationTestCase):
         self.assertEqual(payload["nodes"][0]["launch_preferences"]["generation_mode"], "discovery")
 
     def _assert_universe_controls(self) -> None:
+        # El enlace a «Portafolios activos» dejo de estar escrito en la portada
+        # el 2026-11-13: lo pone el bloque comun. Asi que la portada trae el
+        # guion y el servidor tiene que servirlo, que es lo que se comprueba.
         with urllib.request.urlopen(self.base + "/", timeout=3) as response:
-            self.assertIn(b"Portafolios activos", response.read())
+            self.assertIn(b"/main_nav.js", response.read())
+        with urllib.request.urlopen(self.base + "/main_nav.js", timeout=3) as response:
+            self.assertIn("Portafolios activos", response.read().decode("utf-8"))
 
         status, universe = self.request("/api/nodes/test-node/universe")
         self.assertEqual(status, 200)

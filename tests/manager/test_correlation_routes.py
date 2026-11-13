@@ -58,14 +58,16 @@ class CorrelationRouteTests(unittest.TestCase):
             with self.subTest(asset=asset):
                 self.assertEqual(self.request(asset)[0], 200)
 
-    def test_header_places_correlation_next_to_experiment(self) -> None:
+    def test_header_keeps_correlation_as_a_button_of_its_own(self) -> None:
+        # «Experimenta 1M» se mudó al bloque común el 2026-11-13; «Correlación»
+        # no, porque sólo la ofrecen Generación y «Portafolios activos». Así que
+        # se escribe aquí, detrás del bloque y delante del reinicio.
         index = static_source("index.html")
-        experiment = index.index('href="/experiment.html"')
         correlation = index.index('href="/correlation.html"')
         restart = index.index('id="restart-manager"')
-        self.assertLess(experiment, correlation)
         self.assertLess(correlation, restart)
         self.assertIn('target="_blank"', index[correlation:restart])
+        self.assertIn("url: '/experiment.html'", static_source("main_nav.js"))
 
     def test_screen_uses_read_only_existing_portfolio_endpoints(self) -> None:
         script = static_source("correlation.js")

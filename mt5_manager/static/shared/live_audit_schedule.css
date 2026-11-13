@@ -7,6 +7,23 @@
 .correlation-link{border:1px solid #315f87;background:linear-gradient(135deg,#123554,#123c33);color:#b8dcff}
 .dashboard-link:hover,.generation-link:hover,.experiment-link:hover,.correlation-link:hover{filter:brightness(1.25)}
 
+/* La chapa del resumen del mes viaja con su boton, y su boton esta desde el
+   2026-11-13 en las diecinueve pantallas: vivia en `monthly_summary.css`, que
+   solo cargan tres, asi que en las demas la cuenta de meses sin leer habria
+   salido sin forma y en mitad del texto. */
+.summary-link{position:relative}
+.summary-link .summary-badge{position:absolute;top:-6px;right:-6px;min-width:18px;padding:2px 5px;border-radius:999px;background:var(--danger,#ff6b6b);color:#2a0a0a;font-size:10px;font-weight:800}
+.summary-link .summary-badge[hidden]{display:none}
+.summary-link.has-unread{border-color:var(--danger,#ff6b6b)}
+
+/* Los dos huecos del bloque comun que no son enlace: el destino que todavia
+   no tiene pantalla y el de la pantalla que se esta viendo. Ocupan su sitio
+   para que la posicion de cada boton no cambie de una pantalla a otra, que es
+   justo lo que se pidio; sin esto el orden seria el mismo pero los huecos no. */
+.nav-inert{pointer-events:none}
+.nav-pending{opacity:.45}
+[aria-current="page"].button{border-color:var(--accent,#20c997);box-shadow:inset 0 0 0 1px var(--accent,#20c997)}
+
 /* Botón superior «Auditoría programada» y su campana. Vive aparte porque lo
    usan la portada y Generación, que tienen hojas de estilo distintas; por eso
    cada variable lleva su respaldo literal. */

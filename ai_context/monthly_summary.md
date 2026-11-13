@@ -13,10 +13,13 @@ Los módulos, en orden de dependencia:
 `monthly_summary_runtime` → `manager_summary_routes`
 
 Y la pantalla: `static/monthly_summary.html` con `static/monthly_summary.js` y
-`static/monthly_summary.css`; el botón que la abre es
-`static/monthly_summary_button.js`, que es otro fichero a propósito: la
-portada no tiene por qué cargar el pintado que nunca usa, ni los dos ficheros
-del veredicto de reproducción que éste arrastra.
+`static/monthly_summary.css`; el botón que la abre, con su chapa de meses sin
+leer, lo pone `static/shared/main_nav.js` junto a los otros cinco destinos
+comunes. Hasta el 2026-11-13 era un fichero propio,
+`monthly_summary_button.js`, montado sólo en las dos pantallas de operación
+real; el motivo de que siga sin ser parte de `monthly_summary.js` no ha
+cambiado: ninguna pantalla con el botón tiene por qué cargar el pintado que
+nunca usa, ni los dos ficheros del veredicto de reproducción que éste arrastra.
 
 ## Lo que mide, y por qué estas cosas
 

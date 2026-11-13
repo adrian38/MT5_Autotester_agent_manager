@@ -71,10 +71,11 @@ class ExperimentRouteTests(unittest.TestCase):
                 self.assertEqual(self.request(asset)[0], 200)
 
     def test_the_manager_header_opens_the_lab_in_another_tab(self) -> None:
-        index = static_source("index.html")
-        self.assertIn('href="/experiment.html"', index)
-        self.assertIn('target="_blank"', index)
-        self.assertIn("Experimenta", index)
+        # Desde el 2026-11-13 el botón lo pone el bloque común, así que está en
+        # las dieciocho pantallas y no sólo en Generación.
+        nav = static_source("main_nav.js")
+        self.assertIn("label: 'Experimenta 1M', url: '/experiment.html', blank: true", nav)
+        self.assertIn("node.target = '_blank'", nav)
 
     def test_a_node_the_manager_cannot_read_is_reported_not_hidden(self) -> None:
         status, config = self.request("/api/experiment/config")

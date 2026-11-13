@@ -30,10 +30,20 @@ class LivePortfolioDashboardTests(unittest.TestCase):
 
     def test_header_keeps_the_current_actions_and_adds_generation(self) -> None:
         links = {anchor.text_content().strip(): anchor.get("href") for anchor in self.page.xpath("//nav//a")}
-        self.assertEqual(links["Generación"], "/generation.html")
-        self.assertEqual(links["Experimenta 1M"], "/experiment.html")
-        self.assertEqual(links["Experimenta Prop"], "/prop_experiment.html")
+        # Lo que esta pantalla escribe: la vuelta a la portada y la correlación,
+        # que sólo ofrecen ella y Generación.
+        self.assertEqual(links["Cuentas en real"], "/")
         self.assertEqual(links["Correlación"], "/correlation.html")
+        # Generación y los dos laboratorios se mudaron al bloque común el
+        # 2026-11-13: están en las dieciocho pantallas, no sólo en ésta.
+        nav = static_source("main_nav.js")
+        for label, url in (
+            ("Generación", "/generation.html"),
+            ("Experimenta 1M", "/experiment.html"),
+            ("Experimenta Prop", "/prop_experiment.html"),
+        ):
+            with self.subTest(label=label):
+                self.assertIn(f"label: '{label}', url: '{url}'", nav)
         self.assertTrue(self.page.xpath('//*[@id="refresh"]'))
         self.assertTrue(self.page.xpath('//*[@id="restart-manager"]'))
 
@@ -51,24 +61,25 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         links = {anchor.text_content().strip(): anchor.get("href")
                  for anchor in generation.xpath("//header//a")}
         self.assertEqual(links["Cuentas en real"], "/")
-        self.assertEqual(links["Portafolios activos"], "/live_portfolios.html")
-        # Y el par de ida y vuelta se mira junto: esta pantalla enlaza aquí.
-        self.assertEqual(
-            {anchor.text_content().strip(): anchor.get("href")
-             for anchor in self.page.xpath("//nav//a")}["Generación"],
-            "/generation.html",
-        )
+        # El par de ida y vuelta se mira junto, y desde el 2026-11-13 la ida la
+        # pone el bloque común: lo mismo desde las dieciocho pantallas.
+        nav = static_source("main_nav.js")
+        self.assertIn("url: '/live_portfolios.html'", nav)
+        self.assertIn("url: '/generation.html'", nav)
         # La vuelta de las pantallas de dentro es al generador, que es de
         # donde se entra a ellas (peticion del usuario, 2026-10-21). No es un
         # callejon sin salida: el generador si enlaza a la raiz, que es lo que
-        # comprueban las tres lineas de arriba.
+        # comprueban las lineas de arriba. Antes cada pantalla tenia que
+        # escribir esa salida; ahora basta con que monte el bloque, y por eso
+        # lo que se exige es lo uno o lo otro.
         for name in sorted(STATIC_FILES):
             if not name.endswith(".html") or name == "dashboard.html":
                 continue
             page = static_path(name)
             source = page.read_text(encoding="utf-8")
             self.assertTrue(
-                'href="/"' in source or 'href="/generation.html"' in source, name,
+                'href="/"' in source or 'href="/generation.html"' in source
+                or "/main_nav.js" in source, name,
             )
 
     def test_only_profiles_marked_as_live_are_loaded(self) -> None:

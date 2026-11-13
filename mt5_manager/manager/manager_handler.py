@@ -67,12 +67,14 @@ STATIC_FILES = {
     # Y el del sondeo diario de cuentas, que se monta en las mismas
     # cabeceras: lanzarlo no puede exigir pasar antes por la portada.
     "live_account_schedule.js",
-    # El resumen del mes cerrado, que es una pantalla propia: el boton de las
-    # dos pantallas de operacion real —la portada de cuentas y «Portafolios
-    # activos»— la abre en una ventana nueva. En Generacion o Universo seria
-    # ruido, asi que el boton solo se monta en esas dos.
-    "monthly_summary.html", "monthly_summary.js", "monthly_summary_button.js",
-    "monthly_summary.css",
+    # La navegacion comun: los seis destinos que toda pantalla ofrece, en el
+    # mismo orden. Lo cargan las dieciocho, delante de la campana.
+    "main_nav.js",
+    # El resumen del mes cerrado, que es una pantalla propia: su boton lo pone
+    # el bloque comun de arriba, con la chapa de meses sin leer, y abre una
+    # ventana nueva. Hasta el 2026-11-13 lo montaba `monthly_summary_button.js`
+    # y solo en las dos pantallas de operacion real.
+    "monthly_summary.html", "monthly_summary.js", "monthly_summary.css",
     # El grafico mes a mes de una cuenta: beneficio contra drawdown desde su
     # primer cierre. Solo lo carga la portada, que es donde esta el boton.
     "live_account_monthly.js",

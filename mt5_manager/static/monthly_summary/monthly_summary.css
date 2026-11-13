@@ -1,4 +1,7 @@
-/* Lo propio del resumen del mes: su pantalla y la chapa de su boton.
+/* Lo propio del resumen del mes: su pantalla, y nada mas.
+ *
+ * La chapa de su boton se mudo a `live_audit_schedule.css` el 2026-11-13: el
+ * boton esta ahora en las diecinueve pantallas y esta hoja solo la cargan tres.
  *
  * La rejilla de campos y los avisos de color ya los viste en
  * `live_audit_schedule.css`: aqui se reutilizan sus clases `cron-*` y sus
@@ -7,10 +10,6 @@
  * El veredicto manda el color del borde, no el broker: esta pantalla existe
  * para decidir, y lo que se mira primero es que pide decision.
  */
-.summary-link{position:relative}
-.summary-link .summary-badge{position:absolute;top:-6px;right:-6px;min-width:18px;padding:2px 5px;border-radius:999px;background:var(--danger,#ff6b6b);color:#2a0a0a;font-size:10px;font-weight:800}
-.summary-link .summary-badge[hidden]{display:none}
-.summary-link.has-unread{border-color:var(--danger,#ff6b6b)}
 
 /* La pantalla propia. El `main` de `styles.css` ya centra y limita el ancho;
  * aqui solo se ordenan sus tres bloques. */

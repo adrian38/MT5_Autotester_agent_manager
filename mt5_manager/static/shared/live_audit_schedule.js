@@ -115,7 +115,10 @@
   // «Actualizar», el primero de la barra en todas las pantallas. Se recoloca
   // aquí en vez de confiar sólo en el orden del HTML porque cada pantalla le
   // pone un id distinto al botón.
-  const refresh = actions.querySelector('#refresh, #reload, #portfolio-refresh, #universe-refresh');
+  // Los dos últimos ids entraron el 2026-11-13: el análisis de la comprobación
+  // manual y el histórico OHLC tenían su «Actualizar» de primero sólo porque
+  // era el primero de su HTML, y el bloque común lo habría dejado en quinto.
+  const refresh = actions.querySelector('#refresh, #reload, #portfolio-refresh, #universe-refresh, #analysis-refresh, #history-refresh');
   const state = actions.querySelector('#refresh-state, #catalog-state');
   if (refresh) {
     actions.insertBefore(refresh, actions.firstElementChild);
