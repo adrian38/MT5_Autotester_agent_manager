@@ -69,9 +69,9 @@ class LivePortfolioDashboardTests(unittest.TestCase):
         # La vuelta de las pantallas de dentro es al generador, que es de
         # donde se entra a ellas (peticion del usuario, 2026-10-21). No es un
         # callejon sin salida: el generador si enlaza a la raiz, que es lo que
-        # comprueban las lineas de arriba. Antes cada pantalla tenia que
-        # escribir esa salida; ahora basta con que monte el bloque, y por eso
-        # lo que se exige es lo uno o lo otro.
+        # comprueban las lineas de arriba. Desde el 2026-11-13 esa salida la
+        # pone el bloque comun en las dieciocho, y las doce que la escribian a
+        # mano dejaron de duplicarla: por eso se exige lo uno o lo otro.
         for name in sorted(STATIC_FILES):
             if not name.endswith(".html") or name == "dashboard.html":
                 continue

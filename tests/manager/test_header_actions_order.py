@@ -78,12 +78,16 @@ Monta `#restart-manager` donde la pantalla no lo trae escrito, y por eso se
 carga el primero: los otros dos se colocan justo delante de ese boton.
 """
 RESTART_LABEL = "Reiniciar manager"
-BACK = "Volver al generador"
 AUDITOR_BACK = "Volver al auditor"
-"""La vuelta lleva al generador, que es de donde se entra a estas pantallas.
+"""La vuelta al auditor, que es de donde se entra a sus dos pantallas.
 
 La raiz es la portada de cuentas desde el 2026-10-?? y «Volver al manager»
 dejaba al usuario en otra pantalla distinta de la que venia.
+
+Doce pantallas escribían además «Volver al generador». Era la salida que
+cada una tenía que ofrecer mientras los destinos comunes los escribía cada
+HTML; con «Generación» en la fila de las dieciocho pasó a ser el mismo
+destino dos veces, y se quitó a petición del usuario (2026-11-13).
 """
 
 
@@ -199,23 +203,23 @@ class HeaderActionsOrderTests(unittest.TestCase):
             BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "correlation.html": [
-            "Cargando…", "Actualizar", *NAV, BACK, BACK_ARROW, BELL, RESTART_LABEL,
+            "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "dashboard.html": [
             "Actualizando…", "Actualizar", *NAV, "Cuentas en real", "Correlación", CRON,
             BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "experiment.html": [
-            "Cargando…", "Actualizar", *NAV, BACK, BACK_ARROW, BELL, RESTART_LABEL,
+            "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "prop_experiment.html": [
-            "Cargando…", "Actualizar", *NAV, BACK, BACK_ARROW, BELL, RESTART_LABEL,
+            "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "index.html": [
             "Actualizando…", "Actualizar", *NAV, "Cuentas en real", "Correlación",
             BACK_ARROW, BELL, RESTART_LABEL,
         ],
-        "live_audit.html": [*NAV, "⚙ Cuenta final", BACK, BACK_ARROW, BELL, RESTART_LABEL],
+        "live_audit.html": [*NAV, "⚙ Cuenta final", BACK_ARROW, BELL, RESTART_LABEL],
         "live_audit_analysis.html": [
             *NAV,
             # «Enlazar por comentario» está disponible para cualquier broker.
@@ -227,15 +231,15 @@ class HeaderActionsOrderTests(unittest.TestCase):
         ],
         "live_audit_result.html": [*NAV, AUDITOR_BACK, BACK_ARROW, BELL, RESTART_LABEL],
         # El análisis de una comprobación manual se abre desde el detalle del
-        # portafolio, así que vuelve allí; el enlace al generador es la salida
-        # a la raíz que toda pantalla tiene que ofrecer.
+        # portafolio, así que vuelve allí; la salida a la raíz la pone ahora el
+        # bloque común, igual que en las demás.
         "manual_check_analysis.html": [
-            "Actualizar", *NAV, "Volver al portafolio", BACK, BACK_ARROW, BELL, RESTART_LABEL,
+            "Actualizar", *NAV, "Volver al portafolio", BACK_ARROW, BELL, RESTART_LABEL,
         ],
         # El histórico OHLC guardado se abre desde el detalle del portafolio y
-        # vuelve allí, con la misma salida al generador.
+        # vuelve allí; la salida a la raíz, en el bloque común.
         "portfolio_history.html": [
-            "Actualizar", *NAV, "Volver al portafolio", BACK, BACK_ARROW, BELL, RESTART_LABEL,
+            "Actualizar", *NAV, "Volver al portafolio", BACK_ARROW, BELL, RESTART_LABEL,
         ],
         # La pantalla propia del resumen: se abre en una ventana nueva desde
         # cualquiera, y su propio botón es aquí el hueco sin enlace.
@@ -244,15 +248,15 @@ class HeaderActionsOrderTests(unittest.TestCase):
             BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "manual_portfolios.html": [
-            *NAV, "Crear portafolio", BACK, BACK_ARROW, BELL, RESTART_LABEL,
+            *NAV, "Crear portafolio", BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "portfolio_manual.html": [
-            *NAV, "Portafolios manuales", BACK, BACK_ARROW, BELL, RESTART_LABEL,
+            *NAV, "Portafolios manuales", BACK_ARROW, BELL, RESTART_LABEL,
         ],
-        "portfolios.html": ["Actualizar", *NAV, BACK, BACK_ARROW, BELL, RESTART_LABEL],
-        "portfolios_grid.html": ["Actualizar", *NAV, BACK, BACK_ARROW, BELL, RESTART_LABEL],
-        "portfolios_monthly.html": ["Actualizar", *NAV, BACK, BACK_ARROW, BELL, RESTART_LABEL],
-        "universe.html": ["Actualizar", *NAV, BACK, BACK_ARROW, BELL, RESTART_LABEL],
+        "portfolios.html": ["Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL],
+        "portfolios_grid.html": ["Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL],
+        "portfolios_monthly.html": ["Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL],
+        "universe.html": ["Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL],
     }
 
     def test_every_screen_that_loads_the_script_is_declared_here(self) -> None:

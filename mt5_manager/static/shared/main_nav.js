@@ -9,6 +9,10 @@
 // leerlo entero cada vez. Petición del usuario (2026-11-13): estos seis,
 // siempre, en este orden, y detrás los botones propios de cada pantalla.
 //
+// Doce pantallas escribían además «Volver al generador», que era su salida
+// a la raíz cuando no había bloque común. Con «Generación» en la fila de
+// todas, ese botón era el mismo destino dos veces: se quitó (2026-11-13).
+//
 // El bloque se monta **al principio** de `.header-actions`, no delante del
 // ancla como la campana: va antes de lo que cada pantalla trae escrito.
 // «Actualizar» sigue abriendo la fila porque lo recoloca
@@ -81,7 +85,7 @@
   actions.insertBefore(block, actions.firstElementChild);
 
   // La chapa del resumen, que antes montaba `monthly_summary_button.js` en las
-  // dos pantallas de operación real. Ahora el botón está en las diecinueve, así
+  // dos pantallas de operación real. Ahora el botón está en las dieciocho, así
   // que la cuenta de meses sin leer también: el día 1 se ve desde donde estés.
   // Que falle no puede dejar la cabecera a medias, así que se calla.
   if (!summary) return;
