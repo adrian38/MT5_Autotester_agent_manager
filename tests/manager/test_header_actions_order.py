@@ -48,7 +48,7 @@ BELL = "🔔"
 ACCOUNT_CRON = "Sondeo de cuentas"
 SUMMARY = "Resumen del mes"
 ACCOUNTS = "Cuentas en real"
-SEEDS = "Experimenta seeds"
+SEEDS = "Experimenta Seeds"
 
 MAIN_NAV = "main_nav.js"
 NAV = (
@@ -57,10 +57,11 @@ NAV = (
 )
 """Los siete destinos comunes, en el orden que pidió el usuario (2026-11-13).
 
-Están en las dieciocho pantallas y **siempre los primeros**: el de la pantalla
-que se está viendo y el que todavía no tiene pantalla ocupan su hueco sin
-enlace, porque lo que se pidió no es sólo el orden sino que el sitio de cada
-botón no se mueva de una pantalla a otra.
+Están en las diecinueve pantallas y **siempre los primeros**: el de la pantalla
+que se está viendo ocupa su hueco sin enlace, porque lo que se pidió no es sólo
+el orden sino que el sitio de cada botón no se mueva de una pantalla a otra. El
+séptimo era además el hueco del destino que no existía todavía; desde el
+2026-11-15 tiene su pantalla.
 
 «Cuentas en real» es el segundo por la corrección del mismo día: el primer
 reparto lo dejó fuera, como botón propio de las tres pantallas que lo
@@ -217,6 +218,11 @@ class HeaderActionsOrderTests(unittest.TestCase):
         "experiment.html": [
             "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
         ],
+        # El mismo laboratorio con el pool hecho de seeds: misma fila y
+        # mismo JS, otro coordinador.
+        "seed_experiment.html": [
+            "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
+        ],
         "prop_experiment.html": [
             "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
         ],
@@ -343,12 +349,18 @@ class HeaderActionsOrderTests(unittest.TestCase):
     def test_the_ported_navigation_is_the_one_the_script_runs(self) -> None:
         script = static_source(MAIN_NAV)
         self.assertIn("actions.insertBefore(block, actions.firstElementChild)", script)
-        # Los siete, en orden, y el que todavía no tiene pantalla sin destino.
+        # Los siete, en orden.
         positions = [script.index(f"label: '{label}'") for label in NAV]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn(f"label: '{SEEDS}', url: ''", script)
-        # El hueco del destino que falta y el de la pantalla actual: sin enlace
-        # los dos, que es lo que mantiene fijo el sitio de cada botón.
+        # El séptimo tuvo su pantalla el 2026-11-15 y dejó de ser el hueco
+        # apagado: ahora abre su laboratorio, como los otros dos.
+        self.assertIn(
+            f"label: '{SEEDS}', url: '/seed_experiment.html', blank: true", script,
+        )
+        # El hueco de un destino sin pantalla y el de la pantalla actual: sin
+        # enlace los dos, que es lo que mantiene fijo el sitio de cada botón.
+        # Hoy no hay ninguno del primer tipo, y el mecanismo se queda: es lo
+        # que deja añadir el octavo antes de que exista su HTML.
         for expression in (
             "document.createElement(item.url && !current ? 'a' : 'span')",
             "node.classList.add('nav-inert')",

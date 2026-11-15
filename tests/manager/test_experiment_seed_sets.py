@@ -1,4 +1,8 @@
-"""Las seeds se leen de su tabla propia sin escribir ni ampliar el veredicto."""
+"""Las seeds se leen de su tabla propia sin escribir ni ampliar el veredicto.
+
+El cargador lo comparten los dos laboratorios que leen seeds —el prop y el de
+«Experimenta Seeds»—, y por eso vive en `experiment/` y no en `prop/`.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from portfolio_manager.ubs_portfolio import PeriodReport
-from mt5_manager.prop.prop_experiment_seeds import accepted_seed_rows, load_seed_sets
+from mt5_manager.experiment.experiment_seed_sets import accepted_seed_rows, load_seed_sets
 
 
 class _Source:
@@ -32,7 +36,7 @@ class _Source:
             connection.close()
 
 
-class PropExperimentSeedTests(unittest.TestCase):
+class SeedSetsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -71,7 +75,7 @@ class PropExperimentSeedTests(unittest.TestCase):
         )
         report = SimpleNamespace(symbol="EURUSD", timeframe="H1")
         with mock.patch(
-            "mt5_manager.prop.prop_experiment_seeds.period_report_from_strategy_report",
+            "mt5_manager.experiment.experiment_seed_sets.period_report_from_strategy_report",
             return_value=period,
         ):
             loaded, warnings, total = load_seed_sets(

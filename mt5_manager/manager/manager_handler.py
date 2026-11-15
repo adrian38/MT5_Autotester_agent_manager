@@ -2,7 +2,7 @@
 
 Las rutas de cada area viven en su modulo (`manager_portfolio_routes`,
 `manager_live_audit_routes`, `manager_schedule_routes`, `correlation_routes`,
-`experiment_routes`, `prop_experiment_routes`); aqui
+`experiment_routes`, `seed_experiment_routes`, `prop_experiment_routes`); aqui
 quedan el despacho, las respuestas y lo que se reenvia al nodo tal cual.
 """
 from __future__ import annotations
@@ -24,6 +24,7 @@ from typing import Any
 from . import correlation_routes
 from .. import dev_branch
 from ..experiment import experiment_routes
+from ..experiment import seed_experiment_routes
 from .. import guided_batches
 from . import manager_http
 from . import manager_account_routes
@@ -78,6 +79,9 @@ STATIC_FILES = {
     # El grafico mes a mes de una cuenta: beneficio contra drawdown desde su
     # primer cierre. Solo lo carga la portada, que es donde esta el boton.
     "live_account_monthly.js",
+    # El patrimonio: el saldo de todas las cuentas mes a mes, lo ingresado y lo
+    # retirado. Pantalla propia, la primera del bloque comun de navegacion.
+    "patrimonio.html", "patrimonio.js", "patrimonio.css",
     # Los avisos del dispositivo. `sw.js` se sirve desde la raiz a proposito:
     # un service worker solo manda en su carpeta y en las de debajo, asi que
     # colgado de cualquier subruta no veria el resto del manager. El manifiesto
@@ -397,6 +401,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
         # Laboratorio «Experimenta»: pantalla y endpoints propios, en su módulo.
         if experiment_routes.handle_get(self, parsed):
             return
+        if seed_experiment_routes.handle_get(self, parsed):
+            return
         if prop_experiment_routes.handle_get(self, parsed):
             return
         for route in (
@@ -508,6 +514,8 @@ class ManagerHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
         if experiment_routes.handle_post(self, parsed):
+            return
+        if seed_experiment_routes.handle_post(self, parsed):
             return
         if prop_experiment_routes.handle_post(self, parsed):
             return

@@ -1,4 +1,11 @@
-"""Carga de seeds aceptadas sin cambiar el embudo UBS de candidatos."""
+"""Carga de seeds aceptadas sin cambiar el embudo UBS de candidatos.
+
+Vivía en `prop/prop_experiment_seeds.py` y lo movió aquí el laboratorio de
+seeds: lo usan los dos, y `prop` ya importaba de `experiment` —el motor del
+laboratorio y su coordinador—, así que la dependencia baja en vez de invertirse.
+Al revés habría sido `experiment` → `prop` → `experiment`, que hoy resuelve de
+milagro y revienta con el primer import que se añada en el otro sentido.
+"""
 
 from __future__ import annotations
 

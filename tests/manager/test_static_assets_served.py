@@ -14,12 +14,20 @@ import unittest
 from mt5_manager.manager.correlation_routes import STATIC_FILES as CORRELATION_FILES
 from mt5_manager.experiment.experiment_routes import STATIC_FILES as EXPERIMENT_FILES
 from mt5_manager.manager.manager_handler import STATIC_DIR, STATIC_FILES
+from mt5_manager.experiment.seed_experiment_routes import STATIC_FILES as SEED_FILES
 from mt5_manager.prop.prop_experiment_routes import STATIC_FILES as PROP_EXPERIMENT_FILES
 from tools.package_layout import static_matching, static_path
 
 
-SERVED = STATIC_FILES | CORRELATION_FILES | EXPERIMENT_FILES | PROP_EXPERIMENT_FILES
-"""Lista general y las tres pantallas de laboratorio con ruta propia."""
+SERVED = (
+    STATIC_FILES | CORRELATION_FILES | EXPERIMENT_FILES | SEED_FILES
+    | PROP_EXPERIMENT_FILES
+)
+"""Lista general y las cuatro pantallas de laboratorio con ruta propia.
+
+«Experimenta Seeds» sólo sirve su HTML: carga el `.js` y el `.css` del
+laboratorio hermano, que ya están en `EXPERIMENT_FILES`.
+"""
 
 
 REFERENCE = re.compile(r"""(?:src|href)=["']/([A-Za-z0-9_.-]+\.(?:js|css|webmanifest))["']""")

@@ -250,8 +250,8 @@ cinco módulos.
 | `mt5_manager/live_account/` | 14 | cuentas reales: ingesta, inventario, series y presentación |
 | `mt5_manager/node/` | 11 | el nodo de **este** repositorio, que ningún agente ejecuta |
 | `mt5_manager/monthly_summary/` | 8 | resumen mensual: construcción, cobertura y evidencia |
-| `mt5_manager/experiment/` | 7 | laboratorio de experimentos: búsqueda, simulación y rutas |
-| `mt5_manager/prop/` | 6 | experimentos de cuentas prop: semillas, pool y perfiles |
+| `mt5_manager/experiment/` | 10 | los dos laboratorios del millón: búsqueda, simulación, el pool de seeds y sus rutas |
+| `mt5_manager/prop/` | 5 | experimentos de cuentas prop: pool, motor y perfiles |
 | `mt5_manager/web_push/` | 4 | avisos push al móvil: sobre RFC 8291, VAPID y envío |
 | `mt5_manager/manual_check/` | 2 | comprobación manual de estrategias nuevas |
 | `mt5_manager/static/` | — | la interfaz que sirve el manager (HTML, JS y CSS) |

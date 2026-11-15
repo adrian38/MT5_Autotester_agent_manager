@@ -24,6 +24,7 @@ from ..manual_check import manual_check_watch
 from ..monthly_summary import monthly_summary_runtime
 from ..common import load_json, safe_int, save_json
 from ..experiment.experiment_service import ExperimentCoordinator
+from ..experiment.seed_experiment_service import SeedExperimentCoordinator
 from ..live_account.live_account_archive import LiveAccountArchive
 from ..live_account.live_account_schedule import normalize_live_account_scheduler_settings
 from ..live_audit.live_audit_archive import LiveAuditArchive
@@ -296,6 +297,12 @@ class ManagerServer(ThreadingHTTPServer):
         # a propósito, porque no guarda nada en la memoria de ningún agente.
         self.experiments = ExperimentCoordinator(
             self.nodes, portfolio_settings_path.with_name("experiment_settings.json"),
+        )
+        # Mismo laboratorio con otro pool: las seeds aceptadas en vez del
+        # embudo UBS. Su configuracion y su resultado son suyos.
+        self.seed_experiments = SeedExperimentCoordinator(
+            self.nodes,
+            portfolio_settings_path.with_name("seed_experiment_settings.json"),
         )
         self.prop_experiments = PropExperimentCoordinator(
             self.nodes,

@@ -150,12 +150,28 @@ def portable_symbols_for(source: PortfolioSource) -> frozenset[str]:
 
 
 class ExperimentCoordinator:
-    """Un solo experimento a la vez, con su log y su último resultado."""
+    """Un solo experimento a la vez, con su log y su último resultado.
+
+    Los tres puntos que cambia un laboratorio hermano son atributos de clase y
+    no referencias al módulo: su formulario (`DEFAULTS` y `_normalize`), el
+    nombre de su resultado guardado (`RESULT_NAME`) y de dónde salen las
+    estrategias (`_load_origin_sets`). Así «Experimenta Seeds» hereda el hilo,
+    el log, el veredicto y los montajes de solo lectura sin copiar nada.
+    """
+
+    #: El formulario de este laboratorio. Un hermano lo sustituye entero.
+    DEFAULTS: dict[str, Any] = DEFAULT_SETTINGS
+    RESULT_NAME = "experiment_last_result.json"
+
+    @staticmethod
+    def _normalize(raw: dict[str, Any]) -> dict[str, Any]:
+        """El validador del formulario, que es el del laboratorio que toque."""
+        return normalize_settings(raw)
 
     def __init__(self, nodes: list[dict[str, Any]], settings_path: Path) -> None:
         self.nodes = {str(node.get("id")): node for node in nodes}
         self.settings_path = Path(settings_path)
-        self.result_path = self.settings_path.with_name("experiment_last_result.json")
+        self.result_path = self.settings_path.with_name(self.RESULT_NAME)
         self.lock = threading.RLock()
         self.log_lines: deque[str] = deque(maxlen=LOG_LIMIT)
         self.cancel = threading.Event()
@@ -164,7 +180,7 @@ class ExperimentCoordinator:
         self.stored: dict[str, Any] = {}
         if self.settings_path.is_file():
             try:
-                self.stored = normalize_settings(load_json(self.settings_path))
+                self.stored = self._normalize(load_json(self.settings_path))
             except ValueError:
                 self.stored = {}
         if self.result_path.is_file():
@@ -178,8 +194,8 @@ class ExperimentCoordinator:
     def settings(self) -> dict[str, Any]:
         with self.lock:
             stored = dict(self.stored)
-        settings = normalize_settings({
-            key: value for key, value in stored.items() if key in DEFAULT_SETTINGS
+        settings = self._normalize({
+            key: value for key, value in stored.items() if key in self.DEFAULTS
         })
         if not settings["source_nodes"]:
             # Todos por defecto, sin comprobar disponibilidad: `config()` ya
@@ -196,7 +212,7 @@ class ExperimentCoordinator:
     def update_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
         current = self.settings()
         current.update(changes or {})
-        normalized = normalize_settings(current)
+        normalized = self._normalize(current)
         with self.lock:
             self.stored = normalized
         save_json(self.settings_path, normalized)
@@ -266,7 +282,7 @@ class ExperimentCoordinator:
         return {
             "nodes": nodes,
             "settings": self.settings(),
-            "defaults": dict(DEFAULT_SETTINGS),
+            "defaults": dict(self.DEFAULTS),
             "state": self.state(),
             "observed_at": utc_now(),
         }

@@ -1,6 +1,15 @@
 // Laboratorio «Experimenta». Una sola pantalla, un solo experimento a la vez.
 // No comparte estado ni JavaScript con las pantallas de portafolio: lo que se
 // rompa aquí no puede romper una generación ni un guardado.
+//
+// Lo montan **dos** pantallas: «Experimenta 1M» y «Experimenta Seeds», que son
+// el mismo laboratorio con otro pool. Las dos cosas en las que se diferencian
+// vienen del documento y no de aquí:
+//
+// - la API, en `data-api` del `<body>`, porque cada una tiene su coordinador;
+// - los campos del formulario, que se leen de él. «Máx. candidatas por broker»
+//   sólo existe en la primera y «máx. seeds por broker» sólo en la segunda, así
+//   que una lista escrita a mano mandaría `undefined` en una de las dos.
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 function toast(message, error = false) { const element=document.querySelector('#toast'); element.textContent=message; element.className=error?'show error':'show'; setTimeout(()=>{element.className='';},4500); }
@@ -9,8 +18,9 @@ const money = value => Number(value ?? 0).toLocaleString('es-ES',{maximumFractio
 const pct = value => `${Number(value ?? 0).toLocaleString('es-ES',{maximumFractionDigits:2})}%`;
 const signed = value => `${Number(value ?? 0) > 0 ? '+' : ''}${money(value)}`;
 
-const NUMERIC_FIELDS = ['capital','target_equity','horizon_months','max_dd_pct','max_margin_pct','rebalance_months','max_units_per_strategy','max_units_per_symbol','max_units_total','max_pair_corr','pool_limit','greedy_steps','max_candidates_per_node'];
+const API = document.body.dataset.api || '/api/experiment/';
 const form = document.querySelector('#experiment-form');
+const NUMERIC_FIELDS = [...form.querySelectorAll('input[type="number"], select[name]')].map(field => field.name);
 const monitor = document.querySelector('#monitor');
 const logEl = document.querySelector('#live-log');
 let nodes = [];
@@ -59,7 +69,7 @@ async function post(path, body) {
 
 async function loadConfig() {
   try {
-    const response = await fetch('/api/experiment/config', {cache:'no-store'});
+    const response = await fetch(`${API}config`, {cache:'no-store'});
     const data = await jsonResponse(response);
     if (!response.ok) throw new Error(data.error || response.statusText);
     nodes = data.nodes || [];
@@ -89,7 +99,7 @@ function applyState(state) {
 
 async function poll() {
   try {
-    const response = await fetch('/api/experiment/state', {cache:'no-store'});
+    const response = await fetch(`${API}state`, {cache:'no-store'});
     const data = await jsonResponse(response);
     if (response.ok) applyState(data);
     if (!monitor.hidden) refreshLog();
@@ -98,7 +108,7 @@ async function poll() {
 
 async function refreshLog() {
   try {
-    const response = await fetch('/api/experiment/log?lines=400', {cache:'no-store'});
+    const response = await fetch(`${API}log?lines=400`, {cache:'no-store'});
     const data = await jsonResponse(response);
     if (!response.ok) return;
     const lines = data.lines || [];
@@ -217,18 +227,18 @@ function renderCurve(simulation, capital, target) {
 form.addEventListener('submit', async event => {
   event.preventDefault();
   try {
-    applyState(await post('/api/experiment/run', readForm()));
+    applyState(await post(`${API}run`, readForm()));
     logVisible = true;
     monitor.hidden = false;
     toast('Experimento en marcha: leyendo las memorias de los agentes.');
   } catch (error) { toast(error.message, true); }
 });
 document.querySelector('#save-settings').addEventListener('click', async () => {
-  try { const data = await post('/api/experiment/settings', readForm()); fillForm(data.settings||{}); toast('Configuración guardada.'); }
+  try { const data = await post(`${API}settings`, readForm()); fillForm(data.settings||{}); toast('Configuración guardada.'); }
   catch (error) { toast(error.message, true); }
 });
 document.querySelector('#stop-run').addEventListener('click', async () => {
-  try { applyState(await post('/api/experiment/stop', {})); toast('Deteniendo el experimento…'); }
+  try { applyState(await post(`${API}stop`, {})); toast('Deteniendo el experimento…'); }
   catch (error) { toast(error.message, true); }
 });
 document.querySelector('#toggle-log').addEventListener('click', () => {

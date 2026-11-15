@@ -278,6 +278,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `experiment_million_lab.md`: laboratorio «Experimenta» —pool cruzado de los
   tres brokers en una cuenta, simulación a doce meses con recomposición de
   lotes, drawdown relativo a la equity y por qué vive en ficheros aparte.
+- `experimenta_seeds_lab.md`: la misma pantalla con el pool hecho sólo de seeds
+  aceptadas —qué hereda del laboratorio 1M y por eso no se duplica, por qué el
+  cargador de seeds bajó de `prop/` a `experiment/` y qué obliga a que las dos
+  páginas compartan JavaScript.
 - `prop_experiment.md`: laboratorio aislado para evaluaciones prop; añade las
   seeds originales de IC, AXI y RoboForex al pool actual y excluye Vantage.
 - `experiment_dev_remote_read.md`: cómo «Experimenta» lee AXI y RoboForex desde

@@ -12,9 +12,9 @@ from portfolio_manager.ubs_portfolio import (
 )
 
 from ..experiment import experiment_lab as lab
+from ..experiment.experiment_seed_sets import load_seed_sets
 from ..experiment.experiment_service import ExperimentCoordinator
 from ..portfolio.portfolio_service import build_margin_model, cached_report
-from .prop_experiment_seeds import load_seed_sets
 
 
 def _candidate_sets(

@@ -49,8 +49,10 @@
       title: 'Laboratorio de carteras con candidatas y seeds para aprobar pruebas prop',
     },
     {
-      label: 'Experimenta seeds', url: '', className: 'experiment-link',
-      title: 'Todavía no hay pantalla: el sitio queda reservado para cuando la haya',
+      label: 'Experimenta Seeds', url: '/seed_experiment.html', blank: true,
+      className: 'experiment-link',
+      title: 'El mismo laboratorio que «Experimenta 1M» pero con el pool hecho '
+        + 'sólo de seeds aceptadas',
     },
   ];
 
