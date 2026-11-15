@@ -30,6 +30,11 @@
   // sitio apagado en vez de prometer un 404.
   const DESTINATIONS = [
     {
+      label: 'Patrimonio', url: '/patrimonio.html', className: 'wealth-link',
+      title: 'Todo el dinero en real: lo puesto, lo retirado y lo que ha '
+        + 'puesto operar, mes a mes',
+    },
+    {
       label: 'Resumen del mes', url: '/monthly_summary.html', blank: true,
       className: 'cron-link summary-link', id: 'open-monthly-summary',
       title: 'El mes cerrado contra lo que ese mes prometía el backtest',

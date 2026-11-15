@@ -225,6 +225,7 @@ class NormalizedSeriesTests(unittest.TestCase):
                         [(datetime(2026, 10, 19, 9, tzinfo=timezone.utc), 3.0)],
                         [(datetime(2026, 10, 19, 9, tzinfo=timezone.utc), 4.0)],
                         [("2026-10-19", 1_000.0)],
+                        [],
                     ),
                 ):
                     live_account_ingest._merge_account(

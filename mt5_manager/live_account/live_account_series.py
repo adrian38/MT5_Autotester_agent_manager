@@ -49,6 +49,41 @@ def is_market_movement(deal: Any) -> bool:
     return kind not in NON_MARKET_TYPES
 
 
+def cash_movements(deals: Iterable[Any]) -> list[tuple[datetime, float, str, str]]:
+    """Los apuntes que **no** son de operar: `(instante, importe, tipo, concepto)`.
+
+    Son la otra mitad de la tabla de transacciones, la que `movements` tira a
+    propósito. Tirarla está bien para medir cómo opera la cuenta y es justo lo
+    que no se puede hacer para medir el patrimonio: el saldo sube cuando se
+    ingresa dinero igual que cuando se gana, y sin esta serie las dos cosas no
+    se distinguen. Medido el 2026-11-15 sobre los informes reales: la cuenta
+    77028839 lleva 249 apuntes (13 ingresos por 5.337,89 €, 8 retiradas por
+    479,50 € y 228 abonos del bróker que suman 86,45 €) y 60090762 doce, con
+    dos depósitos externos y seis traspasos a otras cuentas del usuario.
+
+    El importe es la columna Profit, que es donde MT5 imprime el apunte, y
+    **no se reescala** a ningún lote de presentación: es dinero de verdad, como
+    el saldo. El concepto se guarda tal cual porque es lo único que distingue
+    un depósito de un traspaso interno o de un rebate, y cada bróker lo
+    escribe a su manera.
+    """
+    found: list[tuple[datetime, float, str, str]] = []
+    for deal in deals:
+        moment = getattr(deal, "timestamp", None)
+        if not isinstance(moment, datetime) or is_market_movement(deal):
+            continue
+        amount = getattr(deal, "profit", None)
+        if amount is None:
+            continue
+        found.append((
+            as_utc(moment), float(amount),
+            str(getattr(deal, "trade_type", "") or "").strip().casefold(),
+            str(getattr(deal, "comment", "") or "").strip(),
+        ))
+    found.sort(key=lambda item: item[0])
+    return found
+
+
 def movements(deals: Iterable[Any]) -> list[tuple[datetime, float]]:
     """La columna Profit de los cierres de mercado, ordenada y en UTC."""
     return _movements(deals, "profit")

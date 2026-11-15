@@ -5,7 +5,10 @@
 .generation-link{border:1px solid #315f87;background:linear-gradient(135deg,#123554,#123c33);color:#b8dcff}
 .experiment-link{border:1px solid #4b3a7a;background:linear-gradient(135deg,#2b1a4d,#123c33);color:var(--accent2,#63e6be)}
 .correlation-link{border:1px solid #315f87;background:linear-gradient(135deg,#123554,#123c33);color:#b8dcff}
-.dashboard-link:hover,.generation-link:hover,.experiment-link:hover,.correlation-link:hover{filter:brightness(1.25)}
+/* El primero de la fila: el patrimonio es la pregunta de la que cuelgan las
+   demas, asi que es el unico con el dorado y no se confunde con los verdes. */
+.wealth-link{border:1px solid #8a6d2f;background:linear-gradient(135deg,#3b2d10,#123c33);color:#ffd99b}
+.dashboard-link:hover,.generation-link:hover,.experiment-link:hover,.correlation-link:hover,.wealth-link:hover{filter:brightness(1.25)}
 
 /* La chapa del resumen del mes viaja con su boton, y su boton esta desde el
    2026-11-13 en las diecinueve pantallas: vivia en `monthly_summary.css`, que

@@ -46,6 +46,15 @@ MAXIMUM_SNAPSHOTS = 60
 MAXIMUM_BALANCE_DAYS = 8_000
 """Días de saldo conservados por cuenta: más de veinte años de calendario."""
 
+MAXIMUM_CASH = 20_000
+"""Apuntes de saldo conservados por cuenta.
+
+Son pocos y pesan: la cuenta con más historia del equipo lleva 249 en un año
+—216 de ellos rebates del bróker de céntimos— así que el tope sobra por dos
+órdenes de magnitud. Está por lo mismo que los otros dos: para que un JSON
+corrupto no se convierta en una lista infinita.
+"""
+
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -80,6 +89,19 @@ def account_key(login: Any, server: Any) -> str:
 def movement_rows(ordered: Iterable[tuple[Any, float]]) -> list[list[Any]]:
     """Los movimientos como los guarda el JSON: `[instante, importe]`."""
     return [[as_utc(moment).isoformat(), float(amount)] for moment, amount in ordered]
+
+
+def cash_rows(ordered: Iterable[tuple[Any, float, str, str]]) -> list[list[Any]]:
+    """Los apuntes de saldo como los guarda el JSON.
+
+    `[instante, importe, tipo, concepto]`. El concepto viaja entero porque es
+    lo único que separa un depósito de un traspaso a otra cuenta del usuario o
+    de un rebate, y quien lo lee es la pantalla, no esta capa.
+    """
+    return [
+        [as_utc(moment).isoformat(), float(amount), str(kind), str(comment)]
+        for moment, amount, kind, comment in ordered
+    ]
 
 
 def _stored_series(stored: dict[str, Any], key: str) -> list[tuple[str, float]]:
@@ -125,6 +147,30 @@ def stored_balances(stored: dict[str, Any]) -> list[tuple[str, float]]:
     return found
 
 
+def stored_cash(stored: dict[str, Any]) -> list[list[Any]]:
+    """Los apuntes de saldo guardados, ordenados y sin filas corruptas.
+
+    La lista vacía no significa «esta cuenta no tuvo ingresos»: puede ser una
+    serie anterior a la v6, que no los guardaba. Quien lo tiene que distinguir
+    es `live_account_report.cash_is_complete`, y por eso aquí no se inventa
+    ninguna respuesta.
+    """
+    found: list[list[Any]] = []
+    for row in stored.get("cash") or []:
+        if not isinstance(row, (list, tuple)) or len(row) < 2:
+            continue
+        try:
+            amount = float(row[1])
+        except (TypeError, ValueError):
+            continue
+        found.append([
+            str(row[0]), amount,
+            str(row[2]) if len(row) > 2 else "", str(row[3]) if len(row) > 3 else "",
+        ])
+    found.sort(key=lambda item: item[0])
+    return found
+
+
 def ordered_movements(stored: dict[str, Any]) -> list[tuple[datetime, float]]:
     """Lo mismo, con el instante ya convertido: lo que mide `live_account_series`.
 
@@ -163,7 +209,7 @@ class LiveAccountArchive:
             "account_key": key, "login": "", "server": "", "currency": "",
             "movements": [], "profits": [], "first_day": "", "last_day": "",
             "snapshots": [], "balance": 0.0, "equity": 0.0,
-            "balances": [], "normalization_version": "",
+            "balances": [], "cash": [], "normalization_version": "",
         }
         if not path.is_file():
             return empty
@@ -263,6 +309,39 @@ class LiveAccountArchive:
         return [[day, merged[day]] for day in sorted(merged)][-MAXIMUM_BALANCE_DAYS:]
 
     @classmethod
+    def _merged_cash(
+        cls, stored: dict[str, Any],
+        fresh: Sequence[tuple[Any, float, str, str]] | None,
+        period_start: str, period_end: str,
+    ) -> list[list[Any]]:
+        """Los apuntes después del sondeo, con la regla de siempre.
+
+        El periodo sondeado manda sobre sus días y lo de fuera se conserva. Un
+        informe que no trae ningún apunte en su ventana no sustituye nada: la
+        mayoría de las ventanas no tienen ninguno —son doce al año, no doce al
+        día— así que podar con eso se llevaría los ingresos ciertos de los
+        días que la ventana roza, que es el mismo fallo que ya costó la serie
+        entera de dos cuentas (`_merged_series`).
+        """
+        arrived = cls._inside(cash_rows(fresh or []), period_start, period_end)
+        if not arrived:
+            return stored_cash(stored)[-MAXIMUM_CASH:]
+        kept = cls._kept_rows(stored_cash(stored), period_start, period_end)
+        return sorted(kept + arrived, key=lambda row: row[0])[-MAXIMUM_CASH:]
+
+    @classmethod
+    def _kept_rows(
+        cls, rows: Sequence[Any], start: str, end: str,
+    ) -> list[Any]:
+        """`_kept` para filas que no son pares: poda la ventana por su fecha."""
+        if not start:
+            return []
+        return [
+            row for row in rows
+            if not start <= str(row[0])[:10] <= (end or "9999-12-31")
+        ]
+
+    @classmethod
     def _merged_series(
         cls, stored: Sequence[tuple[str, float]], fresh: Sequence[tuple[Any, float]],
         period_start: str, period_end: str,
@@ -292,12 +371,28 @@ class LiveAccountArchive:
             key=lambda row: row[0],
         )[-MAXIMUM_MOVEMENTS:]
 
+    @staticmethod
+    def _snapshots(
+        stored: dict[str, Any], taken_at: str, period_start: str, period_end: str,
+        fresh: Sequence[Any],
+    ) -> list[dict[str, Any]]:
+        """El diario de «cuándo se leyó esto», con la lectura de ahora al final."""
+        return [
+            *(row for row in stored.get("snapshots") or [] if isinstance(row, dict)),
+            {
+                "taken_at": taken_at or utc_now(),
+                "period_start": period_start, "period_end": period_end,
+                "movements": len(fresh),
+            },
+        ][-MAXIMUM_SNAPSHOTS:]
+
     def merge(
         self, node_id: str, key: str, *, login: Any, server: Any, currency: Any,
         movements: Sequence[tuple[Any, float]], period_start: str, period_end: str,
         profits: Sequence[tuple[Any, float]] | None = None,
         taken_at: str = "", balance: Any = None, equity: Any = None,
         balances: Sequence[tuple[str, float]] | None = None,
+        cash: Sequence[tuple[Any, float, str, str]] | None = None,
         normalization_version: str | None = None,
     ) -> dict[str, Any]:
         """Mete el sondeo en la serie y devuelve el registro ya guardado."""
@@ -311,14 +406,7 @@ class LiveAccountArchive:
                 stored_profits(stored), profits or movements, period_start, period_end,
             )
             days = self._merged_balances(stored, balances, period_start, period_end)
-            snapshots = [
-                *(row for row in stored.get("snapshots") or [] if isinstance(row, dict)),
-                {
-                    "taken_at": taken_at or utc_now(),
-                    "period_start": period_start, "period_end": period_end,
-                    "movements": len(fresh),
-                },
-            ][-MAXIMUM_SNAPSHOTS:]
+            apuntes = self._merged_cash(stored, cash, period_start, period_end)
             record = {
                 **stored,
                 "account_key": key,
@@ -330,7 +418,7 @@ class LiveAccountArchive:
                 "first_day": combined[0][0][:10] if combined else "",
                 "last_day": combined[-1][0][:10] if combined else "",
                 "updated_at": taken_at or utc_now(),
-                "snapshots": snapshots,
+                "snapshots": self._snapshots(stored, taken_at, period_start, period_end, fresh),
                 # El saldo y la equidad del momento de la lectura. No son serie
                 # —el informe nativo no los da por día— pero son lo que la
                 # tarjeta necesita para decir de qué tamaño es la cuenta.
@@ -342,6 +430,10 @@ class LiveAccountArchive:
                 # tamaño operaba la cuenta cada día. Lo necesita la promesa de
                 # una cuenta con autolote, donde el lote lo decide el saldo.
                 "balances": days,
+                # Los apuntes que no son de operar: ingresos, retiradas,
+                # traspasos y abonos del bróker. Sin ellos el saldo sube igual
+                # ganando que ingresando, y el patrimonio no se puede explicar.
+                "cash": apuntes,
                 "normalization_version": (
                     stored.get("normalization_version")
                     if normalization_version is None else normalization_version

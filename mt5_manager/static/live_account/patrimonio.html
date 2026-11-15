@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Patrimonio · MT5 Manager</title>
+  <!-- El armazón común: cabecera, botones, paneles y tablas. Lo propio de
+       esta pantalla va aparte, igual que en el resumen del mes. -->
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/live_audit_schedule.css">
+  <link rel="stylesheet" href="/patrimonio.css">
+  <!-- El manifiesto y el icono no son adorno: son lo que permite instalar el
+       manager en la pantalla de inicio, y en iOS eso es lo único que hace que
+       Safari acepte avisos. -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+</head>
+<body class="wealth-page">
+  <header>
+    <div>
+      <p class="eyebrow">OPERACIÓN REAL</p>
+      <h1>Patrimonio</h1>
+      <p class="subtitle">Todo el dinero que hay en real: cuánto puse yo, cuánto ha puesto operar y qué mes lo movió.</p>
+    </div>
+    <nav class="header-actions" aria-label="Navegación principal">
+      <!-- «Actualizar» abre la barra en todas las pantallas; al otro extremo
+           van la campana y «Reiniciar manager», que cierra. -->
+      <span id="refresh-state">Cargando…</span>
+      <button id="refresh" class="secondary" type="button">Actualizar</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- El aviso de lo que todavía no se sabe va **antes** de los números, no
+         en una nota al pie: hasta que el sondeo relea cada cuenta entera, los
+         ingresos y las retiradas no están en el archivo, y un cero en la
+         tarjeta se lee como medido. -->
+    <p class="wealth-notice" id="wealth-notice" hidden></p>
+
+    <section class="wealth-totals" id="wealth-totals" aria-live="polite">
+      <div class="wealth-card"><span>Patrimonio</span><strong>…</strong>
+        <small>Leyendo el archivo de las cuentas reales…</small></div>
+    </section>
+
+    <section class="panel-card wealth-panel">
+      <div class="panel-title">
+        <div>
+          <h2>Patrimonio al cierre de cada mes</h2>
+          <p class="subtitle">El saldo que publica el bróker, sumado en la moneda de la portada. Un mes anterior a la primera lectura de una cuenta no la incluye.</p>
+        </div>
+        <span id="wealth-chart-range"></span>
+      </div>
+      <div class="wealth-chart" id="wealth-chart"></div>
+    </section>
+
+    <section class="panel-card wealth-panel">
+      <div class="panel-title">
+        <div>
+          <h2>Qué movió el patrimonio</h2>
+          <p class="subtitle">Resultado de operar contra lo que entró y salió de las cuentas. El resultado es el neto —Profit más comisión y swap—, que es lo que mueve el saldo.</p>
+        </div>
+        <span id="wealth-flow-legend"></span>
+      </div>
+      <div class="wealth-chart" id="wealth-flow-chart"></div>
+    </section>
+
+    <section class="panel-card wealth-panel">
+      <div class="panel-title">
+        <div>
+          <h2>Mes a mes</h2>
+          <p class="subtitle">La columna «sin explicar» es lo que ni el resultado ni los flujos justifican: si no es cero, falta un apunte.</p>
+        </div>
+      </div>
+      <div class="universe-table-wrap wealth-table-wrap">
+        <table class="universe-table wealth-table" id="wealth-months">
+          <thead>
+            <tr>
+              <th>Mes</th><th>Patrimonio</th><th>Variación</th><th>Resultado</th>
+              <th>Ingresos</th><th>Retiradas</th><th>Traspasos</th><th>Abonos</th>
+              <th>Sin explicar</th><th>Cuentas</th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="10" class="portfolio-empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel-card wealth-panel">
+      <div class="panel-title">
+        <div>
+          <h2>Qué suma y qué resta cada portafolio</h2>
+          <p class="subtitle">Una fila por cuenta real, con los portafolios que opera. El importe de cada mes es el resultado de esa cuenta en ese mes, ya convertido.</p>
+        </div>
+        <span id="wealth-contributors-note"></span>
+      </div>
+      <div class="universe-table-wrap wealth-table-wrap">
+        <table class="universe-table wealth-matrix" id="wealth-contributors">
+          <thead><tr><th>Cuenta</th></tr></thead>
+          <tbody><tr><td class="portfolio-empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel-card wealth-panel">
+      <div class="panel-title">
+        <div>
+          <h2>Ingresos y retiradas</h2>
+          <p class="subtitle">Los apuntes de saldo del informe nativo, tal y como los escribió el bróker. Los abonos de céntimos no salen aquí: su importe entero está en la tarjeta.</p>
+        </div>
+        <span id="wealth-cash-note"></span>
+      </div>
+      <div class="universe-table-wrap wealth-table-wrap">
+        <table class="universe-table wealth-table" id="wealth-cash">
+          <thead>
+            <tr><th>Día</th><th>Cuenta</th><th>Clase</th><th>Importe</th><th>Concepto del bróker</th></tr>
+          </thead>
+          <tbody><tr><td colspan="5" class="portfolio-empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" role="status"></div>
+  <script src="/patrimonio.js"></script>
+  <script src="/live_account_schedule.js"></script>
+  <script src="/web_push.js"></script>
+  <script src="/manager_restart.js"></script>
+  <script src="/main_nav.js"></script>
+  <script src="/live_audit_schedule.js"></script>
+</body>
+</html>

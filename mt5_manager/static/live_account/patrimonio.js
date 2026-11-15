@@ -1,0 +1,445 @@
+// La pantalla de patrimonio: lo que hay, lo que se puso y lo que puso operar.
+//
+// Aquí **no se calcula ningún número**. Los importes, el reparto de cada
+// apunte, el cuadre de cada mes y el drawdown del patrimonio vienen de
+// `mt5_manager/live_account/live_account_wealth.py`, que es quien sabe que el
+// resultado comparable es el neto y que el patrimonio de un mes es el saldo
+// que publica el bróker. Lo único que se decide aquí es la geometría de las
+// barras y qué se dice cuando un dato no se sabe.
+//
+// Y eso último es la mitad del trabajo: mientras el sondeo no haya releído
+// una cuenta entera, sus ingresos y retiradas no están en el archivo. El
+// servidor manda `null`, no cero, y aquí se pinta «—» con el aviso delante.
+// Medido el 2026-11-15 sobre el archivo real: 40.086,65 € en quince cuentas y
+// 37.775,64 € de variación que todavía no se podía explicar.
+(() => {
+  const MONTHS = [
+    'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+    'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+  ];
+  const LONG_MONTHS = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
+    'septiembre', 'octubre', 'noviembre', 'diciembre',
+  ];
+  const KIND_LABELS = {
+    deposit: 'Ingreso', withdrawal: 'Retirada', transfer_in: 'Traspaso ↓',
+    transfer_out: 'Traspaso ↑', rebate: 'Abono',
+  };
+  const MAXIMUM_CASH_ROWS = 300;
+  const VIEW = {width: 960, height: 360, left: 92, right: 20, top: 26, bottom: 58};
+  const PLOT_WIDTH = VIEW.width - VIEW.left - VIEW.right;
+  const PLOT_HEIGHT = VIEW.height - VIEW.top - VIEW.bottom;
+
+  let currency = 'EUR';
+
+  const element = id => document.querySelector(id);
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+    })[character]);
+  }
+
+  // Un importe que no se sabe no es cero y no se pinta como tal: es la regla
+  // que esta pantalla repite en todas partes.
+  function money(value, {signed = false, decimals = 2} = {}) {
+    if (value === null || value === undefined) return '—';
+    return new Intl.NumberFormat('es-ES', {
+      style: 'currency', currency: currency || 'EUR',
+      minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+      ...(signed ? {signDisplay: 'exceptZero'} : {}),
+    }).format(Number(value));
+  }
+
+  function percent(value) {
+    if (value === null || value === undefined) return '—';
+    return `${Number(value).toLocaleString('es-ES', {maximumFractionDigits: 1})} %`;
+  }
+
+  function shortMonth(label) {
+    const parts = String(label || '').split('-');
+    const name = MONTHS[Number(parts[1]) - 1];
+    return name ? `${name} ${String(parts[0]).slice(2)}` : String(label || '');
+  }
+
+  function longMonth(label) {
+    const parts = String(label || '').split('-');
+    const name = LONG_MONTHS[Number(parts[1]) - 1];
+    return name ? `${name} de ${parts[0]}` : String(label || '');
+  }
+
+  function tone(value) {
+    if (value === null || value === undefined) return 'unknown';
+    return Number(value) > 0 ? 'positive' : Number(value) < 0 ? 'negative' : '';
+  }
+
+  function toast(message, isError = false) {
+    const box = element('#toast');
+    box.textContent = message;
+    box.classList.toggle('error', Boolean(isError));
+    box.classList.add('show');
+    window.setTimeout(() => box.classList.remove('show'), 6000);
+  }
+
+  // --- Las tarjetas de arriba ----------------------------------------------
+  function card(label, value, note, state = '') {
+    return `<div class="wealth-card ${state}"><span>${escapeHtml(label)}</span>`
+      + `<strong>${escapeHtml(value)}</strong>`
+      + `<small>${note}</small></div>`;
+  }
+
+  function totalsMarkup(data) {
+    const totals = data.totals;
+    const pending = data.warnings.cash_pending.length;
+    const partial = pending
+      ? `Parcial: faltan ${pending} de ${totals.accounts} cuentas por releer.`
+      : `Sobre las ${totals.accounts} cuentas releídas enteras.`;
+    return [
+      card(
+        'Patrimonio hoy', money(totals.balance),
+        `Equidad ${escapeHtml(money(totals.equity))} · ${totals.accounts} cuenta(s)`
+        + ` en ${escapeHtml(data.display_currency)}`,
+      ),
+      card(
+        'Resultado de operar', money(totals.profit, {signed: true}),
+        totals.return_on_contributed === null
+          ? 'Neto acumulado (Profit + comisión + swap). Sin lo aportado completo no hay rentabilidad.'
+          : `${escapeHtml(percent(totals.return_on_contributed))} sobre lo aportado`,
+        totals.profit >= 0 ? 'good' : 'bad',
+      ),
+      card(
+        'Puesto por mí', money(totals.cash_known ? totals.contributed : null),
+        escapeHtml(partial), totals.cash_known ? '' : 'unknown',
+      ),
+      card(
+        'Ingresos', money(totals.cash_known ? totals.deposits : null),
+        `Traspasos recibidos ${escapeHtml(money(totals.cash_known ? totals.transfers_in : null))}`,
+        totals.cash_known ? 'good' : 'unknown',
+      ),
+      card(
+        'Retiradas', money(totals.cash_known ? totals.withdrawals : null),
+        `Traspasos enviados ${escapeHtml(money(totals.cash_known ? totals.transfers_out : null))}`,
+        totals.cash_known ? 'bad' : 'unknown',
+      ),
+      card(
+        'Abonos del bróker', money(totals.cash_known ? totals.rebates : null),
+        'Rebates e intereses: entran en el saldo y no los puso nadie operando.',
+        totals.cash_known ? '' : 'unknown',
+      ),
+      card(
+        'Mayor caída del patrimonio', money(-totals.drawdown.amount),
+        `${escapeHtml(percent(totals.drawdown.percent))} desde el máximo de `
+        + `${escapeHtml(money(totals.drawdown.peak))}. Una retirada también lo baja.`,
+        totals.drawdown.amount ? 'bad' : '',
+      ),
+      card(
+        'Meses', `${totals.positive_months} ↑ / ${totals.negative_months} ↓`,
+        totals.best_month
+          ? `Mejor ${escapeHtml(longMonth(totals.best_month))} · peor `
+            + `${escapeHtml(longMonth(totals.worst_month))}`
+          : 'Todavía no hay un mes con operaciones.',
+      ),
+    ].join('');
+  }
+
+  function noticeMarkup(data) {
+    const notes = [];
+    const pending = data.warnings.cash_pending;
+    if (pending.length) {
+      notes.push(
+        `<strong>Los ingresos y las retiradas todavía no están en el archivo de `
+        + `${pending.length} cuenta(s).</strong> El manager empezó a guardar los apuntes `
+        + 'de saldo con esta versión, y están repartidos por toda la vida de cada cuenta: '
+        + 'hasta que el sondeo nocturno la relea entera no se pueden sumar. Mientras tanto '
+        + 'el patrimonio y el resultado de operar sí son firmes, y los flujos salen «—» en '
+        + 'vez de cero. «Sondeo de cuentas» lo lanza a mano.',
+      );
+    }
+    if (data.warnings.missing_rates.length) {
+      notes.push(
+        `<strong>Falta el cambio de ${escapeHtml(data.warnings.missing_rates.join(', '))}.</strong> `
+        + 'Esos importes se quedan fuera de todas las sumas: se pone en el cron de cuentas.',
+      );
+    }
+    if (data.warnings.blocked.length) {
+      notes.push(
+        `<strong>${data.warnings.blocked.length} cuenta(s) sin credenciales:</strong> `
+        + `${escapeHtml(data.warnings.blocked.join(', '))}. No se sondean, así que su saldo `
+        + 'no entra en el patrimonio.',
+      );
+    }
+    if (data.totals.cash_known && data.totals.worst_unexplained >= 1) {
+      notes.push(
+        `<strong>Hay ${escapeHtml(money(data.totals.worst_unexplained))} en un mes que ni el `
+        + 'resultado ni los flujos explican.</strong> Suele ser un apunte que el informe no '
+        + 'trajo, o una cuenta que se presenta a otro lote; la columna «sin explicar» dice en '
+        + 'qué mes.',
+      );
+    }
+    return notes.map(note => `<span>${note}</span>`).join('<br><br>');
+  }
+
+  // --- Los gráficos --------------------------------------------------------
+  function axis(labels) {
+    return labels.map(([value, y]) => (
+      `<line class="wealth-grid${value ? '' : ' zero'}" x1="${VIEW.left}" y1="${y.toFixed(1)}"`
+      + ` x2="${VIEW.left + PLOT_WIDTH}" y2="${y.toFixed(1)}"/>`
+      + `<text class="wealth-axis" x="${VIEW.left - 9}" y="${(y + 4).toFixed(1)}"`
+      + ` text-anchor="end">${escapeHtml(
+        Number(value).toLocaleString('es-ES', {maximumFractionDigits: 0}),
+      )}</text>`
+    )).join('');
+  }
+
+  // Con muchos meses las etiquetas se pisan, así que se saltan; el primero y
+  // el último se escriben siempre, que son los que dicen qué tramo se ve.
+  function monthLabels(months) {
+    const every = months.length > 32 ? 4 : months.length > 20 ? 3 : months.length > 13 ? 2 : 1;
+    const slot = PLOT_WIDTH / Math.max(1, months.length);
+    return months.map((month, index) => {
+      if (index % every !== 0 && index !== months.length - 1) return '';
+      return `<text class="wealth-month" x="${(VIEW.left + slot * (index + 0.5)).toFixed(1)}"`
+        + ` y="${VIEW.height - VIEW.bottom + 21}" text-anchor="middle">`
+        + `${escapeHtml(shortMonth(month.label))}</text>`;
+    }).join('');
+  }
+
+  function legend(items) {
+    const y = VIEW.height - 16;
+    return items.map(([className, text], index) => (
+      `<rect class="wealth-bar ${className}" x="${VIEW.left + index * 215}" y="${y - 10}"`
+      + ` width="11" height="11" rx="2"/>`
+      + `<text class="wealth-legend" x="${VIEW.left + index * 215 + 17}" y="${y}">`
+      + `${escapeHtml(text)}</text>`
+    )).join('');
+  }
+
+  function bar(className, x, width, top, height, title) {
+    return `<rect class="wealth-bar ${className}" x="${x.toFixed(1)}" y="${top.toFixed(1)}"`
+      + ` width="${width.toFixed(1)}" height="${Math.max(height, 1).toFixed(1)}" rx="1">`
+      + `<title>${escapeHtml(title)}</title></rect>`;
+  }
+
+  function svg(body) {
+    return `<svg viewBox="0 0 ${VIEW.width} ${VIEW.height}" role="img"`
+      + ` preserveAspectRatio="xMidYMid meet">${body}</svg>`;
+  }
+
+  // El patrimonio no baja del cero, así que su eje empieza ahí: dejarlo
+  // flotar haría parecer enorme una subida del 2 %.
+  function wealthChart(months) {
+    const known = months.filter(month => month.balance !== null);
+    if (!known.length) return '<p class="wealth-empty">Todavía no hay saldo guardado.</p>';
+    const top = Math.max(...known.map(month => month.balance)) * 1.08 || 1;
+    const slot = PLOT_WIDTH / months.length;
+    const width = Math.min(44, Math.max(2, slot * 0.62));
+    const y = value => VIEW.top + PLOT_HEIGHT - (value / top) * PLOT_HEIGHT;
+    const bars = months.map((month, index) => {
+      const start = VIEW.left + slot * index + (slot - width) / 2;
+      if (month.balance === null) {
+        return bar('unknown', start, width, VIEW.top + PLOT_HEIGHT - 3, 3,
+          `${longMonth(month.label)}: ninguna cuenta leída todavía`);
+      }
+      return bar(
+        '', start, width, y(month.balance), VIEW.top + PLOT_HEIGHT - y(month.balance),
+        `${longMonth(month.label)}: ${money(month.balance)} en ${month.accounts} cuenta(s)`,
+      );
+    }).join('');
+    const points = months.map((month, index) => (
+      month.balance === null ? ''
+        : `${(VIEW.left + slot * (index + 0.5)).toFixed(1)},${y(month.balance).toFixed(1)}`
+    )).filter(Boolean).join(' ');
+    const peak = Math.max(...known.map(month => month.balance));
+    return svg(
+      axis([[top, VIEW.top], [top / 2, VIEW.top + PLOT_HEIGHT / 2], [0, VIEW.top + PLOT_HEIGHT]])
+      + bars
+      + `<polyline class="wealth-line" points="${points}"/>`
+      + `<line class="wealth-peak" x1="${VIEW.left}" y1="${y(peak).toFixed(1)}"`
+      + ` x2="${VIEW.left + PLOT_WIDTH}" y2="${y(peak).toFixed(1)}"/>`
+      + `<text class="wealth-peak-label" x="${VIEW.left + 6}" y="${(y(peak) - 6).toFixed(1)}">`
+      + `máximo ${escapeHtml(money(peak, {decimals: 0}))}</text>`
+      + monthLabels(months),
+    );
+  }
+
+  // El segundo gráfico reparte la altura entre lo que sube y lo que baja, como
+  // el de una cuenta: con todos los meses en verde, media altura sobraría.
+  function flowChart(months) {
+    const values = months.flatMap(month => [month.profit, month.cash.net]);
+    const numbers = values.filter(value => value !== null && value !== undefined);
+    if (!numbers.length) return '<p class="wealth-empty">Todavía no hay meses medidos.</p>';
+    const up = Math.max(0, ...numbers) || 1;
+    const down = Math.max(0, ...numbers.map(value => -value)) || up * 0.1;
+    const zero = VIEW.top + (up / (up + down)) * PLOT_HEIGHT;
+    const slot = PLOT_WIDTH / months.length;
+    const gap = Math.min(5, slot * 0.1);
+    const width = Math.min(26, Math.max(2, (slot - gap * 3) / 2));
+    const height = (value) => (
+      value >= 0 ? (value / up) * (zero - VIEW.top)
+        : (-value / down) * (VIEW.height - VIEW.bottom - zero)
+    );
+    const pair = (month, index) => {
+      const start = VIEW.left + slot * index + (slot - width * 2 - gap) / 2;
+      const result = Number(month.profit || 0);
+      const drawn = bar(
+        result < 0 ? 'loss' : 'profit', start, width,
+        result >= 0 ? zero - height(result) : zero, height(result),
+        `${longMonth(month.label)}: resultado ${money(result, {signed: true})}`,
+      );
+      if (month.cash.net === null) {
+        return drawn + bar(
+          'unknown', start + width + gap, width, zero - 2, 4,
+          `${longMonth(month.label)}: flujos sin leer todavía`,
+        );
+      }
+      const flow = Number(month.cash.net);
+      return drawn + bar(
+        flow < 0 ? 'flow-out' : 'flow', start + width + gap, width,
+        flow >= 0 ? zero - height(flow) : zero, height(flow),
+        `${longMonth(month.label)}: entradas y salidas ${money(flow, {signed: true})}`,
+      );
+    };
+    return svg(
+      axis([
+        [up, VIEW.top], [0, zero], [-down, VIEW.height - VIEW.bottom],
+      ])
+      + months.map(pair).join('')
+      + monthLabels(months)
+      + legend([['profit', 'Resultado de operar'], ['flow', 'Ingresos y retiradas']]),
+    );
+  }
+
+  // --- Las tablas ----------------------------------------------------------
+  function monthsRows(data) {
+    const current = data.month;
+    return data.months.slice().reverse().map(month => {
+      const cash = month.cash;
+      const transfers = cash.transfer_in === null
+        ? null : cash.transfer_in + cash.transfer_out;
+      const mismatch = month.unexplained !== null && Math.abs(month.unexplained) >= 1;
+      return `<tr class="${month.label === current ? 'current-month' : ''}">`
+        + `<td>${escapeHtml(longMonth(month.label))}`
+        + `${month.label === current ? '<small>mes en curso</small>' : ''}</td>`
+        + `<td>${escapeHtml(money(month.balance))}</td>`
+        + `<td class="${tone(month.variation)}">${escapeHtml(money(month.variation, {signed: true}))}</td>`
+        + `<td class="${tone(month.profit)}">${escapeHtml(money(month.profit, {signed: true}))}</td>`
+        + `<td>${escapeHtml(money(cash.deposit))}</td>`
+        + `<td>${escapeHtml(money(cash.withdrawal))}</td>`
+        + `<td>${escapeHtml(money(transfers, {signed: true}))}</td>`
+        + `<td>${escapeHtml(money(cash.rebate))}</td>`
+        + `<td class="${mismatch ? 'mismatch' : 'unknown'}">`
+        + `${escapeHtml(money(month.unexplained, {signed: true}))}</td>`
+        + `<td>${month.accounts}</td></tr>`;
+    }).join('');
+  }
+
+  function contributorsMarkup(data) {
+    const head = '<tr><th>Cuenta y portafolios</th>'
+      + data.months.map(month => `<th>${escapeHtml(shortMonth(month.label))}</th>`).join('')
+      + '<th class="total-column">Total</th><th class="total-column">Saldo</th></tr>';
+    const rows = data.contributors.map(row => {
+      const names = row.portfolios.map(
+        portfolio => `#${portfolio.portfolio_id}${portfolio.autolot ? ' (autolote)' : ''}`
+          + ` ${portfolio.name || ''}`,
+      ).join(' · ') || 'sin portafolio vinculado';
+      return '<tr><td>'
+        + `<strong>${escapeHtml(row.login)}</strong> · ${escapeHtml(row.server)}`
+        + `<small>${escapeHtml(row.node_name)} · ${escapeHtml(names)}</small>`
+        + `<small>desde ${escapeHtml(shortMonth(row.first_month) || '—')}`
+        + ` · DD de operar ${escapeHtml(money(row.trade_drawdown))}`
+        + `${row.block_reason ? ` · ${escapeHtml(row.block_reason)}` : ''}</small></td>`
+        + row.monthly.map(value => (
+          `<td class="${tone(value)}">${escapeHtml(
+            value === null ? '—' : money(value, {signed: true, decimals: 0}),
+          )}</td>`
+        )).join('')
+        + `<td class="total-column ${tone(row.profit)}">`
+        + `${escapeHtml(money(row.profit, {signed: true, decimals: 0}))}</td>`
+        + `<td class="total-column">${escapeHtml(
+          new Intl.NumberFormat('es-ES', {
+            style: 'currency', currency: row.currency || 'EUR', maximumFractionDigits: 0,
+          }).format(Number(row.balance || 0)),
+        )}</td></tr>`;
+    }).join('');
+    return {head, rows};
+  }
+
+  function cashRows(data) {
+    const found = data.contributors.flatMap(row => row.cash_detail.map(apunte => ({
+      ...apunte, account: `${row.login} · ${row.server}`,
+    })));
+    found.sort((left, right) => right.day.localeCompare(left.day));
+    if (!found.length) return '';
+    return found.slice(0, MAXIMUM_CASH_ROWS).map(apunte => (
+      `<tr><td>${escapeHtml(apunte.day)}</td>`
+      + `<td class="wealth-concept">${escapeHtml(apunte.account)}</td>`
+      + `<td><span class="wealth-kind ${apunte.kind.replace('_', '-')}">`
+      + `${escapeHtml(KIND_LABELS[apunte.kind] || apunte.kind)}</span></td>`
+      + `<td class="${tone(apunte.amount)}">${escapeHtml(money(apunte.amount, {signed: true}))}</td>`
+      + `<td class="wealth-concept">${escapeHtml(apunte.comment || '—')}</td></tr>`
+    )).join('');
+  }
+
+  // --- El pintado ----------------------------------------------------------
+  function render(data) {
+    currency = data.display_currency || 'EUR';
+    element('#wealth-totals').innerHTML = totalsMarkup(data);
+    const notice = element('#wealth-notice');
+    const notes = noticeMarkup(data);
+    notice.innerHTML = notes;
+    notice.hidden = !notes;
+
+    element('#wealth-chart').innerHTML = wealthChart(data.months);
+    element('#wealth-flow-chart').innerHTML = flowChart(data.months);
+    element('#wealth-chart-range').textContent = data.months.length
+      ? `${longMonth(data.months[0].label)} → ${longMonth(data.months.at(-1).label)}`
+        + ` · ${data.months.length} mes(es)`
+      : 'sin meses guardados';
+    element('#wealth-flow-legend').textContent = data.totals.cash_known
+      ? 'Las dos barras de cada mes suman su variación.'
+      : 'Los flujos de las cuentas sin releer no se dibujan.';
+
+    element('#wealth-months').querySelector('tbody').innerHTML = data.months.length
+      ? monthsRows(data)
+      : '<tr><td colspan="10" class="portfolio-empty">Todavía no hay meses guardados.</td></tr>';
+
+    const contributors = contributorsMarkup(data);
+    const table = element('#wealth-contributors');
+    table.querySelector('thead').innerHTML = contributors.head;
+    table.querySelector('tbody').innerHTML = contributors.rows
+      || `<tr><td class="portfolio-empty">No hay ninguna cuenta real configurada.</td></tr>`;
+    element('#wealth-contributors-note').textContent = `${data.contributors.length} cuenta(s)`
+      + ` · importes en ${currency} salvo la columna de saldo`;
+
+    const apuntes = cashRows(data);
+    element('#wealth-cash').querySelector('tbody').innerHTML = apuntes
+      || '<tr><td colspan="5" class="portfolio-empty">Ningún apunte guardado todavía: el '
+        + 'sondeo nocturno los trae al releer cada cuenta entera.</td></tr>';
+    element('#wealth-cash-note').textContent = data.totals.cash_known
+      ? 'Los abonos de menos de un euro no se listan.'
+      : `Faltan ${data.warnings.cash_pending.length} cuenta(s) por releer.`;
+
+    const moment = new Date(data.generated_at);
+    element('#refresh-state').textContent = `Leído a las ${moment.toLocaleTimeString('es-ES')}`;
+  }
+
+  async function load() {
+    const state = element('#refresh-state');
+    state.textContent = 'Cargando…';
+    try {
+      const response = await fetch('/api/wealth', {cache: 'no-store'});
+      const text = await response.text();
+      let data = {};
+      try { data = text ? JSON.parse(text) : {}; }
+      catch (_error) { throw new Error(`Respuesta no válida (HTTP ${response.status})`); }
+      if (!response.ok) throw new Error(data.error || response.statusText);
+      render(data);
+    } catch (error) {
+      state.textContent = 'No se pudo leer el patrimonio';
+      toast(`No se pudo leer el patrimonio: ${error.message}`, true);
+    }
+  }
+
+  element('#refresh').addEventListener('click', load);
+  load();
+})();

@@ -73,6 +73,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `portfolio_repair_after_exclusion.md`: contrato de «Arreglar» una variante
   con estrategias excluidas, conservación de las restantes y guardado como un
   portafolio nuevo sin cambiar el protocolo del nodo.
+- `patrimonio.md`: la pantalla de patrimonio —el saldo de todas las cuentas mes
+  a mes, lo ingresado y lo retirado—, por qué los apuntes de saldo del informe
+  nativo son la única fuente posible y por qué la pantalla se calla hasta que
+  el sondeo relee cada cuenta entera.
 - `portfolio_active_strategies_filter.md`: la casilla heredable que limita
   creación, mejora y arreglo a estrategias de los usos `live_trading` del mismo
   broker, y por qué prevalece sobre «Excluir sets usados».

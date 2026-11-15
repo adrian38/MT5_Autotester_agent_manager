@@ -36,7 +36,10 @@ NOW = datetime(2026, 10, 21, 23, 30, tzinfo=ZoneInfo("Europe/Madrid"))
 
 def parsed_account():
     stamp = datetime(2026, 10, 20, 8, tzinfo=timezone.utc)
-    return [(stamp, 7.5)], [(stamp, 8.0)], [("2026-10-20", 1_000.0)]
+    return (
+        [(stamp, 7.5)], [(stamp, 8.0)], [("2026-10-20", 1_000.0)],
+        [(stamp, 500.0, "balance", "Transfer from 77027933")],
+    )
 
 
 def profile(**changes: object) -> dict[str, object]:

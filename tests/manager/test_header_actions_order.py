@@ -46,18 +46,19 @@ BACK_ARROW = "←"
 BELL = "🔔"
 
 ACCOUNT_CRON = "Sondeo de cuentas"
+WEALTH = "Patrimonio"
 SUMMARY = "Resumen del mes"
 ACCOUNTS = "Cuentas en real"
 SEEDS = "Experimenta Seeds"
 
 MAIN_NAV = "main_nav.js"
 NAV = (
-    SUMMARY, ACCOUNTS, "Portafolios activos", "Generación",
+    WEALTH, SUMMARY, ACCOUNTS, "Portafolios activos", "Generación",
     "Experimenta 1M", "Experimenta Prop", SEEDS,
 )
-"""Los siete destinos comunes, en el orden que pidió el usuario (2026-11-13).
+"""Los ocho destinos comunes, en el orden que pidió el usuario (2026-11-13).
 
-Están en las diecinueve pantallas y **siempre los primeros**: el de la pantalla
+Están en las veinte pantallas y **siempre los primeros**: el de la pantalla
 que se está viendo ocupa su hueco sin enlace, porque lo que se pidió no es sólo
 el orden sino que el sitio de cada botón no se mueva de una pantalla a otra. El
 séptimo era además el hueco del destino que no existía todavía; desde el
@@ -66,6 +67,10 @@ séptimo era además el hueco del destino que no existía todavía; desde el
 «Cuentas en real» es el segundo por la corrección del mismo día: el primer
 reparto lo dejó fuera, como botón propio de las tres pantallas que lo
 escribían, y volvía a quedar detrás del bloque y en distinto sitio.
+
+«Patrimonio» es el primero y también fijo, por petición del usuario
+(2026-11-15): es la pregunta de la que cuelgan las demás —cuánto dinero hay en
+real— y por eso abre la fila en vez de caer donde cada pantalla la escriba.
 """
 
 # Cada script que se monta solo, con lo que inserta antes del ancla. El orden
@@ -230,6 +235,13 @@ class HeaderActionsOrderTests(unittest.TestCase):
             "Actualizando…", "Actualizar", *NAV, "Correlación",
             BACK_ARROW, BELL, RESTART_LABEL,
         ],
+        # El patrimonio: su propio sondeo en la fila, como la portada de
+        # cuentas, porque es el que trae los ingresos y las retiradas que esta
+        # pantalla suma.
+        "patrimonio.html": [
+            "Cargando…", "Actualizar", *NAV, ACCOUNT_CRON,
+            BACK_ARROW, BELL, RESTART_LABEL,
+        ],
         "live_audit.html": [*NAV, "⚙ Cuenta final", BACK_ARROW, BELL, RESTART_LABEL],
         "live_audit_analysis.html": [
             *NAV,
@@ -306,6 +318,9 @@ class HeaderActionsOrderTests(unittest.TestCase):
             # La chapa del resumen se mudó aquí con su botón (2026-11-13):
             # vivía en `monthly_summary.css`, que sólo cargan tres pantallas.
             ".summary-link",
+            # El primero de la fila (2026-11-15). Su hoja propia la cargan una
+            # pantalla de veinte, así que el color vive aquí como los demás.
+            ".wealth-link",
         )
         for selector in selectors:
             with self.subTest(selector=selector):

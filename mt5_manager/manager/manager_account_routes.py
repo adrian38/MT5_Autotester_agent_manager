@@ -18,10 +18,11 @@ from typing import Any
 
 from ..live_account import (
     live_account_dashboard, live_account_inventory, live_account_monthly,
-    live_account_watch,
+    live_account_watch, live_account_wealth,
 )
 
 ACCOUNTS_PATH = "/api/live-accounts"
+WEALTH_PATH = "/api/wealth"
 SCHEDULER_PATH = "/api/live-account-scheduler-config"
 SNAPSHOT_NOW_PATH = "/api/live-account-snapshot-now"
 TOTAL_SELECTION_PATH = "/api/live-account-total-selection"
@@ -66,6 +67,13 @@ def _snapshot_now(handler) -> dict[str, Any]:
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     if parsed.path == ACCOUNTS_PATH:
         handler._send_json(200, live_account_dashboard.snapshot(handler.server))
+        return True
+    # El patrimonio: la vida entera de cada cuenta, mes a mes. Va por su propia
+    # ruta y no dentro de `/api/live-accounts` por lo mismo que el gráfico mes
+    # a mes: la portada se repinta cada minuto y esto son todos los meses y
+    # todos los apuntes de saldo de todas las cuentas.
+    if parsed.path == WEALTH_PATH:
+        handler._send_json(200, live_account_wealth.snapshot(handler.server))
         return True
     # La serie mes a mes de **una** cuenta: la pide el botón de su tarjeta al
     # abrirse, nunca el refresco de la portada. Son todos los movimientos de la

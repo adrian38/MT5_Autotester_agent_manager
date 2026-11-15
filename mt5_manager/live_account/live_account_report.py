@@ -22,11 +22,20 @@ from typing import Any, Iterable
 
 from portfolio_manager.mt5_report import parse_report
 
-from .live_account_series import as_utc, movements, net_movements
+from .live_account_series import as_utc, cash_movements, movements, net_movements
 
 
-SERIES_VERSION = "balance-series-v5-profit-column"
+SERIES_VERSION = "balance-series-v6-cash-movements"
 """Con qué criterio se armó la serie guardada, normalice o no esa cuenta.
+
+La v6 guarda los **apuntes de saldo**: ingresos, retiradas, traspasos entre
+cuentas y abonos del bróker, que hasta ahora se parseaban y se tiraban. Sube la
+versión porque un sondeo incremental sólo trae su ventana y los apuntes de una
+cuenta están repartidos por toda su vida: sin releerla entera, la pantalla de
+patrimonio tendría los depósitos de esta semana y ninguno de los anteriores,
+que es peor que no tener ninguno. Hasta que cada cuenta vuelva a leerse
+completa, `cash_is_complete` dice que no se sabe y la pantalla se calla en vez
+de enseñar un cero.
 
 La v5 guarda también la columna **Profit** separada del efecto neto en saldo.
 Antes sólo se conservaba `Profit + comisión + swap`, por lo que el resumen no
@@ -77,6 +86,22 @@ def series_version(symbol_lots: dict[str, float] | None) -> str:
 def ingestion_key(snapshot_id: str, versions: Iterable[str]) -> str:
     """La misma captura se relee una vez cuando cambia su criterio por lote."""
     return ":".join([snapshot_id, *sorted({str(value) for value in versions} - {""})])
+
+
+CASH_VERSION_PREFIX = "balance-series-v6"
+"""Desde qué versión la serie guardada incluye los apuntes de saldo."""
+
+
+def cash_is_complete(stored: dict[str, Any]) -> bool:
+    """Si los apuntes guardados son los de **toda** la vida de la cuenta.
+
+    La versión sólo se reescribe cuando el sondeo relee la serie entera
+    (`live_account_ingest._merge_account`), así que es exactamente la pregunta
+    que hay que hacer: una cuenta que todavía va por la v5 tiene los apuntes
+    que trajo la última ventana —o ninguno— y sumar eso daría un «aportado»
+    inventado. La ausencia se dice; no se rellena con un cero.
+    """
+    return str(stored.get("normalization_version") or "").startswith(CASH_VERSION_PREFIX)
 
 
 def normalized_deal(deal: Any, symbol_lots: dict[str, float]) -> Any:
@@ -133,13 +158,17 @@ def account_from_html(
     contents: bytes, symbol_lots: dict[str, float] | None = None,
 ) -> tuple[
     list[tuple[datetime, float]], list[tuple[datetime, float]],
-    list[tuple[str, float]],
+    list[tuple[str, float]], list[tuple[datetime, float, str, str]],
 ]:
-    """Los cierres netos, su Profit y el saldo diario, con una sola lectura.
+    """Cierres netos, su Profit, el saldo diario y los apuntes de saldo.
 
     Van juntos porque salen de la misma tabla y el informe de una cuenta con
     años de vida no es barato de parsear: leerlo dos veces, una por cada cosa,
     sería pagar dos veces lo mismo.
+
+    Los dos últimos salen de los cierres **sin normalizar**: el saldo y un
+    ingreso son dinero del bróker, y llevarlos a otro lote daría un tamaño de
+    cuenta y un aportado que no existieron.
     """
     if not contents:
         raise ValueError("El informe nativo de la cuenta real está vacío")
@@ -150,7 +179,10 @@ def account_from_html(
     normalized = [
         normalized_deal(deal, symbol_lots or {}) for deal in report.raw_deals
     ]
-    return net_movements(normalized), movements(normalized), daily_balances(report.raw_deals)
+    return (
+        net_movements(normalized), movements(normalized),
+        daily_balances(report.raw_deals), cash_movements(report.raw_deals),
+    )
 
 
 def movements_from_html(
