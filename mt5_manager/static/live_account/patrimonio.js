@@ -194,6 +194,102 @@
     return notes.map(note => `<span>${note}</span>`).join('<br><br>');
   }
 
+  // --- El detalle al pasar por encima --------------------------------------
+  // Un gráfico que no se deja leer número a número obliga a bajar a la tabla,
+  // y la tabla de meses no dice qué cuenta movió cada mes. Así que los dos
+  // gráficos cuentan el mismo mes y comparten un solo recuadro: al pasar por
+  // encima sale el mes entero —el cuadre incluido— y quién lo movió, nombrado
+  // por el **alias del portafolio**, que es como se llama aquí a todo.
+  //
+  // Lo que enciende el marcador —la guía y el punto sobre la curva— es el
+  // `:hover` de la hoja de estilo, no este código. Así no queda nada encendido
+  // cuando el ratón sale por un borde, que es justo donde se pierde un
+  // `mouseleave`.
+  let monthTips = [];
+  let tipBox = null;
+
+  function tipRow(label, value, state = '') {
+    return `<li class="${state}"><span>${escapeHtml(label)}</span>`
+      + `<strong>${escapeHtml(value)}</strong></li>`;
+  }
+
+  // Quién movió el mes. `per_account` viene con la clave de la cuenta, y lo
+  // que se escribe es el alias de sus portafolios: el número de cuenta no le
+  // dice nada a nadie.
+  function movers(data, month) {
+    const byKey = new Map(data.contributors.map(row => [row.account_key, row]));
+    return Object.entries(month.per_account || {})
+      .sort((left, right) => Math.abs(right[1]) - Math.abs(left[1]))
+      .map(([key, amount]) => {
+        const row = byKey.get(key);
+        return tipRow(
+          row ? `${portfolioNames(row)} · ${row.login}` : key,
+          money(amount, {signed: true, decimals: 0}), tone(amount),
+        );
+      });
+  }
+
+  function monthTip(data, month) {
+    const cash = month.cash;
+    const transfers = cash.transfer_in === null
+      ? null : cash.transfer_in + cash.transfer_out;
+    const mismatch = month.unexplained !== null && Math.abs(month.unexplained) >= 1;
+    const moved = movers(data, month);
+    return `<h3>${escapeHtml(longMonth(month.label))}</h3><ul>`
+      + tipRow('Patrimonio al cierre', money(month.balance))
+      + tipRow('Variación del mes', money(month.variation, {signed: true}), tone(month.variation))
+      + tipRow('Resultado de operar', money(month.profit, {signed: true}), tone(month.profit))
+      + tipRow('Ingresos', money(cash.deposit))
+      + tipRow('Retiradas', money(cash.withdrawal))
+      + tipRow('Traspasos', money(transfers, {signed: true}))
+      + tipRow('Abonos del bróker', money(cash.rebate))
+      + tipRow('Sin explicar', money(month.unexplained, {signed: true}),
+        mismatch ? 'mismatch' : 'unknown')
+      + '</ul>'
+      + (month.cash_known ? ''
+        : '<p>Los ingresos y las retiradas de este mes todavía no están en el archivo: '
+          + 'salen «—» en vez de cero, y por eso «sin explicar» no se puede calcular.</p>')
+      + (moved.length
+        ? `<h4>Quién lo movió · ${month.accounts} cuenta(s)</h4><ul>${moved.join('')}</ul>`
+        : '');
+  }
+
+  // El recuadro se sigue al ratón y se aparta solo cuando no cabe: pegado al
+  // borde derecho tapaba justo la columna que se estaba mirando.
+  function placeTip(box, event) {
+    const size = box.getBoundingClientRect();
+    const right = event.clientX + 18;
+    const left = right + size.width > window.innerWidth - 12
+      ? event.clientX - size.width - 18 : right;
+    const top = event.clientY - size.height / 2;
+    box.style.left = `${Math.max(12, left)}px`;
+    box.style.top = `${Math.min(Math.max(12, top), window.innerHeight - size.height - 12)}px`;
+  }
+
+  function showTip(event) {
+    const band = event.target.closest('.wealth-band');
+    if (!band) return hideTip();
+    if (!tipBox) {
+      tipBox = document.createElement('div');
+      tipBox.className = 'wealth-tip';
+      tipBox.hidden = true;
+      document.body.appendChild(tipBox);
+    }
+    if (tipBox.dataset.month !== band.dataset.month) {
+      tipBox.innerHTML = monthTips[Number(band.dataset.month)] || '';
+      tipBox.dataset.month = band.dataset.month;
+    }
+    tipBox.hidden = false;
+    placeTip(tipBox, event);
+  }
+
+  function hideTip() {
+    if (tipBox) {
+      tipBox.hidden = true;
+      delete tipBox.dataset.month;
+    }
+  }
+
   // --- Los gráficos --------------------------------------------------------
   function axis(labels) {
     return labels.map(([value, y]) => (
@@ -240,6 +336,30 @@
       + ` preserveAspectRatio="xMidYMid meet">${body}</svg>`;
   }
 
+  // La banda de un mes: ocupa su columna entera y va la última del SVG, encima
+  // de todo, para que el ratón no tenga que acertarle a la barra.
+  function hoverSlot(index, left, width, marker = '') {
+    return `<g class="wealth-slot">${marker}`
+      + `<rect class="wealth-band" data-month="${index}" x="${left.toFixed(1)}"`
+      + ` y="${VIEW.top}" width="${width.toFixed(1)}" height="${PLOT_HEIGHT}"/></g>`;
+  }
+
+  function guide(x) {
+    return `<line class="wealth-marker wealth-guide" x1="${x.toFixed(1)}" y1="${VIEW.top}"`
+      + ` x2="${x.toFixed(1)}" y2="${VIEW.top + PLOT_HEIGHT}"/>`;
+  }
+
+  function point(x, y) {
+    return `<circle class="wealth-marker wealth-point" cx="${x.toFixed(1)}"`
+      + ` cy="${y.toFixed(1)}" r="4.5"/>`;
+  }
+
+  function hoverBands(months, slot, marker) {
+    return months.map((month, index) => hoverSlot(
+      index, VIEW.left + slot * index, slot, marker(month, VIEW.left + slot * (index + 0.5)),
+    )).join('');
+  }
+
   // El patrimonio no baja del cero, así que su eje empieza ahí: dejarlo
   // flotar haría parecer enorme una subida del 2 %.
   function wealthChart(months) {
@@ -273,7 +393,12 @@
       + ` x2="${VIEW.left + PLOT_WIDTH}" y2="${y(peak).toFixed(1)}"/>`
       + `<text class="wealth-peak-label" x="${VIEW.left + 6}" y="${(y(peak) - 6).toFixed(1)}">`
       + `máximo ${escapeHtml(money(peak, {decimals: 0}))}</text>`
-      + monthLabels(months),
+      + monthLabels(months)
+      // El punto sobre la curva es lo que hace legible la línea: sin él hay
+      // que acertarle a dos píxeles para saber de qué mes se está hablando.
+      + hoverBands(months, slot, (month, middle) => (
+        guide(middle) + (month.balance === null ? '' : point(middle, y(month.balance)))
+      )),
     );
   }
 
@@ -320,7 +445,8 @@
       ])
       + months.map(pair).join('')
       + monthLabels(months)
-      + legend([['profit', 'Resultado de operar'], ['flow', 'Ingresos y retiradas']]),
+      + legend([['profit', 'Resultado de operar'], ['flow', 'Ingresos y retiradas']])
+      + hoverBands(months, slot, (_month, middle) => guide(middle)),
     );
   }
 
@@ -355,23 +481,28 @@
     return (nodeAliases.get(nodeId) || {})[portfolioId] || '';
   }
 
+  // El alias va delante y el número detrás: se identifica por el alias, y el
+  // número está porque es lo único que no cambia.
   function portfolioLabel(row, portfolio) {
     const id = Number(portfolio.portfolio_id || 0);
     const name = aliasOf(row.node_id, id) || portfolio.name || 'sin nombre';
-    return `#${id} ${name}${portfolio.autolot ? ' · autolote' : ''}`;
+    return `${name} (#${id})${portfolio.autolot ? ' · autolote' : ''}`;
+  }
+
+  function portfolioNames(row) {
+    return row.portfolios.map(portfolio => portfolioLabel(row, portfolio)).join(' · ')
+      || 'sin portafolio vinculado';
   }
 
   function contributorsMarkup(data) {
-    const head = '<tr><th>Cuenta y portafolios</th>'
+    const head = '<tr><th>Portafolio y cuenta</th>'
       + data.months.map(month => `<th>${escapeHtml(shortMonth(month.label))}</th>`).join('')
       + '<th class="total-column">Total</th><th class="total-column">Saldo</th></tr>';
-    const rows = data.contributors.map(row => {
-      const names = row.portfolios.map(
-        portfolio => portfolioLabel(row, portfolio),
-      ).join(' · ') || 'sin portafolio vinculado';
-      return '<tr><td>'
-        + `<strong>${escapeHtml(row.login)}</strong> · ${escapeHtml(row.server)}`
-        + `<small>${escapeHtml(row.node_name)} · ${escapeHtml(names)}</small>`
+    const rows = data.contributors.map(row => (
+      '<tr><td>'
+        + `<strong>${escapeHtml(portfolioNames(row))}</strong>`
+        + `<small class="wealth-account">${escapeHtml(row.login)} · `
+        + `${escapeHtml(row.server)} · ${escapeHtml(row.node_name)}</small>`
         + `<small>desde ${escapeHtml(shortMonth(row.first_month) || '—')}`
         + ` · DD de operar ${escapeHtml(money(row.trade_drawdown))}`
         + `${row.block_reason ? ` · ${escapeHtml(row.block_reason)}` : ''}</small></td>`
@@ -386,19 +517,22 @@
           new Intl.NumberFormat('es-ES', {
             style: 'currency', currency: row.currency || 'EUR', maximumFractionDigits: 0,
           }).format(Number(row.balance || 0)),
-        )}</td></tr>`;
-    }).join('');
+        )}</td></tr>`
+    )).join('');
     return {head, rows};
   }
 
+  // Un apunte sin el portafolio al que pertenece no se puede situar: el número
+  // de cuenta no dice qué está operando ahí, y es por lo que se pregunta.
   function cashRows(data) {
     const found = data.contributors.flatMap(row => row.cash_detail.map(apunte => ({
-      ...apunte, account: `${row.login} · ${row.server}`,
+      ...apunte, account: `${row.login} · ${row.server}`, portfolio: portfolioNames(row),
     })));
     found.sort((left, right) => right.day.localeCompare(left.day));
     if (!found.length) return '';
     return found.slice(0, MAXIMUM_CASH_ROWS).map(apunte => (
       `<tr><td>${escapeHtml(apunte.day)}</td>`
+      + `<td class="wealth-portfolio">${escapeHtml(apunte.portfolio)}</td>`
       + `<td class="wealth-concept">${escapeHtml(apunte.account)}</td>`
       + `<td><span class="wealth-kind ${apunte.kind.replace('_', '-')}">`
       + `${escapeHtml(KIND_LABELS[apunte.kind] || apunte.kind)}</span></td>`
@@ -452,6 +586,24 @@
       + ` · importes en ${currency} salvo la columna de saldo`;
   }
 
+  function renderCash(data) {
+    const apuntes = cashRows(data);
+    element('#wealth-cash').querySelector('tbody').innerHTML = apuntes
+      || '<tr><td colspan="6" class="portfolio-empty">Ningún apunte guardado todavía: el '
+        + 'sondeo nocturno los trae al releer cada cuenta entera.</td></tr>';
+    element('#wealth-cash-note').textContent = data.totals.cash_known
+      ? 'Los abonos de menos de un euro no se listan.'
+      : `Faltan ${data.warnings.cash_pending.length} cuenta(s) por releer.`;
+  }
+
+  // Las tres cosas que llevan el alias: las dos tablas y el detalle de los
+  // gráficos. Se repintan juntas porque el alias llega después del patrimonio.
+  function renderByAlias(data) {
+    monthTips = data.months.map(month => monthTip(data, month));
+    renderContributors(data);
+    renderCash(data);
+  }
+
   function render(data) {
     currency = data.display_currency || 'EUR';
     element('#wealth-totals').innerHTML = totalsMarkup(data);
@@ -474,15 +626,7 @@
       ? monthsRows(data)
       : '<tr><td colspan="10" class="portfolio-empty">Todavía no hay meses guardados.</td></tr>';
 
-    renderContributors(data);
-
-    const apuntes = cashRows(data);
-    element('#wealth-cash').querySelector('tbody').innerHTML = apuntes
-      || '<tr><td colspan="5" class="portfolio-empty">Ningún apunte guardado todavía: el '
-        + 'sondeo nocturno los trae al releer cada cuenta entera.</td></tr>';
-    element('#wealth-cash-note').textContent = data.totals.cash_known
-      ? 'Los abonos de menos de un euro no se listan.'
-      : `Faltan ${data.warnings.cash_pending.length} cuenta(s) por releer.`;
+    renderByAlias(data);
 
     const moment = new Date(data.generated_at);
     element('#refresh-state').textContent = `Leído a las ${moment.toLocaleTimeString('es-ES')}`;
@@ -507,9 +651,9 @@
       if (!response.ok) throw new Error(data.error || response.statusText);
       payload = data;
       render(data);
-      // Los alias llegan después y sólo repintan su tabla: abrir la memoria
-      // UBS del agente no puede retrasar el patrimonio.
-      if (await loadAliases(data) && payload === data) renderContributors(data);
+      // Los alias llegan después y sólo repintan lo que los lleva: abrir la
+      // memoria UBS del agente no puede retrasar el patrimonio.
+      if (await loadAliases(data) && payload === data) renderByAlias(data);
     } catch (error) {
       state.textContent = 'No se pudo leer el patrimonio';
       toast(`No se pudo leer el patrimonio: ${error.message}`, true);
@@ -656,6 +800,13 @@
   }
 
   element('#refresh').addEventListener('click', load);
+  // El detalle se escucha en el contenedor, no en cada banda: el SVG se
+  // reescribe entero en cada repintado y las bandas de antes ya no existen.
+  for (const id of ['#wealth-chart', '#wealth-flow-chart']) {
+    element(id).addEventListener('mousemove', showTip);
+    element(id).addEventListener('mouseleave', hideTip);
+  }
+  window.addEventListener('scroll', hideTip, {passive: true});
   element('#wealth-open-cron').addEventListener('click', openCron);
   cronField('#wealth-cron-close').addEventListener('click', () => cron.close());
   cronField('#wealth-cron-cancel').addEventListener('click', () => cron.close());

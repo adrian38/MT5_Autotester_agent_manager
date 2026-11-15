@@ -60,7 +60,7 @@
       <div class="panel-title">
         <div>
           <h2>Patrimonio al cierre de cada mes</h2>
-          <p class="subtitle">El saldo que publica el bróker, sumado en la moneda de la portada. Un mes anterior a la primera lectura de una cuenta no la incluye.</p>
+          <p class="subtitle">El saldo que publica el bróker, sumado en la moneda de la portada. Un mes anterior a la primera lectura de una cuenta no la incluye. Pasa por encima de un mes para ver su detalle entero y qué portafolio lo movió.</p>
         </div>
         <span id="wealth-chart-range"></span>
       </div>
@@ -75,7 +75,7 @@
         <div class="panel-title">
           <div>
             <h2>Qué movió el patrimonio</h2>
-            <p class="subtitle">Resultado de operar contra lo que entró y salió. El resultado es el neto —Profit más comisión y swap—, que es lo que mueve el saldo.</p>
+            <p class="subtitle">Resultado de operar contra lo que entró y salió. El resultado es el neto —Profit más comisión y swap—, que es lo que mueve el saldo. Pasa por encima de un mes para ver el mismo detalle.</p>
           </div>
           <span id="wealth-flow-legend"></span>
         </div>
@@ -131,9 +131,11 @@
       <div class="universe-table-wrap wealth-table-wrap">
         <table class="universe-table wealth-table" id="wealth-cash">
           <thead>
-            <tr><th>Día</th><th>Cuenta</th><th>Clase</th><th>Importe</th><th>Concepto del bróker</th></tr>
+            <tr><th>Día</th><th class="wealth-portfolio">Portafolio</th>
+              <th class="wealth-concept">Cuenta</th><th>Clase</th><th>Importe</th>
+              <th class="wealth-concept">Concepto del bróker</th></tr>
           </thead>
-          <tbody><tr><td colspan="5" class="portfolio-empty">Cargando…</td></tr></tbody>
+          <tbody><tr><td colspan="6" class="portfolio-empty">Cargando…</td></tr></tbody>
         </table>
       </div>
     </section>

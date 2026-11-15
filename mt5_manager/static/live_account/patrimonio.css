@@ -10,13 +10,23 @@
  * texto y lo que aqui corta la tabla de catorce meses por la mitad. Esta es
  * una pantalla de datos: se le da el ancho de la ventana con un tope, y lo
  * demas se aprieta -tipos mas pequenos, menos aire- porque lo que se pidio es
- * poder mirarla entera sin recorrerla. */
-.wealth-page main{display:grid;gap:14px;max-width:min(1480px,100%);padding:20px max(16px,2.5vw) 46px}
+ * poder mirarla entera sin recorrerla.
+ *
+ * El tope **va centrado**. Sin `margin-inline`, en una pantalla ancha todo se
+ * pegaba a la izquierda y dejaba un palmo muerto a la derecha, justo al lado
+ * de las tablas que si se recorren por dentro: parecia que faltaba contenido.
+ * La cabecera no se centra con un margen propio -su linea inferior tiene que
+ * cruzar la ventana entera-, asi que se le da el mismo hueco en el padding;
+ * por eso el ancho y el canal son variables y no dos numeros repetidos. */
+.wealth-page{--wealth-width:1680px;--wealth-gutter:max(16px,2.5vw)}
+.wealth-page main{display:grid;gap:14px;width:100%;max-width:var(--wealth-width);
+  margin-inline:auto;padding:20px var(--wealth-gutter) 46px}
 .wealth-page .panel-title{align-items:start;padding:13px 16px}
 .wealth-page .panel-title h2{font-size:15px}
 .wealth-page .panel-title .subtitle{margin-top:4px;font-size:11.5px;line-height:1.45;max-width:70ch}
 .wealth-page .panel-title>span{flex:0 0 auto;text-align:right;font-size:11px}
-.wealth-page header{padding:22px max(16px,2.5vw) 16px}
+.wealth-page header{padding:22px calc(var(--wealth-gutter)
+  + max(0px,(100% - var(--wealth-width))/2)) 16px}
 
 /* Dos paneles por fila mientras quepan: el grafico de lo que movio el
  * patrimonio y la tabla que lo detalla son la misma pregunta. */
@@ -73,6 +83,38 @@
 .wealth-peak-label{fill:var(--warn);font-size:11px}
 .wealth-empty{padding:34px;color:var(--muted);text-align:center}
 
+/* El detalle al pasar por encima.
+ *
+ * Lo que captura el raton es una banda transparente del alto del grafico, una
+ * por mes: asi reacciona el mes entero y no hay que acertarle a los pixeles de
+ * la barra -ni, en la curva, a una linea de dos pixeles-. `fill:transparent`
+ * no es lo mismo que `fill:none`: pintado transparente si recibe el puntero.
+ *
+ * El marcador -la guia y el punto sobre la curva- lo enciende este `:hover`,
+ * no el JavaScript. Asi no queda nada encendido cuando el raton sale por un
+ * borde, que es justo donde un `mouseleave` se pierde. */
+.wealth-band{fill:transparent;cursor:crosshair}
+.wealth-marker{opacity:0;pointer-events:none;transition:opacity .1s}
+.wealth-slot:hover .wealth-marker{opacity:1}
+.wealth-slot:hover .wealth-band{fill:#5ad0ff12}
+.wealth-guide{stroke:var(--accent2);stroke-width:1;stroke-dasharray:3 4}
+.wealth-point{fill:var(--accent2);stroke:#07131c;stroke-width:2}
+.wealth-tip{position:fixed;z-index:60;width:312px;max-height:min(86vh,640px);overflow:hidden;
+  padding:12px 14px;border:1px solid #2e4a63;border-radius:12px;background:#0b1620f5;
+  box-shadow:0 18px 50px #000b;color:var(--text);font-size:12px;pointer-events:none}
+.wealth-tip h3{margin:0 0 9px;font-size:13.5px}
+.wealth-tip h4{margin:13px 0 6px;color:var(--muted);font-size:10px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase}
+.wealth-tip ul{display:grid;gap:4px;margin:0;padding:0;list-style:none}
+.wealth-tip li{display:flex;align-items:baseline;justify-content:space-between;gap:14px}
+.wealth-tip li span{overflow:hidden;color:var(--muted);text-overflow:ellipsis;white-space:nowrap}
+.wealth-tip li strong{flex:0 0 auto;font-variant-numeric:tabular-nums}
+.wealth-tip li.positive strong{color:var(--accent2)}
+.wealth-tip li.negative strong{color:var(--danger)}
+.wealth-tip li.unknown strong{color:#5e7488}
+.wealth-tip li.mismatch strong{color:var(--warn)}
+.wealth-tip p{margin:11px 0 0;color:var(--warn);font-size:11px;line-height:1.5}
+
 /* Las tablas. `font-variant-numeric` es lo que permite comparar importes de
  * una fila a otra sin que los digitos bailen. */
 /* Las tablas caben en una pantalla y se recorren por dentro: la de los meses
@@ -100,7 +142,20 @@
 .wealth-kind.withdrawal{color:var(--danger)}
 .wealth-kind.transfer-in,.wealth-kind.transfer-out{color:var(--blue)}
 .wealth-kind.rebate{color:var(--warn)}
-.wealth-concept{max-width:430px;overflow-wrap:anywhere;white-space:normal;text-align:left}
+.wealth-concept{max-width:430px;overflow-wrap:anywhere;white-space:normal}
+/* El alias del portafolio es por lo que se identifica todo, asi que va en su
+ * columna y no apretado dentro de otra: es lo que se lee primero de la fila. */
+.wealth-portfolio{max-width:300px}
+/* Las columnas de texto se alinean a la izquierda, y hace falta nombrar la
+ * tabla para ganarle a `td:not(:first-child)`, que alinea a la derecha: con un
+ * solo punto de especificidad este `text-align` no se aplicaba, y por eso el
+ * numero de cuenta aparecia pegado al borde con un hueco delante. */
+.wealth-table th.wealth-concept,.wealth-table td.wealth-concept,
+.wealth-table th.wealth-portfolio,.wealth-table td.wealth-portfolio{text-align:left}
+/* En la matriz el alias es el titular de la fila, asi que ocupa su linea y la
+ * cuenta baja debajo: antes el titular era el numero de cuenta. */
+.wealth-matrix td:first-child strong{display:block}
+.wealth-matrix td:first-child .wealth-account{color:#cfe1e7;font-size:11.5px}
 @media(max-width:760px){
   .wealth-page .panel-title{flex-direction:column}
   .wealth-page .panel-title>span{text-align:left}
