@@ -247,7 +247,7 @@ cinco módulos.
 | `mt5_manager/portfolio/` | 51 | portafolios: generación, mejora, importación y persistencia |
 | `mt5_manager/live_audit/` | 41 | auditoría de cuentas reales: emparejado, degradación y lotes |
 | `mt5_manager/manager/` | 17 | proceso manager: configuración, rutas HTTP, servidor y arranque |
-| `mt5_manager/live_account/` | 15 | cuentas reales: ingesta, inventario, series, patrimonio y presentación |
+| `mt5_manager/live_account/` | 17 | cuentas reales: ingesta, inventario, series, patrimonio y presentación |
 | `mt5_manager/node/` | 11 | el nodo de **este** repositorio, que ningún agente ejecuta |
 | `mt5_manager/monthly_summary/` | 8 | resumen mensual: construcción, cobertura y evidencia |
 | `mt5_manager/experiment/` | 10 | los dos laboratorios del millón: búsqueda, simulación, el pool de seeds y sus rutas |

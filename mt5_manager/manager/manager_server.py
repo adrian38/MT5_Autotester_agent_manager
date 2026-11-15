@@ -16,7 +16,9 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from ..live_account import live_account_schedule, live_account_watch
+from ..live_account import (
+    live_account_schedule, live_account_watch, live_account_wealth_watch,
+)
 from ..live_audit import live_audit_schedule, live_audit_watch
 from . import manager_tls
 from ..web_push import web_push
@@ -190,6 +192,9 @@ class ManagerServer(ThreadingHTTPServer):
             self.live_account_scheduler_settings = (
                 normalize_live_account_scheduler_settings({})
             )
+        # La cita del patrimonio: su propio JSON y su propio registro, por lo
+        # mismo que éste no comparte el del cron de auditoría.
+        live_account_wealth_watch.configure(self, settings_path)
         monthly_summary_runtime.configure(self, config, settings_path)
 
     def update_monthly_summary(self, changes: dict[str, Any]) -> dict[str, Any]:
@@ -229,6 +234,12 @@ class ManagerServer(ThreadingHTTPServer):
                 live_account_watch.tick(self)
             except Exception as exc:
                 sys.stderr.write(f"[live-account-scheduler] {exc}\n")
+            try:
+                # Después de recoger, no antes: así la relectura ve cerrado el
+                # sondeo que ella misma pidió la vuelta anterior.
+                live_account_wealth_watch.tick(self)
+            except Exception as exc:
+                sys.stderr.write(f"[wealth-scheduler] {exc}\n")
             self.live_account_wakeup.wait(_LIVE_AUDIT_INTERNAL_CHECK_INTERVAL_SECONDS)
             self.live_account_wakeup.clear()
 

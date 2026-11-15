@@ -18,11 +18,13 @@ from typing import Any
 
 from ..live_account import (
     live_account_dashboard, live_account_inventory, live_account_monthly,
-    live_account_watch, live_account_wealth,
+    live_account_watch, live_account_wealth, live_account_wealth_watch,
 )
 
 ACCOUNTS_PATH = "/api/live-accounts"
 WEALTH_PATH = "/api/wealth"
+WEALTH_SCHEDULER_PATH = "/api/wealth-scheduler-config"
+WEALTH_NOW_PATH = "/api/wealth-snapshot-now"
 SCHEDULER_PATH = "/api/live-account-scheduler-config"
 SNAPSHOT_NOW_PATH = "/api/live-account-snapshot-now"
 TOTAL_SELECTION_PATH = "/api/live-account-total-selection"
@@ -93,6 +95,11 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     if parsed.path == SCHEDULER_PATH:
         handler._send_json(200, handler.server.live_account_scheduler_state())
         return True
+    # La cita propia del patrimonio: la relectura completa, que es otra cosa
+    # que el sondeo diario y por eso tiene su registro y su pantalla.
+    if parsed.path == WEALTH_SCHEDULER_PATH:
+        handler._send_json(200, live_account_wealth_watch.state(handler.server))
+        return True
     return False
 
 
@@ -115,6 +122,20 @@ def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
     if parsed.path == SNAPSHOT_NOW_PATH:
         try:
             handler._send_json(202, _snapshot_now(handler))
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            handler._send_json(400, {"error": str(exc)})
+        return True
+    if parsed.path == WEALTH_SCHEDULER_PATH:
+        try:
+            handler._send_json(
+                200, live_account_wealth_watch.update(handler.server, handler._body()),
+            )
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            handler._send_json(400, {"error": str(exc)})
+        return True
+    if parsed.path == WEALTH_NOW_PATH:
+        try:
+            handler._send_json(202, live_account_wealth_watch.run_now(handler.server))
         except (ValueError, OSError, json.JSONDecodeError) as exc:
             handler._send_json(400, {"error": str(exc)})
         return True

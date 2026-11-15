@@ -516,16 +516,159 @@
     }
   }
 
+  // --- La cita propia: la relectura completa -------------------------------
+  // No es el sondeo de «Cuentas en real». Aquél relee los últimos días para
+  // saber cómo va hoy; éste pide el informe **completo** de cada cuenta, que
+  // es lo único que trae todos los ingresos y las retiradas, y por eso espera
+  // a que el agente esté libre en vez de entrar en mitad de unas pruebas.
+  const WEEKDAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+  const NODE_STATES = {
+    waiting: ['warn', 'esperando al agente'],
+    launched: ['', 'leyendo ahora'],
+    done: ['good', 'hecha'],
+    expired: ['bad', 'se agotó la espera'],
+    failed: ['bad', 'no se pudo pedir'],
+  };
+
+  const cron = document.createElement('dialog');
+  cron.className = 'cron-dialog';
+  cron.id = 'wealth-cron-dialog';
+  cron.innerHTML = `
+    <form method="dialog" id="wealth-cron-form">
+      <div class="cron-head">
+        <div><p class="eyebrow">PATRIMONIO</p><h2>Relectura completa</h2></div>
+        <button type="button" class="secondary" id="wealth-cron-close" aria-label="Cerrar">×</button>
+      </div>
+      <div class="cron-body">
+        <p class="cron-note" id="wealth-cron-description"></p>
+        <label class="cron-switch">
+          <input id="wealth-cron-enabled" type="checkbox">
+          <span><strong>Releer la vida entera de cada cuenta</strong>
+            <small>Sólo las cuentas que suman en el patrimonio. Cada una se abre en una
+            terminal del agente, así que la cita espera a que esté libre.</small></span>
+        </label>
+        <div class="cron-grid">
+          <label>Día<select id="wealth-cron-weekday"></select></label>
+          <label>Hora<input id="wealth-cron-hour" type="number" min="0" max="23" required></label>
+          <label>Minuto<input id="wealth-cron-minute" type="number" min="0" max="59" required></label>
+          <label>Zona horaria<input id="wealth-cron-timezone" placeholder="Europe/Madrid" required></label>
+          <label>Horas esperando al agente
+            <input id="wealth-cron-wait" type="number" min="1" max="168" required></label>
+        </div>
+        <p class="cron-note" id="wealth-cron-next"></p>
+        <p class="cron-warning" id="wealth-cron-timezone-warning" hidden></p>
+        <ul class="cron-targets" id="wealth-cron-nodes"></ul>
+      </div>
+      <footer>
+        <button type="button" class="secondary" id="wealth-cron-run">Releer ahora</button>
+        <button type="button" class="secondary" id="wealth-cron-cancel">Cancelar</button>
+        <button type="submit">Guardar cita</button>
+      </footer>
+    </form>`;
+  document.body.appendChild(cron);
+
+  const cronField = id => cron.querySelector(id);
+
+  function applyCron(data) {
+    cronField('#wealth-cron-description').textContent = data.description || '';
+    cronField('#wealth-cron-enabled').checked = Boolean(data.enabled);
+    cronField('#wealth-cron-weekday').innerHTML = WEEKDAYS.map((name, index) => (
+      `<option value="${index}"${index === Number(data.weekday) ? ' selected' : ''}>`
+      + `${escapeHtml(name)}</option>`
+    )).join('');
+    cronField('#wealth-cron-hour').value = Number(data.hour);
+    cronField('#wealth-cron-minute').value = Number(data.minute);
+    cronField('#wealth-cron-timezone').value = data.timezone || '';
+    cronField('#wealth-cron-wait').value = Number(data.wait_hours);
+    cronField('#wealth-cron-next').textContent = data.enabled
+      ? `Próxima: ${new Date(data.next_run_at).toLocaleString('es-ES')}`
+      : 'Sin armar: sólo se relee con «Releer ahora».';
+    const warning = cronField('#wealth-cron-timezone-warning');
+    warning.textContent = data.timezone_warning || '';
+    warning.hidden = !data.timezone_warning;
+    cronField('#wealth-cron-nodes').innerHTML = (data.nodes || []).map(node => {
+      const [tone, label] = NODE_STATES[node.status] || ['', 'sin pedir todavía'];
+      const detail = node.status === 'waiting' && node.waiting_reason
+        ? ` · ${node.waiting_reason}` : '';
+      const when = node.completed_at
+        ? ` · última ${new Date(node.completed_at).toLocaleString('es-ES')}` : '';
+      return `<li class="${tone === 'warn' ? 'blocked' : tone}">`
+        + `<strong>${escapeHtml(node.node_name)}</strong> — `
+        + `<span>${node.accounts} cuenta(s) · ${escapeHtml(label)}`
+        + `${escapeHtml(detail)}${escapeHtml(when)}</span></li>`;
+    }).join('') || '<li><span>Ningún agente con cuentas que sumen.</span></li>';
+  }
+
+  async function askCron(path, options) {
+    const response = await fetch(path, options);
+    const text = await response.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; }
+    catch (_error) { throw new Error(`Respuesta no válida (HTTP ${response.status})`); }
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    return data;
+  }
+
+  async function openCron() {
+    try {
+      applyCron(await askCron('/api/wealth-scheduler-config', {cache: 'no-store'}));
+      cron.showModal();
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function saveCron(event) {
+    event.preventDefault();
+    try {
+      applyCron(await askCron('/api/wealth-scheduler-config', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          enabled: cronField('#wealth-cron-enabled').checked,
+          weekday: Number(cronField('#wealth-cron-weekday').value),
+          hour: Number(cronField('#wealth-cron-hour').value),
+          minute: Number(cronField('#wealth-cron-minute').value),
+          timezone: cronField('#wealth-cron-timezone').value.trim(),
+          wait_hours: Number(cronField('#wealth-cron-wait').value),
+        }),
+      }));
+      toast('Cita del patrimonio guardada.');
+      cron.close();
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function runCron() {
+    const warning = '¿Releer ahora la vida entera de cada cuenta?\n\n'
+      + 'Cada cuenta se abre en una terminal del agente y el pipeline se pausa '
+      + 'mientras dura. Si el agente está ocupado no se lanza: se dice y ya está.';
+    if (!window.confirm(warning)) return;
+    try {
+      const data = await askCron('/api/wealth-snapshot-now', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+      });
+      const started = (data.launched || []).length;
+      const skipped = (data.skipped || []).map(row => `${row.node_id}: ${row.reason}`);
+      toast(
+        `Relectura pedida a ${started} agente${started === 1 ? '' : 's'}.`
+        + (skipped.length ? ` Sin lanzar — ${skipped.join(' | ')}` : ''),
+        started === 0,
+      );
+      applyCron(await askCron('/api/wealth-scheduler-config', {cache: 'no-store'}));
+    } catch (error) { toast(error.message, true); }
+  }
+
   element('#refresh').addEventListener('click', load);
-  // La configuración del sondeo es la misma que la de la portada, con su cron,
-  // su «Sondear ahora» y los cambios de divisa: se abre su diálogo en vez de
-  // escribir otro que pudiera guardar algo distinto. El botón que lo monta
+  element('#wealth-open-cron').addEventListener('click', openCron);
+  cronField('#wealth-cron-close').addEventListener('click', () => cron.close());
+  cronField('#wealth-cron-cancel').addEventListener('click', () => cron.close());
+  cronField('#wealth-cron-form').addEventListener('submit', saveCron);
+  cronField('#wealth-cron-run').addEventListener('click', runCron);
+  // El otro botón es el de la portada —el sondeo diario y los cambios de
+  // divisa—, que es otra cosa y se configura en su propio diálogo. Su botón
   // vive en la cabecera y acaba dentro del desplegable «Menú», donde no lo
   // encuentra nadie; esto es el mismo botón en un sitio visible.
-  element('#wealth-open-cron').addEventListener('click', () => {
+  element('#wealth-open-accounts-cron').addEventListener('click', () => {
     const shared = document.querySelector('#open-account-cron');
     if (shared) shared.click();
-    else toast('La configuración del sondeo todavía se está cargando.', true);
+    else toast('La configuración del sondeo diario todavía se está cargando.', true);
   });
   load();
 })();

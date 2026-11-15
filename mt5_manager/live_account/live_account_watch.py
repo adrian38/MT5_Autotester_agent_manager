@@ -237,8 +237,16 @@ def _period(server: Any, node_id: str, accounts: list[dict[str, Any]], now: date
 def launch(
     server: Any, node: dict[str, Any], node_id: str, accounts: list[dict[str, Any]],
     window: str, attempts: int, now: datetime,
+    period: tuple[str, str] | None = None, reason: str = "",
 ) -> None:
-    """Pide el sondeo al agente y deja escrito cómo fue."""
+    """Pide el sondeo al agente y deja escrito cómo fue.
+
+    `period` lo impone quien llama; sin él lo decide `_period`, que pide lo
+    justo desde el último día guardado. La relectura completa del patrimonio
+    pasa `("", hoy)` porque necesita toda la vida de cada cuenta, y `reason`
+    es lo que la campana dice en vez de la cadencia del cron diario: el aviso
+    tiene que distinguir qué cita entró en las terminales.
+    """
     runs, settings = server.live_account_runs, server.live_account_scheduler_settings
     key = runs.key(node_id, SNAPSHOT_KEY)
     name = str(node.get("name") or node_id)
@@ -255,7 +263,7 @@ def launch(
             **common,
         )
         return
-    start, end = _period(server, node_id, accounts, now)
+    start, end = period if period is not None else _period(server, node_id, accounts, now)
     try:
         status, response = manager_http.node_request(
             node, "POST", "/api/v1/live-accounts/snapshot", {
@@ -281,7 +289,7 @@ def launch(
         "info", f"Sondeo de cuentas lanzado en {name}",
         f"{len(payload_accounts)} cuenta(s), periodo "
         f"{start or 'desde el principio'} a {end} · "
-        f"{live_account_schedule.schedule_label(settings)}",
+        f"{reason or live_account_schedule.schedule_label(settings)}",
         **common,
     )
 

@@ -29,6 +29,10 @@
 .wealth-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .wealth-toolbar button{padding:8px 13px;font-size:12px}
 .wealth-toolbar .cron-note{color:var(--muted);font-size:11.5px;line-height:1.45}
+/* El estado de la cita por agente, dentro del dialogo: el que se agoto o el
+ * que fallo se leen de un vistazo, no leyendo la frase entera. */
+#wealth-cron-nodes li.good strong{color:var(--accent2)}
+#wealth-cron-nodes li.bad{color:var(--danger)}
 
 /* El aviso de lo que todavia no se sabe. Va antes de los numeros a proposito:
  * mientras el sondeo no relea cada cuenta entera, los ingresos y las retiradas

@@ -104,6 +104,55 @@ creérselo. El primer mes no se cuadra (no hay patrimonio anterior) y con
 cuentas sin releer tampoco, porque el descuadre sería justo el dinero que
 todavía no está en el archivo.
 
+## Suma lo que la portada marca «Sumar»
+
+La primera versión sumaba las quince cuentas y daba 40.086,65 €. Cinco tienen
+«Sumar» desmarcado en «Cuentas en real» —tres demo y dos de RoboForex— y
+metían 18.125 € que no son dinero real: el patrimonio de verdad son
+21.960,85 €. Se respeta la **misma** selección compartida
+(`LiveAccountArchive.total_selection`), con la misma clave que escribe
+`accounts.js` (`<nodo>::<login@servidor>`), y por eso la construye una sola
+función (`live_account_wealth.selection_key`): dos formas de componerla serían
+dos pantallas que no coinciden. Las que quedan fuera se nombran arriba con su
+saldo; esconderlas haría leer el total como si fuera el de todas.
+
+## La cita del patrimonio es otro cron, y hace cola
+
+Petición del usuario (2026-11-15), después de ver el aviso «El terminal no
+tiene el historial de la cuenta» en tres cuentas: el sondeo que alimenta esta
+pantalla **no es el de «Cuentas en real»**.
+
+| | Sondeo diario | Relectura del patrimonio |
+| --- | --- | --- |
+| Qué pide | los últimos `overlap_days` | el informe **completo** de cada cuenta |
+| Cuándo | de lunes a viernes | una cita semanal propia |
+| A quién | todas las cuentas reales | sólo las que suman en el patrimonio |
+| Si el agente está ocupado | lo intenta igual | **espera** y entra al quedar libre |
+| Registro | `__snapshot__` | `__wealth__`, aparte |
+
+La espera es manager-side y no toca al agente: cada vuelta pregunta
+`GET /api/v1/status`, y si hay trabajo —generación, arreglo, comprobación
+manual o un sondeo ya en marcha— deja la cita pendiente con el motivo escrito
+y vuelve a mirar a la vuelta siguiente. Tiene tope (`wait_hours`, 36 por
+defecto): un agente que lleva día y medio ocupado no está «ocupado un rato», y
+una cita que no caduca acabaría entrando el lunes a media mañana sin que nadie
+la esperase.
+
+Dos detalles que no son obvios:
+
+- **La cita no se marca cumplida al lanzar.** Entre la petición y el informe
+  hay minutos; darla por cumplida ahí dejaría sin reintento una relectura que
+  se cayó por el camino. Se cierra cuando el registro del sondeo deja de estar
+  `running`, que es lo que escribe `live_account_ingest.collect`.
+- **Recoger sigue siendo del cron diario.** El agente guarda un solo sondeo y
+  da igual quién lo pidiera, así que esta cita no archiva nada: sólo decide
+  cuándo se pide. Por eso su `tick` corre **después** del otro en el mismo
+  hilo.
+
+El botón de la pantalla abre esa cita; el otro, el de la portada, se deja a su
+lado porque es donde se configuran la moneda y los cambios con los que se suman
+cuentas de divisas distintas.
+
 ## Qué se enseña, y de dónde salió la lista
 
 Buscado el 2026-11-15 en fuentes de paneles de patrimonio y de diarios de
