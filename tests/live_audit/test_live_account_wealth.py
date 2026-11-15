@@ -178,6 +178,47 @@ class WealthCashTests(WealthBase):
         self.assertIsNone(month["unexplained"])
         self.assertIsNone(payload["totals"]["return_on_contributed"])
 
+    def test_a_month_before_the_unread_account_keeps_its_flujos(self) -> None:
+        """Lo que falta por releer sólo oscurece los meses de esa cuenta.
+
+        El 2026-11-15 el equipo tenía nueve de diez cuentas releídas enteras,
+        y la décima se abrió en agosto. Exigir las diez en todos los meses
+        dejaba los catorce en «—»: sin ingresos, sin retiradas, sin
+        traspasos, sin abonos y sin cuadre, también en 2025, cuando esa
+        cuenta no existía y no podía esconder ni un apunte.
+        """
+        self.accounts.append({
+            "account_key": "34933859@Vantage", "login": "34933859",
+            "server": "Vantage", "portfolios": [], "audit_ids": ["2"],
+            "autolot": False, "block_reason": "",
+        })
+        self.store(
+            [(stamp("2026-09-10T09:00:00"), 100.0)],
+            [("2026-08-31", 1_000.0), ("2026-09-30", 1_150.0), ("2026-11-14", 1_150.0)],
+            cash=[(stamp("2026-09-05T09:00:00"), 50.0, "balance", "Deposit")],
+        )
+        self.archive.merge(
+            "axi", "34933859@Vantage", login="34933859", server="Vantage",
+            currency="EUR", movements=[(stamp("2026-11-02T09:00:00"), 20.0)],
+            profits=[(stamp("2026-11-02T09:00:00"), 20.0)],
+            balances=[("2026-11-02", 500.0)], period_start="", period_end="2026-11-15",
+            balance=500.0, equity=500.0,
+            normalization_version="balance-series-v5-profit-column",
+        )
+        payload = self.snapshot()
+        september = self.month(payload, "2026-09")
+        self.assertTrue(september["cash_known"])
+        self.assertEqual(september["cash"]["deposit"], 50.0)
+        self.assertAlmostEqual(september["unexplained"], 0.0)
+        # Noviembre sí la tiene dentro, así que ahí no se sabe.
+        november = self.month(payload, "2026-11")
+        self.assertFalse(november["cash_known"])
+        self.assertIsNone(november["cash"]["deposit"])
+        self.assertIsNone(november["unexplained"])
+        # Las tarjetas de arriba siguen diciendo que falta una cuenta: lo
+        # aportado de toda la vida sí las necesita todas.
+        self.assertFalse(payload["totals"]["cash_known"])
+
     def test_each_apunte_goes_to_its_class_by_what_the_broker_wrote(self) -> None:
         self.store(
             [(stamp("2026-09-10T09:00:00"), 100.0)],

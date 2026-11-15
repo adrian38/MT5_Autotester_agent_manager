@@ -161,13 +161,16 @@
       );
     }
     if (pending.length) {
+      const byKey = new Map(data.contributors.map(row => [row.account_key, row]));
+      const names = pending.map(key => accountName(byKey, key));
       notes.push(
-        `<strong>Los ingresos y las retiradas todavía no están en el archivo de `
-        + `${pending.length} cuenta(s).</strong> El manager empezó a guardar los apuntes `
+        `<strong>Falta releer entera${pending.length === 1 ? '' : 's'}: `
+        + `${escapeHtml(names.join(', '))}.</strong> El manager empezó a guardar los apuntes `
         + 'de saldo con esta versión, y están repartidos por toda la vida de cada cuenta: '
-        + 'hasta que el sondeo nocturno la relea entera no se pueden sumar. Mientras tanto '
-        + 'el patrimonio y el resultado de operar sí son firmes, y los flujos salen «—» en '
-        + 'vez de cero. «Sondeo de cuentas» lo lanza a mano.',
+        + 'hasta que el sondeo relea la cuenta entera no se pueden sumar. Eso deja en «—» '
+        + 'los flujos de los meses en los que esa cuenta ya existía, y sólo ésos; el '
+        + 'patrimonio y el resultado de operar sí son firmes. «Sondeo del patrimonio» lo '
+        + 'lanza a mano con «Releer ahora».',
       );
     }
     if (data.warnings.missing_rates.length) {
@@ -207,34 +210,45 @@
   // `mouseleave`.
   let monthTips = [];
   let tipBox = null;
+  let shownMonth = null;
 
   function tipRow(label, value, state = '') {
     return `<li class="${state}"><span>${escapeHtml(label)}</span>`
       + `<strong>${escapeHtml(value)}</strong></li>`;
   }
 
-  // Quién movió el mes. `per_account` viene con la clave de la cuenta, y lo
-  // que se escribe es el alias de sus portafolios: el número de cuenta no le
-  // dice nada a nadie.
-  function movers(data, month) {
-    const byKey = new Map(data.contributors.map(row => [row.account_key, row]));
-    return Object.entries(month.per_account || {})
-      .sort((left, right) => Math.abs(right[1]) - Math.abs(left[1]))
-      .map(([key, amount]) => {
-        const row = byKey.get(key);
-        return tipRow(
-          row ? `${portfolioNames(row)} · ${row.login}` : key,
-          money(amount, {signed: true, decimals: 0}), tone(amount),
-        );
-      });
+  // El nombre de una cuenta es el alias de sus portafolios. El número va
+  // detrás porque es lo único que no cambia, pero no es por lo que se busca.
+  function accountName(byKey, key) {
+    const row = byKey.get(key);
+    return row ? `${portfolioNames(row)} · ${row.login}` : key;
   }
 
-  function monthTip(data, month) {
+  // Quién movió el mes, de más a menos. `per_account` sólo trae las cuentas
+  // que ese mes ya existían, que son justo las que pueden haberlo movido.
+  function movers(month, byKey) {
+    return Object.entries(month.per_account || {})
+      .sort((left, right) => Math.abs(right[1]) - Math.abs(left[1]))
+      .map(([key, amount]) => tipRow(
+        accountName(byKey, key), money(amount, {signed: true, decimals: 0}), tone(amount),
+      ));
+  }
+
+  // Y si el mes sale en «—», de quién es la culpa: las cuentas suyas que
+  // todavía no se han releído enteras, con nombre y no en abstracto.
+  function pendingOf(month, byKey, pending) {
+    return Object.keys(month.per_account || {})
+      .filter(key => pending.has(key))
+      .map(key => accountName(byKey, key));
+  }
+
+  function monthTip(month, byKey, pending) {
     const cash = month.cash;
     const transfers = cash.transfer_in === null
       ? null : cash.transfer_in + cash.transfer_out;
     const mismatch = month.unexplained !== null && Math.abs(month.unexplained) >= 1;
-    const moved = movers(data, month);
+    const moved = movers(month, byKey);
+    const missing = month.cash_known ? [] : pendingOf(month, byKey, pending);
     return `<h3>${escapeHtml(longMonth(month.label))}</h3><ul>`
       + tipRow('Patrimonio al cierre', money(month.balance))
       + tipRow('Variación del mes', money(month.variation, {signed: true}), tone(month.variation))
@@ -246,12 +260,20 @@
       + tipRow('Sin explicar', money(month.unexplained, {signed: true}),
         mismatch ? 'mismatch' : 'unknown')
       + '</ul>'
-      + (month.cash_known ? ''
-        : '<p>Los ingresos y las retiradas de este mes todavía no están en el archivo: '
-          + 'salen «—» en vez de cero, y por eso «sin explicar» no se puede calcular.</p>')
+      + (missing.length
+        ? `<p>Falta releer entera${missing.length === 1 ? '' : 's'}: `
+          + `${escapeHtml(missing.join(', '))}. Hasta entonces los flujos de este mes `
+          + 'salen «—» en vez de cero y el cuadre no se publica.</p>'
+        : '')
       + (moved.length
         ? `<h4>Quién lo movió · ${month.accounts} cuenta(s)</h4><ul>${moved.join('')}</ul>`
         : '');
+  }
+
+  function buildTips(data) {
+    const byKey = new Map(data.contributors.map(row => [row.account_key, row]));
+    const pending = new Set(data.warnings.cash_pending || []);
+    return data.months.map(month => monthTip(month, byKey, pending));
   }
 
   // El recuadro se sigue al ratón y se aparta solo cuando no cabe: pegado al
@@ -266,6 +288,23 @@
     box.style.top = `${Math.min(Math.max(12, top), window.innerHeight - size.height - 12)}px`;
   }
 
+  function fillTip(index) {
+    if (shownMonth === index) return;
+    tipBox.innerHTML = monthTips[index] || '';
+    shownMonth = index;
+  }
+
+  // El alias llega después del primer pintado, así que un recuadro ya abierto
+  // hay que rehacerlo cuando llega: si no, se queda con los «sin nombre» de
+  // la primera pasada mientras la tabla de al lado ya dice el alias, y en el
+  // móvil —donde el dedo no «sale» de la banda— se queda así.
+  function refreshTip() {
+    if (!tipBox || shownMonth === null) return;
+    const index = shownMonth;
+    shownMonth = null;
+    fillTip(index);
+  }
+
   function showTip(event) {
     const band = event.target.closest('.wealth-band');
     if (!band) return hideTip();
@@ -275,19 +314,14 @@
       tipBox.hidden = true;
       document.body.appendChild(tipBox);
     }
-    if (tipBox.dataset.month !== band.dataset.month) {
-      tipBox.innerHTML = monthTips[Number(band.dataset.month)] || '';
-      tipBox.dataset.month = band.dataset.month;
-    }
+    fillTip(Number(band.dataset.month));
     tipBox.hidden = false;
     placeTip(tipBox, event);
   }
 
   function hideTip() {
-    if (tipBox) {
-      tipBox.hidden = true;
-      delete tipBox.dataset.month;
-    }
+    if (tipBox) tipBox.hidden = true;
+    shownMonth = null;
   }
 
   // --- Los gráficos --------------------------------------------------------
@@ -596,10 +630,21 @@
       : `Faltan ${data.warnings.cash_pending.length} cuenta(s) por releer.`;
   }
 
-  // Las tres cosas que llevan el alias: las dos tablas y el detalle de los
-  // gráficos. Se repintan juntas porque el alias llega después del patrimonio.
+  function renderNotice(data) {
+    const notice = element('#wealth-notice');
+    const notes = noticeMarkup(data);
+    notice.innerHTML = notes;
+    notice.hidden = !notes;
+  }
+
+  // Todo lo que nombra una cuenta por su alias: el aviso de lo que falta por
+  // releer, el detalle de los gráficos y las dos tablas. Se repintan juntas
+  // porque el alias llega después del patrimonio, y si no quedaría la mitad
+  // de la pantalla diciendo «sin nombre» al lado de la otra mitad que no.
   function renderByAlias(data) {
-    monthTips = data.months.map(month => monthTip(data, month));
+    monthTips = buildTips(data);
+    refreshTip();
+    renderNotice(data);
     renderContributors(data);
     renderCash(data);
   }
@@ -607,11 +652,6 @@
   function render(data) {
     currency = data.display_currency || 'EUR';
     element('#wealth-totals').innerHTML = totalsMarkup(data);
-    const notice = element('#wealth-notice');
-    const notes = noticeMarkup(data);
-    notice.innerHTML = notes;
-    notice.hidden = !notes;
-
     element('#wealth-chart').innerHTML = wealthChart(data.months);
     element('#wealth-flow-chart').innerHTML = flowChart(data.months);
     element('#wealth-chart-range').textContent = data.months.length
@@ -807,6 +847,12 @@
     element(id).addEventListener('mouseleave', hideTip);
   }
   window.addEventListener('scroll', hideTip, {passive: true});
+  // En el móvil el toque emula el ratón, así que el recuadro se abre al tocar
+  // un mes; tocar en cualquier otro sitio no manda ningún evento a la banda,
+  // y sin esto se quedaría abierto encima del gráfico.
+  document.addEventListener('pointerdown', event => {
+    if (!event.target.closest?.('.wealth-band')) hideTip();
+  }, {passive: true});
   element('#wealth-open-cron').addEventListener('click', openCron);
   cronField('#wealth-cron-close').addEventListener('click', () => cron.close());
   cronField('#wealth-cron-cancel').addEventListener('click', () => cron.close());

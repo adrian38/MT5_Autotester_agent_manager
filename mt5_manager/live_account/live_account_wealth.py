@@ -216,6 +216,12 @@ def _month_of_account(
     currency = account["currency"]
     return {
         "started": started,
+        # Una cuenta que ese mes todavía no existía no puede estar
+        # escondiendo flujos suyos en él: su saldo tampoco entra en el
+        # patrimonio del mes, así que dejarla fuera de las dos cosas es lo
+        # coherente. Lo que falte por releer oscurece los meses en los que ya
+        # estaba, y sólo ésos.
+        "cash_known": account["cash_known"] or not started,
         "profit": _converted(net, currency, settings),
         "balance": _converted(balance, currency, settings) if started else None,
         # Una cuenta que todavía no se ha releído entera no tiene flujos
@@ -241,13 +247,17 @@ def _month_total(
 ) -> dict[str, Any]:
     """La fila del mes: patrimonio al cierre, resultado y flujos de caja.
 
-    Los flujos suman **sólo las cuentas releídas**, y el payload dice cuántas
-    faltan: una suma parcial rotulada como parcial sirve, y un cero que
-    parece medido no.
+    Los flujos de un mes se saben cuando están releídas **las cuentas que ya
+    existían ese mes**, no todas. Exigirlas todas dejaba el patrimonio entero
+    sin ingresos, sin retiradas, sin traspasos, sin abonos y sin cuadre
+    —catorce meses en «—»— porque faltaba por releer una cuenta abierta en
+    agosto: una cuenta que en 2025 no existía no puede esconder los apuntes
+    de 2025. Medido el 2026-11-15: nueve de diez cuentas releídas y diez de
+    los catorce meses recuperados.
     """
     rows = [_month_of_account(account, label, settings, current) for account in accounts]
     present = [item for item in rows if item["started"]]
-    known = all(account["cash_known"] for account in accounts)
+    known = all(item["cash_known"] for item in rows)
     cash = {
         key: _sum([item["cash"][key] for item in rows]) if known else None
         for key in (*KINDS, "net")
@@ -280,9 +290,11 @@ def _reconcile(months: list[dict[str, Any]]) -> None:
     comparar, y tratar el cero como patrimonio anterior convertiría el saldo
     inicial entero en un descuadre.
 
-    Y mientras falte una cuenta por releer tampoco se cuadra: el descuadre
-    sería justo el dinero ingresado que todavía no está en el archivo
-    —37.775 € el 2026-11-15— y se leería como un error de la pantalla.
+    Y un mes al que le falte por releer una de **sus** cuentas tampoco se
+    cuadra: el descuadre sería justo el dinero ingresado que todavía no está
+    en el archivo —37.775 € el 2026-11-15— y se leería como un error de la
+    pantalla. Los meses anteriores a esa cuenta sí se cuadran, que es de lo
+    que se ocupa `_month_total`.
     """
     previous: float | None = None
     for month in months:
