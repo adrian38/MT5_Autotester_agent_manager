@@ -290,6 +290,50 @@ class WealthContributorTests(WealthBase):
         self.assertAlmostEqual(payload["totals"]["drawdown"]["peak"], 1_100.0)
         self.assertAlmostEqual(payload["contributors"][0]["trade_drawdown"], 50.0)
 
+    def test_only_the_accounts_marked_to_add_up_are_added_up(self) -> None:
+        """La misma selección de la portada, y por la misma razón.
+
+        De las quince cuentas del equipo, cinco tienen «Sumar» desmarcado
+        —tres demo y dos de RoboForex— y sumarlas metía en el patrimonio
+        12.600 € que no son dinero real. La primera versión las sumaba todas.
+        """
+        self.accounts.append({
+            "account_key": "10010194@Axi-US50-Demo", "login": "10010194",
+            "server": "Axi-US50-Demo", "portfolios": [], "audit_ids": ["2"],
+            "autolot": False, "block_reason": "",
+        })
+        self.store(
+            [(stamp("2026-11-02T09:00:00"), 10.0)], [("2026-11-02", 1_010.0)],
+        )
+        self.archive.merge(
+            "axi", "10010194@Axi-US50-Demo", login="10010194",
+            server="Axi-US50-Demo", currency="EUR",
+            movements=[(stamp("2026-11-02T09:00:00"), 500.0)],
+            profits=[(stamp("2026-11-02T09:00:00"), 500.0)],
+            balances=[("2026-11-02", 5_000.0)], period_start="", period_end="2026-11-15",
+            balance=5_000.0, equity=5_000.0, normalization_version=SERIES_VERSION,
+        )
+        self.archive.update_total_selection({
+            "account": "axi::10010194@Axi-US50-Demo", "included": False,
+        })
+        payload = self.snapshot()
+        self.assertEqual(payload["totals"]["accounts"], 1)
+        self.assertEqual(self.month(payload, "2026-11")["balance"], 1_010.0)
+        self.assertEqual(
+            [row["login"] for row in payload["contributors"]], ["60090762"],
+        )
+        self.assertEqual(
+            [row["login"] for row in payload["not_summed"]], ["10010194"],
+        )
+        self.assertEqual(payload["not_summed"][0]["balance"], 5_000.0)
+
+    def test_the_selection_key_is_the_one_the_front_page_writes(self) -> None:
+        """Dos formas de componerla serían dos pantallas que no coinciden."""
+        self.assertEqual(
+            live_account_wealth.selection_key("axi", KEY), f"axi::{KEY}",
+        )
+        self.assertEqual(self.snapshot()["contributors"][0]["selection_key"], f"axi::{KEY}")
+
     def test_a_blocked_account_is_named_instead_of_disappearing(self) -> None:
         """Una cuenta real que no se puede leer tiene que verse igual."""
         self.accounts[0]["block_reason"] = "Falta la contraseña de la cuenta real."

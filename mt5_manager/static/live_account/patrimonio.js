@@ -26,11 +26,17 @@
     transfer_out: 'Traspaso ↑', rebate: 'Abono',
   };
   const MAXIMUM_CASH_ROWS = 300;
-  const VIEW = {width: 960, height: 360, left: 92, right: 20, top: 26, bottom: 58};
+  const VIEW = {width: 960, height: 330, left: 92, right: 20, top: 22, bottom: 54};
   const PLOT_WIDTH = VIEW.width - VIEW.left - VIEW.right;
   const PLOT_HEIGHT = VIEW.height - VIEW.top - VIEW.bottom;
 
   let currency = 'EUR';
+  // El alias vive en la memoria UBS del agente, así que se pide una vez por
+  // nodo y la tabla se repinta cuando llega: un alias que no conteste no
+  // puede dejar sin pintar el patrimonio. Es el mismo trato que le da la
+  // portada de cuentas, y la misma ruta.
+  const nodeAliases = new Map();
+  let payload = null;
 
   const element = id => document.querySelector(id);
 
@@ -145,6 +151,15 @@
   function noticeMarkup(data) {
     const notes = [];
     const pending = data.warnings.cash_pending;
+    if ((data.not_summed || []).length) {
+      const names = data.not_summed.map(row => `${row.login} · ${row.server}`);
+      notes.push(
+        `<strong>${names.length} cuenta(s) no suman aquí:</strong> `
+        + `${escapeHtml(names.join(', '))}. Son las que tienen «Sumar» desmarcado en `
+        + '«Cuentas en real», y se respeta la misma selección: lo que no cuenta allí '
+        + 'tampoco es patrimonio aquí.',
+      );
+    }
     if (pending.length) {
       notes.push(
         `<strong>Los ingresos y las retiradas todavía no están en el archivo de `
@@ -333,14 +348,26 @@
     }).join('');
   }
 
+  // El alias es el nombre con el que el usuario llama a ese portafolio; el
+  // `deployment_name` queda de respaldo, y el número nunca se quita porque es
+  // lo único que no cambia.
+  function aliasOf(nodeId, portfolioId) {
+    return (nodeAliases.get(nodeId) || {})[portfolioId] || '';
+  }
+
+  function portfolioLabel(row, portfolio) {
+    const id = Number(portfolio.portfolio_id || 0);
+    const name = aliasOf(row.node_id, id) || portfolio.name || 'sin nombre';
+    return `#${id} ${name}${portfolio.autolot ? ' · autolote' : ''}`;
+  }
+
   function contributorsMarkup(data) {
     const head = '<tr><th>Cuenta y portafolios</th>'
       + data.months.map(month => `<th>${escapeHtml(shortMonth(month.label))}</th>`).join('')
       + '<th class="total-column">Total</th><th class="total-column">Saldo</th></tr>';
     const rows = data.contributors.map(row => {
       const names = row.portfolios.map(
-        portfolio => `#${portfolio.portfolio_id}${portfolio.autolot ? ' (autolote)' : ''}`
-          + ` ${portfolio.name || ''}`,
+        portfolio => portfolioLabel(row, portfolio),
       ).join(' · ') || 'sin portafolio vinculado';
       return '<tr><td>'
         + `<strong>${escapeHtml(row.login)}</strong> · ${escapeHtml(row.server)}`
@@ -380,7 +407,51 @@
     )).join('');
   }
 
+  // --- Los alias, que llegan después ---------------------------------------
+  async function loadNodeAliases(nodeId, ids) {
+    try {
+      const response = await fetch(
+        `/api/nodes/${encodeURIComponent(nodeId)}/portfolio-aliases?ids=${[...ids].join(',')}`,
+        {cache: 'no-store'},
+      );
+      if (!response.ok) return false;
+      const data = await response.json();
+      const fresh = {...(nodeAliases.get(nodeId) || {}), ...(data.aliases || {})};
+      const changed = JSON.stringify(fresh) !== JSON.stringify(nodeAliases.get(nodeId) || {});
+      nodeAliases.set(nodeId, fresh);
+      return changed;
+    } catch (_error) {
+      return false; // Un alias ausente no puede dejar sin pintar la tabla.
+    }
+  }
+
+  async function loadAliases(data) {
+    const byNode = new Map();
+    for (const row of data.contributors) {
+      const ids = byNode.get(row.node_id) || new Set();
+      for (const portfolio of row.portfolios) {
+        const id = Number(portfolio.portfolio_id || 0);
+        if (id > 0) ids.add(id);
+      }
+      if (ids.size) byNode.set(row.node_id, ids);
+    }
+    const answers = await Promise.all(
+      [...byNode].map(([nodeId, ids]) => loadNodeAliases(nodeId, ids)),
+    );
+    return answers.some(Boolean);
+  }
+
   // --- El pintado ----------------------------------------------------------
+  function renderContributors(data) {
+    const contributors = contributorsMarkup(data);
+    const table = element('#wealth-contributors');
+    table.querySelector('thead').innerHTML = contributors.head;
+    table.querySelector('tbody').innerHTML = contributors.rows
+      || '<tr><td class="portfolio-empty">No hay ninguna cuenta real marcada para sumar.</td></tr>';
+    element('#wealth-contributors-note').textContent = `${data.contributors.length} cuenta(s)`
+      + ` · importes en ${currency} salvo la columna de saldo`;
+  }
+
   function render(data) {
     currency = data.display_currency || 'EUR';
     element('#wealth-totals').innerHTML = totalsMarkup(data);
@@ -403,13 +474,7 @@
       ? monthsRows(data)
       : '<tr><td colspan="10" class="portfolio-empty">Todavía no hay meses guardados.</td></tr>';
 
-    const contributors = contributorsMarkup(data);
-    const table = element('#wealth-contributors');
-    table.querySelector('thead').innerHTML = contributors.head;
-    table.querySelector('tbody').innerHTML = contributors.rows
-      || `<tr><td class="portfolio-empty">No hay ninguna cuenta real configurada.</td></tr>`;
-    element('#wealth-contributors-note').textContent = `${data.contributors.length} cuenta(s)`
-      + ` · importes en ${currency} salvo la columna de saldo`;
+    renderContributors(data);
 
     const apuntes = cashRows(data);
     element('#wealth-cash').querySelector('tbody').innerHTML = apuntes
@@ -421,6 +486,13 @@
 
     const moment = new Date(data.generated_at);
     element('#refresh-state').textContent = `Leído a las ${moment.toLocaleTimeString('es-ES')}`;
+    const rates = Object.entries(data.exchange_rates || {})
+      .map(([code, rate]) => `${code} ×${rate}`).join(' · ');
+    element('#wealth-cron-note').textContent = `Todo en ${currency}`
+      + (rates ? ` · ${rates}` : ' · sin cambios guardados')
+      + (data.rates_updated_at ? ` (${data.rates_updated_at})` : '')
+      + ` · ${data.totals.accounts} cuenta(s) sumando`
+      + ((data.not_summed || []).length ? ` y ${data.not_summed.length} fuera` : '');
   }
 
   async function load() {
@@ -433,7 +505,11 @@
       try { data = text ? JSON.parse(text) : {}; }
       catch (_error) { throw new Error(`Respuesta no válida (HTTP ${response.status})`); }
       if (!response.ok) throw new Error(data.error || response.statusText);
+      payload = data;
       render(data);
+      // Los alias llegan después y sólo repintan su tabla: abrir la memoria
+      // UBS del agente no puede retrasar el patrimonio.
+      if (await loadAliases(data) && payload === data) renderContributors(data);
     } catch (error) {
       state.textContent = 'No se pudo leer el patrimonio';
       toast(`No se pudo leer el patrimonio: ${error.message}`, true);
@@ -441,5 +517,15 @@
   }
 
   element('#refresh').addEventListener('click', load);
+  // La configuración del sondeo es la misma que la de la portada, con su cron,
+  // su «Sondear ahora» y los cambios de divisa: se abre su diálogo en vez de
+  // escribir otro que pudiera guardar algo distinto. El botón que lo monta
+  // vive en la cabecera y acaba dentro del desplegable «Menú», donde no lo
+  // encuentra nadie; esto es el mismo botón en un sitio visible.
+  element('#wealth-open-cron').addEventListener('click', () => {
+    const shared = document.querySelector('#open-account-cron');
+    if (shared) shared.click();
+    else toast('La configuración del sondeo todavía se está cargando.', true);
+  });
   load();
 })();

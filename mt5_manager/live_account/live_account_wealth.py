@@ -132,6 +132,18 @@ def month_end_balance(
     return found
 
 
+def selection_key(node_id: str, account_key: str) -> str:
+    """La clave con la que la portada guarda si esa cuenta suma.
+
+    Es la misma que escribe `accounts.js` (`accountSelectionKey`) y la que
+    valida `LiveAccountArchive.update_total_selection`: el nodo y la cuenta,
+    separados por `::`. Se construye aquí y no en cada consumidor porque el
+    día que cambie de forma, las dos pantallas tienen que cambiar juntas o una
+    de ellas sumaría lo que la otra no.
+    """
+    return f"{node_id}::{account_key}"
+
+
 def account_wealth(
     server: Any, node: dict[str, Any], node_id: str, account: dict[str, Any],
 ) -> dict[str, Any]:
@@ -144,6 +156,7 @@ def account_wealth(
     return {
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
         "node_broker": node.get("portfolio_broker"),
+        "selection_key": selection_key(node_id, account["account_key"]),
         "account_key": account["account_key"], "login": account["login"],
         "server": account["server"],
         "currency": str(stored.get("currency") or ""),
@@ -376,6 +389,8 @@ def _contributor(
     known = [value for value in series if value is not None]
     return {
         "account_key": account["account_key"], "login": account["login"],
+        "selection_key": account["selection_key"],
+        "node_id": account["node_id"],
         "server": account["server"], "node_name": account["node_name"],
         "node_broker": account["node_broker"], "currency": account["currency"],
         "portfolios": account["portfolios"], "balance": account["balance"],
@@ -422,18 +437,29 @@ def _warnings(
 
 
 def snapshot(server: Any, now: datetime | None = None) -> dict[str, Any]:
-    """El payload entero de la pantalla de patrimonio."""
+    """El payload entero de la pantalla de patrimonio.
+
+    Suma **las cuentas marcadas «Sumar»** en la portada, que es la misma
+    selección compartida que usan sus totales (`total_selection`). Sumarlas
+    todas era el error de la primera versión: de las quince cuentas del equipo,
+    cinco están desmarcadas —tres demo y dos de RoboForex— y metían en el
+    patrimonio 12.600 € que no son dinero real.
+    """
     moment = now or datetime.now(timezone.utc)
     settings = dict(server.live_account_scheduler_settings)
     current = month_key(moment)
+    excluded = set(server.live_accounts.total_selection().get("excluded_accounts") or [])
     accounts: list[dict[str, Any]] = []
+    left_out: list[dict[str, Any]] = []
     for node in server.nodes:
         node_id = str(node.get("id") or "")
         if not node_id:
             continue
         for account in live_account_inventory.node_accounts(server, node_id):
-            accounts.append(account_wealth(server, node, node_id, account))
+            row = account_wealth(server, node, node_id, account)
+            (left_out if row["selection_key"] in excluded else accounts).append(row)
     accounts.sort(key=lambda account: (account["node_name"], account["login"]))
+    left_out.sort(key=lambda account: (account["node_name"], account["login"]))
     first = min(
         (account["first_month"] for account in accounts if account["first_month"]),
         default="",
@@ -453,4 +479,14 @@ def snapshot(server: Any, now: datetime | None = None) -> dict[str, Any]:
         "contributors": [_contributor(account, months) for account in accounts],
         "totals": _totals(months, accounts, settings),
         "warnings": _warnings(accounts, months, settings),
+        # Las que no suman se nombran, no se esconden: un patrimonio que deja
+        # fuera cinco cuentas sin decirlo se lee como el total de todo.
+        "not_summed": [
+            {
+                "account_key": account["account_key"], "login": account["login"],
+                "server": account["server"], "node_name": account["node_name"],
+                "balance": account["balance"], "currency": account["currency"],
+            }
+            for account in left_out
+        ],
     }

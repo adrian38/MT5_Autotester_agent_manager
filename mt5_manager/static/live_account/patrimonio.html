@@ -31,6 +31,18 @@
   </header>
 
   <main>
+    <!-- La configuración de los sondeos es la de la portada —el mismo cron y
+         los mismos cambios de divisa—, así que se abre su mismo diálogo en vez
+         de escribir otro que pudiera guardar algo distinto. Aquí tiene botón
+         propio porque esta pantalla depende de él dos veces: el sondeo trae
+         los ingresos y las retiradas, y el cambio de divisa es lo que permite
+         sumar cuentas en dólares con cuentas en euros. -->
+    <div class="wealth-toolbar">
+      <button type="button" class="secondary" id="wealth-open-cron"
+              title="Cuándo se sondean las cuentas reales, cada cuánto y en qué moneda se suman">⚙ Sondeos y conversión</button>
+      <span class="cron-note" id="wealth-cron-note"></span>
+    </div>
+
     <!-- El aviso de lo que todavía no se sabe va **antes** de los números, no
          en una nota al pie: hasta que el sondeo relea cada cuenta entera, los
          ingresos y las retiradas no están en el archivo, y un cero en la
@@ -53,37 +65,42 @@
       <div class="wealth-chart" id="wealth-chart"></div>
     </section>
 
-    <section class="panel-card wealth-panel">
-      <div class="panel-title">
-        <div>
-          <h2>Qué movió el patrimonio</h2>
-          <p class="subtitle">Resultado de operar contra lo que entró y salió de las cuentas. El resultado es el neto —Profit más comisión y swap—, que es lo que mueve el saldo.</p>
+    <!-- Los dos de abajo van uno al lado del otro mientras quepan: son la
+         misma pregunta contada de dos formas, y apilados obligaban a
+         recorrer la pantalla entera para compararlos. -->
+    <div class="wealth-row">
+      <section class="panel-card wealth-panel">
+        <div class="panel-title">
+          <div>
+            <h2>Qué movió el patrimonio</h2>
+            <p class="subtitle">Resultado de operar contra lo que entró y salió. El resultado es el neto —Profit más comisión y swap—, que es lo que mueve el saldo.</p>
+          </div>
+          <span id="wealth-flow-legend"></span>
         </div>
-        <span id="wealth-flow-legend"></span>
-      </div>
-      <div class="wealth-chart" id="wealth-flow-chart"></div>
-    </section>
+        <div class="wealth-chart" id="wealth-flow-chart"></div>
+      </section>
 
-    <section class="panel-card wealth-panel">
-      <div class="panel-title">
-        <div>
-          <h2>Mes a mes</h2>
-          <p class="subtitle">La columna «sin explicar» es lo que ni el resultado ni los flujos justifican: si no es cero, falta un apunte.</p>
+      <section class="panel-card wealth-panel">
+        <div class="panel-title">
+          <div>
+            <h2>Mes a mes</h2>
+            <p class="subtitle">«Sin explicar» es lo que ni el resultado ni los flujos justifican: si no es cero, falta un apunte.</p>
+          </div>
         </div>
-      </div>
-      <div class="universe-table-wrap wealth-table-wrap">
-        <table class="universe-table wealth-table" id="wealth-months">
-          <thead>
-            <tr>
-              <th>Mes</th><th>Patrimonio</th><th>Variación</th><th>Resultado</th>
-              <th>Ingresos</th><th>Retiradas</th><th>Traspasos</th><th>Abonos</th>
-              <th>Sin explicar</th><th>Cuentas</th>
-            </tr>
-          </thead>
-          <tbody><tr><td colspan="10" class="portfolio-empty">Cargando…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
+        <div class="universe-table-wrap wealth-table-wrap">
+          <table class="universe-table wealth-table" id="wealth-months">
+            <thead>
+              <tr>
+                <th>Mes</th><th>Patrimonio</th><th>Variación</th><th>Resultado</th>
+                <th>Ingresos</th><th>Retiradas</th><th>Traspasos</th><th>Abonos</th>
+                <th>Sin explicar</th><th>Cuentas</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="10" class="portfolio-empty">Cargando…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
 
     <section class="panel-card wealth-panel">
       <div class="panel-title">
