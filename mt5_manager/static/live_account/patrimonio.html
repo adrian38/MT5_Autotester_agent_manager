@@ -79,43 +79,6 @@
       <div class="wealth-chart" id="wealth-chart"></div>
     </section>
 
-    <!-- Los dos de abajo van uno al lado del otro mientras quepan: son la
-         misma pregunta contada de dos formas, y apilados obligaban a
-         recorrer la pantalla entera para compararlos. -->
-    <div class="wealth-row">
-      <section class="panel-card wealth-panel">
-        <div class="panel-title">
-          <div>
-            <h2>Qué movió el patrimonio</h2>
-            <p class="subtitle">Resultado de operar contra lo que entró y salió. El resultado es el neto —Profit más comisión y swap—, que es lo que mueve el saldo. Pasa por encima de un mes para ver el mismo detalle.</p>
-          </div>
-          <span id="wealth-flow-legend"></span>
-        </div>
-        <div class="wealth-chart" id="wealth-flow-chart"></div>
-      </section>
-
-      <section class="panel-card wealth-panel">
-        <div class="panel-title">
-          <div>
-            <h2>Mes a mes</h2>
-            <p class="subtitle">«Sin explicar» es lo que ni el resultado ni los flujos justifican: si no es cero, falta un apunte.</p>
-          </div>
-        </div>
-        <div class="universe-table-wrap wealth-table-wrap">
-          <table class="universe-table wealth-table" id="wealth-months">
-            <thead>
-              <tr>
-                <th>Mes</th><th>Patrimonio</th><th>Variación</th><th>Resultado</th>
-                <th>Ingresos</th><th>Retiradas</th><th>Traspasos</th><th>Abonos</th>
-                <th>Sin explicar</th><th>Cuentas</th>
-              </tr>
-            </thead>
-            <tbody><tr><td colspan="10" class="portfolio-empty">Cargando…</td></tr></tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-
     <section class="panel-card wealth-panel">
       <div class="panel-title">
         <div>
@@ -150,6 +113,43 @@
               <th class="wealth-concept">Concepto del bróker</th></tr>
           </thead>
           <tbody><tr><td colspan="6" class="portfolio-empty">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Los dos del final van **uno debajo del otro** y a todo lo ancho. Son
+         la misma pregunta contada de dos formas, pero en media pantalla la
+         tabla sacaba diez columnas en un palmo y había que recorrerla de lado
+         para leer una fila. Van al final porque son el detalle: lo primero
+         que se mira son las cifras y el patrimonio al cierre de cada mes. -->
+    <section class="panel-card wealth-panel">
+      <div class="panel-title">
+        <div>
+          <h2>Qué movió el patrimonio</h2>
+          <p class="subtitle">Resultado de operar contra lo que entró y salió. El resultado es el neto —Profit más comisión y swap—, que es lo que mueve el saldo. Pasa por encima de un mes para ver el mismo detalle.</p>
+        </div>
+        <span id="wealth-flow-legend"></span>
+      </div>
+      <div class="wealth-chart" id="wealth-flow-chart"></div>
+    </section>
+
+    <section class="panel-card wealth-panel">
+      <div class="panel-title">
+        <div>
+          <h2>Mes a mes</h2>
+          <p class="subtitle">«Sin explicar» es lo que ni el resultado ni los flujos justifican: si no es cero, falta un apunte.</p>
+        </div>
+      </div>
+      <div class="universe-table-wrap wealth-table-wrap">
+        <table class="universe-table wealth-table" id="wealth-months">
+          <thead>
+            <tr>
+              <th>Mes</th><th>Patrimonio</th><th>Variación</th><th>Resultado</th>
+              <th>Ingresos</th><th>Retiradas</th><th>Traspasos</th><th>Abonos</th>
+              <th>Sin explicar</th><th>Cuentas</th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="10" class="portfolio-empty">Cargando…</td></tr></tbody>
         </table>
       </div>
     </section>

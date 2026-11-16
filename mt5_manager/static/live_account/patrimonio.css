@@ -45,10 +45,10 @@
 .wealth-page header{padding:22px calc(var(--wealth-gutter)
   + max(0px,(100% - var(--wealth-width))/2)) 16px}
 
-/* Dos paneles por fila mientras quepan: el grafico de lo que movio el
- * patrimonio y la tabla que lo detalla son la misma pregunta. */
-.wealth-row{display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);gap:14px}
-@media(max-width:1150px){.wealth-row{grid-template-columns:minmax(0,1fr)}}
+/* Aqui vivia `.wealth-row`, que ponia «Que movio el patrimonio» y «Mes a mes»
+ * uno al lado del otro. Ya no: los dos van al final y a todo lo ancho, porque
+ * en media pantalla la tabla sacaba diez columnas en un palmo. `main` ya es
+ * una rejilla de una columna, asi que no hace falta nada para apilarlos. */
 
 /* La barra de la configuracion del sondeo: **un solo boton**, el de la cita
  * de esta pantalla. El sondeo diario de la portada es otra cita, con otras

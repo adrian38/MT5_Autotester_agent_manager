@@ -69,6 +69,16 @@
     return `${Number(value).toLocaleString('es-ES', {maximumFractionDigits: 1})} %`;
   }
 
+  // El día de la relectura completa, que es la cita de **esta** pantalla y es
+  // semanal. El sondeo diario de la portada no pinta aquí ni para la fecha:
+  // lee otras cuentas y extrae otra cosa.
+  function readDay(moment) {
+    const day = new Date(moment || '');
+    return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('es-ES', {
+      day: 'numeric', month: 'short', year: 'numeric',
+    });
+  }
+
   function shortMonth(label) {
     const parts = String(label || '').split('-');
     const name = MONTHS[Number(parts[1]) - 1];
@@ -101,6 +111,25 @@
       + `<small>${note}</small></div>`;
   }
 
+  // La tarjeta del patrimonio lleva **la fecha de su relectura**, no «hoy».
+  // Decía «Patrimonio hoy» y la relectura completa es de una vez por semana
+  // —los domingos, en la configuración de este equipo—, así que el saldo que
+  // hay delante casi nunca es del día en que se mira. Con varios agentes la
+  // fecha es la del más atrasado y el que no se haya releído nunca se nombra
+  // en la nota: un total no es más reciente que la última cuenta que entró.
+  function balanceCard(data) {
+    const read = data.full_read || {};
+    const day = readDay(read.at);
+    const pending = read.pending || [];
+    return card(
+      day ? `Patrimonio al ${day}` : 'Patrimonio sin releer',
+      money(data.totals.balance),
+      `Equidad ${escapeHtml(money(data.totals.equity))} · ${data.totals.accounts} `
+      + `cuenta(s) en ${escapeHtml(data.display_currency)}`
+      + (pending.length ? escapeHtml(` · falta releer ${pending.join(', ')}`) : ''),
+    );
+  }
+
   // Una cifra de caja que no está completa se enseña igual —callarla dejaba
   // cinco de las ocho tarjetas en «—» por una sola cuenta de diez—, pero
   // nunca como si fuera el total: se queda en gris y su nota dice sobre
@@ -116,11 +145,7 @@
       ? '' : ` · parcial, ${totals.cash_accounts}/${totals.accounts} cuentas`;
     const cashState = state => (totals.cash_known ? state : 'unknown');
     return [
-      card(
-        'Patrimonio hoy', money(totals.balance),
-        `Equidad ${escapeHtml(money(totals.equity))} · ${totals.accounts} cuenta(s)`
-        + ` en ${escapeHtml(data.display_currency)}`,
-      ),
+      balanceCard(data),
       card(
         'Resultado de operar', money(totals.profit, {signed: true}),
         totals.return_on_contributed === null

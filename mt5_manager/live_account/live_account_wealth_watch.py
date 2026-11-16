@@ -32,20 +32,13 @@ from typing import Any
 
 from . import live_account_inventory, live_account_watch, live_account_wealth
 from .live_account_ingest import SNAPSHOT_KEY
+from .live_account_wealth import WEALTH_KEY  # noqa: F401  (API de este módulo)
 from .live_account_wealth_schedule import (
     DEFAULT_WEALTH_SCHEDULER_SETTINGS, next_occurrence, normalize_wealth_scheduler_settings,
     pending_window, previous_occurrence, resolve_zone, schedule_description, schedule_label,
 )
 from ..common import load_json, save_json, utc_now
 from ..manager import manager_http
-
-WEALTH_KEY = "__wealth__"
-"""El registro de esta cita, aparte del del sondeo diario.
-
-Comparten el sondeo del agente —es uno solo— pero no el turno: con una sola
-clave, una relectura del sábado daría por cumplida la cita del lunes del cron
-diario, y al revés.
-"""
 
 BUSY_JOB_STATUSES = {"running", "stopping", "pausing", "resuming", "queued", "starting"}
 """Estados del trabajo del agente que significan «ahora no».

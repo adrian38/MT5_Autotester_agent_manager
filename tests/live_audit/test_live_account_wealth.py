@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from mt5_manager.live_account import live_account_inventory, live_account_wealth
 from mt5_manager.live_account.live_account_archive import LiveAccountArchive
 from mt5_manager.live_account.live_account_report import SERIES_VERSION
+from mt5_manager.live_audit.live_audit_run_state import LiveAuditRunState
 
 NOW = datetime(2026, 11, 15, 12, tzinfo=timezone.utc)
 NODE = {"id": "axi", "name": "AXI Standard", "portfolio_broker": "AXI"}
@@ -48,14 +49,22 @@ class WealthBase(unittest.TestCase):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.archive = LiveAccountArchive(Path(self.temporary.name))
+        self.runs = LiveAuditRunState(Path(self.temporary.name) / "runs.json")
         self.accounts = [{
             "account_key": KEY, "login": "60090762", "server": "Axi-US50-Live",
             "portfolios": [{"portfolio_id": 105, "name": "Port_105", "autolot": False}],
             "audit_ids": ["1"], "autolot": False, "block_reason": "",
         }]
         self.server = SimpleNamespace(
-            nodes=[NODE], live_accounts=self.archive,
+            nodes=[NODE], live_accounts=self.archive, live_account_runs=self.runs,
             live_account_scheduler_settings=dict(SETTINGS),
+        )
+
+    def full_read(self, **changes: Any) -> None:
+        """Deja escrita la cita de la relectura completa de ese agente."""
+        self.runs.update(
+            self.runs.key("axi", live_account_wealth.WEALTH_KEY),
+            **{"status": "done", "outcome": "success", **changes},
         )
 
     def store(
@@ -396,6 +405,51 @@ class WealthContributorTests(WealthBase):
         self.assertEqual(payload["warnings"]["blocked"], [KEY])
         self.assertEqual(payload["totals"]["accounts"], 1)
         self.assertEqual(payload["months"], [])
+
+
+class WealthReadDateTests(WealthBase):
+    """De cuándo son las cifras: la fecha de la relectura completa.
+
+    La tarjeta decía «Patrimonio hoy» y la relectura es semanal —los domingos
+    en este equipo—, así que el saldo que se mira casi nunca es del día. La
+    fecha sale de **esta** cita y no del sondeo diario de la portada, que lee
+    otras cuentas y extrae otra cosa.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.store([(stamp("2026-11-10T10:00"), 100.0)], [("2026-11-10", 1_100.0)])
+
+    def test_the_card_is_dated_with_the_last_full_reread(self) -> None:
+        self.full_read(completed_at="2026-11-15T07:12:00+00:00")
+        self.assertEqual(
+            self.snapshot()["full_read"],
+            {"at": "2026-11-15T07:12:00+00:00", "pending": []},
+        )
+
+    def test_an_appointment_that_read_nothing_is_not_a_date(self) -> None:
+        """`expired` y `failed` también dejan `completed_at` escrito."""
+        for outcome in ("failed", "stale", "expired"):
+            with self.subTest(outcome=outcome):
+                self.full_read(completed_at="2026-11-15T07:12:00+00:00", outcome=outcome)
+                read = self.snapshot()["full_read"]
+                self.assertEqual(read["at"], "")
+                self.assertEqual(read["pending"], ["AXI Standard"])
+
+    def test_without_a_single_full_reread_the_screen_says_so(self) -> None:
+        read = self.snapshot()["full_read"]
+        self.assertEqual(read["at"], "")
+        self.assertEqual(read["pending"], ["AXI Standard"])
+
+    def test_with_two_agents_the_date_is_the_stalest_one(self) -> None:
+        """Un total no es más reciente que la última cuenta que entró en él."""
+        self.server.nodes = [NODE, {"id": "vantage", "name": "Vantage RAW"}]
+        self.full_read(completed_at="2026-11-15T07:12:00+00:00")
+        self.runs.update(
+            self.runs.key("vantage", live_account_wealth.WEALTH_KEY),
+            status="done", outcome="success", completed_at="2026-11-08T07:30:00+00:00",
+        )
+        self.assertEqual(self.snapshot()["full_read"]["at"], "2026-11-08T07:30:00+00:00")
 
 
 if __name__ == "__main__":

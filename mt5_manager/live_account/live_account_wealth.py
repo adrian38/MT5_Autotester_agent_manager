@@ -60,6 +60,26 @@ cuenta es suya.
 
 KINDS = ("deposit", "withdrawal", "transfer_in", "transfer_out", "rebate")
 
+WEALTH_KEY = "__wealth__"
+"""El registro de la cita que relee la vida entera de cada cuenta.
+
+Vive aquí, y no en `live_account_wealth_watch`, porque esta pantalla rotula
+sus cifras con la fecha de esa relectura: el payload tiene que poder leer el
+registro sin importar el módulo de la cita, que a su vez importa éste.
+
+Es una clave aparte de la del sondeo diario a propósito. Comparten el sondeo
+del agente —es uno solo— pero no el turno: con una sola clave, una relectura
+del domingo daría por cumplida la cita del lunes del cron diario, y al revés.
+"""
+
+READ_OUTCOMES = ("success", "partial")
+"""Los finales en los que entró alguna cuenta en el archivo.
+
+`failed`, `stale` y `expired` también dejan `completed_at` escrito —la cita se
+cierra igual—, y tomarlos por una lectura pondría en la tarjeta la fecha de un
+día en el que no se leyó nada.
+"""
+
 
 def cash_kind(amount: float, kind: str, comment: str) -> str:
     """Qué clase de apunte es, según lo que el bróker escribió en el concepto.
@@ -477,6 +497,46 @@ def _warnings(
     }
 
 
+def _moment(stamp: str) -> datetime | None:
+    """La marca del registro como fecha, o `None` si no la hay o no se lee."""
+    try:
+        moment = datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def full_read(server: Any, accounts: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Cuándo se leyó por última vez lo que esta pantalla suma.
+
+    La fecha es la de **esta** cita —la relectura completa de cada cuenta—, y
+    nunca la del sondeo diario de la portada: son dos citas con otras cuentas
+    y otro contenido, y la de aquí es semanal. La tarjeta decía «Patrimonio
+    hoy», que daba por leído esta mañana un saldo que se relee los domingos.
+
+    Con varios agentes manda el más atrasado: el total no es más reciente que
+    la última cuenta que entró en él. El agente que no se haya releído nunca
+    no atrasa la fecha —no hay con qué—, se nombra aparte.
+    """
+    runs = server.live_account_runs
+    moments: list[datetime] = []
+    pending: list[str] = []
+    for node_id, name in sorted({
+        (account["node_id"], account["node_name"]) for account in accounts
+    }):
+        record = runs.record(runs.key(node_id, WEALTH_KEY))
+        done = (
+            str(record.get("status") or "") == "done"
+            and str(record.get("outcome") or "") in READ_OUTCOMES
+        )
+        moment = _moment(str(record.get("completed_at") or "")) if done else None
+        if moment is None:
+            pending.append(name)
+        else:
+            moments.append(moment)
+    return {"at": min(moments).isoformat() if moments else "", "pending": pending}
+
+
 def snapshot(server: Any, now: datetime | None = None) -> dict[str, Any]:
     """El payload entero de la pantalla de patrimonio.
 
@@ -512,6 +572,10 @@ def snapshot(server: Any, now: datetime | None = None) -> dict[str, Any]:
     _reconcile(months)
     return {
         "generated_at": moment.isoformat(),
+        # Lo de arriba es cuándo se armó este payload; esto, de cuándo son las
+        # cifras. No es lo mismo ni se parece: el payload se arma al abrir la
+        # pantalla y la relectura que lo llena es de una vez por semana.
+        "full_read": full_read(server, accounts),
         "month": current,
         "display_currency": str(settings.get("display_currency") or "EUR"),
         "exchange_rates": dict(settings.get("exchange_rates") or {}),

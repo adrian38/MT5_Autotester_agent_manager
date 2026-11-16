@@ -151,6 +151,30 @@ class WealthScreenTests(unittest.TestCase):
         self.assertIn('id="wealth-contributors-wrap"', PAGE)
         self.assertIn("#wealth-contributors-wrap{max-height:none}", SHEET)
 
+    def test_the_first_card_is_dated_and_never_says_today(self) -> None:
+        """«Patrimonio hoy» daba por leído esta mañana un saldo semanal.
+
+        La relectura completa es la cita de esta pantalla y en este equipo
+        corre los domingos, así que la tarjeta lleva su fecha. Y la lleva de
+        **esa** cita: la del sondeo diario de la portada sería otra lectura,
+        de otras cuentas, puesta encima de estas cifras.
+        """
+        self.assertNotIn("'Patrimonio hoy'", SCRIPT)
+        self.assertIn("day ? `Patrimonio al ${day}` : 'Patrimonio sin releer'", SCRIPT)
+        self.assertIn("const read = data.full_read || {};", SCRIPT)
+
+    def test_the_two_detail_panels_are_stacked_at_the_end(self) -> None:
+        """En media pantalla la tabla sacaba diez columnas en un palmo.
+
+        Los dos van al final y a todo lo ancho, uno debajo del otro, que es
+        como se piden las columnas de «Mes a mes» sin recorrerla de lado. La
+        rejilla de dos columnas ya no existe: `main` apila por sí solo.
+        """
+        self.assertNotIn("wealth-row", PAGE)
+        self.assertNotIn(".wealth-row{", SHEET)
+        self.assertLess(PAGE.index('id="wealth-contributors"'), PAGE.index('id="wealth-months"'))
+        self.assertLess(PAGE.index('id="wealth-cash"'), PAGE.index('id="wealth-flow-chart"'))
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
