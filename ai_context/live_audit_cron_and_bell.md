@@ -606,23 +606,39 @@ la campana y la barra de actividad. El botón de programación sólo se inserta 
 la cabecera marcada con `data-live-audit-schedule`; quitar el script entero
 rompería los avisos.
 
-### Y una pantalla puede poner ella la puerta (2026-11-16)
+### El sondeo diario no se abre desde el patrimonio (2026-11-16)
 
-El patrimonio carga `live_account_schedule.js` porque necesita ese diálogo, así
-que le salía el botón «Sondeo de cuentas» en la cabecera —y de ahí al
-desplegable «Menú»— **además** del suyo propio en la barra, que se llamaba
-«Moneda y sondeo diario» y abría exactamente lo mismo. El mismo diálogo dos
-veces en una pantalla y con dos nombres distintos es peor que dos veces con el
-mismo: parecen dos citas, y en una pantalla que ya tiene la suya («Sondeo del
-patrimonio») la pregunta del usuario fue por qué el sondeo sale en tres sitios.
+Hubo un intento intermedio, el mismo día, que duró lo que tardó el usuario en
+verlo: el patrimonio marcaba con `data-opens-account-cron` un botón suyo
+—«Moneda y sondeo diario», dentro del diálogo de su propia cita— y
+`live_account_schedule.js`, al verlo, no montaba el de la cabecera. Una sola
+entrada, sí, pero a **la cita de otra pantalla**.
 
-Lo mismo que `data-live-audit-schedule`, pero al revés: en vez de marcar la
-cabecera donde sí va, la pantalla marca con `data-opens-account-cron` **el
-elemento que ya es esa puerta**, y entonces el de la cabecera no se monta y el
-listener va a ése. En el patrimonio ese elemento está dentro del diálogo de su
-propia cita, que es donde se puede decir en una línea qué las separa: la suya
-relee la vida entera de cada cuenta, la diaria lee los últimos días y guarda
-los cambios de divisa. Una sola entrada al sondeo en toda la pantalla.
+El usuario lo paró con el criterio que importa, y que no es de interfaz:
+
+> este sondeo es diferente, primero por las cuentas a las que se le hace
+> sondeo y segundo por la información que se extrae […] no pueden compartir
+> nada
+
+Son dos crones con dos poblaciones y dos contenidos: el diario entra en las
+cuentas reales de los **portafolios activos** y reescribe los últimos
+`overlap_days`; la relectura completa entra en las cuentas marcadas **«Sumar»**
+y pide el informe entero de toda su vida. Tenerlas a un clic una de otra las
+hacía pasar por dos caras del mismo sondeo, y la siguiente edición que tratara
+una como «la otra vista» de la otra habría roto las dos.
+
+Así que el patrimonio **no carga** `live_account_schedule.js`. No era sólo el
+botón: cargarlo inyectaba el diálogo entero del sondeo diario en esa pantalla.
+Y el enganche `data-opens-account-cron` se quitó del script compartido, para
+que ninguna otra pantalla pueda volver a alojarlo por error. Lo guardan
+`test_the_daily_sondeo_has_no_door_on_this_screen` y la fila esperada de
+`patrimonio.html` en `tests/manager/test_header_actions_order.py`.
+
+Lo único que las dos pantallas siguen compartiendo es **dato, no cita**: el
+`display_currency` y los `exchange_rates` viven en la configuración del sondeo
+diario, y el patrimonio los usa para sumar en una sola moneda
+(`live_account_schedule.convert`). Un cambio EUR→USD no es de una pantalla ni
+de la otra, y duplicarlo daría dos cifras que discrepan.
 
 ## Las acciones secundarias viven en un menú colapsable (2026-10-28)
 

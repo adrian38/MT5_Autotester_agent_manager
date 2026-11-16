@@ -157,7 +157,10 @@
 
   <div id="toast" role="status"></div>
   <script src="/patrimonio.js"></script>
-  <script src="/live_account_schedule.js"></script>
+  <!-- `live_account_schedule.js` no se carga aquí a propósito: es el sondeo
+       diario de «Cuentas en real», que lee otras cuentas y extrae otra cosa.
+       Cargarlo metía su diálogo en esta pantalla y un botón suyo en la
+       cabecera, como si fuera la misma cita vista de otro lado. -->
   <script src="/web_push.js"></script>
   <script src="/manager_restart.js"></script>
   <script src="/main_nav.js"></script>

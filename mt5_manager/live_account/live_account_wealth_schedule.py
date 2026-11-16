@@ -130,15 +130,18 @@ def schedule_label(settings: dict[str, Any]) -> str:
 
 
 def schedule_description(settings: dict[str, Any]) -> str:
-    """Resumen fiel de lo que hace la relectura, para el diálogo."""
+    """Resumen fiel de lo que hace la relectura, para el diálogo.
+
+    Va tal cual a un `textContent`, así que aquí no se escribe Markdown: los
+    `**` de énfasis salían impresos en la pantalla.
+    """
     return (
-        "El manager pide el informe **completo** de cada cuenta que suma en el "
+        "El manager pide el informe completo de cada cuenta que suma en el "
         f"patrimonio, {schedule_label(settings)}. Es lo que trae todos los "
-        "ingresos, las retiradas y los traspasos: el sondeo diario sólo relee "
-        "los últimos días, así que por sí solo nunca completa el histórico. "
-        "Cada cuenta se abre en una terminal del agente, de modo que la cita "
-        f"**espera a que el agente esté libre** —hasta {int(settings.get('wait_hours', 36))} "
-        "hora(s)— en vez de entrar en mitad de una generación, una auditoría o "
-        "unas pruebas. Si la espera se agota, la cita se da por perdida y se "
-        "vuelve a intentar en la siguiente."
+        "ingresos, las retiradas y los traspasos. Cada cuenta se abre en una "
+        "terminal del agente, de modo que la cita espera a que el agente esté "
+        f"libre —hasta {int(settings.get('wait_hours', 36))} hora(s)— en vez de "
+        "entrar en mitad de una generación, una auditoría o unas pruebas. Si la "
+        "espera se agota, la cita se da por perdida y se vuelve a intentar en la "
+        "siguiente."
     )

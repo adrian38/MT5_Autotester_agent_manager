@@ -50,17 +50,12 @@
 .wealth-row{display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);gap:14px}
 @media(max-width:1150px){.wealth-row{grid-template-columns:minmax(0,1fr)}}
 
-/* La barra de la configuracion del sondeo: **un solo boton**. La cita diaria
- * de la portada, que es la otra de la que depende esta pantalla, se abre desde
- * dentro de este dialogo y no desde aqui, que la hacia pasar por una cita
- * aparte del mismo rango. */
+/* La barra de la configuracion del sondeo: **un solo boton**, el de la cita
+ * de esta pantalla. El sondeo diario de la portada es otra cita, con otras
+ * cuentas y otro contenido, y no se abre desde aqui. */
 .wealth-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .wealth-toolbar button{padding:8px 13px;font-size:12px}
 .wealth-toolbar .cron-note{color:var(--muted);font-size:11.5px;line-height:1.45}
-/* Y ahi dentro, separada por una linea: no es una accion de este dialogo, es
- * la puerta al de al lado. */
-.wealth-cron-sibling{border-top:1px solid var(--line,#27394b);padding-top:12px}
-.wealth-cron-sibling button{display:block;margin-top:8px}
 /* El estado de la cita por agente, dentro del dialogo: el que se agoto o el
  * que fallo se leen de un vistazo, no leyendo la frase entera. */
 #wealth-cron-nodes li.good strong{color:var(--accent2)}

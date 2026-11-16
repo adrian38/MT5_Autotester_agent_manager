@@ -821,10 +821,14 @@
   }
 
   // --- La cita propia: la relectura completa -------------------------------
-  // No es el sondeo de «Cuentas en real». Aquél relee los últimos días para
-  // saber cómo va hoy; éste pide el informe **completo** de cada cuenta, que
-  // es lo único que trae todos los ingresos y las retiradas, y por eso espera
-  // a que el agente esté libre en vez de entrar en mitad de unas pruebas.
+  // No es el sondeo de «Cuentas en real», y esta pantalla no lo abre ni lo
+  // monta: aquél relee los últimos días de las cuentas de los portafolios
+  // activos para saber cómo va hoy; ésta pide el informe completo de las
+  // cuentas que suman en el patrimonio, que es lo único que trae todos los
+  // ingresos y las retiradas, y por eso espera a que el agente esté libre en
+  // vez de entrar en mitad de unas pruebas. Son dos citas con otras cuentas y
+  // otro contenido, así que el diálogo de la otra no se carga aquí: tenerlo a
+  // un clic las hacía pasar por dos caras de lo mismo.
   const WEEKDAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
   const NODE_STATES = {
     waiting: ['warn', 'esperando al agente'],
@@ -862,19 +866,12 @@
         <p class="cron-note" id="wealth-cron-next"></p>
         <p class="cron-warning" id="wealth-cron-timezone-warning" hidden></p>
         <ul class="cron-targets" id="wealth-cron-nodes"></ul>
-        <p class="cron-note wealth-cron-sibling">
-          La otra cita es la diaria de «Cuentas en real»: lee los últimos días
-          —no la vida entera— y es donde se guardan los cambios de divisa con
-          los que esta pantalla suma las cuentas en dólares.
-          <button type="button" class="secondary" data-opens-account-cron>
-            Moneda y sondeo diario</button>
-        </p>
       </div>
-      <footer>
+      <div class="cron-actions">
         <button type="button" class="secondary" id="wealth-cron-run">Releer ahora</button>
         <button type="button" class="secondary" id="wealth-cron-cancel">Cancelar</button>
         <button type="submit">Guardar cita</button>
-      </footer>
+      </div>
     </form>`;
   document.body.appendChild(cron);
 
@@ -985,10 +982,5 @@
   cronField('#wealth-cron-cancel').addEventListener('click', () => cron.close());
   cronField('#wealth-cron-form').addEventListener('submit', saveCron);
   cronField('#wealth-cron-run').addEventListener('click', runCron);
-  // El botón de dentro lo abre `live_account_schedule.js`, que al verlo no
-  // monta el suyo en la cabecera: es el mismo diálogo de la portada y no uno
-  // escrito aquí, que podría guardar algo distinto. Lo único que hace falta
-  // es apartar este diálogo, porque el otro se abre encima.
-  cronField('[data-opens-account-cron]').addEventListener('click', () => cron.close());
   load();
 })();

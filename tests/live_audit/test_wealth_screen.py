@@ -92,26 +92,46 @@ class WealthScreenTests(unittest.TestCase):
             SCRIPT,
         )
 
-    def test_the_daily_sondeo_has_a_single_door_on_this_screen(self) -> None:
-        """La palabra «sondeo» salía tres veces para dos citas.
+    def test_the_daily_sondeo_has_no_door_on_this_screen(self) -> None:
+        """El sondeo diario no se abre desde aquí, ni se carga aquí.
 
-        Dos de ellas eran **el mismo diálogo**: «Moneda y sondeo diario» en la
-        barra y «Sondeo de cuentas» dentro del desplegable «Menú», que
-        `live_account_schedule.js` monta en la cabecera de toda pantalla que
-        lo cargue. Con dos nombres distintos, que es peor que con el mismo:
-        parecían dos citas. Ahora la pantalla declara su sitio y el de la
-        cabecera no se monta; la cita diaria se abre desde dentro del diálogo
-        de la del patrimonio, que es donde se explica qué las separa.
+        Son dos citas distintas por las dos cosas que importan: **qué cuentas**
+        se leen —las de los portafolios activos en el diario, las que suman en
+        el patrimonio en ésta— y **qué se extrae** —los últimos días frente al
+        informe completo de toda la vida de la cuenta—. Tenerlas a un clic una
+        de otra las hacía pasar por dos caras del mismo sondeo.
+
+        Cargar `live_account_schedule.js` aquí no era sólo el botón: metía su
+        diálogo entero en esta pantalla y montaba el suyo en la cabecera. Así
+        que lo que se comprueba es que esta pantalla no lo carga y que en el
+        script compartido ya no queda el enganche para alojarlo.
         """
         schedule = static_source("live_account_schedule.js")
-        self.assertIn(
-            "const own = document.querySelector('[data-opens-account-cron]');", schedule
-        )
-        self.assertIn("const open = own || document.createElement('button');", schedule)
-        self.assertIn("data-opens-account-cron", SCRIPT)
-        self.assertNotIn("wealth-open-accounts-cron", PAGE)
-        self.assertNotIn("wealth-open-accounts-cron", SCRIPT)
+        self.assertNotIn("data-opens-account-cron", schedule)
+        self.assertNotIn("data-opens-account-cron", SCRIPT)
+        self.assertNotIn("/live_account_schedule.js", PAGE)
+        self.assertNotIn("account-cron", SCRIPT)
         self.assertEqual(1, PAGE.count('<button type="button" id="wealth-open-cron"'))
+
+    def test_the_dialog_closes_with_the_shared_action_bar(self) -> None:
+        """El `<footer>` salía sin estilo: sin margen y pegado al borde.
+
+        `live_audit_schedule.css` es la única hoja de diálogos que carga esta
+        pantalla, y ahí la barra de botones es `.cron-actions`; `dialog footer`
+        sólo está en `accounts.css`, que aquí no se carga. El diálogo del
+        patrimonio es el mismo diálogo que los otros dos y cierra igual.
+        """
+        self.assertIn('<div class="cron-actions">', SCRIPT)
+        self.assertNotIn("<footer>", SCRIPT)
+        self.assertIn(".cron-dialog .cron-actions{", static_source("live_audit_schedule.css"))
+
+    def test_the_dialog_text_is_not_markdown(self) -> None:
+        """Los `**` del resumen salían impresos: va a un `textContent`."""
+        self.assertIn("cronField('#wealth-cron-description').textContent", SCRIPT)
+        from mt5_manager.live_account.live_account_wealth_schedule import (
+            DEFAULT_WEALTH_SCHEDULER_SETTINGS, schedule_description,
+        )
+        self.assertNotIn("**", schedule_description(DEFAULT_WEALTH_SCHEDULER_SETTINGS))
 
     def test_a_partial_month_shows_its_figures_marked_instead_of_a_dash(self) -> None:
         """Una cuenta de diez sin releer dejaba en «—» cuatro meses enteros.

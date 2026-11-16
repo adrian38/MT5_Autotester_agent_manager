@@ -235,12 +235,12 @@ class HeaderActionsOrderTests(unittest.TestCase):
             "Actualizando…", "Actualizar", *NAV, "Correlación",
             BACK_ARROW, BELL, RESTART_LABEL,
         ],
-        # El patrimonio: su propio sondeo en la fila, como la portada de
-        # cuentas, porque es el que trae los ingresos y las retiradas que esta
-        # pantalla suma.
+        # El patrimonio **no** trae `ACCOUNT_CRON`: el sondeo diario es otra
+        # cita, con otras cuentas y otro contenido, y su diálogo es de la
+        # portada de cuentas. El de esta pantalla —la relectura completa— lo
+        # escribe su propio HTML dentro del panel, no en la fila.
         "patrimonio.html": [
-            "Cargando…", "Actualizar", *NAV, ACCOUNT_CRON,
-            BACK_ARROW, BELL, RESTART_LABEL,
+            "Cargando…", "Actualizar", *NAV, BACK_ARROW, BELL, RESTART_LABEL,
         ],
         "live_audit.html": [*NAV, "⚙ Cuenta final", BACK_ARROW, BELL, RESTART_LABEL],
         "live_audit_analysis.html": [
