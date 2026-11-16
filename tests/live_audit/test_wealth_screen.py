@@ -92,6 +92,27 @@ class WealthScreenTests(unittest.TestCase):
             SCRIPT,
         )
 
+    def test_the_daily_sondeo_has_a_single_door_on_this_screen(self) -> None:
+        """La palabra «sondeo» salía tres veces para dos citas.
+
+        Dos de ellas eran **el mismo diálogo**: «Moneda y sondeo diario» en la
+        barra y «Sondeo de cuentas» dentro del desplegable «Menú», que
+        `live_account_schedule.js` monta en la cabecera de toda pantalla que
+        lo cargue. Con dos nombres distintos, que es peor que con el mismo:
+        parecían dos citas. Ahora la pantalla declara su sitio y el de la
+        cabecera no se monta; la cita diaria se abre desde dentro del diálogo
+        de la del patrimonio, que es donde se explica qué las separa.
+        """
+        schedule = static_source("live_account_schedule.js")
+        self.assertIn(
+            "const own = document.querySelector('[data-opens-account-cron]');", schedule
+        )
+        self.assertIn("const open = own || document.createElement('button');", schedule)
+        self.assertIn("data-opens-account-cron", SCRIPT)
+        self.assertNotIn("wealth-open-accounts-cron", PAGE)
+        self.assertNotIn("wealth-open-accounts-cron", SCRIPT)
+        self.assertEqual(1, PAGE.count('<button type="button" id="wealth-open-cron"'))
+
     def test_a_partial_month_shows_its_figures_marked_instead_of_a_dash(self) -> None:
         """Una cuenta de diez sin releer dejaba en «—» cuatro meses enteros.
 

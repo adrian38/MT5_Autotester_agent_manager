@@ -1,7 +1,9 @@
 // El botón superior «Sondeo de cuentas» y su acción manual.
 //
-// Este script sólo lo carga la portada de cuentas. «Sondear ahora» vive dentro
-// del diálogo: es una acción del sondeo, no otra sección de la cabecera.
+// Lo cargan la portada de cuentas y el patrimonio, que también depende de esta
+// cita; el botón de la cabecera, en cambio, es sólo de la portada (ver abajo).
+// «Sondear ahora» vive dentro del diálogo: es una acción del sondeo, no otra
+// sección de la cabecera.
 // Reutiliza las clases `cron-*` de `live_audit_schedule.css` para no tener
 // dos diálogos que se parecen y se comportan distinto.
 (() => {
@@ -45,18 +47,28 @@
   }).then(jsonResponse);
 
   // --- Botones ------------------------------------------------------------
-  const open = document.createElement('button');
-  open.type = 'button';
-  open.className = 'cron-link account-cron-link';
-  open.id = 'open-account-cron';
-  open.textContent = 'Sondeo de cuentas';
-  open.title = 'Programar la lectura diaria de las cuentas reales';
+  // Una pantalla que ya tiene su propio sitio para esta cita lo marca con
+  // `data-opens-account-cron`, y entonces el de la cabecera no se monta.
+  // El patrimonio lo tenía de las dos maneras: su botón visible y, por cargar
+  // este fichero, el de la cabecera, que acaba dentro del desplegable «Menú».
+  // Eran el mismo diálogo dos veces en la misma pantalla, y con dos nombres
+  // («Moneda y sondeo diario» y «Sondeo de cuentas»), que es peor que dos
+  // veces el mismo: parecían dos citas distintas.
+  const own = document.querySelector('[data-opens-account-cron]');
+  const open = own || document.createElement('button');
+  if (!own) {
+    open.type = 'button';
+    open.className = 'cron-link account-cron-link';
+    open.id = 'open-account-cron';
+    open.textContent = 'Sondeo de cuentas';
+    open.title = 'Programar la lectura diaria de las cuentas reales';
 
-  // «Reiniciar manager» manda a la derecha del todo y, donde no lo hay, el
-  // enlace de vuelta.
-  const anchor = actions.querySelector('#restart-manager')
-    || actions.querySelector('a[href="/"]');
-  actions.insertBefore(open, anchor || null);
+    // «Reiniciar manager» manda a la derecha del todo y, donde no lo hay, el
+    // enlace de vuelta.
+    const anchor = actions.querySelector('#restart-manager')
+      || actions.querySelector('a[href="/"]');
+    actions.insertBefore(open, anchor || null);
+  }
 
   const dialog = document.createElement('dialog');
   dialog.className = 'cron-dialog';

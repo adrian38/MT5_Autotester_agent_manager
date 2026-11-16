@@ -862,6 +862,13 @@
         <p class="cron-note" id="wealth-cron-next"></p>
         <p class="cron-warning" id="wealth-cron-timezone-warning" hidden></p>
         <ul class="cron-targets" id="wealth-cron-nodes"></ul>
+        <p class="cron-note wealth-cron-sibling">
+          La otra cita es la diaria de «Cuentas en real»: lee los últimos días
+          —no la vida entera— y es donde se guardan los cambios de divisa con
+          los que esta pantalla suma las cuentas en dólares.
+          <button type="button" class="secondary" data-opens-account-cron>
+            Moneda y sondeo diario</button>
+        </p>
       </div>
       <footer>
         <button type="button" class="secondary" id="wealth-cron-run">Releer ahora</button>
@@ -978,14 +985,10 @@
   cronField('#wealth-cron-cancel').addEventListener('click', () => cron.close());
   cronField('#wealth-cron-form').addEventListener('submit', saveCron);
   cronField('#wealth-cron-run').addEventListener('click', runCron);
-  // El otro botón es el de la portada —el sondeo diario y los cambios de
-  // divisa—, que es otra cosa y se configura en su propio diálogo. Su botón
-  // vive en la cabecera y acaba dentro del desplegable «Menú», donde no lo
-  // encuentra nadie; esto es el mismo botón en un sitio visible.
-  element('#wealth-open-accounts-cron').addEventListener('click', () => {
-    const shared = document.querySelector('#open-account-cron');
-    if (shared) shared.click();
-    else toast('La configuración del sondeo diario todavía se está cargando.', true);
-  });
+  // El botón de dentro lo abre `live_account_schedule.js`, que al verlo no
+  // monta el suyo en la cabecera: es el mismo diálogo de la portada y no uno
+  // escrito aquí, que podría guardar algo distinto. Lo único que hace falta
+  // es apartar este diálogo, porque el otro se abre encima.
+  cronField('[data-opens-account-cron]').addEventListener('click', () => cron.close());
   load();
 })();
