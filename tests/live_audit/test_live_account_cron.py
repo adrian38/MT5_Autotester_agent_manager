@@ -8,10 +8,8 @@ y que un agente sin portar se distingue de un agente caído.
 """
 from __future__ import annotations
 
-import hashlib
 import sys
 import tempfile
-import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,142 +20,36 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_account import (
     live_account_dashboard, live_account_expectation, live_account_ingest,
-    live_account_inventory, live_account_report, live_account_watch,
+    live_account_inventory, live_account_rates, live_account_report,
+    live_account_watch,
 )
-from mt5_manager.live_account.live_account_archive import LiveAccountArchive, account_key
-from mt5_manager.live_account.live_account_schedule import normalize_live_account_scheduler_settings
-from mt5_manager.live_audit.live_audit_notifications import LiveAuditNotificationStore
-from mt5_manager.live_audit.live_audit_watch import LiveAuditRunState
+from mt5_manager.live_account.live_account_archive import account_key
 
-REPORT = b"<html>informe</html>"
-SHA = hashlib.sha256(REPORT).hexdigest()
+from .live_account_fixtures import (  # los dobles, fuera por el techo de 600
+    REPORT, SHA, FakeServer, FakeSource, complete_snapshot_state, node_state,
+    parsed_account, profile, snapshot_state,
+)
+
 NOW = datetime(2026, 10, 21, 23, 30, tzinfo=ZoneInfo("Europe/Madrid"))
 
+ECB_FEED = ("2026-10-21", {"EUR": 1.0, "USD": 1.0870})
+"""El feed del BCE que ve este módulo, porque aquí no se sale a la red.
 
-def parsed_account():
-    stamp = datetime(2026, 10, 20, 8, tzinfo=timezone.utc)
-    return (
-        [(stamp, 7.5)], [(stamp, 8.0)], [("2026-10-20", 1_000.0)],
-        [(stamp, 500.0, "balance", "Transfer from 77027933")],
+Desde que el sondeo refresca el cambio (2026-11-16), un `tick` con entrega
+llama a `live_account_rates`. Sin este doble, las veintiséis pruebas de este
+fichero descargaban de verdad `eurofxref-daily.xml` del BCE: lentas, con red
+por medio y rojas en cuanto el BCE tardara. `setUpModule` lo sustituye para
+todas; la que comprueba el enganche de verdad vive abajo.
+"""
+
+
+def setUpModule() -> None:
+    patcher = mock.patch.object(
+        live_account_rates, "fetch_eurofxref", lambda *_args, **_kwargs: ECB_FEED,
     )
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
 
-
-def profile(**changes: object) -> dict[str, object]:
-    row = {
-        "portfolio_id": 105, "portfolio_type": "aggressive",
-        "deployment_name": "Port_107_AXI", "live_trading": True,
-        "source_login": "60082017", "source_server": "Axi-US50-Live",
-        "real_strategy_lots": {"AXI/STANDARD:1437": 0.01},
-        "autolot": {"enabled": False},
-    }
-    row.update(changes)
-    return row
-
-
-def node_state(**changes: object) -> dict[str, object]:
-    row = {
-        # Una sola tarjeta abierta y dos usos reales: es el caso que dejó al
-        # cron semanal vigilando uno de cuatro.
-        "configured_audit_ids": ["audit-105"],
-        "profiles": {
-            "audit-105": profile(),
-            "audit-109": profile(
-                portfolio_id=109, deployment_name="Christmas_Axi",
-                source_login="60082303", autolot={"enabled": True},
-            ),
-            "audit-64": profile(portfolio_id=64, live_trading=False, source_login="1"),
-        },
-        "credential_state": {
-            "audit-105": {"source_password_saved": True},
-            "audit-109": {"source_password_saved": True},
-            "audit-64": {"source_password_saved": True},
-        },
-        "restore_account": {"configured": True},
-    }
-    row.update(changes)
-    return row
-
-
-class FakeSettingsStore:
-    def __init__(self, state: dict[str, object]) -> None:
-        self._state = state
-
-    def state(self, _node_id: str) -> dict[str, object]:
-        return self._state
-
-    def credentials(self, _node_id: str, _audit_id: str) -> dict[str, str]:
-        return {"source_password": "secreto"}
-
-    def restore_credentials(self, _node_id: str) -> dict[str, str]:
-        return {
-            "restore_login": "60268704", "restore_server": "Axi-US51-Live",
-            "restore_password": "final",
-        }
-
-
-class FakeSource:
-    """Lo mínimo que `_rebuild` le pide a la memoria del agente."""
-
-    project = ""
-
-    def saved_portfolio_detail(self, portfolio_id, scope):
-        return {"portfolio": {"id": portfolio_id, "members": []}}
-
-
-class FakeServer:
-    def __init__(self, root: Path, state: dict[str, object], **changes: object) -> None:
-        self.nodes = [{"id": "axi", "name": "AXI Standard", "url": "http://127.0.0.1:1"}]
-        self.live_audit_settings = FakeSettingsStore(state)
-        self.live_accounts = LiveAccountArchive(root / "live_accounts")
-        self.live_account_runs = LiveAuditRunState(root / "cron.json")
-        self.live_audit_notifications = LiveAuditNotificationStore(root / "avisos.json")
-        self.live_account_scheduler_settings = normalize_live_account_scheduler_settings(changes)
-        self.live_account_scheduler_enabled = bool(changes.get("enabled"))
-        self.live_account_stop = threading.Event()
-        self.live_account_wakeup = threading.Event()
-
-    def events(self) -> list[dict[str, object]]:
-        return self.live_audit_notifications.state(50)["events"]
-
-
-def snapshot_state(status: str = "completed", **changes: object) -> dict[str, object]:
-    row = {
-        "snapshot_id": "20261021_230500_000001", "status": status,
-        "finished_at": "2026-10-21T21:10:00+00:00",
-        "period_start": "2026-10-17T00:00:00+00:00",
-        "period_end": "2026-10-21T21:00:00+00:00",
-        "accounts": {
-            "60082017@Axi-US50-Live": {
-                "login": "60082017", "server": "Axi-US50-Live", "currency": "EUR",
-                "balance": 1200.0, "equity": 1210.0, "status": "completed",
-                "report": {"filename": "account_60082017.html", "sha256": SHA},
-            },
-            "60082303@Axi-US50-Live": {
-                "login": "60082303", "server": "Axi-US50-Live", "currency": "USD",
-                "status": "failed", "error": "la cuenta no quedó conectada",
-            },
-        },
-    }
-    row.update(changes)
-    return row
-
-
-def complete_snapshot_state(**changes: object) -> dict[str, object]:
-    """El mismo sondeo, pero con las dos cuentas leídas.
-
-    Es lo que separa un turno cumplido de uno que hay que reintentar, así que
-    no vale con mirar el `finished_at`: las dos formas lo traen.
-    """
-    row = snapshot_state()
-    accounts = dict(row["accounts"])
-    accounts["60082303@Axi-US50-Live"] = {
-        "login": "60082303", "server": "Axi-US50-Live", "currency": "USD",
-        "balance": 800.0, "equity": 805.0, "status": "completed",
-        "report": {"filename": "account_60082303.html", "sha256": SHA},
-    }
-    row["accounts"] = accounts
-    row.update(changes)
-    return row
 
 
 class InventoryTests(unittest.TestCase):
@@ -254,6 +146,38 @@ class WatchTests(unittest.TestCase):
             live_account_watch.tick(server, NOW)
         self.assertTrue(self.requests)
         self.assertTrue(all(method == "GET" for method, _path, _body in self.requests))
+
+    def test_a_delivered_snapshot_refreshes_the_exchange_rate(self) -> None:
+        """Lo que pidió el usuario: que el sondeo refresque el cambio.
+
+        Una de las dos cuentas del sondeo está en dólares, así que al recoger
+        el resultado el manager pide la referencia del BCE y la guarda con la
+        fecha del feed. Antes el cambio se escribía a mano y se quedaba
+        semanas: el que sumaba el patrimonio el 2026-11-16 era del día 10.
+        """
+        server = self.server()
+        with self._request(snapshot_state("completed")), mock.patch(
+            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+        ):
+            live_account_watch.tick(server, NOW)
+        self.assertEqual(1, len(server.rate_saves))
+        saved = server.rate_saves[0]
+        self.assertEqual("2026-10-21", saved["rates_updated_at"])
+        self.assertAlmostEqual(0.9200, saved["exchange_rates"]["USD"], places=4)
+
+    def test_a_tick_that_collected_nothing_does_not_touch_the_rate(self) -> None:
+        """El `tick` corre cada pocos segundos; el sondeo entrega una vez al día.
+
+        Refrescar en cada vuelta sería descargar el feed del BCE miles de
+        veces al día para guardar siempre el mismo número.
+        """
+        server = self.server()
+        with self._request(snapshot_state("idle")), mock.patch(
+            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+        ):
+            live_account_watch.tick(server, NOW)
+        self.assertEqual([], server.rate_saves)
+        self.assertEqual("", getattr(server, "live_account_rates_day", ""))
 
     def test_with_the_switch_the_due_snapshot_is_launched(self) -> None:
         server = self.server(enabled=True)

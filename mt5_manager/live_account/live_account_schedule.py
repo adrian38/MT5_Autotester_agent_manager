@@ -91,9 +91,12 @@ def normalize_currency(value: Any) -> str:
 def normalize_rates(value: Any) -> dict[str, float]:
     """Cambios hacia la moneda de la portada, uno por divisa.
 
-    Es un valor escrito a mano porque el manager no tiene ninguna fuente de
-    cambios: por eso se guarda junto a su fecha y la pantalla la enseña. Un
-    cambio que falta **no** se inventa con un 1,0; quien suma lo dice.
+    Desde el 2026-11-16 los refresca cada sondeo entregado con la referencia
+    diaria del BCE (`live_account_rates`), y se siguen pudiendo escribir a
+    mano hasta el siguiente. Se guardan junto a su fecha —la del feed, no la
+    de la descarga— y la pantalla la enseña, porque un cambio viejo suma igual
+    de callado que uno fresco. Un cambio que falta **no** se inventa con un
+    1,0; quien suma lo dice.
     """
     if not isinstance(value, dict):
         raise ValueError("exchange_rates debe ser un objeto {moneda: cambio}")

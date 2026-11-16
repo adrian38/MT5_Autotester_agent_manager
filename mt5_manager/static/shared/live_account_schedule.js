@@ -103,9 +103,7 @@
         <fieldset class="cron-rates">
           <legend>Cambios hacia la moneda de los totales</legend>
           <div id="account-cron-rates"></div>
-          <small>El manager no tiene ninguna fuente de cambios: se escriben a mano y se
-          guardan con su fecha. Una cuenta sin cambio no se suma al total, y el total
-          lo dice en vez de callarlo.</small>
+          <small id="account-cron-rates-note"></small>
         </fieldset>
         <p class="cron-note" id="account-cron-next"></p>
         <p class="cron-warning" id="account-cron-timezone-warning" hidden></p>
@@ -126,6 +124,20 @@
     if (!value) return '';
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('es-ES');
+  }
+
+  // Cada sondeo entregado refresca estos cambios con la referencia diaria del
+  // BCE, así que lo que importa aquí no es el número sino **de cuándo es**: el
+  // anterior se escribía a mano y se quedaba semanas sin que nada lo dijera.
+  // La fecha es la que trae el propio feed, no la de la descarga: el BCE
+  // publica en días hábiles, así que un domingo lo de arriba es del viernes.
+  function ratesNote(state) {
+    const day = String(state.rates_updated_at || '').trim();
+    return 'Los refresca cada sondeo con la referencia diaria del BCE, y se pueden '
+      + 'escribir a mano hasta el siguiente. '
+      + (day ? `El cambio de ahora es del ${escapeHtml(day)}. ` : 'Todavía sin refrescar. ')
+      + 'Una divisa que el BCE no publica conserva lo escrito; una cuenta sin cambio '
+      + 'no se suma al total, y el total lo dice en vez de callarlo.';
   }
 
   function ratesMarkup(state) {
@@ -178,6 +190,7 @@
     field('#account-cron-overlap').value = scheduler.overlap_days ?? 3;
     field('#account-cron-currency').value = scheduler.display_currency || 'EUR';
     field('#account-cron-rates').innerHTML = ratesMarkup(scheduler);
+    field('#account-cron-rates-note').innerHTML = ratesNote(scheduler);
     field('#account-cron-next').textContent = scheduler.next_run_at
       ? `Siguiente cita: ${localDate(scheduler.next_run_at)}.`
         + ` Anterior: ${localDate(scheduler.previous_run_at)}.`

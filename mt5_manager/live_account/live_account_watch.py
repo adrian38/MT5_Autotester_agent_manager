@@ -25,6 +25,7 @@ from . import (
     live_account_ingest,
     live_account_inventory,
     live_account_presentation,
+    live_account_rates,
     live_account_report,
     live_account_schedule,
 )
@@ -389,8 +390,15 @@ def launch_due(
 
 
 def tick(server: Any, now: datetime | None = None) -> None:
-    """Una vuelta: una lectura por nodo, recogida siempre, lanzamiento si toca."""
+    """Una vuelta: una lectura por nodo, recogida siempre, lanzamiento si toca.
+
+    Y, cuando algún nodo ha entregado, el refresco del cambio de divisa. Va al
+    final y no dentro del bucle porque es uno para todos los nodos: lo que se
+    convierte son los totales de la portada y del patrimonio, no las cifras de
+    un agente. `refresh_after_snapshot` se encarga de mirar una vez al día.
+    """
     moment = now or datetime.now(timezone.utc)
+    delivered = False
     for node in server.nodes:
         if server.live_account_stop.is_set():
             return
@@ -408,6 +416,7 @@ def tick(server: Any, now: datetime | None = None) -> None:
             sys.stderr.write(f"[live-account-scheduler] {node_id}: {exc}\n")
             collected = None
         if collected is not None:
+            delivered = True
             announce_collected(server, node, node_id, collected)
         live_account_ingest.refresh_expectations(server, node, node_id, accounts, moment)
         if str(state.get("status") or "") in RUNNING_SNAPSHOT_STATUSES:
@@ -415,6 +424,12 @@ def tick(server: Any, now: datetime | None = None) -> None:
         if not server.live_account_scheduler_enabled or server.live_account_stop.is_set():
             continue
         launch_due(server, node, node_id, accounts, state, moment)
+    if not delivered or server.live_account_stop.is_set():
+        return
+    try:
+        live_account_rates.refresh_after_snapshot(server, moment)
+    except Exception as exc:  # el cambio no puede tumbar la vuelta del sondeo
+        sys.stderr.write(f"[live-account-scheduler] cambio de divisa: {exc}\n")
 
 
 def targets(server: Any) -> dict[str, Any]:

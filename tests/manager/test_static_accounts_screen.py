@@ -152,8 +152,18 @@ class PageTests(unittest.TestCase):
         ):
             self.assertIn(f'id="{identifier}"', MOUNTED)
 
-    def test_the_dialog_says_the_rates_are_written_by_hand(self) -> None:
-        self.assertIn("no tiene ninguna fuente de cambios", MOUNTED)
+    def test_the_dialog_says_when_the_rate_is_from(self) -> None:
+        """Desde el 2026-11-16 el cambio lo refresca el sondeo con el BCE.
+
+        Lo que la pantalla tiene que decir ya no es «esto se escribe a mano»
+        sino **de cuándo es el número**: el que sumaba el patrimonio seguía
+        siendo el tecleado seis días antes y nada lo delataba. La fecha es la
+        del feed, no la de la descarga, porque el BCE publica en días hábiles.
+        """
+        self.assertIn("id=\"account-cron-rates-note\"", MOUNTED)
+        self.assertIn("ratesNote(scheduler)", MOUNTED)
+        self.assertIn("state.rates_updated_at", MOUNTED)
+        self.assertIn("referencia diaria del BCE", MOUNTED)
         self.assertIn("no se suma", MOUNTED)
 
     def test_the_schedule_button_mounts_only_on_the_accounts_header(self) -> None:

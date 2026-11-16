@@ -216,6 +216,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   start», leído como ocho «no se encontró ningún reporte».
 - `live_audit_cron_and_bell.md`: el cron general de los portafolios activos y
   la hoja de estilos sin la cual la campana se abre fuera de la vista
+- `cambio_de_divisa_del_sondeo.md`: por qué el cambio EUR/USD lo refresca cada
+  sondeo desde el BCE y no la cotización del bróker, y por qué un fallo
+  conserva el número viejo en vez de borrarlo.
 - `deleted_portfolio_leaves_live_audit_profile.md`: por qué borrar una cartera
   debe retirar también todos sus usos de auditoría, credenciales y marca activa.
 - `model4_watchdog_mata_su_propia_sincronizacion.md`: por qué fallaban las
