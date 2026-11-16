@@ -193,6 +193,20 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(card["state"], "never_read")
         self.assertIn("Sondear ahora", card["message"])
 
+    def test_the_card_is_dated_with_the_read_that_entered_the_series(self) -> None:
+        """`last_read` es lo que la tarjeta enseña arriba, y es la lectura buena.
+
+        No es «cuándo se intentó» ni «cuándo se repintó la portada»: sale del
+        `updated_at` del archivo, que sólo se escribe al archivar el informe.
+        Una cuenta sin sondear no tiene fecha que dar, y la tarjeta no la
+        inventa con la de hoy.
+        """
+        self.assertEqual(self.card()["last_read"], "2026-10-21T21:10:00+00:00")
+        never = next(
+            row for row in self.payload()["accounts"] if row["login"] == "60082303"
+        )
+        self.assertEqual(never["last_read"], "")
+
     def test_a_series_older_than_two_days_is_marked_stale(self) -> None:
         self.server.live_accounts.merge(
             "axi", self.key, login="60082017", server="Axi-US50-Live", currency="EUR",

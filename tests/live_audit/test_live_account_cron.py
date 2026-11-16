@@ -260,6 +260,35 @@ class WatchTests(unittest.TestCase):
         self.assertAlmostEqual(stored["balance"], 1200.0)
         self.assertEqual(stored["currency"], "EUR")
 
+    def test_an_account_that_failed_keeps_the_date_of_its_last_good_read(self) -> None:
+        """La fecha que la tarjeta enseña arriba es la de la última lectura buena.
+
+        `updated_at` sólo lo escribe `_merge_account`, y sólo después de bajar
+        el informe de **esa** cuenta y archivarlo. El sondeo del fixture deja
+        60082303 sin leer, así que su fecha tiene que seguir siendo la de la
+        noche en que sí se pudo: una tarjeta que dijera «actualizado hoy»
+        estaría fechando un intento que falló.
+        """
+        server = self.server()
+        server.live_accounts.merge(
+            "axi", "60082303@Axi-US50-Live", login="60082303",
+            server="Axi-US50-Live", currency="USD",
+            movements=[(datetime(2026, 10, 14, 8, tzinfo=timezone.utc), 5.0)],
+            period_start="", period_end="2026-10-14",
+            taken_at="2026-10-14T21:10:00+00:00",
+        )
+        with self._request(snapshot_state()), mock.patch(
+            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+        ), mock.patch(
+            "mt5_manager.live_account.live_account_report.account_from_html",
+            return_value=parsed_account(),
+        ):
+            live_account_watch.tick(server, NOW)
+        failed = server.live_accounts.read("axi", "60082303@Axi-US50-Live")
+        self.assertEqual(failed["updated_at"], "2026-10-14T21:10:00+00:00")
+        read = server.live_accounts.read("axi", "60082017@Axi-US50-Live")
+        self.assertNotEqual(read["updated_at"], failed["updated_at"])
+
     def test_the_bell_says_what_entered_and_what_did_not(self) -> None:
         server = self.server()
         with self._request(snapshot_state()), mock.patch(

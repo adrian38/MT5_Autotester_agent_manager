@@ -452,6 +452,19 @@ function monthChartButton(card) {
     + 'Mes a mes</button>';
 }
 
+// La fecha de arriba es la de la última lectura que **entró en la serie**, no
+// la del último intento. `updated_at` sólo se escribe al archivar el informe
+// de esa cuenta (`live_account_ingest._merge_account`), así que un sondeo que
+// falló en ella —o que ni llegó a lanzarse— la deja donde estaba: lo que se
+// lee es siempre la última vez que salió bien. Con la cuenta todavía sin
+// sondear no hay fecha que dar y la chapa ya lo dice, así que no sale nada.
+function lastUpdateMarkup(card) {
+  if (!card.last_read) return '';
+  return '<p class="card-updated" title="Última lectura que entró en la serie.'
+    + ' Un sondeo que falla en esta cuenta no mueve esta fecha.">'
+    + `Actualizado: ${escapeHtml(dateTime(card.last_read))}</p>`;
+}
+
 function cardMarkup(card) {
   const currency = card.currency || '';
   const [tone, label] = badgeOf(card);
@@ -469,12 +482,12 @@ function cardMarkup(card) {
     + `<label class="total-check" title="Incluir esta cuenta en los totales">`
     + `<input type="checkbox" class="total-account-toggle" data-account="${escapeHtml(accountSelectionKey(card))}"`
     + `${accountIsIncluded(card) ? ' checked' : ''}><span>Sumar</span></label>`
-    + `<span class="badge ${tone}">${escapeHtml(label)}</span></div></div>`
+    + `<span class="badge ${tone}">${escapeHtml(label)}</span>`
+    + `${lastUpdateMarkup(card)}</div></div>`
     + `<div class="metric-rows">${rows}</div>`
     + noteMarkup(card, currency)
-    + `<footer><span>Última lectura: ${escapeHtml(dateTime(card.last_read))}</span>`
+    + `<footer><span>${card.first_day ? `serie desde ${escapeHtml(card.first_day)}` : ''}</span>`
     + '<span class="card-footer-right">'
-    + `${card.first_day ? `serie desde ${escapeHtml(card.first_day)}` : ''}`
     + `${monthChartButton(card)}</span>`
     + '</footer></article>';
 }

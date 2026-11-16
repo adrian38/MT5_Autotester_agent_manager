@@ -277,6 +277,27 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("function plainNumber(value)", SCRIPT)
         self.assertIn("maximumFractionDigits: 8", SCRIPT)
 
+    def test_the_card_dates_itself_at_the_top_with_its_last_good_read(self) -> None:
+        """La fecha sube a la cabecera, y no se queda también abajo.
+
+        Es `last_read`, que el manager calcula del `updated_at` del archivo:
+        la última lectura que **entró en la serie**, no el último intento. La
+        pantalla no la recalcula ni la sustituye por la de hoy; con la cuenta
+        todavía sin sondear no hay fecha y no pinta ninguna, porque la chapa
+        ya dice «SIN SONDEAR».
+        """
+        self.assertIn("function lastUpdateMarkup(card)", SCRIPT)
+        self.assertIn("if (!card.last_read) return ''", SCRIPT)
+        self.assertIn("Actualizado: ${escapeHtml(dateTime(card.last_read))}", SCRIPT)
+        self.assertIn("${lastUpdateMarkup(card)}</div></div>", SCRIPT)
+        self.assertNotIn("<footer><span>Última lectura", SCRIPT)
+        self.assertIn(".card-updated{", STYLE)
+        # Arriba, dentro de la cabecera: antes del bloque de métricas.
+        self.assertLess(
+            SCRIPT.index("${lastUpdateMarkup(card)}"),
+            SCRIPT.index('<div class="metric-rows">'),
+        )
+
     def test_account_cards_reuse_the_active_portfolio_aliases(self) -> None:
         self.assertIn("/portfolio-aliases?ids=", SCRIPT)
         self.assertIn("aliasOf(card.node_id, Number(row.portfolio_id || 0))", SCRIPT)

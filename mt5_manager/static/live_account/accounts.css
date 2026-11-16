@@ -25,6 +25,11 @@ main{padding:26px max(24px,5vw) 64px}
 .card-head{display:flex;align-items:start;justify-content:space-between;gap:18px;padding:20px}.card-head h2{font-size:22px;font-variant-numeric:tabular-nums}
 .card-head .account-where{margin-top:7px;color:var(--muted);font-size:12px}
 .card-status{display:grid;justify-items:end;gap:9px}.total-check{display:flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:11px;cursor:pointer}.total-check input{width:15px;height:15px;margin:0;padding:0;border:0;accent-color:var(--accent)}
+/* La última lectura buena, junto a la chapa: es lo primero que se mira cuando
+   un número de la tarjeta no cuadra. Tabular para que las nueve tarjetas
+   alineen la hora. */
+.card-updated{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.account-card.stale .card-updated{color:#ffb2b2}
 .card-portfolios{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
 .card-portfolios span,.card-portfolios a{padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--accent2);font-size:11px;font-weight:700}
 .card-portfolios a{text-decoration:none}
