@@ -108,14 +108,47 @@ está escrito:
 - **Tapar la cabecera.** Es `position:absolute` sobre `main`, no `fixed` sobre
   la ventana: si lo que falla es la lectura, «Actualizar» tiene que seguir
   pulsable. Por eso `main` lleva `min-height`, que es lo que le da superficie.
-- **Esperar sin tope.** `atMost(loadAliases(data), 8000)`: un agente que no
-  conteste no puede dejar la pantalla en blanco. Sin alias, un portafolio se
-  nombra `#<id>`, que es el respaldo de `portfolioLabel`.
+- **Esperar sin tope.** `atMost(loadAliases(data), WAIT_FOR_ALIASES)`: un
+  agente que no conteste no puede dejar la pantalla en blanco. Sin alias, un
+  portafolio se nombra `#<id>`, que es el respaldo de `portfolioLabel`.
 - **Volver en cada relectura.** «Actualizar» no tapa nada: lo que hay en
   pantalla se sigue leyendo mientras se relee, y los alias ya están.
 
 Si la **primera** lectura falla, el telón se queda puesto con el error dentro:
 debajo sólo hay los «Cargando…» de las tablas, y enseñar eso sería peor.
+
+### La espera decide cuándo se enseña, no con qué nombres se queda
+
+El tope eran ocho segundos y los alias se juntaban en un `Promise.all`, así
+que lo que llegara después se perdía. El 2026-11-16, en una entrada normal y
+con los tres agentes contestando **200**, el log del manager da:
+
+| Agente | Contestó a los |
+| --- | --- |
+| Vantage | 0,07 s |
+| AXI | 4,2 s |
+| RoboForex | **8,06 s** |
+
+Sesenta milisegundos tarde. Los cinco portafolios de RoboForex se quedaron
+llamándose `#186` el resto de la sesión **con su respuesta ya en memoria**, y
+sólo «Actualizar» los recuperaba. No es un agente lento: es la primera
+lectura de su memoria UBS, que es cara, y el corte estaba justo encima.
+
+Dos cosas, y la primera es la que importa:
+
+- **El alias que llega tarde repinta.** Cada agente llama a `aliasesArrived`
+  cuando llega el suyo, y si la pantalla sigue enseñando ese payload
+  (`painted === data`, que no es `payload`: uno es la lectura que manda y el
+  otro la que se ve) repinta lo que lleva nombres. Pasarse del tope cuesta un
+  repintado, no un nombre equivocado para siempre.
+- La espera subió a 12 s, que es poner el corte por encima de lo medido y no
+  por debajo.
+
+Y un agente ocupado contesta 502, que **no** es contestar «sin alias»: lo
+primero se reintenta (`ALIAS_RETRIES`, a los 3 s y a los 9 s) y lo segundo se
+acata. El telón espera sólo la **primera vuelta** —por eso `askNodeAliases`
+devuelve `first` y no `chain`—: tenerlo puesto hasta el reintento sería tapar
+la pantalla doce segundos por algo que repinta solo.
 
 ## Un portafolio se llama por su alias y por nada más
 

@@ -1,9 +1,9 @@
 """Lo que la pantalla de patrimonio promete y no se puede ejecutar aquí.
 
-No hay runtime de JavaScript en este equipo, así que los tres criterios que
-viven en `patrimonio.js` y `patrimonio.css` se comprueban sobre su texto. No
-es una prueba de estilo: las tres son decisiones que ya se tomaron al revés
-una vez y volverían solas en la siguiente edición.
+No hay runtime de JavaScript en este equipo, así que los criterios que viven
+en `patrimonio.js` y `patrimonio.css` se comprueban sobre su texto. No es una
+prueba de estilo: cada uno es una decisión que ya se tomó al revés una vez y
+volvería sola en la siguiente edición.
 
 El fichero se pide **por su nombre de URL** (`static_source`), que es lo que
 el navegador recibe, y nunca construyendo su ruta: el reparto de `static/` en
@@ -49,9 +49,48 @@ class WealthScreenTests(unittest.TestCase):
         si un agente no contesta.
         """
         self.assertIn('id="wealth-loading"', PAGE)
-        self.assertIn("if (first) await atMost(loadAliases(data), WAIT_FOR_ALIASES);", SCRIPT)
-        self.assertIn("const WAIT_FOR_ALIASES = 8000;", SCRIPT)
+        self.assertIn("if (entering) await atMost(aliases, WAIT_FOR_ALIASES);", SCRIPT)
+        self.assertIn("const WAIT_FOR_ALIASES = 12000;", SCRIPT)
         self.assertIn(".wealth-loading{position:absolute", SHEET)
+
+    def test_an_alias_that_arrives_after_the_curtain_repaints(self) -> None:
+        """La espera decide cuándo se enseña, no con qué nombres se queda.
+
+        El 2026-11-16, en una entrada normal, los tres agentes contestaron a
+        los 0,07 s, 4,2 s y 8,06 s: el último entró 60 ms después del corte,
+        que entonces eran 8 s, y sus cinco portafolios se quedaron llamándose
+        `#186` el resto de la sesión con la respuesta ya en memoria. Se
+        perdía porque los tres se juntaban en un `Promise.all` que la espera
+        descartaba entera. Ahora cada agente repinta al llegar.
+        """
+        self.assertIn("if (changed && painted === data) renderByAlias(data);", SCRIPT)
+        self.assertIn(".then(changed => aliasesArrived(changed, data))", SCRIPT)
+        self.assertNotIn("await loadAliases(data) &&", SCRIPT)
+
+    def test_an_agent_that_does_not_answer_is_asked_again(self) -> None:
+        """Contestar 502 por estar ocupado no es contestar «sin alias».
+
+        Lo primero se reintenta —antes no volvía hasta que alguien pulsaba
+        «Actualizar»— y lo segundo es la respuesta del agente, que se acata.
+        """
+        self.assertIn("const ALIAS_RETRIES = [3000, 9000];", SCRIPT)
+        self.assertIn("if (changed !== null) return changed;", SCRIPT)
+
+    def test_the_curtain_waits_for_the_first_round_and_not_for_the_retries(self) -> None:
+        """Esperar al reintento es tener la pantalla tapada por nada.
+
+        El agente que contesta 502 ya dijo lo que tenía que decir; su
+        reintento llega tres segundos después y repinta solo. Medido con la
+        pantalla servida: con un agente ocupado el telón se levanta en la
+        primera vuelta y el alias entra después, sin tapar nada.
+        """
+        self.assertIn("return first;", SCRIPT)
+        self.assertNotIn("return chain;", SCRIPT)
+        self.assertIn(
+            "const first = loadNodeAliases(nodeId, ids)"
+            ".then(changed => aliasesArrived(changed, data));",
+            SCRIPT,
+        )
 
     def test_a_partial_month_shows_its_figures_marked_instead_of_a_dash(self) -> None:
         """Una cuenta de diez sin releer dejaba en «—» cuatro meses enteros.

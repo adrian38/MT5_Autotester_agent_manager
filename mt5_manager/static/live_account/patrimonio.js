@@ -36,9 +36,16 @@
   // puede dejar sin pintar el patrimonio. Es el mismo trato que le da la
   // portada de cuentas, y la misma ruta.
   const nodeAliases = new Map();
+  // `payload` es la lectura que manda; `painted`, la que la pantalla enseña.
+  // Son dos porque el alias llega después y tiene que saber si lo que hay
+  // delante sigue siendo suyo.
   let payload = null;
+  let painted = null;
 
   const element = id => document.querySelector(id);
+  const waitFor = milliseconds => new Promise(
+    resolve => window.setTimeout(resolve, milliseconds),
+  );
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -598,24 +605,68 @@
   }
 
   // --- Los alias, que llegan después ---------------------------------------
+  // Cada agente abre su memoria UBS cuando puede, y la primera lectura es cara.
+  // Medido contra el log del manager el 2026-11-16, en una sola entrada a la
+  // pantalla: Vantage contestó a los 0,07 s, AXI a los 4,2 s y RoboForex a los
+  // 8,06 s. Los tres con HTTP 200 — ninguno falló.
+  //
+  // Devuelve `null` cuando el agente **no contestó**, que no es lo mismo que
+  // contestar sin alias: lo primero se reintenta y lo segundo es la respuesta.
   async function loadNodeAliases(nodeId, ids) {
     try {
       const response = await fetch(
         `/api/nodes/${encodeURIComponent(nodeId)}/portfolio-aliases?ids=${[...ids].join(',')}`,
         {cache: 'no-store'},
       );
-      if (!response.ok) return false;
+      if (!response.ok) return null;
       const data = await response.json();
       const fresh = {...(nodeAliases.get(nodeId) || {}), ...(data.aliases || {})};
       const changed = JSON.stringify(fresh) !== JSON.stringify(nodeAliases.get(nodeId) || {});
       nodeAliases.set(nodeId, fresh);
       return changed;
     } catch (_error) {
-      return false; // Un alias ausente no puede dejar sin pintar la tabla.
+      return null; // Que no conteste no puede dejar sin pintar el patrimonio.
     }
   }
 
-  async function loadAliases(data) {
+  // **El alias que llega tarde repinta.** Antes se juntaban los tres agentes en
+  // un `Promise.all` y la espera del telón se quedaba con lo que hubiera: los
+  // 8,06 s de RoboForex entraban 60 ms tarde y sus cinco portafolios se
+  // quedaban llamándose `#186` el resto de la sesión, con su respuesta ya en
+  // memoria. Ahora cada agente repinta al llegar, y la espera de abajo decide
+  // cuándo se enseña la pantalla, nunca con qué nombres se queda.
+  //
+  // `painted` es el payload que la pantalla está enseñando: si el alias llega
+  // para otro, repintar pisaría una lectura más nueva con datos viejos.
+  // `null` pasa de largo, porque sigue significando «no contestó».
+  function aliasesArrived(changed, data) {
+    if (changed && painted === data) renderByAlias(data);
+    return changed;
+  }
+
+  // Un agente ocupado contesta 502 y el alias no volvía hasta que alguien
+  // pulsaba «Actualizar». Se reintenta dos veces, y sólo cuando no contestó.
+  const ALIAS_RETRIES = [3000, 9000];
+
+  // Lo que se devuelve —lo que espera el telón— es **la primera vuelta**: un
+  // agente que contesta 502 ya ha dicho lo que tenía que decir, y tener la
+  // pantalla tapada hasta su reintento sería esperar por algo que repinta
+  // solo. Los reintentos siguen por detrás y cada uno repinta si trae algo.
+  function askNodeAliases(nodeId, ids, data) {
+    const first = loadNodeAliases(nodeId, ids).then(changed => aliasesArrived(changed, data));
+    let chain = first;
+    for (const pause of ALIAS_RETRIES) {
+      chain = chain.then(async changed => {
+        if (changed !== null) return changed;
+        await waitFor(pause);
+        if (payload !== data) return changed; // Ya manda otra lectura.
+        return aliasesArrived(await loadNodeAliases(nodeId, ids), data);
+      });
+    }
+    return first;
+  }
+
+  function loadAliases(data) {
     const byNode = new Map();
     for (const row of data.contributors) {
       const ids = byNode.get(row.node_id) || new Set();
@@ -625,10 +676,7 @@
       }
       if (ids.size) byNode.set(row.node_id, ids);
     }
-    const answers = await Promise.all(
-      [...byNode].map(([nodeId, ids]) => loadNodeAliases(nodeId, ids)),
-    );
-    return answers.some(Boolean);
+    return Promise.all([...byNode].map(([nodeId, ids]) => askNodeAliases(nodeId, ids, data)));
   }
 
   // --- El pintado ----------------------------------------------------------
@@ -672,6 +720,7 @@
   }
 
   function render(data) {
+    painted = data;
     currency = data.display_currency || 'EUR';
     element('#wealth-totals').innerHTML = totalsMarkup(data);
     element('#wealth-chart').innerHTML = wealthChart(data.months);
@@ -710,20 +759,22 @@
   // tapa el cuerpo entero y se destapa una sola vez, ya con todo dentro.
   //
   // Tres cosas que el telón no puede hacer:
-  // - Quedarse puesto si un agente no contesta: a los ocho segundos se pinta
-  //   con los alias que hayan llegado, que es exactamente el caso que el
-  //   `catch` de `loadNodeAliases` ya trataba.
+  // - Quedarse puesto si un agente no contesta: cumplida la espera se pinta
+  //   con los alias que hayan llegado, y los que lleguen después repintan.
   // - Tapar «Actualizar»: cubre `main`, no la cabecera, y por eso el botón
   //   sigue ahí cuando lo que falla es la propia lectura.
   // - Volver en cada relectura. «Actualizar» no tapa nada: lo que hay en
   //   pantalla se sigue leyendo mientras se relee, y los alias ya están.
-  const WAIT_FOR_ALIASES = 8000;
+  //
+  // La espera eran ocho segundos y el agente más lento tardó 8,06 s en una
+  // entrada normal: el corte caía justo donde está el coste real de abrir tres
+  // memorias UBS en frío. Ahora pasarse sólo cuesta un repintado, pero la
+  // espera se mide con lo medido, no por debajo.
+  const WAIT_FOR_ALIASES = 12000;
   let entering = true;
 
   function atMost(promise, milliseconds) {
-    return Promise.race([
-      promise, new Promise(resolve => window.setTimeout(resolve, milliseconds)),
-    ]);
+    return Promise.race([promise, waitFor(milliseconds)]);
   }
 
   // Si la primera lectura falla, el telón se queda: debajo sólo hay
@@ -752,13 +803,14 @@
       catch (_error) { throw new Error(`Respuesta no válida (HTTP ${response.status})`); }
       if (!response.ok) throw new Error(data.error || response.statusText);
       payload = data;
-      const first = entering;
-      if (first) await atMost(loadAliases(data), WAIT_FOR_ALIASES);
+      // Los alias se piden **una vez** y cada agente repinta cuando llega el
+      // suyo. Sólo al entrar se les espera, porque al entrar no hay nada
+      // debajo del telón; en una relectura la pantalla se sigue leyendo y
+      // abrir la memoria UBS del agente no puede retrasar el patrimonio.
+      const aliases = loadAliases(data);
+      if (entering) await atMost(aliases, WAIT_FOR_ALIASES);
       if (payload !== data) return;
       render(data);
-      // En una relectura los alias llegan después y sólo repintan lo que los
-      // lleva: abrir la memoria UBS del agente no puede retrasar el patrimonio.
-      if (!first && await loadAliases(data) && payload === data) renderByAlias(data);
     } catch (error) {
       failure = error.message;
       state.textContent = 'No se pudo leer el patrimonio';
