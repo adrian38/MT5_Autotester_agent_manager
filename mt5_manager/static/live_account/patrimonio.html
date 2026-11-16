@@ -31,6 +31,18 @@
   </header>
 
   <main>
+    <!-- El telón. Esta pantalla se arma con dos lecturas —el patrimonio y,
+         por cada agente, los alias de sus portafolios—, y los alias son el
+         nombre de todo lo que se lee aquí. Enseñarla con la primera dentro
+         dejaba las dos tablas y el detalle diciendo «sin nombre» y, al llegar
+         la segunda, un salto. Tapa `main` y no la cabecera a propósito: si lo
+         que falla es la lectura, «Actualizar» tiene que seguir ahí. -->
+    <div class="wealth-loading" id="wealth-loading" role="status" aria-live="polite">
+      <span class="save-spinner" aria-hidden="true"></span>
+      <p>Leyendo el patrimonio…</p>
+      <small>El archivo de las cuentas reales y el alias de cada portafolio</small>
+    </div>
+
     <!-- La configuración de los sondeos es la de la portada —el mismo cron y
          los mismos cambios de divisa—, así que se abre su mismo diálogo en vez
          de escribir otro que pudiera guardar algo distinto. Aquí tiene botón
@@ -112,7 +124,9 @@
         </div>
         <span id="wealth-contributors-note"></span>
       </div>
-      <div class="universe-table-wrap wealth-table-wrap">
+      <!-- Esta se ve entera: el tope de alto de las otras dos ensenaba cuatro
+           filas de diez y obligaba a recorrerla para comparar. -->
+      <div class="universe-table-wrap wealth-table-wrap" id="wealth-contributors-wrap">
         <table class="universe-table wealth-matrix" id="wealth-contributors">
           <thead><tr><th>Cuenta</th></tr></thead>
           <tbody><tr><td class="portfolio-empty">Cargando…</td></tr></tbody>

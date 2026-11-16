@@ -19,8 +19,25 @@
  * cruzar la ventana entera-, asi que se le da el mismo hueco en el padding;
  * por eso el ancho y el canal son variables y no dos numeros repetidos. */
 .wealth-page{--wealth-width:1680px;--wealth-gutter:max(16px,2.5vw)}
-.wealth-page main{display:grid;gap:14px;width:100%;max-width:var(--wealth-width);
-  margin-inline:auto;padding:20px var(--wealth-gutter) 46px}
+.wealth-page main{position:relative;display:grid;gap:14px;width:100%;min-height:72vh;
+  max-width:var(--wealth-width);margin-inline:auto;padding:20px var(--wealth-gutter) 46px}
+
+/* El telon de entrada. Cubre `main` y no la ventana entera a proposito: si lo
+ * que falla es la lectura, «Actualizar» esta en la cabecera y tiene que seguir
+ * pulsable. El `min-height` de arriba es lo que le da superficie mientras
+ * debajo solo hay los «Cargando…» de las tablas.
+ *
+ * El circulo que gira es el de `styles.css` -el mismo que el guardado-, no uno
+ * propio: dos animaciones identicas con nombres distintos es como se acaba
+ * teniendo dos velocidades de giro en la misma aplicacion. */
+.wealth-loading{position:absolute;inset:0;z-index:40;display:grid;gap:12px;
+  align-content:center;justify-items:center;padding:24px;background:var(--bg);
+  text-align:center}
+.wealth-loading[hidden]{display:none}
+.wealth-loading p{margin:0;font-size:15px;font-weight:700}
+.wealth-loading small{max-width:46ch;color:var(--muted);font-size:12px;line-height:1.5}
+.wealth-loading.failed p{color:var(--danger)}
+.wealth-loading.failed .save-spinner{animation:none;border-top-color:var(--danger)}
 .wealth-page .panel-title{align-items:start;padding:13px 16px}
 .wealth-page .panel-title h2{font-size:15px}
 .wealth-page .panel-title .subtitle{margin-top:4px;font-size:11.5px;line-height:1.45;max-width:70ch}
@@ -62,7 +79,10 @@
 .wealth-card small{color:var(--muted);font-size:10.5px;line-height:1.45}
 .wealth-card.good strong{color:var(--accent2)}
 .wealth-card.bad strong{color:var(--danger)}
-.wealth-card.unknown strong{color:var(--muted);font-size:19px}
+/* La tarjeta en gris ya no dice «—»: dice la suma de las cuentas que si estan
+ * releidas, y su nota dice cuantas son. Por eso conserva el tamano de las
+ * demas -es una cifra que se compara con ellas- y solo pierde el color. */
+.wealth-card.unknown strong{color:var(--muted)}
 
 /* Los graficos. El SVG se escala con su `viewBox`, asi que el alto lo decide
  * la proporcion y no hace falta fijarlo. */
@@ -112,6 +132,7 @@
 .wealth-tip li.positive strong{color:var(--accent2)}
 .wealth-tip li.negative strong{color:var(--danger)}
 .wealth-tip li.unknown strong{color:#5e7488}
+.wealth-tip li.partial strong{color:#8aa0b4}
 .wealth-tip li.mismatch strong{color:var(--warn)}
 .wealth-tip p{margin:11px 0 0;color:var(--warn);font-size:11px;line-height:1.5}
 
@@ -120,6 +141,13 @@
 /* Las tablas caben en una pantalla y se recorren por dentro: la de los meses
  * se queda a la altura del grafico que tiene al lado. */
 .wealth-table-wrap{max-height:330px}
+/* La de los portafolios no. Es la respuesta a «que suma y que resta cada
+ * uno», y con diez cuentas a tres lineas por fila el tope de 330 px ensenaba
+ * cuatro: para comparar la quinta con la primera habia que recordarla. Se
+ * desata en vertical -la pagina crece y se recorre entera- y sigue
+ * recorriendose por dentro en horizontal, que es donde estan los catorce
+ * meses y lo que hace falta para que la primera columna siga pegada. */
+#wealth-contributors-wrap{max-height:none}
 .wealth-page .universe-table th,.wealth-page .universe-table td{padding:7px 10px;font-size:12px}
 .wealth-page .universe-table th{font-size:10px}
 .wealth-table td,.wealth-matrix td{font-variant-numeric:tabular-nums}
@@ -127,6 +155,11 @@
 .wealth-table .negative,.wealth-matrix .negative{color:var(--danger)}
 .wealth-table .positive,.wealth-matrix .positive{color:var(--accent2)}
 .wealth-table .unknown,.wealth-matrix .unknown{color:#5e7488}
+/* Un importe que suma solo las cuentas ya releidas: minimo cierto, no total.
+ * Va en gris y con el punteado debajo, que es lo que invita a mirar el titulo
+ * -«suma N de M cuenta(s)»- en vez de leerlo como el total del mes. */
+.wealth-table td.partial{color:#8aa0b4;text-decoration:underline dotted #4a637c;
+  text-underline-offset:3px}
 .wealth-table .mismatch{color:var(--warn);font-weight:700}
 .wealth-table .current-month td{background:#14252f}
 .wealth-matrix th:first-child,.wealth-matrix td:first-child{position:sticky;left:0;

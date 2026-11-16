@@ -224,13 +224,13 @@ def _month_of_account(
         "cash_known": account["cash_known"] or not started,
         "profit": _converted(net, currency, settings),
         "balance": _converted(balance, currency, settings) if started else None,
-        # Una cuenta que todavía no se ha releído entera no tiene flujos
-        # «cero»: tiene flujos desconocidos. Sumarla como cero convertiría
-        # 37.775 € de depósitos ciertos —lo medido el 2026-11-15 sobre el
-        # archivo real— en un patrimonio que nadie puso.
+        # Los flujos van tal cual están guardados, también los de una cuenta a
+        # medio releer: quien decide si se suman es `_month_total`, que es el
+        # único que sabe cuántas cuentas tiene el mes. Sumarlos aquí
+        # convertiría 37.775 € de depósitos ciertos —lo medido el 2026-11-15
+        # sobre el archivo real— en un patrimonio que nadie puso.
         "cash": {
             key: _converted(cash[key], currency, settings)
-            if account["cash_known"] else None
             for key in (*KINDS, "net")
         },
         "rows": cash["rows"],
@@ -254,12 +254,29 @@ def _month_total(
     agosto: una cuenta que en 2025 no existía no puede esconder los apuntes
     de 2025. Medido el 2026-11-15: nueve de diez cuentas releídas y diez de
     los catorce meses recuperados.
+
+    Y un mes al que le falte una de sus cuentas **ya no se calla entero**: se
+    publica lo que sí está releído y se nombra quién falta (`cash_pending`).
+    Callarlo dejaba cuatro meses y cinco tarjetas en «—» por una sola cuenta
+    de las diez —la del 2026-11-16—, que es todo lo contrario de decir lo que
+    no se sabe: no se sabía nada. Lo que no se publica nunca es un **cuadre**
+    de una suma parcial, que sería el dinero que falta leído como un error.
     """
     rows = [_month_of_account(account, label, settings, current) for account in accounts]
     present = [item for item in rows if item["started"]]
-    known = all(item["cash_known"] for item in rows)
+    pending = [
+        account["account_key"] for account, item in zip(accounts, rows)
+        if not item["cash_known"]
+    ]
+    # El subconjunto que sí se puede cuadrar: las cuentas con los apuntes de
+    # toda su vida. Su saldo y su resultado viajan aparte porque el cuadre de
+    # un mes parcial tiene que medirse contra ellas y sólo contra ellas.
+    counted = [item for item, account in zip(rows, accounts) if account["cash_known"]]
+    settled = [item for item in counted if item["started"]]
+    # Sin una sola cuenta releída, la suma parcial no es parcial: es nada, y
+    # un «0 € de ingresos» se lee como medido. Ahí sí se calla.
     cash = {
-        key: _sum([item["cash"][key] for item in rows]) if known else None
+        key: _sum([item["cash"][key] for item in counted]) if settled else None
         for key in (*KINDS, "net")
     }
     return {
@@ -268,8 +285,12 @@ def _month_total(
         "profit": _sum([item["profit"] for item in present]),
         "accounts": len(present),
         "cash": cash,
-        "cash_known": known,
-        "contributed": None if not known else cash["net"] - cash["rebate"],
+        "cash_known": not pending,
+        "cash_pending": sorted(pending),
+        "cash_accounts": len(settled),
+        "contributed": None if not settled else cash["net"] - cash["rebate"],
+        "known_balance": _sum([item["balance"] for item in settled]) if settled else None,
+        "known_profit": _sum([item["profit"] for item in settled]),
         "movements": sum(int(item["rows"]) for item in rows),
         "per_account": {
             account["account_key"]: item["profit"]
@@ -290,26 +311,34 @@ def _reconcile(months: list[dict[str, Any]]) -> None:
     comparar, y tratar el cero como patrimonio anterior convertiría el saldo
     inicial entero en un descuadre.
 
-    Y un mes al que le falte por releer una de **sus** cuentas tampoco se
-    cuadra: el descuadre sería justo el dinero ingresado que todavía no está
-    en el archivo —37.775 € el 2026-11-15— y se leería como un error de la
-    pantalla. Los meses anteriores a esa cuenta sí se cuadran, que es de lo
-    que se ocupa `_month_total`.
+    Lo que **no** se cuadra nunca es una suma contra otra de distinto alcance.
+    Un mes con una cuenta a medio releer tiene el saldo de las diez y los
+    apuntes de nueve: restarlos daría justo el dinero que falta por leer
+    —37.775 € el 2026-11-15— y se leería como un error de la pantalla. Así que
+    el cuadre de ese mes se mide **sobre las cuentas releídas enteras y sólo
+    sobre ellas**: su saldo (`known_balance`), su resultado (`known_profit`) y
+    sus flujos, que son los tres de la misma gente. Cuando no falta ninguna,
+    ese subconjunto es el total y sale el mismo número de siempre.
+
+    `variation` sigue siendo la del patrimonio entero: es lo que subió la
+    cuenta corriente, y recortarla al subconjunto habría cambiado la columna
+    que la gente lee por una que no es el patrimonio.
     """
     previous: float | None = None
+    previous_known: float | None = None
     for month in months:
-        balance = month["balance"]
-        if previous is None or balance is None:
-            month["variation"] = None
-            month["unexplained"] = None
-        else:
-            month["variation"] = balance - previous
-            month["unexplained"] = (
-                month["variation"] - month["profit"] - month["cash"]["net"]
-                if month["cash_known"] else None
-            )
+        balance, known = month["balance"], month["known_balance"]
+        month["variation"] = (
+            None if previous is None or balance is None else balance - previous
+        )
+        month["unexplained"] = (
+            None if previous_known is None or known is None
+            else known - previous_known - month["known_profit"] - month["cash"]["net"]
+        )
         if balance is not None:
             previous = balance
+        if known is not None:
+            previous_known = known
 
 
 def _wealth_drawdown(months: Sequence[dict[str, Any]]) -> dict[str, Any]:

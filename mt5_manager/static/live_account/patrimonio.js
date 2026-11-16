@@ -94,12 +94,20 @@
       + `<small>${note}</small></div>`;
   }
 
+  // Una cifra de caja que no está completa se enseña igual —callarla dejaba
+  // cinco de las ocho tarjetas en «—» por una sola cuenta de diez—, pero
+  // nunca como si fuera el total: se queda en gris y su nota dice sobre
+  // cuántas cuentas va. Lo que no se publica nunca es un cuadre parcial.
   function totalsMarkup(data) {
     const totals = data.totals;
     const pending = data.warnings.cash_pending.length;
     const partial = pending
-      ? `Parcial: faltan ${pending} de ${totals.accounts} cuentas por releer.`
+      ? `Suma sólo ${totals.cash_accounts} de ${totals.accounts} cuentas: faltan `
+        + `${pending} por releer enteras.`
       : `Sobre las ${totals.accounts} cuentas releídas enteras.`;
+    const soFar = totals.cash_known
+      ? '' : ` · parcial, ${totals.cash_accounts}/${totals.accounts} cuentas`;
+    const cashState = state => (totals.cash_known ? state : 'unknown');
     return [
       card(
         'Patrimonio hoy', money(totals.balance),
@@ -109,28 +117,29 @@
       card(
         'Resultado de operar', money(totals.profit, {signed: true}),
         totals.return_on_contributed === null
-          ? 'Neto acumulado (Profit + comisión + swap). Sin lo aportado completo no hay rentabilidad.'
+          ? 'Neto acumulado (Profit + comisión + swap). Con lo aportado a medias el '
+            + 'porcentaje saldría disparado, así que no se publica.'
           : `${escapeHtml(percent(totals.return_on_contributed))} sobre lo aportado`,
         totals.profit >= 0 ? 'good' : 'bad',
       ),
+      card('Puesto por mí', money(totals.contributed), escapeHtml(partial), cashState('')),
       card(
-        'Puesto por mí', money(totals.cash_known ? totals.contributed : null),
-        escapeHtml(partial), totals.cash_known ? '' : 'unknown',
+        'Ingresos', money(totals.deposits),
+        `Traspasos recibidos ${escapeHtml(money(totals.transfers_in))}`
+        + escapeHtml(soFar),
+        cashState('good'),
       ),
       card(
-        'Ingresos', money(totals.cash_known ? totals.deposits : null),
-        `Traspasos recibidos ${escapeHtml(money(totals.cash_known ? totals.transfers_in : null))}`,
-        totals.cash_known ? 'good' : 'unknown',
+        'Retiradas', money(totals.withdrawals),
+        `Traspasos enviados ${escapeHtml(money(totals.transfers_out))}`
+        + escapeHtml(soFar),
+        cashState('bad'),
       ),
       card(
-        'Retiradas', money(totals.cash_known ? totals.withdrawals : null),
-        `Traspasos enviados ${escapeHtml(money(totals.cash_known ? totals.transfers_out : null))}`,
-        totals.cash_known ? 'bad' : 'unknown',
-      ),
-      card(
-        'Abonos del bróker', money(totals.cash_known ? totals.rebates : null),
-        'Rebates e intereses: entran en el saldo y no los puso nadie operando.',
-        totals.cash_known ? '' : 'unknown',
+        'Abonos del bróker', money(totals.rebates),
+        'Rebates e intereses: entran en el saldo y no los puso nadie operando.'
+        + escapeHtml(soFar),
+        cashState(''),
       ),
       card(
         'Mayor caída del patrimonio', money(-totals.drawdown.amount),
@@ -167,10 +176,12 @@
         `<strong>Falta releer entera${pending.length === 1 ? '' : 's'}: `
         + `${escapeHtml(names.join(', '))}.</strong> El manager empezó a guardar los apuntes `
         + 'de saldo con esta versión, y están repartidos por toda la vida de cada cuenta: '
-        + 'hasta que el sondeo relea la cuenta entera no se pueden sumar. Eso deja en «—» '
-        + 'los flujos de los meses en los que esa cuenta ya existía, y sólo ésos; el '
-        + 'patrimonio y el resultado de operar sí son firmes. «Sondeo del patrimonio» lo '
-        + 'lanza a mano con «Releer ahora».',
+        + 'hasta que el sondeo relea la cuenta entera, sus ingresos y sus retiradas no '
+        + `están en el archivo. Los meses en los que ${pending.length === 1 ? 'esa cuenta ya '
+          + 'existía suman' : 'esas cuentas ya existían suman'} las demás y se marcan en gris: `
+        + 'son un mínimo, no el total. El patrimonio y el resultado de operar sí son '
+        + 'firmes, y el cuadre de esos meses se mide sólo contra las cuentas releídas. '
+        + '«Sondeo del patrimonio» lo lanza a mano con «Releer ahora».',
       );
     }
     if (data.warnings.missing_rates.length) {
@@ -186,7 +197,7 @@
         + 'no entra en el patrimonio.',
       );
     }
-    if (data.totals.cash_known && data.totals.worst_unexplained >= 1) {
+    if (data.totals.worst_unexplained >= 1) {
       notes.push(
         `<strong>Hay ${escapeHtml(money(data.totals.worst_unexplained))} en un mes que ni el `
         + 'resultado ni los flujos explican.</strong> Suele ser un apunte que el informe no '
@@ -234,36 +245,37 @@
       ));
   }
 
-  // Y si el mes sale en «—», de quién es la culpa: las cuentas suyas que
-  // todavía no se han releído enteras, con nombre y no en abstracto.
-  function pendingOf(month, byKey, pending) {
-    return Object.keys(month.per_account || {})
-      .filter(key => pending.has(key))
-      .map(key => accountName(byKey, key));
-  }
-
-  function monthTip(month, byKey, pending) {
+  // Y si el mes va a medias, de quién es: el servidor nombra las cuentas suyas
+  // que todavía no se han releído enteras (`cash_pending`), así que no hay que
+  // deducirlo cruzando el aviso global con quién operó ese mes.
+  function monthTip(month, byKey) {
     const cash = month.cash;
     const transfers = cash.transfer_in === null
       ? null : cash.transfer_in + cash.transfer_out;
     const mismatch = month.unexplained !== null && Math.abs(month.unexplained) >= 1;
     const moved = movers(month, byKey);
-    const missing = month.cash_known ? [] : pendingOf(month, byKey, pending);
+    const missing = (month.cash_pending || []).map(key => accountName(byKey, key));
+    // Las cuatro filas de caja de un mes a medias son un mínimo cierto, no el
+    // total: se enseñan en gris y el pie dice sobre cuántas cuentas van.
+    const flow = missing.length ? 'partial' : '';
     return `<h3>${escapeHtml(longMonth(month.label))}</h3><ul>`
       + tipRow('Patrimonio al cierre', money(month.balance))
       + tipRow('Variación del mes', money(month.variation, {signed: true}), tone(month.variation))
       + tipRow('Resultado de operar', money(month.profit, {signed: true}), tone(month.profit))
-      + tipRow('Ingresos', money(cash.deposit))
-      + tipRow('Retiradas', money(cash.withdrawal))
-      + tipRow('Traspasos', money(transfers, {signed: true}))
-      + tipRow('Abonos del bróker', money(cash.rebate))
-      + tipRow('Sin explicar', money(month.unexplained, {signed: true}),
-        mismatch ? 'mismatch' : 'unknown')
+      + tipRow('Ingresos', money(cash.deposit), flow)
+      + tipRow('Retiradas', money(cash.withdrawal), flow)
+      + tipRow('Traspasos', money(transfers, {signed: true}), flow)
+      + tipRow('Abonos del bróker', money(cash.rebate), flow)
+      + tipRow(
+        missing.length ? `Sin explicar · ${month.cash_accounts} releída(s)` : 'Sin explicar',
+        money(month.unexplained, {signed: true}), mismatch ? 'mismatch' : 'unknown',
+      )
       + '</ul>'
       + (missing.length
         ? `<p>Falta releer entera${missing.length === 1 ? '' : 's'}: `
-          + `${escapeHtml(missing.join(', '))}. Hasta entonces los flujos de este mes `
-          + 'salen «—» en vez de cero y el cuadre no se publica.</p>'
+          + `${escapeHtml(missing.join(', '))}. Los flujos de este mes suman las `
+          + `${month.cash_accounts} cuenta(s) ya releídas —son un mínimo— y el cuadre se `
+          + 'mide sólo contra ellas.</p>'
         : '')
       + (moved.length
         ? `<h4>Quién lo movió · ${month.accounts} cuenta(s)</h4><ul>${moved.join('')}</ul>`
@@ -272,8 +284,7 @@
 
   function buildTips(data) {
     const byKey = new Map(data.contributors.map(row => [row.account_key, row]));
-    const pending = new Set(data.warnings.cash_pending || []);
-    return data.months.map(month => monthTip(month, byKey, pending));
+    return data.months.map(month => monthTip(month, byKey));
   }
 
   // El recuadro se sigue al ratón y se aparta solo cuando no cabe: pegado al
@@ -492,16 +503,22 @@
       const transfers = cash.transfer_in === null
         ? null : cash.transfer_in + cash.transfer_out;
       const mismatch = month.unexplained !== null && Math.abs(month.unexplained) >= 1;
+      // Un mes a medias enseña lo que sí está releído, en gris y con el título
+      // diciendo cuántas cuentas lo sostienen: un número gris que se puede
+      // comparar vale más que un «—» en las cuatro columnas.
+      const flow = (month.cash_pending || []).length
+        ? ` class="partial" title="Suma ${month.cash_accounts} de ${month.accounts} `
+          + 'cuenta(s): el resto está sin releer entera"' : '';
       return `<tr class="${month.label === current ? 'current-month' : ''}">`
         + `<td>${escapeHtml(longMonth(month.label))}`
         + `${month.label === current ? '<small>mes en curso</small>' : ''}</td>`
         + `<td>${escapeHtml(money(month.balance))}</td>`
         + `<td class="${tone(month.variation)}">${escapeHtml(money(month.variation, {signed: true}))}</td>`
         + `<td class="${tone(month.profit)}">${escapeHtml(money(month.profit, {signed: true}))}</td>`
-        + `<td>${escapeHtml(money(cash.deposit))}</td>`
-        + `<td>${escapeHtml(money(cash.withdrawal))}</td>`
-        + `<td>${escapeHtml(money(transfers, {signed: true}))}</td>`
-        + `<td>${escapeHtml(money(cash.rebate))}</td>`
+        + `<td${flow}>${escapeHtml(money(cash.deposit))}</td>`
+        + `<td${flow}>${escapeHtml(money(cash.withdrawal))}</td>`
+        + `<td${flow}>${escapeHtml(money(transfers, {signed: true}))}</td>`
+        + `<td${flow}>${escapeHtml(money(cash.rebate))}</td>`
         + `<td class="${mismatch ? 'mismatch' : 'unknown'}">`
         + `${escapeHtml(money(month.unexplained, {signed: true}))}</td>`
         + `<td>${month.accounts}</td></tr>`;
@@ -509,18 +526,23 @@
   }
 
   // El alias es el nombre con el que el usuario llama a ese portafolio; el
-  // `deployment_name` queda de respaldo, y el número nunca se quita porque es
-  // lo único que no cambia.
+  // `deployment_name` queda de respaldo.
   function aliasOf(nodeId, portfolioId) {
     return (nodeAliases.get(nodeId) || {})[portfolioId] || '';
   }
 
-  // El alias va delante y el número detrás: se identifica por el alias, y el
-  // número está porque es lo único que no cambia.
+  // **Sólo el alias.** El número iba detrás por ser lo único que no cambia, y
+  // lo que hacía de verdad era repetir en cada fila, en cada apunte y en cada
+  // línea del detalle un dato por el que nadie busca: aquí a un portafolio se
+  // le llama por su alias. El número vuelve únicamente cuando no hay alias ni
+  // nombre, porque entonces es lo único que distingue una fila de otra —y de
+  // las diez cuentas del equipo, el `name` del nodo viene vacío en las diez
+  // (medido el 2026-11-16), así que ese respaldo no es teórico.
   function portfolioLabel(row, portfolio) {
     const id = Number(portfolio.portfolio_id || 0);
-    const name = aliasOf(row.node_id, id) || portfolio.name || 'sin nombre';
-    return `${name} (#${id})${portfolio.autolot ? ' · autolote' : ''}`;
+    const name = aliasOf(row.node_id, id) || portfolio.name
+      || (id ? `#${id}` : 'sin nombre');
+    return `${name}${portfolio.autolot ? ' · autolote' : ''}`;
   }
 
   function portfolioNames(row) {
@@ -660,7 +682,8 @@
       : 'sin meses guardados';
     element('#wealth-flow-legend').textContent = data.totals.cash_known
       ? 'Las dos barras de cada mes suman su variación.'
-      : 'Los flujos de las cuentas sin releer no se dibujan.';
+      : `La barra de flujos suma ${data.totals.cash_accounts} de `
+        + `${data.totals.accounts} cuentas: es un mínimo.`;
 
     element('#wealth-months').querySelector('tbody').innerHTML = data.months.length
       ? monthsRows(data)
@@ -679,9 +702,48 @@
       + ((data.not_summed || []).length ? ` y ${data.not_summed.length} fuera` : '');
   }
 
+  // --- El telón: al entrar no se enseña nada a medias --------------------
+  // El patrimonio llega en una petición y los alias —que son el nombre de
+  // todo lo que se lee aquí— en otra por agente. Pintar en cuanto llegaba lo
+  // primero dejaba la pantalla un momento con «sin nombre» en las dos tablas
+  // y en el detalle, y al llegar el alias, un salto. Así que al **entrar** se
+  // tapa el cuerpo entero y se destapa una sola vez, ya con todo dentro.
+  //
+  // Tres cosas que el telón no puede hacer:
+  // - Quedarse puesto si un agente no contesta: a los ocho segundos se pinta
+  //   con los alias que hayan llegado, que es exactamente el caso que el
+  //   `catch` de `loadNodeAliases` ya trataba.
+  // - Tapar «Actualizar»: cubre `main`, no la cabecera, y por eso el botón
+  //   sigue ahí cuando lo que falla es la propia lectura.
+  // - Volver en cada relectura. «Actualizar» no tapa nada: lo que hay en
+  //   pantalla se sigue leyendo mientras se relee, y los alias ya están.
+  const WAIT_FOR_ALIASES = 8000;
+  let entering = true;
+
+  function atMost(promise, milliseconds) {
+    return Promise.race([
+      promise, new Promise(resolve => window.setTimeout(resolve, milliseconds)),
+    ]);
+  }
+
+  // Si la primera lectura falla, el telón se queda: debajo sólo hay
+  // «Cargando…», y levantarlo para enseñar eso sería peor que no levantarlo.
+  function reveal(failure) {
+    const curtain = element('#wealth-loading');
+    if (entering && failure) {
+      curtain.classList.add('failed');
+      curtain.querySelector('p').textContent = 'No se pudo leer el patrimonio';
+      curtain.querySelector('small').textContent = failure;
+      return;
+    }
+    curtain.hidden = true;
+    entering = false;
+  }
+
   async function load() {
     const state = element('#refresh-state');
     state.textContent = 'Cargando…';
+    let failure = '';
     try {
       const response = await fetch('/api/wealth', {cache: 'no-store'});
       const text = await response.text();
@@ -690,13 +752,19 @@
       catch (_error) { throw new Error(`Respuesta no válida (HTTP ${response.status})`); }
       if (!response.ok) throw new Error(data.error || response.statusText);
       payload = data;
+      const first = entering;
+      if (first) await atMost(loadAliases(data), WAIT_FOR_ALIASES);
+      if (payload !== data) return;
       render(data);
-      // Los alias llegan después y sólo repintan lo que los lleva: abrir la
-      // memoria UBS del agente no puede retrasar el patrimonio.
-      if (await loadAliases(data) && payload === data) renderByAlias(data);
+      // En una relectura los alias llegan después y sólo repintan lo que los
+      // lleva: abrir la memoria UBS del agente no puede retrasar el patrimonio.
+      if (!first && await loadAliases(data) && payload === data) renderByAlias(data);
     } catch (error) {
+      failure = error.message;
       state.textContent = 'No se pudo leer el patrimonio';
-      toast(`No se pudo leer el patrimonio: ${error.message}`, true);
+      toast(`No se pudo leer el patrimonio: ${failure}`, true);
+    } finally {
+      reveal(failure);
     }
   }
 

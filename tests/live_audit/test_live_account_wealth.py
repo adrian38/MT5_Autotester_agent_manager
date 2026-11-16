@@ -173,7 +173,11 @@ class WealthCashTests(WealthBase):
         self.assertEqual(payload["totals"]["cash_accounts"], 0)
         self.assertEqual(payload["warnings"]["cash_pending"], [KEY])
         month = self.month(payload, "2026-11")
+        # Sin una sola cuenta releída no hay suma parcial que enseñar: un
+        # «0 € de ingresos» se leería como medido.
         self.assertIsNone(month["cash"]["deposit"])
+        self.assertEqual(month["cash_accounts"], 0)
+        self.assertEqual(month["cash_pending"], [KEY])
         self.assertIsNone(month["contributed"])
         self.assertIsNone(month["unexplained"])
         self.assertIsNone(payload["totals"]["return_on_contributed"])
@@ -210,11 +214,21 @@ class WealthCashTests(WealthBase):
         self.assertTrue(september["cash_known"])
         self.assertEqual(september["cash"]["deposit"], 50.0)
         self.assertAlmostEqual(september["unexplained"], 0.0)
-        # Noviembre sí la tiene dentro, así que ahí no se sabe.
+        # Noviembre sí la tiene dentro: se publica lo que sí está releído, se
+        # dice que es parcial y se nombra quién falta. Lo que no se publica es
+        # un cuadre contra el patrimonio entero, que sería el dinero sin leer.
         november = self.month(payload, "2026-11")
         self.assertFalse(november["cash_known"])
-        self.assertIsNone(november["cash"]["deposit"])
-        self.assertIsNone(november["unexplained"])
+        self.assertEqual(november["cash_pending"], ["34933859@Vantage"])
+        self.assertEqual(november["cash_accounts"], 1)
+        self.assertEqual(november["cash"]["deposit"], 0.0)
+        # El cuadre se mide sobre la cuenta releída y sólo sobre ella: su
+        # saldo no se movió en noviembre, así que no hay descuadre suyo.
+        self.assertEqual(november["known_balance"], 1_150.0)
+        self.assertAlmostEqual(november["unexplained"], 0.0)
+        # Y la variación sigue siendo la del patrimonio entero, que sí incluye
+        # los 500 € de la cuenta que falta por releer.
+        self.assertAlmostEqual(november["variation"], 500.0)
         # Las tarjetas de arriba siguen diciendo que falta una cuenta: lo
         # aportado de toda la vida sí las necesita todas.
         self.assertFalse(payload["totals"]["cash_known"])

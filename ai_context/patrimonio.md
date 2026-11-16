@@ -66,18 +66,68 @@ Tres consecuencias:
   cada fila con el concepto tal cual: un bróker cuyo texto no se sepa leer se
   ve, no desaparece.
 
-## Mientras falte una cuenta por releer, la pantalla se calla
+## Mientras falte una cuenta por releer: se dice cuánto se sabe, no «—»
 
 Los apuntes están repartidos por toda la vida de la cuenta y un sondeo
 incremental sólo trae su ventana, así que la v6 de `SERIES_VERSION` obliga a
-releer la serie entera. Hasta que el sondeo nocturno lo haga —las quince
-cuentas del equipo el 2026-11-15—, `live_account_report.cash_is_complete`
-devuelve falso y el servidor manda `null` en los flujos, no cero. La pantalla
-pinta «—» con el aviso delante.
+releer la serie entera. Hasta que el sondeo nocturno lo haga,
+`live_account_report.cash_is_complete` devuelve falso para esa cuenta.
 
-Es la misma lección que dejó el gráfico mes a mes: *un campo nuevo que la
-ingesta escribe llega a la pantalla un día tarde, y mientras tanto la pantalla
-tiene que saber callarse*. Un cero que parece medido es peor que un hueco.
+La primera versión (2026-11-15) hacía que **una** cuenta sin releer callase el
+mes entero: `null` en los cinco flujos y en el cuadre, y la pantalla pintaba
+«—». El 2026-11-16, con nueve de diez cuentas ya releídas, eso dejaba cuatro
+meses sin una sola cifra de caja y cinco de las ocho tarjetas de arriba en
+«—», por una cuenta abierta en agosto que mueve 1.270 € de 21.960 €. Callarlo
+todo no era decir que no se sabía: era no decir nada.
+
+El criterio de ahora, en `_month_total`:
+
+- **La suma es la de las cuentas releídas enteras**, y se publica siempre; el
+  mes dice cuántas son (`cash_accounts`) y nombra las que faltan
+  (`cash_pending`). La pantalla la enseña en gris, subrayada de puntos y con
+  el título «suma N de M cuenta(s)»: es un mínimo cierto, no el total.
+- **Sin una sola cuenta releída sigue saliendo `null`.** Una suma parcial de
+  cero cuentas no es parcial: es nada, y «0 € de ingresos» se lee como medido.
+  Ahí es donde la lección del gráfico mes a mes sigue valiendo.
+- **Lo aportado completo sigue necesitando las diez.** `totals.cash_known` no
+  cambia, y la rentabilidad sobre lo aportado tampoco se publica sin ellas:
+  con un denominador a medias el porcentaje sale disparado.
+
+## El telón: la pantalla no se enseña a medias
+
+Se arma con dos lecturas —`/api/wealth` y, por cada agente, los alias de sus
+portafolios— y los alias son el nombre de **todo** lo que se lee aquí: las dos
+tablas, el detalle de los gráficos y el aviso de lo que falta por releer.
+Pintar en cuanto llegaba la primera dejaba un momento de «sin nombre» y, al
+llegar la segunda, un salto.
+
+Así que al entrar se tapa `main` y se destapa una sola vez, ya con todo
+dentro. Tres cosas que el telón no puede hacer, y que son el motivo de cómo
+está escrito:
+
+- **Tapar la cabecera.** Es `position:absolute` sobre `main`, no `fixed` sobre
+  la ventana: si lo que falla es la lectura, «Actualizar» tiene que seguir
+  pulsable. Por eso `main` lleva `min-height`, que es lo que le da superficie.
+- **Esperar sin tope.** `atMost(loadAliases(data), 8000)`: un agente que no
+  conteste no puede dejar la pantalla en blanco. Sin alias, un portafolio se
+  nombra `#<id>`, que es el respaldo de `portfolioLabel`.
+- **Volver en cada relectura.** «Actualizar» no tapa nada: lo que hay en
+  pantalla se sigue leyendo mientras se relee, y los alias ya están.
+
+Si la **primera** lectura falla, el telón se queda puesto con el error dentro:
+debajo sólo hay los «Cargando…» de las tablas, y enseñar eso sería peor.
+
+## Un portafolio se llama por su alias y por nada más
+
+El número (`#186`) estaba «porque es lo único que no cambia» y lo que hacía de
+verdad era repetirse en cada fila de la matriz, en cada apunte de la tabla de
+ingresos y en las diez líneas de «quién lo movió» de cada mes. Aquí a un
+portafolio se le llama por su alias; el número no es por lo que nadie busca.
+
+Vuelve en un solo caso: cuando no hay alias **ni** `name`. Y no es teórico —de
+las diez cuentas del equipo, el `name` que manda el nodo viene vacío en las
+diez (2026-11-16)—, así que un agente que no conteste deja la matriz entera
+nombrada por su número. Lo comprueba `tests/live_audit/test_wealth_screen.py`.
 
 ## Tres criterios que no son obvios
 
@@ -100,9 +150,22 @@ tiene que saber callarse*. Un cero que parece medido es peor que un hueco.
 Cada mes publica `variation`, `profit`, `cash.net` y lo que queda: `unexplained`.
 Si un mes mueve 400 € que ni se ganaron ni se ingresaron, falta un apunte —o la
 cuenta se presenta a otro lote— y más vale que lo diga la pantalla que
-creérselo. El primer mes no se cuadra (no hay patrimonio anterior) y con
-cuentas sin releer tampoco, porque el descuadre sería justo el dinero que
-todavía no está en el archivo.
+creérselo. El primer mes no se cuadra: no hay patrimonio anterior.
+
+**Lo que no se cuadra nunca es una suma contra otra de distinto alcance.** Un
+mes con una cuenta a medio releer tiene el saldo de las diez y los apuntes de
+nueve: restarlos daría justo el dinero que falta por leer y se leería como un
+error de la pantalla. Por eso el cuadre de ese mes se mide sobre las cuentas
+releídas enteras y **sólo** sobre ellas —`known_balance`, `known_profit` y sus
+flujos, los tres de la misma gente—, y el detalle lo rotula «sin explicar · N
+releída(s)». Cuando no falta ninguna, ese subconjunto es el total y sale el
+mismo número de siempre; comprobado el 2026-11-16 contra el payload real: los
+diez meses completos no se movieron ni un céntimo, y los cuatro que estaban en
+«—» sacaron −1.380 €, +672,58 €, −672,58 € y 0 €.
+
+`variation` sigue siendo la del patrimonio entero: es lo que subió la cuenta
+corriente, y recortarla al subconjunto habría cambiado la columna que la gente
+lee por una que no es el patrimonio.
 
 ## Suma lo que la portada marca «Sumar»
 
