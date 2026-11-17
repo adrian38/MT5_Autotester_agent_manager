@@ -89,7 +89,27 @@ def _alternate(handler) -> dict[str, Any]:
     return store.save(node_id, account_key, body)
 
 
+def _handle_alternate_password(handler, parts: list[str]) -> bool:
+    """Entrega al ojo la contraseña de una única tarjeta configurada."""
+    if len(parts) != 3 or parts[:2] != ["api", "live-account-alternate-password"]:
+        return False
+    try:
+        node_id, account_key = live_account_alternate.split_key(
+            urllib.parse.unquote(parts[2])
+        )
+        handler._node(node_id)
+        password = handler.server.live_account_alternates.revealed_password(
+            node_id, account_key,
+        )
+        handler._send_json(200, {"password": password})
+    except (KeyError, ValueError) as exc:
+        handler._send_json(404, {"error": str(exc) or "No hay contraseña guardada"})
+    return True
+
+
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
+    if _handle_alternate_password(handler, parts):
+        return True
     if parsed.path == ACCOUNTS_PATH:
         handler._send_json(200, live_account_dashboard.snapshot(handler.server))
         return True

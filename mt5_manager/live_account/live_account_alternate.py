@@ -147,6 +147,13 @@ class LiveAccountAlternateStore:
             "password": password,
         }
 
+    def revealed_password(self, node_id: str, account_key: str) -> str:
+        """Descifra una contraseña guardada cuando el usuario pulsa su ojo."""
+        password = self.credentials(node_id, account_key).get("password", "")
+        if not password:
+            raise KeyError("No hay contraseña guardada para esta cuenta sondeada")
+        return password
+
     def save(self, node_id: str, account_key: str, changes: dict[str, Any]) -> dict[str, Any]:
         """Guarda qué cuenta se sondea en esa tarjeta y con qué agente.
 

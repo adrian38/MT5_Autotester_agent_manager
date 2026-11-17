@@ -69,7 +69,11 @@ dialog form{display:grid;gap:16px;padding:22px}
 .icon-button{padding:4px 10px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:17px}
 .dialog-note{color:var(--muted);font-size:12px;line-height:1.55}.dialog-warning{padding:11px 13px;border:1px solid #6c5a2c;border-radius:9px;background:#2b2412;color:var(--warn);font-size:12px}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+#account-alternate-dialog .form-grid{grid-template-columns:repeat(6,minmax(0,1fr))}
+#account-alternate-dialog .form-grid>label{grid-column:span 2}
+#account-alternate-dialog .form-grid>.account-alternate-half{grid-column:span 3}
 label{display:grid;gap:5px;color:var(--muted);font-size:12px}input,dialog select{padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#0b141c;color:var(--text);font:inherit}
+.password-field{position:relative;display:block}.password-field>input{width:100%;padding-right:42px}.password-reveal{position:absolute;top:50%;right:7px;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:none;color:var(--muted);transform:translateY(-50%);cursor:pointer}.password-reveal:hover{color:var(--text);background:#16273a}.password-reveal.on{color:var(--accent2)}.password-reveal svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}.password-reveal-slash{display:none}.password-reveal.on .password-reveal-slash{display:inline}
 .check{display:flex;align-items:center;gap:9px;color:var(--text);font-size:13px}.check input{width:16px;height:16px}
 fieldset{margin:0;padding:14px;border:1px solid var(--line);border-radius:11px}legend{padding:0 7px;color:var(--accent2);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
 .weekdays{display:flex;gap:14px;flex-wrap:wrap}.rates div{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:10px}
@@ -106,6 +110,6 @@ dialog footer{display:flex;justify-content:flex-end;gap:10px}
 .monthly-tooltip b{font-size:12px}.monthly-tooltip small,.monthly-tooltip em,.monthly-tooltip p{font-size:10px}.monthly-tooltip p{margin:8px 0 0;color:var(--muted)}
 .monthly-empty{padding:40px 18px;color:var(--muted);font-size:12px;text-align:center}
 @media(max-width:900px){header{align-items:start;flex-direction:column}.header-actions{justify-content:flex-start}.accounts{grid-template-columns:1fr}}
-@media(max-width:600px){header,main{padding-inline:18px}.header-actions{width:100%}.header-actions>*{flex:1 1 auto}}
-@media(max-width:480px){.month-comparison{grid-template-columns:1fr;row-gap:1px}.total-months{gap:12px}.total-months>div+div{padding-left:12px}}
+@media(max-width:600px){header,main{padding-inline:18px}.header-actions{width:100%}.header-actions>*{flex:1 1 auto}#account-alternate-dialog .form-grid>label{grid-column:span 3}}
+@media(max-width:480px){.month-comparison{grid-template-columns:1fr;row-gap:1px}.total-months{gap:12px}.total-months>div+div{padding-left:12px}#account-alternate-dialog .form-grid>label{grid-column:span 6}}
 @media(max-width:480px){.monthly-tooltip{--monthly-tooltip-width:calc(100% - 16px)}.monthly-tooltip>div{grid-template-columns:minmax(125px,1fr) auto}}

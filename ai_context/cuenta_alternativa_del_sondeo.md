@@ -108,10 +108,10 @@ nunca se usa.
 
 ## Dos cosas que se resolvieron callando a propósito
 
-- **La contraseña no vuelve nunca a la pantalla.** El campo vacío significa
-  «deja la que hay», que es lo que permite cambiar de agente sin volver a
-  teclearla. A diferencia de las del auditor, aquí no hay «ojo» para verla: no
-  se teclea veinte veces, se teclea una.
+- **La contraseña sólo vuelve si se pulsa el ojo.** El campo vacío sigue
+  significando «deja la que hay», pero el ojo común puede pedir al manager el
+  secreto de esa tarjeta concreta. Al volver a ocultarlo se borra del campo y
+  no se reenvía como si el usuario hubiera escrito un cambio.
 - **Un token que ya no descifra no lee nada.** Clave cambiada o fichero traído
   de otro equipo: la tarjeta se queda sin sondear, que se ve en la portada,
   antes que volver en silencio a la cuenta del perfil, que no se vería.

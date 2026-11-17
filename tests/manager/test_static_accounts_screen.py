@@ -468,9 +468,16 @@ class AlternateAccountTests(unittest.TestCase):
         self.assertIn("La auditoría sigue emparejando contra la cuenta del", self.DIALOG)
         self.assertIn("relectura del patrimonio", self.DIALOG)
 
-    def test_a_saved_password_is_never_put_back_in_the_field(self) -> None:
+    def test_a_saved_password_is_only_recovered_when_the_eye_is_pressed(self) -> None:
         self.assertIn("password.value = ''", self.DIALOG)
-        self.assertIn("Guardada · escribe para cambiarla", self.DIALOG)
+        self.assertIn("Guardada · pulsa el ojo para verla", self.DIALOG)
+        self.assertIn("password.dataset.passwordSource", self.DIALOG)
+
+    def test_server_and_password_share_the_whole_second_row(self) -> None:
+        self.assertEqual(self.DIALOG.count('class="account-alternate-half"'), 2)
+        styles = static_source("accounts.css")
+        self.assertIn("grid-template-columns:repeat(6,minmax(0,1fr))", styles)
+        self.assertIn(".account-alternate-half{grid-column:span 3}", styles)
 
     def test_the_agent_list_is_every_agent_and_not_only_those_with_cards(self) -> None:
         self.assertIn("data.nodes", SCRIPT.replace("latestData.nodes", "data.nodes"))

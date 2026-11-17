@@ -17,7 +17,11 @@ import unittest
 from mt5_manager.manager.manager_handler import STATIC_FILES
 from tools.package_layout import static_matching, static_source
 
-PAGES_WITH_PASSWORDS = ("index.html", "live_audit.html")
+PAGES_WITH_PASSWORDS = {
+    "index.html": "styles.css",
+    "live_audit.html": "styles.css",
+    "accounts.html": "accounts.css",
+}
 
 
 class PasswordRevealTests(unittest.TestCase):
@@ -28,12 +32,12 @@ class PasswordRevealTests(unittest.TestCase):
         cls.audit = static_source("live_audit.js")
         cls.manager = static_source("app.js")
 
-    def test_the_module_is_served_and_the_two_pages_load_it(self) -> None:
+    def test_the_module_is_served_and_every_password_page_loads_it(self) -> None:
         self.assertIn("password_reveal.js", STATIC_FILES)
-        for name in PAGES_WITH_PASSWORDS:
+        for name, stylesheet in PAGES_WITH_PASSWORDS.items():
             page = static_source(name)
             self.assertIn('<script src="/password_reveal.js"></script>', page)
-            self.assertIn('<link rel="stylesheet" href="/styles.css">', page)
+            self.assertIn(f'<link rel="stylesheet" href="/{stylesheet}">', page)
 
     def test_no_other_page_hides_a_password_field_without_the_eye(self) -> None:
         # Si mañana aparece una contraseña en otra pantalla, esta prueba la
@@ -71,8 +75,9 @@ class PasswordRevealTests(unittest.TestCase):
         )
 
     def test_the_eye_is_styled_where_both_pages_can_see_it(self) -> None:
-        for rule in (".password-field{", ".password-reveal{", ".password-reveal.on{"):
-            self.assertIn(rule, self.styles)
+        for stylesheet in (self.styles, static_source("accounts.css")):
+            for rule in (".password-field{", ".password-reveal{", ".password-reveal.on{"):
+                self.assertIn(rule, stylesheet)
         # El campo deja sitio al botón en vez de quedar tapado por él.
         self.assertRegex(self.styles, re.compile(r"\.password-field>input\{[^}]*padding-right"))
 
@@ -109,6 +114,9 @@ class PasswordRevealTests(unittest.TestCase):
         self.assertIn("passwordUrl(`profile:${card.dataset.profileId}:${role}`)", self.audit)
         self.assertIn("passwordUrl('restore:terminal')", self.audit)
         self.assertNotIn("data-password-source", self.manager)
+        alternate = static_source("live_account_alternate.js")
+        self.assertIn("live-account-alternate-password", alternate)
+        self.assertIn("window.PasswordReveal?.typed(password)", alternate)
 
     def test_a_failed_request_says_so_instead_of_leaving_the_field_empty(self) -> None:
         self.assertIn("new CustomEvent('password-reveal-error'", self.script)

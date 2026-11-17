@@ -12,7 +12,7 @@ Lo que se comprueba aquí es justo lo que puede salir mal en silencio:
   terminal de ese bróker;
 - que lo leído se archive bajo la tarjeta y no bajo quien lo leyó, porque si
   no la portada y el patrimonio no verían nada y nada lo diría;
-- que la contraseña no vuelva nunca a la pantalla;
+- que la contraseña sólo vuelva cuando el usuario pulsa el ojo;
 - y que la auditoría no se entere: el perfil no se toca.
 """
 from __future__ import annotations
@@ -122,6 +122,7 @@ class AlternateStoreTests(StoreTestCase):
         self.assertEqual(
             self.store.credentials("axi", AXI_KEY)["password"], "otra",
         )
+        self.assertEqual(self.store.revealed_password("axi", AXI_KEY), "otra")
 
     def test_an_empty_password_keeps_the_one_already_saved(self) -> None:
         """Es lo que permite cambiar de agente sin volver a teclearla."""
@@ -414,6 +415,19 @@ class RouteTests(StoreTestCase):
         ))
         return answer
 
+    def reveal(self, account: str) -> dict[str, Any]:
+        answer: dict[str, Any] = {}
+        handler = SimpleNamespace(
+            server=self.server,
+            _node=lambda node_id: next(row for row in NODES if row["id"] == node_id),
+            _send_json=lambda status, payload: answer.update(status=status, body=payload),
+        )
+        parts = ["api", "live-account-alternate-password", account]
+        self.assertTrue(manager_account_routes.handle_get(
+            handler, SimpleNamespace(path="/unused"), parts,
+        ))
+        return answer
+
     def test_saving_answers_with_what_the_screen_may_see(self) -> None:
         answer = self.post({
             "account": f"axi::{AXI_KEY}", "node_id": "robo",
@@ -430,6 +444,12 @@ class RouteTests(StoreTestCase):
         answer = self.post({"account": f"axi::{AXI_KEY}", "clear": True})
         self.assertEqual(answer["status"], 200)
         self.assertFalse(answer["body"]["configured"])
+
+    def test_the_eye_can_reveal_only_a_saved_alternate_password(self) -> None:
+        self.configure()
+        answer = self.reveal(f"axi::{AXI_KEY}")
+        self.assertEqual(answer, {"status": 200, "body": {"password": "otra"}})
+        self.assertEqual(self.reveal(f"robo::{AXI_KEY}")["status"], 404)
 
     def test_an_agent_that_does_not_exist_is_a_404(self) -> None:
         answer = self.post({

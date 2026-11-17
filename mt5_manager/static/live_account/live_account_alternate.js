@@ -50,10 +50,10 @@ window.LiveAccountAlternate = (() => {
         <label>Login
           <input id="account-alternate-login" inputmode="numeric" autocomplete="off">
         </label>
-        <label>Servidor
+        <label class="account-alternate-half">Servidor
           <input id="account-alternate-server" autocomplete="off">
         </label>
-        <label>Contraseña
+        <label class="account-alternate-half">Contraseña
           <input id="account-alternate-password" type="password" autocomplete="new-password">
         </label>
       </div>
@@ -92,6 +92,7 @@ window.LiveAccountAlternate = (() => {
 
   function close() {
     say('');
+    window.PasswordReveal?.conceal(dialog);
     dialog.close();
   }
 
@@ -107,13 +108,19 @@ window.LiveAccountAlternate = (() => {
     if (!agent.value && agent.options.length) agent.selectedIndex = 0;
   }
 
-  // Una contraseña ya guardada no se devuelve nunca a la pantalla: el campo
-  // vacío significa «deja la que hay», que es lo que permite cambiar de agente
-  // sin volver a teclearla.
+  // Vacío sigue significando «deja la guardada». El ojo la pide sólo cuando
+  // se pulsa y `typed` impide reenviarla como si fuera un cambio.
   function fillPassword(alternate) {
+    window.PasswordReveal?.conceal(dialog);
     password.value = '';
+    delete password.dataset.passwordSource;
+    if (alternate.password_saved) {
+      const key = `${current.node_id}::${current.account_key}`;
+      password.dataset.passwordSource =
+        `/api/live-account-alternate-password/${encodeURIComponent(key)}`;
+    }
     password.placeholder = alternate.password_saved
-      ? 'Guardada · escribe para cambiarla' : 'Contraseña de la cuenta';
+      ? 'Guardada · pulsa el ojo para verla' : 'Contraseña de la cuenta';
   }
 
   function open(options) {
@@ -157,8 +164,10 @@ window.LiveAccountAlternate = (() => {
   field('#account-alternate-cancel').addEventListener('click', close);
   saveButton.addEventListener('click', () => send({
     node_id: agent.value, terminal: terminal.value, login: login.value.trim(),
-    server: server.value.trim(), password: password.value,
+    server: server.value.trim(),
+    password: window.PasswordReveal?.typed(password) ?? password.value,
   }));
+  dialog.addEventListener('password-reveal-error', event => say(event.detail.message));
   clearButton.addEventListener('click', () => {
     const warning = 'La tarjeta volverá a sondear la cuenta de su perfil. ¿Quitar la '
       + 'cuenta guardada?';
