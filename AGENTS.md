@@ -202,7 +202,7 @@ raíz están en `ai_context/layout_del_repositorio.md`.
 | `docker-compose.yml`, `docker-compose.dev.yml` | Compose resuelve los bind mounts relativos contra su propia carpeta, y `manager_restart.py` los busca por nombre en `repo_dir` para reiniciarse |
 | `Caddyfile` | lo monta el compose como `./Caddyfile` |
 | `.env` | Compose lo lee de la raíz del proyecto y de ninguna otra |
-| `.gitignore`, `.mcp.json` | contratos de Git y del servidor MCP |
+| `.gitignore`, `.gitattributes`, `.mcp.json` | contratos de Git y del servidor MCP; el `.gitattributes` del repositorio entero sólo cuenta en la raíz |
 | `README.md`, `AGENTS.md`, `CLAUDE.md` | lectura obligatoria; se descubren por nombre en la raíz |
 | `manager.json`, `node.json` | configuración viva del equipo, ignorada por Git; es la ruta que documentan el README y los lanzadores |
 

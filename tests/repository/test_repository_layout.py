@@ -42,6 +42,7 @@ ROOT_FILES = frozenset({
     "Caddyfile",
     ".env",
     ".gitignore",
+    ".gitattributes",
     ".mcp.json",
     "README.md",
     "AGENTS.md",
