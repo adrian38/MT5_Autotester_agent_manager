@@ -386,10 +386,13 @@ class WealthContributorTests(WealthBase):
         self.assertEqual(
             [row["login"] for row in payload["contributors"]], ["60090762"],
         )
-        self.assertEqual(
-            [row["login"] for row in payload["not_summed"]], ["10010194"],
+        # La excluida no se nombra en ninguna parte del patrimonio: la casilla
+        # «Sumar» ya decidió el alcance, y enumerarla aquí sólo pedía explicar
+        # una cuenta que no forma parte de este cálculo.
+        self.assertNotIn("not_summed", payload)
+        self.assertNotIn(
+            "10010194", [row["login"] for row in payload["contributors"]],
         )
-        self.assertEqual(payload["not_summed"][0]["balance"], 5_000.0)
 
     def test_the_selection_key_is_the_one_the_front_page_writes(self) -> None:
         """Dos formas de componerla serían dos pantallas que no coinciden."""
@@ -398,11 +401,16 @@ class WealthContributorTests(WealthBase):
         )
         self.assertEqual(self.snapshot()["contributors"][0]["selection_key"], f"axi::{KEY}")
 
-    def test_a_blocked_account_is_named_instead_of_disappearing(self) -> None:
-        """Una cuenta real que no se puede leer tiene que verse igual."""
+    def test_a_blocked_account_still_counts_but_is_not_announced(self) -> None:
+        """Una cuenta sin credenciales no es un aviso del patrimonio.
+
+        Sigue contando como cuenta —no desaparece de los totales—, pero la
+        pantalla dejó de enumerarlas: no se sondean porque no se pueden
+        sondear, y decirlo aquí mandaba a buscar un problema inexistente.
+        """
         self.accounts[0]["block_reason"] = "Falta la contraseña de la cuenta real."
         payload = self.snapshot()
-        self.assertEqual(payload["warnings"]["blocked"], [KEY])
+        self.assertNotIn("blocked", payload["warnings"])
         self.assertEqual(payload["totals"]["accounts"], 1)
         self.assertEqual(payload["months"], [])
 

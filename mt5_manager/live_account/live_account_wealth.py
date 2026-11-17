@@ -490,9 +490,6 @@ def _warnings(
             account["account_key"] for account in accounts
             if not account["balances"] and not account["block_reason"]
         ),
-        "blocked": sorted(
-            account["account_key"] for account in accounts if account["block_reason"]
-        ),
         "months_without_balance": [
             month["label"] for month in months if month["balance"] is None
         ],
@@ -553,16 +550,15 @@ def snapshot(server: Any, now: datetime | None = None) -> dict[str, Any]:
     current = month_key(moment)
     excluded = set(server.live_accounts.total_selection().get("excluded_accounts") or [])
     accounts: list[dict[str, Any]] = []
-    left_out: list[dict[str, Any]] = []
     for node in server.nodes:
         node_id = str(node.get("id") or "")
         if not node_id:
             continue
         for account in live_account_inventory.node_accounts(server, node_id):
             row = account_wealth(server, node, node_id, account)
-            (left_out if row["selection_key"] in excluded else accounts).append(row)
+            if row["selection_key"] not in excluded:
+                accounts.append(row)
     accounts.sort(key=lambda account: (account["node_name"], account["login"]))
-    left_out.sort(key=lambda account: (account["node_name"], account["login"]))
     first = min(
         (account["first_month"] for account in accounts if account["first_month"]),
         default="",
@@ -586,14 +582,4 @@ def snapshot(server: Any, now: datetime | None = None) -> dict[str, Any]:
         "contributors": [_contributor(account, months) for account in accounts],
         "totals": _totals(months, accounts, settings),
         "warnings": _warnings(accounts, months, settings),
-        # Las que no suman se nombran, no se esconden: un patrimonio que deja
-        # fuera cinco cuentas sin decirlo se lee como el total de todo.
-        "not_summed": [
-            {
-                "account_key": account["account_key"], "login": account["login"],
-                "server": account["server"], "node_name": account["node_name"],
-                "balance": account["balance"], "currency": account["currency"],
-            }
-            for account in left_out
-        ],
     }

@@ -69,13 +69,17 @@
     return `${Number(value).toLocaleString('es-ES', {maximumFractionDigits: 1})} %`;
   }
 
-  // El día de la relectura completa, que es la cita de **esta** pantalla y es
-  // semanal. El sondeo diario de la portada no pinta aquí ni para la fecha:
-  // lee otras cuentas y extrae otra cosa.
-  function readDay(moment) {
+  // El momento de la relectura completa, que es la cita de **esta** pantalla y
+  // es semanal. Lleva hora y minuto porque el mismo día admite varias
+  // relecturas a mano con «Releer ahora», y sin ellas la segunda se lee igual
+  // que la primera: la tarjeta repetía fecha y el saldo cambiaba solo. El
+  // sondeo diario de la portada no pinta aquí ni para la fecha: lee otras
+  // cuentas y extrae otra cosa.
+  function readMoment(moment) {
     const day = new Date(moment || '');
-    return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('es-ES', {
+    return Number.isNaN(day.getTime()) ? '' : day.toLocaleString('es-ES', {
       day: 'numeric', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
     });
   }
 
@@ -119,10 +123,10 @@
   // en la nota: un total no es más reciente que la última cuenta que entró.
   function balanceCard(data) {
     const read = data.full_read || {};
-    const day = readDay(read.at);
+    const moment = readMoment(read.at);
     const pending = read.pending || [];
     return card(
-      day ? `Patrimonio al ${day}` : 'Patrimonio sin releer',
+      moment ? `Patrimonio al ${moment}` : 'Patrimonio sin releer',
       money(data.totals.balance),
       `Equidad ${escapeHtml(money(data.totals.equity))} · ${data.totals.accounts} `
       + `cuenta(s) en ${escapeHtml(data.display_currency)}`
@@ -189,18 +193,13 @@
     ].join('');
   }
 
+  // Lo que no suma no se enumera. La casilla «Sumar» de «Cuentas en real» ya
+  // decide el alcance antes del sondeo, así que una cuenta desmarcada o sin
+  // credenciales no es un aviso: sencillamente no forma parte de este cálculo,
+  // y nombrarla aquí sólo invitaba a buscarle un problema que no tiene.
   function noticeMarkup(data) {
     const notes = [];
     const pending = data.warnings.cash_pending;
-    if ((data.not_summed || []).length) {
-      const names = data.not_summed.map(row => `${row.login} · ${row.server}`);
-      notes.push(
-        `<strong>${names.length} cuenta(s) no suman aquí:</strong> `
-        + `${escapeHtml(names.join(', '))}. Son las que tienen «Sumar» desmarcado en `
-        + '«Cuentas en real», y se respeta la misma selección: lo que no cuenta allí '
-        + 'tampoco es patrimonio aquí.',
-      );
-    }
     if (pending.length) {
       const byKey = new Map(data.contributors.map(row => [row.account_key, row]));
       const names = pending.map(key => accountName(byKey, key));
@@ -220,13 +219,6 @@
       notes.push(
         `<strong>Falta el cambio de ${escapeHtml(data.warnings.missing_rates.join(', '))}.</strong> `
         + 'Esos importes se quedan fuera de todas las sumas: se pone en el cron de cuentas.',
-      );
-    }
-    if (data.warnings.blocked.length) {
-      notes.push(
-        `<strong>${data.warnings.blocked.length} cuenta(s) sin credenciales:</strong> `
-        + `${escapeHtml(data.warnings.blocked.join(', '))}. No se sondean, así que su saldo `
-        + 'no entra en el patrimonio.',
       );
     }
     if (data.totals.worst_unexplained >= 1) {
@@ -772,8 +764,7 @@
     element('#wealth-cron-note').textContent = `Todo en ${currency}`
       + (rates ? ` · ${rates}` : ' · sin cambios guardados')
       + (data.rates_updated_at ? ` (${data.rates_updated_at})` : '')
-      + ` · ${data.totals.accounts} cuenta(s) sumando`
-      + ((data.not_summed || []).length ? ` y ${data.not_summed.length} fuera` : '');
+      + ` · ${data.totals.accounts} cuenta(s) sumando`;
   }
 
   // --- El telón: al entrar no se enseña nada a medias --------------------

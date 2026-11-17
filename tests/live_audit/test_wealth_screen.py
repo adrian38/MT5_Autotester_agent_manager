@@ -160,8 +160,30 @@ class WealthScreenTests(unittest.TestCase):
         de otras cuentas, puesta encima de estas cifras.
         """
         self.assertNotIn("'Patrimonio hoy'", SCRIPT)
-        self.assertIn("day ? `Patrimonio al ${day}` : 'Patrimonio sin releer'", SCRIPT)
+        self.assertIn(
+            "moment ? `Patrimonio al ${moment}` : 'Patrimonio sin releer'", SCRIPT,
+        )
         self.assertIn("const read = data.full_read || {};", SCRIPT)
+
+    def test_the_date_carries_the_time_because_a_day_admits_several_reads(self) -> None:
+        """«Releer ahora» se pulsa varias veces el mismo día.
+
+        Con la fecha sola, la segunda relectura pintaba la misma cabecera que
+        la primera y el saldo cambiaba debajo sin que nada dijera por qué.
+        """
+        self.assertIn("hour: '2-digit', minute: '2-digit',", SCRIPT)
+        self.assertNotIn("toLocaleDateString('es-ES', {", SCRIPT)
+
+    def test_the_screen_never_enumerates_the_accounts_left_out(self) -> None:
+        """La casilla «Sumar» ya decide el alcance antes del sondeo.
+
+        Nombrar aquí las desmarcadas o las que no tienen credenciales pedía
+        explicar cuentas que no forman parte de este cálculo.
+        """
+        self.assertNotIn("not_summed", SCRIPT)
+        self.assertNotIn("sin credenciales", SCRIPT)
+        self.assertNotIn("no suman aquí", SCRIPT)
+        self.assertNotIn("fuera`", SCRIPT)
 
     def test_the_two_detail_panels_are_stacked_at_the_end(self) -> None:
         """En media pantalla la tabla sacaba diez columnas en un palmo.
