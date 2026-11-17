@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
-import tempfile
 import threading
 import unittest
 from contextlib import closing
@@ -24,75 +23,12 @@ from mt5_manager.node.node import (
     historical_cleanup_scripts,
     pipeline_stage_pending_count,
 )
-
-
-UI_SETTINGS = """[Paths]
-set_files_root=C:\\sets
-ubs_generation_output=C:\\output
-template_path={template}
-ubs_ex5_file=C:\\experts\\ubs.ex5
-mt5_path=C:\\MT5\\terminal64.exe
-mt5_data_root=C:\\MT5Data
-
-[General]
-delay=5
-ubs_broker=ICTRADING
-ubs_account_type=STANDARD
-ubs_generation_count=2
-ubs_variants_per_seed=10
-ubs_max_seeds=30
-ubs_agent_execute=1
-ubs_generation_mode=production
-ubs_pass_min_net_profit=100
-ubs_pass_min_profit_factor=1.2
-ubs_pass_min_trades=50
-ubs_pass_max_drawdown_pct=25
-ubs_pass_min_recovery_factor=1.0
-ubs_long_tf_min_trades_w1=11
-ubs_long_tf_min_trades_mn=4
-ubs_robust_from_date=2025.01.01
-ubs_robust_to_date=2025.12.31
-ubs_robust_pass_min_net_profit=20
-ubs_robust_pass_min_profit_factor=1.2
-ubs_robust_pass_min_trades=40
-ubs_robust_pass_max_drawdown_pct=25
-ubs_robust_pass_min_recovery_factor=1.0
-ubs_robust_positive_bonus=70
-ubs_robust_negative_bonus=-70
-ubs_final_tick_from_date=2026.01.01
-ubs_final_tick_to_date=2026.01.31
-ubs_final_tick_6m_from_date=2026.01.01
-ubs_final_tick_6m_to_date=2026.06.30
-ubs_final_tick_min_history_quality=80
-ubs_final_tick_min_ohlc_trades=5
-ubs_final_tick_min_trades_w1=2
-ubs_final_tick_min_trades_mn=1
-ubs_final_tick_max_net_delta_pct=35
-ubs_final_tick_max_pf_delta_pct=35
-ubs_final_tick_max_dd_delta_pct=35
-ubs_final_tick_max_trades_delta_pct=35
-
-[Multiterminal]
-enabled=0
-"""
-"""Los ajustes que el nodo lee en cada prueba. `{template}` es lo unico que
-cambia entre ejecuciones."""
+from tests.node.node_fixtures import TERMINALS, write_project
 
 
 class NodeTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
-        (self.root / "ubs_agent.py").write_text("print('ok')\n", encoding="utf-8")
-        (self.root / "tester_template.ini").write_text("[Tester]\n", encoding="utf-8")
-        (self.root / "ui_settings.ini").write_text(
-            UI_SETTINGS.format(template=self.root / "tester_template.ini"),
-            encoding="utf-8",
-        )
-        self.config = {
-            "node_id": "ic", "project_dir": str(self.root), "token": "secret",
-            "broker": "ICTRADING", "account_type": "STANDARD", "python_executable": "python",
-        }
+        write_project(self)
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -145,11 +81,17 @@ class NodeTests(unittest.TestCase):
         self.assertEqual(six_month_quality[six_month_quality.index("--final-tick-stage") + 1], "six_month")
         self.assertIn("--final-tick-retry-pending-quality", six_month_quality)
 
-    def test_historical_cleanup_uses_the_same_two_agent_scripts(self) -> None:
+    def _cleanup_project(self, terminals: str = TERMINALS) -> Path:
         scripts_dir = self.root / "scripts"
         scripts_dir.mkdir()
         for filename in ("cleanOldTest.ps1", "cleanOlddata.ps1"):
             (scripts_dir / filename).write_text("Write-Host clean\n", encoding="utf-8")
+        with (self.root / "ui_settings.ini").open("a", encoding="utf-8") as handle:
+            handle.write(terminals)
+        return scripts_dir
+
+    def test_historical_cleanup_uses_the_same_two_agent_scripts(self) -> None:
+        scripts_dir = self._cleanup_project()
 
         scripts = historical_cleanup_scripts(self.config)
         tester_command, cwd = build_historical_cleanup_command(self.config, "cleanup_tester")
@@ -158,8 +100,53 @@ class NodeTests(unittest.TestCase):
         self.assertEqual(cwd, self.root)
         self.assertEqual(scripts["cleanup_tester"], scripts_dir / "cleanOldTest.ps1")
         self.assertEqual(scripts["cleanup_data"], scripts_dir / "cleanOlddata.ps1")
-        self.assertEqual(tester_command[-1], str(scripts_dir / "cleanOldTest.ps1"))
+        self.assertEqual(tester_command[5], str(scripts_dir / "cleanOldTest.ps1"))
         self.assertEqual(verify_command[:2], [sys.executable, "-c"])
+
+    def test_the_cleanup_only_reaches_the_terminals_of_this_broker(self) -> None:
+        """Lo que fallaba el 2026-11-17: IC borraba los `bases` de AXI.
+
+        El criterio era `%APPDATA%\\MetaQuotes` entero, asi que cada agente
+        entraba en las carpetas de los demas —que corren en otra sesion de
+        Windows y las tienen abiertas—, no podia borrarlas y `cleanup_verify`
+        marcaba el trabajo como fallido. Ahora las carpetas salen del
+        `ui_settings.ini` y son solo las de su broker.
+        """
+        self._cleanup_project()
+
+        tester_command, _ = build_historical_cleanup_command(self.config, "cleanup_tester")
+        verify_command, _ = build_historical_cleanup_command(self.config, "cleanup_verify")
+        data_dirs = tester_command[tester_command.index("-DataDirs") + 1]
+        executables = tester_command[tester_command.index("-TerminalPaths") + 1]
+
+        self.assertEqual(data_dirs.split("|"), [r"C:\MT5\IC_1", r"C:\MT5\IC_2"])
+        self.assertEqual(executables.split("|"), [r"C:\Program Files\IC\terminal64.exe"])
+        self.assertEqual(verify_command[3:], [r"C:\MT5\IC_1", r"C:\MT5\IC_2"])
+        self.assertNotIn(r"C:\MT5\OTRO", tester_command + verify_command)
+        self.assertNotIn("MetaQuotes", "".join(verify_command[2:]))
+
+    def test_an_agent_without_terminals_of_its_own_refuses_to_clean(self) -> None:
+        """Sin terminales declaradas no se limpia «todo»: no se limpia nada.
+
+        Una lista vacia que se cuele hasta los scripts es el fallo de antes con
+        otro nombre, y encima en verde.
+        """
+        self._cleanup_project(terminals="[Terminal.9]\nbroker=AXI\ndata_dir=C:\\MT5\\OTRO\n")
+
+        for stage in ("cleanup_tester", "cleanup_data", "cleanup_verify"):
+            with self.subTest(stage=stage), self.assertRaises(ValueError) as error:
+                build_historical_cleanup_command(self.config, stage)
+            self.assertIn("ICTRADING", str(error.exception))
+
+    def test_a_terminal_without_data_dir_falls_back_to_its_experts_root(self) -> None:
+        self._cleanup_project(terminals=(
+            "[Terminal.7]\nbroker=ICTRADING\nmt5_path=C:\\Program Files\\IC\\terminal64.exe\n"
+            "data_dir=\nexperts_root=C:\\MT5\\IC_7\\MQL5\\Experts\n"
+        ))
+
+        verify_command, _ = build_historical_cleanup_command(self.config, "cleanup_verify")
+
+        self.assertEqual(verify_command[3:], [r"C:\MT5\IC_7"])
 
     def test_each_completed_generation_cycle_ends_with_historical_cleanup(self) -> None:
         scripts_dir = self.root / "scripts"

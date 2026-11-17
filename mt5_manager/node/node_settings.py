@@ -94,37 +94,105 @@ def cleanup_after_run_enabled(config: dict[str, Any], payload: dict[str, Any]) -
         historical_cleanup_scripts(config)
     return enabled
 
+def agent_settings_path(config: dict[str, Any]) -> Path:
+    project = Path(str(config["project_dir"])).expanduser().resolve()
+    path = Path(str(config.get("settings_file") or "ui_settings.ini"))
+    return path if path.is_absolute() else project / path
+
+def _terminal_data_dir(values: Any) -> Path | None:
+    """`data_dir`, o la carpeta de la que cuelga `experts_root` si viene vacio."""
+    raw = str(values.get("data_dir") or "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    experts = Path(str(values.get("experts_root") or "").strip() or ".")
+    if experts.name.casefold() == "experts" and experts.parent.name.casefold() == "mql5":
+        return experts.parent.parent
+    return None
+
+def agent_terminals(config: dict[str, Any]) -> list[tuple[str, Path]]:
+    """Las terminales de ESTE agente: `(ejecutable, carpeta de datos)`.
+
+    Son las secciones `Terminal.*` de `ui_settings.ini` cuyo `broker` es el del
+    nodo, y nada mas. Las otras pertenecen a otro agente de la misma maquina
+    —el `[Terminal.1]` de RoboForex sigue declarado en el `ui_settings.ini` de
+    IC y en el de AXI— y `[Paths] mt5_path` tampoco vale como respaldo: en IC
+    apunta justamente al terminal de RoboForex.
+
+    Las deshabilitadas si entran: son suyas, guardan su `.fxt` viejo y ningun
+    otro agente las va a limpiar.
+    """
+    parser = read_settings(agent_settings_path(config))
+    broker = str(config.get("broker") or "").strip().casefold()
+    fallback = setting(parser, "Multiterminal", "broker").casefold()
+    terminals: list[tuple[str, Path]] = []
+    for section in parser.sections():
+        if not section.casefold().startswith("terminal."):
+            continue
+        values = parser[section]
+        if (str(values.get("broker") or fallback).strip().casefold() != broker) or not broker:
+            continue
+        data_dir = _terminal_data_dir(values)
+        if data_dir:
+            # Normalizado: RoboForex declara su terminal principal con barras
+            # normales y el `Path` de un proceso de Windows viene con las
+            # invertidas, asi que sin esto el script no reconoceria como suyo
+            # el unico proceso que si podria cerrar.
+            raw_path = str(values.get("mt5_path") or "").strip()
+            terminals.append((str(Path(raw_path)) if raw_path else "", data_dir))
+    return terminals
+
+def cleanup_terminal_targets(config: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Lo unico que la limpieza puede tocar: carpetas y ejecutables propios.
+
+    Una lista vacia no significa «limpialo todo»: significa que el
+    `ui_settings.ini` no declara ninguna terminal de este broker, y entonces la
+    limpieza no sabe que borrar. Antes el criterio era `%APPDATA%\\MetaQuotes`
+    entero, asi que cada agente borraba los `bases`, el `tester` y la cache del
+    Tester de los demas y despues fallaba al verificar lo que ellos tenian
+    abierto: ver `ai_context/historical_cleanup_cards.md`.
+    """
+    terminals = agent_terminals(config)
+    if not terminals:
+        raise ValueError(
+            f"No hay terminales de {str(config.get('broker') or '?').strip().upper()} "
+            f"en {agent_settings_path(config)}: la limpieza no sabe que borrar"
+        )
+    return (
+        sorted({str(data_dir) for _, data_dir in terminals}),
+        sorted({mt5_path for mt5_path, _ in terminals if mt5_path}),
+    )
+
 def build_historical_cleanup_command(
     config: dict[str, Any], stage: str,
 ) -> tuple[list[str], Path]:
     project = Path(str(config["project_dir"])).expanduser().resolve()
+    data_dirs, executables = cleanup_terminal_targets(config)
     if stage in CLEANUP_STAGE_SCRIPTS:
         script = historical_cleanup_scripts(config)[stage]
         return (
             [
                 "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", str(script),
+                "-DataDirs", "|".join(data_dirs),
+                "-TerminalPaths", "|".join(executables),
             ],
             project,
         )
     if stage != "cleanup_verify":
         raise ValueError(f"Etapa de limpieza desconocida: {stage}")
     verification = r"""
-import os
 import sys
 from pathlib import Path
 
-appdata = str(os.environ.get("APPDATA") or "").strip()
-if not appdata:
-    print("ERROR: APPDATA no esta disponible para verificar la limpieza.", flush=True)
+data_dirs = [Path(argument) for argument in sys.argv[1:] if argument.strip()]
+if not data_dirs:
+    print("ERROR: la verificacion no recibio ninguna terminal del agente.", flush=True)
     raise SystemExit(1)
-metaquotes = Path(appdata) / "MetaQuotes"
-paths = [metaquotes / "Tester"]
-terminal_root = metaquotes / "Terminal"
-if terminal_root.is_dir():
-    for terminal in terminal_root.iterdir():
-        if terminal.is_dir():
-            paths.extend(terminal / name for name in ("tester", "Tester", "bases", "history"))
+paths = []
+for data_dir in data_dirs:
+    paths.extend(data_dir / name for name in ("tester", "bases", "history"))
+    if data_dir.parent.name.casefold() == "terminal":
+        paths.append(data_dir.parent.parent / "Tester" / data_dir.name)
 leftovers = []
 for path in paths:
     if not path.is_dir():
@@ -142,7 +210,7 @@ if leftovers:
     raise SystemExit(1)
 print("Verificacion completada: no quedan datos historicos de MT5.", flush=True)
 """
-    return [sys.executable, "-c", verification], project
+    return [sys.executable, "-c", verification, *data_dirs], project
 
 def _universe_paths(config: dict[str, Any]) -> tuple[Path, Path]:
     project = Path(str(config["project_dir"])).expanduser().resolve()
