@@ -18,6 +18,10 @@ MN_GETHMENU = 0x01E1
 MF_BYPOSITION = 0x0400
 WM_RBUTTONDOWN = 0x0204
 WM_RBUTTONUP = 0x0205
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+MK_RBUTTON = 0x0002
+HISTORY_PAGE_ID = 33208
 
 
 class NativeMt4HistoryReportError(RuntimeError):
@@ -82,6 +86,76 @@ class _WindowsMt4ReportExporter(mt5_report._WindowsTerminalReportExporter):
         except NativeMt4HistoryReportError:
             return None
 
+    def _window_rect(self, hwnd: int) -> tuple[int, int, int, int]:
+        rect = wintypes.RECT()
+        self.user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        return int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)
+
+    def _terminal_workspace(self, main: int) -> int:
+        """El contenedor del panel Terminal, donde conviven la franja y las páginas."""
+        docks = [
+            child for child in self._children(main)
+            if self._class_name(child).startswith("AfxControlBar")
+            and _label(self._window_text(child)) == "terminal"
+        ]
+        for dock in docks:
+            for child in self._children(dock):
+                if _label(self._window_text(child)) == "terminal":
+                    return child
+        return 0
+
+    def _tab_strip(self, workspace: int) -> int:
+        """La franja de pestañas: la única banda visible y ancha del contenedor."""
+        for child in self._children(workspace):
+            if self.user32.GetParent(child) != workspace:
+                continue
+            left, top, right, bottom = self._window_rect(child)
+            if (
+                self._class_name(child).startswith("AfxWnd")
+                and self.user32.IsWindowVisible(child)
+                and right - left > 300 and 0 < bottom - top <= 40
+            ):
+                return child
+        return 0
+
+    def _select_page(self, strip: int, page: int) -> None:
+        """Pulsa la franja de izquierda a derecha hasta destapar esa página."""
+        left, top, right, bottom = self._window_rect(strip)
+        middle, step = (bottom - top) // 2, 20
+        for x in range(step // 2, right - left, step):
+            if self.user32.IsWindowVisible(page):
+                return
+            position = (middle << 16) | x
+            self.user32.SendMessageW(strip, WM_LBUTTONDOWN, 1, position)
+            self.user32.SendMessageW(strip, WM_LBUTTONUP, 0, position)
+            time.sleep(0.1)
+        if not self.user32.IsWindowVisible(page):
+            raise NativeMt4HistoryReportError(
+                "MT4 no activó la pestaña Historial de cuentas del Terminal"
+            )
+
+    def _custom_history_tab(self, main: int) -> tuple[int, int, int] | None:
+        """Localiza el Historial cuando MT4 dibuja sus pestañas en un control MFC.
+
+        El MT4 de Axi no monta un SysTabControl32 en el panel Terminal: dibuja
+        «Operaciones / Exposición / Historial de cuentas / …» en una franja
+        propia sin texto que preguntar. Lo que sí es estable es el id del panel
+        que cada pestaña destapa, así que se busca el del historial y se pulsa
+        la franja hasta que ese panel queda visible. La pestaña previa no se
+        restaura: no hay índice que devolverle a `_click_tab`.
+        """
+        workspace = self._terminal_workspace(main)
+        strip = self._tab_strip(workspace) if workspace else 0
+        history = next((
+            child for child in self._children(workspace)
+            if self.user32.GetParent(child) == workspace
+            and self.user32.GetDlgCtrlID(child) == HISTORY_PAGE_ID
+        ), 0) if workspace else 0
+        if not strip or not history:
+            return None
+        self._select_page(strip, history)
+        return strip, -1, -1
+
     def _history_tab(self, pid: int, main: int) -> tuple[int, int, int]:
         process = self._process(pid)
         try:
@@ -109,6 +183,9 @@ class _WindowsMt4ReportExporter(mt5_report._WindowsTerminalReportExporter):
                     return tab, previous, index
         finally:
             self.kernel32.CloseHandle(process)
+        custom = self._custom_history_tab(main)
+        if custom:
+            return custom
         raise NativeMt4HistoryReportError("No se encontró Account History en la terminal MT4")
 
     def _history_control(self, main: int, tab: int) -> int:
@@ -150,7 +227,10 @@ class _WindowsMt4ReportExporter(mt5_report._WindowsTerminalReportExporter):
     def _context_command(
         self, main: int, pid: int, control: int, labels: Iterable[str],
     ) -> None:
-        self.user32.PostMessageW(control, WM_RBUTTONDOWN, 0, (12 << 16) | 12)
+        # MT4 sólo despliega el menú si el WM_RBUTTONDOWN declara el botón
+        # pulsado en su wparam: con 0 ignora el clic y la exportación moría en
+        # «no abrió el menú» con la pestaña correcta ya seleccionada.
+        self.user32.PostMessageW(control, WM_RBUTTONDOWN, MK_RBUTTON, (12 << 16) | 12)
         self.user32.PostMessageW(control, WM_RBUTTONUP, 0, (12 << 16) | 12)
         popup = int(self._wait(lambda: self._popup(pid), "MT4 no abrió el menú de Account History"))
         wanted = tuple(_label(label) for label in labels)

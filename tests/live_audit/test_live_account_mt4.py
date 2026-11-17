@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from mt5_manager.live_account import live_account_mt4
+from mt5_manager.live_account import live_account_mt4, mt4_native_history_report
 from mt5_manager.live_audit.live_audit_processes import _ProcessMixin
 
 
@@ -88,6 +88,81 @@ class Mt4CloseTests(unittest.TestCase):
         command = run.call_args.args[0][-1]
         self.assertIn("terminal64.exe", command)
         self.assertIn("terminal.exe", command)
+
+
+def _mfc_terminal(visible: set[int], ids: dict[int, int]) -> object:
+    """Reproduce el panel Terminal del MT4 de Axi: dock, franja y páginas."""
+    exporter = object.__new__(mt4_native_history_report._WindowsMt4ReportExporter)
+    tree = {1: [2, 3, 4, 5], 2: [3, 4, 5], 3: [4, 5]}
+    exporter._children = lambda hwnd: tree.get(hwnd, [])
+    exporter._class_name = lambda hwnd: {
+        2: "AfxControlBar140s", 3: "Afx:008B0000", 4: "AfxWnd140s",
+    }.get(hwnd, "SysListView32")
+    exporter._window_text = lambda hwnd: {2: "Terminal", 3: "Terminal"}.get(hwnd, "")
+    exporter._window_rect = lambda hwnd: (24, 991, 1924, 1012) if hwnd == 4 else (0, 0, 0, 0)
+    exporter.user32 = SimpleNamespace(
+        GetParent=lambda hwnd: 3 if hwnd in {4, 5} else 0,
+        GetDlgCtrlID=lambda hwnd: ids.get(hwnd, 0),
+        IsWindowVisible=lambda hwnd: hwnd in visible,
+        SendMessageW=mock.Mock(),
+    )
+    return exporter
+
+
+class Mt4HistoryTabTests(unittest.TestCase):
+    def test_mfc_strip_is_clicked_until_the_history_page_shows(self) -> None:
+        visible = {4}
+        ids = {5: mt4_native_history_report.HISTORY_PAGE_ID}
+        exporter = _mfc_terminal(visible, ids)
+        clicks: list[int] = []
+
+        def click(hwnd: int, message: int, _wparam: int, lparam: int) -> int:
+            if message == mt4_native_history_report.WM_LBUTTONUP:
+                clicks.append(lparam & 0xFFFF)
+                if len(clicks) == 3:
+                    visible.add(5)
+            return 0
+
+        exporter.user32.SendMessageW.side_effect = click
+        with mock.patch.object(mt4_native_history_report.time, "sleep"):
+            self.assertEqual(exporter._custom_history_tab(1), (4, -1, -1))
+
+        self.assertEqual(clicks, [10, 30, 50])
+
+    def test_the_history_page_already_visible_is_not_clicked(self) -> None:
+        ids = {5: mt4_native_history_report.HISTORY_PAGE_ID}
+        exporter = _mfc_terminal({4, 5}, ids)
+
+        self.assertEqual(exporter._custom_history_tab(1), (4, -1, -1))
+        exporter.user32.SendMessageW.assert_not_called()
+
+    def test_a_terminal_without_the_history_page_is_not_a_custom_tab(self) -> None:
+        exporter = _mfc_terminal({4}, {5: 33217})
+
+        self.assertIsNone(exporter._custom_history_tab(1))
+        exporter.user32.SendMessageW.assert_not_called()
+
+    def test_the_right_click_declares_the_button_or_mt4_ignores_it(self) -> None:
+        exporter = object.__new__(mt4_native_history_report._WindowsMt4ReportExporter)
+        exporter.user32 = SimpleNamespace(PostMessageW=mock.Mock())
+        exporter._wait = lambda predicate, message: 7
+        exporter._menu_items = lambda popup: [("guardar como informe", 33064)]
+
+        exporter._context_command(1, 10, 5, ("guardar como informe",))
+
+        posted = exporter.user32.PostMessageW.call_args_list
+        self.assertEqual(posted[0].args[:3], (
+            5, mt4_native_history_report.WM_RBUTTONDOWN, mt4_native_history_report.MK_RBUTTON,
+        ))
+        self.assertEqual(posted[-1].args, (1, mt4_native_history_report.mt5_report.WM_COMMAND, 33064, 0))
+
+    def test_a_strip_that_never_shows_the_page_fails_with_a_named_error(self) -> None:
+        ids = {5: mt4_native_history_report.HISTORY_PAGE_ID}
+        exporter = _mfc_terminal({4}, ids)
+
+        with mock.patch.object(mt4_native_history_report.time, "sleep"):
+            with self.assertRaises(mt4_native_history_report.NativeMt4HistoryReportError):
+                exporter._custom_history_tab(1)
 
 
 if __name__ == "__main__":
