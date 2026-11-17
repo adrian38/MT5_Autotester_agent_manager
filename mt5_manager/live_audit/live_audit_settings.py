@@ -307,6 +307,15 @@ class LiveAuditSettingsStore(
             pass
         return Fernet(key)
 
+    def secret_cipher(self, *, create: bool) -> Fernet:
+        """El mismo Fernet, y la misma clave, para otros secretos del manager.
+
+        Lo usa el almacén de cuentas alternativas del sondeo
+        (`live_account_alternate`): una segunda clave en el equipo sería otro
+        fichero que copiar al mudarse y otra forma de perder una contraseña.
+        """
+        return self._cipher(create=create)
+
     def _credential_flags(self, node_id: str, audit_id: str) -> dict[str, bool]:
         credentials = (self.credential_records.get(node_id) or {}).get(audit_id) or {}
         return {

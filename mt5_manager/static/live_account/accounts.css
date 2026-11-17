@@ -54,6 +54,12 @@ main{padding:26px max(24px,5vw) 64px}
 .account-card footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 20px;border-top:1px solid var(--line);background:#0a141dcc;color:var(--muted);font-size:11px}
 .card-footer-right{display:flex;align-items:center;gap:10px}
 .month-chart-open{padding:4px 9px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--blue);font-size:11px;font-weight:750}
+/* El engranaje: elige a qué cuenta se sondea esta tarjeta. */
+.account-config-open{padding:3px 8px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--muted);font-size:13px;line-height:1}
+.account-config-open:hover{border-color:var(--accent2);color:var(--accent2)}
+/* Y el aviso de que los números son de otra cuenta, junto al servidor: sin él
+   el saldo de arriba se lee como el del login del titulo. */
+.account-alternate{margin-top:6px;padding:4px 8px;border:1px solid #6c5a2c;border-radius:7px;background:#2b2412;color:var(--warn);font-size:11px}
 .account-card footer a{color:var(--blue);font-weight:700;text-decoration:none}.account-card footer a:hover{text-decoration:underline}
 .empty-state{grid-column:1/-1;padding:54px 24px;border:1px dashed var(--line);border-radius:16px;color:var(--muted);text-align:center}.empty-state strong{display:block;margin-bottom:7px;color:var(--text);font-size:18px}
 #toast{position:fixed;right:24px;bottom:24px;max-width:min(420px,calc(100vw - 48px));padding:13px 16px;border-radius:10px;background:#253849;box-shadow:0 10px 35px #0008;opacity:0;transform:translateY(15px);pointer-events:none;transition:.2s}#toast.show{opacity:1;transform:none}#toast.error{background:#612f35}
@@ -63,7 +69,7 @@ dialog form{display:grid;gap:16px;padding:22px}
 .icon-button{padding:4px 10px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:17px}
 .dialog-note{color:var(--muted);font-size:12px;line-height:1.55}.dialog-warning{padding:11px 13px;border:1px solid #6c5a2c;border-radius:9px;background:#2b2412;color:var(--warn);font-size:12px}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
-label{display:grid;gap:5px;color:var(--muted);font-size:12px}input{padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#0b141c;color:var(--text);font:inherit}
+label{display:grid;gap:5px;color:var(--muted);font-size:12px}input,dialog select{padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#0b141c;color:var(--text);font:inherit}
 .check{display:flex;align-items:center;gap:9px;color:var(--text);font-size:13px}.check input{width:16px;height:16px}
 fieldset{margin:0;padding:14px;border:1px solid var(--line);border-radius:11px}legend{padding:0 7px;color:var(--accent2);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
 .weekdays{display:flex;gap:14px;flex-wrap:wrap}.rates div{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:10px}

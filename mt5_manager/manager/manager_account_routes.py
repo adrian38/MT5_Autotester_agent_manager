@@ -17,11 +17,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..live_account import (
-    live_account_dashboard, live_account_inventory, live_account_monthly,
-    live_account_watch, live_account_wealth, live_account_wealth_watch,
+    live_account_alternate, live_account_dashboard, live_account_inventory,
+    live_account_monthly, live_account_watch, live_account_wealth,
+    live_account_wealth_watch,
 )
 
 ACCOUNTS_PATH = "/api/live-accounts"
+ALTERNATE_PATH = "/api/live-account-alternate"
 WEALTH_PATH = "/api/wealth"
 WEALTH_SCHEDULER_PATH = "/api/wealth-scheduler-config"
 WEALTH_NOW_PATH = "/api/wealth-snapshot-now"
@@ -44,8 +46,11 @@ def _snapshot_now(handler) -> dict[str, Any]:
     skipped: list[dict[str, str]] = []
     for node in server.nodes:
         node_id = str(node.get("id") or "")
-        accounts = live_account_inventory.node_accounts(server, node_id) if node_id else []
-        if not accounts:
+        if not node_id:
+            continue
+        if not live_account_inventory.node_accounts(server, node_id) and not (
+            live_account_alternate.readings(server, node_id)
+        ):
             continue
         state, issue, message = live_account_watch.node_snapshot(node, node_id)
         if state is None:
@@ -57,13 +62,30 @@ def _snapshot_now(handler) -> dict[str, Any]:
         runs = server.live_account_runs
         record = runs.record(runs.key(node_id, live_account_watch.SNAPSHOT_KEY))
         live_account_watch.launch(
-            server, node, node_id, accounts,
+            server, node, node_id,
             str(record.get("window") or now.isoformat()),
             int(record.get("attempts") or 0) + 1, now,
         )
         launched.append(node_id)
     server.live_account_wakeup.set()
     return {"launched": launched, "skipped": skipped}
+
+
+def _alternate(handler) -> dict[str, Any]:
+    """Guarda o quita la cuenta que se sondea en una tarjeta.
+
+    La tarjeta llega con la misma clave que usa «Sumar» (`<nodo>::<cuenta>`),
+    que es la que la pantalla ya tiene en la mano. El agente va dentro del
+    cuerpo porque es parte de lo que se configura: con qué terminal se entra.
+    """
+    body = handler._body()
+    node_id, account_key = live_account_alternate.split_key(str(body.get("account") or ""))
+    handler._node(node_id)
+    store = handler.server.live_account_alternates
+    if body.get("clear"):
+        return store.remove(node_id, account_key)
+    handler._node(str(body.get("node_id") or ""))
+    return store.save(node_id, account_key, body)
 
 
 def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
@@ -104,6 +126,14 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
 
 
 def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
+    if parsed.path == ALTERNATE_PATH:
+        try:
+            handler._send_json(200, _alternate(handler))
+        except KeyError as exc:
+            handler._send_json(404, {"error": str(exc)})
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            handler._send_json(400, {"error": str(exc)})
+        return True
     if parsed.path == TOTAL_SELECTION_PATH:
         try:
             state = handler.server.live_accounts.update_total_selection(handler._body())

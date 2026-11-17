@@ -77,6 +77,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   a mes, lo ingresado y lo retirado—, por qué los apuntes de saldo del informe
   nativo son la única fuente posible y por qué la pantalla se calla hasta que
   el sondeo relee cada cuenta entera.
+- `cuenta_alternativa_del_sondeo.md`: el icono de configuración de cada tarjeta
+  de «Cuentas en real», que guarda otra cuenta y el agente con el que leerla;
+  por qué el perfil no se toca, por qué lo leído se archiva bajo la tarjeta y
+  no bajo quien lo leyó, y por qué el patrimonio lo hereda sin tocar nada.
 - `portfolio_active_strategies_filter.md`: la casilla heredable que limita
   creación, mejora y arreglo a estrategias de los usos `live_trading` del mismo
   broker, y por qué prevalece sobre «Excluir sets usados».

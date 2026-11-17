@@ -433,5 +433,49 @@ class CriterionTests(unittest.TestCase):
         self.assertIn("@media(max-width:480px){", css)
 
 
+class AlternateAccountTests(unittest.TestCase):
+    """El icono que elige a qué cuenta se sondea la tarjeta, y su diálogo.
+
+    Lo que no puede faltar es el **aviso**: con una cuenta guardada, el saldo
+    y el beneficio de la tarjeta son de otra cuenta, y el título sigue siendo
+    el login del perfil. Sin decirlo, la tarjeta miente por omisión.
+    """
+
+    DIALOG = static_source("live_account_alternate.js")
+
+    def test_the_dialog_is_served_and_only_on_this_page(self) -> None:
+        self.assertIn("live_account_alternate.js", manager_handler.STATIC_FILES)
+        self.assertIn('src="/live_account_alternate.js"', PAGE.read_text(encoding="utf-8"))
+
+    def test_every_card_carries_the_icon(self) -> None:
+        self.assertIn("account-config-open", SCRIPT)
+        self.assertIn("configButton(card)", SCRIPT)
+        self.assertIn("LiveAccountAlternate.open", SCRIPT)
+
+    def test_a_detoured_card_says_which_account_it_reads(self) -> None:
+        self.assertIn("alternateMarkup(card)", SCRIPT)
+        self.assertIn("Se sondea ${escapeHtml(alternate.login)}", SCRIPT)
+        self.assertIn("lo lee ", SCRIPT)
+        self.assertIn(".account-alternate{", static_source("accounts.css"))
+
+    def test_the_dialog_asks_for_the_agent_as_well_as_the_account(self) -> None:
+        for id_ in ("agent", "login", "server", "password"):
+            self.assertIn(f"account-alternate-{id_}", self.DIALOG)
+        self.assertIn("/api/live-account-alternate", self.DIALOG)
+        self.assertIn("clear: true", self.DIALOG)
+
+    def test_the_dialog_says_what_it_does_not_change(self) -> None:
+        self.assertIn("La auditoría sigue emparejando contra la cuenta del", self.DIALOG)
+        self.assertIn("relectura del patrimonio", self.DIALOG)
+
+    def test_a_saved_password_is_never_put_back_in_the_field(self) -> None:
+        self.assertIn("password.value = ''", self.DIALOG)
+        self.assertIn("Guardada · escribe para cambiarla", self.DIALOG)
+
+    def test_the_agent_list_is_every_agent_and_not_only_those_with_cards(self) -> None:
+        self.assertIn("data.nodes", SCRIPT.replace("latestData.nodes", "data.nodes"))
+        self.assertIn("fillAgents(options.nodes", self.DIALOG)
+
+
 if __name__ == "__main__":
     unittest.main()

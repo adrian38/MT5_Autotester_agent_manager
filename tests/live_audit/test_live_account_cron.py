@@ -19,7 +19,8 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_account import (
-    live_account_dashboard, live_account_expectation, live_account_ingest,
+    live_account_alternate, live_account_dashboard, live_account_expectation,
+    live_account_expectation_refresh, live_account_ingest,
     live_account_inventory, live_account_rates, live_account_report,
     live_account_watch,
 )
@@ -102,7 +103,9 @@ class InventoryTests(unittest.TestCase):
         ])
 
     def test_what_travels_to_the_node_is_the_account_and_its_password(self) -> None:
-        payload = live_account_inventory.snapshot_accounts(self.server, "axi")
+        payload = live_account_alternate.payload(
+            live_account_alternate.readings(self.server, "axi"),
+        )
         self.assertEqual(payload[0], {
             "account_key": "60082017@Axi-US50-Live", "login": "60082017",
             "server": "Axi-US50-Live", "password": "secreto",
@@ -141,7 +144,7 @@ class WatchTests(unittest.TestCase):
     def test_without_the_switch_nothing_is_asked_of_the_agent(self) -> None:
         server = self.server()
         with self._request(snapshot_state("idle")), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ):
             live_account_watch.tick(server, NOW)
         self.assertTrue(self.requests)
@@ -157,7 +160,7 @@ class WatchTests(unittest.TestCase):
         """
         server = self.server()
         with self._request(snapshot_state("completed")), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ):
             live_account_watch.tick(server, NOW)
         self.assertEqual(1, len(server.rate_saves))
@@ -173,7 +176,7 @@ class WatchTests(unittest.TestCase):
         """
         server = self.server()
         with self._request(snapshot_state("idle")), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ):
             live_account_watch.tick(server, NOW)
         self.assertEqual([], server.rate_saves)
@@ -182,7 +185,7 @@ class WatchTests(unittest.TestCase):
     def test_with_the_switch_the_due_snapshot_is_launched(self) -> None:
         server = self.server(enabled=True)
         with self._request(snapshot_state("idle")), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ):
             live_account_watch.tick(server, NOW)
         posts = [row for row in self.requests if row[0] == "POST"]
@@ -216,7 +219,7 @@ class WatchTests(unittest.TestCase):
         server = FakeServer(Path(self.folder.name), state, enabled=True)
         saturday_night = datetime(2026, 10, 24, 23, 7, tzinfo=ZoneInfo("Europe/Madrid"))
         with self._request(snapshot_state("idle", accounts={})), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ):
             live_account_watch.tick(server, saturday_night)
         self.assertEqual([row for row in self.requests if row[0] == "POST"], [])
@@ -237,7 +240,7 @@ class WatchTests(unittest.TestCase):
                 normalization_version=live_account_report.series_version({}),
             )
         with self._request(snapshot_state("idle")), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ):
             live_account_watch.tick(server, NOW)
         body = [row for row in self.requests if row[0] == "POST"][0][2]
@@ -247,7 +250,7 @@ class WatchTests(unittest.TestCase):
     def test_a_finished_snapshot_enters_the_series_once(self) -> None:
         server = self.server()
         with self._request(snapshot_state()), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ), mock.patch(
             "mt5_manager.live_account.live_account_report.account_from_html",
             return_value=parsed_account(),
@@ -278,7 +281,7 @@ class WatchTests(unittest.TestCase):
             taken_at="2026-10-14T21:10:00+00:00",
         )
         with self._request(snapshot_state()), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ), mock.patch(
             "mt5_manager.live_account.live_account_report.account_from_html",
             return_value=parsed_account(),
@@ -292,7 +295,7 @@ class WatchTests(unittest.TestCase):
     def test_the_bell_says_what_entered_and_what_did_not(self) -> None:
         server = self.server()
         with self._request(snapshot_state()), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ), mock.patch(
             "mt5_manager.live_account.live_account_report.account_from_html",
             return_value=parsed_account(),
@@ -310,7 +313,7 @@ class WatchTests(unittest.TestCase):
         # el 2026-10-24, después de lanzar un sondeo y no enterarse de nada.
         server = self.server()
         with self._request(snapshot_state()), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ), mock.patch(
             "mt5_manager.live_account.live_account_report.account_from_html",
             return_value=parsed_account(),
@@ -365,7 +368,7 @@ class WatchTests(unittest.TestCase):
                 "months": {},
             },
         ):
-            live_account_ingest._rebuild(
+            live_account_expectation_refresh._rebuild(
                 server, FakeSource(), "axi",
                 {"account_key": "x", "real_strategy_lots": {}},
                 {"portfolio_id": 105, "portfolio_type": "", "audit_id": "audit-105"},
@@ -393,7 +396,7 @@ class WatchTests(unittest.TestCase):
                 "months": {},
             },
         ):
-            live_account_ingest._rebuild(
+            live_account_expectation_refresh._rebuild(
                 server, ValleySource(), "axi",
                 {"account_key": "x", "real_strategy_lots": {}},
                 {"portfolio_id": 105, "portfolio_type": "balanced", "audit_id": "audit-105"},
@@ -408,7 +411,7 @@ class WatchTests(unittest.TestCase):
         def artifact(node, path, timeout=10):
             return 200, b"<html>otro</html>", "text/html"
         with self._request(snapshot_state()), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ), mock.patch("mt5_manager.manager.manager_http.node_artifact_request", artifact):
             live_account_watch.tick(server, NOW)
         self.assertEqual(server.live_accounts.read("axi", "60082017@Axi-US50-Live")["movements"], [])
@@ -440,7 +443,7 @@ class WatchTests(unittest.TestCase):
     def test_a_running_snapshot_is_never_duplicated(self) -> None:
         server = self.server(enabled=True)
         with self._request(snapshot_state("extracting")), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ):
             live_account_watch.tick(server, NOW)
         self.assertFalse([row for row in self.requests if row[0] == "POST"])
@@ -448,7 +451,7 @@ class WatchTests(unittest.TestCase):
     def test_the_turn_is_not_launched_twice_in_the_same_night(self) -> None:
         server = self.server(enabled=True)
         with self._request(snapshot_state("idle")), mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         ):
             live_account_watch.tick(server, NOW)
             live_account_watch.tick(server, NOW)
@@ -470,7 +473,7 @@ class WatchTests(unittest.TestCase):
 
     def _no_expectations(self):
         return mock.patch(
-            "mt5_manager.live_account.live_account_ingest.refresh_expectations", return_value=0,
+            "mt5_manager.live_account.live_account_expectation_refresh.refresh_expectations", return_value=0,
         )
 
     def _launch_the_turn(self, server: FakeServer) -> None:

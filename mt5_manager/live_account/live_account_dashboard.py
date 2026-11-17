@@ -162,9 +162,18 @@ def _portfolios(archive: Any, node_id: str, account: dict[str, Any]) -> list[dic
     return found
 
 
-def _state(stored: dict[str, Any], account: dict[str, Any], now: datetime) -> tuple[str, str]:
-    """En qué situación está la tarjeta, y qué le pasa dicho en una línea."""
-    if account.get("block_reason"):
+def _state(
+    stored: dict[str, Any], account: dict[str, Any],
+    alternate: dict[str, Any], now: datetime,
+) -> tuple[str, str]:
+    """En qué situación está la tarjeta, y qué le pasa dicho en una línea.
+
+    Una tarjeta desviada no está bloqueada aunque su perfil no tenga la
+    contraseña: la cuenta que se sondea es otra y lleva la suya
+    (`live_account_alternate`). Decir «sin credenciales» de algo que se está
+    leyendo todas las noches manda a arreglar lo que no está roto.
+    """
+    if account.get("block_reason") and not alternate.get("configured"):
         return "blocked", str(account["block_reason"])
     updated = str(stored.get("updated_at") or "")
     if not updated:
@@ -201,6 +210,28 @@ def _presentation(server: Any, node_id: str, account: dict[str, Any]) -> dict[st
     return {"lots": symbols, "warnings": sorted(set(warnings))}
 
 
+def _earlier(
+    earlier_row: dict[str, Any], net_earlier: dict[str, Any],
+    net_monthly: dict[str, Any], monthly: dict[str, Any], label: str,
+) -> dict[str, Any]:
+    """El mes anterior, con el tono y la diferencia **de este** mes contra él.
+
+    Pintarlos sobre su importe hacía leer un septiembre en verde como
+    «septiembre fue bueno» cuando lo que decían era que octubre va mejor. La
+    pantalla los enseña como nota, y así un color sigue significando una sola
+    cosa: contra la media de ese mes.
+    """
+    return {
+        **earlier_row, "net_profit": net_earlier["profit"], "label": label,
+        "profit_tone": tone(net_monthly["profit"], net_earlier["profit"]),
+        "profit_delta": net_monthly["profit"] - net_earlier["profit"],
+        "drawdown_tone": tone(
+            monthly["drawdown"], earlier_row["drawdown"], higher_is_better=False,
+        ),
+        "drawdown_delta": monthly["drawdown"] - earlier_row["drawdown"],
+    }
+
+
 def _account_performance(stored: dict[str, Any]) -> tuple[dict, dict, dict]:
     """Profit visible y neto comparable con la primitiva común."""
     ordered, profits = account_series(stored)
@@ -225,7 +256,8 @@ def account_card(
     expected = expected_month(archive, node_id, account["portfolios"], label)
     progress = month_progress(now)
     prorated = None if expected["profit"] is None else expected["profit"] * progress
-    state, message = _state(stored, account, now)
+    alternate = server.live_account_alternates.public(node_id, account["account_key"])
+    state, message = _state(stored, account, alternate, now)
     currency = str(stored.get("currency") or "")
     return {
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
@@ -243,20 +275,11 @@ def account_card(
                 monthly["drawdown"], expected["drawdown"], higher_is_better=False,
             ),
         },
-        # El tono y la diferencia son de **este** mes contra el anterior, no
-        # del mes anterior: pintarlos sobre su importe hacía leer un septiembre
-        # en verde como «septiembre fue bueno» cuando lo que decían era que
-        # octubre va mejor. La pantalla los enseña como nota, y así un color
-        # sigue significando una sola cosa: contra la media de ese mes.
-        "previous_month": {
-            **earlier_row, "net_profit": net_earlier["profit"], "label": earlier,
-            "profit_tone": tone(net_monthly["profit"], net_earlier["profit"]),
-            "profit_delta": net_monthly["profit"] - net_earlier["profit"],
-            "drawdown_tone": tone(
-                monthly["drawdown"], earlier_row["drawdown"], higher_is_better=False,
-            ),
-            "drawdown_delta": monthly["drawdown"] - earlier_row["drawdown"],
-        },
+        "previous_month": _earlier(earlier_row, net_earlier, net_monthly, monthly, earlier),
+        # La cuenta que de verdad se sondea, cuando no es la de arriba. La
+        # tarjeta sigue siendo la del perfil; esto es lo que el icono de
+        # configuración abre y lo que la nota tiene que poder decir.
+        "alternate": alternate,
         "expected_month": {**expected, "profit_prorated": prorated},
         "expected_previous": expected_month(archive, node_id, account["portfolios"], earlier),
         "last_read": str(stored.get("updated_at") or ""),
@@ -338,6 +361,16 @@ def snapshot(server: Any, now: datetime | None = None) -> dict[str, Any]:
         "exchange_rates": dict(settings.get("exchange_rates") or {}),
         "rates_updated_at": str(settings.get("rates_updated_at") or ""),
         "accounts": cards,
+        # Todos los agentes, no sólo los que tienen tarjeta: el modal de
+        # configuración elige con cuál se entra en la cuenta guardada, y puede
+        # ser uno que hoy no opera en real ninguna.
+        "nodes": [
+            {
+                "id": str(node.get("id") or ""), "name": str(node.get("name") or ""),
+                "broker": str(node.get("portfolio_broker") or ""),
+            }
+            for node in server.nodes if str(node.get("id") or "")
+        ],
         "totals": _totals(cards, settings),
         "total_selection": server.live_accounts.total_selection(),
         "month_progress": month_progress(moment),

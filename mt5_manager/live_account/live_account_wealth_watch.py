@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import live_account_inventory, live_account_watch, live_account_wealth
+from . import live_account_alternate, live_account_watch, live_account_wealth
 from .live_account_ingest import SNAPSHOT_KEY
 from .live_account_wealth import WEALTH_KEY  # noqa: F401  (API de este módulo)
 from .live_account_wealth_schedule import (
@@ -183,13 +183,12 @@ def _give_up(server: Any, node: dict[str, Any], node_id: str, window: str) -> No
 
 
 def _launch(
-    server: Any, node: dict[str, Any], node_id: str, accounts: list[dict[str, Any]],
-    window: str, now: datetime,
+    server: Any, node: dict[str, Any], node_id: str, window: str, now: datetime,
 ) -> None:
     """Pide la relectura completa y deja la cita a la espera de su informe."""
     runs = server.live_account_runs
     live_account_watch.launch(
-        server, node, node_id, accounts, window, 1, now,
+        server, node, node_id, window, 1, now,
         period=("", now.astimezone(timezone.utc).date().isoformat()),
         reason="relectura completa para el patrimonio",
     )
@@ -202,17 +201,24 @@ def _launch(
     )
 
 
-def summing_accounts(server: Any, node_id: str) -> list[dict[str, Any]]:
-    """Las cuentas de ese nodo que suman en el patrimonio.
+def summing_readings(server: Any, node_id: str) -> list[live_account_alternate.Reading]:
+    """Lo que ese agente tiene que releer para el patrimonio.
 
-    Las desmarcadas no se releen: una relectura completa cuesta una terminal y
-    nueve megas de informe por cuenta, y lo que no cuenta en el patrimonio no
+    Las desmarcadas no cuentan: una relectura completa cuesta una terminal y
+    nueve megas de informe por cuenta, y lo que no entra en el patrimonio no
     justifica ese precio.
+
+    Son lecturas y no tarjetas porque una tarjeta desviada se relee en el
+    agente que se le guardó: es la misma cuenta que sondea la portada, que es
+    justo lo que el usuario pidió el 2026-11-17. Lo que decide si suma sigue
+    siendo la tarjeta, así que la exclusión se mira por su nodo.
     """
     excluded = set(server.live_accounts.total_selection().get("excluded_accounts") or [])
     return [
-        account for account in live_account_inventory.node_accounts(server, node_id)
-        if live_account_wealth.selection_key(node_id, account["account_key"]) not in excluded
+        reading for reading in live_account_alternate.readings(server, node_id)
+        if live_account_wealth.selection_key(
+            reading.owner_node_id, reading.account_key,
+        ) not in excluded
     ]
 
 
@@ -225,8 +231,7 @@ def consider(
         return
     if not server.wealth_scheduler_settings.get("enabled"):
         return
-    accounts = summing_accounts(server, node_id)
-    if not accounts:
+    if not summing_readings(server, node_id):
         return
     settings = server.wealth_scheduler_settings
     window, pending = pending_window(settings, _completion(record), now)
@@ -234,7 +239,7 @@ def consider(
         return
     reason = node_busy(server, node, node_id)
     if not reason:
-        _launch(server, node, node_id, accounts, window, now)
+        _launch(server, node, node_id, window, now)
         return
     _wait(server, node_id, window, reason, now)
     if _expired(_record(server, node_id), settings, now):
@@ -266,14 +271,13 @@ def run_now(server: Any) -> dict[str, Any]:
     skipped: list[dict[str, str]] = []
     for node in server.nodes:
         node_id = str(node.get("id") or "")
-        accounts = summing_accounts(server, node_id) if node_id else []
-        if not accounts:
+        if not node_id or not summing_readings(server, node_id):
             continue
         reason = node_busy(server, node, node_id)
         if reason:
             skipped.append({"node_id": node_id, "reason": reason})
             continue
-        _launch(server, node, node_id, accounts, now.isoformat(), now)
+        _launch(server, node, node_id, now.isoformat(), now)
         launched.append(node_id)
     server.live_account_wakeup.set()
     return {"launched": launched, "skipped": skipped}
@@ -284,7 +288,7 @@ def _node_state(server: Any, node: dict[str, Any], node_id: str) -> dict[str, An
     record = _record(server, node_id)
     return {
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
-        "accounts": len(summing_accounts(server, node_id)),
+        "accounts": len(summing_readings(server, node_id)),
         "status": str(record.get("status") or ""),
         "window": str(record.get("window") or ""),
         "waiting_since": str(record.get("waiting_since") or ""),

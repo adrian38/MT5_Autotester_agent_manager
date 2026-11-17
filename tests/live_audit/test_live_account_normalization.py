@@ -16,8 +16,10 @@ from unittest import mock
 
 from portfolio_manager.mt5_report import RawDeal
 from mt5_manager.live_account import (
-    live_account_expectation, live_account_ingest, live_account_inventory,
-    live_account_presentation, live_account_report, live_account_watch,
+    live_account_alternate, live_account_expectation,
+    live_account_expectation_refresh, live_account_ingest,
+    live_account_inventory, live_account_presentation, live_account_report,
+    live_account_watch,
 )
 from mt5_manager.live_account.live_account_archive import LiveAccountArchive
 
@@ -253,7 +255,11 @@ class NormalizedSeriesTests(unittest.TestCase):
                 live_account_scheduler_settings={"overlap_days": 3},
             )
             period = live_account_watch._period(
-                server, "axi", [{"account_key": key}],
+                server,
+                [live_account_alternate.Reading(
+                    "axi", "axi", key, {"account_key": key},
+                    "10010194", "Axi-US50-Demo", "secreto", False,
+                )],
                 datetime(2026, 10, 21, tzinfo=timezone.utc),
             )
         self.assertEqual(period, ("", "2026-10-21"))
@@ -274,7 +280,7 @@ class MeasuredPromiseTests(unittest.TestCase):
             live_account_presentation.TESTER_LEADS, MEMBERS, DETAIL,
         )
         self.assertEqual(
-            live_account_ingest._measured_lots(self.PROFILE, {"members": MEMBERS}, "", use),
+            live_account_expectation_refresh._measured_lots(self.PROFILE, {"members": MEMBERS}, "", use),
             {
                 "AXI/STANDARD:21175": 0.03, "AXI/STANDARD:46978": 0.1,
                 "AXI/STANDARD:3813": 0.01,
@@ -283,7 +289,7 @@ class MeasuredPromiseTests(unittest.TestCase):
 
     def test_without_a_marked_column_the_declared_lot_keeps_mandating(self) -> None:
         self.assertEqual(
-            live_account_ingest._measured_lots(self.PROFILE, {"members": MEMBERS}, ""),
+            live_account_expectation_refresh._measured_lots(self.PROFILE, {"members": MEMBERS}, ""),
             self.PROFILE["real_strategy_lots"],
         )
 
@@ -327,10 +333,10 @@ class MeasuredPromiseTests(unittest.TestCase):
         for audit_id, portfolio_id, declared in (
             ("audit-109", 109, 0.5), ("audit-110", 110, 0.01),
         ):
-            profile = live_account_ingest._profile(
+            profile = live_account_expectation_refresh._profile(
                 server, "axi", {"audit_id": audit_id, "portfolio_id": portfolio_id},
             )
-            lots = live_account_ingest._measured_lots(profile, {}, "")
+            lots = live_account_expectation_refresh._measured_lots(profile, {}, "")
             lot, origin = live_account_expectation.member_lot(
                 {"candidate_id": "manual:1", "lot": declared}, lots,
             )
@@ -351,19 +357,19 @@ class MeasuredPromiseTests(unittest.TestCase):
             "presentation_criterion": live_account_presentation.PRESENTATION_VERSION,
             "portfolio_created_at": "",
         }
-        self.assertFalse(live_account_ingest._needs_rebuild(fresh, now))
-        self.assertTrue(live_account_ingest._needs_rebuild(
+        self.assertFalse(live_account_expectation_refresh._needs_rebuild(fresh, now))
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(
             {**fresh, "criterion": "criterio-anterior"}, now,
         ))
-        self.assertTrue(live_account_ingest._needs_rebuild(fresh, now, "tester"))
-        self.assertFalse(live_account_ingest._needs_rebuild(
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(fresh, now, "tester"))
+        self.assertFalse(live_account_expectation_refresh._needs_rebuild(
             {**fresh, "mode": "tester"}, now, "tester",
         ))
-        self.assertTrue(live_account_ingest._needs_rebuild(
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(
             {**fresh, "mode": "tester"}, now,
         ))
         # Una media de antes de que existiera el campo tampoco es de ahora.
-        self.assertTrue(live_account_ingest._needs_rebuild(
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(
             {"updated_at": fresh["updated_at"]}, now,
         ))
 
@@ -382,11 +388,11 @@ class MeasuredPromiseTests(unittest.TestCase):
             "presentation_criterion": live_account_presentation.PRESENTATION_VERSION,
             "portfolio_created_at": "",
         }
-        self.assertFalse(live_account_ingest._needs_rebuild(fresh, now))
-        self.assertTrue(live_account_ingest._needs_rebuild(
+        self.assertFalse(live_account_expectation_refresh._needs_rebuild(fresh, now))
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(
             {**fresh, "presentation_criterion": "lot-notes-v1"}, now,
         ))
-        self.assertTrue(live_account_ingest._needs_rebuild(
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(
             {key: value for key, value in fresh.items()
              if key != "presentation_criterion"}, now,
         ))
@@ -407,11 +413,11 @@ class MeasuredPromiseTests(unittest.TestCase):
             "criterion": live_account_expectation.CRITERION_VERSION,
             "presentation_criterion": live_account_presentation.PRESENTATION_VERSION,
         }
-        self.assertTrue(live_account_ingest._needs_rebuild(stored, now))
-        self.assertFalse(live_account_ingest._needs_rebuild(
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(stored, now))
+        self.assertFalse(live_account_expectation_refresh._needs_rebuild(
             {**stored, "portfolio_created_at": ""}, now,
         ))
-        self.assertFalse(live_account_ingest._needs_rebuild(
+        self.assertFalse(live_account_expectation_refresh._needs_rebuild(
             {**stored, "portfolio_created_at": "2026-08-20T02:52:14"}, now,
         ))
 

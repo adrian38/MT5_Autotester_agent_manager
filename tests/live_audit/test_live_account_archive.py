@@ -17,8 +17,8 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_account import (
-    live_account_expectation, live_account_ingest, live_account_presentation,
-    live_account_series,
+    live_account_expectation, live_account_expectation_refresh,
+    live_account_presentation, live_account_series,
 )
 from mt5_manager.manager import manager_account_routes
 from mt5_manager.live_account.live_account_archive import (
@@ -364,12 +364,12 @@ class StoredPromiseTests(unittest.TestCase):
         now = datetime(2026, 10, 21, 23, 30, tzinfo=timezone.utc)
         self.archive.write_expectation("axi", 105, self._fresh())
         stored = self.archive.read_expectation("axi", 105)
-        self.assertFalse(live_account_ingest._needs_rebuild(stored, now))
+        self.assertFalse(live_account_expectation_refresh._needs_rebuild(stored, now))
 
         self.assertTrue(self.archive.discard_expectation("axi", 105))
 
         self.assertEqual(self.archive.read_expectation("axi", 105), {})
-        self.assertTrue(live_account_ingest._needs_rebuild({}, now))
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild({}, now))
 
     def test_discarding_a_promise_that_is_not_there_is_not_an_error(self) -> None:
         self.assertFalse(self.archive.discard_expectation("axi", 105))

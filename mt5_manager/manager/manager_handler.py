@@ -79,6 +79,9 @@ STATIC_FILES = {
     # El grafico mes a mes de una cuenta: beneficio contra drawdown desde su
     # primer cierre. Solo lo carga la portada, que es donde esta el boton.
     "live_account_monthly.js",
+    # El dialogo que elige a que cuenta se sondea cada tarjeta y con que
+    # agente. Tambien solo en la portada: el icono que lo abre esta ahi.
+    "live_account_alternate.js",
     # El patrimonio: el saldo de todas las cuentas mes a mes, lo ingresado y lo
     # retirado. Pantalla propia, la primera del bloque comun de navegacion.
     "patrimonio.html", "patrimonio.js", "patrimonio.css",

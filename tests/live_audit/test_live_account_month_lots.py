@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_account import (
-    live_account_expectation, live_account_ingest,
+    live_account_expectation, live_account_expectation_refresh,
     live_account_month_lots as month_lots, live_account_presentation,
 )
 from mt5_manager.live_account.live_account_archive import account_key
@@ -183,7 +183,7 @@ class IngestScenarioTests(unittest.TestCase):
         }
 
     def scenarios(self, use=None, stored=None) -> dict:
-        return live_account_ingest._scenarios(
+        return live_account_expectation_refresh._scenarios(
             self.server, FakeSource(), "axi", self.account,
             {"portfolio_id": 105, "audit_id": "audit-105", "portfolio_type": ""},
             self.saved, "", use or live_account_presentation.UseLots(), NOW,
@@ -216,11 +216,11 @@ class IngestScenarioTests(unittest.TestCase):
 
     def test_lotstep_exception_names_only_the_vantage_account(self) -> None:
         account = {"login": "34933859", "server": "VantageMarkets-Live 10"}
-        self.assertTrue(live_account_ingest._is_vantage_lotstep_account(
+        self.assertTrue(live_account_expectation_refresh._is_vantage_lotstep_account(
             "vantage-raw-local", account,
         ))
-        self.assertFalse(live_account_ingest._is_vantage_lotstep_account("axi", account))
-        self.assertFalse(live_account_ingest._is_vantage_lotstep_account(
+        self.assertFalse(live_account_expectation_refresh._is_vantage_lotstep_account("axi", account))
+        self.assertFalse(live_account_expectation_refresh._is_vantage_lotstep_account(
             "vantage-raw-local", {**account, "login": "otra"},
         ))
 
@@ -231,7 +231,7 @@ class IngestScenarioTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.saved["members"][0]["set_path"] = str(set_path)
-        found = live_account_ingest._step_scenarios(
+        found = live_account_expectation_refresh._step_scenarios(
             FakeSource(), self.saved["members"], [], {"ROBOFOREX/ECN:1": 0.13}, NOW,
         )
         self.assertEqual(found["2026-10"]["basis"], month_lots.STEP_LOT_BASIS)
@@ -244,7 +244,7 @@ class IngestScenarioTests(unittest.TestCase):
         expected.parent.mkdir(parents=True)
         expected.write_text("Risk=0\n", encoding="utf-8")
         stored = r"I:\TRADING\agent\runtime\node\manual_portfolios\abc\x.set"
-        self.assertEqual(live_account_ingest._resolve_step_set(stored, project), expected)
+        self.assertEqual(live_account_expectation_refresh._resolve_step_set(stored, project), expected)
 
     def test_with_the_tester_column_marked_nothing_is_rescaled(self) -> None:
         """Ahí los cierres ya están al lote del backtest: mover la promesa
@@ -343,9 +343,9 @@ class IngestScenarioTests(unittest.TestCase):
                   "updated_at": NOW.isoformat(),
                   "portfolio_created_at": "",
                   "months_at": {"2026-09": {"profit": 1.0}}}
-        self.assertTrue(live_account_ingest._needs_rebuild(stored, NOW))
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(stored, NOW))
         stored["months_at"]["2026-10"] = {"profit": 2.0}
-        self.assertFalse(live_account_ingest._needs_rebuild(stored, NOW))
+        self.assertFalse(live_account_expectation_refresh._needs_rebuild(stored, NOW))
 
     def test_turning_autolot_on_does_not_wait_a_day(self) -> None:
         """Un uso que acaba de estrenar autolote no tiene `months_at`.
@@ -361,13 +361,13 @@ class IngestScenarioTests(unittest.TestCase):
                       live_account_presentation.PRESENTATION_VERSION,
                   "updated_at": NOW.isoformat(), "portfolio_created_at": "",
                   "autolot_source": ""}
-        self.assertFalse(live_account_ingest._needs_rebuild(stored, NOW))
-        self.assertTrue(live_account_ingest._needs_rebuild(stored, NOW, "", "abc123"))
+        self.assertFalse(live_account_expectation_refresh._needs_rebuild(stored, NOW))
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(stored, NOW, "", "abc123"))
         # Y el Excel nuevo tenía el mismo agujero, y apagarlo también.
         stored["autolot_source"] = "abc123"
-        self.assertFalse(live_account_ingest._needs_rebuild(stored, NOW, "", "abc123"))
-        self.assertTrue(live_account_ingest._needs_rebuild(stored, NOW, "", "otro"))
-        self.assertTrue(live_account_ingest._needs_rebuild(stored, NOW))
+        self.assertFalse(live_account_expectation_refresh._needs_rebuild(stored, NOW, "", "abc123"))
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(stored, NOW, "", "otro"))
+        self.assertTrue(live_account_expectation_refresh._needs_rebuild(stored, NOW))
 
 
 if __name__ == "__main__":

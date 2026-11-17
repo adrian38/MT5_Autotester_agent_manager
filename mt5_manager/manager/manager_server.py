@@ -27,6 +27,7 @@ from ..monthly_summary import monthly_summary_runtime
 from ..common import load_json, safe_int, save_json
 from ..experiment.experiment_service import ExperimentCoordinator
 from ..experiment.seed_experiment_service import SeedExperimentCoordinator
+from ..live_account.live_account_alternate import LiveAccountAlternateStore
 from ..live_account.live_account_archive import LiveAccountArchive
 from ..live_account.live_account_schedule import normalize_live_account_scheduler_settings
 from ..live_audit.live_audit_archive import LiveAuditArchive
@@ -172,6 +173,13 @@ class ManagerServer(ThreadingHTTPServer):
         es la misma, que es lo que el usuario quiere mirar en un solo sitio.
         """
         self.live_accounts = LiveAccountArchive(settings_path.with_name("live_accounts"))
+        # A qué cuenta se sondea cada tarjeta cuando no es la suya. Vacío
+        # mientras nadie configure ninguna, que es lo normal; la contraseña va
+        # cifrada con la misma clave que las del auditor.
+        self.live_account_alternates = LiveAccountAlternateStore(
+            settings_path.with_name("live_account_alternates.json"),
+            self.live_audit_settings.secret_cipher,
+        )
         self.live_account_runs = LiveAuditRunState(
             settings_path.with_name("live_account_schedule_state.json"),
         )

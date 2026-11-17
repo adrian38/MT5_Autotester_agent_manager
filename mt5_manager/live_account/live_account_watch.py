@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import (
+    live_account_alternate,
+    live_account_expectation_refresh,
     live_account_ingest,
     live_account_inventory,
     live_account_presentation,
@@ -212,19 +214,26 @@ def running_row(node: dict[str, Any], node_id: str = "") -> dict[str, Any] | Non
     }
 
 
-def _period(server: Any, node_id: str, accounts: list[dict[str, Any]], now: datetime) -> tuple[str, str]:
-    """El rango que se pide: el más atrasado de todas las cuentas del nodo.
+def _period(
+    server: Any, found: list[live_account_alternate.Reading], now: datetime,
+) -> tuple[str, str]:
+    """El rango que se pide: el más atrasado de lo que este sondeo va a leer.
 
     Un sondeo trae **un** periodo para todas, así que manda la que va más
     atrás. Y una cuenta sin serie lo lleva a «toda la vida», que es lo que hace
     que su media y su mes anterior existan desde la primera noche.
+
+    Se mide sobre las lecturas y no sobre las tarjetas del nodo por dos
+    motivos: una tarjeta desviada guarda su serie bajo su propio nodo, y una
+    tarjeta que no se puede leer —sin contraseña— no viaja en el sondeo, así
+    que su serie vacía no tiene por qué pedir toda la vida en cada vuelta.
     """
     days: list[str] = []
-    for account in accounts:
-        key = account["account_key"]
+    for reading in found:
+        node_id, key = reading.owner_node_id, reading.account_key
         stored = server.live_accounts.read(node_id, key)
         expected = live_account_report.series_version(
-            live_account_presentation.account_symbols(server, node_id, account),
+            live_account_presentation.account_symbols(server, node_id, reading.account),
         )
         days.append(
             "" if expected and stored.get("normalization_version") != expected
@@ -235,12 +244,32 @@ def _period(server: Any, node_id: str, accounts: list[dict[str, Any]], now: date
     )
 
 
+def _launch_failed(
+    server: Any, key: str, base: dict[str, Any], common: dict[str, Any],
+    title: str, detail: str,
+) -> None:
+    """El mismo final para las tres formas de no poder sondear.
+
+    Las tres dejan el turno como fallido y lo dicen una vez en la campana, y
+    estaban escritas palabra por palabra en cada rama: la política de
+    reintentos lee ese `outcome`, así que olvidarlo en una de ellas dejaría el
+    turno dado por bueno sin que nadie hubiera leído nada.
+    """
+    server.live_account_runs.update(key, **base, outcome="failed")
+    server.live_audit_notifications.add("error", title, detail, **common)
+
+
 def launch(
-    server: Any, node: dict[str, Any], node_id: str, accounts: list[dict[str, Any]],
+    server: Any, node: dict[str, Any], node_id: str,
     window: str, attempts: int, now: datetime,
     period: tuple[str, str] | None = None, reason: str = "",
 ) -> None:
     """Pide el sondeo al agente y deja escrito cómo fue.
+
+    Lo que se le pide leer no se recibe: se resuelve aquí, porque es lo mismo
+    para quien lo lance —el cron, el botón o la cita del patrimonio— y porque
+    una tarjeta desviada se lee desde el agente elegido y no desde el suyo
+    (`live_account_alternate`).
 
     `period` lo impone quien llama; sin él lo decide `_period`, que pide lo
     justo desde el último día guardado. La relectura completa del patrimonio
@@ -254,17 +283,16 @@ def launch(
     base = {"window": window, "attempts": attempts, "last_attempt_at": utc_now()}
     common = {"node_id": node_id, "node_name": name, "kind": "account_snapshot_launch"}
     restore = server.live_audit_settings.restore_credentials(node_id)
-    payload_accounts = live_account_inventory.snapshot_accounts(server, node_id)
+    found = live_account_alternate.readings(server, node_id)
+    payload_accounts = live_account_alternate.payload(found)
     if not restore or not payload_accounts:
-        runs.update(key, **base, outcome="failed")
-        server.live_audit_notifications.add(
-            "error", f"No se pudo sondear {name}",
+        _launch_failed(
+            server, key, base, common, f"No se pudo sondear {name}",
             "Falta la cuenta final de terminales o la contraseña de las cuentas reales."
             if not restore else "Ninguna cuenta real tiene su contraseña guardada.",
-            **common,
         )
         return
-    start, end = period if period is not None else _period(server, node_id, accounts, now)
+    start, end = period if period is not None else _period(server, found, now)
     try:
         status, response = manager_http.node_request(
             node, "POST", "/api/v1/live-accounts/snapshot", {
@@ -273,16 +301,12 @@ def launch(
             }, timeout=30,
         )
     except (OSError, urllib.error.URLError, TimeoutError, ValueError) as exc:
-        runs.update(key, **base, outcome="failed")
-        server.live_audit_notifications.add(
-            "error", f"No se pudo sondear {name}", str(exc), **common,
-        )
+        _launch_failed(server, key, base, common, f"No se pudo sondear {name}", str(exc))
         return
     if status >= 400:
-        runs.update(key, **base, outcome="failed")
-        server.live_audit_notifications.add(
-            "error", f"El agente rechazó el sondeo de {name}",
-            f"HTTP {status}: {response}", **common,
+        _launch_failed(
+            server, key, base, common, f"El agente rechazó el sondeo de {name}",
+            f"HTTP {status}: {response}",
         )
         return
     runs.update(key, **base, outcome="running", last_status="queued")
@@ -384,7 +408,7 @@ def launch_due(
     if not decision:
         return
     launch(
-        server, node, node_id, accounts, window,
+        server, node, node_id, window,
         int(record.get("attempts") or 0) + 1 if decision == "retry" else 1, now,
     )
 
@@ -403,8 +427,12 @@ def tick(server: Any, now: datetime | None = None) -> None:
         if server.live_account_stop.is_set():
             return
         node_id = str(node.get("id") or "")
+        if not node_id:
+            continue
         accounts = live_account_inventory.node_accounts(server, node_id)
-        if not node_id or not accounts:
+        # Un agente sin tarjetas propias puede tener trabajo igual: una tarjeta
+        # desviada hacia él se lee con sus terminales (`live_account_alternate`).
+        if not accounts and not live_account_alternate.readings(server, node_id):
             continue
         state, issue, message = node_snapshot(node, node_id)
         record_node_issue(server, node, node_id, issue, message)
@@ -418,7 +446,9 @@ def tick(server: Any, now: datetime | None = None) -> None:
         if collected is not None:
             delivered = True
             announce_collected(server, node, node_id, collected)
-        live_account_ingest.refresh_expectations(server, node, node_id, accounts, moment)
+        live_account_expectation_refresh.refresh_expectations(
+            server, node, node_id, accounts, moment,
+        )
         if str(state.get("status") or "") in RUNNING_SNAPSHOT_STATUSES:
             continue
         if not server.live_account_scheduler_enabled or server.live_account_stop.is_set():
@@ -455,6 +485,13 @@ def targets(server: Any) -> dict[str, Any]:
                 "message": str(record.get("watch_message") or "El agente no responde."),
             })
         for account in live_account_inventory.node_accounts(server, node_id):
+            # El desvío manda sobre el bloqueo: una tarjeta sin contraseña en su
+            # perfil se lee igual si se le guardó otra cuenta, y el diálogo
+            # tiene que decir cuál se lee o enseña una cuenta que nadie abre.
+            alternate = server.live_account_alternates.public(
+                node_id, account["account_key"],
+            )
+            reason = "" if alternate["configured"] else account["block_reason"]
             row = {
                 "node_id": node_id, "node_name": str(node.get("name") or node_id),
                 "account_key": account["account_key"], "login": account["login"],
@@ -463,8 +500,8 @@ def targets(server: Any) -> dict[str, Any]:
                     portfolio.get("name") or f"#{portfolio.get('portfolio_id')}"
                     for portfolio in account["portfolios"]
                 ],
-                "block_reason": account["block_reason"],
+                "block_reason": reason, "alternate": alternate,
                 "last_day": server.live_accounts.last_day(node_id, account["account_key"]),
             }
-            (blocked if account["block_reason"] else scheduled).append(row)
+            (blocked if reason else scheduled).append(row)
     return {"accounts": scheduled, "blocked": blocked, "scheduler_issues": issues}

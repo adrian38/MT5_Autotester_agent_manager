@@ -152,9 +152,18 @@
     )).join('');
   }
 
+  // Una tarjeta con otra cuenta guardada no se lee en la suya: el diálogo
+  // enseñaría un login en el que nadie entra. Lo dice en vez de callarlo.
+  function targetAccount(row) {
+    const alternate = row.alternate || {};
+    if (!alternate.configured) return `${escapeHtml(row.login)} (${escapeHtml(row.server)})`;
+    return `${escapeHtml(alternate.login)} (${escapeHtml(alternate.server)})`
+      + ` · configurada en la tarjeta de ${escapeHtml(row.login)}`;
+  }
+
   function targetsMarkup(state) {
     const rows = (state.accounts || []).map(row => `<li>${escapeHtml(row.node_name)} · `
-      + `${escapeHtml(row.login)} (${escapeHtml(row.server)}) · `
+      + `${targetAccount(row)} · `
       + `${escapeHtml((row.portfolios || []).join(', '))} · `
       + `serie hasta ${escapeHtml(row.last_day || 'nunca')}</li>`);
     const blocked = (state.blocked || []).map(row => `<li class="blocked">`

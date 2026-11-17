@@ -439,6 +439,36 @@ function noteMarkup(card, currency) {
   return text ? `<p class="card-note">${escapeHtml(text)}</p>` : '';
 }
 
+// Una tarjeta desviada enseña números de **otra** cuenta: sin decirlo, el
+// saldo y el beneficio de arriba se leen como los del login del título. Va
+// junto al servidor, que es donde se mira de quién es la cuenta.
+function alternateMarkup(card) {
+  const alternate = card.alternate || {};
+  if (!alternate.configured) return '';
+  const agent = nodeName(card, alternate.node_id);
+  return '<p class="account-alternate" title="La auditoría sigue con la cuenta del'
+    + ' perfil: esto sólo cambia el sondeo y la relectura del patrimonio.">'
+    + `Se sondea ${escapeHtml(alternate.login)} en ${escapeHtml(alternate.server)}`
+    + `${agent ? ` · lo lee ${escapeHtml(agent)}` : ''}</p>`;
+}
+
+function nodeName(card, nodeId) {
+  if (!nodeId || nodeId === card.node_id) return '';
+  const node = ((latestData && latestData.nodes) || []).find(row => row.id === nodeId);
+  return (node && node.name) || nodeId;
+}
+
+// El icono de configuración: elige qué cuenta se sondea en esta tarjeta. Sale
+// siempre, también en una bloqueada, porque una cuenta sin contraseña en su
+// perfil es justo una de las que se arreglan guardando otra.
+function configButton(card) {
+  return '<button type="button" class="account-config-open"'
+    + ` data-node-id="${escapeHtml(card.node_id)}"`
+    + ` data-account-key="${escapeHtml(card.account_key)}"`
+    + ' title="Elegir qué cuenta se sondea en esta tarjeta y con qué agente"'
+    + ' aria-label="Configurar la cuenta que se sondea">⚙</button>';
+}
+
 // El botón «Mes a mes» de la tarjeta: abre el gráfico de barras de
 // `live_account_monthly.js`. No sale cuando no hay serie que pintar —una cuenta
 // sin credenciales o sin sondear no tiene ningún cierre guardado— porque un
@@ -478,6 +508,7 @@ function cardMarkup(card) {
     + `<p class="account-where">${escapeHtml(card.server || '')}`
     + `${currency ? ` · ${escapeHtml(currency)}` : ''}`
     + `${card.balance ? ` · saldo ${escapeHtml(plain(card.balance, currency))}` : ''}</p>`
+    + alternateMarkup(card)
     + `${portfoliosMarkup(card)}</div><div class="card-status">`
     + `<label class="total-check" title="Incluir esta cuenta en los totales">`
     + `<input type="checkbox" class="total-account-toggle" data-account="${escapeHtml(accountSelectionKey(card))}"`
@@ -488,7 +519,7 @@ function cardMarkup(card) {
     + noteMarkup(card, currency)
     + `<footer><span>${card.first_day ? `serie desde ${escapeHtml(card.first_day)}` : ''}</span>`
     + '<span class="card-footer-right">'
-    + `${monthChartButton(card)}</span>`
+    + `${monthChartButton(card)}${configButton(card)}</span>`
     + '</footer></article>';
 }
 
@@ -663,15 +694,30 @@ cardsEl.addEventListener('change', async event => {
 cardsEl.addEventListener('click', event => {
   const button = event.target.closest('.month-chart-open');
   if (!button || !window.LiveAccountMonthly) return;
-  const key = `${button.dataset.nodeId}::${button.dataset.accountKey}`;
-  const cards = (latestData && latestData.accounts) || [];
-  const card = cards.find(row => accountSelectionKey(row) === key);
+  const card = cardOf(button);
   if (!card) return;
   window.LiveAccountMonthly.open({
     nodeId: card.node_id, accountKey: card.account_key, node: card.node_name,
     title: card.login || 'Cuenta sin informar',
   });
 });
+// El diálogo se abre con la tarjeta que ya está pintada, igual que el gráfico:
+// lo que configura viaja en `/api/live-accounts` desde el primer refresco.
+cardsEl.addEventListener('click', event => {
+  const button = event.target.closest('.account-config-open');
+  if (!button || !window.LiveAccountAlternate) return;
+  const card = cardOf(button);
+  if (!card) return;
+  window.LiveAccountAlternate.open({
+    card, nodes: (latestData && latestData.nodes) || [], onSaved: refresh,
+  });
+});
+
+function cardOf(button) {
+  const key = `${button.dataset.nodeId}::${button.dataset.accountKey}`;
+  const cards = (latestData && latestData.accounts) || [];
+  return cards.find(row => accountSelectionKey(row) === key);
+}
 refreshButton.addEventListener('click', refresh);
 restartManagerButton.addEventListener('click', restartManager);
 restoreAliases();

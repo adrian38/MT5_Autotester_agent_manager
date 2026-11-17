@@ -22,9 +22,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from cryptography.fernet import Fernet
+
 from mt5_manager.live_account import (
     live_account_inventory, live_account_watch, live_account_wealth_watch,
 )
+from mt5_manager.live_account.live_account_alternate import LiveAccountAlternateStore
 from mt5_manager.live_account.live_account_archive import LiveAccountArchive
 from mt5_manager.live_account.live_account_ingest import SNAPSHOT_KEY
 from mt5_manager.live_account.live_account_wealth_schedule import (
@@ -57,6 +60,15 @@ class WealthCronBase(unittest.TestCase):
         self.server = SimpleNamespace(
             nodes=[NODE], live_accounts=self.archive, live_account_runs=self.runs,
             live_audit_notifications=self.notifications,
+            # La cita pregunta a quién hay que releer, y eso ya no son las
+            # cuentas del nodo sino lo que le toca leer: hace falta el almacén
+            # de desvíos y la contraseña de la cuenta del perfil.
+            live_account_alternates=LiveAccountAlternateStore(
+                root / "alternates.json", lambda *, create: Fernet(Fernet.generate_key()),
+            ),
+            live_audit_settings=SimpleNamespace(
+                credentials=lambda *_args: {"source_password": "secreto"},
+            ),
             live_account_stop=SimpleNamespace(is_set=lambda: False),
             live_account_wakeup=SimpleNamespace(set=lambda: None),
         )
@@ -73,7 +85,7 @@ class WealthCronBase(unittest.TestCase):
         """Una vuelta con el agente en ese estado, anotando lo que se lanzó."""
         launched: list[Any] = []
 
-        def fake_launch(server, node, node_id, accounts, window, attempts, now_, **extra):
+        def fake_launch(server, node, node_id, window, attempts, now_, **extra):
             launched.append({"node_id": node_id, "window": window, **extra})
             self.runs.update(self.runs.key(node_id, SNAPSHOT_KEY), outcome="running")
 
@@ -190,8 +202,8 @@ class ScopeTests(WealthCronBase):
         with mock.patch.object(
             live_account_inventory, "node_accounts", return_value=self.accounts,
         ):
-            found = live_account_wealth_watch.summing_accounts(self.server, "axi")
-        self.assertEqual([row["account_key"] for row in found], [KEY])
+            found = live_account_wealth_watch.summing_readings(self.server, "axi")
+        self.assertEqual([reading.account_key for reading in found], [KEY])
 
     def test_a_node_without_accounts_that_add_up_is_left_alone(self) -> None:
         with mock.patch.object(

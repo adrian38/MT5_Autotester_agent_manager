@@ -19,6 +19,9 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cryptography.fernet import Fernet
+
+from mt5_manager.live_account.live_account_alternate import LiveAccountAlternateStore
 from mt5_manager.live_account.live_account_archive import LiveAccountArchive
 from mt5_manager.live_account.live_account_schedule import (
     normalize_live_account_scheduler_settings,
@@ -28,6 +31,13 @@ from mt5_manager.live_audit.live_audit_watch import LiveAuditRunState
 
 REPORT = b"<html>informe</html>"
 SHA = hashlib.sha256(REPORT).hexdigest()
+
+_KEY = Fernet.generate_key()
+
+
+def _test_cipher(*, create: bool) -> Fernet:
+    """La clave del almacén cifrado en las pruebas: una por proceso."""
+    return Fernet(_KEY)
 
 
 def parsed_account():
@@ -105,6 +115,12 @@ class FakeServer:
         self.nodes = [{"id": "axi", "name": "AXI Standard", "url": "http://127.0.0.1:1"}]
         self.live_audit_settings = FakeSettingsStore(state)
         self.live_accounts = LiveAccountArchive(root / "live_accounts")
+        # El sondeo pregunta a quién hay que leer, no sólo qué cuentas hay:
+        # sin este almacén `tick` lo daría por fallido y lo escribiría en
+        # `stderr`, que es ruido verde (ver el encabezado de este fichero).
+        self.live_account_alternates = LiveAccountAlternateStore(
+            root / "alternates.json", _test_cipher,
+        )
         self.live_account_runs = LiveAuditRunState(root / "cron.json")
         self.live_audit_notifications = LiveAuditNotificationStore(root / "avisos.json")
         self.live_account_scheduler_settings = normalize_live_account_scheduler_settings(changes)

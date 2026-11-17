@@ -101,30 +101,27 @@ def readable_accounts(server: Any, node_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def snapshot_accounts(server: Any, node_id: str) -> list[dict[str, Any]]:
-    """Lo que viaja al nodo: la cuenta y su contraseña, nada más.
+def account_password(server: Any, node_id: str, account: dict[str, Any]) -> str:
+    """La contraseña de la cuenta real, del primer uso que la tenga guardada.
 
-    La contraseña se descifra aquí y no se guarda en ningún sitio nuestro: la
-    coge del almacén cifrado, igual que el lanzamiento de una auditoría.
+    Se descifra aquí y no se guarda en ningún sitio nuestro: la coge del
+    almacén cifrado, igual que el lanzamiento de una auditoría. Es de la
+    **cuenta**, así que basta con que la tenga uno de los usos que la operan.
+
+    Lo que se arma con ella —la lista que viaja al nodo— vive en
+    `live_account_alternate`, porque lo que un agente tiene que leer ya no es
+    siempre lo que tiene: una tarjeta puede estar desviada a otra cuenta y a
+    otro agente.
     """
-    payload: list[dict[str, Any]] = []
-    for account in readable_accounts(server, node_id):
-        password = ""
-        for audit_id in account["audit_ids"]:
-            password = str(
-                server.live_audit_settings.credentials(node_id, audit_id).get(
-                    "source_password", "",
-                ) or ""
-            )
-            if password:
-                break
-        if not password:
-            continue
-        payload.append({
-            "account_key": account["account_key"], "login": account["login"],
-            "server": account["server"], "password": password,
-        })
-    return payload
+    for audit_id in account["audit_ids"]:
+        password = str(
+            server.live_audit_settings.credentials(node_id, audit_id).get(
+                "source_password", "",
+            ) or ""
+        )
+        if password:
+            return password
+    return ""
 
 
 def account_of(accounts: list[dict[str, Any]], key: str) -> dict[str, Any]:
