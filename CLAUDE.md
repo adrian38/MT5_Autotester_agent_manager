@@ -6,6 +6,28 @@ Las reglas de trabajo están en `AGENTS.md`. Aquí sólo lo que depende de **est
 equipo**: dónde está cada agente, cómo se llama el proyecto en el índice y cómo
 desatascar `codebase-memory-mcp` cuando falla.
 
+## Lo primero de cada sesión
+
+Antes de nada, confirmar que **el grafo de codebase-memory se puede usar** y, si
+no, **decírselo al usuario en la primera respuesta**, no empezar la tarea a `rg`
+y que se entere al final.
+
+La comprobación es automática: el hook `SessionStart` de
+[.claude/settings.json](.claude/settings.json) ejecuta
+[tools/check_codebase_memory.sh](tools/check_codebase_memory.sh), que lee
+`.mcp.json` —nombre del servidor, programa real detrás de `cmd /c`, y el almacén
+que fija `CBM_CACHE_DIR`— y contesta `codebase-memory READY` con el tamaño y la
+fecha del grafo, o `IS NOT USABLE` con el motivo. También dice cómo se llaman
+aquí las tools (`mcp__codebase-memory-mcp__*`), que no es como se llaman en AXI.
+
+Lo que el hook **no** puede ver es si las tools llegaron a conectar en esta
+sesión: eso es interno del cliente y el disco puede estar perfecto con el
+servidor caído. Así que cargarlas y hacer una llamada real antes de fiarse; si
+falla, decirlo y seguir diciendo con qué se sustituye.
+
+El mismo hook está en los checkouts de AXI, RoboForex e ICTrading, portado desde
+la rama `AXI` el 2026-11-17.
+
 ## Rutas de los agentes en este equipo
 
 Todas escribibles (`AGENTS.md`, «Alcance obligatorio»). Comprobado el
@@ -54,7 +76,18 @@ Comprobado con `list_projects` el 2026-11-11:
 | Este repositorio | `I-TRADING-MT5_Autotester_agent_manager` |
 | ICTrading (el que corre aquí) | `C-Users-13199-Adrian-TRADING-MT5_Autotester_agent_IC-MT5_Autotester_agent` |
 | Discovery Lab | `C-Users-13199-Adrian-TRADING-MT5_Discovery_Model_Lab` |
-| AXI, RoboForex / genérico, Vantage | **no indexados**; para ellos, lectura directa y `rg` |
+| AXI | `F-TRADING-MT5_Autotester_agent_AXI` (**otro almacén**, ver abajo) |
+| Vantage | `I-TRADING-MT5_Autotester_agent_Vantage` (**otro almacén**) |
+| RoboForex / genérico | **no indexado**; para él, lectura directa y `rg` |
+
+**Hay dos almacenes de grafos en este equipo** (comprobado el 2026-11-17). Este
+repositorio, ICTrading y Discovery Lab viven en `C:\cbm\cache`, porque su
+`.mcp.json` fija `CBM_CACHE_DIR`. AXI y Vantage no lo fijan, así que viven en el
+sitio por defecto, `%USERPROFILE%\.cache\codebase-memory-mcp`. Un servidor sólo
+ve el almacén con el que arrancó: `list_projects` desde aquí no lista AXI ni
+Vantage, y eso **no** significa que no estén indexados. El panel
+(`http://127.0.0.1:9749`) muestra el almacén del proceso que tenga el puerto,
+que es de donde salía la impresión de que a AXI le faltaba el índice.
 
 Hasta el 2026-11-11 esta tabla daba nombres con el prefijo
 `C-Users-Adrian-Adrian-TRADING-`, de la máquina donde el manager colgaba del
@@ -71,6 +104,13 @@ del grafo como prueba de ausencia.
 No es un fichero del proyecto: el worker muere al arrancar y deja el log en
 blanco. Comprobado el 2026-08-09 con un repo de dos ficheros, que crashea igual.
 Reindexar por CLI, que sí funciona, y reiniciar el servidor MCP cuando se pueda.
+
+**Aviso del 2026-11-17:** en el checkout de AXI pasó justo al revés. El índice
+por la tool MCP terminó bien (18.660 nodos) y `cli index_repository` murió con
+este mismo mensaje y el log vacío, con los dos ejecutables 0.9.0 y también con
+el `.sh` nuevo fuera del repositorio, así que no era un fichero. Conclusión: el
+crash no distingue entre CLI y servidor, probar por el otro camino antes de
+buscar el fichero culpable.
 
 **El CLI de este equipo no toma banderas: toma JSON.** Su propia ayuda dice
 `cli [--progress] [--json] <tool_name> [json_args]`, y con `--repo-path` o
@@ -98,8 +138,20 @@ niega a arrancar si su caché cuelga del perfil. Por eso `.mcp.json` fija
 `CBM_CACHE_DIR` y `CBM_RUNTIME_DIR` en `C:\cbm`, igual que los proyectos de
 Idrica. Diagnóstico en `ai_context/codebase_memory_mcp_no_arranca.md`.
 
-**En este equipo hay un solo ejecutable y es la 0.8.1**, anterior a esa
-comprobación: `cmd /c codebase-memory-mcp` resuelve a
+**Desde el 2026-11-17 ya no hay un solo ejecutable, y ninguno es la 0.8.1.** El
+de `%LOCALAPPDATA%\codebase-memory-mcp` (el que resuelve `cmd /c`) pasó a la
+**0.9.0 variante `ui`**, que es la única que sirve el panel; hay otro 0.9.0
+estándar, sin panel, en `~\.claude\tools\codebase-memory-mcp`, al que apunta el
+`.mcp.json` de AXI. **No actualizar a ciegas**: la 0.11 y la 0.12 se niegan a
+arrancar aquí, y no por la caché sino por la ACL del directorio de coordinación:
+con el perfil dicen `C:\Users\13199: DACL entry 4 grants mutation rights to
+untrusted identity` y, apuntando `CBM_RUNTIME_DIR` a `C:\cbm`, dicen lo mismo de
+`Authenticated Users` sobre `C:\cbm` (probado el 2026-11-17). Mover el
+directorio no esquiva la comprobación; hay que arreglar las ACL o quedarse en
+0.9.0. La 0.12.1 además sólo dice `could not load saved runtime settings`, que
+no lleva a ninguna parte: la 0.11.0 es la que da el motivo completo.
+
+Lo que decía esta nota hasta entonces: `cmd /c codebase-memory-mcp` resuelve a
 `C:\Users\13199\AppData\Local\codebase-memory-mcp\codebase-memory-mcp.exe`, que
 es el mismo que usa el fallback por CLI; la ruta `C:\nvm4w\...` de aquella nota
 no existe aquí. Así que el aviso «que el CLI vaya no demuestra que el servidor
