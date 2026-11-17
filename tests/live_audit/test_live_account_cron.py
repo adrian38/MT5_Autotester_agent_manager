@@ -484,7 +484,7 @@ class WatchTests(unittest.TestCase):
         # vigilante: sin esto la espera entre reintentos mide contra la fecha
         # real de quien ejecuta la prueba.
         server.live_account_runs.update(
-            server.live_account_runs.key("axi", live_account_watch.SNAPSHOT_KEY),
+            server.live_account_runs.key("axi", live_account_watch.DAILY_KEY),
             last_attempt_at=NOW.astimezone(timezone.utc).isoformat(),
         )
 
@@ -499,7 +499,7 @@ class WatchTests(unittest.TestCase):
         posts = [row for row in self.requests if row[0] == "POST"]
         self.assertEqual(len(posts), 2)
         record = server.live_account_runs.record(
-            server.live_account_runs.key("axi", live_account_watch.SNAPSHOT_KEY),
+            server.live_account_runs.key("axi", live_account_watch.DAILY_KEY),
         )
         self.assertEqual(record["attempts"], 2)
 

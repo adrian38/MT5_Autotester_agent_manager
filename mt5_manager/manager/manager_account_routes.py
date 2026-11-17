@@ -61,7 +61,7 @@ def _snapshot_now(handler) -> dict[str, Any]:
             skipped.append({"node_id": node_id, "reason": "Ya hay un sondeo en marcha."})
             continue
         runs = server.live_account_runs
-        record = runs.record(runs.key(node_id, live_account_watch.SNAPSHOT_KEY))
+        record = runs.record(runs.key(node_id, live_account_watch.DAILY_KEY))
         live_account_watch.launch(
             server, node, node_id,
             str(record.get("window") or now.isoformat()),

@@ -223,6 +223,10 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `cambio_de_divisa_del_sondeo.md`: por qué el cambio EUR/USD lo refresca cada
   sondeo desde el BCE y no la cotización del bróker, y por qué un fallo
   conserva el número viejo en vez de borrarlo.
+- `dos_citas_un_sondeo.md`: el sondeo diario y la relectura del patrimonio
+  comparten la tanda del agente pero no su registro, por qué una relectura
+  incompleta gastaba los reintentos del diario y una completa daba su cita por
+  cumplida, y qué significa `owner` en `__snapshot__`.
 - `deleted_portfolio_leaves_live_audit_profile.md`: por qué borrar una cartera
   debe retirar también todos sus usos de auditoría, credenciales y marca activa.
 - `model4_watchdog_mata_su_propia_sincronizacion.md`: por qué fallaban las

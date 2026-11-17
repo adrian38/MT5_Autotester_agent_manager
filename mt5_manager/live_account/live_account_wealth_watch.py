@@ -97,7 +97,7 @@ def node_busy(server: Any, node: dict[str, Any], node_id: str) -> str:
     tiempo esto no habla con ningún agente.
     """
     runs = server.live_account_runs
-    if str(_record_of(runs, node_id).get("outcome") or "") == "running":
+    if str(_run_record(runs, node_id).get("outcome") or "") == "running":
         return "ya hay un sondeo de cuentas en marcha"
     try:
         status, value = manager_http.node_request(node, "GET", "/api/v1/status", timeout=10)
@@ -112,7 +112,14 @@ def node_busy(server: Any, node: dict[str, Any], node_id: str) -> str:
     return ""
 
 
-def _record_of(runs: Any, node_id: str) -> dict[str, Any]:
+def _run_record(runs: Any, node_id: str) -> dict[str, Any]:
+    """La tanda que corre en el agente, que es de quien la pidiera.
+
+    Es lo único que esta cita mira del registro compartido, y lo mira para
+    apartarse: un sondeo en marcha es el agente ocupado. Cómo acabó **su**
+    relectura se lo cuenta `live_account_ingest.collect` en su propio
+    registro, porque la tanda puede no ser suya.
+    """
     return runs.record(runs.key(node_id, SNAPSHOT_KEY))
 
 
@@ -122,17 +129,21 @@ def _settle(server: Any, node_id: str, record: dict[str, Any]) -> bool:
     No se marca al lanzar: entre la petición y el informe hay minutos, y dar
     la cita por cumplida ahí dejaría sin reintento una relectura que se cayó
     por el camino.
+
+    El final lo escribe aquí mismo `live_account_ingest.collect`, que se lo
+    cuenta a la cita dueña de la tanda. Hasta el 2026-11-17 se leía del
+    registro de la tanda, que es compartido: así una relectura se daba por
+    cumplida con lo que hubiera hecho el sondeo diario, y al revés.
     """
     if str(record.get("status") or "") != "launched":
         return False
-    snapshot = _record_of(server.live_account_runs, node_id)
-    if str(snapshot.get("outcome") or "") == "running":
+    if str(record.get("outcome") or "") == "running":
         return False
     runs = server.live_account_runs
     runs.update(
         runs.key(node_id, WEALTH_KEY), status="done",
-        completed_at=str(snapshot.get("completed_at") or utc_now()),
-        outcome=str(snapshot.get("outcome") or ""),
+        completed_at=str(record.get("completed_at") or utc_now()),
+        outcome=str(record.get("outcome") or ""),
     )
     return True
 
@@ -191,8 +202,9 @@ def _launch(
         server, node, node_id, window, 1, now,
         period=("", now.astimezone(timezone.utc).date().isoformat()),
         reason="relectura completa para el patrimonio",
+        cita=WEALTH_KEY,
     )
-    outcome = str(_record_of(runs, node_id).get("outcome") or "")
+    outcome = str(_record(server, node_id).get("outcome") or "")
     runs.update(
         runs.key(node_id, WEALTH_KEY),
         status="launched" if outcome == "running" else "failed",

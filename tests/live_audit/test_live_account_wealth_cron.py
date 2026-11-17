@@ -87,7 +87,13 @@ class WealthCronBase(unittest.TestCase):
 
         def fake_launch(server, node, node_id, window, attempts, now_, **extra):
             launched.append({"node_id": node_id, "window": window, **extra})
-            self.runs.update(self.runs.key(node_id, SNAPSHOT_KEY), outcome="running")
+            # Como el de verdad: la tanda es una y guarda quién la pidió; el
+            # «en marcha» lo escribe además en el registro de esa cita.
+            cita = str(extra.get("cita") or "")
+            self.runs.update(self.runs.key(node_id, cita), outcome="running")
+            self.runs.update(
+                self.runs.key(node_id, SNAPSHOT_KEY), owner=cita, outcome="running",
+            )
 
         with mock.patch.object(
             live_account_inventory, "node_accounts", return_value=self.accounts,
@@ -150,9 +156,11 @@ class QueueTests(WealthCronBase):
 
     def test_the_appointment_closes_when_the_snapshot_it_asked_for_finishes(self) -> None:
         self.tick()
+        # Lo que escribe `live_account_ingest.collect` al recoger la tanda: se
+        # lo cuenta a la cita que la pidió, no al registro compartido.
         self.runs.update(
-            self.runs.key("axi", SNAPSHOT_KEY), outcome="completed",
-            completed_at="2026-11-14T09:30:00+00:00",
+            self.runs.key("axi", live_account_wealth_watch.WEALTH_KEY),
+            outcome="completed", completed_at="2026-11-14T09:30:00+00:00",
         )
         self.tick(SATURDAY + timedelta(minutes=40))
         record = self.record()

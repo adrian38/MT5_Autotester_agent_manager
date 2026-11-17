@@ -48,10 +48,33 @@ INGEST_ERRORS = (
 leer no tumba la recogida de las demás: queda su aviso y se reintenta."""
 
 SNAPSHOT_KEY = "__snapshot__"
-"""La clave del estado del cron de cuentas: es por nodo, no por cuenta.
+"""La clave de **la tanda** que corre en el agente: es por nodo, no por cuenta.
 
-Un sondeo lee todas las cuentas del agente de una vez, así que el turno, los
-intentos y el resultado son del nodo.
+Un sondeo lee todas las cuentas del agente de una vez, así que el resultado es
+del nodo. Y el agente guarda **una** tanda, así que este registro es uno: aquí
+viven el `ingested`, el estado que devolvió y si se le ve o no (`watch_*`).
+
+Lo que **no** vive aquí es la cita que la pidió. De eso va `owner`.
+"""
+
+DAILY_KEY = "__daily__"
+"""La clave de la cita del sondeo diario: su ventana, sus intentos, su final.
+
+Hasta el 2026-11-17 la cita diaria no tenía registro propio y usaba el de la
+tanda, que es el único que hay por nodo. Como la relectura del patrimonio
+también lanza por `live_account_watch.launch`, las dos citas escribían en el
+mismo sitio y la del diario se quedaba con lo que hiciera la otra:
+
+- la relectura de AXI volvió con una cuenta sin leer y ese `partial` pasó por
+  fallo **del diario**, que reintentó a las 11:16 y a las 11:26 con su periodo
+  de tres días, volviendo a entrar en las terminales cada diez minutos;
+- la de RoboForex volvió entera y dio por cumplida la cita de la noche, que
+  nunca llegó a hacer su propia pasada.
+
+Son dos poblaciones y dos contenidos —el diario entra en las cuentas de los
+portafolios activos y reescribe los últimos `overlap_days`; la relectura entra
+en las marcadas «Sumar» y pide la vida entera—, así que cada una lleva su
+cuenta de intentos y se entera sólo de la tanda que pidió ella.
 """
 
 
@@ -139,6 +162,36 @@ def _period(state: dict[str, Any]) -> tuple[str, str]:
     )
 
 
+def _merge_accounts(
+    server: Any, node: dict[str, Any], node_id: str, snapshot_id: str,
+    state: dict[str, Any], routes: dict[str, Any],
+    lots: dict[str, dict[str, float]], period: tuple[str, str],
+) -> tuple[int, list[str], list[str], int]:
+    """Cuenta por cuenta: lo leído, lo que falló, lo rancio y los movimientos.
+
+    Una cuenta que no se deja leer no tumba a las demás; cada una deja dicho
+    por qué, que es lo que luego decide si la cita queda cumplida.
+    """
+    read, failed, stale, movements = 0, [], [], 0
+    for account_key, row in (state.get("accounts") or {}).items():
+        if not isinstance(row, dict) or str(row.get("status") or "") != "completed":
+            failed.append(f"{account_key}: {row.get('error') or 'sin leer'}")
+            continue
+        reading = routes.get(str(account_key))
+        try:
+            movements += _merge_account(
+                server, node, reading.owner_node_id if reading else node_id, snapshot_id,
+                account_key, row, period, lots.get(str(account_key)) or {},
+            )
+            read += 1
+        except ScaleChanged as exc:
+            stale.append(f"{account_key}: {exc}")
+        except INGEST_ERRORS as exc:
+            failed.append(f"{account_key}: {exc}")
+            sys.stderr.write(f"[live-account-ingest] {node_id}/{account_key}: {exc}\n")
+    return read, failed, stale, movements
+
+
 def collect(
     server: Any, node: dict[str, Any], node_id: str, state: dict[str, Any],
 ) -> dict[str, Any] | None:
@@ -162,36 +215,32 @@ def collect(
             for account_key in (state.get("accounts") or {})
         ),
     )
-    if str(runs.record(key).get("ingested") or "") == collected_key:
+    run = runs.record(key)
+    if str(run.get("ingested") or "") == collected_key:
         return None
+    owner = str(run.get("owner") or DAILY_KEY)
     period = _period(state)
-    read, failed, stale, movements = 0, [], [], 0
-    for account_key, row in (state.get("accounts") or {}).items():
-        if not isinstance(row, dict) or str(row.get("status") or "") != "completed":
-            failed.append(f"{account_key}: {row.get('error') or 'sin leer'}")
-            continue
-        reading = routes.get(str(account_key))
-        try:
-            movements += _merge_account(
-                server, node, reading.owner_node_id if reading else node_id, snapshot_id,
-                account_key, row, period, lots.get(str(account_key)) or {},
-            )
-            read += 1
-        except ScaleChanged as exc:
-            stale.append(f"{account_key}: {exc}")
-        except INGEST_ERRORS as exc:
-            failed.append(f"{account_key}: {exc}")
-            sys.stderr.write(f"[live-account-ingest] {node_id}/{account_key}: {exc}\n")
+    read, failed, stale, movements = _merge_accounts(
+        server, node, node_id, snapshot_id, state, routes, lots, period,
+    )
     # `failed`, `partial` y `stale` los lee `live_account_watch`: son los que
     # dejan la cita sin cumplir pese a este `completed_at`, y los que ponen en
     # marcha otra lectura. Distinguirlos no es decorativo: con `stale` no ha
     # fallado nada, así que el turno vuelve a empezar de cero en vez de gastar
     # un reintento en una captura que nunca se va a poder usar.
     outcome = _outcome(read, failed, stale, status)
+    settled = {
+        "last_status": status,
+        "completed_at": str(state.get("finished_at") or utc_now()),
+        "outcome": outcome,
+    }
+    runs.update(key, ingested=collected_key, **settled)
+    # Y lo mismo en la cita que pidió esta tanda, que es la única que se entera:
+    # la otra no gasta intentos ni se da por cumplida con lo que leyó ésta.
+    # Los intentos son suyos, así que el perdón del `stale` también va ahí.
     runs.update(
-        key, ingested=collected_key, last_status=status,
-        completed_at=str(state.get("finished_at") or utc_now()),
-        outcome=outcome, **({"attempts": 0} if outcome == "stale" else {}),
+        runs.key(node_id, owner), **settled,
+        **({"attempts": 0} if outcome == "stale" else {}),
     )
     return {
         "snapshot_id": snapshot_id, "accounts": read, "movements": movements,

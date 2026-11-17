@@ -33,7 +33,7 @@ from . import (
 )
 from ..manager import manager_http
 from ..common import utc_now
-from .live_account_ingest import SNAPSHOT_KEY
+from .live_account_ingest import DAILY_KEY, SNAPSHOT_KEY
 from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
 
 _NODE_UNAVAILABLE_CONFIRMATION_POLLS = 3
@@ -304,6 +304,7 @@ def launch(
     server: Any, node: dict[str, Any], node_id: str,
     window: str, attempts: int, now: datetime,
     period: tuple[str, str] | None = None, reason: str = "",
+    cita: str = DAILY_KEY,
 ) -> None:
     """Pide el sondeo al agente y deja escrito cómo fue.
 
@@ -317,9 +318,14 @@ def launch(
     pasa `("", hoy)` porque necesita toda la vida de cada cuenta, y `reason`
     es lo que la campana dice en vez de la cadencia del cron diario: el aviso
     tiene que distinguir qué cita entró en las terminales.
+
+    `cita` es **el registro de quien lanza**, y por eso lo pasa quien llama:
+    la tanda es una por agente, pero el turno y los intentos son de su cita.
+    La tanda guarda quién la pidió (`owner`) para que `collect` le cuente a
+    ésa cómo acabó, y sólo a ésa (`live_account_ingest.DAILY_KEY`).
     """
-    runs, settings = server.live_account_runs, server.live_account_scheduler_settings
-    key = runs.key(node_id, SNAPSHOT_KEY)
+    runs = server.live_account_runs
+    key = runs.key(node_id, cita)
     name = str(node.get("name") or node_id)
     base = {"window": window, "attempts": attempts, "last_attempt_at": utc_now()}
     common = {"node_id": node_id, "node_name": name, "kind": "account_snapshot_launch"}
@@ -350,12 +356,33 @@ def launch(
             f"HTTP {status}: {response}",
         )
         return
+    _launched(
+        server, node_id, key, cita, base, common,
+        len(payload_accounts), (start, end), reason,
+    )
+
+
+def _launched(
+    server: Any, node_id: str, key: str, cita: str, base: dict[str, Any],
+    common: dict[str, Any], accounts: int, period: tuple[str, str], reason: str,
+) -> None:
+    """El agente aceptó: queda escrito de quién es la tanda, y se dice.
+
+    Dos registros y no uno: el turno y los intentos son de la cita que lanzó,
+    y la tanda —que es una por agente— sólo guarda quién la pidió, para que
+    `live_account_ingest.collect` le cuente a ésa cómo acabó.
+    """
+    runs = server.live_account_runs
     runs.update(key, **base, outcome="running", last_status="queued")
+    runs.update(
+        runs.key(node_id, SNAPSHOT_KEY),
+        owner=cita, outcome="running", last_status="queued",
+    )
+    start, end = period
     server.live_audit_notifications.add(
-        "info", f"Sondeo de cuentas lanzado en {name}",
-        f"{len(payload_accounts)} cuenta(s), periodo "
-        f"{start or 'desde el principio'} a {end} · "
-        f"{reason or live_account_schedule.schedule_label(settings)}",
+        "info", f"Sondeo de cuentas lanzado en {common['node_name']}",
+        f"{accounts} cuenta(s), periodo {start or 'desde el principio'} a {end} · "
+        f"{reason or live_account_schedule.schedule_label(server.live_account_scheduler_settings)}",
         **common,
     )
 
@@ -421,13 +448,21 @@ def launch_due(
     server: Any, node: dict[str, Any], node_id: str, accounts: list[dict[str, Any]],
     state: dict[str, Any], now: datetime,
 ) -> None:
-    """Lanza el sondeo de este nodo si le toca y no hay otro corriendo."""
+    """Lanza el sondeo de este nodo si le toca y no hay otro corriendo.
+
+    `state` es la tanda que el agente enseña, y sólo cumple **esta** cita si
+    es suya: la relectura del patrimonio entra en otras cuentas y pide otro
+    periodo, así que su `finished_at` no vale como cita diaria cumplida. Sin
+    dueño es de aquí, que es lo que había antes de que hubiera dos citas.
+    """
     runs = server.live_account_runs
     settings = server.live_account_scheduler_settings
-    key = runs.key(node_id, SNAPSHOT_KEY)
+    key = runs.key(node_id, DAILY_KEY)
     record = runs.record(key)
+    run = runs.record(runs.key(node_id, SNAPSHOT_KEY))
+    mine = state if str(run.get("owner") or DAILY_KEY) == DAILY_KEY else {}
     window, pending = live_account_schedule.pending_window(
-        settings, completion_of(record, state), now, _accounts_eligible_since(accounts),
+        settings, completion_of(record, mine), now, _accounts_eligible_since(accounts),
     )
     if not pending:
         if str(record.get("window") or "") != window:
