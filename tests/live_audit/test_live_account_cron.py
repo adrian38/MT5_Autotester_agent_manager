@@ -515,6 +515,38 @@ class WatchTests(unittest.TestCase):
         self._come_back(server, complete_snapshot_state(), NOW + timedelta(minutes=15))
         self.assertEqual(len([row for row in self.requests if row[0] == "POST"]), 1)
 
+    def test_the_snapshot_the_user_stopped_is_not_relaunched(self) -> None:
+        """Si no, el botón de parar sería un botón de esperar diez minutos.
+
+        Vuelve incompleto a propósito —una cuenta sin leer—, que es justo lo
+        que la política reintenta cuando el sondeo acabó solo.
+        """
+        server = self.server(enabled=True)
+        self._launch_the_turn(server)
+        self._come_back(
+            server, snapshot_state("stopped"), NOW + timedelta(minutes=15),
+        )
+        self.assertEqual(len([row for row in self.requests if row[0] == "POST"]), 1)
+        record = server.live_account_runs.record(
+            server.live_account_runs.key("axi", live_account_watch.SNAPSHOT_KEY),
+        )
+        self.assertEqual(record["outcome"], "stopped")
+        collected = [
+            event for event in server.events()
+            if event["kind"] == "account_snapshot_collected"
+        ]
+        self.assertIn("detenido", collected[-1]["title"])
+        self.assertEqual(collected[-1]["level"], "warning")
+
+    def test_what_a_stopped_snapshot_did_read_still_enters_the_series(self) -> None:
+        """Entrar en esa cuenta ya costó lo que cuesta; no se tira."""
+        server = self.server(enabled=True)
+        self._launch_the_turn(server)
+        self._come_back(
+            server, snapshot_state("stopped"), NOW + timedelta(minutes=15),
+        )
+        self.assertTrue(server.live_accounts.last_day("axi", "60082017@Axi-US50-Live"))
+
     def test_the_incomplete_turn_stops_at_the_last_retry(self) -> None:
         server = self.server(enabled=True, retry_attempts=1)
         self._launch_the_turn(server)

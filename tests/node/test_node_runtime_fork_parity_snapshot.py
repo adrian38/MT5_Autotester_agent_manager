@@ -14,12 +14,12 @@ from pathlib import Path
 try:
     from .node_runtime_parity_base import (
         MANAGER_ROOT, NodeRuntimeForkParityBase, fork_live_account_source,
-        module_source,
+        fork_node_source, module_source,
     )
 except ImportError:
     from tests.node.node_runtime_parity_base import (
         MANAGER_ROOT, NodeRuntimeForkParityBase, fork_live_account_source,
-        module_source,
+        fork_node_source, module_source,
     )
 
 
@@ -53,3 +53,51 @@ class AccountSnapshotForkParityTests(NodeRuntimeForkParityBase):
                 )
 
         self._assert_on_every_fork(check, "no publicar una lectura sin historial")
+
+    def test_the_snapshot_can_be_stopped_on_every_fork(self) -> None:
+        # El botón vive en las tres pantallas de real, pero quien para es el
+        # agente: el manager sólo reenvía. Sin el port, «Detener» contesta el
+        # 404 del nodo y el sondeo sigue dentro de las terminales.
+        #
+        # Y para es **entre cuentas**: dentro de una hay un login y una
+        # exportación de MT5, así que la marca se mira al empezar cada cuenta y
+        # la tanda sale por `_finish_account_snapshot`, que es lo que devuelve
+        # cada terminal a su cuenta final y reanuda el pipeline pausado. Un
+        # port que matase el hilo dejaría justo lo contrario.
+        tokens = (
+            "def stop_account_snapshot",
+            "def _honour_snapshot_stop",
+            "self._honour_snapshot_stop()",
+            "self.snapshot_stop_requested = False",
+            "class SnapshotStopped",
+            "except SnapshotStopped as exc:",
+        )
+        manager_snapshot = module_source("live_account_snapshot")
+        for token in tokens:
+            self.assertIn(token, manager_snapshot, f"El manager perdió `{token}`.")
+        # Lo que la pantalla llama: la ruta del agente y la capacidad que la
+        # anuncia. Van en `node*.py`, no en el módulo del sondeo.
+        routes = ("/api/v1/live-accounts/snapshot/stop", "live_account_snapshot_stop")
+
+        def check(project: Path, _source: str) -> None:
+            source = fork_live_account_source(project)
+            for token in tokens:
+                self._assert_present(
+                    source, re.escape(token),
+                    f"{project}: el sondeo de cuentas no se puede detener. Portar "
+                    "mt5_manager/live_account/live_account_snapshot.py entero "
+                    "(cambiando sólo el import de `common`) y reiniciar la "
+                    "aplicación del agente.",
+                )
+            node = (Path(project) / "manager_node_runtime" / "node.py").read_text(
+                encoding="utf-8", errors="replace",
+            ) + fork_node_source(project)
+            for token in routes:
+                self._assert_present(
+                    node, re.escape(token),
+                    f"{project}: falta `{token}` en manager_node_runtime/. Sin la "
+                    "ruta, «Detener» contesta el 404 del nodo; sin la capacidad, "
+                    "el manager no puede decir que el agente aún no sabe pararlo.",
+                )
+
+        self._assert_on_every_fork(check, "detener el sondeo de cuentas")

@@ -53,6 +53,9 @@ reintentó hasta que el usuario lo lanzó a mano a la mañana siguiente.
 
 `exhausted` no está aquí a propósito: es el final del turno, no un fallo
 pendiente, y meterlo volvería a lanzar el sondeo hasta la cita siguiente.
+`stopped` tampoco, y por lo mismo visto del revés: lo paró el usuario, así que
+volver a entrar en las terminales en cuanto se suelta el botón convertiría el
+botón de parar en un botón de esperar un minuto.
 
 `stale` sí está, y es el único que no viene de algo que saliera mal: la
 captura llegó entera pero se presenta a otro lote que la serie guardada
@@ -128,8 +131,44 @@ def record_node_issue(
         )
 
 
+def stop(server: Any, node: dict[str, Any], node_id: str) -> dict[str, Any]:
+    """Le pide al agente que pare el sondeo que tiene en marcha.
+
+    El agente corta **entre cuentas** y sale por su camino de siempre, así que
+    las terminales vuelven a su cuenta final y el pipeline que pausó se
+    reanuda. Lo que ya leyó se recoge en la vuelta siguiente: la tanda termina
+    con `stopped`, que no es un fallo y por eso no gasta reintentos ni vuelve
+    a entrar en las terminales esta misma noche.
+    """
+    name = str(node.get("name") or node_id)
+    status, value = manager_http.node_request(
+        node, "POST", "/api/v1/live-accounts/snapshot/stop", {}, timeout=30,
+    )
+    if status == 404:
+        raise ValueError(
+            "El agente todavía no sabe detener un sondeo de cuentas: falta portar "
+            "`/api/v1/live-accounts/snapshot/stop` a su `manager_node_runtime/` y "
+            "reiniciarlo."
+        )
+    if status >= 400:
+        raise ValueError(
+            str(value.get("error") if isinstance(value, dict) else value)
+            or f"El agente contestó HTTP {status}"
+        )
+    server.live_audit_notifications.add(
+        "warning", f"Sondeo de cuentas detenido en {name}",
+        "Lo pidió el usuario. El agente termina la cuenta que tenía abierta, "
+        "devuelve cada terminal a su cuenta final y reanuda lo que pausó. No "
+        "se reintenta hasta la próxima cita.",
+        node_id=node_id, node_name=name, kind="account_snapshot_stopped",
+    )
+    server.live_account_wakeup.set()
+    return value if isinstance(value, dict) else {}
+
+
 LEVELS_BY_OUTCOME = {
-    "success": "success", "stale": "info", "partial": "warning", "failed": "error",
+    "success": "success", "stale": "info", "partial": "warning",
+    "failed": "error", "stopped": "warning",
 }
 """Con qué color sale cada final en la campana.
 
@@ -162,9 +201,11 @@ def announce_collected(
         )
     if failed:
         detail += " Sin leer: " + "; ".join(failed[:4])
+    outcome = str(collected.get("outcome") or "")
     server.live_audit_notifications.add(
-        LEVELS_BY_OUTCOME.get(str(collected.get("outcome") or ""), "warning"),
-        f"Sondeo de cuentas terminado: {name}", detail,
+        LEVELS_BY_OUTCOME.get(outcome, "warning"),
+        f"Sondeo de cuentas {'detenido' if outcome == 'stopped' else 'terminado'}: "
+        f"{name}", detail,
         node_id=node_id, node_name=name, kind="account_snapshot_collected",
     )
 

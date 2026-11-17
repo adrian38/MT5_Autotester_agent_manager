@@ -169,6 +169,60 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(state["account_snapshots"], [])
         self.assertFalse(state["active"])
 
+    def _wealth(self, waiting: list[dict] = (), launched: list[dict] = ()):
+        """La cita del patrimonio, sin tocar el registro de cuentas reales."""
+        return mock.patch(
+            "mt5_manager.live_account.live_account_wealth_watch.node_rows",
+            side_effect=lambda _server, status: list(
+                waiting if status == "waiting" else launched,
+            ),
+        )
+
+    def _running_snapshot(self):
+        def request(_node, _method, path, _payload=None, timeout=0):
+            if path == "/api/v1/status":
+                return 200, {"capabilities": {"live_account_snapshot": True}}
+            if path == "/api/v1/live-accounts":
+                return 200, {"snapshot": {
+                    "status": "extracting", "accounts": {"a": {"status": "queued"}},
+                }}
+            return 200, {"audits": {"11": {"status": "idle"}}}
+        return mock.patch(
+            "mt5_manager.manager.manager_http.node_request", side_effect=request,
+        )
+
+    def test_the_wealth_reread_is_told_apart_from_the_nightly_snapshot(self) -> None:
+        """Son la misma tanda en el agente y no lo mismo para quien espera.
+
+        La diaria lee los últimos días; ésta, la vida entera de cada cuenta.
+        Sin esto, Patrimonio no podía saber si lo que corre es lo suyo.
+        """
+        self.server = FakeServer(self.root, audit_state())
+        with self._running_snapshot(), self._wealth(launched=[{"node_id": "n"}]):
+            state = live_audit_activity.snapshot(self.server)
+        self.assertEqual(state["account_snapshots"][0]["purpose"], "wealth")
+        with self._running_snapshot(), self._wealth():
+            state = live_audit_activity.snapshot(self.server)
+        self.assertEqual(state["account_snapshots"][0]["purpose"], "daily")
+
+    def test_a_wealth_appointment_waiting_shows_without_lighting_the_badge(self) -> None:
+        """Esperar no es estar ocupado, y puede durar su tope de horas.
+
+        Sale en el panel de las pantallas, que tiene sitio para decir desde
+        cuándo y por qué; encender la chapa de la cabecera todo ese rato la
+        convertiría en mobiliario.
+        """
+        self.server = FakeServer(self.root, audit_state())
+        row = {"node_id": "n", "node_name": "Nodo N", "status": "waiting",
+               "waiting_reason": "el agente está ocupado (generation)"}
+        with mock.patch(
+            "mt5_manager.manager.manager_http.node_request",
+            side_effect=answers({"11": {"status": "idle"}}),
+        ), self._wealth(waiting=[row]):
+            state = live_audit_activity.snapshot(self.server)
+        self.assertEqual(state["wealth_waiting"], [row])
+        self.assertFalse(state["active"])
+
     def test_the_route_answers_the_snapshot(self) -> None:
         self.server = FakeServer(self.root, audit_state())
         handler = ActivityHandler(self.server)

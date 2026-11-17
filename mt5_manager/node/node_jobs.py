@@ -396,6 +396,7 @@ class JobController(GuidedControllerMixin):
             "live_account_audit": True, "live_audit_restore_account": True,
             "live_audit_manual_reports": True,
             "live_account_snapshot": True,
+            "live_account_snapshot_stop": True,
         }
 
     def universe(self) -> dict[str, Any]:

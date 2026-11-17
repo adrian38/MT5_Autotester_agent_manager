@@ -238,6 +238,22 @@ class ScopeTests(WealthCronBase):
         self.assertEqual(payload["nodes"][0]["accounts"], 1)
         self.assertIn("informe", payload["description"])
 
+    def test_the_waiting_appointment_is_offered_to_the_activity_panel(self) -> None:
+        """Una cita vencida que espera horas no se veía en ninguna pantalla.
+
+        Desde fuera era indistinguible de una cita que nadie armó: el panel la
+        pide por estado, sin preguntarle nada a ningún agente.
+        """
+        self.tick(job="running")
+        with mock.patch.object(
+            live_account_inventory, "node_accounts", return_value=self.accounts,
+        ):
+            waiting = live_account_wealth_watch.node_rows(self.server, "waiting")
+            launched = live_account_wealth_watch.node_rows(self.server, "launched")
+        self.assertEqual([row["node_id"] for row in waiting], ["axi"])
+        self.assertIn("ocupado", waiting[0]["waiting_reason"])
+        self.assertEqual(launched, [])
+
 
 if __name__ == "__main__":
     unittest.main()

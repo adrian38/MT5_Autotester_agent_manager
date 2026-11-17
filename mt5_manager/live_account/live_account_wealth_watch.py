@@ -299,6 +299,27 @@ def _node_state(server: Any, node: dict[str, Any], node_id: str) -> dict[str, An
     }
 
 
+def node_rows(server: Any, status: str) -> list[dict[str, Any]]:
+    """Las citas del patrimonio que están en ese estado, por nodo.
+
+    No le pregunta nada a ningún agente: es el registro del manager y vale lo
+    que costó la vuelta anterior.
+
+    Lo usa el panel de actividad con los dos estados que tiene que distinguir.
+    `waiting` es lo que no tenía dónde verse: una cita vencida que lleva horas
+    esperando a que el agente quede libre es, desde fuera, indistinguible de
+    una cita que nadie armó. `launched` no añade una fila —ésa ya está, como
+    sondeo en marcha— pero dice de quién es ese sondeo: el de la portada lee
+    los últimos días y éste la vida entera de cada cuenta, y lo que el usuario
+    está esperando no es lo mismo.
+    """
+    return [
+        row for node in server.nodes
+        if (node_id := str(node.get("id") or ""))
+        and (row := _node_state(server, node, node_id))["status"] == status
+    ]
+
+
 def state(server: Any) -> dict[str, Any]:
     """Contrato público de la cita, con su estado por nodo."""
     settings = dict(getattr(server, "wealth_scheduler_settings", None)

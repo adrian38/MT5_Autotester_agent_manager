@@ -22,6 +22,12 @@ cosas, así que ni un sondeo empieza con una auditoría en curso ni al revés. D
 procesos cambiando la cuenta de la misma terminal es justo lo que no puede
 pasar.
 
+Se puede parar (`stop_account_snapshot`), y se para **entre cuentas**: dentro
+de una hay un login y una exportación de MT5, y cortarlos por la mitad es lo
+que deja un terminal sin su cuenta guardada. La tanda sale entonces por el
+mismo camino que si hubiera terminado, que es el que restaura cada terminal y
+reanuda el pipeline pausado.
+
 Una cuenta que falla **no tumba la tanda**: queda anotada con su error y se
 sigue con la siguiente. Nueve cuentas y un servidor caído no pueden costar la
 serie de las otras ocho.
@@ -53,6 +59,16 @@ maquinas de estados distintas y compartir la constante las ataria sin motivo.
 Ademas es lo que deja este modulo **sin un solo import del auditor**, y por eso
 puede portarse identico a los cuatro agentes.
 """
+
+
+class SnapshotStopped(RuntimeError):
+    """El usuario pidió parar el sondeo, y el hilo salió por ahí.
+
+    Propia y no la `AuditStopped` del auditor por lo mismo que
+    `RUNNING_SNAPSHOT_STATUSES`: importarla ataría este módulo al auditor y
+    dejaría de poder portarse idéntico a los cuatro agentes.
+    """
+
 
 MAXIMUM_ACCOUNTS = 24
 """Cuentas por tanda. Hoy son nueve; el tope es para que un payload raro no
@@ -225,6 +241,11 @@ class _AccountSnapshotMixin:
 
     def _load_account_snapshot(self) -> dict[str, Any]:
         """Lo último que se sondeó; un sondeo a medias murió con el agente."""
+        # El botón de detener se arma aquí y no en el `__init__` del
+        # controlador a propósito: ése vive en `live_audit.py`, que es otro
+        # fichero en cada una de las cuatro copias. Todo lo del sondeo cabe en
+        # este módulo, y por eso portarlo sigue siendo copiarlo entero.
+        self.snapshot_stop_requested = False
         path = self._snapshot_path()
         if not path.is_file():
             return {"status": "idle", "accounts": {}}
@@ -257,6 +278,50 @@ class _AccountSnapshotMixin:
                 )
             self._persist_snapshot()
 
+    def _snapshot_note(self, text: str, log: str) -> None:
+        """Avanza el texto de la pantalla **sin tocar el estado**.
+
+        Es el mismo cuidado que `_note_progress` en el auditor: entre que se
+        pide parar y el hilo lo atiende pasan segundos, y reescribir el estado
+        desde fuera lo haría retroceder justo cuando el sondeo ya va por
+        `finalizing`, que es la única fase desde la que se cierra.
+        """
+        with self.lock:
+            self.account_snapshot["progress_text"] = text
+            self.account_snapshot.setdefault("log_lines", []).append(
+                f"[{utc_now()}] {log}"
+            )
+            self._persist_snapshot()
+
+    def stop_account_snapshot(self) -> dict[str, Any]:
+        """Pide parar el sondeo en curso: corta entre cuentas, nunca a mitad.
+
+        No se mata el hilo ni se cierra la terminal que está leyendo. Lo que
+        hay dentro de una cuenta es un login y una exportación de MT5, y
+        cortarlos por la mitad es justo lo que deja un terminal sin su cuenta
+        guardada. Se marca la petición, la lectura se para antes de entrar en
+        la siguiente cuenta y el sondeo sale por su camino de siempre, que
+        restaura cada terminal y reanuda el pipeline que pausó.
+        """
+        with self.lock:
+            status = str(self.account_snapshot.get("status") or "")
+            if status not in RUNNING_SNAPSHOT_STATUSES:
+                raise ValueError("No hay ningún sondeo de cuentas en curso que detener")
+            self.snapshot_stop_requested = True
+        self._snapshot_note(
+            "Deteniendo el sondeo: se termina la cuenta en curso y se "
+            "restauran las terminales.",
+            "Detención pedida por el usuario",
+        )
+        return self.account_snapshot_state()
+
+    def _honour_snapshot_stop(self) -> None:
+        """Corte entre cuentas. Lo pide el botón y lo mira el hilo."""
+        with self.lock:
+            stopped = bool(getattr(self, "snapshot_stop_requested", False))
+        if stopped:
+            raise SnapshotStopped("Sondeo detenido a petición del usuario")
+
     def _snapshot_account_update(self, key: str, **changes: Any) -> None:
         with self.lock:
             accounts = self.account_snapshot.setdefault("accounts", {})
@@ -272,6 +337,10 @@ class _AccountSnapshotMixin:
                 raise RuntimeError(
                     "Ya hay una auditoría o un sondeo utilizando las terminales del nodo"
                 )
+            # La petición de parar es de la tanda, no del controlador: sin
+            # esto, un sondeo detenido dejaría la marca puesta y el siguiente
+            # se pararía solo antes de leer su primera cuenta.
+            self.snapshot_stop_requested = False
             snapshot_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             self.account_snapshot = {
                 "snapshot_id": snapshot_id,
@@ -430,6 +499,15 @@ class _AccountSnapshotMixin:
                 "Lectura terminada; restaurando terminales",
             )
             status = "completed"
+        except SnapshotStopped as exc:
+            # Detenido no es fallido: no se escribe `error`, porque eso es lo
+            # que la portada pinta en rojo y lo que la política de reintentos
+            # lee para volver a entrar en las terminales esta misma noche.
+            status = "stopped"
+            self._snapshot_update(
+                "finalizing", "Sondeo detenido; restaurando las terminales.",
+                str(exc),
+            )
         except Exception as exc:
             status = "failed"
             self._snapshot_update(
@@ -446,6 +524,7 @@ class _AccountSnapshotMixin:
         )
         total = len(request["accounts"])
         for index, account in enumerate(request["accounts"], start=1):
+            self._honour_snapshot_stop()
             key = account["account_key"]
             self._snapshot_update(
                 "extracting", f"Leyendo la cuenta {index} de {total}: {account['login']}.",
@@ -495,7 +574,9 @@ class _AccountSnapshotMixin:
         ]
         self._snapshot_update(
             status,
-            "Sondeo terminado." + (f" {len(failed)} cuenta(s) sin leer." if failed else ""),
+            ("Sondeo detenido a petición del usuario." if status == "stopped"
+             else "Sondeo terminado.")
+            + (f" {len(failed)} cuenta(s) sin leer." if failed else ""),
             "Cuenta dejada en cada terminal: " + "; ".join(
                 f"{row.get('terminal')} → {'ok' if row.get('restored') else row.get('error')}"
                 for row in restored

@@ -144,3 +144,27 @@
 .cron-dialog .cron-day input{width:16px;height:16px}
 .cron-dialog .cron-rates div{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:9px}
 .cron-rates small{color:var(--muted,#91a4b5);font-size:11px;line-height:1.5}
+
+/* El panel «Ocupando el agente ahora», dentro de `main` en las tres pantallas
+   de real. La chapa de la cabecera dice que algo pasa; esto dice qué, desde
+   cuándo y cómo pararlo. Se esconde entero cuando no hay nada: un panel que
+   dice «nada en marcha» ocupa el mismo sitio que uno que dice algo. */
+.process-monitor{display:grid;gap:10px;margin:0 0 18px;padding:14px 16px;border:1px solid #397861;border-left:3px solid var(--ok,#3fb950);border-radius:11px;background:#0d211d}
+.process-monitor[hidden]{display:none}
+.process-title{margin:0;color:var(--accent2,#63e6be);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+.process-row{display:grid;gap:7px;padding-top:9px;border-top:1px solid #1d3a33}
+.process-row:first-of-type{padding-top:0;border-top:0}
+.process-head{display:flex;flex-wrap:wrap;align-items:center;gap:9px}
+.process-head strong{color:var(--text,#e6edf3);font-size:14px}
+.process-node{padding:2px 8px;border:1px solid #397861;border-radius:999px;color:#b8dcff;font-size:11px;font-weight:700}
+.process-phase{color:var(--accent2,#63e6be);font-size:11px;font-weight:800;letter-spacing:.08em}
+.process-elapsed{color:var(--muted,#91a4b5);font-size:11px}
+.process-head .process-stop{margin-left:auto;padding:4px 12px;font-size:12px}
+.process-bar{height:4px;border-radius:2px;background:#1d3a33;overflow:hidden}
+.process-bar i{display:block;height:100%;border-radius:2px;background:var(--ok,#3fb950);transition:width .4s ease}
+.process-detail{margin:0;color:var(--muted,#91a4b5);font-size:12px;line-height:1.5}
+/* Lo que espera turno no está dentro de las terminales: mismo panel, pero en
+   ámbar y **sin barra**, que es lo honrado cuando no hay progreso ninguno. */
+.process-row.waiting .process-phase{color:#f0b429}
+.process-row.waiting .process-bar{display:none}
+@media(prefers-reduced-motion:reduce){.process-bar i{transition:none}}

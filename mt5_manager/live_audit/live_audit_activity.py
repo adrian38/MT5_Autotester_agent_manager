@@ -14,7 +14,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from ..live_account import live_account_watch
+from ..live_account import live_account_watch, live_account_wealth_watch
 from . import live_audit_watch
 from ..manual_check import manual_check_watch
 from ..common import utc_now
@@ -119,10 +119,27 @@ def snapshot(server: Any) -> dict[str, Any]:
             if row:
                 snapshots.append(row)
     pending = recovery(server)
+    # La cita del patrimonio que espera **no** cuenta como `active`: puede
+    # estar así hasta su tope de horas, y encender la chapa de la cabecera
+    # todo ese rato convertiría el indicador de «algo está pasando» en parte
+    # del mobiliario. El panel de las pantallas sí la enseña, que es donde hay
+    # sitio para decir desde cuándo espera y por qué.
+    try:
+        waiting = live_account_wealth_watch.node_rows(server, "waiting")
+        wealth_nodes = {
+            row["node_id"] for row in live_account_wealth_watch.node_rows(
+                server, "launched",
+            )
+        }
+    except (AttributeError, OSError, TypeError, ValueError):
+        waiting, wealth_nodes = [], set()
+    for row in snapshots:
+        row["purpose"] = "wealth" if row["node_id"] in wealth_nodes else "daily"
     return {
         "running": running,
         "manual_checks": checks,
         "account_snapshots": snapshots,
+        "wealth_waiting": waiting,
         "recovery": pending,
         "issues": issues,
         "active": bool(running) or bool(checks) or bool(snapshots)

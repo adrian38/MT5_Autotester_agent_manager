@@ -133,7 +133,10 @@ class RequestTests(unittest.TestCase):
             )
 
 
-class SnapshotRunTests(unittest.TestCase):
+class SnapshotHarness(unittest.TestCase):
+    """El arnes del sondeo: un controlador con MT5, exportacion y restauracion
+    de mentira. No lleva pruebas; las llevan las dos clases que lo heredan."""
+
     def setUp(self) -> None:
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
@@ -198,6 +201,8 @@ class SnapshotRunTests(unittest.TestCase):
             )
         return last
 
+
+class SnapshotRunTests(SnapshotHarness):
     def test_it_reads_every_account_and_restores_and_resumes(self) -> None:
         self.controller.start_account_snapshot(payload())
         state = self._wait()
@@ -299,6 +304,64 @@ class SnapshotRunTests(unittest.TestCase):
         self._wait()
         self.assertEqual(owner.pause_calls, 0)
         self.assertEqual(owner.resume_calls, 0)
+
+
+class StopTests(SnapshotHarness):
+    """El botón de parar: corta entre cuentas y no deja terminales prestadas.
+
+    Lo que no puede pasar es que parar sea peor que no parar: un terminal con
+    la cuenta de un tercero, un pipeline pausado para siempre, o un «detenido»
+    que el cron relance diez minutos después. Lo último se comprueba en la
+    recogida (`test_live_account_cron`), que es donde vive la política.
+    """
+
+    def _stop_while_reading(self, login: str) -> None:
+        """Pide la parada justo cuando el sondeo está dentro de esa cuenta."""
+        export = self.controller._export_native_account_report
+
+        def exporting(**kwargs):
+            result = export(**kwargs)
+            if str(kwargs["login"]) == login:
+                self.controller.stop_account_snapshot()
+            return result
+
+        self.controller._export_native_account_report = exporting
+
+    def test_stopping_cuts_between_accounts_and_still_gives_the_terminals_back(self) -> None:
+        self._stop_while_reading("111")
+        self.controller.start_account_snapshot(payload())
+        state = self._wait()
+        self.assertEqual(state["status"], "stopped")
+        self.assertEqual(self.read, ["111"])
+        self.assertEqual(state["accounts"]["111@Axi-US50-Live"]["status"], "completed")
+        self.assertEqual(state["accounts"]["222@RoboForex-ECN"]["status"], "queued")
+        self.assertTrue(self.restored)
+        self.assertEqual(self.owner.resume_calls, 1)
+
+    def test_a_stopped_snapshot_is_not_a_failed_one(self) -> None:
+        """Sin `error`: es lo que la portada pinta en rojo y lo que reintenta."""
+        self._stop_while_reading("111")
+        self.controller.start_account_snapshot(payload())
+        state = self._wait()
+        self.assertIsNone(state.get("error"))
+        self.assertIn("detenido", str(state.get("progress_text")).casefold())
+
+    def test_stopping_with_nothing_in_flight_is_refused(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            self.controller.stop_account_snapshot()
+        self.assertIn("en curso", str(caught.exception))
+
+    def test_the_stop_request_does_not_leak_into_the_next_snapshot(self) -> None:
+        """Sin esto, el sondeo siguiente se pararía antes de su primera cuenta."""
+        self._stop_while_reading("111")
+        self.controller.start_account_snapshot(payload())
+        self._wait()
+        self.read.clear()
+        self.controller._export_native_account_report = self._export
+        self.controller.start_account_snapshot(payload())
+        state = self._wait()
+        self.assertEqual(state["status"], "completed")
+        self.assertEqual(self.read, ["111", "222"])
 
 
 class LockTests(unittest.TestCase):

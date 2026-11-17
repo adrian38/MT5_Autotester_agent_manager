@@ -176,6 +176,11 @@ class NodeHandler(BaseHTTPRequestHandler):
                 ),
             })
             return True
+        if self.path == "/api/v1/live-accounts/snapshot/stop":
+            self._send(200, {
+                "snapshot": self.server.controller.live_audits.stop_account_snapshot(),
+            })
+            return True
         return False
 
     def do_POST(self) -> None:

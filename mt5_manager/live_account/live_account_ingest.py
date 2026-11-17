@@ -187,7 +187,7 @@ def collect(
     # marcha otra lectura. Distinguirlos no es decorativo: con `stale` no ha
     # fallado nada, así que el turno vuelve a empezar de cero en vez de gastar
     # un reintento en una captura que nunca se va a poder usar.
-    outcome = _outcome(read, failed, stale)
+    outcome = _outcome(read, failed, stale, status)
     runs.update(
         key, ingested=collected_key, last_status=status,
         completed_at=str(state.get("finished_at") or utc_now()),
@@ -200,14 +200,24 @@ def collect(
     }
 
 
-def _outcome(read: int, failed: list[str], stale: list[str]) -> str:
+def _outcome(
+    read: int, failed: list[str], stale: list[str], status: str = "",
+) -> str:
     """Cómo acabó la recogida, en los términos de la política de reintentos.
 
     `stale` manda sobre `success` aunque entren cuentas: mientras quede una
     serie a otra escala, la cita no está cumplida. Y manda sobre `failed`
     cuando no hay fallos de verdad, porque lo que hace falta es otra lectura,
     no insistir con ésta.
+
+    El sondeo que paró el usuario manda sobre todo lo demás. Lo que leyó entra
+    igual —es lo que ya costó entrar en esas cuentas—, pero las que quedaron
+    sin leer no son un fallo que reintentar: contarlas como `partial` haría
+    que el cron relanzase el sondeo dentro de diez minutos, y el botón de
+    parar no pararía nada.
     """
+    if status == "stopped":
+        return "stopped"
     if failed:
         return "partial" if read else "failed"
     if stale:

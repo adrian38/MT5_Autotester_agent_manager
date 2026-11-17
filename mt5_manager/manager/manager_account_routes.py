@@ -12,6 +12,7 @@ abrir la memoria del agente en cada vuelta.
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Any
@@ -125,6 +126,27 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
     return False
 
 
+def _handle_stop(handler, parts: list[str]) -> None:
+    """Le pide al agente que pare su sondeo, y traduce lo que conteste.
+
+    Un 404 del nodo no es una ruta mal escrita: es un agente sin portar, y
+    decirlo así es la diferencia entre reiniciarlo y buscar el fallo donde no
+    está. Lo demás pasa tal cual, que es lo que el agente sabe y el manager
+    no (no hay sondeo, las terminales ya se soltaron).
+    """
+    try:
+        node_id = urllib.parse.unquote(parts[2])
+        handler._send_json(200, live_account_watch.stop(
+            handler.server, handler._node(node_id), node_id,
+        ))
+    except KeyError as exc:
+        handler._send_json(404, {"error": str(exc)})
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        handler._send_json(400, {"error": str(exc)})
+    except (urllib.error.URLError, TimeoutError) as exc:
+        handler._send_json(502, {"error": str(exc)})
+
+
 def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
     if parsed.path == ALTERNATE_PATH:
         try:
@@ -162,6 +184,14 @@ def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
             )
         except (ValueError, OSError, json.JSONDecodeError) as exc:
             handler._send_json(400, {"error": str(exc)})
+        return True
+    # Parar el sondeo: por nodo, igual que se para una auditoría, porque lo
+    # que se detiene es la tanda de **ese** agente y sus terminales.
+    if (
+        len(parts) == 6 and parts[:2] == ["api", "nodes"]
+        and parts[3:] == ["live-accounts", "snapshot", "stop"]
+    ):
+        _handle_stop(handler, parts)
         return True
     if parsed.path == WEALTH_NOW_PATH:
         try:
