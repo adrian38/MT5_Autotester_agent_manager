@@ -418,3 +418,46 @@ sus diez pruebas por rama. FUTURE queda fuera por congelacion.
 `test_application_restart_reaches_every_embedded_node_fork` impide que una
 copia montada vuelva a quedar sin la ruta, sin su prueba o sin una de las dos
 barandillas del rebase.
+
+## Estado del port de la parada del sondeo de cuentas (2026-11-17)
+
+El botón «Detener» del panel de las tres pantallas de real no para nada por sí
+solo: el manager únicamente reenvía a
+`POST /api/v1/live-accounts/snapshot/stop`, que vive en el runtime del agente.
+Sin el port, la pantalla recibe el 404 del nodo y el sondeo sigue dentro de las
+terminales.
+
+`live_account_snapshot.py` se porta **entero**, cambiando sólo el import de
+`common` (`..common` → `.common`): no tiene un solo import del auditor, que es
+justo para esto. La ruta va en `node.py` y la capacidad
+`live_account_snapshot_stop` en `node_jobs_api.py`.
+
+Tres cosas que no son evidentes en el port:
+
+- **Para entre cuentas, nunca a mitad.** Dentro de una cuenta hay un login y
+  una exportación de MT5; cortarlos deja el terminal sin su cuenta guardada,
+  que es el fallo del 2026-08-21. La marca se mira al empezar cada cuenta y la
+  tanda sale por `_finish_account_snapshot`, que restaura y reanuda.
+- **`snapshot_stop_requested` se arma en `_load_account_snapshot`**, no en el
+  `__init__` del controlador: ése vive en `live_audit.py`, que es otro fichero
+  en cada copia, y meterlo ahí convertiría un port de copiar y pegar en cuatro
+  ediciones a mano.
+- **Se repone a `False` al arrancar cada tanda.** Si no, un sondeo detenido
+  deja la marca puesta y el siguiente se para solo antes de su primera cuenta.
+
+Del lado del manager, un sondeo `stopped` se recoge con `outcome="stopped"`,
+que `due_decision` no reintenta. Contarlo como `partial` —que es lo que son
+sus cuentas sin leer— hacía que el cron relanzase el sondeo diez minutos
+después: el botón de parar sería un botón de esperar un rato.
+
+| Copia | Parada del sondeo |
+| --- | --- |
+| Manager (`mt5_manager/live_account/live_account_snapshot.py`) | sí, desde `ebb1b5e` |
+| ICTrading de este equipo | sí, `1cc71f2` |
+| AXI (`F:\TRADING\MT5_Autotester_agent_AXI`) | sí, `2a520b8` |
+| RoboForex (`G:\TRADING\MT5_Autotester_agent`) | sí, `2cc0f43` |
+| Vantage (`I:\TRADING\MT5_Autotester_agent_Vantage`) | sí, `5b7980f` |
+| FUTURE | omitido por congelación |
+
+Los cuatro agentes necesitan **reinicio de la aplicación** para que la ruta
+exista. Lo vigila `tests/node/test_node_runtime_fork_parity_snapshot.py`.
