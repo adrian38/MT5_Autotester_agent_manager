@@ -68,6 +68,10 @@ STATIC_FILES = {
     # Y el del sondeo diario de cuentas, que se monta en las mismas
     # cabeceras: lanzarlo no puede exigir pasar antes por la portada.
     "live_account_schedule.js",
+    # El panel centralizado de actividad de las tres pantallas de real. Si no
+    # se sirve, el resto de la pagina sigue funcionando y el 404 sólo borra la
+    # barra de progreso y su botón único de detener.
+    "process_monitor.js",
     # La navegacion comun: los seis destinos que toda pantalla ofrece, en el
     # mismo orden. Lo cargan las dieciocho, delante de la campana.
     "main_nav.js",
