@@ -304,14 +304,12 @@ def launch(
     server: Any, node: dict[str, Any], node_id: str,
     window: str, attempts: int, now: datetime,
     period: tuple[str, str] | None = None, reason: str = "",
-    cita: str = DAILY_KEY,
+    cita: str = DAILY_KEY, readings: list[live_account_alternate.Reading] | None = None,
 ) -> None:
     """Pide el sondeo al agente y deja escrito cómo fue.
 
-    Lo que se le pide leer no se recibe: se resuelve aquí, porque es lo mismo
-    para quien lo lance —el cron, el botón o la cita del patrimonio— y porque
-    una tarjeta desviada se lee desde el agente elegido y no desde el suyo
-    (`live_account_alternate`).
+    `readings` es la población explícita; sin ella se resuelve el agente entero.
+    Ambas pasan por `live_account_alternate`, que respeta tarjetas desviadas.
 
     `period` lo impone quien llama; sin él lo decide `_period`, que pide lo
     justo desde el último día guardado. La relectura completa del patrimonio
@@ -330,7 +328,7 @@ def launch(
     base = {"window": window, "attempts": attempts, "last_attempt_at": utc_now()}
     common = {"node_id": node_id, "node_name": name, "kind": "account_snapshot_launch"}
     restore = server.live_audit_settings.restore_credentials(node_id)
-    found = live_account_alternate.readings(server, node_id)
+    found = readings if readings is not None else live_account_alternate.readings(server, node_id)
     payload_accounts = live_account_alternate.payload(found)
     if not restore or not payload_accounts:
         _launch_failed(

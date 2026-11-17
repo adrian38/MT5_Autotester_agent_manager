@@ -150,6 +150,24 @@ class QueueTests(WealthCronBase):
         self.assertIn("patrimonio", launched[0]["reason"])
         self.assertEqual(self.record()["status"], "launched")
 
+    def test_only_the_accounts_that_sum_are_reread(self) -> None:
+        """La vida entera de una cuenta son nueve megas y una terminal.
+
+        La cita ya filtraba por «Sumar» para decidir si hay trabajo, pero lo
+        que pedía eran todas las del agente: el 2026-11-17 RoboForex releyó
+        seis cuando cuatro entran en el patrimonio.
+        """
+        other = {**self.accounts[0], "account_key": "60082017@Axi-US50-Live",
+                 "login": "60082017"}
+        self.accounts.append(other)
+        self.archive.update_total_selection(
+            {"account": f"axi::{other['account_key']}", "included": False},
+        )
+        launched = self.tick()
+        self.assertEqual(
+            [reading.account_key for reading in launched[0]["readings"]], [KEY],
+        )
+
     def test_a_launched_appointment_is_not_launched_again_while_it_runs(self) -> None:
         self.tick()
         self.assertEqual(self.tick(SATURDAY + timedelta(minutes=5)), [])

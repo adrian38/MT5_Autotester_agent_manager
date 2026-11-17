@@ -26,7 +26,9 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager.live_account import live_account_expectation_refresh, live_account_watch
+from mt5_manager.live_account import (
+    live_account_alternate, live_account_expectation_refresh, live_account_watch,
+)
 from mt5_manager.live_account.live_account_ingest import DAILY_KEY, SNAPSHOT_KEY
 from mt5_manager.live_account.live_account_wealth import WEALTH_KEY
 
@@ -111,6 +113,29 @@ class TwoAppointmentsTests(unittest.TestCase):
         posts = [row for row in self.requests if row[1].endswith("/snapshot")]
         self.assertEqual(len(posts), 1)
         self.assertEqual(self._record(DAILY_KEY)["outcome"], "running")
+
+    def test_the_launcher_decides_who_is_read(self) -> None:
+        """Quien lanza dice a quién se entra; sin decirlo, al agente entero.
+
+        Es la otra mitad de la separación: la relectura del patrimonio sólo
+        entra en las cuentas que suman, y entrar en una cuesta una terminal y
+        el informe de toda su vida.
+        """
+        found = live_account_alternate.readings(self.server, "axi")
+        self.assertEqual(len(found), 2)
+        with self._request(snapshot_state("idle")):
+            live_account_watch.launch(
+                self.server, self.server.nodes[0], "axi", NOW.isoformat(), 1, NOW,
+                period=("", "2026-10-21"), cita=WEALTH_KEY, readings=found[:1],
+            )
+        payload = [
+            row[2] for row in self.requests
+            if row[1] == "/api/v1/live-accounts/snapshot"
+        ][0]
+        self.assertEqual(
+            [account["account_key"] for account in payload["accounts"]],
+            [found[0].account_key],
+        )
 
     def test_the_daily_turn_is_still_its_own_when_nobody_claimed_the_run(self) -> None:
         """Sin dueño la tanda es del diario: es el estado de antes del cambio."""

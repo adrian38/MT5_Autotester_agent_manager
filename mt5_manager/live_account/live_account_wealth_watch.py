@@ -196,13 +196,19 @@ def _give_up(server: Any, node: dict[str, Any], node_id: str, window: str) -> No
 def _launch(
     server: Any, node: dict[str, Any], node_id: str, window: str, now: datetime,
 ) -> None:
-    """Pide la relectura completa y deja la cita a la espera de su informe."""
+    """Pide la relectura completa y deja la cita a la espera de su informe.
+
+    Entra sólo en las que suman, que es lo que `summing_readings` ya decide
+    para saber si hay cita. Antes se las pedía todas al agente: el 2026-11-17
+    RoboForex releyó seis cuentas cuando cuatro entran en el patrimonio, y a
+    cada una se le pidió el informe de toda la vida.
+    """
     runs = server.live_account_runs
     live_account_watch.launch(
         server, node, node_id, window, 1, now,
         period=("", now.astimezone(timezone.utc).date().isoformat()),
         reason="relectura completa para el patrimonio",
-        cita=WEALTH_KEY,
+        cita=WEALTH_KEY, readings=summing_readings(server, node_id),
     )
     outcome = str(_record(server, node_id).get("outcome") or "")
     runs.update(
