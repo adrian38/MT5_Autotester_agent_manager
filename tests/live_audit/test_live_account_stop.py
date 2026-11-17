@@ -122,10 +122,27 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("document.querySelector('main')", self.monitor)
         self.assertIn("main.insertBefore(panel, main.firstChild)", self.monitor)
 
-    def test_it_offers_the_stop_of_each_thing_that_can_be_stopped(self) -> None:
+    def test_the_stop_is_one_button_for_everything(self) -> None:
+        """Petición del usuario (2026-11-17): uno, y para todo lo que corre.
+
+        Uno por fila obligaba a pulsar tantas veces como cosas hubiera. Se
+        comprueba que el botón se pinta en la cabecera del panel y que la
+        parada recorre **todo** lo detenible, no la fila pulsada.
+        """
+        self.assertIn('id="process-stop"', self.monitor)
+        self.assertIn("process-monitor-head", self.monitor)
+        self.assertNotIn("data-stop", self.monitor)
+        self.assertIn("for (const row of rows)", self.monitor)
+        self.assertIn("function stoppable", self.monitor)
+
+    def test_it_knows_how_to_stop_both_kinds_of_work(self) -> None:
         self.assertIn("/live-accounts/snapshot/stop", self.monitor)
         self.assertIn("/live-audits/", self.monitor)
         self.assertIn("window.confirm", self.monitor)
+
+    def test_one_agent_that_refuses_does_not_leave_the_others_running(self) -> None:
+        """Soltar las terminales de los demás no depende del que falló."""
+        self.assertIn("failed.push", self.monitor)
 
     def test_it_reads_the_activity_route_and_nothing_else(self) -> None:
         """Comparte lectura con la chapa: ni ruta nueva ni agente consultado."""

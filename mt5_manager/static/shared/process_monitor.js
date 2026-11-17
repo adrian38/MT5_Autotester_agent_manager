@@ -17,6 +17,12 @@
 // corta entre cuentas o entre fases y sale por su camino de siempre, que
 // devuelve cada terminal a su cuenta final y reanuda el pipeline que pausó.
 // Por eso el botón no promete un corte instantáneo y lo dice en su título.
+//
+// **El botón es uno y para todo** (corrección del usuario, 2026-11-17). Uno por
+// fila obligaba a pulsar tantas veces como cosas hubiera y a decidir una por
+// una; lo que se quiere al pulsar es soltar las terminales, y eso es una sola
+// decisión. Va en la cabecera del panel y manda la parada a cada agente que
+// tenga algo que soltar.
 (() => {
   const main = document.querySelector('main');
   if (!main) return;
@@ -72,9 +78,6 @@
       started: row.started_at,
       stop: `/api/nodes/${encodeURIComponent(row.node_id)}`
         + `/live-audits/${encodeURIComponent(row.audit_id)}/stop`,
-      confirm: `¿Detener la auditoría ${row.label} en ${row.node_name}?\n\n`
-        + 'Se corta el Strategy Tester, cada terminal vuelve a su cuenta y se '
-        + 'reanuda el proceso que la auditoría pausó.',
     }));
   }
 
@@ -109,10 +112,6 @@
         : row.progress_text || '',
       started: row.started_at,
       stop: `/api/nodes/${encodeURIComponent(row.node_id)}/live-accounts/snapshot/stop`,
-      confirm: `¿Detener el sondeo de cuentas en ${row.node_name}?\n\n`
-        + 'Se termina la cuenta que esté abierta y ahí se para: las terminales '
-        + 'vuelven a su cuenta final y se reanuda lo que el sondeo pausó. Lo ya '
-        + 'leído se guarda; lo que falte no se reintenta hasta la próxima cita.',
     }));
   }
 
@@ -139,20 +138,15 @@
     ];
   }
 
-  function rowMarkup(row, index) {
+  function rowMarkup(row) {
     const elapsed = since(row.started);
-    const button = row.stop
-      ? `<button type="button" class="danger process-stop" data-stop="${index}"`
-        + ' title="El agente corta en el primer punto seguro y deja cada terminal'
-        + ' en su cuenta">Detener</button>'
-      : '';
     return `<article class="process-row${row.waiting ? ' waiting' : ''}">`
       + '<div class="process-head">'
       + `<span class="process-node">${escapeHtml(row.node)}</span>`
       + `<strong>${escapeHtml(row.title)}</strong>`
       + `<span class="process-phase">${escapeHtml(row.phase)}</span>`
       + (elapsed ? `<span class="process-elapsed">${escapeHtml(elapsed)}</span>` : '')
-      + `${button}</div>`
+      + '</div>'
       + `<div class="process-bar"><i style="width:${row.percent}%"></i></div>`
       + (row.detail ? `<p class="process-detail">${escapeHtml(row.detail)}</p>` : '')
       + '</article>';
@@ -160,34 +154,73 @@
 
   let current = [];
 
+  // **Un solo botón, y para todo** (corrección del usuario, 2026-11-17). Un
+  // botón por fila obligaba a pulsar tantas veces como cosas hubiera y a
+  // decidir una por una, cuando lo que se quiere al pulsar es soltar las
+  // terminales. Lo que corre son como mucho dos o tres cosas y todas están
+  // ahí por lo mismo, así que la decisión es una.
+  function stoppable() {
+    return current.filter(row => row.stop);
+  }
+
+  function headMarkup() {
+    const pending = stoppable().length;
+    return '<div class="process-monitor-head">'
+      + '<h2 class="process-title">Ocupando el agente ahora</h2>'
+      + (pending
+        ? '<button type="button" class="danger process-stop" id="process-stop"'
+          + ' title="Cada agente corta en su primer punto seguro, deja cada'
+          + ' terminal en su cuenta y reanuda lo que pausó">Detener'
+          + (pending > 1 ? ` (${pending})` : '') + '</button>'
+        : '')
+      + '</div>';
+  }
+
   function render(state) {
     current = rowsOf(state);
     panel.hidden = !current.length;
     if (!current.length) return QUIET_MS;
-    panel.innerHTML = '<h2 class="process-title">Ocupando el agente ahora</h2>'
-      + current.map(rowMarkup).join('');
+    panel.innerHTML = headMarkup() + current.map(rowMarkup).join('');
     return LIVE_MS;
   }
 
-  async function stopRow(index, button) {
-    const row = current[Number(index)];
-    if (!row || !row.stop) return;
-    if (!window.confirm(row.confirm)) return;
+  function confirmation(rows) {
+    return '¿Detener todo lo que está ocupando los agentes?\n\n'
+      + rows.map(row => `· ${row.node} — ${row.title}`).join('\n')
+      + '\n\nCada agente corta en su primer punto seguro, devuelve cada terminal '
+      + 'a su cuenta final y reanuda lo que pausó. Lo que ya se leyó se guarda; '
+      + 'lo que falte no se reintenta hasta la próxima cita.';
+  }
+
+  async function stopOne(row) {
+    const response = await fetch(row.stop, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+    });
+    const text = await response.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (_error) { data = {}; }
+    if (!response.ok) throw new Error(data.error || response.statusText);
+  }
+
+  // De una en una y hasta el final: si un agente no se deja parar, los demás
+  // tienen que soltar sus terminales igual, y el aviso dice cuál se quedó.
+  async function stopAll(button) {
+    const rows = stoppable();
+    if (!rows.length || !window.confirm(confirmation(rows))) return;
     button.disabled = true;
-    try {
-      const response = await fetch(row.stop, {
-        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
-      });
-      const text = await response.text();
-      let data = {};
-      try { data = text ? JSON.parse(text) : {}; } catch (_error) { data = {}; }
-      if (!response.ok) throw new Error(data.error || response.statusText);
-      notify('Parada pedida al agente. Termina lo que tiene abierto y restaura '
-        + 'las terminales.');
-    } catch (error) {
-      notify(error.message, true);
-      button.disabled = false;
+    const failed = [];
+    for (const row of rows) {
+      try {
+        await stopOne(row);
+      } catch (error) { failed.push(`${row.node}: ${error.message}`); }
     }
+    notify(
+      failed.length
+        ? `Sin detener — ${failed.join(' | ')}`
+        : 'Parada pedida a ' + (rows.length === 1 ? 'el agente' : 'los agentes')
+          + '. Terminan lo que tienen abierto y restauran las terminales.',
+      Boolean(failed.length),
+    );
     load().catch(() => {});
   }
 
@@ -206,9 +239,11 @@
     load().then(delay => { setTimeout(poll, delay); });
   }
 
+  // El panel se repinta entero en cada vuelta, así que el oyente vive en él y
+  // no en el botón: uno puesto al botón moriría con el primer repintado.
   panel.addEventListener('click', event => {
-    const button = event.target.closest('[data-stop]');
-    if (button) stopRow(button.dataset.stop, button);
+    const button = event.target.closest('#process-stop');
+    if (button) stopAll(button);
   });
 
   poll();
