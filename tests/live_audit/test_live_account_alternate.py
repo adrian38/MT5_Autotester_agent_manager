@@ -268,6 +268,33 @@ class CollectTests(StoreTestCase):
         self.assertEqual(collected["accounts"], 1)
         self.assertEqual(len(self.server.live_accounts.read("robo", AXI_KEY)["movements"]), 1)
 
+    def test_the_card_is_fed_by_the_configured_account_on_every_snapshot(self) -> None:
+        """Lo que el usuario pidió, de punta a punta (2026-11-17).
+
+        El sondeo entra en la cuenta guardada, lo leído se archiva bajo la
+        tarjeta, y la tarjeta enseña **esos** números: el saldo y el beneficio
+        de ayer son los de la cuenta configurada, no los del perfil. Es la
+        vuelta entera, y es lo único que demuestra que las dos mitades —a
+        quién se lee y dónde se guarda— encajan.
+        """
+        from mt5_manager.live_account import live_account_inventory
+
+        self.configure()
+        self.collect()
+        account = live_account_inventory.node_accounts(self.server, "axi")[0]
+        card = live_account_dashboard.account_card(
+            self.server, NODES[0], "axi", account,
+            {"display_currency": "EUR", "exchange_rates": {}}, NOW,
+        )
+        self.assertEqual(card["balance"], 1_200.0)
+        # 8,0 y no 7,5: la tarjeta enseña la columna Profit de MT5, que es lo
+        # que MT5 pone en grande; 7,5 es el neto con comisión y swap.
+        self.assertEqual(card["daily"]["profit"], 8.0)
+        self.assertEqual(card["state"], "")
+        # Y sigue siendo la tarjeta de siempre, con su aviso de dónde salen.
+        self.assertEqual(card["login"], "60082017")
+        self.assertEqual(card["alternate"]["login"], "77050001")
+
 
 class WealthTests(StoreTestCase):
     def test_the_full_reread_follows_the_card_to_its_agent(self) -> None:
