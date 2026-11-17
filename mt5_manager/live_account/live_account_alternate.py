@@ -297,3 +297,45 @@ def routed(server: Any, reader_node_id: str) -> dict[str, Reading]:
     return {
         reading.account_key: reading for reading in readings(server, reader_node_id)
     }
+
+
+def source_identity(
+    server: Any, owner_node_id: str, account: dict[str, Any],
+) -> dict[str, Any]:
+    """La identidad que debe alimentar hoy esta tarjeta."""
+    store = getattr(server, "live_account_alternates", None)
+    alternate = store.public(owner_node_id, account["account_key"]) if store else {}
+    if alternate.get("configured"):
+        return alternate
+    return {
+        "configured": False, "node_id": owner_node_id,
+        "login": str(account.get("login") or ""),
+        "server": str(account.get("server") or ""), "terminal": "mt5",
+    }
+
+
+def stored_source_matches(stored: dict[str, Any], login: str, server: str) -> bool:
+    """Si el archivo ya pertenece a la cuenta elegida, no a la anterior."""
+    if not stored.get("updated_at"):
+        return False
+    return (
+        str(stored.get("login") or "").strip().casefold() == str(login).strip().casefold()
+        and str(stored.get("server") or "").strip().casefold()
+        == str(server).strip().casefold()
+    )
+
+
+def archived_source(
+    server: Any, owner_node_id: str, account: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """El archivo vigente, o vacío mientras se relee la cuenta elegida."""
+    stored = server.live_accounts.read(owner_node_id, account["account_key"])
+    source = source_identity(server, owner_node_id, account)
+    if stored_source_matches(stored, source["login"], source["server"]):
+        return stored, source, ""
+    pending = bool(source.get("configured")) or bool(stored.get("updated_at"))
+    detail = (
+        "La cuenta configurada aún no se ha leído completa."
+        if source.get("configured") else "La cuenta original aún no se ha releído."
+    )
+    return {}, source, detail if pending else ""

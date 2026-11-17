@@ -222,7 +222,6 @@ terminal— así que es el único que se reparte: de 15 a 90 por cuentas leídas
 Las otras fases son instantes, y darles un porcentaje fino sería inventarlo.
 """
 
-
 def running_row(node: dict[str, Any], node_id: str = "") -> dict[str, Any] | None:
     """El sondeo que ese agente tiene en marcha, para la chapa de la cabecera.
 
@@ -277,7 +276,9 @@ def _period(
             live_account_presentation.account_symbols(server, node_id, reading.account),
         )
         days.append(
-            "" if expected and stored.get("normalization_version") != expected
+            "" if not live_account_alternate.stored_source_matches(
+                stored, reading.login, reading.server,
+            ) or expected and stored.get("normalization_version") != expected
             else server.live_accounts.last_day(node_id, key)
         )
     return live_account_schedule.snapshot_period(

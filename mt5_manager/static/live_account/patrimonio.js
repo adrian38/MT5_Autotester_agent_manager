@@ -989,6 +989,10 @@
   }
 
   element('#refresh').addEventListener('click', load);
+  // El panel común ve cuándo el manager termina de archivar una tanda. La
+  // pantalla abierta se relee entonces sola: no obliga a pulsar «Actualizar»
+  // para ver el patrimonio que acaba de entrar.
+  document.addEventListener('live-account-data-updated', () => load());
   // El detalle se escucha en el contenedor, no en cada banda: el SVG se
   // reescribe entero en cada repintado y las bandas de antes ya no existen.
   for (const id of ['#wealth-chart', '#wealth-flow-chart']) {

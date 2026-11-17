@@ -276,3 +276,17 @@ payload real de `live_account_wealth.snapshot`, y se sirve con
 `python -m http.server`. Desde ahí `javascript_tool` cuenta las barras y busca
 `NaN` en los atributos del SVG, que es lo que de verdad delata un gráfico roto.
 Un `file://` no vale: el panel lo pinta como instantánea y no ejecuta nada.
+
+## El final incluye al manager y refresca la pantalla abierta
+
+Corrección del usuario (2026-11-17): el agente que termina de leer no es el
+final visible. El manager todavía baja, comprueba y archiva cada informe. Esa
+fase se publica en `/api/live-audit-activity` como
+`manager_account_processing`, y mientras una tanda siga pendiente el vigilante
+consulta cada cinco segundos en vez de esperar su vuelta normal de cinco
+minutos.
+
+Al escribir `ingested` cambia `account_revision`. El panel común emite entonces
+`live-account-data-updated` y Patrimonio vuelve a pedir `/api/wealth`; así los
+datos recién guardados aparecen sin pulsar «Actualizar». La primera lectura de
+la página sólo memoriza la revisión: no provoca una segunda carga de rebote.

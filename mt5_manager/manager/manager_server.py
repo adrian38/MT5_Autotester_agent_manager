@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from ..live_account import (
-    live_account_schedule, live_account_watch, live_account_wealth_watch,
+    live_account_ingest, live_account_schedule, live_account_watch,
+    live_account_wealth_watch,
 )
 from ..live_audit import live_audit_schedule, live_audit_watch
 from . import manager_tls
@@ -52,6 +53,7 @@ from ..prop.prop_experiment_service import PropExperimentCoordinator
 _LEGACY_SCHEDULER_CONFIG_KEYS = (
     "live_audit_scheduler_enabled", "live_audit_scheduler_interval_days",
 )
+_LIVE_ACCOUNT_ACTIVE_CHECK_INTERVAL_SECONDS = 5
 
 
 def _scheduler_defaults(config: dict[str, Any], legacy_environment: bool) -> dict[str, Any]:
@@ -248,7 +250,12 @@ class ManagerServer(ThreadingHTTPServer):
                 live_account_wealth_watch.tick(self)
             except Exception as exc:
                 sys.stderr.write(f"[wealth-scheduler] {exc}\n")
-            self.live_account_wakeup.wait(_LIVE_AUDIT_INTERNAL_CHECK_INTERVAL_SECONDS)
+            interval = (
+                _LIVE_ACCOUNT_ACTIVE_CHECK_INTERVAL_SECONDS
+                if live_account_ingest.pending_collection(self)
+                else _LIVE_AUDIT_INTERNAL_CHECK_INTERVAL_SECONDS
+            )
+            self.live_account_wakeup.wait(interval)
             self.live_account_wakeup.clear()
 
     def live_account_scheduler_state(self) -> dict[str, Any]:

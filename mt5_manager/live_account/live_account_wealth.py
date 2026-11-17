@@ -31,7 +31,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from . import live_account_inventory
+from . import live_account_alternate, live_account_inventory
 from .live_account_archive import ordered_movements, stored_balances, stored_cash
 from .live_account_monthly import month_span
 from .live_account_performance import account_series, monthly_performance
@@ -168,7 +168,9 @@ def account_wealth(
     server: Any, node: dict[str, Any], node_id: str, account: dict[str, Any],
 ) -> dict[str, Any]:
     """Lo que esa cuenta aporta al patrimonio, mes a mes y en su moneda."""
-    stored = server.live_accounts.read(node_id, account["account_key"])
+    stored, source, source_pending = live_account_alternate.archived_source(
+        server, node_id, account,
+    )
     ordered, profits = account_series(stored)
     _visible, net_months = monthly_performance(ordered, profits)
     balances = stored_balances(stored)
@@ -177,8 +179,8 @@ def account_wealth(
         "node_id": node_id, "node_name": str(node.get("name") or node_id),
         "node_broker": node.get("portfolio_broker"),
         "selection_key": selection_key(node_id, account["account_key"]),
-        "account_key": account["account_key"], "login": account["login"],
-        "server": account["server"],
+        "account_key": account["account_key"], "login": source["login"],
+        "server": source["server"], "terminal": source["terminal"],
         "currency": str(stored.get("currency") or ""),
         "balance": float(stored.get("balance") or 0.0),
         "equity": float(stored.get("equity") or 0.0),
@@ -189,7 +191,7 @@ def account_wealth(
             }
             for portfolio in account.get("portfolios") or []
         ],
-        "block_reason": str(account.get("block_reason") or ""),
+        "block_reason": source_pending or str(account.get("block_reason") or ""),
         "last_read": str(stored.get("updated_at") or ""),
         # La cuenta empieza en lo primero que se sepa de ella, y casi nunca es
         # su primer cierre: 60090762 cierra desde el 2026-03-20 y su depósito

@@ -169,6 +169,32 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(state["account_snapshots"], [])
         self.assertFalse(state["active"])
 
+    def test_the_manager_collection_remains_visible_after_the_agent_finishes(self) -> None:
+        """Soltar terminales no es acabar: todavía se archivan los informes."""
+        self.server = FakeServer(self.root, audit_state())
+        self.server.live_account_runs = LiveAuditRunState(self.root / "accounts.json")
+        self.server.live_account_runs.update(
+            LiveAuditRunState.key("n", "__snapshot__"),
+            owner="__wealth__", manager_status="collecting", manager_done=2,
+            manager_total=4, manager_progress_text="Recogida 2 de 4",
+            manager_started_at="2026-10-20T12:00:00+00:00",
+        )
+        state = self._snapshot({"11": {"status": "idle"}})
+        row = state["manager_account_processing"][0]
+        self.assertTrue(state["active"])
+        self.assertEqual((row["node_name"], row["purpose"]), ("Nodo N", "wealth"))
+        self.assertEqual((row["status_label"], row["percent"]), ("RECOGIENDO", 45))
+
+    def test_the_account_revision_changes_only_after_a_new_ingestion(self) -> None:
+        self.server = FakeServer(self.root, audit_state())
+        self.server.live_account_runs = LiveAuditRunState(self.root / "accounts.json")
+        self.assertEqual(self._snapshot({"11": {"status": "idle"}})["account_revision"], "")
+        self.server.live_account_runs.update(
+            LiveAuditRunState.key("n", "__snapshot__"), ingested="snapshot-v7",
+        )
+        revision = self._snapshot({"11": {"status": "idle"}})["account_revision"]
+        self.assertIn("snapshot-v7", revision)
+
     def _wealth(self, waiting: list[dict] = (), launched: list[dict] = ()):
         """La cita del patrimonio, sin tocar el registro de cuentas reales."""
         return mock.patch(

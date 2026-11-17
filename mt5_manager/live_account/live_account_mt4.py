@@ -2,8 +2,8 @@
 
 MT4 no expone la API Python que usa el sondeo MT5. La cuenta se activa con el
 archivo de configuración oficial de arranque, se exporta el informe nativo de
-Account History y la terminal queda en esa cuenta. No se registra en
-`real_account_terminals`: por petición del usuario, MT4 no se restaura al final.
+Account History y la terminal se cierra al terminar. No se registra en
+`real_account_terminals`: MT4 no tiene una cuenta final que restaurar.
 """
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def _launch(controller: Any, profile: dict[str, str], config_path: Path) -> set[
     command = [terminal, str(config_path)]
     if str(profile.get("portable") or "").strip().casefold() in {"1", "true", "yes", "on"}:
         command.append("/portable")
-    subprocess.Popen(
+    process = subprocess.Popen(
         command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
     )
@@ -73,6 +73,7 @@ def _launch(controller: Any, profile: dict[str, str], config_path: Path) -> set[
         if pids:
             return pids
         time.sleep(0.25)
+    controller._close_terminal_pids_gracefully({process.pid})
     raise RuntimeError(f"MT4 no abrió el proceso de {Path(terminal).parent.name}")
 
 
@@ -120,7 +121,7 @@ def read_mt4_account(
     controller: Any, account: dict[str, str], snapshot_id: str,
     start: datetime, end: datetime,
 ) -> dict[str, Any]:
-    """Inicializa MT4, exporta la cuenta y la deja activa al terminar."""
+    """Inicializa MT4, exporta la cuenta y cierra su terminal al terminar."""
     section, profile = _profiles(controller)[0]
     terminal_path = Path(str(profile.get("mt4_path") or ""))
     from .live_account_snapshot import report_filename
@@ -129,14 +130,19 @@ def read_mt4_account(
         account["account_key"]
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
+    launched: set[int] = set()
     with tempfile.TemporaryDirectory(prefix="mt4-snapshot-", dir=controller.runtime_dir) as folder:
         config_path = Path(folder) / "account.ini"
         _config(config_path, account)
-        _launch(controller, profile, config_path)
-        report = export_native_mt4_history_report(
-            terminal_path=terminal_path, login=account["login"], server=account["server"],
-            period_start=start, period_end=end, destination=destination, timeout=60.0,
-        )
+        try:
+            launched = _launch(controller, profile, config_path)
+            report = export_native_mt4_history_report(
+                terminal_path=terminal_path, login=account["login"], server=account["server"],
+                period_start=start, period_end=end, destination=destination, timeout=60.0,
+            )
+        finally:
+            if launched:
+                controller._close_terminal_pids_gracefully(launched)
     currency, balance, equity = _summary(destination)
     return {
         "login": account["login"], "server": account["server"],

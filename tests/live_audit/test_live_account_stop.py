@@ -152,6 +152,17 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("'wealth'", self.monitor)
         self.assertIn("wealth_waiting", self.monitor)
 
+    def test_it_keeps_showing_the_work_done_by_the_manager(self) -> None:
+        self.assertIn("manager_account_processing", self.monitor)
+        self.assertIn("Procesando cuentas reales ahora", self.monitor)
+        self.assertIn("Actualizando patrimonio", self.monitor)
+
+    def test_patrimonio_refreshes_when_the_manager_archives_a_snapshot(self) -> None:
+        self.assertIn("live-account-data-updated", self.monitor)
+        self.assertIn(
+            "live-account-data-updated", static_source("patrimonio.js"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,7 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_account import (
     live_account_alternate, live_account_dashboard, live_account_ingest,
-    live_account_watch, live_account_wealth_watch,
+    live_account_inventory, live_account_watch, live_account_wealth,
+    live_account_wealth_watch,
 )
 from mt5_manager.live_account.live_account_alternate import LiveAccountAlternateStore
 from mt5_manager.live_account.live_account_archive import LiveAccountArchive
@@ -226,6 +227,15 @@ class ReadingTests(StoreTestCase):
         self.assertEqual(self.logins("axi"), ["77050001"])
         self.assertEqual(self.logins("robo"), ["77028839"])
 
+    def test_changing_source_forces_a_full_read_instead_of_extending_the_old_one(self) -> None:
+        self.server.live_accounts.merge(
+            "axi", AXI_KEY, login="60082017", server="Axi-US50-Live",
+            currency="EUR", movements=[], period_start="", period_end="2026-11-16",
+        )
+        self.configure(node_id="axi", terminal="mt4")
+        found = live_account_alternate.readings(self.server, "axi")
+        self.assertEqual(live_account_watch._period(self.server, found, NOW)[0], "")
+
     def test_a_card_without_its_profile_password_can_still_be_read(self) -> None:
         """Una cuenta bloqueada es justo de las que se arreglan guardando otra."""
         server = Server(self.root, {
@@ -354,6 +364,36 @@ class WealthTests(StoreTestCase):
             ],
             ["77028839"],
         )
+
+    def test_patrimonio_does_not_keep_summing_the_original_while_mt4_is_pending(self) -> None:
+        self.server.live_accounts.merge(
+            "axi", AXI_KEY, login="60082017", server="Axi-US50-Live",
+            currency="EUR", movements=[], balances=[("2026-11-16", 900.0)],
+            period_start="", period_end="2026-11-16", balance=900.0, equity=900.0,
+        )
+        self.configure(node_id="axi", terminal="mt4")
+        row = live_account_wealth.account_wealth(
+            self.server, NODES[0], "axi",
+            live_account_inventory.node_accounts(self.server, "axi")[0],
+        )
+        self.assertEqual((row["login"], row["server"]), ("77050001", "RoboForex-ECN"))
+        self.assertEqual(row["terminal"], "mt4")
+        self.assertEqual(row["balance"], 0.0)
+        self.assertIn("aún no se ha leído", row["block_reason"])
+
+    def test_patrimonio_uses_the_mt4_account_after_its_full_read(self) -> None:
+        self.configure(node_id="axi", terminal="mt4")
+        self.server.live_accounts.merge(
+            "axi", AXI_KEY, login="77050001", server="RoboForex-ECN",
+            currency="EUR", movements=[], balances=[("2026-11-16", 1_200.0)],
+            period_start="", period_end="2026-11-16", balance=1_200.0, equity=1_210.0,
+        )
+        row = live_account_wealth.account_wealth(
+            self.server, NODES[0], "axi",
+            live_account_inventory.node_accounts(self.server, "axi")[0],
+        )
+        self.assertEqual((row["login"], row["balance"]), ("77050001", 1_200.0))
+        self.assertEqual(row["block_reason"], "")
 
 
 class DashboardTests(StoreTestCase):

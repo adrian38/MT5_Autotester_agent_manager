@@ -77,6 +77,69 @@ en las marcadas «Sumar» y pide la vida entera—, así que cada una lleva su
 cuenta de intentos y se entera sólo de la tanda que pidió ella.
 """
 
+MANAGER_SNAPSHOT_STATUSES = frozenset({"collecting", "finalizing"})
+"""Fases posteriores al agente que todavía forman parte del mismo sondeo."""
+
+
+def pending_collection(server: Any) -> bool:
+    """Si hay una tanda que exige volver a preguntar o que el manager termina."""
+    runs = getattr(server, "live_account_runs", None)
+    if runs is None:
+        return False
+    suffix = f"/{SNAPSHOT_KEY}"
+    return any(
+        key.endswith(suffix)
+        and (
+            str(record.get("outcome") or "") == "running"
+            or str(record.get("manager_status") or "") in MANAGER_SNAPSHOT_STATUSES
+        )
+        for key, record in runs.state().items()
+    )
+
+
+def manager_rows(server: Any) -> list[dict[str, Any]]:
+    """Lo que el manager recoge después de que el agente suelta terminales."""
+    runs = getattr(server, "live_account_runs", None)
+    if runs is None:
+        return []
+    names = {
+        str(node.get("id") or ""): str(node.get("name") or node.get("id") or "")
+        for node in server.nodes
+    }
+    suffix = f"/{SNAPSHOT_KEY}"
+    rows: list[dict[str, Any]] = []
+    for key, record in runs.state().items():
+        status = str(record.get("manager_status") or "")
+        if not key.endswith(suffix) or status not in MANAGER_SNAPSHOT_STATUSES:
+            continue
+        node_id = key[:-len(suffix)]
+        total = max(0, int(record.get("manager_total") or 0))
+        done = min(total, max(0, int(record.get("manager_done") or 0)))
+        rows.append({
+            "node_id": node_id, "node_name": names.get(node_id, node_id),
+            "purpose": "wealth" if record.get("owner") == "__wealth__" else "daily",
+            "status": status,
+            "status_label": "ACTUALIZANDO" if status == "finalizing" else "RECOGIENDO",
+            "percent": 96 if status == "finalizing" else round(90 * done / max(1, total)),
+            "done": done, "total": total,
+            "progress_text": str(record.get("manager_progress_text") or ""),
+            "started_at": str(record.get("manager_started_at") or ""),
+        })
+    return rows
+
+
+def account_revision(server: Any) -> str:
+    """Versión estable del archivo: cambia sólo cuando entra una tanda nueva."""
+    runs = getattr(server, "live_account_runs", None)
+    if runs is None:
+        return ""
+    suffix = f"/{SNAPSHOT_KEY}"
+    return "|".join(sorted(
+        f"{key}:{record.get('ingested')}"
+        for key, record in runs.state().items()
+        if key.endswith(suffix) and record.get("ingested")
+    ))
+
 
 def _artifact(node: dict[str, Any], snapshot_id: str, filename: str, expected: str) -> bytes:
     path = "/api/v1/live-accounts/{}/artifacts/{}".format(
@@ -173,9 +236,14 @@ def _merge_accounts(
     por qué, que es lo que luego decide si la cita queda cumplida.
     """
     read, failed, stale, movements = 0, [], [], 0
-    for account_key, row in (state.get("accounts") or {}).items():
+    accounts = list((state.get("accounts") or {}).items())
+    total = len(accounts)
+    _manager_progress(server, node_id, 0, total, "Preparando los informes del agente")
+    for done, (account_key, row) in enumerate(accounts, 1):
         if not isinstance(row, dict) or str(row.get("status") or "") != "completed":
-            failed.append(f"{account_key}: {row.get('error') or 'sin leer'}")
+            error = row.get("error") if isinstance(row, dict) else ""
+            failed.append(f"{account_key}: {error or 'sin leer'}")
+            _manager_progress(server, node_id, done, total, f"Recogida {done} de {total}")
             continue
         reading = routes.get(str(account_key))
         try:
@@ -189,7 +257,55 @@ def _merge_accounts(
         except INGEST_ERRORS as exc:
             failed.append(f"{account_key}: {exc}")
             sys.stderr.write(f"[live-account-ingest] {node_id}/{account_key}: {exc}\n")
+        _manager_progress(server, node_id, done, total, f"Recogida {done} de {total}")
+    _manager_progress(
+        server, node_id, total, total, "Actualizando patrimonio y citas", "finalizing",
+    )
     return read, failed, stale, movements
+
+
+def _manager_progress(
+    server: Any, node_id: str, done: int, total: int, text: str,
+    status: str = "collecting",
+) -> None:
+    """Publica la parte que hace el manager después de soltar el agente."""
+    key = server.live_account_runs.key(node_id, SNAPSHOT_KEY)
+    changes = {
+        "manager_status": status, "manager_done": done, "manager_total": total,
+        "manager_progress_text": text,
+    }
+    if done == 0:
+        changes["manager_started_at"] = utc_now()
+    server.live_account_runs.update(key, **changes)
+
+
+def _settle_collection(
+    server: Any, node_id: str, owner: str, collected_key: str,
+    state: dict[str, Any], status: str, period: tuple[str, str],
+    result: tuple[int, list[str], list[str], int],
+) -> dict[str, Any]:
+    """Cierra la tanda y la cita que la pidió con el mismo resultado."""
+    read, failed, stale, movements = result
+    outcome = _outcome(read, failed, stale, status)
+    settled = {
+        "last_status": status,
+        "completed_at": str(state.get("finished_at") or utc_now()),
+        "outcome": outcome,
+    }
+    runs = server.live_account_runs
+    runs.update(
+        runs.key(node_id, SNAPSHOT_KEY), ingested=collected_key,
+        manager_status="done", manager_progress_text="Patrimonio actualizado", **settled,
+    )
+    runs.update(
+        runs.key(node_id, owner), **settled,
+        **({"attempts": 0} if outcome == "stale" else {}),
+    )
+    return {
+        "snapshot_id": str(state.get("snapshot_id") or ""),
+        "accounts": read, "movements": movements, "failed": failed, "stale": stale,
+        "period": period, "status": status, "outcome": outcome,
+    }
 
 
 def collect(
@@ -220,33 +336,19 @@ def collect(
         return None
     owner = str(run.get("owner") or DAILY_KEY)
     period = _period(state)
-    read, failed, stale, movements = _merge_accounts(
-        server, node, node_id, snapshot_id, state, routes, lots, period,
+    try:
+        result = _merge_accounts(
+            server, node, node_id, snapshot_id, state, routes, lots, period,
+        )
+    except Exception:
+        runs.update(
+            key, manager_status="failed",
+            manager_progress_text="El manager no pudo recoger los informes",
+        )
+        raise
+    return _settle_collection(
+        server, node_id, owner, collected_key, state, status, period, result,
     )
-    # `failed`, `partial` y `stale` los lee `live_account_watch`: son los que
-    # dejan la cita sin cumplir pese a este `completed_at`, y los que ponen en
-    # marcha otra lectura. Distinguirlos no es decorativo: con `stale` no ha
-    # fallado nada, así que el turno vuelve a empezar de cero en vez de gastar
-    # un reintento en una captura que nunca se va a poder usar.
-    outcome = _outcome(read, failed, stale, status)
-    settled = {
-        "last_status": status,
-        "completed_at": str(state.get("finished_at") or utc_now()),
-        "outcome": outcome,
-    }
-    runs.update(key, ingested=collected_key, **settled)
-    # Y lo mismo en la cita que pidió esta tanda, que es la única que se entera:
-    # la otra no gasta intentos ni se da por cumplida con lo que leyó ésta.
-    # Los intentos son suyos, así que el perdón del `stale` también va ahí.
-    runs.update(
-        runs.key(node_id, owner), **settled,
-        **({"attempts": 0} if outcome == "stale" else {}),
-    )
-    return {
-        "snapshot_id": snapshot_id, "accounts": read, "movements": movements,
-        "failed": failed, "stale": stale, "period": period, "status": status,
-        "outcome": outcome,
-    }
 
 
 def _outcome(

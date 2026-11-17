@@ -108,7 +108,7 @@ class InventoryTests(unittest.TestCase):
         )
         self.assertEqual(payload[0], {
             "account_key": "60082017@Axi-US50-Live", "login": "60082017",
-            "server": "Axi-US50-Live", "password": "secreto",
+            "server": "Axi-US50-Live", "password": "secreto", "terminal": "mt5",
         })
 
 
@@ -181,6 +181,15 @@ class WatchTests(unittest.TestCase):
             live_account_watch.tick(server, NOW)
         self.assertEqual([], server.rate_saves)
         self.assertEqual("", getattr(server, "live_account_rates_day", ""))
+
+    def test_a_running_snapshot_keeps_the_manager_on_the_short_poll(self) -> None:
+        server = self.server()
+        key = server.live_account_runs.key("axi", live_account_ingest.SNAPSHOT_KEY)
+        self.assertFalse(live_account_ingest.pending_collection(server))
+        server.live_account_runs.update(key, outcome="running")
+        self.assertTrue(live_account_ingest.pending_collection(server))
+        server.live_account_runs.update(key, outcome="success", manager_status="done")
+        self.assertFalse(live_account_ingest.pending_collection(server))
 
     def test_with_the_switch_the_due_snapshot_is_launched(self) -> None:
         server = self.server(enabled=True)
@@ -262,6 +271,12 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(len(stored["movements"]), 1)
         self.assertAlmostEqual(stored["balance"], 1200.0)
         self.assertEqual(stored["currency"], "EUR")
+        run = server.live_account_runs.record(
+            server.live_account_runs.key("axi", live_account_ingest.SNAPSHOT_KEY),
+        )
+        self.assertEqual(run["manager_status"], "done")
+        self.assertEqual(run["manager_progress_text"], "Patrimonio actualizado")
+        self.assertIn(run["ingested"], live_account_ingest.account_revision(server))
 
     def test_an_account_that_failed_keeps_the_date_of_its_last_good_read(self) -> None:
         """La fecha que la tarjeta enseña arriba es la de la última lectura buena.

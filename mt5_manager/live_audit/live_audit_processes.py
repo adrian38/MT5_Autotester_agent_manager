@@ -48,13 +48,14 @@ class _ProcessMixin:
 
     @staticmethod
     def _terminal_pids_for_path(terminal_path: str) -> set[int]:
-        """Devuelve solo los procesos de una instalación concreta de MT5."""
+        """Devuelve los procesos de una instalación concreta de MT4 o MT5."""
         if sys.platform != "win32":
             return set()
         completed = subprocess.run(
             [
                 "powershell", "-NoProfile", "-Command",
-                "Get-CimInstance Win32_Process -Filter \"name='terminal64.exe'\" | "
+                "Get-CimInstance Win32_Process -Filter "
+                "\"name='terminal64.exe' OR name='terminal.exe'\" | "
                 "Select-Object ProcessId,ExecutablePath | ConvertTo-Json -Compress",
             ],
             text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,

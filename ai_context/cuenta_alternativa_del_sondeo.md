@@ -17,7 +17,7 @@ afecta sólo a estas dos pantallas».
 - Lo comprueba `tests/live_audit/test_live_account_alternate.py` y,
   del lado de la pantalla, `tests/manager/test_static_accounts_screen.py`.
 
-## La terminal es parte de la lectura: MT4 no se restaura
+## La terminal es parte de la lectura: MT4 se cierra
 
 Ampliación del usuario (2026-11-17): el diálogo guarda también `mt4` o `mt5`.
 El valor viaja en cada cuenta del payload de **los dos** sondeos —el diario y
@@ -26,8 +26,10 @@ la relectura completa del patrimonio— porque ambos llaman al mismo `launch`.
 - MT5 conserva el contrato anterior: necesita `restore_*`, se anota cada
   terminal tocada y al terminar vuelve a la cuenta final configurada.
 - MT4 usa el perfil activo `[MT4Terminal.N]` del agente lector, arranca con la
-  cuenta indicada y exporta su `Account History`. Al terminar **se queda en
-  esa cuenta**; no entra en `real_account_terminals` ni exige `restore_*`.
+  cuenta indicada y exporta su `Account History`. Desde la corrección del
+  2026-11-17, al terminar **cierra esa terminal**; no entra en
+  `real_account_terminals` ni exige `restore_*`, porque no hay una cuenta final
+  MT4 que restaurar.
 - Una tanda mixta restaura sólo sus MT5. Una tanda compuesta enteramente por
   MT4 puede lanzarse aunque el agente no tenga cuenta final MT5 configurada.
 - El informe MT4 tiene `Closed Transactions`, no la tabla de deals de MT5.
@@ -82,6 +84,21 @@ relectura resuelve igual. Lo único que cambió ahí es que `summing_accounts`
 pasó a ser `summing_readings`: lo que decide si una cuenta **suma** sigue
 siendo la tarjeta —y por eso la exclusión se mira por su nodo— pero lo que se
 lee ya es la lectura.
+
+### Cambiar de fuente invalida la serie anterior
+
+Corrección del usuario (2026-11-17): mientras la alternativa MT4 fallaba al
+arrancar, Patrimonio seguía sumando el último archivo de la cuenta original.
+Eso hacía parecer que la configuración no había sustituido nada. El archivo
+sigue bajo la clave de la tarjeta, pero su `login` y `server` prueban de qué
+cuenta salió: si no coinciden con la fuente configurada, no se suma ni se
+enseña como vigente.
+
+La fila de Patrimonio se nombra con el login, servidor y terminal elegidos y
+dice que la lectura completa está pendiente. Además, el sondeo diario pide
+toda la vida cuando cambia esa identidad; extender sólo los últimos días
+mezclaría la historia de la cuenta anterior con la nueva. El agente elegido
+recibe **sólo** la alternativa: la cuenta original no viaja en ese payload.
 
 ## Sin desvíos, nada cambia de sitio
 

@@ -115,6 +115,23 @@
     }));
   }
 
+  // Al soltar las terminales todavía falta bajar, comprobar y archivar cada
+  // informe. Esa parte ocurre en el manager y antes era un hueco en blanco
+  // entre «el agente terminó» y la campana de «patrimonio actualizado».
+  function managerRows(state) {
+    return (state.manager_account_processing || []).map(row => ({
+      node: 'Manager',
+      title: row.purpose === 'wealth'
+        ? `Actualizando patrimonio · ${row.node_name}`
+        : `Archivando cuentas reales · ${row.node_name}`,
+      phase: row.status_label,
+      percent: Number(row.percent) || 0,
+      detail: row.progress_text || '',
+      started: row.started_at,
+      stop: '',
+    }));
+  }
+
   // Una cita vencida que espera a que el agente quede libre no tiene fase ni
   // porcentaje: lo único que hay que decir es desde cuándo espera y por qué,
   // que es justo lo que no se veía en ninguna pantalla.
@@ -133,7 +150,7 @@
 
   function rowsOf(state) {
     return [
-      ...snapshotRows(state), ...auditRows(state),
+      ...snapshotRows(state), ...managerRows(state), ...auditRows(state),
       ...checkRows(state), ...waitingRows(state),
     ];
   }
@@ -153,6 +170,17 @@
   }
 
   let current = [];
+  let accountRevision;
+
+  function notifyAccountRevision(state) {
+    const revision = String(state.account_revision || '');
+    if (accountRevision !== undefined && revision !== accountRevision) {
+      document.dispatchEvent(new CustomEvent('live-account-data-updated', {
+        detail: {revision},
+      }));
+    }
+    accountRevision = revision;
+  }
 
   // **Un solo botón, y para todo** (corrección del usuario, 2026-11-17). Un
   // botón por fila obligaba a pulsar tantas veces como cosas hubiera y a
@@ -166,7 +194,7 @@
   function headMarkup() {
     const pending = stoppable().length;
     return '<div class="process-monitor-head">'
-      + '<h2 class="process-title">Ocupando el agente ahora</h2>'
+      + '<h2 class="process-title">Procesando cuentas reales ahora</h2>'
       + (pending
         ? '<button type="button" class="danger process-stop" id="process-stop"'
           + ' title="Cada agente corta en su primer punto seguro, deja cada'
@@ -177,6 +205,7 @@
   }
 
   function render(state) {
+    notifyAccountRevision(state);
     current = rowsOf(state);
     panel.hidden = !current.length;
     if (!current.length) return QUIET_MS;

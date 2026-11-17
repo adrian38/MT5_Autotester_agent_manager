@@ -14,7 +14,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from ..live_account import live_account_watch, live_account_wealth_watch
+from ..live_account import live_account_ingest, live_account_watch, live_account_wealth_watch
 from . import live_audit_watch
 from ..manual_check import manual_check_watch
 from ..common import utc_now
@@ -135,14 +135,17 @@ def snapshot(server: Any) -> dict[str, Any]:
         waiting, wealth_nodes = [], set()
     for row in snapshots:
         row["purpose"] = "wealth" if row["node_id"] in wealth_nodes else "daily"
+    manager_rows = live_account_ingest.manager_rows(server)
     return {
         "running": running,
         "manual_checks": checks,
         "account_snapshots": snapshots,
+        "manager_account_processing": manager_rows,
+        "account_revision": live_account_ingest.account_revision(server),
         "wealth_waiting": waiting,
         "recovery": pending,
         "issues": issues,
-        "active": bool(running) or bool(checks) or bool(snapshots)
+        "active": bool(running) or bool(checks) or bool(snapshots) or bool(manager_rows)
         or bool(pending.get("pending")),
         "observed_at": utc_now(),
     }

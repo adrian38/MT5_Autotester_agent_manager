@@ -24,6 +24,32 @@ except ImportError:
 
 
 class AccountSnapshotForkParityTests(NodeRuntimeForkParityBase):
+    def test_mt4_terminals_are_found_and_closed_on_every_capable_fork(self) -> None:
+        """`terminal.exe` no puede quedar fuera del cierre pensado para MT5."""
+        process_token = "name='terminal64.exe' OR name='terminal.exe'"
+        self.assertIn(process_token, module_source("live_audit_processes"))
+        mt4_tokens = (
+            "launched = _launch(controller, profile, config_path)",
+            "controller._close_terminal_pids_gracefully(launched)",
+        )
+        for token in mt4_tokens:
+            self.assertIn(token, module_source("live_account_mt4"))
+
+        def check(project: Path, _source: str) -> None:
+            runtime = project / "manager_node_runtime"
+            processes = (runtime / "live_audit_processes.py").read_text(
+                encoding="utf-8", errors="replace",
+            )
+            self.assertIn(process_token, processes, f"{project}: MT4 no entra en el cierre")
+            mt4 = runtime / "live_account_mt4.py"
+            if not mt4.is_file():
+                return
+            source = mt4.read_text(encoding="utf-8", errors="replace")
+            for token in mt4_tokens:
+                self.assertIn(token, source, f"{project}: MT4 queda abierto al terminar")
+
+        self._assert_on_every_fork(check, "cerrar la terminal MT4 del sondeo")
+
     def test_the_snapshot_refuses_an_unloaded_history_on_every_fork(self) -> None:
         # `_synchronised_history` ya devolvía `history_empty_after_sync`, pero
         # el sondeo tiraba el resultado y exportaba el informe igual. Un HTML
