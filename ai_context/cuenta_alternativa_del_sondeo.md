@@ -14,8 +14,29 @@ afecta sólo a estas dos pantallas».
   cifrada con la **misma** clave que las del auditor
   (`LiveAuditSettingsStore.secret_cipher`). Una segunda clave sería otro
   fichero que copiar al mudarse y otra forma de perder una contraseña.
-- Lo comprueba `tests/live_audit/test_live_account_alternate.py` (25 casos) y,
+- Lo comprueba `tests/live_audit/test_live_account_alternate.py` y,
   del lado de la pantalla, `tests/manager/test_static_accounts_screen.py`.
+
+## La terminal es parte de la lectura: MT4 no se restaura
+
+Ampliación del usuario (2026-11-17): el diálogo guarda también `mt4` o `mt5`.
+El valor viaja en cada cuenta del payload de **los dos** sondeos —el diario y
+la relectura completa del patrimonio— porque ambos llaman al mismo `launch`.
+
+- MT5 conserva el contrato anterior: necesita `restore_*`, se anota cada
+  terminal tocada y al terminar vuelve a la cuenta final configurada.
+- MT4 usa el perfil activo `[MT4Terminal.N]` del agente lector, arranca con la
+  cuenta indicada y exporta su `Account History`. Al terminar **se queda en
+  esa cuenta**; no entra en `real_account_terminals` ni exige `restore_*`.
+- Una tanda mixta restaura sólo sus MT5. Una tanda compuesta enteramente por
+  MT4 puede lanzarse aunque el agente no tenga cuenta final MT5 configurada.
+- El informe MT4 tiene `Closed Transactions`, no la tabla de deals de MT5.
+  `live_account_mt4_report.py` lo convierte a los mismos `RawDeal`, incluyendo
+  ingresos/retiradas y el saldo reconstruido desde `Summary`, para que Cuentas
+  en real y Patrimonio consuman exactamente la misma serie común.
+
+El runtime que lo ejecuta está portado en AXI, que es el agente con
+`MT4Terminal.1` configurado. Cambiar sólo el manager no habilita esa lectura.
 
 ## El perfil no se toca, y por eso esto no es un campo más del perfil
 

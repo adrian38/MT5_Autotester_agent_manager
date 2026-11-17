@@ -110,11 +110,14 @@ def _account(value: Any, index: int) -> dict[str, str]:
     login = str(value.get("login") or "").strip()
     server = str(value.get("server") or "").strip()
     password = str(value.get("password") or "")
+    terminal = str(value.get("terminal") or "mt5").strip().casefold()
     if not login or not server or not password:
         raise ValueError(f"La cuenta {index} necesita login, servidor y contraseña")
+    if terminal not in {"mt4", "mt5"}:
+        raise ValueError(f"La cuenta {index} debe indicar terminal MT4 o MT5")
     return {
         "account_key": str(value.get("account_key") or f"{login}@{server}"),
-        "login": login, "server": server, "password": password,
+        "login": login, "server": server, "password": password, "terminal": terminal,
     }
 
 
@@ -131,22 +134,24 @@ def normalize_snapshot_request(payload: Any) -> dict[str, Any]:
         raise ValueError("accounts debe ser una lista con al menos una cuenta")
     if len(accounts) > MAXIMUM_ACCOUNTS:
         raise ValueError(f"accounts no puede traer más de {MAXIMUM_ACCOUNTS} cuentas")
-    for field in ("restore_login", "restore_server", "restore_password"):
-        if not str(payload.get(field) or "").strip():
-            raise ValueError(
-                "Falta la cuenta final que debe quedar en los terminales "
-                f"({field}): sin ella el sondeo dejaría la cuenta de un tercero"
-            )
+    normalized_accounts = [
+        _account(value, index) for index, value in enumerate(accounts, start=1)
+    ]
+    if any(account["terminal"] == "mt5" for account in normalized_accounts):
+        for field in ("restore_login", "restore_server", "restore_password"):
+            if not str(payload.get(field) or "").strip():
+                raise ValueError(
+                    "Falta la cuenta final que debe quedar en los terminales MT5 "
+                    f"({field}): sin ella el sondeo dejaría la cuenta de un tercero"
+                )
     return {
         "snapshot_key": str(payload.get("snapshot_key") or "")[:64],
         "period_start_date": _date(payload.get("period_start_date"), "period_start_date"),
         "period_end_date": _date(payload.get("period_end_date"), "period_end_date"),
-        "restore_login": str(payload["restore_login"]).strip(),
-        "restore_server": str(payload["restore_server"]).strip(),
-        "restore_password": str(payload["restore_password"]),
-        "accounts": [
-            _account(value, index) for index, value in enumerate(accounts, start=1)
-        ],
+        "restore_login": str(payload.get("restore_login") or "").strip(),
+        "restore_server": str(payload.get("restore_server") or "").strip(),
+        "restore_password": str(payload.get("restore_password") or ""),
+        "accounts": normalized_accounts,
     }
 
 
@@ -452,6 +457,9 @@ class _AccountSnapshotMixin:
         start: datetime, end: datetime,
     ) -> dict[str, Any]:
         """Entra en una cuenta, exporta su informe nativo y sale."""
+        if account["terminal"] == "mt4":
+            from .live_account_mt4 import read_mt4_account
+            return read_mt4_account(self, account, snapshot_id, start, end)
         single = {
             "audit_key": snapshot_id, "source_login": account["login"],
             "source_password": account["password"], "source_server": account["server"],
@@ -546,15 +554,17 @@ class _AccountSnapshotMixin:
         self, request: dict[str, Any], snapshot_id: str, paused: bool, status: str,
     ) -> None:
         """Restaura las terminales y reanuda, pase lo que pase antes."""
-        try:
-            restored = self._restore_tester_login({
-                "audit_key": snapshot_id,
-                "restore_login": request["restore_login"],
-                "restore_server": request["restore_server"],
-                "restore_password": request["restore_password"],
-            })
-        except Exception as exc:
-            restored = [{"terminal": "desconocido", "restored": False, "error": str(exc)}]
+        restored: list[dict[str, Any]] = []
+        if any(account["terminal"] == "mt5" for account in request["accounts"]):
+            try:
+                restored = self._restore_tester_login({
+                    "audit_key": snapshot_id,
+                    "restore_login": request["restore_login"],
+                    "restore_server": request["restore_server"],
+                    "restore_password": request["restore_password"],
+                })
+            except Exception as exc:
+                restored = [{"terminal": "desconocido", "restored": False, "error": str(exc)}]
         with self.lock:
             self.real_account_terminals.pop(snapshot_id, None)
         unrestored = [row for row in restored if not row.get("restored")]

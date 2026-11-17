@@ -39,6 +39,14 @@ from ..common import load_json, save_json, utc_now
 
 MAX_PASSWORD = 512
 MAX_FIELD = 200
+TERMINALS = frozenset({"mt4", "mt5"})
+
+
+def _terminal(value: Any) -> str:
+    terminal = str(value or "mt5").strip().casefold()
+    if terminal not in TERMINALS:
+        raise ValueError("El terminal debe ser MT4 o MT5")
+    return terminal
 
 
 def entry_key(node_id: str, account_key: str) -> str:
@@ -106,6 +114,7 @@ class LiveAccountAlternateStore:
             "node_id": str(record.get("node_id") or ""),
             "login": str(record.get("login") or ""),
             "server": str(record.get("server") or ""),
+            "terminal": _terminal(record.get("terminal")),
             "password_saved": bool(record.get("password")),
             "updated_at": str(record.get("updated_at") or ""),
         }
@@ -134,6 +143,7 @@ class LiveAccountAlternateStore:
             "node_id": str(record.get("node_id") or ""),
             "login": str(record.get("login") or ""),
             "server": str(record.get("server") or ""),
+            "terminal": _terminal(record.get("terminal")),
             "password": password,
         }
 
@@ -163,6 +173,7 @@ class LiveAccountAlternateStore:
                 "node_id": _text(changes.get("node_id"), "el agente"),
                 "login": _text(changes.get("login"), "el login"),
                 "server": _text(changes.get("server"), "el servidor"),
+                "terminal": _terminal(changes.get("terminal")),
                 "updated_at": utc_now(),
             })
             self.records[entry_key(node_id, account_key)] = record
@@ -193,6 +204,7 @@ class Reading:
     login: str
     server: str
     password: str
+    terminal: str
     alternate: bool
 
 
@@ -213,7 +225,8 @@ def _reading(
             return None
         return Reading(
             reader_node_id, owner_node_id, account_key, account,
-            desired["login"], desired["server"], desired["password"], True,
+            desired["login"], desired["server"], desired["password"],
+            desired["terminal"], True,
         )
     if owner_node_id != reader_node_id or account["block_reason"]:
         return None
@@ -222,7 +235,7 @@ def _reading(
     password = live_account_inventory.account_password(server, owner_node_id, account)
     return Reading(
         reader_node_id, owner_node_id, account_key, account,
-        account["login"], account["server"], password, False,
+        account["login"], account["server"], password, "mt5", False,
     ) if password else None
 
 
@@ -261,6 +274,7 @@ def payload(found: list[Reading]) -> list[dict[str, str]]:
         {
             "account_key": reading.account_key, "login": reading.login,
             "server": reading.server, "password": reading.password,
+            "terminal": reading.terminal,
         }
         for reading in found
     ]

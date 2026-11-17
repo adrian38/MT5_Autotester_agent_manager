@@ -95,6 +95,17 @@ class RequestTests(unittest.TestCase):
             live_account_snapshot.normalize_snapshot_request(payload(restore_login=""))
         self.assertIn("cuenta final", str(caught.exception))
 
+    def test_mt4_keeps_the_read_account_and_needs_no_final_account(self) -> None:
+        request = live_account_snapshot.normalize_snapshot_request(payload(
+            restore_login="", restore_server="", restore_password="",
+            accounts=[{
+                "login": "111", "server": "Axi-US50-Live",
+                "password": "p", "terminal": "mt4",
+            }],
+        ))
+        self.assertEqual(request["accounts"][0]["terminal"], "mt4")
+        self.assertEqual(request["restore_login"], "")
+
     def test_too_many_accounts_are_refused(self) -> None:
         with self.assertRaises(ValueError):
             live_account_snapshot.normalize_snapshot_request(payload(accounts=[

@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_account import (
     live_account_alternate, live_account_dashboard, live_account_ingest,
-    live_account_wealth_watch,
+    live_account_watch, live_account_wealth_watch,
 )
 from mt5_manager.live_account.live_account_alternate import LiveAccountAlternateStore
 from mt5_manager.live_account.live_account_archive import LiveAccountArchive
@@ -111,6 +111,7 @@ class AlternateStoreTests(StoreTestCase):
     def test_what_the_screen_gets_back_never_includes_the_password(self) -> None:
         saved = self.configure()
         self.assertEqual(saved["login"], "77050001")
+        self.assertEqual(saved["terminal"], "mt5")
         self.assertTrue(saved["password_saved"])
         self.assertNotIn("password", saved)
 
@@ -138,6 +139,11 @@ class AlternateStoreTests(StoreTestCase):
         for field in ("node_id", "login", "server"):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 self.configure(**{field: "  "})
+
+    def test_the_terminal_is_mt4_or_mt5_and_is_public(self) -> None:
+        self.assertEqual(self.configure(terminal="MT4")["terminal"], "mt4")
+        with self.assertRaisesRegex(ValueError, "MT4 o MT5"):
+            self.configure(terminal="ctrader")
 
     def test_removing_it_leaves_the_card_as_it_was(self) -> None:
         self.configure()
@@ -187,8 +193,32 @@ class ReadingTests(StoreTestCase):
         )
         self.assertIn({
             "account_key": AXI_KEY, "login": "77050001",
-            "server": "RoboForex-ECN", "password": "otra",
+            "server": "RoboForex-ECN", "password": "otra", "terminal": "mt5",
         }, payload)
+
+    def test_mt4_travels_to_the_agent_as_part_of_the_reading(self) -> None:
+        self.configure(terminal="mt4")
+        reading = next(
+            item for item in live_account_alternate.readings(self.server, "robo")
+            if item.alternate
+        )
+        self.assertEqual(reading.terminal, "mt4")
+        self.assertEqual(live_account_alternate.payload([reading])[0]["terminal"], "mt4")
+
+    def test_an_all_mt4_batch_does_not_need_a_final_mt5_account(self) -> None:
+        self.configure(node_id="axi", terminal="mt4")
+        found = live_account_alternate.readings(self.server, "axi")
+        self.server.live_audit_settings.restore_credentials = lambda _node: {}
+        with mock.patch.object(
+            live_account_watch.manager_http, "node_request", return_value=(202, {}),
+        ) as request:
+            live_account_watch.launch(
+                self.server, NODES[0], "axi", "turno", 1, NOW,
+                period=("2026-11-14", "2026-11-17"), readings=found,
+            )
+        sent = request.call_args.args[3]
+        self.assertNotIn("restore_login", sent)
+        self.assertEqual(sent["accounts"][0]["terminal"], "mt4")
 
     def test_the_same_agent_is_a_valid_choice(self) -> None:
         self.configure(node_id="axi")
@@ -388,9 +418,11 @@ class RouteTests(StoreTestCase):
         answer = self.post({
             "account": f"axi::{AXI_KEY}", "node_id": "robo",
             "login": "77050001", "server": "RoboForex-ECN", "password": "otra",
+            "terminal": "mt4",
         })
         self.assertEqual(answer["status"], 200)
         self.assertTrue(answer["body"]["configured"])
+        self.assertEqual(answer["body"]["terminal"], "mt4")
         self.assertNotIn("password", answer["body"])
 
     def test_clearing_puts_the_card_back_on_its_own_account(self) -> None:

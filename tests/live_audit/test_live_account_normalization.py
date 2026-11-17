@@ -258,7 +258,7 @@ class NormalizedSeriesTests(unittest.TestCase):
                 server,
                 [live_account_alternate.Reading(
                     "axi", "axi", key, {"account_key": key},
-                    "10010194", "Axi-US50-Demo", "secreto", False,
+                    "10010194", "Axi-US50-Demo", "secreto", "mt5", False,
                 )],
                 datetime(2026, 10, 21, tzinfo=timezone.utc),
             )

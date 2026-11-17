@@ -41,6 +41,12 @@ window.LiveAccountAlternate = (() => {
         <label>Agente que la lee
           <select id="account-alternate-agent"></select>
         </label>
+        <label>Terminal
+          <select id="account-alternate-terminal">
+            <option value="mt5">MT5</option>
+            <option value="mt4">MT4</option>
+          </select>
+        </label>
         <label>Login
           <input id="account-alternate-login" inputmode="numeric" autocomplete="off">
         </label>
@@ -68,6 +74,7 @@ window.LiveAccountAlternate = (() => {
 
   const field = id => dialog.querySelector(id);
   const agent = field('#account-alternate-agent');
+  const terminal = field('#account-alternate-terminal');
   const login = field('#account-alternate-login');
   const server = field('#account-alternate-server');
   const password = field('#account-alternate-password');
@@ -117,6 +124,7 @@ window.LiveAccountAlternate = (() => {
     field('#account-alternate-card').textContent =
       `Tarjeta de ${current.login || 'cuenta sin informar'} en ${current.server || '—'}.`;
     fillAgents(options.nodes, alternate.node_id || current.node_id);
+    terminal.value = alternate.terminal || 'mt5';
     login.value = alternate.login || '';
     server.value = alternate.server || '';
     fillPassword(alternate);
@@ -148,7 +156,7 @@ window.LiveAccountAlternate = (() => {
   field('#account-alternate-close').addEventListener('click', close);
   field('#account-alternate-cancel').addEventListener('click', close);
   saveButton.addEventListener('click', () => send({
-    node_id: agent.value, login: login.value.trim(),
+    node_id: agent.value, terminal: terminal.value, login: login.value.trim(),
     server: server.value.trim(), password: password.value,
   }));
   clearButton.addEventListener('click', () => {

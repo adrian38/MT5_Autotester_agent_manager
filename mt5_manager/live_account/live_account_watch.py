@@ -330,11 +330,13 @@ def launch(
     restore = server.live_audit_settings.restore_credentials(node_id)
     found = readings if readings is not None else live_account_alternate.readings(server, node_id)
     payload_accounts = live_account_alternate.payload(found)
-    if not restore or not payload_accounts:
+    needs_restore = any(reading.terminal == "mt5" for reading in found)
+    if (needs_restore and not restore) or not payload_accounts:
         _launch_failed(
             server, key, base, common, f"No se pudo sondear {name}",
-            "Falta la cuenta final de terminales o la contraseña de las cuentas reales."
-            if not restore else "Ninguna cuenta real tiene su contraseña guardada.",
+            "Falta la cuenta final de terminales MT5 o la contraseña de las cuentas reales."
+            if needs_restore and not restore else
+            "Ninguna cuenta real tiene su contraseña guardada.",
         )
         return
     start, end = period if period is not None else _period(server, found, now)

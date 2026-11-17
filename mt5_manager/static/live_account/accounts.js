@@ -449,6 +449,7 @@ function alternateMarkup(card) {
   return '<p class="account-alternate" title="La auditoría sigue con la cuenta del'
     + ' perfil: esto sólo cambia el sondeo y la relectura del patrimonio.">'
     + `Se sondea ${escapeHtml(alternate.login)} en ${escapeHtml(alternate.server)}`
+    + ` · ${(alternate.terminal || 'mt5').toUpperCase()}`
     + `${agent ? ` · lo lee ${escapeHtml(agent)}` : ''}</p>`;
 }
 

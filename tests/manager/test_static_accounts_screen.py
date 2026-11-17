@@ -459,7 +459,7 @@ class AlternateAccountTests(unittest.TestCase):
         self.assertIn(".account-alternate{", static_source("accounts.css"))
 
     def test_the_dialog_asks_for_the_agent_as_well_as_the_account(self) -> None:
-        for id_ in ("agent", "login", "server", "password"):
+        for id_ in ("agent", "terminal", "login", "server", "password"):
             self.assertIn(f"account-alternate-{id_}", self.DIALOG)
         self.assertIn("/api/live-account-alternate", self.DIALOG)
         self.assertIn("clear: true", self.DIALOG)

@@ -57,6 +57,29 @@ def report_html(rows: list[list[str]]) -> bytes:
 
 
 class CashMovementTests(unittest.TestCase):
+    def test_an_mt4_statement_feeds_daily_and_wealth_series(self) -> None:
+        """MT4 trae órdenes cerradas, no la tabla de deals de MT5."""
+        def row(values: list[str]) -> str:
+            return "<tr>" + "".join(f"<td>{value}</td>" for value in values) + "</tr>"
+
+        headers = [
+            "Ticket", "Open Time", "Type", "Size", "Item", "Price", "S/L", "T/P",
+            "Close Time", "Price", "Commission", "Taxes", "Swap", "Profit",
+        ]
+        statement = ("<html><body>" + row(["Account: 7 Currency: USD"])
+            + row(["Closed Transactions:"]) + row(headers)
+            + row(["1", "2026.01.01 09:00", "balance", "", "Initial deposit", "", "", "", "", "", "0", "0", "0", "1000"])
+            + row(["2", "2026.01.02 09:00", "buy", "0.10", "EURUSD", "1.1", "0", "0", "2026.01.02 10:00", "1.2", "-1", "0", "-0.5", "10"])
+            + row(["Summary:"]) + row(["Balance:", "1008.50", "Equity:", "1008.50"])
+            + "</body></html>").encode()
+
+        net, profit, balances, cash = live_account_report.account_from_html(statement)
+
+        self.assertEqual(net[0][1], 8.5)
+        self.assertEqual(profit[0][1], 10.0)
+        self.assertEqual(balances[-1], ("2026-01-02", 1008.5))
+        self.assertEqual(cash[0][1:], (1000.0, "balance", "Initial deposit"))
+
     def test_a_balance_row_keeps_its_amount_type_and_concept(self) -> None:
         found = cash_movements([
             deal("2026-09-23T13:19:31", "balance", -915.0, "WDL PAY2 BO3S7BA"),

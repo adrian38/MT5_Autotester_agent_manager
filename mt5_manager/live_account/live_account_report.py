@@ -22,6 +22,7 @@ from typing import Any, Iterable
 
 from portfolio_manager.mt5_report import parse_report
 
+from .live_account_mt4_report import is_mt4_report, raw_deals_from_mt4
 from .live_account_series import as_utc, cash_movements, movements, net_movements
 
 
@@ -172,16 +173,19 @@ def account_from_html(
     """
     if not contents:
         raise ValueError("El informe nativo de la cuenta real está vacío")
-    with tempfile.TemporaryDirectory(prefix="mt5-account-") as folder:
-        path = Path(folder) / "real_account_report.html"
-        path.write_bytes(contents)
-        report = parse_report(path)
+    if is_mt4_report(contents):
+        raw_deals = raw_deals_from_mt4(contents)
+    else:
+        with tempfile.TemporaryDirectory(prefix="mt5-account-") as folder:
+            path = Path(folder) / "real_account_report.html"
+            path.write_bytes(contents)
+            raw_deals = parse_report(path).raw_deals
     normalized = [
-        normalized_deal(deal, symbol_lots or {}) for deal in report.raw_deals
+        normalized_deal(deal, symbol_lots or {}) for deal in raw_deals
     ]
     return (
         net_movements(normalized), movements(normalized),
-        daily_balances(report.raw_deals), cash_movements(report.raw_deals),
+        daily_balances(raw_deals), cash_movements(raw_deals),
     )
 
 
