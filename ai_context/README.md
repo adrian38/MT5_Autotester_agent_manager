@@ -131,6 +131,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
 - `live_account_autolot_month_lot.md`: por qué la media del backtest de una
   cuenta con autolote se mide al lote de **cada mes** y no al declarado, de
   dónde sale ese lote y qué cambió en las cuatro carteras reales.
+- `mt4_de_axi_no_tiene_pestanas_estandar.md`: el MT4 de Axi dibuja las pestañas
+  del Terminal en un control MFC propio y su menú sólo abre si el clic declara
+  el botón; el mapa de paneles y cómo volver a medirlo.
 - `live_account_empty_report.md`: un informe nativo sin historial se publicaba
   como bueno y el merge podaba con él la ventana sondeada; las dos guardas, los
   dos casos medidos y por qué uno se reparó solo y el otro no.
