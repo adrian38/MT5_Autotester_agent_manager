@@ -970,6 +970,15 @@
       });
       const started = (data.launched || []).length;
       const skipped = (data.skipped || []).map(row => `${row.node_id}: ${row.reason}`);
+      // «Releer ahora» vive dentro de un diálogo **modal**, y lanzar no lo
+      // cerraba. El `<dialog>` modal va en la capa superior, así que su velo
+      // tapaba a la vez la barra de actividad y el aviso de abajo: el clic se
+      // quedaba literalmente sin ninguna señal visible, lanzara o no lanzara.
+      // Se cierra siempre —el motivo de «sin lanzar» también se lee en el
+      // aviso— y, si algo arrancó, se despierta la barra, que con nada
+      // corriendo sólo pregunta cada treinta segundos.
+      cron.close();
+      if (started) document.dispatchEvent(new CustomEvent('live-account-run-requested'));
       toast(
         `Relectura pedida a ${started} agente${started === 1 ? '' : 's'}.`
         + (skipped.length ? ` Sin lanzar — ${skipped.join(' | ')}` : ''),

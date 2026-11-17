@@ -281,6 +281,9 @@
       const data = await post('/api/live-account-snapshot-now', {});
       const started = (data.launched || []).length;
       const skipped = (data.skipped || []).map(row => `${row.node_id}: ${row.reason}`);
+      // Despierta la barra de actividad, que con nada corriendo sólo pregunta
+      // cada treinta segundos y dejaba el clic sin respuesta en pantalla.
+      if (started) document.dispatchEvent(new CustomEvent('live-account-run-requested'));
       notify(
         `Sondeo pedido a ${started} agente${started === 1 ? '' : 's'}.`
         + (skipped.length ? ` Sin lanzar — ${skipped.join(' | ')}` : ''),

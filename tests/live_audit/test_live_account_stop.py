@@ -157,6 +157,32 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("Procesando cuentas reales ahora", self.monitor)
         self.assertIn("Actualizando patrimonio", self.monitor)
 
+    def test_the_panel_wakes_up_with_the_click_that_launches_the_work(self) -> None:
+        """Petición del usuario (2026-11-17): la barra sale al pulsar, no un
+        minuto después.
+
+        Con nada corriendo la vuelta es de treinta segundos, así que «Releer
+        ahora» y «Sondear ahora» dejaban la pantalla quieta justo cuando hacía
+        falta la señal. Quien lanza avisa y el panel acorta la cadencia hasta
+        que el agente declara el trabajo.
+        """
+        self.assertIn("live-account-run-requested", self.monitor)
+        self.assertIn("eagerUntil", self.monitor)
+        # «Releer ahora» está dentro de un `<dialog>` modal, que va en la capa
+        # superior y tapaba con su velo tanto la barra como el aviso.
+        self.assertIn("cron.close();", static_source("patrimonio.js"))
+        for name in ("patrimonio.js", "live_account_schedule.js"):
+            with self.subTest(screen=name):
+                self.assertIn(
+                    "dispatchEvent(new CustomEvent('live-account-run-requested'))",
+                    static_source(name),
+                )
+
+    def test_the_wake_up_does_not_leave_two_polling_chains(self) -> None:
+        """Dos cadenas preguntarían el doble para siempre, y en silencio."""
+        self.assertIn("clearTimeout(timer)", self.monitor)
+        self.assertNotIn("setTimeout(poll, delay)", self.monitor)
+
     def test_patrimonio_refreshes_when_the_manager_archives_a_snapshot(self) -> None:
         self.assertIn("live-account-data-updated", self.monitor)
         self.assertIn(

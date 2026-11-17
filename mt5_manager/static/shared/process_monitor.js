@@ -29,6 +29,16 @@
 
   const LIVE_MS = 5000;
   const QUIET_MS = 30000;
+  // Con nada corriendo se pregunta cada treinta segundos, y eso convertía el
+  // clic de «Releer ahora» o «Sondear ahora» en medio minuto de pantalla
+  // quieta: el usuario no distinguía si había empezado algo (petición del
+  // usuario, 2026-11-17). Quien lanza avisa con `live-account-run-requested`
+  // y durante el minuto siguiente se pregunta cada dos segundos, hasta que el
+  // agente declara el trabajo; en cuanto lo declara manda la cadencia viva.
+  const EAGER_MS = 2000;
+  const EAGER_FOR_MS = 60000;
+  let eagerUntil = 0;
+  let timer = 0;
 
   const panel = document.createElement('section');
   panel.className = 'process-monitor';
@@ -264,9 +274,22 @@
     }
   }
 
-  function poll() {
-    load().then(delay => { setTimeout(poll, delay); });
+  // Una sola cadena de vueltas: el aviso de lanzamiento cancela la pendiente
+  // antes de abrir la suya, que si no quedarían dos preguntando a la vez.
+  function schedule(delay) {
+    clearTimeout(timer);
+    timer = setTimeout(poll, delay === LIVE_MS || Date.now() >= eagerUntil ? delay : EAGER_MS);
   }
+
+  function poll() {
+    load().then(schedule);
+  }
+
+  document.addEventListener('live-account-run-requested', () => {
+    eagerUntil = Date.now() + EAGER_FOR_MS;
+    clearTimeout(timer);
+    poll();
+  });
 
   // El panel se repinta entero en cada vuelta, así que el oyente vive en él y
   // no en el botón: uno puesto al botón moriría con el primer repintado.
