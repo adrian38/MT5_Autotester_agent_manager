@@ -185,6 +185,29 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual((row["node_name"], row["purpose"]), ("Nodo N", "wealth"))
         self.assertEqual((row["status_label"], row["percent"]), ("RECOGIENDO", 45))
 
+    def test_the_manager_finish_cannot_disappear_between_browser_polls(self) -> None:
+        """Una recogida rápida sigue visible veinte segundos al 100 %."""
+        self.server = FakeServer(self.root, audit_state())
+        self.server.live_account_runs = LiveAuditRunState(self.root / "accounts.json")
+        key = LiveAuditRunState.key("n", "__snapshot__")
+        self.server.live_account_runs.update(
+            key, owner="__wealth__", manager_status="done", manager_done=4,
+            manager_total=4, manager_progress_text="Patrimonio actualizado",
+            manager_visible_until=1020,
+        )
+        with mock.patch(
+            "mt5_manager.live_account.live_account_ingest.time.time", return_value=1001,
+        ):
+            state = self._snapshot({"11": {"status": "idle"}})
+        row = state["manager_account_processing"][0]
+        self.assertEqual((row["status_label"], row["percent"]), ("TERMINADO", 100))
+
+        with mock.patch(
+            "mt5_manager.live_account.live_account_ingest.time.time", return_value=1021,
+        ):
+            expired = self._snapshot({"11": {"status": "idle"}})
+        self.assertEqual(expired["manager_account_processing"], [])
+
     def test_the_account_revision_changes_only_after_a_new_ingestion(self) -> None:
         self.server = FakeServer(self.root, audit_state())
         self.server.live_account_runs = LiveAuditRunState(self.root / "accounts.json")

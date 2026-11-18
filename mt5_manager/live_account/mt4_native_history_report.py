@@ -156,6 +156,13 @@ class _WindowsMt4ReportExporter(mt5_report._WindowsTerminalReportExporter):
         self._select_page(strip, history)
         return strip, -1, -1
 
+    def _ready_custom_history_tab(self, main: int) -> tuple[int, int, int] | None:
+        """Espera a que el panel MFC termine de construirse tras conectar."""
+        try:
+            return self._custom_history_tab(main)
+        except NativeMt4HistoryReportError:
+            return None
+
     def _history_tab(self, pid: int, main: int) -> tuple[int, int, int]:
         process = self._process(pid)
         try:
@@ -183,10 +190,10 @@ class _WindowsMt4ReportExporter(mt5_report._WindowsTerminalReportExporter):
                     return tab, previous, index
         finally:
             self.kernel32.CloseHandle(process)
-        custom = self._custom_history_tab(main)
-        if custom:
-            return custom
-        raise NativeMt4HistoryReportError("No se encontró Account History en la terminal MT4")
+        return self._wait(
+            lambda: self._ready_custom_history_tab(main),
+            "No se encontró Account History en la terminal MT4",
+        )
 
     def _history_control(self, main: int, tab: int) -> int:
         parent = self.user32.GetParent(tab)

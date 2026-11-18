@@ -70,6 +70,22 @@ El menú que sale trae, en español, `Todo el historial`, `Últimos 3 meses`,
 y `Guardar como informe detallado` (35502). Son los que busca `_context_command`
 por texto.
 
+## Fallo 3: la pestaña MFC aparece después de que la cuenta ya está lista
+
+La prueba aislada con una terminal que llevaba unos segundos abierta funcionaba,
+pero el sondeo real seguía fallando de forma reproducible. `_ready_terminal_window`
+devuelve en cuanto el título ya contiene el login; en ese instante el dock
+`Terminal` puede existir todavía sin haber montado la franja MFC ni el panel
+33208. Probar `_custom_history_tab` una sola vez convertía esa carrera normal de
+arranque en «No se encontró Account History».
+
+La ruta estándar ya esperaba su `SysTabControl32`; la bifurcación MFC tiene que
+hacer lo mismo. `_history_tab` vuelve a consultar `_custom_history_tab` con el
+mismo `_wait`, hasta que el panel se materializa o vence el timeout real. Se
+validó el 2026-11-18 cerrando MT4, lanzándolo y llamando al exportador
+inmediatamente: produjo un HTML nativo de 498.853 bytes y `_summary` leyó
+`('USD', 4854.15, 4851.4)` sin ninguna espera manual previa.
+
 ## Cómo volver a diagnosticarlo
 
 Enumerar el árbol con `EnumChildWindows` imprimiendo clase, rect, visibilidad e

@@ -164,6 +164,17 @@ class Mt4HistoryTabTests(unittest.TestCase):
             with self.assertRaises(mt4_native_history_report.NativeMt4HistoryReportError):
                 exporter._custom_history_tab(1)
 
+    def test_the_mfc_panel_is_allowed_to_finish_building_after_login(self) -> None:
+        exporter = object.__new__(mt4_native_history_report._WindowsMt4ReportExporter)
+        exporter._custom_history_tab = mock.Mock(side_effect=[None, (4, -1, -1)])
+        exporter._process = mock.Mock(return_value=10)
+        exporter._children = mock.Mock(return_value=[])
+        exporter.kernel32 = SimpleNamespace(CloseHandle=mock.Mock())
+        exporter._wait = lambda predicate, _message: predicate() or predicate()
+
+        self.assertEqual(exporter._history_tab(20, 1), (4, -1, -1))
+        self.assertEqual(exporter._custom_history_tab.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

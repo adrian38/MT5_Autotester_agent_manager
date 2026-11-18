@@ -298,3 +298,15 @@ Patrimonio rotula esa recarga como «Patrimonio actualizado», no como el genér
 «Leído», para que el cambio se distinga aun mirando la cabecera. Las cuentas
 fuera del alcance tampoco se cuentan en el pie: la casilla «Sumar» ya decidió
 antes qué forma parte de este cálculo.
+
+Corrección del 2026-11-18 después de probarlo en la pantalla real: despertar el
+poll no basta para que la barra salga **al pulsar**. El evento pinta de inmediato
+una fila optimista del Manager en «INICIANDO», antes de la primera petición a
+`/api/live-audit-activity`; cuando el agente aparece, esa fila se sustituye por
+su progreso real. La cadencia es de un segundo mientras arranca y de dos mientras
+hay trabajo.
+
+La fase del manager también puede ser más corta que esos dos segundos. Por eso
+el registro de la tanda conserva `manager_status=done` visible veinte segundos y
+la API lo publica como «TERMINADO» al 100 %: aunque el navegador no alcance el
+intervalo `RECOGIENDO`, sí ve inequívocamente que el manager archivó la tanda.

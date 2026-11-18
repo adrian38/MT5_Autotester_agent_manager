@@ -168,13 +168,15 @@ class ScreenTests(unittest.TestCase):
         """
         self.assertIn("live-account-run-requested", self.monitor)
         self.assertIn("eagerUntil", self.monitor)
+        self.assertIn("phase: 'INICIANDO'", self.monitor)
+        self.assertIn("panel.hidden = false", self.monitor)
         # «Releer ahora» está dentro de un `<dialog>` modal, que va en la capa
         # superior y tapaba con su velo tanto la barra como el aviso.
         self.assertIn("cron.close();", static_source("patrimonio.js"))
         for name in ("patrimonio.js", "live_account_schedule.js"):
             with self.subTest(screen=name):
                 self.assertIn(
-                    "dispatchEvent(new CustomEvent('live-account-run-requested'))",
+                    "dispatchEvent(new CustomEvent('live-account-run-requested', {",
                     static_source(name),
                 )
 

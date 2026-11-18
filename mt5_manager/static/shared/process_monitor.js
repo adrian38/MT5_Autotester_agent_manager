@@ -27,7 +27,7 @@
   const main = document.querySelector('main');
   if (!main) return;
 
-  const LIVE_MS = 5000;
+  const LIVE_MS = 2000;
   const QUIET_MS = 30000;
   // Con nada corriendo se pregunta cada treinta segundos, y eso convertía el
   // clic de «Releer ahora» o «Sondear ahora» en medio minuto de pantalla
@@ -35,10 +35,13 @@
   // usuario, 2026-11-17). Quien lanza avisa con `live-account-run-requested`
   // y durante el minuto siguiente se pregunta cada dos segundos, hasta que el
   // agente declara el trabajo; en cuanto lo declara manda la cadencia viva.
-  const EAGER_MS = 2000;
+  const EAGER_MS = 1000;
   const EAGER_FOR_MS = 60000;
   let eagerUntil = 0;
   let timer = 0;
+  let requestedUntil = 0;
+  let requestedPurpose = 'wealth';
+  let requestedTotal = 0;
 
   const panel = document.createElement('section');
   panel.className = 'process-monitor';
@@ -161,7 +164,9 @@
   function rowsOf(state) {
     const activeAccounts = (state.account_snapshots || []).length
       + (state.manager_account_processing || []).length;
+    if (activeAccounts) requestedUntil = 0;
     return [
+      ...requestedRows(activeAccounts),
       ...snapshotRows(state), ...managerRows(state), ...auditRows(state),
       ...checkRows(state), ...waitingRows(state),
       ...completionRows(activeAccounts),
@@ -188,6 +193,18 @@
   let completionPending = false;
   let completionUntil = 0;
   let completionAt = '';
+
+  function requestedRows(activeAccounts) {
+    if (activeAccounts || Date.now() >= requestedUntil) return [];
+    const wealth = requestedPurpose === 'wealth';
+    return [{
+      node: 'Manager',
+      title: wealth ? 'Relectura del patrimonio' : 'Sondeo de cuentas reales',
+      phase: 'INICIANDO', percent: 0,
+      detail: `Petición enviada a ${requestedTotal} agente(s); esperando confirmación.`,
+      started: new Date().toISOString(), stop: '',
+    }];
+  }
 
   function completionRows(activeAccounts) {
     if (activeAccounts) return [];
@@ -310,9 +327,15 @@
     load().then(schedule);
   }
 
-  document.addEventListener('live-account-run-requested', () => {
+  document.addEventListener('live-account-run-requested', event => {
     eagerUntil = Date.now() + EAGER_FOR_MS;
+    requestedUntil = eagerUntil;
+    requestedPurpose = String(event.detail?.purpose || 'wealth');
+    requestedTotal = (event.detail?.launched || []).length;
     clearTimeout(timer);
+    current = requestedRows(0);
+    panel.hidden = false;
+    panel.innerHTML = headMarkup() + current.map(rowMarkup).join('');
     poll();
   });
 

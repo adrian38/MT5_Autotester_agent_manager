@@ -979,7 +979,9 @@
       // aviso— y, si algo arrancó, se despierta la barra, que con nada
       // corriendo sólo pregunta cada treinta segundos.
       cron.close();
-      if (started) document.dispatchEvent(new CustomEvent('live-account-run-requested'));
+      if (started) document.dispatchEvent(new CustomEvent('live-account-run-requested', {
+        detail: {purpose: 'wealth', launched: data.launched || []},
+      }));
       toast(
         `Relectura pedida a ${started} agente${started === 1 ? '' : 's'}.`
         + (skipped.length ? ` Sin lanzar — ${skipped.join(' | ')}` : ''),

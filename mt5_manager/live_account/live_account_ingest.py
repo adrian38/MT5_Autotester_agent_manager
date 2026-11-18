@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import time
 import urllib.error
 import urllib.parse
 from typing import Any
@@ -110,7 +111,13 @@ def manager_rows(server: Any) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for key, record in runs.state().items():
         status = str(record.get("manager_status") or "")
-        if not key.endswith(suffix) or status not in MANAGER_SNAPSHOT_STATUSES:
+        visible_done = (
+            status == "done"
+            and float(record.get("manager_visible_until") or 0) > time.time()
+        )
+        if not key.endswith(suffix) or (
+            status not in MANAGER_SNAPSHOT_STATUSES and not visible_done
+        ):
             continue
         node_id = key[:-len(suffix)]
         total = max(0, int(record.get("manager_total") or 0))
@@ -119,8 +126,14 @@ def manager_rows(server: Any) -> list[dict[str, Any]]:
             "node_id": node_id, "node_name": names.get(node_id, node_id),
             "purpose": "wealth" if record.get("owner") == "__wealth__" else "daily",
             "status": status,
-            "status_label": "ACTUALIZANDO" if status == "finalizing" else "RECOGIENDO",
-            "percent": 96 if status == "finalizing" else round(90 * done / max(1, total)),
+            "status_label": (
+                "TERMINADO" if visible_done else
+                "ACTUALIZANDO" if status == "finalizing" else "RECOGIENDO"
+            ),
+            "percent": (
+                100 if visible_done else 96 if status == "finalizing"
+                else round(90 * done / max(1, total))
+            ),
             "done": done, "total": total,
             "progress_text": str(record.get("manager_progress_text") or ""),
             "started_at": str(record.get("manager_started_at") or ""),
@@ -295,7 +308,8 @@ def _settle_collection(
     runs = server.live_account_runs
     runs.update(
         runs.key(node_id, SNAPSHOT_KEY), ingested=collected_key,
-        manager_status="done", manager_progress_text="Patrimonio actualizado", **settled,
+        manager_status="done", manager_progress_text="Patrimonio actualizado",
+        manager_visible_until=time.time() + 20, **settled,
     )
     runs.update(
         runs.key(node_id, owner), **settled,
