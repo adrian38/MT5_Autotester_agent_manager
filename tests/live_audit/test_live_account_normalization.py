@@ -218,7 +218,7 @@ class NormalizedSeriesTests(unittest.TestCase):
                 ):
                     live_account_ingest._merge_account(
                         server, {}, "axi", "snap-1", key, {"report": {}},
-                        ("2026-10-18", "2026-10-21"), {"BTCUSD": 0.03},
+                        ("2026-10-18", "2026-10-21"), {"BTCUSD": 0.03}, archive,
                     )
                 # Toda la vida sí entra: no hay nada viejo con lo que mezclar.
                 with mock.patch.object(
@@ -232,7 +232,7 @@ class NormalizedSeriesTests(unittest.TestCase):
                 ):
                     live_account_ingest._merge_account(
                         server, {}, "axi", "snap-1", key, {"report": {}},
-                        ("", "2026-10-21"), {"BTCUSD": 0.03},
+                        ("", "2026-10-21"), {"BTCUSD": 0.03}, archive,
                     )
             stored = archive.read("axi", key)
         self.assertEqual(

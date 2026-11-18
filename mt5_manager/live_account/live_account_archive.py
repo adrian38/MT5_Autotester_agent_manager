@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -195,6 +196,26 @@ class LiveAccountArchive:
     def __init__(self, directory: str | Path) -> None:
         self.directory = Path(directory).expanduser().resolve()
         self.lock = threading.RLock()
+
+    @classmethod
+    def forked(cls, source: str | Path, directory: str | Path) -> "LiveAccountArchive":
+        """Un archivo propio que arranca con lo que ya guardaba otro.
+
+        Patrimonio y Cuentas en real dejaron de compartir archivo el
+        2026-11-18: cada pantalla archiva lo que lee ella, de modo que una
+        relectura completa no cambia la portada ni un sondeo diario cambia
+        Patrimonio. Sin esta copia, la primera pantalla de Patrimonio tras la
+        separación saldría vacía y recuperar lo ya leído costaría releer la
+        vida entera de cada cuenta.
+
+        Sólo la primera vez: en cuanto el destino existe las dos series
+        divergen, y copiar encima borraría la que se acaba de separar.
+        """
+        source = Path(source).expanduser().resolve()
+        directory = Path(directory).expanduser().resolve()
+        if source.is_dir() and not directory.exists():
+            shutil.copytree(source, directory)
+        return cls(directory)
 
     def _node_directory(self, node_id: str) -> Path:
         return self.directory / _slug(node_id)

@@ -326,10 +326,10 @@ def stored_source_matches(stored: dict[str, Any], login: str, server: str) -> bo
 
 
 def archived_source(
-    server: Any, owner_node_id: str, account: dict[str, Any],
+    server: Any, owner_node_id: str, account: dict[str, Any], archive: Any = None,
 ) -> tuple[dict[str, Any], dict[str, Any], str]:
     """El archivo vigente, o vacío mientras se relee la cuenta elegida."""
-    stored = server.live_accounts.read(owner_node_id, account["account_key"])
+    stored = (archive or server.live_accounts).read(owner_node_id, account["account_key"])
     source = source_identity(server, owner_node_id, account)
     if stored_source_matches(stored, source["login"], source["server"]):
         return stored, source, ""

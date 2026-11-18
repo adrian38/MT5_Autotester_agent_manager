@@ -21,9 +21,9 @@ Tres criterios que no son obvios y que aquí se deciden una sola vez:
   El patrimonio de mayo no incluye una cuenta abierta en agosto, y arrastrar
   hacia atrás su saldo convertiría una cuenta nueva en patrimonio antiguo.
 
-Nada de esto consulta a ningún agente: lee el archivo del manager, igual que
-la portada. Lo que no puede hacer es viajar en `/api/live-accounts`: son todos
-los movimientos de la vida de cada cuenta y la portada se repinta cada minuto.
+Nada de esto consulta a ningún agente: lee el archivo propio de Patrimonio en
+el manager. No usa el archivo de la portada; una relectura completa no puede
+cambiar Cuentas en real y un sondeo diario no puede cambiar Patrimonio.
 """
 from __future__ import annotations
 
@@ -67,9 +67,10 @@ Vive aquí, y no en `live_account_wealth_watch`, porque esta pantalla rotula
 sus cifras con la fecha de esa relectura: el payload tiene que poder leer el
 registro sin importar el módulo de la cita, que a su vez importa éste.
 
-Es una clave aparte de la del sondeo diario a propósito. Comparten el sondeo
-del agente —es uno solo— pero no el turno: con una sola clave, una relectura
-del domingo daría por cumplida la cita del lunes del cron diario, y al revés.
+Es una clave aparte de la del sondeo diario a propósito. El agente sólo puede
+publicar una tanda a la vez, pero el turno y el archivo de destino son propios:
+con uno solo, una relectura del domingo alteraría la portada y daría por
+cumplida la cita del lunes, y al revés.
 """
 
 READ_OUTCOMES = ("success", "partial")
@@ -169,7 +170,7 @@ def account_wealth(
 ) -> dict[str, Any]:
     """Lo que esa cuenta aporta al patrimonio, mes a mes y en su moneda."""
     stored, source, source_pending = live_account_alternate.archived_source(
-        server, node_id, account,
+        server, node_id, account, server.wealth_accounts,
     )
     ordered, profits = account_series(stored)
     _visible, net_months = monthly_performance(ordered, profits)

@@ -40,6 +40,30 @@ class KeyTests(unittest.TestCase):
         )
 
 
+class WealthArchiveMigrationTests(unittest.TestCase):
+    def test_the_first_split_keeps_history_and_then_the_archives_diverge(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            daily = LiveAccountArchive(root / "live_accounts")
+            key = account_key("60082017", "Axi-US50-Live")
+            daily.merge(
+                "axi", key, login="60082017", server="Axi-US50-Live",
+                currency="EUR", movements=[(moment("2026-11-17T10:00:00"), 10.0)],
+                period_start="", period_end="2026-11-17",
+            )
+
+            wealth = LiveAccountArchive.forked(
+                root / "live_accounts", root / "wealth_accounts",
+            )
+            self.assertEqual(stored_movements(wealth.read("axi", key))[-1][1], 10.0)
+            daily.merge(
+                "axi", key, login="60082017", server="Axi-US50-Live",
+                currency="EUR", movements=[(moment("2026-11-18T10:00:00"), 20.0)],
+                period_start="2026-11-18", period_end="2026-11-18",
+            )
+            self.assertEqual(stored_movements(wealth.read("axi", key))[-1][1], 10.0)
+
+
 class ArchiveTests(unittest.TestCase):
     def setUp(self) -> None:
         self.folder = tempfile.TemporaryDirectory()

@@ -58,7 +58,8 @@ class WealthCronBase(unittest.TestCase):
         self.runs = LiveAuditRunState(root / "state.json")
         self.notifications = Notifications()
         self.server = SimpleNamespace(
-            nodes=[NODE], live_accounts=self.archive, live_account_runs=self.runs,
+            nodes=[NODE], live_accounts=self.archive, wealth_accounts=self.archive,
+            live_account_runs=self.runs,
             live_audit_notifications=self.notifications,
             # La cita pregunta a quién hay que releer, y eso ya no son las
             # cuentas del nodo sino lo que le toca leer: hace falta el almacén

@@ -56,7 +56,8 @@ class WealthBase(unittest.TestCase):
             "audit_ids": ["1"], "autolot": False, "block_reason": "",
         }]
         self.server = SimpleNamespace(
-            nodes=[NODE], live_accounts=self.archive, live_account_runs=self.runs,
+            nodes=[NODE], live_accounts=self.archive, wealth_accounts=self.archive,
+            live_account_runs=self.runs,
             live_account_scheduler_settings=dict(SETTINGS),
         )
 

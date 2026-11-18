@@ -1,5 +1,13 @@
 # Dos citas, una tanda: quién pide el sondeo de cuentas (2026-11-17)
 
+## La tanda es una; los archivos son dos (2026-11-18)
+
+La limitación del agente no obliga a mezclar el resultado. La tanda conserva un
+solo `__snapshot__` porque el nodo sólo publica una, pero al recogerla el owner
+decide el archivo: `__daily__` escribe `live_accounts/` y `__wealth__` escribe
+`wealth_accounts/`. Cada cita guarda además su propio `ingested`, de modo que la
+revisión de la portada no cambia cuando termina Patrimonio.
+
 El agente guarda **un** sondeo de cuentas: el siguiente sustituye al anterior.
 Por eso el manager tiene un registro por nodo, `__snapshot__`, con lo que el
 agente devolvió. Lo que no es uno son las citas que lo piden:

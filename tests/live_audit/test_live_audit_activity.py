@@ -208,15 +208,26 @@ class ActivityTests(unittest.TestCase):
             expired = self._snapshot({"11": {"status": "idle"}})
         self.assertEqual(expired["manager_account_processing"], [])
 
-    def test_the_account_revision_changes_only_after_a_new_ingestion(self) -> None:
+    def test_the_account_revision_changes_only_after_a_new_daily_ingestion(self) -> None:
+        """La portada se repinta con su sondeo; una relectura de Patrimonio no.
+
+        Las dos citas publican su tanda en el agente —el registro es uno por
+        nodo— pero archivan en sitios distintos. Si la revisión mirase la
+        tanda, una relectura de Patrimonio tiraría la caché de Cuentas en real
+        sin haber tocado su archivo.
+        """
         self.server = FakeServer(self.root, audit_state())
         self.server.live_account_runs = LiveAuditRunState(self.root / "accounts.json")
         self.assertEqual(self._snapshot({"11": {"status": "idle"}})["account_revision"], "")
         self.server.live_account_runs.update(
-            LiveAuditRunState.key("n", "__snapshot__"), ingested="snapshot-v7",
+            LiveAuditRunState.key("n", "__wealth__"), ingested="wealth-v7",
+        )
+        self.assertEqual(self._snapshot({"11": {"status": "idle"}})["account_revision"], "")
+        self.server.live_account_runs.update(
+            LiveAuditRunState.key("n", "__daily__"), ingested="daily-v7",
         )
         revision = self._snapshot({"11": {"status": "idle"}})["account_revision"]
-        self.assertIn("snapshot-v7", revision)
+        self.assertIn("daily-v7", revision)
 
     def _wealth(self, waiting: list[dict] = (), launched: list[dict] = ()):
         """La cita del patrimonio, sin tocar el registro de cuentas reales."""

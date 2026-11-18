@@ -175,6 +175,9 @@ class ManagerServer(ThreadingHTTPServer):
         es la misma, que es lo que el usuario quiere mirar en un solo sitio.
         """
         self.live_accounts = LiveAccountArchive(settings_path.with_name("live_accounts"))
+        self.wealth_accounts = LiveAccountArchive.forked(
+            self.live_accounts.directory, settings_path.with_name("wealth_accounts"),
+        )
         # A qué cuenta se sondea cada tarjeta cuando no es la suya. Vacío
         # mientras nadie configure ninguna, que es lo normal; la contraseña va
         # cifrada con la misma clave que las del auditor.

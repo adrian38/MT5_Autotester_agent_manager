@@ -275,7 +275,7 @@ class WatchTests(unittest.TestCase):
             server.live_account_runs.key("axi", live_account_ingest.SNAPSHOT_KEY),
         )
         self.assertEqual(run["manager_status"], "done")
-        self.assertEqual(run["manager_progress_text"], "Patrimonio actualizado")
+        self.assertEqual(run["manager_progress_text"], "Cuentas en real actualizadas")
         self.assertIn(run["ingested"], live_account_ingest.account_revision(server))
 
     def test_an_account_that_failed_keeps_the_date_of_its_last_good_read(self) -> None:

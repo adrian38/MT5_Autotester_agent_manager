@@ -115,6 +115,7 @@ class FakeServer:
         self.nodes = [{"id": "axi", "name": "AXI Standard", "url": "http://127.0.0.1:1"}]
         self.live_audit_settings = FakeSettingsStore(state)
         self.live_accounts = LiveAccountArchive(root / "live_accounts")
+        self.wealth_accounts = LiveAccountArchive(root / "wealth_accounts")
         # El sondeo pregunta a quién hay que leer, no sólo qué cuentas hay:
         # sin este almacén `tick` lo daría por fallido y lo escribiría en
         # `stderr`, que es ruido verde (ver el encabezado de este fichero).

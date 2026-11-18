@@ -85,6 +85,7 @@ class Server:
             "axi": node_state("60082017"), "robo": node_state("77028839"),
         })
         self.live_accounts = LiveAccountArchive(root / "live_accounts")
+        self.wealth_accounts = LiveAccountArchive(root / "wealth_accounts")
         self.live_account_runs = LiveAuditRunState(root / "cron.json")
         self.live_audit_notifications = LiveAuditNotificationStore(root / "avisos.json")
         self.live_account_alternates = LiveAccountAlternateStore(
@@ -228,7 +229,7 @@ class ReadingTests(StoreTestCase):
         self.assertEqual(self.logins("robo"), ["77028839"])
 
     def test_changing_source_forces_a_full_read_instead_of_extending_the_old_one(self) -> None:
-        self.server.live_accounts.merge(
+        self.server.wealth_accounts.merge(
             "axi", AXI_KEY, login="60082017", server="Axi-US50-Live",
             currency="EUR", movements=[], period_start="", period_end="2026-11-16",
         )
@@ -383,7 +384,7 @@ class WealthTests(StoreTestCase):
 
     def test_patrimonio_uses_the_mt4_account_after_its_full_read(self) -> None:
         self.configure(node_id="axi", terminal="mt4")
-        self.server.live_accounts.merge(
+        self.server.wealth_accounts.merge(
             "axi", AXI_KEY, login="77050001", server="RoboForex-ECN",
             currency="EUR", movements=[], balances=[("2026-11-16", 1_200.0)],
             period_start="", period_end="2026-11-16", balance=1_200.0, equity=1_210.0,

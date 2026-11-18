@@ -27,7 +27,8 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.live_account import (
-    live_account_alternate, live_account_expectation_refresh, live_account_watch,
+    live_account_alternate, live_account_expectation_refresh, live_account_ingest,
+    live_account_watch,
 )
 from mt5_manager.live_account.live_account_ingest import DAILY_KEY, SNAPSHOT_KEY
 from mt5_manager.live_account.live_account_wealth import WEALTH_KEY
@@ -38,6 +39,7 @@ from .live_account_fixtures import (
 )
 
 NOW = datetime(2026, 10, 21, 23, 30, tzinfo=ZoneInfo("Europe/Madrid"))
+ACCOUNT_KEY = "60082017@Axi-US50-Live"
 
 
 class TwoAppointmentsTests(unittest.TestCase):
@@ -113,6 +115,21 @@ class TwoAppointmentsTests(unittest.TestCase):
         posts = [row for row in self.requests if row[1].endswith("/snapshot")]
         self.assertEqual(len(posts), 1)
         self.assertEqual(self._record(DAILY_KEY)["outcome"], "running")
+
+    def test_a_wealth_reread_only_feeds_the_wealth_screen(self) -> None:
+        """La vida completa no cambia ni la portada ni su revisión de caché."""
+        self._wealth_asked_for_it()
+        self._come_back(complete_snapshot_state(), NOW + timedelta(minutes=15))
+        self.assertTrue(self.server.wealth_accounts.read("axi", ACCOUNT_KEY)["movements"])
+        self.assertEqual(self.server.live_accounts.read("axi", ACCOUNT_KEY)["movements"], [])
+        self.assertEqual(live_account_ingest.account_revision(self.server), "")
+
+    def test_a_daily_snapshot_only_feeds_the_live_accounts_screen(self) -> None:
+        """El diario no altera las cifras que Patrimonio cerró en su relectura."""
+        self._come_back(complete_snapshot_state(), NOW)
+        self.assertTrue(self.server.live_accounts.read("axi", ACCOUNT_KEY)["movements"])
+        self.assertEqual(self.server.wealth_accounts.read("axi", ACCOUNT_KEY)["movements"], [])
+        self.assertTrue(live_account_ingest.account_revision(self.server))
 
     def test_the_launcher_decides_who_is_read(self) -> None:
         """Quien lanza dice a quién se entra; sin decirlo, al agente entero.

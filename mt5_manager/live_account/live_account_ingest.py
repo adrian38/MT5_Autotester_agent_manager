@@ -27,6 +27,7 @@ from . import live_account_alternate, live_account_presentation, live_account_re
 from ..manager import manager_http
 from ..common import utc_now
 from .live_account_snapshot import RUNNING_SNAPSHOT_STATUSES
+from .live_account_wealth import WEALTH_KEY
 
 
 class ScaleChanged(ValueError):
@@ -142,11 +143,11 @@ def manager_rows(server: Any) -> list[dict[str, Any]]:
 
 
 def account_revision(server: Any) -> str:
-    """Versión estable del archivo: cambia sólo cuando entra una tanda nueva."""
+    """Versión del archivo diario; una relectura de Patrimonio no la cambia."""
     runs = getattr(server, "live_account_runs", None)
     if runs is None:
         return ""
-    suffix = f"/{SNAPSHOT_KEY}"
+    suffix = f"/{DAILY_KEY}"
     return "|".join(sorted(
         f"{key}:{record.get('ingested')}"
         for key, record in runs.state().items()
@@ -170,7 +171,7 @@ def _artifact(node: dict[str, Any], snapshot_id: str, filename: str, expected: s
 def _merge_account(
     server: Any, node: dict[str, Any], node_id: str, snapshot_id: str,
     account_key: str, row: dict[str, Any], period: tuple[str, str],
-    symbol_lots: dict[str, float],
+    symbol_lots: dict[str, float], archive: Any,
 ) -> int:
     """Archiva una cuenta leída en la serie de **su tarjeta**.
 
@@ -180,7 +181,7 @@ def _merge_account(
     ver nada: la serie estaría guardada donde nadie la busca.
     """
     version = live_account_report.series_version(symbol_lots)
-    stored = server.live_accounts.read(node_id, account_key)
+    stored = archive.read(node_id, account_key)
     first_day = str(stored.get("first_day") or "")
     fully_rewritten = not first_day or not period[0] or period[0] <= first_day
     # Antes de bajar el informe: si hay que rechazarlo, no hay que bajarlo.
@@ -198,7 +199,7 @@ def _merge_account(
         node, snapshot_id, str(report.get("filename") or ""), str(report.get("sha256") or ""),
     )
     found, profits, balances, cash = live_account_report.account_from_html(body, symbol_lots)
-    server.live_accounts.merge(
+    archive.merge(
         node_id, account_key, login=row.get("login"), server=row.get("server"),
         currency=row.get("currency"), movements=found, profits=profits,
         period_start=period[0], period_end=period[1],
@@ -241,7 +242,7 @@ def _period(state: dict[str, Any]) -> tuple[str, str]:
 def _merge_accounts(
     server: Any, node: dict[str, Any], node_id: str, snapshot_id: str,
     state: dict[str, Any], routes: dict[str, Any],
-    lots: dict[str, dict[str, float]], period: tuple[str, str],
+    lots: dict[str, dict[str, float]], period: tuple[str, str], archive: Any,
 ) -> tuple[int, list[str], list[str], int]:
     """Cuenta por cuenta: lo leído, lo que falló, lo rancio y los movimientos.
 
@@ -262,7 +263,7 @@ def _merge_accounts(
         try:
             movements += _merge_account(
                 server, node, reading.owner_node_id if reading else node_id, snapshot_id,
-                account_key, row, period, lots.get(str(account_key)) or {},
+                account_key, row, period, lots.get(str(account_key)) or {}, archive,
             )
             read += 1
         except ScaleChanged as exc:
@@ -271,9 +272,7 @@ def _merge_accounts(
             failed.append(f"{account_key}: {exc}")
             sys.stderr.write(f"[live-account-ingest] {node_id}/{account_key}: {exc}\n")
         _manager_progress(server, node_id, done, total, f"Recogida {done} de {total}")
-    _manager_progress(
-        server, node_id, total, total, "Actualizando patrimonio y citas", "finalizing",
-    )
+    _manager_progress(server, node_id, total, total, "Archivando la lectura", "finalizing")
     return read, failed, stale, movements
 
 
@@ -308,11 +307,14 @@ def _settle_collection(
     runs = server.live_account_runs
     runs.update(
         runs.key(node_id, SNAPSHOT_KEY), ingested=collected_key,
-        manager_status="done", manager_progress_text="Patrimonio actualizado",
+        manager_status="done",
+        manager_progress_text=(
+            "Patrimonio actualizado" if owner == WEALTH_KEY else "Cuentas en real actualizadas"
+        ),
         manager_visible_until=time.time() + 20, **settled,
     )
     runs.update(
-        runs.key(node_id, owner), **settled,
+        runs.key(node_id, owner), ingested=collected_key, **settled,
         **({"attempts": 0} if outcome == "stale" else {}),
     )
     return {
@@ -350,9 +352,10 @@ def collect(
         return None
     owner = str(run.get("owner") or DAILY_KEY)
     period = _period(state)
+    archive = server.wealth_accounts if owner == WEALTH_KEY else server.live_accounts
     try:
         result = _merge_accounts(
-            server, node, node_id, snapshot_id, state, routes, lots, period,
+            server, node, node_id, snapshot_id, state, routes, lots, period, archive,
         )
     except Exception:
         runs.update(

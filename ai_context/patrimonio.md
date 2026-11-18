@@ -1,5 +1,23 @@
 # La pantalla de patrimonio
 
+## Patrimonio y Cuentas en real no se alimentan entre sí (2026-11-18)
+
+Aunque el agente sólo puede ejecutar y publicar un sondeo de cuentas a la vez,
+el manager mantiene desde esta corrección dos archivos persistentes distintos:
+`live_accounts/` para Cuentas en real y `wealth_accounts/` para Patrimonio.
+`live_account_ingest.collect` elige el destino por la cita dueña de la tanda.
+
+- Una relectura completa escribe sólo `wealth_accounts` y no cambia ni las
+  tarjetas ni `account_revision`, que es la revisión de caché de la portada.
+- El sondeo diario escribe sólo `live_accounts` y no altera meses, saldos ni
+  apuntes de Patrimonio.
+- En el primer arranque con esta versión se copia el archivo anterior a
+  `wealth_accounts` para no perder el histórico; desde ahí divergen.
+
+Siguen compartiéndose únicamente la cuenta alternativa configurada, la
+selección «Sumar» y el candado físico del agente. Son configuración común y una
+limitación de las terminales, no una fuente de cifras entre pantallas.
+
 Petición del usuario (2026-11-15): «necesitamos una pantalla de patrimonio y su
 botón en el menú va a ser el primero y va a ser fijo; suma los balances de las
 cuentas reales, muestra cómo los portafolios suman o restan por mes, muestra
