@@ -23,11 +23,11 @@ from portfolio_manager.mt5_report import RawDeal
 from mt5_manager.live_account.live_account_report import daily_balances
 
 
-def deal(stamp: Any, balance: float) -> RawDeal:
+def deal(stamp: Any, balance: float, trade_type: str = "buy") -> RawDeal:
     moment = datetime.fromisoformat(stamp) if isinstance(stamp, str) else stamp
     return RawDeal(
         timestamp=moment, ticket="1", symbol="BTCUSD",
-        trade_type="buy", direction="out", volume=0.01, price=1.0, order="1",
+        trade_type=trade_type, direction="out", volume=0.01, price=1.0, order="1",
         commission=0.0, swap=0.0, profit=1.0, balance=balance, comment="",
     )
 
@@ -50,8 +50,8 @@ class DailyBalanceTests(unittest.TestCase):
         ])
         self.assertEqual(found, [("2026-10-20", 1_025.0)])
 
-    def test_a_zero_balance_is_not_a_balance(self) -> None:
-        """MT5 imprime cero en las filas que no mueven la cuenta.
+    def test_a_market_row_zero_balance_is_not_a_balance(self) -> None:
+        """MT5 imprime cero en las operaciones que no publican el saldo.
 
         Es el mismo descarte que hace `live_audit_autolot` para el autolote, y
         por la misma razón: un cero ahí diría que la cuenta se quedó vacía.
@@ -61,6 +61,18 @@ class DailyBalanceTests(unittest.TestCase):
             deal("2026-10-20T17:30:00", 0.0),
         ])
         self.assertEqual(found, [("2026-10-20", 1_000.0)])
+
+    def test_a_cash_row_can_really_close_the_account_at_zero(self) -> None:
+        """Un traspaso puede vaciar la cuenta y su cero sustituye al depósito.
+
+        Es el caso real de 60090762: depósito y traspaso de 2.000 USD el mismo
+        día. Ignorar el segundo saldo inventaba 1.820 EUR de patrimonio.
+        """
+        found = daily_balances([
+            deal("2025-11-14T08:00:00", 2_000.0, "balance"),
+            deal("2025-11-14T08:01:00", 0.0, "balance"),
+        ])
+        self.assertEqual(found, [("2025-11-14", 0.0)])
 
     def test_a_row_without_an_instant_does_not_take_the_series_down(self) -> None:
         found = daily_balances([

@@ -165,6 +165,9 @@ class ReportReadsBothHalvesTest(unittest.TestCase):
             {"normalization_version": "balance-series-v5-profit-column"},
         ))
         self.assertTrue(live_account_report.cash_is_complete(
+            {"normalization_version": "balance-series-v6-cash-movements"},
+        ))
+        self.assertTrue(live_account_report.cash_is_complete(
             {"normalization_version": live_account_report.SERIES_VERSION},
         ))
         self.assertTrue(live_account_report.cash_is_complete({

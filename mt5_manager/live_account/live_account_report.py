@@ -23,11 +23,19 @@ from typing import Any, Iterable
 from portfolio_manager.mt5_report import parse_report
 
 from .live_account_mt4_report import is_mt4_report, raw_deals_from_mt4
-from .live_account_series import as_utc, cash_movements, movements, net_movements
+from .live_account_series import (
+    as_utc, cash_movements, is_market_movement, movements, net_movements,
+)
 
 
-SERIES_VERSION = "balance-series-v6-cash-movements"
+SERIES_VERSION = "balance-series-v7-zero-cash-balance"
 """Con qué criterio se armó la serie guardada, normalice o no esa cuenta.
+
+La v7 conserva además el saldo cero de un apunte de caja. MT5 también usa
+cero como relleno en las operaciones de mercado, pero en un retiro o
+traspaso puede ser el saldo final real: descartarlo dejaba como cierre el
+saldo anterior del mismo día. La versión obliga a releer el informe entero
+y sustituir esos cierres falsos.
 
 La v6 guarda los **apuntes de saldo**: ingresos, retiradas, traspasos entre
 cuentas y abonos del bróker, que hasta ahora se parseaban y se tiraban. Sube la
@@ -89,8 +97,8 @@ def ingestion_key(snapshot_id: str, versions: Iterable[str]) -> str:
     return ":".join([snapshot_id, *sorted({str(value) for value in versions} - {""})])
 
 
-CASH_VERSION_PREFIX = "balance-series-v6"
-"""Desde qué versión la serie guardada incluye los apuntes de saldo."""
+CASH_VERSION_PREFIXES = ("balance-series-v6", "balance-series-v7")
+"""Versiones cuya relectura completa incluye los apuntes de saldo."""
 
 
 def cash_is_complete(stored: dict[str, Any]) -> bool:
@@ -100,9 +108,13 @@ def cash_is_complete(stored: dict[str, Any]) -> bool:
     (`live_account_ingest._merge_account`), así que es exactamente la pregunta
     que hay que hacer: una cuenta que todavía va por la v5 tiene los apuntes
     que trajo la última ventana —o ninguno— y sumar eso daría un «aportado»
-    inventado. La ausencia se dice; no se rellena con un cero.
+    inventado. V6 y v7 contienen la serie de caja completa; v7 vuelve a leerla
+    por el arreglo del saldo cero, no porque v6 careciera de esos apuntes. La
+    ausencia se dice; no se rellena con un cero.
     """
-    return str(stored.get("normalization_version") or "").startswith(CASH_VERSION_PREFIX)
+    return str(stored.get("normalization_version") or "").startswith(
+        CASH_VERSION_PREFIXES,
+    )
 
 
 def normalized_deal(deal: Any, symbol_lots: dict[str, float]) -> Any:
@@ -128,10 +140,11 @@ def daily_balances(raw_deals: Iterable[Any]) -> list[tuple[str, float]]:
     """El saldo con el que cerró cada día UTC, según la tabla de la cuenta.
 
     El mismo dato que `live_audit_autolot.balance_history_from_html` usa para
-    el autolote, y con el mismo descarte de los ceros: MT5 imprime saldo 0 en
-    las filas que no mueven la cuenta. Aquí se queda **el último de cada día**
-    porque es lo que la promesa necesita —el tamaño que tenía la cuenta ese
-    día— y guardar uno por operación multiplicaría el fichero sin añadir nada.
+    el autolote. MT5 imprime saldo 0 como relleno en las operaciones de
+    mercado, pero ese cero sí es real cuando un apunte de caja vacía la cuenta.
+    Aquí se queda **el último de cada día** porque es lo que la promesa necesita
+    —el tamaño que tenía la cuenta ese día— y guardar uno por operación
+    multiplicaría el fichero sin añadir nada.
 
     El saldo **no se reescala** con los lotes de presentación. Es el dinero que
     el bróker tiene de verdad, que es lo que leen los EAs con autolote;
@@ -146,7 +159,7 @@ def daily_balances(raw_deals: Iterable[Any]) -> list[tuple[str, float]]:
             balance = float(getattr(deal, "balance", 0.0) or 0.0)
         except (TypeError, ValueError):
             continue
-        if not math.isfinite(balance) or balance == 0.0:
+        if not math.isfinite(balance) or (balance == 0.0 and is_market_movement(deal)):
             continue
         stamp = as_utc(moment).isoformat()
         day = stamp[:10]

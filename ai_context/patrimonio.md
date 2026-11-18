@@ -185,6 +185,15 @@ Si un mes mueve 400 € que ni se ganaron ni se ingresaron, falta un apunte —o
 cuenta se presenta a otro lote— y más vale que lo diga la pantalla que
 creérselo. El primer mes no se cuadra: no hay patrimonio anterior.
 
+El 2026-11-18 ese control encontró exactamente 1.820,00182 EUR en noviembre de
+2025. No faltaba un apunte: la cuenta AXI 60090762 recibió 2.000 USD y los
+traspasó fuera el mismo día, quedando a cero. `daily_balances` descartaba todos
+los ceros porque las operaciones de mercado los usan como relleno, así que
+conservaba como cierre el saldo de 2.000 USD del depósito. Desde
+`balance-series-v7-zero-cash-balance`, el cero se descarta sólo en operaciones
+de mercado; en un apunte de caja es un saldo final legítimo. El cambio de
+versión obliga a releer la vida entera de las cuentas y reemplazar la serie.
+
 **Lo que no se cuadra nunca es una suma contra otra de distinto alcance.** Un
 mes con una cuenta a medio releer tiene el saldo de las diez y los apuntes de
 nueve: restarlos daría justo el dinero que falta por leer y se leería como un
