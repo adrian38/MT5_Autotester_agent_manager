@@ -168,4 +168,5 @@
    ámbar y **sin barra**, que es lo honrado cuando no hay progreso ninguno. */
 .process-row.waiting .process-phase{color:#f0b429}
 .process-row.waiting .process-bar{display:none}
+.process-row.complete .process-node,.process-row.complete .process-phase{color:var(--ok,#3fb950);border-color:var(--ok,#3fb950)}
 @media(prefers-reduced-motion:reduce){.process-bar i{transition:none}}

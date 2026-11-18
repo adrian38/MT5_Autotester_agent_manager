@@ -290,3 +290,11 @@ Al escribir `ingested` cambia `account_revision`. El panel común emite entonces
 `live-account-data-updated` y Patrimonio vuelve a pedir `/api/wealth`; así los
 datos recién guardados aparecen sin pulsar «Actualizar». La primera lectura de
 la página sólo memoriza la revisión: no provoca una segunda carga de rebote.
+
+El final no se oculta en la misma vuelta que detecta esa revisión. Cuando ya no
+queda ni agente leyendo ni informe en manos del manager, el panel conserva
+veinte segundos una fila al 100 % con «TERMINADO» y la hora de actualización.
+Patrimonio rotula esa recarga como «Patrimonio actualizado», no como el genérico
+«Leído», para que el cambio se distinga aun mirando la cabecera. Las cuentas
+fuera del alcance tampoco se cuentan en el pie: la casilla «Sumar» ya decidió
+antes qué forma parte de este cálculo.

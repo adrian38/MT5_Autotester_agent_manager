@@ -184,6 +184,12 @@ class WealthScreenTests(unittest.TestCase):
         self.assertNotIn("sin credenciales", SCRIPT)
         self.assertNotIn("no suman aquí", SCRIPT)
         self.assertNotIn("fuera`", SCRIPT)
+        self.assertNotIn("cuenta(s) sumando", SCRIPT)
+
+    def test_the_automatic_refresh_says_that_it_updated_the_screen(self) -> None:
+        """«Leído» no distinguía la recarga automática del estado anterior."""
+        self.assertIn("Actualizando patrimonio…", SCRIPT)
+        self.assertIn("Patrimonio actualizado a las", SCRIPT)
 
     def test_the_two_detail_panels_are_stacked_at_the_end(self) -> None:
         """En media pantalla la tabla sacaba diez columnas en un palmo.

@@ -159,15 +159,19 @@
   }
 
   function rowsOf(state) {
+    const activeAccounts = (state.account_snapshots || []).length
+      + (state.manager_account_processing || []).length;
     return [
       ...snapshotRows(state), ...managerRows(state), ...auditRows(state),
       ...checkRows(state), ...waitingRows(state),
+      ...completionRows(activeAccounts),
     ];
   }
 
   function rowMarkup(row) {
     const elapsed = since(row.started);
-    return `<article class="process-row${row.waiting ? ' waiting' : ''}">`
+    const state = row.waiting ? ' waiting' : row.complete ? ' complete' : '';
+    return `<article class="process-row${state}">`
       + '<div class="process-head">'
       + `<span class="process-node">${escapeHtml(row.node)}</span>`
       + `<strong>${escapeHtml(row.title)}</strong>`
@@ -181,10 +185,30 @@
 
   let current = [];
   let accountRevision;
+  let completionPending = false;
+  let completionUntil = 0;
+  let completionAt = '';
+
+  function completionRows(activeAccounts) {
+    if (activeAccounts) return [];
+    if (completionPending) {
+      completionPending = false;
+      completionUntil = Date.now() + 20000;
+      completionAt = new Date().toLocaleTimeString('es-ES');
+    }
+    if (Date.now() >= completionUntil) return [];
+    return [{
+      node: 'Manager', title: 'Patrimonio actualizado', phase: 'TERMINADO',
+      percent: 100,
+      detail: `Datos archivados y pantalla actualizada a las ${completionAt}.`,
+      started: '', stop: '', complete: true,
+    }];
+  }
 
   function notifyAccountRevision(state) {
     const revision = String(state.account_revision || '');
     if (accountRevision !== undefined && revision !== accountRevision) {
+      completionPending = true;
       document.dispatchEvent(new CustomEvent('live-account-data-updated', {
         detail: {revision},
       }));
@@ -203,8 +227,9 @@
 
   function headMarkup() {
     const pending = stoppable().length;
+    const finished = current.length && current.every(row => row.complete);
     return '<div class="process-monitor-head">'
-      + '<h2 class="process-title">Procesando cuentas reales ahora</h2>'
+      + `<h2 class="process-title">${finished ? 'Proceso terminado' : 'Procesando cuentas reales ahora'}</h2>`
       + (pending
         ? '<button type="button" class="danger process-stop" id="process-stop"'
           + ' title="Cada agente corta en su primer punto seguro, deja cada'

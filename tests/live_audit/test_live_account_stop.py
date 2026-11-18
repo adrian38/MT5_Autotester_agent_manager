@@ -189,6 +189,14 @@ class ScreenTests(unittest.TestCase):
             "live-account-data-updated", static_source("patrimonio.js"),
         )
 
+    def test_the_finished_batch_stays_visible_long_enough_to_be_read(self) -> None:
+        """Desaparecer al terminar no permite distinguir final de fallo."""
+        self.assertIn("completionPending = true", self.monitor)
+        self.assertIn("completionUntil = Date.now() + 20000", self.monitor)
+        self.assertIn("phase: 'TERMINADO'", self.monitor)
+        self.assertIn("percent: 100", self.monitor)
+        self.assertIn("Proceso terminado", self.monitor)
+
 
 if __name__ == "__main__":
     unittest.main()

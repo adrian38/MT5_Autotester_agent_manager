@@ -736,7 +736,7 @@
     renderCash(data);
   }
 
-  function render(data) {
+  function render(data, refreshed = false) {
     painted = data;
     currency = data.display_currency || 'EUR';
     element('#wealth-totals').innerHTML = totalsMarkup(data);
@@ -758,13 +758,14 @@
     renderByAlias(data);
 
     const moment = new Date(data.generated_at);
-    element('#refresh-state').textContent = `Leído a las ${moment.toLocaleTimeString('es-ES')}`;
+    element('#refresh-state').textContent = refreshed
+      ? `Patrimonio actualizado a las ${moment.toLocaleTimeString('es-ES')}`
+      : `Leído a las ${moment.toLocaleTimeString('es-ES')}`;
     const rates = Object.entries(data.exchange_rates || {})
       .map(([code, rate]) => `${code} ×${rate}`).join(' · ');
     element('#wealth-cron-note').textContent = `Todo en ${currency}`
       + (rates ? ` · ${rates}` : ' · sin cambios guardados')
-      + (data.rates_updated_at ? ` (${data.rates_updated_at})` : '')
-      + ` · ${data.totals.accounts} cuenta(s) sumando`;
+      + (data.rates_updated_at ? ` (${data.rates_updated_at})` : '');
   }
 
   // --- El telón: al entrar no se enseña nada a medias --------------------
@@ -807,9 +808,9 @@
     entering = false;
   }
 
-  async function load() {
+  async function load(status = 'Cargando…', refreshed = false) {
     const state = element('#refresh-state');
-    state.textContent = 'Cargando…';
+    state.textContent = status;
     let failure = '';
     try {
       const response = await fetch('/api/wealth', {cache: 'no-store'});
@@ -826,7 +827,7 @@
       const aliases = loadAliases(data);
       if (entering) await atMost(aliases, WAIT_FOR_ALIASES);
       if (payload !== data) return;
-      render(data);
+      render(data, refreshed);
     } catch (error) {
       failure = error.message;
       state.textContent = 'No se pudo leer el patrimonio';
@@ -988,11 +989,14 @@
     } catch (error) { toast(error.message, true); }
   }
 
-  element('#refresh').addEventListener('click', load);
+  element('#refresh').addEventListener('click', () => load());
   // El panel común ve cuándo el manager termina de archivar una tanda. La
   // pantalla abierta se relee entonces sola: no obliga a pulsar «Actualizar»
   // para ver el patrimonio que acaba de entrar.
-  document.addEventListener('live-account-data-updated', () => load());
+  document.addEventListener(
+    'live-account-data-updated',
+    () => load('Actualizando patrimonio…', true),
+  );
   // El detalle se escucha en el contenedor, no en cada banda: el SVG se
   // reescribe entero en cada repintado y las bandas de antes ya no existen.
   for (const id of ['#wealth-chart', '#wealth-flow-chart']) {
