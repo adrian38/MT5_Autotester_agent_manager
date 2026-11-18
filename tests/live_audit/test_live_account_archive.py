@@ -285,6 +285,73 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(len(stored_movements(record)), 1)
 
 
+class SourceChangeTests(unittest.TestCase):
+    """Cuando la tarjeta pasa a leer otra cuenta, lo archivado es de la vieja.
+
+    Lo que pasó el 2026-11-18 con 67187867@RoboForex-ECN, desviada el día
+    antes a la MT4 3083784 de Axi: la curva de saldo y los 765 movimientos ya
+    eran los de la cuenta nueva, y encima seguía el único apunte de la vieja
+    —1.000 USD del 2026-04-05—, que Patrimonio enseñaba como 910,00 € que ni
+    el resultado ni los flujos explicaban. Las series se habían sustituido
+    porque esa lectura se pide de la vida entera; los apuntes no, porque el
+    informe nuevo no traía ninguno y «sin apuntes no se sustituye».
+    """
+
+    def setUp(self) -> None:
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.archive = LiveAccountArchive(self.folder.name)
+        self.key = account_key("67187867", "RoboForex-ECN")
+        self.archive.merge(
+            "roboforex", self.key, login="67187867", server="RoboForex-ECN",
+            currency="USD", movements=[(moment("2026-04-06T08:00:00"), -0.04)],
+            period_start="", period_end="2026-11-16",
+            balances=[("2026-04-05", 1000.0), ("2026-04-06", 999.96)],
+            cash=[(moment("2026-04-05T20:53:06"), 1000.0, "balance", "Deposit to 67187867")],
+            normalization_version="balance-series-v7-zero-cash-balance",
+        )
+
+    def reread(self, **extra):
+        """La primera lectura de la cuenta nueva: siempre de la vida entera."""
+        return self.archive.merge(
+            "roboforex", self.key, login="3083784", server="Axi-US05-Live",
+            currency="USD", movements=[(moment("2026-09-03T10:21:17"), 1.62)],
+            period_start="2016-11-20", period_end="2026-11-18",
+            balances=[("2026-09-03", 3941.17)], **extra,
+        )
+
+    def test_the_cash_of_the_previous_account_does_not_survive(self) -> None:
+        self.assertEqual(self.reread(cash=[])["cash"], [])
+
+    def test_neither_does_a_balance_the_new_report_never_mentions(self) -> None:
+        record = self.reread(cash=[])
+        self.assertEqual([day for day, _value in stored_balances(record)], ["2026-09-03"])
+
+    def test_the_diary_starts_again_with_the_new_account(self) -> None:
+        record = self.reread(cash=[])
+        self.assertEqual(len(record["snapshots"]), 1)
+        self.assertEqual(record["login"], "3083784")
+
+    def test_a_reading_that_does_not_say_whose_it_is_keeps_the_series(self) -> None:
+        """Borrar exige certeza: sin identidad se conserva, que es lo seguro."""
+        record = self.archive.merge(
+            "roboforex", self.key, login="", server="", currency="USD",
+            movements=[(moment("2026-11-17T08:00:00"), 2.0)],
+            period_start="2026-11-17", period_end="2026-11-17",
+        )
+        self.assertEqual(len(record["cash"]), 1)
+        self.assertEqual(len(record["movements"]), 2)
+
+    def test_the_same_account_still_keeps_what_its_window_did_not_bring(self) -> None:
+        """La regla de siempre: una ventana sin apuntes no es una vida sin ellos."""
+        record = self.archive.merge(
+            "roboforex", self.key, login="67187867", server="roboforex-ecn",
+            currency="USD", movements=[(moment("2026-11-17T08:00:00"), 2.0)],
+            period_start="2026-11-17", period_end="2026-11-17", cash=[],
+        )
+        self.assertEqual(len(record["cash"]), 1)
+
+
 class BalanceSeriesTests(unittest.TestCase):
     """El saldo diario: con qué tamaño operaba la cuenta cada día.
 

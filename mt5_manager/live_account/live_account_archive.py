@@ -87,6 +87,32 @@ def account_key(login: Any, server: Any) -> str:
     return f"{str(login or '').strip()}@{str(server or '').strip()}"
 
 
+def identity(login: Any, server: Any) -> tuple[str, str]:
+    """De qué cuenta es una lectura, en forma comparable. Normaliza una vez."""
+    return str(login or "").strip().casefold(), str(server or "").strip().casefold()
+
+
+def source_changed(stored: dict[str, Any], login: Any, server: Any) -> bool:
+    """Si lo guardado es de **otra** cuenta: la tarjeta cambió de fuente.
+
+    No es `not live_account_alternate.stored_source_matches`: aquello pregunta
+    si hace falta releer y aquí se decide **borrar**, así que sólo vale la
+    certeza de dos identidades completas y distintas (`ai_context/patrimonio.md`).
+    """
+    kept, fresh = identity(stored.get("login"), stored.get("server")), identity(login, server)
+    return bool(all(kept) and all(fresh) and kept != fresh)
+
+
+def empty_record(key: str) -> dict[str, Any]:
+    """Un registro vacío pero completo: todas las claves, ninguna cifra."""
+    return {
+        "account_key": key, "login": "", "server": "", "currency": "",
+        "movements": [], "profits": [], "first_day": "", "last_day": "",
+        "snapshots": [], "balance": 0.0, "equity": 0.0,
+        "balances": [], "cash": [], "normalization_version": "",
+    }
+
+
 def movement_rows(ordered: Iterable[tuple[Any, float]]) -> list[list[Any]]:
     """Los movimientos como los guarda el JSON: `[instante, importe]`."""
     return [[as_utc(moment).isoformat(), float(amount)] for moment, amount in ordered]
@@ -226,12 +252,7 @@ class LiveAccountArchive:
     def read(self, node_id: str, key: str) -> dict[str, Any]:
         """Lo guardado de esa cuenta, o un registro vacío pero completo."""
         path = self._path(node_id, key)
-        empty = {
-            "account_key": key, "login": "", "server": "", "currency": "",
-            "movements": [], "profits": [], "first_day": "", "last_day": "",
-            "snapshots": [], "balance": 0.0, "equity": 0.0,
-            "balances": [], "cash": [], "normalization_version": "",
-        }
+        empty = empty_record(key)
         if not path.is_file():
             return empty
         try:
@@ -419,6 +440,8 @@ class LiveAccountArchive:
         """Mete el sondeo en la serie y devuelve el registro ya guardado."""
         with self.lock:
             stored = self.read(node_id, key)
+            if source_changed(stored, login, server):
+                stored = empty_record(key)
             fresh = self._inside(movement_rows(movements), period_start, period_end)
             combined = self._merged_series(
                 stored_movements(stored), movements, period_start, period_end,

@@ -212,6 +212,30 @@ conservaba como cierre el saldo de 2.000 USD del depósito. Desde
 de mercado; en un apunte de caja es un saldo final legítimo. El cambio de
 versión obliga a releer la vida entera de las cuentas y reemplazar la serie.
 
+El mismo control encontró ese día otros 910,00091 EUR en abril de 2026, y
+tampoco faltaba un apunte: sobraba. La tarjeta 67187867@RoboForex-ECN se
+desvió el 2026-11-17 a una cuenta alternativa —la MT4 3083784 de Axi— y el
+archivo se quedó mezclado. Las series sí se sustituyeron, porque esa primera
+lectura se pide de la vida entera (`live_account_watch._period` ya mira la
+fuente), pero el informe de la cuenta nueva no traía ni un apunte de caja y la
+regla «sin apuntes no se sustituye» conservó el depósito de 1.000 USD del
+2026-04-05 de la cuenta vieja. Una curva de saldo que nunca subió esos mil y un
+flujo que dice que entraron: eso es el descuadre.
+
+Conservar es de la cuenta, no de la tarjeta. Todas las reglas del archivo —el
+periodo manda sobre sus días, un informe vacío no sustituye nada, una serie de
+saldo no se borra por no haberla vuelto a ver— suponen que lo guardado y lo que
+llega son la misma cuenta, y una cuenta alternativa rompe esa suposición. Desde
+`LiveAccountArchive.source_changed`, un registro cuya identidad no es la de la
+lectura se descarta entero antes de fusionar nada; con una identidad a medias
+—sin login, sin servidor— se conserva, porque borrar exige certeza.
+
+**Un archivo ya mezclado no se arregla solo.** Después del cambio, la identidad
+guardada es la de la cuenta nueva, así que la lectura siguiente ya no detecta
+nada y el apunte de la vieja se queda. Limpiarlo es quitar esa fila a mano del
+JSON de la cuenta en `live_accounts/` (y en `wealth_accounts/`, si ya existe
+cuando se haga).
+
 **Lo que no se cuadra nunca es una suma contra otra de distinto alcance.** Un
 mes con una cuenta a medio releer tiene el saldo de las diez y los apuntes de
 nueve: restarlos daría justo el dinero que falta por leer y se leería como un

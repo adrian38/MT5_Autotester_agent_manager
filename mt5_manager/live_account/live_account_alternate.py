@@ -35,6 +35,7 @@ from typing import Any, Callable
 from cryptography.fernet import Fernet, InvalidToken
 
 from . import live_account_inventory
+from .live_account_archive import identity
 from ..common import load_json, save_json, utc_now
 
 MAX_PASSWORD = 512
@@ -315,14 +316,15 @@ def source_identity(
 
 
 def stored_source_matches(stored: dict[str, Any], login: str, server: str) -> bool:
-    """Si el archivo ya pertenece a la cuenta elegida, no a la anterior."""
+    """Si el archivo ya pertenece a la cuenta elegida, no a la anterior.
+
+    Comparar es del archivo (`identity`), que es quien conserva o borra con
+    esa misma respuesta: dos normalizaciones acabarían diciendo cosas
+    distintas de las mismas mayúsculas.
+    """
     if not stored.get("updated_at"):
         return False
-    return (
-        str(stored.get("login") or "").strip().casefold() == str(login).strip().casefold()
-        and str(stored.get("server") or "").strip().casefold()
-        == str(server).strip().casefold()
-    )
+    return identity(stored.get("login"), stored.get("server")) == identity(login, server)
 
 
 def archived_source(
