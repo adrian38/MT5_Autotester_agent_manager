@@ -190,6 +190,8 @@ def announce_collected(
     """
     name = str(node.get("name") or node_id)
     failed, stale = collected["failed"], collected.get("stale") or []
+    carried = list(collected.get("carried") or [])
+    fresh = [row for row in failed if row not in carried]
     period = " a ".join(part for part in collected["period"] if part) or "toda la vida"
     detail = (
         f"{collected['accounts']} cuenta(s) y {collected['movements']} cierre(s), "
@@ -200,11 +202,19 @@ def announce_collected(
             f" {len(stale)} cuenta(s) esperan a leerse enteras porque cambió el "
             "lote al que se presentan; se pide en la lectura siguiente."
         )
-    if failed:
-        detail += " Sin leer: " + "; ".join(failed[:4])
+    if fresh:
+        detail += " Sin leer: " + "; ".join(fresh[:4])
+    if carried:
+        detail += (
+            f" {len(carried)} cuenta(s) siguen sin leer desde el aviso anterior: "
+            "es la misma tanda releída y el agente no ha vuelto a entrar."
+        )
     outcome = str(collected.get("outcome") or "")
     server.live_audit_notifications.add(
-        LEVELS_BY_OUTCOME.get(outcome, "warning"),
+        # Un fallo ya avisado no vuelve a pintar: el final sigue siendo
+        # `partial` y el diario lo reintenta, pero avisar dos veces de lo
+        # mismo enseña a no mirar. Lo de esta pasada manda sobre el perdón.
+        "info" if carried and not fresh else LEVELS_BY_OUTCOME.get(outcome, "warning"),
         f"Sondeo de cuentas {'detenido' if outcome == 'stopped' else 'terminado'}: "
         f"{name}", detail,
         node_id=node_id, node_name=name, kind="account_snapshot_collected",

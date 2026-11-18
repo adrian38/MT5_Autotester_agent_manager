@@ -70,10 +70,35 @@ Lo prueba `tests/live_audit/test_live_account_collect_guard.py`, y la prueba
 que importa no es que el candado conteste sino que esté echado **mientras**
 `collect` corre: la de 10:41 es exactamente esa ventana.
 
-## Lo que esto no arregla
+## El otro aviso del mismo día: la tanda releída
 
-Reingestar una tanda ya recogida vuelve a sonar la campana con los fallos por
-cuenta que trae guardados, sin reintentar ninguno. Ese mismo día AXI publicó
-dos veces, a las 10:27:40 y a las 10:41:43, el mismo
-`60268704@Axi-US51-Live: ... (-6, 'Terminal: Authorization failed')` con las
-mismas cifras: no eran dos fallos, era uno releído.
+Ese mismo 10:41 AXI publicó por segunda vez, a las 10:41:43, el
+`60268704@Axi-US51-Live: ... (-6, 'Terminal: Authorization failed')` que ya
+había publicado a las 10:27:40, con las mismas cifras —4 cuentas y 3142
+cierres—. No eran dos fallos: era uno releído. El `ingested` guardado lleva el
+`snapshot_id` **y las versiones de serie**
+(`live_account_report.ingestion_key`), así que subir `SERIES_VERSION` obliga a
+releer los mismos informes y a rehacer el archivo. Lo que no se rehace es el
+trabajo del agente: la cuenta en la que no pudo entrar sigue con su error de
+entonces y nadie la ha reintentado.
+
+`live_account_ingest._carried_failures` separa los dos orígenes:
+
+- **Del agente** (`_read_by_agent` dice que no llegó a publicar el informe):
+  si la tanda es la misma que ya se avisó, el fallo está perdonado. El aviso
+  baja a `info` y dice «siguen sin leer desde el aviso anterior».
+- **De esta pasada** (un 404 del relevo de arriba, un sha que no cuadra, un
+  informe que no se deja leer): no se ha avisado nunca, así que sale con su
+  nombre y pintando la campana. Manda sobre el perdón.
+
+**El color no es la política de reintentos.** El `outcome` sigue siendo
+`partial` mientras quede una cuenta sin leer, que es lo que
+`live_account_watch.UNFINISHED_OUTCOMES` necesita para que el diario vuelva a
+entrar. Lo único que cambia es a quién se manda a mirar.
+
+La condición de «el agente leyó esa cuenta» se pregunta en dos sitios —al
+apartar la cuenta sin bajar nada y al repartir los fallos—, y por eso es una
+función y no dos copias del mismo `row.get("status") != "completed"`.
+
+Lo prueba `tests/live_audit/test_live_account_reingest.py`, que recoge la
+misma tanda dos veces cambiando `SERIES_VERSION` entre una y otra.

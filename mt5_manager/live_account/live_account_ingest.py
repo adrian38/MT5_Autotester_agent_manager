@@ -239,6 +239,17 @@ def _period(state: dict[str, Any]) -> tuple[str, str]:
     )
 
 
+def _read_by_agent(row: Any) -> bool:
+    """Si el agente llegó a entrar en esa cuenta y publicó su informe.
+
+    La pregunta se hace en dos sitios y tiene que dar la misma respuesta en
+    los dos: `_merge_accounts` la usa para apartar la cuenta sin bajar nada, y
+    `_settle_collection` para saber cuáles de los fallos vienen del agente y
+    ya se avisaron. Duplicarla era dejar que una de las dos se quedara atrás.
+    """
+    return isinstance(row, dict) and str(row.get("status") or "") == "completed"
+
+
 def _merge_accounts(
     server: Any, node: dict[str, Any], node_id: str, snapshot_id: str,
     state: dict[str, Any], routes: dict[str, Any],
@@ -254,7 +265,7 @@ def _merge_accounts(
     total = len(accounts)
     _manager_progress(server, node_id, 0, total, "Preparando los informes del agente")
     for done, (account_key, row) in enumerate(accounts, 1):
-        if not isinstance(row, dict) or str(row.get("status") or "") != "completed":
+        if not _read_by_agent(row):
             error = row.get("error") if isinstance(row, dict) else ""
             failed.append(f"{account_key}: {error or 'sin leer'}")
             _manager_progress(server, node_id, done, total, f"Recogida {done} de {total}")
@@ -291,6 +302,39 @@ def _manager_progress(
     server.live_account_runs.update(key, **changes)
 
 
+def _carried_failures(
+    run: dict[str, Any], state: dict[str, Any], failed: list[str],
+) -> list[str]:
+    """Los fallos de esta recogida que ya se avisaron con la anterior.
+
+    La misma tanda se recoge dos veces cuando cambia el criterio por lote: el
+    `ingested` guardado lleva el `snapshot_id` y las versiones
+    (`live_account_report.ingestion_key`), así que una versión nueva obliga a
+    releer los mismos informes. Lo que no se repite es el trabajo del agente:
+    la cuenta en la que no pudo entrar sigue exactamente igual, con su error
+    de entonces, y **nadie la ha reintentado**.
+
+    Pasó el 2026-11-18. AXI publicó dos veces, a las 10:27:40 y a las
+    10:41:43, el mismo `60268704@Axi-US51-Live: ... (-6, 'Terminal:
+    Authorization failed')` con las mismas cifras: no eran dos fallos, era uno
+    releído, y el segundo aviso mandaba a mirar algo que no había vuelto a
+    pasar.
+
+    Sólo cuentan los que vienen del agente. Un 404 o un sha que no cuadra son
+    de esta pasada —el agente ya no sirve los informes de una tanda que dejó
+    de ser la visible (`live_account_collect_lock`)— y ésos sí son noticia.
+    """
+    previous = str(run.get("ingested") or "")
+    if not previous or previous.split(":", 1)[0] != str(state.get("snapshot_id") or ""):
+        return []
+    unread = {
+        str(account_key)
+        for account_key, row in (state.get("accounts") or {}).items()
+        if not _read_by_agent(row)
+    }
+    return [row for row in failed if row.split(":", 1)[0] in unread]
+
+
 def _settle_collection(
     server: Any, node_id: str, owner: str, collected_key: str,
     state: dict[str, Any], status: str, period: tuple[str, str],
@@ -305,6 +349,9 @@ def _settle_collection(
         "outcome": outcome,
     }
     runs = server.live_account_runs
+    carried = _carried_failures(
+        runs.record(runs.key(node_id, SNAPSHOT_KEY)), state, failed,
+    )
     runs.update(
         runs.key(node_id, SNAPSHOT_KEY), ingested=collected_key,
         manager_status="done",
@@ -320,6 +367,7 @@ def _settle_collection(
     return {
         "snapshot_id": str(state.get("snapshot_id") or ""),
         "accounts": read, "movements": movements, "failed": failed, "stale": stale,
+        "carried": carried,
         "period": period, "status": status, "outcome": outcome,
     }
 
