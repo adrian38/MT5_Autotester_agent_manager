@@ -30,7 +30,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import live_account_alternate, live_account_watch, live_account_wealth
+from . import (
+    live_account_alternate, live_account_collect_lock, live_account_watch,
+    live_account_wealth,
+)
 from .live_account_ingest import SNAPSHOT_KEY
 from .live_account_wealth import WEALTH_KEY  # noqa: F401  (API de este módulo)
 from .live_account_wealth_schedule import (
@@ -109,7 +112,11 @@ def node_busy(server: Any, node: dict[str, Any], node_id: str) -> str:
     kind = str(job.get("job_type") or "trabajo")
     if str(job.get("status") or "") in BUSY_JOB_STATUSES:
         return f"el agente está ocupado ({kind})"
-    return ""
+    # Lo último, y después de preguntarle al agente: la pregunta de arriba
+    # tarda hasta diez segundos, la recogida corre en el otro hilo y puede
+    # empezar dentro de ellos. Mirarlo sólo al entrar deja abierta esa misma
+    # ventana que el candado viene a cerrar.
+    return live_account_collect_lock.collecting_reason(node_id)
 
 
 def _run_record(runs: Any, node_id: str) -> dict[str, Any]:

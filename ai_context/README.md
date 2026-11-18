@@ -230,6 +230,9 @@ peor que ninguno: quien lo lea creerá que ya ha visto lo que hay.
   comparten la tanda del agente pero no su registro, por qué una relectura
   incompleta gastaba los reintentos del diario y una completa daba su cita por
   cumplida, y qué significa `owner` en `__snapshot__`.
+- `lanzar_sobre_la_recogida.md`: por qué un sondeo lanzado mientras el manager
+  baja los informes del anterior devuelve 404 por cuenta, por qué preguntarle
+  al agente no lo detecta y dónde está el candado que lo cierra.
 - `deleted_portfolio_leaves_live_audit_profile.md`: por qué borrar una cartera
   debe retirar también todos sus usos de auditoría, credenciales y marca activa.
 - `model4_watchdog_mata_su_propia_sincronizacion.md`: por qué fallaban las

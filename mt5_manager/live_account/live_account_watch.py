@@ -23,6 +23,7 @@ from typing import Any
 
 from . import (
     live_account_alternate,
+    live_account_collect_lock,
     live_account_expectation_refresh,
     live_account_ingest,
     live_account_inventory,
@@ -515,11 +516,15 @@ def tick(server: Any, now: datetime | None = None) -> None:
         record_node_issue(server, node, node_id, issue, message)
         if state is None:
             continue
-        try:
-            collected = live_account_ingest.collect(server, node, node_id, state)
-        except Exception as exc:  # una recogida rota no puede parar la vuelta
-            sys.stderr.write(f"[live-account-scheduler] {node_id}: {exc}\n")
-            collected = None
+        # El candado se echa aquí y no dentro de `collect` porque es de la
+        # vuelta: lo que no puede pasar es que un botón lance mientras esta
+        # línea baja informes de la tanda que el agente todavía enseña.
+        with live_account_collect_lock.collecting(node_id):
+            try:
+                collected = live_account_ingest.collect(server, node, node_id, state)
+            except Exception as exc:  # una recogida rota no puede parar la vuelta
+                sys.stderr.write(f"[live-account-scheduler] {node_id}: {exc}\n")
+                collected = None
         if collected is not None:
             delivered = True
             announce_collected(server, node, node_id, collected)

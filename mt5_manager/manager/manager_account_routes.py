@@ -18,9 +18,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..live_account import (
-    live_account_alternate, live_account_dashboard, live_account_inventory,
-    live_account_monthly, live_account_watch, live_account_wealth,
-    live_account_wealth_watch,
+    live_account_alternate, live_account_collect_lock, live_account_dashboard,
+    live_account_inventory, live_account_monthly, live_account_watch,
+    live_account_wealth, live_account_wealth_watch,
 )
 
 ACCOUNTS_PATH = "/api/live-accounts"
@@ -59,6 +59,13 @@ def _snapshot_now(handler) -> dict[str, Any]:
             continue
         if str(state.get("status") or "") in {"queued", "pausing", "extracting", "finalizing", "resuming"}:
             skipped.append({"node_id": node_id, "reason": "Ya hay un sondeo en marcha."})
+            continue
+        # Y después del estado del agente, que es lo que se acaba de pedir:
+        # un sondeo que él ya dio por terminado sigue siendo el único que
+        # sirve, así que lanzar encima deja la recogida a medias
+        # (`live_account_collect_lock`).
+        if reason := live_account_collect_lock.collecting_reason(node_id):
+            skipped.append({"node_id": node_id, "reason": reason})
             continue
         runs = server.live_account_runs
         record = runs.record(runs.key(node_id, live_account_watch.DAILY_KEY))
