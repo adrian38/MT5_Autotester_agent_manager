@@ -378,6 +378,16 @@ Patrimonio rotula esa recarga como «Patrimonio actualizado», no como el genér
 fuera del alcance tampoco se cuentan en el pie: la casilla «Sumar» ya decidió
 antes qué forma parte de este cálculo.
 
+Esa fila del panel es **del archivo diario, no del patrimonio**, y en las tres
+pantallas: quien la dispara es `account_revision`, que sólo mira las tandas
+`__daily__`. Una relectura del patrimonio no la enciende nunca; se ve terminar
+en la fila del manager, que la API publica veinte segundos como «TERMINADO».
+Nació rotulada «Patrimonio actualizado» y el usuario la pilló el 2026-11-18 en
+Cuentas en real diciendo lo que no era; ahora dice «Cuentas en real
+actualizadas», que es lo que el manager guarda en `manager_progress_text` al
+cerrar la tanda. El texto de la cabecera de Patrimonio («Patrimonio actualizado
+a las …») es otra cosa y sigue igual.
+
 Corrección del 2026-11-18 después de probarlo en la pantalla real: despertar el
 poll no basta para que la barra salga **al pulsar**. El evento pinta de inmediato
 una fila optimista del Manager en «INICIANDO», antes de la primera petición a

@@ -206,6 +206,15 @@
     }];
   }
 
+  // Lo que se cierra aquí es **siempre** el archivo diario, en cualquiera de
+  // las tres pantallas: quien dispara la fila es `account_revision`, que sólo
+  // mira las tandas `__daily__` («una relectura de Patrimonio no la cambia»,
+  // `live_account_ingest.account_revision`). Una relectura del patrimonio no
+  // llega hasta aquí: termina en la fila del manager, que la API publica
+  // veinte segundos como TERMINADO. Rotularla «Patrimonio actualizado» decía
+  // lo contrario en la pantalla de Cuentas en real, que es justo donde se ve
+  // (corrección del usuario, 2026-11-18). El nombre es el mismo que ya pone
+  // el manager en `manager_progress_text` al cerrar la tanda.
   function completionRows(activeAccounts) {
     if (activeAccounts) return [];
     if (completionPending) {
@@ -215,7 +224,7 @@
     }
     if (Date.now() >= completionUntil) return [];
     return [{
-      node: 'Manager', title: 'Patrimonio actualizado', phase: 'TERMINADO',
+      node: 'Manager', title: 'Cuentas en real actualizadas', phase: 'TERMINADO',
       percent: 100,
       detail: `Datos archivados y pantalla actualizada a las ${completionAt}.`,
       started: '', stop: '', complete: true,

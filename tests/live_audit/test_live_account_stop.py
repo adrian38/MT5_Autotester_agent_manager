@@ -20,7 +20,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mt5_manager.manager import manager_account_routes
-from tools.package_layout import static_source
+from tools.package_layout import module_source, static_source
 
 STOP_PATH = "/api/nodes/axi/live-accounts/snapshot/stop"
 STOP_PARTS = ["api", "nodes", "axi", "live-accounts", "snapshot", "stop"]
@@ -198,6 +198,23 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("phase: 'TERMINADO'", self.monitor)
         self.assertIn("percent: 100", self.monitor)
         self.assertIn("Proceso terminado", self.monitor)
+
+    def test_the_finished_batch_is_named_after_what_really_finished(self) -> None:
+        """Corrección del usuario (2026-11-18): decía «Patrimonio actualizado».
+
+        La fila la dispara `account_revision`, que sólo cambia con las tandas
+        `__daily__`, así que lo que se acaba de archivar son las cuentas en
+        real; una relectura del patrimonio nunca llega a esta fila. El rótulo
+        tiene que ser el mismo que el manager guarda en
+        `manager_progress_text` al cerrar la tanda.
+        """
+        self.assertIn("title: 'Cuentas en real actualizadas'", self.monitor)
+        self.assertNotIn("title: 'Patrimonio actualizado'", self.monitor)
+        self.assertIn(
+            '"Patrimonio actualizado" if owner == WEALTH_KEY'
+            ' else "Cuentas en real actualizadas"',
+            module_source("live_account_ingest"),
+        )
 
 
 if __name__ == "__main__":
