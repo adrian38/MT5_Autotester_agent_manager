@@ -80,6 +80,46 @@ class CashMovementTests(unittest.TestCase):
         self.assertEqual(balances[-1], ("2026-01-02", 1008.5))
         self.assertEqual(cash[0][1:], (1000.0, "balance", "Initial deposit"))
 
+    def test_an_mt4_apunte_is_five_cells_wide_and_not_fourteen(self) -> None:
+        """Lo que pasó el 2026-11-18 con la MT4 3083784 de Axi.
+
+        La prueba de arriba inventa el apunte con las catorce columnas del
+        cierre, y así pasaba mientras el extracto de verdad perdía los catorce
+        suyos: MT4 imprime el apunte con cinco celdas —ticket, instante, tipo,
+        concepto e importe— y el filtro de ancho los tiraba todos. La misma
+        sección trae además órdenes pendientes canceladas, de once celdas, que
+        no son nada que archivar: el ancho es lo único que las separa.
+        """
+        def row(values: list[str]) -> str:
+            return "<tr>" + "".join(f"<td>{value}</td>" for value in values) + "</tr>"
+
+        statement = ("<html><body>" + row(["Account: 7 Currency: USD"])
+            + row(["Closed Transactions:"])
+            + row(["Ticket", "Open Time", "Type", "Size", "Item", "Price", "S/L",
+                   "T/P", "Close Time", "Price", "Commission", "Taxes", "Swap", "Profit"])
+            + row(["96854958", "2025.09.02 10:33:03", "balance",
+                   "DEP PSCC BK2EEAA AXFSUK USD", "600.00"])
+            + row(["2", "2025.09.03 09:00", "buy", "0.10", "EURUSD", "1.1", "0", "0",
+                   "2025.09.03 10:00", "1.2", "-1", "0", "-0.5", "10"])
+            + row(["105238789", "2026.10.02 17:00:01", "buy stop", "0.01", "euraud",
+                   "1.64541", "1.60441", "1.69341", "2026.10.22 17:00:01", "1.59609",
+                   "cancelled"])
+            + row(["Summary:"]) + row(["Balance:", "608.50", "Equity:", "608.50"])
+            + "</body></html>").encode()
+
+        net, _profit, balances, cash = live_account_report.account_from_html(statement)
+
+        self.assertEqual(
+            cash, [(
+                datetime(2025, 9, 2, 10, 33, 3, tzinfo=timezone.utc),
+                600.0, "balance", "DEP PSCC BK2EEAA AXFSUK USD",
+            )],
+        )
+        # Sin el apunte, el saldo reconstruido hacia atrás daba 608,50 el
+        # primer día: la cuenta dibujada con dinero que no había ingresado.
+        self.assertEqual(balances, [("2025-09-02", 600.0), ("2025-09-03", 608.5)])
+        self.assertEqual(len(net), 1)
+
     def test_a_balance_row_keeps_its_amount_type_and_concept(self) -> None:
         found = cash_movements([
             deal("2026-09-23T13:19:31", "balance", -915.0, "WDL PAY2 BO3S7BA"),

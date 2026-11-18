@@ -236,6 +236,34 @@ nada y el apunte de la vieja se queda. Limpiarlo es quitar esa fila a mano del
 JSON de la cuenta en `live_accounts/` (y en `wealth_accounts/`, si ya existe
 cuando se haga).
 
+## Un extracto MT4 escribe sus apuntes con cinco celdas, no con catorce
+
+Al comprobar lo anterior salió el segundo: de la cuenta leída por MT4 no se
+guardaba ni un apunte. `_closed_rows` aceptaba sólo filas de catorce columnas
+—las de la cabecera de los cierres— y MT4 imprime el apunte con cinco: ticket,
+instante, tipo, concepto e importe. La rama que `_deal` ya tenía para
+`balance`/`credit` leía el importe de la columna 13 y el concepto de la 4, así
+que nunca se ejecutaba con un extracto de verdad. El ancho no es un detalle de
+formato: en esa misma sección viven las órdenes pendientes canceladas, de once
+columnas, que no son nada que archivar.
+
+Lo que escondía era doble, porque el saldo MT4 no viene en la fila: se rehace
+hacia atrás desde el del Summary restando lo que ganó cada operación. Sin los
+apuntes en esa resta, la curva de los meses pasados lleva el dinero que todavía
+no se había ingresado y aun así **cuadra consigo misma**, que es lo que la hacía
+invisible: ni variación ni flujo decían nada. Medido el 2026-11-18 en la MT4
+3083784 de Axi: catorce apuntes por 3.914,19 USD fuera, y septiembre de 2025
+dibujado con 3.941,17 USD cuando la cuenta acababa de abrirse con 600.
+
+La prueba que había —`test_an_mt4_statement_feeds_daily_and_wealth_series`—
+pasaba porque su extracto inventa el apunte con las catorce columnas del
+cierre. Una fila de prueba que el bróker no escribe así no comprueba nada.
+
+Se repara releyendo: la cita de Patrimonio pide `period=("", hoy)`, que
+sustituye serie, saldos y apuntes enteros. Después de esa relectura el
+patrimonio de los meses pasados **baja** en esa cuenta y lo aportado sube: es
+la corrección, no un fallo nuevo.
+
 **Lo que no se cuadra nunca es una suma contra otra de distinto alcance.** Un
 mes con una cuenta a medio releer tiene el saldo de las diez y los apuntes de
 nueve: restarlos daría justo el dinero que falta por leer y se leería como un
