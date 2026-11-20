@@ -30,6 +30,19 @@ class ScreenTests(unittest.TestCase):
         self.assertIn("window.refreshManualCheckReports = refreshManualCheckReports;", script)
         self.assertIn("refreshManualCheckReports()", detail)
 
+    def test_the_reports_refresh_when_the_running_check_finishes(self) -> None:
+        activity = static_source("live_audit_schedule.js")
+        manual_check = static_source("portfolio_manual_check.js")
+
+        self.assertIn("new CustomEvent('manual-check-activity'", activity)
+        self.assertIn("publishManualCheckActivity(state);", activity)
+        self.assertIn(
+            "document.addEventListener('manual-check-activity', refreshReportsWhenCheckFinishes);",
+            manual_check,
+        )
+        self.assertIn("activeManualChecks.has(selectedKey) && !current.has(selectedKey)", manual_check)
+        self.assertIn("if (finished) refreshManualCheckReports();", manual_check)
+
     def test_the_button_and_its_script_are_on_the_ubs_screen(self) -> None:
         page = static_source("portfolios.html")
         script = static_source("portfolio_manual_check.js")

@@ -689,6 +689,12 @@
     return state.manual_checks || [];
   }
 
+  function publishManualCheckActivity(state) {
+    document.dispatchEvent(new CustomEvent('manual-check-activity', {
+      detail: {checks: activityChecks(state)},
+    }));
+  }
+
   function checkText(check) {
     const stage = check.stage_label ? ` · ${check.stage_label}` : '';
     return `Comprobación manual #${check.portfolio_id}${stage} · `
@@ -768,6 +774,7 @@
   }
 
   function applyActivity(state) {
+    publishManualCheckActivity(state);
     activity.hidden = !state.active;
     if (!state.active) return ACTIVITY_QUIET_MS;
     field('#cron-activity-text').textContent = activityText(state);

@@ -51,6 +51,7 @@
   const analysisButton = document.querySelector('#detail-manual-analysis');
   let preview = null;
   let latestCheck = null;
+  let activeManualChecks = new Set();
   let dialogMode = 'launch';
   let automationKind = '';
   const automationSettings = {generation: null, improvement: null, repair: null};
@@ -123,6 +124,21 @@
     else toast('El navegador bloqueó la pestaña del análisis. Permite ventanas emergentes para este manager.', true);
   }
   window.refreshManualCheckReports = refreshManualCheckReports;
+
+  function manualCheckKey(checkNodeId, portfolioId) {
+    return `${checkNodeId}:${Number(portfolioId)}`;
+  }
+
+  function refreshReportsWhenCheckFinishes(event) {
+    const selectedKey = manualCheckKey(nodeId, selectedId);
+    const current = new Set((event.detail?.checks || []).map(check =>
+      manualCheckKey(check.node_id, check.portfolio_id)));
+    const finished = activeManualChecks.has(selectedKey) && !current.has(selectedKey);
+    activeManualChecks = current;
+    if (finished) refreshManualCheckReports();
+  }
+
+  document.addEventListener('manual-check-activity', refreshReportsWhenCheckFinishes);
 
   async function downloadReports(trigger) {
     if (!latestCheck) return;
