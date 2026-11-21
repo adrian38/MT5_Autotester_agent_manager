@@ -23,6 +23,17 @@ function selectedProfile() {
   return config?.profiles.find(item => item.profile_id === profileId);
 }
 
+function leverageText(profile) {
+  return Object.entries(profile?.leverage_by_family || {})
+    .map(([family, leverage]) => `${family} 1:${number(leverage, 0)}`).join(" · ");
+}
+
+function markLoaded(error="") {
+  const state = document.querySelector("#refresh-state");
+  state.textContent = error || `Actualizado ${new Date().toLocaleTimeString("es-ES", {hour:"2-digit", minute:"2-digit"})}`;
+  state.classList.toggle("error-text", Boolean(error));
+}
+
 function checkedFamilies() {
   return [...document.querySelectorAll("#symbol-families input:checked")].map(item => item.value);
 }
@@ -43,7 +54,7 @@ function profileDetail() {
   const selected = selectedProfile();
   if (!selected) return;
   const phases = selected.phases.map(item => `<strong>${esc(item.name)}</strong>: objetivo ${number(item.target_pct, 0)}%, pausa diaria ${number(item.daily_loss_pct, 0)}%, máximo ${number(item.max_loss_pct, 0)}%`).join("<br>");
-  document.querySelector("#profile-detail").innerHTML = `${phases}<br><strong>Apalancamiento:</strong> 1:${number(selected.account_leverage, 0)} · <strong>Tamaños:</strong> ${selected.account_sizes.map(item => `$${number(item, 0)}`).join(" · ")}${selected.note ? `<br>${esc(selected.note)}` : ""}<br><a href="${esc(selected.source_url)}" target="_blank" rel="noopener">Reglas oficiales ↗</a>`;
+  document.querySelector("#profile-detail").innerHTML = `${phases}<br><strong>Apalancamiento:</strong> ${esc(leverageText(selected))} · <strong>Tamaños:</strong> ${selected.account_sizes.map(item => `$${number(item, 0)}`).join(" · ")}${selected.note ? `<br>${esc(selected.note)}` : ""}<br><a href="${esc(selected.source_url)}" target="_blank" rel="noopener">Reglas oficiales ↗</a>`;
 }
 
 function renderProfileContract(capital, selectedFamilies) {
@@ -53,7 +64,7 @@ function renderProfileContract(capital, selectedFamilies) {
   const chosenCapital = sizes.includes(Number(capital)) ? Number(capital) : sizes[0];
   document.querySelector("#capital").innerHTML = sizes.map(item => `<option value="${item}">$${number(item, 0)}</option>`).join("");
   document.querySelector("#capital").value = String(chosenCapital);
-  document.querySelector("#account_leverage").value = `1:${number(selected.account_leverage, 0)}`;
+  document.querySelector("#account_leverage").value = leverageText(selected);
   const allowed = new Set(selected.symbol_families);
   const chosen = new Set((selectedFamilies || []).filter(item => allowed.has(item)));
   if (!chosen.size) selected.symbol_families.forEach(item => chosen.add(item));
@@ -76,6 +87,7 @@ function renderConfig(data) {
   document.querySelector("#plan-profiles").innerHTML = data.profiles.map(item => `<span>${esc(item.firm)} · ${esc(item.program)}</span>`).join("");
   fillForm(data.settings);
   renderState(data.state);
+  markLoaded();
 }
 
 function metric(label, value) {
@@ -105,7 +117,7 @@ function renderPortfolio(result) {
   contract.hidden = false;
   contract.innerHTML = metric("Bankroll disponible", `€${number(settings.bankroll_eur)}`)
     + metric("Capital de la prueba", `$${number(settings.capital, 0)}`)
-    + metric("Apalancamiento aplicado", `1:${number(profile.account_leverage, 0)}`)
+    + metric("Apalancamiento por familia", leverageText(profile))
     + metric("Margen estimado", `$${number(portfolio.margin_required)} · ${number(portfolio.margin_pct, 1)}%`)
     + metric("Net histórico", `$${number(portfolio.net_profit)}`)
     + metric("DD máximo cerrado", `$${number(portfolio.max_drawdown)}`)
@@ -142,7 +154,10 @@ async function refresh() {
     const [state, log] = await Promise.all([request("state"), request("log?lines=300")]);
     renderState(state);
     document.querySelector("#log").textContent = log.lines.join("\n");
-  } catch (error) { document.querySelector("#status").textContent = error.message; }
+  } catch (error) {
+    document.querySelector("#status").textContent = error.message;
+    markLoaded("Error de carga");
+  }
 }
 
 async function post(action, body={}) {
@@ -153,9 +168,15 @@ async function post(action, body={}) {
 }
 
 document.querySelector("#profile_id").addEventListener("change", () => renderProfileContract(document.querySelector("#capital").value, checkedFamilies()));
-document.querySelector("#reload").addEventListener("click", () => location.reload());
+document.querySelector("#reload").addEventListener("click", () => {
+  document.querySelector("#refresh-state").textContent = "Actualizando…";
+  request("config").then(renderConfig).catch(error => markLoaded(error.message));
+});
 document.querySelector("#save").addEventListener("click", () => post("settings", formSettings()));
 document.querySelector("#run").addEventListener("click", () => post("run", formSettings()));
 document.querySelector("#stop").addEventListener("click", () => post("stop"));
-request("config").then(renderConfig).catch(error => document.querySelector("#status").textContent = error.message);
+request("config").then(renderConfig).catch(error => {
+  document.querySelector("#status").textContent = error.message;
+  markLoaded("Error de carga");
+});
 setInterval(refresh, 2000);

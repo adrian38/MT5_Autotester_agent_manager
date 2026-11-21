@@ -70,6 +70,9 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertEqual(profile["profile_id"], "the5ers-growth")
         self.assertEqual(profile["account_sizes"], [5000.0, 10000.0, 20000.0])
         self.assertEqual(profile["account_leverage"], 30.0)
+        self.assertEqual(profile["leverage_by_family"], {
+            "Forex": 30.0, "Metals": 25.0, "Indices": 25.0,
+        })
         self.assertEqual(profile["symbol_families"], ["Forex", "Metals", "Indices"])
         self.assertEqual(config["settings"]["bankroll_eur"], 1000.0)
         self.assertNotIn("horizon_months", config["settings"])

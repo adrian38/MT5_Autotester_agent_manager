@@ -7,7 +7,7 @@ la prop no reinterprete una simulacion antigua.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -36,6 +36,7 @@ class PropProfile:
     note: str = ""
     account_sizes: tuple[float, ...] = ()
     account_leverage: float = 0.0
+    leverage_by_family: dict[str, float] = field(default_factory=dict)
     symbol_families: tuple[str, ...] = ()
     experiment_enabled: bool = False
 
@@ -64,6 +65,7 @@ PROFILES = (
         note="La pausa diaria del 3% detiene la operativa hasta el día siguiente; no falla la cuenta.",
         account_sizes=(5000.0, 10000.0, 20000.0),
         account_leverage=30.0,
+        leverage_by_family={"Forex": 30.0, "Metals": 25.0, "Indices": 25.0},
         symbol_families=("Forex", "Metals", "Indices"),
         experiment_enabled=True,
     ),

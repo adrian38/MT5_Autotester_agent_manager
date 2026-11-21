@@ -48,7 +48,8 @@ class PropExperimentPoolTests(unittest.TestCase):
             model = pool._prop_margin_model(_Source(), {"profile_id": "the5ers-growth"})
         self.assertEqual(model.account_leverage, 30.0)
         self.assertEqual(model.leverage_for("EURUSD"), 30.0)
-        self.assertEqual(model.leverage_for("AAPL"), 30.0)
+        self.assertEqual(model.leverage_for("XAUUSD"), 25.0)
+        self.assertEqual(model.leverage_for("US500"), 25.0)
 
     def test_active_filter_is_independent_from_the_selected_sources(self) -> None:
         callback = mock.Mock(return_value=[{"set_path": "C:/live/Only.set"}])

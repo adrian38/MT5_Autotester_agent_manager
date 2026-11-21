@@ -136,6 +136,7 @@ def _prop_margin_model(source: Any, settings: dict[str, Any]) -> Any:
     })
     return replace(
         base, profile=prop_profile.profile_id, account_leverage=leverage,
+        group_leverage=dict(prop_profile.leverage_by_family),
         stock_leverage=leverage, default_leverage=leverage,
     )
 
