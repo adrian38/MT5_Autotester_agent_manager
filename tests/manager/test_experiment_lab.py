@@ -119,6 +119,16 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(year.days[-1], quarter.days[-1])
         self.assertLessEqual(quarter.months, 4)
 
+    def test_zero_window_keeps_the_complete_dated_history(self):
+        daily = {
+            "2020-01-02": 1.0,
+            "2023-06-15": 2.0,
+            "2026-11-20": 3.0,
+        }
+        axis = lab.build_axis({"a": daily}, window_months=0)
+        self.assertEqual(axis.days, tuple(daily))
+        self.assertEqual(axis.months, 3)
+
 
 class PoolTests(unittest.TestCase):
     def test_the_pool_aligns_three_brokers_on_one_calendar(self):

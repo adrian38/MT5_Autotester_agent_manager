@@ -91,7 +91,6 @@ PER_PAGE_VALUES = {
     # recorta otro backend. Un nombre no basta para saber qué rango se exige,
     # así que estos van por pantalla; los topes son los de
     # `prop_experiment_service.normalize_settings`.
-    ("prop_experiment.html", "horizon_months"): (3, 36, 84),
     ("prop_experiment.html", "max_units_total"): (1, 24, 500),
     # Estos dos los comparte con «Experimenta», que llega mucho más arriba
     # (200 unidades por estrategia y 100.000 candidatas). La pantalla prop

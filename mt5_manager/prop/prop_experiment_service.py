@@ -17,7 +17,6 @@ from .prop_profiles import EXPERIMENT_PROFILE_IDS, profile, profiles_payload
 DEFAULT_SETTINGS: dict[str, Any] = {
     "profile_id": "the5ers-growth", "capital": 5000.0, "bankroll_eur": 1000.0,
     "symbol_families": ["Forex", "Metals", "Indices"],
-    "horizon_months": 36,
     "source_nodes": [], "include_candidates": True, "include_seeds": True,
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "max_candidates_per_node": 150, "max_seeds_per_node": 150,
@@ -72,7 +71,6 @@ def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[st
         "capital": capital,
         "bankroll_eur": max(safe_float(value["bankroll_eur"], 1000.0), 0.0),
         "symbol_families": families,
-        "horizon_months": safe_int(value["horizon_months"], 36, minimum=3, maximum=84),
         "source_nodes": [str(item) for item in value["source_nodes"] if str(item)],
         "include_candidates": bool(value["include_candidates"]),
         "include_seeds": bool(value["include_seeds"]),

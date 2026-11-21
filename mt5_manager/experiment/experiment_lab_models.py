@@ -138,19 +138,22 @@ def build_axis(series_by_key: dict[str, dict[str, float]], *, window_months: int
     all_days = sorted({day for series in series_by_key.values() for day in series})
     if not all_days:
         return LabAxis(days=(), month_index=(), months=0)
-    last = date.fromisoformat(all_days[-1])
-    months = max(int(window_months), 1)
-    # Primer día incluido: el mismo día de mes, `months` meses antes.
-    start_month = last.month - months
-    start_year = last.year
-    while start_month <= 0:
-        start_month += 12
-        start_year -= 1
-    try:
-        first = date(start_year, start_month, last.day)
-    except ValueError:
-        first = date(start_year, start_month, 28)
-    days = tuple(day for day in all_days if date.fromisoformat(day) > first)
+    requested_months = int(window_months)
+    if requested_months <= 0:
+        days = tuple(all_days)
+    else:
+        last = date.fromisoformat(all_days[-1])
+        # Primer día incluido: el mismo día de mes, `months` meses antes.
+        start_month = last.month - requested_months
+        start_year = last.year
+        while start_month <= 0:
+            start_month += 12
+            start_year -= 1
+        try:
+            first = date(start_year, start_month, last.day)
+        except ValueError:
+            first = date(start_year, start_month, 28)
+        days = tuple(day for day in all_days if date.fromisoformat(day) > first)
     keys: list[str] = []
     index: list[int] = []
     for day in days:

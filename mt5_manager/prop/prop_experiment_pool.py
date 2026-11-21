@@ -209,7 +209,7 @@ def load_pool(
     margin = _prop_margin_model(first_source, settings)
     pool, axis, notes = lab.build_lab_strategies(
         loaded, margin_model=margin, portable_symbols=frozenset(),
-        window_months=int(settings["horizon_months"]), progress=checkpoint,
+        window_months=0, progress=checkpoint,
     )
     warnings.extend(notes)
     seed_keys = {item.key for item in pool if item.set_id in seed_ids}

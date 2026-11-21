@@ -1,5 +1,5 @@
 const api = "/api/prop-experiment/";
-const numeric = ["bankroll_eur","horizon_months","risk_unit_pct","max_strategies","max_units_total","max_candidates_per_node","max_seeds_per_node","max_units_per_strategy","search_pool_limit","max_days_per_phase","trial_stride_days","max_trials"];
+const numeric = ["bankroll_eur","risk_unit_pct","max_strategies","max_units_total","max_candidates_per_node","max_seeds_per_node","max_units_per_strategy","search_pool_limit","max_days_per_phase","trial_stride_days","max_trials"];
 const switches = ["include_candidates","include_seeds","include_manual_portfolios","active_portfolios_only"];
 let config = null;
 

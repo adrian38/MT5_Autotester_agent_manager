@@ -59,6 +59,7 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertIn("Familias de símbolos", page)
         self.assertIn("portfolio_curve_view.js", page)
         self.assertIn("Plan de pruebas prop", page)
+        self.assertNotIn("Ventana histórica", page)
         self.assertEqual(self.request("/prop_experiment.js")[0], 200)
         status, config = self.request("/api/prop-experiment/config")
         self.assertEqual(status, 200)
@@ -69,6 +70,7 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertEqual(profile["account_leverage"], 30.0)
         self.assertEqual(profile["symbol_families"], ["Forex", "Metals", "Indices"])
         self.assertEqual(config["settings"]["bankroll_eur"], 1000.0)
+        self.assertNotIn("horizon_months", config["settings"])
 
     def test_vantage_is_visible_but_never_selected(self) -> None:
         config = self.request("/api/prop-experiment/config")[1]
