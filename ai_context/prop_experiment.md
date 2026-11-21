@@ -38,6 +38,11 @@ caben en su ventana de simulación y añade posiciones mínimas ejecutables mien
 mejore el resultado y quede margen de la cuenta prop. El lotaje y la composición
 son resultado, no configuración del usuario.
 
+El progreso no se oculta en un `<details>`: la pantalla mantiene visible el
+mismo monitor de cinco etapas que generación (fuentes, histórico, evaluación,
+composición y resultado), junto con el log vivo. La evaluación base registra
+cada estrategia y la construcción registra cada posición añadida.
+
 El resultado conserva una copia completa del perfil prop. Los perfiles son
 datos versionados en `prop_profiles.py`; cuando una firma cambie reglas se
 actualiza el perfil y la fecha, no se mueve lógica a UBS.

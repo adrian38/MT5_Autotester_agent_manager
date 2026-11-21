@@ -141,19 +141,45 @@ function renderResult(result) {
   renderPortfolio(result);
 }
 
+function monitorStage(job) {
+  if (job.status === "completed") return 5;
+  const progress = String(job.progress || "").toLowerCase();
+  if (progress.includes("búsqueda ")) return 4;
+  if (progress.includes("evaluando estrategia") || progress.includes("buscando con")) return 3;
+  if (progress.includes("recortando series")) return 2;
+  return job.status === "idle" ? 0 : 1;
+}
+
+function renderMonitor(job, lines) {
+  const stage = monitorStage(job);
+  document.querySelector("#monitor-title").textContent = job.error || job.progress
+    || (job.status === "completed" ? "Búsqueda terminada" : "Esperando una búsqueda");
+  document.querySelector("#stage-count").textContent = `${stage} / 5`;
+  document.querySelectorAll("#stage-list [data-stage]").forEach(item => {
+    const value = Number(item.dataset.stage);
+    item.classList.toggle("completed", value < stage || job.status === "completed");
+    item.classList.toggle("current", value === stage && job.status === "running");
+    item.classList.toggle("failed", value === stage && job.status === "failed");
+  });
+  const log = document.querySelector("#log");
+  log.textContent = lines?.length ? lines.join("\n") : "El log aparecerá al iniciar la búsqueda.";
+  log.scrollTop = log.scrollHeight;
+}
+
 function renderState(state) {
   const running = state.job.status === "running";
   document.querySelector("#status").textContent = state.job.error || state.job.progress || state.job.status;
   document.querySelector("#run").disabled = running;
   document.querySelector("#stop").disabled = !running;
   renderResult(state.result);
+  renderMonitor(state.job);
 }
 
 async function refresh() {
   try {
     const [state, log] = await Promise.all([request("state"), request("log?lines=300")]);
     renderState(state);
-    document.querySelector("#log").textContent = log.lines.join("\n");
+    renderMonitor(state.job, log.lines);
   } catch (error) {
     document.querySelector("#status").textContent = error.message;
     markLoaded("Error de carga");

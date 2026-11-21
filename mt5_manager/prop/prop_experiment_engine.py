@@ -193,7 +193,11 @@ def search(
         axis=axis, profile=profile, capital=capital,
         max_days=120,
     )
-    singles = [(evaluate(strategies, {item.lab.key: 1}, **kwargs), item) for item in strategies]
+    singles = []
+    for index, item in enumerate(strategies, 1):
+        singles.append((evaluate(strategies, {item.lab.key: 1}, **kwargs), item))
+        if progress:
+            progress(f"Evaluando estrategia {index}/{len(strategies)} · {item.lab.origin}")
     singles.sort(key=lambda pair: pair[0].score, reverse=True)
     ranked = [item for _evaluation, item in singles]
     allocations: dict[str, int] = {}

@@ -45,8 +45,6 @@ input[readonly] { color: var(--lime); font-weight: 800; }
 .source-note { color: var(--muted); font-size: 12px; }
 .profile-detail { margin-top: 16px; border-left: 3px solid var(--lime); background: #08110f; padding: 12px 14px; color: var(--muted); font-size: 13px; }
 .profile-detail strong { color: var(--ink); }
-.settings > details, .log-box { margin-top: 18px; }
-.settings > details > summary, .log-box > summary { cursor: pointer; color: var(--muted); }
 .actions { display: flex; gap: 10px; margin-top: 24px; }
 .actions button { border: 0; border-radius: 9px; padding: 11px 16px; background: var(--lime); color: #06100c; font-weight: 800; cursor: pointer; }
 .actions button.secondary { background: #263b35; color: var(--ink); }
@@ -71,7 +69,8 @@ th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
 .badge { display: inline-block; border-radius: 999px; padding: 3px 8px; background: #263b35; }
 .badge.seed { background: #334f19; color: #caff9c; }
 .badge.manual { background: #553f18; color: #ffe0a3; }
-.log-box pre { max-height: 250px; overflow: auto; background: #07100d; padding: 14px; border-radius: 10px; color: #a9c0b7; white-space: pre-wrap; }
+.prop-monitor { margin: 0 0 20px; background: #08110f; }
+.prop-monitor .monitor-head h3 { margin: 3px 0 0; color: var(--ink); font-size: 16px; letter-spacing: 0; text-transform: none; }
 .methodology { grid-column: 1/-1; }
 .methodology > p { color: var(--muted); max-width: 900px; }
 .method-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
