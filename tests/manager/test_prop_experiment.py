@@ -51,10 +51,15 @@ class PropExperimentEngineTests(unittest.TestCase):
 
     def test_seeds_are_added_not_substituted_for_current_candidates(self) -> None:
         pool = [_strategy("candidate", 100.0, (10.0,)), _strategy("seed", 200.0, (20.0,))]
-        normalized = risk_normalized_pool(pool, {"seed"}, 10000.0, 1.0)
+        normalized = risk_normalized_pool(pool, {"seed"}, set(), 10000.0, 1.0)
         self.assertEqual([item.source_kind for item in normalized], ["candidate", "seed"])
         self.assertEqual(normalized[0].series, (10.0,))
         self.assertEqual(normalized[1].series, (10.0,))
+
+    def test_manual_portfolios_remain_a_distinct_source(self) -> None:
+        pool = [_strategy("candidate", 100.0, (10.0,)), _strategy("manual", 100.0, (10.0,))]
+        normalized = risk_normalized_pool(pool, set(), {"manual"}, 10000.0, 1.0)
+        self.assertEqual([item.source_kind for item in normalized], ["candidate", "manual"])
 
     def test_daily_loss_uses_each_days_opening_balance(self) -> None:
         rules = _profile(PropPhase("Evaluation", 50.0, 3.0, 50.0))

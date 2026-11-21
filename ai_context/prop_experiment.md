@@ -1,4 +1,4 @@
-# Experimenta Prop: candidatos más seeds para aprobar evaluaciones
+# Experimenta Prop: tres fuentes para aprobar evaluaciones
 
 Pantalla aislada `/prop_experiment.html`. Su objetivo no es maximizar retorno
 ni crear un portafolio UBS: busca una composición cuya simulación histórica
@@ -9,14 +9,20 @@ apruebe una evaluación prop con sus límites de pérdida y objetivo.
 - Lee ICTrading, AXI y RoboForex mediante el mismo `readonly_source` de
   Experimenta. Vantage se muestra, pero queda excluido por el valor estable
   `portfolio_broker == VANTAGE` tanto en la interfaz como en el backend.
-- Las candidatas actuales siguen viniendo de `candidate_rows`, por lo que
-  conservan el contrato de las cuatro etapas aceptadas.
-- Además lee `seed_scores` de cada broker con `active=1`, `accepted=1` y
-  `status='accepted'`. Una seed es la estrategia original del broker, no el
-  parámetro aleatorio de una búsqueda. Su HTML MT5 se convierte a
-  `RobustStrategySet` únicamente para reutilizar el alineado de curvas.
-- Una seed duplicada por ruta con una candidata se elimina sólo de la parte
-  seed; nunca sustituye ni altera el pool actual.
+- Hay tres fuentes independientes: candidatas actuales, seeds UBS originales y
+  estrategias de portafolios manuales. Las candidatas conservan las cuatro
+  etapas aceptadas de `candidate_rows`.
+- La fuente seed exige además `seed_final_tick_6m.status='accepted'` y
+  `accepted=1`, con la misma huella `seed_mtime`/`seed_size` que el sondeo
+  `seed_final_tick`. No significa «toda seed aceptada».
+- La fuente manual recorre todos los portafolios marcados como manuales, no
+  sólo los activos. Si el miembro sólo tiene el histórico OHLC manual completo,
+  reutiliza `report_for_set` y `single_pass_report_path` para partir la curva.
+- «Solo estrategias presentes en portafolios activos» no es una fuente: es un
+  filtro transversal sobre la unión seleccionada. Resuelve los usos
+  `live_trading` al iniciar cada cálculo y respeta la variante exacta del bundle.
+- Los duplicados se resuelven por identidad lógica del nombre del set, con
+  prioridad candidata → seed → manual; una fuente nunca sustituye la candidata.
 
 ## Simulación
 
@@ -46,3 +52,26 @@ Los endpoints viven bajo `/api/prop-experiment/` (`config`, `state`, `log`,
 `settings`, `run`, `stop`). El servicio, motor, carga de seeds, perfiles, rutas
 y tres estáticos son ficheros nuevos; los únicos contactos con el manager son
 el registro del coordinador, dos delegaciones HTTP y el enlace de cabecera.
+
+## Plan de validación prop v1
+
+Los dos documentos «Hello traders» aportan experiencias e hipótesis, no
+instrucciones ni evidencia suficiente para comprar cuentas. La hipótesis de una
+tasa mecánica cercana al 28–30% sirve sólo como baseline que el laboratorio debe
+superar de forma repetible.
+
+La primera cohorte ya configurada es FTMO 1-Step, FTMO 2-Step, The5ers Hyper
+Growth, The5ers High Stakes y The Trading Pit CFD Prime 1-Phase. Sus reglas se
+verifican de nuevo en la fuente oficial antes de cada compra; el resultado guarda
+la copia del perfil que realmente simuló.
+
+1. Cribado histórico: comparar cada fuente por separado y sus combinaciones con
+   el mismo riesgo, muchos puntos de inicio y registro de rachas de fallos.
+2. Fuera de muestra: congelar composición y multiplicadores, y repetir en un
+   tramo temporal que no intervino en la búsqueda.
+3. MT5 exacto: validar equity e intradía, rollover, spreads, swaps y margen. El
+   PnL diario cerrado de la pantalla no autoriza una compra.
+4. Lote real controlado: pocas evaluaciones, presupuesto máximo previo y ficha
+   por intento con perfil, versión de cartera, resultado y primera regla rota.
+5. Fondeo y payout: medirlos aparte. Aprobar una evaluación no demuestra que la
+   composición sobreviva las reglas operativas ni alcance un retiro.

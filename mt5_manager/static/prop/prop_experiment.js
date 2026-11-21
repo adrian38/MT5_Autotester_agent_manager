@@ -1,5 +1,6 @@
 const api = "/api/prop-experiment/";
 const numeric = ["capital","horizon_months","risk_unit_pct","max_strategies","max_units_total","max_candidates_per_node","max_seeds_per_node","max_units_per_strategy","search_pool_limit","max_days_per_phase","trial_stride_days","max_trials"];
+const switches = ["include_candidates","include_seeds","include_manual_portfolios","active_portfolios_only"];
 let config = null;
 
 async function request(path, options={}) {
@@ -13,8 +14,7 @@ function formSettings() {
   const source_nodes = [...document.querySelectorAll("#nodes input:checked")].map(item => item.value);
   const result = {profile_id:document.querySelector("#profile_id").value, source_nodes};
   numeric.forEach(id => result[id] = Number(document.querySelector(`#${id}`).value));
-  result.include_candidates = document.querySelector("#include_candidates").checked;
-  result.include_seeds = document.querySelector("#include_seeds").checked;
+  switches.forEach(id => result[id] = document.querySelector(`#${id}`).checked);
   return result;
 }
 
@@ -28,8 +28,7 @@ function profileDetail() {
 function fillForm(settings) {
   document.querySelector("#profile_id").value = settings.profile_id;
   numeric.forEach(id => document.querySelector(`#${id}`).value = settings[id]);
-  document.querySelector("#include_candidates").checked = settings.include_candidates;
-  document.querySelector("#include_seeds").checked = settings.include_seeds;
+  switches.forEach(id => document.querySelector(`#${id}`).checked = settings[id]);
   document.querySelectorAll("#nodes input").forEach(item => item.checked = settings.source_nodes.includes(item.value));
   profileDetail();
 }
@@ -38,6 +37,7 @@ function renderConfig(data) {
   config = data;
   document.querySelector("#profile_id").innerHTML = data.profiles.map(item => `<option value="${item.profile_id}">${item.firm} · ${item.program}</option>`).join("");
   document.querySelector("#nodes").innerHTML = data.nodes.map(item => `<label class="node ${item.excluded ? "excluded" : ""}"><input type="checkbox" value="${item.id}" ${item.excluded ? "disabled" : ""}><span><strong>${item.name}</strong><br><small>${item.broker}${item.excluded ? " · excluido de este laboratorio" : ""}</small></span></label>`).join("");
+  document.querySelector("#plan-profiles").innerHTML = data.profiles.map(item => `<span>${item.firm} · ${item.program}</span>`).join("");
   fillForm(data.settings);
   renderState(data.state);
 }
@@ -48,10 +48,11 @@ function renderResult(result) {
   if (!result) return;
   const evaluation = result.evaluation;
   document.querySelector("#metrics").classList.remove("empty");
-  document.querySelector("#metrics").innerHTML = metric("Probabilidad histórica", `${evaluation.pass_rate.toFixed(1)}%`) + metric("Trials aprobados", `${evaluation.passed}/${evaluation.trials}`) + metric("Mediana para aprobar", evaluation.median_days ? `${evaluation.median_days} días` : "—") + metric("Pool", `${result.pool.candidates} candidatas + ${result.pool.seeds} seeds`);
+  document.querySelector("#metrics").innerHTML = metric("Probabilidad histórica", `${evaluation.pass_rate.toFixed(1)}%`) + metric("Trials aprobados", `${evaluation.passed}/${evaluation.trials}`) + metric("Mediana para aprobar", evaluation.median_days ? `${evaluation.median_days} días` : "—") + metric("Pool", `${result.pool.candidates} candidatas + ${result.pool.seeds} seeds + ${result.pool.manual || 0} manuales`);
   document.querySelector("#axis").textContent = `${result.axis.from} → ${result.axis.to}`;
   document.querySelector("#warnings").innerHTML = (result.warnings || []).map(item => `<div class="warning">${item}</div>`).join("");
-  document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td>${item.origin}</td><td><span class="badge ${item.source_kind}">${item.source_kind === "seed" ? "Seed" : "Candidata"}</span></td><td title="${item.set_path}">${item.set_id}</td><td>${item.symbol}</td><td>${item.timeframe || "—"}</td><td>${item.units}</td><td>${item.risk_multiplier.toFixed(3)}×</td></tr>`).join("");
+  const labels = {seed:"Seed 6M", manual:"Manual", candidate:"Candidata"};
+  document.querySelector("#allocations").innerHTML = result.allocations.map(item => `<tr><td>${item.origin}</td><td><span class="badge ${item.source_kind}">${labels[item.source_kind] || item.source_kind}</span></td><td title="${item.set_path}">${item.set_id}</td><td>${item.symbol}</td><td>${item.timeframe || "—"}</td><td>${item.units}</td><td>${item.risk_multiplier.toFixed(3)}×</td></tr>`).join("");
 }
 
 function renderState(state) {

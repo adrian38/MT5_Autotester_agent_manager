@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Collection
 
 from portfolio_manager.ubs_portfolio import RobustStrategySet
 from portfolio_manager.ubs_portfolio.reports import period_report_from_strategy_report
@@ -26,21 +26,40 @@ def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
     return row is not None
 
 
-def accepted_seed_rows(source: Any) -> list[dict[str, Any]]:
+def accepted_seed_rows(
+    source: Any, *, require_final_tick_6m: bool = False,
+) -> list[dict[str, Any]]:
     """Seeds activas que superaron su backtest propio en el agente."""
     with source.connect(write=False) as connection:
         if not _table_exists(connection, "seed_scores"):
             return []
+        if require_final_tick_6m and not all(
+            _table_exists(connection, table)
+            for table in ("seed_final_tick", "seed_final_tick_6m")
+        ):
+            return []
         connection.row_factory = sqlite3.Row
-        rows = connection.execute(
-            """
-            select id, seed_path, symbol, period, family, report_path, score,
-                   metrics_json, status, active
-              from seed_scores
-             where active=1 and accepted=1 and status='accepted'
-             order by score desc, id desc
-            """
-        ).fetchall()
+        joins = """
+            join seed_final_tick probe on probe.seed_id = seed_scores.id
+            join seed_final_tick_6m six on six.seed_id = seed_scores.id
+             and six.seed_mtime = probe.seed_mtime
+             and six.seed_size = probe.seed_size
+        """ if require_final_tick_6m else ""
+        extra = """
+             and probe.status in ('accepted', 'pending_ohlc_trades')
+             and six.status = 'accepted' and six.accepted = 1
+        """ if require_final_tick_6m else ""
+        rows = connection.execute(f"""
+            select seed_scores.id, seed_scores.seed_path, seed_scores.symbol,
+                   seed_scores.period, seed_scores.family, seed_scores.report_path,
+                   seed_scores.score, seed_scores.metrics_json,
+                   seed_scores.status, seed_scores.active
+              from seed_scores {joins}
+             where seed_scores.active=1 and seed_scores.accepted=1
+               and seed_scores.status='accepted'
+                   {extra}
+             order by seed_scores.score desc, seed_scores.id desc
+        """).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -83,8 +102,13 @@ def load_seed_sets(
     *,
     parse: Callable[[Path], Any],
     limit: int,
+    require_final_tick_6m: bool = False,
+    allowed_set_names: Collection[str] | None = None,
 ) -> tuple[list[RobustStrategySet], list[str], int]:
-    rows = accepted_seed_rows(source)
+    rows = accepted_seed_rows(source, require_final_tick_6m=require_final_tick_6m)
+    if allowed_set_names is not None:
+        allowed = {str(name).casefold() for name in allowed_set_names}
+        rows = [row for row in rows if Path(str(row.get("seed_path") or "")).name.casefold() in allowed]
     total = len(rows)
     if limit > 0:
         rows = rows[:limit]

@@ -49,7 +49,8 @@ class SearchResult:
 
 
 def risk_normalized_pool(
-    pool: Sequence[LabStrategy], seed_keys: set[str], capital: float, risk_unit_pct: float,
+    pool: Sequence[LabStrategy], seed_keys: set[str], manual_keys: set[str],
+    capital: float, risk_unit_pct: float,
 ) -> list[PropStrategy]:
     risk_amount = capital * risk_unit_pct / 100.0
     normalized: list[PropStrategy] = []
@@ -57,7 +58,10 @@ def risk_normalized_pool(
         multiplier = risk_amount / max(item.valley_dd, 1.0)
         normalized.append(PropStrategy(
             lab=item,
-            source_kind="seed" if item.key in seed_keys else "candidate",
+            source_kind=(
+                "seed" if item.key in seed_keys
+                else "manual" if item.key in manual_keys else "candidate"
+            ),
             risk_multiplier=multiplier,
             series=tuple(value * multiplier for value in item.series),
         ))

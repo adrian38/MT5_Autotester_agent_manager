@@ -52,7 +52,10 @@ class PropExperimentRouteTests(unittest.TestCase):
     def test_page_assets_and_profiles_are_served(self) -> None:
         status, page = self.request("/prop_experiment.html")
         self.assertEqual(status, 200)
-        self.assertIn("Seeds originales", page)
+        self.assertIn("Seeds UBS con Final Tick 6M", page)
+        self.assertIn("Estrategias de portafolios manuales", page)
+        self.assertIn("Solo estrategias presentes en portafolios activos", page)
+        self.assertIn("Plan de pruebas prop", page)
         self.assertEqual(self.request("/prop_experiment.js")[0], 200)
         status, config = self.request("/api/prop-experiment/config")
         self.assertEqual(status, 200)
@@ -65,14 +68,15 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertTrue(vantage["excluded"])
         status, saved = self.request("/api/prop-experiment/settings", {
             "source_nodes": ["ic", "vantage"], "include_candidates": True,
-            "include_seeds": True,
+            "include_seeds": True, "include_manual_portfolios": True,
         })
         self.assertEqual(status, 200)
         self.assertEqual(saved["settings"]["source_nodes"], ["ic"])
 
-    def test_seed_and_candidate_switches_cannot_both_be_off(self) -> None:
+    def test_all_three_source_switches_cannot_be_off(self) -> None:
         status, error = self.request("/api/prop-experiment/settings", {
             "include_candidates": False, "include_seeds": False,
+            "include_manual_portfolios": False, "active_portfolios_only": True,
         })
         self.assertEqual(status, 400)
         self.assertIn("seeds", error["error"])

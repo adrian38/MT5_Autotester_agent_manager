@@ -141,6 +141,15 @@ class PortfolioCoordinatorCoreMixin:
     ) -> dict[str, Any]:
         if not active_portfolios_requested(settings):
             return settings
+        return {
+            **settings,
+            "_active_portfolio_members": self.active_portfolio_members(node_id, source),
+        }
+
+    def active_portfolio_members(
+        self, node_id: str, source: PortfolioSource,
+    ) -> list[dict[str, Any]]:
+        """Miembros de los usos activos, con la variante exacta seleccionada."""
         state = self.live_audit_settings.state(node_id) if self.live_audit_settings else {}
         profiles = state.get("profiles") or {}
         live_profiles = [
@@ -170,7 +179,7 @@ class PortfolioCoordinatorCoreMixin:
             )
         if not members:
             raise ValueError("No hay estrategias en portafolios activos de este broker")
-        return {**settings, "_active_portfolio_members": members}
+        return members
 
     @staticmethod
     def _key(node_id: str, scope: str) -> str:

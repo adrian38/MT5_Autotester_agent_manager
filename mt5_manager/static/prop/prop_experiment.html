@@ -12,7 +12,7 @@
     <div>
       <p class="eyebrow">LABORATORIO AISLADO · SOLO LECTURA</p>
       <h1>Experimenta <span>Prop</span></h1>
-      <p>Busca carteras para aprobar la evaluación, mezclando candidatas y seeds originales.</p>
+      <p>Busca carteras para aprobar la evaluación combinando tres fuentes verificables.</p>
     </div>
     <div class="header-actions">
       <span id="refresh-state">Cargando…</span>
@@ -36,8 +36,11 @@
       <div id="nodes" class="nodes"></div>
       <div class="source-options">
         <label><input id="include_candidates" type="checkbox"> Candidatas actuales (embudo completo)</label>
-        <label><input id="include_seeds" type="checkbox"> Seeds originales aceptadas</label>
+        <label><input id="include_seeds" type="checkbox"> Seeds UBS con Final Tick 6M aceptado</label>
+        <label><input id="include_manual_portfolios" type="checkbox"> Estrategias de portafolios manuales</label>
+        <label class="active-filter"><input id="active_portfolios_only" type="checkbox"> Solo estrategias presentes en portafolios activos</label>
       </div>
+      <p class="source-note">Los tres primeros checks son fuentes. El último filtra la unión elegida y respeta la variante activa exacta.</p>
       <details>
         <summary>Ajustes avanzados</summary>
         <div class="grid advanced">
@@ -66,6 +69,20 @@
         <tbody id="allocations"></tbody>
       </table></div>
       <details class="log-box"><summary>Progreso y registro</summary><pre id="log"></pre></details>
+    </section>
+
+    <section class="panel methodology">
+      <div class="section-title"><h2>Plan de pruebas prop · v1</h2><span>Hipótesis → evidencia</span></div>
+      <p>Las experiencias de los dos análisis se usarán como hipótesis de trabajo, no como reglas. Cada cohorte se medirá con las reglas oficiales del perfil elegido.</p>
+      <div class="method-grid">
+        <article><b>1 · Cribado histórico</b><span>Comparar fuentes por separado y combinadas, con muchos inicios y el mismo presupuesto de riesgo.</span></article>
+        <article><b>2 · Fuera de muestra</b><span>Congelar la composición y repetir en un tramo que no participó en la búsqueda.</span></article>
+        <article><b>3 · Validación MT5</b><span>Reproducir equity, pérdida intradía, spreads, swaps y rollover exacto antes de comprar.</span></article>
+        <article><b>4 · Lote controlado</b><span>Ejecutar pocas evaluaciones reales, registrar cada intento y limitar el coste total.</span></article>
+        <article><b>5 · Fondeo y payout</b><span>Medir aprobación y cobro como etapas distintas; una no demuestra la otra.</span></article>
+      </div>
+      <h3>Props iniciales ya configuradas</h3>
+      <div id="plan-profiles" class="plan-profiles"></div>
     </section>
   </main>
   <footer>Simulación orientativa: usa PnL cerrado diario. La validación final debe ejecutarse en MT5 con equity e intradía.</footer>

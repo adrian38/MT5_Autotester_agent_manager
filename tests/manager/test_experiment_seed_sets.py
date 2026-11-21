@@ -54,6 +54,16 @@ class SeedSetsTests(unittest.TestCase):
                     (2, "two.set", "GBPUSD", "H1", "seed", "two.html", 10.0, "{}", "rejected", 1, 0),
                 ],
             )
+            connection.execute(
+                "create table seed_final_tick (seed_id integer, status text, "
+                "seed_mtime real, seed_size integer)"
+            )
+            connection.execute(
+                "create table seed_final_tick_6m (seed_id integer, status text, accepted integer, "
+                "seed_mtime real, seed_size integer)"
+            )
+            connection.execute("insert into seed_final_tick values (1,'accepted',10.0,20)")
+            connection.execute("insert into seed_final_tick_6m values (1,'accepted',1,10.0,20)")
             connection.commit()
         finally:
             connection.close()
@@ -65,6 +75,19 @@ class SeedSetsTests(unittest.TestCase):
     def test_only_active_accepted_seed_scores_enter_the_pool(self) -> None:
         rows = accepted_seed_rows(self.source)
         self.assertEqual([row["id"] for row in rows], [1])
+
+    def test_prop_filter_requires_a_current_accepted_final_tick_6m(self) -> None:
+        rows = accepted_seed_rows(self.source, require_final_tick_6m=True)
+        self.assertEqual([row["id"] for row in rows], [1])
+        connection = sqlite3.connect(self.memory)
+        try:
+            connection.execute("update seed_final_tick_6m set seed_size=21")
+            connection.commit()
+        finally:
+            connection.close()
+        self.assertEqual(
+            accepted_seed_rows(self.source, require_final_tick_6m=True), [],
+        )
 
     def test_the_seed_report_becomes_a_regular_curve_for_the_shared_aligner(self) -> None:
         (self.root / "one.set").write_text("set", encoding="utf-8")

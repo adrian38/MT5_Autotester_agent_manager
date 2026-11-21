@@ -17,6 +17,7 @@ from .prop_profiles import PROFILE_BY_ID, profile, profiles_payload
 DEFAULT_SETTINGS: dict[str, Any] = {
     "profile_id": "ftmo-1-step", "capital": 100000.0, "horizon_months": 36,
     "source_nodes": [], "include_candidates": True, "include_seeds": True,
+    "include_manual_portfolios": True, "active_portfolios_only": False,
     "max_candidates_per_node": 150, "max_seeds_per_node": 150,
     "risk_unit_pct": 0.25, "max_strategies": 8,
     "max_units_per_strategy": 6, "max_units_total": 24,
@@ -44,6 +45,8 @@ def normalize_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "source_nodes": [str(item) for item in value["source_nodes"] if str(item)],
         "include_candidates": bool(value["include_candidates"]),
         "include_seeds": bool(value["include_seeds"]),
+        "include_manual_portfolios": bool(value["include_manual_portfolios"]),
+        "active_portfolios_only": bool(value["active_portfolios_only"]),
         "max_candidates_per_node": safe_int(value["max_candidates_per_node"], 150, minimum=0, maximum=10000),
         "max_seeds_per_node": safe_int(value["max_seeds_per_node"], 150, minimum=0, maximum=10000),
         "risk_unit_pct": min(max(safe_float(value["risk_unit_pct"], 0.25), 0.01), 5.0),
@@ -63,11 +66,13 @@ class PropExperimentCoordinator:
     def __init__(
         self, nodes: list[dict[str, Any]], settings_path: Path,
         source_factory: Callable[[str], Any],
+        active_members_factory: Callable[[str, Any], list[dict[str, Any]]] | None = None,
     ) -> None:
         self.nodes = {str(node.get("id")): node for node in nodes}
         self.settings_path = Path(settings_path)
         self.result_path = self.settings_path.with_name("prop_experiment_last_result.json")
         self.source_factory = source_factory
+        self.active_members_factory = active_members_factory
         self.lock = threading.RLock()
         self.log_lines: deque[str] = deque(maxlen=4000)
         self.cancel = threading.Event()
@@ -103,8 +108,10 @@ class PropExperimentCoordinator:
         normalized = normalize_settings(merged)
         allowed = set(self._allowed_nodes())
         normalized["source_nodes"] = [item for item in normalized["source_nodes"] if item in allowed]
-        if not normalized["include_candidates"] and not normalized["include_seeds"]:
-            raise ValueError("Activa candidatas, seeds o ambas")
+        if not any(normalized[key] for key in (
+            "include_candidates", "include_seeds", "include_manual_portfolios",
+        )):
+            raise ValueError("Activa candidatas, seeds o portafolios manuales")
         with self.lock:
             self.stored = normalized
         save_json(self.settings_path, normalized)
@@ -168,20 +175,28 @@ class PropExperimentCoordinator:
         return self.state()
 
     def _run(self, settings: dict[str, Any]) -> None:
-        pool, axis, seed_keys, warnings, origins = load_pool(
-            settings, self.source_factory, self._checkpoint,
+        pool, axis, seed_keys, manual_keys, warnings, origins = load_pool(
+            settings, self.source_factory, self._checkpoint, self.active_members_factory,
         )
         if not pool or not axis.size:
             raise ValueError("El pool no tiene días operables en la ventana elegida")
         normalized = risk_normalized_pool(
-            pool, seed_keys, float(settings["capital"]), float(settings["risk_unit_pct"]),
+            pool, seed_keys, manual_keys,
+            float(settings["capital"]), float(settings["risk_unit_pct"]),
         )
-        self._checkpoint(f"Buscando con {len(pool)} estrategias ({len(seed_keys)} seeds)")
+        self._checkpoint(
+            f"Buscando con {len(pool)} estrategias "
+            f"({len(seed_keys)} seeds, {len(manual_keys)} manuales)"
+        )
         found = search(normalized, axis, profile(settings["profile_id"]), settings, self._checkpoint)
         payload = result_payload(found)
         payload.update({
             "profile": profile(settings["profile_id"]).payload(), "settings": settings,
-            "pool": {"strategies": len(pool), "seeds": len(seed_keys), "candidates": len(pool) - len(seed_keys)},
+            "pool": {
+                "strategies": len(pool), "seeds": len(seed_keys),
+                "manual": len(manual_keys),
+                "candidates": len(pool) - len(seed_keys) - len(manual_keys),
+            },
             "origins": origins, "warnings": warnings + [
                 "El drawdown diario e intradía se aproxima con PnL cerrado diario; validar la cartera en MT5 antes de comprar una prueba."
             ],

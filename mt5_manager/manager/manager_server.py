@@ -337,6 +337,7 @@ class ManagerServer(ThreadingHTTPServer):
             self.nodes,
             portfolio_settings_path.with_name("prop_experiment_settings.json"),
             self.experiments.readonly_source,
+            self.portfolios.active_portfolio_members,
         )
 
     def _configure_restart(self, config: dict[str, Any]) -> None:
