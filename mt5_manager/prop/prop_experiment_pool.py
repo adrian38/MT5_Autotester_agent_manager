@@ -29,6 +29,22 @@ def _logical_set_name(value: Any) -> str:
     return re.sub(r"^robust_\d{6}_", "", _set_name(value))
 
 
+def _quarantine_names(source: Any) -> set[str]:
+    names: set[str] = set()
+    for row in source.quarantine_rows():
+        path = row.get("set_path")
+        names.update((_set_name(path), _logical_set_name(path)))
+    return {name for name in names if name}
+
+
+def _without_quarantine(items: list[Any], names: set[str]) -> list[Any]:
+    return [
+        item for item in items
+        if _set_name(item.set_path) not in names
+        and _logical_set_name(item.set_path) not in names
+    ]
+
+
 def _row_family_allowed(row: dict[str, Any], settings: dict[str, Any]) -> bool:
     allowed = set(settings.get("symbol_families") or [])
     symbol = row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol")
@@ -145,9 +161,20 @@ def load_origin(
     seeds, seed_total = _seed_sets(source, settings, allowed, warnings, checkpoint)
     manual, manual_total = _manual_sets(source, settings, allowed, warnings, checkpoint)
     unfiltered = len(candidates) + len(seeds) + len(manual)
+    quarantined = _quarantine_names(source)
+    candidates = _without_quarantine(candidates, quarantined)
+    seeds = _without_quarantine(seeds, quarantined)
+    manual = _without_quarantine(manual, quarantined)
+    quarantine_filtered_out = unfiltered - len(candidates) - len(seeds) - len(manual)
+    if quarantine_filtered_out:
+        checkpoint(
+            f"{source.broker}: {quarantine_filtered_out} estrategias excluidas por cuarentena"
+        )
+    after_quarantine = len(candidates) + len(seeds) + len(manual)
     candidates = _filter_symbol_families(candidates, settings)
     seeds = _filter_symbol_families(seeds, settings)
     manual = _filter_symbol_families(manual, settings)
+    after_family = len(candidates) + len(seeds) + len(manual)
     candidate_names = {_logical_set_name(item.set_path) for item in candidates}
     seeds = [item for item in seeds if _logical_set_name(item.set_path) not in candidate_names]
     used_names = candidate_names | {_logical_set_name(item.set_path) for item in seeds}
@@ -164,7 +191,9 @@ def load_origin(
         "seeds_loaded": len(seeds),
         "manual_total": manual_total,
         "manual_loaded": len(manual),
-        "family_filtered_out": unfiltered - len(candidates) - len(seeds) - len(manual),
+        "quarantine_filtered_out": quarantine_filtered_out,
+        "family_filtered_out": after_quarantine - after_family,
+        "duplicate_filtered_out": after_family - len(candidates) - len(seeds) - len(manual),
         "error": "",
     }
     return loaded, seed_ids, manual_ids, meta

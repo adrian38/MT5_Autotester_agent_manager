@@ -16,6 +16,10 @@ class _Source:
     project = Path("C:/agent")
 
     @staticmethod
+    def quarantine_rows() -> list[dict[str, object]]:
+        return []
+
+    @staticmethod
     def saved_portfolios(_scope: str) -> list[dict[str, object]]:
         return [
             {"id": 7, "manual_portfolio": True},
@@ -84,6 +88,29 @@ class PropExperimentPoolTests(unittest.TestCase):
         self.assertEqual(seeds, set())
         self.assertEqual(manual, {"m"})
         self.assertEqual(meta["manual_loaded"], 1)
+
+    def test_quarantine_excludes_every_source_before_deduplication(self) -> None:
+        source = _Source()
+        source.quarantine_rows = lambda: [{"set_path": "C:/discarded/same.set"}]
+        settings = {
+            "include_candidates": True, "include_seeds": True,
+            "include_manual_portfolios": True, "symbol_families": [],
+        }
+        discarded = _item("discarded", "C:/sets/robust_202601_same.set")
+        kept = _item("kept", "C:/sets/kept.set")
+        discarded.symbol = kept.symbol = "EURUSD"
+        with (
+            mock.patch.object(pool, "_candidate_sets", return_value=([kept], 1, 1)),
+            mock.patch.object(pool, "_seed_sets", return_value=([discarded], 1)),
+            mock.patch.object(pool, "_manual_sets", return_value=([discarded], 1)),
+        ):
+            loaded, seeds, manual, meta = pool.load_origin(
+                source, "ic", settings, [], lambda _message: None, None,
+            )
+        self.assertEqual([item.set_id for item, _broker, _node in loaded], ["kept"])
+        self.assertEqual(seeds, set())
+        self.assertEqual(manual, set())
+        self.assertEqual(meta["quarantine_filtered_out"], 2)
 
 
 if __name__ == "__main__":

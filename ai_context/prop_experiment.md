@@ -23,6 +23,11 @@ apruebe una evaluación prop con sus límites de pérdida y objetivo.
   `live_trading` al iniciar cada cálculo y respeta la variante exacta del bundle.
 - Los duplicados se resuelven por identidad lógica del nombre del set, con
   prioridad candidata → seed → manual; una fuente nunca sustituye la candidata.
+- La cuarentena es un filtro transversal igual que «sólo activos»: se cruza por
+  nombre exacto y por identidad lógica antes de deduplicar. Así una seed o una
+  estrategia de portafolio manual no puede reintroducir un set excluido por
+  degradación, OHLC, fallo en real o descarte manual. El origen informa cuántas
+  filas retiró la cuarentena.
 
 ## Simulación
 
