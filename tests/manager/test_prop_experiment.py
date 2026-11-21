@@ -5,7 +5,13 @@ from __future__ import annotations
 import unittest
 
 from mt5_manager.experiment.experiment_lab import LabAxis, LabStrategy
-from mt5_manager.prop.prop_experiment_engine import risk_normalized_pool, simulate_trial
+from mt5_manager.prop.prop_experiment_engine import (
+    Evaluation,
+    SearchResult,
+    result_payload,
+    risk_normalized_pool,
+    simulate_trial,
+)
 from mt5_manager.prop.prop_profiles import PropPhase, PropProfile, profile
 
 
@@ -28,6 +34,10 @@ class PropExperimentEngineTests(unittest.TestCase):
         self.assertEqual(len(profile("ftmo-2-step").phases), 2)
         self.assertEqual(profile("the5ers-high-stakes").firm, "The5ers")
         self.assertEqual(profile("ttp-prime-1-phase").firm, "The Trading Pit")
+        growth = profile("the5ers-growth")
+        self.assertEqual(growth.account_sizes, (5000.0, 10000.0, 20000.0))
+        self.assertEqual(growth.account_leverage, 30.0)
+        self.assertEqual(growth.phases[0].min_profitable_days, 0)
 
     def test_a_trial_passes_only_after_target_and_consistency(self) -> None:
         rules = _profile(PropPhase(
@@ -66,6 +76,20 @@ class PropExperimentEngineTests(unittest.TestCase):
         result = simulate_trial([100.0, -301.0], 0, rules, 10000.0, 3)
         self.assertTrue(result.passed is False)
         self.assertEqual(result.reason, "daily_loss")
+
+    def test_result_contains_the_shared_portfolio_visualization_data(self) -> None:
+        normalized = risk_normalized_pool(
+            [_strategy("candidate", 100.0, (10.0, -5.0, 20.0))], set(), set(), 5000.0, 1.0,
+        )
+        found = SearchResult(
+            {"candidate": 2}, Evaluation(2, 1, 50.0, 3.0, 80.0, {"timeout": 1}),
+            tuple(normalized),
+        )
+        axis = LabAxis(("2026-01-01", "2026-01-02", "2026-01-03"), (0, 0, 0), 1)
+        payload = result_payload(found, axis, 5000.0)
+        self.assertEqual(payload["portfolio"]["net_profit"], 25.0)
+        self.assertEqual(payload["portfolio"]["max_drawdown"], 5.0)
+        self.assertEqual(len(payload["portfolio"]["curve"]), 3)
 
 
 if __name__ == "__main__":

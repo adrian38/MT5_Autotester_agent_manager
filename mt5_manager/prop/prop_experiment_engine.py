@@ -222,22 +222,56 @@ def search(
     return SearchResult(allocations, current, selected)
 
 
-def result_payload(result: SearchResult) -> dict[str, object]:
+def _allocation_payload(item: PropStrategy, units: int) -> dict[str, object]:
+    return {
+        "key": item.lab.key, "origin": item.lab.origin,
+        "origin_node": item.lab.origin_node, "source_kind": item.source_kind,
+        "set_id": item.lab.set_id, "set_path": item.lab.set_path,
+        "symbol": item.lab.symbol, "timeframe": item.lab.timeframe,
+        "units": units, "risk_multiplier": item.risk_multiplier,
+        "net_profit_contribution": sum(item.series) * units,
+        "standalone_valley_dd": item.lab.valley_dd * item.risk_multiplier * units,
+        "margin_required": item.lab.margin_per_unit * item.risk_multiplier * units,
+    }
+
+
+def _portfolio_payload(
+    result: SearchResult, axis: LabAxis, capital: float,
+) -> dict[str, object]:
+    series = combined_series(result.strategies, result.allocations)
+    balance = peak = max_drawdown = 0.0
+    curve: list[dict[str, object]] = []
+    for day, pnl in zip(axis.days, series):
+        balance += pnl
+        peak = max(peak, balance)
+        max_drawdown = max(max_drawdown, peak - balance)
+        curve.append({"time": day, "value": balance})
+    margin = sum(
+        item.lab.margin_per_unit * item.risk_multiplier * result.allocations[item.lab.key]
+        for item in result.strategies
+    )
+    return {
+        "curve": curve, "net_profit": balance, "max_drawdown": max_drawdown,
+        "best_day": max(series, default=0.0), "worst_day": min(series, default=0.0),
+        "active_days": sum(1 for item in series if item), "margin_required": margin,
+        "margin_pct": margin / capital * 100.0 if capital else 0.0,
+    }
+
+
+def result_payload(
+    result: SearchResult, axis: LabAxis | None = None, capital: float = 0.0,
+) -> dict[str, object]:
     evaluation = asdict(result.evaluation)
     evaluation["attempts_per_pass"] = (
         100.0 / result.evaluation.pass_rate if result.evaluation.pass_rate else None
     )
-    return {
+    payload = {
         "evaluation": evaluation,
         "allocations": [
-            {
-                "key": item.lab.key, "origin": item.lab.origin,
-                "origin_node": item.lab.origin_node, "source_kind": item.source_kind,
-                "set_id": item.lab.set_id, "set_path": item.lab.set_path,
-                "symbol": item.lab.symbol, "timeframe": item.lab.timeframe,
-                "units": result.allocations[item.lab.key],
-                "risk_multiplier": item.risk_multiplier,
-            }
+            _allocation_payload(item, result.allocations[item.lab.key])
             for item in result.strategies
         ],
     }
+    if axis is not None:
+        payload["portfolio"] = _portfolio_payload(result, axis, capital)
+    return payload

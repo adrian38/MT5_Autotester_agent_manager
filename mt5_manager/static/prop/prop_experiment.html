@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Experimenta Prop</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/live_audit_analysis.css">
+  <link rel="stylesheet" href="/portfolio_history.css">
   <link rel="stylesheet" href="/prop_experiment.css">
   <link rel="stylesheet" href="/live_audit_schedule.css">
 </head>
@@ -25,7 +28,9 @@
       <div class="section-title"><h2>Diseño de la prueba</h2><span id="status" class="status">Cargando…</span></div>
       <div class="grid">
         <label>Perfil prop<select id="profile_id"></select></label>
-        <label>Capital<input id="capital" type="number" min="1000" step="1000"></label>
+        <label>Capital de la prueba<select id="capital"></select></label>
+        <label>Bankroll disponible (€)<input id="bankroll_eur" type="number" min="0" step="0.01"></label>
+        <label>Apalancamiento permitido<input id="account_leverage" type="text" readonly></label>
         <label>Ventana histórica (meses)<input id="horizon_months" type="number" min="3" max="84"></label>
         <label>Riesgo por unidad (%)<input id="risk_unit_pct" type="number" min="0.01" max="5" step="0.01"></label>
         <label>Máx. estrategias<input id="max_strategies" type="number" min="1" max="50"></label>
@@ -34,6 +39,9 @@
       <div id="profile-detail" class="profile-detail"></div>
       <h3>Brokers de origen</h3>
       <div id="nodes" class="nodes"></div>
+      <h3>Familias de símbolos</h3>
+      <div id="symbol-families" class="symbol-families"></div>
+      <p class="source-note">El embudo descarta las familias no seleccionadas antes de buscar la composición.</p>
       <div class="source-options">
         <label><input id="include_candidates" type="checkbox"> Candidatas actuales (embudo completo)</label>
         <label><input id="include_seeds" type="checkbox"> Seeds UBS con Final Tick 6M aceptado</label>
@@ -63,9 +71,14 @@
     <section class="panel results">
       <div class="section-title"><h2>Resultado</h2><span id="axis"></span></div>
       <div id="metrics" class="metrics empty">Aún no hay un resultado.</div>
+      <div id="result-contract" class="metrics contract-metrics" hidden></div>
       <div id="warnings"></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Unidades</th><th>Multiplicador</th></tr></thead>
+      <section id="portfolio-visual" class="portfolio-result" hidden>
+        <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO</p><h3>Curva combinada</h3><p class="subtitle">La misma visualización del manager, sobre el PnL diario cerrado de la composición seleccionada.</p></div></div>
+        <div id="portfolio-chart" class="audit-analysis-chart" aria-label="Curva combinada del experimento prop"></div>
+      </section>
+      <div class="table-wrap universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members">
+        <thead><tr><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Unid.</th><th>Multiplicador</th><th>Net histórico</th><th>DD riesgo</th><th>Margen</th></tr></thead>
         <tbody id="allocations"></tbody>
       </table></div>
       <details class="log-box"><summary>Progreso y registro</summary><pre id="log"></pre></details>
@@ -86,6 +99,7 @@
     </section>
   </main>
   <footer>Simulación orientativa: usa PnL cerrado diario. La validación final debe ejecutarse en MT5 con equity e intradía.</footer>
+  <script src="/portfolio_curve_view.js"></script>
   <script src="/prop_experiment.js"></script>
   <script src="/manager_restart.js"></script>
   <script src="/main_nav.js"></script>

@@ -11,11 +11,13 @@ from typing import Any, Callable
 from ..common import load_json, safe_float, safe_int, save_json, utc_now
 from .prop_experiment_engine import result_payload, risk_normalized_pool, search
 from .prop_experiment_pool import load_pool
-from .prop_profiles import PROFILE_BY_ID, profile, profiles_payload
+from .prop_profiles import EXPERIMENT_PROFILE_IDS, profile, profiles_payload
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    "profile_id": "ftmo-1-step", "capital": 100000.0, "horizon_months": 36,
+    "profile_id": "the5ers-growth", "capital": 5000.0, "bankroll_eur": 1000.0,
+    "symbol_families": ["Forex", "Metals", "Indices"],
+    "horizon_months": 36,
     "source_nodes": [], "include_candidates": True, "include_seeds": True,
     "include_manual_portfolios": True, "active_portfolios_only": False,
     "max_candidates_per_node": 150, "max_seeds_per_node": 150,
@@ -30,17 +32,46 @@ class PropExperimentCancelled(RuntimeError):
     """El usuario detuvo el cálculo prop."""
 
 
-def normalize_settings(raw: dict[str, Any]) -> dict[str, Any]:
+def _profile_choices(
+    value: dict[str, Any], migrate: bool,
+) -> tuple[str, float, list[str]]:
+    profile_id = str(value["profile_id"])
+    if profile_id not in EXPERIMENT_PROFILE_IDS:
+        if not migrate:
+            raise ValueError(f"Perfil prop no habilitado todavía: {profile_id}")
+        profile_id = str(DEFAULT_SETTINGS["profile_id"])
+    selected = profile(profile_id)
+    capital = safe_float(value["capital"], selected.account_sizes[0])
+    if capital not in selected.account_sizes:
+        if not migrate:
+            offered = ", ".join(f"{item:g}" for item in selected.account_sizes)
+            raise ValueError(f"Capital no ofrecido por {selected.firm}: {offered}")
+        capital = selected.account_sizes[0]
+    raw_families = value.get("symbol_families")
+    families = [str(item) for item in raw_families] if isinstance(raw_families, (list, tuple)) else []
+    unknown = set(families) - set(selected.symbol_families)
+    if unknown:
+        if not migrate:
+            raise ValueError(f"Familias no permitidas: {', '.join(sorted(unknown))}")
+        families = [item for item in families if item in selected.symbol_families]
+    if not families:
+        if not migrate:
+            raise ValueError("Elige al menos una familia de símbolos")
+        families = list(selected.symbol_families)
+    return profile_id, capital, families
+
+
+def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[str, Any]:
     unknown = set(raw) - set(DEFAULT_SETTINGS)
     if unknown:
         raise ValueError(f"Campos desconocidos: {', '.join(sorted(unknown))}")
     value = {**DEFAULT_SETTINGS, **raw}
-    profile_id = str(value["profile_id"])
-    if profile_id not in PROFILE_BY_ID:
-        raise ValueError(f"Perfil prop desconocido: {profile_id}")
+    profile_id, capital, families = _profile_choices(value, migrate)
     return {
         "profile_id": profile_id,
-        "capital": max(safe_float(value["capital"], 100000.0), 1000.0),
+        "capital": capital,
+        "bankroll_eur": max(safe_float(value["bankroll_eur"], 1000.0), 0.0),
+        "symbol_families": families,
         "horizon_months": safe_int(value["horizon_months"], 36, minimum=3, maximum=84),
         "source_nodes": [str(item) for item in value["source_nodes"] if str(item)],
         "include_candidates": bool(value["include_candidates"]),
@@ -97,7 +128,7 @@ class PropExperimentCoordinator:
 
     def settings(self) -> dict[str, Any]:
         stored = {key: value for key, value in self.stored.items() if key in DEFAULT_SETTINGS}
-        settings = normalize_settings(stored)
+        settings = normalize_settings(stored, migrate=True)
         allowed = self._allowed_nodes()
         selected = [item for item in settings["source_nodes"] if item in allowed]
         settings["source_nodes"] = selected or allowed
@@ -189,7 +220,7 @@ class PropExperimentCoordinator:
             f"({len(seed_keys)} seeds, {len(manual_keys)} manuales)"
         )
         found = search(normalized, axis, profile(settings["profile_id"]), settings, self._checkpoint)
-        payload = result_payload(found)
+        payload = result_payload(found, axis, float(settings["capital"]))
         payload.update({
             "profile": profile(settings["profile_id"]).payload(), "settings": settings,
             "pool": {

@@ -23,6 +23,7 @@ VALID_VALUES = {
     "generation-repair-attempts": (1, 20),
     "repair-attempts": (1, 20),
     "capital": (0.5, 5000, 10000.25),
+    "bankroll_eur": (0, 1000, 1000000.5),
     "valley_dd_pct": (0.5, 6, 6.05),
     "max_daily_dd": (0.5, 150, 150.25),
     "top_k_per_symbol": (1, 3, 20),
@@ -86,12 +87,10 @@ VALID_VALUES = {
 
 PER_PAGE_VALUES = {
     # `prop_experiment.html` comparte tres nombres con otras pantallas, y en
-    # cada una significan otra cosa: `capital` es el tamaño de la cuenta prop y
-    # el capital por cartera en UBS, y los horizontes y topes de unidades los
+    # cada una significan otra cosa: los horizontes y topes de unidades los
     # recorta otro backend. Un nombre no basta para saber qué rango se exige,
     # así que estos van por pantalla; los topes son los de
     # `prop_experiment_service.normalize_settings`.
-    ("prop_experiment.html", "capital"): (1000, 100000, 200000),
     ("prop_experiment.html", "horizon_months"): (3, 36, 84),
     ("prop_experiment.html", "max_units_total"): (1, 24, 500),
     # Estos dos los comparte con «Experimenta», que llega mucho más arriba

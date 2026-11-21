@@ -34,6 +34,10 @@ class PropProfile:
     source_url: str
     verified_on: str = "2026-11-09"
     note: str = ""
+    account_sizes: tuple[float, ...] = ()
+    account_leverage: float = 0.0
+    symbol_families: tuple[str, ...] = ()
+    experiment_enabled: bool = False
 
     def payload(self) -> dict[str, Any]:
         return asdict(self)
@@ -54,9 +58,14 @@ PROFILES = (
     ),
     PropProfile(
         "the5ers-growth", "The5ers", "Hyper Growth (1-Step)", (
-            PropPhase("Evaluación", 10.0, 3.0, 6.0, min_profitable_days=3),
+            PropPhase("Evaluación", 10.0, 3.0, 6.0),
         ), "00:00 servidor", "https://the5ers.com/hyper-growth/",
-        note="Confirmar los días mínimos de la variante comercial antes de comprarla.",
+        verified_on="2026-11-21",
+        note="La pausa diaria del 3% detiene la operativa hasta el día siguiente; no falla la cuenta.",
+        account_sizes=(5000.0, 10000.0, 20000.0),
+        account_leverage=30.0,
+        symbol_families=("Forex", "Metals", "Indices"),
+        experiment_enabled=True,
     ),
     PropProfile(
         "the5ers-high-stakes", "The5ers", "High Stakes", (
@@ -72,6 +81,9 @@ PROFILES = (
 )
 
 PROFILE_BY_ID = {profile.profile_id: profile for profile in PROFILES}
+EXPERIMENT_PROFILE_IDS = frozenset(
+    item.profile_id for item in PROFILES if item.experiment_enabled
+)
 
 
 def profile(profile_id: str) -> PropProfile:
@@ -82,4 +94,4 @@ def profile(profile_id: str) -> PropProfile:
 
 
 def profiles_payload() -> list[dict[str, Any]]:
-    return [item.payload() for item in PROFILES]
+    return [item.payload() for item in PROFILES if item.experiment_enabled]

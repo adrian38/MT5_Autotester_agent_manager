@@ -55,11 +55,20 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertIn("Seeds UBS con Final Tick 6M", page)
         self.assertIn("Estrategias de portafolios manuales", page)
         self.assertIn("Solo estrategias presentes en portafolios activos", page)
+        self.assertIn("Bankroll disponible (€)", page)
+        self.assertIn("Familias de símbolos", page)
+        self.assertIn("portfolio_curve_view.js", page)
         self.assertIn("Plan de pruebas prop", page)
         self.assertEqual(self.request("/prop_experiment.js")[0], 200)
         status, config = self.request("/api/prop-experiment/config")
         self.assertEqual(status, 200)
-        self.assertGreaterEqual(len(config["profiles"]), 5)
+        self.assertEqual(len(config["profiles"]), 1)
+        profile = config["profiles"][0]
+        self.assertEqual(profile["profile_id"], "the5ers-growth")
+        self.assertEqual(profile["account_sizes"], [5000.0, 10000.0, 20000.0])
+        self.assertEqual(profile["account_leverage"], 30.0)
+        self.assertEqual(profile["symbol_families"], ["Forex", "Metals", "Indices"])
+        self.assertEqual(config["settings"]["bankroll_eur"], 1000.0)
 
     def test_vantage_is_visible_but_never_selected(self) -> None:
         config = self.request("/api/prop-experiment/config")[1]
@@ -80,6 +89,20 @@ class PropExperimentRouteTests(unittest.TestCase):
         })
         self.assertEqual(status, 400)
         self.assertIn("seeds", error["error"])
+
+    def test_capital_and_symbol_family_must_be_offered_by_the_profile(self) -> None:
+        status, error = self.request("/api/prop-experiment/settings", {
+            "capital": 100000, "symbol_families": ["Forex"],
+        })
+        self.assertEqual(status, 400)
+        self.assertIn("Capital no ofrecido", error["error"])
+        status, saved = self.request("/api/prop-experiment/settings", {
+            "capital": 10000, "bankroll_eur": 1000,
+            "symbol_families": ["Forex", "Metals"],
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(saved["settings"]["capital"], 10000.0)
+        self.assertEqual(saved["settings"]["symbol_families"], ["Forex", "Metals"])
 
     def test_unknown_routes_still_fall_through(self) -> None:
         self.assertEqual(self.request("/api/prop-experiment/nope")[0], 404)

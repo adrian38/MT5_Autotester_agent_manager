@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from portfolio_manager.ubs_portfolio import MarginModel
 from mt5_manager.prop import prop_experiment_pool as pool
 
 
@@ -33,6 +34,22 @@ def _item(set_id: str, set_path: str) -> SimpleNamespace:
 
 
 class PropExperimentPoolTests(unittest.TestCase):
+    def test_symbol_families_filter_the_funnel_before_search(self) -> None:
+        items = [
+            SimpleNamespace(symbol="EURUSD"),
+            SimpleNamespace(symbol="XAUUSD"),
+            SimpleNamespace(symbol="BTCUSD"),
+        ]
+        filtered = pool._filter_symbol_families(items, {"symbol_families": ["Forex", "Metals"]})
+        self.assertEqual([item.symbol for item in filtered], ["EURUSD", "XAUUSD"])
+
+    def test_prop_leverage_replaces_the_origin_brokers_leverage(self) -> None:
+        with mock.patch.object(pool, "build_margin_model", return_value=MarginModel()):
+            model = pool._prop_margin_model(_Source(), {"profile_id": "the5ers-growth"})
+        self.assertEqual(model.account_leverage, 30.0)
+        self.assertEqual(model.leverage_for("EURUSD"), 30.0)
+        self.assertEqual(model.leverage_for("AAPL"), 30.0)
+
     def test_active_filter_is_independent_from_the_selected_sources(self) -> None:
         callback = mock.Mock(return_value=[{"set_path": "C:/live/Only.set"}])
         allowed = pool._allowed_names(

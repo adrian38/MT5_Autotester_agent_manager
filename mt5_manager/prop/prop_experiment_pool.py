@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import sqlite3
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
 from portfolio_manager.ubs_portfolio import (
-    DEFAULT_ACCOUNT_LEVERAGE,
     load_robust_sets_from_rows,
+    portfolio_group_key,
 )
 
 from ..experiment import experiment_lab as lab
@@ -18,6 +19,7 @@ from ..experiment.experiment_service import ExperimentCoordinator
 from ..portfolio.portfolio_coordinator_core import _relocated_member
 from ..portfolio.portfolio_identity import _allocation_source_rows
 from ..portfolio.portfolio_service import build_margin_model, cached_report
+from .prop_profiles import profile
 
 
 def _set_name(value: Any) -> str:
@@ -26,6 +28,12 @@ def _set_name(value: Any) -> str:
 
 def _logical_set_name(value: Any) -> str:
     return re.sub(r"^robust_\d{6}_", "", _set_name(value))
+
+
+def _row_family_allowed(row: dict[str, Any], settings: dict[str, Any]) -> bool:
+    allowed = set(settings.get("symbol_families") or [])
+    symbol = row.get("executable_symbol") or row.get("target_symbol") or row.get("symbol")
+    return not allowed or portfolio_group_key(str(symbol or "")) in allowed
 
 
 def _allowed_names(
@@ -52,6 +60,7 @@ def _candidate_sets(
     if allowed is not None:
         rows = [row for row in rows if _set_name(row.get("set_path")) in allowed]
     total = len(rows)
+    rows = [row for row in rows if _row_family_allowed(row, settings)]
     trim_settings = {"max_candidates_per_node": settings["max_candidates_per_node"]}
     rows = ExperimentCoordinator._trim_candidates(rows, trim_settings, source.broker, warnings)
     checkpoint(f"{source.broker}: cargando {len(rows)} candidatas de {total}")
@@ -71,9 +80,13 @@ def _seed_sets(
         return [], 0
     checkpoint(f"{source.broker}: leyendo seeds con Final Tick 6M aceptado")
     loaded, notes, total = load_seed_sets(
-        source, parse=cached_report, limit=int(settings["max_seeds_per_node"]),
+        source, parse=cached_report, limit=0,
         require_final_tick_6m=True, allowed_set_names=allowed,
     )
+    loaded = _filter_symbol_families(loaded, settings)
+    limit = int(settings["max_seeds_per_node"])
+    if limit > 0:
+        loaded = loaded[:limit]
     warnings.extend(notes)
     return loaded, total
 
@@ -108,6 +121,25 @@ def _manual_sets(
     return loaded, len(rows)
 
 
+def _filter_symbol_families(items: list[Any], settings: dict[str, Any]) -> list[Any]:
+    allowed = set(settings.get("symbol_families") or [])
+    if not allowed:
+        return items
+    return [item for item in items if portfolio_group_key(item.symbol) in allowed]
+
+
+def _prop_margin_model(source: Any, settings: dict[str, Any]) -> Any:
+    prop_profile = profile(str(settings["profile_id"]))
+    leverage = prop_profile.account_leverage
+    base = build_margin_model(source, {
+        "margin_profile": source.broker.lower(), "account_leverage": leverage,
+    })
+    return replace(
+        base, profile=prop_profile.profile_id, account_leverage=leverage,
+        stock_leverage=leverage, default_leverage=leverage,
+    )
+
+
 def load_origin(
     source: Any, node_id: str, settings: dict[str, Any], warnings: list[str],
     checkpoint: Callable[[str], None], allowed: set[str] | None,
@@ -117,6 +149,10 @@ def load_origin(
     )
     seeds, seed_total = _seed_sets(source, settings, allowed, warnings, checkpoint)
     manual, manual_total = _manual_sets(source, settings, allowed, warnings, checkpoint)
+    unfiltered = len(candidates) + len(seeds) + len(manual)
+    candidates = _filter_symbol_families(candidates, settings)
+    seeds = _filter_symbol_families(seeds, settings)
+    manual = _filter_symbol_families(manual, settings)
     candidate_names = {_logical_set_name(item.set_path) for item in candidates}
     seeds = [item for item in seeds if _logical_set_name(item.set_path) not in candidate_names]
     used_names = candidate_names | {_logical_set_name(item.set_path) for item in seeds}
@@ -133,6 +169,7 @@ def load_origin(
         "seeds_loaded": len(seeds),
         "manual_total": manual_total,
         "manual_loaded": len(manual),
+        "family_filtered_out": unfiltered - len(candidates) - len(seeds) - len(manual),
         "error": "",
     }
     return loaded, seed_ids, manual_ids, meta
@@ -169,10 +206,7 @@ def load_pool(
             }
     if not loaded or first_source is None:
         raise ValueError("Ningún broker devolvió estrategias cargables")
-    margin = build_margin_model(first_source, {
-        "margin_profile": first_source.broker.lower(),
-        "account_leverage": DEFAULT_ACCOUNT_LEVERAGE,
-    })
+    margin = _prop_margin_model(first_source, settings)
     pool, axis, notes = lab.build_lab_strategies(
         loaded, margin_model=margin, portable_symbols=frozenset(),
         window_months=int(settings["horizon_months"]), progress=checkpoint,
