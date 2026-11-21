@@ -45,8 +45,8 @@ input[readonly] { color: var(--lime); font-weight: 800; }
 .source-note { color: var(--muted); font-size: 12px; }
 .profile-detail { margin-top: 16px; border-left: 3px solid var(--lime); background: #08110f; padding: 12px 14px; color: var(--muted); font-size: 13px; }
 .profile-detail strong { color: var(--ink); }
-details { margin-top: 18px; }
-summary { cursor: pointer; color: var(--muted); }
+.settings > details, .log-box { margin-top: 18px; }
+.settings > details > summary, .log-box > summary { cursor: pointer; color: var(--muted); }
 .actions { display: flex; gap: 10px; margin-top: 24px; }
 .actions button { border: 0; border-radius: 9px; padding: 11px 16px; background: var(--lime); color: #06100c; font-weight: 800; cursor: pointer; }
 .actions button.secondary { background: #263b35; color: var(--ink); }
