@@ -26,11 +26,17 @@ apruebe una evaluación prop con sus límites de pérdida y objetivo.
 
 ## Simulación
 
-Cada estrategia se normaliza para que una unidad represente
-`risk_unit_pct` del capital según su valley drawdown. Los trials empiezan en
-distintos días históricos, siempre que quepa la duración completa de todas las
-fases. Se comprueban objetivo, pérdida diaria, pérdida máxima estática o
-trailing EOD, días mínimos, días rentables y consistencia.
+Cada estrategia entra con su posición mínima ejecutable real. Los trials empiezan
+en distintos días históricos, siempre que quepa la duración completa de todas
+las fases. Se comprueban objetivo, pérdida diaria, pérdida máxima estática o
+trailing EOD, días mínimos, días rentables, consistencia y margen disponible.
+
+Desde el 2026-11-22 la pantalla no expone topes de estrategias, unidades, pool
+ni trials. Esos campos recortaban la búsqueda que se pretendía optimizar. El
+motor carga todas las candidatas y seeds válidas, prueba todos los inicios que
+caben en su ventana de simulación y añade posiciones mínimas ejecutables mientras
+mejore el resultado y quede margen de la cuenta prop. El lotaje y la composición
+son resultado, no configuración del usuario.
 
 El resultado conserva una copia completa del perfil prop. Los perfiles son
 datos versionados en `prop_profiles.py`; cuando una firma cambie reglas se

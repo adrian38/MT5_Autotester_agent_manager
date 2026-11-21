@@ -8,8 +8,8 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
-from ..common import load_json, safe_float, safe_int, save_json, utc_now
-from .prop_experiment_engine import result_payload, risk_normalized_pool, search
+from ..common import load_json, safe_float, save_json, utc_now
+from .prop_experiment_engine import executable_pool, result_payload, search
 from .prop_experiment_pool import load_pool
 from .prop_profiles import EXPERIMENT_PROFILE_IDS, profile, profiles_payload
 
@@ -19,11 +19,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "symbol_families": ["Forex", "Metals", "Indices"],
     "source_nodes": [], "include_candidates": True, "include_seeds": True,
     "include_manual_portfolios": True, "active_portfolios_only": False,
-    "max_candidates_per_node": 150, "max_seeds_per_node": 150,
-    "risk_unit_pct": 0.25, "max_strategies": 8,
-    "max_units_per_strategy": 6, "max_units_total": 24,
-    "search_pool_limit": 40, "max_days_per_phase": 120,
-    "trial_stride_days": 5, "max_trials": 100,
 }
 
 
@@ -76,16 +71,6 @@ def normalize_settings(raw: dict[str, Any], *, migrate: bool = False) -> dict[st
         "include_seeds": bool(value["include_seeds"]),
         "include_manual_portfolios": bool(value["include_manual_portfolios"]),
         "active_portfolios_only": bool(value["active_portfolios_only"]),
-        "max_candidates_per_node": safe_int(value["max_candidates_per_node"], 150, minimum=0, maximum=10000),
-        "max_seeds_per_node": safe_int(value["max_seeds_per_node"], 150, minimum=0, maximum=10000),
-        "risk_unit_pct": min(max(safe_float(value["risk_unit_pct"], 0.25), 0.01), 5.0),
-        "max_strategies": safe_int(value["max_strategies"], 8, minimum=1, maximum=50),
-        "max_units_per_strategy": safe_int(value["max_units_per_strategy"], 6, minimum=1, maximum=50),
-        "max_units_total": safe_int(value["max_units_total"], 24, minimum=1, maximum=500),
-        "search_pool_limit": safe_int(value["search_pool_limit"], 40, minimum=1, maximum=250),
-        "max_days_per_phase": safe_int(value["max_days_per_phase"], 120, minimum=5, maximum=500),
-        "trial_stride_days": safe_int(value["trial_stride_days"], 5, minimum=1, maximum=60),
-        "max_trials": safe_int(value["max_trials"], 100, minimum=1, maximum=1000),
     }
 
 
@@ -209,15 +194,12 @@ class PropExperimentCoordinator:
         )
         if not pool or not axis.size:
             raise ValueError("El pool no tiene días operables en la ventana elegida")
-        normalized = risk_normalized_pool(
-            pool, seed_keys, manual_keys,
-            float(settings["capital"]), float(settings["risk_unit_pct"]),
-        )
+        executable = executable_pool(pool, seed_keys, manual_keys)
         self._checkpoint(
             f"Buscando con {len(pool)} estrategias "
             f"({len(seed_keys)} seeds, {len(manual_keys)} manuales)"
         )
-        found = search(normalized, axis, profile(settings["profile_id"]), settings, self._checkpoint)
+        found = search(executable, axis, profile(settings["profile_id"]), settings, self._checkpoint)
         payload = result_payload(found, axis, float(settings["capital"]))
         payload.update({
             "profile": profile(settings["profile_id"]).payload(), "settings": settings,

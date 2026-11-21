@@ -6,10 +6,11 @@ import unittest
 
 from mt5_manager.experiment.experiment_lab import LabAxis, LabStrategy
 from mt5_manager.prop.prop_experiment_engine import (
+    _eligible_additions,
     Evaluation,
     SearchResult,
     result_payload,
-    risk_normalized_pool,
+    executable_pool,
     simulate_trial,
 )
 from mt5_manager.prop.prop_profiles import PropPhase, PropProfile, profile
@@ -61,14 +62,14 @@ class PropExperimentEngineTests(unittest.TestCase):
 
     def test_seeds_are_added_not_substituted_for_current_candidates(self) -> None:
         pool = [_strategy("candidate", 100.0, (10.0,)), _strategy("seed", 200.0, (20.0,))]
-        normalized = risk_normalized_pool(pool, {"seed"}, set(), 10000.0, 1.0)
+        normalized = executable_pool(pool, {"seed"}, set())
         self.assertEqual([item.source_kind for item in normalized], ["candidate", "seed"])
         self.assertEqual(normalized[0].series, (10.0,))
-        self.assertEqual(normalized[1].series, (10.0,))
+        self.assertEqual(normalized[1].series, (20.0,))
 
     def test_manual_portfolios_remain_a_distinct_source(self) -> None:
         pool = [_strategy("candidate", 100.0, (10.0,)), _strategy("manual", 100.0, (10.0,))]
-        normalized = risk_normalized_pool(pool, set(), {"manual"}, 10000.0, 1.0)
+        normalized = executable_pool(pool, set(), {"manual"})
         self.assertEqual([item.source_kind for item in normalized], ["candidate", "manual"])
 
     def test_daily_loss_uses_each_days_opening_balance(self) -> None:
@@ -78,8 +79,8 @@ class PropExperimentEngineTests(unittest.TestCase):
         self.assertEqual(result.reason, "daily_loss")
 
     def test_result_contains_the_shared_portfolio_visualization_data(self) -> None:
-        normalized = risk_normalized_pool(
-            [_strategy("candidate", 100.0, (10.0, -5.0, 20.0))], set(), set(), 5000.0, 1.0,
+        normalized = executable_pool(
+            [_strategy("candidate", 100.0, (10.0, -5.0, 20.0))], set(), set(),
         )
         found = SearchResult(
             {"candidate": 2}, Evaluation(2, 1, 50.0, 3.0, 80.0, {"timeout": 1}),
@@ -87,9 +88,18 @@ class PropExperimentEngineTests(unittest.TestCase):
         )
         axis = LabAxis(("2026-01-01", "2026-01-02", "2026-01-03"), (0, 0, 0), 1)
         payload = result_payload(found, axis, 5000.0)
-        self.assertEqual(payload["portfolio"]["net_profit"], 25.0)
-        self.assertEqual(payload["portfolio"]["max_drawdown"], 5.0)
+        self.assertEqual(payload["portfolio"]["net_profit"], 50.0)
+        self.assertEqual(payload["portfolio"]["max_drawdown"], 10.0)
         self.assertEqual(len(payload["portfolio"]["curve"]), 3)
+
+    def test_an_executable_strategy_has_no_arbitrary_unit_cap(self) -> None:
+        normalized = executable_pool(
+            [_strategy("candidate", 1.0, (1.0,))], set(), set(),
+        )
+        self.assertEqual(
+            _eligible_additions(normalized, {"candidate": 100}, 100.0),
+            normalized,
+        )
 
 
 if __name__ == "__main__":

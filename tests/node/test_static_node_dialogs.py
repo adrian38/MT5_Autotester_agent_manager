@@ -73,32 +73,10 @@ VALID_VALUES = {
     "pool_limit": (1, 60, 300),
     "greedy_steps": (0, 240, 2000),
     "max_candidates_per_node": (0, 300, 100000),
-    # Cuentas prop. Los topes son los de
-    # `prop_experiment_service.normalize_settings`, que es quien recorta al
-    # recibir: cada tupla es su minimo, su valor por defecto y su maximo.
-    "risk_unit_pct": (0.01, 0.25, 1.5, 5),
-    "max_strategies": (1, 8, 50),
     "max_seeds_per_node": (0, 150, 10000),
-    "search_pool_limit": (1, 40, 250),
-    "max_days_per_phase": (5, 120, 500),
-    "trial_stride_days": (1, 5, 60),
-    "max_trials": (1, 100, 1000),
 }
 
-PER_PAGE_VALUES = {
-    # `prop_experiment.html` comparte tres nombres con otras pantallas, y en
-    # cada una significan otra cosa: los horizontes y topes de unidades los
-    # recorta otro backend. Un nombre no basta para saber qué rango se exige,
-    # así que estos van por pantalla; los topes son los de
-    # `prop_experiment_service.normalize_settings`.
-    ("prop_experiment.html", "max_units_total"): (1, 24, 500),
-    # Estos dos los comparte con «Experimenta», que llega mucho más arriba
-    # (200 unidades por estrategia y 100.000 candidatas). La pantalla prop
-    # declara los suyos desde que tiene `max`, así que el rango de la otra ya
-    # no se le puede exigir.
-    ("prop_experiment.html", "max_candidates_per_node"): (0, 150, 10000),
-    ("prop_experiment.html", "max_units_per_strategy"): (1, 6, 50),
-}
+PER_PAGE_VALUES = {}
 
 
 class NodeDialogAndNumberInputTests(unittest.TestCase):

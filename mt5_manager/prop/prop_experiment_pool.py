@@ -15,7 +15,6 @@ from portfolio_manager.ubs_portfolio import (
 
 from ..experiment import experiment_lab as lab
 from ..experiment.experiment_seed_sets import load_seed_sets
-from ..experiment.experiment_service import ExperimentCoordinator
 from ..portfolio.portfolio_coordinator_core import _relocated_member
 from ..portfolio.portfolio_identity import _allocation_source_rows
 from ..portfolio.portfolio_service import build_margin_model, cached_report
@@ -61,8 +60,6 @@ def _candidate_sets(
         rows = [row for row in rows if _set_name(row.get("set_path")) in allowed]
     total = len(rows)
     rows = [row for row in rows if _row_family_allowed(row, settings)]
-    trim_settings = {"max_candidates_per_node": settings["max_candidates_per_node"]}
-    rows = ExperimentCoordinator._trim_candidates(rows, trim_settings, source.broker, warnings)
     checkpoint(f"{source.broker}: cargando {len(rows)} candidatas de {total}")
     loaded, notes = load_robust_sets_from_rows(
         rows, [], parse=cached_report,
@@ -84,9 +81,6 @@ def _seed_sets(
         require_final_tick_6m=True, allowed_set_names=allowed,
     )
     loaded = _filter_symbol_families(loaded, settings)
-    limit = int(settings["max_seeds_per_node"])
-    if limit > 0:
-        loaded = loaded[:limit]
     warnings.extend(notes)
     return loaded, total
 

@@ -48,24 +48,22 @@ class SearchResult:
     strategies: tuple[PropStrategy, ...]
 
 
-def risk_normalized_pool(
+def executable_pool(
     pool: Sequence[LabStrategy], seed_keys: set[str], manual_keys: set[str],
-    capital: float, risk_unit_pct: float,
 ) -> list[PropStrategy]:
-    risk_amount = capital * risk_unit_pct / 100.0
-    normalized: list[PropStrategy] = []
+    """Convierte cada estrategia en su posición mínima ejecutable real."""
+    executable: list[PropStrategy] = []
     for item in pool:
-        multiplier = risk_amount / max(item.valley_dd, 1.0)
-        normalized.append(PropStrategy(
+        executable.append(PropStrategy(
             lab=item,
             source_kind=(
                 "seed" if item.key in seed_keys
                 else "manual" if item.key in manual_keys else "candidate"
             ),
-            risk_multiplier=multiplier,
-            series=tuple(value * multiplier for value in item.series),
+            risk_multiplier=1.0,
+            series=tuple(item.series),
         ))
-    return normalized
+    return executable
 
 
 def combined_series(strategies: Sequence[PropStrategy], allocations: dict[str, int]) -> list[float]:
@@ -124,7 +122,10 @@ def _simulate_phase(
         threshold = capital * phase.profitable_day_pct / 100.0
         if pnl > 0 and pnl + 1e-9 >= threshold:
             profitable_days += 1
-        peak_progress = max(peak_progress, (balance - capital) / max(target_amount, 1.0) * 100.0)
+        peak_progress = min(
+            100.0,
+            max(peak_progress, (balance - capital) / max(target_amount, 1.0) * 100.0),
+        )
         days = cursor - start + 1
         if _phase_ready(phase, balance, capital, days, profitable_days, best_day):
             return TrialResult(True, days, "passed", peak_progress), cursor + 1
@@ -148,12 +149,12 @@ def simulate_trial(
 
 def evaluate(
     strategies: Sequence[PropStrategy], allocations: dict[str, int], axis: LabAxis,
-    profile: PropProfile, capital: float, max_days: int, stride: int, max_trials: int,
+    profile: PropProfile, capital: float, max_days: int,
 ) -> Evaluation:
     series = combined_series(strategies, allocations)
     complete_window = max_days * len(profile.phases)
     last_start = max(len(series) - complete_window + 1, 1)
-    starts = list(range(0, last_start, max(stride, 1)))[:max_trials]
+    starts = list(range(last_start))
     results = [simulate_trial(series, start, profile, capital, max_days) for start in starts]
     passed_days = [result.days for result in results if result.passed]
     failures: dict[str, int] = {}
@@ -171,14 +172,15 @@ def evaluate(
 
 
 def _eligible_additions(
-    ranked: Sequence[PropStrategy], allocations: dict[str, int], max_strategies: int,
-    max_units_per_strategy: int,
+    ranked: Sequence[PropStrategy], allocations: dict[str, int], capital: float,
 ) -> list[PropStrategy]:
-    active = sum(1 for units in allocations.values() if units)
+    used_margin = sum(
+        item.lab.margin_per_unit * allocations.get(item.lab.key, 0)
+        for item in ranked
+    )
     return [
         item for item in ranked
-        if allocations.get(item.lab.key, 0) < max_units_per_strategy
-        and (allocations.get(item.lab.key, 0) or active < max_strategies)
+        if used_margin + item.lab.margin_per_unit <= capital + 1e-9
     ]
 
 
@@ -189,19 +191,16 @@ def search(
     capital = float(settings["capital"])
     kwargs = dict(
         axis=axis, profile=profile, capital=capital,
-        max_days=int(settings["max_days_per_phase"]), stride=int(settings["trial_stride_days"]),
-        max_trials=int(settings["max_trials"]),
+        max_days=120,
     )
     singles = [(evaluate(strategies, {item.lab.key: 1}, **kwargs), item) for item in strategies]
     singles.sort(key=lambda pair: pair[0].score, reverse=True)
-    ranked = [item for _evaluation, item in singles[:int(settings["search_pool_limit"])]]
+    ranked = [item for _evaluation, item in singles]
     allocations: dict[str, int] = {}
     current = evaluate(ranked, allocations, **kwargs)
-    for step in range(int(settings["max_units_total"])):
-        choices = _eligible_additions(
-            ranked, allocations, int(settings["max_strategies"]),
-            int(settings["max_units_per_strategy"]),
-        )
+    step = 0
+    while True:
+        choices = _eligible_additions(ranked, allocations, capital)
         if not choices:
             break
         evaluated = []
@@ -213,9 +212,10 @@ def search(
         if step and best.score <= current.score:
             break
         allocations, current = proposal, best
+        step += 1
         if progress:
             progress(
-                f"Búsqueda {step + 1}: {current.pass_rate:.1f}% · "
+                f"Búsqueda {step}: {current.pass_rate:.1f}% · "
                 f"{sum(allocations.values())} unidades · {item.lab.origin}"
             )
     selected = tuple(item for item in ranked if allocations.get(item.lab.key, 0))
