@@ -66,6 +66,8 @@ class PropExperimentRouteTests(unittest.TestCase):
         status, styles = self.request("/prop_experiment.css")
         self.assertEqual(status, 200)
         self.assertNotIn("details { margin-top", styles)
+        self.assertIn("align-items: flex-end", styles)
+        self.assertNotIn("align-items: flex-start", styles)
         status, config = self.request("/api/prop-experiment/config")
         self.assertEqual(status, 200)
         self.assertEqual(len(config["profiles"]), 1)
