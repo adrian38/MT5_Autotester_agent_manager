@@ -87,6 +87,7 @@ function clearResult() {
   document.querySelector("#metrics").textContent = "Aún no hay un resultado.";
   document.querySelector("#result-contract").hidden = true;
   document.querySelector("#portfolio-visual").hidden = true;
+  document.querySelector("#allocation-table").hidden = true;
   document.querySelector("#allocations").innerHTML = "";
   document.querySelector("#warnings").innerHTML = "";
   document.querySelector("#axis").textContent = "";
@@ -114,6 +115,7 @@ function renderPortfolio(result) {
 
 function renderResult(result) {
   if (!result) return clearResult();
+  document.querySelector("#allocation-table").hidden = false;
   const evaluation = result.evaluation;
   document.querySelector("#metrics").className = "metrics";
   document.querySelector("#metrics").innerHTML = metric("Probabilidad histórica", `${number(evaluation.pass_rate, 1)}%`)

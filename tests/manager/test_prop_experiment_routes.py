@@ -60,6 +60,8 @@ class PropExperimentRouteTests(unittest.TestCase):
         self.assertIn("portfolio_curve_view.js", page)
         self.assertIn("Plan de pruebas prop", page)
         self.assertNotIn("Ventana histórica", page)
+        self.assertIn("Histórico completo", page)
+        self.assertIn('id="allocation-table"', page)
         self.assertEqual(self.request("/prop_experiment.js")[0], 200)
         status, config = self.request("/api/prop-experiment/config")
         self.assertEqual(status, 200)

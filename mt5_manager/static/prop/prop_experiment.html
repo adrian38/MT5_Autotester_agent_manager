@@ -35,19 +35,29 @@
         <label>Máx. estrategias<input id="max_strategies" type="number" min="1" max="50"></label>
         <label>Máx. unidades totales<input id="max_units_total" type="number" min="1" max="500"></label>
       </div>
+      <p class="history-note"><strong>Histórico completo:</strong> usa todas las fechas disponibles, desde 2020 hasta el último dato común.</p>
       <div id="profile-detail" class="profile-detail"></div>
-      <h3>Brokers de origen</h3>
-      <div id="nodes" class="nodes"></div>
-      <h3>Familias de símbolos</h3>
-      <div id="symbol-families" class="symbol-families"></div>
-      <p class="source-note">El embudo descarta las familias no seleccionadas antes de buscar la composición.</p>
-      <div class="source-options">
-        <label><input id="include_candidates" type="checkbox"> Candidatas actuales (embudo completo)</label>
-        <label><input id="include_seeds" type="checkbox"> Seeds UBS con Final Tick 6M aceptado</label>
-        <label><input id="include_manual_portfolios" type="checkbox"> Estrategias de portafolios manuales</label>
-        <label class="active-filter"><input id="active_portfolios_only" type="checkbox"> Solo estrategias presentes en portafolios activos</label>
+      <div class="funnel-grid">
+        <section>
+          <h3>Brokers de origen</h3>
+          <div id="nodes" class="nodes"></div>
+        </section>
+        <section>
+          <h3>Familias de símbolos</h3>
+          <div id="symbol-families" class="symbol-families"></div>
+          <p class="source-note">El embudo descarta las familias no seleccionadas antes de buscar.</p>
+        </section>
+        <section class="sources-section">
+          <h3>Fuentes y filtro transversal</h3>
+          <div class="source-options">
+            <label><input id="include_candidates" type="checkbox"> Candidatas actuales (embudo completo)</label>
+            <label><input id="include_seeds" type="checkbox"> Seeds UBS con Final Tick 6M aceptado</label>
+            <label><input id="include_manual_portfolios" type="checkbox"> Estrategias de portafolios manuales</label>
+            <label class="active-filter"><input id="active_portfolios_only" type="checkbox"> Solo estrategias presentes en portafolios activos</label>
+          </div>
+          <p class="source-note">Los tres primeros checks son fuentes. El último filtra la unión y respeta la variante activa exacta.</p>
+        </section>
       </div>
-      <p class="source-note">Los tres primeros checks son fuentes. El último filtra la unión elegida y respeta la variante activa exacta.</p>
       <details>
         <summary>Ajustes avanzados</summary>
         <div class="grid advanced">
@@ -76,7 +86,7 @@
         <div class="panel-title"><div><p class="eyebrow">PORTAFOLIO</p><h3>Curva combinada</h3><p class="subtitle">La misma visualización del manager, sobre el PnL diario cerrado de la composición seleccionada.</p></div></div>
         <div id="portfolio-chart" class="audit-analysis-chart" aria-label="Curva combinada del experimento prop"></div>
       </section>
-      <div class="table-wrap universe-table-wrap portfolio-members-wrap"><table class="universe-table portfolio-members">
+      <div id="allocation-table" class="table-wrap universe-table-wrap portfolio-members-wrap" hidden><table class="universe-table portfolio-members">
         <thead><tr><th>Origen</th><th>Tipo</th><th>Estrategia</th><th>Símbolo</th><th>TF</th><th>Unid.</th><th>Multiplicador</th><th>Net histórico</th><th>DD riesgo</th><th>Margen</th></tr></thead>
         <tbody id="allocations"></tbody>
       </table></div>
