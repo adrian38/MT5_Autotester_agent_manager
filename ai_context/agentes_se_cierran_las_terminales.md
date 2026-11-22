@@ -89,14 +89,31 @@ cerrarlo todo.
 concreto desaparezca dentro de `_close_terminal_pids_gracefully`. Su docstring
 lo dice ahora en el sitio donde se edita.
 
+## Ninguna instalación está compartida, y el `broker` ya lo garantizaba
+
+Primero conté que IC y AXI tenían habilitada la instalación de RoboForex y que
+el filtro por ruta no los separaría. **Era falso**, y la corrección importa
+porque es lo que decide si hace falta más arreglo:
+
+`_terminal_profiles()` descarta antes que nada los perfiles cuyo `broker` no es
+el del nodo, así que un `[Terminal.N]` de otro broker **nunca** llega a
+`_login_terminal`, esté habilitado o no. Lo mismo dice `agent_terminals()` en
+`node_settings.py`: «las otras pertenecen a otro agente de la misma máquina».
+Por eso la pantalla Multiterminales tampoco las enseña, y por eso el único
+reparto que cuenta es el real: una instalación por agente.
+
+El `[Terminal.1]` de RoboForex que seguía declarado en los `ui_settings.ini` de
+IC y de AXI era un resto de la máquina vieja, invisible y sin uso. Se borró el
+2026-11-22 a petición del usuario; esos ficheros están en `.gitignore`, así que
+no hay commit que lo registre.
+
 ## Lo que queda abierto
 
-- **Dos agentes con la misma instalación siguen pisándose.** El `ui_settings.ini`
-  de AXI apunta por defecto a `C:\Program Files\RoboForex MT5 Terminal`, así que
-  el filtro por ruta no los separa. Hoy no se nota porque AXI e IC corren en la
-  sesión RDP 2 (usuario `13199`) y RoboForex y Vantage en la 3 (`robo`), y un
-  `taskkill` entre sesiones distintas no tiene permisos. El día que dos agentes
-  de la misma sesión compartan instalación, hará falta filtrar por el PID padre.
+- **`[Paths] mt5_path` sigue apuntando a RoboForex en IC y en AXI.** Es el
+  respaldo que usa `_terminal_profiles()` cuando el broker del nodo no tiene
+  **ningún** perfil habilitado, así que hoy no se ejecuta; el día que alguien
+  deshabilite el último perfil, el agente abriría la instalación del vecino en
+  vez de fallar. `agent_terminals()` ya lo rechaza por su cuenta.
 - **Sigue sin haber plan B con una sola terminal.** Si la terminal muere a
   mitad de la exportación, los dos intentos siguientes se gastan esperando una
   ventana que no puede volver: nadie la relanza. Eso no lo arregla este cambio.
