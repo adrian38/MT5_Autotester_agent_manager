@@ -181,6 +181,20 @@ espera al sábado siguiente. En intervalo, su primer plazo se cuenta desde esa
 creación. Los IDs heredados sin fecha mantienen el comportamiento anterior: no
 se inventa una fecha que el estado no conserva.
 
+### «Completar auditoría» y el cron comparten el mismo turno (2026-11-22)
+
+La recuperación manual usaba una clave `catch-up:<fecha>` distinta de la clave
+de la cita semanal. Al agotar sus cuatro intentos, el cron veía otra clave y
+abría inmediatamente una segunda tanda para el mismo sábado. En la ejecución
+real del 22 de noviembre IC y Vantage llegaron por eso a siete lanzamientos:
+cuatro de recuperación y tres más del cron antes de que el usuario la parase.
+
+El corte persistido de la recuperación manda ahora también sobre la cita normal:
+`success`, `not_applicable`, `exhausted` y `stopped` cierran cualquier ventana
+del cron que no sea posterior a ese corte. La cita de la semana siguiente sí
+abre un turno nuevo. Una recuperación detenida deja además de figurar como
+pendiente; antes conservaba `catch_up_status: pending` indefinidamente.
+
 ### Un `finished_at` fallido no cierra el turno (2026-11-08)
 
 La cita del 7 de noviembre falló en AXI #105 y RoboForex #170 al reservar

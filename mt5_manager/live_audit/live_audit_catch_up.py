@@ -1,7 +1,7 @@
 """Recuperacion explicita de huecos entre auditorias programadas."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import live_audit_lineage, live_audit_schedule
@@ -89,6 +89,24 @@ def _already_covered(audit: dict[str, Any], target: datetime) -> bool:
     )
 
 
+def covers_scheduled_window(record: dict[str, Any], window: str,
+                            settings: dict[str, Any], now: datetime) -> bool:
+    """Evita que el cron repita el mismo corte que cerro una recuperacion."""
+    status = str(record.get("catch_up_status") or "")
+    if status not in {"success", "not_applicable", "exhausted", "stopped"}:
+        return False
+    cutoff = live_audit_schedule.parse_timestamp(record.get("catch_up_cutoff"))
+    opened = live_audit_schedule.parse_timestamp(window)
+    if cutoff is None or (opened is not None and opened > cutoff):
+        return False
+    if opened is None:
+        if window != "sin-ejecutar":
+            return False
+        delay = timedelta(days=int(settings.get("interval_days", 30)))
+        return now < cutoff + delay
+    return True
+
+
 def launch_pending(server: Any, node: dict[str, Any], node_id: str,
                    state: dict[str, Any], audits: dict[str, Any],
                    audit_ids: AuditIds, created_at: CreatedAt,
@@ -105,6 +123,12 @@ def launch_pending(server: Any, node: dict[str, Any], node_id: str,
         target = live_audit_schedule.parse_timestamp(record.get("catch_up_cutoff"))
         if target is None:  # Compatibilidad con una cola creada antes de guardar el instante.
             target = datetime.fromisoformat(f"{target_text}T23:59:59+00:00")
+        window = f"catch-up:{target_text}"
+        if str(record.get("window") or "") == window:
+            outcome = str(record.get("outcome") or "")
+            if outcome in {"success", "stopped"}:
+                runs.update(key, catch_up_status=outcome)
+                continue
         if _already_covered(audit, target):
             runs.update(key, catch_up_status="success")
             continue
@@ -117,7 +141,6 @@ def launch_pending(server: Any, node: dict[str, Any], node_id: str,
         if any(str((row or {}).get("status") or "") in RUNNING_STATUSES
                for row in audits.values() if isinstance(row, dict)):
             return True
-        window = f"catch-up:{target_text}"
         decision = live_audit_schedule.due_decision(
             server.live_audit_scheduler_settings, record, window,
             datetime.now(timezone.utc),

@@ -466,8 +466,9 @@ def launch_due(
         window, pending = live_audit_schedule.pending_window(
             settings, _completion(audit), now, _audit_use_created_at(audit_id),
         )
-        if not pending:
-            if str(record.get("window") or "") != window:
+        if not pending or live_audit_catch_up.covers_scheduled_window(
+            record, window, settings, now):
+            if not pending and str(record.get("window") or "") != window:
                 runs.update(key, window=window, attempts=0, outcome="success")
             continue
         profile = dict(profiles.get(audit_id) or {})

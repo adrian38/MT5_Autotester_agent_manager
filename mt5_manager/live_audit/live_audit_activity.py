@@ -21,7 +21,7 @@ from ..common import utc_now
 from .live_audit_core import PROGRESS, RUNNING_STATUSES, STATUS_LABELS
 from .live_audit_executions import audit_label
 
-CATCH_UP_DONE = frozenset({"success", "not_applicable", "exhausted"})
+CATCH_UP_DONE = frozenset({"success", "not_applicable", "exhausted", "stopped"})
 """Lo que ya no cuenta como pendiente en una tanda de recuperacion."""
 
 

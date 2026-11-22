@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager.live_audit import live_audit_watch
+from mt5_manager.live_audit import live_audit_activity, live_audit_watch
 from mt5_manager.manager import manager_schedule_routes
 from mt5_manager.live_audit.live_audit_watch import LiveAuditRunState
 from tests.live_audit.live_audit_cron_base import FakeServer, audit_state, published_audit
@@ -171,6 +171,57 @@ class CatchUpTests(unittest.TestCase):
         ):
             live_audit_watch.tick(server)
         self.assertEqual(posted, [])
+
+    def test_an_exhausted_recovery_is_not_retried_as_the_same_weekly_turn(self) -> None:
+        server = FakeServer(self.root, audit_state(), enabled=True)
+        live_audit_watch.request_catch_up(server, self.now)
+        key = LiveAuditRunState.key("n", "11")
+        server.live_audit_runs.update(
+            key, window="catch-up:2026-10-17", attempts=4, outcome="failed",
+            last_status="failed", catch_up_status="exhausted",
+        )
+        posted: list[object] = []
+        failed = {"status": "failed", "last_result": None, "last_payload": None}
+        with mock.patch(
+            "mt5_manager.manager.manager_http.node_request",
+            side_effect=live_audit_watch_test_answers({"11": failed}, posted),
+        ), mock.patch("mt5_manager.live_audit.live_audit_watch.datetime") as clock:
+            clock.now.return_value = self.now
+            clock.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            live_audit_watch.tick(server)
+        self.assertEqual(posted, [])
+        record = server.live_audit_runs.record(key)
+        self.assertEqual(record["window"], "catch-up:2026-10-17")
+        self.assertEqual(record["catch_up_status"], "exhausted")
+        following_week = datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc)
+        with mock.patch(
+            "mt5_manager.manager.manager_http.node_request",
+            side_effect=live_audit_watch_test_answers({"11": failed}, posted),
+        ), mock.patch("mt5_manager.live_audit.live_audit_watch.datetime") as clock:
+            clock.now.return_value = following_week
+            clock.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            live_audit_watch.tick(server)
+        self.assertEqual(len(posted), 1)
+
+    def test_stopping_a_recovery_closes_its_progress_and_does_not_restart_it(self) -> None:
+        server = FakeServer(self.root, audit_state(), enabled=True)
+        live_audit_watch.request_catch_up(server, self.now)
+        key = LiveAuditRunState.key("n", "11")
+        server.live_audit_runs.update(
+            key, window="catch-up:2026-10-17", attempts=1, outcome="stopped",
+            last_status="stopped",
+        )
+        posted: list[object] = []
+        with mock.patch(
+            "mt5_manager.manager.manager_http.node_request",
+            side_effect=live_audit_watch_test_answers({"11": {"status": "stopped"}}, posted),
+        ), mock.patch("mt5_manager.live_audit.live_audit_watch.datetime") as clock:
+            clock.now.return_value = self.now
+            clock.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            live_audit_watch.tick(server)
+        self.assertEqual(posted, [])
+        self.assertEqual(server.live_audit_runs.record(key)["catch_up_status"], "stopped")
+        self.assertEqual(live_audit_activity.recovery(server)["pending"], 0)
 
 
 class BornOn:
