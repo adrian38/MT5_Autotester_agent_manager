@@ -197,6 +197,28 @@ class QueueTests(WealthCronBase):
         self.assertEqual(self.notifications.rows[-1]["level"], "warning")
         self.assertIn("no quedó libre", self.notifications.rows[-1]["message"])
 
+    def test_stopping_the_process_closes_the_appointment_that_was_waiting(self) -> None:
+        """Corrección del usuario (2026-11-22): detener es detener el proceso.
+
+        Una cita en espera no ocupa al agente, así que el botón de la pantalla
+        no tenía nada que cortarle y la dejaba en cola: entraba sola en cuanto
+        el agente quedaba libre, que es justo lo que el usuario acababa de
+        hacer a propósito.
+        """
+        self.tick(job="running")
+        answer = live_account_wealth_watch.cancel_wait(self.server, NODE, "axi")
+        self.assertTrue(answer["stopped"])
+        self.assertEqual(self.record()["status"], "stopped")
+        self.assertIn("cancelada", self.notifications.rows[-1]["title"])
+        # Y con el agente libre ya no entra: no vuelve hasta la próxima cita.
+        self.assertEqual(self.tick(SATURDAY + timedelta(minutes=5), job="idle"), [])
+
+    def test_closing_an_appointment_that_is_not_waiting_changes_nothing(self) -> None:
+        self.tick()
+        answer = live_account_wealth_watch.cancel_wait(self.server, NODE, "axi")
+        self.assertEqual((answer["stopped"], answer["status"]), (False, "launched"))
+        self.assertEqual(self.record()["status"], "launched")
+
     def test_a_snapshot_already_running_also_counts_as_busy(self) -> None:
         self.runs.update(self.runs.key("axi", SNAPSHOT_KEY), outcome="running")
         self.assertEqual(self.tick(), [])

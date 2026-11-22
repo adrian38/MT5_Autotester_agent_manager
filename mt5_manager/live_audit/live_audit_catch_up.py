@@ -58,6 +58,40 @@ def request(server: Any, audit_ids: AuditIds, created_at: CreatedAt,
     return {"target_date": target, "queued": queued, "queued_count": len(queued)}
 
 
+def cancel(server: Any, now: datetime | None = None) -> dict[str, Any]:
+    """Cierra la cola pendiente: lo que no ha entrado ya no entra.
+
+    «Detener es detener todo el proceso, no solo los agentes» (correccion del
+    usuario, 2026-11-22). Cortar las auditorias abiertas dejaba el resto de la
+    tanda esperando turno, y `launch_pending` lanzaba la siguiente en la vuelta
+    de despues —antes incluso del interruptor del cron, que en `tick` va mas
+    abajo—: el boton soltaba las terminales durante un minuto y nada mas.
+
+    Se marcan `stopped`, que es como termina una recuperacion parada a mitad, y
+    la marca del corte se conserva: es el denominador del «6 de 14» y lo que
+    mira `covers_scheduled_window` para que el cron no repita ese mismo corte a
+    continuacion.
+    """
+    moment = now or datetime.now(timezone.utc)
+    runs = server.live_audit_runs
+    stopped = 0
+    for key, record in runs.state().items():
+        if str(record.get("catch_up_status") or "") != "pending":
+            continue
+        runs.update(
+            key, catch_up_status="stopped", catch_up_stopped_at=moment.isoformat(),
+        )
+        stopped += 1
+    if stopped:
+        server.live_audit_notifications.add(
+            "warning", "Tanda de recuperación detenida",
+            f"Lo pidió el usuario. Quedaban {stopped} uso(s) sin cerrar: no se "
+            "vuelven a lanzar hasta la próxima cita.",
+            kind="catch_up_stopped",
+        )
+    return {"stopped": stopped}
+
+
 def _period(server: Any, node_id: str, profile: dict[str, Any],
             audit: dict[str, Any], target: datetime) -> dict[str, str]:
     inherited, created = live_audit_lineage.audit_period_bounds(server, node_id, profile)

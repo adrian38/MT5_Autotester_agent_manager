@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from mt5_manager.live_audit import live_audit_activity, live_audit_watch
+from mt5_manager.live_audit import live_audit_activity, live_audit_catch_up, live_audit_watch
 from mt5_manager.manager import manager_schedule_routes
 from mt5_manager.live_audit.live_audit_watch import LiveAuditRunState
 from tests.live_audit.live_audit_cron_base import FakeServer, audit_state, published_audit
@@ -222,6 +222,43 @@ class CatchUpTests(unittest.TestCase):
         self.assertEqual(posted, [])
         self.assertEqual(server.live_audit_runs.record(key)["catch_up_status"], "stopped")
         self.assertEqual(live_audit_activity.recovery(server)["pending"], 0)
+
+
+    def test_stopping_the_process_closes_the_queue_that_had_not_started(self) -> None:
+        """Corrección del usuario (2026-11-22): detener es detener el proceso.
+
+        El botón de la pantalla sólo le hablaba a los agentes, así que la
+        tanda seguía viva: `launch_pending` corre antes que el interruptor del
+        cron y lanzaba el siguiente uso en la vuelta de después. Al cerrarla
+        no la lanza ninguno de los dos caminos, ni la cola ni el cron.
+        """
+        server = FakeServer(self.root, audit_state(), enabled=True)
+        live_audit_watch.request_catch_up(server, self.now)
+        answer = live_audit_catch_up.cancel(server, self.now)
+        key = LiveAuditRunState.key("n", "11")
+        self.assertEqual(answer["stopped"], 1)
+        self.assertEqual(server.live_audit_runs.record(key)["catch_up_status"], "stopped")
+        self.assertEqual(live_audit_activity.recovery(server)["pending"], 0)
+        self.assertIn("Tanda de recuperación detenida", server.events()[-1]["title"])
+        posted: list[object] = []
+        with mock.patch(
+            "mt5_manager.manager.manager_http.node_request",
+            side_effect=live_audit_watch_test_answers({"11": {"status": "idle"}}, posted),
+        ), mock.patch("mt5_manager.live_audit.live_audit_watch.datetime") as clock:
+            clock.now.return_value = self.now
+            clock.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            live_audit_watch.tick(server)
+        self.assertEqual(posted, [])
+
+    def test_the_http_route_closes_the_queue_too(self) -> None:
+        server = FakeServer(self.root, audit_state())
+        live_audit_watch.request_catch_up(server, self.now)
+        handler = CatchUpHandler(server)
+        parsed = type("Parsed", (), {
+            "path": f"{manager_schedule_routes.CATCH_UP_PATH}/stop",
+        })()
+        self.assertTrue(manager_schedule_routes.handle_post(handler, parsed, []))
+        self.assertEqual((handler.status, handler.payload["stopped"]), (200, 1))
 
 
 class BornOn:

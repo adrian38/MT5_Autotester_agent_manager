@@ -174,6 +174,24 @@ def _handle_stop(handler, parts: list[str]) -> None:
         handler._send_json(502, {"error": str(exc)})
 
 
+def _handle_wealth_wait_stop(handler, parts: list[str]) -> None:
+    """Cierra la cita del patrimonio que espera turno en ese agente.
+
+    No viaja al nodo: lo que se detiene aquí no es un sondeo en marcha —ése se
+    para por la ruta de arriba— sino la cola del manager, que entraría sola en
+    cuanto el agente quedase libre.
+    """
+    try:
+        node_id = urllib.parse.unquote(parts[2])
+        handler._send_json(200, live_account_wealth_watch.cancel_wait(
+            handler.server, handler._node(node_id), node_id,
+        ))
+    except KeyError as exc:
+        handler._send_json(404, {"error": str(exc)})
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        handler._send_json(400, {"error": str(exc)})
+
+
 def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
     if parsed.path == ALTERNATE_PATH:
         try:
@@ -219,6 +237,12 @@ def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
         and parts[3:] == ["live-accounts", "snapshot", "stop"]
     ):
         _handle_stop(handler, parts)
+        return True
+    if (
+        len(parts) == 5 and parts[:2] == ["api", "nodes"]
+        and parts[3:] == ["wealth-snapshot", "stop"]
+    ):
+        _handle_wealth_wait_stop(handler, parts)
         return True
     if parsed.path == WEALTH_NOW_PATH:
         try:

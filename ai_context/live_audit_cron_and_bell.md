@@ -907,3 +907,35 @@ falta **otra** lectura, de toda la vida. Por eso `collect` lo clasifica aparte
 lo pinta `info`, no rojo. Medido el 2026-10-24: las ocho cuentas de AXI y
 RoboForex quedaron pendientes tras el cambio de criterio y el turno se relanzó
 pidiendo toda la vida.
+
+## «Detener» tiene que parar la tanda, no sólo los agentes (2026-11-22)
+
+El botón del panel de «Portafolios activos» mandaba una parada por cada fila
+que ocupaba un agente y nada más. Con la tanda de recuperación en marcha —«6
+de 14»— eso soltaba las terminales durante un minuto: `launch_catch_up` corre
+en `tick` **antes** del interruptor del cron, así que el manager lanzaba el
+séptimo portafolio en la vuelta siguiente aunque el cron estuviera apagado. El
+usuario lo dijo así: «detener es detener todo el proceso, no sólo los agentes».
+
+Lo que faltaba no era una parada más fuerte, sino parar **lo que no había
+empezado**, que no está en ningún agente:
+
+- `live_audit_catch_up.cancel` marca `stopped` todo lo que siguiera `pending`.
+  Es el mismo final que ya tenía una recuperación parada a mitad, así que
+  `covers_scheduled_window` también impide que el cron repita ese corte a
+  continuación; la marca del corte se conserva porque es el denominador del
+  «6 de 14». Ruta: `POST /api/live-audit-scheduler-catch-up/stop`.
+- `live_account_wealth_watch.cancel_wait` cierra la cita del patrimonio que
+  esperaba turno. Es el mismo agujero en la otra pantalla: una cita en espera
+  no ocupa al agente, así que el botón no le cortaba nada y entraba sola en
+  cuanto el agente quedaba libre —justo después de que el usuario lo hubiera
+  vaciado—. Se cierra con `completed_at`, como cuando la espera se agota, y
+  por eso no vuelve hasta la cita siguiente. Ruta:
+  `POST /api/nodes/<id>/wealth-snapshot/stop`, que no viaja al nodo.
+
+En el panel la cola es **una fila más**, con su propia parada, y por eso el
+botón aparece también entre portafolio y portafolio, cuando no hay nada
+abierto en ningún agente y antes no había nada que pulsar. `stopAll` la cierra
+**primero**: cortar antes al agente le deja al manager justo el hueco en el
+que lanzar lo siguiente. El diálogo dice sólo lo que va a pasar —la frase de
+las terminales no sale si no hay ninguna que devolver—.

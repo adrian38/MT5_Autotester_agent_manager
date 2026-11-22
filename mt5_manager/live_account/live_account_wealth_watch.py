@@ -200,6 +200,38 @@ def _give_up(server: Any, node: dict[str, Any], node_id: str, window: str) -> No
     )
 
 
+def cancel_wait(server: Any, node: dict[str, Any], node_id: str) -> dict[str, Any]:
+    """Cierra la cita que espera turno, porque detener es detener el proceso.
+
+    Una cita en espera no ocupa al agente, así que no hay nada que cortarle:
+    lo que hay que cerrar es la cola del manager, que si no entra sola en
+    cuanto el agente queda libre —justo después de que el usuario lo haya
+    vaciado a propósito (corrección del usuario, 2026-11-22)—.
+
+    Se cierra con `completed_at`, que es lo que mira `pending_window`: igual
+    que cuando la espera se agota, la cita no vuelve hasta la siguiente.
+    """
+    runs = server.live_account_runs
+    key = runs.key(node_id, WEALTH_KEY)
+    record = runs.record(key)
+    status = str(record.get("status") or "")
+    if status != "waiting":
+        return {"stopped": False, "status": status}
+    runs.update(
+        key, status="stopped", outcome="stopped", completed_at=utc_now(),
+        waiting_since="", waiting_reason="",
+    )
+    name = str(node.get("name") or node_id)
+    server.live_audit_notifications.add(
+        "warning", f"Relectura del patrimonio cancelada en {name}",
+        "Lo pidió el usuario al detener el proceso. La cita estaba esperando a "
+        "que el agente quedara libre y no entra hasta la siguiente.",
+        node_id=node_id, node_name=name, kind="wealth_snapshot_cancelled",
+        link="/patrimonio.html", link_text="Ver el patrimonio",
+    )
+    return {"stopped": True, "status": "stopped"}
+
+
 def _launch(
     server: Any, node: dict[str, Any], node_id: str, window: str, now: datetime,
 ) -> None:

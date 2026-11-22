@@ -13,10 +13,16 @@
 // Portafolios activos. La chapa pequeña de la cabecera sí sigue siendo global.
 // Comparte con ella `/api/live-audit-activity`; no abre una ruta nueva.
 //
-// **Parar es del agente, no del manager.** El manager sólo reenvía: el agente
-// corta entre cuentas o entre fases y sale por su camino de siempre, que
-// devuelve cada terminal a su cuenta final y reanuda el pipeline que pausó.
-// Por eso el botón no promete un corte instantáneo y lo dice en su título.
+// **Parar lo que corre es del agente; parar el proceso es de los dos.** El
+// agente corta entre cuentas o entre fases y sale por su camino de siempre,
+// que devuelve cada terminal a su cuenta final y reanuda el pipeline que
+// pausó; por eso el botón no promete un corte instantáneo y lo dice en su
+// título. Pero detrás de lo que corre hay cola del manager —la tanda de
+// recuperación y la cita del patrimonio que espera turno—, y ésa entra sola
+// en cuanto el agente queda libre: cortar sólo a los agentes soltaba las
+// terminales un minuto y volvía a ocuparlas con lo siguiente («detener es
+// detener todo el proceso, no sólo los agentes», 2026-11-22). Así que la cola
+// es una fila más del panel, con su parada, y se cierra antes que nada.
 //
 // **El botón es uno y para todo** (corrección del usuario, 2026-11-17). Uno por
 // fila obligaba a pulsar tantas veces como cosas hubiera y a decidir una por
@@ -95,6 +101,29 @@
     }));
   }
 
+  // La tanda de recuperación no está en ningún agente: es la cola del manager,
+  // que lanza el siguiente portafolio en cuanto uno termina. Sin esta fila,
+  // «Detener» cortaba las dos auditorías abiertas y el manager metía la tercera
+  // en la vuelta siguiente, que es lo contrario de parar.
+  function queueRows(state) {
+    const queue = state.recovery || {};
+    const pending = Number(queue.pending) || 0;
+    if (!pending) return [];
+    const total = Number(queue.total) || 0;
+    const done = Number(queue.done) || 0;
+    return [{
+      node: 'Manager',
+      title: `Tanda de recuperación · ${done} de ${total}`,
+      phase: 'EN COLA',
+      percent: total ? Math.round((done / total) * 100) : 0,
+      detail: `Quedan ${pending} sin cerrar, contando lo que corre ahora. El `
+        + 'manager lanza el siguiente en cuanto un agente queda libre.',
+      started: '',
+      stop: '/api/live-audit-scheduler-catch-up/stop',
+      queue: true,
+    }];
+  }
+
   // El sondeo de la portada y la relectura del patrimonio son la misma tanda
   // en el agente, así que llegan por el mismo sitio; lo que las distingue es
   // quién la pidió, y eso el manager sí lo sabe (`purpose`). Nombrarlas igual
@@ -145,8 +174,9 @@
       percent: 0,
       detail: row.waiting_reason || '',
       started: row.waiting_since,
-      stop: '',
+      stop: `/api/nodes/${encodeURIComponent(row.node_id)}/wealth-snapshot/stop`,
       waiting: true,
+      queue: true,
     }));
   }
 
@@ -170,7 +200,7 @@
   }
 
   function rowsOf(state) {
-    if (scope === 'audits') return auditRows(state);
+    if (scope === 'audits') return [...auditRows(state), ...queueRows(state)];
     if (scope === 'wealth') return accountRows(state, 'wealth');
     return accountRows(state, 'accounts');
   }
@@ -265,8 +295,9 @@
       + `<h2 class="process-title">${finished ? 'Proceso terminado' : activeTitle}</h2>`
       + (pending
         ? '<button type="button" class="danger process-stop" id="process-stop"'
-          + ' title="Cada agente corta en su primer punto seguro, deja cada'
-          + ' terminal en su cuenta y reanuda lo que pausó">Detener'
+          + ' title="Para el proceso entero: se cierra la cola del manager y'
+          + ' cada agente corta en su primer punto seguro, deja cada terminal'
+          + ' en su cuenta y reanuda lo que pausó">Detener'
           + (pending > 1 ? ` (${pending})` : '') + '</button>'
         : '')
       + '</div>';
@@ -281,12 +312,22 @@
     return LIVE_MS;
   }
 
+  // El diálogo promete sólo lo que va a pasar: con la cola vacía no hay nada
+  // que cerrar, y entre un portafolio y el siguiente no hay ninguna terminal
+  // que devolver a su cuenta.
   function confirmation(rows) {
-    return '¿Detener todo lo que está ocupando los agentes?\n\n'
+    const effects = [];
+    if (rows.some(row => row.queue)) {
+      effects.push('Se cierra la cola del manager, así que detrás no entra nada nuevo.');
+    }
+    if (rows.some(row => !row.queue)) {
+      effects.push('Cada agente corta en su primer punto seguro, devuelve cada '
+        + 'terminal a su cuenta final y reanuda lo que pausó.');
+    }
+    return '¿Detener todo el proceso?\n\n'
       + rows.map(row => `· ${row.node} — ${row.title}`).join('\n')
-      + '\n\nCada agente corta en su primer punto seguro, devuelve cada terminal '
-      + 'a su cuenta final y reanuda lo que pausó. Lo que ya se leyó se guarda; '
-      + 'lo que falte no se reintenta hasta la próxima cita.';
+      + `\n\n${effects.join(' ')} Lo que ya se leyó se guarda; lo que falte no `
+      + 'se reintenta hasta la próxima cita.';
   }
 
   async function stopOne(row) {
@@ -301,12 +342,16 @@
 
   // De una en una y hasta el final: si un agente no se deja parar, los demás
   // tienen que soltar sus terminales igual, y el aviso dice cuál se quedó.
+  //
+  // La cola del manager se cierra **primero**: cortar antes al agente le deja
+  // al manager justo el hueco en el que lanzar lo siguiente de la tanda.
   async function stopAll(button) {
     const rows = stoppable();
     if (!rows.length || !window.confirm(confirmation(rows))) return;
     button.disabled = true;
     const failed = [];
-    for (const row of rows) {
+    const ordered = [...rows.filter(row => row.queue), ...rows.filter(row => !row.queue)];
+    for (const row of ordered) {
       try {
         await stopOne(row);
       } catch (error) { failed.push(`${row.node}: ${error.message}`); }
@@ -314,8 +359,8 @@
     notify(
       failed.length
         ? `Sin detener — ${failed.join(' | ')}`
-        : 'Parada pedida a ' + (rows.length === 1 ? 'el agente' : 'los agentes')
-          + '. Terminan lo que tienen abierto y restauran las terminales.',
+        : 'Proceso detenido. La cola no lanza nada más; lo que esté abierto en '
+          + 'un agente termina su punto seguro y restaura las terminales.',
       Boolean(failed.length),
     );
     load().catch(() => {});

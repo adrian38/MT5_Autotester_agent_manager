@@ -12,8 +12,8 @@ import urllib.error
 import urllib.parse
 from typing import Any
 
-from ..live_audit import live_audit_activity, live_audit_executions, live_audit_history
-from ..live_audit import live_audit_lineage, live_audit_watch
+from ..live_audit import live_audit_activity, live_audit_catch_up, live_audit_executions
+from ..live_audit import live_audit_history, live_audit_lineage, live_audit_watch
 from . import manager_http
 from . import manager_live_audit_routes
 from ..common import safe_int
@@ -150,6 +150,14 @@ def handle_get(handler, parsed: Any, parts: list[str]) -> bool:
 
 
 def handle_post(handler, parsed: Any, parts: list[str]) -> bool:
+    # Detener es detener el proceso: la cola de la tanda es del manager y entra
+    # sola en cuanto un agente queda libre, asi que el boton la cierra aqui.
+    if parsed.path == f"{CATCH_UP_PATH}/stop":
+        try:
+            handler._send_json(200, live_audit_catch_up.cancel(handler.server))
+        except (ValueError, OSError) as exc:
+            handler._send_json(400, {"error": str(exc)})
+        return True
     if parsed.path == CATCH_UP_PATH:
         try:
             result = live_audit_watch.request_catch_up(handler.server)

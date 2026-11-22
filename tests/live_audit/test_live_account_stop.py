@@ -101,6 +101,45 @@ class StopRouteTests(unittest.TestCase):
         self.assertEqual(self.answer["status"], 404)
 
 
+class WealthWaitStopRouteTests(unittest.TestCase):
+    """Parar la cita del patrimonio que espera turno no viaja a ningún agente.
+
+    No hay nada que cortarle: la espera es del manager. Lo que se comprueba
+    aquí es justo eso —que la ruta existe, llega a la cita y no habla con el
+    nodo—, porque un reenvío al agente devolvería «no hay sondeo en curso» y
+    la cita seguiría en cola.
+    """
+
+    PATH = "/api/nodes/axi/wealth-snapshot/stop"
+    PARTS = ["api", "nodes", "axi", "wealth-snapshot", "stop"]
+
+    def test_the_route_closes_the_appointment_without_asking_the_agent(self) -> None:
+        server = FakeServer()
+        answer: dict[str, object] = {}
+        handler = SimpleNamespace(
+            server=server, _body=dict,
+            _node=lambda node_id: next(
+                node for node in server.nodes if node["id"] == node_id
+            ),
+            _send_json=lambda status, payload: answer.update(
+                status=status, body=payload,
+            ),
+        )
+        with mock.patch.object(
+            manager_account_routes.live_account_wealth_watch, "cancel_wait",
+            return_value={"stopped": True, "status": "stopped"},
+        ) as cancel, mock.patch(
+            "mt5_manager.manager.manager_http.node_request",
+        ) as request:
+            handled = manager_account_routes.handle_post(
+                handler, SimpleNamespace(path=self.PATH), self.PARTS,
+            )
+        self.assertTrue(handled)
+        self.assertEqual((answer["status"], answer["body"]["stopped"]), (200, True))
+        self.assertEqual(cancel.call_args[0][2], "axi")
+        request.assert_not_called()
+
+
 class ScreenTests(unittest.TestCase):
     """El panel vive en las tres pantallas, limitado al trabajo de cada una."""
 
@@ -125,7 +164,10 @@ class ScreenTests(unittest.TestCase):
 
     def test_the_large_panel_only_shows_the_work_owned_by_its_screen(self) -> None:
         self.assertIn("const scope = document.body.dataset.processMonitor", self.monitor)
-        self.assertIn("if (scope === 'audits') return auditRows(state)", self.monitor)
+        self.assertIn(
+            "if (scope === 'audits') return [...auditRows(state), ...queueRows(state)]",
+            self.monitor,
+        )
         self.assertIn("if (scope === 'wealth') return accountRows(state, 'wealth')", self.monitor)
         self.assertIn("row.purpose === 'wealth'", self.monitor)
         self.assertIn("row.purpose !== 'wealth'", self.monitor)
@@ -146,8 +188,24 @@ class ScreenTests(unittest.TestCase):
         self.assertIn('id="process-stop"', self.monitor)
         self.assertIn("process-monitor-head", self.monitor)
         self.assertNotIn("data-stop", self.monitor)
-        self.assertIn("for (const row of rows)", self.monitor)
+        self.assertIn("for (const row of ordered)", self.monitor)
         self.assertIn("function stoppable", self.monitor)
+
+    def test_the_stop_also_closes_the_queue_the_manager_keeps(self) -> None:
+        """Corrección del usuario (2026-11-22): detener es detener el proceso.
+
+        Cortar las dos auditorías abiertas dejaba las otras ocho de la tanda
+        esperando turno, y el manager lanzaba la siguiente en su vuelta: el
+        botón soltaba las terminales un minuto y volvía a ocuparlas. La cola
+        es ahora una fila más, con su parada, y se cierra antes que nada
+        porque cortar primero al agente deja justo el hueco para lanzarla.
+        """
+        self.assertIn("function queueRows", self.monitor)
+        self.assertIn("'/api/live-audit-scheduler-catch-up/stop'", self.monitor)
+        self.assertIn("/wealth-snapshot/stop", self.monitor)
+        self.assertIn("rows.filter(row => row.queue)", self.monitor)
+        self.assertIn("'¿Detener todo el proceso?", self.monitor)
+        self.assertNotIn("ocupando los agentes", self.monitor)
 
     def test_it_knows_how_to_stop_both_kinds_of_work(self) -> None:
         self.assertIn("/live-accounts/snapshot/stop", self.monitor)
